@@ -126,10 +126,12 @@ pub enum ExecProvider { Cpu, CoreML, Cuda } // Mac default = CoreML; Windows def
 
 **Files:**
 - Create: `crates/audio-analysis/Cargo.toml`
-- Decision (locked at start of M19): **`aubio-rs` for BPM/onsets/beats** (pure-Rust-callable, FFI to aubio C library). Key detection has no clean Rust answer — ship a **Python sidecar** using `librosa` for key only.
-- Create: `crates/audio-analysis/src/{lib,bpm,key_sidecar,beats,sections,loudness}.rs`
+- Decision (locked at start of M19): **`aubio-rs` for BPM/onsets/beats** (pure-Rust-callable, FFI to aubio C library). For key detection, prefer Rust/ONNX over a Python sidecar (sidecars complicate signing, notarization, and binary size). Selection ladder, evaluated in order on day 1 of M19:
+  1. **Preferred — ONNX key model.** Find or export an ONNX-format key/mode classifier (Essentia ships several Python-trained models; verify whether one is exported to ONNX or convert via `onnx-tf`). Run via `ort` (already a dep from M17). Stays in the Rust/C++ ecosystem.
+  2. **Fallback — pure-Rust chroma + Krumhansl-Schmuckler.** Custom: `realfft 3` for spectrum → 12-bin chroma → Krumhansl-Schmuckler correlation → 24-key (major/minor) classification. ~200 LoC; accuracy floor ~70%, the M19 acceptance bar.
+  3. **Last resort — Python sidecar.** Only if (1) and (2) both fail. Bundled via `pyoxidizer`. Cost: +60-80 MB binary, signing complexity (each Python `.so` notarized separately on Mac), startup latency.
+- Create: `crates/audio-analysis/src/{lib,bpm,key,beats,sections,loudness}.rs` (one of `key_onnx.rs` or `key_chroma.rs` filled depending on ladder outcome)
 - Create: `crates/tools/src/tool/analyze_track.rs`
-- Create: `tools/sidecar/key-detect/main.py` — minimal Python script: `librosa.feature.tonnetz` / chroma → Krumhansl-Schmuckler key. Bundled with the app via `pyoxidizer` or shipped as a separate venv-backed binary.
 
 **Tool spec:**
 - `analyze_track`: `{path: string}` → `{bpm: f32, key: string ("F minor"), beats: [f32], downbeats: [f32], sections: [{name: string, start_s, end_s}], rms_curve: [f32], lufs_integrated: f32}`.
@@ -142,7 +144,7 @@ pub enum ExecProvider { Cpu, CoreML, Cuda } // Mac default = CoreML; Windows def
 
 **Test design:** Reference corpus checked in (license-clean clips ≤ 30 sec each, 10 files). Manual ground truth labels.
 
-**Risk:** Medium-high. Music feature extraction in 2026 is still messy in Rust. The sidecar adds packaging complexity (M30 buffer).
+**Risk:** Medium-high. Music feature extraction in 2026 is still messy in Rust. The selection ladder front-loads risk to day 1 of M19; if ONNX and pure-Rust both fail by EOD-2, fall back to sidecar with the packaging cost absorbed.
 
 **Estimate:** 1.5 weeks.
 
@@ -391,7 +393,7 @@ pub struct SessionDiff { pub added: Vec<DiffOp>, pub removed: Vec<DiffOp>, pub m
 | Risk | Likelihood | Mitigation |
 |---|---|---|
 | Demucs ONNX export quality lags PyTorch reference | Medium | M18 budgets 2 days for model sourcing first. If gap is large, ship `htdemucs` (not `_ft`) as default and offer "high quality (slow)" mode. |
-| Python sidecar packaging breaks Mac signing/notarization | High | M19 spike on day 1: validate signed Python binary works in M14 pipeline. If broken, fall back to coarser Rust-only key detection (chroma-only, no Krumhansl) for v1. |
+| Key detection accuracy gap | Medium | M19 ladder (ONNX → Rust → sidecar) front-loads the choice to day 1. If all three options miss the 70% accuracy bar, ship without key detection in v1 and document — pitch-shifting still works via user-supplied `key_hint`. |
 | Rubber Band C++ FFI Windows build flakiness | Medium | M20 uses `vcpkg` consistently; CI builds from source on Windows to avoid binary mismatches. |
 | Graph view UX feels confusing to casual users | Medium | M25 ships with Timeline as default view; Graph is opt-in toggle (matches spec §13 mitigation). |
 | Schedule slip from Phase 1 cascades | High (solo dev) | Phase 2 modules are mostly additive; if Phase 1 ships at week 11 instead of 9, Phase 2 starts at week 11 with no rework. |

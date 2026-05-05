@@ -6,7 +6,7 @@
 
 **Architecture:** Cargo workspace; thin Tauri shell calls a Rust core split into 6 crates (audio-io, audio-decoder, session, tools, ai, mcp-stub). Frontend is React + TypeScript + Vite. AI is BYO Anthropic key only — no proxy, no local LLM. Session graph is linear in this phase but uses the DAG data model from spec §6 so Phase 2 only adds operations, not migrations.
 
-**Tech Stack:** Rust 1.83+, Tauri 2.x, cpal 0.15, symphonia 0.5, hound 3.5 (WAV writes), reqwest 0.12, serde 1, tokio 1, anyhow 1, thiserror 2, ort 2.0 (ONNX Runtime, Whisper-base only this phase), React 18, TypeScript 5.6, Vite 6, wavesurfer.js 7 (waveform display).
+**Tech Stack:** Rust 1.83+, Tauri 2.x, cpal 0.15, symphonia 0.5, hound 3.5 (WAV writes), rubato 0.16 (resampling at engine→I/O boundary and Whisper pre-processing), reqwest 0.12, serde 1, tokio 1, anyhow 1, thiserror 2, ort 2.0 (ONNX Runtime, Whisper-base only this phase), React 18, TypeScript 5.6, Vite 6, wavesurfer.js 7 (waveform display).
 
 **Timeline target:** 9 weeks solo (range 8–12). The +3 weeks vs. a Mac-only build come from Module 02 (dual-platform CI + signing) and Module 16 (Windows-specific WASAPI/WebView2 polish).
 
@@ -144,7 +144,7 @@ Each module has: **Files**, **Acceptance criteria** (the gate to call it done), 
 ### M03 — Audio I/O abstraction (`audio-io` crate)
 
 **Files:**
-- Create: `crates/audio-io/Cargo.toml` (deps: `cpal = "0.15"`, `thiserror`, `tracing`)
+- Create: `crates/audio-io/Cargo.toml` (deps: `cpal = "0.15"`, `rubato = "0.16"`, `thiserror`, `tracing`)
 - Create: `crates/audio-io/src/lib.rs` — public traits `OutputStream`, `OutputDevice`
 - Create: `crates/audio-io/src/coreaudio.rs`, `crates/audio-io/src/wasapi.rs` — `#[cfg(target_os = ...)]` modules
 - Create: `crates/audio-io/tests/playback.rs`
@@ -163,7 +163,7 @@ pub fn default_output(sample_rate: u32, channels: u16) -> Result<Box<dyn OutputS
 1. Plays a 1-second 440 Hz sine through default output on Mac (Core Audio) and Windows (WASAPI shared mode).
 2. WASAPI exclusive mode is **not** required this phase — shared mode latency floor (10–20 ms) is acceptable for non-realtime preview playback. Document this in module README.
 3. Underrun behavior: if `write_samples` is starved, output silence — never crash the audio thread. Property test verifies.
-4. Sample rate mismatch (e.g. ask for 48k on a 44.1k device) returns an explicit `Error::UnsupportedSampleRate(want, have)` rather than resampling silently.
+4. Sample rate mismatch (e.g. play a 44.1 kHz file on a 48 kHz-locked device) is handled by **transparent resampling using `rubato 0.16`** at the engine→I/O boundary. The user-facing API does not surface mismatched-rate errors; resampling is logged at debug level. (`rubato` is shared with M09's Whisper pre-processing; pulling it in here, not later.)
 
 **Test design:**
 - Integration test starts a stream, writes a known buffer, polls `samples_played()` counter (provided by the trait), asserts within 5% of expected after 1s sleep.
@@ -230,7 +230,7 @@ Phase 1 only uses the linear subset: `append` always parents to `head` and updat
 
 **Acceptance criteria:**
 1. `serde_json::to_string(&node)` followed by `from_str` roundtrips byte-equal — locked by snapshot test.
-2. `Store::append` is durable: file `<project>/.audiograph/<hex_node_id>.json` exists and `head` file updated atomically (write-temp + rename).
+2. `Store::append` is durable: file `<project>/.audiograph/nodes/<hex_node_id[0..2]>/<hex_node_id>.json` exists (sharded by first 2 hex chars — same scheme git uses for `objects/`; keeps directory entries bounded to ~256 children at the top level even after thousands of edits) and `head` file updated atomically (write-temp + rename).
 3. Property test (`proptest`): any sequence of `append` calls leaves the store readable; `head` always points to the most recent append.
 4. Crash safety: kill -9 mid-append leaves either (old head + no new node file) or (old head + new node file fully written) — never (new head + missing node file). Verified by killing a child process at random points.
 
@@ -263,7 +263,7 @@ pub fn play_state(state: &SessionState, output: &mut dyn OutputStream, range: Op
 1. **Unity pass-through** (the most important DSP correctness test): a `SessionState` with one track containing one clip and no effects renders to a WAV that is sample-identical to the source WAV. Byte-compare against golden. *If this is wrong, every higher-level test is meaningless.*
 2. Single track, single gain change of +6.02 dB (= ×2.0): output samples are exactly 2× source samples (within float epsilon).
 3. Render is deterministic: same state → byte-identical output across 100 runs and across Mac/Windows.
-4. Render of a 10-minute WAV completes in < real-time on a 2020 MacBook Air baseline.
+4. Render of a 10-minute single-track WAV (load + gain + normalize + render) completes in **< 30 seconds (≈ 20× real-time) on a 2020 MacBook Air baseline**. Linear ops on uncompressed audio should be I/O-bound, not CPU-bound; if we can't hit 20× we have a vectorization or memory-copy problem worth fixing now. Multi-track sessions in Phase 2 will be re-baselined.
 
 **Test design:**
 - Golden WAV diff for unity pass-through (the non-negotiable).
@@ -367,7 +367,7 @@ pub struct Word { pub text: String, pub start_s: f32, pub end_s: f32, pub confid
 ```
 
 **Tool spec:**
-- `transcribe`: `{path: string}` → `{words: [Word]}`. Internally resamples to 16 kHz mono using `rubato 0.16` (added as dep here, not in M03).
+- `transcribe`: `{path: string}` → `{words: [Word]}`. Internally resamples to 16 kHz mono using `rubato` (workspace-level dep already added in M03).
 
 **Acceptance criteria:**
 1. On the known fixture, output transcript matches the reference within Levenshtein distance ≤ 2 (allowing for known Whisper quirks).

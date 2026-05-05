@@ -8,7 +8,7 @@
 
 **Architecture:** Add a pure-Rust DSP effects crate (parametric EQ, compressor, reverb, limiter, de-esser, filter, saturation) plugged into the existing `audio-engine` graph. Add bus routing and master chain. Add three composite mix-pipeline tools. Add the hosted-subscription AI path (Stripe + a thin proxy backend) and the local LLM path (Ollama/OpenAI-compatible). Expose the engine as a localhost MCP server for Claude Desktop/Code power users.
 
-**Tech Stack additions:** `fundsp = "0.20"` (used as a reference, but most effects custom-implemented for control); `biquad = "0.5"` (parametric EQ filters); `rubato 0.16` (already from P1); `axum = "0.8"` (proxy backend + MCP server); `stripe-rust = "0.41"`; `async-openai = "0.30"` (OpenAI-compatible client for Ollama); `mcp-server-rs` (or hand-roll the MCP transport).
+**Tech Stack additions:** `fundsp = "0.20"` (used as a reference, but most effects custom-implemented for control); `biquad = "0.5"` (parametric EQ filters); `rustfft = "6"` + `realfft = "3"` (FFT-based partitioned convolution for reverb); `rubato 0.16` (already from P1); `axum = "0.8"` (proxy backend + MCP server); `stripe-rust = "0.41"`; `async-openai = "0.30"` (OpenAI-compatible client for Ollama); `mcp-server-rs` (or hand-roll the MCP transport).
 
 **Timeline target:** 10 weeks solo (range 10–14).
 
@@ -130,23 +130,33 @@ pub fn apply_compressor(input: &[f32], sample_rate: u32, params: &CompressorPara
 - Create: `crates/dsp-effects/src/reverb.rs`
 - Create: `crates/tools/src/tool/apply_reverb.rs`
 
-**Implementation choice:** Algorithmic feedback delay network (FDN). Hand-rolled rather than via `fundsp` to keep parameters explicit. Stretch goal: convolution reverb with checked-in IR files.
+**Implementation choice:** **Convolution reverb is the primary v1 algorithm**, paired with 6–8 checked-in license-clean impulse responses (small room, medium room, hall, plate, spring, vocal-booth). Convolution reaches professional sound quality on day one within the 1.5-week budget; the price is fewer continuous parameters (size/decay/damping must be approximated by IR selection + simple post-shaping). Algorithmic FDN is deferred to a stretch goal / v2 — it gives finer parametric control but a from-scratch FDN that sounds as good as commercial reverbs is a multi-week endeavor that risks Lighthouse Demo C.
 
 **Public API:**
 ```rust
-pub struct ReverbParams { pub size: f32 /* 0–1 */, pub decay_s: f32, pub damping: f32 /* 0–1 */, pub mix: f32 /* 0–1 wet */, pub pre_delay_ms: f32 }
+pub enum ReverbPreset { SmallRoom, MediumRoom, Hall, Plate, Spring, VocalBooth }
+pub struct ReverbParams {
+    pub preset: ReverbPreset,
+    pub mix: f32,            // 0–1 wet/dry
+    pub pre_delay_ms: f32,
+    pub damping: f32,        // 0–1 — post-IR low-pass cutoff factor
+    pub decay_scale: f32,    // 0.25–2.0 — scales the IR length (truncate or repeat-pad)
+}
 pub fn apply_reverb(input: &[f32], sample_rate: u32, params: &ReverbParams) -> Vec<f32>;
 ```
 
+Use FFT-based partitioned convolution (uniform-partition overlap-save) so a 4-second IR is real-time-cheap. `realfft` + `rustfft` are sufficient; partition size = 1024 samples is a reasonable default.
+
 **Acceptance criteria:**
-1. Mix=0 → output equals input.
-2. Mix=1 → measured RT60 within 10% of `decay_s` (impulse response analysis).
-3. Damping increases high-frequency loss in tail (frequency-dependent decay verified on broadband impulse).
-4. Cross-platform deterministic.
+1. Mix=0 → output equals input bit-exact.
+2. Mix=1 with each preset on an impulse: measured tail length matches the IR's RT60 within 10% × `decay_scale`.
+3. Damping factor 0 → unaltered tail spectrum; damping 1 → tail high-frequency content reduced by ≥ 12 dB above 4 kHz.
+4. Cross-platform deterministic (FFT must be deterministic — pin `rustfft` planner choice).
+5. Listening test: 5/6 listeners rate each preset as "professionally usable" against reference plugins (Valhalla VintageVerb).
 
-**Test design:** Impulse response capture; RT60 analysis; spectral analysis of late tail.
+**Test design:** Per-preset impulse response capture; RT60 analysis; spectral tail analysis; round-trip silence check (zero input → zero output).
 
-**Risk:** High aesthetically; medium technically. Algorithmic reverb that *sounds good* is harder than one that's mathematically correct. Plan a listening session with reference reverbs (Valhalla, FabFilter) to set the bar.
+**Risk:** Medium. Convolution math is well-understood; main risk is IR sourcing — must be license-clean (CC0 or our own captures). Budget 2 days for IR audit. FDN-style continuous-parameter control is sacrificed in v1.
 
 **Estimate:** 1.5 weeks.
 
@@ -388,7 +398,7 @@ Critical path: M35 (proxy backend) is the single longest module and the only one
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| DSP effects fail aesthetic listening tests vs. commercial plugins | Medium | High | Per-effect listening sessions with reference plugins. If reverb (M31) fails, swap algorithmic for convolution + 5 checked-in IRs as escape hatch. |
+| DSP effects fail aesthetic listening tests vs. commercial plugins | Medium | High | Per-effect listening sessions with reference plugins. Reverb (M31) is convolution-first specifically because that mitigation is now the default path; if any preset still fails, swap its IR rather than the algorithm. |
 | Backend operations burden on solo dev (M35) | High | Medium | Keep backend stateless and minimal. Stripe is source of truth. SQLite + Litestream for cheap durability. Document an explicit pause-the-service runbook for vacations. |
 | Local LLM tool-calling regresses with new Ollama versions | Medium | Low | Pin to a known-good model + Ollama version in our docs; user choice to upgrade. |
 | MCP spec moves under us | Medium | Low | Pin a version; bump deliberately. |
@@ -401,7 +411,7 @@ Critical path: M35 (proxy backend) is the single longest module and the only one
 - **Default genre presets in `master_for_genre`:** start with `indie_pop`, `hip_hop`, `edm`, `podcast`; add others based on early-user feedback.
 - **Pricing for hosted tier:** $15-25/mo range from spec. Lock 2 weeks before public launch.
 - **Localhost MCP token model:** persistent file vs. per-launch. Default to persistent file, mode 0600.
-- **Convolution reverb vs. algorithmic:** committed to algorithmic for v1; convolution may be added Phase 3.5.
+- **Algorithmic FDN reverb:** deferred from v1 in favor of convolution; revisit for v2 to add continuous-parameter control on top of (or alongside) the IR-based engine.
 - **Effect chain order:** EQ → Comp → Reverb → Limiter is conventional; expose as user-reorderable per track.
 
 ## Self-review checklist run
