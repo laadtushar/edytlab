@@ -44,7 +44,8 @@ The gap is not technology — Demucs, Whisper, Rubber Band, librosa all exist an
 |---|---|---|
 | Product structure | New repo, separate from Treacle | Different domain, different team trajectory; no shared infra makes sense |
 | v1 scope | Music production primary; podcast as supporting | Lighthouse demos are music-focused; podcast cleanup is a thin layer over the same engine |
-| Form factor | Tauri (Rust) desktop app, Mac + Windows + Linux (TBD priority) | Native speed, small bundle, real local DSP, no Electron |
+| Form factor | Tauri (Rust) desktop app. **v1 ships Mac + Windows in parallel; Linux deferred to post-v1.** | Cross-platform is the point of choosing Tauri; Linux audience too small to justify the third signing/distribution path in v1 |
+| Team | **Solo dev.** Phasing assumes one full-time engineer. | Locked. Hiring would re-phase. |
 | Audio engine | Pure Rust DSP graph (`cpal`, `symphonia`, `dasp`/`fundsp`, `rubato`); ML via ONNX Runtime / `candle` sidecars | Highest quality ceiling, no Python in hot path |
 | AI inference | Hybrid: BYO Anthropic key OR hosted subscription (proxy backend) OR local LLM (Ollama) | Power-user flexibility; enables free tier; no lock-in |
 | Session model | **Branchable mix graph** (every state = DAG node, fork/merge/A-B compare) | Differentiator vs every competitor; needed for conversational mixing UX |
@@ -269,18 +270,20 @@ The agent calls these. Each is deterministic, side-effect-bounded, and cheap to 
 
 Three milestones, each shippable.
 
-### Phase 1 — "Edit a single track" (~6 weeks)
+### Phase 1 — "Edit a single track" (~9 weeks)
 
-Goal: foundation works end-to-end on the simplest case.
+Goal: foundation works end-to-end on the simplest case, on both target platforms.
 
 - Tauri shell, canvas with waveform, basic chat
-- Audio engine: load WAV/MP3, play, render
+- Audio engine: load WAV/MP3, play, render. Core Audio on Mac; WASAPI on Windows (ASIO deferred to post-v1).
 - Session graph: linear (no branching yet) — but data model in place
 - 8 tools: load, transcribe, cut_range, trim, gain, normalize, render_preview, render_final
 - BYO Claude key only (no proxy, no local LLM)
-- Single platform: macOS
+- **Both platforms: macOS + Windows.** Code signing + notarization (Mac) and Authenticode signing + SmartScreen reputation seeding (Windows) wired into CI from day one. WebView2 install/runtime handled.
 
-Demo: "remove silence at the start, normalize, export."
+Demo: "remove silence at the start, normalize, export." Verified on a Mac (Apple Silicon) and a Windows 11 box.
+
+**Why +3 weeks vs the original macOS-only estimate:** dual-platform CI, two signing pipelines, WebView2 packaging, testing audio I/O on WASAPI. None individually hard; collectively non-trivial for a solo dev.
 
 ### Phase 2 — "Mashup" (~10 weeks)
 
@@ -290,7 +293,7 @@ Demo: "remove silence at the start, normalize, export."
 - Multi-track session model
 - Branchable session graph + A/B compare in canvas
 - Canvas: graph view added
-- Add Windows build
+- (Windows already shipped in Phase 1.)
 
 Demo: lighthouse B (mashup any two songs).
 
@@ -302,13 +305,13 @@ Demo: lighthouse B (mashup any two songs).
 - Hosted-subscription AI path (proxy backend + auth + billing — minimal)
 - Local LLM path via Ollama
 - MCP server exposed on localhost
-- Add Linux build
+- (Linux deferred to post-v1.)
 
 Demo: lighthouse C (drop stems, conversational refinement).
 
-**Total v1 target: ~6 months from project start.**
+**Total v1 target: ~6.5-7 months from project start (solo).**
 
-Phases 4+ (post-v1, prioritization TBD): note-level editing, plugin hosting, DAW round-trip, real-time DJ mode, mobile companion.
+Phases 4+ (post-v1, prioritization TBD): Linux build, ASIO support on Windows, note-level editing, plugin hosting, DAW round-trip, real-time DJ mode, mobile companion.
 
 ## 10. Error handling & failure modes
 
@@ -334,16 +337,21 @@ Phases 4+ (post-v1, prioritization TBD): note-level editing, plugin hosting, DAW
 
 ## 12. Open questions (to resolve in planning, not blocking spec)
 
+**Resolved 2026-05-05:**
+- ~~Platform priority~~ → Mac + Windows ship in parallel for v1; Linux deferred. (Cross-platform is the reason for choosing Tauri.)
+- ~~Solo or team~~ → Solo. Phasing assumes one full-time engineer.
+
+**Still open:**
+
 1. **Brand / product name.** Working title only.
-2. **Platform priority order.** Mac first is the working assumption (homogeneous hardware, easiest audio I/O); Windows close second; Linux nice-to-have. Confirm.
-3. **Open source vs proprietary.** A lean OSS core (engine + tools) with a proprietary AI proxy + premium features (advanced mixing pipelines, cloud sync) is the obvious split. Confirm before phase 3.
-4. **Pricing.** Free tier (BYO key, all features); paid sub ($15-25/mo) for hosted AI proxy + premium mix presets + priority models. Confirm before phase 3.
-5. **Solo or team.** Build velocity in this spec assumes one full-time engineer. Hiring changes phasing.
-6. **Stem separation quality vs latency.** `htdemucs_ft` is highest quality but slowest. Default to `_ft` and offer "fast" toggle? Or auto-select by file length?
-7. **librosa-rs vs aubio bindings vs custom.** Music feature extraction has no clean Rust answer. May need to ship one Python sidecar in v1 (`librosa`) and migrate to pure Rust over time. Acceptable compromise?
-8. **MCP auth model.** Localhost-only with bearer token? Or unix socket? Concrete in phase 3 plan.
-9. **Telemetry.** Crash reports yes (Sentry-equivalent); usage telemetry only with explicit opt-in. PostHog or self-hosted? Privacy-first product → leans self-hosted.
-10. **Distribution.** Direct download? Mac App Store? Setapp? Each has signing/sandboxing implications for the audio engine.
+2. **Open source vs proprietary.** A lean OSS core (engine + tools) with a proprietary AI proxy + premium features (advanced mixing pipelines, cloud sync) is the obvious split. Confirm before phase 3.
+3. **Pricing.** Free tier (BYO key, all features); paid sub ($15-25/mo) for hosted AI proxy + premium mix presets + priority models. Confirm before phase 3.
+4. **Stem separation quality vs latency.** `htdemucs_ft` is highest quality but slowest. Default to `_ft` and offer "fast" toggle? Or auto-select by file length?
+5. **librosa-rs vs aubio bindings vs custom.** Music feature extraction has no clean Rust answer. May need to ship one Python sidecar in v1 (`librosa`) and migrate to pure Rust over time. Acceptable compromise?
+6. **MCP auth model.** Localhost-only with bearer token? Or unix socket? Concrete in phase 3 plan.
+7. **Telemetry.** Crash reports yes (Sentry-equivalent); usage telemetry only with explicit opt-in. PostHog or self-hosted? Privacy-first product → leans self-hosted.
+8. **Distribution.** Direct download? Mac App Store? Setapp? Microsoft Store? Each has signing/sandboxing implications for the audio engine.
+9. **Windows ML acceleration default.** CPU-only at launch (works everywhere, slow), CUDA opt-in for NVIDIA users, or DirectML/WinML for broad GPU coverage? CUDA-only is simplest to ship; DirectML is in maintenance mode per Microsoft.
 
 ## 13. Risks
 
@@ -360,10 +368,9 @@ Phases 4+ (post-v1, prioritization TBD): note-level editing, plugin hosting, DAW
 
 ## 14. What's next
 
-After this spec is approved:
+Both blocking questions are resolved (Mac + Windows parallel; solo dev). Next:
 
-1. Invoke the `writing-plans` skill to produce an implementation plan for Phase 1.
-2. Decide repo name + create new GitHub repo.
-3. Resolve open questions 2 (platform priority) and 5 (solo/team) before plan kicks off.
+1. Produce an implementation plan for Phase 1 (the Phase 1 section of §9 is the seed).
+2. Stand up CI with Mac + Windows runners and signing pipelines as the very first task in Phase 1 — every subsequent task assumes both platforms green.
 
 The Phase 2 and Phase 3 plans should be drafted only after Phase 1 is in flight; deciding their detail now is premature.
