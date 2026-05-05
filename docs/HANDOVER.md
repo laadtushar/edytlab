@@ -30,34 +30,36 @@ Open a new Claude Code session in the new repo and paste sections 1–4 as the k
 |---|---|---|
 | 1 | Product structure | New repo, separate from Treacle |
 | 2 | v1 scope | Music production primary; podcast as supporting |
-| 3 | Form factor | Tauri (Rust) desktop, Mac + Windows + Linux |
+| 3 | Form factor | Tauri (Rust) desktop. **v1 = Mac + Windows in parallel; Linux deferred to post-v1.** |
 | 4 | Audio engine | Pure Rust DSP graph (`cpal`, `symphonia`, `dasp`/`fundsp`, `rubato`); ML via ONNX Runtime / `candle` sidecars |
 | 5 | AI inference | Hybrid: BYO Anthropic key OR hosted subscription OR local LLM (Ollama). Switchable at runtime. |
 | 6 | Session model | **Branchable mix graph** — every state is a DAG node. Fork/merge/A-B compare. Differentiator vs every competitor. |
 | 7 | Distribution | Desktop app primary; engine *also* exposed as remote MCP for Claude Desktop/Code power users |
+| 8 | Team | **Solo dev.** Phasing assumes one full-time engineer. |
 
 ## 3. What's next
 
-After this handover:
+Both blocking questions are resolved:
+- **Platform priority:** Mac + Windows ship in parallel for v1 (the whole point of choosing Tauri). Linux deferred.
+- **Team:** Solo. Phasing assumes one full-time engineer.
 
-1. **Resolve 2 blocking open questions** before any code:
-   - Platform priority (Mac first? Mac+Win parallel?)
-   - Solo or team (changes phasing materially)
-2. **Create new GitHub repo.** Working title TBD; pick name.
-3. **Invoke `writing-plans` skill** on the Phase 1 section of the design spec.
-4. **Don't write code** until the Phase 1 plan is approved.
+Next steps:
 
-Open questions in §12 of the spec that can be punted to the plan: brand name, OSS vs proprietary, pricing tier details, stem-separation default model, librosa-rs vs Python sidecar, MCP auth model, telemetry vendor, distribution channel.
+1. Produce a Phase 1 implementation plan from §9 of the design spec.
+2. Stand up dual-platform CI (Mac + Windows) with signing pipelines as task #1 in Phase 1 — everything downstream assumes both platforms green.
+3. **Don't write code** until the Phase 1 plan is approved.
+
+Open questions remaining in §12 of the spec that can be punted to the plan: brand name, OSS vs proprietary, pricing tier details, stem-separation default model, librosa-rs vs Python sidecar, MCP auth model, telemetry vendor, distribution channel, Windows ML accel default.
 
 ## 4. Build phasing (recap)
 
 Three milestones, each independently shippable.
 
-- **Phase 1 — "Edit a single track"** (~6 weeks, optimistic). Tauri shell, waveform canvas, basic chat, 8 tools (load, transcribe, cut_range, trim, gain, normalize, render_preview, render_final), linear session graph, BYO Claude key, macOS only. **This is podcast cleanup core in disguise.**
-- **Phase 2 — "Mashup"** (~10 weeks). Demucs ONNX, BPM/key/beat analysis, time-stretch + pitch-shift (Rubber Band), multi-track session, branchable graph + A/B compare, Windows build. Lighthouse B ships here.
-- **Phase 3 — "Conversational mix engineer"** (~10 weeks). Pure-Rust EQ, compressor, reverb, limiter, de-esser, saturation; bus routing; mix pipelines; hosted subscription path; local LLM via Ollama; localhost MCP server; Linux build. Lighthouse C ships here.
+- **Phase 1 — "Edit a single track"** (~9 weeks). Tauri shell, waveform canvas, basic chat, 8 tools (load, transcribe, cut_range, trim, gain, normalize, render_preview, render_final), linear session graph, BYO Claude key, **Mac + Windows from day one** (dual signing pipelines, WebView2 packaging, WASAPI on Windows). **This is podcast cleanup core in disguise.**
+- **Phase 2 — "Mashup"** (~10 weeks). Demucs ONNX, BPM/key/beat analysis, time-stretch + pitch-shift (Rubber Band), multi-track session, branchable graph + A/B compare. Lighthouse B ships here.
+- **Phase 3 — "Conversational mix engineer"** (~10 weeks). Pure-Rust EQ, compressor, reverb, limiter, de-esser, saturation; bus routing; mix pipelines; hosted subscription path; local LLM via Ollama; localhost MCP server. Lighthouse C ships here. (Linux deferred to post-v1.)
 
-**Total v1 target: ~6 months solo dev (likely 8 realistic).**
+**Total v1 target: ~6.5-7 months solo dev (likely 8-9 realistic).**
 
 ## 5. Full design spec
 
@@ -104,14 +106,13 @@ Do not write any code until I approve the Phase 1 plan.
 ## 7. Things explicitly NOT decided yet
 
 - Product / brand name
-- Platform priority order (Mac/Windows/Linux)
 - Open source vs proprietary split
 - Pricing
-- Solo or team
 - Stem separation model defaults (htdemucs vs htdemucs_ft)
 - Music feature extraction lib (librosa Python sidecar vs pure Rust)
 - MCP localhost auth model
 - Telemetry vendor (privacy-first leans self-hosted)
-- Distribution channel (direct vs Mac App Store vs Setapp)
+- Distribution channel (direct vs Mac App Store vs Setapp vs Microsoft Store)
+- Windows ML acceleration default (CPU-only, CUDA opt-in, or DirectML/WinML)
 
 These belong in the Phase 1 / Phase 2 / Phase 3 implementation plans, not the design spec.
