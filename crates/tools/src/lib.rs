@@ -51,8 +51,8 @@ pub enum DispatchError {
     #[error("schema validation failed: {0}")]
     SchemaValidation(String),
 
-    #[error("tool error: {0}")]
-    Tool(#[from] Box<dyn std::error::Error + Send + Sync>),
+    #[error("malformed tool schema for {tool}: {reason}")]
+    MalformedToolSchema { tool: String, reason: String },
 }
 
 pub type Result<T> = std::result::Result<T, DispatchError>;
