@@ -21,6 +21,8 @@
 use std::path::Path;
 
 use audio_decoder::{decode_file, DecodedAudio};
+// `decode_file`/`DecodedAudio` are still used by the processed render path; the
+// unity fast path now streams via `hound` directly and never allocates a Vec.
 use hound::{SampleFormat, WavSpec, WavWriter};
 use session::SessionState;
 
@@ -97,14 +99,51 @@ pub(crate) fn resolve_range(
 }
 
 fn render_unity_copy(graph: &RenderGraph, out: &Path) -> Result<RenderReport, Error> {
-    let bytes = std::fs::read(&graph.source_path)?;
-    std::fs::write(out, &bytes)?;
+    // Use std::fs::copy to leverage OS-level fast paths (sendfile,
+    // copy_file_range, CopyFileEx) instead of round-tripping the entire file
+    // through a userspace Vec<u8>. For a 10-minute stereo WAV this avoids a
+    // 60+ MB heap allocation.
+    std::fs::copy(&graph.source_path, out)?;
 
-    // Decode just to compute the report (peak, frames, duration). We pay this
-    // cost once per render, never per-sample, so it doesn't affect the
-    // 20× real-time budget.
-    let decoded = decode_file(&graph.source_path)?;
-    Ok(report_from_decoded(&decoded))
+    // Compute the report by streaming the WAV header + i16 samples directly
+    // via hound, never decoding to f32 or allocating the full sample buffer.
+    // This keeps the unity fast path O(n) integer-scan with no heap growth,
+    // instead of the previous full decode_file() which allocated a Vec<f32>
+    // sized to the entire source.
+    report_from_wav_stream(&graph.source_path)
+}
+
+/// Stream the source WAV's int16 samples to compute a [`RenderReport`] without
+/// allocating a full sample Vec. Used by the unity fast path so the report
+/// fidelity matches the processed path while preserving the byte-copy speedup.
+fn report_from_wav_stream(path: &Path) -> Result<RenderReport, Error> {
+    let mut reader = hound::WavReader::open(path)?;
+    let spec = reader.spec();
+    let total_samples = reader.duration() as u64;
+    let channels = spec.channels;
+    let sample_rate = spec.sample_rate;
+
+    let mut peak_abs: i32 = 0;
+    // Plain sequential scan over int16 samples. No f32 conversion, no Vec.
+    // Note: i16::MIN.abs() overflows i16 but fits in i32, hence the i32 acc.
+    for sample in reader.samples::<i16>() {
+        let s = sample? as i32;
+        let a = s.abs();
+        if a > peak_abs {
+            peak_abs = a;
+        }
+    }
+
+    // Convert int peak to the same f32 [0.0, 1.0] domain used by the
+    // processed path's peak_to_dbfs, dividing by 32768.0 (i16 full-scale).
+    let peak = (peak_abs as f32) / 32_768.0;
+
+    Ok(RenderReport {
+        frames_written: total_samples,
+        sample_rate,
+        channels,
+        peak_dbfs: peak_to_dbfs(peak),
+    })
 }
 
 fn render_processed(
@@ -154,24 +193,6 @@ fn render_processed(
         channels,
         peak_dbfs: peak_to_dbfs(peak),
     })
-}
-
-fn report_from_decoded(decoded: &DecodedAudio) -> RenderReport {
-    let chans = decoded.channels as usize;
-    let frames = (decoded.samples.len() / chans) as u64;
-    let mut peak: f32 = 0.0;
-    for s in &decoded.samples {
-        let a = s.abs();
-        if a > peak {
-            peak = a;
-        }
-    }
-    RenderReport {
-        frames_written: frames,
-        sample_rate: decoded.sample_rate,
-        channels: decoded.channels,
-        peak_dbfs: peak_to_dbfs(peak),
-    }
 }
 
 fn peak_to_dbfs(peak: f32) -> f32 {
