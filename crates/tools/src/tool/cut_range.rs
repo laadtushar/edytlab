@@ -37,7 +37,7 @@ impl Tool for CutRangeTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "cut_range",
-            "Remove the half-open sample range [start_sample, end_sample) from a track and shift the remainder left. Appends a new session node parented to the current head.",
+            "Remove the half-open TRACK-relative sample range [start_sample, end_sample) from a track and shift the remainder left. `start_sample`/`end_sample` are measured from the start of the track timeline (not from the clip's source_offset). Appends a new session node parented to the current head.",
             object_schema(&[
                 ("track", "integer", true),
                 ("start_sample", "integer", true),
@@ -62,7 +62,16 @@ impl Tool for CutRangeTool {
         }
 
         let track = &mut state.tracks[args.track];
-        let track_len = track.clips.iter().map(|c| c.length).max().unwrap_or(0);
+        // Track length is the max end-of-clip on the track timeline, NOT
+        // the length of any single clip. Phase 1 has at most one clip per
+        // track so this collapses to `clip.start_in_track + clip.length`,
+        // but the formula below stays correct as we add multi-clip support.
+        let track_len = track
+            .clips
+            .iter()
+            .map(|c| c.start_in_track + c.length)
+            .max()
+            .unwrap_or(0);
         let (start, end) = match check_sample_range(args.start_sample, args.end_sample, track_len) {
             Ok(p) => p,
             Err(msg) => return Ok(ToolResult::Error(msg)),
@@ -70,34 +79,43 @@ impl Tool for CutRangeTool {
 
         let cut_len = end - start;
 
-        // Phase 1: single-clip track. Rewrite the clip's source_offset/length
-        // to splice out the range. If the cut is purely at the tail/head
-        // we keep one clip; an interior cut emits two clips, with the second
-        // shifted to start_in_track == start. The render engine reads the
-        // first clip today, so we order them by start_in_track for clarity.
+        // Phase 1: single-clip track. `start`/`end` are track-relative; convert
+        // to clip-relative offsets by subtracting the clip's start_in_track
+        // before splicing the source range. If the cut is purely at the
+        // tail/head we keep one clip; an interior cut emits two clips, with
+        // the second shifted to start_in_track == start. The render engine
+        // reads the first clip today, so we order them by start_in_track
+        // for clarity.
         let Some(clip) = track.clips.first().cloned() else {
             return Ok(ToolResult::Error(
                 "track has no clips; nothing to cut".into(),
             ));
         };
 
+        // Translate track-relative cut bounds into clip-relative offsets.
+        // For Phase 1 (single clip starting at start_in_track) the cut is
+        // assumed to lie entirely within this clip; check_sample_range above
+        // already ensures `end <= clip.start_in_track + clip.length`.
+        let clip_start = start.saturating_sub(clip.start_in_track);
+        let clip_end = end.saturating_sub(clip.start_in_track);
+
         let mut new_clips: Vec<Clip> = Vec::new();
-        if start > 0 {
+        if clip_start > 0 {
             new_clips.push(Clip {
                 source_path: clip.source_path.clone(),
                 start_in_track: clip.start_in_track,
                 source_offset: clip.source_offset,
-                length: start,
+                length: clip_start,
                 content_hash: clip.content_hash,
             });
         }
-        if end < clip.length {
+        if clip_end < clip.length {
             // After the cut, the second segment moves left by `cut_len`.
             new_clips.push(Clip {
                 source_path: clip.source_path.clone(),
-                start_in_track: clip.start_in_track + start,
-                source_offset: clip.source_offset + end,
-                length: clip.length - end,
+                start_in_track: clip.start_in_track + clip_start,
+                source_offset: clip.source_offset + clip_end,
+                length: clip.length - clip_end,
                 content_hash: clip.content_hash,
             });
         }

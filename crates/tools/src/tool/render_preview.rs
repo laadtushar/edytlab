@@ -89,10 +89,18 @@ impl Tool for RenderPreviewTool {
             Ok(t) => t,
             Err(e) => return Ok(ToolResult::Error(format!("tempfile creation failed: {e}"))),
         };
-        let out_path: PathBuf = tmp.path().to_path_buf();
         // Keep the file on disk after the handle drops; the caller now
-        // owns cleanup.
-        let _ = tmp.into_temp_path().keep();
+        // owns cleanup. If `keep()` fails (permissions, disk full, ...) the
+        // path we'd return would point at a file the tempfile guard already
+        // removed, so surface the error instead of silently lying.
+        let out_path: PathBuf = match tmp.into_temp_path().keep() {
+            Ok(p) => p,
+            Err(e) => {
+                return Ok(ToolResult::Error(format!(
+                    "failed to persist preview tempfile: {e}"
+                )))
+            }
+        };
 
         let report = match ctx.engine.render_to_wav(&node.state, &out_path, range) {
             Ok(r) => r,
