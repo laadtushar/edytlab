@@ -85,10 +85,18 @@ pub trait OutputStream: Send {
     fn pause(&mut self) -> Result<()>;
     /// Push interleaved frames at the *logical* sample rate the stream was
     /// opened with. Resampling to the device rate (if any) is transparent.
+    ///
+    /// Samples are silently dropped when the internal ring buffer is full;
+    /// callers must pace themselves using `frames_played` rather than relying
+    /// on backpressure here.
     fn write_samples(&mut self, samples: &[f32]) -> Result<()>;
     /// Number of per-channel frames the audio callback has emitted to the
     /// device, including silence frames written on underrun.
-    fn samples_played(&self) -> u64;
+    fn frames_played(&self) -> u64;
+    /// Device sample rate the stream actually opened at. When this differs
+    /// from the rate passed to `default_output`, an internal resampler is
+    /// engaged on the producer side.
+    fn device_sample_rate(&self) -> u32;
 }
 
 /// Logical handle to the host's default output device. Kept as a separate
@@ -114,7 +122,6 @@ pub fn default_output(sample_rate: u32, channels: u16) -> Result<Box<dyn OutputS
 
     let supported = pick_config(&device, channels)?;
     let device_sr = supported.sample_rate().0;
-    let sample_format = supported.sample_format();
     let config: StreamConfig = StreamConfig {
         channels,
         sample_rate: SampleRate(device_sr),
@@ -142,27 +149,18 @@ pub fn default_output(sample_rate: u32, channels: u16) -> Result<Box<dyn OutputS
 
     let err_fn = |e| tracing::error!(error = %e, "audio-io: cpal stream error");
 
-    let stream = match sample_format {
-        SampleFormat::F32 => device.build_output_stream(
-            &config,
-            move |out: &mut [f32], _info| {
-                fill_output(out, &mut consumer, channels_cb, &played_cb);
-            },
-            err_fn,
-            None,
-        )?,
-        // For non-f32 device formats we still ask cpal for f32; if the device
-        // refuses we surface BuildStream. This keeps the conversion matrix
-        // narrow for Phase 1.
-        _ => device.build_output_stream(
-            &config,
-            move |out: &mut [f32], _info| {
-                fill_output(out, &mut consumer, channels_cb, &played_cb);
-            },
-            err_fn,
-            None,
-        )?,
-    };
+    // We always request the f32 stream type regardless of the device's native
+    // sample format; cpal converts as needed at the device boundary. If the
+    // device refuses the conversion we surface BuildStream. This keeps the
+    // conversion matrix narrow for Phase 1.
+    let stream = device.build_output_stream::<f32, _, _>(
+        &config,
+        move |out: &mut [f32], _info| {
+            fill_output(out, &mut consumer, channels_cb, &played_cb);
+        },
+        err_fn,
+        None,
+    )?;
 
     let resampler = if device_sr != sample_rate {
         Some(ResamplerState::new(sample_rate, device_sr, channels)?)
@@ -254,6 +252,9 @@ struct CpalOutputStream<P>
 where
     P: ringbuf::traits::Producer<Item = f32> + Send + 'static,
 {
+    // Field order is significant: `stream` must drop before `producer` so the
+    // audio callback is torn down while the ringbuf split is still valid (the
+    // consumer half lives inside the callback closure owned by `stream`).
     stream: Stream,
     producer: P,
     played: Arc<AtomicU64>,
@@ -267,6 +268,11 @@ where
 // boxed trait object that the engine creates and tears down on a single
 // thread — that constraint is upheld; the trait `Send` bound exists so the
 // box can be moved into the engine struct at construction time.
+//
+// Soundness: `cpal::Stream` is `!Send` because Windows COM apartments require
+// same-thread destruction; the engine owns this `Box<dyn OutputStream>` and
+// never sends it across threads after construction, so no destructor runs on
+// a different thread than the one that built the stream.
 unsafe impl<P> Send for CpalOutputStream<P> where
     P: ringbuf::traits::Producer<Item = f32> + Send + 'static
 {
@@ -304,8 +310,12 @@ where
         }
     }
 
-    fn samples_played(&self) -> u64 {
+    fn frames_played(&self) -> u64 {
         self.played.load(Ordering::Relaxed)
+    }
+
+    fn device_sample_rate(&self) -> u32 {
+        self.device_sample_rate
     }
 }
 
@@ -314,7 +324,7 @@ where
     P: ringbuf::traits::Producer<Item = f32>,
 {
     // Drop frames that don't fit rather than block: the producer side is
-    // expected to track ring fill via `samples_played` and pace itself.
+    // expected to track ring fill via `frames_played` and pace itself.
     let _ = producer.push_slice(samples);
 }
 
@@ -352,19 +362,4 @@ where
         push_interleaved(producer, &interleaved);
     }
     Ok(())
-}
-
-/// Device sample rate the stream actually opened at — useful for tests that
-/// want to assert a resampler was inserted.
-pub trait OutputStreamExt {
-    fn device_sample_rate(&self) -> u32;
-}
-
-impl<P> OutputStreamExt for CpalOutputStream<P>
-where
-    P: ringbuf::traits::Producer<Item = f32> + Send + 'static,
-{
-    fn device_sample_rate(&self) -> u32 {
-        self.device_sample_rate
-    }
 }
