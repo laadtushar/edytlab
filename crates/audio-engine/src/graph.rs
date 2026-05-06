@@ -15,13 +15,14 @@ use crate::Error;
 
 /// A flattened, single-track render plan. Phase 1 has at most one of these.
 ///
-/// Clip trimming (`source_offset` / `length`) is intentionally NOT carried on
-/// this struct in Phase 1 — sessions today always set `source_offset = 0` and
-/// `length = source frame count`, and the offline render path only honors
-/// whole-source playback. Phase 2 will introduce explicit trim semantics.
-/// Instead we surface a single derived flag, [`Self::clip_covers_full_source`],
-/// so the unity-passthrough fast path can prove byte-equivalence defensively
-/// without re-deriving the answer in `render.rs`.
+/// Clip trimming via `source_offset` / `length` is honored by the offline
+/// render path: the rendered output is the slice
+/// `source[source_offset .. source_offset + length]` (further restricted by
+/// any caller-supplied [`crate::TimeRange`]). Sessions produced by the M08
+/// `cut_range`/`trim` tools set these fields to represent sub-ranges of the
+/// source file without rewriting the underlying audio. The fast path's
+/// [`Self::clip_covers_full_source`] flag stays correct by construction:
+/// any non-trivial trim flips it to false and forces the f32 render.
 #[derive(Debug, Clone)]
 pub struct RenderGraph {
     pub source_path: PathBuf,
@@ -30,6 +31,10 @@ pub struct RenderGraph {
     pub muted: bool,
     pub soloed: bool,
     pub effects_empty: bool,
+    /// Frame offset into the decoded source where the clip starts.
+    pub source_offset: u64,
+    /// Frame length of the clip (counted in the source's sample rate).
+    pub length: u64,
     /// `true` when the clip's `source_offset == 0` AND its `length` equals the
     /// source file's total frame count. Lets the fast path skip clip trimming
     /// without re-decoding to verify.
@@ -54,6 +59,8 @@ pub fn build(state: &SessionState) -> Result<RenderGraph, Error> {
         muted: track.muted,
         soloed: track.soloed,
         effects_empty: track.effects.is_empty(),
+        source_offset: clip.source_offset,
+        length: clip.length,
         clip_covers_full_source,
     })
 }

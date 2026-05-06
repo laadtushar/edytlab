@@ -4420,7 +4420,10 @@ checksum = "756daf9b1013ebe47a8776667b466417e2d4c5679d441c26230efd9ef78692db"
 name = "tools"
 version = "0.1.0"
 dependencies = [
+ "audio-decoder",
  "audio-engine",
+ "chrono",
+ "hound",
  "jsonschema",
  "schemars 0.8.22",
  "serde",

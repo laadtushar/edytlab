@@ -115,9 +115,23 @@ fn render_processed(
 
     let channels = decoded.channels;
     let sample_rate = decoded.sample_rate;
-    let total_frames = decoded.samples.len() / channels as usize;
+    let source_total_frames = decoded.samples.len() / channels as usize;
 
-    let (start_frame, end_frame) = resolve_range(range, total_frames)?;
+    // First, restrict to the clip's slice of the source.
+    let clip_start = (graph.source_offset as usize).min(source_total_frames);
+    let clip_end =
+        ((graph.source_offset.saturating_add(graph.length)) as usize).min(source_total_frames);
+    if clip_start > clip_end {
+        return Err(Error::InvalidRange);
+    }
+    let clip_frames = clip_end - clip_start;
+
+    // Then resolve any caller-supplied range, expressed *relative to the clip*
+    // (callers don't know about source_offset). resolve_range gives us
+    // `(rel_start, rel_end)` within `[0, clip_frames]`.
+    let (rel_start, rel_end) = resolve_range(range, clip_frames)?;
+    let start_frame = clip_start + rel_start;
+    let end_frame = clip_start + rel_end;
 
     let spec = WavSpec {
         channels,
