@@ -91,6 +91,37 @@ export const sendMessage = (text: string): Promise<void> =>
 export const setApiKey = (key: string): Promise<void> =>
   invoke<void>("set_api_key", { key });
 
+/**
+ * Whether the OS keychain currently holds an Anthropic API key.
+ *
+ * Settings.tsx calls this on mount to decide whether to render the
+ * blocking first-launch modal. Reads through to the keychain on each
+ * call so the answer reflects the latest state (e.g. just after
+ * `clearApiKey`).
+ */
+export const hasApiKey = (): Promise<boolean> =>
+  invoke<boolean>("has_api_key");
+
+/**
+ * Remove the stored API key, drop the in-memory cache, and tear down
+ * the agent. After this resolves, `hasApiKey()` returns `false` and the
+ * UI should re-render the blocking first-launch modal — no app restart
+ * required.
+ */
+export const clearApiKey = (): Promise<void> =>
+  invoke<void>("clear_api_key");
+
+/**
+ * Probe `key` against the Anthropic Messages API with a 1-token request.
+ *
+ * Resolves on HTTP 200 and rejects with the `"<status> <body>"` string
+ * (e.g. `"401 invalid x-api-key"`) on any non-2xx or transport error.
+ * The key is *not* persisted; the Settings panel calls `setApiKey`
+ * separately if the test passes.
+ */
+export const testApiKey = (key: string): Promise<void> =>
+  invoke<void>("test_api_key", { key });
+
 /** Current session head as hex; rejects if no project is loaded. */
 export const getSessionHead = (): Promise<NodeId> =>
   invoke<NodeId>("get_session_head");

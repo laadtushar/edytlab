@@ -38,6 +38,7 @@ pub mod agent_loop;
 pub mod anthropic;
 pub mod keychain;
 pub mod prompt;
+pub mod validate;
 
 use std::sync::{Arc, Mutex};
 

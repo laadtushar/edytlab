@@ -151,6 +151,52 @@ pub async fn set_api_key(state: State<'_, AppState>, key: String) -> CmdResult<(
 }
 
 // ---------------------------------------------------------------------------
+// has_api_key / clear_api_key / test_api_key
+// ---------------------------------------------------------------------------
+
+/// Whether the OS keychain holds an Anthropic API key.
+///
+/// Used by the frontend on mount to decide whether to render the M13
+/// blocking-modal first-launch flow. We deliberately re-read from the
+/// keychain rather than trusting the in-memory cache so the answer
+/// reflects the actual on-disk state — `clear_api_key` mutates the
+/// keychain and we want subsequent `has_api_key` calls to immediately
+/// see "no key" without needing the cache to also be cleared in lockstep.
+#[tauri::command]
+pub async fn has_api_key() -> CmdResult<bool> {
+    Ok(ai::keychain::load_api_key().is_some())
+}
+
+/// Remove the stored API key and tear down the agent.
+///
+/// After this call the app must behave as if it had just launched with
+/// no key configured — the M13 acceptance criterion #3 says clearing the
+/// key returns the app to the first-launch state without restart. We
+/// drop the cached key and rebuild the agent so any subsequent
+/// `send_message` will fail with `NoAgent` and the frontend's
+/// `has_api_key()` check on next mount returns `false`.
+#[tauri::command]
+pub async fn clear_api_key(state: State<'_, AppState>) -> CmdResult<()> {
+    ai::keychain::delete_api_key().map_err(CommandError::from)?;
+    state.set_api_key_cache(None);
+    rebuild_agent(&state).await?;
+    Ok(())
+}
+
+/// Probe an API key with a 1-token Messages call. Used by the Settings
+/// "Test" button. The key is *not* persisted by this command — that's
+/// `set_api_key`'s job. Validation runs in Rust so the proposed key
+/// never has to leave the trusted process.
+///
+/// On 200 returns `Ok(())`; on any other response or transport failure
+/// returns `Err("<status> <body>")` (e.g. `"401 invalid x-api-key"`),
+/// matching M13 acceptance criterion #2.
+#[tauri::command]
+pub async fn test_api_key(key: String) -> CmdResult<()> {
+    ai::validate::test_api_key(&key).await
+}
+
+// ---------------------------------------------------------------------------
 // get_session_head
 // ---------------------------------------------------------------------------
 
