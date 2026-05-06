@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "apps/desktop/src-tauri",
     "crates/audio-decoder",
+    "crates/audio-engine",
     "crates/audio-io",
     "crates/session",
 ]
