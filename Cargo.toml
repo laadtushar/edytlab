@@ -6,6 +6,7 @@ members = [
     "crates/audio-engine",
     "crates/audio-io",
     "crates/session",
+    "crates/tools",
 ]
 
 [workspace.package]
