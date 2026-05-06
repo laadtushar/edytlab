@@ -17,7 +17,7 @@ use std::f32::consts::TAU;
 use std::thread;
 use std::time::Duration;
 
-use audio_io::{default_output, OutputStream, Result};
+use audio_io::{default_output, Error, OutputStream, Result};
 
 const CHANNELS: u16 = 2;
 const SAMPLE_RATE: u32 = 48_000;
@@ -36,13 +36,35 @@ fn sine_buffer(sr: u32, channels: u16, seconds: f32) -> Vec<f32> {
     out
 }
 
+/// Open the default output device, or `None` if the host has no usable
+/// output (headless runner without an audio device).
+fn open_or_skip(
+    sample_rate: u32,
+    channels: u16,
+    name: &str,
+) -> Result<Option<Box<dyn OutputStream>>> {
+    match default_output(sample_rate, channels) {
+        Ok(s) => Ok(Some(s)),
+        Err(Error::NoDevice) => {
+            eprintln!(
+                "audio-io test {name}: skipping — no default output device on this host \
+                 (headless CI runner)."
+            );
+            Ok(None)
+        }
+        Err(e) => Err(e),
+    }
+}
+
 fn callback_is_clocking(stream: &mut Box<dyn OutputStream>) -> bool {
     let _ = stream.play();
     thread::sleep(Duration::from_millis(200));
     stream.frames_played() > 0
 }
 
-macro_rules! skip_if_headless {
+/// Skip the test if the (already-open) stream's audio callback never
+/// clocks samples — i.e. the device exists but is virtual.
+macro_rules! skip_if_silent {
     ($stream:expr, $name:expr) => {
         if !callback_is_clocking(&mut $stream) {
             eprintln!(
@@ -57,8 +79,10 @@ macro_rules! skip_if_headless {
 
 #[test]
 fn plays_one_second_sine_and_advances_played_counter() -> Result<()> {
-    let mut stream = default_output(SAMPLE_RATE, CHANNELS)?;
-    skip_if_headless!(stream, "plays_one_second_sine");
+    let Some(mut stream) = open_or_skip(SAMPLE_RATE, CHANNELS, "plays_one_second_sine")? else {
+        return Ok(());
+    };
+    skip_if_silent!(stream, "plays_one_second_sine");
     let buf = sine_buffer(SAMPLE_RATE, CHANNELS, 1.0);
     stream.write_samples(&buf)?;
 
@@ -82,8 +106,10 @@ fn opens_at_44100_even_if_device_runs_at_a_different_rate() -> Result<()> {
     // crate insert a resampler if the device runs at a different rate (48 kHz
     // is typical on modern macOS / Windows).
     let requested = 44_100u32;
-    let mut stream = default_output(requested, CHANNELS)?;
-    skip_if_headless!(stream, "opens_at_44100");
+    let Some(mut stream) = open_or_skip(requested, CHANNELS, "opens_at_44100")? else {
+        return Ok(());
+    };
+    skip_if_silent!(stream, "opens_at_44100");
     let device_sr = stream.device_sample_rate();
     eprintln!("audio-io test: device opened at {device_sr} Hz (requested {requested} Hz)");
 
@@ -124,8 +150,10 @@ fn opens_at_44100_even_if_device_runs_at_a_different_rate() -> Result<()> {
 
 #[test]
 fn underrun_writes_silence_without_panicking() -> Result<()> {
-    let mut stream = default_output(SAMPLE_RATE, CHANNELS)?;
-    skip_if_headless!(stream, "underrun");
+    let Some(mut stream) = open_or_skip(SAMPLE_RATE, CHANNELS, "underrun")? else {
+        return Ok(());
+    };
+    skip_if_silent!(stream, "underrun");
 
     // Starve the stream: don't write anything for >50 ms, then check the
     // played counter has advanced — meaning the audio callback wrote silence
