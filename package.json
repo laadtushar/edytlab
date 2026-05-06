@@ -1,0 +1,14 @@
+{
+  "name": "edytlab",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "pnpm --filter @edytlab/desktop dev",
+    "tauri:dev": "pnpm --filter @edytlab/desktop tauri dev",
+    "tauri:build": "pnpm --filter @edytlab/desktop tauri build"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20"
+  }
+}

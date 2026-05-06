@@ -1,0 +1,7 @@
+[build]
+# Small QoL: faster rebuilds, smaller incremental artifacts on local dev.
+# CI overrides via CARGO_INCREMENTAL=0.
+
+[net]
+# Use the sparse registry protocol (default in modern Cargo, set explicitly for older toolchains).
+git-fetch-with-cli = true

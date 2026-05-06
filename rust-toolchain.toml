@@ -1,0 +1,7 @@
+[toolchain]
+# Bumped from the plan's "1.83" because the current Tauri 2 dep tree
+# (time-macros, toml, serde_with) requires edition2024 / Rust 1.85+.
+# Hold the pin tight so CI behaves the same as local.
+channel = "1.88"
+components = ["rustfmt", "clippy"]
+profile = "minimal"
