@@ -68,6 +68,37 @@ pub fn render_state_to_wav(
     render::render(state, out, range)
 }
 
+/// Stateless wrapper around the engine entry points so callers can hold a
+/// single object instead of free functions.
+///
+/// Phase 1 deliberately keeps this empty: there is no internal cache, no
+/// thread pool, no preallocated buffer, and no decoder pool. Phase 2's
+/// effects graph and Phase 3's mix pipelines are expected to grow this
+/// type with owned state, so call sites — including the M07 tool
+/// dispatcher — should reach for `Engine` rather than the bare functions.
+///
+/// [`play_state`] is intentionally NOT mirrored on `Engine`: it borrows an
+/// `OutputStream` whose lifetime the engine does not own. Callers that
+/// need realtime preview should keep using the free function for now.
+#[derive(Debug, Default)]
+pub struct Engine;
+
+impl Engine {
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// See [`render_state_to_wav`].
+    pub fn render_to_wav(
+        &self,
+        state: &SessionState,
+        out: &Path,
+        range: Option<TimeRange>,
+    ) -> Result<RenderReport> {
+        render_state_to_wav(state, out, range)
+    }
+}
+
 /// Realtime preview entry point. Decodes, applies the same Phase 1 chain as
 /// [`render_state_to_wav`], and pushes interleaved samples to `output`. The
 /// returned [`PlayHandle`] pauses the stream on drop.
