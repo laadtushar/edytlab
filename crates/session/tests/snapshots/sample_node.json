@@ -1,0 +1,109 @@
+{
+  "id": "9874e541f5ca9ae746d37bace8d5afb2464ceaa854f2f5d33e9260239683c362",
+  "parent": null,
+  "created_at": "2026-05-06T12:00:00Z",
+  "label": "seed",
+  "reasoning": "initial fixture for snapshot test",
+  "state": {
+    "tracks": [
+      {
+        "id": "11111111-2222-3333-4444-555555555555",
+        "name": "Vocals",
+        "clips": [
+          {
+            "source_path": "media/vocal_take_1.wav",
+            "start_in_track": 0,
+            "source_offset": 1024,
+            "length": 480000,
+            "content_hash": [
+              66,
+              66,
+              66,
+              66,
+              66,
+              66,
+              66,
+              66,
+              66,
+              66,
+              66,
+              66,
+              66,
+              66,
+              66,
+              66,
+              66,
+              66,
+              66,
+              66,
+              66,
+              66,
+              66,
+              66,
+              66,
+              66,
+              66,
+              66,
+              66,
+              66,
+              66,
+              66
+            ]
+          }
+        ],
+        "gain_db": -3.0,
+        "pan": 0.25,
+        "muted": false,
+        "soloed": false,
+        "effects": [
+          {
+            "kind": "gain",
+            "params": {
+              "db": -3.0
+            },
+            "bypassed": false
+          }
+        ]
+      }
+    ],
+    "bus_routing": {
+      "buses": [
+        {
+          "id": "66666666-7777-8888-9999-aaaaaaaaaaaa",
+          "name": "VocalBus",
+          "effects": []
+        }
+      ]
+    },
+    "master_chain": [],
+    "tempo_map": {
+      "default_bpm": 120.0,
+      "segments": [
+        {
+          "start_sample": 0,
+          "bpm": 120.0
+        }
+      ]
+    },
+    "key_map": {
+      "segments": [
+        {
+          "start_sample": 0,
+          "key": "Cmaj"
+        }
+      ]
+    },
+    "transcript": {
+      "words": [
+        {
+          "text": "hello",
+          "start_s": 0.0,
+          "end_s": 0.5,
+          "confidence": 0.97
+        }
+      ]
+    },
+    "sample_rate": 48000,
+    "length_samples": 480000
+  }
+}
