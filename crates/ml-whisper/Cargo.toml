@@ -1,0 +1,30 @@
+[package]
+name = "ml-whisper"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+# `ort 2.0` is still in RC; pin to the latest rc to keep the build reproducible.
+#
+# We use `load-dynamic` instead of the default `download-binaries`:
+#   * the crate compiles without network access at build time;
+#   * the host process dlopens ONNX Runtime at first use;
+#   * the smoke test naturally skips when the runtime / model is absent.
+# Operators set `ORT_DYLIB_PATH` (or place libonnxruntime.{so,dylib,dll}
+# next to the binary) before launching. Execution-provider opt-ins
+# (CoreML, CUDA) arrive in Phase 2 as cargo features on this crate.
+ort = { version = "2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "load-dynamic", "api-24"] }
+ndarray = "0.16"
+audio-decoder = { path = "../audio-decoder" }
+rubato = "0.16"
+thiserror = "2"
+
+[dev-dependencies]
+hound = "3.5"
+tempfile = "3"

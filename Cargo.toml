@@ -5,6 +5,7 @@ members = [
     "crates/audio-decoder",
     "crates/audio-engine",
     "crates/audio-io",
+    "crates/ml-whisper",
     "crates/session",
     "crates/tools",
 ]

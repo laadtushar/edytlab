@@ -628,11 +628,11 @@ fn render_final_rejects_mp3_and_flac_in_phase_1() {
 }
 
 // ---------------------------------------------------------------------------
-// default_dispatcher exposes all 7 tools.
+// default_dispatcher exposes all Phase-1 tools (7 deterministic + transcribe).
 // ---------------------------------------------------------------------------
 
 #[test]
-fn default_dispatcher_exposes_all_seven_tools() {
+fn default_dispatcher_exposes_all_phase1_tools() {
     let dispatcher = ToolDispatcher::default_dispatcher();
     let names: Vec<String> = dispatcher
         .tool_schemas()
@@ -652,6 +652,7 @@ fn default_dispatcher_exposes_all_seven_tools() {
             "normalize",
             "render_final",
             "render_preview",
+            "transcribe",
             "trim",
         ]
     );

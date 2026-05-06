@@ -67,20 +67,21 @@ impl ToolDispatcher {
         Self::default()
     }
 
-    /// Construct a dispatcher pre-populated with the M08 deterministic
-    /// tool set: `load`, `cut_range`, `trim`, `gain`, `normalize`,
+    /// Construct a dispatcher pre-populated with the Phase-1 tool set:
+    /// `load`, `transcribe`, `cut_range`, `trim`, `gain`, `normalize`,
     /// `render_preview`, `render_final`.
     ///
-    /// Callers that need a different mix (e.g. tests, future phases
-    /// adding `transcribe`) should use [`Self::new`] and register
-    /// individually.
+    /// Callers that need a different mix (e.g. tests omitting the
+    /// Whisper-dependent `transcribe`) should use [`Self::new`] and
+    /// register individually.
     pub fn default_dispatcher() -> Self {
         use crate::tool::{
             CutRangeTool, GainTool, LoadTool, NormalizeTool, RenderFinalTool, RenderPreviewTool,
-            TrimTool,
+            TranscribeTool, TrimTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
+        d.register(Box::new(TranscribeTool));
         d.register(Box::new(CutRangeTool));
         d.register(Box::new(TrimTool));
         d.register(Box::new(GainTool));

@@ -11,6 +11,7 @@ pub mod load;
 pub mod normalize;
 pub mod render_final;
 pub mod render_preview;
+pub mod transcribe;
 pub mod trim;
 mod util;
 
@@ -20,4 +21,5 @@ pub use load::LoadTool;
 pub use normalize::NormalizeTool;
 pub use render_final::RenderFinalTool;
 pub use render_preview::RenderPreviewTool;
+pub use transcribe::TranscribeTool;
 pub use trim::TrimTool;
