@@ -166,7 +166,7 @@ pub fn default_output(sample_rate: u32, channels: u16) -> Result<Box<dyn OutputS
 4. Sample rate mismatch (e.g. play a 44.1 kHz file on a 48 kHz-locked device) is handled by **transparent resampling using `rubato 0.16`** at the engine→I/O boundary. The user-facing API does not surface mismatched-rate errors; resampling is logged at debug level. (`rubato` is shared with M09's Whisper pre-processing; pulling it in here, not later.)
 
 **Test design:**
-- Integration test starts a stream, writes a known buffer, polls `samples_played()` counter (provided by the trait), asserts within 5% of expected after 1s sleep.
+- Integration test starts a stream, writes a known buffer, polls `frames_played()` counter (provided by the trait — counts per-channel frames actually written to the device, including silence frames written on underrun), asserts within 5% of expected after 1s sleep. (Renamed from `samples_played` during M03 review for audio-terminology accuracy: a "sample" is one scalar; a "frame" is one sample per channel.)
 - Manual listening: smoke test on each platform — sine should not click, distort, or pitch-shift.
 
 **Risk:** Medium. WASAPI's shared-mode buffer sizes vary by Windows version; cpal abstracts most of it but format-negotiation surprises happen.
