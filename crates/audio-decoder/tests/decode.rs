@@ -220,11 +220,13 @@ fn corrupt_input_returns_err_not_panic() {
     // Hand-crafted: clearly not any container.
     let garbage = b"this is definitely not audio";
     let res = decode_bytes(garbage);
-    // Empirically, symphonia's probe surfaces this as `UnsupportedCodec`
-    // for ASCII-only payloads (no recognisable container magic), but a
-    // different garbage shape can also yield `Corrupt` or `NoAudioTrack`.
-    // The contract we care about is "Err, not panic", so accept all three
-    // failure modes rather than over-fitting to the current probe heuristic.
+    // We tried tightening this to `Err(DecodeError::Corrupt)` exactly, but
+    // symphonia's probe surfaces this specific ASCII payload as
+    // `UnsupportedCodec` (no probe-table magic match falls through to "no
+    // codec recognised"). Other garbage shapes can yield `Corrupt` (header
+    // parse fails) or `NoAudioTrack` (probe matched a container that had no
+    // audio streams). The contract we care about is "Err, not panic", so we
+    // accept all three rather than over-fitting to the current heuristic.
     assert!(
         matches!(
             res,
