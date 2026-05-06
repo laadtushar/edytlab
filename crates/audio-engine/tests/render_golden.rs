@@ -8,7 +8,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use audio_engine::{render_state_to_wav, RenderReport};
+use audio_engine::{render_state_to_wav, RenderReport, TimeRange};
 use session::{BusGraph, Clip, EffectInstance, SessionState, TempoMap, Track, TrackId};
 use tempfile::TempDir;
 
@@ -82,6 +82,20 @@ fn unity_passthrough_byte_identical_to_golden() {
         actual, expected,
         "unity render must be byte-identical to source/golden"
     );
+
+    // Defense-in-depth: the byte-equality assertion above is tautological as
+    // long as the unity render takes the byte-copy fast path (since the
+    // golden was created by the same byte-copy at fixture-build time). If a
+    // future refactor replaces the fast path with a decode-then-encode path,
+    // byte equality may legitimately drift (header/chunk-padding) but sample
+    // equivalence MUST hold. Compare i16 samples directly so a regression in
+    // the f32 path at unity gain is also caught here.
+    let rendered_samples = read_int16_samples(&out);
+    let source_samples = read_int16_samples(&source_wav());
+    assert_eq!(
+        rendered_samples, source_samples,
+        "unity render samples must equal source samples"
+    );
 }
 
 #[test]
@@ -144,6 +158,25 @@ fn render_report_peak_within_expected_range() {
         (report.peak_dbfs + 3.0).abs() < 0.1,
         "expected peak ≈ -3 dBFS, got {}",
         report.peak_dbfs
+    );
+}
+
+#[test]
+fn inverted_range_returns_invalid_range_even_when_clamped() {
+    // Regression: pre-fix, both endpoints clamped to total_frames before the
+    // ordering check, so a swapped range with both endpoints past the source
+    // length silently produced a zero-frame render. Must now be rejected.
+    let tmp = TempDir::new().unwrap();
+    let out = tmp.path().join("r.wav");
+    let state = build_state(&source_wav(), 3.0); // non-unity to force render_processed
+    let bogus = TimeRange {
+        start_frame: 200_000,
+        end_frame: 150_000,
+    };
+    let err = render_state_to_wav(&state, &out, Some(bogus));
+    assert!(
+        err.is_err(),
+        "inverted range past source length must error, got {err:?}"
     );
 }
 

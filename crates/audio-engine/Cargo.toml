@@ -14,7 +14,6 @@ audio-decoder = { path = "../audio-decoder" }
 audio-io = { path = "../audio-io" }
 session = { path = "../session" }
 hound = "3.5"
-dasp = "0.11"
 # `rayon` is declared per the Phase 1 plan, but the rendering path is
 # deliberately single-threaded for cross-platform determinism (see
 # `src/render.rs`). Do not introduce `par_iter` or `rayon::scope` into

@@ -31,10 +31,22 @@ use crate::{Error, RenderReport, TimeRange};
 /// Special-case path: a unity render with no gain change must be byte-identical
 /// to the source WAV. Any re-encoding (decode -> f32 -> requantize -> hound
 /// write) introduces non-zero header differences (chunk ordering, fact chunks,
-/// padding), so for the unity case we copy bytes directly. Higher-level effect
-/// chains in Phase 2 will not hit this path.
+/// padding), so for the unity case we copy bytes directly.
+///
+/// Inverted check: we only take the byte-copy path when we have positively
+/// verified the rendered file would be byte-equivalent to the source. Adding a
+/// new processing knob (pan, effect, clip trim, mute, solo) must NOT silently
+/// fall through to byte-copy and bypass downstream logic. Phase 2 fields are
+/// gated here too — when their semantics arrive, this gate will keep the fast
+/// path correct by default.
 fn is_unity_passthrough(graph: &RenderGraph, range: Option<TimeRange>) -> bool {
-    graph.track_gain_db == 0.0 && range.is_none()
+    range.is_none()
+        && graph.track_gain_db == 0.0
+        && graph.track_pan == 0.0
+        && !graph.muted
+        && !graph.soloed
+        && graph.effects_empty
+        && graph.clip_covers_full_source
 }
 
 pub fn render(
@@ -50,6 +62,36 @@ pub fn render(
 
     let decoded = decode_file(&graph.source_path)?;
     render_processed(&graph, decoded, out, range)
+}
+
+/// Resolve a caller-supplied [`TimeRange`] into `(start_frame, end_frame)` in
+/// the decoded sample buffer.
+///
+/// CRITICAL: order validation runs on the RAW values from `range` BEFORE any
+/// clamping. Clamping first lets pathological inputs like
+/// `start=200, end=150, total=100` collapse to `(100, 100)` and silently
+/// produce a zero-frame render. Validate, then clamp.
+pub(crate) fn resolve_range(
+    range: Option<TimeRange>,
+    total_frames: usize,
+) -> Result<(usize, usize), Error> {
+    match range {
+        None => Ok((0, total_frames)),
+        Some(r) => {
+            if r.start_frame >= r.end_frame {
+                return Err(Error::InvalidRange);
+            }
+            if (r.start_frame as usize) > total_frames {
+                return Err(Error::InvalidRange);
+            }
+            // End may exceed total; clamping it down is defensible since the
+            // caller asked for "up to" `end_frame` and the source is the
+            // hard limit.
+            let s = r.start_frame as usize;
+            let e = (r.end_frame as usize).min(total_frames);
+            Ok((s, e))
+        }
+    }
 }
 
 fn render_unity_copy(graph: &RenderGraph, out: &Path) -> Result<RenderReport, Error> {
@@ -75,17 +117,7 @@ fn render_processed(
     let sample_rate = decoded.sample_rate;
     let total_frames = decoded.samples.len() / channels as usize;
 
-    let (start_frame, end_frame) = match range {
-        None => (0usize, total_frames),
-        Some(r) => {
-            let s = (r.start_frame as usize).min(total_frames);
-            let e = (r.end_frame as usize).min(total_frames);
-            if e < s {
-                return Err(Error::InvalidRange);
-            }
-            (s, e)
-        }
-    };
+    let (start_frame, end_frame) = resolve_range(range, total_frames)?;
 
     let spec = WavSpec {
         channels,

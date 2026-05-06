@@ -82,17 +82,7 @@ pub fn play_state<'a>(
 
     let chans = decoded.channels as usize;
     let total_frames = decoded.samples.len() / chans;
-    let (start, end) = match range {
-        None => (0usize, total_frames),
-        Some(r) => {
-            let s = (r.start_frame as usize).min(total_frames);
-            let e = (r.end_frame as usize).min(total_frames);
-            if e < s {
-                return Err(Error::InvalidRange);
-            }
-            (s, e)
-        }
-    };
+    let (start, end) = render::resolve_range(range, total_frames)?;
 
     let slice = &decoded.samples[start * chans..end * chans];
     output.play()?;
