@@ -5,7 +5,7 @@
 //! engine (M06) performs its own real-time work on already-decoded buffers.
 
 use std::fs::File;
-use std::io::{Cursor, Read};
+use std::io::Cursor;
 use std::path::Path;
 
 use symphonia::core::audio::SampleBuffer;
@@ -44,27 +44,27 @@ pub type Result<T> = std::result::Result<T, DecodeError>;
 
 /// Decode a full audio file from disk.
 pub fn decode_file(path: &Path) -> Result<DecodedAudio> {
-    let mut file = File::open(path)?;
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)?;
+    let file = File::open(path)?;
     let mut hint = Hint::new();
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
         hint.with_extension(ext);
     }
-    decode_with_hint(bytes, hint)
+    // Symphonia accepts a `File` directly; no need to slurp the whole thing
+    // into memory first.
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+    decode_with_hint(mss, hint)
 }
 
 /// Decode an in-memory audio buffer. Used by the corrupt-input property test
 /// and by callers that already have bytes in hand.
 pub fn decode_bytes(bytes: &[u8]) -> Result<DecodedAudio> {
     // MediaSource requires Send+Sync+'static, so we own the buffer.
-    decode_with_hint(bytes.to_vec(), Hint::new())
+    let cursor = Cursor::new(bytes.to_vec());
+    let mss = MediaSourceStream::new(Box::new(cursor), Default::default());
+    decode_with_hint(mss, Hint::new())
 }
 
-fn decode_with_hint(bytes: Vec<u8>, hint: Hint) -> Result<DecodedAudio> {
-    let cursor = Cursor::new(bytes);
-    let mss = MediaSourceStream::new(Box::new(cursor), Default::default());
-
+fn decode_with_hint(mss: MediaSourceStream, hint: Hint) -> Result<DecodedAudio> {
     let probed = symphonia::default::get_probe()
         .format(
             &hint,
@@ -116,20 +116,29 @@ fn decode_with_hint(bytes: Vec<u8>, hint: Hint) -> Result<DecodedAudio> {
 
         match decoder.decode(&packet) {
             Ok(audio_buf) => {
-                if sample_buf.is_none() {
-                    // First-packet spec is held for the entire decode; mid-stream
-                    // changes surface as ResetRequired and we break out of the loop.
-                    let spec = *audio_buf.spec();
+                let spec = *audio_buf.spec();
+                let num_samples = audio_buf.frames() * spec.channels.count();
+
+                // (Re)allocate the SampleBuffer if it doesn't exist or is too
+                // small for this packet. VBR streams can have packets larger
+                // than the first one, so we can't size once and forget.
+                if sample_buf
+                    .as_ref()
+                    .map(|b| b.capacity() < num_samples)
+                    .unwrap_or(true)
+                {
                     sample_rate = spec.rate;
                     channels = spec.channels.count() as u16;
-                    let capacity = audio_buf.capacity() as u64;
-                    sample_buf = Some(SampleBuffer::<f32>::new(capacity, spec));
+                    sample_buf = Some(SampleBuffer::<f32>::new(num_samples as u64, spec));
                 }
+
                 if let Some(buf) = sample_buf.as_mut() {
                     // `copy_interleaved_ref` converts planar -> interleaved and
-                    // any native sample format -> f32 in one call.
+                    // any native sample format -> f32 in one call. We slice to
+                    // `num_samples` because `buf.samples()` returns the full
+                    // capacity, which may be larger than what was just written.
                     buf.copy_interleaved_ref(audio_buf);
-                    samples_out.extend_from_slice(buf.samples());
+                    samples_out.extend_from_slice(&buf.samples()[..num_samples]);
                 }
             }
             // Per symphonia docs, decode errors on a single packet are
