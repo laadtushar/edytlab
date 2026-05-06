@@ -8,6 +8,7 @@
 //! podcast-cleanup smoke test and for ad-hoc headless reproductions on
 //! CI; it is not packaged in user-facing builds.
 
+use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -95,10 +96,12 @@ async fn main() -> anyhow::Result<()> {
                 },
                 ai::AgentEvent::Done => CliEvent::Done,
             };
-            // Best-effort: a write failure on stdout (broken pipe) is
-            // surfaced via the process exit code, not retried.
+            // Best-effort: a stdout broken-pipe (consumer process exited)
+            // shouldn't panic the agent loop. We swallow write errors and
+            // let the turn finish; the final summary line below propagates
+            // the error if stdout is genuinely gone.
             if let Ok(line) = serde_json::to_string(&mapped) {
-                println!("{line}");
+                let _ = writeln!(io::stdout(), "{line}");
             }
         })
         .await?;
@@ -110,7 +113,9 @@ async fn main() -> anyhow::Result<()> {
         "stop_reason": result.stop_reason,
         "node_ids": result.node_ids.iter().map(|i| i.to_hex()).collect::<Vec<_>>(),
     });
-    println!("{summary}");
+    // Propagate any write error here so callers piping to a closed
+    // consumer get a non-zero exit instead of a panic from `println!`.
+    writeln!(io::stdout(), "{summary}")?;
 
     Ok(())
 }
