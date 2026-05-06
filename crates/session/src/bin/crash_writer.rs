@@ -6,7 +6,6 @@
 //! store and asserts the on-disk state is consistent.
 
 use std::path::PathBuf;
-use std::time::Duration;
 
 use chrono::Utc;
 use session::{BusGraph, NodeId, SessionNode, SessionState, Store, TempoMap};
@@ -19,6 +18,11 @@ fn main() {
     );
     let mut store = Store::open(&project_dir).expect("open store");
 
+    // Tight spin: NO inter-iteration sleep. The crash test's whole point
+    // is to land SIGKILLs *inside* `append`'s critical section (between
+    // the node-rename and the head-rename, or partway through either
+    // tempfile write). Any sleep here lets most kills land in the gap
+    // and turns the test into theater.
     for i in 0u64.. {
         let state = SessionState {
             tracks: Vec::new(),
@@ -40,8 +44,5 @@ fn main() {
             state,
         };
         store.append(node).expect("append");
-        // Tight loop with a brief yield so the parent has many kill
-        // points to choose from rather than all landing post-loop.
-        std::thread::sleep(Duration::from_micros(100));
     }
 }

@@ -38,15 +38,6 @@ pub enum Error {
 
     #[error("node not found: {0}")]
     NodeNotFound(String),
-
-    #[error("store has no head (empty store)")]
-    NoHead,
-
-    #[error("node id mismatch: caller supplied {supplied}, recomputed {recomputed}")]
-    NodeIdMismatch {
-        supplied: String,
-        recomputed: String,
-    },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

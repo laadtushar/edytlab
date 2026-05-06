@@ -15,6 +15,7 @@
 //! `(new head + missing node file)` — corrupt.
 
 use std::fs;
+use std::io;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -27,12 +28,45 @@ const STORE_DIR: &str = ".audiograph";
 const NODES_DIR: &str = "nodes";
 const HEAD_FILE: &str = "head";
 
+/// Fsync a directory so a prior atomic rename inside it is durable.
+///
+/// On POSIX, `rename(2)` is atomic but its persistence across power loss
+/// is only guaranteed once the directory entry is fsync'd. `tempfile`'s
+/// `persist` does the rename but does NOT do the directory fsync, so we
+/// do it ourselves after every persist of a node or head file.
+///
+/// On Windows, NTFS guarantees the metadata journal flushes on rename,
+/// and opening a directory handle requires `FILE_FLAG_BACKUP_SEMANTICS`
+/// which `std::fs::File::open` does not pass. We treat this as a no-op
+/// there; reaching parity will require the `winapi` crate or `windows`.
+#[cfg(unix)]
+fn fsync_dir(path: &Path) -> io::Result<()> {
+    let dir = fs::File::open(path)?;
+    dir.sync_all()
+}
+
+#[cfg(not(unix))]
+fn fsync_dir(_path: &Path) -> io::Result<()> {
+    // See module-level note: directory fsync needs platform-specific
+    // open flags on Windows. NTFS rename metadata is journaled, so the
+    // practical durability gap is small, but we should revisit this.
+    Ok(())
+}
+
 pub struct Store {
     project_dir: PathBuf,
     head: Option<NodeId>,
 }
 
 impl Store {
+    /// Open or create the store under `<project_dir>/.audiograph/`.
+    ///
+    /// **Single-writer assumption.** The store assumes single-writer
+    /// access. Concurrent writes from multiple processes are unsupported
+    /// in Phase 1; the `final_path.exists()` short-circuit and head
+    /// rename ordering both rely on no other writer racing inside the
+    /// same store directory. Multi-writer locking lands in Phase 3 with
+    /// the MCP server.
     pub fn open(project_dir: &Path) -> Result<Self> {
         let store_dir = project_dir.join(STORE_DIR);
         let nodes_dir = store_dir.join(NODES_DIR);
@@ -80,6 +114,8 @@ impl Store {
             tmp.write_all(&json)?;
             tmp.as_file().sync_all()?;
             tmp.persist(&final_path)?;
+            // Persist the rename itself, not just the file contents.
+            fsync_dir(&shard_dir)?;
         }
 
         self.write_head_atomic(id)?;
@@ -98,13 +134,9 @@ impl Store {
         Ok(node)
     }
 
-    pub fn head(&self) -> NodeId {
-        // Spec returns `NodeId` (not `Option<NodeId>`). Empty stores are
-        // a programming error from the caller's perspective in Phase 1 —
-        // the orchestrator always seeds an initial node before issuing
-        // reads. Panic with a clear message rather than papering over it.
+    /// Current head, or `None` if the store has no nodes yet.
+    pub fn head(&self) -> Option<NodeId> {
         self.head
-            .expect("Store::head called on empty store; seed an initial node first")
     }
 
     pub fn set_head(&mut self, id: NodeId) -> Result<()> {
@@ -132,6 +164,8 @@ impl Store {
         tmp.write_all(id.to_hex().as_bytes())?;
         tmp.as_file().sync_all()?;
         tmp.persist(&head_path)?;
+        // Persist the head rename itself.
+        fsync_dir(&store_dir)?;
         Ok(())
     }
 }

@@ -38,7 +38,7 @@ fn append_then_get_roundtrips() {
     let fetched = store.get(id).unwrap();
     assert_eq!(fetched.id, id);
     assert_eq!(fetched.state.length_samples, 1_000);
-    assert_eq!(store.head(), id);
+    assert_eq!(store.head(), Some(id));
 }
 
 #[test]
@@ -49,7 +49,7 @@ fn reopen_recovers_head() {
         store.append(make_node(42)).unwrap()
     };
     let store = Store::open(dir.path()).unwrap();
-    assert_eq!(store.head(), id);
+    assert_eq!(store.head(), Some(id));
     let fetched = store.get(id).unwrap();
     assert_eq!(fetched.state.length_samples, 42);
 }
@@ -64,7 +64,7 @@ fn parent_chain_is_linear() {
     assert_eq!(store.get(a).unwrap().parent, None);
     assert_eq!(store.get(b).unwrap().parent, Some(a));
     assert_eq!(store.get(c).unwrap().parent, Some(b));
-    assert_eq!(store.head(), c);
+    assert_eq!(store.head(), Some(c));
 }
 
 #[test]
@@ -73,9 +73,16 @@ fn set_head_to_known_node() {
     let mut store = Store::open(dir.path()).unwrap();
     let a = store.append(make_node(1)).unwrap();
     let b = store.append(make_node(2)).unwrap();
-    assert_eq!(store.head(), b);
+    assert_eq!(store.head(), Some(b));
     store.set_head(a).unwrap();
-    assert_eq!(store.head(), a);
+    assert_eq!(store.head(), Some(a));
+}
+
+#[test]
+fn empty_store_has_no_head() {
+    let dir = TempDir::new().unwrap();
+    let store = Store::open(dir.path()).unwrap();
+    assert_eq!(store.head(), None);
 }
 
 proptest! {
@@ -90,7 +97,7 @@ proptest! {
             let id = store.append(make_node(*len)).unwrap();
             ids.push(id);
             // After every append, head must be the most recent id.
-            prop_assert_eq!(store.head(), id);
+            prop_assert_eq!(store.head(), Some(id));
         }
         // Every appended node is readable.
         for id in &ids {
@@ -99,39 +106,55 @@ proptest! {
         // Reopening the store recovers the same head.
         drop(store);
         let store = Store::open(dir.path()).unwrap();
-        prop_assert_eq!(store.head(), *ids.last().unwrap());
+        prop_assert_eq!(store.head(), Some(*ids.last().unwrap()));
     }
 }
 
-/// Crash-safety: spawn the `crash_writer` binary, kill it after a randomized
-/// delay, and verify the on-disk store is in a valid state. The invariant:
-/// `head` always points to a node file that exists on disk. Orphaned node
-/// files (written but head not yet updated) are allowed — that is the
-/// recoverable side of the crash window.
+/// Crash-safety: spawn the `crash_writer` binary (which spins on `append`
+/// with NO inter-iteration sleep), kill it at many short delays so kills
+/// land *inside* the rename window, and verify the on-disk store stays
+/// consistent. The invariant: `head` always points to a node file that
+/// exists on disk. Orphaned node files (written but head not yet updated)
+/// are allowed — that is the recoverable side of the crash window.
+///
+/// To matter, the kill must land between the node-rename and the
+/// head-rename, or partway through either tempfile write. We sweep many
+/// short delays (0–10 ms) and run multiple trials per delay so a
+/// regression that swapped the rename order would actually be caught.
 #[test]
 fn crash_during_append_leaves_consistent_store() {
     let bin = env!("CARGO_BIN_EXE_crash_writer");
 
-    // Each iteration uses a different sleep so we sweep the kill window
-    // across the append phases (tempfile write, rename, head rename).
-    let delays_ms = [5u64, 15, 30, 60, 120, 200];
+    // 50 evenly spaced delays from ~0 µs to ~10 ms. The dangerous window
+    // is roughly the first few hundred microseconds of an append (write
+    // + fsync + rename + write + fsync + rename), so most of these will
+    // hit somewhere inside `append`.
+    const DELAY_COUNT: u64 = 50;
+    const MAX_DELAY_US: u64 = 10_000;
+    const TRIALS_PER_DELAY: u64 = 3;
 
-    for delay in delays_ms {
-        let dir = TempDir::new().unwrap();
-        let mut child = Command::new(bin)
-            .arg(dir.path())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("spawn crash_writer");
+    for i in 0..DELAY_COUNT {
+        // Spread delays linearly: 0, ~204, ~408, ... µs.
+        let delay_us = (i * MAX_DELAY_US) / DELAY_COUNT;
+        for _ in 0..TRIALS_PER_DELAY {
+            let dir = TempDir::new().unwrap();
+            let mut child = Command::new(bin)
+                .arg(dir.path())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .expect("spawn crash_writer");
 
-        std::thread::sleep(Duration::from_millis(delay));
-        // SIGKILL — Tokio/std `kill()` on Unix sends SIGKILL, which the
-        // child cannot trap, so this exercises the abrupt-death path.
-        let _ = child.kill();
-        let _ = child.wait();
+            if delay_us > 0 {
+                std::thread::sleep(Duration::from_micros(delay_us));
+            }
+            // SIGKILL on Unix; the child cannot trap it, so this
+            // exercises the abrupt-death path.
+            let _ = child.kill();
+            let _ = child.wait();
 
-        assert_store_consistent(dir.path());
+            assert_store_consistent(dir.path());
+        }
     }
 }
 
@@ -151,7 +174,9 @@ fn assert_store_consistent(project_dir: &Path) {
 
     // Head exists -> the corresponding node file MUST exist. This is the
     // critical crash-safety invariant.
-    let head_id = store.head();
+    let head_id = store
+        .head()
+        .expect("head file present and non-empty but Store::head() returned None");
     let fetched = store
         .get(head_id)
         .expect("head points to a missing node file; crash safety property violated");
