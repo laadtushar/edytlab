@@ -40,10 +40,7 @@ use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
     FromSample, SampleFormat, SampleRate, SizedSample, Stream, StreamConfig,
 };
-use ringbuf::{
-    traits::{Consumer as _, Producer as _, Split},
-    HeapRb,
-};
+use ringbuf::{traits::Split, HeapRb};
 use rubato::{FftFixedInOut, Resampler};
 use thiserror::Error;
 use tracing::debug;
@@ -80,10 +77,25 @@ pub enum Error {
     UnsupportedSampleFormat(SampleFormat),
 }
 
-/// An open output stream. All operations are safe to call from any thread
-/// other than the audio callback itself.
+/// An open output stream.
+///
+/// Threading rules:
+/// - `play` and `pause` touch the underlying `cpal::Stream` and therefore
+///   inherit its thread-affinity constraints (Windows COM apartment / macOS
+///   HAL); they MUST be called on the same thread that constructed the
+///   stream. The same is true for `Drop`.
+/// - `write_samples`, `frames_played`, and `device_sample_rate` only touch
+///   the lock-free ringbuf, the atomic counter, and a copy of the device
+///   sample rate. They are safe to call from any thread.
+///
+/// The unsafe `Send` impl on the concrete type is sound only because the
+/// engine upholds rule 1; M11 will wrap this in an `AudioCoordinator` that
+/// owns the stream on a dedicated thread and exposes a fully Send+Sync
+/// API via mpsc.
 pub trait OutputStream: Send {
+    /// Resume audio output. Must be called on the constructing thread.
     fn play(&mut self) -> Result<()>;
+    /// Pause audio output. Must be called on the constructing thread.
     fn pause(&mut self) -> Result<()>;
     /// Push interleaved frames at the *logical* sample rate the stream was
     /// opened with. Resampling to the device rate (if any) is transparent.
@@ -226,15 +238,29 @@ where
 
 /// Audio-thread callback body for non-f32 devices: pop one f32 sample at a
 /// time and convert via cpal's `FromSample`. Slower than the f32 fast path
-/// (per-sample loop) but the only correct answer for i16 / u16 / i32 outputs.
+/// but the only correct answer for i16 / u16 / i32 outputs.
+///
+/// On underrun (first `try_pop` returning `None`) we stop polling the ring
+/// buffer and fill the rest with the type's silent value — each `try_pop`
+/// is an atomic op on the consumer, so doing one per remaining sample after
+/// the producer has run dry is pure waste.
 fn fill_output_convert<T, C>(out: &mut [T], consumer: &mut C, channels: usize, played: &AtomicU64)
 where
     T: SizedSample + FromSample<f32>,
     C: ringbuf::traits::Consumer<Item = f32>,
 {
-    for s in out.iter_mut() {
-        let f = consumer.try_pop().unwrap_or(0.0);
-        *s = T::from_sample(f);
+    let silence = T::from_sample(0.0_f32);
+    let mut iter = out.iter_mut();
+    while let Some(slot) = iter.next() {
+        match consumer.try_pop() {
+            Some(f) => *slot = T::from_sample(f),
+            None => {
+                *slot = silence;
+                for rest in iter.by_ref() {
+                    *rest = silence;
+                }
+            }
+        }
     }
     let frames = (out.len() / channels) as u64;
     played.fetch_add(frames, Ordering::Relaxed);
