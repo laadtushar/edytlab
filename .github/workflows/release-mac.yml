@@ -1,0 +1,107 @@
+name: Release (macOS)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.1.0). Created if missing."
+        required: true
+        type: string
+
+# Required secrets (configure under Settings → Secrets → Actions):
+#   APPLE_CERTIFICATE              base64-encoded Developer ID Application .p12
+#   APPLE_CERTIFICATE_PASSWORD     password for the .p12
+#   APPLE_SIGNING_IDENTITY         e.g. "Developer ID Application: Foo Bar (TEAMID)"
+#   APPLE_ID                       Apple ID email
+#   APPLE_PASSWORD                 app-specific password (NOT account password)
+#   APPLE_TEAM_ID                  10-char team ID
+#   KEYCHAIN_PASSWORD              any random string used to lock the temp keychain
+#
+# If any of these are missing, the build fails fast at "Import certificate".
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: short
+
+jobs:
+  build-and-notarize:
+    name: build + sign + notarize
+    runs-on: macos-14
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry & target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            apps/desktop/src-tauri
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: pnpm install
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify required secrets are set
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          missing=()
+          for var in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID KEYCHAIN_PASSWORD; do
+            if [ -z "${!var}" ]; then missing+=("$var"); fi
+          done
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::Missing required secrets: ${missing[*]}"
+            exit 1
+          fi
+
+      - name: Build, sign, and notarize via tauri-action
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        with:
+          projectPath: apps/desktop
+          tagName: ${{ inputs.tag }}
+          releaseName: "edytlab ${{ inputs.tag }}"
+          releaseDraft: true
+          prerelease: false
+          args: --target universal-apple-darwin
+
+      - name: Verify Gatekeeper acceptance
+        run: |
+          set -e
+          DMG=$(find apps/desktop/src-tauri/target -name "*.dmg" | head -1)
+          if [ -z "$DMG" ]; then
+            echo "::error::No .dmg produced by tauri-action"
+            exit 1
+          fi
+          echo "Verifying $DMG"
+          spctl -a -t open --context context:primary-signature -vv "$DMG"
