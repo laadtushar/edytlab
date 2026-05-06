@@ -1,0 +1,25 @@
+[workspace]
+resolver = "2"
+members = [
+    "apps/desktop/src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "TBD"
+repository = "https://github.com/laadtushar/edytlab"
+publish = false
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+
+[workspace.lints.clippy]
+# Tighten as the codebase grows; start permissive so M01 is a clean smoke gate.
+all = { level = "warn", priority = -1 }
+
+[profile.release]
+codegen-units = 1
+lto = true
+panic = "abort"
+strip = true
