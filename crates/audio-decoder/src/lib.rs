@@ -57,6 +57,7 @@ pub fn decode_file(path: &Path) -> Result<DecodedAudio> {
 /// Decode an in-memory audio buffer. Used by the corrupt-input property test
 /// and by callers that already have bytes in hand.
 pub fn decode_bytes(bytes: &[u8]) -> Result<DecodedAudio> {
+    // MediaSource requires Send+Sync+'static, so we own the buffer.
     decode_with_hint(bytes.to_vec(), Hint::new())
 }
 
@@ -116,6 +117,8 @@ fn decode_with_hint(bytes: Vec<u8>, hint: Hint) -> Result<DecodedAudio> {
         match decoder.decode(&packet) {
             Ok(audio_buf) => {
                 if sample_buf.is_none() {
+                    // First-packet spec is held for the entire decode; mid-stream
+                    // changes surface as ResetRequired and we break out of the loop.
                     let spec = *audio_buf.spec();
                     sample_rate = spec.rate;
                     channels = spec.channels.count() as u16;

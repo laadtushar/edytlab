@@ -55,8 +55,8 @@ fn wav_decode_roundtrips_byte_equal() {
         let cursor = std::io::Cursor::new(&mut buf);
         let mut writer = hound::WavWriter::new(cursor, spec).unwrap();
         // Symphonia's i16 -> f32 conversion is `s as f32 / 32_768.0`, so the
-        // inverse is `s * 32_768.0` clamped to i16 range. This must match the
-        // build script's encoding (which uses i16::MAX) — see note below.
+        // inverse is `s * 32_768.0` clamped to i16 range. This matches the
+        // build script's `* 32_768` encoding so the round-trip is exact.
         for s in &decoded.samples {
             let q = (s * 32_768.0)
                 .round()
@@ -79,7 +79,17 @@ fn decodes_golden_mp3_peak_frequency_is_440hz() {
     assert!(decoded.sample_rate >= 8_000);
     assert!(decoded.channels >= 1);
 
-    // Trim leading silence (MP3 encoder delay ≈ 1152 samples) and any tail.
+    // Trim leading and trailing transients before spectral analysis.
+    //
+    // MP3 frames are 1152 samples and the shine-rs encoder prepends an
+    // empty priming frame (the standard ~576-sample look-ahead rounded up
+    // to a full frame) plus the decoder needs another frame of context
+    // before the synthesis filterbank settles. Empirically that's roughly
+    // 2 × 1152 ≈ 2304 samples of unreliable output; we round down to 2000
+    // to keep the post-trim region comfortably long for the FFT below.
+    //
+    // The trailing 500 samples cover MP3's end-of-stream zero-padding to
+    // the next frame boundary plus the decoder's ringing into that pad.
     let ch = decoded.channels as usize;
     let total_frames = decoded.samples.len() / ch;
     let mut mono: Vec<f32> = Vec::with_capacity(total_frames);
@@ -95,7 +105,13 @@ fn decodes_golden_mp3_peak_frequency_is_440hz() {
         .iter()
         .rposition(|s| s.abs() > 0.05)
         .unwrap_or(mono.len().saturating_sub(1));
-    let region: &[f32] = &mono[(first_nz + 2000).min(last_nz)..last_nz.saturating_sub(500)];
+    let region_start = (first_nz + 2000).min(last_nz);
+    let region_end = last_nz.saturating_sub(500);
+    assert!(
+        region_start <= region_end,
+        "MP3 region degenerate; encoder produced too little audio (start={region_start}, end={region_end})",
+    );
+    let region: &[f32] = &mono[region_start..region_end];
     assert!(
         region.len() > 8000,
         "MP3 audio body too short: {}",
@@ -204,17 +220,25 @@ fn corrupt_input_returns_err_not_panic() {
     // Hand-crafted: clearly not any container.
     let garbage = b"this is definitely not audio";
     let res = decode_bytes(garbage);
-    assert!(matches!(
-        res,
-        Err(DecodeError::Corrupt)
-            | Err(DecodeError::UnsupportedCodec)
-            | Err(DecodeError::NoAudioTrack)
-    ));
+    // Empirically, symphonia's probe surfaces this as `UnsupportedCodec`
+    // for ASCII-only payloads (no recognisable container magic), but a
+    // different garbage shape can also yield `Corrupt` or `NoAudioTrack`.
+    // The contract we care about is "Err, not panic", so accept all three
+    // failure modes rather than over-fitting to the current probe heuristic.
+    assert!(
+        matches!(
+            res,
+            Err(DecodeError::Corrupt)
+                | Err(DecodeError::UnsupportedCodec)
+                | Err(DecodeError::NoAudioTrack)
+        ),
+        "expected a decode error, got {res:?}",
+    );
 }
 
 // AC4 property test: random byte slices must never panic; only Err results.
 proptest::proptest! {
-    #![proptest_config(proptest::test_runner::Config { cases: 64, .. proptest::test_runner::Config::default() })]
+    #![proptest_config(proptest::test_runner::Config { cases: 256, .. proptest::test_runner::Config::default() })]
 
     #[test]
     fn random_bytes_never_panic(bytes in proptest::collection::vec(proptest::num::u8::ANY, 0..2048)) {
