@@ -1025,8 +1025,20 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 name = "edytlab-desktop"
 version = "0.1.0"
 dependencies = [
+ "ai",
+ "audio-engine",
+ "chrono",
+ "keyring",
+ "serde",
+ "serde_json",
+ "session",
  "tauri",
  "tauri-build",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tools",
+ "tracing",
 ]
 
 [[package]]
