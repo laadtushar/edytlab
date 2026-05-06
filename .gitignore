@@ -37,3 +37,14 @@ Thumbs.db
 .env
 .env.local
 *.local
+
+# Test fixtures: regenerated at test time, never committed.
+# (See tests/fixtures/README.md and apps/cli/tests/* for generators.)
+tests/fixtures/*.wav
+tests/fixtures/*.mp3
+tests/fixtures/*.flac
+tests/fixtures/*.ogg
+
+# Demo screen captures: large binaries; tracked via Git LFS once Phase 1 ships.
+assets/demos/*.mp4
+assets/demos/*.mov
