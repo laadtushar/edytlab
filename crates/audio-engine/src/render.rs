@@ -81,14 +81,16 @@ pub(crate) fn resolve_range(
             if r.start_frame >= r.end_frame {
                 return Err(Error::InvalidRange);
             }
-            if (r.start_frame as usize) > total_frames {
+            // Compare in u64 space so a u64 start frame larger than usize::MAX
+            // on a 32-bit target can't truncate-wrap into "in bounds".
+            if r.start_frame > total_frames as u64 {
                 return Err(Error::InvalidRange);
             }
-            // End may exceed total; clamping it down is defensible since the
-            // caller asked for "up to" `end_frame` and the source is the
-            // hard limit.
+            // End may exceed total; clamping is defensible since the caller
+            // asked for "up to" `end_frame` and the source is the hard limit.
+            // Cast is safe now: start <= total_frames (usize) so it fits.
             let s = r.start_frame as usize;
-            let e = (r.end_frame as usize).min(total_frames);
+            let e = (r.end_frame.min(total_frames as u64)) as usize;
             Ok((s, e))
         }
     }
