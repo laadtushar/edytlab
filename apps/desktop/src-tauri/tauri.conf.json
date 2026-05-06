@@ -30,6 +30,23 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "category": "Music",
+    "shortDescription": "Conversational audio editor",
+    "longDescription": "edytlab is a desktop audio editor where you talk to Claude to do real audio editing — load, cut, gain, normalize, transcribe, and render WAVs by chatting.",
+    "macOS": {
+      "entitlements": "entitlements.plist",
+      "minimumSystemVersion": "11.0",
+      "hardenedRuntime": true,
+      "exceptionDomain": "api.anthropic.com"
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "embedBootstrapper"
+      },
+      "wix": {
+        "language": "en-US"
+      }
+    }
   }
 }
