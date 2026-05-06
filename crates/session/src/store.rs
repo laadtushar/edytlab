@@ -79,7 +79,16 @@ impl Store {
             if trimmed.is_empty() {
                 None
             } else {
-                Some(NodeId::from_hex(trimmed).map_err(|_| Error::InvalidHeadHex(trimmed.into()))?)
+                let mut bytes = [0u8; 32];
+                match hex::decode_to_slice(trimmed, &mut bytes) {
+                    Ok(()) => Some(NodeId(bytes)),
+                    Err(source) => {
+                        return Err(Error::InvalidHeadHex {
+                            content: trimmed.into(),
+                            source,
+                        });
+                    }
+                }
             }
         } else {
             None

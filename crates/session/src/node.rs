@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::state::SessionState;
-use crate::{Error, Result};
+use crate::Result;
 
 /// Content-addressed identifier for a [`SessionState`].
 ///
@@ -38,26 +38,12 @@ impl NodeId {
     }
 
     pub fn to_hex(self) -> String {
-        let mut s = String::with_capacity(64);
-        for b in self.0 {
-            s.push_str(&format!("{b:02x}"));
-        }
-        s
+        hex::encode(self.0)
     }
 
     pub fn from_hex(s: &str) -> Result<Self> {
-        if s.len() != 64 {
-            return Err(Error::HexDecode(format!(
-                "expected 64 hex chars, got {}",
-                s.len()
-            )));
-        }
         let mut out = [0u8; 32];
-        for (i, byte) in out.iter_mut().enumerate() {
-            let chunk = &s[i * 2..i * 2 + 2];
-            *byte = u8::from_str_radix(chunk, 16)
-                .map_err(|e| Error::HexDecode(format!("byte {i}: {e}")))?;
-        }
+        hex::decode_to_slice(s, &mut out)?;
         Ok(NodeId(out))
     }
 }
@@ -102,26 +88,13 @@ mod hex_array_32 {
     use serde::{Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S: Serializer>(bytes: &[u8; 32], s: S) -> Result<S::Ok, S::Error> {
-        let mut hex = String::with_capacity(64);
-        for b in bytes {
-            hex.push_str(&format!("{b:02x}"));
-        }
-        s.serialize_str(&hex)
+        s.serialize_str(&hex::encode(bytes))
     }
 
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<[u8; 32], D::Error> {
         let s = String::deserialize(d)?;
-        if s.len() != 64 {
-            return Err(serde::de::Error::custom(format!(
-                "expected 64 hex chars, got {}",
-                s.len()
-            )));
-        }
         let mut out = [0u8; 32];
-        for (i, byte) in out.iter_mut().enumerate() {
-            let chunk = &s[i * 2..i * 2 + 2];
-            *byte = u8::from_str_radix(chunk, 16).map_err(serde::de::Error::custom)?;
-        }
+        hex::decode_to_slice(&s, &mut out).map_err(serde::de::Error::custom)?;
         Ok(out)
     }
 }
@@ -135,13 +108,7 @@ pub mod hex_array_32_opt {
 
     pub fn serialize<S: Serializer>(bytes: &Option<[u8; 32]>, s: S) -> Result<S::Ok, S::Error> {
         match bytes {
-            Some(arr) => {
-                let mut hex = String::with_capacity(64);
-                for b in arr {
-                    hex.push_str(&format!("{b:02x}"));
-                }
-                s.serialize_some(&hex)
-            }
+            Some(arr) => s.serialize_some(&hex::encode(arr)),
             None => s.serialize_none(),
         }
     }
@@ -150,17 +117,8 @@ pub mod hex_array_32_opt {
         // Accept either `null` or a 64-char hex string.
         let opt: Option<String> = Option::deserialize(d)?;
         let Some(s) = opt else { return Ok(None) };
-        if s.len() != 64 {
-            return Err(serde::de::Error::custom(format!(
-                "expected 64 hex chars, got {}",
-                s.len()
-            )));
-        }
         let mut out = [0u8; 32];
-        for (i, byte) in out.iter_mut().enumerate() {
-            let chunk = &s[i * 2..i * 2 + 2];
-            *byte = u8::from_str_radix(chunk, 16).map_err(serde::de::Error::custom)?;
-        }
+        hex::decode_to_slice(&s, &mut out).map_err(serde::de::Error::custom)?;
         Ok(Some(out))
     }
 }

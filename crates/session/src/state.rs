@@ -14,14 +14,12 @@ use uuid::Uuid;
 pub struct TrackId(pub Uuid);
 
 impl TrackId {
+    /// Allocate a fresh random `TrackId`. Explicitly named `new` rather
+    /// than implementing `Default` because `Default` is conventionally a
+    /// constant/zeroed value, whereas this allocates a random UUID.
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self(Uuid::new_v4())
-    }
-}
-
-impl Default for TrackId {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

@@ -3270,6 +3270,7 @@ dependencies = [
  "assert_cmd",
  "blake3",
  "chrono",
+ "hex",
  "proptest",
  "serde",
  "serde_json",

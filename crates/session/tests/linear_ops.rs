@@ -1,8 +1,11 @@
 //! Property tests for the linear `Store::append` subset, plus a crash-safety
 //! integration test that spawns and SIGKILLs the `crash_writer` binary.
 
+#[cfg(unix)]
 use std::path::Path;
+#[cfg(unix)]
 use std::process::{Command, Stdio};
+#[cfg(unix)]
 use std::time::Duration;
 
 use chrono::Utc;
@@ -121,6 +124,12 @@ proptest! {
 /// head-rename, or partway through either tempfile write. We sweep many
 /// short delays (0–10 ms) and run multiple trials per delay so a
 /// regression that swapped the rename order would actually be caught.
+///
+/// Unix-only: `fsync_dir` is a no-op on non-Unix, and `child.kill()` on
+/// Windows uses `TerminateProcess` which is not equivalent to SIGKILL
+/// for testing the rename window. A separate Windows-equivalent test is
+/// out of scope for Phase 1.
+#[cfg(unix)]
 #[test]
 fn crash_during_append_leaves_consistent_store() {
     let bin = env!("CARGO_BIN_EXE_crash_writer");
@@ -158,6 +167,7 @@ fn crash_during_append_leaves_consistent_store() {
     }
 }
 
+#[cfg(unix)]
 fn assert_store_consistent(project_dir: &Path) {
     let store = Store::open(project_dir).expect("reopen store after crash");
 
