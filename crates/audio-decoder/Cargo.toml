@@ -1,0 +1,23 @@
+[package]
+name = "audio-decoder"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+symphonia = { version = "0.5", features = ["mp3", "wav", "flac"] }
+thiserror = "2"
+
+[build-dependencies]
+hound = "3.5"
+shine-rs = "0.1"
+
+[dev-dependencies]
+proptest = "1"
+rustfft = "6"
+hound = "3.5"
