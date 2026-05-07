@@ -7,6 +7,7 @@ members = [
     "crates/audio-decoder",
     "crates/audio-engine",
     "crates/audio-io",
+    "crates/ml-pipeline",
     "crates/ml-whisper",
     "crates/session",
     "crates/tools",

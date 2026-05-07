@@ -2510,6 +2510,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "ml-pipeline"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "ort",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "ml-whisper"
 version = "0.1.0"
 dependencies = [
