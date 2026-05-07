@@ -173,24 +173,42 @@ fn render_processed(
 }
 
 /// Cheap report for the unity-copy fast path: peek the WAV header for spec
-/// and frame count, then stream the i16 samples to find the absolute peak.
-/// No f32 decode, no full-file allocation.
+/// and frame count, then stream the samples to find the absolute peak.
+/// No full-file allocation.
+///
+/// Reads i32 (covers all int bit-depths from 8 to 32 — `hound` handles the
+/// per-bit-depth normalization internally) or f32 depending on the source's
+/// declared sample format. Reading as i16 would silently lose precision for
+/// 24-bit sources and clip 32-bit-float sources whose peak exceeds 0 dBFS.
 fn report_from_wav_stream(path: &Path) -> Result<RenderReport, Error> {
     let mut reader = hound::WavReader::open(path)?;
     let spec = reader.spec();
     let frames = reader.duration() as u64;
 
-    let mut peak_i: i32 = 0;
-    for s in reader.samples::<i16>() {
-        let v = s?.unsigned_abs() as i32;
-        if v > peak_i {
-            peak_i = v;
+    let mut peak: f32 = 0.0;
+    match spec.sample_format {
+        hound::SampleFormat::Float => {
+            for s in reader.samples::<f32>() {
+                let v = s?.abs();
+                if v > peak {
+                    peak = v;
+                }
+            }
+        }
+        hound::SampleFormat::Int => {
+            // Largest signed magnitude for `bits_per_sample` bits is
+            // `2^(bits-1)`. Hound stores int samples right-aligned in the
+            // i32 returned by `samples::<i32>()`, so the divisor matches
+            // the source bit depth (not always 32).
+            let scale = (1u64 << (spec.bits_per_sample as u32 - 1)).max(1) as f32;
+            for s in reader.samples::<i32>() {
+                let v = (s? as f32).abs() / scale;
+                if v > peak {
+                    peak = v;
+                }
+            }
         }
     }
-    // Peak amplitude as a float in [0, 1.0]. For 16-bit PCM the maximum
-    // magnitude is 32_768 (i16::MIN.abs()), matching the quantization the
-    // processed-render path uses.
-    let peak = (peak_i as f32) / 32_768.0;
 
     Ok(RenderReport {
         frames_written: frames,

@@ -85,6 +85,19 @@ impl Tool for CutRangeTool {
         // we keep one clip; an interior cut emits two clips, with the second
         // shifted to start_in_track == start. The render engine reads the
         // first clip today, so we order them by start_in_track for clarity.
+        // Phase 1: single-clip track. Multi-clip support arrives in Phase 2.
+        // Guard explicitly against multi-clip tracks so a future caller (or a
+        // bug elsewhere that creates more clips) can't silently drop data:
+        // the splice below replaces `track.clips` wholesale and would lose
+        // clips 1..n. The render engine also only consumes the first clip
+        // today, so even if we left them in place they wouldn't render.
+        if track.clips.len() > 1 {
+            return Ok(ToolResult::Error(format!(
+                "track {} has {} clips; cut_range only supports single-clip tracks in Phase 1 (multi-clip arrives in Phase 2)",
+                args.track,
+                track.clips.len()
+            )));
+        }
         let Some(clip) = track.clips.first().cloned() else {
             return Ok(ToolResult::Error(
                 "track has no clips; nothing to cut".into(),
