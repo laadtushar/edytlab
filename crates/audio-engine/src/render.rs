@@ -176,18 +176,19 @@ fn render_processed(
 /// and frame count, then stream the samples to find the absolute peak.
 /// No full-file allocation.
 ///
-/// Reads i32 (covers all int bit-depths from 8 to 32 — `hound` handles the
-/// per-bit-depth normalization internally) or f32 depending on the source's
-/// declared sample format. Reading as i16 would silently lose precision for
-/// 24-bit sources and clip 32-bit-float sources whose peak exceeds 0 dBFS.
+/// `hound`'s `samples::<T>()` requires T to match the on-disk sample width
+/// exactly — reading a 16-bit Int file as i32, or vice versa, errors per
+/// sample. Dispatch on `(sample_format, bits_per_sample)` and pick the
+/// matching reader. Phase 1 fixtures are 16-bit Int; the Float and 24/32-bit
+/// arms exist for forward-compat when users supply higher-bit-depth sources.
 fn report_from_wav_stream(path: &Path) -> Result<RenderReport, Error> {
     let mut reader = hound::WavReader::open(path)?;
     let spec = reader.spec();
     let frames = reader.duration() as u64;
 
     let mut peak: f32 = 0.0;
-    match spec.sample_format {
-        hound::SampleFormat::Float => {
+    match (spec.sample_format, spec.bits_per_sample) {
+        (hound::SampleFormat::Float, _) => {
             for s in reader.samples::<f32>() {
                 let v = s?.abs();
                 if v > peak {
@@ -195,12 +196,17 @@ fn report_from_wav_stream(path: &Path) -> Result<RenderReport, Error> {
                 }
             }
         }
-        hound::SampleFormat::Int => {
-            // Largest signed magnitude for `bits_per_sample` bits is
-            // `2^(bits-1)`. Hound stores int samples right-aligned in the
-            // i32 returned by `samples::<i32>()`, so the divisor matches
-            // the source bit depth (not always 32).
-            let scale = (1u64 << (spec.bits_per_sample as u32 - 1)).max(1) as f32;
+        (hound::SampleFormat::Int, 16) => {
+            for s in reader.samples::<i16>() {
+                let v = s?.unsigned_abs() as f32 / 32_768.0;
+                if v > peak {
+                    peak = v;
+                }
+            }
+        }
+        (hound::SampleFormat::Int, bits) => {
+            // 8 / 24 / 32 bit Int. Hound returns these widened to i32.
+            let scale = (1u64 << (bits as u32 - 1)).max(1) as f32;
             for s in reader.samples::<i32>() {
                 let v = (s? as f32).abs() / scale;
                 if v > peak {
