@@ -32,6 +32,7 @@ fn sine_buffer(sr: u32, channels: u16, seconds: f32) -> Vec<f32> {
 }
 
 #[test]
+#[ignore = "requires real audio hardware; run with --ignored on a developer machine"]
 fn plays_one_second_sine_and_advances_played_counter() -> Result<()> {
     let mut stream = default_output(SAMPLE_RATE, CHANNELS)?;
     let buf = sine_buffer(SAMPLE_RATE, CHANNELS, 1.0);
@@ -53,6 +54,7 @@ fn plays_one_second_sine_and_advances_played_counter() -> Result<()> {
 }
 
 #[test]
+#[ignore = "requires real audio hardware; run with --ignored on a developer machine"]
 fn opens_at_44100_even_if_device_runs_at_a_different_rate() -> Result<()> {
     // Exercises the rubato resampling path: we ask for 44.1 kHz and let the
     // crate insert a resampler if the device runs at a different rate (48 kHz
@@ -99,6 +101,7 @@ fn opens_at_44100_even_if_device_runs_at_a_different_rate() -> Result<()> {
 }
 
 #[test]
+#[ignore = "requires real audio hardware; run with --ignored on a developer machine"]
 fn underrun_writes_silence_without_panicking() -> Result<()> {
     let mut stream = default_output(SAMPLE_RATE, CHANNELS)?;
     stream.play()?;
