@@ -33,6 +33,9 @@ pnpm-debug.log*
 .DS_Store
 Thumbs.db
 
+# Claude Code agent runtime state (isolated worktrees etc.)
+.claude/
+
 # Environment / secrets
 .env
 .env.local
