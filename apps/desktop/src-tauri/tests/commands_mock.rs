@@ -11,6 +11,20 @@
 //! writes the project_dir), and (c) its return value is the
 //! `ProjectInfo` struct whose serialised shape is the contract with
 //! the TS bridge.
+//!
+//! Windows: this entire file is gated `cfg(not(target_os = "windows"))`.
+//! Calling `mock_builder` and `WebviewWindowBuilder::new(...).build()`
+//! pulls in Wry, which statically imports symbols from a WebView2 DLL
+//! whose runtime version on the GitHub `windows-latest` image doesn't
+//! export them — the test binary fails to load with
+//! `STATUS_ENTRYPOINT_NOT_FOUND` (`0xc0000139`) before any test code or
+//! `#[ignore]` check runs, so a function-level ignore is too late. The
+//! macOS CI job exercises the same IPC path, and `src/commands.rs` unit
+//! tests cover the command logic itself, so the Windows skip preserves
+//! coverage. To run locally on a Windows host with the matching WebView2
+//! runtime installed, drop the `cfg(...)` gate.
+
+#![cfg(not(target_os = "windows"))]
 
 use edytlab_desktop_lib::commands;
 use edytlab_desktop_lib::state::AppState;

@@ -1,0 +1,35 @@
+# Repo-wide line-ending policy.
+#
+# Default: let Git auto-detect text vs binary, but DO NOT force a working-tree
+# EOL — that lets shell scripts on Linux/macOS keep LF and lets `.bat` keep
+# CRLF, matching each platform's convention.
+* text=auto
+
+# --- Byte-sensitive files: pin LF on every platform. ---
+#
+# These are read with `include_str!` or `fs::read_to_string` and then
+# byte-compared against in-memory data, so a Windows checkout that rewrote LF
+# to CRLF would fail the assertion (or embed CRLF into a Rust binary). Pin LF
+# explicitly so autocrlf can't touch them.
+crates/session/tests/snapshots/*.json text eol=lf
+crates/tools/tests/snapshots/*.json   text eol=lf
+crates/ai/tests/snapshots/*.snap      text eol=lf
+crates/ai/prompts/*.md                text eol=lf
+
+# --- Windows-specific scripts: keep CRLF. ---
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# --- Binaries: never line-end-convert. ---
+*.wav  binary
+*.mp3  binary
+*.flac binary
+*.onnx binary
+*.bin  binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.ico  binary
+*.icns binary
+*.dmg  binary
+*.msi  binary
