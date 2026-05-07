@@ -652,8 +652,116 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "normalize",
             "render_final",
             "render_preview",
+            "separate_stems",
             "transcribe",
             "trim",
         ]
     );
+}
+
+// ---------------------------------------------------------------------------
+// M18 — `separate_stems` surfaces the model-missing case as an actionable
+// error (rather than panicking), regardless of which model is requested.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn separate_stems_returns_actionable_error_when_model_missing() {
+    // Don't leak DEMUCS_*_MODEL_PATH from the host shell into the test.
+    // SAFETY: tests don't run with concurrent threads observing these
+    // env vars, and we never spawn subprocesses below.
+    unsafe {
+        std::env::remove_var("DEMUCS_MODEL_PATH");
+        std::env::remove_var("DEMUCS_FT_MODEL_PATH");
+    }
+
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+
+    // Default model (htdemucs_ft) → looks at DEMUCS_FT_MODEL_PATH.
+    let msg = err(dispatcher
+        .invoke(
+            "separate_stems",
+            json!({ "path": src.to_string_lossy() }),
+            &mut ctx,
+        )
+        .unwrap());
+    assert!(
+        msg.contains("DEMUCS_FT_MODEL_PATH") && msg.contains("scripts/fetch-models.sh"),
+        "expected DEMUCS_FT_MODEL_PATH install hint, got: {msg}"
+    );
+
+    // Explicit htdemucs → DEMUCS_MODEL_PATH instead.
+    let msg = err(dispatcher
+        .invoke(
+            "separate_stems",
+            json!({ "path": src.to_string_lossy(), "model": "htdemucs" }),
+            &mut ctx,
+        )
+        .unwrap());
+    assert!(
+        msg.contains("DEMUCS_MODEL_PATH") && msg.contains("scripts/fetch-models.sh"),
+        "expected DEMUCS_MODEL_PATH install hint, got: {msg}"
+    );
+}
+
+#[test]
+fn separate_stems_rejects_unknown_model_via_schema() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+
+    // Schema enforces the enum, so this fails dispatch-time validation
+    // (a `DispatchError`, not a `ToolResult::Error`).
+    let result = dispatcher.invoke(
+        "separate_stems",
+        json!({ "path": src.to_string_lossy(), "model": "htdemucs_xl" }),
+        &mut ctx,
+    );
+    let err = result.unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("htdemucs_xl") || msg.contains("enum"),
+        "expected schema validation error, got: {msg}"
+    );
+}
+
+#[test]
+fn separate_stems_rejects_missing_input_file() {
+    // SAFETY: see the env-var note above.
+    unsafe {
+        std::env::set_var(
+            "DEMUCS_FT_MODEL_PATH",
+            "/some/path/that/does/not/exist.onnx",
+        );
+    }
+
+    let (_tmp, mut store, mut engine, dispatcher) = fresh();
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+
+    let msg = err(dispatcher
+        .invoke(
+            "separate_stems",
+            json!({ "path": "/no/such/audio.wav" }),
+            &mut ctx,
+        )
+        .unwrap());
+    assert!(
+        msg.contains("file not found") && msg.contains("/no/such/audio.wav"),
+        "expected file-not-found error, got: {msg}"
+    );
+
+    // Cleanup so other tests in this file aren't affected.
+    unsafe {
+        std::env::remove_var("DEMUCS_FT_MODEL_PATH");
+    }
 }

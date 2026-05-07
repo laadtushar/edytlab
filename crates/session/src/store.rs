@@ -139,6 +139,14 @@ impl Store {
         self.head
     }
 
+    /// Project directory the store was opened against. Tools that
+    /// keep their own caches under `<project>/.audiograph/<their-cache>/`
+    /// (e.g. the Phase-2 stem cache) read this rather than threading
+    /// the path through `ToolContext` separately.
+    pub fn project_dir(&self) -> &Path {
+        &self.project_dir
+    }
+
     pub fn set_head(&mut self, id: NodeId) -> Result<()> {
         let hex = id.to_hex();
         let path = self.shard_dir(&hex).join(format!("{hex}.json"));

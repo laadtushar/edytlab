@@ -13,6 +13,8 @@ workspace = true
 session = { path = "../session" }
 audio-engine = { path = "../audio-engine" }
 audio-decoder = { path = "../audio-decoder" }
+ml-demucs = { path = "../ml-demucs" }
+ml-pipeline = { path = "../ml-pipeline" }
 ml-whisper = { path = "../ml-whisper" }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 serde = { version = "1", features = ["derive"] }
@@ -21,6 +23,7 @@ schemars = "0.8"
 jsonschema = { version = "0.18", default-features = false }
 tempfile = "3"
 thiserror = "2"
+tracing = "0.1"
 
 [dev-dependencies]
 hound = "3.5"

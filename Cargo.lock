@@ -2510,6 +2510,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "ml-demucs"
+version = "0.1.0"
+dependencies = [
+ "audio-decoder",
+ "blake3",
+ "hound",
+ "ml-pipeline",
+ "ndarray 0.16.1",
+ "ort",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
 name = "ml-pipeline"
 version = "0.1.0"
 dependencies = [
@@ -5087,6 +5104,8 @@ dependencies = [
  "chrono",
  "hound",
  "jsonschema",
+ "ml-demucs",
+ "ml-pipeline",
  "ml-whisper",
  "schemars 0.8.22",
  "serde",
@@ -5094,6 +5113,7 @@ dependencies = [
  "session",
  "tempfile",
  "thiserror 2.0.18",
+ "tracing",
 ]
 
 [[package]]
