@@ -9,8 +9,27 @@ publish = false
 name = "edytlab_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[lints]
+workspace = true
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync"] }
+tracing = "0.1"
+keyring = { version = "3", default-features = false, features = ["linux-native", "apple-native", "windows-native"] }
+
+ai = { path = "../../../crates/ai" }
+audio-engine = { path = "../../../crates/audio-engine" }
+session = { path = "../../../crates/session" }
+tools = { path = "../../../crates/tools" }
+
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }
+tempfile = "3"
+chrono = "0.4"

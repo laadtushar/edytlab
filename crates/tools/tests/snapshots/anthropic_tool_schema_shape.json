@@ -1,0 +1,14 @@
+{
+  "name": "load",
+  "description": "Load an audio file into the session as a new clip on a new track.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string"
+      }
+    },
+    "required": ["path"],
+    "additionalProperties": false
+  }
+}

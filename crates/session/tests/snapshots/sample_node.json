@@ -1,0 +1,76 @@
+{
+  "id": "6a04dc431bc56c4fa7463739a3abaaa57ead118049e1c01a8653c81047522738",
+  "parent": null,
+  "created_at": "2026-05-06T12:00:00Z",
+  "label": "seed",
+  "reasoning": "initial fixture for snapshot test",
+  "state": {
+    "tracks": [
+      {
+        "id": "11111111-2222-3333-4444-555555555555",
+        "name": "Vocals",
+        "clips": [
+          {
+            "source_path": "media/vocal_take_1.wav",
+            "start_in_track": 0,
+            "source_offset": 1024,
+            "length": 480000,
+            "content_hash": "4242424242424242424242424242424242424242424242424242424242424242"
+          }
+        ],
+        "gain_db": -3.0,
+        "pan": 0.25,
+        "muted": false,
+        "soloed": false,
+        "effects": [
+          {
+            "kind": "gain",
+            "params": {
+              "db": -3.0
+            },
+            "bypassed": false
+          }
+        ]
+      }
+    ],
+    "bus_routing": {
+      "buses": [
+        {
+          "id": "66666666-7777-8888-9999-aaaaaaaaaaaa",
+          "name": "VocalBus",
+          "effects": []
+        }
+      ]
+    },
+    "master_chain": [],
+    "tempo_map": {
+      "default_bpm": 120.0,
+      "segments": [
+        {
+          "start_sample": 0,
+          "bpm": 120.0
+        }
+      ]
+    },
+    "key_map": {
+      "segments": [
+        {
+          "start_sample": 0,
+          "key": "Cmaj"
+        }
+      ]
+    },
+    "transcript": {
+      "words": [
+        {
+          "text": "hello",
+          "start_s": 0.0,
+          "end_s": 0.5,
+          "confidence": 0.97
+        }
+      ]
+    },
+    "sample_rate": 48000,
+    "length_samples": 480000
+  }
+}

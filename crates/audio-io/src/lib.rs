@@ -40,10 +40,7 @@ use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
     SampleFormat, SampleRate, Stream, StreamConfig,
 };
-use ringbuf::{
-    traits::{Consumer as _, Producer as _, Split},
-    HeapRb,
-};
+use ringbuf::{traits::Split, HeapRb};
 use rubato::{FftFixedInOut, Resampler};
 use thiserror::Error;
 use tracing::debug;

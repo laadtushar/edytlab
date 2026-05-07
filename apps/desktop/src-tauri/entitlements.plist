@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Required for outgoing HTTPS to Anthropic + telemetry endpoints. -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+
+    <!-- ONNX Runtime (used by ml-whisper) JIT-compiles operator kernels and
+         requires writable executable memory. Without this entitlement the
+         dynamic-load path fails on hardened-runtime apps. -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+
+    <!-- Audio output (Core Audio). Required for cpal::default_output_device. -->
+    <key>com.apple.security.device.audio-input</key>
+    <false/>
+
+    <!-- We read user-selected audio files from anywhere; no app-sandbox. The
+         hardened runtime IS enabled (notarization requires it). If we ever
+         enable App Sandbox we'd need a user-selected-files entitlement. -->
+</dict>
+</plist>

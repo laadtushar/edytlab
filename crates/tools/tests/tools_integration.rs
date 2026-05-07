@@ -1,0 +1,659 @@
+//! Integration tests for the M08 tool set.
+//!
+//! These tests drive the dispatcher end-to-end against an on-disk
+//! [`session::Store`] and a real [`audio_engine::Engine`], the same way
+//! the eventual AI loop will. Each `#[test]` covers one acceptance
+//! criterion from the M08 plan, plus the cross-tool sequence and the
+//! `gain` composition property.
+
+use std::path::{Path, PathBuf};
+
+use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
+use serde_json::{json, Value};
+use tempfile::TempDir;
+use tools::{ToolContext, ToolDispatcher, ToolResult};
+
+const SAMPLE_RATE: u32 = 48_000;
+
+fn fresh() -> (
+    TempDir,
+    session::Store,
+    audio_engine::Engine,
+    ToolDispatcher,
+) {
+    let tmp = TempDir::new().expect("tempdir");
+    let store = session::Store::open(tmp.path()).expect("open store");
+    let engine = audio_engine::Engine::new();
+    let dispatcher = ToolDispatcher::default_dispatcher();
+    (tmp, store, engine, dispatcher)
+}
+
+/// Synthesize a 1-second mono sine WAV at `peak_amp`. Returns the path.
+fn write_sine_wav(dir: &Path, name: &str, peak_amp: f32) -> PathBuf {
+    let path = dir.join(name);
+    let spec = WavSpec {
+        channels: 1,
+        sample_rate: SAMPLE_RATE,
+        bits_per_sample: 16,
+        sample_format: SampleFormat::Int,
+    };
+    let mut writer = WavWriter::create(&path, spec).expect("wav writer");
+    let frames = SAMPLE_RATE as usize;
+    let freq = 440.0_f32;
+    for n in 0..frames {
+        let t = n as f32 / SAMPLE_RATE as f32;
+        let s = (2.0 * std::f32::consts::PI * freq * t).sin() * peak_amp;
+        let q = (s * 32_768.0)
+            .round()
+            .clamp(i16::MIN as f32, i16::MAX as f32) as i16;
+        writer.write_sample(q).unwrap();
+    }
+    writer.finalize().unwrap();
+    path
+}
+
+/// Read all i16 samples from a WAV file.
+fn read_wav_samples(path: &Path) -> Vec<i16> {
+    let mut reader = WavReader::open(path).expect("open output wav");
+    reader
+        .samples::<i16>()
+        .map(|r| r.expect("sample read"))
+        .collect()
+}
+
+fn ok(result: ToolResult) -> Value {
+    match result {
+        ToolResult::Ok(v) => v,
+        ToolResult::Error(msg) => panic!("expected Ok, got Error({msg})"),
+    }
+}
+
+fn err(result: ToolResult) -> String {
+    match result {
+        ToolResult::Ok(v) => panic!("expected Error, got Ok({v})"),
+        ToolResult::Error(msg) => msg,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Acceptance criterion 1: gain(0, +6.02) doubles samples.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn gain_plus_6dbish_doubles_samples_after_render() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let out = tmp.path().join("out.wav");
+
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+
+    let load = ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+    let _ = load["node_id"].as_str().unwrap();
+
+    let six_db = 20.0 * 2f32.log10();
+    let gained = ok(dispatcher
+        .invoke("gain", json!({ "track": 0, "db": six_db }), &mut ctx)
+        .unwrap());
+    let gained_id = gained["node_id"].as_str().unwrap().to_string();
+
+    ok(dispatcher
+        .invoke(
+            "render_final",
+            json!({
+                "node_id": gained_id,
+                "format": "wav",
+                "out_path": out.to_string_lossy(),
+            }),
+            &mut ctx,
+        )
+        .unwrap());
+
+    let src_samples = read_wav_samples(&src);
+    let out_samples = read_wav_samples(&out);
+    assert_eq!(src_samples.len(), out_samples.len());
+
+    let mut max_diff = 0i32;
+    for (a, b) in src_samples.iter().zip(out_samples.iter()) {
+        let scaled = (*a as i32) * 2;
+        let diff = (scaled - *b as i32).abs();
+        if diff > max_diff {
+            max_diff = diff;
+        }
+    }
+    // Float quantisation gives us up to ~1 LSB rounding per sample.
+    assert!(
+        max_diff <= 1,
+        "expected output ~= 2x input within 1 LSB, max diff was {max_diff}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Acceptance criterion 2: normalize matches the previously-rendered output
+// for the same fixture (golden-style: regenerate-and-compare).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn normalize_brings_peak_to_target_dbfs() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    // 0.5 amplitude == -6 dBFS peak.
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.5);
+    let out = tmp.path().join("normalized.wav");
+
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+
+    ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+
+    let res = ok(dispatcher
+        .invoke(
+            "normalize",
+            json!({ "track": 0, "target_dbfs": -1.0 }),
+            &mut ctx,
+        )
+        .unwrap());
+    let new_id = res["node_id"].as_str().unwrap().to_string();
+    let applied_db = res["applied_gain_db"].as_f64().unwrap() as f32;
+    // peak was -6.02 dBFS, target is -1.0 -> applied ~= +5.02 dB.
+    assert!((applied_db - 5.02).abs() < 0.05, "applied_db={applied_db}");
+
+    ok(dispatcher
+        .invoke(
+            "render_final",
+            json!({
+                "node_id": new_id,
+                "format": "wav",
+                "out_path": out.to_string_lossy(),
+            }),
+            &mut ctx,
+        )
+        .unwrap());
+
+    // Verify: rendered peak is within ~0.1 dB of -1 dBFS.
+    let samples = read_wav_samples(&out);
+    let peak = samples
+        .iter()
+        .map(|s| s.unsigned_abs() as i32)
+        .max()
+        .unwrap();
+    let peak_amp = peak as f32 / 32_768.0;
+    let peak_dbfs = 20.0 * peak_amp.log10();
+    assert!(
+        (peak_dbfs - (-1.0)).abs() < 0.1,
+        "expected peak ~= -1 dBFS, got {peak_dbfs}"
+    );
+}
+
+/// Determinism check: re-running normalize on the same input twice
+/// yields byte-identical output WAVs. This is the byte-for-byte
+/// "golden" check from M08 expressed without a checked-in artifact.
+#[test]
+fn normalize_render_is_byte_deterministic() {
+    let make = || -> Vec<u8> {
+        let (tmp, mut store, mut engine, dispatcher) = fresh();
+        let src = write_sine_wav(tmp.path(), "in.wav", 0.5);
+        let out = tmp.path().join("normalized.wav");
+
+        let mut ctx = ToolContext {
+            store: &mut store,
+            engine: &mut engine,
+        };
+
+        ok(dispatcher
+            .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+            .unwrap());
+        let res = ok(dispatcher
+            .invoke(
+                "normalize",
+                json!({ "track": 0, "target_dbfs": -1.0 }),
+                &mut ctx,
+            )
+            .unwrap());
+        let new_id = res["node_id"].as_str().unwrap().to_string();
+        ok(dispatcher
+            .invoke(
+                "render_final",
+                json!({
+                    "node_id": new_id,
+                    "format": "wav",
+                    "out_path": out.to_string_lossy(),
+                }),
+                &mut ctx,
+            )
+            .unwrap());
+        std::fs::read(&out).unwrap()
+    };
+
+    let a = make();
+    let b = make();
+    assert_eq!(a, b, "normalize render is non-deterministic");
+}
+
+// ---------------------------------------------------------------------------
+// Acceptance criterion 3: cut_range shortens the output by exactly the cut
+// duration.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn cut_range_shortens_render_by_exact_duration() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.5);
+    let out = tmp.path().join("cut.wav");
+
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+
+    let load = ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+    let original_len = load["length_samples"].as_u64().unwrap();
+
+    // Cut at the tail so Phase 1's single-clip render stays correct.
+    let cut_start = original_len - 10_000;
+    let cut_end = original_len;
+    let cut = ok(dispatcher
+        .invoke(
+            "cut_range",
+            json!({
+                "track": 0,
+                "start_sample": cut_start,
+                "end_sample": cut_end,
+            }),
+            &mut ctx,
+        )
+        .unwrap());
+    let new_id = cut["node_id"].as_str().unwrap().to_string();
+    assert_eq!(cut["removed_samples"].as_u64().unwrap(), 10_000);
+
+    ok(dispatcher
+        .invoke(
+            "render_final",
+            json!({
+                "node_id": new_id,
+                "format": "wav",
+                "out_path": out.to_string_lossy(),
+            }),
+            &mut ctx,
+        )
+        .unwrap());
+
+    let reader = WavReader::open(&out).unwrap();
+    let frames = reader.duration() as u64;
+    assert_eq!(
+        frames,
+        original_len - 10_000,
+        "expected output to be original - 10_000 frames"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Acceptance criterion 4: every mutating tool creates exactly one new node
+// parented to the prior head.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn each_mutating_tool_creates_one_child_node() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.5);
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+
+    let h0 = ctx.store.head();
+    assert!(h0.is_none(), "fresh store has no head");
+
+    let load = ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+    let h1 = session::NodeId::from_hex(load["node_id"].as_str().unwrap()).unwrap();
+    let n1 = ctx.store.get(h1).unwrap();
+    assert_eq!(n1.parent, None);
+
+    let g = ok(dispatcher
+        .invoke("gain", json!({ "track": 0, "db": 1.0 }), &mut ctx)
+        .unwrap());
+    let h2 = session::NodeId::from_hex(g["node_id"].as_str().unwrap()).unwrap();
+    let n2 = ctx.store.get(h2).unwrap();
+    assert_eq!(n2.parent, Some(h1), "gain must parent to load's head");
+
+    let t = ok(dispatcher
+        .invoke(
+            "trim",
+            json!({ "track": 0, "start_sample": 0, "end_sample": 1000 }),
+            &mut ctx,
+        )
+        .unwrap());
+    let h3 = session::NodeId::from_hex(t["node_id"].as_str().unwrap()).unwrap();
+    let n3 = ctx.store.get(h3).unwrap();
+    assert_eq!(n3.parent, Some(h2), "trim must parent to gain's head");
+}
+
+// ---------------------------------------------------------------------------
+// Acceptance criterion 5: argument validation produces actionable text.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn unknown_track_index_returns_actionable_error() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.5);
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+
+    ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+
+    let msg = err(dispatcher
+        .invoke("gain", json!({ "track": 3, "db": 0.0 }), &mut ctx)
+        .unwrap());
+    assert!(
+        msg.contains("track index 3 out of range") && msg.contains("session has 1 track"),
+        "actual error: {msg}"
+    );
+}
+
+#[test]
+fn out_of_range_samples_return_actionable_error() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.5);
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+
+    let load = ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+    let len = load["length_samples"].as_u64().unwrap();
+
+    // start >= end
+    let msg = err(dispatcher
+        .invoke(
+            "cut_range",
+            json!({ "track": 0, "start_sample": 100, "end_sample": 50 }),
+            &mut ctx,
+        )
+        .unwrap());
+    assert!(
+        msg.contains("start_sample") && msg.contains("end_sample"),
+        "got: {msg}"
+    );
+
+    // end > track length
+    let msg = err(dispatcher
+        .invoke(
+            "trim",
+            json!({ "track": 0, "start_sample": 0, "end_sample": len + 1 }),
+            &mut ctx,
+        )
+        .unwrap());
+    assert!(msg.contains("exceeds track length"), "got: {msg}");
+}
+
+#[test]
+fn no_session_loaded_returns_clear_error() {
+    let (_tmp, mut store, mut engine, dispatcher) = fresh();
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+
+    let msg = err(dispatcher
+        .invoke("gain", json!({ "track": 0, "db": 1.0 }), &mut ctx)
+        .unwrap());
+    assert!(msg.contains("no session loaded"), "got: {msg}");
+}
+
+// ---------------------------------------------------------------------------
+// Cross-tool sequence: load -> cut_range -> normalize -> render_final.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn cross_tool_sequence_load_cut_normalize_render() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.5);
+    let out = tmp.path().join("seq.wav");
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+
+    let load = ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+    let len = load["length_samples"].as_u64().unwrap();
+
+    ok(dispatcher
+        .invoke(
+            "cut_range",
+            json!({
+                "track": 0,
+                "start_sample": len - 5000,
+                "end_sample": len,
+            }),
+            &mut ctx,
+        )
+        .unwrap());
+
+    let norm = ok(dispatcher
+        .invoke(
+            "normalize",
+            json!({ "track": 0, "target_dbfs": -1.0 }),
+            &mut ctx,
+        )
+        .unwrap());
+    let final_id = norm["node_id"].as_str().unwrap().to_string();
+
+    ok(dispatcher
+        .invoke(
+            "render_final",
+            json!({
+                "node_id": final_id,
+                "format": "wav",
+                "out_path": out.to_string_lossy(),
+            }),
+            &mut ctx,
+        )
+        .unwrap());
+
+    let reader = WavReader::open(&out).unwrap();
+    let frames = reader.duration() as u64;
+    assert_eq!(frames, len - 5000);
+
+    let samples = read_wav_samples(&out);
+    let peak = samples
+        .iter()
+        .map(|s| s.unsigned_abs() as i32)
+        .max()
+        .unwrap();
+    let peak_dbfs = 20.0 * (peak as f32 / 32_768.0).log10();
+    assert!(
+        (peak_dbfs - (-1.0)).abs() < 0.1,
+        "expected normalized peak near -1 dBFS, got {peak_dbfs}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Property test: composing two gains == single sum-of-dB gain.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn gain_composition_is_additive_in_db() {
+    // A handful of representative dB pairs covering the practical range.
+    let cases = [
+        (0.0_f32, 0.0_f32),
+        (3.0, -3.0),
+        (-6.02, -6.02),
+        (12.0, -7.5),
+        (1.5, 4.2),
+    ];
+
+    for (a, b) in cases {
+        let (tmp1, mut s1, mut e1, d1) = fresh();
+        let (tmp2, mut s2, mut e2, d2) = fresh();
+        let src1 = write_sine_wav(tmp1.path(), "in.wav", 0.25);
+        let src2 = write_sine_wav(tmp2.path(), "in.wav", 0.25);
+
+        // Path A: two consecutive gain calls.
+        let last_a = {
+            let mut ctx = ToolContext {
+                store: &mut s1,
+                engine: &mut e1,
+            };
+            ok(d1
+                .invoke("load", json!({ "path": src1.to_string_lossy() }), &mut ctx)
+                .unwrap());
+            ok(d1
+                .invoke("gain", json!({ "track": 0, "db": a }), &mut ctx)
+                .unwrap());
+            let r = ok(d1
+                .invoke("gain", json!({ "track": 0, "db": b }), &mut ctx)
+                .unwrap());
+            r["node_id"].as_str().unwrap().to_string()
+        };
+
+        // Path B: one gain call with the summed dB.
+        let last_b = {
+            let mut ctx = ToolContext {
+                store: &mut s2,
+                engine: &mut e2,
+            };
+            ok(d2
+                .invoke("load", json!({ "path": src2.to_string_lossy() }), &mut ctx)
+                .unwrap());
+            let r = ok(d2
+                .invoke("gain", json!({ "track": 0, "db": a + b }), &mut ctx)
+                .unwrap());
+            r["node_id"].as_str().unwrap().to_string()
+        };
+
+        // Render both and compare gain field of the head state.
+        let na = s1.get(session::NodeId::from_hex(&last_a).unwrap()).unwrap();
+        let ga = na.state.tracks[0].gain_db;
+
+        let nb = s2.get(session::NodeId::from_hex(&last_b).unwrap()).unwrap();
+        let gb = nb.state.tracks[0].gain_db;
+
+        assert!(
+            (ga - gb).abs() < 1e-5,
+            "for case ({a}, {b}): composed gain {ga} != single {gb}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// render_preview returns a path and does NOT mutate session head.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn render_preview_returns_path_without_creating_node() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+
+    let load = ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+    let load_id = load["node_id"].as_str().unwrap().to_string();
+    let head_before = ctx.store.head();
+
+    let preview = ok(dispatcher
+        .invoke("render_preview", json!({ "node_id": load_id }), &mut ctx)
+        .unwrap());
+    let path = PathBuf::from(preview["path"].as_str().unwrap());
+    assert!(
+        path.exists(),
+        "preview file should exist at {}",
+        path.display()
+    );
+
+    let head_after = ctx.store.head();
+    assert_eq!(
+        head_before, head_after,
+        "render_preview must not change head"
+    );
+
+    // Cleanup the preview tempfile we just kept.
+    let _ = std::fs::remove_file(&path);
+}
+
+// ---------------------------------------------------------------------------
+// render_final reports clear errors for unsupported formats.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn render_final_rejects_mp3_and_flac_in_phase_1() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+    let load = ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+    let id = load["node_id"].as_str().unwrap().to_string();
+    let out = tmp.path().join("out.bin");
+
+    for fmt in ["mp3", "flac"] {
+        let msg = err(dispatcher
+            .invoke(
+                "render_final",
+                json!({
+                    "node_id": id,
+                    "format": fmt,
+                    "out_path": out.to_string_lossy(),
+                }),
+                &mut ctx,
+            )
+            .unwrap());
+        assert!(msg.contains("not supported in Phase 1"), "got: {msg}");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// default_dispatcher exposes all Phase-1 tools (7 deterministic + transcribe).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn default_dispatcher_exposes_all_phase1_tools() {
+    let dispatcher = ToolDispatcher::default_dispatcher();
+    let names: Vec<String> = dispatcher
+        .tool_schemas()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap().to_string())
+        .collect();
+    let mut sorted = names.clone();
+    sorted.sort();
+    assert_eq!(
+        sorted,
+        vec![
+            "cut_range",
+            "gain",
+            "load",
+            "normalize",
+            "render_final",
+            "render_preview",
+            "transcribe",
+            "trim",
+        ]
+    );
+}
