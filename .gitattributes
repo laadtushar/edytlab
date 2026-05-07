@@ -1,17 +1,26 @@
-# Force LF in the working tree on every platform.
+# Repo-wide line-ending policy.
 #
-# Why: snapshot fixtures (e.g. crates/session/tests/snapshots/sample_node.json)
-# are byte-compared against in-memory `serde_json::to_string_pretty` output,
-# which always emits "\n". Without this file, Git's autocrlf on Windows
-# checks them out as "\r\n" and the byte-equal assertions fail in CI even
-# though the source on disk matches.
-#
-# `text=auto` lets Git detect text vs binary; `eol=lf` pins the EOL so the
-# checkout is identical on macOS, Linux, and Windows. Binary file types are
-# listed below to short-circuit the autodetection.
-* text=auto eol=lf
+# Default: let Git auto-detect text vs binary, but DO NOT force a working-tree
+# EOL — that lets shell scripts on Linux/macOS keep LF and lets `.bat` keep
+# CRLF, matching each platform's convention.
+* text=auto
 
-# Audio / model / image binaries — never line-end-convert.
+# --- Byte-sensitive files: pin LF on every platform. ---
+#
+# These are read with `include_str!` or `fs::read_to_string` and then
+# byte-compared against in-memory data, so a Windows checkout that rewrote LF
+# to CRLF would fail the assertion (or embed CRLF into a Rust binary). Pin LF
+# explicitly so autocrlf can't touch them.
+crates/session/tests/snapshots/*.json text eol=lf
+crates/tools/tests/snapshots/*.json   text eol=lf
+crates/ai/tests/snapshots/*.snap      text eol=lf
+crates/ai/prompts/*.md                text eol=lf
+
+# --- Windows-specific scripts: keep CRLF. ---
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# --- Binaries: never line-end-convert. ---
 *.wav  binary
 *.mp3  binary
 *.flac binary
