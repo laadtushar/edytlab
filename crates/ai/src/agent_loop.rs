@@ -39,6 +39,13 @@ use crate::anthropic::{
 use crate::prompt::{ANTHROPIC_VERSION, DEFAULT_MAX_TOKENS, MAX_TOOL_CALLS_PER_TURN};
 use crate::{AgentEvent, AnthropicConfig, Error, Result, TurnResult};
 
+/// Hard upper bound on the number of content blocks we'll allocate for
+/// a single streaming Anthropic message. The server tells us each
+/// block's index; without this cap a malicious or buggy server could
+/// hand us `u64::MAX` and force a massive `Vec` allocation. Anthropic's
+/// real tool-use messages have well under 10 blocks, so 100 is generous.
+const MAX_CONTENT_BLOCKS: usize = 100;
+
 /// Run a single agent turn. See [`crate::Agent::turn`] for behaviour.
 ///
 /// This is a free function (rather than an `Agent` method) so the
@@ -137,7 +144,7 @@ where
                     index,
                     content_block,
                 } => {
-                    grow_to(&mut blocks, index as usize);
+                    grow_to(&mut blocks, index as usize)?;
                     match content_block {
                         ContentBlockStart::Text { .. } => {
                             blocks[index as usize] = PartialBlock::Text(String::new());
@@ -252,12 +259,16 @@ where
 
         // The cap is enforced *before* dispatching this batch, so a
         // model that requests 11 tools in a single turn never gets the
-        // 11th invoked.
+        // 11th invoked. Checking the whole batch up-front (rather than
+        // per-call inside the loop) keeps the conversation history
+        // consistent: if the batch would push us over the cap we bail
+        // *before* appending any tool_result blocks, so we never end up
+        // with an assistant tool_use missing its matching tool_result.
+        if total_tool_calls + tool_uses.len() > MAX_TOOL_CALLS_PER_TURN {
+            return Err(Error::ToolBudgetExceeded(MAX_TOOL_CALLS_PER_TURN));
+        }
         let mut tool_results: Vec<ContentBlock> = Vec::with_capacity(tool_uses.len());
         for (id, name, args_json) in tool_uses {
-            if total_tool_calls >= MAX_TOOL_CALLS_PER_TURN {
-                return Err(Error::ToolBudgetExceeded(MAX_TOOL_CALLS_PER_TURN));
-            }
             total_tool_calls += 1;
 
             let args: Value = match serde_json::from_str(&args_json) {
@@ -407,10 +418,16 @@ fn error_message(err: &ApiError) -> String {
     err.message.clone()
 }
 
-fn grow_to(v: &mut Vec<PartialBlock>, idx: usize) {
+fn grow_to(v: &mut Vec<PartialBlock>, idx: usize) -> Result<()> {
+    if idx >= MAX_CONTENT_BLOCKS {
+        return Err(Error::Protocol(format!(
+            "content_block_index {idx} exceeds MAX_CONTENT_BLOCKS ({MAX_CONTENT_BLOCKS})"
+        )));
+    }
     while v.len() <= idx {
         v.push(PartialBlock::Pending);
     }
+    Ok(())
 }
 
 /// Tool results commonly include `node_id` (a hex string). We surface
