@@ -243,14 +243,21 @@ pub async fn render_preview(state: State<'_, AppState>, node: String) -> CmdResu
     // `edytlab-preview-<node_id>.wav` filename, but that lets two edytlab
     // instances rendering the same node race to the same path (and on
     // multi-user systems is symlink-attackable). `tempfile_in` creates
-    // the file with O_CREAT|O_EXCL semantics and a randomised suffix;
-    // `keep()` then persists it past the handle's drop.
-    let tmp = tempfile::Builder::new()
+    // the file with O_CREAT|O_EXCL semantics and a randomised suffix.
+    //
+    // Important on Windows: `NamedTempFile` keeps the file handle open
+    // for TOCTOU-safety; `hound::WavWriter::create` then opens the path
+    // for exclusive write, which fails because Windows enforces share
+    // semantics. We call `into_temp_path()` BEFORE rendering to drop
+    // the file handle (TempPath still owns the path + delete-on-drop)
+    // and then `keep()` after rendering to persist it.
+    let temp_path = tempfile::Builder::new()
         .prefix("edytlab-preview-")
         .suffix(".wav")
         .tempfile_in(std::env::temp_dir())
-        .map_err(CommandError::from)?;
-    let out_path = tmp.path().to_path_buf();
+        .map_err(CommandError::from)?
+        .into_temp_path();
+    let out_path = temp_path.to_path_buf();
 
     {
         let engine = lock_std(&state.engine, "engine")?;
@@ -259,7 +266,7 @@ pub async fn render_preview(state: State<'_, AppState>, node: String) -> CmdResu
             .map_err(CommandError::from)?;
     }
 
-    tmp.into_temp_path()
+    temp_path
         .keep()
         .map_err(|e| CommandError::from(e.error))?;
 
