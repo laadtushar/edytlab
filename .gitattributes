@@ -1,0 +1,26 @@
+# Force LF in the working tree on every platform.
+#
+# Why: snapshot fixtures (e.g. crates/session/tests/snapshots/sample_node.json)
+# are byte-compared against in-memory `serde_json::to_string_pretty` output,
+# which always emits "\n". Without this file, Git's autocrlf on Windows
+# checks them out as "\r\n" and the byte-equal assertions fail in CI even
+# though the source on disk matches.
+#
+# `text=auto` lets Git detect text vs binary; `eol=lf` pins the EOL so the
+# checkout is identical on macOS, Linux, and Windows. Binary file types are
+# listed below to short-circuit the autodetection.
+* text=auto eol=lf
+
+# Audio / model / image binaries — never line-end-convert.
+*.wav  binary
+*.mp3  binary
+*.flac binary
+*.onnx binary
+*.bin  binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.ico  binary
+*.icns binary
+*.dmg  binary
+*.msi  binary
