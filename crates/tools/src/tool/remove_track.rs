@@ -46,18 +46,14 @@ impl Tool for RemoveTrackTool {
         }
 
         let removed = state.tracks.remove(args.track);
-        // Rebuild `length_samples` as the longest remaining track. Each
-        // track's "length" is the max clip end (start_in_track + length).
+        // Rebuild `length_samples` as the maximum clip end across all
+        // remaining tracks. Flatten across tracks since the per-track
+        // grouping doesn't matter to the max.
         state.length_samples = state
             .tracks
             .iter()
-            .map(|t| {
-                t.clips
-                    .iter()
-                    .map(|c| c.start_in_track + c.length)
-                    .max()
-                    .unwrap_or(0)
-            })
+            .flat_map(|t| &t.clips)
+            .map(|c| c.start_in_track + c.length)
             .max()
             .unwrap_or(0);
 

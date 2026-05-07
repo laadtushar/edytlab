@@ -137,7 +137,13 @@ fn single_track_unity(
     state: &SessionState,
     plans: &[TrackPlan],
 ) -> Result<Option<UnityPassthrough>, Error> {
-    if state.tracks.len() != 1 || plans.len() != 1 {
+    // `plans.len() == state.tracks.len()` by construction; a single check
+    // is enough. `track.muted` is implied by `!plan.contributes` (resolved
+    // at graph-build time), so we only need to keep `track.soloed` —
+    // sole-soloed tracks are still unity-eligible in principle, but we
+    // keep the guard to avoid surprising the caller in mixed-solo
+    // sessions that happen to collapse to one contributing track.
+    if state.tracks.len() != 1 {
         return Ok(None);
     }
     let track = &state.tracks[0];
@@ -145,7 +151,6 @@ fn single_track_unity(
     if !plan.contributes
         || track.gain_db != 0.0
         || track.pan != 0.0
-        || track.muted
         || track.soloed
         || !track.effects.is_empty()
     {
@@ -155,8 +160,7 @@ fn single_track_unity(
         Some(c) => c,
         None => return Ok(None),
     };
-    let source_frames = peek_source_frames(&clip.source_path)?;
-    let source_rate = peek_source_rate(&clip.source_path)?;
+    let (source_frames, source_rate) = peek_source_spec(&clip.source_path)?;
     if clip.source_offset != 0 || clip.length != source_frames {
         return Ok(None);
     }
@@ -168,14 +172,9 @@ fn single_track_unity(
     }))
 }
 
-/// Cheaply read the source's frame count from the WAV header without decoding
-/// samples. Used by the unity-passthrough check.
-fn peek_source_frames(path: &std::path::Path) -> Result<u64, Error> {
+/// Cheaply read the source's frame count and sample rate from the WAV
+/// header without decoding samples. Used by the unity-passthrough check.
+fn peek_source_spec(path: &std::path::Path) -> Result<(u64, u32), Error> {
     let reader = hound::WavReader::open(path)?;
-    Ok(reader.duration() as u64)
-}
-
-fn peek_source_rate(path: &std::path::Path) -> Result<u32, Error> {
-    let reader = hound::WavReader::open(path)?;
-    Ok(reader.spec().sample_rate)
+    Ok((reader.duration() as u64, reader.spec().sample_rate))
 }
