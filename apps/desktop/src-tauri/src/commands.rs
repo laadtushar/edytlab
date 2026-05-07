@@ -266,9 +266,7 @@ pub async fn render_preview(state: State<'_, AppState>, node: String) -> CmdResu
             .map_err(CommandError::from)?;
     }
 
-    temp_path
-        .keep()
-        .map_err(|e| CommandError::from(e.error))?;
+    temp_path.keep().map_err(|e| CommandError::from(e.error))?;
 
     out_path
         .to_str()
