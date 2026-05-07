@@ -1,10 +1,11 @@
-//! `load` tool — decode a file and replace the session state with a
-//! fresh single-track session whose only clip references the file.
+//! `load` tool — decode a file and add a new track to the session.
 //!
-//! Phase 1 simplification: `load` REPLACES the head's session state. The
-//! demo loads one file at a time and a multi-`load` workflow is out of
-//! scope. The forward-compat path (multi-track via additive `load`) lives
-//! behind the same tool name in Phase 2.
+//! Phase 1 simplification was: `load` REPLACES the head's session state
+//! with a fresh single-track session. M21 lifts that — a `load` against
+//! an existing session APPENDS a new track. There is still no head?
+//! Then we create a new session as before. The session-rate stays at the
+//! first-loaded source's rate (subsequent loads at a different rate are
+//! resampled to the project rate at render time, per M21 acceptance #3).
 
 use std::path::PathBuf;
 
@@ -33,7 +34,7 @@ impl Tool for LoadTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "load",
-            "Decode an audio file and replace the current session with a single-track session referencing it. Returns the new session node id, sample rate, length in samples, and channel count.",
+            "Decode an audio file and add it to the session as a new track. With no current head this creates a fresh single-track session; otherwise the file is appended as a new track on the current head, leaving existing tracks intact. Returns the new session node id, the new track's index, and the source's sample rate, length, and channel count.",
             object_schema(&[("path", "string", true)]),
         )
     }
@@ -87,15 +88,37 @@ impl Tool for LoadTool {
             effects: Vec::new(),
         };
 
-        let state = SessionState {
-            tracks: vec![track],
-            bus_routing: BusGraph::default(),
-            master_chain: Vec::new(),
-            tempo_map: TempoMap::default(),
-            key_map: None::<KeyMap>,
-            transcript: None::<Transcript>,
-            sample_rate: decoded.sample_rate,
-            length_samples,
+        // If there's already a head, append; otherwise create a fresh session.
+        let (state, track_index) = match ctx.store.head() {
+            Some(head) => match ctx.store.get(head) {
+                Ok(node) => {
+                    let mut s = node.state;
+                    let new_index = s.tracks.len();
+                    s.tracks.push(track);
+                    // The session's `length_samples` tracks the longest track
+                    // so renders know the project's overall bound. Project
+                    // sample rate is whatever the first load established —
+                    // mismatched sources are resampled at render time.
+                    if length_samples > s.length_samples {
+                        s.length_samples = length_samples;
+                    }
+                    (s, new_index)
+                }
+                Err(e) => return Ok(ToolResult::Error(format!("failed to read head node: {e}"))),
+            },
+            None => {
+                let s = SessionState {
+                    tracks: vec![track],
+                    bus_routing: BusGraph::default(),
+                    master_chain: Vec::new(),
+                    tempo_map: TempoMap::default(),
+                    key_map: None::<KeyMap>,
+                    transcript: None::<Transcript>,
+                    sample_rate: decoded.sample_rate,
+                    length_samples,
+                };
+                (s, 0)
+            }
         };
 
         let node = SessionNode {
@@ -115,15 +138,17 @@ impl Tool for LoadTool {
 
         Ok(ToolResult::Ok(json!({
             "node_id": id.to_hex(),
+            "track_index": track_index,
             "sample_rate": decoded.sample_rate,
             "length_samples": length_samples,
             "channels": decoded.channels,
             "summary": format!(
-                "Loaded {} ({} ch, {} Hz, {} samples) as new session head {}",
+                "Loaded {} ({} ch, {} Hz, {} samples) as track {} on session head {}",
                 path.display(),
                 decoded.channels,
                 decoded.sample_rate,
                 length_samples,
+                track_index,
                 id.to_hex(),
             ),
         })))

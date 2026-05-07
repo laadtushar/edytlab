@@ -19,6 +19,10 @@ hound = "3.5"
 # `src/render.rs`). Do not introduce `par_iter` or `rayon::scope` into
 # the render path without revisiting the determinism acceptance criterion.
 rayon = "1"
+# M21: per-track resample-to-project-rate during multi-track mixdown. Same
+# rubato version that audio-io uses for the realtime path; reused for the
+# offline path so resampling characteristics match.
+rubato = "0.16"
 thiserror = "2"
 
 [build-dependencies]
@@ -26,4 +30,8 @@ hound = "3.5"
 
 [dev-dependencies]
 hound = "3.5"
+# M21: FFT-based spectral assertions for the multi-track mix tests
+# (sum-of-tones must show both peaks). `realfft` is the workspace-blessed
+# FFT crate (see crates/audio-analysis/Cargo.toml).
+realfft = "3"
 tempfile = "3"

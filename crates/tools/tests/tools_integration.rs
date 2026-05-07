@@ -646,6 +646,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
     assert_eq!(
         sorted,
         vec![
+            "add_track",
             "align_to_beat",
             "analyze_track",
             "cut_range",
@@ -653,9 +654,11 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "load",
             "normalize",
             "pitch_shift",
+            "remove_track",
             "render_final",
             "render_preview",
             "separate_stems",
+            "set_track_gain",
             "time_stretch",
             "transcribe",
             "trim",
@@ -996,5 +999,266 @@ fn align_to_beat_rejects_empty_grid() {
             || msg.contains("minItems")
             || msg.contains("shorter than"),
         "expected schema validation error, got: {msg}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// M21 — multi-track session state.
+// ---------------------------------------------------------------------------
+
+/// Two consecutive `load`s append a second track instead of replacing the
+/// first.
+#[test]
+fn load_then_load_appends_track() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let a = write_sine_wav(tmp.path(), "a.wav", 0.25);
+    let b = write_sine_wav(tmp.path(), "b.wav", 0.10);
+
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+
+    let first = ok(dispatcher
+        .invoke("load", json!({ "path": a.to_string_lossy() }), &mut ctx)
+        .unwrap());
+    assert_eq!(first["track_index"].as_u64().unwrap(), 0);
+
+    let second = ok(dispatcher
+        .invoke("load", json!({ "path": b.to_string_lossy() }), &mut ctx)
+        .unwrap());
+    assert_eq!(second["track_index"].as_u64().unwrap(), 1);
+
+    let id = session::NodeId::from_hex(second["node_id"].as_str().unwrap()).unwrap();
+    let node = ctx.store.get(id).unwrap();
+    assert_eq!(node.state.tracks.len(), 2, "second load must append");
+    assert_eq!(
+        node.state.tracks[0].clips[0].source_path, a,
+        "track 0 must be the first-loaded source"
+    );
+    assert_eq!(
+        node.state.tracks[1].clips[0].source_path, b,
+        "track 1 must be the second-loaded source"
+    );
+}
+
+#[test]
+fn add_track_creates_empty_track() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+    ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+
+    let res = ok(dispatcher
+        .invoke("add_track", json!({ "name": "instrumental" }), &mut ctx)
+        .unwrap());
+    assert_eq!(res["track_index"].as_u64().unwrap(), 1);
+
+    let id = session::NodeId::from_hex(res["node_id"].as_str().unwrap()).unwrap();
+    let node = ctx.store.get(id).unwrap();
+    assert_eq!(node.state.tracks.len(), 2);
+    assert_eq!(node.state.tracks[1].name, "instrumental");
+    assert!(
+        node.state.tracks[1].clips.is_empty(),
+        "added track must start with no clips"
+    );
+}
+
+#[test]
+fn add_track_without_session_returns_clear_error() {
+    let (_tmp, mut store, mut engine, dispatcher) = fresh();
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+    let msg = err(dispatcher.invoke("add_track", json!({}), &mut ctx).unwrap());
+    assert!(msg.contains("no session loaded"), "got: {msg}");
+}
+
+#[test]
+fn remove_track_drops_clips_and_shifts_indices() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let a = write_sine_wav(tmp.path(), "a.wav", 0.25);
+    let b = write_sine_wav(tmp.path(), "b.wav", 0.10);
+    let c = write_sine_wav(tmp.path(), "c.wav", 0.05);
+
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+    ok(dispatcher
+        .invoke("load", json!({ "path": a.to_string_lossy() }), &mut ctx)
+        .unwrap());
+    ok(dispatcher
+        .invoke("load", json!({ "path": b.to_string_lossy() }), &mut ctx)
+        .unwrap());
+    ok(dispatcher
+        .invoke("load", json!({ "path": c.to_string_lossy() }), &mut ctx)
+        .unwrap());
+
+    // Drop track 1 (the b track). c shifts from index 2 to index 1.
+    let res = ok(dispatcher
+        .invoke("remove_track", json!({ "track": 1 }), &mut ctx)
+        .unwrap());
+    assert_eq!(res["track_count"].as_u64().unwrap(), 2);
+    assert_eq!(res["removed_track_name"].as_str().unwrap(), "b");
+
+    let id = session::NodeId::from_hex(res["node_id"].as_str().unwrap()).unwrap();
+    let node = ctx.store.get(id).unwrap();
+    assert_eq!(node.state.tracks.len(), 2);
+    assert_eq!(node.state.tracks[0].clips[0].source_path, a);
+    assert_eq!(
+        node.state.tracks[1].clips[0].source_path, c,
+        "c must shift down to index 1"
+    );
+}
+
+#[test]
+fn remove_track_rejects_out_of_range_index() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+    ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+    let msg = err(dispatcher
+        .invoke("remove_track", json!({ "track": 5 }), &mut ctx)
+        .unwrap());
+    assert!(
+        msg.contains("out of range"),
+        "expected out-of-range diagnostic, got: {msg}"
+    );
+}
+
+#[test]
+fn set_track_gain_changes_render_amplitude() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let out_loud = tmp.path().join("loud.wav");
+    let out_quiet = tmp.path().join("quiet.wav");
+
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+    ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+
+    // First, apply +6 dB and render. set_track_gain is absolute so this
+    // sets the track to exactly +6 dB regardless of prior state.
+    let six_db = 20.0 * 2f32.log10();
+    let r1 = ok(dispatcher
+        .invoke(
+            "set_track_gain",
+            json!({ "track": 0, "db": six_db }),
+            &mut ctx,
+        )
+        .unwrap());
+    assert!((r1["track_gain_db"].as_f64().unwrap() as f32 - six_db).abs() < 1e-3);
+    let id1 = r1["node_id"].as_str().unwrap().to_string();
+    ok(dispatcher
+        .invoke(
+            "render_final",
+            json!({
+                "node_id": id1,
+                "format": "wav",
+                "out_path": out_loud.to_string_lossy(),
+            }),
+            &mut ctx,
+        )
+        .unwrap());
+
+    // Now set to -6 dB (absolute, not additive). If this were additive
+    // it'd be 0 dB; absolute means the rendered output is half-amplitude.
+    let r2 = ok(dispatcher
+        .invoke(
+            "set_track_gain",
+            json!({ "track": 0, "db": -six_db }),
+            &mut ctx,
+        )
+        .unwrap());
+    assert!((r2["track_gain_db"].as_f64().unwrap() as f32 + six_db).abs() < 1e-3);
+    let id2 = r2["node_id"].as_str().unwrap().to_string();
+    ok(dispatcher
+        .invoke(
+            "render_final",
+            json!({
+                "node_id": id2,
+                "format": "wav",
+                "out_path": out_quiet.to_string_lossy(),
+            }),
+            &mut ctx,
+        )
+        .unwrap());
+
+    // Loud peak / quiet peak should be ≈ 4× (each step is 2×, set_track
+    // is absolute so the second call wipes the first).
+    let loud = read_wav_samples(&out_loud);
+    let quiet = read_wav_samples(&out_quiet);
+    let peak = |s: &[i16]| s.iter().map(|x| x.unsigned_abs() as i32).max().unwrap();
+    let p_loud = peak(&loud) as f32;
+    let p_quiet = peak(&quiet) as f32;
+    let ratio = p_loud / p_quiet;
+    assert!(
+        (ratio - 4.0).abs() < 0.1,
+        "expected loud/quiet ≈ 4.0, got {ratio} (loud={p_loud} quiet={p_quiet})"
+    );
+}
+
+/// Two-source workflow: `load a; load b; render_final` produces a mix
+/// where both tones are audible. End-to-end through the tool dispatcher.
+#[test]
+fn two_loads_then_render_produces_mixdown() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let a = write_sine_wav(tmp.path(), "a.wav", 0.4);
+    let b = write_sine_wav(tmp.path(), "b.wav", 0.4);
+    let out = tmp.path().join("mix.wav");
+
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+    ok(dispatcher
+        .invoke("load", json!({ "path": a.to_string_lossy() }), &mut ctx)
+        .unwrap());
+    let r = ok(dispatcher
+        .invoke("load", json!({ "path": b.to_string_lossy() }), &mut ctx)
+        .unwrap());
+    let id = r["node_id"].as_str().unwrap().to_string();
+
+    let report = ok(dispatcher
+        .invoke(
+            "render_final",
+            json!({
+                "node_id": id,
+                "format": "wav",
+                "out_path": out.to_string_lossy(),
+            }),
+            &mut ctx,
+        )
+        .unwrap());
+    assert_eq!(report["channels"].as_u64().unwrap(), 1);
+    assert_eq!(report["sample_rate"].as_u64().unwrap(), SAMPLE_RATE as u64);
+
+    // Two correlated 440 Hz sines at amplitude 0.4 sum to 0.8 peak.
+    let samples = read_wav_samples(&out);
+    let peak = samples
+        .iter()
+        .map(|s| s.unsigned_abs() as i32)
+        .max()
+        .unwrap();
+    let amp = peak as f32 / 32_768.0;
+    assert!(
+        amp > 0.7 && amp < 0.9,
+        "expected mixed peak ≈ 0.8, got {amp}"
     );
 }

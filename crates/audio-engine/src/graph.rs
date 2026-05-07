@@ -1,11 +1,28 @@
 //! Render graph construction.
 //!
-//! Phase 1 collapses the session DAG to a single linear chain because:
-//! * Sessions only ever have 0 or 1 tracks, with 0 or 1 clips.
-//! * Track effects are always empty (Phase 1 has no built-in effects).
-//! * `bus_routing` and `master_chain` are forward-compat fields, ignored here.
+//! ### History
 //!
-//! Phase 2 will turn this into a real DAG; keep the public surface narrow.
+//! Phase 1 collapsed the session DAG to a single-track / single-clip linear
+//! chain because tracks were guaranteed `len() <= 1`. M21 lifts that:
+//! sessions can carry multiple tracks, each with one clip, all of which are
+//! summed into a deterministic mixdown at render time. Bus routing and the
+//! master chain remain forward-compat fields, ignored here.
+//!
+//! ### Mixdown order
+//!
+//! Tracks are added to the mix in their `state.tracks` order. The session
+//! preserves insertion order (it's a `Vec<Track>`) and downstream tools
+//! (`add_track`, `remove_track`) maintain that order, so two byte-identical
+//! sessions produce a byte-identical mix even on machines whose `HashMap`
+//! iteration order differs. This is the M14 determinism trap; do not
+//! reorder tracks inside the render path.
+//!
+//! ### Solo / mute semantics
+//!
+//! Solo overrides mute: if any track has `soloed = true`, only soloed
+//! tracks contribute samples; muted-but-soloed still plays. If no track is
+//! soloed, muted tracks contribute zero samples. Both semantics are
+//! finalised at graph-build time so the render loop is a flat sum.
 
 use std::path::PathBuf;
 
@@ -13,61 +30,152 @@ use session::SessionState;
 
 use crate::Error;
 
-/// A flattened, single-track render plan. Phase 1 has at most one of these.
+/// One entry in the multi-track mix.
 ///
-/// Clip trimming via `source_offset` / `length` is honored by the offline
-/// render path: the rendered output is the slice
-/// `source[source_offset .. source_offset + length]` (further restricted by
-/// any caller-supplied [`crate::TimeRange`]). Sessions produced by the M08
-/// `cut_range`/`trim` tools set these fields to represent sub-ranges of the
-/// source file without rewriting the underlying audio. The fast path's
-/// [`Self::clip_covers_full_source`] flag stays correct by construction:
-/// any non-trivial trim flips it to false and forces the f32 render.
+/// Each plan entry carries everything the offline render needs to materialise
+/// that track: where to read samples from, the trim window in source frames,
+/// the linear gain (in dB), and whether this track will actually contribute
+/// (after solo/mute resolution at graph-build time).
 #[derive(Debug, Clone)]
-pub struct RenderGraph {
+pub struct TrackPlan {
     pub source_path: PathBuf,
-    pub track_gain_db: f32,
-    pub track_pan: f32,
-    pub muted: bool,
-    pub soloed: bool,
-    pub effects_empty: bool,
+    pub gain_db: f32,
     /// Frame offset into the decoded source where the clip starts.
     pub source_offset: u64,
     /// Frame length of the clip (counted in the source's sample rate).
     pub length: u64,
-    /// `true` when the clip's `source_offset == 0` AND its `length` equals the
-    /// source file's total frame count. Lets the fast path skip clip trimming
-    /// without re-decoding to verify.
-    pub clip_covers_full_source: bool,
+    /// Resolved contribution flag: if `false`, the render skips this track
+    /// outright. Captures both mute (no solo present) and "not-soloed"
+    /// (some other track has solo).
+    pub contributes: bool,
+}
+
+/// The flattened render plan.
+///
+/// `project_sample_rate` is the rate the mixdown is written at: any track
+/// whose source rate differs is resampled at render time via rubato. Channel
+/// count of the rendered file is the maximum channel count of any
+/// contributing source (mono-on-stereo is upmixed by duplication; stereo
+/// stays stereo).
+#[derive(Debug, Clone)]
+pub struct RenderGraph {
+    pub project_sample_rate: u32,
+    pub tracks: Vec<TrackPlan>,
+    /// Set when the plan reduces to a single contributing track with
+    /// unity gain, no effects, and a clip that covers its entire source.
+    /// In that one case the render path can copy the source bytes
+    /// verbatim — see [`is_unity_passthrough`](crate::render).
+    pub unity_passthrough_track: Option<UnityPassthrough>,
+}
+
+/// Side-channel data for the byte-copy fast path, populated only when the
+/// session genuinely reduces to a single unity-gain pass-through.
+#[derive(Debug, Clone)]
+pub struct UnityPassthrough {
+    pub source_path: PathBuf,
 }
 
 pub fn build(state: &SessionState) -> Result<RenderGraph, Error> {
-    let track = state.tracks.first().ok_or(Error::NoTrack)?;
-    let clip = track.clips.first().ok_or(Error::NoClip)?;
-
-    if !track.effects.is_empty() {
-        return Err(Error::EffectsUnsupportedInPhase1);
+    if state.tracks.is_empty() {
+        return Err(Error::NoTrack);
     }
 
-    let source_frames = peek_source_frames(&clip.source_path)?;
-    let clip_covers_full_source = clip.source_offset == 0 && clip.length == source_frames;
+    // Solo overrides mute: precompute whether any track is soloed so we can
+    // resolve `contributes` in one pass without re-scanning `state.tracks`
+    // inside the loop.
+    let any_soloed = state.tracks.iter().any(|t| t.soloed);
+
+    let mut plans: Vec<TrackPlan> = Vec::with_capacity(state.tracks.len());
+    for track in &state.tracks {
+        if !track.effects.is_empty() {
+            return Err(Error::EffectsUnsupportedInPhase1);
+        }
+        // Tracks with zero clips are valid but contribute nothing; the
+        // session-state model lets a freshly added empty track sit in the
+        // tree before any `load`/`cut_range` populates it.
+        let Some(clip) = track.clips.first() else {
+            plans.push(TrackPlan {
+                source_path: PathBuf::new(),
+                gain_db: track.gain_db,
+                source_offset: 0,
+                length: 0,
+                contributes: false,
+            });
+            continue;
+        };
+
+        let contributes = if any_soloed {
+            track.soloed
+        } else {
+            !track.muted
+        };
+
+        plans.push(TrackPlan {
+            source_path: clip.source_path.clone(),
+            gain_db: track.gain_db,
+            source_offset: clip.source_offset,
+            length: clip.length,
+            contributes,
+        });
+    }
+
+    // Decide whether the whole graph reduces to a unity byte-copy. The
+    // criteria are conservative on purpose: any deviation (multi-track,
+    // non-zero gain, mute, solo, partial clip, sample-rate mismatch with
+    // the project) forces the f32 mix path so we never silently bypass
+    // downstream logic.
+    let unity_passthrough_track = single_track_unity(state, &plans)?;
 
     Ok(RenderGraph {
-        source_path: clip.source_path.clone(),
-        track_gain_db: track.gain_db,
-        track_pan: track.pan,
-        muted: track.muted,
-        soloed: track.soloed,
-        effects_empty: track.effects.is_empty(),
-        source_offset: clip.source_offset,
-        length: clip.length,
-        clip_covers_full_source,
+        project_sample_rate: state.sample_rate,
+        tracks: plans,
+        unity_passthrough_track,
     })
 }
 
+fn single_track_unity(
+    state: &SessionState,
+    plans: &[TrackPlan],
+) -> Result<Option<UnityPassthrough>, Error> {
+    if state.tracks.len() != 1 || plans.len() != 1 {
+        return Ok(None);
+    }
+    let track = &state.tracks[0];
+    let plan = &plans[0];
+    if !plan.contributes
+        || track.gain_db != 0.0
+        || track.pan != 0.0
+        || track.muted
+        || track.soloed
+        || !track.effects.is_empty()
+    {
+        return Ok(None);
+    }
+    let clip = match track.clips.first() {
+        Some(c) => c,
+        None => return Ok(None),
+    };
+    let source_frames = peek_source_frames(&clip.source_path)?;
+    let source_rate = peek_source_rate(&clip.source_path)?;
+    if clip.source_offset != 0 || clip.length != source_frames {
+        return Ok(None);
+    }
+    if source_rate != state.sample_rate {
+        return Ok(None);
+    }
+    Ok(Some(UnityPassthrough {
+        source_path: clip.source_path.clone(),
+    }))
+}
+
 /// Cheaply read the source's frame count from the WAV header without decoding
-/// samples. Used by [`build`] to derive [`RenderGraph::clip_covers_full_source`].
+/// samples. Used by the unity-passthrough check.
 fn peek_source_frames(path: &std::path::Path) -> Result<u64, Error> {
     let reader = hound::WavReader::open(path)?;
     Ok(reader.duration() as u64)
+}
+
+fn peek_source_rate(path: &std::path::Path) -> Result<u32, Error> {
+    let reader = hound::WavReader::open(path)?;
+    Ok(reader.spec().sample_rate)
 }
