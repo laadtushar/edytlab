@@ -1,0 +1,129 @@
+name: Release (dev / unsigned)
+
+# Builds unsigned .dmg (Mac) + .msi (Win) artifacts and attaches them to a
+# GitHub Release as a draft. Use this for beta / preview drops while the
+# real Apple Developer ID + Authenticode certs aren't yet provisioned. The
+# signed pipelines (release-mac.yml, release-win.yml) stay as the source of
+# truth for shippable builds — this workflow is intentionally smaller.
+#
+# Triggers:
+#   - tag push matching `v*-dev.*`, `v*-beta.*`, or `v*-rc.*` (auto)
+#   - workflow_dispatch with an explicit tag input (manual)
+#
+# End-user warnings on unsigned artifacts:
+#   - macOS: "edytlab.app is damaged and can't be opened" / "from an
+#     unidentified developer". Bypass: System Settings → Privacy → Open
+#     Anyway, OR right-click → Open. We surface this in the release notes.
+#   - Windows: SmartScreen "Don't run / More info → Run anyway". Reputation
+#     can't be earned without code signing, so every download stays warned.
+#
+# These warnings are exactly why we ALSO maintain release-mac.yml /
+# release-win.yml — promote a tagged version through the signed workflow
+# once certs land.
+
+on:
+  push:
+    tags:
+      - "v*-dev.*"
+      - "v*-beta.*"
+      - "v*-rc.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish (e.g. v0.1.0-beta.1). Created if missing."
+        required: true
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: short
+
+permissions:
+  contents: write  # needed to create the GitHub Release + upload assets
+
+jobs:
+  build:
+    name: build (${{ matrix.platform.name }})
+    runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - name: macos-arm64
+            runner: macos-14
+            args: --target aarch64-apple-darwin
+          - name: windows-x86_64
+            runner: windows-latest
+            args: ""
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            # github.ref on a tag push is `refs/tags/<tag>`
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Rust toolchain (from rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry & target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            apps/desktop/src-tauri
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: pnpm install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build unsigned bundle via tauri-action
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/desktop
+          tagName: ${{ steps.tag.outputs.tag }}
+          releaseName: "edytlab ${{ steps.tag.outputs.tag }} (unsigned dev build)"
+          releaseDraft: true
+          prerelease: true
+          releaseBody: |
+            **Unsigned developer preview** — convenience build for testing
+            on machines without code-signing infrastructure. Production
+            releases are produced via release-mac.yml / release-win.yml
+            with the real Apple Developer ID + Authenticode certs.
+
+            ### Install warnings (expected on unsigned builds)
+
+            **macOS** — Gatekeeper will refuse to open the app on first
+            launch (“can’t be opened because Apple cannot check it for
+            malicious software”). Bypass:
+            1. Try to open the app once (it will fail).
+            2. Open System Settings → Privacy & Security.
+            3. Scroll to "Security" and click **Open Anyway** next to
+               edytlab.
+
+            **Windows** — SmartScreen will block the installer
+            (“Microsoft Defender SmartScreen prevented an unrecognized
+            app from starting”). Bypass: click **More info → Run anyway**.
+
+            Built from commit `${{ github.sha }}`.
+          args: ${{ matrix.platform.args }}
