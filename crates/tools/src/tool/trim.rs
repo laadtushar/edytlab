@@ -73,6 +73,10 @@ impl Tool for TrimTool {
             source_offset: clip.source_offset + start,
             length: new_length,
             content_hash: clip.content_hash,
+            // Preserve any M20 time/pitch/beat metadata across the trim.
+            time_stretch_factor: clip.time_stretch_factor,
+            pitch_shift_semitones: clip.pitch_shift_semitones,
+            beat_grid: clip.beat_grid.clone(),
         };
 
         track.clips = vec![trimmed];

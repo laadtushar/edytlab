@@ -1,0 +1,23 @@
+[package]
+name = "audio-time"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+thiserror = "2"
+tracing = "0.1"
+# rubberband-sys = "0.3"  # commented; pin once we have a working Phase 2.5 build.
+# Until M28 vendors a Rubber Band build, the stretch/shift APIs return
+# `Error::NotImplemented` so the crate has no native build dependency.
+#
+# `audio-decoder` and `session` aren't pulled in by this stub: the
+# public API operates on raw `&[f32]` interleaved buffers and the
+# session-level wiring lives in `crates/tools`. They will reappear here
+# when the real Rubber Band backend lands in M28 (file-in / file-out
+# convenience helpers in `lib.rs` are the natural caller).

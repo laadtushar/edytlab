@@ -59,6 +59,27 @@ pub struct Clip {
     // know it at construction time. Pinned at render to lock provenance.
     #[serde(with = "crate::node::hex_array_32_opt")]
     pub content_hash: Option<[u8; 32]>,
+
+    /// M20: requested time-stretch factor for this clip. `None` means
+    /// no stretch; `Some(f)` means the audio engine should resample at
+    /// render time to produce `length / f` output samples (the engine
+    /// gains this capability in M22+; Phase 2 stub records the request
+    /// only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time_stretch_factor: Option<f32>,
+
+    /// M20: requested pitch shift in semitones for this clip. `None`
+    /// means no shift. Same render-time-application story as
+    /// `time_stretch_factor`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pitch_shift_semitones: Option<f32>,
+
+    /// M20: target beat grid (per-clip) for `align_to_beat`. Each entry
+    /// is a beat time in seconds relative to the clip start; the engine
+    /// will resample each beat-bound chunk to land on the target grid
+    /// at render time. Phase 2 stub records the grid only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub beat_grid: Option<Vec<f32>>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

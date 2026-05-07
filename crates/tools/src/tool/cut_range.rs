@@ -89,6 +89,11 @@ impl Tool for CutRangeTool {
                 source_offset: clip.source_offset,
                 length: start,
                 content_hash: clip.content_hash,
+                // Preserve any M20 time/pitch/beat metadata on each
+                // half of the cut.
+                time_stretch_factor: clip.time_stretch_factor,
+                pitch_shift_semitones: clip.pitch_shift_semitones,
+                beat_grid: clip.beat_grid.clone(),
             });
         }
         if end < clip.length {
@@ -99,6 +104,9 @@ impl Tool for CutRangeTool {
                 source_offset: clip.source_offset + end,
                 length: clip.length - end,
                 content_hash: clip.content_hash,
+                time_stretch_factor: clip.time_stretch_factor,
+                pitch_shift_semitones: clip.pitch_shift_semitones,
+                beat_grid: clip.beat_grid.clone(),
             });
         }
 

@@ -1,0 +1,25 @@
+[package]
+name = "audio-analysis"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+audio-decoder = { path = "../audio-decoder" }
+# `realfft` is the workspace-blessed FFT path (already a transitive dep of
+# rustfft via realfft 3.5). Do NOT introduce `rustfft` directly.
+realfft = "3"
+# Pure-Rust EBU R128 / ITU-R BS.1770-4 loudness implementation (MIT/Apache-2.0).
+# Keeps `loudness.rs` thin instead of hand-rolling K-weighting + gating.
+ebur128 = "0.1"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+tracing = "0.1"
+
+[dev-dependencies]
+hound = "3.5"

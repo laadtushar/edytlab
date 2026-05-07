@@ -5,21 +5,31 @@
 //! [`crate::dispatcher::default_dispatcher`] constructor wires them up
 //! together.
 
+pub mod align_to_beat;
+pub mod analyze_track;
 pub mod cut_range;
 pub mod gain;
 pub mod load;
 pub mod normalize;
+pub mod pitch_shift;
 pub mod render_final;
 pub mod render_preview;
+pub mod separate_stems;
+pub mod time_stretch;
 pub mod transcribe;
 pub mod trim;
 mod util;
 
+pub use align_to_beat::AlignToBeatTool;
+pub use analyze_track::AnalyzeTrackTool;
 pub use cut_range::CutRangeTool;
 pub use gain::GainTool;
 pub use load::LoadTool;
 pub use normalize::NormalizeTool;
+pub use pitch_shift::PitchShiftTool;
 pub use render_final::RenderFinalTool;
 pub use render_preview::RenderPreviewTool;
+pub use separate_stems::SeparateStemsTool;
+pub use time_stretch::TimeStretchTool;
 pub use transcribe::TranscribeTool;
 pub use trim::TrimTool;
