@@ -5,6 +5,7 @@
 //! [`crate::dispatcher::default_dispatcher`] constructor wires them up
 //! together.
 
+pub mod analyze_track;
 pub mod cut_range;
 pub mod gain;
 pub mod load;
@@ -16,6 +17,7 @@ pub mod transcribe;
 pub mod trim;
 mod util;
 
+pub use analyze_track::AnalyzeTrackTool;
 pub use cut_range::CutRangeTool;
 pub use gain::GainTool;
 pub use load::LoadTool;

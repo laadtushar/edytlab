@@ -76,13 +76,14 @@ impl ToolDispatcher {
     /// register individually.
     pub fn default_dispatcher() -> Self {
         use crate::tool::{
-            CutRangeTool, GainTool, LoadTool, NormalizeTool, RenderFinalTool, RenderPreviewTool,
-            SeparateStemsTool, TranscribeTool, TrimTool,
+            AnalyzeTrackTool, CutRangeTool, GainTool, LoadTool, NormalizeTool, RenderFinalTool,
+            RenderPreviewTool, SeparateStemsTool, TranscribeTool, TrimTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
         d.register(Box::new(TranscribeTool));
         d.register(Box::new(SeparateStemsTool));
+        d.register(Box::new(AnalyzeTrackTool));
         d.register(Box::new(CutRangeTool));
         d.register(Box::new(TrimTool));
         d.register(Box::new(GainTool));

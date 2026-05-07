@@ -646,6 +646,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
     assert_eq!(
         sorted,
         vec![
+            "analyze_track",
             "cut_range",
             "gain",
             "load",

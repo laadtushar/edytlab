@@ -4,6 +4,7 @@ members = [
     "apps/cli",
     "apps/desktop/src-tauri",
     "crates/ai",
+    "crates/audio-analysis",
     "crates/audio-decoder",
     "crates/audio-engine",
     "crates/audio-io",

@@ -13,6 +13,7 @@ workspace = true
 session = { path = "../session" }
 audio-engine = { path = "../audio-engine" }
 audio-decoder = { path = "../audio-decoder" }
+audio-analysis = { path = "../audio-analysis" }
 ml-demucs = { path = "../ml-demucs" }
 ml-pipeline = { path = "../ml-pipeline" }
 ml-whisper = { path = "../ml-whisper" }
