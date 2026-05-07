@@ -13,15 +13,14 @@ use uuid::Uuid;
 #[serde(transparent)]
 pub struct TrackId(pub Uuid);
 
+#[allow(clippy::new_without_default)]
 impl TrackId {
+    /// Generates a new random track id. Intentionally not exposed via
+    /// `Default`: callers should request id creation explicitly so a struct
+    /// `Default` doesn't silently mint random uuids that then drift across
+    /// canonical-hash test runs.
     pub fn new() -> Self {
         Self(Uuid::new_v4())
-    }
-}
-
-impl Default for TrackId {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

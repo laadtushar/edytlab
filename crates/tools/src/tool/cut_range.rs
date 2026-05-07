@@ -37,7 +37,7 @@ impl Tool for CutRangeTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "cut_range",
-            "Remove the half-open sample range [start_sample, end_sample) from a track and shift the remainder left. Appends a new session node parented to the current head.",
+            "Remove the half-open TRACK-relative sample range [start_sample, end_sample) from a track and shift the remainder left. `start_sample` and `end_sample` are measured against the track timeline (the maximum of `clip.start_in_track + clip.length` across all clips on the track), not against any individual clip. Appends a new session node parented to the current head.",
             object_schema(&[
                 ("track", "integer", true),
                 ("start_sample", "integer", true),
@@ -62,7 +62,17 @@ impl Tool for CutRangeTool {
         }
 
         let track = &mut state.tracks[args.track];
-        let track_len = track.clips.iter().map(|c| c.length).max().unwrap_or(0);
+        // Track length is the rightmost clip-end on the timeline, not the
+        // length of any single clip. Phase 1 has at most one clip per track
+        // (so this is just `start_in_track + length`), but writing it this
+        // way keeps the bounds check correct once Phase 2 adds multi-clip
+        // tracks without us having to remember to revisit it.
+        let track_len = track
+            .clips
+            .iter()
+            .map(|c| c.start_in_track + c.length)
+            .max()
+            .unwrap_or(0);
         let (start, end) = match check_sample_range(args.start_sample, args.end_sample, track_len) {
             Ok(p) => p,
             Err(msg) => return Ok(ToolResult::Error(msg)),
@@ -81,23 +91,29 @@ impl Tool for CutRangeTool {
             ));
         };
 
+        // Translate the track-relative cut to clip-relative offsets. With the
+        // Phase 1 single-clip-at-zero invariant `clip.start_in_track == 0`,
+        // these are identical to `start` / `end`.
+        let clip_cut_start = start.saturating_sub(clip.start_in_track);
+        let clip_cut_end = end.saturating_sub(clip.start_in_track);
+
         let mut new_clips: Vec<Clip> = Vec::new();
-        if start > 0 {
+        if clip_cut_start > 0 {
             new_clips.push(Clip {
                 source_path: clip.source_path.clone(),
                 start_in_track: clip.start_in_track,
                 source_offset: clip.source_offset,
-                length: start,
+                length: clip_cut_start,
                 content_hash: clip.content_hash,
             });
         }
-        if end < clip.length {
+        if clip_cut_end < clip.length {
             // After the cut, the second segment moves left by `cut_len`.
             new_clips.push(Clip {
                 source_path: clip.source_path.clone(),
-                start_in_track: clip.start_in_track + start,
-                source_offset: clip.source_offset + end,
-                length: clip.length - end,
+                start_in_track: clip.start_in_track + clip_cut_start,
+                source_offset: clip.source_offset + clip_cut_end,
+                length: clip.length - clip_cut_end,
                 content_hash: clip.content_hash,
             });
         }

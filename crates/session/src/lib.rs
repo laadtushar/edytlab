@@ -30,8 +30,12 @@ pub enum Error {
     #[error("tempfile persist error: {0}")]
     Persist(#[from] tempfile::PersistError),
 
-    #[error("invalid hex in head file: {0}")]
-    InvalidHeadHex(String),
+    #[error("invalid hex in head file `{content}`: {source}")]
+    InvalidHeadHex {
+        content: String,
+        #[source]
+        source: hex::FromHexError,
+    },
 
     #[error("hex decode error: {0}")]
     HexDecode(String),

@@ -23,6 +23,7 @@ thiserror = "2"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync"] }
 tracing = "0.1"
 keyring = { version = "3", default-features = false, features = ["linux-native", "apple-native", "windows-native"] }
+tempfile = "3"
 
 ai = { path = "../../../crates/ai" }
 audio-engine = { path = "../../../crates/audio-engine" }

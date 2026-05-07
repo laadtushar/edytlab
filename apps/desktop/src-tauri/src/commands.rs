@@ -238,8 +238,19 @@ pub async fn render_preview(state: State<'_, AppState>, node: String) -> CmdResu
     // Tempdir path so we don't litter the project. Phase 2 will write
     // these into a per-project preview cache; today's transient render
     // is purely for the playback button in the UI.
-    let mut out_path = std::env::temp_dir();
-    out_path.push(format!("edytlab-preview-{}.wav", node_id.to_hex()));
+    //
+    // We previously joined the OS tempdir with a deterministic
+    // `edytlab-preview-<node_id>.wav` filename, but that lets two edytlab
+    // instances rendering the same node race to the same path (and on
+    // multi-user systems is symlink-attackable). `tempfile_in` creates
+    // the file with O_CREAT|O_EXCL semantics and a randomised suffix;
+    // `keep()` then persists it past the handle's drop.
+    let tmp = tempfile::Builder::new()
+        .prefix("edytlab-preview-")
+        .suffix(".wav")
+        .tempfile_in(std::env::temp_dir())
+        .map_err(CommandError::from)?;
+    let out_path = tmp.path().to_path_buf();
 
     {
         let engine = lock_std(&state.engine, "engine")?;
@@ -247,6 +258,10 @@ pub async fn render_preview(state: State<'_, AppState>, node: String) -> CmdResu
             .render_to_wav(&session_node.state, &out_path, None)
             .map_err(CommandError::from)?;
     }
+
+    tmp.into_temp_path()
+        .keep()
+        .map_err(|e| CommandError::from(e.error))?;
 
     out_path
         .to_str()

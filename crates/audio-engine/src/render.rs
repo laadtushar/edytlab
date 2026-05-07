@@ -81,28 +81,32 @@ pub(crate) fn resolve_range(
             if r.start_frame >= r.end_frame {
                 return Err(Error::InvalidRange);
             }
-            if (r.start_frame as usize) > total_frames {
+            // Compare in u64 space: on 32-bit targets `r.start_frame as usize`
+            // truncates anything > usize::MAX and would let an out-of-range
+            // start sneak through.
+            if r.start_frame > total_frames as u64 {
                 return Err(Error::InvalidRange);
             }
             // End may exceed total; clamping it down is defensible since the
             // caller asked for "up to" `end_frame` and the source is the
             // hard limit.
             let s = r.start_frame as usize;
-            let e = (r.end_frame as usize).min(total_frames);
+            let e = r.end_frame.min(total_frames as u64) as usize;
             Ok((s, e))
         }
     }
 }
 
 fn render_unity_copy(graph: &RenderGraph, out: &Path) -> Result<RenderReport, Error> {
-    let bytes = std::fs::read(&graph.source_path)?;
-    std::fs::write(out, &bytes)?;
+    // `std::fs::copy` lets the OS use sendfile / copy_file_range / APFS
+    // clonefile where available, and avoids materializing the source as a Vec
+    // in user space.
+    std::fs::copy(&graph.source_path, out)?;
 
-    // Decode just to compute the report (peak, frames, duration). We pay this
-    // cost once per render, never per-sample, so it doesn't affect the
-    // 20× real-time budget.
-    let decoded = decode_file(&graph.source_path)?;
-    Ok(report_from_decoded(&decoded))
+    // The report only needs sample_rate / channels / frame count and the peak.
+    // Streaming through `hound` as i16 avoids decoding the whole file to f32
+    // just to populate the report.
+    report_from_wav_stream(&graph.source_path)
 }
 
 fn render_processed(
@@ -168,22 +172,32 @@ fn render_processed(
     })
 }
 
-fn report_from_decoded(decoded: &DecodedAudio) -> RenderReport {
-    let chans = decoded.channels as usize;
-    let frames = (decoded.samples.len() / chans) as u64;
-    let mut peak: f32 = 0.0;
-    for s in &decoded.samples {
-        let a = s.abs();
-        if a > peak {
-            peak = a;
+/// Cheap report for the unity-copy fast path: peek the WAV header for spec
+/// and frame count, then stream the i16 samples to find the absolute peak.
+/// No f32 decode, no full-file allocation.
+fn report_from_wav_stream(path: &Path) -> Result<RenderReport, Error> {
+    let mut reader = hound::WavReader::open(path)?;
+    let spec = reader.spec();
+    let frames = reader.duration() as u64;
+
+    let mut peak_i: i32 = 0;
+    for s in reader.samples::<i16>() {
+        let v = s?.unsigned_abs() as i32;
+        if v > peak_i {
+            peak_i = v;
         }
     }
-    RenderReport {
+    // Peak amplitude as a float in [0, 1.0]. For 16-bit PCM the maximum
+    // magnitude is 32_768 (i16::MIN.abs()), matching the quantization the
+    // processed-render path uses.
+    let peak = (peak_i as f32) / 32_768.0;
+
+    Ok(RenderReport {
         frames_written: frames,
-        sample_rate: decoded.sample_rate,
-        channels: decoded.channels,
+        sample_rate: spec.sample_rate,
+        channels: spec.channels,
         peak_dbfs: peak_to_dbfs(peak),
-    }
+    })
 }
 
 fn peak_to_dbfs(peak: f32) -> f32 {

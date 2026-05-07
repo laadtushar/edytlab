@@ -38,7 +38,7 @@ use std::sync::{
 
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    SampleFormat, SampleRate, Stream, StreamConfig,
+    FromSample, SampleFormat, SampleRate, SizedSample, Stream, StreamConfig,
 };
 use ringbuf::{traits::Split, HeapRb};
 use rubato::{FftFixedInOut, Resampler};
@@ -73,6 +73,8 @@ pub enum Error {
         "interleaved sample buffer length {len} is not a multiple of channel count {channels}"
     )]
     UnalignedFrames { len: usize, channels: u16 },
+    #[error("device sample format `{0:?}` is not supported")]
+    UnsupportedSampleFormat(SampleFormat),
 }
 
 /// An open output stream. All operations are safe to call from any thread
@@ -138,26 +140,42 @@ pub fn default_output(sample_rate: u32, channels: u16) -> Result<Box<dyn OutputS
     // genuine starvation in the underrun property test.
     let ring_capacity = (device_sr as usize) * channels as usize / 4;
     let rb = HeapRb::<f32>::new(ring_capacity.max(channels as usize * 1024));
-    let (producer, mut consumer) = rb.split();
+    let (producer, consumer) = rb.split();
 
     let played = Arc::new(AtomicU64::new(0));
-    let played_cb = Arc::clone(&played);
     let channels_cb = channels as usize;
 
-    let err_fn = |e| tracing::error!(error = %e, "audio-io: cpal stream error");
-
-    // We always request the f32 stream type regardless of the device's native
-    // sample format; cpal converts as needed at the device boundary. If the
-    // device refuses the conversion we surface BuildStream. This keeps the
-    // conversion matrix narrow for Phase 1.
-    let stream = device.build_output_stream::<f32, _, _>(
-        &config,
-        move |out: &mut [f32], _info| {
-            fill_output(out, &mut consumer, channels_cb, &played_cb);
-        },
-        err_fn,
-        None,
-    )?;
+    // Dispatch on the device's native sample format. The f32 path keeps the
+    // hot `pop_slice` memcpy callback. The integer paths use a per-sample
+    // `FromSample` conversion. f64 / other formats are surfaced explicitly so
+    // we don't paper over an unsupported device with garbled audio.
+    let stream = match supported.sample_format() {
+        SampleFormat::F32 => {
+            build_stream_f32(&device, &config, consumer, channels_cb, Arc::clone(&played))?
+        }
+        SampleFormat::I16 => build_stream_convert::<i16, _>(
+            &device,
+            &config,
+            consumer,
+            channels_cb,
+            Arc::clone(&played),
+        )?,
+        SampleFormat::U16 => build_stream_convert::<u16, _>(
+            &device,
+            &config,
+            consumer,
+            channels_cb,
+            Arc::clone(&played),
+        )?,
+        SampleFormat::I32 => build_stream_convert::<i32, _>(
+            &device,
+            &config,
+            consumer,
+            channels_cb,
+            Arc::clone(&played),
+        )?,
+        other => return Err(Error::UnsupportedSampleFormat(other)),
+    };
 
     let resampler = if device_sr != sample_rate {
         Some(ResamplerState::new(sample_rate, device_sr, channels)?)
@@ -198,8 +216,9 @@ fn pick_config(device: &cpal::Device, channels: u16) -> Result<cpal::SupportedSt
         .ok_or(Error::UnsupportedChannelCount(channels))
 }
 
-/// Audio-thread callback body. Pulls frames from the ring; writes silence on
-/// underrun. **No allocation, no locking, no panicking paths.**
+/// Audio-thread callback body for f32 devices. Pulls frames from the ring;
+/// writes silence on underrun. **No allocation, no locking, no panicking
+/// paths.**
 fn fill_output<C>(out: &mut [f32], consumer: &mut C, channels: usize, played: &AtomicU64)
 where
     C: ringbuf::traits::Consumer<Item = f32>,
@@ -212,6 +231,64 @@ where
     }
     let frames = (out.len() / channels) as u64;
     played.fetch_add(frames, Ordering::Relaxed);
+}
+
+/// Build the f32 fast-path stream. Preserves the existing `pop_slice` memcpy
+/// callback used by the underrun property test.
+fn build_stream_f32<C>(
+    device: &cpal::Device,
+    config: &StreamConfig,
+    mut consumer: C,
+    channels: usize,
+    played: Arc<AtomicU64>,
+) -> Result<Stream>
+where
+    C: ringbuf::traits::Consumer<Item = f32> + Send + 'static,
+{
+    let err_fn = |e| tracing::error!(error = %e, "audio-io: cpal stream error");
+    let stream = device.build_output_stream::<f32, _, _>(
+        config,
+        move |out: &mut [f32], _info| {
+            fill_output(out, &mut consumer, channels, &played);
+        },
+        err_fn,
+        None,
+    )?;
+    Ok(stream)
+}
+
+/// Build a stream for a non-f32 sample format. Each sample is pulled from the
+/// f32 ring and converted via `cpal::FromSample`. The conversion is per-sample
+/// rather than per-block because cpal already promises any cost there is
+/// negligible against the audio-thread budget; the alternative (a scratch
+/// f32 buffer + `Vec`-allocated convert) would allocate inside the callback,
+/// which we forbid.
+fn build_stream_convert<T, C>(
+    device: &cpal::Device,
+    config: &StreamConfig,
+    mut consumer: C,
+    channels: usize,
+    played: Arc<AtomicU64>,
+) -> Result<Stream>
+where
+    T: SizedSample + FromSample<f32> + Send + 'static,
+    C: ringbuf::traits::Consumer<Item = f32> + Send + 'static,
+{
+    let err_fn = |e| tracing::error!(error = %e, "audio-io: cpal stream error");
+    let stream = device.build_output_stream::<T, _, _>(
+        config,
+        move |out: &mut [T], _info| {
+            for s in out.iter_mut() {
+                let f = consumer.try_pop().unwrap_or(0.0);
+                *s = T::from_sample(f);
+            }
+            let frames = (out.len() / channels) as u64;
+            played.fetch_add(frames, Ordering::Relaxed);
+        },
+        err_fn,
+        None,
+    )?;
+    Ok(stream)
 }
 
 struct ResamplerState {
@@ -260,16 +337,29 @@ where
     resampler: Option<ResamplerState>,
 }
 
-// `cpal::Stream` is `!Send` on some platforms because the underlying handle
-// must be dropped on the thread that built it. For our usage — owned by a
-// boxed trait object that the engine creates and tears down on a single
-// thread — that constraint is upheld; the trait `Send` bound exists so the
-// box can be moved into the engine struct at construction time.
+// SAFETY contract — read this before relying on `OutputStream: Send`.
 //
-// Soundness: `cpal::Stream` is `!Send` because Windows COM apartments require
-// same-thread destruction; the engine owns this `Box<dyn OutputStream>` and
-// never sends it across threads after construction, so no destructor runs on
-// a different thread than the one that built the stream.
+// `cpal::Stream` is `!Send` because on Windows the WASAPI/COM apartment
+// model requires the stream to be destroyed on the same thread that
+// constructed it (the COM-init thread). On macOS the underlying
+// CoreAudio handle has a similar (weaker) thread-affinity property.
+//
+// We assert `unsafe impl Send` here so callers can hold the boxed
+// stream in `tauri::State` / `Arc<Mutex<...>>` for Phase 1. The
+// soundness invariant is that the stream must be both constructed AND
+// dropped on the same thread. All other operations (`play`, `pause`,
+// `write_samples`, `frames_played`) are safe from any thread because
+// they only touch the lock-free ringbuf and atomic counter.
+//
+// In practice for Phase 1: the engine creates this on the Tauri main
+// thread and only the main thread tears it down at shutdown. Worker
+// threads only call ringbuf-side methods, never `Drop`.
+//
+// FOLLOW-UP for Phase 2: wrap this in an `AudioCoordinator` that owns
+// a dedicated thread holding the stream; other threads communicate via
+// mpsc channels for play/pause and the already-Send ringbuf for
+// samples. That removes the unsafe-Send contract from this crate's
+// API surface.
 unsafe impl<P> Send for CpalOutputStream<P> where
     P: ringbuf::traits::Producer<Item = f32> + Send + 'static
 {
