@@ -22,11 +22,18 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use ort::session::{builder::SessionBuilder, Session};
 
 use crate::{Error, Result};
+
+/// Per-key lazy-init slot. The outer registry holds an `Arc<Lazy>` per
+/// `model_id`; the first thread to call `load` for a given id locks the
+/// inner Mutex, runs `build_session`, and stores the result. Concurrent
+/// callers requesting the same id block on the inner Mutex (NOT the
+/// registry-wide RwLock), so other model_ids stay parallelizable.
+type Lazy = Arc<Mutex<Option<Arc<Session>>>>;
 
 /// ONNX Runtime execution provider preference.
 ///
@@ -66,7 +73,7 @@ impl ExecProvider {
 /// [`load`]: ModelRegistry::load
 #[derive(Debug, Default)]
 pub struct ModelRegistry {
-    inner: Arc<RwLock<HashMap<String, Arc<Session>>>>,
+    inner: Arc<RwLock<HashMap<String, Lazy>>>,
 }
 
 impl ModelRegistry {
@@ -82,36 +89,68 @@ impl ModelRegistry {
     /// `Arc<Session>` (acceptance criterion #1). Callers that want to
     /// force a reload should pick a new `model_id` (e.g. include the
     /// model file's content hash in the id).
+    ///
+    /// **Single-flight on cold cache.** Two concurrent calls for the
+    /// same `model_id` will not both run `build_session` — they race on
+    /// the inner per-key Mutex; the first builds the session, the
+    /// second wakes up and clones the resulting Arc. Different
+    /// `model_id`s parallelize because each has its own Lazy slot.
     pub fn load(&self, model_id: &str, path: &Path, ep: ExecProvider) -> Result<Arc<Session>> {
-        // Fast path: shared read lock.
-        if let Some(existing) = self
-            .inner
-            .read()
-            .map_err(|e| Error::Ort(format!("registry read lock poisoned: {e}")))?
-            .get(model_id)
-            .cloned()
-        {
-            return Ok(existing);
-        }
+        // Acquire (or insert) the per-key Lazy slot under the registry
+        // RwLock, then release the registry lock before doing the
+        // expensive session build inside the per-key Mutex.
+        //
+        // CRITICAL: the read guard must DROP before requesting the write
+        // lock. std::sync::RwLock deadlocks on same-thread upgrade —
+        // letting the read guard's lifetime extend through an `if let`
+        // chain into a write-lock branch hangs deterministically. Use
+        // an explicit scope.
+        let cached: Option<Lazy> = {
+            let guard = self
+                .inner
+                .read()
+                .map_err(|e| Error::Ort(format!("registry read lock poisoned: {e}")))?;
+            guard.get(model_id).cloned()
+        };
+        let lazy: Lazy = match cached {
+            Some(existing) => existing,
+            None => {
+                let mut guard = self
+                    .inner
+                    .write()
+                    .map_err(|e| Error::Ort(format!("registry write lock poisoned: {e}")))?;
+                guard
+                    .entry(model_id.to_owned())
+                    .or_insert_with(|| Arc::new(Mutex::new(None)))
+                    .clone()
+            }
+        };
 
-        // Build outside the write lock so a slow `commit_from_file`
-        // doesn't block other readers.
+        // Per-key serialisation: only the first caller for this model_id
+        // runs build_session; subsequent callers block here until the
+        // slot is populated, then clone the Arc.
+        let mut slot = lazy
+            .lock()
+            .map_err(|e| Error::Ort(format!("registry slot lock poisoned: {e}")))?;
+        if let Some(existing) = slot.as_ref() {
+            return Ok(existing.clone());
+        }
         let session = build_session(path, ep)?;
         let arc = Arc::new(session);
-
-        let mut guard = self
-            .inner
-            .write()
-            .map_err(|e| Error::Ort(format!("registry write lock poisoned: {e}")))?;
-        // A racing call could have inserted in the meantime — preserve
-        // the first winner so callers continue to share a single Arc.
-        let final_arc = guard.entry(model_id.to_owned()).or_insert(arc).clone();
-        Ok(final_arc)
+        *slot = Some(arc.clone());
+        Ok(arc)
     }
 
     /// Number of cached sessions (mostly for diagnostics / tests).
+    /// Only counts slots whose session has finished building.
     pub fn len(&self) -> usize {
-        self.inner.read().map(|g| g.len()).unwrap_or(0)
+        let Ok(guard) = self.inner.read() else {
+            return 0;
+        };
+        guard
+            .values()
+            .filter(|lazy| lazy.lock().map(|s| s.is_some()).unwrap_or(false))
+            .count()
     }
 
     /// Whether the registry has no cached sessions.

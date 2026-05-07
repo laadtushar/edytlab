@@ -146,18 +146,31 @@ impl InferenceCache {
 
         let value = compute()?;
         let bytes = serde_json::to_vec(&value)?;
-        // Atomic write: write to a tempfile in the same directory and
-        // rename into place. Same dir guarantees the rename is on the
-        // same filesystem (no cross-device EXDEV).
-        let mut tmp = tempfile::NamedTempFile::new_in(&self.base_dir)
-            .map_err(|e| Error::Cache(format!("tempfile create failed: {e}")))?;
-        tmp.write_all(&bytes)
-            .map_err(|e| Error::Cache(format!("tempfile write failed: {e}")))?;
-        tmp.as_file()
-            .sync_all()
-            .map_err(|e| Error::Cache(format!("tempfile fsync failed: {e}")))?;
-        tmp.persist(&path)
-            .map_err(|e| Error::Cache(format!("tempfile persist failed: {e}")))?;
+        // Caching is an optimisation, not a correctness gate. If we
+        // computed the value successfully, the caller should get it
+        // back even if the disk write fails (full disk, perms,
+        // read-only mount). We log the failure at warn level so it
+        // surfaces in operator dashboards but don't propagate it.
+        let persist_result = (|| -> Result<()> {
+            // Atomic write: tempfile in the same dir + rename.
+            let mut tmp = tempfile::NamedTempFile::new_in(&self.base_dir)
+                .map_err(|e| Error::Cache(format!("tempfile create failed: {e}")))?;
+            tmp.write_all(&bytes)
+                .map_err(|e| Error::Cache(format!("tempfile write failed: {e}")))?;
+            tmp.as_file()
+                .sync_all()
+                .map_err(|e| Error::Cache(format!("tempfile fsync failed: {e}")))?;
+            tmp.persist(&path)
+                .map_err(|e| Error::Cache(format!("tempfile persist failed: {e}")))?;
+            Ok(())
+        })();
+        if let Err(e) = persist_result {
+            tracing::warn!(
+                cache_path = %path.display(),
+                error = %e,
+                "inference-cache persist failed; returning computed value anyway"
+            );
+        }
         Ok(value)
     }
 
