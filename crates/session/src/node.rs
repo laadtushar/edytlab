@@ -208,6 +208,11 @@ mod canonical_hash_tests {
                     source_offset: 0,
                     length: 1000,
                     content_hash: Some([0x11; 32]),
+                    // Defaults; M20 fields are skipped when serialised so
+                    // the canonical-hash pinned table stays valid.
+                    time_stretch_factor: None,
+                    pitch_shift_semitones: None,
+                    beat_grid: None,
                 }],
                 gain_db: 0.0,
                 pan: 0.0,

@@ -14,6 +14,7 @@ session = { path = "../session" }
 audio-engine = { path = "../audio-engine" }
 audio-decoder = { path = "../audio-decoder" }
 audio-analysis = { path = "../audio-analysis" }
+audio-time = { path = "../audio-time" }
 ml-demucs = { path = "../ml-demucs" }
 ml-pipeline = { path = "../ml-pipeline" }
 ml-whisper = { path = "../ml-whisper" }

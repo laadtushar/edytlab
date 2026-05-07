@@ -646,14 +646,17 @@ fn default_dispatcher_exposes_all_phase1_tools() {
     assert_eq!(
         sorted,
         vec![
+            "align_to_beat",
             "analyze_track",
             "cut_range",
             "gain",
             "load",
             "normalize",
+            "pitch_shift",
             "render_final",
             "render_preview",
             "separate_stems",
+            "time_stretch",
             "transcribe",
             "trim",
         ]
@@ -765,4 +768,233 @@ fn separate_stems_rejects_missing_input_file() {
     unsafe {
         std::env::remove_var("DEMUCS_FT_MODEL_PATH");
     }
+}
+
+// ---------------------------------------------------------------------------
+// M20 — `time_stretch` records its factor on every clip of the targeted
+// track. Two consecutive calls compose multiplicatively.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn time_stretch_records_factor_on_clip() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+
+    ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+
+    let res = ok(dispatcher
+        .invoke(
+            "time_stretch",
+            json!({ "track": 0, "factor": 0.5, "preserve_formants": false }),
+            &mut ctx,
+        )
+        .unwrap());
+
+    let new_id = session::NodeId::from_hex(res["node_id"].as_str().unwrap()).unwrap();
+    let node = ctx.store.get(new_id).unwrap();
+    let factor = node.state.tracks[0].clips[0].time_stretch_factor;
+    assert_eq!(
+        factor,
+        Some(0.5),
+        "expected factor 0.5 on clip, got {factor:?}"
+    );
+    assert!(res["summary"]
+        .as_str()
+        .unwrap()
+        .contains("applied at next render"));
+
+    // Compose: a second 2.0 should bring us back to identity (1.0).
+    let res2 = ok(dispatcher
+        .invoke(
+            "time_stretch",
+            json!({ "track": 0, "factor": 2.0 }),
+            &mut ctx,
+        )
+        .unwrap());
+    let id2 = session::NodeId::from_hex(res2["node_id"].as_str().unwrap()).unwrap();
+    let node2 = ctx.store.get(id2).unwrap();
+    let composed = node2.state.tracks[0].clips[0].time_stretch_factor.unwrap();
+    assert!(
+        (composed - 1.0).abs() < 1e-5,
+        "expected composed factor ~1.0, got {composed}"
+    );
+}
+
+#[test]
+fn time_stretch_rejects_non_positive_factor() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+    ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+
+    let msg = err(dispatcher
+        .invoke(
+            "time_stretch",
+            json!({ "track": 0, "factor": 0.0 }),
+            &mut ctx,
+        )
+        .unwrap());
+    assert!(msg.contains("invalid factor"), "got: {msg}");
+}
+
+// ---------------------------------------------------------------------------
+// M20 — `pitch_shift` records semitones on every clip; composes additively.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn pitch_shift_records_semitones_on_clip() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+    ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+
+    let res = ok(dispatcher
+        .invoke(
+            "pitch_shift",
+            json!({ "track": 0, "semitones": 12.0, "preserve_formants": true }),
+            &mut ctx,
+        )
+        .unwrap());
+    let id = session::NodeId::from_hex(res["node_id"].as_str().unwrap()).unwrap();
+    let node = ctx.store.get(id).unwrap();
+    assert_eq!(
+        node.state.tracks[0].clips[0].pitch_shift_semitones,
+        Some(12.0)
+    );
+
+    // Compose +12 then -12 → 0 → stored as `None`.
+    let res2 = ok(dispatcher
+        .invoke(
+            "pitch_shift",
+            json!({ "track": 0, "semitones": -12.0 }),
+            &mut ctx,
+        )
+        .unwrap());
+    let id2 = session::NodeId::from_hex(res2["node_id"].as_str().unwrap()).unwrap();
+    let node2 = ctx.store.get(id2).unwrap();
+    assert_eq!(node2.state.tracks[0].clips[0].pitch_shift_semitones, None);
+}
+
+#[test]
+fn pitch_shift_rejects_out_of_range_semitones() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+    ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+
+    let msg = err(dispatcher
+        .invoke(
+            "pitch_shift",
+            json!({ "track": 0, "semitones": 100.0 }),
+            &mut ctx,
+        )
+        .unwrap());
+    assert!(msg.contains("invalid semitones"), "got: {msg}");
+}
+
+// ---------------------------------------------------------------------------
+// M20 — `align_to_beat` records a beat grid on every clip.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn align_to_beat_records_grid_on_clip() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+    ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+
+    let grid = vec![0.0, 0.5, 1.0, 1.5];
+    let res = ok(dispatcher
+        .invoke(
+            "align_to_beat",
+            json!({ "track": 0, "beat_grid": grid }),
+            &mut ctx,
+        )
+        .unwrap());
+    let id = session::NodeId::from_hex(res["node_id"].as_str().unwrap()).unwrap();
+    let node = ctx.store.get(id).unwrap();
+    let stored = node.state.tracks[0].clips[0].beat_grid.as_ref().unwrap();
+    assert_eq!(stored, &vec![0.0, 0.5, 1.0, 1.5]);
+    assert_eq!(res["beats"].as_u64().unwrap(), 4);
+}
+
+#[test]
+fn align_to_beat_rejects_non_monotonic_grid() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+    ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+
+    // Out of order — 0.4 follows 0.5.
+    let msg = err(dispatcher
+        .invoke(
+            "align_to_beat",
+            json!({ "track": 0, "beat_grid": [0.0, 0.5, 0.4] }),
+            &mut ctx,
+        )
+        .unwrap());
+    assert!(
+        msg.contains("strictly increasing"),
+        "expected strictly-increasing diagnostic, got: {msg}"
+    );
+}
+
+#[test]
+fn align_to_beat_rejects_empty_grid() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+    ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+
+    // Schema's minItems=1 rejects an empty array at validation time, so
+    // this surfaces as a `DispatchError`, not a `ToolResult::Error`.
+    let r = dispatcher.invoke(
+        "align_to_beat",
+        json!({ "track": 0, "beat_grid": [] }),
+        &mut ctx,
+    );
+    let err = r.unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("less than 1 item")
+            || msg.contains("minItems")
+            || msg.contains("shorter than"),
+        "expected schema validation error, got: {msg}"
+    );
 }
