@@ -120,8 +120,11 @@ function TrackLane({
       setIsDragging(false);
       const file = e.dataTransfer.files?.[0];
       if (!file) return;
-      const path =
-        (file as File & { path?: string }).path ?? file.name;
+      const path = (file as File & { path?: string }).path;
+      if (!path) {
+        setLoadError("Could not resolve absolute path for the dropped file.");
+        return;
+      }
       onFileDropped?.(path);
       try {
         await bridgeSendMessage(`load this file: ${path}`);
@@ -274,13 +277,19 @@ export function Timeline({ tracks, audioPath, onFileDropped }: TimelineProps) {
 
   const [laneStates, setLaneStates] = useState<TrackDescriptor[]>(defaultTracks);
 
-  // Sync laneStates when the tracks prop or audioPath changes.
+  // Sync laneStates when the tracks prop or audioPath changes, preserving
+  // user mute toggles for tracks that still exist (matched by name).
   useEffect(() => {
-    setLaneStates(
-      tracks && tracks.length > 0
-        ? tracks
-        : [{ name: "Mix", audioPath: audioPath ?? "", muted: false }],
-    );
+    setLaneStates((prev) => {
+      const newBase =
+        tracks && tracks.length > 0
+          ? tracks
+          : [{ name: "Mix", audioPath: audioPath ?? "", muted: false }];
+      return newBase.map((t) => {
+        const existing = prev.find((p) => p.name === t.name);
+        return existing ? { ...t, muted: existing.muted } : t;
+      });
+    });
   }, [tracks, audioPath]);
 
   const handleToggleMute = (idx: number) => {
@@ -324,9 +333,13 @@ export function Timeline({ tracks, audioPath, onFileDropped }: TimelineProps) {
       {/* Lanes */}
       {laneStates.map((track, idx) => (
         <TrackLane
-          key={`${track.name}-${idx}`}
+          key={track.name}
           name={track.name}
-          audioPath={track.audioPath || null}
+          audioPath={
+            // Only the first lane gets the mix audio to avoid N× volume stacking.
+            // Individual stem paths will replace this in Phase 3.
+            idx === 0 ? (track.audioPath || null) : null
+          }
           muted={track.muted}
           onToggleMute={() => handleToggleMute(idx)}
           onFileDropped={idx === 0 ? onFileDropped : undefined}

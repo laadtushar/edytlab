@@ -352,9 +352,9 @@ pub async fn prepare_compare<R: Runtime>(
     };
 
     let mut a_path = std::env::temp_dir();
-    a_path.push("compare_a.wav");
+    a_path.push(format!("edytlab-compare-a-{}.wav", a_id.to_hex()));
     let mut b_path = std::env::temp_dir();
-    b_path.push("compare_b.wav");
+    b_path.push(format!("edytlab-compare-b-{}.wav", b_id.to_hex()));
 
     {
         let engine = lock_std(&state.engine, "engine")?;

@@ -76,7 +76,7 @@ export function ABCompareBar({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aNodeId, bNodeId]);
+  }, [aNodeId, bNodeId, onAudioPathChange]);
 
   const handleSideSwitch = (newSide: Side) => {
     if (preparing) return;
