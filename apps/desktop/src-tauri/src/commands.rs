@@ -139,14 +139,41 @@ fn open_project_inner(state: &AppState, path: PathBuf) -> Result<ProjectInfo, Co
 // set_api_key
 // ---------------------------------------------------------------------------
 
+/// Persist `key` for the active provider, refresh the in-memory cache,
+/// and rebuild the agent. Equivalent to
+/// [`set_api_key_for`] with the active provider id; preserved as a thin
+/// shim so existing tests / front-end callers that only know about
+/// "the API key" continue to work.
 #[tauri::command]
 pub async fn set_api_key(state: State<'_, AppState>, key: String) -> CmdResult<()> {
+    let provider_id = state.active_provider_id();
+    set_api_key_for_inner(&state, &provider_id, &key).await
+}
+
+/// Persist `key` for `provider`, mark `provider` as active, and rebuild
+/// the agent. The frontend uses this when the user picks a provider in
+/// the Settings picker and saves a key against it.
+#[tauri::command]
+pub async fn set_api_key_for(
+    state: State<'_, AppState>,
+    provider: String,
+    key: String,
+) -> CmdResult<()> {
+    set_api_key_for_inner(&state, &provider, &key).await
+}
+
+async fn set_api_key_for_inner(state: &AppState, provider_id: &str, key: &str) -> CmdResult<()> {
     if key.trim().is_empty() {
         return Err("api key must not be empty".into());
     }
-    ai::keychain::save_api_key(&key).map_err(CommandError::from)?;
-    state.set_api_key_cache(Some(key));
-    rebuild_agent(&state).await?;
+    ai::keychain::save_api_key(provider_id, key).map_err(CommandError::from)?;
+    // Saving a key for a provider implicitly makes it active — that
+    // matches the user's intent and avoids a second "switch provider"
+    // step in the settings UI.
+    ai::keychain::save_active_provider(provider_id).map_err(CommandError::from)?;
+    state.set_active_provider(provider_id.to_string());
+    state.set_api_key_cache(Some(key.to_string()));
+    rebuild_agent(state).await?;
     Ok(())
 }
 
@@ -154,7 +181,7 @@ pub async fn set_api_key(state: State<'_, AppState>, key: String) -> CmdResult<(
 // has_api_key / clear_api_key / test_api_key
 // ---------------------------------------------------------------------------
 
-/// Whether the OS keychain holds an Anthropic API key.
+/// Whether the OS keychain holds an API key for the active provider.
 ///
 /// Used by the frontend on mount to decide whether to render the M13
 /// blocking-modal first-launch flow. We deliberately re-read from the
@@ -163,37 +190,107 @@ pub async fn set_api_key(state: State<'_, AppState>, key: String) -> CmdResult<(
 /// keychain and we want subsequent `has_api_key` calls to immediately
 /// see "no key" without needing the cache to also be cleared in lockstep.
 #[tauri::command]
-pub async fn has_api_key() -> CmdResult<bool> {
-    Ok(ai::keychain::load_api_key().is_some())
+pub async fn has_api_key(state: State<'_, AppState>) -> CmdResult<bool> {
+    let provider_id = state.active_provider_id();
+    Ok(ai::keychain::load_api_key(&provider_id).is_some())
 }
 
-/// Remove the stored API key and tear down the agent.
+/// Whether a key is stored for `provider`. The Settings UI uses this
+/// when the user toggles the provider picker, so we can show "configured"
+/// vs "needs a key" without forcing a save.
+#[tauri::command]
+pub async fn has_api_key_for(provider: String) -> CmdResult<bool> {
+    Ok(ai::keychain::load_api_key(&provider).is_some())
+}
+
+/// Remove the stored API key for the active provider and tear down the
+/// agent. Equivalent to [`clear_api_key_for`] with the active provider.
 ///
 /// After this call the app must behave as if it had just launched with
-/// no key configured — the M13 acceptance criterion #3 says clearing the
-/// key returns the app to the first-launch state without restart. We
-/// drop the cached key and rebuild the agent so any subsequent
-/// `send_message` will fail with `NoAgent` and the frontend's
-/// `has_api_key()` check on next mount returns `false`.
+/// no key configured for the active provider — the M13 acceptance
+/// criterion #3 says clearing the key returns the app to the
+/// first-launch state without restart.
 #[tauri::command]
 pub async fn clear_api_key(state: State<'_, AppState>) -> CmdResult<()> {
-    ai::keychain::delete_api_key().map_err(CommandError::from)?;
-    state.set_api_key_cache(None);
-    rebuild_agent(&state).await?;
+    let provider_id = state.active_provider_id();
+    clear_api_key_for_inner(&state, &provider_id).await
+}
+
+#[tauri::command]
+pub async fn clear_api_key_for(state: State<'_, AppState>, provider: String) -> CmdResult<()> {
+    clear_api_key_for_inner(&state, &provider).await
+}
+
+async fn clear_api_key_for_inner(state: &AppState, provider_id: &str) -> CmdResult<()> {
+    ai::keychain::delete_api_key(provider_id).map_err(CommandError::from)?;
+    if state.active_provider_id() == provider_id {
+        state.set_api_key_cache(None);
+        rebuild_agent(state).await?;
+    }
     Ok(())
 }
 
-/// Probe an API key with a 1-token Messages call. Used by the Settings
-/// "Test" button. The key is *not* persisted by this command — that's
-/// `set_api_key`'s job. Validation runs in Rust so the proposed key
-/// never has to leave the trusted process.
+/// Probe an API key with a 1-token Messages call against the *active*
+/// provider's endpoint. Used by the Settings "Test" button. The key is
+/// *not* persisted by this command — that's `set_api_key`'s job.
+/// Validation runs in Rust so the proposed key never has to leave the
+/// trusted process.
 ///
 /// On 200 returns `Ok(())`; on any other response or transport failure
 /// returns `Err("<status> <body>")` (e.g. `"401 invalid x-api-key"`),
 /// matching M13 acceptance criterion #2.
 #[tauri::command]
-pub async fn test_api_key(key: String) -> CmdResult<()> {
-    ai::validate::test_api_key(&key).await
+pub async fn test_api_key(state: State<'_, AppState>, key: String) -> CmdResult<()> {
+    let provider_id = state.active_provider_id();
+    ai::validate::test_api_key_for(&provider_id, &key).await
+}
+
+/// Probe an API key against `provider`'s endpoint. The Settings UI
+/// uses this when the user picks a provider — the test should be run
+/// against the chosen provider, not the currently-active one.
+#[tauri::command]
+pub async fn test_api_key_for(provider: String, key: String) -> CmdResult<()> {
+    ai::validate::test_api_key_for(&provider, &key).await
+}
+
+// ---------------------------------------------------------------------------
+// Provider selection
+// ---------------------------------------------------------------------------
+
+/// Stable list of provider ids the app supports. Surfaces directly to
+/// the frontend; mirror this in the Settings picker.
+#[tauri::command]
+pub async fn list_providers() -> CmdResult<Vec<String>> {
+    Ok(ai::SUPPORTED_PROVIDER_IDS
+        .iter()
+        .map(|s| (*s).to_string())
+        .collect())
+}
+
+/// The active provider id. Defaults to `"anthropic"` for back-compat
+/// when no preference has been recorded yet.
+#[tauri::command]
+pub async fn get_active_provider(state: State<'_, AppState>) -> CmdResult<String> {
+    Ok(state.active_provider_id())
+}
+
+/// Switch the active provider. Persists the choice and rebuilds the
+/// agent against the new provider's stored key (if any). Does NOT
+/// require a key to already be present; the frontend uses this when the
+/// user toggles the picker before saving a key.
+#[tauri::command]
+pub async fn set_active_provider(state: State<'_, AppState>, provider: String) -> CmdResult<()> {
+    if !ai::SUPPORTED_PROVIDER_IDS.iter().any(|p| *p == provider) {
+        return Err(format!("unsupported provider id: {provider}"));
+    }
+    ai::keychain::save_active_provider(&provider).map_err(CommandError::from)?;
+    state.set_active_provider(provider.clone());
+    // Re-cache the key for the now-active provider (if any) so the
+    // next `rebuild_agent` picks the right credentials up.
+    let cached = ai::keychain::load_api_key(&provider);
+    state.set_api_key_cache(cached);
+    rebuild_agent(&state).await?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -503,17 +600,19 @@ pub async fn approve_plan(state: State<'_, AppState>) -> CmdResult<()> {
 // Agent (re)construction
 // ---------------------------------------------------------------------------
 
-/// Rebuild the agent from the current state. Called after the API key
-/// or the project store changes; either or both prerequisites being
-/// missing is fine and clears the agent rather than failing.
+/// Rebuild the agent from the current state. Called after the API key,
+/// active provider, or project store changes; either or both
+/// prerequisites being missing is fine and clears the agent rather than
+/// failing.
 async fn rebuild_agent(state: &AppState) -> Result<(), CommandError> {
     let api_key = state.api_key_snapshot();
     let store_handle = state.store_handle();
+    let provider = ai::validate::provider_for(&state.active_provider_id());
 
     let mut guard = state.agent.lock().await;
     *guard = match (api_key, store_handle) {
         (Some(key), Some(store)) => {
-            let cfg = ai::AnthropicConfig::new(key);
+            let cfg = ai::LlmConfig::new(provider, key);
             Some(ai::Agent::new(
                 cfg,
                 Arc::clone(&state.dispatcher),
@@ -527,11 +626,16 @@ async fn rebuild_agent(state: &AppState) -> Result<(), CommandError> {
     Ok(())
 }
 
-/// Try to construct the agent at app startup using a key that may
-/// already be in the OS keychain. If no key is stored, this is a no-op
-/// and the frontend's first action is to call `set_api_key`.
+/// At app startup, restore the active provider from the keychain (if
+/// recorded) and load that provider's stored key into the in-memory
+/// cache. If nothing is stored, this is a no-op and the frontend's
+/// first action is to surface the Settings modal.
 pub fn try_load_api_key_at_startup(state: &AppState) {
-    if let Some(key) = ai::keychain::load_api_key() {
+    if let Some(active) = ai::keychain::load_active_provider() {
+        state.set_active_provider(active);
+    }
+    let provider_id = state.active_provider_id();
+    if let Some(key) = ai::keychain::load_api_key(&provider_id) {
         state.set_api_key_cache(Some(key));
     }
 }

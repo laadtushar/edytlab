@@ -22,24 +22,34 @@ struct Args {
     #[arg(long)]
     message: String,
 
-    /// Anthropic API key. Required; we never read the OS keychain from
-    /// here so test runs don't accidentally pick up the developer's
-    /// daily-driver key.
+    /// LLM API key. Required; we never read the OS keychain from here
+    /// so test runs don't accidentally pick up the developer's
+    /// daily-driver key. Falls back to `ANTHROPIC_API_KEY` if
+    /// `--api-key` is omitted.
     #[arg(long, env = "ANTHROPIC_API_KEY")]
     api_key: String,
+
+    /// LLM provider id. `anthropic` (default) hits Anthropic's API
+    /// directly; `openrouter` routes through OpenRouter's
+    /// Anthropic-compatible Messages endpoint with `Authorization:
+    /// Bearer <key>` auth and the `anthropic/...` model namespace.
+    #[arg(long, default_value = ai::ANTHROPIC_ID)]
+    provider: String,
 
     /// Project directory hosting the `.audiograph/` session store.
     /// Defaults to a fresh temp dir that lives for the process.
     #[arg(long)]
     project_dir: Option<PathBuf>,
 
-    /// Optional Anthropic base URL override (for `wiremock`-style
-    /// fixtures or reverse-proxy debugging). Defaults to the public API.
+    /// Optional base URL override (for `wiremock`-style fixtures or
+    /// reverse-proxy debugging). Defaults to the provider's public API.
     #[arg(long)]
     base_url: Option<String>,
 
-    /// Optional Anthropic model override; defaults to
-    /// [`ai::DEFAULT_MODEL`].
+    /// Optional model id override; defaults to the provider's
+    /// `default_model`. Use the canonical Anthropic id (e.g.
+    /// `claude-sonnet-4-6`); the OpenRouter provider prepends
+    /// `anthropic/` automatically.
     #[arg(long)]
     model: Option<String>,
 }
@@ -75,7 +85,8 @@ async fn main() -> anyhow::Result<()> {
     let dispatcher = Arc::new(Mutex::new(tools::ToolDispatcher::default_dispatcher()));
     let engine = Arc::new(Mutex::new(audio_engine::Engine::new()));
 
-    let mut cfg = ai::AnthropicConfig::new(args.api_key);
+    let provider = ai::validate::provider_for(&args.provider);
+    let mut cfg = ai::LlmConfig::new(provider, args.api_key);
     if let Some(model) = args.model {
         cfg = cfg.with_model(model);
     }
