@@ -22,8 +22,9 @@ Project-level instructions for Claude Code sessions in this repository. These pe
 - Conventional-commit prefixes: `feat:`, `fix:`, `ci:`, `chore:`, `docs:`, `test:`, `refactor:`. Scope optional (`feat(ai): ...`).
 - Each commit message ends with the session footer:
   ```
-  https://claude.ai/code/session_01W2GmiU2yGJGBo5B9oyKtdF
+  https://claude.ai/code/session_<id>
   ```
+  where `<id>` is the current session id (substituted by the harness at write time).
 
 ## Repo specifics
 
