@@ -8,6 +8,7 @@
 //! graceful error returned when the ONNX model is absent (M28 pending).
 
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
 use serde_json::{json, Value};
@@ -33,8 +34,8 @@ fn fresh() -> (
     (tmp, store, engine, dispatcher)
 }
 
-/// Synthesize a 1-second mono sine WAV at `peak_amp`. Returns the path.
-fn write_sine_wav(dir: &Path, name: &str, peak_amp: f32) -> PathBuf {
+/// Synthesize a mono sine WAV at `freq` Hz for `duration_s` seconds. Returns the path.
+fn write_sine_wav(dir: &Path, name: &str, freq: f32, duration_s: f32, peak_amp: f32) -> PathBuf {
     let path = dir.join(name);
     let spec = WavSpec {
         channels: 1,
@@ -43,8 +44,7 @@ fn write_sine_wav(dir: &Path, name: &str, peak_amp: f32) -> PathBuf {
         sample_format: SampleFormat::Int,
     };
     let mut writer = WavWriter::create(&path, spec).expect("wav writer");
-    let frames = SAMPLE_RATE as usize;
-    let freq = 440.0_f32;
+    let frames = (SAMPLE_RATE as f32 * duration_s) as usize;
     for n in 0..frames {
         let t = n as f32 / SAMPLE_RATE as f32;
         let s = (2.0 * std::f32::consts::PI * freq * t).sin() * peak_amp;
@@ -77,6 +77,42 @@ fn err(result: ToolResult) -> String {
     match result {
         ToolResult::Ok(v) => panic!("expected Error, got Ok({v})"),
         ToolResult::Error(msg) => msg,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Env-var helpers for the separate_stems test.
+// ---------------------------------------------------------------------------
+
+/// Process-wide mutex serialising all tests that mutate environment variables.
+/// Rust's test runner spawns threads; without this, two tests unsetting/setting
+/// the same env var race each other.
+static ENV_MUTEX: Mutex<()> = Mutex::new(());
+
+/// RAII guard that restores an environment variable to its original value on drop.
+struct EnvGuard {
+    key: &'static str,
+    original: Option<String>,
+}
+
+impl EnvGuard {
+    fn remove(key: &'static str) -> Self {
+        let original = std::env::var(key).ok();
+        // SAFETY: we hold ENV_MUTEX for the entire lifetime of this guard, so
+        // no other thread can observe a half-updated environment.
+        unsafe { std::env::remove_var(key) };
+        EnvGuard { key, original }
+    }
+}
+
+impl Drop for EnvGuard {
+    fn drop(&mut self) {
+        unsafe {
+            match &self.original {
+                Some(v) => std::env::set_var(self.key, v),
+                None => std::env::remove_var(self.key),
+            }
+        }
     }
 }
 
@@ -292,33 +328,9 @@ fn analyze_track_returns_sensible_bpm_and_key() {
 #[test]
 fn time_stretch_and_pitch_shift_produce_output() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();
-    // 2-second source at 440 Hz.
-    let src = write_sine_wav(tmp.path(), "stretch_src.wav", 0.5);
 
-    // We need a 2-second file, but write_sine_wav produces 1-second.
-    // Write a 2-second file manually.
-    let src2 = {
-        let path = tmp.path().join("src2.wav");
-        let spec = WavSpec {
-            channels: 1,
-            sample_rate: SAMPLE_RATE,
-            bits_per_sample: 16,
-            sample_format: SampleFormat::Int,
-        };
-        let mut writer = WavWriter::create(&path, spec).unwrap();
-        let frames = SAMPLE_RATE as usize * 2;
-        for n in 0..frames {
-            let t = n as f32 / SAMPLE_RATE as f32;
-            let s = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.5;
-            let q = (s * 32_768.0)
-                .round()
-                .clamp(i16::MIN as f32, i16::MAX as f32) as i16;
-            writer.write_sample(q).unwrap();
-        }
-        writer.finalize().unwrap();
-        path
-    };
-    let _ = src; // unused — we use src2
+    // 2-second source at 440 Hz.
+    let src2 = write_sine_wav(tmp.path(), "src2.wav", 440.0, 2.0, 0.5);
 
     let mut ctx = ToolContext {
         store: &mut store,
@@ -404,33 +416,10 @@ fn mashup_synthesis_and_render() {
     let duration_s = 3.0f32;
     let expected_frames = (SAMPLE_RATE as f32 * duration_s) as u64;
 
-    /// Write a `duration_s`-second mono sine WAV at `freq` Hz.
-    fn write_stem(dir: &Path, name: &str, freq: f32, duration_s: f32) -> PathBuf {
-        let path = dir.join(name);
-        let spec = WavSpec {
-            channels: 1,
-            sample_rate: SAMPLE_RATE,
-            bits_per_sample: 16,
-            sample_format: SampleFormat::Int,
-        };
-        let mut writer = WavWriter::create(&path, spec).unwrap();
-        let frames = (SAMPLE_RATE as f32 * duration_s) as usize;
-        for n in 0..frames {
-            let t = n as f32 / SAMPLE_RATE as f32;
-            let s = (2.0 * std::f32::consts::PI * freq * t).sin() * 0.4;
-            let q = (s * 32_768.0)
-                .round()
-                .clamp(i16::MIN as f32, i16::MAX as f32) as i16;
-            writer.write_sample(q).unwrap();
-        }
-        writer.finalize().unwrap();
-        path
-    }
-
     // 880 Hz = A5 (shifted A4 vocal), 440 Hz = A4 (drums), 220 Hz = A3 (bass).
-    let vocals = write_stem(tmp.path(), "vocals_shifted.wav", 880.0, duration_s);
-    let drums = write_stem(tmp.path(), "drums.wav", 440.0, duration_s);
-    let bass = write_stem(tmp.path(), "bass.wav", 220.0, duration_s);
+    let vocals = write_sine_wav(tmp.path(), "vocals_shifted.wav", 880.0, duration_s, 0.4);
+    let drums = write_sine_wav(tmp.path(), "drums.wav", 440.0, duration_s, 0.4);
+    let bass = write_sine_wav(tmp.path(), "bass.wav", 220.0, duration_s, 0.4);
 
     let mut ctx = ToolContext {
         store: &mut store,
@@ -543,16 +532,15 @@ fn mashup_synthesis_and_render() {
 /// human-readable message directing the developer to the install hint.
 #[test]
 fn separate_stems_returns_model_missing_gracefully() {
-    // Ensure the model-path env vars are unset so we hit the "missing" path.
-    // SAFETY: tests run single-threaded within a process; no other thread
-    // is observing these env vars.
-    unsafe {
-        std::env::remove_var("DEMUCS_MODEL_PATH");
-        std::env::remove_var("DEMUCS_FT_MODEL_PATH");
-    }
+    // Serialize all env-var-touching tests to prevent races with parallel runners.
+    let _lock = ENV_MUTEX.lock().expect("env mutex");
+
+    // Save original values and unset; Drop restores them even if the test panics.
+    let _g1 = EnvGuard::remove("DEMUCS_MODEL_PATH");
+    let _g2 = EnvGuard::remove("DEMUCS_FT_MODEL_PATH");
 
     let (tmp, mut store, mut engine, dispatcher) = fresh();
-    let src = write_sine_wav(tmp.path(), "stem_input.wav", 0.25);
+    let src = write_sine_wav(tmp.path(), "stem_input.wav", 440.0, 1.0, 0.25);
 
     let mut ctx = ToolContext {
         store: &mut store,
@@ -574,9 +562,4 @@ fn separate_stems_returns_model_missing_gracefully() {
         msg.to_lowercase().contains("model"),
         "expected error about missing model, got: {msg:?}"
     );
-
-    // Clean up so subsequent tests in the same process are not affected.
-    unsafe {
-        std::env::remove_var("DEMUCS_FT_MODEL_PATH");
-    }
 }
