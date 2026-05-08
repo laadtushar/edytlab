@@ -227,3 +227,27 @@ export const onNodeCreated = (
 /** Subscribe to "agent turn finished" events. */
 export const onAgentDone = (cb: () => void): Promise<UnlistenFn> =>
   listen<Record<string, never>>("agent://done", () => cb());
+
+/**
+ * Approve the pending mashup plan, unblocking the agent loop.
+ *
+ * Call this when the user clicks "Run" on the plan approval card.
+ * Rejects if no agent is configured (no API key / no open project).
+ */
+export const approvePlan = (): Promise<void> =>
+  invoke<void>("approve_plan");
+
+/**
+ * Subscribe to "mashup plan ready" events. The callback receives the
+ * ordered plan steps; the frontend should render an approval card and
+ * call {@link approvePlan} when the user clicks Run.
+ *
+ * The promise resolves with an `unlisten` function the caller MUST
+ * invoke on unmount to avoid duplicate listeners.
+ */
+export const onPlan = (
+  cb: (steps: Record<string, unknown>[]) => void,
+): Promise<UnlistenFn> =>
+  listen<{ steps: Record<string, unknown>[] }>("agent://plan", (e) =>
+    cb(e.payload.steps),
+  );

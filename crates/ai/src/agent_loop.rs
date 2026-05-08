@@ -2,19 +2,27 @@
 //!
 //! Renamed from `loop.rs` because `loop` is a Rust keyword and using it
 //! as a module name forces `r#loop` everywhere. The behaviour matches
-//! the M10 spec.
+//! the M10 spec, extended in M27 with:
+//!
+//! * Mode detection: a cheap Haiku call classifies each user message as
+//!   `mashup`, `mix`, `voice`, or `general`.
+//! * Plan gate (mashup mode only): the loop emits a `Plan` event and
+//!   suspends until the frontend approves by calling `Agent::approve_plan`.
 //!
 //! Per [`crate::Agent::turn`] we:
-//! 1. Append the user's message to the conversation.
-//! 2. Open a streaming Anthropic call (system prompt + tools cached).
-//! 3. Forward `text` deltas to the caller's `on_event` sink in order.
-//! 4. Reassemble each `tool_use` block, validate args via the
+//! 1. Classify the user message.
+//! 2. If mashup mode, request a `<plan>` from the model and gate on
+//!    frontend approval before proceeding.
+//! 3. Append the user's message to the conversation.
+//! 4. Open a streaming Anthropic call (system prompt + tools cached).
+//! 5. Forward `text` deltas to the caller's `on_event` sink in order.
+//! 6. Reassemble each `tool_use` block, validate args via the
 //!    dispatcher's compiled JSON Schema, invoke the tool synchronously,
 //!    and append a `tool_result` block to the conversation.
-//! 5. If at least one tool was used, loop. The hard cap of
+//! 7. If at least one tool was used, loop. The hard cap of
 //!    [`crate::prompt::MAX_TOOL_CALLS_PER_TURN`] applies across all
 //!    iterations of the same turn.
-//! 6. If the model emits a malformed `tool_use` (e.g. unparseable JSON
+//! 8. If the model emits a malformed `tool_use` (e.g. unparseable JSON
 //!    args, or args that fail schema validation), we send back a
 //!    `tool_result` with `is_error: true` and let the model retry once;
 //!    if it errors a second time on the same tool call, the loop bails
@@ -26,6 +34,7 @@
 //! work is.
 
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use eventsource_stream::Eventsource;
 use futures_util::StreamExt;
@@ -38,6 +47,179 @@ use crate::anthropic::{
 };
 use crate::prompt::{ANTHROPIC_VERSION, DEFAULT_MAX_TOKENS, MAX_TOOL_CALLS_PER_TURN};
 use crate::{AgentEvent, AnthropicConfig, Error, Result, TurnResult};
+
+// ---------------------------------------------------------------------------
+// Mode detection (M27)
+// ---------------------------------------------------------------------------
+
+/// Conversation mode as classified by the cheap Haiku call.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum Mode {
+    Mashup,
+    Mix,
+    Voice,
+    General,
+}
+
+/// Classify the user's request using a cheap single-turn call to
+/// `claude-haiku-4-5-20251001`. Falls back to `Mode::General` on any
+/// error so classification failures are never user-visible.
+pub(crate) async fn classify_mode(
+    cfg: &AnthropicConfig,
+    http: &reqwest::Client,
+    user_message: &str,
+) -> Mode {
+    let system_text = "Classify the user's request as one word: mashup, mix, voice, or general. Output only the single word.";
+    let request_body = serde_json::json!({
+        "model": crate::CLASSIFIER_MODEL,
+        "max_tokens": 10,
+        "system": system_text,
+        "messages": [
+            {
+                "role": "user",
+                "content": user_message
+            }
+        ],
+        "stream": false
+    });
+
+    let resp = match http
+        .post(format!("{}/v1/messages", cfg.base_url))
+        .header("x-api-key", &cfg.api_key)
+        .header("anthropic-version", ANTHROPIC_VERSION)
+        .header("content-type", "application/json")
+        .json(&request_body)
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(_) => return Mode::General,
+    };
+
+    if !resp.status().is_success() {
+        return Mode::General;
+    }
+
+    let body: Value = match resp.json().await {
+        Ok(v) => v,
+        Err(_) => return Mode::General,
+    };
+
+    let text = body
+        .get("content")
+        .and_then(|c| c.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|b| b.get("text"))
+        .and_then(|t| t.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_lowercase();
+
+    match text.as_str() {
+        "mashup" => Mode::Mashup,
+        "mix" => Mode::Mix,
+        "voice" => Mode::Voice,
+        _ => Mode::General,
+    }
+}
+
+/// Return the appropriate system prompt for the detected mode.
+fn select_system_prompt(mode: Mode) -> &'static str {
+    match mode {
+        Mode::Mashup => include_str!("../prompts/mashup_mode.md"),
+        _ => include_str!("../prompts/system.md"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Plan parsing helpers (M27)
+// ---------------------------------------------------------------------------
+
+/// Extract the JSON array from a `<plan>[...]</plan>` block and
+/// deserialise it. Returns `None` if the block is missing or malformed.
+pub(crate) fn parse_plan(text: &str) -> Option<Vec<Value>> {
+    let start = text.find("<plan>")?;
+    let end = text.find("</plan>")?;
+    if end <= start {
+        return None;
+    }
+    let inner = text[start + "<plan>".len()..end].trim();
+    serde_json::from_str(inner).ok()
+}
+
+/// Request a plan from the model in a single non-streaming call and
+/// return the parsed steps. Returns `None` on failure so the caller can
+/// fall back gracefully.
+async fn fetch_plan(
+    cfg: &AnthropicConfig,
+    http: &reqwest::Client,
+    system_prompt: &str,
+    user_message: &str,
+) -> Option<Vec<Value>> {
+    let request_body = serde_json::json!({
+        "model": cfg.model,
+        "max_tokens": 1024,
+        "system": [
+            {
+                "type": "text",
+                "text": system_prompt
+            },
+            {
+                "type": "text",
+                "text": "Output only a <plan>...</plan> XML block listing the steps as JSON. No other text."
+            }
+        ],
+        "messages": [
+            {
+                "role": "user",
+                "content": user_message
+            }
+        ],
+        "stream": false
+    });
+
+    let resp = http
+        .post(format!("{}/v1/messages", cfg.base_url))
+        .header("x-api-key", &cfg.api_key)
+        .header("anthropic-version", ANTHROPIC_VERSION)
+        .header("content-type", "application/json")
+        .json(&request_body)
+        .send()
+        .await
+        .ok()?;
+
+    if !resp.status().is_success() {
+        return None;
+    }
+
+    let body: Value = resp.json().await.ok()?;
+    let text = body
+        .get("content")
+        .and_then(|c| c.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|b| b.get("text"))
+        .and_then(|t| t.as_str())?;
+
+    parse_plan(text)
+}
+
+/// Wait for the frontend to approve the pending plan by polling the
+/// `pending_plan` mutex. The plan is approved when the mutex is cleared
+/// (set to `None`). Timeout after 5 minutes.
+async fn await_plan_approval(pending_plan: &Arc<Mutex<Option<Vec<Value>>>>) -> Result<()> {
+    // Total wait: 5 minutes = 300 seconds = 3000 × 100 ms polls.
+    let max_polls = 3000usize;
+    for _ in 0..max_polls {
+        {
+            let guard = pending_plan.lock().expect("pending_plan mutex poisoned");
+            if guard.is_none() {
+                return Ok(());
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    Err(Error::PlanTimeout)
+}
 
 /// Hard upper bound on the number of content blocks we'll allocate for
 /// a single streaming Anthropic message. The server tells us each
@@ -61,12 +243,39 @@ pub(crate) async fn run_turn<F>(
     store: &Arc<Mutex<session::Store>>,
     engine: &Arc<Mutex<audio_engine::Engine>>,
     conversation: &mut Vec<Message>,
+    pending_plan: &Arc<Mutex<Option<Vec<Value>>>>,
     user_message: String,
     mut on_event: F,
 ) -> Result<TurnResult>
 where
     F: FnMut(AgentEvent),
 {
+    // M27: classify the user message to select the system prompt and
+    // decide whether to gate on plan approval.
+    let mode = classify_mode(cfg, http, &user_message).await;
+    let system_prompt = select_system_prompt(mode);
+
+    // M27: if mashup mode, request a plan from the model and wait for
+    // the frontend to approve before executing any tools.
+    if mode == Mode::Mashup {
+        if let Some(steps) = fetch_plan(cfg, http, system_prompt, &user_message).await {
+            // Store the plan and emit the event so the frontend can
+            // render the approval card.
+            {
+                let mut guard = pending_plan.lock().expect("pending_plan mutex poisoned");
+                *guard = Some(steps.clone());
+            }
+            on_event(AgentEvent::Plan {
+                steps: steps.clone(),
+            });
+            // Block until the frontend clears pending_plan via
+            // Agent::approve_plan(), or time out after 5 minutes.
+            await_plan_approval(pending_plan).await?;
+        }
+        // If fetch_plan returns None (e.g. parse failure) we continue
+        // without gating — graceful degradation.
+    }
+
     // 1. Push the user turn onto the running conversation.
     conversation.push(Message {
         role: Role::User,
@@ -92,7 +301,7 @@ where
 
     loop {
         // 2. Build and send the streaming request.
-        let request_body = build_request(cfg, &tool_schemas, conversation);
+        let request_body = build_request(cfg, system_prompt, &tool_schemas, conversation);
         let resp = http
             .post(format!("{}/v1/messages", cfg.base_url))
             .header("x-api-key", &cfg.api_key)
@@ -378,6 +587,7 @@ where
 /// many round trips a tool-using turn makes.
 fn build_request<'a>(
     cfg: &'a AnthropicConfig,
+    system_prompt: &'a str,
     tool_schemas: &Value,
     conversation: &'a [Message],
 ) -> MessagesRequest<'a> {
@@ -386,7 +596,7 @@ fn build_request<'a>(
         max_tokens: DEFAULT_MAX_TOKENS,
         system: vec![SystemBlock {
             kind: "text",
-            text: crate::prompt::SYSTEM_PROMPT,
+            text: system_prompt,
             cache_control: Some(CacheControl::EPHEMERAL),
         }],
         messages: conversation,
@@ -454,4 +664,130 @@ enum PartialBlock {
         name: String,
         args_json: String,
     },
+}
+
+// ---------------------------------------------------------------------------
+// Unit tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // ------------------------------------------------------------------
+    // parse_plan
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn parse_plan_extracts_steps_from_valid_block() {
+        let input = r#"<plan>
+[
+  {"step": 1, "tool": "analyze_track", "description": "Analyse A BPM"},
+  {"step": 2, "tool": "separate_stems", "description": "Separate stems"}
+]
+</plan>"#;
+        let steps = parse_plan(input).expect("should parse");
+        assert_eq!(steps.len(), 2);
+        assert_eq!(steps[0].get("step").and_then(|v| v.as_u64()), Some(1));
+        assert_eq!(
+            steps[0].get("tool").and_then(|v| v.as_str()),
+            Some("analyze_track")
+        );
+        assert_eq!(steps[1].get("step").and_then(|v| v.as_u64()), Some(2));
+    }
+
+    #[test]
+    fn parse_plan_returns_none_when_no_block() {
+        assert!(parse_plan("some text without plan tags").is_none());
+    }
+
+    #[test]
+    fn parse_plan_returns_none_for_malformed_json() {
+        let input = "<plan>not json at all</plan>";
+        assert!(parse_plan(input).is_none());
+    }
+
+    #[test]
+    fn parse_plan_handles_surrounding_text() {
+        let input = r#"Here is your plan:
+<plan>[{"step": 1, "tool": "analyze_track", "description": "BPM check"}]</plan>
+No other text."#;
+        let steps = parse_plan(input).expect("should parse");
+        assert_eq!(steps.len(), 1);
+        assert_eq!(
+            steps[0].get("description").and_then(|v| v.as_str()),
+            Some("BPM check")
+        );
+    }
+
+    #[test]
+    fn parse_plan_single_step_array() {
+        let input =
+            "<plan>[{\"step\":1,\"tool\":\"render_final\",\"description\":\"Render\"}]</plan>";
+        let steps = parse_plan(input).expect("should parse");
+        assert_eq!(steps.len(), 1);
+    }
+
+    // ------------------------------------------------------------------
+    // classify_mode (live API — marked #[ignore] for CI)
+    // ------------------------------------------------------------------
+
+    /// This test requires a real ANTHROPIC_API_KEY and makes a network
+    /// call. Run manually with:
+    ///   ANTHROPIC_API_KEY=sk-... cargo test -p ai -- --ignored
+    #[tokio::test]
+    #[ignore = "requires live Anthropic API key"]
+    async fn classify_mode_returns_mashup_for_mashup_request() {
+        let key = std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY must be set");
+        let cfg = crate::AnthropicConfig::new(key);
+        let http = reqwest::Client::new();
+        let mode = classify_mode(&cfg, &http, "make a mashup of these two tracks").await;
+        assert_eq!(
+            mode,
+            Mode::Mashup,
+            "expected Mashup mode for mashup request"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Mode selection
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn select_system_prompt_returns_mashup_prompt_for_mashup_mode() {
+        let prompt = select_system_prompt(Mode::Mashup);
+        assert!(
+            prompt.contains("Mashup Mode"),
+            "expected mashup prompt; got: {prompt:.80}"
+        );
+    }
+
+    #[test]
+    fn select_system_prompt_returns_default_for_general_mode() {
+        let prompt = select_system_prompt(Mode::General);
+        // system.md should NOT contain the mashup header
+        assert!(
+            !prompt.contains("Mashup Mode"),
+            "expected default system prompt; got mashup prompt"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Misc: json round-trip through parse_plan
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn parse_plan_values_are_objects_not_nulls() {
+        let steps = vec![
+            json!({"step": 1, "tool": "analyze_track", "description": "A BPM"}),
+            json!({"step": 2, "tool": "time_stretch", "description": "Stretch B"}),
+        ];
+        let serialised = serde_json::to_string(&steps).unwrap();
+        let wrapped = format!("<plan>{serialised}</plan>");
+        let parsed = parse_plan(&wrapped).expect("round-trip must succeed");
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0]["tool"], json!("analyze_track"));
+        assert_eq!(parsed[1]["description"], json!("Stretch B"));
+    }
 }

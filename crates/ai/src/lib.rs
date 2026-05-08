@@ -46,6 +46,9 @@ use anthropic::Message;
 
 pub use prompt::{DEFAULT_BASE_URL, DEFAULT_MODEL, MAX_TOOL_CALLS_PER_TURN};
 
+/// Classifier model used for cheap mode detection (M27).
+pub const CLASSIFIER_MODEL: &str = "claude-haiku-4-5-20251001";
+
 /// Configuration for the Anthropic client.
 ///
 /// `base_url` is overridable so integration tests can point the agent
@@ -101,6 +104,10 @@ pub enum AgentEvent {
     NodeCreated(session::NodeId),
     /// Final event of a turn. Always emitted on success.
     Done,
+    /// Emitted in mashup mode before tool execution. Contains the
+    /// serialised plan steps. The loop suspends until `approve_plan` is
+    /// called on the agent.
+    Plan { steps: Vec<serde_json::Value> },
 }
 
 /// Outcome of a single [`Agent::turn`] call.
@@ -146,6 +153,9 @@ pub enum Error {
 
     #[error("tool argument validation failed twice: {0}")]
     ToolValidation(String),
+
+    #[error("plan approval timed out (5 minutes); the mashup run was aborted")]
+    PlanTimeout,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -162,6 +172,9 @@ pub struct Agent {
     /// Per-agent conversation history. Phase 1 keeps this in memory;
     /// persistence comes later.
     conversation: Vec<Message>,
+    /// Pending plan awaiting frontend approval. Set by the loop when
+    /// mashup mode emits a `<plan>` block; cleared on `approve_plan()`.
+    pub(crate) pending_plan: Arc<Mutex<Option<Vec<serde_json::Value>>>>,
 }
 
 impl Agent {
@@ -181,7 +194,24 @@ impl Agent {
             store,
             engine,
             conversation: Vec::new(),
+            pending_plan: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// Called by the frontend "Approve plan" button. Clears the pending
+    /// plan, unblocking the loop that is polling for approval.
+    pub fn approve_plan(&self) {
+        let mut guard = self
+            .pending_plan
+            .lock()
+            .expect("pending_plan mutex poisoned");
+        *guard = None;
+    }
+
+    /// Expose a clone of the pending-plan handle so the Tauri command
+    /// layer can set it when the loop emits a `Plan` event.
+    pub fn pending_plan_handle(&self) -> Arc<Mutex<Option<Vec<serde_json::Value>>>> {
+        Arc::clone(&self.pending_plan)
     }
 
     /// Single conversational turn. Streams the assistant's response,
@@ -203,6 +233,7 @@ impl Agent {
             &self.store,
             &self.engine,
             &mut self.conversation,
+            &self.pending_plan,
             user_message,
             on_event,
         )

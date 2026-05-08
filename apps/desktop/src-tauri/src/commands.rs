@@ -20,8 +20,8 @@ use session::{NodeId, SessionNode, Store};
 use tauri::{AppHandle, Emitter, Runtime, State};
 
 use crate::events::{
-    DonePayload, NodeCreatedPayload, TextDeltaPayload, ToolCallPayload, DONE, NODE_CREATED,
-    TEXT_DELTA, TOOL_CALL,
+    DonePayload, NodeCreatedPayload, PlanPayload, TextDeltaPayload, ToolCallPayload, DONE,
+    NODE_CREATED, PLAN, TEXT_DELTA, TOOL_CALL,
 };
 use crate::state::AppState;
 
@@ -475,7 +475,29 @@ fn emit_agent_event<R: tauri::Runtime>(app: &AppHandle<R>, event: ai::AgentEvent
                 tracing::warn!(error = %e, "failed to emit done");
             }
         }
+        ai::AgentEvent::Plan { steps } => {
+            if let Err(e) = app.emit(PLAN, PlanPayload { steps }) {
+                tracing::warn!(error = %e, "failed to emit plan");
+            }
+        }
     }
+}
+
+// ---------------------------------------------------------------------------
+// approve_plan
+// ---------------------------------------------------------------------------
+
+/// Called by the frontend "Approve plan" button. Clears the pending plan
+/// stored on the agent, unblocking the mashup-mode turn loop.
+///
+/// Returns `Err` if no agent is configured (i.e. the user has not yet
+/// set an API key and opened a project).
+#[tauri::command]
+pub async fn approve_plan(state: State<'_, AppState>) -> CmdResult<()> {
+    let agent_guard = state.agent.lock().await;
+    let agent = agent_guard.as_ref().ok_or(CommandError::NoAgent)?;
+    agent.approve_plan();
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

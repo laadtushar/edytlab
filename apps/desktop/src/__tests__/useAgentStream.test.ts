@@ -17,9 +17,11 @@ const cbs = {
   toolCall: [] as ((name: string, id: string) => void)[],
   nodeCreated: [] as ((nodeId: string) => void)[],
   done: [] as (() => void)[],
+  plan: [] as ((steps: Record<string, unknown>[]) => void)[],
 };
 
 vi.mock("../lib/tauri-bridge", () => ({
+  approvePlan: vi.fn(() => Promise.resolve()),
   onTextDelta: vi.fn((cb: (t: string) => void) => {
     cbs.textDelta.push(cb);
     return Promise.resolve(() => {
@@ -44,6 +46,12 @@ vi.mock("../lib/tauri-bridge", () => ({
       cbs.done = cbs.done.filter((c) => c !== cb);
     });
   }),
+  onPlan: vi.fn((cb: (steps: Record<string, unknown>[]) => void) => {
+    cbs.plan.push(cb);
+    return Promise.resolve(() => {
+      cbs.plan = cbs.plan.filter((c) => c !== cb);
+    });
+  }),
 }));
 
 import { useAgentStream } from "../hooks/useAgentStream";
@@ -56,6 +64,7 @@ describe("useAgentStream", () => {
     cbs.toolCall = [];
     cbs.nodeCreated = [];
     cbs.done = [];
+    cbs.plan = [];
   });
 
   it("accumulates text deltas into `current` and commits on done", async () => {
