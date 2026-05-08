@@ -1,11 +1,11 @@
 /**
  * App — top-level layout.
  *
- * Two-pane shell: a "left" pane (Canvas or GraphView, switched by a
+ * Two-pane shell: a "left" pane (Timeline or GraphView, switched by a
  * Timeline/Graph tab toggle) takes 70% and Chat takes 30%. Cross-pane
  * state is minimal: the parent owns the currently-displayed audio
  * path so Render Preview (in Chat) can hand a freshly rendered WAV
- * to Canvas, and it owns the head-pointer so the M25 GraphView can
+ * to Timeline, and it owns the head-pointer so the M25 GraphView can
  * select-by-click and re-render the canvas.
  *
  * App also owns the M13 first-launch flow: on mount we check whether
@@ -13,14 +13,19 @@
  * blocking <Settings mode="blocking"> over everything until the user
  * provides one. A small gear button in the corner opens the same
  * component in panel mode for later edits / "Clear key".
+ *
+ * M26 adds an optional ABCompareBar shown between the tab bar and the
+ * left pane when `compareMode` is non-null. The graph view's "Compare
+ * with…" context menu entry triggers compare mode.
  */
 
 import { useCallback, useEffect, useState } from "react";
 
-import { Canvas } from "./components/Canvas";
+import { ABCompareBar } from "./components/ABCompareBar";
 import { Chat } from "./components/Chat";
 import { GraphView } from "./components/GraphView";
 import { Settings } from "./components/Settings";
+import { Timeline } from "./components/Timeline";
 import { useSession } from "./hooks/useSession";
 import {
   hasApiKey,
@@ -29,6 +34,12 @@ import {
 } from "./lib/tauri-bridge";
 
 type LeftView = "timeline" | "graph";
+
+/** State for an active A/B comparison. */
+interface CompareMode {
+  a: string;
+  b: string;
+}
 
 function App() {
   const { renderHead, head, setHeadLocal } = useSession();
@@ -41,6 +52,9 @@ function App() {
   // chat-bound bridge calls until we know whether a key exists.
   const [keyConfigured, setKeyConfigured] = useState<boolean | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // M26: A/B compare mode.  null = compare bar hidden.
+  const [compareMode, setCompareMode] = useState<CompareMode | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -114,6 +128,24 @@ function App() {
     [setHeadLocal],
   );
 
+  // M26: triggered from GraphView "Compare with…" menu or any other
+  // caller that wants to start an A/B session.  `a` is always the
+  // current head, `b` is the candidate node chosen by the user.
+  const handleCompareNodes = useCallback(
+    (bNodeId: string) => {
+      if (!head) return;
+      setCompareMode({ a: head, b: bNodeId });
+    },
+    [head],
+  );
+
+  // M26: ABCompareBar accepted B side — promote b to head.
+  const handleAcceptB = useCallback(() => {
+    if (!compareMode) return;
+    setHeadLocal(compareMode.b);
+    setCompareMode(null);
+  }, [compareMode, setHeadLocal]);
+
   const showBlocking = keyConfigured === false;
 
   return (
@@ -136,13 +168,26 @@ function App() {
             onClick={() => setLeftView("graph")}
           />
         </div>
+
+        {/* M26: A/B compare bar — shown when compare mode is active */}
+        {compareMode ? (
+          <ABCompareBar
+            aNodeId={compareMode.a}
+            bNodeId={compareMode.b}
+            onAudioPathChange={setAudioPath}
+            onAcceptB={handleAcceptB}
+            onClose={() => setCompareMode(null)}
+          />
+        ) : null}
+
         <div className="flex-1 min-h-0">
           {leftView === "timeline" ? (
-            <Canvas audioPath={audioPath} onFileDropped={() => undefined} />
+            <Timeline audioPath={audioPath} onFileDropped={() => undefined} />
           ) : (
             <GraphView
               head={head}
               onSelectNode={handleSelectGraphNode}
+              onCompareNodes={handleCompareNodes}
               refreshKey={graphRefresh}
             />
           )}

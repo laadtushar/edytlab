@@ -171,6 +171,29 @@ export const getGraph = (): Promise<GraphSummary> =>
 export const renderPreview = (node: NodeId): Promise<string> =>
   invoke<string>("render_preview", { node });
 
+/**
+ * Pre-render both sides of an A/B compare to stable temp WAV paths so
+ * the toggle is gapless. Returns `{ a_path, b_path }`.
+ *
+ * The paths are stable (`compare_a.wav` / `compare_b.wav` in the OS
+ * temp dir) so repeated calls overwrite the previous render — callers
+ * should treat the returned paths as valid only until the next
+ * `prepareCompare` call.
+ */
+export const prepareCompare = (
+  a: NodeId,
+  b: NodeId,
+): Promise<{ a_path: string; b_path: string }> =>
+  invoke<{ a_path: string; b_path: string }>("prepare_compare", { a, b });
+
+/**
+ * Accept the B side of an A/B compare: promote node `b` to the session
+ * head. Returns the new head hex so the caller can update local state
+ * without a separate `getSessionHead` round-trip.
+ */
+export const acceptB = (b: NodeId): Promise<string> =>
+  invoke<string>("accept_b", { b });
+
 // -----------------------------------------------------------------------------
 // Events
 // -----------------------------------------------------------------------------
