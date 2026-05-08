@@ -127,8 +127,10 @@ export function Settings({
     async (next: ProviderId) => {
       if (next === provider) return;
       setProvider(next);
-      // Reset the in-flight test result — it referred to the previous
-      // provider's endpoint and no longer applies.
+      // Wipe the input key and any in-flight test result — they belonged
+      // to the previous provider, and persisting an Anthropic key under
+      // OpenRouter (or vice versa) would be a credential-leak footgun.
+      setKey("");
       setTest({ kind: "idle" });
       // Best-effort: tell the backend to switch active provider so the
       // agent (if any) is rebuilt against the new provider's stored

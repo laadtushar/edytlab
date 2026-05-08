@@ -91,6 +91,25 @@ describe("Settings provider picker", () => {
     ).toBeInTheDocument();
   });
 
+  it("clears any typed key when the user switches provider, to prevent cross-provider credential leakage", async () => {
+    render(<Settings mode="blocking" onSaved={() => {}} />);
+
+    // User pastes an Anthropic key against the default Anthropic radio.
+    const input = screen.getByTestId("settings-key-input") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "sk-ant-leak" } });
+    expect(input.value).toBe("sk-ant-leak");
+
+    // Switching to OpenRouter must wipe the field — saving here would
+    // otherwise persist the Anthropic key under the OpenRouter slot.
+    fireEvent.click(screen.getByTestId("settings-provider-openrouter"));
+    await waitFor(() =>
+      expect(setActiveProviderMock).toHaveBeenCalledWith("openrouter"),
+    );
+    expect(
+      (screen.getByTestId("settings-key-input") as HTMLInputElement).value,
+    ).toBe("");
+  });
+
   it("Test button validates against the picked provider's endpoint", async () => {
     render(<Settings mode="blocking" onSaved={() => {}} />);
 
