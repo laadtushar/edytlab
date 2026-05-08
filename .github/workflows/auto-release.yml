@@ -1,0 +1,104 @@
+name: Auto-release on main
+
+# Fires after CI completes on main. If CI passed, computes the next dev
+# tag (`v<version>-dev.<run_number>`), pushes it, and dispatches the
+# existing release-dev.yml workflow which builds unsigned mac+win
+# artifacts and attaches them to a draft GitHub Release.
+#
+# Why a separate workflow:
+#   - release-dev.yml is kept focused on tag-push + workflow_dispatch
+#     semantics so humans can still cut a beta tag manually
+#     (`git tag v0.1.0-beta.1 && git push --tags`).
+#   - We only want to auto-release after CI is green, so we hang off
+#     `workflow_run` of CI rather than the raw `push` event.
+#
+# Why we explicitly dispatch release-dev:
+#   The default GITHUB_TOKEN pushing a tag does NOT trigger downstream
+#   tag-push workflows (GitHub suppresses this to prevent recursion).
+#   So we push the tag for the historical record, then explicitly
+#   `gh workflow run release-dev.yml` at that tag.
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: write   # push tags
+  actions: write    # dispatch release-dev.yml
+
+# Don't cancel in-flight runs — every successful main CI run deserves
+# its own dev release. (Concurrency is keyed loosely so a stuck run
+# doesn't permanently block subsequent ones.)
+concurrency:
+  group: auto-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  tag-and-release:
+    name: tag + dispatch release-dev
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout the commit CI passed on
+        uses: actions/checkout@v4
+        with:
+          # Pin to the exact SHA CI ran against — protects against
+          # racing with another merge that landed between CI completion
+          # and this workflow starting.
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Resolve next dev tag
+        id: tag
+        run: |
+          set -euo pipefail
+          VERSION=$(jq -r '.version' apps/desktop/src-tauri/tauri.conf.json)
+          if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
+            echo "::error::Could not read .version from tauri.conf.json"
+            exit 1
+          fi
+          # `github.run_number` is monotonic per-workflow, so successive
+          # auto-release runs always emit unique tag suffixes — no need
+          # to query the registry for the next free counter.
+          TAG="v${VERSION}-dev.${{ github.run_number }}"
+          echo "tag=$TAG"     >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Configure git identity
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create and push tag
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "::warning::Tag $TAG already exists locally; skipping push."
+          else
+            git tag -a "$TAG" \
+              -m "Auto dev release for ${{ github.event.workflow_run.head_sha }}"
+            git push origin "$TAG"
+          fi
+
+      - name: Dispatch release-dev.yml at the new tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run release-dev.yml \
+            --ref "${{ steps.tag.outputs.tag }}" \
+            -f tag="${{ steps.tag.outputs.tag }}" \
+            --repo "${{ github.repository }}"
+
+      - name: Summary
+        run: |
+          {
+            echo "### Auto-release"
+            echo ""
+            echo "- **Tag:** \`${{ steps.tag.outputs.tag }}\`"
+            echo "- **Commit:** \`${{ github.event.workflow_run.head_sha }}\`"
+            echo "- **release-dev.yml:** dispatched — see the [Actions tab](${{ github.server_url }}/${{ github.repository }}/actions/workflows/release-dev.yml) for the build."
+          } >> "$GITHUB_STEP_SUMMARY"
