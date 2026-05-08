@@ -15,33 +15,89 @@
 //! * Apply effects in declaration order, never `HashMap`-iteration order.
 //! * Avoid `f32` summations that depend on associativity. Inside a single
 //!   track each sample is read once and added to the running `f32` master
-//!   buffer in-place. The per-sample sum order across tracks is fixed
+//!   chunk in-place. The per-sample sum order across tracks is fixed
 //!   by track index.
 //! * Use `hound`'s deterministic 16-bit PCM writer with the project's
 //!   sample rate and an explicit channel count chosen as `max` of the
 //!   contributing sources (mono is upmixed to stereo by duplication).
 //!
-//! ### Mix architecture (M21)
+//! ### Mix architecture (M22 — streaming)
 //!
-//! 1. Build a [`RenderGraph`] (one [`TrackPlan`] per track).
-//! 2. For each plan, decode -> trim -> resample to project rate -> apply
-//!    gain -> upmix to project channel count.
-//! 3. Sum frame-by-frame into a project-rate `Vec<f32>`.
-//! 4. Quantize and write 16-bit PCM.
+//! M21 decoded every track fully into RAM, summed all tracks into a single
+//! project-length f32 master buffer, then quantized to PCM. That keeps
+//! peak memory proportional to *session length × track count*, which OOMs
+//! on long sessions (10 tracks × 5 min = ~700 MB of f32 alone).
 //!
-//! The final length is the longest contributing track's frame count; tracks
-//! that ended earlier contribute zeros for the remainder.
+//! M22 streams every source through fixed-size chunks instead:
+//!
+//! 1. Build a [`RenderGraph`] (one [`TrackPlan`] per track) — same as M21.
+//! 2. For each contributing track, open a streaming WAV reader, set up a
+//!    per-track resampler if needed, and skip past the clip's source
+//!    offset. None of these allocate a full-source buffer.
+//! 3. Loop: produce one [`MASTER_CHUNK_FRAMES`]-frame chunk of project-rate
+//!    output. Each contributing track is asked for "up to N frames at the
+//!    project rate"; track output is summed into the chunk; the chunk is
+//!    quantized and written to the WAV writer; chunk buffer is reused.
+//! 4. Stop when every track has reported EOF AND the master output has
+//!    reached the longest track's project-rate length.
+//!
+//! Peak memory is now O(MASTER_CHUNK_FRAMES × tracks × channels), i.e. a
+//! few MB for 8 tracks, regardless of session length.
+//!
+//! ### Byte-identity with the M21 buffered path
+//!
+//! Streaming MUST produce byte-identical output to the M21 in-memory mix
+//! for any session that both paths can render. The acceptance test
+//! `streaming_render_byte_equal_to_buffered_render` is the tripwire. To
+//! preserve byte-identity:
+//!
+//! * The per-track resampler is fed in the SAME 1024-input-frame chunks as
+//!   M21, with the SAME zero-padding for the trailing partial chunk. The
+//!   resampler is rubato `FftFixedInOut` with the same parameters.
+//! * Per-track resampled output is truncated to the SAME `expected_out_frames
+//!   = in_frames * out_rate / in_rate` (u128 truncated division) as M21.
+//! * Per-track gain, channel up/downmix, and the per-sample sum order are
+//!   identical to M21.
+//! * The float values produced by the streaming WAV reader are bit-exactly
+//!   equal to those produced by symphonia's i16 → f32 conversion (`s as
+//!   f32 / 32_768.0`); see `audio-decoder::stream` for the equivalence
+//!   table. This is what makes the float buffers fed into the resampler
+//!   identical between paths.
 
 use std::path::Path;
 
-use audio_decoder::{decode_file, DecodedAudio};
+use audio_decoder::{decode_file, DecodedAudio, WavStreamReader};
 use hound::{SampleFormat, WavSpec, WavWriter};
 use rubato::{FftFixedInOut, Resampler};
 use session::SessionState;
 
 use crate::graph::{self, RenderGraph, TrackPlan};
-use crate::mixer::apply_gain_db;
 use crate::{Error, RenderReport, TimeRange};
+
+/// Resampler input chunk, in source frames.
+///
+/// Held at 1024 to match the M21 buffered path (same constant in
+/// [`buffered_resample_track`]) so streaming and buffered renders feed the
+/// resampler with bit-equal input chunks. Changing this constant changes the
+/// rubato output for non-trivial rate ratios and therefore changes byte
+/// output — see the byte-identity invariant in the module docs.
+const RESAMPLER_CHUNK_INPUT_FRAMES: usize = 1024;
+
+/// Master-output chunk, in project frames.
+///
+/// Per the M22 acceptance criterion: read each source in fixed chunks of ~1
+/// second of project-rate frames. Larger chunks waste RAM, smaller chunks
+/// pay more per-chunk overhead in the resampler. 1 second is the spec.
+///
+/// Determinism note: this constant does NOT affect output bytes — it only
+/// controls how often we flush PCM to the WAV writer. The per-track
+/// resampler chunk is `RESAMPLER_CHUNK_INPUT_FRAMES` (1024 source frames)
+/// and is independent of the master chunk size.
+const MASTER_CHUNK_FRAMES_PER_SECOND_FACTOR: u32 = 1;
+
+fn master_chunk_frames(project_sample_rate: u32) -> usize {
+    (project_sample_rate * MASTER_CHUNK_FRAMES_PER_SECOND_FACTOR) as usize
+}
 
 /// Special-case path: a unity render with no gain change must be byte-identical
 /// to the source WAV. Any re-encoding (decode -> f32 -> requantize -> hound
@@ -67,7 +123,7 @@ pub fn render(
         return render_unity_copy(&graph, out);
     }
 
-    render_processed(&graph, out, range)
+    render_streaming(&graph, out, range)
 }
 
 /// Resolve a caller-supplied [`TimeRange`] into `(start_frame, end_frame)` in
@@ -115,92 +171,440 @@ fn render_unity_copy(graph: &RenderGraph, out: &Path) -> Result<RenderReport, Er
     Ok(report_from_decoded(&decoded))
 }
 
-/// One contributing track materialised at the project rate.
+/// One contributing track, set up for streaming.
 ///
-/// We keep each track's samples interleaved at the project channel count so
-/// the final summation is a flat per-sample loop. Channel count is uniform
-/// across all tracks (the mix uses the max channel count among
-/// contributors).
-struct PreparedTrack {
-    samples: Vec<f32>,
+/// Holds the streaming WAV reader, optional resampler, per-track output
+/// buffer, and clip metadata. `next_chunk` produces project-rate,
+/// project-channel-count, gained, interleaved samples on demand. The caller
+/// (the master mix loop) sums those into a master chunk buffer.
+struct TrackStreamer {
+    reader: WavStreamReader,
+    /// Source channel count (read from the WAV header).
+    in_channels: usize,
+    /// Source frames remaining in the clip window. Decremented every read.
+    src_frames_remaining: u64,
+    /// Whether `src_frames_remaining == 0` AND the resampler has been flushed.
+    eof: bool,
+    /// Project-rate frames already emitted for this track. Used to truncate
+    /// the resampled output to `expected_out_frames` (matches M21).
+    project_frames_emitted: u64,
+    /// Total project-rate frames this track should produce. Computed from
+    /// the clip length and the rate ratio (matches M21's `expected_out_frames`).
+    project_frames_total: u64,
+    /// Per-track gain in dB.
+    gain_db: f32,
+    /// Project-side channel count (the rendered file's channels).
+    out_channels: usize,
+    resampler: Option<TrackResampler>,
+    /// Buffer of resampled-but-not-yet-emitted output, planar at
+    /// `in_channels`. New resampler output is appended; consumed from the
+    /// front during [`next_chunk`]. We channel-map and apply gain at
+    /// emit-time, not at resample-time, to match M21's order.
+    pending_planar: Vec<Vec<f32>>,
+    /// Frames sitting in `pending_planar` (uniform across all channels).
+    pending_frames: usize,
+    /// Source-rate scratch reusable across reads to avoid per-call allocs.
+    source_chunk_interleaved: Vec<f32>,
+    /// True when the source has been fully drained from the WAV file.
+    source_eof: bool,
 }
 
-fn render_processed(
+struct TrackResampler {
+    inner: FftFixedInOut<f32>,
+    /// Pre-sized resampler input/output planar buffers.
+    in_buf: Vec<Vec<f32>>,
+    out_buf: Vec<Vec<f32>>,
+    /// Frames per resampler call (== `RESAMPLER_CHUNK_INPUT_FRAMES`).
+    chunk_in: usize,
+}
+
+impl TrackStreamer {
+    fn open(plan: &TrackPlan, project_rate: u32, out_channels: usize) -> Result<Self, Error> {
+        let mut reader = WavStreamReader::open(&plan.source_path)?;
+        let in_rate = reader.sample_rate();
+        let in_channels = reader.channels() as usize;
+        if in_channels == 0 {
+            return Err(Error::Decode(audio_decoder::DecodeError::Corrupt));
+        }
+
+        // Skip past `source_offset` so the first `read_frames` call returns
+        // the start of the clip window.
+        reader.skip_frames(plan.source_offset)?;
+
+        // Clip length in source frames, clamped against actual source
+        // length (mirrors M21's `clip_end.min(total_frames)`).
+        let total_frames = reader.total_frames();
+        let clip_start = plan.source_offset.min(total_frames);
+        let clip_end = plan
+            .source_offset
+            .saturating_add(plan.length)
+            .min(total_frames);
+        let src_frames_remaining = clip_end.saturating_sub(clip_start);
+
+        // Project-rate frame count for this track. u128 to avoid overflow;
+        // matches M21's `expected_out_frames` formula bit-for-bit.
+        let project_frames_total = if in_rate == project_rate {
+            src_frames_remaining
+        } else {
+            let v = (src_frames_remaining as u128) * (project_rate as u128) / (in_rate as u128);
+            v as u64
+        };
+
+        let resampler = if in_rate == project_rate {
+            None
+        } else {
+            let inner = FftFixedInOut::<f32>::new(
+                in_rate as usize,
+                project_rate as usize,
+                RESAMPLER_CHUNK_INPUT_FRAMES,
+                in_channels,
+            )
+            .map_err(Error::ResamplerInit)?;
+            let chunk_in = inner.input_frames_next();
+            let chunk_out = inner.output_frames_max();
+            let in_buf: Vec<Vec<f32>> = (0..in_channels).map(|_| vec![0.0; chunk_in]).collect();
+            let out_buf: Vec<Vec<f32>> = (0..in_channels).map(|_| vec![0.0; chunk_out]).collect();
+            Some(TrackResampler {
+                inner,
+                in_buf,
+                out_buf,
+                chunk_in,
+            })
+        };
+
+        let pending_planar: Vec<Vec<f32>> = (0..in_channels).map(|_| Vec::new()).collect();
+
+        // Source-side scratch sized for one resampler input chunk (or the
+        // master chunk if no resampling is needed).
+        let chunk_in_frames = resampler
+            .as_ref()
+            .map(|r| r.chunk_in)
+            .unwrap_or(master_chunk_frames(project_rate));
+        let source_chunk_interleaved = vec![0.0f32; chunk_in_frames * in_channels];
+
+        Ok(Self {
+            reader,
+            in_channels,
+            src_frames_remaining,
+            eof: project_frames_total == 0,
+            project_frames_emitted: 0,
+            project_frames_total,
+            gain_db: plan.gain_db,
+            out_channels,
+            resampler,
+            pending_planar,
+            pending_frames: 0,
+            source_chunk_interleaved,
+            source_eof: src_frames_remaining == 0,
+        })
+    }
+
+    /// Top up `pending_planar` until it holds at least `target_frames` of
+    /// project-rate output, or until the source plus resampler tail are
+    /// fully drained. Returns once one or the other is true.
+    fn fill_pending(&mut self, target_frames: usize) -> Result<(), Error> {
+        while self.pending_frames < target_frames && !self.source_finished_and_drained() {
+            self.advance_one_resampler_step()?;
+        }
+        Ok(())
+    }
+
+    /// Run one source read + (optional) resampler step, appending to
+    /// `pending_planar`. Drains the resampler's tail with zero-padded input
+    /// after the source EOFs so we don't lose the trailing samples.
+    fn advance_one_resampler_step(&mut self) -> Result<(), Error> {
+        match &mut self.resampler {
+            None => {
+                // No resample: read source frames straight through. Read up
+                // to one master chunk's worth, but don't exceed
+                // `src_frames_remaining`.
+                let want_frames = self.source_chunk_interleaved.len() / self.in_channels;
+                let want = (self.src_frames_remaining as usize).min(want_frames);
+                if want == 0 {
+                    self.source_eof = true;
+                    return Ok(());
+                }
+                let dst = &mut self.source_chunk_interleaved[..want * self.in_channels];
+                let got = self.reader.read_frames(dst)?;
+                if got == 0 {
+                    // Underflow vs header — treat the remaining clip window
+                    // as silence (matches M21, which trimmed against the
+                    // actual decoded length).
+                    self.src_frames_remaining = 0;
+                    self.source_eof = true;
+                    return Ok(());
+                }
+                self.src_frames_remaining -= got as u64;
+                if got < want || self.src_frames_remaining == 0 {
+                    self.source_eof = true;
+                }
+                // Append straight to pending_planar (deinterleave).
+                for ch in 0..self.in_channels {
+                    self.pending_planar[ch].reserve(got);
+                    for f in 0..got {
+                        self.pending_planar[ch].push(dst[f * self.in_channels + ch]);
+                    }
+                }
+                self.pending_frames += got;
+                Ok(())
+            }
+            Some(rs) => {
+                // Resample path: one resampler step consumes exactly
+                // `chunk_in` source frames (zero-padded if necessary) and
+                // emits `chunk_out` project-rate frames.
+                if self.source_eof
+                    && self.project_frames_emitted + (self.pending_frames as u64)
+                        >= self.project_frames_total
+                {
+                    // Resampler tail already drained AND we have enough
+                    // pending output to satisfy the per-track expected
+                    // length; nothing more to do.
+                    return Ok(());
+                }
+
+                // Build the input chunk: read up to `chunk_in` source
+                // frames; zero-pad the rest.
+                let chunk_in = rs.chunk_in;
+                let want = (self.src_frames_remaining as usize).min(chunk_in);
+                let mut got = 0usize;
+                if want > 0 {
+                    let dst = &mut self.source_chunk_interleaved[..want * self.in_channels];
+                    got = self.reader.read_frames(dst)?;
+                    if got > 0 {
+                        for ch in 0..self.in_channels {
+                            for f in 0..got {
+                                rs.in_buf[ch][f] = dst[f * self.in_channels + ch];
+                            }
+                        }
+                    }
+                    self.src_frames_remaining -= got as u64;
+                }
+                // Zero-pad the rest of the input chunk.
+                for ch in 0..self.in_channels {
+                    for f in got..chunk_in {
+                        rs.in_buf[ch][f] = 0.0;
+                    }
+                }
+                if got < want || self.src_frames_remaining == 0 {
+                    self.source_eof = true;
+                }
+
+                let (_in_used, out_written) = rs
+                    .inner
+                    .process_into_buffer(&rs.in_buf, &mut rs.out_buf, None)
+                    .map_err(Error::ResamplerProcess)?;
+
+                // Append output to pending. Note we append the FULL
+                // `out_written` here (not truncated to expected). The
+                // truncation happens when `next_chunk` consumes pending and
+                // hits `project_frames_total`. This matches M21, which
+                // truncated the FINAL planar output to `expected_out_frames`
+                // after running the resampler over every padded chunk.
+                for ch in 0..self.in_channels {
+                    self.pending_planar[ch].extend_from_slice(&rs.out_buf[ch][..out_written]);
+                }
+                self.pending_frames += out_written;
+                Ok(())
+            }
+        }
+    }
+
+    fn source_finished_and_drained(&self) -> bool {
+        // For unity rate: source EOF means no more input. For resample: the
+        // resampler may still have a tail in its internal state, but
+        // FftFixedInOut produces output strictly per call; once we stop
+        // calling it (because we've already accumulated `project_frames_total`
+        // samples in pending or already emitted) we're done.
+        if self.resampler.is_none() {
+            self.source_eof
+        } else {
+            self.source_eof
+                && self.project_frames_emitted + (self.pending_frames as u64)
+                    >= self.project_frames_total
+        }
+    }
+
+    /// Emit up to `want` project-rate, project-channel-count interleaved,
+    /// gained samples into `dst` starting at frame 0. `dst` must be sized
+    /// for `want * out_channels` samples; only the first
+    /// `returned_frames * out_channels` are written.
+    ///
+    /// Returns the number of project-rate frames written. A return less
+    /// than `want` means this track will not contribute beyond that point —
+    /// the caller pads master output with zeros.
+    fn next_chunk(&mut self, want: usize, dst: &mut [f32]) -> Result<usize, Error> {
+        if self.eof || want == 0 {
+            return Ok(0);
+        }
+        // Cap by per-track expected total (truncates resampler tail to
+        // match M21).
+        let project_remaining = self
+            .project_frames_total
+            .saturating_sub(self.project_frames_emitted) as usize;
+        let want = want.min(project_remaining);
+        if want == 0 {
+            self.eof = true;
+            return Ok(0);
+        }
+
+        self.fill_pending(want)?;
+
+        let avail = self.pending_frames.min(want);
+        if avail == 0 {
+            // Should not happen if project_remaining > 0 and source isn't
+            // truncated — defensive guard.
+            self.eof = true;
+            return Ok(0);
+        }
+
+        // Emit `avail` frames: channel-map (mono->N, N->N, N->1) and apply
+        // gain. Writes into `dst[..avail*out_channels]`.
+        emit_frames(
+            &self.pending_planar,
+            avail,
+            self.in_channels,
+            self.out_channels,
+            self.gain_db,
+            dst,
+        )?;
+
+        // Drain `avail` frames from the front of `pending_planar`.
+        for ch in 0..self.in_channels {
+            self.pending_planar[ch].drain(..avail);
+        }
+        self.pending_frames -= avail;
+        self.project_frames_emitted += avail as u64;
+        if self.project_frames_emitted >= self.project_frames_total {
+            self.eof = true;
+        }
+        Ok(avail)
+    }
+}
+
+/// Channel-map `frames` frames of planar input at `in_channels` to
+/// interleaved output at `out_channels`, applying linear `gain_db` to each
+/// output sample.
+///
+/// The mapping rules match M21's [`prepare_track`]: identity, mono ->
+/// N-channel by duplication, N-channel -> mono by mean, anything else is
+/// rejected.
+///
+/// `clippy::needless_range_loop` is suppressed: indexed loops are deliberate
+/// here for determinism-by-inspection (no iterator-adapter aliasing surprises
+/// across rustc versions), matching the M21 channel-map code this replaces.
+#[allow(clippy::needless_range_loop)]
+fn emit_frames(
+    pending_planar: &[Vec<f32>],
+    frames: usize,
+    in_channels: usize,
+    out_channels: usize,
+    gain_db: f32,
+    dst: &mut [f32],
+) -> Result<(), Error> {
+    let factor = if gain_db == 0.0 {
+        1.0f32
+    } else {
+        10f32.powf(gain_db / 20.0)
+    };
+    if in_channels == out_channels {
+        for f in 0..frames {
+            for ch in 0..out_channels {
+                dst[f * out_channels + ch] = pending_planar[ch][f] * factor;
+            }
+        }
+        Ok(())
+    } else if in_channels == 1 && out_channels > 1 {
+        for f in 0..frames {
+            let v = pending_planar[0][f] * factor;
+            for ch in 0..out_channels {
+                dst[f * out_channels + ch] = v;
+            }
+        }
+        Ok(())
+    } else if in_channels > 1 && out_channels == 1 {
+        let recip = 1.0 / in_channels as f32;
+        for f in 0..frames {
+            let mut sum = 0.0f32;
+            for ch in 0..in_channels {
+                sum += pending_planar[ch][f];
+            }
+            dst[f] = sum * recip * factor;
+        }
+        Ok(())
+    } else {
+        Err(Error::UnsupportedChannelMap {
+            from: in_channels as u16,
+            to: out_channels as u16,
+        })
+    }
+}
+
+fn render_streaming(
     graph: &RenderGraph,
     out: &Path,
     range: Option<TimeRange>,
 ) -> Result<RenderReport, Error> {
-    // Decode every contributing track's source and trim to the clip window.
-    // Tracks that don't contribute (muted-with-solo-elsewhere, or empty)
-    // still occupy a slot in the prepared list as `None` so indexes line
-    // up with `state.tracks` for diagnostics.
-    let mut decoded_tracks: Vec<Option<DecodedClip>> = Vec::with_capacity(graph.tracks.len());
+    // Figure out the project-side channel count (max of contributing
+    // sources) without decoding any audio. We peek WAV headers via the
+    // streaming reader's metadata.
     let mut max_channels: u16 = 1;
+    let mut total_project_frames: u64 = 0;
+    let mut openers: Vec<Option<(WavStreamReader, &TrackPlan)>> =
+        Vec::with_capacity(graph.tracks.len());
 
     for plan in &graph.tracks {
         if !plan.contributes || plan.length == 0 {
-            decoded_tracks.push(None);
+            openers.push(None);
             continue;
         }
-        let decoded = decode_file(&plan.source_path)?;
-        if decoded.channels > max_channels {
-            max_channels = decoded.channels;
+        let reader = WavStreamReader::open(&plan.source_path)?;
+        if reader.channels() > max_channels {
+            max_channels = reader.channels();
         }
-        decoded_tracks.push(Some(DecodedClip { decoded, plan }));
+        // Project-rate length per track; total render length = max.
+        let in_rate = reader.sample_rate();
+        let total_frames = reader.total_frames();
+        let clip_start = plan.source_offset.min(total_frames);
+        let clip_end = plan
+            .source_offset
+            .saturating_add(plan.length)
+            .min(total_frames);
+        let src_frames = clip_end.saturating_sub(clip_start);
+        let project_frames = if in_rate == graph.project_sample_rate {
+            src_frames
+        } else {
+            ((src_frames as u128) * (graph.project_sample_rate as u128) / (in_rate as u128)) as u64
+        };
+        if project_frames > total_project_frames {
+            total_project_frames = project_frames;
+        }
+        openers.push(Some((reader, plan)));
     }
+
+    // Drop the peek readers; the streamers below open fresh ones because
+    // `WavStreamReader::skip_frames` operates from "frames already
+    // consumed" and we want consumption from zero.
+    drop(openers);
 
     let project_rate = graph.project_sample_rate;
+    let chans = max_channels as usize;
 
-    // Materialise each track at the project rate / project channel count.
-    // After this loop every `Some(track)` has the same per-frame channel
-    // count and the same sample rate, so summation is a flat add.
-    let mut prepared: Vec<Option<PreparedTrack>> = Vec::with_capacity(decoded_tracks.len());
-    for entry in decoded_tracks {
-        match entry {
-            None => prepared.push(None),
-            Some(dc) => prepared.push(Some(prepare_track(dc, project_rate, max_channels)?)),
+    // Build a streamer for every contributing track. Track index -> Option
+    // mirrors `graph.tracks` so the master loop can iterate in graph order
+    // (== `state.tracks` insertion order; see determinism invariant).
+    let mut streamers: Vec<Option<TrackStreamer>> = Vec::with_capacity(graph.tracks.len());
+    for plan in &graph.tracks {
+        if !plan.contributes || plan.length == 0 {
+            streamers.push(None);
+            continue;
         }
+        streamers.push(Some(TrackStreamer::open(plan, project_rate, chans)?));
     }
 
-    // Master buffer length = the longest contributing track. Tracks that end
-    // earlier contribute zeros for the remainder (no per-track padding —
-    // we stop reading from them at their end).
-    let chans = max_channels as usize;
-    let total_frames = prepared
-        .iter()
-        .filter_map(|p| p.as_ref())
-        .map(|p| p.samples.len() / chans)
-        .max()
-        .unwrap_or(0);
-
+    let total_frames = total_project_frames as usize;
     let (start_frame, end_frame) = resolve_range(range, total_frames)?;
     let frames_to_write = end_frame - start_frame;
 
-    // Sum into a master f32 buffer at project rate. Track summation order is
-    // fixed by `prepared`'s index, which matches `state.tracks`. Within a
-    // track the per-sample read is in interleaved (frame, channel) order.
-    let mut master = vec![0.0f32; frames_to_write * chans];
-    for entry in prepared.iter() {
-        let Some(track) = entry else { continue };
-        let track_frames = track.samples.len() / chans;
-        // Per-track contribution starts at master frame 0; we don't yet
-        // honor `start_in_track` offsets across tracks (M22 will). Each
-        // track is mixed flush to time zero.
-        let copy_start = start_frame.min(track_frames);
-        let copy_end = end_frame.min(track_frames);
-        if copy_end <= copy_start {
-            continue;
-        }
-        let src = &track.samples[copy_start * chans..copy_end * chans];
-        let dst_offset = (copy_start - start_frame) * chans;
-        let dst = &mut master[dst_offset..dst_offset + src.len()];
-        // Plain indexed loop — see determinism invariant.
-        for (i, s) in src.iter().enumerate() {
-            dst[i] += *s;
-        }
-    }
-
-    // Quantize and write 16-bit PCM at project rate.
     let spec = WavSpec {
         channels: max_channels,
         sample_rate: project_rate,
@@ -209,16 +613,76 @@ fn render_processed(
     };
     let mut writer = WavWriter::create(out, spec)?;
     let mut peak: f32 = 0.0;
-    for s in &master {
-        let abs = s.abs();
-        if abs > peak {
-            peak = abs;
+
+    let chunk_frames = master_chunk_frames(project_rate);
+    let mut master_chunk = vec![0.0f32; chunk_frames * chans];
+    // Per-track scratch (one per call to `next_chunk`) sized for
+    // `chunk_frames * chans`. Preallocated once and reused across master
+    // chunks AND tracks, since track streamers run sequentially.
+    let mut track_chunk = vec![0.0f32; chunk_frames * chans];
+
+    // Fast-forward all streamers past the master start frame. We do this by
+    // discarding the first `start_frame` project frames track-by-track.
+    // Since the spec keeps `range` defaulted to `None` for normal renders,
+    // this loop is a no-op for the common case.
+    if start_frame > 0 {
+        let mut to_skip = start_frame;
+        while to_skip > 0 {
+            let step = to_skip.min(chunk_frames);
+            for streamer in streamers.iter_mut() {
+                let Some(streamer) = streamer else { continue };
+                let dst = &mut track_chunk[..step * chans];
+                streamer.next_chunk(step, dst)?;
+            }
+            to_skip -= step;
         }
-        let q = (s * 32_768.0)
-            .round()
-            .clamp(i16::MIN as f32, i16::MAX as f32) as i16;
-        writer.write_sample(q)?;
     }
+
+    // Master chunk loop. Emits exactly `frames_to_write` project-rate
+    // frames in total; the final chunk may be partial.
+    let mut frames_remaining = frames_to_write;
+    while frames_remaining > 0 {
+        let this_chunk = frames_remaining.min(chunk_frames);
+        let dst = &mut master_chunk[..this_chunk * chans];
+        // Zero out the master chunk before summing.
+        for v in dst.iter_mut() {
+            *v = 0.0;
+        }
+
+        // Sum each track's contribution. Track order is graph order ==
+        // state.tracks insertion order. Per-sample summation order is fixed
+        // by track index, then by interleaved sample index. See determinism
+        // invariant.
+        for streamer in streamers.iter_mut() {
+            let Some(streamer) = streamer else { continue };
+            let scratch = &mut track_chunk[..this_chunk * chans];
+            // Don't bother zeroing scratch — `next_chunk` writes exactly
+            // `got * chans` samples, and we only sum those.
+            let got = streamer.next_chunk(this_chunk, scratch)?;
+            if got == 0 {
+                continue;
+            }
+            let n = got * chans;
+            for i in 0..n {
+                dst[i] += scratch[i];
+            }
+        }
+
+        // Quantize and write this chunk; track running peak.
+        for &s in dst.iter() {
+            let abs = s.abs();
+            if abs > peak {
+                peak = abs;
+            }
+            let q = (s * 32_768.0)
+                .round()
+                .clamp(i16::MIN as f32, i16::MAX as f32) as i16;
+            writer.write_sample(q)?;
+        }
+
+        frames_remaining -= this_chunk;
+    }
+
     writer.finalize()?;
 
     Ok(RenderReport {
@@ -229,90 +693,22 @@ fn render_processed(
     })
 }
 
-struct DecodedClip<'a> {
-    decoded: DecodedAudio,
-    plan: &'a TrackPlan,
-}
-
-/// Trim `decoded` to the clip window, resample to `project_rate`, upmix /
-/// downmix to `out_channels`, and apply the track's gain in dB.
+/// Buffered per-track resample helper, retained for parity testing.
 ///
-/// The output is interleaved at `out_channels` and `project_rate`.
-fn prepare_track(
-    dc: DecodedClip<'_>,
-    project_rate: u32,
-    out_channels: u16,
-) -> Result<PreparedTrack, Error> {
-    let DecodedClip { decoded, plan } = dc;
-    let in_channels = decoded.channels as usize;
-    let in_rate = decoded.sample_rate;
-    let total_frames = decoded.samples.len() / in_channels;
-
-    // Trim to the clip window.
-    let clip_start = (plan.source_offset as usize).min(total_frames);
-    let clip_end = ((plan.source_offset.saturating_add(plan.length)) as usize).min(total_frames);
-    if clip_start > clip_end {
-        return Err(Error::InvalidRange);
-    }
-    let trimmed: Vec<f32> =
-        decoded.samples[clip_start * in_channels..clip_end * in_channels].to_vec();
-
-    // Resample (if needed) at the source's channel count, then channel-map.
-    let at_project_rate: Vec<f32> = if in_rate == project_rate {
-        trimmed
-    } else {
-        resample_interleaved(&trimmed, in_rate, project_rate, in_channels)?
-    };
-
-    // Channel map: mono -> N (duplicate), stereo -> stereo (passthrough),
-    // stereo -> mono is not produced by the current planner (max channels
-    // is taken across contributors). The third combination would be
-    // `out_channels < in_channels`; we average channels in that case for
-    // robustness but it's not currently exercised.
-    let out_chans = out_channels as usize;
-    let mapped = if in_channels == out_chans {
-        at_project_rate
-    } else if in_channels == 1 && out_chans > 1 {
-        let frames = at_project_rate.len();
-        let mut out = Vec::with_capacity(frames * out_chans);
-        for s in &at_project_rate {
-            for _ in 0..out_chans {
-                out.push(*s);
-            }
-        }
-        out
-    } else if in_channels > 1 && out_chans == 1 {
-        let frames = at_project_rate.len() / in_channels;
-        let mut out = Vec::with_capacity(frames);
-        let recip = 1.0 / in_channels as f32;
-        for f in 0..frames {
-            let mut sum = 0.0f32;
-            for c in 0..in_channels {
-                sum += at_project_rate[f * in_channels + c];
-            }
-            out.push(sum * recip);
-        }
-        out
-    } else {
-        // Mismatched stereo widths (e.g. 5.1 -> stereo) are out of scope.
-        return Err(Error::UnsupportedChannelMap {
-            from: in_channels as u16,
-            to: out_channels,
-        });
-    };
-
-    let mut samples = mapped;
-    apply_gain_db(&mut samples, plan.gain_db);
-    Ok(PreparedTrack { samples })
-}
-
-/// Resample interleaved `samples` from `in_rate` to `out_rate` using
-/// rubato's FFT resampler. The output preserves interleaving.
+/// This is M21's resample-then-truncate path lifted out so the M22
+/// streaming implementation can demonstrate that it produces the same
+/// per-track output for any source/project rate combination. It is NOT
+/// called by the production render path (which streams) but is exported
+/// because the byte-identity integration test compares against a buffered
+/// reference render assembled in-test from this helper plus the M21
+/// channel-map / gain / sum primitives.
 ///
-/// `FftFixedInOut` operates on planar buffers in fixed-size chunks; we
-/// deinterleave into planar, run the resampler chunk-by-chunk (final chunk
-/// is zero-padded so we don't lose the tail), and reinterleave the output.
-fn resample_interleaved(
+/// Stays public (rather than `pub(crate)`) so the integration test in
+/// `tests/streaming.rs` — which compiles as a separate crate — can call it.
+/// Production code MUST NOT use this helper; reach for the streaming path
+/// via [`render_state_to_wav`](crate::render_state_to_wav) instead.
+#[doc(hidden)]
+pub fn buffered_resample_track(
     samples: &[f32],
     in_rate: u32,
     out_rate: u32,
@@ -322,17 +718,15 @@ fn resample_interleaved(
         return Ok(Vec::new());
     }
     let in_frames = samples.len() / channels;
-
-    // 1024-frame chunk matches audio-io's realtime resampler. The exact
-    // chunk size doesn't change correctness because we feed full chunks
-    // (zero-padding the tail) and clip the output to the expected frame
-    // count.
-    let mut resampler =
-        FftFixedInOut::<f32>::new(in_rate as usize, out_rate as usize, 1024, channels)
-            .map_err(Error::ResamplerInit)?;
+    let mut resampler = FftFixedInOut::<f32>::new(
+        in_rate as usize,
+        out_rate as usize,
+        RESAMPLER_CHUNK_INPUT_FRAMES,
+        channels,
+    )
+    .map_err(Error::ResamplerInit)?;
     let chunk = resampler.input_frames_next();
 
-    // Deinterleave to planar.
     let mut planar: Vec<Vec<f32>> = (0..channels)
         .map(|ch| {
             (0..in_frames)
@@ -340,9 +734,6 @@ fn resample_interleaved(
                 .collect::<Vec<f32>>()
         })
         .collect();
-
-    // Pad each plane up to a multiple of `chunk` so the resampler consumes
-    // every input frame; trailing zeros after the real audio are harmless.
     let pad_to = in_frames.div_ceil(chunk) * chunk;
     for plane in &mut planar {
         plane.resize(pad_to, 0.0);
@@ -367,8 +758,6 @@ fn resample_interleaved(
         pos += chunk;
     }
 
-    // Trim to the expected output length, computed from the rate ratio.
-    // We multiply through u128 to avoid overflow on long files.
     let expected_out_frames =
         ((in_frames as u128) * (out_rate as u128) / (in_rate as u128)) as usize;
     for plane in &mut out_planes {
@@ -379,8 +768,6 @@ fn resample_interleaved(
         }
     }
 
-    // Reinterleave. Plain indexed loop for determinism — see the
-    // file-level invariant.
     let mut out = Vec::with_capacity(expected_out_frames * channels);
     #[allow(clippy::needless_range_loop)]
     for f in 0..expected_out_frames {

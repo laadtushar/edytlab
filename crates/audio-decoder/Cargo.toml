@@ -11,6 +11,11 @@ workspace = true
 
 [dependencies]
 symphonia = { version = "0.5", features = ["mp3", "wav", "flac"] }
+# `hound` powers the streaming WAV reader added in Phase 2 M22 (constant-memory
+# multi-track render). The buffered `decode_file` path still uses symphonia for
+# multi-format support; only WAV needs the chunked path because the M22 render
+# graph operates on WAV sources exclusively.
+hound = "3.5"
 thiserror = "2"
 
 [build-dependencies]
