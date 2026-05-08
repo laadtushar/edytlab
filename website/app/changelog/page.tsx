@@ -48,8 +48,8 @@ export default function ChangelogPage() {
             </span>
           </h2>
           <ul>
-            {e.bullets.map((b) => (
-              <li key={b}>{b}</li>
+            {e.bullets.map((b, i) => (
+              <li key={i}>{b}</li>
             ))}
           </ul>
         </section>

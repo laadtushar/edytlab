@@ -57,7 +57,7 @@ export function Footer() {
           </div>
         </div>
         <Separator className="my-8" />
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-muted-foreground" suppressHydrationWarning>
           © {new Date().getFullYear()} edytlab. Audio stays on your machine.
         </p>
       </div>
