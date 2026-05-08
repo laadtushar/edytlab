@@ -487,16 +487,15 @@ fn emit_agent_event<R: tauri::Runtime>(app: &AppHandle<R>, event: ai::AgentEvent
 // approve_plan
 // ---------------------------------------------------------------------------
 
-/// Called by the frontend "Approve plan" button. Clears the pending plan
-/// stored on the agent, unblocking the mashup-mode turn loop.
+/// Called by the frontend "Approve plan" button. Fires the plan-approval
+/// notifier in `AppState`, unblocking the mashup-mode turn loop.
 ///
-/// Returns `Err` if no agent is configured (i.e. the user has not yet
-/// set an API key and opened a project).
+/// Deliberately does NOT acquire the agent mutex — `send_message` holds
+/// it across its `.await` points, so touching the agent here would
+/// deadlock.  The notifier lives independently on `AppState`.
 #[tauri::command]
 pub async fn approve_plan(state: State<'_, AppState>) -> CmdResult<()> {
-    let agent_guard = state.agent.lock().await;
-    let agent = agent_guard.as_ref().ok_or(CommandError::NoAgent)?;
-    agent.approve_plan();
+    state.plan_notify.notify_one();
     Ok(())
 }
 
@@ -520,6 +519,7 @@ async fn rebuild_agent(state: &AppState) -> Result<(), CommandError> {
                 Arc::clone(&state.dispatcher),
                 store,
                 Arc::clone(&state.engine),
+                Arc::clone(&state.plan_notify),
             ))
         }
         _ => None,

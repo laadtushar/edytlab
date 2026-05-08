@@ -323,7 +323,8 @@ async fn agent_dispatches_normalize_and_emits_node_created() {
 
     // Agent pointed at the mock.
     let cfg = ai::AnthropicConfig::new("test-key").with_base_url(server.uri());
-    let mut agent = ai::Agent::new(cfg, dispatcher.clone(), store.clone(), engine.clone());
+    let plan_notify = Arc::new(tokio::sync::Notify::new());
+    let mut agent = ai::Agent::new(cfg, dispatcher.clone(), store.clone(), engine.clone(), plan_notify);
 
     let mut events: Vec<ai::AgentEvent> = Vec::new();
     let result = agent
@@ -561,7 +562,8 @@ async fn agent_enforces_tool_call_cap() {
     }
 
     let cfg = ai::AnthropicConfig::new("test-key").with_base_url(server.uri());
-    let mut agent = ai::Agent::new(cfg, dispatcher, store, engine);
+    let plan_notify = Arc::new(tokio::sync::Notify::new());
+    let mut agent = ai::Agent::new(cfg, dispatcher, store, engine, plan_notify);
 
     let err = agent
         .turn("loop please".to_string(), |_| {})

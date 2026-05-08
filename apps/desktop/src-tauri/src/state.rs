@@ -47,6 +47,12 @@ pub struct AppState {
     /// on demand; this exists so commands that need the key (agent
     /// construction) do not have to re-prompt the user.
     pub api_key: Arc<Mutex<Option<String>>>,
+    /// Plan-approval signal for mashup mode (M27). The agent turn loop
+    /// waits on this notifier; the `approve_plan` command fires it
+    /// directly — without ever touching the agent Mutex — so there is no
+    /// deadlock even though `send_message` holds the agent lock across its
+    /// `.await` points.
+    pub plan_notify: Arc<tokio::sync::Notify>,
 }
 
 impl AppState {
@@ -60,6 +66,7 @@ impl AppState {
             engine: Arc::new(Mutex::new(Engine::new())),
             project_dir: Arc::new(Mutex::new(None)),
             api_key: Arc::new(Mutex::new(None)),
+            plan_notify: Arc::new(tokio::sync::Notify::new()),
         }
     }
 

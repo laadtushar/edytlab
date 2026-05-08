@@ -149,7 +149,7 @@ export function Chat({ rendering, onRequestRenderPreview }: ChatProps) {
             // approval card is rendered separately below).
             return (
               <div
-                key={`plan-${entry.steps.length}`}
+                key={entry.id}
                 data-testid="plan-history-entry"
                 className="rounded-md border border-neutral-700 bg-neutral-900/60 px-3 py-2 text-xs text-neutral-400"
               >

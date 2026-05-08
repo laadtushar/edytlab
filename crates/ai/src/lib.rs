@@ -172,9 +172,10 @@ pub struct Agent {
     /// Per-agent conversation history. Phase 1 keeps this in memory;
     /// persistence comes later.
     conversation: Vec<Message>,
-    /// Pending plan awaiting frontend approval. Set by the loop when
-    /// mashup mode emits a `<plan>` block; cleared on `approve_plan()`.
-    pub(crate) pending_plan: Arc<Mutex<Option<Vec<serde_json::Value>>>>,
+    /// Notification primitive for plan approval (M27). Shared with the
+    /// Tauri `AppState` so the `approve_plan` command can fire it without
+    /// acquiring the agent Mutex.
+    pub(crate) plan_notify: Arc<tokio::sync::Notify>,
 }
 
 impl Agent {
@@ -186,6 +187,7 @@ impl Agent {
         dispatcher: Arc<Mutex<tools::ToolDispatcher>>,
         store: Arc<Mutex<session::Store>>,
         engine: Arc<Mutex<audio_engine::Engine>>,
+        plan_notify: Arc<tokio::sync::Notify>,
     ) -> Self {
         Self {
             cfg,
@@ -194,24 +196,8 @@ impl Agent {
             store,
             engine,
             conversation: Vec::new(),
-            pending_plan: Arc::new(Mutex::new(None)),
+            plan_notify,
         }
-    }
-
-    /// Called by the frontend "Approve plan" button. Clears the pending
-    /// plan, unblocking the loop that is polling for approval.
-    pub fn approve_plan(&self) {
-        let mut guard = self
-            .pending_plan
-            .lock()
-            .expect("pending_plan mutex poisoned");
-        *guard = None;
-    }
-
-    /// Expose a clone of the pending-plan handle so the Tauri command
-    /// layer can set it when the loop emits a `Plan` event.
-    pub fn pending_plan_handle(&self) -> Arc<Mutex<Option<Vec<serde_json::Value>>>> {
-        Arc::clone(&self.pending_plan)
     }
 
     /// Single conversational turn. Streams the assistant's response,
@@ -233,7 +219,7 @@ impl Agent {
             &self.store,
             &self.engine,
             &mut self.conversation,
-            &self.pending_plan,
+            &self.plan_notify,
             user_message,
             on_event,
         )

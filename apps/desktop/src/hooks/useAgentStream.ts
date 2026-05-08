@@ -61,6 +61,7 @@ export interface NodeDividerEntry {
 
 export interface PlanEntry {
   kind: "plan";
+  id: string;
   steps: Array<{ step: number; tool: string; description: string }>;
 }
 
@@ -186,7 +187,7 @@ export function useAgentStream(): UseAgentStreamResult {
           tool: (s["tool"] as string) ?? "",
           description: (s["description"] as string) ?? "",
         }));
-        const entry: PlanEntry = { kind: "plan", steps };
+        const entry: PlanEntry = { kind: "plan", id: crypto.randomUUID(), steps };
         setEntries((prev) => [...prev, entry]);
         setPendingPlan(entry);
       }),

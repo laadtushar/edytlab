@@ -36,6 +36,8 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use tokio::sync::Notify;
+
 use eventsource_stream::Eventsource;
 use futures_util::StreamExt;
 use serde_json::Value;
@@ -62,24 +64,41 @@ pub(crate) enum Mode {
 }
 
 /// Classify the user's request using a cheap single-turn call to
-/// `claude-haiku-4-5-20251001`. Falls back to `Mode::General` on any
+/// `claude-haiku-4-5-20251001`. Passes recent conversation history for
+/// context (last 6 messages) so follow-up messages ("actually, change
+/// the BPM") classify correctly. Falls back to `Mode::General` on any
 /// error so classification failures are never user-visible.
 pub(crate) async fn classify_mode(
     cfg: &AnthropicConfig,
     http: &reqwest::Client,
     user_message: &str,
+    conversation: &[Message],
 ) -> Mode {
     let system_text = "Classify the user's request as one word: mashup, mix, voice, or general. Output only the single word.";
+
+    // Include the last 6 conversation messages for context, then the new
+    // user message so the classifier sees the full intent.
+    let mut messages: Vec<serde_json::Value> = conversation
+        .iter()
+        .rev()
+        .take(6)
+        .rev()
+        .map(|m| {
+            serde_json::json!({
+                "role": match m.role { Role::User => "user", Role::Assistant => "assistant" },
+                "content": m.content.iter().filter_map(|b| {
+                    if let ContentBlock::Text { text } = b { Some(text.as_str()) } else { None }
+                }).collect::<Vec<_>>().join(" ")
+            })
+        })
+        .collect();
+    messages.push(serde_json::json!({ "role": "user", "content": user_message }));
+
     let request_body = serde_json::json!({
         "model": crate::CLASSIFIER_MODEL,
         "max_tokens": 10,
         "system": system_text,
-        "messages": [
-            {
-                "role": "user",
-                "content": user_message
-            }
-        ],
+        "messages": messages,
         "stream": false
     });
 
@@ -115,11 +134,14 @@ pub(crate) async fn classify_mode(
         .trim()
         .to_lowercase();
 
-    match text.as_str() {
-        "mashup" => Mode::Mashup,
-        "mix" => Mode::Mix,
-        "voice" => Mode::Voice,
-        _ => Mode::General,
+    if text.contains("mashup") {
+        Mode::Mashup
+    } else if text.contains("mix") {
+        Mode::Mix
+    } else if text.contains("voice") {
+        Mode::Voice
+    } else {
+        Mode::General
     }
 }
 
@@ -148,14 +170,28 @@ pub(crate) fn parse_plan(text: &str) -> Option<Vec<Value>> {
 }
 
 /// Request a plan from the model in a single non-streaming call and
-/// return the parsed steps. Returns `None` on failure so the caller can
-/// fall back gracefully.
+/// return the parsed steps. Includes conversation history so follow-up
+/// requests can be planned in context. Returns `None` on failure.
 async fn fetch_plan(
     cfg: &AnthropicConfig,
     http: &reqwest::Client,
     system_prompt: &str,
+    conversation: &[Message],
     user_message: &str,
 ) -> Option<Vec<Value>> {
+    let mut messages: Vec<serde_json::Value> = conversation
+        .iter()
+        .map(|m| {
+            serde_json::json!({
+                "role": match m.role { Role::User => "user", Role::Assistant => "assistant" },
+                "content": m.content.iter().filter_map(|b| {
+                    if let ContentBlock::Text { text } = b { Some(text.as_str()) } else { None }
+                }).collect::<Vec<_>>().join(" ")
+            })
+        })
+        .collect();
+    messages.push(serde_json::json!({ "role": "user", "content": user_message }));
+
     let request_body = serde_json::json!({
         "model": cfg.model,
         "max_tokens": 1024,
@@ -169,12 +205,7 @@ async fn fetch_plan(
                 "text": "Output only a <plan>...</plan> XML block listing the steps as JSON. No other text."
             }
         ],
-        "messages": [
-            {
-                "role": "user",
-                "content": user_message
-            }
-        ],
+        "messages": messages,
         "stream": false
     });
 
@@ -203,22 +234,17 @@ async fn fetch_plan(
     parse_plan(text)
 }
 
-/// Wait for the frontend to approve the pending plan by polling the
-/// `pending_plan` mutex. The plan is approved when the mutex is cleared
-/// (set to `None`). Timeout after 5 minutes.
-async fn await_plan_approval(pending_plan: &Arc<Mutex<Option<Vec<Value>>>>) -> Result<()> {
-    // Total wait: 5 minutes = 300 seconds = 3000 × 100 ms polls.
-    let max_polls = 3000usize;
-    for _ in 0..max_polls {
-        {
-            let guard = pending_plan.lock().expect("pending_plan mutex poisoned");
-            if guard.is_none() {
-                return Ok(());
-            }
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    Err(Error::PlanTimeout)
+/// Wait for the frontend to approve the pending plan. Uses
+/// `tokio::sync::Notify` so the loop wakes immediately when the user
+/// clicks "Run" with zero polling overhead. Times out after 5 minutes.
+///
+/// The notifier is stored in `AppState` (not behind the agent Mutex),
+/// so the `approve_plan` Tauri command can fire it without holding any
+/// lock that `send_message` also holds, eliminating the deadlock.
+async fn await_plan_approval(notify: &Arc<Notify>) -> Result<()> {
+    tokio::time::timeout(Duration::from_secs(300), notify.notified())
+        .await
+        .map_err(|_| Error::PlanTimeout)
 }
 
 /// Hard upper bound on the number of content blocks we'll allocate for
@@ -243,7 +269,7 @@ pub(crate) async fn run_turn<F>(
     store: &Arc<Mutex<session::Store>>,
     engine: &Arc<Mutex<audio_engine::Engine>>,
     conversation: &mut Vec<Message>,
-    pending_plan: &Arc<Mutex<Option<Vec<Value>>>>,
+    plan_notify: &Arc<Notify>,
     user_message: String,
     mut on_event: F,
 ) -> Result<TurnResult>
@@ -252,25 +278,21 @@ where
 {
     // M27: classify the user message to select the system prompt and
     // decide whether to gate on plan approval.
-    let mode = classify_mode(cfg, http, &user_message).await;
+    let mode = classify_mode(cfg, http, &user_message, conversation).await;
     let system_prompt = select_system_prompt(mode);
 
     // M27: if mashup mode, request a plan from the model and wait for
     // the frontend to approve before executing any tools.
     if mode == Mode::Mashup {
-        if let Some(steps) = fetch_plan(cfg, http, system_prompt, &user_message).await {
-            // Store the plan and emit the event so the frontend can
-            // render the approval card.
-            {
-                let mut guard = pending_plan.lock().expect("pending_plan mutex poisoned");
-                *guard = Some(steps.clone());
-            }
+        if let Some(steps) =
+            fetch_plan(cfg, http, system_prompt, conversation, &user_message).await
+        {
             on_event(AgentEvent::Plan {
                 steps: steps.clone(),
             });
-            // Block until the frontend clears pending_plan via
-            // Agent::approve_plan(), or time out after 5 minutes.
-            await_plan_approval(pending_plan).await?;
+            // Block until the frontend fires plan_notify via the
+            // `approve_plan` command, or time out after 5 minutes.
+            await_plan_approval(plan_notify).await?;
         }
         // If fetch_plan returns None (e.g. parse failure) we continue
         // without gating — graceful degradation.
