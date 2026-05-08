@@ -284,8 +284,7 @@ where
     // M27: if mashup mode, request a plan from the model and wait for
     // the frontend to approve before executing any tools.
     if mode == Mode::Mashup {
-        if let Some(steps) =
-            fetch_plan(cfg, http, system_prompt, conversation, &user_message).await
+        if let Some(steps) = fetch_plan(cfg, http, system_prompt, conversation, &user_message).await
         {
             on_event(AgentEvent::Plan {
                 steps: steps.clone(),
@@ -764,7 +763,7 @@ No other text."#;
         let key = std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY must be set");
         let cfg = crate::AnthropicConfig::new(key);
         let http = reqwest::Client::new();
-        let mode = classify_mode(&cfg, &http, "make a mashup of these two tracks").await;
+        let mode = classify_mode(&cfg, &http, "make a mashup of these two tracks", &[]).await;
         assert_eq!(
             mode,
             Mode::Mashup,
