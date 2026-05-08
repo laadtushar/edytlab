@@ -62,6 +62,12 @@ export interface GraphViewProps {
   /** Called when the user clicks a node. The parent should update
    *  its head pointer and re-render the canvas. */
   onSelectNode: (id: NodeId) => void;
+  /**
+   * M26: called when the user chooses "Compare with…" from the context
+   * menu. The parent sets up compare mode with `head` as A and the
+   * right-clicked `nodeId` as B.
+   */
+  onCompareNodes?: (nodeId: NodeId) => void;
   /** Bumping this number forces a refetch of `get_graph`. The parent
    *  bumps it on `node-created` events so the graph stays in sync
    *  with the agent's edits. */
@@ -123,7 +129,7 @@ interface ContextMenuState {
   nodeId: string;
 }
 
-export function GraphView({ head, onSelectNode, refreshKey = 0 }: GraphViewProps) {
+export function GraphView({ head, onSelectNode, onCompareNodes, refreshKey = 0 }: GraphViewProps) {
   const [graph, setGraph] = useState<GraphSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
@@ -284,6 +290,14 @@ export function GraphView({ head, onSelectNode, refreshKey = 0 }: GraphViewProps
           y={menu.y}
           onClose={dismissMenu}
           onRename={() => startRename(menu.nodeId)}
+          onCompare={
+            onCompareNodes
+              ? () => {
+                  onCompareNodes(menu.nodeId);
+                  dismissMenu();
+                }
+              : undefined
+          }
         />
       ) : null}
 
@@ -302,6 +316,8 @@ interface ContextMenuProps {
   y: number;
   onClose: () => void;
   onRename: () => void;
+  /** M26: when provided, the "Compare with…" item is enabled. */
+  onCompare?: () => void;
 }
 
 /**
@@ -312,7 +328,7 @@ interface ContextMenuProps {
  * a TODO so the UX flow can be exercised end-to-end once the backend
  * lands.
  */
-function ContextMenu({ x, y, onClose, onRename }: ContextMenuProps) {
+function ContextMenu({ x, y, onClose, onRename, onCompare }: ContextMenuProps) {
   const item = (
     label: string,
     enabled: boolean,
@@ -343,8 +359,13 @@ function ContextMenu({ x, y, onClose, onRename }: ContextMenuProps) {
     >
       {/* TODO(M24): wire to `set_head` tool when the backend command lands. */}
       {item("Set as head", false, () => undefined)}
-      {/* TODO(M24): wire to `diff` / `compare` tool when backend lands. */}
-      {item("Compare with…", false, () => undefined)}
+      {/* M26: enabled when the parent provides onCompare. */}
+      {item(
+        "Compare with…",
+        !!onCompare,
+        onCompare ?? (() => undefined),
+        onCompare ? undefined : "available after M24 lands",
+      )}
       {/* TODO(M24): wire to `name_node` tool when backend lands. */}
       {item("Rename", false, onRename)}
       {/* TODO(M24): wire to `delete_node` tool when backend lands. */}

@@ -320,6 +320,91 @@ pub async fn render_preview(state: State<'_, AppState>, node: String) -> CmdResu
 }
 
 // ---------------------------------------------------------------------------
+// prepare_compare
+// ---------------------------------------------------------------------------
+
+/// Pre-render both A and B nodes so the frontend A/B toggle is gapless.
+///
+/// Renders each node to a stable path under the OS temp directory:
+/// - `<tempdir>/compare_a.wav`
+/// - `<tempdir>/compare_b.wav`
+///
+/// Returns `{ "a_path": "…", "b_path": "…" }` — the caller feeds these
+/// paths to the audio engine on each A/B button click so the switch is
+/// instant (no render latency on toggle).
+#[tauri::command]
+pub async fn prepare_compare<R: Runtime>(
+    a: String,
+    b: String,
+    _app: AppHandle<R>,
+    state: State<'_, AppState>,
+) -> CmdResult<serde_json::Value> {
+    let store_handle = state.store_handle().ok_or(CommandError::NoSession)?;
+
+    let a_id = NodeId::from_hex(&a).map_err(|_| CommandError::InvalidNodeId(a.clone()))?;
+    let b_id = NodeId::from_hex(&b).map_err(|_| CommandError::InvalidNodeId(b.clone()))?;
+
+    let (a_state, b_state) = {
+        let store = lock_std(&store_handle, "store")?;
+        let a_node = store.get(a_id).map_err(CommandError::from)?;
+        let b_node = store.get(b_id).map_err(CommandError::from)?;
+        (a_node.state, b_node.state)
+    };
+
+    let mut a_path = std::env::temp_dir();
+    a_path.push(format!("edytlab-compare-a-{}.wav", a_id.to_hex()));
+    let mut b_path = std::env::temp_dir();
+    b_path.push(format!("edytlab-compare-b-{}.wav", b_id.to_hex()));
+
+    {
+        let engine = lock_std(&state.engine, "engine")?;
+        engine
+            .render_to_wav(&a_state, &a_path, None)
+            .map_err(CommandError::from)?;
+        engine
+            .render_to_wav(&b_state, &b_path, None)
+            .map_err(CommandError::from)?;
+    }
+
+    let a_path_str = a_path
+        .to_str()
+        .map(str::to_owned)
+        .ok_or_else(|| CommandError::InvalidPath("compare_a path is not valid UTF-8".into()))?;
+    let b_path_str = b_path
+        .to_str()
+        .map(str::to_owned)
+        .ok_or_else(|| CommandError::InvalidPath("compare_b path is not valid UTF-8".into()))?;
+
+    Ok(serde_json::json!({
+        "a_path": a_path_str,
+        "b_path": b_path_str,
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// accept_b
+// ---------------------------------------------------------------------------
+
+/// Accept the B side of an A/B compare: set the session head to `b`.
+///
+/// Returns the new head hex so the frontend can update its local head
+/// pointer without a separate `get_session_head` round-trip.
+#[tauri::command]
+pub async fn accept_b<R: Runtime>(
+    b: String,
+    _app: AppHandle<R>,
+    state: State<'_, AppState>,
+) -> CmdResult<String> {
+    let store_handle = state.store_handle().ok_or(CommandError::NoSession)?;
+    let b_id = NodeId::from_hex(&b).map_err(|_| CommandError::InvalidNodeId(b.clone()))?;
+    {
+        let mut store = lock_std(&store_handle, "store")?;
+        store.set_head(b_id).map_err(CommandError::from)?;
+    }
+    Ok(b_id.to_hex())
+}
+
+// ---------------------------------------------------------------------------
 // send_message
 // ---------------------------------------------------------------------------
 

@@ -10,8 +10,9 @@ pub mod events;
 pub mod state;
 
 use crate::commands::{
-    clear_api_key, get_graph, get_node, get_session_head, has_api_key, open_project,
-    render_preview, send_message, set_api_key, test_api_key, try_load_api_key_at_startup,
+    accept_b, clear_api_key, get_graph, get_node, get_session_head, has_api_key, open_project,
+    prepare_compare, render_preview, send_message, set_api_key, test_api_key,
+    try_load_api_key_at_startup,
 };
 use crate::state::AppState;
 
@@ -40,6 +41,8 @@ pub fn run() {
             get_node,
             get_graph,
             render_preview,
+            prepare_compare,
+            accept_b,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
