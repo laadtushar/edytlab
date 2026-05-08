@@ -25,7 +25,7 @@ impl Default for TrackId {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionState {
     pub tracks: Vec<Track>,
     pub bus_routing: BusGraph,
@@ -37,7 +37,7 @@ pub struct SessionState {
     pub length_samples: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Track {
     pub id: TrackId,
     pub name: String,
@@ -49,7 +49,7 @@ pub struct Track {
     pub effects: Vec<EffectInstance>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Clip {
     pub source_path: PathBuf,
     pub start_in_track: u64,
@@ -82,26 +82,26 @@ pub struct Clip {
     pub beat_grid: Option<Vec<f32>>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct BusGraph {
     pub buses: Vec<Bus>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Bus {
     pub id: Uuid,
     pub name: String,
     pub effects: Vec<EffectInstance>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EffectInstance {
     pub kind: String,
     pub params: serde_json::Value,
     pub bypassed: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TempoMap {
     pub default_bpm: f64,
     pub segments: Vec<TempoSegment>,
@@ -116,29 +116,29 @@ impl Default for TempoMap {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TempoSegment {
     pub start_sample: u64,
     pub bpm: f64,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct KeyMap {
     pub segments: Vec<KeySegment>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct KeySegment {
     pub start_sample: u64,
     pub key: String,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Transcript {
     pub words: Vec<TranscriptWord>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TranscriptWord {
     pub text: String,
     pub start_s: f32,

@@ -254,6 +254,8 @@ dependencies = [
  "audio-io",
  "hound",
  "rayon",
+ "realfft",
+ "rubato",
  "session",
  "tempfile",
  "thiserror 2.0.18",

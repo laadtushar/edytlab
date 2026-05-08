@@ -31,6 +31,12 @@ pub enum Error {
     EffectsUnsupportedInPhase1,
     #[error("render range end is before start")]
     InvalidRange,
+    #[error("unsupported channel map: source has {from} channels, render target has {to}")]
+    UnsupportedChannelMap { from: u16, to: u16 },
+    #[error("rubato resampler construction failed: {0}")]
+    ResamplerInit(rubato::ResamplerConstructionError),
+    #[error("rubato resampler process failed: {0}")]
+    ResamplerProcess(rubato::ResampleError),
     #[error("decode error: {0}")]
     Decode(#[from] audio_decoder::DecodeError),
     #[error("wav writer error: {0}")]
@@ -99,17 +105,28 @@ impl Engine {
     }
 }
 
-/// Realtime preview entry point. Decodes, applies the same Phase 1 chain as
-/// [`render_state_to_wav`], and pushes interleaved samples to `output`. The
-/// returned [`PlayHandle`] pauses the stream on drop.
+/// Realtime preview entry point.
+///
+/// M21 caveat: the realtime preview path does NOT yet do multi-track
+/// mixdown. It plays back the FIRST contributing track only. Offline
+/// `render_state_to_wav` is the multi-track mix path. The realtime mixer
+/// arrives in a later milestone (M22+); until then this is the pragmatic
+/// stub that preserves Phase 1 demo behaviour.
+// TODO(M22+): wire the multi-track offline mix into the realtime preview
+// stream so play and render stay in semantic lockstep.
 pub fn play_state<'a>(
     state: &SessionState,
     output: &'a mut dyn OutputStream,
     range: Option<TimeRange>,
 ) -> Result<PlayHandle<'a>> {
     let graph = graph::build(state)?;
-    let mut decoded = audio_decoder::decode_file(&graph.source_path)?;
-    mixer::apply_gain_db(&mut decoded.samples, graph.track_gain_db);
+    let plan = graph
+        .tracks
+        .iter()
+        .find(|t| t.contributes && t.length > 0)
+        .ok_or(Error::NoClip)?;
+    let mut decoded = audio_decoder::decode_file(&plan.source_path)?;
+    mixer::apply_gain_db(&mut decoded.samples, plan.gain_db);
 
     let chans = decoded.channels as usize;
     let total_frames = decoded.samples.len() / chans;
