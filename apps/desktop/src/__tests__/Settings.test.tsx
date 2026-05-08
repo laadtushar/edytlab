@@ -25,6 +25,8 @@ const setApiKeyForMock = vi.fn();
 const testApiKeyForMock = vi.fn();
 const clearApiKeyMock = vi.fn();
 const setActiveProviderMock = vi.fn();
+const listModelsForMock = vi.fn();
+const setActiveModelMock = vi.fn();
 
 vi.mock("../lib/tauri-bridge", () => ({
   setApiKeyFor: (provider: string, key: string) =>
@@ -32,6 +34,10 @@ vi.mock("../lib/tauri-bridge", () => ({
   testApiKeyFor: (provider: string, key: string) =>
     testApiKeyForMock(provider, key),
   setActiveProvider: (provider: string) => setActiveProviderMock(provider),
+  setActiveModel: (provider: string, model: string) =>
+    setActiveModelMock(provider, model),
+  listModelsFor: (provider: string, apiKey?: string) =>
+    listModelsForMock(provider, apiKey),
   clearApiKey: () => clearApiKeyMock(),
 }));
 
@@ -43,6 +49,8 @@ describe("Settings", () => {
     testApiKeyForMock.mockReset().mockResolvedValue(undefined);
     clearApiKeyMock.mockReset().mockResolvedValue(undefined);
     setActiveProviderMock.mockReset().mockResolvedValue(undefined);
+    setActiveModelMock.mockReset().mockResolvedValue(undefined);
+    listModelsForMock.mockReset().mockResolvedValue([]);
     window.localStorage.clear();
   });
 
@@ -115,15 +123,18 @@ describe("Settings", () => {
     expect(onCleared).toHaveBeenCalledTimes(1);
   });
 
-  it("persists the model selection to localStorage", async () => {
+  it("persists the model selection to per-provider localStorage", async () => {
     const user = userEvent.setup();
     render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
 
-    await user.selectOptions(
-      screen.getByTestId("settings-model-select"),
+    // The model picker is now a free-form combo (text input + datalist)
+    // so users can type any id, and we store per-provider.
+    await user.clear(screen.getByTestId("settings-model-input"));
+    await user.type(
+      screen.getByTestId("settings-model-input"),
       "claude-haiku-4-5",
     );
-    expect(window.localStorage.getItem("edytlab.model")).toBe(
+    expect(window.localStorage.getItem("edytlab.model.anthropic")).toBe(
       "claude-haiku-4-5",
     );
   });
