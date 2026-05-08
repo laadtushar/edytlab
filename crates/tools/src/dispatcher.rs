@@ -78,8 +78,9 @@ impl ToolDispatcher {
     /// register individually.
     pub fn default_dispatcher() -> Self {
         use crate::tool::{
-            AddTrackTool, AlignToBeatTool, AnalyzeTrackTool, CutRangeTool, GainTool, LoadTool,
-            NormalizeTool, PitchShiftTool, RemoveTrackTool, RenderFinalTool, RenderPreviewTool,
+            AddTrackTool, AlignToBeatTool, AnalyzeTrackTool, ApplyDiffTool, CompareNodesTool,
+            CutRangeTool, ForkNodeTool, GainTool, LoadTool, NameNodeTool, NormalizeTool,
+            PitchShiftTool, RemoveTrackTool, RenderFinalTool, RenderPreviewTool, RevertToTool,
             SeparateStemsTool, SetTrackGainTool, TimeStretchTool, TranscribeTool, TrimTool,
         };
         let mut d = Self::new();
@@ -99,6 +100,12 @@ impl ToolDispatcher {
         d.register(Box::new(SetTrackGainTool));
         d.register(Box::new(RenderPreviewTool));
         d.register(Box::new(RenderFinalTool));
+        // M24: branching DAG ops.
+        d.register(Box::new(ForkNodeTool));
+        d.register(Box::new(ApplyDiffTool));
+        d.register(Box::new(CompareNodesTool));
+        d.register(Box::new(RevertToTool));
+        d.register(Box::new(NameNodeTool));
         d
     }
 

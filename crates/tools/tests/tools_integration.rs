@@ -649,14 +649,19 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "add_track",
             "align_to_beat",
             "analyze_track",
+            "apply_diff",
+            "compare_nodes",
             "cut_range",
+            "fork_node",
             "gain",
             "load",
+            "name_node",
             "normalize",
             "pitch_shift",
             "remove_track",
             "render_final",
             "render_preview",
+            "revert_to",
             "separate_stems",
             "set_track_gain",
             "time_stretch",
@@ -1261,4 +1266,292 @@ fn two_loads_then_render_produces_mixdown() {
         amp > 0.7 && amp < 0.9,
         "expected mixed peak ≈ 0.8, got {amp}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// M24 — branching DAG ops (fork_node, apply_diff, compare_nodes,
+// revert_to, name_node).
+// ---------------------------------------------------------------------------
+
+/// `fork_node` defaults to current head, sets head to it, and returns
+/// the parent's id.
+#[test]
+fn fork_node_creates_sibling_at_existing_head() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+
+    let load = ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+    let head_hex = load["node_id"].as_str().unwrap().to_string();
+    let head_id = session::NodeId::from_hex(&head_hex).unwrap();
+
+    // Move head off via gain.
+    let gained = ok(dispatcher
+        .invoke("gain", json!({ "track": 0, "db": 1.0 }), &mut ctx)
+        .unwrap());
+    let _gained_id = gained["node_id"].as_str().unwrap().to_string();
+    assert_ne!(ctx.store.head().unwrap(), head_id);
+
+    // Fork back to the original load.
+    let res = ok(dispatcher
+        .invoke("fork_node", json!({ "from": head_hex }), &mut ctx)
+        .unwrap());
+    assert_eq!(res["node_id"].as_str().unwrap(), head_id.to_hex());
+    assert_eq!(ctx.store.head(), Some(head_id));
+
+    // Now an edit branches off the original head.
+    let g2 = ok(dispatcher
+        .invoke("gain", json!({ "track": 0, "db": 2.0 }), &mut ctx)
+        .unwrap());
+    let g2_id = session::NodeId::from_hex(g2["node_id"].as_str().unwrap()).unwrap();
+    let n = ctx.store.get(g2_id).unwrap();
+    assert_eq!(
+        n.parent,
+        Some(head_id),
+        "edit must branch off the fork point"
+    );
+}
+
+#[test]
+fn fork_node_defaults_to_head() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+    let load = ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+    let head = load["node_id"].as_str().unwrap();
+    let r = ok(dispatcher.invoke("fork_node", json!({}), &mut ctx).unwrap());
+    assert_eq!(r["node_id"].as_str().unwrap(), head);
+}
+
+#[test]
+fn fork_node_without_session_returns_error() {
+    let (_tmp, mut store, mut engine, dispatcher) = fresh();
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+    let msg = err(dispatcher.invoke("fork_node", json!({}), &mut ctx).unwrap());
+    assert!(msg.contains("no session loaded"), "got: {msg}");
+}
+
+/// `apply_diff` with three branch specs produces three sibling nodes
+/// off the parent, with deterministic ids and all written to disk
+/// (transactional: head moves only after every branch is durable).
+#[test]
+fn apply_diff_with_three_branches_creates_three_nodes() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+    let load = ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+    let parent_hex = load["node_id"].as_str().unwrap().to_string();
+    let parent_id = session::NodeId::from_hex(&parent_hex).unwrap();
+    let parent_state = ctx.store.get(parent_id).unwrap().state;
+    let track_id = parent_state.tracks[0].id.clone();
+    let track_id_value = serde_json::to_value(&track_id).unwrap();
+
+    // Three "track gain" diffs at different dB.
+    let make_diff = |db: f32| -> serde_json::Value {
+        json!({
+            "added": [],
+            "removed": [],
+            "modified": [
+                [
+                    {
+                        "op": "track_gain",
+                        "track_id": track_id_value,
+                        "value": parent_state.tracks[0].gain_db,
+                    },
+                    {
+                        "op": "track_gain",
+                        "track_id": track_id_value,
+                        "value": db,
+                    }
+                ]
+            ]
+        })
+    };
+
+    // Three distinct, non-zero gains so each branch produces a distinct
+    // content hash off the parent (a 0.0 diff would collide with parent).
+    let res = ok(dispatcher
+        .invoke(
+            "apply_diff",
+            json!({
+                "from_node": parent_hex,
+                "branches": [
+                    { "ops": make_diff(-6.0), "label": "quiet" },
+                    { "ops": make_diff(-3.0), "label": "neutral" },
+                    { "ops": make_diff(6.0), "label": "loud" },
+                ]
+            }),
+            &mut ctx,
+        )
+        .unwrap());
+
+    let branches = res["branches"].as_array().unwrap();
+    assert_eq!(branches.len(), 3, "expected 3 branches");
+    let ids: Vec<session::NodeId> = branches
+        .iter()
+        .map(|v| session::NodeId::from_hex(v.as_str().unwrap()).unwrap())
+        .collect();
+
+    // All three ids are distinct (different gains -> different state -> different hashes).
+    assert_ne!(ids[0], ids[1]);
+    assert_ne!(ids[1], ids[2]);
+    assert_ne!(ids[0], ids[2]);
+
+    // All three nodes parent off the original parent and exist on disk.
+    for (i, id) in ids.iter().enumerate() {
+        let n = ctx.store.get(*id).unwrap();
+        assert_eq!(n.parent, Some(parent_id), "branch {i} parent mismatch");
+    }
+
+    // Head should now be the LAST branch (mirrors `append_branches`
+    // semantics; documented in the store).
+    assert_eq!(ctx.store.head(), Some(*ids.last().unwrap()));
+}
+
+#[test]
+fn apply_diff_rejects_unknown_parent() {
+    let (_tmp, mut store, mut engine, dispatcher) = fresh();
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+    let bogus = "0".repeat(64);
+    let msg = err(dispatcher
+        .invoke(
+            "apply_diff",
+            json!({
+                "from_node": bogus,
+                "branches": [
+                    { "ops": { "added": [], "removed": [], "modified": [] } }
+                ]
+            }),
+            &mut ctx,
+        )
+        .unwrap());
+    assert!(msg.contains("parent not found"), "got: {msg}");
+}
+
+/// `compare_nodes` returns a SessionDiff with at least one modified op
+/// when the two nodes differ.
+#[test]
+fn compare_nodes_returns_serialised_diff() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+    let load = ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+    let a = load["node_id"].as_str().unwrap().to_string();
+
+    let g = ok(dispatcher
+        .invoke("gain", json!({ "track": 0, "db": -3.0 }), &mut ctx)
+        .unwrap());
+    let b = g["node_id"].as_str().unwrap().to_string();
+
+    let res = ok(dispatcher
+        .invoke("compare_nodes", json!({ "a": a, "b": b }), &mut ctx)
+        .unwrap());
+    let diff = &res["diff"];
+    assert!(diff.is_object());
+    let modified = diff["modified"].as_array().unwrap();
+    assert!(!modified.is_empty(), "expected at least one modified op");
+    let summary = res["summary"].as_str().unwrap();
+    assert!(summary.contains("modified"), "summary: {summary}");
+}
+
+/// `revert_to` moves head to the target state. Content addressing
+/// makes the new node id == target id when state is byte-equal.
+#[test]
+fn revert_to_moves_head_back() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+    let load = ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+    let v0 = load["node_id"].as_str().unwrap().to_string();
+
+    ok(dispatcher
+        .invoke("gain", json!({ "track": 0, "db": -3.0 }), &mut ctx)
+        .unwrap());
+    ok(dispatcher
+        .invoke("gain", json!({ "track": 0, "db": -3.0 }), &mut ctx)
+        .unwrap());
+
+    let res = ok(dispatcher
+        .invoke("revert_to", json!({ "target": v0 }), &mut ctx)
+        .unwrap());
+    let new_head = res["node_id"].as_str().unwrap().to_string();
+    assert_eq!(new_head, v0, "byte-equal state -> same content hash");
+    let head = ctx.store.head().unwrap();
+    assert_eq!(head.to_hex(), v0);
+}
+
+/// `name_node` overwrites an existing label without changing the node id.
+#[test]
+fn name_node_overwrites_existing_label() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+    };
+    let load = ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+    let id_hex = load["node_id"].as_str().unwrap().to_string();
+    let id = session::NodeId::from_hex(&id_hex).unwrap();
+
+    let original_label = ctx.store.get(id).unwrap().label.clone();
+    assert!(original_label.is_some(), "load tool should set a label");
+
+    // Overwrite with a custom label.
+    let res = ok(dispatcher
+        .invoke(
+            "name_node",
+            json!({ "node_id": id_hex, "label": "v1 candidate" }),
+            &mut ctx,
+        )
+        .unwrap());
+    assert_eq!(res["label"].as_str().unwrap(), "v1 candidate");
+
+    // Reading the node from disk must reflect the new label and SAME id.
+    let n = ctx.store.get(id).unwrap();
+    assert_eq!(n.label.as_deref(), Some("v1 candidate"));
+    assert_eq!(n.id, id, "name_node must not change content hash");
+
+    // Empty string clears the label.
+    ok(dispatcher
+        .invoke(
+            "name_node",
+            json!({ "node_id": id_hex, "label": "" }),
+            &mut ctx,
+        )
+        .unwrap());
+    let n = ctx.store.get(id).unwrap();
+    assert!(n.label.is_none(), "empty string should clear label");
 }
