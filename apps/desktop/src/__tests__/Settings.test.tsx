@@ -11,19 +11,27 @@
  *  - #3: Clear transitions the UI back to first-launch state — the
  *    component invokes `onCleared`, which App.tsx wires to flipping
  *    `keyConfigured` back to `false`.
+ *
+ * Updated for the multi-provider abstraction: Save/Test now route
+ * through `setApiKeyFor` / `testApiKeyFor` (provider-explicit), with
+ * Anthropic as the default selection.
  */
 
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const setApiKeyMock = vi.fn();
-const testApiKeyMock = vi.fn();
+const setApiKeyForMock = vi.fn();
+const testApiKeyForMock = vi.fn();
 const clearApiKeyMock = vi.fn();
+const setActiveProviderMock = vi.fn();
 
 vi.mock("../lib/tauri-bridge", () => ({
-  setApiKey: (key: string) => setApiKeyMock(key),
-  testApiKey: (key: string) => testApiKeyMock(key),
+  setApiKeyFor: (provider: string, key: string) =>
+    setApiKeyForMock(provider, key),
+  testApiKeyFor: (provider: string, key: string) =>
+    testApiKeyForMock(provider, key),
+  setActiveProvider: (provider: string) => setActiveProviderMock(provider),
   clearApiKey: () => clearApiKeyMock(),
 }));
 
@@ -31,9 +39,10 @@ import { Settings } from "../components/Settings";
 
 describe("Settings", () => {
   beforeEach(() => {
-    setApiKeyMock.mockReset().mockResolvedValue(undefined);
-    testApiKeyMock.mockReset().mockResolvedValue(undefined);
+    setApiKeyForMock.mockReset().mockResolvedValue(undefined);
+    testApiKeyForMock.mockReset().mockResolvedValue(undefined);
     clearApiKeyMock.mockReset().mockResolvedValue(undefined);
+    setActiveProviderMock.mockReset().mockResolvedValue(undefined);
     window.localStorage.clear();
   });
 
@@ -43,7 +52,7 @@ describe("Settings", () => {
     expect(save).toBeDisabled();
   });
 
-  it("calls setApiKey and onSaved when Save is clicked with a non-empty key", async () => {
+  it("calls setApiKeyFor with the active provider and onSaved when Save is clicked with a non-empty key", async () => {
     const onSaved = vi.fn();
     const user = userEvent.setup();
     render(<Settings mode="blocking" onSaved={onSaved} />);
@@ -51,7 +60,7 @@ describe("Settings", () => {
     await user.type(screen.getByTestId("settings-key-input"), "sk-ant-good");
     await user.click(screen.getByTestId("settings-save-button"));
 
-    expect(setApiKeyMock).toHaveBeenCalledWith("sk-ant-good");
+    expect(setApiKeyForMock).toHaveBeenCalledWith("anthropic", "sk-ant-good");
     expect(onSaved).toHaveBeenCalledTimes(1);
     // Input should be wiped after a successful save so the key does not
     // linger in component state.
@@ -59,7 +68,7 @@ describe("Settings", () => {
   });
 
   it("shows the verbatim error from testApiKey on a failed Test", async () => {
-    testApiKeyMock.mockRejectedValueOnce("401 invalid x-api-key");
+    testApiKeyForMock.mockRejectedValueOnce("401 invalid x-api-key");
     const user = userEvent.setup();
     render(<Settings mode="blocking" onSaved={vi.fn()} />);
 
@@ -81,6 +90,7 @@ describe("Settings", () => {
     await user.click(screen.getByTestId("settings-test-button"));
 
     expect(await screen.findByTestId("settings-test-ok")).toBeInTheDocument();
+    expect(testApiKeyForMock).toHaveBeenCalledWith("anthropic", "sk-ant-good");
   });
 
   it("renders Clear only in panel mode and triggers onCleared", async () => {

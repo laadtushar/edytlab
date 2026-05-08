@@ -19,20 +19,50 @@
  *    "change model" without committing to the backend wiring.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import {
   clearApiKey,
-  setApiKey,
-  testApiKey,
+  setApiKeyFor,
+  setActiveProvider,
+  testApiKeyFor,
+  type ProviderId,
 } from "../lib/tauri-bridge";
 
 /** localStorage key under which the chosen model is persisted. */
 export const MODEL_STORAGE_KEY = "edytlab.model";
 
-/** URL surfaced by the "How to get a key" link. */
+/** localStorage key under which the chosen provider is mirrored. */
+export const PROVIDER_STORAGE_KEY = "edytlab.provider";
+
+/** URL surfaced by the "How to get a key" link, per provider. */
 export const ANTHROPIC_KEYS_URL =
   "https://console.anthropic.com/settings/keys";
+
+export const OPENROUTER_KEYS_URL = "https://openrouter.ai/keys";
+
+/** Provider catalogue surfaced in the Settings picker. */
+const PROVIDERS: ReadonlyArray<{
+  id: ProviderId;
+  label: string;
+  keyPlaceholder: string;
+  keysUrl: string;
+}> = [
+  {
+    id: "anthropic",
+    label: "Anthropic",
+    keyPlaceholder: "sk-ant-...",
+    keysUrl: ANTHROPIC_KEYS_URL,
+  },
+  {
+    id: "openrouter",
+    label: "OpenRouter",
+    keyPlaceholder: "sk-or-v1-...",
+    keysUrl: OPENROUTER_KEYS_URL,
+  },
+];
+
+const DEFAULT_PROVIDER: ProviderId = "anthropic";
 
 /** Models exposed in the dropdown. Keep in sync with `crates/ai/src/prompt.rs`. */
 const MODELS = [
@@ -70,6 +100,11 @@ export function Settings({
   onCleared,
 }: SettingsProps) {
   const [key, setKey] = useState("");
+  const [provider, setProvider] = useState<ProviderId>(() => {
+    if (typeof window === "undefined") return DEFAULT_PROVIDER;
+    const stored = window.localStorage.getItem(PROVIDER_STORAGE_KEY);
+    return stored === "openrouter" ? "openrouter" : DEFAULT_PROVIDER;
+  });
   const [model, setModel] = useState<string>(() => {
     if (typeof window === "undefined") return DEFAULT_MODEL;
     return window.localStorage.getItem(MODEL_STORAGE_KEY) ?? DEFAULT_MODEL;
@@ -77,6 +112,39 @@ export function Settings({
   const [test, setTest] = useState<TestState>({ kind: "idle" });
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Persist the provider choice to localStorage so the picker remembers
+  // which radio was selected when the modal re-opens, even before the
+  // user has saved a key. The Rust backend remains the source of truth
+  // for the *active* provider once a key is saved.
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(PROVIDER_STORAGE_KEY, provider);
+    }
+  }, [provider]);
+
+  const handleProviderChange = useCallback(
+    async (next: ProviderId) => {
+      if (next === provider) return;
+      setProvider(next);
+      // Reset the in-flight test result — it referred to the previous
+      // provider's endpoint and no longer applies.
+      setTest({ kind: "idle" });
+      // Best-effort: tell the backend to switch active provider so the
+      // agent (if any) is rebuilt against the new provider's stored
+      // key. Failures are non-fatal — the user can still type a key
+      // and Save, which switches as a side-effect.
+      try {
+        await setActiveProvider(next);
+      } catch (err) {
+        // Surface as save error so the user sees something went wrong;
+        // the picker stays on the new value because the user explicitly
+        // chose it.
+        setSaveError(String(err));
+      }
+    },
+    [provider],
+  );
 
   const handleModelChange = useCallback((next: string) => {
     setModel(next);
@@ -90,7 +158,10 @@ export function Settings({
     setSaving(true);
     setSaveError(null);
     try {
-      await setApiKey(key);
+      // Save against the picked provider explicitly. This also marks
+      // it as active server-side, so the next chat turn routes through
+      // its endpoint.
+      await setApiKeyFor(provider, key);
       // Wipe the input the moment the key has been persisted — we don't
       // want it lingering in component state any longer than needed.
       setKey("");
@@ -101,18 +172,20 @@ export function Settings({
     } finally {
       setSaving(false);
     }
-  }, [key, saving, onSaved]);
+  }, [key, provider, saving, onSaved]);
 
   const handleTest = useCallback(async () => {
     if (!key.trim()) return;
     setTest({ kind: "running" });
     try {
-      await testApiKey(key);
+      // Validate against the picked provider's endpoint, not whichever
+      // one happens to be active server-side.
+      await testApiKeyFor(provider, key);
       setTest({ kind: "ok" });
     } catch (err) {
       setTest({ kind: "err", message: String(err) });
     }
-  }, [key]);
+  }, [key, provider]);
 
   const handleClear = useCallback(async () => {
     try {
@@ -124,6 +197,9 @@ export function Settings({
       setSaveError(String(err));
     }
   }, [onCleared]);
+
+  const activeProviderEntry =
+    PROVIDERS.find((p) => p.id === provider) ?? PROVIDERS[0];
 
   const saveDisabled = !key.trim() || saving;
   const testDisabled = !key.trim() || test.kind === "running";
@@ -162,14 +238,49 @@ export function Settings({
 
         {mode === "blocking" ? (
           <p className="mb-3 text-sm text-zinc-400">
-            edytlab needs an Anthropic API key to power the assistant.
-            Your key is stored in your OS keychain — never on disk in
-            plaintext.
+            edytlab needs an LLM API key to power the assistant. Pick a
+            provider below; your key is stored in your OS keychain —
+            never on disk in plaintext.
           </p>
         ) : null}
 
+        <fieldset
+          className="mb-3"
+          data-testid="settings-provider-picker"
+          aria-label="LLM provider"
+        >
+          <legend className="mb-1 block text-xs uppercase tracking-wide text-zinc-400">
+            Provider
+          </legend>
+          <div className="flex gap-3">
+            {PROVIDERS.map((p) => (
+              <label
+                key={p.id}
+                className={`flex flex-1 cursor-pointer items-center gap-2 rounded border px-2 py-1.5 text-sm ${
+                  provider === p.id
+                    ? "border-blue-500 bg-blue-900/20 text-blue-100"
+                    : "border-zinc-700 text-zinc-200 hover:border-zinc-500"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="provider"
+                  value={p.id}
+                  checked={provider === p.id}
+                  onChange={() => {
+                    void handleProviderChange(p.id);
+                  }}
+                  data-testid={`settings-provider-${p.id}`}
+                  className="accent-blue-500"
+                />
+                {p.label}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
         <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-400">
-          Anthropic API key
+          {activeProviderEntry.label} API key
         </label>
         <input
           type="password"
@@ -182,15 +293,15 @@ export function Settings({
             // longer applies.
             if (test.kind !== "idle") setTest({ kind: "idle" });
           }}
-          placeholder="sk-ant-…"
+          placeholder={activeProviderEntry.keyPlaceholder}
           data-testid="settings-key-input"
-          aria-label="Anthropic API key"
+          aria-label={`${activeProviderEntry.label} API key`}
           className="mb-2 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-sm focus:border-zinc-500 focus:outline-none"
         />
 
         <div className="mb-3 flex items-center justify-between text-xs">
           <a
-            href={ANTHROPIC_KEYS_URL}
+            href={activeProviderEntry.keysUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="text-blue-400 hover:underline"
