@@ -65,7 +65,7 @@ async fn live_round_trip() {
         .unwrap();
     }
 
-    let cfg = ai::AnthropicConfig::new(api_key);
+    let cfg = ai::LlmConfig::new_anthropic(api_key);
     let plan_notify = std::sync::Arc::new(tokio::sync::Notify::new());
     let mut agent = ai::Agent::new(cfg, dispatcher, store, engine, plan_notify);
 
