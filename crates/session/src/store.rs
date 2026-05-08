@@ -21,7 +21,11 @@ use std::path::{Path, PathBuf};
 
 use tempfile::NamedTempFile;
 
+use chrono::Utc;
+
+use crate::diff::{self, SessionDiff};
 use crate::node::{NodeId, SessionNode};
+use crate::state::SessionState;
 use crate::{Error, Result};
 
 const STORE_DIR: &str = ".audiograph";
@@ -191,6 +195,128 @@ impl Store {
         }
         self.write_head_atomic(id)?;
         self.head = Some(id);
+        Ok(())
+    }
+
+    // =========================================================================
+    // M24: branching DAG operations.
+    // =========================================================================
+
+    /// Fork the DAG at `parent`: subsequent appends will parent off
+    /// `parent`'s state. See [`crate::diff::fork`] for the rationale on
+    /// content-addressing semantics — there's no separate "duplicate
+    /// node" because two byte-identical states share an id.
+    pub fn fork(&mut self, parent: NodeId) -> Result<NodeId> {
+        diff::fork(self, parent)
+    }
+
+    /// Compute the structural delta `b - a` from on-disk node states.
+    pub fn diff(&self, a: NodeId, b: NodeId) -> Result<SessionDiff> {
+        diff::diff(self, a, b)
+    }
+
+    /// Merge two nodes; see [`crate::diff::merge`] for semantics.
+    pub fn merge(&mut self, a: NodeId, b: NodeId) -> Result<NodeId> {
+        diff::merge(self, a, b)
+    }
+
+    /// Revert head to a node whose state matches `target`. Appends a
+    /// new node parented to current head (history is preserved).
+    pub fn revert_to(&mut self, target: NodeId) -> Result<NodeId> {
+        diff::revert_to(self, target)
+    }
+
+    /// Update `SessionNode::label` on an existing node *in place*. This
+    /// is a metadata-only change and does NOT affect [`NodeId`] (the id
+    /// is content-hashed over `state` only). The on-disk file is
+    /// rewritten atomically via the same tempfile-then-rename pattern
+    /// as `append`.
+    pub fn set_label(&mut self, id: NodeId, label: Option<String>) -> Result<()> {
+        let mut node = self.get(id)?;
+        node.label = label;
+        self.write_node_overwrite(&node)?;
+        Ok(())
+    }
+
+    /// Atomically append several states as siblings of `parent`. All
+    /// new node files are written via tempfile-then-rename; the head
+    /// pointer is updated only after every node is durable on disk.
+    /// Returns the ids of the newly appended nodes in input order.
+    ///
+    /// Used by the `apply_diff` tool to emit N alternative branches in
+    /// a single transactional step. If any individual write fails,
+    /// previously-renamed node files are left on disk (orphaned but
+    /// harmless — content addressing makes them re-discoverable) and
+    /// the head pointer is *not* moved, mirroring the crash-safety
+    /// guarantee of [`Store::append`].
+    pub fn append_branches(
+        &mut self,
+        parent: NodeId,
+        states: Vec<(SessionState, Option<String>)>,
+    ) -> Result<Vec<NodeId>> {
+        if states.is_empty() {
+            return Ok(Vec::new());
+        }
+        // Validate parent exists before doing any writes.
+        let _ = self.get(parent)?;
+
+        let mut written: Vec<NodeId> = Vec::with_capacity(states.len());
+        for (state, label) in states {
+            let id = NodeId::from_state(&state)?;
+            let node = SessionNode {
+                id,
+                parent: Some(parent),
+                created_at: Utc::now(),
+                label,
+                reasoning: None,
+                state,
+            };
+            self.write_node_idempotent(&node)?;
+            written.push(id);
+        }
+        // Move head to the last branch only after all writes succeeded.
+        // Callers that want a different head can call `set_head`.
+        if let Some(last) = written.last().copied() {
+            self.write_head_atomic(last)?;
+            self.head = Some(last);
+        }
+        Ok(written)
+    }
+
+    /// Idempotent atomic write — used by `append_branches`. Skips the
+    /// rename if the content-addressed file already exists, matching
+    /// `append`'s short-circuit so two byte-identical branches don't
+    /// double-write.
+    fn write_node_idempotent(&self, node: &SessionNode) -> Result<()> {
+        let hex = node.id.to_hex();
+        let shard_dir = self.shard_dir(&hex);
+        fs::create_dir_all(&shard_dir)?;
+        let final_path = shard_dir.join(format!("{hex}.json"));
+        if final_path.exists() {
+            return Ok(());
+        }
+        let json = serde_json::to_vec_pretty(node)?;
+        let mut tmp = NamedTempFile::new_in(&shard_dir)?;
+        tmp.write_all(&json)?;
+        tmp.as_file().sync_all()?;
+        tmp.persist(&final_path)?;
+        fsync_dir(&shard_dir)?;
+        Ok(())
+    }
+
+    /// Force-overwrite atomic write — used by `set_label`. Always
+    /// rewrites the file, even if a copy already exists on disk.
+    fn write_node_overwrite(&self, node: &SessionNode) -> Result<()> {
+        let hex = node.id.to_hex();
+        let shard_dir = self.shard_dir(&hex);
+        fs::create_dir_all(&shard_dir)?;
+        let final_path = shard_dir.join(format!("{hex}.json"));
+        let json = serde_json::to_vec_pretty(node)?;
+        let mut tmp = NamedTempFile::new_in(&shard_dir)?;
+        tmp.write_all(&json)?;
+        tmp.as_file().sync_all()?;
+        tmp.persist(&final_path)?;
+        fsync_dir(&shard_dir)?;
         Ok(())
     }
 
