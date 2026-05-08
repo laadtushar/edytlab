@@ -92,7 +92,11 @@ jobs:
           releaseName: "edytlab ${{ inputs.tag }}"
           releaseDraft: true
           prerelease: false
-          args: --target universal-apple-darwin
+          # Explicit bundle list — see release-dev.yml for the
+          # rationale. `app,dmg` produces both the raw .app archive
+          # (used by Tauri's auto-updater feed) and the .dmg
+          # installer that end users actually download.
+          args: --target universal-apple-darwin --bundles app,dmg
 
       - name: Verify Gatekeeper acceptance
         run: |
