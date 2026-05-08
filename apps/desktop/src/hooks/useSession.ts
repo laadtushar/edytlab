@@ -34,6 +34,17 @@ export interface UseSessionResult {
   openProject: (path: string) => Promise<void>;
   /** Render the latest head node to a temp WAV. Throws if no head. */
   renderHead: () => Promise<string>;
+  /**
+   * Update the locally-tracked head pointer. Used by the M25 graph
+   * view when the user clicks a node: the canvas pane keys off `head`
+   * for render-preview, so updating it here is enough to make the
+   * audio re-render reflect the selected node. Note that until M24
+   * lands the backend `set_head` tool, this only changes the
+   * frontend's idea of the head — the agent will still operate on
+   * the on-disk head. The graph view's "Set as head" right-click
+   * action (which would persist) is gated on M24.
+   */
+  setHeadLocal: (nodeId: NodeId) => void;
   /** Last error to bubble up from a session command, for surface in UI. */
   error: string | null;
 }
@@ -82,5 +93,9 @@ export function useSession(): UseSessionResult {
     return bridgeRenderPreview(head);
   }, [head]);
 
-  return { project, head, openProject, renderHead, error };
+  const setHeadLocal = useCallback((nodeId: NodeId) => {
+    setHead(nodeId);
+  }, []);
+
+  return { project, head, openProject, renderHead, setHeadLocal, error };
 }

@@ -131,6 +131,39 @@ export const getNode = (id: NodeId): Promise<SessionNode> =>
   invoke<SessionNode>("get_node", { id });
 
 /**
+ * One node entry returned by {@link getGraph}. Mirrors the Rust
+ * `commands::GraphNode` struct. `tool` is best-effort — it's the first
+ * whitespace-delimited token of `label`, so callers should treat it as
+ * a display hint and fall back to `label` (or `id`) when it's null.
+ */
+export interface GraphNode {
+  id: NodeId;
+  parent: NodeId | null;
+  label: string | null;
+  tool: string | null;
+  /** RFC 3339 / ISO-8601 timestamp. Parse with `new Date(...)`. */
+  created_at: string;
+}
+
+/**
+ * The shape returned by {@link getGraph}. `head` is null when the
+ * project has no nodes yet.
+ */
+export interface GraphSummary {
+  nodes: GraphNode[];
+  head: NodeId | null;
+}
+
+/**
+ * Fetch every node in the current project's session store plus the
+ * current head pointer. Used by the M25 graph view to render the DAG.
+ *
+ * Rejects with `"no session loaded"` if no project is open.
+ */
+export const getGraph = (): Promise<GraphSummary> =>
+  invoke<GraphSummary>("get_graph");
+
+/**
  * Render `node` to a temporary WAV and return the absolute path.
  * Phase 1 callers play this back via the audio engine; Phase 2 will
  * cache renders per project.

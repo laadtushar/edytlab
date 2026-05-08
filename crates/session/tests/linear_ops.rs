@@ -85,6 +85,34 @@ fn empty_store_has_no_head() {
     assert_eq!(store.head(), None);
 }
 
+#[test]
+fn list_nodes_empty_store_returns_empty_vec() {
+    let dir = TempDir::new().unwrap();
+    let store = Store::open(dir.path()).unwrap();
+    let nodes = store.list_nodes().unwrap();
+    assert!(nodes.is_empty());
+}
+
+#[test]
+fn list_nodes_returns_every_appended_node() {
+    let dir = TempDir::new().unwrap();
+    let mut store = Store::open(dir.path()).unwrap();
+    let a = store.append(make_node(1)).unwrap();
+    let b = store.append(make_node(2)).unwrap();
+    let c = store.append(make_node(3)).unwrap();
+
+    let mut ids: Vec<_> = store
+        .list_nodes()
+        .unwrap()
+        .into_iter()
+        .map(|n| n.id)
+        .collect();
+    ids.sort_by_key(|id| id.to_hex());
+    let mut expected = vec![a, b, c];
+    expected.sort_by_key(|id| id.to_hex());
+    assert_eq!(ids, expected);
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
 

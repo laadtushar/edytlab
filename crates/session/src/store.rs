@@ -147,6 +147,42 @@ impl Store {
         &self.project_dir
     }
 
+    /// Read every node JSON file under `<project>/.audiograph/nodes/`
+    /// and return the parsed list.
+    ///
+    /// Order is unspecified — the caller is responsible for any sorting
+    /// (typically by `created_at`). Files that fail to parse are
+    /// surfaced as errors rather than silently skipped, so a corrupt
+    /// store fails loudly instead of partially.
+    ///
+    /// This is an O(N) directory scan; M25's frontend graph view caps
+    /// the working set at 200 nodes so the cost is bounded. Phase 3
+    /// will likely switch to an in-memory index for larger sessions.
+    pub fn list_nodes(&self) -> Result<Vec<SessionNode>> {
+        let nodes_dir = self.project_dir.join(STORE_DIR).join(NODES_DIR);
+        if !nodes_dir.exists() {
+            return Ok(Vec::new());
+        }
+        let mut out = Vec::new();
+        for shard in fs::read_dir(&nodes_dir)? {
+            let shard = shard?;
+            if !shard.file_type()?.is_dir() {
+                continue;
+            }
+            for entry in fs::read_dir(shard.path())? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) != Some("json") {
+                    continue;
+                }
+                let bytes = fs::read(&path)?;
+                let node: SessionNode = serde_json::from_slice(&bytes)?;
+                out.push(node);
+            }
+        }
+        Ok(out)
+    }
+
     pub fn set_head(&mut self, id: NodeId) -> Result<()> {
         let hex = id.to_hex();
         let path = self.shard_dir(&hex).join(format!("{hex}.json"));
