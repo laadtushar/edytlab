@@ -222,6 +222,71 @@ pub async fn get_node(state: State<'_, AppState>, id: String) -> CmdResult<Sessi
 }
 
 // ---------------------------------------------------------------------------
+// get_graph
+// ---------------------------------------------------------------------------
+
+/// One node entry in the [`GraphSummary`] returned by [`get_graph`].
+///
+/// Stripped down from the full [`SessionNode`] so the frontend graph
+/// view doesn't pull a complete `SessionState` per node — for a
+/// 200-node session we only need ids, parent links, and display
+/// metadata. Field names are hand-aligned with the TypeScript
+/// `GraphNode` interface in `apps/desktop/src/lib/tauri-bridge.ts`.
+#[derive(Debug, Clone, Serialize)]
+pub struct GraphNode {
+    pub id: String,
+    pub parent: Option<String>,
+    pub label: Option<String>,
+    /// Best-effort tool name. We don't store the producing tool
+    /// explicitly on `SessionNode` today, so we derive it from the
+    /// first whitespace-delimited token of `label` (e.g. `"load
+    /// foo.wav"` -> `"load"`). When `label` is `None` this is `None`
+    /// and the UI falls back to displaying just the id prefix.
+    pub tool: Option<String>,
+    pub created_at: String,
+}
+
+/// All nodes plus the current head, returned by [`get_graph`].
+///
+/// This is the shape consumed by the M25 `<GraphView />` component.
+/// Field names are hand-aligned with the TypeScript `GraphSummary`
+/// interface in `apps/desktop/src/lib/tauri-bridge.ts`.
+#[derive(Debug, Clone, Serialize)]
+pub struct GraphSummary {
+    pub nodes: Vec<GraphNode>,
+    pub head: Option<String>,
+}
+
+#[tauri::command]
+pub async fn get_graph(state: State<'_, AppState>) -> CmdResult<GraphSummary> {
+    let store_handle = state.store_handle().ok_or(CommandError::NoSession)?;
+    let store = lock_std(&store_handle, "store")?;
+    let nodes = store.list_nodes().map_err(CommandError::from)?;
+    let head = store.head().map(|id| id.to_hex());
+
+    let graph_nodes = nodes
+        .into_iter()
+        .map(|n| GraphNode {
+            id: n.id.to_hex(),
+            parent: n.parent.map(|p| p.to_hex()),
+            tool: n.label.as_deref().and_then(first_token).map(str::to_owned),
+            label: n.label,
+            created_at: n.created_at.to_rfc3339(),
+        })
+        .collect();
+
+    Ok(GraphSummary {
+        nodes: graph_nodes,
+        head,
+    })
+}
+
+/// First whitespace-delimited token of `s`, or `None` if `s` is blank.
+fn first_token(s: &str) -> Option<&str> {
+    s.split_whitespace().next()
+}
+
+// ---------------------------------------------------------------------------
 // render_preview
 // ---------------------------------------------------------------------------
 
@@ -448,6 +513,15 @@ mod tests {
             store.get(id).unwrap()
         };
         assert_eq!(node.id, id);
+    }
+
+    #[test]
+    fn first_token_handles_typical_labels() {
+        assert_eq!(super::first_token("load /tmp/foo.wav"), Some("load"));
+        assert_eq!(super::first_token("normalize"), Some("normalize"));
+        assert_eq!(super::first_token(""), None);
+        assert_eq!(super::first_token("   "), None);
+        assert_eq!(super::first_token("  trim  end"), Some("trim"));
     }
 
     #[test]
