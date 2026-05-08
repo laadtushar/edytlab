@@ -67,8 +67,10 @@ impl ToolDispatcher {
         Self::default()
     }
 
-    /// Construct a dispatcher pre-populated with the Phase-1 tool set:
-    /// `load`, `transcribe`, `cut_range`, `trim`, `gain`, `normalize`,
+    /// Construct a dispatcher pre-populated with the default tool set:
+    /// `load`, `transcribe`, `separate_stems`, `analyze_track`, `cut_range`,
+    /// `trim`, `gain`, `normalize`, `time_stretch`, `pitch_shift`,
+    /// `align_to_beat`, `add_track`, `remove_track`, `set_track_gain`,
     /// `render_preview`, `render_final`.
     ///
     /// Callers that need a different mix (e.g. tests omitting the
@@ -76,9 +78,9 @@ impl ToolDispatcher {
     /// register individually.
     pub fn default_dispatcher() -> Self {
         use crate::tool::{
-            AlignToBeatTool, AnalyzeTrackTool, CutRangeTool, GainTool, LoadTool, NormalizeTool,
-            PitchShiftTool, RenderFinalTool, RenderPreviewTool, SeparateStemsTool, TimeStretchTool,
-            TranscribeTool, TrimTool,
+            AddTrackTool, AlignToBeatTool, AnalyzeTrackTool, CutRangeTool, GainTool, LoadTool,
+            NormalizeTool, PitchShiftTool, RemoveTrackTool, RenderFinalTool, RenderPreviewTool,
+            SeparateStemsTool, SetTrackGainTool, TimeStretchTool, TranscribeTool, TrimTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -92,6 +94,9 @@ impl ToolDispatcher {
         d.register(Box::new(TimeStretchTool));
         d.register(Box::new(PitchShiftTool));
         d.register(Box::new(AlignToBeatTool));
+        d.register(Box::new(AddTrackTool));
+        d.register(Box::new(RemoveTrackTool));
+        d.register(Box::new(SetTrackGainTool));
         d.register(Box::new(RenderPreviewTool));
         d.register(Box::new(RenderFinalTool));
         d
