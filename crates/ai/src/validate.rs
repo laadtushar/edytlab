@@ -32,7 +32,9 @@ use std::sync::Arc;
 
 use serde_json::json;
 
-use crate::provider::{AnthropicProvider, LlmProvider, OpenRouterProvider};
+use crate::provider::{
+    AnthropicProvider, LlmProvider, OpenAIProvider, OpenRouterProvider, OPENAI_ID,
+};
 
 /// Validate an API key by issuing a one-token Messages call against
 /// `provider`'s endpoint. `base_url` is parameterised for tests;
@@ -52,19 +54,30 @@ pub async fn test_api_key_with(
         return Err("api key must not be empty".to_string());
     }
 
-    let body = json!({
-        "model": provider.translate_model(provider.classifier_model()),
-        "max_tokens": 1,
-        "messages": [{
-            "role": "user",
-            "content": "ping",
-        }],
-    });
-
     let client = reqwest::Client::new();
-    let req = client.post(format!("{base_url}/v1/messages"));
-    let req = provider.apply_auth(req, api_key);
-    let resp = req.json(&body).send().await.map_err(|e| e.to_string())?;
+
+    // OpenAI's `/v1/messages` doesn't exist; probe `/v1/models` instead.
+    // The endpoint is auth-gated and returns 200 with the catalogue
+    // shape, which is enough to confirm the key works without spending
+    // tokens on a one-shot completion. `Authorization: Bearer` is the
+    // only header required.
+    let resp = if provider.id() == OPENAI_ID {
+        let req = client.get(format!("{base_url}/v1/models"));
+        let req = provider.apply_auth(req, api_key);
+        req.send().await.map_err(|e| e.to_string())?
+    } else {
+        let body = json!({
+            "model": provider.translate_model(provider.classifier_model()),
+            "max_tokens": 1,
+            "messages": [{
+                "role": "user",
+                "content": "ping",
+            }],
+        });
+        let req = client.post(format!("{base_url}/v1/messages"));
+        let req = provider.apply_auth(req, api_key);
+        req.json(&body).send().await.map_err(|e| e.to_string())?
+    };
 
     let status = resp.status();
     if status.is_success() {
@@ -115,6 +128,13 @@ pub async fn test_api_key_against(api_key: &str, base_url: &str) -> Result<(), S
 /// through provider id resolution.
 pub async fn test_openrouter_key_against(api_key: &str, base_url: &str) -> Result<(), String> {
     test_api_key_with(&OpenRouterProvider, api_key, base_url).await
+}
+
+/// Test-only: explicit OpenAI validation against a custom base URL.
+/// The frontend reaches this through [`test_api_key_for`]; the test
+/// suite uses this to assert the OpenAI Bearer header path.
+pub async fn test_openai_key_against(api_key: &str, base_url: &str) -> Result<(), String> {
+    test_api_key_with(&OpenAIProvider::default(), api_key, base_url).await
 }
 
 /// Resolve a provider trait object from a stable id. Re-exported here
@@ -201,6 +221,39 @@ mod tests {
         test_openrouter_key_against("or-test-key", &server.uri())
             .await
             .expect("should be ok");
+    }
+
+    /// OpenAI validation must hit `/v1/models` with a Bearer header,
+    /// and never send the Anthropic-style `x-api-key`. The wiremock
+    /// matcher pins both the path AND the auth header.
+    #[tokio::test]
+    async fn openai_validation_hits_models_endpoint_with_bearer() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/models"))
+            .and(header("authorization", "Bearer sk-test"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "object": "list",
+                "data": [{"id": "gpt-4o-mini", "object": "model"}]
+            })))
+            .mount(&server)
+            .await;
+
+        test_openai_key_against("sk-test", &server.uri())
+            .await
+            .expect("should be ok");
+
+        let received = server.received_requests().await.unwrap();
+        assert_eq!(received.len(), 1);
+        assert!(
+            received[0].headers.get("x-api-key").is_none(),
+            "OpenAI request unexpectedly carried x-api-key"
+        );
+        // No anthropic-version header should appear either.
+        assert!(
+            received[0].headers.get("anthropic-version").is_none(),
+            "OpenAI request unexpectedly carried anthropic-version"
+        );
     }
 
     /// Confirm OpenRouter validation does *not* send Anthropic's

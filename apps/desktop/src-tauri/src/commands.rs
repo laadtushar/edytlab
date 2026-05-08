@@ -294,6 +294,83 @@ pub async fn set_active_provider(state: State<'_, AppState>, provider: String) -
 }
 
 // ---------------------------------------------------------------------------
+// Model catalogue
+// ---------------------------------------------------------------------------
+
+/// Mirror of [`ai::ModelInfo`] — repeated here as a Serde-serializable
+/// struct rather than re-exported so the Tauri IPC schema stays
+/// self-contained for the front-end TS bindings.
+#[derive(Debug, Clone, Serialize)]
+pub struct ModelInfoDto {
+    pub id: String,
+    pub display_name: String,
+    pub context_length: Option<u32>,
+    pub provider_hint: Option<String>,
+}
+
+impl From<ai::ModelInfo> for ModelInfoDto {
+    fn from(m: ai::ModelInfo) -> Self {
+        Self {
+            id: m.id,
+            display_name: m.display_name,
+            context_length: m.context_length,
+            provider_hint: m.provider_hint,
+        }
+    }
+}
+
+/// List the model catalogue for `provider`. `api_key` is required for
+/// OpenAI (the catalogue endpoint is auth-gated); optional for the
+/// other providers — Anthropic returns a static curated list and
+/// OpenRouter's catalogue is publicly accessible.
+///
+/// The Rust layer caches results for 10 minutes; repeated calls within
+/// that window return cached entries without hitting the network.
+#[tauri::command]
+pub async fn list_models_for(
+    provider: String,
+    api_key: Option<String>,
+) -> CmdResult<Vec<ModelInfoDto>> {
+    let key_ref = api_key.as_deref();
+    let models = ai::list_models_for(&provider, key_ref)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(models.into_iter().map(ModelInfoDto::from).collect())
+}
+
+// ---------------------------------------------------------------------------
+// Model selection
+// ---------------------------------------------------------------------------
+
+/// Persist the chosen model id for `provider`. The next agent rebuild
+/// reads this slot and constructs the [`ai::LlmConfig`] with the
+/// chosen model overlaid on the provider's default.
+#[tauri::command]
+pub async fn set_active_model(
+    state: State<'_, AppState>,
+    provider: String,
+    model: String,
+) -> CmdResult<()> {
+    if !ai::SUPPORTED_PROVIDER_IDS.iter().any(|p| *p == provider) {
+        return Err(format!("unsupported provider id: {provider}"));
+    }
+    let model = model.trim().to_string();
+    if model.is_empty() {
+        return Err("model id must not be empty".into());
+    }
+    state.set_model_for(provider, model);
+    rebuild_agent(&state).await?;
+    Ok(())
+}
+
+/// Read the model id currently selected for `provider`. Empty string
+/// when nothing has been chosen yet.
+#[tauri::command]
+pub async fn get_active_model(state: State<'_, AppState>, provider: String) -> CmdResult<String> {
+    Ok(state.model_for(&provider).unwrap_or_default())
+}
+
+// ---------------------------------------------------------------------------
 // get_session_head
 // ---------------------------------------------------------------------------
 
@@ -607,12 +684,22 @@ pub async fn approve_plan(state: State<'_, AppState>) -> CmdResult<()> {
 async fn rebuild_agent(state: &AppState) -> Result<(), CommandError> {
     let api_key = state.api_key_snapshot();
     let store_handle = state.store_handle();
-    let provider = ai::validate::provider_for(&state.active_provider_id());
+    let provider_id = state.active_provider_id();
+    let provider = ai::validate::provider_for(&provider_id);
+    let chosen_model = state.model_for(&provider_id);
 
     let mut guard = state.agent.lock().await;
     *guard = match (api_key, store_handle) {
         (Some(key), Some(store)) => {
-            let cfg = ai::LlmConfig::new(provider, key);
+            let mut cfg = ai::LlmConfig::new(provider, key);
+            // Overlay the user's chosen model when one is recorded for
+            // the active provider; otherwise the provider's default
+            // applies (per `LlmConfig::new`).
+            if let Some(m) = chosen_model {
+                if !m.trim().is_empty() {
+                    cfg = cfg.with_model(m);
+                }
+            }
             Some(ai::Agent::new(
                 cfg,
                 Arc::clone(&state.dispatcher),

@@ -53,6 +53,11 @@ pub struct AppState {
     /// `"openrouter"`). Defaults to `"anthropic"` when no preference is
     /// recorded — matches the pre-multi-provider behaviour.
     pub active_provider: Arc<Mutex<String>>,
+    /// Per-provider model id selected by the user. Surfaced via
+    /// `set_active_model`/`get_active_model`. The Settings UI persists
+    /// the selection to localStorage and pushes it down here so the
+    /// next `rebuild_agent` builds the LlmConfig with the chosen model.
+    pub active_model_by_provider: Arc<Mutex<std::collections::HashMap<String, String>>>,
     /// Plan-approval signal for mashup mode (M27). The agent turn loop
     /// waits on this notifier; the `approve_plan` command fires it
     /// directly — without ever touching the agent Mutex — so there is no
@@ -73,6 +78,7 @@ impl AppState {
             project_dir: Arc::new(Mutex::new(None)),
             api_key: Arc::new(Mutex::new(None)),
             active_provider: Arc::new(Mutex::new(ai::ANTHROPIC_ID.to_string())),
+            active_model_by_provider: Arc::new(Mutex::new(std::collections::HashMap::new())),
             plan_notify: Arc::new(tokio::sync::Notify::new()),
         }
     }
@@ -123,6 +129,23 @@ impl AppState {
     /// Replace the project directory.
     pub fn set_project_dir(&self, dir: Option<PathBuf>) {
         *self.project_dir.lock().expect("project_dir mutex poisoned") = dir;
+    }
+
+    /// Snapshot the model id selected for `provider_id`, if any.
+    pub fn model_for(&self, provider_id: &str) -> Option<String> {
+        self.active_model_by_provider
+            .lock()
+            .expect("active_model_by_provider mutex poisoned")
+            .get(provider_id)
+            .cloned()
+    }
+
+    /// Persist the model id chosen for `provider_id`.
+    pub fn set_model_for(&self, provider_id: String, model: String) {
+        self.active_model_by_provider
+            .lock()
+            .expect("active_model_by_provider mutex poisoned")
+            .insert(provider_id, model);
     }
 }
 

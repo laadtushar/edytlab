@@ -38,6 +38,7 @@
 pub mod agent_loop;
 pub mod anthropic;
 pub mod keychain;
+pub mod models;
 pub mod prompt;
 pub mod provider;
 pub mod validate;
@@ -46,10 +47,11 @@ use std::sync::{Arc, Mutex};
 
 use anthropic::Message;
 
+pub use models::{list_models_for, ModelInfo};
 pub use prompt::{DEFAULT_BASE_URL, DEFAULT_MODEL, MAX_TOOL_CALLS_PER_TURN};
 pub use provider::{
-    AnthropicProvider, LlmProvider, OpenRouterProvider, ANTHROPIC_ID, OPENROUTER_ID,
-    SUPPORTED_PROVIDER_IDS,
+    AnthropicProvider, LlmProvider, OpenAIProvider, OpenRouterProvider, ANTHROPIC_ID, OPENAI_ID,
+    OPENROUTER_ID, SUPPORTED_PROVIDER_IDS,
 };
 
 /// Classifier model used for cheap mode detection (M27).
@@ -140,6 +142,11 @@ impl LlmConfig {
     /// Construct an OpenRouter-flavoured config from just the API key.
     pub fn new_openrouter(api_key: impl Into<String>) -> Self {
         Self::new(Arc::new(OpenRouterProvider), api_key)
+    }
+
+    /// Construct an OpenAI-flavoured config from just the API key.
+    pub fn new_openai(api_key: impl Into<String>) -> Self {
+        Self::new(Arc::new(OpenAIProvider::default()), api_key)
     }
 }
 

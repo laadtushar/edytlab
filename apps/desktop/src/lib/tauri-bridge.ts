@@ -88,7 +88,50 @@ export const sendMessage = (text: string): Promise<void> =>
  * Stable provider ids the Rust backend supports. The Settings picker
  * mirrors this list, and the keychain stores a separate key per id.
  */
-export type ProviderId = "anthropic" | "openrouter";
+export type ProviderId = "anthropic" | "openrouter" | "openai";
+
+/**
+ * One model catalogue entry returned by {@link listModelsFor}. Mirrors
+ * the Rust `ai::ModelInfo` struct (re-exposed via the
+ * `commands::ModelInfoDto` IPC type).
+ */
+export interface ModelInfo {
+  id: string;
+  display_name: string;
+  context_length: number | null;
+  provider_hint: string | null;
+}
+
+/**
+ * Fetch the model catalogue for `provider`. `apiKey` is required for
+ * OpenAI (the `/v1/models` endpoint is auth-gated); optional for
+ * Anthropic (static list) and OpenRouter (public catalogue).
+ *
+ * The Rust layer caches results for 10 minutes; repeat calls within
+ * that window do not re-hit the network.
+ */
+export const listModelsFor = (
+  provider: ProviderId,
+  apiKey?: string,
+): Promise<ModelInfo[]> =>
+  invoke<ModelInfo[]>("list_models_for", {
+    provider,
+    apiKey: apiKey ?? null,
+  });
+
+/**
+ * Persist the chosen model id for `provider`. The next agent rebuild
+ * uses this model id when constructing the LlmConfig.
+ */
+export const setActiveModel = (
+  provider: ProviderId,
+  model: string,
+): Promise<void> =>
+  invoke<void>("set_active_model", { provider, model });
+
+/** Read the model id currently selected for `provider` (empty string when unset). */
+export const getActiveModel = (provider: ProviderId): Promise<string> =>
+  invoke<string>("get_active_model", { provider });
 
 /**
  * Persist the API key for the active provider to the OS keychain and

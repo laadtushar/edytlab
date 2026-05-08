@@ -94,15 +94,33 @@ pub(crate) async fn classify_mode(
         .collect();
     messages.push(serde_json::json!({ "role": "user", "content": user_message }));
 
-    let request_body = serde_json::json!({
-        "model": cfg.wire_classifier_model(),
-        "max_tokens": 10,
-        "system": system_text,
-        "messages": messages,
-        "stream": false
-    });
+    // Build a provider-shaped non-streaming body. OpenAI's chat-completions
+    // returns `choices[0].message.content`; Anthropic returns
+    // `content[0].text`; we handle both shapes after we get the response.
+    let request_body = if cfg.provider.id() == crate::OPENAI_ID {
+        serde_json::json!({
+            "model": cfg.wire_classifier_model(),
+            "max_completion_tokens": 10,
+            "messages": std::iter::once(serde_json::json!({"role":"system","content":system_text}))
+                .chain(messages.iter().cloned())
+                .collect::<Vec<_>>(),
+            "stream": false
+        })
+    } else {
+        serde_json::json!({
+            "model": cfg.wire_classifier_model(),
+            "max_tokens": 10,
+            "system": system_text,
+            "messages": messages,
+            "stream": false
+        })
+    };
 
-    let req = http.post(format!("{}/v1/messages", cfg.base_url()));
+    let req = http.post(format!(
+        "{}{}",
+        cfg.base_url(),
+        cfg.provider.endpoint_path()
+    ));
     let req = cfg.provider.apply_auth(req, &cfg.api_key);
     let resp = match req.json(&request_body).send().await {
         Ok(r) => r,
@@ -118,13 +136,8 @@ pub(crate) async fn classify_mode(
         Err(_) => return Mode::General,
     };
 
-    let text = body
-        .get("content")
-        .and_then(|c| c.as_array())
-        .and_then(|arr| arr.first())
-        .and_then(|b| b.get("text"))
-        .and_then(|t| t.as_str())
-        .unwrap_or("")
+    let text = extract_response_text(cfg, &body)
+        .unwrap_or_default()
         .trim()
         .to_lowercase();
 
@@ -186,24 +199,36 @@ async fn fetch_plan(
         .collect();
     messages.push(serde_json::json!({ "role": "user", "content": user_message }));
 
-    let request_body = serde_json::json!({
-        "model": cfg.wire_model(),
-        "max_tokens": 1024,
-        "system": [
-            {
-                "type": "text",
-                "text": system_prompt
-            },
-            {
-                "type": "text",
-                "text": "Output only a <plan>...</plan> XML block listing the steps as JSON. No other text."
-            }
-        ],
-        "messages": messages,
-        "stream": false
-    });
+    let plan_instruction =
+        "Output only a <plan>...</plan> XML block listing the steps as JSON. No other text.";
+    let request_body = if cfg.provider.id() == crate::OPENAI_ID {
+        let combined_system = format!("{system_prompt}\n\n{plan_instruction}");
+        serde_json::json!({
+            "model": cfg.wire_model(),
+            "max_completion_tokens": 1024,
+            "messages": std::iter::once(serde_json::json!({"role":"system","content":combined_system}))
+                .chain(messages.iter().cloned())
+                .collect::<Vec<_>>(),
+            "stream": false
+        })
+    } else {
+        serde_json::json!({
+            "model": cfg.wire_model(),
+            "max_tokens": 1024,
+            "system": [
+                { "type": "text", "text": system_prompt },
+                { "type": "text", "text": plan_instruction }
+            ],
+            "messages": messages,
+            "stream": false
+        })
+    };
 
-    let req = http.post(format!("{}/v1/messages", cfg.base_url()));
+    let req = http.post(format!(
+        "{}{}",
+        cfg.base_url(),
+        cfg.provider.endpoint_path()
+    ));
     let req = cfg.provider.apply_auth(req, &cfg.api_key);
     let resp = req.json(&request_body).send().await.ok()?;
 
@@ -212,14 +237,9 @@ async fn fetch_plan(
     }
 
     let body: Value = resp.json().await.ok()?;
-    let text = body
-        .get("content")
-        .and_then(|c| c.as_array())
-        .and_then(|arr| arr.first())
-        .and_then(|b| b.get("text"))
-        .and_then(|t| t.as_str())?;
+    let text = extract_response_text(cfg, &body)?;
 
-    parse_plan(text)
+    parse_plan(&text)
 }
 
 /// Wait for the frontend to approve the pending plan. Uses
@@ -311,8 +331,16 @@ where
     loop {
         // 2. Build and send the streaming request.
         let wire_model = cfg.wire_model();
-        let request_body = build_request(&wire_model, system_prompt, &tool_schemas, conversation);
-        let req = http.post(format!("{}/v1/messages", cfg.base_url()));
+        let request_struct = build_request(&wire_model, system_prompt, &tool_schemas, conversation);
+        // Provider-specific wire serialisation. Anthropic + OpenRouter
+        // pass `MessagesRequest` through verbatim; OpenAI translates to
+        // chat-completions JSON.
+        let request_body = cfg.provider.serialize_request(&request_struct);
+        let req = http.post(format!(
+            "{}{}",
+            cfg.base_url(),
+            cfg.provider.endpoint_path()
+        ));
         let req = cfg.provider.apply_auth(req, &cfg.api_key);
         let resp = req.json(&request_body).send().await.map_err(Error::Http)?;
 
@@ -338,6 +366,9 @@ where
         let mut blocks: Vec<PartialBlock> = Vec::new();
         let mut stop_reason: Option<String> = None;
         let mut text_this_message = String::new();
+        // Flag flipped by `MessageStop` inside the (provider-translated)
+        // event sequence so we can break out of the SSE loop cleanly.
+        let mut stream_finished = false;
 
         while let Some(ev) = sse.next().await {
             let event = ev.map_err(Error::Sse)?;
@@ -347,72 +378,87 @@ where
             if event.data.is_empty() {
                 continue;
             }
-            let parsed: StreamEvent = serde_json::from_str(&event.data).map_err(Error::Json)?;
-            match parsed {
-                StreamEvent::MessageStart { .. } => {
-                    blocks.clear();
-                    text_this_message.clear();
-                }
-                StreamEvent::ContentBlockStart {
-                    index,
-                    content_block,
-                } => {
-                    grow_to(&mut blocks, index as usize)?;
-                    match content_block {
-                        ContentBlockStart::Text { .. } => {
-                            blocks[index as usize] = PartialBlock::Text(String::new());
-                        }
-                        ContentBlockStart::ToolUse { id, name, .. } => {
-                            on_event(AgentEvent::ToolCallStart {
-                                name: name.clone(),
-                                id: id.clone(),
-                            });
-                            blocks[index as usize] = PartialBlock::ToolUse {
-                                id,
-                                name,
-                                args_json: String::new(),
-                            };
-                        }
-                        ContentBlockStart::Other => {
-                            blocks[index as usize] = PartialBlock::Ignored;
+            // Provider-specific stream parsing. Anthropic + OpenRouter
+            // deserialise the chunk straight into `StreamEvent`; OpenAI
+            // translates a chat-completions delta into one or more
+            // canonical events.
+            let parsed_events = cfg
+                .provider
+                .parse_stream_chunk(&event.data)
+                .map_err(|e| Error::Protocol(e.to_string()))?;
+            for parsed in parsed_events {
+                match parsed {
+                    StreamEvent::MessageStart { .. } => {
+                        blocks.clear();
+                        text_this_message.clear();
+                    }
+                    StreamEvent::ContentBlockStart {
+                        index,
+                        content_block,
+                    } => {
+                        grow_to(&mut blocks, index as usize)?;
+                        match content_block {
+                            ContentBlockStart::Text { .. } => {
+                                blocks[index as usize] = PartialBlock::Text(String::new());
+                            }
+                            ContentBlockStart::ToolUse { id, name, .. } => {
+                                on_event(AgentEvent::ToolCallStart {
+                                    name: name.clone(),
+                                    id: id.clone(),
+                                });
+                                blocks[index as usize] = PartialBlock::ToolUse {
+                                    id,
+                                    name,
+                                    args_json: String::new(),
+                                };
+                            }
+                            ContentBlockStart::Other => {
+                                blocks[index as usize] = PartialBlock::Ignored;
+                            }
                         }
                     }
-                }
-                StreamEvent::ContentBlockDelta { index, delta } => {
-                    let slot = blocks
-                        .get_mut(index as usize)
-                        .ok_or_else(|| Error::Protocol("delta for unknown block index".into()))?;
-                    match (slot, delta) {
-                        (PartialBlock::Text(buf), ContentBlockDelta::TextDelta { text }) => {
-                            buf.push_str(&text);
-                            text_this_message.push_str(&text);
-                            on_event(AgentEvent::TextDelta(text));
+                    StreamEvent::ContentBlockDelta { index, delta } => {
+                        let slot = blocks.get_mut(index as usize).ok_or_else(|| {
+                            Error::Protocol("delta for unknown block index".into())
+                        })?;
+                        match (slot, delta) {
+                            (PartialBlock::Text(buf), ContentBlockDelta::TextDelta { text }) => {
+                                buf.push_str(&text);
+                                text_this_message.push_str(&text);
+                                on_event(AgentEvent::TextDelta(text));
+                            }
+                            (
+                                PartialBlock::ToolUse { args_json, .. },
+                                ContentBlockDelta::InputJsonDelta { partial_json },
+                            ) => {
+                                args_json.push_str(&partial_json);
+                            }
+                            // Mismatched delta kind for the block — ignore;
+                            // the server occasionally emits unrelated deltas
+                            // we don't model yet.
+                            _ => {}
                         }
-                        (
-                            PartialBlock::ToolUse { args_json, .. },
-                            ContentBlockDelta::InputJsonDelta { partial_json },
-                        ) => {
-                            args_json.push_str(&partial_json);
+                    }
+                    StreamEvent::ContentBlockStop { .. } => {
+                        // Nothing to do; we'll consume `blocks` after stop.
+                    }
+                    StreamEvent::MessageDelta { delta } => {
+                        if let Some(reason) = delta.stop_reason {
+                            stop_reason = Some(reason);
                         }
-                        // Mismatched delta kind for the block — ignore;
-                        // the server occasionally emits unrelated deltas
-                        // we don't model yet.
-                        _ => {}
+                    }
+                    StreamEvent::MessageStop => {
+                        stream_finished = true;
+                        break;
+                    }
+                    StreamEvent::Ping | StreamEvent::Other => {}
+                    StreamEvent::Error { error } => {
+                        return Err(Error::ApiStream(error_message(&error)));
                     }
                 }
-                StreamEvent::ContentBlockStop { .. } => {
-                    // Nothing to do; we'll consume `blocks` after stop.
-                }
-                StreamEvent::MessageDelta { delta } => {
-                    if let Some(reason) = delta.stop_reason {
-                        stop_reason = Some(reason);
-                    }
-                }
-                StreamEvent::MessageStop => break,
-                StreamEvent::Ping | StreamEvent::Other => {}
-                StreamEvent::Error { error } => {
-                    return Err(Error::ApiStream(error_message(&error)));
-                }
+            }
+            if stream_finished {
+                break;
             }
         }
 
@@ -634,6 +680,28 @@ fn attach_cache_control_to_tools(mut tools: Value) -> Value {
 
 fn error_message(err: &ApiError) -> String {
     err.message.clone()
+}
+
+/// Extract the assistant's text reply from a non-streaming response
+/// body, handling both Anthropic-shape (`content[0].text`) and
+/// OpenAI-shape (`choices[0].message.content`).
+fn extract_response_text(cfg: &LlmConfig, body: &Value) -> Option<String> {
+    if cfg.provider.id() == crate::OPENAI_ID {
+        body.get("choices")
+            .and_then(|c| c.as_array())
+            .and_then(|a| a.first())
+            .and_then(|c| c.get("message"))
+            .and_then(|m| m.get("content"))
+            .and_then(|t| t.as_str())
+            .map(|s| s.to_string())
+    } else {
+        body.get("content")
+            .and_then(|c| c.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(|b| b.get("text"))
+            .and_then(|t| t.as_str())
+            .map(|s| s.to_string())
+    }
 }
 
 fn grow_to(v: &mut Vec<PartialBlock>, idx: usize) -> Result<()> {
