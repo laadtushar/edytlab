@@ -178,6 +178,22 @@ fn second_response_sse() -> String {
     encode_sse(events)
 }
 
+/// A minimal non-streaming Anthropic response for the classifier call
+/// (classify_mode uses `stream: false` with a single-turn request).
+/// Returns `"general"` so the existing tool loop is used unchanged.
+fn classifier_response_json() -> String {
+    serde_json::json!({
+        "id": "msg_classify",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-haiku-4-5-20251001",
+        "stop_reason": "end_turn",
+        "content": [{"type": "text", "text": "general"}],
+        "usage": {"input_tokens": 10, "output_tokens": 1}
+    })
+    .to_string()
+}
+
 fn encode_sse(events: &[(&str, Value)]) -> String {
     let mut out = String::new();
     for (name, data) in events {
@@ -194,6 +210,10 @@ fn encode_sse(events: &[(&str, Value)]) -> String {
 /// Sequenced responder: returns `responses[i]` on the i-th request,
 /// then 500s. Wiremock's built-in matchers don't have ordering, so we
 /// roll our own.
+///
+/// If a response body starts with `{` we assume it is a JSON
+/// (non-streaming) response and set `content-type: application/json`.
+/// Otherwise we use `text/event-stream` for SSE bodies.
 struct SeqResponder {
     counter: Mutex<usize>,
     responses: Vec<String>,
@@ -205,9 +225,16 @@ impl Respond for SeqResponder {
         let idx = *c;
         *c += 1;
         match self.responses.get(idx) {
-            Some(body) => ResponseTemplate::new(200)
-                .insert_header("content-type", "text/event-stream")
-                .set_body_string(body.clone()),
+            Some(body) => {
+                let ct = if body.trim_start().starts_with('{') {
+                    "application/json"
+                } else {
+                    "text/event-stream"
+                };
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", ct)
+                    .set_body_string(body.clone())
+            }
             None => ResponseTemplate::new(500).set_body_string("no more responses"),
         }
     }
@@ -244,12 +271,19 @@ fn write_test_wav(dir: &std::path::Path) -> std::path::PathBuf {
 #[tokio::test]
 async fn agent_dispatches_normalize_and_emits_node_created() {
     // Mock server.
+    // The first request is the M27 mode-classification call (non-streaming
+    // JSON response); the subsequent two are the normal tool-calling loop
+    // (SSE responses).
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v1/messages"))
         .respond_with(SeqResponder {
             counter: Mutex::new(0),
-            responses: vec![first_response_sse(), second_response_sse()],
+            responses: vec![
+                classifier_response_json(),
+                first_response_sse(),
+                second_response_sse(),
+            ],
         })
         .mount(&server)
         .await;
@@ -289,7 +323,14 @@ async fn agent_dispatches_normalize_and_emits_node_created() {
 
     // Agent pointed at the mock.
     let cfg = ai::AnthropicConfig::new("test-key").with_base_url(server.uri());
-    let mut agent = ai::Agent::new(cfg, dispatcher.clone(), store.clone(), engine.clone());
+    let plan_notify = Arc::new(tokio::sync::Notify::new());
+    let mut agent = ai::Agent::new(
+        cfg,
+        dispatcher.clone(),
+        store.clone(),
+        engine.clone(),
+        plan_notify,
+    );
 
     let mut events: Vec<ai::AgentEvent> = Vec::new();
     let result = agent
@@ -326,6 +367,10 @@ async fn agent_dispatches_normalize_and_emits_node_created() {
                 assert!(saw_tool_end_ok);
                 saw_done = true;
             }
+            // Plan events are only emitted in mashup mode (which the
+            // integration test does not exercise — the mock server is
+            // not the classifier endpoint). Ignore here.
+            ai::AgentEvent::Plan { .. } => {}
         }
     }
     assert!(saw_text && saw_tool_start && saw_node && saw_tool_end_ok && saw_done);
@@ -340,8 +385,16 @@ async fn agent_dispatches_normalize_and_emits_node_created() {
 
     // ---- Outgoing request shape: cache_control on system prompt ----
     let received = server.received_requests().await.expect("recording on");
-    assert_eq!(received.len(), 2, "expected two HTTP round-trips");
-    let body: Value = serde_json::from_slice(&received[0].body).expect("json body");
+    // M27 adds a classification pre-flight, so we now expect 3 round-trips:
+    // [0] classify_mode (haiku, stream:false)
+    // [1] first main turn (normalize tool_use)
+    // [2] second main turn (final text)
+    assert_eq!(
+        received.len(),
+        3,
+        "expected three HTTP round-trips (classify + 2 main)"
+    );
+    let body: Value = serde_json::from_slice(&received[1].body).expect("json body");
     let system = body
         .get("system")
         .and_then(|v| v.as_array())
@@ -383,9 +436,9 @@ async fn agent_dispatches_normalize_and_emits_node_created() {
     // Stream flag.
     assert_eq!(body.get("stream").and_then(|v| v.as_bool()), Some(true));
 
-    // Second request: messages now contains the assistant's tool_use
+    // Third request (index 2): messages now contains the assistant's tool_use
     // and the user-role tool_result we appended.
-    let body2: Value = serde_json::from_slice(&received[1].body).expect("json body 2");
+    let body2: Value = serde_json::from_slice(&received[2].body).expect("json body 2");
     let msgs = body2
         .get("messages")
         .and_then(|v| v.as_array())
@@ -515,7 +568,8 @@ async fn agent_enforces_tool_call_cap() {
     }
 
     let cfg = ai::AnthropicConfig::new("test-key").with_base_url(server.uri());
-    let mut agent = ai::Agent::new(cfg, dispatcher, store, engine);
+    let plan_notify = Arc::new(tokio::sync::Notify::new());
+    let mut agent = ai::Agent::new(cfg, dispatcher, store, engine, plan_notify);
 
     let err = agent
         .turn("loop please".to_string(), |_| {})

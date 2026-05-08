@@ -24,8 +24,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
+  approvePlan as bridgeApprovePlan,
   onAgentDone,
   onNodeCreated,
+  onPlan,
   onTextDelta,
   onToolCall,
   type NodeId,
@@ -57,7 +59,13 @@ export interface NodeDividerEntry {
   nodeId: NodeId;
 }
 
-export type LogEntry = MessageEntry | ToolEntry | NodeDividerEntry;
+export interface PlanEntry {
+  kind: "plan";
+  id: string;
+  steps: Array<{ step: number; tool: string; description: string }>;
+}
+
+export type LogEntry = MessageEntry | ToolEntry | NodeDividerEntry | PlanEntry;
 
 export interface UseAgentStreamResult {
   /** Ordered transcript of messages, tool badges, and node dividers. */
@@ -69,6 +77,10 @@ export interface UseAgentStreamResult {
   pushUserMessage: (text: string) => void;
   /** Reset the transcript, e.g. when switching projects. */
   reset: () => void;
+  /** Non-null while the agent is awaiting plan approval (mashup mode). */
+  pendingPlan: PlanEntry | null;
+  /** Approve the pending plan. Clears `pendingPlan` and unblocks the loop. */
+  approvePlan: () => Promise<void>;
 }
 
 let _idCounter = 0;
@@ -80,6 +92,7 @@ const nextId = (): string => {
 export function useAgentStream(): UseAgentStreamResult {
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [current, setCurrent] = useState<string>("");
+  const [pendingPlan, setPendingPlan] = useState<PlanEntry | null>(null);
 
   // Track the in-flight assistant text in a ref so the `done` listener
   // sees the latest value without needing to be re-bound on every delta.
@@ -90,6 +103,7 @@ export function useAgentStream(): UseAgentStreamResult {
     let unlistenTool: (() => void) | null = null;
     let unlistenNode: (() => void) | null = null;
     let unlistenDone: (() => void) | null = null;
+    let unlistenPlan: (() => void) | null = null;
     let cancelled = false;
 
     const attach = (
@@ -165,12 +179,30 @@ export function useAgentStream(): UseAgentStreamResult {
       },
     );
 
+    attach(
+      onPlan((rawSteps) => {
+        // Coerce each step object to the typed PlanEntry shape.
+        const steps = rawSteps.map((s) => ({
+          step: (s["step"] as number) ?? 0,
+          tool: (s["tool"] as string) ?? "",
+          description: (s["description"] as string) ?? "",
+        }));
+        const entry: PlanEntry = { kind: "plan", id: crypto.randomUUID(), steps };
+        setEntries((prev) => [...prev, entry]);
+        setPendingPlan(entry);
+      }),
+      (fn) => {
+        unlistenPlan = fn;
+      },
+    );
+
     return () => {
       cancelled = true;
       unlistenDelta?.();
       unlistenTool?.();
       unlistenNode?.();
       unlistenDone?.();
+      unlistenPlan?.();
     };
   }, []);
 
@@ -185,7 +217,13 @@ export function useAgentStream(): UseAgentStreamResult {
     setEntries([]);
     setCurrent("");
     currentRef.current = "";
+    setPendingPlan(null);
   }, []);
 
-  return { entries, current, pushUserMessage, reset };
+  const approvePlan = useCallback(async () => {
+    await bridgeApprovePlan();
+    setPendingPlan(null);
+  }, []);
+
+  return { entries, current, pushUserMessage, reset, pendingPlan, approvePlan };
 }

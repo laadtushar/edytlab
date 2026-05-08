@@ -83,7 +83,8 @@ async fn main() -> anyhow::Result<()> {
         cfg = cfg.with_base_url(base_url);
     }
 
-    let mut agent = ai::Agent::new(cfg, dispatcher, store, engine);
+    let plan_notify = std::sync::Arc::new(tokio::sync::Notify::new());
+    let mut agent = ai::Agent::new(cfg, dispatcher, store, engine, plan_notify);
 
     let result = agent
         .turn(args.message, |ev| {
@@ -95,6 +96,11 @@ async fn main() -> anyhow::Result<()> {
                     node_id: id.to_hex(),
                 },
                 ai::AgentEvent::Done => CliEvent::Done,
+                // Plan events are frontend-only (approval card); CLI just
+                // prints the steps as a text delta so the user can see them.
+                ai::AgentEvent::Plan { steps } => CliEvent::Text {
+                    delta: format!("[plan: {} steps]", steps.len()),
+                },
             };
             // Best-effort: a stdout broken-pipe (consumer process exited)
             // shouldn't panic the agent loop. We swallow write errors and

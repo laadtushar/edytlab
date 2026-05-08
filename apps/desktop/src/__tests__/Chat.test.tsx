@@ -15,12 +15,14 @@ const cbs = {
   toolCall: [] as ((name: string, id: string) => void)[],
   nodeCreated: [] as ((nodeId: string) => void)[],
   done: [] as (() => void)[],
+  plan: [] as ((steps: Record<string, unknown>[]) => void)[],
 };
 
 const sendMessageMock = vi.fn();
 
 vi.mock("../lib/tauri-bridge", () => ({
   sendMessage: (text: string) => sendMessageMock(text),
+  approvePlan: vi.fn(() => Promise.resolve()),
   onTextDelta: vi.fn((cb: (t: string) => void) => {
     cbs.textDelta.push(cb);
     return Promise.resolve(() => undefined);
@@ -37,6 +39,10 @@ vi.mock("../lib/tauri-bridge", () => ({
     cbs.done.push(cb);
     return Promise.resolve(() => undefined);
   }),
+  onPlan: vi.fn((cb: (steps: Record<string, unknown>[]) => void) => {
+    cbs.plan.push(cb);
+    return Promise.resolve(() => undefined);
+  }),
 }));
 
 import { Chat } from "../components/Chat";
@@ -51,6 +57,7 @@ describe("Chat", () => {
     cbs.toolCall = [];
     cbs.nodeCreated = [];
     cbs.done = [];
+    cbs.plan = [];
   });
 
   it("renders the input, send button, and Render Preview button", () => {

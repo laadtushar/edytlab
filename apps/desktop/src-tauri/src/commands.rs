@@ -20,8 +20,8 @@ use session::{NodeId, SessionNode, Store};
 use tauri::{AppHandle, Emitter, Runtime, State};
 
 use crate::events::{
-    DonePayload, NodeCreatedPayload, TextDeltaPayload, ToolCallPayload, DONE, NODE_CREATED,
-    TEXT_DELTA, TOOL_CALL,
+    DonePayload, NodeCreatedPayload, PlanPayload, TextDeltaPayload, ToolCallPayload, DONE,
+    NODE_CREATED, PLAN, TEXT_DELTA, TOOL_CALL,
 };
 use crate::state::AppState;
 
@@ -475,7 +475,28 @@ fn emit_agent_event<R: tauri::Runtime>(app: &AppHandle<R>, event: ai::AgentEvent
                 tracing::warn!(error = %e, "failed to emit done");
             }
         }
+        ai::AgentEvent::Plan { steps } => {
+            if let Err(e) = app.emit(PLAN, PlanPayload { steps }) {
+                tracing::warn!(error = %e, "failed to emit plan");
+            }
+        }
     }
+}
+
+// ---------------------------------------------------------------------------
+// approve_plan
+// ---------------------------------------------------------------------------
+
+/// Called by the frontend "Approve plan" button. Fires the plan-approval
+/// notifier in `AppState`, unblocking the mashup-mode turn loop.
+///
+/// Deliberately does NOT acquire the agent mutex — `send_message` holds
+/// it across its `.await` points, so touching the agent here would
+/// deadlock.  The notifier lives independently on `AppState`.
+#[tauri::command]
+pub async fn approve_plan(state: State<'_, AppState>) -> CmdResult<()> {
+    state.plan_notify.notify_one();
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -498,6 +519,7 @@ async fn rebuild_agent(state: &AppState) -> Result<(), CommandError> {
                 Arc::clone(&state.dispatcher),
                 store,
                 Arc::clone(&state.engine),
+                Arc::clone(&state.plan_notify),
             ))
         }
         _ => None,

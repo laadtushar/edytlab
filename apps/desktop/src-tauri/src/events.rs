@@ -19,6 +19,8 @@ pub const TOOL_CALL: &str = "agent://tool-call";
 pub const NODE_CREATED: &str = "agent://node-created";
 /// `agent://done` — the turn finished (success).
 pub const DONE: &str = "agent://done";
+/// `agent://plan` — mashup mode plan awaiting frontend approval.
+pub const PLAN: &str = "agent://plan";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TextDeltaPayload {
@@ -42,3 +44,11 @@ pub struct NodeCreatedPayload {
 /// payload object rather than `undefined`.
 #[derive(Debug, Clone, Serialize)]
 pub struct DonePayload {}
+
+/// `agent://plan` — emitted in mashup mode before tool execution.
+/// The frontend renders an approval card and calls `approve_plan` to
+/// unblock the agent loop.
+#[derive(Debug, Clone, Serialize)]
+pub struct PlanPayload {
+    pub steps: Vec<serde_json::Value>,
+}

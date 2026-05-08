@@ -22,6 +22,7 @@ import {
   type LogEntry,
   type MessageEntry,
   type NodeDividerEntry,
+  type PlanEntry,
   type ToolEntry,
 } from "../hooks/useAgentStream";
 
@@ -46,12 +47,17 @@ function isTool(e: LogEntry): e is ToolEntry {
 function isNode(e: LogEntry): e is NodeDividerEntry {
   return e.kind === "node";
 }
+function isPlan(e: LogEntry): e is PlanEntry {
+  return e.kind === "plan";
+}
 
 export function Chat({ rendering, onRequestRenderPreview }: ChatProps) {
-  const { entries, current, pushUserMessage } = useAgentStream();
+  const { entries, current, pushUserMessage, pendingPlan, approvePlan } =
+    useAgentStream();
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [editToast, setEditToast] = useState(false);
   const scrollerRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom on new entries / streaming deltas.
@@ -138,6 +144,31 @@ export function Chat({ rendering, onRequestRenderPreview }: ChatProps) {
               </div>
             );
           }
+          if (isPlan(entry)) {
+            // Render a read-only history record of the plan (the live
+            // approval card is rendered separately below).
+            return (
+              <div
+                key={entry.id}
+                data-testid="plan-history-entry"
+                className="rounded-md border border-neutral-700 bg-neutral-900/60 px-3 py-2 text-xs text-neutral-400"
+              >
+                <span className="font-semibold text-neutral-300">
+                  Mashup Plan ({entry.steps.length} steps)
+                </span>
+                <ol className="mt-1 list-decimal pl-4 space-y-0.5">
+                  {entry.steps.map((s) => (
+                    <li key={s.step}>
+                      <span className="font-mono text-neutral-300">
+                        {s.tool}
+                      </span>{" "}
+                      — {s.description}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            );
+          }
           return null;
         })}
 
@@ -155,6 +186,61 @@ export function Chat({ rendering, onRequestRenderPreview }: ChatProps) {
           </div>
         ) : null}
       </div>
+
+      {pendingPlan ? (
+        <div
+          data-testid="plan-approval-card"
+          className="mx-3 mb-2 rounded-md border border-blue-700 bg-neutral-900 px-3 py-2 text-sm"
+        >
+          <div className="flex items-center justify-between">
+            <span className="font-semibold text-blue-300">
+              Mashup Plan ({pendingPlan.steps.length} steps)
+            </span>
+            <div className="flex gap-1.5">
+              <button
+                type="button"
+                data-testid="plan-edit-button"
+                className="rounded border border-neutral-600 px-2 py-0.5 text-xs text-neutral-400 hover:bg-neutral-800"
+                onClick={() => {
+                  setEditToast(true);
+                  setTimeout(() => {
+                    setEditToast(false);
+                  }, 2000);
+                }}
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                data-testid="plan-run-button"
+                className="rounded bg-blue-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-blue-500"
+                onClick={() => {
+                  void approvePlan();
+                }}
+              >
+                Run
+              </button>
+            </div>
+          </div>
+          <ol className="mt-1.5 list-decimal pl-4 space-y-0.5 text-xs text-neutral-300">
+            {pendingPlan.steps.map((s) => (
+              <li key={s.step}>
+                <span className="font-mono text-neutral-100">{s.tool}</span> —{" "}
+                {s.description}
+              </li>
+            ))}
+          </ol>
+          {editToast ? (
+            <p
+              role="status"
+              data-testid="plan-edit-toast"
+              className="mt-1 text-xs text-amber-400"
+            >
+              Edit coming soon
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       <form
         data-testid="chat-form"
