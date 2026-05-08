@@ -44,28 +44,21 @@ pnpm build               # production build
 ## Deployment (Vercel)
 
 This folder is **not** part of the pnpm workspace, so Vercel can build it as a
-standalone project. Two supported setups:
-
-**A. Root Directory = `website/` (preferred).**
+standalone project:
 
 1. Create a new Vercel project pointing at the `laadtushar/edytlab` repo.
 2. Set the **Root Directory** to `website/`.
 3. Framework preset is detected automatically (Next.js).
+4. No environment variables are required.
+5. Set the canonical domain (e.g. `edytlab.app`) under **Settings → Domains**;
+   `metadataBase` in `lib/site.ts` should match it.
 
-**B. Root Directory left at repo root.**
-
-The repo ships a top-level `vercel.json` that pins
-`framework: "nextjs"` and runs install/build inside `website/`
-(`outputDirectory: website/.next`). If Vercel's project Root Directory is left
-at the repo root, that config drives the build — no dashboard change needed.
-If you set Root Directory to `website/` per option A, the per-folder
-`website/vercel.json` takes over and the root one is ignored.
-
-Either way:
-
-- No environment variables are required.
-- Set the canonical domain (e.g. `edytlab.app`) under **Settings → Domains**;
-  `metadataBase` in `lib/site.ts` should match it.
+> Why the dashboard setting and not a root `vercel.json`: Vercel's Next.js
+> framework detection runs against the `package.json` it finds at the project
+> Root Directory, **before** `installCommand` executes. Pointing
+> `outputDirectory` at `website/.next` from the repo root also disables the
+> Next.js builder's SSR/ISR/API-route handling. Setting Root Directory to
+> `website/` is the only path that supports the full Next.js feature set.
 
 Pushes to `main` trigger production deploys; PRs get preview URLs
 automatically.
