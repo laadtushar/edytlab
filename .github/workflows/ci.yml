@@ -5,10 +5,16 @@ on:
     branches: [main]
   pull_request:
 
-# Cancel superseded runs on the same branch/PR to save runner minutes.
+# Cancel superseded PR runs to save runner minutes, but NEVER cancel a
+# main-branch run — auto-release.yml hangs off CI's `workflow_run`
+# completion with `if: conclusion == "success"`, and a cancelled run
+# reports `cancelled` instead of `success`, which silently skips the
+# auto-release. Rapid back-to-back merges to main were the symptom:
+# each merge triggered CI, the next merge cancelled the prior, and we
+# missed dev releases for those commits.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   CARGO_TERM_COLOR: always
