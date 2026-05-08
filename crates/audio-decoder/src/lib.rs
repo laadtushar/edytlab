@@ -1,8 +1,17 @@
 //! Full-file audio decoder built on `symphonia`.
 //!
-//! Phase 1 needs only synchronous, full-file decoding into interleaved `f32`
-//! PCM in [-1.0, 1.0]. Streaming and seeking are out of scope here; the audio
-//! engine (M06) performs its own real-time work on already-decoded buffers.
+//! Phase 1 needed only synchronous, full-file decoding into interleaved `f32`
+//! PCM in [-1.0, 1.0] — that's still the API contract for [`decode_file`] /
+//! [`decode_bytes`] and is what every analysis crate uses.
+//!
+//! Phase 2 M22 added a streaming WAV reader ([`stream::WavStreamReader`])
+//! alongside the buffered API for the constant-memory render path. The
+//! buffered API is unchanged — callers that already use [`decode_file`] do
+//! NOT need to migrate.
+
+mod stream;
+
+pub use stream::WavStreamReader;
 
 use std::fs::File;
 use std::io::{Cursor, Read};
