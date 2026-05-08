@@ -47,8 +47,8 @@ use crate::anthropic::{
     ApiError, CacheControl, ContentBlock, ContentBlockDelta, ContentBlockStart, Message,
     MessagesRequest, Role, StreamEvent, SystemBlock, ToolChoice,
 };
-use crate::prompt::{ANTHROPIC_VERSION, DEFAULT_MAX_TOKENS, MAX_TOOL_CALLS_PER_TURN};
-use crate::{AgentEvent, AnthropicConfig, Error, Result, TurnResult};
+use crate::prompt::{DEFAULT_MAX_TOKENS, MAX_TOOL_CALLS_PER_TURN};
+use crate::{AgentEvent, Error, LlmConfig, Result, TurnResult};
 
 // ---------------------------------------------------------------------------
 // Mode detection (M27)
@@ -69,7 +69,7 @@ pub(crate) enum Mode {
 /// the BPM") classify correctly. Falls back to `Mode::General` on any
 /// error so classification failures are never user-visible.
 pub(crate) async fn classify_mode(
-    cfg: &AnthropicConfig,
+    cfg: &LlmConfig,
     http: &reqwest::Client,
     user_message: &str,
     conversation: &[Message],
@@ -95,22 +95,16 @@ pub(crate) async fn classify_mode(
     messages.push(serde_json::json!({ "role": "user", "content": user_message }));
 
     let request_body = serde_json::json!({
-        "model": crate::CLASSIFIER_MODEL,
+        "model": cfg.wire_classifier_model(),
         "max_tokens": 10,
         "system": system_text,
         "messages": messages,
         "stream": false
     });
 
-    let resp = match http
-        .post(format!("{}/v1/messages", cfg.base_url))
-        .header("x-api-key", &cfg.api_key)
-        .header("anthropic-version", ANTHROPIC_VERSION)
-        .header("content-type", "application/json")
-        .json(&request_body)
-        .send()
-        .await
-    {
+    let req = http.post(format!("{}/v1/messages", cfg.base_url()));
+    let req = cfg.provider.apply_auth(req, &cfg.api_key);
+    let resp = match req.json(&request_body).send().await {
         Ok(r) => r,
         Err(_) => return Mode::General,
     };
@@ -173,7 +167,7 @@ pub(crate) fn parse_plan(text: &str) -> Option<Vec<Value>> {
 /// return the parsed steps. Includes conversation history so follow-up
 /// requests can be planned in context. Returns `None` on failure.
 async fn fetch_plan(
-    cfg: &AnthropicConfig,
+    cfg: &LlmConfig,
     http: &reqwest::Client,
     system_prompt: &str,
     conversation: &[Message],
@@ -193,7 +187,7 @@ async fn fetch_plan(
     messages.push(serde_json::json!({ "role": "user", "content": user_message }));
 
     let request_body = serde_json::json!({
-        "model": cfg.model,
+        "model": cfg.wire_model(),
         "max_tokens": 1024,
         "system": [
             {
@@ -209,15 +203,9 @@ async fn fetch_plan(
         "stream": false
     });
 
-    let resp = http
-        .post(format!("{}/v1/messages", cfg.base_url))
-        .header("x-api-key", &cfg.api_key)
-        .header("anthropic-version", ANTHROPIC_VERSION)
-        .header("content-type", "application/json")
-        .json(&request_body)
-        .send()
-        .await
-        .ok()?;
+    let req = http.post(format!("{}/v1/messages", cfg.base_url()));
+    let req = cfg.provider.apply_auth(req, &cfg.api_key);
+    let resp = req.json(&request_body).send().await.ok()?;
 
     if !resp.status().is_success() {
         return None;
@@ -263,7 +251,7 @@ const MAX_CONTENT_BLOCKS: usize = 100;
 /// with the mutex guards leads to awkward lifetimes.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn run_turn<F>(
-    cfg: &AnthropicConfig,
+    cfg: &LlmConfig,
     http: &reqwest::Client,
     dispatcher: &Arc<Mutex<ToolDispatcher>>,
     store: &Arc<Mutex<session::Store>>,
@@ -322,16 +310,11 @@ where
 
     loop {
         // 2. Build and send the streaming request.
-        let request_body = build_request(cfg, system_prompt, &tool_schemas, conversation);
-        let resp = http
-            .post(format!("{}/v1/messages", cfg.base_url))
-            .header("x-api-key", &cfg.api_key)
-            .header("anthropic-version", ANTHROPIC_VERSION)
-            .header("content-type", "application/json")
-            .json(&request_body)
-            .send()
-            .await
-            .map_err(Error::Http)?;
+        let wire_model = cfg.wire_model();
+        let request_body = build_request(&wire_model, system_prompt, &tool_schemas, conversation);
+        let req = http.post(format!("{}/v1/messages", cfg.base_url()));
+        let req = cfg.provider.apply_auth(req, &cfg.api_key);
+        let resp = req.json(&request_body).send().await.map_err(Error::Http)?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -606,14 +589,18 @@ where
 /// Build the outgoing request. Keeps the system prompt + tool schemas
 /// `cache_control: ephemeral` so they're cached server-side across the
 /// many round trips a tool-using turn makes.
+///
+/// `wire_model` is the provider-translated model id (Anthropic uses the
+/// canonical id as-is; OpenRouter prepends `anthropic/`). The caller
+/// computes it once per turn iteration via [`LlmConfig::wire_model`].
 fn build_request<'a>(
-    cfg: &'a AnthropicConfig,
+    wire_model: &'a str,
     system_prompt: &'a str,
     tool_schemas: &Value,
     conversation: &'a [Message],
 ) -> MessagesRequest<'a> {
     MessagesRequest {
-        model: &cfg.model,
+        model: wire_model,
         max_tokens: DEFAULT_MAX_TOKENS,
         system: vec![SystemBlock {
             kind: "text",
@@ -761,7 +748,7 @@ No other text."#;
     #[ignore = "requires live Anthropic API key"]
     async fn classify_mode_returns_mashup_for_mashup_request() {
         let key = std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY must be set");
-        let cfg = crate::AnthropicConfig::new(key);
+        let cfg = crate::LlmConfig::new_anthropic(key);
         let http = reqwest::Client::new();
         let mode = classify_mode(&cfg, &http, "make a mashup of these two tracks", &[]).await;
         assert_eq!(

@@ -85,14 +85,33 @@ export const sendMessage = (text: string): Promise<void> =>
   invoke<void>("send_message", { text });
 
 /**
- * Persist the Anthropic API key to the OS keychain and (re)build the
- * agent. Rejects if the key is empty or if the keyring backend errors.
+ * Stable provider ids the Rust backend supports. The Settings picker
+ * mirrors this list, and the keychain stores a separate key per id.
+ */
+export type ProviderId = "anthropic" | "openrouter";
+
+/**
+ * Persist the API key for the active provider to the OS keychain and
+ * (re)build the agent. Rejects if the key is empty or if the keyring
+ * backend errors. To save against a *specific* provider (without first
+ * switching to it), use {@link setApiKeyFor}.
  */
 export const setApiKey = (key: string): Promise<void> =>
   invoke<void>("set_api_key", { key });
 
 /**
- * Whether the OS keychain currently holds an Anthropic API key.
+ * Persist `key` for `provider`, mark `provider` as active, and rebuild
+ * the agent. Used by the Settings picker when the user picks a provider
+ * and saves a key against it in the same submit.
+ */
+export const setApiKeyFor = (
+  provider: ProviderId,
+  key: string,
+): Promise<void> => invoke<void>("set_api_key_for", { provider, key });
+
+/**
+ * Whether the OS keychain currently holds an API key for the active
+ * provider.
  *
  * Settings.tsx calls this on mount to decide whether to render the
  * blocking first-launch modal. Reads through to the keychain on each
@@ -102,17 +121,26 @@ export const setApiKey = (key: string): Promise<void> =>
 export const hasApiKey = (): Promise<boolean> =>
   invoke<boolean>("has_api_key");
 
+/** Whether a key is stored for `provider` (without changing the active provider). */
+export const hasApiKeyFor = (provider: ProviderId): Promise<boolean> =>
+  invoke<boolean>("has_api_key_for", { provider });
+
 /**
- * Remove the stored API key, drop the in-memory cache, and tear down
- * the agent. After this resolves, `hasApiKey()` returns `false` and the
- * UI should re-render the blocking first-launch modal — no app restart
- * required.
+ * Remove the stored API key for the active provider, drop the in-memory
+ * cache, and tear down the agent. After this resolves, `hasApiKey()`
+ * returns `false` and the UI should re-render the blocking
+ * first-launch modal — no app restart required.
  */
 export const clearApiKey = (): Promise<void> =>
   invoke<void>("clear_api_key");
 
+/** Remove the stored API key for `provider`. */
+export const clearApiKeyFor = (provider: ProviderId): Promise<void> =>
+  invoke<void>("clear_api_key_for", { provider });
+
 /**
- * Probe `key` against the Anthropic Messages API with a 1-token request.
+ * Probe `key` against the active provider's Messages endpoint with a
+ * 1-token request.
  *
  * Resolves on HTTP 200 and rejects with the `"<status> <body>"` string
  * (e.g. `"401 invalid x-api-key"`) on any non-2xx or transport error.
@@ -121,6 +149,24 @@ export const clearApiKey = (): Promise<void> =>
  */
 export const testApiKey = (key: string): Promise<void> =>
   invoke<void>("test_api_key", { key });
+
+/** Probe `key` against `provider`'s endpoint specifically. */
+export const testApiKeyFor = (
+  provider: ProviderId,
+  key: string,
+): Promise<void> => invoke<void>("test_api_key_for", { provider, key });
+
+/** List the provider ids the Rust backend supports. */
+export const listProviders = (): Promise<ProviderId[]> =>
+  invoke<ProviderId[]>("list_providers");
+
+/** Currently active provider id. Defaults to `"anthropic"`. */
+export const getActiveProvider = (): Promise<ProviderId> =>
+  invoke<ProviderId>("get_active_provider");
+
+/** Switch the active provider. Persists the choice and rebuilds the agent. */
+export const setActiveProvider = (provider: ProviderId): Promise<void> =>
+  invoke<void>("set_active_provider", { provider });
 
 /** Current session head as hex; rejects if no project is loaded. */
 export const getSessionHead = (): Promise<NodeId> =>

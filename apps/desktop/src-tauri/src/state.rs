@@ -26,7 +26,7 @@ use session::Store;
 use tools::ToolDispatcher;
 
 /// Shared, mutex-guarded application state. Cloning is cheap (`Arc`).
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct AppState {
     /// AI agent. `None` until the user provides an Anthropic API key
     /// *and* a project has been opened.
@@ -43,10 +43,16 @@ pub struct AppState {
     pub engine: Arc<Mutex<Engine>>,
     /// Currently-open project directory, if any.
     pub project_dir: Arc<Mutex<Option<PathBuf>>>,
-    /// In-memory cache of the API key. We re-read from the OS keychain
-    /// on demand; this exists so commands that need the key (agent
-    /// construction) do not have to re-prompt the user.
+    /// In-memory cache of the API key for the *currently active*
+    /// provider. We re-read from the OS keychain on demand; this exists
+    /// so commands that need the key (agent construction) do not have to
+    /// re-prompt the user. When the user switches the active provider we
+    /// reload this slot from the new provider's keychain entry.
     pub api_key: Arc<Mutex<Option<String>>>,
+    /// Stable id of the active provider (e.g. `"anthropic"` or
+    /// `"openrouter"`). Defaults to `"anthropic"` when no preference is
+    /// recorded — matches the pre-multi-provider behaviour.
+    pub active_provider: Arc<Mutex<String>>,
     /// Plan-approval signal for mashup mode (M27). The agent turn loop
     /// waits on this notifier; the `approve_plan` command fires it
     /// directly — without ever touching the agent Mutex — so there is no
@@ -66,8 +72,26 @@ impl AppState {
             engine: Arc::new(Mutex::new(Engine::new())),
             project_dir: Arc::new(Mutex::new(None)),
             api_key: Arc::new(Mutex::new(None)),
+            active_provider: Arc::new(Mutex::new(ai::ANTHROPIC_ID.to_string())),
             plan_notify: Arc::new(tokio::sync::Notify::new()),
         }
+    }
+
+    /// Snapshot the active provider id. Defaults to `"anthropic"` when
+    /// no preference is recorded — matches the pre-multi-provider build.
+    pub fn active_provider_id(&self) -> String {
+        self.active_provider
+            .lock()
+            .expect("active_provider mutex poisoned")
+            .clone()
+    }
+
+    /// Replace the active provider id.
+    pub fn set_active_provider(&self, id: String) {
+        *self
+            .active_provider
+            .lock()
+            .expect("active_provider mutex poisoned") = id;
     }
 
     /// Snapshot the currently-open store handle, if any. The returned
@@ -99,5 +123,11 @@ impl AppState {
     /// Replace the project directory.
     pub fn set_project_dir(&self, dir: Option<PathBuf>) {
         *self.project_dir.lock().expect("project_dir mutex poisoned") = dir;
+    }
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self::new()
     }
 }

@@ -10,19 +10,20 @@
 //!
 //! ```ignore
 //! use std::sync::{Arc, Mutex};
-//! use ai::{Agent, AnthropicConfig};
+//! use ai::{Agent, LlmConfig};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let api_key = ai::keychain::load_api_key().expect("api key not configured");
+//! let api_key = ai::keychain::load_api_key(ai::ANTHROPIC_ID).expect("api key not configured");
 //! let dispatcher = Arc::new(Mutex::new(tools::ToolDispatcher::default_dispatcher()));
 //! let store = Arc::new(Mutex::new(session::Store::open(std::path::Path::new("/tmp/proj"))?));
 //! let engine = Arc::new(Mutex::new(audio_engine::Engine::new()));
 //!
 //! let mut agent = Agent::new(
-//!     AnthropicConfig::new(api_key),
+//!     LlmConfig::new_anthropic(api_key),
 //!     dispatcher,
 //!     store,
 //!     engine,
+//!     Arc::new(tokio::sync::Notify::new()),
 //! );
 //!
 //! let result = agent
@@ -38,6 +39,7 @@ pub mod agent_loop;
 pub mod anthropic;
 pub mod keychain;
 pub mod prompt;
+pub mod provider;
 pub mod validate;
 
 use std::sync::{Arc, Mutex};
@@ -45,36 +47,55 @@ use std::sync::{Arc, Mutex};
 use anthropic::Message;
 
 pub use prompt::{DEFAULT_BASE_URL, DEFAULT_MODEL, MAX_TOOL_CALLS_PER_TURN};
+pub use provider::{
+    AnthropicProvider, LlmProvider, OpenRouterProvider, ANTHROPIC_ID, OPENROUTER_ID,
+    SUPPORTED_PROVIDER_IDS,
+};
 
 /// Classifier model used for cheap mode detection (M27).
 pub const CLASSIFIER_MODEL: &str = "claude-haiku-4-5-20251001";
 
-/// Configuration for the Anthropic client.
+/// Configuration for the LLM client.
 ///
-/// `base_url` is overridable so integration tests can point the agent
-/// at a `wiremock` server without monkey-patching DNS or env vars.
+/// Extracted from the original `AnthropicConfig` to support multiple
+/// providers (Anthropic + OpenRouter today, more later). The provider
+/// supplies headers and model translation; the [`LlmConfig`] owns the
+/// per-call data (key, model, optional base URL override).
+///
+/// `base_url_override` is parameterised so integration tests can point
+/// the agent at a `wiremock` server without monkey-patching DNS or env
+/// vars. When `None` the provider's default base URL is used.
 #[derive(Debug, Clone)]
-pub struct AnthropicConfig {
+pub struct LlmConfig {
+    /// Provider implementation: defines auth headers, default model,
+    /// and model id translation.
+    pub provider: Arc<dyn LlmProvider>,
     /// API key, loaded from the OS keychain. Never logged.
     pub api_key: String,
-    /// Anthropic model id; defaults to [`DEFAULT_MODEL`].
+    /// Canonical (Anthropic-shaped) model id. Translated per-provider
+    /// before being sent on the wire. Defaults to the provider's
+    /// [`LlmProvider::default_model`].
     pub model: String,
-    /// Base URL (no trailing slash). Defaults to
-    /// [`DEFAULT_BASE_URL`]; tests override.
-    pub base_url: String,
+    /// Base URL override (no trailing slash). When `None` the
+    /// provider's [`LlmProvider::base_url`] is used. Tests set this to
+    /// the `wiremock` server URI.
+    pub base_url_override: Option<String>,
 }
 
-impl AnthropicConfig {
-    /// Build a config with the default model and base URL.
-    pub fn new(api_key: impl Into<String>) -> Self {
+impl LlmConfig {
+    /// Build a config from a provider + key. Uses the provider's default
+    /// model and default base URL.
+    pub fn new(provider: Arc<dyn LlmProvider>, api_key: impl Into<String>) -> Self {
+        let model = provider.default_model().to_string();
         Self {
+            provider,
             api_key: api_key.into(),
-            model: DEFAULT_MODEL.to_string(),
-            base_url: DEFAULT_BASE_URL.to_string(),
+            model,
+            base_url_override: None,
         }
     }
 
-    /// Override the model id.
+    /// Override the (canonical) model id.
     pub fn with_model(mut self, model: impl Into<String>) -> Self {
         self.model = model.into();
         self
@@ -82,10 +103,50 @@ impl AnthropicConfig {
 
     /// Override the base URL (used by tests against `wiremock`).
     pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
-        self.base_url = base_url.into();
+        self.base_url_override = Some(base_url.into());
         self
     }
+
+    /// Resolve the base URL: override if set, else the provider default.
+    pub fn base_url(&self) -> &str {
+        self.base_url_override
+            .as_deref()
+            .unwrap_or_else(|| self.provider.base_url())
+    }
+
+    /// Wire-format model id (with the provider's translation applied).
+    pub fn wire_model(&self) -> String {
+        self.provider.translate_model(&self.model)
+    }
+
+    /// Wire-format classifier model id (with the provider's translation
+    /// applied to the provider's [`LlmProvider::classifier_model`]).
+    pub fn wire_classifier_model(&self) -> String {
+        self.provider
+            .translate_model(self.provider.classifier_model())
+    }
 }
+
+impl LlmConfig {
+    /// Construct an Anthropic-flavoured config from just the API key —
+    /// equivalent to the pre-multi-provider `AnthropicConfig::new(key)`.
+    /// Preserved as the canonical short-form constructor for the
+    /// Anthropic happy path (CLI, tests, the desktop `rebuild_agent`
+    /// path).
+    pub fn new_anthropic(api_key: impl Into<String>) -> Self {
+        Self::new(Arc::new(AnthropicProvider), api_key)
+    }
+
+    /// Construct an OpenRouter-flavoured config from just the API key.
+    pub fn new_openrouter(api_key: impl Into<String>) -> Self {
+        Self::new(Arc::new(OpenRouterProvider), api_key)
+    }
+}
+
+/// Back-compat type alias for the pre-multi-provider type name. Existing
+/// code that imports `ai::AnthropicConfig` continues to compile; new code
+/// should reach for [`LlmConfig`] directly.
+pub type AnthropicConfig = LlmConfig;
 
 /// Events emitted to `on_event` during a [`Agent::turn`] call.
 #[derive(Debug, Clone)]
@@ -164,7 +225,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// shared references to the tool dispatcher, session store, and audio
 /// engine so multiple agents (or other callers) can share them.
 pub struct Agent {
-    cfg: AnthropicConfig,
+    cfg: LlmConfig,
     http: reqwest::Client,
     dispatcher: Arc<Mutex<tools::ToolDispatcher>>,
     store: Arc<Mutex<session::Store>>,
@@ -183,7 +244,7 @@ impl Agent {
     /// reference-counted so the caller can keep using them concurrently
     /// (under their respective mutexes).
     pub fn new(
-        cfg: AnthropicConfig,
+        cfg: LlmConfig,
         dispatcher: Arc<Mutex<tools::ToolDispatcher>>,
         store: Arc<Mutex<session::Store>>,
         engine: Arc<Mutex<audio_engine::Engine>>,

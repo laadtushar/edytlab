@@ -322,7 +322,7 @@ async fn agent_dispatches_normalize_and_emits_node_created() {
     }
 
     // Agent pointed at the mock.
-    let cfg = ai::AnthropicConfig::new("test-key").with_base_url(server.uri());
+    let cfg = ai::LlmConfig::new_anthropic("test-key").with_base_url(server.uri());
     let plan_notify = Arc::new(tokio::sync::Notify::new());
     let mut agent = ai::Agent::new(
         cfg,
@@ -567,7 +567,7 @@ async fn agent_enforces_tool_call_cap() {
         .unwrap();
     }
 
-    let cfg = ai::AnthropicConfig::new("test-key").with_base_url(server.uri());
+    let cfg = ai::LlmConfig::new_anthropic("test-key").with_base_url(server.uri());
     let plan_notify = Arc::new(tokio::sync::Notify::new());
     let mut agent = ai::Agent::new(cfg, dispatcher, store, engine, plan_notify);
 
