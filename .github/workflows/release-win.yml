@@ -91,28 +91,51 @@ jobs:
           releaseName: "edytlab ${{ inputs.tag }}"
           releaseDraft: true
           prerelease: false
+          # Explicit installer formats — see release-dev.yml for the
+          # rationale. .msi (WiX) is signed below; .exe (NSIS) ships
+          # alongside it for users who prefer the NSIS setup flow.
+          args: --bundles msi,nsis
 
-      - name: Sign .msi with signtool
+      - name: Sign .msi and NSIS .exe with signtool
         shell: pwsh
         env:
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
-          $msi = Get-ChildItem -Path apps/desktop/src-tauri/target -Recurse -Filter *.msi | Select-Object -First 1
-          if (-not $msi) {
-            Write-Error "No .msi produced by tauri-action"
+          # Pick up both bundle formats produced by `--bundles msi,nsis`
+          # in the tauri-action step above. The NSIS output is named
+          # `<app>_<version>_<arch>-setup.exe`, distinct from any other
+          # .exe Tauri may write under target/.
+          $artifacts = @()
+          $artifacts += Get-ChildItem -Path apps/desktop/src-tauri/target `
+            -Recurse -Filter *.msi
+          $artifacts += Get-ChildItem -Path apps/desktop/src-tauri/target `
+            -Recurse -Filter *-setup.exe
+          if ($artifacts.Count -eq 0) {
+            Write-Error "No .msi or NSIS -setup.exe produced by tauri-action"
             exit 1
           }
           $signtool = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Recurse -Filter signtool.exe |
                        Where-Object { $_.FullName -like '*x64*' } |
                        Select-Object -First 1).FullName
-          & $signtool sign `
-            /fd SHA256 `
-            /tr http://timestamp.digicert.com `
-            /td SHA256 `
-            /f $env:CERT_PATH `
-            /p $env:WINDOWS_CERTIFICATE_PASSWORD `
-            $msi.FullName
-          & $signtool verify /pa /v $msi.FullName
+          foreach ($a in $artifacts) {
+            Write-Host "Signing $($a.FullName)"
+            & $signtool sign `
+              /fd SHA256 `
+              /tr http://timestamp.digicert.com `
+              /td SHA256 `
+              /f $env:CERT_PATH `
+              /p $env:WINDOWS_CERTIFICATE_PASSWORD `
+              $a.FullName
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "signtool sign failed for $($a.FullName)"
+              exit 1
+            }
+            & $signtool verify /pa /v $a.FullName
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "signtool verify failed for $($a.FullName)"
+              exit 1
+            }
+          }
 
       - name: Cleanup certificate
         if: always()

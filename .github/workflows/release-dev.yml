@@ -53,10 +53,18 @@ jobs:
         platform:
           - name: macos-arm64
             runner: macos-14
-            args: --target aarch64-apple-darwin
+            # `--bundles app,dmg` is explicit on purpose: when only
+            # `bundle.targets: "all"` was used, tauri-action sometimes
+            # silently dropped the .dmg and uploaded only the .app
+            # archive. Listing the bundles forces both to be built and
+            # surfaces a hard error if either step fails.
+            args: --target aarch64-apple-darwin --bundles app,dmg
           - name: windows-x86_64
             runner: windows-latest
-            args: ""
+            # Build both Windows installer formats: .msi (WiX) and the
+            # NSIS setup .exe. Users tend to prefer one or the other,
+            # so we ship both.
+            args: --bundles msi,nsis
 
     steps:
       - name: Checkout
