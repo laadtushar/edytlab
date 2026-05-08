@@ -1,2 +1,5 @@
 packages:
   - "apps/*"
+  # Note: `website/` is intentionally excluded from the workspace so Vercel
+  # can build it as a standalone Next.js project (no monorepo gymnastics).
+
