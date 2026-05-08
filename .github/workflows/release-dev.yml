@@ -1,10 +1,11 @@
 name: Release (dev / unsigned)
 
-# Builds unsigned .dmg (Mac) + .msi (Win) artifacts and attaches them to a
-# GitHub Release as a draft. Use this for beta / preview drops while the
-# real Apple Developer ID + Authenticode certs aren't yet provisioned. The
-# signed pipelines (release-mac.yml, release-win.yml) stay as the source of
-# truth for shippable builds — this workflow is intentionally smaller.
+# Builds unsigned .dmg (Mac) + .msi / NSIS .exe (Win) artifacts and
+# attaches them to a draft GitHub Release. Use this for beta / preview
+# drops while the real Apple Developer ID + Authenticode certs aren't
+# yet provisioned. The signed pipelines (release-mac.yml,
+# release-win.yml) stay as the source of truth for shippable builds —
+# this workflow is intentionally smaller.
 #
 # Triggers:
 #   - tag push matching `v*-dev.*`, `v*-beta.*`, or `v*-rc.*` (auto)
@@ -17,9 +18,15 @@ name: Release (dev / unsigned)
 #   - Windows: SmartScreen "Don't run / More info → Run anyway". Reputation
 #     can't be earned without code signing, so every download stays warned.
 #
-# These warnings are exactly why we ALSO maintain release-mac.yml /
-# release-win.yml — promote a tagged version through the signed workflow
-# once certs land.
+# Two-job shape (create-release + build matrix):
+#   The matrix runs mac + win in parallel. If each leg called
+#   tauri-action with `tagName` they'd race to "find or create draft",
+#   producing two draft releases for the same tag (artifacts split, or
+#   the published view ends up empty). The create-release job runs
+#   once, finds-or-creates a single draft, and both build legs upload
+#   into it via `releaseId`. Idempotent: re-running on the same tag
+#   reuses the draft; a published release on the same tag is a hard
+#   error so we don't silently skip the upload.
 
 on:
   push:
@@ -43,8 +50,99 @@ permissions:
   contents: write  # needed to create the GitHub Release + upload assets
 
 jobs:
+  create-release:
+    name: create draft release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      release_id: ${{ steps.create.outputs.release_id }}
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            # github.ref on a tag push is `refs/tags/<tag>`
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Find or create draft release
+        id: create
+        uses: actions/github-script@v7
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          COMMIT_SHA: ${{ github.sha }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const tag = process.env.TAG;
+
+            // listReleases includes drafts; getReleaseByTag does not
+            // reliably return drafts, so we paginate and filter.
+            const releases = await github.paginate(
+              github.rest.repos.listReleases,
+              { owner, repo, per_page: 100 },
+            );
+            const matches = releases.filter((r) => r.tag_name === tag);
+
+            const draft = matches.find((r) => r.draft === true);
+            if (draft) {
+              core.info(`Reusing existing draft release id ${draft.id}`);
+              core.setOutput("release_id", draft.id);
+              return;
+            }
+
+            const published = matches.find((r) => r.draft === false);
+            if (published) {
+              core.setFailed(
+                `A non-draft release already exists for tag "${tag}" ` +
+                `(id ${published.id}, ${published.html_url}). ` +
+                `Delete it before re-running this workflow, or push a new tag.`,
+              );
+              return;
+            }
+
+            const body = [
+              "**Unsigned developer preview** — convenience build for testing",
+              "on machines without code-signing infrastructure. Production",
+              "releases are produced via release-mac.yml / release-win.yml",
+              "with the real Apple Developer ID + Authenticode certs.",
+              "",
+              "### Install warnings (expected on unsigned builds)",
+              "",
+              "**macOS** — Gatekeeper will refuse to open the app on first",
+              "launch (“can’t be opened because Apple cannot check it for",
+              "malicious software”). Bypass:",
+              "1. Try to open the app once (it will fail).",
+              "2. Open System Settings → Privacy & Security.",
+              "3. Scroll to \"Security\" and click **Open Anyway** next to",
+              "   edytlab.",
+              "",
+              "**Windows** — SmartScreen will block the installer",
+              "(“Microsoft Defender SmartScreen prevented an unrecognized",
+              "app from starting”). Bypass: click **More info → Run anyway**.",
+              "",
+              `Built from commit \`${process.env.COMMIT_SHA}\`.`,
+            ].join("\n");
+
+            const { data: created } = await github.rest.repos.createRelease({
+              owner,
+              repo,
+              tag_name: tag,
+              name: `edytlab ${tag} (unsigned dev build)`,
+              body,
+              draft: true,
+              prerelease: true,
+            });
+            core.info(`Created draft release id ${created.id}`);
+            core.setOutput("release_id", created.id);
+
   build:
     name: build (${{ matrix.platform.name }})
+    needs: create-release
     runs-on: ${{ matrix.platform.runner }}
     timeout-minutes: 60
     strategy:
@@ -69,17 +167,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Resolve release tag
-        id: tag
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
-          else
-            # github.ref on a tag push is `refs/tags/<tag>`
-            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Install Rust toolchain (from rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@stable
@@ -109,29 +196,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: apps/desktop
-          tagName: ${{ steps.tag.outputs.tag }}
-          releaseName: "edytlab ${{ steps.tag.outputs.tag }} (unsigned dev build)"
-          releaseDraft: true
-          prerelease: true
-          releaseBody: |
-            **Unsigned developer preview** — convenience build for testing
-            on machines without code-signing infrastructure. Production
-            releases are produced via release-mac.yml / release-win.yml
-            with the real Apple Developer ID + Authenticode certs.
-
-            ### Install warnings (expected on unsigned builds)
-
-            **macOS** — Gatekeeper will refuse to open the app on first
-            launch (“can’t be opened because Apple cannot check it for
-            malicious software”). Bypass:
-            1. Try to open the app once (it will fail).
-            2. Open System Settings → Privacy & Security.
-            3. Scroll to "Security" and click **Open Anyway** next to
-               edytlab.
-
-            **Windows** — SmartScreen will block the installer
-            (“Microsoft Defender SmartScreen prevented an unrecognized
-            app from starting”). Bypass: click **More info → Run anyway**.
-
-            Built from commit `${{ github.sha }}`.
+          # Upload to the single draft release that create-release
+          # produced. Using `releaseId` (not `tagName`) means
+          # tauri-action skips the find-or-create logic that would
+          # otherwise race between mac and win legs.
+          releaseId: ${{ needs.create-release.outputs.release_id }}
           args: ${{ matrix.platform.args }}
