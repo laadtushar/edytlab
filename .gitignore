@@ -51,3 +51,4 @@ tests/fixtures/*.ogg
 # Demo screen captures: large binaries; tracked via Git LFS once Phase 1 ships.
 assets/demos/*.mp4
 assets/demos/*.mov
+.vercel
