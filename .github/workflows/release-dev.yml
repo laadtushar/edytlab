@@ -249,9 +249,12 @@ jobs:
         # the release visible on the public Releases page with the
         # mac .dmg, win .msi/.exe, and linux .deb/.AppImage attached.
         run: |
+          # gh api flags: -F = raw (bool/number), -f = string. The
+          # GitHub releases API expects `draft: bool` and
+          # `make_latest: string` ("true"|"false"|"legacy").
           gh api -X PATCH \
             repos/${{ github.repository }}/releases/${{ needs.create-release.outputs.release_id }} \
-            -f draft=false \
-            -F make_latest=false \
+            -F draft=false \
+            -f make_latest=false \
             >/dev/null
           echo "Published release ${{ needs.create-release.outputs.tag }}"
