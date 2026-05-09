@@ -98,7 +98,12 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: cargo test
-        run: cargo test --workspace --no-fail-fast
+        # `--test-threads=1` serialises tests within each binary so
+        # tests sharing global state (e.g. crates/ai's model cache)
+        # don't race. Specifically `cache_returns_within_ttl` was
+        # flaking on Windows when scheduled alongside another test
+        # that calls `clear_cache()`.
+        run: cargo test --workspace --no-fail-fast -- --test-threads=1
 
       - name: pnpm build (frontend)
         run: pnpm --filter @edytlab/desktop build
