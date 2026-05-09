@@ -22,6 +22,12 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: short
 
+# tauri-action creates / uploads to a GitHub Release; needs write
+# access to repo contents. Org default GITHUB_TOKEN scopes can be
+# read-only, which silently fails the release upload step.
+permissions:
+  contents: write
+
 jobs:
   build-and-sign:
     name: build + sign
@@ -32,7 +38,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
+      - name: Install Rust toolchain (rustup-shim honours rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo registry & target
@@ -114,9 +120,22 @@ jobs:
             Write-Error "No .msi or NSIS -setup.exe produced by tauri-action"
             exit 1
           }
-          $signtool = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Recurse -Filter signtool.exe |
-                       Where-Object { $_.FullName -like '*x64*' } |
-                       Select-Object -First 1).FullName
+          # Resolve signtool: prefer PATH, fall back to scanning the
+          # SDK install dir. Hard-coding the SDK path breaks if the
+          # GitHub-hosted runner image relocates the SDK.
+          $signtool = (Get-Command signtool.exe -ErrorAction SilentlyContinue).Source
+          if (-not $signtool) {
+            $sdkRoot = 'C:\Program Files (x86)\Windows Kits\10\bin'
+            if (Test-Path $sdkRoot) {
+              $signtool = (Get-ChildItem $sdkRoot -Recurse -Filter signtool.exe |
+                           Where-Object { $_.FullName -like '*x64*' } |
+                           Select-Object -First 1).FullName
+            }
+          }
+          if (-not $signtool) {
+            Write-Error "signtool.exe not found on PATH or under Windows Kits"
+            exit 1
+          }
           foreach ($a in $artifacts) {
             Write-Host "Signing $($a.FullName)"
             & $signtool sign `
