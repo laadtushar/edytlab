@@ -57,11 +57,15 @@ jobs:
             librsvg2-dev \
             libssl-dev
 
-      - name: Install Rust toolchain (channel pinned via rust-toolchain.toml)
-        # @master + no channel arg honours the channel/components in
-        # rust-toolchain.toml (1.88 + rustfmt + clippy). Passing @stable
-        # would override the pin and let CI drift.
-        uses: dtolnay/rust-toolchain@master
+      - name: Install Rust toolchain (rustup-shim honours rust-toolchain.toml)
+        # `@stable` bootstraps rustup; the rust-toolchain.toml in the
+        # repo (channel = 1.88 + rustfmt + clippy) is then auto-applied
+        # by rustup's shim on the first cargo invocation. The `@master`
+        # ref of this action requires an explicit `toolchain:` input,
+        # which would just duplicate the pin in two places.
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - name: Cache cargo registry & target
         uses: Swatinem/rust-cache@v2

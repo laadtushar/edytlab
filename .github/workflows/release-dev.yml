@@ -189,11 +189,11 @@ jobs:
             libfuse2 \
             patchelf
 
-      - name: Install Rust toolchain (channel pinned via rust-toolchain.toml)
-        # Empty `with:` so the action honours the channel/components in
-        # rust-toolchain.toml. Passing `@stable` here would override the
-        # 1.88 pin (Tauri 2 needs edition2024 / Rust 1.85+).
-        uses: dtolnay/rust-toolchain@master
+      - name: Install Rust toolchain (rustup-shim honours rust-toolchain.toml)
+        # `@stable` bootstraps rustup; rust-toolchain.toml is then
+        # auto-applied by rustup's shim on the first cargo invocation
+        # (channel = 1.88, required by Tauri 2's edition2024 deps).
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo registry & target
         uses: Swatinem/rust-cache@v2
