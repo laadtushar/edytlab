@@ -11,6 +11,7 @@ pub mod analyze_track;
 pub mod apply_diff;
 pub mod compare_nodes;
 pub mod cut_range;
+pub mod fade;
 pub mod fork_node;
 pub mod gain;
 pub mod load;
