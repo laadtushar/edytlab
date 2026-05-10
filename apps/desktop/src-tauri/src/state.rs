@@ -23,7 +23,7 @@ use std::sync::{Arc, Mutex};
 use ai::Agent;
 use audio_engine::Engine;
 use session::Store;
-use tools::ToolDispatcher;
+use tools::{Range, ToolDispatcher};
 
 /// Shared, mutex-guarded application state. Cloning is cheap (`Arc`).
 #[derive(Clone)]
@@ -64,6 +64,14 @@ pub struct AppState {
     /// deadlock even though `send_message` holds the agent lock across its
     /// `.await` points.
     pub plan_notify: Arc<tokio::sync::Notify>,
+    /// Current timeline selection, pushed from the frontend via
+    /// `set_selection_context`. Read per-turn in `send_message` to build
+    /// the `SessionContext` injected into the system prompt.
+    pub selection: Arc<Mutex<Option<Range>>>,
+    /// In-memory audio clipboard for `copy_region` / `paste_region`.
+    /// Shared with the `Agent` so the clipboard persists across turns and
+    /// is accessible from both the tool layer and (future) IPC commands.
+    pub clipboard: Arc<Mutex<Option<Vec<f32>>>>,
 }
 
 impl AppState {
@@ -80,6 +88,8 @@ impl AppState {
             active_provider: Arc::new(Mutex::new(ai::ANTHROPIC_ID.to_string())),
             active_model_by_provider: Arc::new(Mutex::new(std::collections::HashMap::new())),
             plan_notify: Arc::new(tokio::sync::Notify::new()),
+            selection: Arc::new(Mutex::new(None)),
+            clipboard: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -146,6 +156,22 @@ impl AppState {
             .lock()
             .expect("active_model_by_provider mutex poisoned")
             .insert(provider_id, model);
+    }
+
+    /// Replace the current timeline selection. Pass `None` to clear.
+    pub fn set_selection(&self, sel: Option<Range>) {
+        *self.selection.lock().expect("selection mutex poisoned") = sel;
+    }
+
+    /// Snapshot the current timeline selection.
+    pub fn selection_snapshot(&self) -> Option<Range> {
+        *self.selection.lock().expect("selection mutex poisoned")
+    }
+
+    /// Clone the clipboard `Arc` handle so callers (e.g. `rebuild_agent`)
+    /// can share the same clipboard instance with the `Agent`.
+    pub fn clipboard_handle(&self) -> Arc<Mutex<Option<Vec<f32>>>> {
+        Arc::clone(&self.clipboard)
     }
 }
 
