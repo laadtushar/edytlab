@@ -127,6 +127,18 @@ impl Store {
         Ok(id)
     }
 
+    /// Return the annotation list visible at `head`.
+    ///
+    /// Annotations are content-addressed alongside the rest of the state,
+    /// so this is just a thin accessor on top of [`Store::get`]: it reads
+    /// the node, clones out its `state.annotations`. Forks see only their
+    /// own annotations, and reverting head to an older node automatically
+    /// restores that node's annotations without any side-channel bookkeeping.
+    pub fn annotations_for(&self, head: NodeId) -> Result<Vec<crate::annotation::Annotation>> {
+        let node = self.get(head)?;
+        Ok(node.state.annotations.clone())
+    }
+
     pub fn get(&self, id: NodeId) -> Result<SessionNode> {
         let hex = id.to_hex();
         let path = self.shard_dir(&hex).join(format!("{hex}.json"));
