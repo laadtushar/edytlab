@@ -267,13 +267,29 @@ function App() {
       <StatusBar audioPath={audioPath} head={head} rendering={rendering} />
 
       {showBlocking ? (
-        <Settings mode="blocking" onSaved={() => setKeyConfigured(true)} />
+        <Settings
+          mode="blocking"
+          onSaved={() => {
+            setKeyConfigured(true);
+            // First-launch save: clear any stale error from the
+            // pre-key state (e.g. an automatic Render Preview that
+            // hit "no agent configured").
+            setRenderError(null);
+          }}
+        />
       ) : null}
       {!showBlocking && settingsOpen ? (
         <Settings
           mode="panel"
           onClose={() => setSettingsOpen(false)}
-          onSaved={() => setSettingsOpen(false)}
+          onSaved={() => {
+            setSettingsOpen(false);
+            // The Rust side rebuilds the agent inside set_api_key_for,
+            // so any "no agent configured" banner left over from the
+            // failed action that prompted the user to open settings is
+            // now stale — drop it.
+            setRenderError(null);
+          }}
           onCleared={() => {
             setKeyConfigured(false);
             setSettingsOpen(false);
