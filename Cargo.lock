@@ -5244,6 +5244,7 @@ dependencies = [
  "ml-demucs",
  "ml-pipeline",
  "ml-whisper",
+ "regex",
  "schemars 0.8.22",
  "serde",
  "serde_json",

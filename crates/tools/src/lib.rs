@@ -26,8 +26,10 @@
 pub mod dispatcher;
 pub mod schema;
 pub mod tool;
+pub mod util;
 
 pub use dispatcher::{Tool, ToolContext, ToolDispatcher};
+pub use util::range_resolver::{resolve as resolve_range, Range, RangeError};
 
 /// Result returned by an individual tool invocation.
 ///
