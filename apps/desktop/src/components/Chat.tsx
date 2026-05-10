@@ -1,16 +1,16 @@
 /**
- * Chat — right-pane conversation panel.
+ * Chat — right-pane conversation panel (Studio Onyx).
  *
- * Renders an ordered transcript of `MessageBubble`, `ToolBadge`, and
- * "new node" dividers, plus an input row at the bottom. The "Render
- * Preview" button next to the input asks the parent to play back the
- * latest head node through the audio engine.
+ * Renders the agent transcript: alternating message bubbles, tool
+ * badges, and "new node" dividers. Plan-approval cards appear pinned
+ * just above the input row. The input itself is a single-line
+ * textarea that grows up to 4 lines, with `Enter` to submit and
+ * `Shift+Enter` for a newline — feels more like a chat app than a
+ * form.
  *
- * Talking to Rust goes through the bridge (`sendMessage`) only — the
- * component never calls `invoke` directly. Errors from the bridge are
- * captured into the local message log as a synthetic assistant turn so
- * the user sees a friendly explanation instead of a dev-tools console
- * trace (acceptance criterion #3).
+ * All Rust calls go through `tauri-bridge`; bridge errors are rendered
+ * as inline assistant turns so the user sees a recoverable message
+ * instead of a console trace.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -30,11 +30,7 @@ import { MessageBubble } from "./MessageBubble";
 import { ToolBadge } from "./ToolBadge";
 
 export interface ChatProps {
-  /** Whether a render-preview is currently pending. Disables the
-   * button to prevent double-clicks. */
   rendering?: boolean;
-  /** Called when the user clicks "Render Preview". The parent owns the
-   * actual render-and-play flow because it also drives the canvas. */
   onRequestRenderPreview?: () => void;
 }
 
@@ -51,6 +47,13 @@ function isPlan(e: LogEntry): e is PlanEntry {
   return e.kind === "plan";
 }
 
+const CHAT_HINTS = [
+  "make this 6 dB louder",
+  "fade out the last 3 seconds",
+  "remove vocals",
+  "transcribe and find the chorus",
+];
+
 export function Chat({ rendering, onRequestRenderPreview }: ChatProps) {
   const { entries, current, pushUserMessage, pendingPlan, approvePlan } =
     useAgentStream();
@@ -59,14 +62,21 @@ export function Chat({ rendering, onRequestRenderPreview }: ChatProps) {
   const [localError, setLocalError] = useState<string | null>(null);
   const [editToast, setEditToast] = useState(false);
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Auto-scroll to bottom on new entries / streaming deltas.
   useEffect(() => {
     const el = scrollerRef.current;
-    if (el) {
-      el.scrollTop = el.scrollHeight;
-    }
+    if (el) el.scrollTop = el.scrollHeight;
   }, [entries.length, current]);
+
+  // Auto-grow the textarea up to ~4 lines.
+  useEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = "0";
+    ta.style.height = `${Math.min(ta.scrollHeight, 112)}px`;
+  }, [input]);
 
   const submit = async () => {
     const text = input.trim();
@@ -78,36 +88,34 @@ export function Chat({ rendering, onRequestRenderPreview }: ChatProps) {
     try {
       await bridgeSendMessage(text);
     } catch (err) {
-      const friendly = friendlyError(err);
-      setLocalError(friendly);
+      setLocalError(friendlyError(err));
     } finally {
       setBusy(false);
     }
   };
 
+  const isEmpty = entries.length === 0 && current.length === 0;
+
   return (
     <div
       data-testid="chat-root"
-      className="flex h-full w-full flex-col bg-neutral-950 text-neutral-100"
+      className="flex h-full w-full flex-col bg-[var(--surface)]"
     >
-      <div className="flex items-center justify-between border-b border-neutral-800 px-3 py-2">
-        <h2 className="text-sm font-semibold">Chat</h2>
-        <button
-          type="button"
-          data-testid="render-preview-button"
-          disabled={!!rendering}
-          onClick={onRequestRenderPreview}
-          className="rounded-md border border-neutral-700 bg-neutral-800 px-2 py-1 text-xs hover:bg-neutral-700 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {rendering ? "Rendering…" : "Render Preview"}
-        </button>
-      </div>
+      <ChatHeader
+        rendering={rendering}
+        onRequestRenderPreview={onRequestRenderPreview}
+      />
 
       <div
         ref={scrollerRef}
         data-testid="chat-scroller"
-        className="flex-1 space-y-2 overflow-y-auto px-3 py-3"
+        className="
+          flex-1 space-y-3 overflow-y-auto
+          px-4 py-4
+        "
       >
+        {isEmpty ? <ChatEmptyHints onPick={(t) => setInput(t)} /> : null}
+
         {entries.map((entry) => {
           if (isMessage(entry)) {
             return (
@@ -134,35 +142,42 @@ export function Chat({ rendering, onRequestRenderPreview }: ChatProps) {
               <div
                 key={entry.id}
                 data-testid="node-divider"
-                className="flex items-center gap-2 py-1 text-xs text-neutral-500"
+                className="flex items-center gap-2 py-1 text-xs"
               >
-                <div className="h-px flex-1 bg-neutral-800" />
-                <span className="font-mono">
-                  new node {entry.nodeId.slice(0, 7)}
+                <div className="h-px flex-1 bg-[var(--border)]" />
+                <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-faint)]">
+                  node {entry.nodeId.slice(0, 7)}
                 </span>
-                <div className="h-px flex-1 bg-neutral-800" />
+                <div className="h-px flex-1 bg-[var(--border)]" />
               </div>
             );
           }
           if (isPlan(entry)) {
-            // Render a read-only history record of the plan (the live
-            // approval card is rendered separately below).
             return (
               <div
                 key={entry.id}
                 data-testid="plan-history-entry"
-                className="rounded-md border border-neutral-700 bg-neutral-900/60 px-3 py-2 text-xs text-neutral-400"
+                className="
+                  rounded-md border border-[var(--border)]
+                  bg-[var(--surface-elev)]
+                  px-3 py-2 text-xs text-[var(--text-dim)]
+                "
               >
-                <span className="font-semibold text-neutral-300">
-                  Mashup Plan ({entry.steps.length} steps)
+                <span className="font-medium text-[var(--text)]">
+                  Mashup Plan
                 </span>
-                <ol className="mt-1 list-decimal pl-4 space-y-0.5">
+                <span className="ml-1.5 font-mono text-[10px] text-[var(--text-faint)]">
+                  ({entry.steps.length} steps)
+                </span>
+                <ol className="mt-1.5 space-y-0.5 pl-4 list-decimal">
                   {entry.steps.map((s) => (
                     <li key={s.step}>
-                      <span className="font-mono text-neutral-300">
+                      <span className="font-mono text-[var(--text)]">
                         {s.tool}
                       </span>{" "}
-                      — {s.description}
+                      <span className="text-[var(--text-dim)]">
+                        — {s.description}
+                      </span>
                     </li>
                   ))}
                 </ol>
@@ -180,7 +195,12 @@ export function Chat({ rendering, onRequestRenderPreview }: ChatProps) {
           <div
             role="alert"
             data-testid="chat-error"
-            className="rounded-md border border-red-800 bg-red-900/40 px-3 py-2 text-xs text-red-200"
+            className="
+              rounded-md
+              border border-[var(--danger)]/40
+              bg-[var(--danger)]/10
+              px-3 py-2 text-xs text-[var(--danger)]
+            "
           >
             {localError}
           </div>
@@ -190,22 +210,34 @@ export function Chat({ rendering, onRequestRenderPreview }: ChatProps) {
       {pendingPlan ? (
         <div
           data-testid="plan-approval-card"
-          className="mx-3 mb-2 rounded-md border border-blue-700 bg-neutral-900 px-3 py-2 text-sm"
+          className="
+            mx-3 mb-3 overflow-hidden
+            rounded-md border border-[var(--accent)]/35
+            bg-[linear-gradient(180deg,var(--accent-soft),transparent)]
+          "
         >
-          <div className="flex items-center justify-between">
-            <span className="font-semibold text-blue-300">
-              Mashup Plan ({pendingPlan.steps.length} steps)
-            </span>
+          <div className="flex items-center justify-between border-b border-[var(--accent)]/15 px-3 py-2">
+            <div className="flex items-center gap-2">
+              <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)] shadow-[0_0_8px_var(--accent-glow)]" />
+              <span className="font-medium text-sm text-[var(--text)]">
+                Mashup Plan
+              </span>
+              <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-dim)]">
+                {pendingPlan.steps.length} steps
+              </span>
+            </div>
             <div className="flex gap-1.5">
               <button
                 type="button"
                 data-testid="plan-edit-button"
-                className="rounded border border-neutral-600 px-2 py-0.5 text-xs text-neutral-400 hover:bg-neutral-800"
+                className="
+                  rounded border border-[var(--border-strong)]
+                  px-2 py-0.5 text-xs text-[var(--text-dim)]
+                  hover:bg-[var(--surface-elev-2)]
+                "
                 onClick={() => {
                   setEditToast(true);
-                  setTimeout(() => {
-                    setEditToast(false);
-                  }, 2000);
+                  setTimeout(() => setEditToast(false), 2000);
                 }}
               >
                 Edit
@@ -213,20 +245,25 @@ export function Chat({ rendering, onRequestRenderPreview }: ChatProps) {
               <button
                 type="button"
                 data-testid="plan-run-button"
-                className="rounded bg-blue-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-blue-500"
-                onClick={() => {
-                  void approvePlan();
-                }}
+                className="
+                  rounded
+                  bg-[var(--accent)]
+                  px-2.5 py-0.5
+                  text-xs font-medium text-[var(--bg)]
+                  shadow-[0_4px_10px_-4px_var(--accent-glow)]
+                  hover:bg-[#ffa05f]
+                "
+                onClick={() => void approvePlan()}
               >
                 Run
               </button>
             </div>
           </div>
-          <ol className="mt-1.5 list-decimal pl-4 space-y-0.5 text-xs text-neutral-300">
+          <ol className="space-y-1 px-3 py-2.5 pl-7 list-decimal text-xs text-[var(--text-dim)]">
             {pendingPlan.steps.map((s) => (
               <li key={s.step}>
-                <span className="font-mono text-neutral-100">{s.tool}</span> —{" "}
-                {s.description}
+                <span className="font-mono text-[var(--text)]">{s.tool}</span>{" "}
+                <span>— {s.description}</span>
               </li>
             ))}
           </ol>
@@ -234,7 +271,7 @@ export function Chat({ rendering, onRequestRenderPreview }: ChatProps) {
             <p
               role="status"
               data-testid="plan-edit-toast"
-              className="mt-1 text-xs text-amber-400"
+              className="border-t border-[var(--border)] bg-[var(--surface-elev-2)] px-3 py-1.5 text-xs text-[var(--warning)]"
             >
               Edit coming soon
             </p>
@@ -244,29 +281,173 @@ export function Chat({ rendering, onRequestRenderPreview }: ChatProps) {
 
       <form
         data-testid="chat-form"
-        className="flex gap-2 border-t border-neutral-800 px-3 py-2"
+        className="
+          relative border-t border-[var(--border)]
+          bg-[var(--surface-elev)]
+          p-3
+        "
         onSubmit={(e) => {
           e.preventDefault();
           void submit();
         }}
       >
-        <input
-          type="text"
-          aria-label="Message"
-          placeholder="Tell the agent what to edit…"
-          disabled={busy}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          className="flex-1 rounded-md border border-neutral-800 bg-neutral-900 px-3 py-1.5 text-sm text-neutral-100 placeholder-neutral-500 outline-none focus:border-blue-600 disabled:opacity-50"
-        />
-        <button
-          type="submit"
-          disabled={busy || input.trim().length === 0}
-          className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+        <div
+          className="
+            flex items-end gap-2
+            rounded-lg border border-[var(--border-strong)]
+            bg-[var(--surface)]
+            p-2
+            transition
+            focus-within:border-[var(--accent)]/45
+            focus-within:shadow-[0_0_0_3px_var(--accent-soft)]
+          "
         >
-          {busy ? "…" : "Send"}
-        </button>
+          <textarea
+            ref={textareaRef}
+            aria-label="Message"
+            placeholder="Tell the agent what to edit…"
+            disabled={busy}
+            value={input}
+            rows={1}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void submit();
+              }
+            }}
+            className="
+              max-h-28 min-h-[28px] flex-1
+              resize-none bg-transparent
+              text-sm text-[var(--text)]
+              outline-none
+              placeholder:text-[var(--text-faint)]
+              disabled:opacity-60
+            "
+          />
+          <button
+            type="submit"
+            disabled={busy || input.trim().length === 0}
+            aria-label="Send message"
+            className="
+              inline-flex h-8 w-8 shrink-0 items-center justify-center
+              rounded-md
+              bg-[var(--accent)]
+              text-[var(--bg)]
+              shadow-[0_4px_10px_-4px_var(--accent-glow)]
+              transition
+              hover:bg-[#ffa05f]
+              disabled:cursor-not-allowed disabled:bg-[var(--surface-elev-2)] disabled:text-[var(--text-faint)] disabled:shadow-none
+            "
+          >
+            {busy ? (
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
+            ) : (
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 14 14"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M2 7h9M7 3l4 4-4 4" />
+              </svg>
+            )}
+          </button>
+        </div>
+        <p className="mt-1.5 px-1 text-[10px] font-mono uppercase tracking-[0.18em] text-[var(--text-faint)]">
+          enter to send · shift+enter for newline
+        </p>
       </form>
+    </div>
+  );
+}
+
+interface ChatHeaderProps {
+  rendering?: boolean;
+  onRequestRenderPreview?: () => void;
+}
+
+function ChatHeader({ rendering, onRequestRenderPreview }: ChatHeaderProps) {
+  return (
+    <div
+      className="
+        flex shrink-0 items-center justify-between
+        border-b border-[var(--border)]
+        bg-[var(--surface-elev)]
+        px-4 py-2.5
+      "
+    >
+      <div className="flex items-center gap-2">
+        <h2 className="font-mono text-[11px] uppercase tracking-[0.2em] text-[var(--text-dim)]">
+          Assistant
+        </h2>
+      </div>
+      <button
+        type="button"
+        data-testid="render-preview-button"
+        disabled={!!rendering}
+        onClick={onRequestRenderPreview}
+        className="
+          inline-flex items-center gap-1.5
+          rounded-md
+          border border-[var(--border-strong)]
+          bg-[var(--surface)]
+          px-2.5 py-1
+          font-mono text-[10px] uppercase tracking-wider text-[var(--text-dim)]
+          transition
+          hover:border-[var(--accent)]/50 hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]
+          disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-[var(--surface)] disabled:hover:text-[var(--text-dim)]
+        "
+      >
+        <svg
+          width="10"
+          height="10"
+          viewBox="0 0 10 10"
+          fill="currentColor"
+          aria-hidden="true"
+        >
+          <path d="M2 1.5v7l6-3.5z" />
+        </svg>
+        {rendering ? "rendering" : "preview"}
+      </button>
+    </div>
+  );
+}
+
+interface ChatEmptyHintsProps {
+  onPick: (text: string) => void;
+}
+
+function ChatEmptyHints({ onPick }: ChatEmptyHintsProps) {
+  return (
+    <div className="flex flex-col gap-2 py-2">
+      <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--text-faint)]">
+        try saying
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        {CHAT_HINTS.map((h) => (
+          <button
+            key={h}
+            type="button"
+            onClick={() => onPick(h)}
+            className="
+              rounded-full border border-[var(--border)]
+              bg-[var(--surface-elev)]
+              px-2.5 py-1
+              text-xs text-[var(--text-dim)]
+              transition
+              hover:border-[var(--accent)]/45 hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]
+            "
+          >
+            “{h}”
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -275,7 +456,5 @@ function friendlyError(err: unknown): string {
   const raw = String(
     err instanceof Error ? err.message : (err ?? "unknown error"),
   );
-  // Heuristic: the Rust side returns short kebab-ish strings; surface
-  // them inline but prefix so the user knows it's a backend error.
   return `Could not complete request: ${raw}`;
 }
