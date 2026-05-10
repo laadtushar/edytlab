@@ -308,6 +308,7 @@ async fn agent_dispatches_normalize_and_emits_node_created() {
             store: &mut s,
             engine: &mut e,
             user_message: "",
+            clipboard: &mut clipboard,
         };
         let res = d
             .invoke(
@@ -560,6 +561,7 @@ async fn agent_enforces_tool_call_cap() {
             store: &mut s,
             engine: &mut e,
             user_message: "",
+            clipboard: &mut clipboard,
         };
         d.invoke(
             "load",

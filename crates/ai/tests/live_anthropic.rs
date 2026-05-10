@@ -57,6 +57,7 @@ async fn live_round_trip() {
             store: &mut s,
             engine: &mut e,
             user_message: "",
+            clipboard: &mut clipboard,
         };
         d.invoke(
             "load",

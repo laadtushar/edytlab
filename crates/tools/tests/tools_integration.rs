@@ -85,10 +85,12 @@ fn gain_plus_6dbish_doubles_samples_after_render() {
     let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
     let out = tmp.path().join("out.wav");
 
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
 
     let load = ok(dispatcher
@@ -145,10 +147,12 @@ fn normalize_brings_peak_to_target_dbfs() {
     let src = write_sine_wav(tmp.path(), "in.wav", 0.5);
     let out = tmp.path().join("normalized.wav");
 
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
 
     ok(dispatcher
@@ -204,10 +208,12 @@ fn normalize_render_is_byte_deterministic() {
         let src = write_sine_wav(tmp.path(), "in.wav", 0.5);
         let out = tmp.path().join("normalized.wav");
 
+        let mut clipboard: Option<Vec<f32>> = None;
         let mut ctx = ToolContext {
             store: &mut store,
             engine: &mut engine,
             user_message: "",
+            clipboard: &mut clipboard,
         };
 
         ok(dispatcher
@@ -251,10 +257,12 @@ fn cut_range_shortens_render_by_exact_duration() {
     let src = write_sine_wav(tmp.path(), "in.wav", 0.5);
     let out = tmp.path().join("cut.wav");
 
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
 
     let load = ok(dispatcher
@@ -309,10 +317,12 @@ fn cut_range_shortens_render_by_exact_duration() {
 fn each_mutating_tool_creates_one_child_node() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "in.wav", 0.5);
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
 
     let h0 = ctx.store.head();
@@ -352,10 +362,12 @@ fn each_mutating_tool_creates_one_child_node() {
 fn unknown_track_index_returns_actionable_error() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "in.wav", 0.5);
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
 
     ok(dispatcher
@@ -375,10 +387,12 @@ fn unknown_track_index_returns_actionable_error() {
 fn out_of_range_samples_return_actionable_error() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "in.wav", 0.5);
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
 
     let load = ok(dispatcher
@@ -413,10 +427,12 @@ fn out_of_range_samples_return_actionable_error() {
 #[test]
 fn no_session_loaded_returns_clear_error() {
     let (_tmp, mut store, mut engine, dispatcher) = fresh();
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
 
     let msg = err(dispatcher
@@ -434,10 +450,12 @@ fn cross_tool_sequence_load_cut_normalize_render() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "in.wav", 0.5);
     let out = tmp.path().join("seq.wav");
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
 
     let load = ok(dispatcher
@@ -518,10 +536,12 @@ fn gain_composition_is_additive_in_db() {
 
         // Path A: two consecutive gain calls.
         let last_a = {
+            let mut clipboard: Option<Vec<f32>> = None;
             let mut ctx = ToolContext {
                 store: &mut s1,
                 engine: &mut e1,
                 user_message: "",
+                clipboard: &mut clipboard,
             };
             ok(d1
                 .invoke("load", json!({ "path": src1.to_string_lossy() }), &mut ctx)
@@ -537,10 +557,12 @@ fn gain_composition_is_additive_in_db() {
 
         // Path B: one gain call with the summed dB.
         let last_b = {
+            let mut clipboard: Option<Vec<f32>> = None;
             let mut ctx = ToolContext {
                 store: &mut s2,
                 engine: &mut e2,
                 user_message: "",
+                clipboard: &mut clipboard,
             };
             ok(d2
                 .invoke("load", json!({ "path": src2.to_string_lossy() }), &mut ctx)
@@ -573,10 +595,12 @@ fn gain_composition_is_additive_in_db() {
 fn render_preview_returns_path_without_creating_node() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
 
     let load = ok(dispatcher
@@ -613,10 +637,12 @@ fn render_preview_returns_path_without_creating_node() {
 fn render_final_rejects_mp3_and_flac_in_phase_1() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
     let load = ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -701,10 +727,12 @@ fn separate_stems_returns_actionable_error_when_model_missing() {
 
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
 
     // Default model (htdemucs_ft) → looks at DEMUCS_FT_MODEL_PATH.
@@ -738,10 +766,12 @@ fn separate_stems_returns_actionable_error_when_model_missing() {
 fn separate_stems_rejects_unknown_model_via_schema() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
 
     // Schema enforces the enum, so this fails dispatch-time validation
@@ -770,10 +800,12 @@ fn separate_stems_rejects_missing_input_file() {
     }
 
     let (_tmp, mut store, mut engine, dispatcher) = fresh();
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
 
     let msg = err(dispatcher
@@ -803,10 +835,12 @@ fn separate_stems_rejects_missing_input_file() {
 fn time_stretch_records_factor_on_clip() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
 
     ok(dispatcher
@@ -855,10 +889,12 @@ fn time_stretch_records_factor_on_clip() {
 fn time_stretch_rejects_non_positive_factor() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
     ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -882,10 +918,12 @@ fn time_stretch_rejects_non_positive_factor() {
 fn pitch_shift_records_semitones_on_clip() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
     ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -922,10 +960,12 @@ fn pitch_shift_records_semitones_on_clip() {
 fn pitch_shift_rejects_out_of_range_semitones() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
     ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -949,10 +989,12 @@ fn pitch_shift_rejects_out_of_range_semitones() {
 fn align_to_beat_records_grid_on_clip() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
     ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -977,10 +1019,12 @@ fn align_to_beat_records_grid_on_clip() {
 fn align_to_beat_rejects_non_monotonic_grid() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
     ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -1004,10 +1048,12 @@ fn align_to_beat_rejects_non_monotonic_grid() {
 fn align_to_beat_rejects_empty_grid() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
     ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -1042,10 +1088,12 @@ fn load_then_load_appends_track() {
     let a = write_sine_wav(tmp.path(), "a.wav", 0.25);
     let b = write_sine_wav(tmp.path(), "b.wav", 0.10);
 
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
 
     let first = ok(dispatcher
@@ -1075,10 +1123,12 @@ fn load_then_load_appends_track() {
 fn add_track_creates_empty_track() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
     ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -1102,10 +1152,12 @@ fn add_track_creates_empty_track() {
 #[test]
 fn add_track_without_session_returns_clear_error() {
     let (_tmp, mut store, mut engine, dispatcher) = fresh();
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
     let msg = err(dispatcher.invoke("add_track", json!({}), &mut ctx).unwrap());
     assert!(msg.contains("no session loaded"), "got: {msg}");
@@ -1118,10 +1170,12 @@ fn remove_track_drops_clips_and_shifts_indices() {
     let b = write_sine_wav(tmp.path(), "b.wav", 0.10);
     let c = write_sine_wav(tmp.path(), "c.wav", 0.05);
 
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
     ok(dispatcher
         .invoke("load", json!({ "path": a.to_string_lossy() }), &mut ctx)
@@ -1154,10 +1208,12 @@ fn remove_track_drops_clips_and_shifts_indices() {
 fn remove_track_rejects_out_of_range_index() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
     ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -1178,10 +1234,12 @@ fn set_track_gain_changes_render_amplitude() {
     let out_loud = tmp.path().join("loud.wav");
     let out_quiet = tmp.path().join("quiet.wav");
 
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
     ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -1257,10 +1315,12 @@ fn two_loads_then_render_produces_mixdown() {
     let b = write_sine_wav(tmp.path(), "b.wav", 0.4);
     let out = tmp.path().join("mix.wav");
 
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
     ok(dispatcher
         .invoke("load", json!({ "path": a.to_string_lossy() }), &mut ctx)
@@ -1309,10 +1369,12 @@ fn two_loads_then_render_produces_mixdown() {
 fn fork_node_creates_sibling_at_existing_head() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
 
     let load = ok(dispatcher
@@ -1352,10 +1414,12 @@ fn fork_node_creates_sibling_at_existing_head() {
 fn fork_node_defaults_to_head() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
     let load = ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -1368,10 +1432,12 @@ fn fork_node_defaults_to_head() {
 #[test]
 fn fork_node_without_session_returns_error() {
     let (_tmp, mut store, mut engine, dispatcher) = fresh();
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
     let msg = err(dispatcher.invoke("fork_node", json!({}), &mut ctx).unwrap());
     assert!(msg.contains("no session loaded"), "got: {msg}");
@@ -1384,10 +1450,12 @@ fn fork_node_without_session_returns_error() {
 fn apply_diff_with_three_branches_creates_three_nodes() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
     let load = ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -1463,10 +1531,12 @@ fn apply_diff_with_three_branches_creates_three_nodes() {
 #[test]
 fn apply_diff_rejects_unknown_parent() {
     let (_tmp, mut store, mut engine, dispatcher) = fresh();
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
     let bogus = "0".repeat(64);
     let msg = err(dispatcher
@@ -1490,10 +1560,12 @@ fn apply_diff_rejects_unknown_parent() {
 fn compare_nodes_returns_serialised_diff() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
     let load = ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -1522,10 +1594,12 @@ fn compare_nodes_returns_serialised_diff() {
 fn revert_to_moves_head_back() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
     let load = ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -1553,10 +1627,12 @@ fn revert_to_moves_head_back() {
 fn name_node_overwrites_existing_label() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
         user_message: "",
+        clipboard: &mut clipboard,
     };
     let load = ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
