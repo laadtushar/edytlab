@@ -17,6 +17,10 @@ pub struct ToolContext<'a> {
     pub store: &'a mut session::Store,
     pub engine: &'a mut audio_engine::Engine,
     pub user_message: &'a str,
+    /// In-memory audio clipboard shared between `copy_region` and
+    /// `paste_region`. Held behind a mutable reference so both tools
+    /// can read/write without cloning large sample buffers.
+    pub clipboard: &'a mut Option<Vec<f32>>,
 }
 
 /// A single tool exposed to the model.
@@ -80,10 +84,10 @@ impl ToolDispatcher {
     pub fn default_dispatcher() -> Self {
         use crate::tool::{
             AddTrackTool, AlignToBeatTool, AnalyzeTrackTool, ApplyDiffTool, CompareNodesTool,
-            CutRangeTool, FadeTool, ForkNodeTool, GainTool, InsertSilenceTool, LoadTool,
-            NameNodeTool, NormalizeTool, PitchShiftTool, RemoveTrackTool, RenderFinalTool,
-            RenderPreviewTool, ReverseTool, RevertToTool, SeparateStemsTool, SetTrackGainTool,
-            TimeStretchTool, TranscribeTool, TrimTool,
+            CopyRegionTool, CutRangeTool, FadeTool, ForkNodeTool, GainTool, InsertSilenceTool,
+            LabelTool, LoadTool, NameNodeTool, NormalizeTool, PasteRegionTool, PitchShiftTool,
+            RemoveTrackTool, RenderFinalTool, RenderPreviewTool, ReverseTool, RevertToTool,
+            SeparateStemsTool, SetTrackGainTool, TimeStretchTool, TranscribeTool, TrimTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -112,6 +116,10 @@ impl ToolDispatcher {
         d.register(Box::new(FadeTool));
         d.register(Box::new(ReverseTool));
         d.register(Box::new(InsertSilenceTool));
+        // D4-D6: copy/paste + labels.
+        d.register(Box::new(CopyRegionTool));
+        d.register(Box::new(PasteRegionTool));
+        d.register(Box::new(LabelTool));
         d
     }
 

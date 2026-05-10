@@ -240,6 +240,9 @@ pub struct Agent {
     dispatcher: Arc<Mutex<tools::ToolDispatcher>>,
     store: Arc<Mutex<session::Store>>,
     engine: Arc<Mutex<audio_engine::Engine>>,
+    /// In-memory audio clipboard for copy_region / paste_region. Shared
+    /// with `AppState` so the same clipboard persists across turns.
+    pub(crate) clipboard: Arc<Mutex<Option<Vec<f32>>>>,
     /// Per-agent conversation history. Phase 1 keeps this in memory;
     /// persistence comes later.
     conversation: Vec<Message>,
@@ -250,8 +253,8 @@ pub struct Agent {
 }
 
 impl Agent {
-    /// Build a new agent. `dispatcher`, `store`, and `engine` are
-    /// reference-counted so the caller can keep using them concurrently
+    /// Build a new agent. `dispatcher`, `store`, `engine`, and `clipboard`
+    /// are reference-counted so the caller can keep using them concurrently
     /// (under their respective mutexes).
     pub fn new(
         cfg: LlmConfig,
@@ -259,6 +262,7 @@ impl Agent {
         store: Arc<Mutex<session::Store>>,
         engine: Arc<Mutex<audio_engine::Engine>>,
         plan_notify: Arc<tokio::sync::Notify>,
+        clipboard: Arc<Mutex<Option<Vec<f32>>>>,
     ) -> Self {
         Self {
             cfg,
@@ -266,6 +270,7 @@ impl Agent {
             dispatcher,
             store,
             engine,
+            clipboard,
             conversation: Vec::new(),
             plan_notify,
         }
@@ -304,6 +309,7 @@ impl Agent {
             &self.dispatcher,
             &self.store,
             &self.engine,
+            &self.clipboard,
             &mut self.conversation,
             &self.plan_notify,
             user_message,

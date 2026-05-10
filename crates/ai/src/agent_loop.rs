@@ -277,6 +277,7 @@ pub(crate) async fn run_turn<F>(
     dispatcher: &Arc<Mutex<ToolDispatcher>>,
     store: &Arc<Mutex<session::Store>>,
     engine: &Arc<Mutex<audio_engine::Engine>>,
+    clipboard: &Arc<Mutex<Option<Vec<f32>>>>,
     conversation: &mut Vec<Message>,
     plan_notify: &Arc<Notify>,
     user_message: String,
@@ -575,10 +576,12 @@ where
                 let d = dispatcher.lock().expect("dispatcher mutex poisoned");
                 let mut store_g = store.lock().expect("store mutex poisoned");
                 let mut engine_g = engine.lock().expect("engine mutex poisoned");
+                let mut clipboard_g = clipboard.lock().expect("clipboard mutex poisoned");
                 let mut ctx = ToolContext {
                     store: &mut store_g,
                     engine: &mut engine_g,
                     user_message: &user_msg_saved,
+                    clipboard: &mut clipboard_g,
                 };
                 d.invoke(&name, args, &mut ctx)
             };
