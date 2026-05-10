@@ -74,6 +74,7 @@ fn fixture() -> SessionNode {
         }),
         sample_rate: 48_000,
         length_samples: 480_000,
+        annotations: Vec::new(),
     };
 
     let id = NodeId::from_state(&state).unwrap();

@@ -766,6 +766,7 @@ mod tests {
             transcript: None,
             sample_rate: 48_000,
             length_samples: 0,
+            annotations: Vec::new(),
         }
     }
 

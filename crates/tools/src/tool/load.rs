@@ -116,6 +116,7 @@ impl Tool for LoadTool {
                     transcript: None::<Transcript>,
                     sample_rate: decoded.sample_rate,
                     length_samples,
+                    annotations: Vec::new(),
                 };
                 (s, 0)
             }

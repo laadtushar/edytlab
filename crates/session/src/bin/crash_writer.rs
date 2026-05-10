@@ -34,6 +34,7 @@ fn main() {
             sample_rate: 48_000,
             // Vary length so each state has a distinct content hash.
             length_samples: i,
+            annotations: Vec::new(),
         };
         let node = SessionNode {
             id: NodeId([0u8; 32]),
