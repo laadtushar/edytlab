@@ -17,12 +17,11 @@ use crate::commands::{
     test_api_key_for, try_load_api_key_at_startup,
 };
 use crate::state::AppState;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder},
     Emitter, Manager,
 };
-use tokio::sync::Mutex;
 
 /// Event name the frontend listens for when the user picks `File > Open
 /// Audio…` from the native menu. The webview's own dialog button uses
