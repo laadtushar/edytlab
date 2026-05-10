@@ -340,3 +340,53 @@ export const onPlan = (
   listen<{ steps: Record<string, unknown>[] }>("agent://plan", (e) =>
     cb(e.payload.steps),
   );
+
+// ---- Marker / selection IPC (Phase audacity-surface) ----
+
+/**
+ * A point marker annotation. `kind` is the serde tag value.
+ * Matches `AnnotationKind::Marker` serialised with
+ * `#[serde(tag = "kind", rename_all = "snake_case")]`.
+ */
+export interface MarkerAnnotation {
+  id: string;
+  name: string;
+  kind: "marker";
+  time_sec: number;
+}
+
+/**
+ * A region annotation spanning `start_sec`–`end_sec`.
+ * Matches `AnnotationKind::Region`.
+ */
+export interface RegionAnnotation {
+  id: string;
+  name: string;
+  kind: "region";
+  start_sec: number;
+  end_sec: number;
+}
+
+/** Union of all annotation shapes. Discriminated by `kind`. */
+export type Marker = MarkerAnnotation | RegionAnnotation;
+
+/** Push the current timeline selection to Rust so the next send_message includes it in SessionContext. */
+export const setSelectionContext = (
+  range: { start_sec: number; end_sec: number } | null,
+): Promise<void> => invoke("set_selection_context", { range });
+
+/** Place a named marker at `time` seconds and append a new session node. */
+export const addMarker = (time: number, name: string): Promise<string> =>
+  invoke<string>("add_marker", { time, name });
+
+/** Remove a marker by its annotation id (UUID string). Returns the new head hex. */
+export const removeMarker = (id: string): Promise<string> =>
+  invoke<string>("remove_marker", { id });
+
+/** List all annotations at the current head. */
+export const listMarkers = (): Promise<Marker[]> =>
+  invoke<Marker[]>("list_markers");
+
+/** Subscribe to "marker-changed" events. Returns unlisten fn. */
+export const onMarkerChanged = (cb: () => void): Promise<UnlistenFn> =>
+  listen("marker-changed", () => cb());
