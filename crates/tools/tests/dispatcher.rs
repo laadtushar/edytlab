@@ -78,6 +78,7 @@ fn registering_and_invoking_a_noop_tool_returns_ok() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
 
     let out = dispatcher
@@ -99,6 +100,7 @@ fn invoking_unregistered_tool_returns_unknown_with_name() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
 
     let err = dispatcher
@@ -126,6 +128,7 @@ fn schema_validation_rejects_malformed_args_before_invoking() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
 
     // `path` is missing — must be rejected.

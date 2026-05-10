@@ -319,6 +319,8 @@ where
     }
 
     // 1. Push the user turn onto the running conversation.
+    // Save a copy before `user_message` is consumed by the ContentBlock move.
+    let user_msg_saved = user_message.clone();
     conversation.push(Message {
         role: Role::User,
         content: vec![ContentBlock::Text { text: user_message }],
@@ -576,6 +578,7 @@ where
                 let mut ctx = ToolContext {
                     store: &mut store_g,
                     engine: &mut engine_g,
+                    user_message: &user_msg_saved,
                 };
                 d.invoke(&name, args, &mut ctx)
             };

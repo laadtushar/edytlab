@@ -56,6 +56,7 @@ async fn live_round_trip() {
         let mut ctx = tools::ToolContext {
             store: &mut s,
             engine: &mut e,
+            user_message: "",
         };
         d.invoke(
             "load",

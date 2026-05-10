@@ -135,6 +135,7 @@ fn podcast_cleanup_deterministic() {
         let mut ctx = ToolContext {
             store: &mut s,
             engine: &mut e,
+            user_message: "",
         };
         invoke(
             &dispatcher,
@@ -160,6 +161,7 @@ fn podcast_cleanup_deterministic() {
         let mut ctx = ToolContext {
             store: &mut s,
             engine: &mut e,
+            user_message: "",
         };
         invoke(
             &dispatcher,
@@ -180,6 +182,7 @@ fn podcast_cleanup_deterministic() {
         let mut ctx = ToolContext {
             store: &mut s,
             engine: &mut e,
+            user_message: "",
         };
         invoke(
             &dispatcher,
@@ -207,6 +210,7 @@ fn podcast_cleanup_deterministic() {
         let mut ctx = ToolContext {
             store: &mut s,
             engine: &mut e,
+            user_message: "",
         };
         invoke(
             &dispatcher,

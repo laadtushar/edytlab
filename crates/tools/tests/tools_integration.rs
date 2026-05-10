@@ -88,6 +88,7 @@ fn gain_plus_6dbish_doubles_samples_after_render() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
 
     let load = ok(dispatcher
@@ -147,6 +148,7 @@ fn normalize_brings_peak_to_target_dbfs() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
 
     ok(dispatcher
@@ -205,6 +207,7 @@ fn normalize_render_is_byte_deterministic() {
         let mut ctx = ToolContext {
             store: &mut store,
             engine: &mut engine,
+            user_message: "",
         };
 
         ok(dispatcher
@@ -251,6 +254,7 @@ fn cut_range_shortens_render_by_exact_duration() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
 
     let load = ok(dispatcher
@@ -308,6 +312,7 @@ fn each_mutating_tool_creates_one_child_node() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
 
     let h0 = ctx.store.head();
@@ -350,6 +355,7 @@ fn unknown_track_index_returns_actionable_error() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
 
     ok(dispatcher
@@ -372,6 +378,7 @@ fn out_of_range_samples_return_actionable_error() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
 
     let load = ok(dispatcher
@@ -409,6 +416,7 @@ fn no_session_loaded_returns_clear_error() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
 
     let msg = err(dispatcher
@@ -429,6 +437,7 @@ fn cross_tool_sequence_load_cut_normalize_render() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
 
     let load = ok(dispatcher
@@ -512,6 +521,7 @@ fn gain_composition_is_additive_in_db() {
             let mut ctx = ToolContext {
                 store: &mut s1,
                 engine: &mut e1,
+                user_message: "",
             };
             ok(d1
                 .invoke("load", json!({ "path": src1.to_string_lossy() }), &mut ctx)
@@ -530,6 +540,7 @@ fn gain_composition_is_additive_in_db() {
             let mut ctx = ToolContext {
                 store: &mut s2,
                 engine: &mut e2,
+                user_message: "",
             };
             ok(d2
                 .invoke("load", json!({ "path": src2.to_string_lossy() }), &mut ctx)
@@ -565,6 +576,7 @@ fn render_preview_returns_path_without_creating_node() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
 
     let load = ok(dispatcher
@@ -604,6 +616,7 @@ fn render_final_rejects_mp3_and_flac_in_phase_1() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
     let load = ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -691,6 +704,7 @@ fn separate_stems_returns_actionable_error_when_model_missing() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
 
     // Default model (htdemucs_ft) → looks at DEMUCS_FT_MODEL_PATH.
@@ -727,6 +741,7 @@ fn separate_stems_rejects_unknown_model_via_schema() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
 
     // Schema enforces the enum, so this fails dispatch-time validation
@@ -758,6 +773,7 @@ fn separate_stems_rejects_missing_input_file() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
 
     let msg = err(dispatcher
@@ -790,6 +806,7 @@ fn time_stretch_records_factor_on_clip() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
 
     ok(dispatcher
@@ -841,6 +858,7 @@ fn time_stretch_rejects_non_positive_factor() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
     ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -867,6 +885,7 @@ fn pitch_shift_records_semitones_on_clip() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
     ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -906,6 +925,7 @@ fn pitch_shift_rejects_out_of_range_semitones() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
     ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -932,6 +952,7 @@ fn align_to_beat_records_grid_on_clip() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
     ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -959,6 +980,7 @@ fn align_to_beat_rejects_non_monotonic_grid() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
     ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -985,6 +1007,7 @@ fn align_to_beat_rejects_empty_grid() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
     ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -1022,6 +1045,7 @@ fn load_then_load_appends_track() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
 
     let first = ok(dispatcher
@@ -1054,6 +1078,7 @@ fn add_track_creates_empty_track() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
     ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -1080,6 +1105,7 @@ fn add_track_without_session_returns_clear_error() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
     let msg = err(dispatcher.invoke("add_track", json!({}), &mut ctx).unwrap());
     assert!(msg.contains("no session loaded"), "got: {msg}");
@@ -1095,6 +1121,7 @@ fn remove_track_drops_clips_and_shifts_indices() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
     ok(dispatcher
         .invoke("load", json!({ "path": a.to_string_lossy() }), &mut ctx)
@@ -1130,6 +1157,7 @@ fn remove_track_rejects_out_of_range_index() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
     ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -1153,6 +1181,7 @@ fn set_track_gain_changes_render_amplitude() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
     ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -1231,6 +1260,7 @@ fn two_loads_then_render_produces_mixdown() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
     ok(dispatcher
         .invoke("load", json!({ "path": a.to_string_lossy() }), &mut ctx)
@@ -1282,6 +1312,7 @@ fn fork_node_creates_sibling_at_existing_head() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
 
     let load = ok(dispatcher
@@ -1324,6 +1355,7 @@ fn fork_node_defaults_to_head() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
     let load = ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -1339,6 +1371,7 @@ fn fork_node_without_session_returns_error() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
     let msg = err(dispatcher.invoke("fork_node", json!({}), &mut ctx).unwrap());
     assert!(msg.contains("no session loaded"), "got: {msg}");
@@ -1354,6 +1387,7 @@ fn apply_diff_with_three_branches_creates_three_nodes() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
     let load = ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -1432,6 +1466,7 @@ fn apply_diff_rejects_unknown_parent() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
     let bogus = "0".repeat(64);
     let msg = err(dispatcher
@@ -1458,6 +1493,7 @@ fn compare_nodes_returns_serialised_diff() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
     let load = ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -1489,6 +1525,7 @@ fn revert_to_moves_head_back() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
     let load = ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -1519,6 +1556,7 @@ fn name_node_overwrites_existing_label() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
     let load = ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)

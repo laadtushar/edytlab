@@ -146,6 +146,7 @@ mod tests {
         let mut ctx = ToolContext {
             store: &mut store,
             engine: &mut engine,
+            user_message: "",
         };
 
         let tool = AnalyzeTrackTool;
@@ -175,6 +176,7 @@ mod tests {
         let mut ctx = ToolContext {
             store: &mut store,
             engine: &mut engine,
+            user_message: "",
         };
         let tool = AnalyzeTrackTool;
         let result = tool

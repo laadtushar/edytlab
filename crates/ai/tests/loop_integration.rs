@@ -307,6 +307,7 @@ async fn agent_dispatches_normalize_and_emits_node_created() {
         let mut ctx = tools::ToolContext {
             store: &mut s,
             engine: &mut e,
+            user_message: "",
         };
         let res = d
             .invoke(
@@ -558,6 +559,7 @@ async fn agent_enforces_tool_call_cap() {
         let mut ctx = tools::ToolContext {
             store: &mut s,
             engine: &mut e,
+            user_message: "",
         };
         d.invoke(
             "load",

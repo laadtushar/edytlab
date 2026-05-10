@@ -238,6 +238,7 @@ fn analyze_track_returns_sensible_bpm_and_key() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
 
     // Run analyze_track on mashup_a.
@@ -335,6 +336,7 @@ fn time_stretch_and_pitch_shift_produce_output() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
 
     // Load the source.
@@ -424,6 +426,7 @@ fn mashup_synthesis_and_render() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
 
     // Load the three stems. Each `load` appends a track to the session.
@@ -545,6 +548,7 @@ fn separate_stems_returns_model_missing_gracefully() {
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
     };
 
     let msg = err(dispatcher

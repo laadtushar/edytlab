@@ -16,6 +16,7 @@ use crate::{DispatchError, Result, ToolResult};
 pub struct ToolContext<'a> {
     pub store: &'a mut session::Store,
     pub engine: &'a mut audio_engine::Engine,
+    pub user_message: &'a str,
 }
 
 /// A single tool exposed to the model.
@@ -79,9 +80,10 @@ impl ToolDispatcher {
     pub fn default_dispatcher() -> Self {
         use crate::tool::{
             AddTrackTool, AlignToBeatTool, AnalyzeTrackTool, ApplyDiffTool, CompareNodesTool,
-            CutRangeTool, ForkNodeTool, GainTool, LoadTool, NameNodeTool, NormalizeTool,
-            PitchShiftTool, RemoveTrackTool, RenderFinalTool, RenderPreviewTool, RevertToTool,
-            SeparateStemsTool, SetTrackGainTool, TimeStretchTool, TranscribeTool, TrimTool,
+            CutRangeTool, FadeTool, ForkNodeTool, GainTool, InsertSilenceTool, LoadTool,
+            NameNodeTool, NormalizeTool, PitchShiftTool, RemoveTrackTool, RenderFinalTool,
+            RenderPreviewTool, ReverseTool, RevertToTool, SeparateStemsTool, SetTrackGainTool,
+            TimeStretchTool, TranscribeTool, TrimTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -106,6 +108,10 @@ impl ToolDispatcher {
         d.register(Box::new(CompareNodesTool));
         d.register(Box::new(RevertToTool));
         d.register(Box::new(NameNodeTool));
+        // D1-D3: destructive sample edits.
+        d.register(Box::new(FadeTool));
+        d.register(Box::new(ReverseTool));
+        d.register(Box::new(InsertSilenceTool));
         d
     }
 

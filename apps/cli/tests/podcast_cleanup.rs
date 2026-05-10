@@ -148,6 +148,7 @@ fn ai_driven_podcast_cleanup() {
         let mut ctx = tools::ToolContext {
             store: &mut store,
             engine: &mut engine,
+            user_message: "",
         };
         let res = dispatcher
             .invoke(

@@ -1,8 +1,11 @@
 //! Linear fade-in / fade-out within a region.
 
+use crate::schema::anthropic_tool;
+use crate::tool::util::destructive_edit;
 use crate::util::range_resolver::{resolve as resolve_range, RangeError};
-use crate::Range;
+use crate::{Range, Tool, ToolContext, ToolResult};
 use serde::Deserialize;
+use serde_json::Value;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Kind {
@@ -71,4 +74,78 @@ pub fn dispatch_fade(
 pub enum FadeError {
     #[error("{0}")]
     Range(#[from] RangeError),
+}
+
+// ---------------------------------------------------------------------------
+// Tool trait impl
+// ---------------------------------------------------------------------------
+
+pub struct FadeTool;
+
+impl Tool for FadeTool {
+    fn name(&self) -> &'static str {
+        "fade"
+    }
+
+    fn schema(&self) -> Value {
+        anthropic_tool(
+            "fade",
+            "Apply a linear fade-in or fade-out to a time range of a track. \
+             Requires a range (start_sec, end_sec). Kind defaults to 'out'. \
+             Appends a new session node.",
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "track": { "type": "integer" },
+                    "range": {
+                        "type": "object",
+                        "properties": {
+                            "start_sec": { "type": "number" },
+                            "end_sec": { "type": "number" }
+                        },
+                        "required": ["start_sec", "end_sec"]
+                    },
+                    "kind": { "type": "string", "enum": ["in", "out"] }
+                },
+                "required": ["track"],
+                "additionalProperties": false
+            }),
+        )
+    }
+
+    fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
+        #[derive(serde::Deserialize)]
+        struct Args {
+            track: usize,
+            range: Option<Range>,
+            #[serde(default = "default_kind")]
+            kind: KindParam,
+        }
+
+        let parsed: Args = match serde_json::from_value(args) {
+            Ok(a) => a,
+            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+        };
+
+        let range = match crate::util::range_resolver::resolve(parsed.range, ctx.user_message, true)
+        {
+            Ok(Some(r)) => r,
+            Ok(None) => unreachable!("required=true"),
+            Err(e) => return Ok(ToolResult::Error(e.to_string())),
+        };
+
+        let kind: Kind = parsed.kind.into();
+        let track = parsed.track;
+        Ok(destructive_edit(
+            ctx,
+            track,
+            move |samples, sample_rate| {
+                apply_fade(samples, sample_rate, range, kind);
+            },
+            format!(
+                "fade {:?} {:.2}s\u{2013}{:.2}s on track {}",
+                kind, range.start_sec, range.end_sec, track
+            ),
+        ))
+    }
 }
