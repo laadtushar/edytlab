@@ -29,6 +29,9 @@ import {
 import WaveSurfer from "wavesurfer.js";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { sendMessage as bridgeSendMessage } from "../lib/tauri-bridge";
+import type { Marker } from "../lib/tauri-bridge";
+import { Ruler } from "./Ruler";
+import { MarkerLayer } from "./MarkerLayer";
 
 // -----------------------------------------------------------------------------
 // Types
@@ -63,6 +66,10 @@ export interface TimelineProps {
   onFileDropped?: (path: string) => void;
   selection?: Selection | null;
   onSelectionChange?: (sel: Selection | null) => void;
+  markers?: Marker[];
+  onAddMarker?: (timeSec: number) => void;
+  onRemoveMarker?: (id: string) => void;
+  onSeekToMarker?: (timeSec: number) => void;
 }
 
 // -----------------------------------------------------------------------------
@@ -82,6 +89,8 @@ interface LaneProps {
   onWavesurfer?: (ws: WaveSurfer | null) => void;
   selection?: Selection | null;
   onSelectionChange?: (sel: Selection | null) => void;
+  /** Called when the wavesurfer reports the audio duration. */
+  onDurationChange?: (d: number) => void;
 }
 
 function TrackLane({
@@ -94,6 +103,7 @@ function TrackLane({
   onWavesurfer,
   selection,
   onSelectionChange,
+  onDurationChange,
 }: LaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const waveformWrapperRef = useRef<HTMLDivElement>(null);
@@ -123,7 +133,11 @@ function TrackLane({
     });
     wsRef.current = ws;
     onWavesurfer?.(ws);
-    const onReady = () => setDuration(ws.getDuration());
+    const onReady = () => {
+      const d = ws.getDuration();
+      setDuration(d);
+      onDurationChange?.(d);
+    };
     ws.on("ready", onReady);
     ws.on("decode", onReady);
     return () => {
@@ -412,10 +426,21 @@ function clamp(n: number, lo: number, hi: number): number {
 // -----------------------------------------------------------------------------
 
 export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timeline(
-  { tracks, audioPath, onFileDropped, selection, onSelectionChange },
+  {
+    tracks,
+    audioPath,
+    onFileDropped,
+    selection,
+    onSelectionChange,
+    markers,
+    onAddMarker,
+    onRemoveMarker,
+    onSeekToMarker,
+  },
   ref,
 ) {
   const headWsRef = useRef<WaveSurfer | null>(null);
+  const [timelineDuration, setTimelineDuration] = useState(0);
 
   const defaultTracks: TrackDescriptor[] =
     tracks && tracks.length > 0
@@ -524,26 +549,39 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
         </span>
       </div>
 
-      {laneStates.map((track, idx) => (
-        <TrackLane
-          key={track.name}
-          name={track.name}
-          audioPath={idx === 0 ? track.audioPath || null : null}
-          muted={track.muted}
-          onToggleMute={() => handleToggleMute(idx)}
-          onFileDropped={idx === 0 ? onFileDropped : undefined}
-          showDropHint={idx === 0 && !audioPath}
-          onWavesurfer={
-            idx === 0
-              ? (ws) => {
-                  headWsRef.current = ws;
-                }
-              : undefined
-          }
-          selection={idx === 0 ? selection : null}
-          onSelectionChange={idx === 0 ? onSelectionChange : undefined}
-        />
-      ))}
+      <Ruler duration={timelineDuration} onAddMarker={onAddMarker} />
+
+      <div style={{ flex: 1, position: "relative", overflow: "hidden", overflowY: "auto" }}>
+        {laneStates.map((track, idx) => (
+          <TrackLane
+            key={track.name}
+            name={track.name}
+            audioPath={idx === 0 ? track.audioPath || null : null}
+            muted={track.muted}
+            onToggleMute={() => handleToggleMute(idx)}
+            onFileDropped={idx === 0 ? onFileDropped : undefined}
+            showDropHint={idx === 0 && !audioPath}
+            onWavesurfer={
+              idx === 0
+                ? (ws) => {
+                    headWsRef.current = ws;
+                  }
+                : undefined
+            }
+            selection={idx === 0 ? selection : null}
+            onSelectionChange={idx === 0 ? onSelectionChange : undefined}
+            onDurationChange={idx === 0 ? setTimelineDuration : undefined}
+          />
+        ))}
+        {markers && markers.length > 0 && timelineDuration > 0 && (
+          <MarkerLayer
+            markers={markers}
+            duration={timelineDuration}
+            onSeek={(t) => onSeekToMarker?.(t)}
+            onRemove={(id) => onRemoveMarker?.(id)}
+          />
+        )}
+      </div>
     </div>
   );
 });
