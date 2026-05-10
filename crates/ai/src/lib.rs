@@ -283,6 +283,21 @@ impl Agent {
     where
         F: FnMut(AgentEvent),
     {
+        self.turn_with_context(user_message, None, on_event).await
+    }
+
+    /// Like [`Agent::turn`] but takes an optional [`SessionContext`]
+    /// (current selection + markers). The context is spliced into the
+    /// per-turn system prompt; pass `None` for the no-context default.
+    pub async fn turn_with_context<F>(
+        &mut self,
+        user_message: String,
+        session_ctx: Option<&SessionContext>,
+        on_event: F,
+    ) -> Result<TurnResult>
+    where
+        F: FnMut(AgentEvent),
+    {
         agent_loop::run_turn(
             &self.cfg,
             &self.http,
@@ -292,6 +307,7 @@ impl Agent {
             &mut self.conversation,
             &self.plan_notify,
             user_message,
+            session_ctx,
             on_event,
         )
         .await
