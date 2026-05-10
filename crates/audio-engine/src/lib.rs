@@ -12,9 +12,12 @@
 //! handle whose `Drop` pauses the stream. Frame-accurate transport, scrubbing,
 //! and seeking arrive in Phase 2.
 
+pub mod encode;
 pub mod graph;
 pub mod mixer;
 pub mod render;
+
+pub use encode::write_wav;
 
 use std::path::Path;
 
