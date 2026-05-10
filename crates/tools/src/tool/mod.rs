@@ -22,6 +22,7 @@ pub mod remove_track;
 pub mod render_final;
 pub mod render_preview;
 pub mod revert_to;
+pub mod reverse;
 pub mod separate_stems;
 pub mod set_track_gain;
 pub mod time_stretch;
