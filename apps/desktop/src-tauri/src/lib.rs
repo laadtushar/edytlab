@@ -19,7 +19,7 @@ use crate::commands::{
 use crate::state::AppState;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder},
-    Emitter, Manager,
+    Emitter,
 };
 
 /// Event name the frontend listens for when the user picks `File > Open
