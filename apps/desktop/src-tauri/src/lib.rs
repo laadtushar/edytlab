@@ -17,10 +17,12 @@ use crate::commands::{
     test_api_key_for, try_load_api_key_at_startup,
 };
 use crate::state::AppState;
+use std::sync::Arc;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder},
-    Emitter,
+    Emitter, Manager,
 };
+use tokio::sync::Mutex;
 
 /// Event name the frontend listens for when the user picks `File > Open
 /// Audio…` from the native menu. The webview's own dialog button uses
@@ -37,6 +39,54 @@ pub fn run() {
         .manage(app_state.clone())
         .setup(move |app| {
             try_load_api_key_at_startup(&app_state);
+
+            // Auto-initialise a default project store under the OS app
+            // data dir so the agent can be built immediately after
+            // set_api_key. Without this, rebuild_agent stays a no-op
+            // (it requires both an api key AND a store) and the user
+            // would see "no agent configured" forever despite saving
+            // a key. A user-driven `open_project` later overwrites
+            // this default seamlessly.
+            if let Ok(data_dir) = app.path().app_data_dir() {
+                let project_dir = data_dir.join("default-project");
+                if let Err(e) = std::fs::create_dir_all(&project_dir) {
+                    tracing::warn!(
+                        error = %e,
+                        path = %project_dir.display(),
+                        "could not create default project dir"
+                    );
+                } else {
+                    match session::Store::open(&project_dir) {
+                        Ok(store) => {
+                            app_state.set_store(Some(Arc::new(Mutex::new(store))));
+                            app_state.set_project_dir(Some(project_dir.clone()));
+                            // If a key was already loaded above, kick a
+                            // rebuild so the agent is ready for the very
+                            // first chat turn — no manual save needed.
+                            let state_for_rebuild = app_state.clone();
+                            tauri::async_runtime::spawn(async move {
+                                if let Err(e) =
+                                    crate::commands::rebuild_agent_public(&state_for_rebuild).await
+                                {
+                                    tracing::warn!(
+                                        error = ?e,
+                                        "agent rebuild at startup failed"
+                                    );
+                                }
+                            });
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                error = ?e,
+                                path = %project_dir.display(),
+                                "could not open default project store"
+                            );
+                        }
+                    }
+                }
+            } else {
+                tracing::warn!("could not resolve app data dir; agent will require manual open_project");
+            }
 
             // Native menu: File > Open Audio… / Quit. Frontend listens
             // for `menu://open-file` and runs the dialog open + load

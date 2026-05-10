@@ -32,6 +32,15 @@ import { ToolBadge } from "./ToolBadge";
 export interface ChatProps {
   rendering?: boolean;
   onRequestRenderPreview?: () => void;
+  /**
+   * Active timeline selection (in seconds), if any. When set, the
+   * input shows a pill above it and outgoing messages are prefixed
+   * with `[apply to MM:SS.ms-MM:SS.ms]` so the agent picks up the
+   * region constraint without a separate state channel.
+   */
+  selection?: { start: number; end: number } | null;
+  /** Called when the user clears the selection from the chat pill. */
+  onClearSelection?: () => void;
 }
 
 function isMessage(e: LogEntry): e is MessageEntry {
@@ -54,7 +63,12 @@ const CHAT_HINTS = [
   "transcribe and find the chorus",
 ];
 
-export function Chat({ rendering, onRequestRenderPreview }: ChatProps) {
+export function Chat({
+  rendering,
+  onRequestRenderPreview,
+  selection,
+  onClearSelection,
+}: ChatProps) {
   const { entries, current, pushUserMessage, pendingPlan, approvePlan } =
     useAgentStream();
   const [input, setInput] = useState("");
@@ -83,10 +97,13 @@ export function Chat({ rendering, onRequestRenderPreview }: ChatProps) {
     if (!text || busy) return;
     setInput("");
     setLocalError(null);
-    pushUserMessage(text);
+    const wireText = selection
+      ? `[apply to ${fmtTime(selection.start)}-${fmtTime(selection.end)}] ${text}`
+      : text;
+    pushUserMessage(wireText);
     setBusy(true);
     try {
-      await bridgeSendMessage(text);
+      await bridgeSendMessage(wireText);
     } catch (err) {
       setLocalError(friendlyError(err));
     } finally {
@@ -291,6 +308,45 @@ export function Chat({ rendering, onRequestRenderPreview }: ChatProps) {
           void submit();
         }}
       >
+        {selection ? (
+          <div
+            data-testid="chat-selection-pill"
+            className="
+              mb-2 flex items-center justify-between gap-2
+              rounded-md border border-[var(--accent)]/40
+              bg-[var(--accent-soft)]
+              px-2.5 py-1.5
+              font-mono text-[10px] uppercase tracking-wider
+            "
+          >
+            <span className="flex items-center gap-1.5 text-[var(--accent)]">
+              <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)] shadow-[0_0_6px_var(--accent-glow)]" />
+              applies to {fmtTime(selection.start)} → {fmtTime(selection.end)}
+            </span>
+            <button
+              type="button"
+              onClick={onClearSelection}
+              aria-label="Clear selection"
+              className="
+                rounded p-0.5 text-[var(--accent)]/80
+                hover:bg-[var(--accent)]/20 hover:text-[var(--accent)]
+              "
+            >
+              <svg
+                width="11"
+                height="11"
+                viewBox="0 0 11 11"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                aria-hidden="true"
+              >
+                <path d="M2.5 2.5l6 6M8.5 2.5l-6 6" />
+              </svg>
+            </button>
+          </div>
+        ) : null}
         <div
           className="
             flex items-end gap-2
@@ -457,4 +513,10 @@ function friendlyError(err: unknown): string {
     err instanceof Error ? err.message : (err ?? "unknown error"),
   );
   return `Could not complete request: ${raw}`;
+}
+
+function fmtTime(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = sec - m * 60;
+  return `${m}:${s.toFixed(2).padStart(5, "0")}`;
 }
