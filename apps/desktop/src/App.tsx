@@ -15,6 +15,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import type { Marker } from "./lib/tauri-bridge";
+import {
+  addMarker,
+  listMarkers,
+  onMarkerChanged,
+  removeMarker,
+  setSelectionContext,
+} from "./lib/tauri-bridge";
 
 import { ABCompareBar } from "./components/ABCompareBar";
 import { Chat } from "./components/Chat";
@@ -70,6 +78,8 @@ function App() {
   const [compareMode, setCompareMode] = useState<CompareMode | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
   const timelineRef = useRef<TimelineHandle>(null);
+  const [markers, setMarkers] = useState<Marker[]>([]);
+  const selectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Window-level keyboard transport. Active whenever the user isn't
   // typing into a chat input / settings field. Space toggles
@@ -121,6 +131,18 @@ function App() {
     };
   }, []);
 
+  // Marker init + subscription.
+  useEffect(() => {
+    void listMarkers().then(setMarkers).catch(() => setMarkers([]));
+    let unlisten: (() => void) | null = null;
+    onMarkerChanged(() => {
+      void listMarkers().then(setMarkers).catch(() => setMarkers([]));
+    })
+      .then((fn) => { unlisten = fn; })
+      .catch(() => undefined);
+    return () => { unlisten?.(); };
+  }, []);
+
   // Common entry point for "user just supplied a file" — used by the
   // toolbar Open button, the native File > Open menu, and OS-level
   // drag-and-drop.
@@ -136,6 +158,40 @@ function App() {
       setRenderError(String(err));
     }
   }, [handleFileSelected]);
+
+  // Debounced selection IPC — push the selection to Rust 250 ms after
+  // the last change so rapid drags don't flood the backend.
+  const handleSelectionChange = useCallback((sel: Selection | null) => {
+    setSelection(sel);
+    if (selectionTimerRef.current) clearTimeout(selectionTimerRef.current);
+    selectionTimerRef.current = setTimeout(() => {
+      const range = sel ? { start_sec: sel.start, end_sec: sel.end } : null;
+      void setSelectionContext(range).catch(() => undefined);
+    }, 250);
+  }, []);
+
+  const handleAddMarker = useCallback(async (timeSec: number) => {
+    const name = window.prompt("Marker name:", `marker ${markers.length + 1}`) ?? "";
+    if (!name.trim()) return;
+    try {
+      await addMarker(timeSec, name.trim());
+      // marker-changed event fires → setMarkers
+    } catch (err) {
+      setRenderError(String(err));
+    }
+  }, [markers.length]);
+
+  const handleRemoveMarker = useCallback(async (id: string) => {
+    try {
+      await removeMarker(id);
+    } catch (err) {
+      setRenderError(String(err));
+    }
+  }, []);
+
+  const handleSeekToMarker = useCallback((timeSec: number) => {
+    timelineRef.current?.seekTo(timeSec);
+  }, []);
 
   // Native menu (`File > Open Audio…`) emits `menu://open-file`.
   useEffect(() => {
@@ -285,7 +341,11 @@ function App() {
                   audioPath={audioPath}
                   onFileDropped={() => undefined}
                   selection={selection}
-                  onSelectionChange={setSelection}
+                  onSelectionChange={handleSelectionChange}
+                  markers={markers}
+                  onAddMarker={handleAddMarker}
+                  onRemoveMarker={handleRemoveMarker}
+                  onSeekToMarker={handleSeekToMarker}
                 />
               ) : (
                 <EmptyState onOpen={handleOpenDialog} />
@@ -306,7 +366,11 @@ function App() {
             rendering={rendering}
             onRequestRenderPreview={handleRenderPreview}
             selection={selection}
-            onClearSelection={() => setSelection(null)}
+            onClearSelection={() => {
+              setSelection(null);
+              void setSelectionContext(null).catch(() => undefined);
+            }}
+            markers={markers}
           />
         </aside>
       </div>
