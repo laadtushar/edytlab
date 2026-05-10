@@ -1,29 +1,25 @@
 /**
- * App — top-level layout.
+ * App — top-level layout (Studio Onyx redesign).
  *
- * Two-pane shell: a "left" pane (Timeline or GraphView, switched by a
- * Timeline/Graph tab toggle) takes 70% and Chat takes 30%. Cross-pane
- * state is minimal: the parent owns the currently-displayed audio
- * path so Render Preview (in Chat) can hand a freshly rendered WAV
- * to Timeline, and it owns the head-pointer so the M25 GraphView can
- * select-by-click and re-render the canvas.
+ * Three rows:
+ *   1. AppHeader   — wordmark, view tabs, primary actions, settings
+ *   2. main grid   — 70% Timeline/GraphView · 30% Chat
+ *   3. StatusBar   — current head + model hint
  *
- * App also owns the M13 first-launch flow: on mount we check whether
- * the OS keychain has an Anthropic API key. If not, we render a
- * blocking <Settings mode="blocking"> over everything until the user
- * provides one. A small gear button in the corner opens the same
- * component in panel mode for later edits / "Clear key".
- *
- * M26 adds an optional ABCompareBar shown between the tab bar and the
- * left pane when `compareMode` is non-null. The graph view's "Compare
- * with…" context menu entry triggers compare mode.
+ * Cross-pane state stays minimal (audio path, head pointer, compare
+ * mode). Errors surface as a structured `ErrorBanner` above the work
+ * area instead of a fixed-position toast — when the error mentions
+ * a missing API key we attach an "Open Settings" CTA so the user has
+ * a one-click recovery path.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 
 import { ABCompareBar } from "./components/ABCompareBar";
 import { Chat } from "./components/Chat";
+import { EmptyState } from "./components/EmptyState";
+import { ErrorBanner } from "./components/ErrorBanner";
 import { GraphView } from "./components/GraphView";
 import { Settings } from "./components/Settings";
 import { Timeline } from "./components/Timeline";
@@ -37,10 +33,25 @@ import { listenToFileDrops, loadAudio, pickAudioFile } from "./lib/file-open";
 
 type LeftView = "timeline" | "graph";
 
-/** State for an active A/B comparison. */
 interface CompareMode {
   a: string;
   b: string;
+}
+
+/**
+ * Decide whether an error message should surface an "Open Settings"
+ * CTA. The Rust side uses these exact substrings for the
+ * agent-not-configured / api-key family of errors; keep the heuristic
+ * loose so future variants still trigger the same recovery flow.
+ */
+function isApiKeyError(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes("set_api_key") ||
+    m.includes("api key") ||
+    m.includes("agent") ||
+    m.includes("no agent")
+  );
 }
 
 function App() {
@@ -50,12 +61,8 @@ function App() {
   const [renderError, setRenderError] = useState<string | null>(null);
   const [leftView, setLeftView] = useState<LeftView>("timeline");
   const [graphRefresh, setGraphRefresh] = useState(0);
-  // `null` means "we haven't checked yet"; we hold off on rendering
-  // chat-bound bridge calls until we know whether a key exists.
   const [keyConfigured, setKeyConfigured] = useState<boolean | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-
-  // M26: A/B compare mode.  null = compare bar hidden.
   const [compareMode, setCompareMode] = useState<CompareMode | null>(null);
 
   useEffect(() => {
@@ -65,9 +72,6 @@ function App() {
         if (!cancelled) setKeyConfigured(ok);
       })
       .catch(() => {
-        // If the keychain probe fails (e.g. running outside Tauri in
-        // tests), assume no key — the blocking modal is the safe
-        // default.
         if (!cancelled) setKeyConfigured(false);
       });
     return () => {
@@ -78,18 +82,10 @@ function App() {
   // Common entry point for "user just supplied a file" — used by the
   // toolbar Open button, the native File > Open menu, and OS-level
   // drag-and-drop.
-  const handleFileSelected = useCallback(
-    (path: string) => {
-      void loadAudio(
-        path,
-        setAudioPath,
-        (err) => setRenderError(err),
-      );
-    },
-    [],
-  );
+  const handleFileSelected = useCallback((path: string) => {
+    void loadAudio(path, setAudioPath, (err) => setRenderError(err));
+  }, []);
 
-  // Toolbar button + menu handler share this dialog flow.
   const handleOpenDialog = useCallback(async () => {
     try {
       const path = await pickAudioFile();
@@ -118,7 +114,7 @@ function App() {
   }, [handleOpenDialog]);
 
   // OS-level drag-and-drop. Tauri 2's webview intercepts native file
-  // drops, so HTML5 `onDrop` never fires for them — we bind at the
+  // drops, so HTML5 onDrop never fires for them — we bind at the
   // webview level instead.
   useEffect(() => {
     let unlisten: (() => void) | null = null;
@@ -135,20 +131,14 @@ function App() {
     };
   }, [handleFileSelected]);
 
-  // Bump the graph-view refresh key whenever the agent emits
-  // `node-created`, so a graph open in the right pane stays in sync
-  // with the agent's edits without the user having to switch tabs.
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     let cancelled = false;
     onNodeCreated(() => {
       setGraphRefresh((n) => n + 1);
     }).then((fn) => {
-      if (cancelled) {
-        fn();
-      } else {
-        unlisten = fn;
-      }
+      if (cancelled) fn();
+      else unlisten = fn;
     });
     return () => {
       cancelled = true;
@@ -170,9 +160,6 @@ function App() {
     }
   }, [head, rendering, renderHead]);
 
-  // GraphView click → update the local head pointer + render that
-  // node into the canvas pane. Acceptance criterion #2: clicking a
-  // node fires the head-update flow and the Canvas re-renders.
   const handleSelectGraphNode = useCallback(
     async (nodeId: string) => {
       setHeadLocal(nodeId);
@@ -190,9 +177,6 @@ function App() {
     [setHeadLocal],
   );
 
-  // M26: triggered from GraphView "Compare with…" menu or any other
-  // caller that wants to start an A/B session.  `a` is always the
-  // current head, `b` is the candidate node chosen by the user.
   const handleCompareNodes = useCallback(
     (bNodeId: string) => {
       if (!head) return;
@@ -201,7 +185,6 @@ function App() {
     [head],
   );
 
-  // M26: ABCompareBar accepted B side — promote b to head.
   const handleAcceptB = useCallback(() => {
     if (!compareMode) return;
     setHeadLocal(compareMode.b);
@@ -210,86 +193,81 @@ function App() {
 
   const showBlocking = keyConfigured === false;
 
+  const errorAction = useMemo(() => {
+    if (!renderError) return undefined;
+    if (!isApiKeyError(renderError)) return undefined;
+    return {
+      label: "Open Settings",
+      onClick: () => {
+        setRenderError(null);
+        setSettingsOpen(true);
+      },
+    };
+  }, [renderError]);
+
   return (
-    <main className="grid h-screen w-screen grid-cols-[70%_30%]">
-      <div className="flex h-full w-full flex-col">
-        <div
-          data-testid="left-pane-tabs"
-          className="flex shrink-0 items-center gap-1 border-b border-neutral-800 bg-neutral-950 px-2 py-1"
-        >
-          <TabButton
-            label="Timeline"
-            testId="tab-timeline"
-            active={leftView === "timeline"}
-            onClick={() => setLeftView("timeline")}
-          />
-          <TabButton
-            label="Graph"
-            testId="tab-graph"
-            active={leftView === "graph"}
-            onClick={() => setLeftView("graph")}
-          />
-          <button
-            type="button"
-            data-testid="open-audio-button"
-            onClick={handleOpenDialog}
-            className="ml-auto rounded-md border border-zinc-700 bg-zinc-900/80 px-3 py-1 text-xs font-medium text-zinc-200 hover:bg-zinc-800"
-          >
-            Open Audio…
-          </button>
-        </div>
-
-        {/* M26: A/B compare bar — shown when compare mode is active */}
-        {compareMode ? (
-          <ABCompareBar
-            aNodeId={compareMode.a}
-            bNodeId={compareMode.b}
-            onAudioPathChange={setAudioPath}
-            onAcceptB={handleAcceptB}
-            onClose={() => setCompareMode(null)}
-          />
-        ) : null}
-
-        <div className="flex-1 min-h-0">
-          {leftView === "timeline" ? (
-            <Timeline audioPath={audioPath} onFileDropped={() => undefined} />
-          ) : (
-            <GraphView
-              head={head}
-              onSelectNode={handleSelectGraphNode}
-              onCompareNodes={handleCompareNodes}
-              refreshKey={graphRefresh}
-            />
-          )}
-        </div>
-      </div>
-      <Chat
-        rendering={rendering}
-        onRequestRenderPreview={handleRenderPreview}
+    <main className="grid h-screen w-screen grid-rows-[auto_1fr_auto] bg-[var(--bg)] text-[var(--text)] app-fade-in">
+      <AppHeader
+        leftView={leftView}
+        onSelectView={setLeftView}
+        onOpen={handleOpenDialog}
+        onSettings={() => setSettingsOpen(true)}
       />
-      <button
-        type="button"
-        onClick={() => setSettingsOpen(true)}
-        data-testid="open-settings-button"
-        aria-label="Open settings"
-        className="fixed right-3 top-3 z-30 rounded-md border border-zinc-700 bg-zinc-900/80 px-2 py-1 text-xs text-zinc-200 hover:bg-zinc-800"
-      >
-        Settings
-      </button>
-      {renderError ? (
-        <div
-          role="alert"
-          data-testid="render-error"
-          className="fixed bottom-3 left-3 z-50 rounded-md border border-red-800 bg-red-900/80 px-3 py-2 text-xs text-red-100"
-        >
-          Could not render: {renderError}
-        </div>
-      ) : null}
+
+      <div className="grid min-h-0 grid-cols-[minmax(0,1fr)_360px] gap-px bg-[var(--border)]">
+        <section className="flex h-full min-h-0 flex-col bg-[var(--surface)]">
+          {renderError ? (
+            <ErrorBanner
+              testId="render-error"
+              message={renderError}
+              action={errorAction}
+              onDismiss={() => setRenderError(null)}
+            />
+          ) : null}
+
+          {compareMode ? (
+            <ABCompareBar
+              aNodeId={compareMode.a}
+              bNodeId={compareMode.b}
+              onAudioPathChange={setAudioPath}
+              onAcceptB={handleAcceptB}
+              onClose={() => setCompareMode(null)}
+            />
+          ) : null}
+
+          <div className="flex-1 min-h-0 overflow-hidden">
+            {leftView === "timeline" ? (
+              audioPath ? (
+                <Timeline
+                  audioPath={audioPath}
+                  onFileDropped={() => undefined}
+                />
+              ) : (
+                <EmptyState onOpen={handleOpenDialog} />
+              )
+            ) : (
+              <GraphView
+                head={head}
+                onSelectNode={handleSelectGraphNode}
+                onCompareNodes={handleCompareNodes}
+                refreshKey={graphRefresh}
+              />
+            )}
+          </div>
+        </section>
+
+        <aside className="h-full min-h-0 bg-[var(--surface)]">
+          <Chat
+            rendering={rendering}
+            onRequestRenderPreview={handleRenderPreview}
+          />
+        </aside>
+      </div>
+
+      <StatusBar audioPath={audioPath} head={head} rendering={rendering} />
+
       {showBlocking ? (
-        <Settings
-          mode="blocking"
-          onSaved={() => setKeyConfigured(true)}
-        />
+        <Settings mode="blocking" onSaved={() => setKeyConfigured(true)} />
       ) : null}
       {!showBlocking && settingsOpen ? (
         <Settings
@@ -297,15 +275,150 @@ function App() {
           onClose={() => setSettingsOpen(false)}
           onSaved={() => setSettingsOpen(false)}
           onCleared={() => {
-            // Acceptance criterion #3: clearing returns to first-launch
-            // state without restart. Flip the flag so the blocking modal
-            // takes over; close the panel.
             setKeyConfigured(false);
             setSettingsOpen(false);
           }}
         />
       ) : null}
     </main>
+  );
+}
+
+interface AppHeaderProps {
+  leftView: LeftView;
+  onSelectView: (v: LeftView) => void;
+  onOpen: () => void;
+  onSettings: () => void;
+}
+
+function AppHeader({
+  leftView,
+  onSelectView,
+  onOpen,
+  onSettings,
+}: AppHeaderProps) {
+  return (
+    <header
+      data-testid="left-pane-tabs"
+      className="
+        relative z-10 flex shrink-0 items-center gap-4
+        border-b border-[var(--border)]
+        bg-[var(--surface-elev)]
+        px-4 py-2.5
+      "
+    >
+      <Wordmark />
+      <div
+        className="
+          ml-3 flex items-center gap-1
+          rounded-md border border-[var(--border)]
+          bg-[var(--surface)]
+          p-0.5
+        "
+      >
+        <TabButton
+          label="Timeline"
+          testId="tab-timeline"
+          active={leftView === "timeline"}
+          onClick={() => onSelectView("timeline")}
+        />
+        <TabButton
+          label="Graph"
+          testId="tab-graph"
+          active={leftView === "graph"}
+          onClick={() => onSelectView("graph")}
+        />
+      </div>
+
+      <div className="ml-auto flex items-center gap-2">
+        <button
+          type="button"
+          data-testid="open-audio-button"
+          onClick={onOpen}
+          className="
+            inline-flex items-center gap-2
+            rounded-md border border-[var(--border-strong)]
+            bg-[var(--surface)]
+            px-3 py-1.5
+            font-mono text-[11px] uppercase tracking-wider text-[var(--text-dim)]
+            transition
+            hover:border-[var(--accent)]/50 hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]
+          "
+        >
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 14 14"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M2 3.2C2 2.54 2.54 2 3.2 2h2.6L7 3.5h3.8c.66 0 1.2.54 1.2 1.2v6.1c0 .66-.54 1.2-1.2 1.2H3.2C2.54 12 2 11.46 2 10.8V3.2Z" />
+          </svg>
+          Open Audio
+        </button>
+
+        <button
+          type="button"
+          onClick={onSettings}
+          data-testid="open-settings-button"
+          aria-label="Open settings"
+          className="
+            inline-flex h-8 w-8 items-center justify-center
+            rounded-md border border-[var(--border-strong)]
+            bg-[var(--surface)]
+            text-[var(--text-dim)]
+            transition
+            hover:border-[var(--accent)]/50 hover:bg-[var(--surface-elev-2)] hover:text-[var(--text)]
+          "
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 14 14"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="7" cy="7" r="2.2" />
+            <path d="M7 1.5v2M7 10.5v2M1.5 7h2M10.5 7h2M3 3l1.4 1.4M9.6 9.6L11 11M3 11l1.4-1.4M9.6 4.4L11 3" />
+          </svg>
+        </button>
+      </div>
+    </header>
+  );
+}
+
+function Wordmark() {
+  return (
+    <div
+      className="
+        flex items-baseline gap-1
+        text-[15px] font-medium leading-none
+        text-[var(--text)]
+      "
+    >
+      <span className="font-[var(--font-serif)] italic text-[var(--accent)] text-[18px]">
+        edyt
+      </span>
+      <span>lab</span>
+      <span
+        className="
+          ml-2 rounded
+          bg-[var(--surface-elev-2)]
+          px-1.5 py-0.5
+          font-mono text-[9px] uppercase tracking-[0.18em] text-[var(--text-faint)]
+        "
+      >
+        studio
+      </span>
+    </div>
   );
 }
 
@@ -325,15 +438,66 @@ function TabButton({ label, testId, active, onClick }: TabButtonProps) {
       onClick={onClick}
       aria-pressed={active}
       className={
-        "rounded-md px-3 py-1 text-xs font-medium " +
+        "rounded px-3 py-1 text-xs font-medium transition " +
         (active
-          ? "bg-neutral-800 text-neutral-100"
-          : "text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100")
+          ? "bg-[var(--surface-elev-2)] text-[var(--text)] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]"
+          : "text-[var(--text-faint)] hover:bg-[var(--surface-elev-2)]/60 hover:text-[var(--text-dim)]")
       }
     >
       {label}
     </button>
   );
+}
+
+interface StatusBarProps {
+  audioPath: string | null;
+  head: string | null;
+  rendering: boolean;
+}
+
+function StatusBar({ audioPath, head, rendering }: StatusBarProps) {
+  const fileLabel = audioPath ? trimPath(audioPath) : "no file loaded";
+  const headLabel = head ? `head ${head.slice(0, 7)}` : "no head";
+  return (
+    <footer
+      data-testid="status-bar"
+      className="
+        flex shrink-0 items-center gap-4
+        border-t border-[var(--border)]
+        bg-[var(--surface-elev)]
+        px-4 py-1.5
+        font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-faint)]
+      "
+    >
+      <span className="flex items-center gap-1.5">
+        <span
+          aria-hidden="true"
+          className={
+            "h-1.5 w-1.5 rounded-full " +
+            (rendering
+              ? "bg-[var(--warning)] animate-pulse"
+              : audioPath
+                ? "bg-[var(--success)]"
+                : "bg-[var(--text-faint)]")
+          }
+        />
+        {rendering ? "rendering…" : audioPath ? "ready" : "idle"}
+      </span>
+      <span className="text-[var(--text-faint)]/80">·</span>
+      <span data-testid="status-bar-file" title={audioPath ?? undefined}>
+        {fileLabel}
+      </span>
+      <span className="text-[var(--text-faint)]/80">·</span>
+      <span data-testid="status-bar-head">{headLabel}</span>
+      <span className="ml-auto text-[var(--text-faint)]">v0.1.0</span>
+    </footer>
+  );
+}
+
+function trimPath(path: string): string {
+  const sep = path.includes("\\") ? "\\" : "/";
+  const parts = path.split(sep);
+  return parts[parts.length - 1] || path;
 }
 
 export default App;

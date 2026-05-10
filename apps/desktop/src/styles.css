@@ -1,10 +1,56 @@
 @import "tailwindcss";
+@import url("https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap");
 
-/* Global app shell styles. Tailwind v4 picks up utility classes by
- * scanning source files automatically via `@tailwindcss/vite`, so all
- * other styling lives inline on components. The only rules below are
- * for the html/body shell, which Tailwind cannot reach via JSX
- * className attributes. */
+/*
+ * Studio Onyx — design tokens.
+ *
+ * Single source for color, typography, motion. Components reference
+ * these via Tailwind arbitrary-value classes (`bg-[var(--bg)]`) so
+ * the whole app re-themes from this one block. Stick to the
+ * grayscale + warm-amber accent system; new colors should be added
+ * here, not inline.
+ */
+@theme {
+  --color-onyx-0: #07080b;
+  --color-onyx-1: #0b0c11;
+  --color-onyx-2: #11131a;
+  --color-onyx-3: #181b25;
+  --color-onyx-4: #20232f;
+  --color-onyx-5: #2a2e3d;
+  --color-onyx-6: #3a3f51;
+  --color-text: #ecedf2;
+  --color-text-dim: #a4a7b3;
+  --color-text-faint: #5e6373;
+  --color-amber: #ff8a3d;
+  --color-amber-soft: rgba(255, 138, 61, 0.14);
+  --color-amber-glow: rgba(255, 138, 61, 0.32);
+  --color-success: #6ad19c;
+  --color-warning: #f5b941;
+  --color-danger: #ef6f72;
+
+  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "JetBrains Mono", monospace;
+  --font-serif: "Instrument Serif", "Iowan Old Style", "Apple Garamond", serif;
+}
+
+:root {
+  --bg: #07080b;
+  --surface: #0b0c11;
+  --surface-elev: #11131a;
+  --surface-elev-2: #181b25;
+  --border: #20232f;
+  --border-strong: #2a2e3d;
+  --text: #ecedf2;
+  --text-dim: #a4a7b3;
+  --text-faint: #5e6373;
+  --accent: #ff8a3d;
+  --accent-soft: rgba(255, 138, 61, 0.14);
+  --accent-glow: rgba(255, 138, 61, 0.32);
+  --success: #6ad19c;
+  --warning: #f5b941;
+  --danger: #ef6f72;
+  --ring-focus: 0 0 0 1px rgba(255, 138, 61, 0.55), 0 0 0 4px rgba(255, 138, 61, 0.18);
+}
 
 html,
 body,
@@ -12,19 +58,86 @@ body,
   height: 100%;
   margin: 0;
   padding: 0;
-  background-color: #0b0d10;
-  color: #e6e8eb;
-  font-family:
-    Inter,
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    "Segoe UI",
-    Roboto,
-    Helvetica,
-    Arial,
-    sans-serif;
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-feature-settings: "ss01", "cv11";
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/*
+ * Subtle film-grain overlay. Keeps the dark UI from feeling flat —
+ * pure-black panels read as "missing texture" on OLED displays.
+ * Pointer-events disabled so it never intercepts clicks.
+ */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.4 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.65'/></svg>");
+  opacity: 0.035;
+  mix-blend-mode: overlay;
+}
+
+/* Custom scrollbar — visible enough to find, restrained enough to ignore. */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+  background-clip: padding-box;
+}
+
+/* Selection — warm amber tint to keep the accent reading. */
+::selection {
+  background: var(--accent-glow);
+  color: var(--text);
+}
+
+/* Native form-control reset for the dark theme. */
+input,
+textarea,
+select,
+button {
+  font-family: inherit;
+}
+
+/* App-wide entry animation — staggered fade for first paint. */
+@keyframes app-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes wave-pulse {
+  0%, 100% {
+    transform: scaleY(0.4);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+.app-fade-in {
+  animation: app-fade-in 320ms cubic-bezier(0.2, 0.65, 0.3, 1) both;
 }

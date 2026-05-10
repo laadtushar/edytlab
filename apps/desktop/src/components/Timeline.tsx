@@ -157,16 +157,16 @@ function TrackLane({
       <div
         data-testid="timeline-lane-sidebar"
         style={{
-          width: 120,
+          width: 132,
           flexShrink: 0,
-          background: "#171717",
-          borderRight: "1px solid #262626",
+          background: "var(--surface-elev)",
+          borderRight: "1px solid var(--border)",
           display: "flex",
           flexDirection: "column",
           alignItems: "flex-start",
           justifyContent: "center",
-          padding: "6px 8px",
-          gap: 4,
+          padding: "8px 12px",
+          gap: 6,
         }}
       >
         <span
@@ -174,8 +174,9 @@ function TrackLane({
           title={name}
           style={{
             fontSize: 11,
-            fontWeight: 600,
-            color: "#e5e7eb",
+            fontWeight: 500,
+            color: "var(--text)",
+            letterSpacing: "0.01em",
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
@@ -191,17 +192,22 @@ function TrackLane({
           aria-label={muted ? `Unmute ${name}` : `Mute ${name}`}
           aria-pressed={muted}
           style={{
-            background: muted ? "#7f1d1d" : "#262626",
+            background: muted ? "var(--accent-soft)" : "var(--surface-elev-2)",
             border: "1px solid",
-            borderColor: muted ? "#991b1b" : "#404040",
+            borderColor: muted
+              ? "rgba(255,138,61,0.45)"
+              : "var(--border-strong)",
             borderRadius: 4,
-            color: muted ? "#fca5a5" : "#9ca3af",
+            color: muted ? "var(--accent)" : "var(--text-dim)",
+            fontFamily: "var(--font-mono)",
             fontSize: 10,
-            padding: "2px 6px",
+            letterSpacing: "0.05em",
+            textTransform: "uppercase",
+            padding: "2px 8px",
             cursor: "pointer",
           }}
         >
-          {muted ? "Muted" : "M"}
+          {muted ? "muted" : "mute"}
         </button>
       </div>
 
@@ -210,10 +216,14 @@ function TrackLane({
         style={{
           flex: 1,
           position: "relative",
-          background: isDragging ? "#1e3a5f" : "#111827",
-          padding: "8px 8px",
-          outline: isDragging ? "2px solid #3b82f6" : "none",
-          outlineOffset: -2,
+          background: isDragging
+            ? "var(--accent-soft)"
+            : "var(--surface-elev)",
+          padding: "10px 12px",
+          boxShadow: isDragging
+            ? "inset 0 0 0 1px var(--accent)"
+            : "none",
+          transition: "background 160ms ease, box-shadow 160ms ease",
         }}
       >
         <div
@@ -231,11 +241,14 @@ function TrackLane({
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: 12,
-              color: "#6b7280",
+              fontSize: 11,
+              fontFamily: "var(--font-mono)",
+              letterSpacing: "0.18em",
+              textTransform: "uppercase",
+              color: "var(--text-faint)",
             }}
           >
-            Drop an audio file or use the file menu
+            drop audio · or use Open Audio…
           </div>
         ) : null}
         {loadError ? (
@@ -244,15 +257,15 @@ function TrackLane({
             role="alert"
             style={{
               position: "absolute",
-              bottom: 4,
-              left: 4,
-              right: 4,
-              background: "rgba(127,29,29,0.8)",
-              border: "1px solid #991b1b",
-              borderRadius: 4,
-              padding: "4px 8px",
+              bottom: 6,
+              left: 6,
+              right: 6,
+              background: "rgba(239,111,114,0.12)",
+              border: "1px solid rgba(239,111,114,0.4)",
+              borderRadius: 6,
+              padding: "4px 10px",
               fontSize: 10,
-              color: "#fca5a5",
+              color: "var(--danger)",
             }}
           >
             {loadError}
@@ -301,12 +314,13 @@ export function Timeline({ tracks, audioPath, onFileDropped }: TimelineProps) {
   return (
     <div
       data-testid="timeline-root"
+      className="app-fade-in"
       style={{
         display: "flex",
         flexDirection: "column",
         height: "100%",
         width: "100%",
-        background: "#111827",
+        background: "var(--surface)",
         overflowY: "auto",
       }}
     >
@@ -316,16 +330,34 @@ export function Timeline({ tracks, audioPath, onFileDropped }: TimelineProps) {
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          borderBottom: "1px solid #262626",
-          padding: "6px 12px",
+          borderBottom: "1px solid var(--border)",
+          padding: "8px 16px",
           flexShrink: 0,
-          background: "#171717",
+          background: "var(--surface-elev)",
         }}
       >
-        <h2 style={{ fontSize: 12, fontWeight: 600, color: "#e5e7eb", margin: 0 }}>
+        <h2
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: 11,
+            fontWeight: 500,
+            letterSpacing: "0.2em",
+            textTransform: "uppercase",
+            color: "var(--text-dim)",
+            margin: 0,
+          }}
+        >
           Timeline
         </h2>
-        <span style={{ fontSize: 10, color: "#6b7280" }}>
+        <span
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: 10,
+            letterSpacing: "0.18em",
+            textTransform: "uppercase",
+            color: "var(--text-faint)",
+          }}
+        >
           {laneStates.length} track{laneStates.length !== 1 ? "s" : ""}
         </span>
       </div>

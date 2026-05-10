@@ -294,8 +294,8 @@ export function Settings({
 
   const containerClass =
     mode === "blocking"
-      ? "fixed inset-0 z-50 flex items-center justify-center bg-black/80"
-      : "fixed inset-0 z-40 flex items-center justify-center bg-black/40";
+      ? "fixed inset-0 z-50 flex items-center justify-center bg-[radial-gradient(ellipse_at_center,rgba(0,0,0,0.85),rgba(0,0,0,0.97))] backdrop-blur-sm app-fade-in"
+      : "fixed inset-0 z-40 flex items-center justify-center bg-black/55 backdrop-blur-sm app-fade-in";
 
   // Format suggestion labels. OpenRouter entries are
   // `provider/model — display_name`; native providers just show
@@ -328,193 +328,265 @@ export function Settings({
       data-mode={mode}
       className={containerClass}
     >
-      <div className="w-[28rem] max-w-[90vw] rounded-lg border border-zinc-700 bg-zinc-900 p-5 text-zinc-100 shadow-xl">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-base font-semibold">
-            {mode === "blocking" ? "Welcome to edytlab" : "Settings"}
-          </h2>
+      <div
+        className="
+          relative w-[30rem] max-w-[90vw] overflow-hidden
+          rounded-xl border border-[var(--border-strong)]
+          bg-[var(--surface-elev)]
+          shadow-[0_30px_80px_-20px_rgba(0,0,0,0.7),0_0_0_1px_rgba(255,255,255,0.02)_inset]
+        "
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
+          <div className="flex items-baseline gap-2">
+            <h2 className="font-[var(--font-serif)] text-2xl leading-none text-[var(--text)]">
+              {mode === "blocking" ? (
+                <>
+                  <span className="italic text-[var(--accent)]">Welcome</span>{" "}
+                  to edytlab
+                </>
+              ) : (
+                "Settings"
+              )}
+            </h2>
+          </div>
           {mode === "panel" && onClose ? (
             <button
               type="button"
               onClick={onClose}
               data-testid="settings-close"
-              className="rounded px-2 py-1 text-sm text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
               aria-label="Close settings"
+              className="
+                rounded-md p-1.5
+                text-[var(--text-dim)]
+                hover:bg-[var(--surface-elev-2)] hover:text-[var(--text)]
+                transition
+              "
             >
-              Close
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
+                <path d="M3 3l8 8M11 3l-8 8" />
+              </svg>
             </button>
           ) : null}
         </div>
 
-        {mode === "blocking" ? (
-          <p className="mb-3 text-sm text-zinc-400">
-            edytlab needs an LLM API key to power the assistant. Pick a
-            provider below; your key is stored in your OS keychain —
-            never on disk in plaintext.
-          </p>
-        ) : null}
+        <div className="px-5 py-4">
+          {mode === "blocking" ? (
+            <p className="mb-5 text-sm leading-relaxed text-[var(--text-dim)]">
+              edytlab needs an LLM API key to power the assistant. Pick a
+              provider below; your key is stored in your OS keychain —
+              never on disk in plaintext.
+            </p>
+          ) : null}
 
-        <fieldset
-          className="mb-3"
-          data-testid="settings-provider-picker"
-          aria-label="LLM provider"
-        >
-          <legend className="mb-1 block text-xs uppercase tracking-wide text-zinc-400">
-            Provider
-          </legend>
-          <div className="flex gap-3">
-            {PROVIDERS.map((p) => (
-              <label
-                key={p.id}
-                className={`flex flex-1 cursor-pointer items-center gap-2 rounded border px-2 py-1.5 text-sm ${
-                  provider === p.id
-                    ? "border-blue-500 bg-blue-900/20 text-blue-100"
-                    : "border-zinc-700 text-zinc-200 hover:border-zinc-500"
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="provider"
-                  value={p.id}
-                  checked={provider === p.id}
-                  onChange={() => {
-                    void handleProviderChange(p.id);
-                  }}
-                  data-testid={`settings-provider-${p.id}`}
-                  className="accent-blue-500"
-                />
-                {p.label}
-              </label>
-            ))}
-          </div>
-        </fieldset>
-
-        <label className="mb-1 block text-xs uppercase tracking-wide text-zinc-400">
-          {activeProviderEntry.label} API key
-        </label>
-        <input
-          type="password"
-          autoComplete="off"
-          spellCheck={false}
-          value={key}
-          onChange={(e) => {
-            setKey(e.target.value);
-            if (test.kind !== "idle") setTest({ kind: "idle" });
-          }}
-          placeholder={activeProviderEntry.keyPlaceholder}
-          data-testid="settings-key-input"
-          aria-label={`${activeProviderEntry.label} API key`}
-          className="mb-2 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-sm focus:border-zinc-500 focus:outline-none"
-        />
-
-        <div className="mb-3 flex items-center justify-between text-xs">
-          <a
-            href={activeProviderEntry.keysUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-400 hover:underline"
+          <fieldset
+            className="mb-4"
+            data-testid="settings-provider-picker"
+            aria-label="LLM provider"
           >
-            How to get a key
-          </a>
-          <button
-            type="button"
-            onClick={handleTest}
-            disabled={testDisabled}
-            data-testid="settings-test-button"
-            className="rounded border border-zinc-700 px-2 py-1 text-zinc-200 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {test.kind === "running" ? "Testing…" : "Test"}
-          </button>
-        </div>
+            <legend className="mb-1.5 block font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-faint)]">
+              Provider
+            </legend>
+            <div className="grid grid-cols-3 gap-1.5">
+              {PROVIDERS.map((p) => (
+                <label
+                  key={p.id}
+                  className={
+                    "flex cursor-pointer items-center justify-center gap-2 rounded-md border px-2 py-2 text-sm transition " +
+                    (provider === p.id
+                      ? "border-[var(--accent)]/55 bg-[var(--accent-soft)] text-[var(--accent)]"
+                      : "border-[var(--border-strong)] text-[var(--text-dim)] hover:border-[var(--text-faint)] hover:text-[var(--text)]")
+                  }
+                >
+                  <input
+                    type="radio"
+                    name="provider"
+                    value={p.id}
+                    checked={provider === p.id}
+                    onChange={() => {
+                      void handleProviderChange(p.id);
+                    }}
+                    data-testid={`settings-provider-${p.id}`}
+                    className="sr-only"
+                  />
+                  {p.label}
+                </label>
+              ))}
+            </div>
+          </fieldset>
 
-        {test.kind === "ok" ? (
-          <p
-            data-testid="settings-test-ok"
-            className="mb-3 rounded border border-green-700 bg-green-900/40 px-2 py-1 text-xs text-green-200"
-          >
-            Key looks good.
-          </p>
-        ) : null}
-        {test.kind === "err" ? (
-          <p
-            data-testid="settings-test-error"
-            role="alert"
-            className="mb-3 rounded border border-red-700 bg-red-900/40 px-2 py-1 text-xs text-red-200"
-          >
-            {test.message}
-          </p>
-        ) : null}
+          <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-faint)]">
+            {activeProviderEntry.label} API key
+          </label>
+          <input
+            type="password"
+            autoComplete="off"
+            spellCheck={false}
+            value={key}
+            onChange={(e) => {
+              setKey(e.target.value);
+              if (test.kind !== "idle") setTest({ kind: "idle" });
+            }}
+            placeholder={activeProviderEntry.keyPlaceholder}
+            data-testid="settings-key-input"
+            aria-label={`${activeProviderEntry.label} API key`}
+            className="
+              mb-2 w-full
+              rounded-md border border-[var(--border-strong)]
+              bg-[var(--surface)]
+              px-3 py-2 text-sm font-mono text-[var(--text)]
+              outline-none
+              transition
+              placeholder:text-[var(--text-faint)] placeholder:font-sans
+              focus:border-[var(--accent)]/55
+              focus:shadow-[0_0_0_3px_var(--accent-soft)]
+            "
+          />
 
-        <label
-          htmlFor="settings-model-input"
-          className="mb-1 block text-xs uppercase tracking-wide text-zinc-400"
-        >
-          Model
-        </label>
-        <input
-          id="settings-model-input"
-          list="settings-model-suggestions"
-          value={model}
-          onChange={(e) => handleModelChange(e.target.value)}
-          data-testid="settings-model-input"
-          aria-label="Model"
-          placeholder={DEFAULT_MODEL_BY_PROVIDER[provider]}
-          className="mb-1 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-sm focus:border-zinc-500 focus:outline-none"
-        />
-        <datalist id="settings-model-suggestions" data-testid="settings-model-datalist">
-          {suggestions.map((s) => (
-            <option key={s.id} value={s.id} label={s.label} />
-          ))}
-        </datalist>
-        {modelHint ? (
-          <p
-            data-testid={
-              modelsError !== null
-                ? "settings-model-error"
-                : "settings-model-hint"
-            }
-            className={`mb-3 text-xs ${
-              modelsError !== null ? "text-amber-300" : "text-zinc-500"
-            }`}
-          >
-            {modelHint}
-          </p>
-        ) : (
-          <div className="mb-3" />
-        )}
-
-        {saveError ? (
-          <p
-            data-testid="settings-save-error"
-            role="alert"
-            className="mb-3 rounded border border-red-700 bg-red-900/40 px-2 py-1 text-xs text-red-200"
-          >
-            {saveError}
-          </p>
-        ) : null}
-
-        <div className="flex items-center justify-between gap-2">
-          {mode === "panel" ? (
+          <div className="mb-3 flex items-center justify-between text-xs">
+            <a
+              href={activeProviderEntry.keysUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[var(--accent)] hover:underline"
+            >
+              How to get a key →
+            </a>
             <button
               type="button"
-              onClick={handleClear}
-              data-testid="settings-clear-button"
-              className="rounded border border-red-800 px-3 py-1.5 text-sm text-red-300 hover:bg-red-900/30"
+              onClick={handleTest}
+              disabled={testDisabled}
+              data-testid="settings-test-button"
+              className="
+                rounded border border-[var(--border-strong)]
+                bg-[var(--surface)]
+                px-2.5 py-1
+                font-mono text-[10px] uppercase tracking-wider text-[var(--text-dim)]
+                transition
+                hover:border-[var(--accent)]/50 hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]
+                disabled:cursor-not-allowed disabled:opacity-50
+              "
             >
-              Clear key
+              {test.kind === "running" ? "Testing…" : "Test"}
             </button>
-          ) : (
-            <span />
-          )}
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={saveDisabled}
-            data-testid="settings-save-button"
-            className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+          </div>
+
+          {test.kind === "ok" ? (
+            <p
+              data-testid="settings-test-ok"
+              className="mb-3 rounded-md border border-[var(--success)]/35 bg-[var(--success)]/10 px-3 py-1.5 text-xs text-[var(--success)]"
+            >
+              Key looks good.
+            </p>
+          ) : null}
+          {test.kind === "err" ? (
+            <p
+              data-testid="settings-test-error"
+              role="alert"
+              className="mb-3 rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-3 py-1.5 text-xs text-[var(--danger)]"
+            >
+              {test.message}
+            </p>
+          ) : null}
+
+          <label
+            htmlFor="settings-model-input"
+            className="mb-1.5 block font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-faint)]"
           >
-            {saving ? "Saving…" : "Save"}
-          </button>
+            Model
+          </label>
+          <input
+            id="settings-model-input"
+            list="settings-model-suggestions"
+            value={model}
+            onChange={(e) => handleModelChange(e.target.value)}
+            data-testid="settings-model-input"
+            aria-label="Model"
+            placeholder={DEFAULT_MODEL_BY_PROVIDER[provider]}
+            className="
+              mb-1 w-full
+              rounded-md border border-[var(--border-strong)]
+              bg-[var(--surface)]
+              px-3 py-2 text-sm font-mono text-[var(--text)]
+              outline-none
+              transition
+              placeholder:text-[var(--text-faint)]
+              focus:border-[var(--accent)]/55
+              focus:shadow-[0_0_0_3px_var(--accent-soft)]
+            "
+          />
+          <datalist id="settings-model-suggestions" data-testid="settings-model-datalist">
+            {suggestions.map((s) => (
+              <option key={s.id} value={s.id} label={s.label} />
+            ))}
+          </datalist>
+          {modelHint ? (
+            <p
+              data-testid={
+                modelsError !== null
+                  ? "settings-model-error"
+                  : "settings-model-hint"
+              }
+              className={
+                "mb-4 text-xs " +
+                (modelsError !== null
+                  ? "text-[var(--warning)]"
+                  : "text-[var(--text-faint)]")
+              }
+            >
+              {modelHint}
+            </p>
+          ) : (
+            <div className="mb-4" />
+          )}
+
+          {saveError ? (
+            <p
+              data-testid="settings-save-error"
+              role="alert"
+              className="mb-3 rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-3 py-1.5 text-xs text-[var(--danger)]"
+            >
+              {saveError}
+            </p>
+          ) : null}
+
+          <div className="flex items-center justify-between gap-2 pt-1">
+            {mode === "panel" ? (
+              <button
+                type="button"
+                onClick={handleClear}
+                data-testid="settings-clear-button"
+                className="
+                  rounded-md border border-[var(--danger)]/40
+                  px-3 py-1.5 text-sm text-[var(--danger)]
+                  transition
+                  hover:bg-[var(--danger)]/10
+                "
+              >
+                Clear key
+              </button>
+            ) : (
+              <span />
+            )}
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saveDisabled}
+              data-testid="settings-save-button"
+              className="
+                rounded-md
+                bg-[var(--accent)]
+                px-4 py-1.5
+                text-sm font-medium text-[var(--bg)]
+                shadow-[0_4px_12px_-4px_var(--accent-glow)]
+                transition
+                hover:bg-[#ffa05f]
+                disabled:cursor-not-allowed disabled:bg-[var(--surface-elev-2)] disabled:text-[var(--text-faint)] disabled:shadow-none
+              "
+            >
+              {saving ? "Saving…" : "Save & Continue"}
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -1,13 +1,10 @@
 /**
- * ToolBadge — compact inline pill rendering a tool-call's lifecycle.
+ * ToolBadge — compact pill rendering a tool-call's lifecycle (Studio Onyx).
  *
- * Visual states:
- *   running → "running <name>…" with a spinner glyph
- *   ok      → "✓ <name>" (or `result` text if provided)
- *   error   → "✗ <name>" (or `result` text if provided)
- *
- * The component is presentational only. State transitions are owned by
- * `useAgentStream`.
+ * Visual states use semantic accent tokens (warning/success/danger)
+ * mapped to the design system, so the dark theme stays cohesive
+ * across the whole app rather than each component picking its own
+ * red/green/yellow.
  */
 
 import type { ToolStatus } from "../hooks/useAgentStream";
@@ -25,22 +22,22 @@ const STATUS_GLYPH: Record<ToolStatus, string> = {
 };
 
 const STATUS_CLASS: Record<ToolStatus, string> = {
-  running: "bg-yellow-900/40 text-yellow-200 border-yellow-800",
-  ok: "bg-green-900/40 text-green-200 border-green-800",
-  error: "bg-red-900/40 text-red-200 border-red-800",
+  running:
+    "border-[var(--warning)]/35 bg-[var(--warning)]/10 text-[var(--warning)]",
+  ok: "border-[var(--success)]/35 bg-[var(--success)]/10 text-[var(--success)]",
+  error:
+    "border-[var(--danger)]/40 bg-[var(--danger)]/10 text-[var(--danger)]",
 };
 
 export function ToolBadge({ name, status, result }: ToolBadgeProps) {
   const label =
-    status === "running"
-      ? `running ${name}…`
-      : (result ?? name);
+    status === "running" ? `running ${name}…` : (result ?? name);
   return (
     <span
       data-testid="tool-badge"
       data-status={status}
       className={
-        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-mono " +
+        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-wider " +
         STATUS_CLASS[status]
       }
     >
@@ -50,7 +47,7 @@ export function ToolBadge({ name, status, result }: ToolBadgeProps) {
       >
         {STATUS_GLYPH[status]}
       </span>
-      <span>{label}</span>
+      <span className="normal-case tracking-normal">{label}</span>
     </span>
   );
 }
