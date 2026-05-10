@@ -94,8 +94,9 @@ async fn main() -> anyhow::Result<()> {
         cfg = cfg.with_base_url(base_url);
     }
 
+    let clipboard = Arc::new(Mutex::new(None::<Vec<f32>>));
     let plan_notify = std::sync::Arc::new(tokio::sync::Notify::new());
-    let mut agent = ai::Agent::new(cfg, dispatcher, store, engine, plan_notify);
+    let mut agent = ai::Agent::new(cfg, dispatcher, store, engine, plan_notify, clipboard);
 
     let result = agent
         .turn(args.message, |ev| {
