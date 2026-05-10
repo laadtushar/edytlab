@@ -85,7 +85,9 @@ pub fn run() {
                     }
                 }
             } else {
-                tracing::warn!("could not resolve app data dir; agent will require manual open_project");
+                tracing::warn!(
+                    "could not resolve app data dir; agent will require manual open_project"
+                );
             }
 
             // Native menu: File > Open Audio… / Quit. Frontend listens
