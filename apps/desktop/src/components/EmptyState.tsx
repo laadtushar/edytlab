@@ -115,7 +115,35 @@ export function EmptyState({ onOpen }: EmptyStateProps) {
       <p className="max-w-sm text-xs text-[var(--text-faint)]">
         Drop an audio file anywhere on this window to load it.
       </p>
+
+      <div className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
+        <Shortcut keys={["Space"]} label="play / pause" />
+        <Shortcut keys={["←", "→"]} label="seek 5s" />
+        <Shortcut keys={["Home", "End"]} label="jump" />
+        <Shortcut keys={["Drag"]} label="select region" />
+      </div>
     </div>
+  );
+}
+
+interface ShortcutProps {
+  keys: string[];
+  label: string;
+}
+
+function Shortcut({ keys, label }: ShortcutProps) {
+  return (
+    <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-[var(--text-faint)]">
+      {keys.map((k, i) => (
+        <span key={i} className="flex items-center gap-1.5">
+          {i > 0 ? <span className="text-[var(--text-faint)]/60">·</span> : null}
+          <kbd className="rounded border border-[var(--border-strong)] bg-[var(--surface-elev-2)] px-1.5 py-0.5 text-[10px] text-[var(--text-dim)]">
+            {k}
+          </kbd>
+        </span>
+      ))}
+      <span>{label}</span>
+    </span>
   );
 }
 

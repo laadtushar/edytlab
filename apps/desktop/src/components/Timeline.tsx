@@ -1,23 +1,30 @@
 /**
- * Timeline — M26 multi-track lane view.
+ * Timeline — multi-track lane view with playhead, region selection,
+ * and an imperative transport handle for window-level keyboard
+ * shortcuts.
  *
- * Renders each track in a horizontally-spanning lane, stacked
- * vertically.  Each lane shows:
- *  - a fixed-width left sidebar with the track name and mute button
- *  - a waveform region (wavesurfer.js) that fills the remaining width
+ * The first lane (index 0) owns the active wavesurfer — it's the only
+ * one currently fed audio, and it doubles as the timecode source for
+ * keyboard transport (Space, Home/End, ←/→) bound at the App level.
  *
- * When the `tracks` prop is empty (or not provided), falls back to a
- * single lane labelled "Mix" using the `audioPath` prop so the
- * component is a drop-in replacement for the previous `<Canvas>`-only
- * timeline pane.
+ * Region selection: mousedown + drag inside the waveform creates a
+ * selection range expressed in seconds, hoisted to App via
+ * `onSelectionChange`. Selection is rendered as a translucent amber
+ * overlay; clicking outside the overlay (without dragging) clears.
  *
- * NOTE: individual stem playback is not yet wired — each lane renders
- * the same rendered-mix WAV.  Per-stem paths will be threaded through
- * once the stem-cache render pipeline lands in Phase 3.
- * TODO(Phase 3): pass per-track audioPath once stem rendering exists.
+ * NOTE: per-track audioPath is still TODO — every lane shows the
+ * same mix until the stem-cache landing in Phase 3.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import WaveSurfer from "wavesurfer.js";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -29,23 +36,33 @@ import { sendMessage as bridgeSendMessage } from "../lib/tauri-bridge";
 
 export interface TrackDescriptor {
   name: string;
-  /** Absolute path to a WAV for this track.  When absent the lane
-   *  renders empty.  All tracks currently receive the mix path until
-   *  stem rendering lands. */
   audioPath: string;
   muted: boolean;
 }
 
+/** A region selected on the waveform, expressed in seconds. */
+export interface Selection {
+  start: number;
+  end: number;
+}
+
+/** Imperative transport handle exposed to App for keyboard shortcuts. */
+export interface TimelineHandle {
+  togglePlay: () => void;
+  play: () => void;
+  pause: () => void;
+  seekTo: (seconds: number) => void;
+  seekBy: (deltaSeconds: number) => void;
+  getCurrentTime: () => number;
+  getDuration: () => number;
+}
+
 export interface TimelineProps {
-  /**
-   * Per-track metadata.  When empty or undefined a single "Mix" lane
-   * is shown using `audioPath`.
-   */
   tracks?: TrackDescriptor[];
-  /** Mix render path — used as the fallback single-lane source. */
   audioPath: string | null;
-  /** Called when the user drops an audio file onto the canvas area. */
   onFileDropped?: (path: string) => void;
+  selection?: Selection | null;
+  onSelectionChange?: (sel: Selection | null) => void;
 }
 
 // -----------------------------------------------------------------------------
@@ -59,6 +76,12 @@ interface LaneProps {
   onToggleMute: () => void;
   onFileDropped?: (path: string) => void;
   showDropHint?: boolean;
+  /** Called once with the wavesurfer instance the first time it
+   *  mounts; called again with null on unmount. Only the head lane
+   *  publishes — passing undefined opts a lane out. */
+  onWavesurfer?: (ws: WaveSurfer | null) => void;
+  selection?: Selection | null;
+  onSelectionChange?: (sel: Selection | null) => void;
 }
 
 function TrackLane({
@@ -68,20 +91,29 @@ function TrackLane({
   onToggleMute,
   onFileDropped,
   showDropHint,
+  onWavesurfer,
+  selection,
+  onSelectionChange,
 }: LaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const waveformWrapperRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WaveSurfer | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [duration, setDuration] = useState(0);
+  const [draftSelection, setDraftSelection] = useState<Selection | null>(null);
+  const dragStateRef = useRef<{ originPx: number; rectLeft: number; rectWidth: number } | null>(
+    null,
+  );
 
   // Mount wavesurfer once.
   useEffect(() => {
     if (!containerRef.current) return;
     const ws = WaveSurfer.create({
       container: containerRef.current,
-      waveColor: "#4b5563",
-      progressColor: "#3b82f6",
-      cursorColor: "#e5e7eb",
+      waveColor: "rgba(236, 237, 242, 0.35)",
+      progressColor: "var(--accent)",
+      cursorColor: "rgba(255, 138, 61, 0.85)",
       cursorWidth: 1,
       height: 72,
       barWidth: 2,
@@ -90,10 +122,18 @@ function TrackLane({
       normalize: true,
     });
     wsRef.current = ws;
+    onWavesurfer?.(ws);
+    const onReady = () => setDuration(ws.getDuration());
+    ws.on("ready", onReady);
+    ws.on("decode", onReady);
     return () => {
+      ws.un("ready", onReady);
+      ws.un("decode", onReady);
       ws.destroy();
       wsRef.current = null;
+      onWavesurfer?.(null);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Reload when audioPath changes.
@@ -109,7 +149,6 @@ function TrackLane({
     }
   }, [audioPath]);
 
-  // Apply mute to wavesurfer volume.
   useEffect(() => {
     wsRef.current?.setVolume(muted ? 0 : 1);
   }, [muted]);
@@ -135,13 +174,79 @@ function TrackLane({
     [onFileDropped],
   );
 
+  const beginSelection = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (!onSelectionChange || !duration || !waveformWrapperRef.current) return;
+      // Only left-click; Shift is reserved for multi-select later.
+      if (e.button !== 0) return;
+      const rect = waveformWrapperRef.current.getBoundingClientRect();
+      const originPx = e.clientX - rect.left;
+      dragStateRef.current = {
+        originPx,
+        rectLeft: rect.left,
+        rectWidth: rect.width,
+      };
+      setDraftSelection({
+        start: pxToSeconds(originPx, rect.width, duration),
+        end: pxToSeconds(originPx, rect.width, duration),
+      });
+    },
+    [duration, onSelectionChange],
+  );
+
+  useEffect(() => {
+    if (!draftSelection) return;
+    const onMove = (e: MouseEvent) => {
+      const drag = dragStateRef.current;
+      if (!drag) return;
+      const px = clamp(e.clientX - drag.rectLeft, 0, drag.rectWidth);
+      const tEnd = pxToSeconds(px, drag.rectWidth, duration);
+      const tOrigin = pxToSeconds(drag.originPx, drag.rectWidth, duration);
+      setDraftSelection({
+        start: Math.min(tOrigin, tEnd),
+        end: Math.max(tOrigin, tEnd),
+      });
+    };
+    const onUp = () => {
+      const final = draftSelection;
+      dragStateRef.current = null;
+      setDraftSelection(null);
+      if (!final) return;
+      // Treat a sub-50 ms drag as a click — clear selection rather
+      // than create a degenerate range.
+      if (final.end - final.start < 0.05) {
+        onSelectionChange?.(null);
+      } else {
+        onSelectionChange?.(final);
+      }
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [draftSelection, duration, onSelectionChange]);
+
+  const overlay = useMemo(() => {
+    const range = draftSelection ?? selection ?? null;
+    if (!range || !duration || !waveformWrapperRef.current) return null;
+    const width = waveformWrapperRef.current.clientWidth || 1;
+    const startPx = (range.start / duration) * width;
+    const endPx = (range.end / duration) * width;
+    return {
+      left: Math.min(startPx, endPx),
+      width: Math.abs(endPx - startPx),
+    };
+  }, [draftSelection, selection, duration]);
+
   return (
     <div
       data-testid="timeline-lane"
       style={{
         display: "flex",
-        borderBottom: "1px solid #262626",
-        minHeight: 88,
+        borderBottom: "1px solid var(--border)",
+        minHeight: 92,
       }}
       onDrop={handleDrop}
       onDragOver={(e) => {
@@ -213,6 +318,8 @@ function TrackLane({
 
       {/* Waveform region */}
       <div
+        ref={waveformWrapperRef}
+        onMouseDown={beginSelection}
         style={{
           flex: 1,
           position: "relative",
@@ -220,17 +327,32 @@ function TrackLane({
             ? "var(--accent-soft)"
             : "var(--surface-elev)",
           padding: "10px 12px",
-          boxShadow: isDragging
-            ? "inset 0 0 0 1px var(--accent)"
-            : "none",
+          boxShadow: isDragging ? "inset 0 0 0 1px var(--accent)" : "none",
           transition: "background 160ms ease, box-shadow 160ms ease",
+          cursor: duration > 0 ? "crosshair" : "default",
         }}
       >
         <div
           ref={containerRef}
           data-testid="timeline-lane-waveform"
-          style={{ height: "100%", width: "100%" }}
+          style={{ height: "100%", width: "100%", pointerEvents: "none" }}
         />
+        {overlay ? (
+          <div
+            data-testid="timeline-selection-overlay"
+            style={{
+              position: "absolute",
+              top: 4,
+              bottom: 4,
+              left: overlay.left + 12,
+              width: overlay.width,
+              background: "rgba(255, 138, 61, 0.18)",
+              borderLeft: "1.5px solid var(--accent)",
+              borderRight: "1.5px solid var(--accent)",
+              pointerEvents: "none",
+            }}
+          />
+        ) : null}
         {!audioPath && showDropHint ? (
           <div
             data-testid="timeline-empty-hint"
@@ -276,13 +398,25 @@ function TrackLane({
   );
 }
 
+function pxToSeconds(px: number, totalPx: number, durationSec: number): number {
+  if (totalPx <= 0) return 0;
+  return clamp((px / totalPx) * durationSec, 0, durationSec);
+}
+
+function clamp(n: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, n));
+}
+
 // -----------------------------------------------------------------------------
 // Timeline
 // -----------------------------------------------------------------------------
 
-export function Timeline({ tracks, audioPath, onFileDropped }: TimelineProps) {
-  // Build the effective track list.  If no tracks are provided, use a
-  // single "Mix" lane backed by the mix audioPath.
+export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timeline(
+  { tracks, audioPath, onFileDropped, selection, onSelectionChange },
+  ref,
+) {
+  const headWsRef = useRef<WaveSurfer | null>(null);
+
   const defaultTracks: TrackDescriptor[] =
     tracks && tracks.length > 0
       ? tracks
@@ -290,8 +424,6 @@ export function Timeline({ tracks, audioPath, onFileDropped }: TimelineProps) {
 
   const [laneStates, setLaneStates] = useState<TrackDescriptor[]>(defaultTracks);
 
-  // Sync laneStates when the tracks prop or audioPath changes, preserving
-  // user mute toggles for tracks that still exist (matched by name).
   useEffect(() => {
     setLaneStates((prev) => {
       const newBase =
@@ -311,6 +443,37 @@ export function Timeline({ tracks, audioPath, onFileDropped }: TimelineProps) {
     );
   };
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      togglePlay: () => {
+        const ws = headWsRef.current;
+        if (!ws) return;
+        if (ws.isPlaying()) ws.pause();
+        else void ws.play();
+      },
+      play: () => void headWsRef.current?.play(),
+      pause: () => headWsRef.current?.pause(),
+      seekTo: (sec: number) => {
+        const ws = headWsRef.current;
+        if (!ws) return;
+        const d = ws.getDuration() || 0;
+        if (d <= 0) return;
+        ws.setTime(clamp(sec, 0, d));
+      },
+      seekBy: (delta: number) => {
+        const ws = headWsRef.current;
+        if (!ws) return;
+        const d = ws.getDuration() || 0;
+        if (d <= 0) return;
+        ws.setTime(clamp(ws.getCurrentTime() + delta, 0, d));
+      },
+      getCurrentTime: () => headWsRef.current?.getCurrentTime() ?? 0,
+      getDuration: () => headWsRef.current?.getDuration() ?? 0,
+    }),
+    [],
+  );
+
   return (
     <div
       data-testid="timeline-root"
@@ -324,7 +487,6 @@ export function Timeline({ tracks, audioPath, onFileDropped }: TimelineProps) {
         overflowY: "auto",
       }}
     >
-      {/* Header */}
       <div
         style={{
           display: "flex",
@@ -362,22 +524,26 @@ export function Timeline({ tracks, audioPath, onFileDropped }: TimelineProps) {
         </span>
       </div>
 
-      {/* Lanes */}
       {laneStates.map((track, idx) => (
         <TrackLane
           key={track.name}
           name={track.name}
-          audioPath={
-            // Only the first lane gets the mix audio to avoid N× volume stacking.
-            // Individual stem paths will replace this in Phase 3.
-            idx === 0 ? (track.audioPath || null) : null
-          }
+          audioPath={idx === 0 ? track.audioPath || null : null}
           muted={track.muted}
           onToggleMute={() => handleToggleMute(idx)}
           onFileDropped={idx === 0 ? onFileDropped : undefined}
           showDropHint={idx === 0 && !audioPath}
+          onWavesurfer={
+            idx === 0
+              ? (ws) => {
+                  headWsRef.current = ws;
+                }
+              : undefined
+          }
+          selection={idx === 0 ? selection : null}
+          onSelectionChange={idx === 0 ? onSelectionChange : undefined}
         />
       ))}
     </div>
   );
-}
+});

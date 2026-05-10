@@ -13,7 +13,7 @@
  * a one-click recovery path.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 
 import { ABCompareBar } from "./components/ABCompareBar";
@@ -22,7 +22,11 @@ import { EmptyState } from "./components/EmptyState";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { GraphView } from "./components/GraphView";
 import { Settings } from "./components/Settings";
-import { Timeline } from "./components/Timeline";
+import {
+  Timeline,
+  type Selection,
+  type TimelineHandle,
+} from "./components/Timeline";
 import { useSession } from "./hooks/useSession";
 import {
   hasApiKey,
@@ -64,6 +68,44 @@ function App() {
   const [keyConfigured, setKeyConfigured] = useState<boolean | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [compareMode, setCompareMode] = useState<CompareMode | null>(null);
+  const [selection, setSelection] = useState<Selection | null>(null);
+  const timelineRef = useRef<TimelineHandle>(null);
+
+  // Window-level keyboard transport. Active whenever the user isn't
+  // typing into a chat input / settings field. Space toggles
+  // play/pause; Home/End jump to start/end; ←/→ seek 5 s; Shift+←/→
+  // seek 1 s.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName ?? "";
+      const isTyping =
+        tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable;
+      const t = timelineRef.current;
+      if (!t) return;
+      if (e.key === " " && !isTyping) {
+        e.preventDefault();
+        t.togglePlay();
+      } else if (e.key === "Home" && !isTyping) {
+        e.preventDefault();
+        t.seekTo(0);
+      } else if (e.key === "End" && !isTyping) {
+        e.preventDefault();
+        t.seekTo(t.getDuration());
+      } else if (e.key === "ArrowLeft" && !isTyping) {
+        e.preventDefault();
+        t.seekBy(e.shiftKey ? -1 : -5);
+      } else if (e.key === "ArrowRight" && !isTyping) {
+        e.preventDefault();
+        t.seekBy(e.shiftKey ? 1 : 5);
+      } else if (e.key === "Escape" && !isTyping && selection) {
+        e.preventDefault();
+        setSelection(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selection]);
 
   useEffect(() => {
     let cancelled = false;
@@ -239,8 +281,11 @@ function App() {
             {leftView === "timeline" ? (
               audioPath ? (
                 <Timeline
+                  ref={timelineRef}
                   audioPath={audioPath}
                   onFileDropped={() => undefined}
+                  selection={selection}
+                  onSelectionChange={setSelection}
                 />
               ) : (
                 <EmptyState onOpen={handleOpenDialog} />
@@ -260,11 +305,18 @@ function App() {
           <Chat
             rendering={rendering}
             onRequestRenderPreview={handleRenderPreview}
+            selection={selection}
+            onClearSelection={() => setSelection(null)}
           />
         </aside>
       </div>
 
-      <StatusBar audioPath={audioPath} head={head} rendering={rendering} />
+      <StatusBar
+        audioPath={audioPath}
+        head={head}
+        rendering={rendering}
+        selection={selection}
+      />
 
       {showBlocking ? (
         <Settings
@@ -469,9 +521,10 @@ interface StatusBarProps {
   audioPath: string | null;
   head: string | null;
   rendering: boolean;
+  selection: Selection | null;
 }
 
-function StatusBar({ audioPath, head, rendering }: StatusBarProps) {
+function StatusBar({ audioPath, head, rendering, selection }: StatusBarProps) {
   const fileLabel = audioPath ? trimPath(audioPath) : "no file loaded";
   const headLabel = head ? `head ${head.slice(0, 7)}` : "no head";
   return (
@@ -505,9 +558,31 @@ function StatusBar({ audioPath, head, rendering }: StatusBarProps) {
       </span>
       <span className="text-[var(--text-faint)]/80">·</span>
       <span data-testid="status-bar-head">{headLabel}</span>
+      {selection ? (
+        <>
+          <span className="text-[var(--text-faint)]/80">·</span>
+          <span
+            data-testid="status-bar-selection"
+            className="text-[var(--accent)]"
+          >
+            sel {fmtTime(selection.start)} → {fmtTime(selection.end)} (
+            {fmtDuration(selection.end - selection.start)})
+          </span>
+        </>
+      ) : null}
       <span className="ml-auto text-[var(--text-faint)]">v0.1.0</span>
     </footer>
   );
+}
+
+function fmtTime(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = sec - m * 60;
+  return `${m}:${s.toFixed(2).padStart(5, "0")}`;
+}
+
+function fmtDuration(sec: number): string {
+  return `${sec.toFixed(2)}s`;
 }
 
 function trimPath(path: string): string {

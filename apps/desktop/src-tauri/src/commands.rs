@@ -681,6 +681,14 @@ pub async fn approve_plan(state: State<'_, AppState>) -> CmdResult<()> {
 /// active provider, or project store changes; either or both
 /// prerequisites being missing is fine and clears the agent rather than
 /// failing.
+/// Public wrapper called from `lib.rs::setup` after auto-initialising
+/// the default project store. The internal helper is private; tests
+/// don't currently call it directly so a thin pub façade keeps the
+/// rest of the module's seal intact.
+pub async fn rebuild_agent_public(state: &AppState) -> Result<(), CommandError> {
+    rebuild_agent(state).await
+}
+
 async fn rebuild_agent(state: &AppState) -> Result<(), CommandError> {
     let api_key = state.api_key_snapshot();
     let store_handle = state.store_handle();
