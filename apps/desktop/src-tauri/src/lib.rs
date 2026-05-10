@@ -17,19 +17,52 @@ use crate::commands::{
     test_api_key_for, try_load_api_key_at_startup,
 };
 use crate::state::AppState;
+use tauri::{
+    menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder},
+    Emitter, Manager,
+};
+
+/// Event name the frontend listens for when the user picks `File > Open
+/// Audio…` from the native menu. The webview's own dialog button uses
+/// the same flow client-side, so this event keeps the menu and toolbar
+/// behavioural parity in one place.
+const MENU_OPEN_FILE_EVENT: &str = "menu://open-file";
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app_state = AppState::new();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(app_state.clone())
-        .setup(move |_app| {
-            // Best-effort: read the API key from the OS keychain at
-            // launch. Not having one is fine — the frontend will
-            // surface the settings modal and the user calls
-            // `set_api_key` to provide one.
+        .setup(move |app| {
             try_load_api_key_at_startup(&app_state);
+
+            // Native menu: File > Open Audio… / Quit. Frontend listens
+            // for `menu://open-file` and runs the dialog open + load
+            // path; Quit uses tauri's built-in close behaviour.
+            let open_audio = MenuItemBuilder::with_id("open_audio", "Open Audio…")
+                .accelerator("CmdOrCtrl+O")
+                .build(app)?;
+            let quit = MenuItemBuilder::with_id("quit", "Quit")
+                .accelerator("CmdOrCtrl+Q")
+                .build(app)?;
+            let file_menu = SubmenuBuilder::new(app, "File")
+                .item(&open_audio)
+                .separator()
+                .item(&quit)
+                .build()?;
+            let menu = MenuBuilder::new(app).item(&file_menu).build()?;
+            app.set_menu(menu)?;
+            app.on_menu_event(|app_handle, event| match event.id().as_ref() {
+                "open_audio" => {
+                    let _ = app_handle.emit(MENU_OPEN_FILE_EVENT, ());
+                }
+                "quit" => {
+                    app_handle.exit(0);
+                }
+                _ => {}
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

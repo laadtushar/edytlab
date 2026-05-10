@@ -20,6 +20,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 
 import { ABCompareBar } from "./components/ABCompareBar";
 import { Chat } from "./components/Chat";
@@ -32,6 +33,7 @@ import {
   onNodeCreated,
   renderPreview as bridgeRenderPreview,
 } from "./lib/tauri-bridge";
+import { listenToFileDrops, loadAudio, pickAudioFile } from "./lib/file-open";
 
 type LeftView = "timeline" | "graph";
 
@@ -72,6 +74,66 @@ function App() {
       cancelled = true;
     };
   }, []);
+
+  // Common entry point for "user just supplied a file" — used by the
+  // toolbar Open button, the native File > Open menu, and OS-level
+  // drag-and-drop.
+  const handleFileSelected = useCallback(
+    (path: string) => {
+      void loadAudio(
+        path,
+        setAudioPath,
+        (err) => setRenderError(err),
+      );
+    },
+    [],
+  );
+
+  // Toolbar button + menu handler share this dialog flow.
+  const handleOpenDialog = useCallback(async () => {
+    try {
+      const path = await pickAudioFile();
+      if (path) handleFileSelected(path);
+    } catch (err) {
+      setRenderError(String(err));
+    }
+  }, [handleFileSelected]);
+
+  // Native menu (`File > Open Audio…`) emits `menu://open-file`.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    listen("menu://open-file", () => {
+      void handleOpenDialog();
+    })
+      .then((fn) => {
+        if (cancelled) fn();
+        else unlisten = fn;
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [handleOpenDialog]);
+
+  // OS-level drag-and-drop. Tauri 2's webview intercepts native file
+  // drops, so HTML5 `onDrop` never fires for them — we bind at the
+  // webview level instead.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    listenToFileDrops(handleFileSelected)
+      .then((fn) => {
+        if (cancelled) fn();
+        else unlisten = fn;
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [handleFileSelected]);
 
   // Bump the graph-view refresh key whenever the agent emits
   // `node-created`, so a graph open in the right pane stays in sync
@@ -167,6 +229,14 @@ function App() {
             active={leftView === "graph"}
             onClick={() => setLeftView("graph")}
           />
+          <button
+            type="button"
+            data-testid="open-audio-button"
+            onClick={handleOpenDialog}
+            className="ml-auto rounded-md border border-zinc-700 bg-zinc-900/80 px-3 py-1 text-xs font-medium text-zinc-200 hover:bg-zinc-800"
+          >
+            Open Audio…
+          </button>
         </div>
 
         {/* M26: A/B compare bar — shown when compare mode is active */}
