@@ -23,6 +23,7 @@ use std::sync::{Arc, Mutex};
 use agent_profiles::ProfileLibrary;
 use ai::Agent;
 use audio_engine::Engine;
+use mcp::{McpConfig, McpRegistry};
 use memory::MemoryStore;
 use session::Store;
 use skills::SkillLibrary;
@@ -105,6 +106,15 @@ pub struct AppState {
     /// `set_active_agent_profile` and persisted to a sidecar file
     /// (`<dir>/.active`) so the choice survives restart.
     pub active_agent_profile_name: Arc<Mutex<Option<String>>>,
+    /// MCP server registration file (`~/.edytlab/mcp.json`) and the
+    /// in-memory parsed config. Path is empty `PathBuf` until
+    /// `install_mcp` is called.
+    pub mcp_config: Arc<Mutex<McpConfig>>,
+    pub mcp_config_path: Arc<Mutex<PathBuf>>,
+    /// Runtime registry — owns running stdio clients and their
+    /// last-known tool lists. `Arc` so the agent-loop (future
+    /// follow-up) can hold a clone without going through `AppState`.
+    pub mcp: Arc<McpRegistry>,
 }
 
 impl AppState {
@@ -135,7 +145,42 @@ impl AppState {
             )),
             agent_profiles_dir: Arc::new(Mutex::new(PathBuf::new())),
             active_agent_profile_name: Arc::new(Mutex::new(None)),
+            mcp_config: Arc::new(Mutex::new(McpConfig::default())),
+            mcp_config_path: Arc::new(Mutex::new(PathBuf::new())),
+            mcp: Arc::new(McpRegistry::new()),
         }
+    }
+
+    /// Install the MCP config file path + initial load. Called once
+    /// at startup from `lib.rs::run`.
+    pub fn install_mcp(&self, path: PathBuf) {
+        *self
+            .mcp_config_path
+            .lock()
+            .expect("mcp_config_path mutex poisoned") = path.clone();
+        match mcp::load_config(&path) {
+            Ok(cfg) => {
+                *self.mcp_config.lock().expect("mcp_config mutex poisoned") = cfg;
+            }
+            Err(e) => {
+                tracing::warn!(error = ?e, "MCP config load failed; starting empty");
+            }
+        }
+    }
+
+    /// Save the current `mcp_config` back to disk.
+    pub fn save_mcp_config(&self) -> mcp::Result<()> {
+        let path = self
+            .mcp_config_path
+            .lock()
+            .expect("mcp_config_path mutex poisoned")
+            .clone();
+        let cfg = self
+            .mcp_config
+            .lock()
+            .expect("mcp_config mutex poisoned")
+            .clone();
+        mcp::save_config(&path, &cfg)
     }
 
     /// Install the memory store. Called once at startup from
