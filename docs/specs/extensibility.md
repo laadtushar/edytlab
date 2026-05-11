@@ -104,7 +104,7 @@ Frontmatter fields:
 
 | field | required | meaning |
 | --- | --- | --- |
-| `name` | yes | unique id; must match the filename stem |
+| `name` | no | display name shown in the capabilities menu. Defaults to the filename stem. If supplied, it MUST equal the stem — the loader rejects mismatches rather than silently picking one, so manual editors don't get burned by a frontmatter / filename split. The filename stem is always the canonical id. |
 | `description` | yes | one-line summary shown in the capabilities menu |
 | `trigger` | yes | `always` \| `keywords` \| `regex` |
 | `keywords` | when `trigger=keywords` | flat array of substrings (case-insensitive) checked against the user message |
@@ -136,14 +136,36 @@ pub struct SkillLibrary { /* … */ }
 impl SkillLibrary {
     pub fn load_default() -> Result<Self>;            // scans ~/.edytlab/skills/
     pub fn load_from(dir: &Path) -> Result<Self>;     // for tests + project overlays
-    pub fn matches(&self, user_message: &str) -> Vec<&Skill>;
+    pub fn matches(&self, ctx: &TriggerContext) -> Vec<&Skill>;
+}
+
+pub struct TriggerContext<'a> {
+    pub user_message: &'a str,
+    /// Previous user turns this conversation, oldest first. The loader
+    /// concatenates these into a single haystack so a skill triggered
+    /// on turn 1 stays active on turn 2's follow-up even if the
+    /// keyword isn't repeated.
+    pub history: &'a [String],
+    /// Conversation mode detected by `agent_loop`, if any (`mashup`,
+    /// `edit`, …). Skills can opt into a mode via a future
+    /// `modes: [mashup]` frontmatter field; matching is OR-ed with
+    /// keyword / regex triggers.
+    pub mode: Option<&'a str>,
 }
 ```
 
-The agent loop calls `library.matches(user_message)` once per turn and
+The agent loop calls `library.matches(&ctx)` once per turn and
 concatenates each matched skill's `body` into the system prompt
 *after* the base system prompt and *before* `SessionContext`. Skills
 never override the base prompt — they only append.
+
+Trigger matching against `history` is the mitigation for the "skill
+flickers off on a follow-up turn" failure mode: once a skill has fired
+in the conversation it stays sticky for the remainder of the
+conversation (or until the user clears the transcript). The
+implementation can shortcut by caching the matched-skill set per
+conversation id and only re-evaluating when a fresh turn introduces
+new keywords.
 
 ### IPC commands
 
@@ -320,10 +342,30 @@ impl McpRegistry {
 ```
 
 The dispatcher gains a `register_remote(McpRegistry)` method that
-extends `tool_schemas()` with the union of every server's tools
-(namespaced as `<server>__<tool>` to avoid collisions). `invoke`
-dispatches to the right client transparently — tool callers (and the
-model) don't know whether a call is local Rust or remote MCP.
+extends `tool_schemas()` with the union of every server's tools.
+Namespacing rules:
+
+- The advertised name is `<server>__<tool>` when the combined length
+  is ≤ 64 characters and matches `^[a-zA-Z0-9_-]{1,64}$` (the
+  Anthropic Messages-API tool-name regex, which is the strictest
+  constraint of the three providers we ship).
+- When the combined name would exceed 64 chars, the loader truncates
+  the prefix to `<server[0..N]>__<tool>` and appends a `_<8-hex>`
+  blake3 suffix derived from `(server, tool)`, choosing `N` so the
+  whole identifier is exactly 64 chars. The hash suffix is what
+  guarantees collision-freedom when two long server names truncate to
+  the same prefix.
+- Characters outside the allowed regex (most commonly `.` in scoped
+  npm packages) are replaced with `_` before length checks. The
+  display name in the capabilities menu still shows the un-mangled
+  `<server>::<tool>` form; the mangling is for the wire protocol
+  only.
+- `McpRegistry::tools()` returns `RemoteToolDescriptor { wire_name,
+  display_name, server, tool }` so the dispatcher can translate both
+  directions without re-deriving the mangling.
+
+`invoke` dispatches to the right client transparently — tool callers
+(and the model) don't know whether a call is local Rust or remote MCP.
 
 Tool-call lifecycle events (`agent://tool-call`,
 `agent://tool-call-end`) work identically for remote tools, so the
@@ -373,9 +415,9 @@ System-prompt assembly order, top-to-bottom:
 
 Filtering rules:
 
-- Tool whitelist: union of (a) capabilities-menu toggles from PR #55,
-  (b) profile tools whitelist if active. Intersection — both must
-  agree for a tool to be exposed.
+- Tool whitelist: intersection of (a) capabilities-menu toggles from
+  PR #55, (b) profile tools whitelist if active. Both must agree for
+  a tool to be exposed; if either is empty the tool is hidden.
 
 ## IPC additions, all-up
 
