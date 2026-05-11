@@ -215,6 +215,30 @@ export const setActiveProvider = (provider: ProviderId): Promise<void> =>
 export const getSessionHead = (): Promise<NodeId> =>
   invoke<NodeId>("get_session_head");
 
+// -----------------------------------------------------------------------------
+// memory: user-editable system-prompt fragments
+// -----------------------------------------------------------------------------
+
+/** Two memory files, mirroring `memory::Scope` on the Rust side. */
+export type MemoryScope = "global" | "project";
+
+/**
+ * Read the contents of the memory file for `scope`. Returns `""` if
+ * the file is missing. Rejects with `"project scope requested but no
+ * project is open"` when `scope === "project"` and no project is open.
+ */
+export const readMemory = (scope: MemoryScope): Promise<string> =>
+  invoke<string>("read_memory", { scope });
+
+/**
+ * Replace the memory file for `scope`. Creates the parent directory
+ * if missing; writes atomically. Empty `contents` truncates the file.
+ */
+export const writeMemory = (
+  scope: MemoryScope,
+  contents: string,
+): Promise<void> => invoke<void>("write_memory", { scope, contents });
+
 /** Look up a single session node by id. */
 export const getNode = (id: NodeId): Promise<SessionNode> =>
   invoke<SessionNode>("get_node", { id });

@@ -22,6 +22,7 @@ use std::sync::{Arc, Mutex};
 
 use ai::Agent;
 use audio_engine::Engine;
+use memory::MemoryStore;
 use session::Store;
 use tools::{Range, ToolDispatcher};
 
@@ -72,6 +73,11 @@ pub struct AppState {
     /// Shared with the `Agent` so the clipboard persists across turns and
     /// is accessible from both the tool layer and (future) IPC commands.
     pub clipboard: Arc<Mutex<Option<Vec<f32>>>>,
+    /// User memory (global + project) — system-prompt fragment surface.
+    /// Shares `project_dir` with `AppState` so the project file
+    /// resolves correctly without a rebuild on `open_project`. Built
+    /// once at startup via `install_memory_store`.
+    pub memory: Arc<Mutex<Option<Arc<MemoryStore>>>>,
 }
 
 impl AppState {
@@ -90,7 +96,30 @@ impl AppState {
             plan_notify: Arc::new(tokio::sync::Notify::new()),
             selection: Arc::new(Mutex::new(None)),
             clipboard: Arc::new(Mutex::new(None)),
+            memory: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// Install the memory store. Called once at startup from
+    /// `lib.rs::run` after the app data directory is resolved. Shares
+    /// the same `project_dir` `Arc` as `AppState` so reads / writes
+    /// pick up `open_project` immediately, without a memory-store
+    /// rebuild.
+    pub fn install_memory_store(&self, global_memory_path: PathBuf) {
+        let store = Arc::new(MemoryStore::new(
+            global_memory_path,
+            Arc::clone(&self.project_dir),
+        ));
+        *self.memory.lock().expect("memory mutex poisoned") = Some(store);
+    }
+
+    /// Snapshot the installed memory store, if any.
+    pub fn memory_handle(&self) -> Option<Arc<MemoryStore>> {
+        self.memory
+            .lock()
+            .expect("memory mutex poisoned")
+            .as_ref()
+            .map(Arc::clone)
     }
 
     /// Snapshot the active provider id. Defaults to `"anthropic"` when

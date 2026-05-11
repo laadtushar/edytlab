@@ -12,6 +12,7 @@ workspace = true
 [dependencies]
 tools = { path = "../tools" }
 session = { path = "../session" }
+memory = { path = "../memory" }
 audio-engine = { path = "../audio-engine" }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync"] }

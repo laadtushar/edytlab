@@ -161,6 +161,24 @@ fn select_system_prompt(mode: Mode) -> &'static str {
     }
 }
 
+/// Concatenate the per-turn system prompt fragments in canonical
+/// order: base prompt → memory → session context. Empty fragments are
+/// omitted cleanly so a single section never produces a leading or
+/// trailing double newline. Extracted as a free function so the
+/// ordering invariant can be unit-tested without booting `run_turn`.
+pub(crate) fn assemble_system_prompt(base: &str, memory_block: &str, ctx_block: &str) -> String {
+    let mut out = base.to_string();
+    if !memory_block.is_empty() {
+        out.push_str("\n\n");
+        out.push_str(memory_block);
+    }
+    if !ctx_block.is_empty() {
+        out.push_str("\n\n");
+        out.push_str(ctx_block);
+    }
+    out
+}
+
 // ---------------------------------------------------------------------------
 // Plan parsing helpers (M27)
 // ---------------------------------------------------------------------------
@@ -282,6 +300,7 @@ pub(crate) async fn run_turn<F>(
     plan_notify: &Arc<Notify>,
     user_message: String,
     session_ctx: Option<&SessionContext>,
+    memory_store: Option<&memory::MemoryStore>,
     mut on_event: F,
 ) -> Result<TurnResult>
 where
@@ -292,15 +311,9 @@ where
     let mode = classify_mode(cfg, http, &user_message, conversation).await;
     let base_prompt = select_system_prompt(mode);
 
-    // Splice the per-turn session context (selection + markers) into
-    // the system prompt. `render_block` returns "" for an empty context
-    // so the splice is a no-op when the frontend hasn't pushed anything.
+    let memory_block = memory_store.map(|m| m.render()).unwrap_or_default();
     let ctx_block = session_ctx.map(render_block).unwrap_or_default();
-    let combined_prompt = if ctx_block.is_empty() {
-        base_prompt.to_string()
-    } else {
-        format!("{base_prompt}\n\n{ctx_block}")
-    };
+    let combined_prompt = assemble_system_prompt(base_prompt, &memory_block, &ctx_block);
     let system_prompt: &str = &combined_prompt;
 
     // M27: if mashup mode, request a plan from the model and wait for
@@ -865,6 +878,42 @@ No other text."#;
         assert!(
             !prompt.contains("Mashup Mode"),
             "expected default system prompt; got mashup prompt"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // System-prompt assembly order: base → memory → session context.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn assemble_no_extras_passes_base_through_unchanged() {
+        assert_eq!(assemble_system_prompt("BASE", "", ""), "BASE");
+    }
+
+    #[test]
+    fn assemble_memory_appears_after_base_before_ctx() {
+        let out = assemble_system_prompt("BASE", "MEM", "CTX");
+        let base = out.find("BASE").expect("missing base");
+        let mem = out.find("MEM").expect("missing memory");
+        let ctx = out.find("CTX").expect("missing ctx");
+        assert!(base < mem, "memory must come after base");
+        assert!(mem < ctx, "session ctx must come after memory");
+    }
+
+    #[test]
+    fn assemble_skips_empty_memory_block() {
+        let out = assemble_system_prompt("BASE", "", "CTX");
+        assert!(out.contains("BASE"));
+        assert!(out.contains("CTX"));
+        assert!(!out.contains("\n\n\n"), "must not double-blank-line");
+    }
+
+    #[test]
+    fn assemble_separates_with_blank_line() {
+        let out = assemble_system_prompt("BASE", "MEM", "");
+        assert!(
+            out.contains("BASE\n\nMEM"),
+            "base + memory should be separated by a blank line; got {out:?}"
         );
     }
 

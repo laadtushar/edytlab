@@ -13,9 +13,9 @@ use crate::commands::{
     accept_b, add_marker, approve_plan, clear_api_key, clear_api_key_for, get_active_model,
     get_active_provider, get_graph, get_node, get_session_head, has_api_key, has_api_key_for,
     list_capabilities, list_markers, list_models_for, list_providers, open_project,
-    prepare_compare, remove_marker, render_preview, send_message, set_active_model,
+    prepare_compare, read_memory, remove_marker, render_preview, send_message, set_active_model,
     set_active_provider, set_api_key, set_api_key_for, set_selection_context, test_api_key,
-    test_api_key_for, try_load_api_key_at_startup,
+    test_api_key_for, try_load_api_key_at_startup, write_memory,
 };
 use crate::state::AppState;
 use std::sync::{Arc, Mutex};
@@ -39,6 +39,13 @@ pub fn run() {
         .manage(app_state.clone())
         .setup(move |app| {
             try_load_api_key_at_startup(&app_state);
+
+            // Install the memory store. Spec location is `~/.edytlab/
+            // memory.md`; if the user's home dir can't be resolved we
+            // fall back to the app data dir so the store is still
+            // usable on sandboxed / non-HOME builds.
+            let memory_path = resolve_global_memory_path(app);
+            app_state.install_memory_store(memory_path);
 
             // Auto-initialise a default project store under the OS app
             // data dir so the agent can be built immediately after
@@ -146,7 +153,26 @@ pub fn run() {
             remove_marker,
             list_markers,
             list_capabilities,
+            read_memory,
+            write_memory,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// Resolve `~/.edytlab/memory.md`. Falls back to
+/// `<app_data_dir>/.edytlab/memory.md` if neither `$HOME` nor
+/// `%USERPROFILE%` is set — covers sandboxed builds and tests.
+fn resolve_global_memory_path<R: tauri::Runtime>(app: &tauri::App<R>) -> std::path::PathBuf {
+    let home = std::env::var_os("HOME")
+        .map(std::path::PathBuf::from)
+        .or_else(|| std::env::var_os("USERPROFILE").map(std::path::PathBuf::from));
+    if let Some(h) = home {
+        return h.join(".edytlab").join("memory.md");
+    }
+    app.path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+        .join(".edytlab")
+        .join("memory.md")
 }

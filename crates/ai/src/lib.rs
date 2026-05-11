@@ -250,6 +250,11 @@ pub struct Agent {
     /// Tauri `AppState` so the `approve_plan` command can fire it without
     /// acquiring the agent Mutex.
     pub(crate) plan_notify: Arc<tokio::sync::Notify>,
+    /// User memory (global + project). When present, `render()` is
+    /// called per turn and the result is spliced into the system
+    /// prompt after the base prompt and before `SessionContext`.
+    /// `None` for tests / CLI callers that don't wire memory.
+    pub(crate) memory: Option<Arc<memory::MemoryStore>>,
 }
 
 impl Agent {
@@ -273,7 +278,15 @@ impl Agent {
             clipboard,
             conversation: Vec::new(),
             plan_notify,
+            memory: None,
         }
+    }
+
+    /// Builder — attach a memory store. Returns `self` so callers can
+    /// chain: `Agent::new(...).with_memory(store)`.
+    pub fn with_memory(mut self, memory: Arc<memory::MemoryStore>) -> Self {
+        self.memory = Some(memory);
+        self
     }
 
     /// Single conversational turn. Streams the assistant's response,
@@ -314,6 +327,7 @@ impl Agent {
             &self.plan_notify,
             user_message,
             session_ctx,
+            self.memory.as_deref(),
             on_event,
         )
         .await

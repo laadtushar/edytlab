@@ -80,6 +80,15 @@ pub enum CommandError {
 
     #[error("internal: a state mutex was poisoned ({0})")]
     Poisoned(&'static str),
+
+    #[error("memory error: {0}")]
+    Memory(#[from] memory::Error),
+
+    #[error("invalid memory scope: {0}")]
+    InvalidMemoryScope(String),
+
+    #[error("memory store not initialised")]
+    NoMemory,
 }
 
 impl From<CommandError> for String {
@@ -868,6 +877,29 @@ pub fn list_markers(state: State<'_, AppState>) -> CmdResult<Vec<serde_json::Val
 // Agent (re)construction
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// memory: read / write the user's global + project memory files
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn read_memory(state: State<'_, AppState>, scope: String) -> CmdResult<String> {
+    let store = state.memory_handle().ok_or(CommandError::NoMemory)?;
+    let scope = memory::Scope::parse(&scope).ok_or(CommandError::InvalidMemoryScope(scope))?;
+    Ok(store.read(scope).map_err(CommandError::from)?)
+}
+
+#[tauri::command]
+pub async fn write_memory(
+    state: State<'_, AppState>,
+    scope: String,
+    contents: String,
+) -> CmdResult<()> {
+    let store = state.memory_handle().ok_or(CommandError::NoMemory)?;
+    let scope = memory::Scope::parse(&scope).ok_or(CommandError::InvalidMemoryScope(scope))?;
+    store.write(scope, &contents).map_err(CommandError::from)?;
+    Ok(())
+}
+
 /// Rebuild the agent from the current state. Called after the API key,
 /// active provider, or project store changes; either or both
 /// prerequisites being missing is fine and clears the agent rather than
@@ -899,14 +931,24 @@ async fn rebuild_agent(state: &AppState) -> Result<(), CommandError> {
                     cfg = cfg.with_model(m);
                 }
             }
-            Some(ai::Agent::new(
+            let agent = ai::Agent::new(
                 cfg,
                 Arc::clone(&state.dispatcher),
                 store,
                 Arc::clone(&state.engine),
                 Arc::clone(&state.plan_notify),
                 state.clipboard_handle(),
-            ))
+            );
+            // Attach the memory store if one is installed. The Tauri
+            // startup hook installs it once the app data dir is
+            // known; tests that go through `AppState::new()` without
+            // calling `install_memory_store` get an agent with no
+            // memory injection, matching pre-M28 behaviour.
+            let agent = match state.memory_handle() {
+                Some(mem) => agent.with_memory(mem),
+                None => agent,
+            };
+            Some(agent)
         }
         _ => None,
     };
