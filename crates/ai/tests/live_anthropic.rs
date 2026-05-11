@@ -49,15 +49,18 @@ async fn live_round_trip() {
     let store = Arc::new(Mutex::new(session::Store::open(project.path()).unwrap()));
     let engine = Arc::new(Mutex::new(audio_engine::Engine::new()));
 
+    let clipboard = Arc::new(Mutex::new(None::<Vec<f32>>));
+
     {
         let d = dispatcher.lock().unwrap();
         let mut s = store.lock().unwrap();
         let mut e = engine.lock().unwrap();
+        let mut cb = clipboard.lock().unwrap();
         let mut ctx = tools::ToolContext {
             store: &mut s,
             engine: &mut e,
             user_message: "",
-            clipboard: &mut clipboard,
+            clipboard: &mut cb,
         };
         d.invoke(
             "load",
@@ -69,7 +72,7 @@ async fn live_round_trip() {
 
     let cfg = ai::LlmConfig::new_anthropic(api_key);
     let plan_notify = std::sync::Arc::new(tokio::sync::Notify::new());
-    let mut agent = ai::Agent::new(cfg, dispatcher, store, engine, plan_notify);
+    let mut agent = ai::Agent::new(cfg, dispatcher, store, engine, plan_notify, clipboard);
 
     let mut events = 0usize;
     let result = agent
