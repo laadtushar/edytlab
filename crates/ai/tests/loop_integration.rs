@@ -300,13 +300,17 @@ async fn agent_dispatches_normalize_and_emits_node_created() {
     let engine = Arc::new(Mutex::new(audio_engine::Engine::new()));
 
     // Seed the store with a load via the dispatcher directly.
+    let clipboard = Arc::new(Mutex::new(None::<Vec<f32>>));
     {
         let d = dispatcher.lock().unwrap();
         let mut s = store.lock().unwrap();
         let mut e = engine.lock().unwrap();
+        let mut cb = clipboard.lock().unwrap();
         let mut ctx = tools::ToolContext {
             store: &mut s,
             engine: &mut e,
+            user_message: "",
+            clipboard: &mut cb,
         };
         let res = d
             .invoke(
@@ -330,6 +334,7 @@ async fn agent_dispatches_normalize_and_emits_node_created() {
         store.clone(),
         engine.clone(),
         plan_notify,
+        clipboard,
     );
 
     let mut events: Vec<ai::AgentEvent> = Vec::new();
@@ -550,14 +555,18 @@ async fn agent_enforces_tool_call_cap() {
     let dispatcher = Arc::new(Mutex::new(tools::ToolDispatcher::default_dispatcher()));
     let store = Arc::new(Mutex::new(session::Store::open(project.path()).unwrap()));
     let engine = Arc::new(Mutex::new(audio_engine::Engine::new()));
+    let clipboard2 = Arc::new(Mutex::new(None::<Vec<f32>>));
 
     {
         let d = dispatcher.lock().unwrap();
         let mut s = store.lock().unwrap();
         let mut e = engine.lock().unwrap();
+        let mut cb = clipboard2.lock().unwrap();
         let mut ctx = tools::ToolContext {
             store: &mut s,
             engine: &mut e,
+            user_message: "",
+            clipboard: &mut cb,
         };
         d.invoke(
             "load",
@@ -569,7 +578,7 @@ async fn agent_enforces_tool_call_cap() {
 
     let cfg = ai::LlmConfig::new_anthropic("test-key").with_base_url(server.uri());
     let plan_notify = Arc::new(tokio::sync::Notify::new());
-    let mut agent = ai::Agent::new(cfg, dispatcher, store, engine, plan_notify);
+    let mut agent = ai::Agent::new(cfg, dispatcher, store, engine, plan_notify, clipboard2);
 
     let err = agent
         .turn("loop please".to_string(), |_| {})

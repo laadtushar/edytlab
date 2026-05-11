@@ -84,6 +84,7 @@ fn session_with(tracks: Vec<Track>, project_rate: u32) -> SessionState {
         transcript: None,
         sample_rate: project_rate,
         length_samples: length,
+        annotations: Vec::new(),
     }
 }
 

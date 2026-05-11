@@ -26,6 +26,7 @@ fn make_node(length_samples: u64) -> SessionNode {
             transcript: None,
             sample_rate: 48_000,
             length_samples,
+            annotations: Vec::new(),
         },
     }
 }

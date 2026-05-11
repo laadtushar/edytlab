@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex};
 use serde::Serialize;
 use session::{NodeId, SessionNode, Store};
 use tauri::{AppHandle, Emitter, Runtime, State};
+use tools::Range;
 
 use crate::events::{
     DonePayload, NodeCreatedPayload, PlanPayload, TextDeltaPayload, ToolCallPayload, DONE,
@@ -588,6 +589,26 @@ pub async fn send_message<R: Runtime>(
     state: State<'_, AppState>,
     text: String,
 ) -> CmdResult<()> {
+    // Build the per-turn SessionContext from the current selection and
+    // the annotations on the store head. We snapshot these before
+    // acquiring the agent lock to minimise the lock hold time.
+    let selection = state.selection_snapshot();
+    let markers = match state.store_handle() {
+        None => vec![],
+        Some(store_arc) => {
+            let store = lock_std(&*store_arc, "store")?;
+            match store.head() {
+                None => vec![],
+                Some(head) => store.annotations_for(head).unwrap_or_default(),
+            }
+        }
+    };
+    let session_ctx = if selection.is_some() || !markers.is_empty() {
+        Some(ai::SessionContext { selection, markers })
+    } else {
+        None
+    };
+
     // Hold the agent lock for the duration of the turn. Phase 1 has a
     // single chat thread, so serialised turns are correct (the user
     // cannot race themselves). The lock is `tokio::sync::Mutex` because
@@ -605,7 +626,7 @@ pub async fn send_message<R: Runtime>(
     };
 
     agent
-        .turn(text, on_event)
+        .turn_with_context(text, session_ctx.as_ref(), on_event)
         .await
         .map_err(CommandError::from)?;
 
@@ -674,6 +695,91 @@ pub async fn approve_plan(state: State<'_, AppState>) -> CmdResult<()> {
 }
 
 // ---------------------------------------------------------------------------
+// E1: set_selection_context
+// ---------------------------------------------------------------------------
+
+/// Push the user's current timeline selection from the frontend into
+/// the app state. Called whenever the waveform selection changes so the
+/// next `send_message` turn can splice the selection into the system
+/// prompt via `SessionContext`.
+///
+/// Pass `null` / `None` to clear the selection.
+#[tauri::command]
+pub fn set_selection_context(state: State<'_, AppState>, range: Option<Range>) -> CmdResult<()> {
+    state.set_selection(range);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// E2: add_marker / remove_marker / list_markers
+// ---------------------------------------------------------------------------
+
+/// Add a point marker at `time` seconds with `name`. Appends a new
+/// session node; the returned hex string is the new head.
+///
+/// Also emits a `marker-changed` event so the waveform UI can refresh
+/// its overlay without polling.
+#[tauri::command]
+pub fn add_marker(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    time: f64,
+    name: String,
+) -> CmdResult<String> {
+    let store_arc = state.store_handle().ok_or(CommandError::NoSession)?;
+    let mut store = lock_std(&*store_arc, "store")?;
+    let head = store.head().ok_or(CommandError::NoSession)?;
+    let annotation = session::Annotation {
+        id: session::AnnotationId::new(),
+        name: name.clone(),
+        kind: session::AnnotationKind::Marker { time_sec: time },
+    };
+    let new_head = store
+        .add_annotation(head, annotation)
+        .map_err(CommandError::from)?;
+    drop(store);
+    let _ = app.emit("marker-changed", ());
+    Ok(new_head.to_hex())
+}
+
+/// Remove the annotation identified by `id` (a UUID string). Appends a
+/// new session node if an annotation with that id was found; returns the
+/// head hex unchanged otherwise.
+///
+/// Also emits a `marker-changed` event.
+#[tauri::command]
+pub fn remove_marker(app: AppHandle, state: State<'_, AppState>, id: String) -> CmdResult<String> {
+    let annotation_id = session::AnnotationId(
+        uuid::Uuid::parse_str(&id).map_err(|e| CommandError::InvalidNodeId(e.to_string()))?,
+    );
+    let store_arc = state.store_handle().ok_or(CommandError::NoSession)?;
+    let mut store = lock_std(&*store_arc, "store")?;
+    let head = store.head().ok_or(CommandError::NoSession)?;
+    let new_head = store
+        .remove_annotation(head, annotation_id)
+        .map_err(CommandError::from)?;
+    drop(store);
+    let _ = app.emit("marker-changed", ());
+    Ok(new_head.to_hex())
+}
+
+/// Return all annotations (markers and region labels) visible at the
+/// current session head as a JSON array. Each entry is the serialised
+/// [`session::Annotation`] shape.
+#[tauri::command]
+pub fn list_markers(state: State<'_, AppState>) -> CmdResult<Vec<serde_json::Value>> {
+    let store_arc = state.store_handle().ok_or(CommandError::NoSession)?;
+    let store = lock_std(&*store_arc, "store")?;
+    let head = store.head().ok_or(CommandError::NoSession)?;
+    let annotations = store.annotations_for(head).map_err(CommandError::from)?;
+    drop(store);
+    Ok(annotations
+        .into_iter()
+        .map(|a| serde_json::to_value(a).expect("Annotation always serialises"))
+        .collect())
+}
+
+// ---------------------------------------------------------------------------
 // Agent (re)construction
 // ---------------------------------------------------------------------------
 
@@ -714,6 +820,7 @@ async fn rebuild_agent(state: &AppState) -> Result<(), CommandError> {
                 store,
                 Arc::clone(&state.engine),
                 Arc::clone(&state.plan_notify),
+                state.clipboard_handle(),
             ))
         }
         _ => None,
@@ -766,6 +873,7 @@ mod tests {
             transcript: None,
             sample_rate: 48_000,
             length_samples: 0,
+            annotations: Vec::new(),
         }
     }
 

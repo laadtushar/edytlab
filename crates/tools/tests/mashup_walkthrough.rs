@@ -235,9 +235,12 @@ fn analyze_track_returns_sensible_bpm_and_key() {
         writer.finalize().unwrap();
     }
 
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
+        clipboard: &mut clipboard,
     };
 
     // Run analyze_track on mashup_a.
@@ -332,9 +335,12 @@ fn time_stretch_and_pitch_shift_produce_output() {
     // 2-second source at 440 Hz.
     let src2 = write_sine_wav(tmp.path(), "src2.wav", 440.0, 2.0, 0.5);
 
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
+        clipboard: &mut clipboard,
     };
 
     // Load the source.
@@ -421,9 +427,12 @@ fn mashup_synthesis_and_render() {
     let drums = write_sine_wav(tmp.path(), "drums.wav", 440.0, duration_s, 0.4);
     let bass = write_sine_wav(tmp.path(), "bass.wav", 220.0, duration_s, 0.4);
 
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
+        clipboard: &mut clipboard,
     };
 
     // Load the three stems. Each `load` appends a track to the session.
@@ -542,9 +551,12 @@ fn separate_stems_returns_model_missing_gracefully() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "stem_input.wav", 440.0, 1.0, 0.25);
 
+    let mut clipboard: Option<Vec<f32>> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
+        user_message: "",
+        clipboard: &mut clipboard,
     };
 
     let msg = err(dispatcher

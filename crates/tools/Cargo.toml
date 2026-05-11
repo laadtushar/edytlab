@@ -15,6 +15,7 @@ audio-engine = { path = "../audio-engine" }
 audio-decoder = { path = "../audio-decoder" }
 audio-analysis = { path = "../audio-analysis" }
 audio-time = { path = "../audio-time" }
+blake3 = "1"
 ml-demucs = { path = "../ml-demucs" }
 ml-pipeline = { path = "../ml-pipeline" }
 ml-whisper = { path = "../ml-whisper" }
@@ -23,6 +24,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 schemars = "0.8"
 jsonschema = { version = "0.18", default-features = false }
+regex = "1"
 tempfile = "3"
 thiserror = "2"
 tracing = "0.1"

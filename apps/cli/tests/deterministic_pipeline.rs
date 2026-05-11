@@ -123,6 +123,7 @@ fn podcast_cleanup_deterministic() {
         session::Store::open(project.path()).expect("open store"),
     ));
     let engine = Arc::new(Mutex::new(audio_engine::Engine::new()));
+    let mut clipboard: Option<Vec<f32>> = None;
 
     // Run the pipeline. Each block reacquires the locks to mirror the
     // shape of the real agent loop, where each tool call is a separate
@@ -135,6 +136,8 @@ fn podcast_cleanup_deterministic() {
         let mut ctx = ToolContext {
             store: &mut s,
             engine: &mut e,
+            user_message: "",
+            clipboard: &mut clipboard,
         };
         invoke(
             &dispatcher,
@@ -160,6 +163,8 @@ fn podcast_cleanup_deterministic() {
         let mut ctx = ToolContext {
             store: &mut s,
             engine: &mut e,
+            user_message: "",
+            clipboard: &mut clipboard,
         };
         invoke(
             &dispatcher,
@@ -180,6 +185,8 @@ fn podcast_cleanup_deterministic() {
         let mut ctx = ToolContext {
             store: &mut s,
             engine: &mut e,
+            user_message: "",
+            clipboard: &mut clipboard,
         };
         invoke(
             &dispatcher,
@@ -207,6 +214,8 @@ fn podcast_cleanup_deterministic() {
         let mut ctx = ToolContext {
             store: &mut s,
             engine: &mut e,
+            user_message: "",
+            clipboard: &mut clipboard,
         };
         invoke(
             &dispatcher,

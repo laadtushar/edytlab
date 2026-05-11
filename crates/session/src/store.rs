@@ -127,6 +127,54 @@ impl Store {
         Ok(id)
     }
 
+    /// Return the annotation list visible at `head`.
+    ///
+    /// Annotations are content-addressed alongside the rest of the state,
+    /// so this is just a thin accessor on top of [`Store::get`]: it reads
+    /// the node, clones out its `state.annotations`. Forks see only their
+    /// own annotations, and reverting head to an older node automatically
+    /// restores that node's annotations without any side-channel bookkeeping.
+    pub fn annotations_for(&self, head: NodeId) -> Result<Vec<crate::annotation::Annotation>> {
+        let node = self.get(head)?;
+        Ok(node.state.annotations.clone())
+    }
+
+    /// Append a new node whose state extends `head`'s annotation list
+    /// with `annotation`. Returns the id of the new node.
+    ///
+    /// History is immutable: `head` is unchanged. Callers chaining edits
+    /// should feed the returned id back in as the next `head`.
+    pub fn add_annotation(
+        &mut self,
+        head: NodeId,
+        annotation: crate::annotation::Annotation,
+    ) -> Result<NodeId> {
+        let mut node = self.get(head)?;
+        node.state.annotations.push(annotation);
+        self.append(node)
+    }
+
+    /// Remove the annotation with id `target` from `head`'s annotation
+    /// list, appending a new node with the trimmed list. Returns the new
+    /// head id.
+    ///
+    /// If no annotation in `head` has id `target` (already removed, or
+    /// caller raced another edit) this is a no-op and returns `head`
+    /// unchanged — no new node is appended.
+    pub fn remove_annotation(
+        &mut self,
+        head: NodeId,
+        target: crate::annotation::AnnotationId,
+    ) -> Result<NodeId> {
+        let mut node = self.get(head)?;
+        let before = node.state.annotations.len();
+        node.state.annotations.retain(|a| a.id != target);
+        if node.state.annotations.len() == before {
+            return Ok(head);
+        }
+        self.append(node)
+    }
+
     pub fn get(&self, id: NodeId) -> Result<SessionNode> {
         let hex = id.to_hex();
         let path = self.shard_dir(&hex).join(format!("{hex}.json"));

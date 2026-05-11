@@ -48,6 +48,7 @@ use crate::anthropic::{
     MessagesRequest, Role, StreamEvent, SystemBlock, ToolChoice,
 };
 use crate::prompt::{DEFAULT_MAX_TOKENS, MAX_TOOL_CALLS_PER_TURN};
+use crate::session_context::{render_block, SessionContext};
 use crate::{AgentEvent, Error, LlmConfig, Result, TurnResult};
 
 // ---------------------------------------------------------------------------
@@ -276,9 +277,11 @@ pub(crate) async fn run_turn<F>(
     dispatcher: &Arc<Mutex<ToolDispatcher>>,
     store: &Arc<Mutex<session::Store>>,
     engine: &Arc<Mutex<audio_engine::Engine>>,
+    clipboard: &Arc<Mutex<Option<Vec<f32>>>>,
     conversation: &mut Vec<Message>,
     plan_notify: &Arc<Notify>,
     user_message: String,
+    session_ctx: Option<&SessionContext>,
     mut on_event: F,
 ) -> Result<TurnResult>
 where
@@ -287,7 +290,18 @@ where
     // M27: classify the user message to select the system prompt and
     // decide whether to gate on plan approval.
     let mode = classify_mode(cfg, http, &user_message, conversation).await;
-    let system_prompt = select_system_prompt(mode);
+    let base_prompt = select_system_prompt(mode);
+
+    // Splice the per-turn session context (selection + markers) into
+    // the system prompt. `render_block` returns "" for an empty context
+    // so the splice is a no-op when the frontend hasn't pushed anything.
+    let ctx_block = session_ctx.map(render_block).unwrap_or_default();
+    let combined_prompt = if ctx_block.is_empty() {
+        base_prompt.to_string()
+    } else {
+        format!("{base_prompt}\n\n{ctx_block}")
+    };
+    let system_prompt: &str = &combined_prompt;
 
     // M27: if mashup mode, request a plan from the model and wait for
     // the frontend to approve before executing any tools.
@@ -306,6 +320,8 @@ where
     }
 
     // 1. Push the user turn onto the running conversation.
+    // Save a copy before `user_message` is consumed by the ContentBlock move.
+    let user_msg_saved = user_message.clone();
     conversation.push(Message {
         role: Role::User,
         content: vec![ContentBlock::Text { text: user_message }],
@@ -560,9 +576,12 @@ where
                 let d = dispatcher.lock().expect("dispatcher mutex poisoned");
                 let mut store_g = store.lock().expect("store mutex poisoned");
                 let mut engine_g = engine.lock().expect("engine mutex poisoned");
+                let mut clipboard_g = clipboard.lock().expect("clipboard mutex poisoned");
                 let mut ctx = ToolContext {
                     store: &mut store_g,
                     engine: &mut engine_g,
+                    user_message: &user_msg_saved,
+                    clipboard: &mut clipboard_g,
                 };
                 d.invoke(&name, args, &mut ctx)
             };

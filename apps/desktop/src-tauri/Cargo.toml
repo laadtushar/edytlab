@@ -25,6 +25,8 @@ tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync"] 
 tracing = "0.1"
 keyring = { version = "3", default-features = false, features = ["linux-native", "apple-native", "windows-native"] }
 
+uuid = { version = "1", features = ["v4"] }
+
 ai = { path = "../../../crates/ai" }
 audio-engine = { path = "../../../crates/audio-engine" }
 session = { path = "../../../crates/session" }

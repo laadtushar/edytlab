@@ -16,6 +16,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { sendMessage as bridgeSendMessage } from "../lib/tauri-bridge";
+import type { Marker } from "../lib/tauri-bridge";
 
 import {
   useAgentStream,
@@ -41,6 +42,8 @@ export interface ChatProps {
   selection?: { start: number; end: number } | null;
   /** Called when the user clears the selection from the chat pill. */
   onClearSelection?: () => void;
+  /** Current markers — point markers are included in the outgoing message prefix. */
+  markers?: Marker[];
 }
 
 function isMessage(e: LogEntry): e is MessageEntry {
@@ -68,6 +71,7 @@ export function Chat({
   onRequestRenderPreview,
   selection,
   onClearSelection,
+  markers,
 }: ChatProps) {
   const { entries, current, pushUserMessage, pendingPlan, approvePlan } =
     useAgentStream();
@@ -97,9 +101,16 @@ export function Chat({
     if (!text || busy) return;
     setInput("");
     setLocalError(null);
+    const markerCtx =
+      markers && markers.length > 0
+        ? `[markers: ${markers
+            .filter((m): m is typeof m & { kind: "marker"; time_sec: number } => m.kind === "marker")
+            .map((m) => `${m.name}@${fmtTime(m.time_sec)}`)
+            .join(", ")}] `
+        : "";
     const wireText = selection
-      ? `[apply to ${fmtTime(selection.start)}-${fmtTime(selection.end)}] ${text}`
-      : text;
+      ? `[apply to ${fmtTime(selection.start)}-${fmtTime(selection.end)}] ${markerCtx}${text}`
+      : markerCtx + text;
     pushUserMessage(wireText);
     setBusy(true);
     try {

@@ -9,6 +9,8 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::annotation::Annotation;
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct TrackId(pub Uuid);
@@ -35,6 +37,12 @@ pub struct SessionState {
     pub transcript: Option<Transcript>,
     pub sample_rate: u32,
     pub length_samples: u64,
+    /// Marker / region annotations attached to the rendered audio at
+    /// this head. `#[serde(default, skip_serializing_if = …)]` keeps
+    /// existing on-disk node JSON readable AND keeps the content
+    /// hash stable for nodes that don't use annotations.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub annotations: Vec<Annotation>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -144,4 +152,75 @@ pub struct TranscriptWord {
     pub start_s: f32,
     pub end_s: f32,
     pub confidence: f32,
+}
+
+#[cfg(test)]
+mod state_tests {
+    //! Serde behaviour for the `annotations` field on `SessionState`.
+    //!
+    //! These tests pin the back-compat contract: pre-A2 node JSON without
+    //! an `annotations` key must still deserialize, and empty-annotation
+    //! states must serialise WITHOUT the field (so the content hash and
+    //! existing snapshots stay stable for nodes that don't use them).
+    use super::*;
+    use crate::annotation::{Annotation, AnnotationId, AnnotationKind};
+
+    fn empty_state() -> SessionState {
+        SessionState {
+            tracks: Vec::new(),
+            bus_routing: BusGraph::default(),
+            master_chain: Vec::new(),
+            tempo_map: TempoMap::default(),
+            key_map: None,
+            transcript: None,
+            sample_rate: 48_000,
+            length_samples: 0,
+            annotations: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn annotations_default_to_empty() {
+        // Legacy on-disk JSON written before A2 has no `annotations`
+        // key. Must still deserialize.
+        let legacy_json = serde_json::json!({
+            "tracks": [],
+            "bus_routing": { "buses": [] },
+            "master_chain": [],
+            "tempo_map": { "default_bpm": 120.0, "segments": [] },
+            "key_map": null,
+            "transcript": null,
+            "sample_rate": 48000,
+            "length_samples": 0,
+        });
+        let s: SessionState = serde_json::from_value(legacy_json).unwrap();
+        assert!(s.annotations.is_empty());
+    }
+
+    #[test]
+    fn empty_annotations_are_skipped_in_serialization() {
+        // Empty Vec must not produce an `annotations` field — this is what
+        // keeps `NodeId::from_state` stable for non-annotation nodes.
+        let s = empty_state();
+        let value = serde_json::to_value(&s).unwrap();
+        let obj = value.as_object().expect("state serializes as object");
+        assert!(
+            !obj.contains_key("annotations"),
+            "empty annotations leaked into JSON: {value}"
+        );
+    }
+
+    #[test]
+    fn non_empty_annotations_round_trip() {
+        let mut s = empty_state();
+        s.annotations.push(Annotation {
+            id: AnnotationId::new(),
+            name: "intro".into(),
+            kind: AnnotationKind::Marker { time_sec: 1.5 },
+        });
+        let json = serde_json::to_string(&s).unwrap();
+        let back: SessionState = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.annotations.len(), 1);
+        assert_eq!(back, s);
+    }
 }

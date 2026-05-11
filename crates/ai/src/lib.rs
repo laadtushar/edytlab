@@ -41,7 +41,10 @@ pub mod keychain;
 pub mod models;
 pub mod prompt;
 pub mod provider;
+pub mod session_context;
 pub mod validate;
+
+pub use session_context::{render_block as render_session_block, SessionContext};
 
 use std::sync::{Arc, Mutex};
 
@@ -237,6 +240,9 @@ pub struct Agent {
     dispatcher: Arc<Mutex<tools::ToolDispatcher>>,
     store: Arc<Mutex<session::Store>>,
     engine: Arc<Mutex<audio_engine::Engine>>,
+    /// In-memory audio clipboard for copy_region / paste_region. Shared
+    /// with `AppState` so the same clipboard persists across turns.
+    pub(crate) clipboard: Arc<Mutex<Option<Vec<f32>>>>,
     /// Per-agent conversation history. Phase 1 keeps this in memory;
     /// persistence comes later.
     conversation: Vec<Message>,
@@ -247,8 +253,8 @@ pub struct Agent {
 }
 
 impl Agent {
-    /// Build a new agent. `dispatcher`, `store`, and `engine` are
-    /// reference-counted so the caller can keep using them concurrently
+    /// Build a new agent. `dispatcher`, `store`, `engine`, and `clipboard`
+    /// are reference-counted so the caller can keep using them concurrently
     /// (under their respective mutexes).
     pub fn new(
         cfg: LlmConfig,
@@ -256,6 +262,7 @@ impl Agent {
         store: Arc<Mutex<session::Store>>,
         engine: Arc<Mutex<audio_engine::Engine>>,
         plan_notify: Arc<tokio::sync::Notify>,
+        clipboard: Arc<Mutex<Option<Vec<f32>>>>,
     ) -> Self {
         Self {
             cfg,
@@ -263,6 +270,7 @@ impl Agent {
             dispatcher,
             store,
             engine,
+            clipboard,
             conversation: Vec::new(),
             plan_notify,
         }
@@ -280,15 +288,32 @@ impl Agent {
     where
         F: FnMut(AgentEvent),
     {
+        self.turn_with_context(user_message, None, on_event).await
+    }
+
+    /// Like [`Agent::turn`] but takes an optional [`SessionContext`]
+    /// (current selection + markers). The context is spliced into the
+    /// per-turn system prompt; pass `None` for the no-context default.
+    pub async fn turn_with_context<F>(
+        &mut self,
+        user_message: String,
+        session_ctx: Option<&SessionContext>,
+        on_event: F,
+    ) -> Result<TurnResult>
+    where
+        F: FnMut(AgentEvent),
+    {
         agent_loop::run_turn(
             &self.cfg,
             &self.http,
             &self.dispatcher,
             &self.store,
             &self.engine,
+            &self.clipboard,
             &mut self.conversation,
             &self.plan_notify,
             user_message,
+            session_ctx,
             on_event,
         )
         .await

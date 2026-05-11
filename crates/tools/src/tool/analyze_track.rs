@@ -143,9 +143,12 @@ mod tests {
 
         let mut store = session::Store::open(dir.path()).unwrap();
         let mut engine = audio_engine::Engine::new();
+        let mut clipboard: Option<Vec<f32>> = None;
         let mut ctx = ToolContext {
             store: &mut store,
             engine: &mut engine,
+            user_message: "",
+            clipboard: &mut clipboard,
         };
 
         let tool = AnalyzeTrackTool;
@@ -172,9 +175,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut store = session::Store::open(dir.path()).unwrap();
         let mut engine = audio_engine::Engine::new();
+        let mut clipboard: Option<Vec<f32>> = None;
         let mut ctx = ToolContext {
             store: &mut store,
             engine: &mut engine,
+            user_message: "",
+            clipboard: &mut clipboard,
         };
         let tool = AnalyzeTrackTool;
         let result = tool

@@ -6,11 +6,13 @@
 //! [`diff`] are Phase 2 stubs but live here so the on-disk schema is
 //! forward-compatible from day one.
 
+pub mod annotation;
 pub mod diff;
 pub mod node;
 pub mod state;
 pub mod store;
 
+pub use annotation::{Annotation, AnnotationId, AnnotationKind};
 pub use diff::{
     diff as diff_nodes, diff_states, fork as fork_node, merge as merge_nodes,
     revert_to as revert_to_node, BusMeta, DiffOp, DiffTarget, EffectScope, SessionDiff,
