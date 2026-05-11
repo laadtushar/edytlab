@@ -30,39 +30,30 @@ import {
   type ProviderId,
 } from "../lib/tauri-bridge";
 import { AgentProfilesEditor } from "./AgentProfilesEditor";
+import { McpServersEditor } from "./McpServersEditor";
 import { MemoryEditor } from "./MemoryEditor";
 import { SkillsEditor } from "./SkillsEditor";
 
 /** Settings panel tabs. The blocking onboarding flow is locked to
- *  "account"; the panel mode lets the user switch. Phases 1-4 ship
- *  "account", "memory", "skills", "agents"; phase 5 adds "mcp". */
-type SettingsTab = "account" | "memory" | "skills" | "agents";
+ *  "account"; the panel mode lets the user switch. Phases 1-5 ship
+ *  "account", "memory", "skills", "agents", "mcp". */
+type SettingsTab = "account" | "memory" | "skills" | "agents" | "mcp";
 
-/** Legacy (single-provider) localStorage key. Migrated to the
- * per-provider slot below on first read. */
 export const LEGACY_MODEL_STORAGE_KEY = "edytlab.model";
-
-/** Per-provider localStorage prefix for the chosen model id. */
 export const MODEL_STORAGE_KEY_PREFIX = "edytlab.model.";
-
-/** localStorage key under which the chosen provider is mirrored. */
 export const PROVIDER_STORAGE_KEY = "edytlab.provider";
 
-/** URL surfaced by the "How to get a key" link, per provider. */
 export const ANTHROPIC_KEYS_URL =
   "https://console.anthropic.com/settings/keys";
 export const OPENROUTER_KEYS_URL = "https://openrouter.ai/keys";
 export const OPENAI_KEYS_URL = "https://platform.openai.com/api-keys";
 
-/** Per-provider default model id used when the user has no saved
- * selection. Mirrored loosely from the Rust `provider.rs` defaults. */
 const DEFAULT_MODEL_BY_PROVIDER: Record<ProviderId, string> = {
   anthropic: "claude-sonnet-4-6",
   openrouter: "anthropic/claude-sonnet-4-6",
   openai: "gpt-4o-mini",
 };
 
-/** Provider catalogue surfaced in the Settings picker. */
 const PROVIDERS: ReadonlyArray<{
   id: ProviderId;
   label: string;
@@ -91,23 +82,15 @@ const PROVIDERS: ReadonlyArray<{
 
 const DEFAULT_PROVIDER: ProviderId = "anthropic";
 
-/** Build the localStorage key for a provider's chosen model. */
 function modelStorageKey(provider: ProviderId): string {
   return `${MODEL_STORAGE_KEY_PREFIX}${provider}`;
 }
 
-/**
- * Read the model id stored for `provider`, applying a one-shot
- * migration from the legacy single-provider `edytlab.model` slot the
- * first time the per-provider slot is empty for the Anthropic provider.
- */
 function readStoredModel(provider: ProviderId): string {
   if (typeof window === "undefined") return DEFAULT_MODEL_BY_PROVIDER[provider];
   const ns = window.localStorage.getItem(modelStorageKey(provider));
   if (ns && ns.trim()) return ns;
   if (provider === "anthropic") {
-    // Best-effort migration: if the user previously saved a model
-    // under the legacy key, treat it as the Anthropic choice.
     const legacy = window.localStorage.getItem(LEGACY_MODEL_STORAGE_KEY);
     if (legacy && legacy.trim()) {
       window.localStorage.setItem(modelStorageKey("anthropic"), legacy);
@@ -118,7 +101,6 @@ function readStoredModel(provider: ProviderId): string {
   return DEFAULT_MODEL_BY_PROVIDER[provider];
 }
 
-/** Result of the most recent Test-button click. */
 type TestState =
   | { kind: "idle" }
   | { kind: "running" }
@@ -126,16 +108,9 @@ type TestState =
   | { kind: "err"; message: string };
 
 export interface SettingsProps {
-  /**
-   * Determines layout and whether the user is allowed to dismiss the
-   * panel. `blocking` shows a full-screen overlay with no Close button.
-   */
   mode: "blocking" | "panel";
-  /** Called when the user successfully saves a (validated) API key. */
   onSaved: () => void;
-  /** Called when the user dismisses a `mode="panel"` Settings panel. */
   onClose?: () => void;
-  /** Called after the user clears the stored key. */
   onCleared?: () => void;
 }
 
@@ -166,26 +141,16 @@ export function Settings({
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [tab, setTab] = useState<SettingsTab>("account");
 
-  // Persist the provider choice so the picker remembers which radio
-  // was selected when the modal re-opens.
   useEffect(() => {
     if (typeof window !== "undefined") {
       window.localStorage.setItem(PROVIDER_STORAGE_KEY, provider);
     }
   }, [provider]);
 
-  // Refresh the model field whenever the provider changes — pull from
-  // localStorage so each provider's last selection sticks across
-  // toggles.
   useEffect(() => {
     setModel(readStoredModel(provider));
   }, [provider]);
 
-  /**
-   * Fetch the model catalogue for the active provider. Re-runs on
-   * provider change and when the user finishes typing a key (OpenAI
-   * needs the key to authenticate the catalogue endpoint).
-   */
   const fetchCatalogue = useCallback(
     async (p: ProviderId, k: string | undefined) => {
       try {
@@ -202,11 +167,8 @@ export function Settings({
 
   useEffect(() => {
     void fetchCatalogue(provider, key.trim() || undefined);
-  }, [provider, fetchCatalogue]); // intentionally NOT key — see below
+  }, [provider, fetchCatalogue]);
 
-  // Re-fetch when the user *stops* typing a key (debounce 400ms). This
-  // gives OpenAI a chance to populate suggestions once the user has
-  // pasted their key, without spamming the endpoint on every keystroke.
   useEffect(() => {
     if (!key.trim()) return;
     const t = window.setTimeout(() => {
@@ -219,8 +181,6 @@ export function Settings({
     async (next: ProviderId) => {
       if (next === provider) return;
       setProvider(next);
-      // Wipe the input key + test state — they belonged to the
-      // previous provider.
       setKey("");
       setTest({ kind: "idle" });
       try {
@@ -238,11 +198,8 @@ export function Settings({
       if (typeof window !== "undefined") {
         window.localStorage.setItem(modelStorageKey(provider), next);
       }
-      // Push the choice down to the Rust state so the next agent
-      // rebuild reads it. Errors are non-fatal; the agent rebuild
-      // happens on Save anyway.
       void setActiveModel(provider, next).catch(() => {
-        /* swallow — local state is the source of truth here */
+        /* swallow */
       });
     },
     [provider],
@@ -254,8 +211,6 @@ export function Settings({
     setSaveError(null);
     try {
       await setApiKeyFor(provider, key);
-      // Push the model selection through too so the rebuilt agent
-      // honours it on the very next turn.
       if (model.trim()) {
         try {
           await setActiveModel(provider, model);
@@ -306,9 +261,6 @@ export function Settings({
       ? "fixed inset-0 z-50 flex items-center justify-center bg-[radial-gradient(ellipse_at_center,rgba(0,0,0,0.85),rgba(0,0,0,0.97))] backdrop-blur-sm app-fade-in"
       : "fixed inset-0 z-40 flex items-center justify-center bg-black/55 backdrop-blur-sm app-fade-in";
 
-  // Format suggestion labels. OpenRouter entries are
-  // `provider/model — display_name`; native providers just show
-  // `id — display_name`. We dedupe by id since Rust returns sorted.
   const suggestions = models.map((m) => {
     const label =
       m.display_name && m.display_name !== m.id
@@ -317,10 +269,6 @@ export function Settings({
     return { id: m.id, label };
   });
 
-  // Hint string: when the user has loaded a catalogue we show the
-  // count, otherwise the inline error. The hint sits beneath the
-  // combo so users always know whether suggestions are coming from
-  // the live catalogue.
   const modelHint =
     modelsError !== null
       ? `Couldn't fetch model list (${modelsError}); type the model id manually.`
@@ -345,7 +293,6 @@ export function Settings({
           shadow-[0_30px_80px_-20px_rgba(0,0,0,0.7),0_0_0_1px_rgba(255,255,255,0.02)_inset]
         "
       >
-        {/* Header */}
         <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
           <div className="flex items-baseline gap-2">
             <h2 className="font-[var(--font-serif)] text-2xl leading-none text-[var(--text)]">
@@ -379,9 +326,6 @@ export function Settings({
           ) : null}
         </div>
 
-        {/* Tab nav — only in panel mode. The blocking onboarding flow
-            stays locked to the Account tab so a first-time user can't
-            wander into Memory before configuring a key. */}
         {mode === "panel" ? (
           <div
             data-testid="settings-tabs"
@@ -412,6 +356,12 @@ export function Settings({
               active={tab === "agents"}
               onClick={() => setTab("agents")}
             />
+            <SettingsTabButton
+              id="mcp"
+              label="MCP"
+              active={tab === "mcp"}
+              onClick={() => setTab("mcp")}
+            />
           </div>
         ) : null}
 
@@ -421,6 +371,7 @@ export function Settings({
           {tab === "agents" && mode === "panel" ? (
             <AgentProfilesEditor />
           ) : null}
+          {tab === "mcp" && mode === "panel" ? <McpServersEditor /> : null}
           {tab === "account" ? (
           <>
           {mode === "blocking" ? (
