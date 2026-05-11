@@ -290,6 +290,56 @@ export const upsertSkill = (
 export const deleteSkill = (name: string): Promise<void> =>
   invoke<void>("delete_skill", { name });
 
+// -----------------------------------------------------------------------------
+// agent profiles — `~/.edytlab/agents/*.md`
+// -----------------------------------------------------------------------------
+
+/** Mirrors `commands::AgentProfileModel`. */
+export interface AgentProfileModel {
+  provider: string;
+  id: string;
+}
+
+/** Mirrors `commands::AgentProfileSummary`. */
+export interface AgentProfileSummary {
+  name: string;
+  description: string;
+  model: AgentProfileModel | null;
+  tool_count: number | null;
+}
+
+/** Mirrors `commands::AgentProfileContent` — round-trip for the editor. */
+export interface AgentProfileContent {
+  name: string;
+  description: string;
+  /** null = use global default model. */
+  model: AgentProfileModel | null;
+  /** null = all tools; [] = no tools. */
+  tools: string[] | null;
+  body: string;
+}
+
+export const listAgentProfiles = (): Promise<AgentProfileSummary[]> =>
+  invoke<AgentProfileSummary[]>("list_agent_profiles");
+
+export const readAgentProfile = (name: string): Promise<AgentProfileContent> =>
+  invoke<AgentProfileContent>("read_agent_profile", { name });
+
+export const upsertAgentProfile = (
+  name: string,
+  content: AgentProfileContent,
+): Promise<void> => invoke<void>("upsert_agent_profile", { name, content });
+
+export const deleteAgentProfile = (name: string): Promise<void> =>
+  invoke<void>("delete_agent_profile", { name });
+
+export const getActiveAgentProfile = (): Promise<string | null> =>
+  invoke<string | null>("get_active_agent_profile");
+
+/** Pass `null` to clear the active profile. */
+export const setActiveAgentProfile = (name: string | null): Promise<void> =>
+  invoke<void>("set_active_agent_profile", { name });
+
 /** Look up a single session node by id. */
 export const getNode = (id: NodeId): Promise<SessionNode> =>
   invoke<SessionNode>("get_node", { id });

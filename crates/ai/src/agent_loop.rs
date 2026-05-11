@@ -167,12 +167,13 @@ fn select_system_prompt(mode: Mode) -> &'static str {
 /// invariant can be unit-tested without booting `run_turn`.
 pub(crate) fn assemble_system_prompt(
     base: &str,
+    profile_block: &str,
     skills_block: &str,
     memory_block: &str,
     ctx_block: &str,
 ) -> String {
     let mut out = base.to_string();
-    for fragment in [skills_block, memory_block, ctx_block] {
+    for fragment in [profile_block, skills_block, memory_block, ctx_block] {
         if !fragment.is_empty() {
             out.push_str("\n\n");
             out.push_str(fragment);
@@ -200,6 +201,28 @@ pub(crate) fn message_text(m: &Message) -> String {
 /// Stringified conversation mode for the skill trigger context. Kept
 /// stable so frontmatter `modes: […]` matchers can rely on the same
 /// labels we surface elsewhere.
+/// Keep only schemas whose `name` is in `whitelist`. An empty
+/// whitelist hides every tool — that's the deliberate "no tools
+/// for this profile" case. A `null` whitelist (i.e. `None` from the
+/// caller) means "all tools" and is handled at the call site.
+pub(crate) fn filter_tool_schemas(schemas: Value, whitelist: &[String]) -> Value {
+    let arr = match schemas.as_array() {
+        Some(a) => a,
+        None => return schemas,
+    };
+    let kept: Vec<Value> = arr
+        .iter()
+        .filter(|s| {
+            s.get("name")
+                .and_then(|v| v.as_str())
+                .map(|n| whitelist.iter().any(|w| w == n))
+                .unwrap_or(false)
+        })
+        .cloned()
+        .collect();
+    Value::Array(kept)
+}
+
 fn mode_as_str(mode: Mode) -> &'static str {
     match mode {
         Mode::General => "general",
@@ -330,6 +353,8 @@ pub(crate) async fn run_turn<F>(
     session_ctx: Option<&SessionContext>,
     memory_store: Option<&memory::MemoryStore>,
     skill_library: Option<&Mutex<skills::SkillLibrary>>,
+    profile_body: Option<&str>,
+    tool_whitelist: Option<&[String]>,
     mut on_event: F,
 ) -> Result<TurnResult>
 where
@@ -361,8 +386,19 @@ where
         })
         .unwrap_or_default();
     let ctx_block = session_ctx.map(render_block).unwrap_or_default();
-    let combined_prompt =
-        assemble_system_prompt(base_prompt, &skills_block, &memory_block, &ctx_block);
+    let profile_block = profile_body
+        .map(|b| {
+            let defanged = b.replace("</agent-profile", "</\u{200B}agent-profile");
+            format!("<agent-profile>\n{}\n</agent-profile>", defanged.trim_end())
+        })
+        .unwrap_or_default();
+    let combined_prompt = assemble_system_prompt(
+        base_prompt,
+        &profile_block,
+        &skills_block,
+        &memory_block,
+        &ctx_block,
+    );
     let system_prompt: &str = &combined_prompt;
 
     // M27: if mashup mode, request a plan from the model and wait for
@@ -391,7 +427,11 @@ where
 
     let tool_schemas = {
         let d = dispatcher.lock().expect("dispatcher mutex poisoned");
-        d.tool_schemas()
+        let all = d.tool_schemas();
+        match tool_whitelist {
+            Some(whitelist) => filter_tool_schemas(all, whitelist),
+            None => all,
+        }
     };
 
     let mut total_tool_calls = 0usize;
@@ -936,24 +976,26 @@ No other text."#;
 
     #[test]
     fn assemble_no_extras_passes_base_through_unchanged() {
-        assert_eq!(assemble_system_prompt("BASE", "", "", ""), "BASE");
+        assert_eq!(assemble_system_prompt("BASE", "", "", "", ""), "BASE");
     }
 
     #[test]
-    fn assemble_orders_base_skills_memory_ctx() {
-        let out = assemble_system_prompt("BASE", "SKL", "MEM", "CTX");
+    fn assemble_orders_base_profile_skills_memory_ctx() {
+        let out = assemble_system_prompt("BASE", "PRO", "SKL", "MEM", "CTX");
         let base = out.find("BASE").expect("missing base");
+        let pro = out.find("PRO").expect("missing profile");
         let skl = out.find("SKL").expect("missing skills");
         let mem = out.find("MEM").expect("missing memory");
         let ctx = out.find("CTX").expect("missing ctx");
-        assert!(base < skl, "skills must come after base");
+        assert!(base < pro, "profile must come after base");
+        assert!(pro < skl, "skills must come after profile");
         assert!(skl < mem, "memory must come after skills");
         assert!(mem < ctx, "session ctx must come after memory");
     }
 
     #[test]
     fn assemble_skips_empty_blocks_cleanly() {
-        let out = assemble_system_prompt("BASE", "", "", "CTX");
+        let out = assemble_system_prompt("BASE", "", "", "", "CTX");
         assert!(out.contains("BASE"));
         assert!(out.contains("CTX"));
         assert!(!out.contains("\n\n\n"), "must not double-blank-line");
@@ -961,11 +1003,37 @@ No other text."#;
 
     #[test]
     fn assemble_separates_with_blank_line() {
-        let out = assemble_system_prompt("BASE", "", "MEM", "");
+        let out = assemble_system_prompt("BASE", "", "", "MEM", "");
         assert!(
             out.contains("BASE\n\nMEM"),
             "base + memory should be separated by a blank line; got {out:?}"
         );
+    }
+
+    #[test]
+    fn filter_tool_schemas_keeps_whitelisted_only() {
+        use serde_json::json;
+        let schemas = json!([
+            { "name": "load", "description": "" },
+            { "name": "gain", "description": "" },
+            { "name": "fade", "description": "" },
+        ]);
+        let out = filter_tool_schemas(schemas, &["load".into(), "gain".into()]);
+        let names: Vec<&str> = out
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|s| s.get("name").and_then(|v| v.as_str()))
+            .collect();
+        assert_eq!(names, vec!["load", "gain"]);
+    }
+
+    #[test]
+    fn filter_tool_schemas_empty_whitelist_hides_everything() {
+        use serde_json::json;
+        let schemas = json!([{ "name": "load" }]);
+        let out = filter_tool_schemas(schemas, &[]);
+        assert!(out.as_array().unwrap().is_empty());
     }
 
     // ------------------------------------------------------------------

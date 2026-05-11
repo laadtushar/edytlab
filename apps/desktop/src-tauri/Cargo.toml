@@ -28,6 +28,7 @@ keyring = { version = "3", default-features = false, features = ["linux-native",
 uuid = { version = "1", features = ["v4"] }
 
 ai = { path = "../../../crates/ai" }
+agent_profiles = { path = "../../../crates/agent_profiles" }
 audio-engine = { path = "../../../crates/audio-engine" }
 memory = { path = "../../../crates/memory" }
 session = { path = "../../../crates/session" }

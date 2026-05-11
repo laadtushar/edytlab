@@ -20,6 +20,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use agent_profiles::ProfileLibrary;
 use ai::Agent;
 use audio_engine::Engine;
 use memory::MemoryStore;
@@ -93,6 +94,17 @@ pub struct AppState {
     /// `lib.rs::setup`; tests using bare `AppState::new()` see an
     /// always-empty library.
     pub skills_dir: Arc<Mutex<PathBuf>>,
+    /// Agent-profile library + directory, parallel to `skills` /
+    /// `skills_dir`. Active profile selection rides on the
+    /// `active_agent_profile_name` slot below. Same single-mutex
+    /// reload-in-place model as `skills`.
+    pub agent_profiles: Arc<Mutex<ProfileLibrary>>,
+    pub agent_profiles_dir: Arc<Mutex<PathBuf>>,
+    /// Name of the currently active profile. `None` means "no
+    /// profile — use the global default agent". Mutated via
+    /// `set_active_agent_profile` and persisted to a sidecar file
+    /// (`<dir>/.active`) so the choice survives restart.
+    pub active_agent_profile_name: Arc<Mutex<Option<String>>>,
 }
 
 impl AppState {
@@ -117,6 +129,12 @@ impl AppState {
                     .expect("empty-dir skill library cannot fail"),
             )),
             skills_dir: Arc::new(Mutex::new(PathBuf::new())),
+            agent_profiles: Arc::new(Mutex::new(
+                ProfileLibrary::load_from(std::path::Path::new(""))
+                    .expect("empty-dir profile library cannot fail"),
+            )),
+            agent_profiles_dir: Arc::new(Mutex::new(PathBuf::new())),
+            active_agent_profile_name: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -161,6 +179,117 @@ impl AppState {
     /// rebuild required to pick up edits.
     pub fn skills_handle(&self) -> Arc<Mutex<SkillLibrary>> {
         Arc::clone(&self.skills)
+    }
+
+    /// Install the agent-profiles directory + initial load. Mirrors
+    /// `install_skill_library`. Also restores the active-profile
+    /// selection from `<dir>/.active` if present.
+    pub fn install_agent_profile_library(&self, dir: PathBuf) {
+        *self
+            .agent_profiles_dir
+            .lock()
+            .expect("agent_profiles_dir mutex poisoned") = dir.clone();
+        let lib = ProfileLibrary::load_from(&dir).unwrap_or_else(|e| {
+            tracing::warn!(error = ?e, "agent-profile library load failed; starting empty");
+            ProfileLibrary::load_from(std::path::Path::new(""))
+                .expect("empty-dir profile library cannot fail")
+        });
+        *self
+            .agent_profiles
+            .lock()
+            .expect("agent_profiles mutex poisoned") = lib;
+
+        let sidecar = dir.join(".active");
+        if let Ok(name) = std::fs::read_to_string(&sidecar) {
+            let trimmed = name.trim();
+            if !trimmed.is_empty() {
+                *self
+                    .active_agent_profile_name
+                    .lock()
+                    .expect("active profile mutex poisoned") = Some(trimmed.to_string());
+            }
+        }
+    }
+
+    /// Reload the agent-profile library from disk, in place.
+    pub fn reload_agent_profiles_from_disk(
+        &self,
+    ) -> std::result::Result<(), agent_profiles::Error> {
+        let dir = self
+            .agent_profiles_dir
+            .lock()
+            .expect("agent_profiles_dir mutex poisoned")
+            .clone();
+        let lib = ProfileLibrary::load_from(&dir)?;
+        *self
+            .agent_profiles
+            .lock()
+            .expect("agent_profiles mutex poisoned") = lib;
+        Ok(())
+    }
+
+    /// Snapshot the active profile name. `None` means "no profile —
+    /// use the default agent".
+    pub fn active_agent_profile(&self) -> Option<String> {
+        self.active_agent_profile_name
+            .lock()
+            .expect("active profile mutex poisoned")
+            .clone()
+    }
+
+    /// Persist the active-profile selection both in memory and to
+    /// the sidecar file so it survives restart.
+    pub fn set_active_agent_profile(&self, name: Option<String>) -> std::io::Result<()> {
+        *self
+            .active_agent_profile_name
+            .lock()
+            .expect("active profile mutex poisoned") = name.clone();
+        let dir = self
+            .agent_profiles_dir
+            .lock()
+            .expect("agent_profiles_dir mutex poisoned")
+            .clone();
+        let sidecar = dir.join(".active");
+        match name {
+            Some(n) => {
+                std::fs::create_dir_all(&dir)?;
+                std::fs::write(&sidecar, n)?;
+            }
+            None => {
+                let _ = std::fs::remove_file(&sidecar);
+            }
+        }
+        Ok(())
+    }
+
+    /// `(profile_body, tool_whitelist, model_override)` for the
+    /// currently active profile, or `(None, None, None)` when no
+    /// profile is active or the active name no longer exists on disk.
+    /// Used by `rebuild_agent` to apply the profile.
+    #[allow(clippy::type_complexity)]
+    pub fn active_profile_overrides(
+        &self,
+    ) -> (
+        Option<String>,
+        Option<Vec<String>>,
+        Option<(String, String)>,
+    ) {
+        let name = match self.active_agent_profile() {
+            Some(n) => n,
+            None => return (None, None, None),
+        };
+        let lib = self
+            .agent_profiles
+            .lock()
+            .expect("agent_profiles mutex poisoned");
+        match lib.find(&name) {
+            Some(p) => (
+                Some(agent_profiles::defang_body(&p.body)),
+                p.tools.clone(),
+                p.model.as_ref().map(|m| (m.provider.clone(), m.id.clone())),
+            ),
+            None => (None, None, None),
+        }
     }
 
     /// Reload the skill library from `skills_dir`, replacing the

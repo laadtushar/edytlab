@@ -96,6 +96,12 @@ pub enum CommandError {
 
     #[error("invalid skill: {0}")]
     InvalidSkill(String),
+
+    #[error("agent profiles directory not initialised")]
+    NoAgentProfilesDir,
+
+    #[error("invalid agent profile: {0}")]
+    InvalidAgentProfile(String),
 }
 
 impl From<CommandError> for String {
@@ -1354,6 +1360,302 @@ pub async fn write_memory(
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// agent profiles: list / read / upsert / delete + active selection
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AgentProfileSummary {
+    pub name: String,
+    pub description: String,
+    pub model: Option<AgentProfileModel>,
+    pub tool_count: Option<usize>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, Serialize)]
+pub struct AgentProfileModel {
+    pub provider: String,
+    pub id: String,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, Serialize)]
+pub struct AgentProfileContent {
+    pub name: String,
+    pub description: String,
+    /// `null` = use global default model.
+    pub model: Option<AgentProfileModel>,
+    /// `null` = all tools; empty `[]` = no tools.
+    pub tools: Option<Vec<String>>,
+    pub body: String,
+}
+
+#[tauri::command]
+pub async fn list_agent_profiles(
+    state: State<'_, AppState>,
+) -> CmdResult<Vec<AgentProfileSummary>> {
+    if let Err(e) = state.reload_agent_profiles_from_disk() {
+        tracing::warn!(error = ?e, "agent-profile reload failed; returning cached library");
+    }
+    let lib = state
+        .agent_profiles
+        .lock()
+        .map_err(|_| CommandError::Poisoned("agent_profiles"))?;
+    Ok(lib
+        .profiles()
+        .iter()
+        .map(|p| AgentProfileSummary {
+            name: p.name.clone(),
+            description: p.description.clone(),
+            model: p.model.as_ref().map(|m| AgentProfileModel {
+                provider: m.provider.clone(),
+                id: m.id.clone(),
+            }),
+            tool_count: p.tools.as_ref().map(|t| t.len()),
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub async fn read_agent_profile(
+    state: State<'_, AppState>,
+    name: String,
+) -> CmdResult<AgentProfileContent> {
+    let dir = agent_profiles_dir(&state)?;
+    let path = dir.join(format!("{name}.md"));
+    if !path.exists() {
+        return Err(CommandError::InvalidPath(format!("profile `{name}` not found")).into());
+    }
+    let raw = std::fs::read_to_string(&path).map_err(CommandError::from)?;
+    let parsed = parse_agent_profile_file(&raw)?;
+    Ok(AgentProfileContent {
+        name,
+        description: parsed.description,
+        model: parsed.model,
+        tools: parsed.tools,
+        body: parsed.body,
+    })
+}
+
+#[tauri::command]
+pub async fn upsert_agent_profile(
+    state: State<'_, AppState>,
+    name: String,
+    content: AgentProfileContent,
+) -> CmdResult<()> {
+    if name != content.name {
+        return Err(CommandError::InvalidAgentProfile(format!(
+            "name `{name}` does not match content.name `{}`",
+            content.name
+        ))
+        .into());
+    }
+    validate_agent_profile_name(&name)?;
+
+    let dir = agent_profiles_dir(&state)?;
+    std::fs::create_dir_all(&dir).map_err(CommandError::from)?;
+    let path = dir.join(format!("{name}.md"));
+    let serialised = serialise_agent_profile(&content);
+    let mut tmp = tempfile::NamedTempFile::new_in(&dir).map_err(CommandError::from)?;
+    std::io::Write::write_all(&mut tmp, serialised.as_bytes()).map_err(CommandError::from)?;
+    tmp.flush().map_err(CommandError::from)?;
+    tmp.persist(&path).map_err(|e| CommandError::Io(e.error))?;
+
+    if let Err(e) = state.reload_agent_profiles_from_disk() {
+        return Err(
+            CommandError::InvalidAgentProfile(format!("saved but reload failed: {e}")).into(),
+        );
+    }
+    // If the user is editing the currently active profile, rebuild
+    // the agent so the override takes effect on the next turn.
+    if state.active_agent_profile().as_deref() == Some(name.as_str()) {
+        rebuild_agent(&state).await?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn delete_agent_profile(state: State<'_, AppState>, name: String) -> CmdResult<()> {
+    validate_agent_profile_name(&name)?;
+    let dir = agent_profiles_dir(&state)?;
+    let path = dir.join(format!("{name}.md"));
+    if path.exists() {
+        std::fs::remove_file(&path).map_err(CommandError::from)?;
+    }
+    // If the deleted profile was active, drop the selection and
+    // rebuild the agent against the default config.
+    if state.active_agent_profile().as_deref() == Some(name.as_str()) {
+        state
+            .set_active_agent_profile(None)
+            .map_err(CommandError::from)?;
+        rebuild_agent(&state).await?;
+    }
+    if let Err(e) = state.reload_agent_profiles_from_disk() {
+        return Err(
+            CommandError::InvalidAgentProfile(format!("deleted but reload failed: {e}")).into(),
+        );
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_active_agent_profile(state: State<'_, AppState>) -> CmdResult<Option<String>> {
+    Ok(state.active_agent_profile())
+}
+
+#[tauri::command]
+pub async fn set_active_agent_profile(
+    state: State<'_, AppState>,
+    name: Option<String>,
+) -> CmdResult<()> {
+    if let Some(ref n) = name {
+        validate_agent_profile_name(n)?;
+        // Ensure the profile exists on disk before pinning the
+        // selection; the user sees the error immediately.
+        let lib = state
+            .agent_profiles
+            .lock()
+            .map_err(|_| CommandError::Poisoned("agent_profiles"))?;
+        if lib.find(n).is_none() {
+            return Err(
+                CommandError::InvalidAgentProfile(format!("profile `{n}` does not exist")).into(),
+            );
+        }
+    }
+    state
+        .set_active_agent_profile(name)
+        .map_err(CommandError::from)?;
+    rebuild_agent(&state).await?;
+    Ok(())
+}
+
+fn agent_profiles_dir(state: &AppState) -> Result<PathBuf, CommandError> {
+    let dir = state
+        .agent_profiles_dir
+        .lock()
+        .map_err(|_| CommandError::Poisoned("agent_profiles_dir"))?
+        .clone();
+    if dir.as_os_str().is_empty() {
+        return Err(CommandError::NoAgentProfilesDir);
+    }
+    Ok(dir)
+}
+
+fn validate_agent_profile_name(name: &str) -> Result<(), CommandError> {
+    if name.is_empty() || name.len() > 64 {
+        return Err(CommandError::InvalidAgentProfile(
+            "agent profile name must be 1-64 characters".into(),
+        ));
+    }
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(CommandError::InvalidAgentProfile(
+            "agent profile name may only contain ASCII letters, digits, dash, or underscore".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn serialise_agent_profile(c: &AgentProfileContent) -> String {
+    let mut out = String::from("---\n");
+    out.push_str(&format!(
+        "description: {}\n",
+        quote_if_needed(&c.description)
+    ));
+    if let Some(m) = &c.model {
+        out.push_str("model:\n");
+        out.push_str(&format!("  provider: {}\n", quote_if_needed(&m.provider)));
+        out.push_str(&format!("  id: {}\n", quote_if_needed(&m.id)));
+    }
+    if let Some(t) = &c.tools {
+        let inner: Vec<String> = t.iter().map(|x| quote_if_needed(x.trim())).collect();
+        out.push_str(&format!("tools: [{}]\n", inner.join(", ")));
+    }
+    out.push_str("---\n");
+    out.push_str(&c.body);
+    if !c.body.ends_with('\n') {
+        out.push('\n');
+    }
+    out
+}
+
+struct ParsedAgentProfile {
+    description: String,
+    model: Option<AgentProfileModel>,
+    tools: Option<Vec<String>>,
+    body: String,
+}
+
+fn parse_agent_profile_file(raw: &str) -> Result<ParsedAgentProfile, CommandError> {
+    let body_start = raw
+        .strip_prefix("---\n")
+        .or_else(|| raw.strip_prefix("---\r\n"))
+        .ok_or_else(|| {
+            CommandError::InvalidAgentProfile("missing frontmatter delimiters".into())
+        })?;
+    let end = body_start.find("\n---").ok_or_else(|| {
+        CommandError::InvalidAgentProfile("missing frontmatter closing delimiter".into())
+    })?;
+    let fm = &body_start[..end];
+    let body = body_start[end + "\n---".len()..]
+        .trim_start_matches('\r')
+        .trim_start_matches('\n')
+        .to_string();
+
+    let mut description = String::new();
+    let mut model_provider: Option<String> = None;
+    let mut model_id: Option<String> = None;
+    let mut tools: Option<Vec<String>> = None;
+    let mut in_model = false;
+    for line in fm.lines() {
+        if line.trim().is_empty() || line.trim_start().starts_with('#') {
+            continue;
+        }
+        let indented = line.starts_with("  ") || line.starts_with('\t');
+        let trimmed = line.trim();
+        if indented && in_model {
+            let (k, v) = match trimmed.split_once(':') {
+                Some(kv) => kv,
+                None => continue,
+            };
+            let v = strip_quotes(v.trim()).to_string();
+            match k.trim() {
+                "provider" => model_provider = Some(v),
+                "id" => model_id = Some(v),
+                _ => {}
+            }
+            continue;
+        }
+        in_model = false;
+        let (k, v) = match trimmed.split_once(':') {
+            Some(kv) => kv,
+            None => continue,
+        };
+        let v_raw = v.trim();
+        match k.trim() {
+            "description" => description = strip_quotes(v_raw).to_string(),
+            "model" => in_model = true,
+            "tools" => {
+                if let Some(arr) = v_raw.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
+                    tools = Some(split_array_items(arr));
+                }
+            }
+            _ => {}
+        }
+    }
+    let model = match (model_provider, model_id) {
+        (Some(p), Some(i)) => Some(AgentProfileModel { provider: p, id: i }),
+        _ => None,
+    };
+    Ok(ParsedAgentProfile {
+        description,
+        model,
+        tools,
+        body,
+    })
+}
+
 /// Rebuild the agent from the current state. Called after the API key,
 /// active provider, or project store changes; either or both
 /// prerequisites being missing is fine and clears the agent rather than
@@ -1369,18 +1671,24 @@ pub async fn rebuild_agent_public(state: &AppState) -> Result<(), CommandError> 
 async fn rebuild_agent(state: &AppState) -> Result<(), CommandError> {
     let api_key = state.api_key_snapshot();
     let store_handle = state.store_handle();
-    let provider_id = state.active_provider_id();
-    let provider = ai::validate::provider_for(&provider_id);
-    let chosen_model = state.model_for(&provider_id);
+    let global_provider_id = state.active_provider_id();
+    let global_chosen_model = state.model_for(&global_provider_id);
+    let (profile_body, tool_whitelist, profile_model) = state.active_profile_overrides();
+
+    // When the active profile pins a model, its `(provider, id)`
+    // overrides the global provider + model picker. We still need an
+    // API key for whichever provider ends up effective.
+    let (effective_provider_id, effective_model) = match profile_model {
+        Some((p, id)) => (p, Some(id)),
+        None => (global_provider_id, global_chosen_model),
+    };
+    let provider = ai::validate::provider_for(&effective_provider_id);
 
     let mut guard = state.agent.lock().await;
     *guard = match (api_key, store_handle) {
         (Some(key), Some(store)) => {
             let mut cfg = ai::LlmConfig::new(provider, key);
-            // Overlay the user's chosen model when one is recorded for
-            // the active provider; otherwise the provider's default
-            // applies (per `LlmConfig::new`).
-            if let Some(m) = chosen_model {
+            if let Some(m) = effective_model {
                 if !m.trim().is_empty() {
                     cfg = cfg.with_model(m);
                 }
@@ -1393,19 +1701,19 @@ async fn rebuild_agent(state: &AppState) -> Result<(), CommandError> {
                 Arc::clone(&state.plan_notify),
                 state.clipboard_handle(),
             );
-            // Attach the memory store if one is installed. The Tauri
-            // startup hook installs it once the app data dir is
-            // known; tests that go through `AppState::new()` without
-            // calling `install_memory_store` get an agent with no
-            // memory injection, matching pre-M28 behaviour.
             let agent = match state.memory_handle() {
                 Some(mem) => agent.with_memory(mem),
                 None => agent,
             };
-            // Attach the skill library. Always present (production
-            // wires it at startup, tests get an empty one), so we
-            // pass it unconditionally rather than a builder.
             let agent = agent.with_skills(state.skills_handle());
+            let agent = match profile_body {
+                Some(body) => agent.with_profile_body(body),
+                None => agent,
+            };
+            let agent = match tool_whitelist {
+                Some(list) => agent.with_tool_whitelist(list),
+                None => agent,
+            };
             Some(agent)
         }
         _ => None,

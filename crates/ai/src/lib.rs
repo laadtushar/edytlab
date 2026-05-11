@@ -260,6 +260,13 @@ pub struct Agent {
     /// and appends matched skill bodies between the base prompt and
     /// memory.
     pub(crate) skills: Option<Arc<Mutex<skills::SkillLibrary>>>,
+    /// Optional agent-profile body — appended to the system prompt
+    /// between the base prompt and the matched skills.
+    pub(crate) profile_body: Option<String>,
+    /// Optional tool-name whitelist. When present, only tools whose
+    /// name is in this set are exposed to the model. Combined with
+    /// any future capabilities-menu gate by intersection.
+    pub(crate) tool_whitelist: Option<Vec<String>>,
 }
 
 impl Agent {
@@ -285,7 +292,22 @@ impl Agent {
             plan_notify,
             memory: None,
             skills: None,
+            profile_body: None,
+            tool_whitelist: None,
         }
+    }
+
+    /// Builder — attach the active agent profile's body. Appended
+    /// between the base prompt and the matched skills.
+    pub fn with_profile_body(mut self, body: String) -> Self {
+        self.profile_body = Some(body);
+        self
+    }
+
+    /// Builder — restrict the tool set the model is shown.
+    pub fn with_tool_whitelist(mut self, whitelist: Vec<String>) -> Self {
+        self.tool_whitelist = Some(whitelist);
+        self
     }
 
     /// Builder — attach a memory store. Returns `self` so callers can
@@ -344,6 +366,8 @@ impl Agent {
             session_ctx,
             self.memory.as_deref(),
             self.skills.as_ref().map(Arc::as_ref),
+            self.profile_body.as_deref(),
+            self.tool_whitelist.as_deref(),
             on_event,
         )
         .await
