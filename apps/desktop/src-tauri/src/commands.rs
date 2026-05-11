@@ -644,7 +644,12 @@ pub async fn delete_skill(state: State<'_, AppState>, name: String) -> CmdResult
     if path.exists() {
         std::fs::remove_file(&path).map_err(CommandError::from)?;
     }
-    let _ = state.reload_skills_from_disk();
+    if let Err(e) = state.reload_skills_from_disk() {
+        return Err(CommandError::InvalidSkill(format!(
+            "skill `{name}` deleted but reload failed: {e}"
+        ))
+        .into());
+    }
     Ok(())
 }
 
@@ -807,11 +812,7 @@ fn parse_skill_file(raw: &str) -> Result<ParsedSkillFile, CommandError> {
             "enabled" => out.enabled = v == "true",
             "keywords" => {
                 if let Some(arr) = v.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
-                    out.keywords = arr
-                        .split(',')
-                        .map(|p| strip_quotes(p.trim()).to_string())
-                        .filter(|p| !p.is_empty())
-                        .collect();
+                    out.keywords = split_array_items(arr);
                 }
             }
             _ => {}
@@ -837,6 +838,85 @@ fn strip_quotes(s: &str) -> &str {
         &s[1..s.len() - 1]
     } else {
         s
+    }
+}
+
+/// Quote-aware split of an inline-array body (the part between the
+/// outer `[` and `]`). Commas inside `"…"` or `'…'` literals are
+/// preserved so a keyword like `"two,three"` survives the round trip.
+/// Each returned item is `strip_quotes`-d and trimmed; empty items
+/// are dropped.
+fn split_array_items(inner: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut in_quote: Option<char> = None;
+    let mut escaped = false;
+    for ch in inner.chars() {
+        if escaped {
+            current.push(ch);
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' && in_quote.is_some() {
+            // Preserve the backslash so `strip_quotes` sees the
+            // original `\"` sequence; the consumer can de-escape if
+            // it cares.
+            current.push(ch);
+            escaped = true;
+            continue;
+        }
+        match in_quote {
+            Some(q) if ch == q => {
+                current.push(ch);
+                in_quote = None;
+            }
+            Some(_) => current.push(ch),
+            None => {
+                if ch == '"' || ch == '\'' {
+                    in_quote = Some(ch);
+                    current.push(ch);
+                } else if ch == ',' {
+                    let item = strip_quotes(current.trim()).to_string();
+                    if !item.is_empty() {
+                        out.push(item);
+                    }
+                    current.clear();
+                } else {
+                    current.push(ch);
+                }
+            }
+        }
+    }
+    let item = strip_quotes(current.trim()).to_string();
+    if !item.is_empty() {
+        out.push(item);
+    }
+    out
+}
+
+#[cfg(test)]
+mod commands_tests {
+    use super::*;
+
+    #[test]
+    fn split_array_items_basic() {
+        assert_eq!(
+            split_array_items("a, b, c"),
+            vec!["a".to_string(), "b".into(), "c".into()]
+        );
+    }
+
+    #[test]
+    fn split_array_items_preserves_quoted_commas() {
+        assert_eq!(
+            split_array_items("one, \"two,three\", four"),
+            vec!["one".to_string(), "two,three".into(), "four".into()]
+        );
+    }
+
+    #[test]
+    fn split_array_items_drops_empties() {
+        assert_eq!(split_array_items(",,  a , ,"), vec!["a".to_string()]);
     }
 }
 

@@ -30,10 +30,17 @@ const DRAFT_DEFAULT: SkillContent = {
   body: "",
 };
 
+/**
+ * `isNew` is `true` for drafts created via the "New" button — the
+ * file doesn't exist on disk yet, so Delete is hidden. `dirty` flips
+ * to `true` on the first form change after load / save and clears
+ * when the save round-trip succeeds. Tracking it explicitly avoids
+ * a deep-compare against a baseline copy on every render.
+ */
 type EditorState =
   | { kind: "empty" }
   | { kind: "loading"; name: string }
-  | { kind: "draft"; content: SkillContent; baseline: SkillContent | null };
+  | { kind: "draft"; content: SkillContent; isNew: boolean; dirty: boolean };
 
 export function SkillsEditor() {
   const [list, setList] = useState<SkillSummary[]>([]);
@@ -64,7 +71,7 @@ export function SkillsEditor() {
     setStatus({ kind: "idle", message: "" });
     try {
       const content = await readSkill(name);
-      setEditor({ kind: "draft", content, baseline: content });
+      setEditor({ kind: "draft", content, isNew: false, dirty: false });
     } catch (err) {
       setStatus({ kind: "err", message: String(err) });
       setEditor({ kind: "empty" });
@@ -75,7 +82,11 @@ export function SkillsEditor() {
     setEditor({
       kind: "draft",
       content: { ...DRAFT_DEFAULT },
-      baseline: null,
+      isNew: true,
+      // A brand-new draft is dirty by default — Save is enabled the
+      // moment the user types a name (the empty-name guard still
+      // blocks the actual save).
+      dirty: true,
     });
     setStatus({ kind: "idle", message: "" });
   };
@@ -90,7 +101,10 @@ export function SkillsEditor() {
       setEditor({
         kind: "draft",
         content: editor.content,
-        baseline: editor.content,
+        // After a successful save the file exists on disk; the draft
+        // is no longer "new" and matches what's persisted.
+        isNew: false,
+        dirty: false,
       });
       setStatus({ kind: "ok", message: "Saved." });
     } catch (err) {
@@ -101,7 +115,7 @@ export function SkillsEditor() {
   };
 
   const handleDelete = async () => {
-    if (editor.kind !== "draft" || editor.baseline === null) return;
+    if (editor.kind !== "draft" || editor.isNew) return;
     if (
       !window.confirm(`Delete skill "${editor.content.name}"? This cannot be undone.`)
     )
@@ -116,9 +130,7 @@ export function SkillsEditor() {
     }
   };
 
-  const dirty =
-    editor.kind === "draft" &&
-    JSON.stringify(editor.content) !== JSON.stringify(editor.baseline);
+  const dirty = editor.kind === "draft" && editor.dirty;
 
   return (
     <div data-testid="skills-editor" className="flex h-[28rem] gap-3">
@@ -198,9 +210,9 @@ export function SkillsEditor() {
         ) : (
           <SkillForm
             content={editor.content}
-            isNew={editor.baseline === null}
+            isNew={editor.isNew}
             onChange={(c) =>
-              setEditor({ ...editor, content: c })
+              setEditor({ ...editor, content: c, dirty: true })
             }
           />
         )}
@@ -220,7 +232,7 @@ export function SkillsEditor() {
             {status.message}
           </span>
           <div className="flex items-center gap-2">
-            {editor.kind === "draft" && editor.baseline !== null ? (
+            {editor.kind === "draft" && !editor.isNew ? (
               <button
                 type="button"
                 data-testid="skills-delete"
