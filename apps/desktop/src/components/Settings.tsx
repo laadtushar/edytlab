@@ -29,6 +29,12 @@ import {
   type ModelInfo,
   type ProviderId,
 } from "../lib/tauri-bridge";
+import { MemoryEditor } from "./MemoryEditor";
+
+/** Settings panel tabs. The blocking onboarding flow is locked to
+ *  "account"; the panel mode lets the user switch. Phase 1 ships
+ *  "account" + "memory"; later phases add "skills", "agents", "mcp". */
+type SettingsTab = "account" | "memory";
 
 /** Legacy (single-provider) localStorage key. Migrated to the
  * per-provider slot below on first read. */
@@ -156,6 +162,7 @@ export function Settings({
   const [saving, setSaving] = useState(false);
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [modelsError, setModelsError] = useState<string | null>(null);
+  const [tab, setTab] = useState<SettingsTab>("account");
 
   // Persist the provider choice so the picker remembers which radio
   // was selected when the modal re-opens.
@@ -370,7 +377,34 @@ export function Settings({
           ) : null}
         </div>
 
+        {/* Tab nav — only in panel mode. The blocking onboarding flow
+            stays locked to the Account tab so a first-time user can't
+            wander into Memory before configuring a key. */}
+        {mode === "panel" ? (
+          <div
+            data-testid="settings-tabs"
+            role="tablist"
+            className="flex items-center gap-1 border-b border-[var(--border)] px-5 pt-3"
+          >
+            <SettingsTabButton
+              id="account"
+              label="Account"
+              active={tab === "account"}
+              onClick={() => setTab("account")}
+            />
+            <SettingsTabButton
+              id="memory"
+              label="Memory"
+              active={tab === "memory"}
+              onClick={() => setTab("memory")}
+            />
+          </div>
+        ) : null}
+
         <div className="px-5 py-4">
+          {tab === "memory" && mode === "panel" ? <MemoryEditor /> : null}
+          {tab === "account" ? (
+          <>
           {mode === "blocking" ? (
             <p className="mb-5 text-sm leading-relaxed text-[var(--text-dim)]">
               edytlab needs an LLM API key to power the assistant. Pick a
@@ -587,8 +621,42 @@ export function Settings({
               {saving ? "Saving…" : "Save & Continue"}
             </button>
           </div>
+          </>
+          ) : null}
         </div>
       </div>
     </div>
+  );
+}
+
+interface SettingsTabButtonProps {
+  id: SettingsTab;
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}
+
+function SettingsTabButton({
+  id,
+  label,
+  active,
+  onClick,
+}: SettingsTabButtonProps) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      data-testid={`settings-tab-${id}`}
+      onClick={onClick}
+      className={
+        "rounded-t-md border-b-2 px-3 py-1.5 text-sm transition " +
+        (active
+          ? "border-[var(--accent)] text-[var(--text)]"
+          : "border-transparent text-[var(--text-dim)] hover:text-[var(--text)]")
+      }
+    >
+      {label}
+    </button>
   );
 }

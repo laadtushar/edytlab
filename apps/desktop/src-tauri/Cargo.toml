@@ -29,6 +29,7 @@ uuid = { version = "1", features = ["v4"] }
 
 ai = { path = "../../../crates/ai" }
 audio-engine = { path = "../../../crates/audio-engine" }
+memory = { path = "../../../crates/memory" }
 session = { path = "../../../crates/session" }
 tools = { path = "../../../crates/tools" }
 
