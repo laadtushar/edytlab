@@ -87,9 +87,7 @@ pub(crate) async fn classify_mode(
         .map(|m| {
             serde_json::json!({
                 "role": match m.role { Role::User => "user", Role::Assistant => "assistant" },
-                "content": m.content.iter().filter_map(|b| {
-                    if let ContentBlock::Text { text } = b { Some(text.as_str()) } else { None }
-                }).collect::<Vec<_>>().join(" ")
+                "content": message_text(m),
             })
         })
         .collect();
@@ -183,6 +181,22 @@ pub(crate) fn assemble_system_prompt(
     out
 }
 
+/// Flatten a message's content blocks into a single space-joined
+/// string of its text blocks. Used by classify_mode / fetch_plan /
+/// run_turn — keeps the three call sites consistent and avoids
+/// silently dropping a block kind one path knows about and another
+/// doesn't.
+pub(crate) fn message_text(m: &Message) -> String {
+    m.content
+        .iter()
+        .filter_map(|b| match b {
+            ContentBlock::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// Stringified conversation mode for the skill trigger context. Kept
 /// stable so frontmatter `modes: […]` matchers can rely on the same
 /// labels we surface elsewhere.
@@ -226,9 +240,7 @@ async fn fetch_plan(
         .map(|m| {
             serde_json::json!({
                 "role": match m.role { Role::User => "user", Role::Assistant => "assistant" },
-                "content": m.content.iter().filter_map(|b| {
-                    if let ContentBlock::Text { text } = b { Some(text.as_str()) } else { None }
-                }).collect::<Vec<_>>().join(" ")
+                "content": message_text(m),
             })
         })
         .collect();
@@ -337,16 +349,7 @@ where
             let history: Vec<String> = conversation
                 .iter()
                 .filter(|m| m.role == Role::User)
-                .map(|m| {
-                    m.content
-                        .iter()
-                        .filter_map(|b| match b {
-                            ContentBlock::Text { text } => Some(text.as_str()),
-                            _ => None,
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                })
+                .map(message_text)
                 .collect();
             let ctx = skills::TriggerContext {
                 user_message: &user_message,

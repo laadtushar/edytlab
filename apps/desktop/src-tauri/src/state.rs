@@ -81,11 +81,11 @@ pub struct AppState {
     pub memory: Arc<Mutex<Option<Arc<MemoryStore>>>>,
     /// User-authored skill library. Reloaded via
     /// `reload_skills_from_disk` whenever the directory may have
-    /// changed (today: on startup + on `list_skills`); future phases
-    /// add edit / delete commands that trigger the same reload. The
-    /// `Arc<Mutex<…>>` is shared with each `Agent` build so the agent
-    /// loop sees whatever is in memory at turn-start.
-    pub skills: Arc<Mutex<Arc<Mutex<SkillLibrary>>>>,
+    /// changed; reloads replace the library *in place* (under the
+    /// existing `Mutex`) so every `Agent` that previously cloned this
+    /// `Arc` continues to see the latest library on its next turn —
+    /// no agent rebuild required.
+    pub skills: Arc<Mutex<SkillLibrary>>,
     /// Absolute path of the global skills directory
     /// (`~/.edytlab/skills`). Resolved once at startup; subsequent
     /// reloads scan this path. Empty `PathBuf` until
@@ -112,10 +112,10 @@ impl AppState {
             selection: Arc::new(Mutex::new(None)),
             clipboard: Arc::new(Mutex::new(None)),
             memory: Arc::new(Mutex::new(None)),
-            skills: Arc::new(Mutex::new(Arc::new(Mutex::new(
+            skills: Arc::new(Mutex::new(
                 SkillLibrary::load_from(std::path::Path::new(""))
                     .expect("empty-dir skill library cannot fail"),
-            )))),
+            )),
             skills_dir: Arc::new(Mutex::new(PathBuf::new())),
         }
     }
@@ -151,22 +151,21 @@ impl AppState {
             SkillLibrary::load_from(std::path::Path::new(""))
                 .expect("empty-dir library cannot fail")
         });
-        *self.skills.lock().expect("skills mutex poisoned") = Arc::new(Mutex::new(lib));
+        *self.skills.lock().expect("skills mutex poisoned") = lib;
     }
 
-    /// Snapshot the currently-installed skill library `Arc`. Cheap to
-    /// clone; passed to `Agent::with_skills` on rebuild.
+    /// Snapshot the currently-installed skill library handle. Cheap
+    /// to clone (`Arc`); passed to `Agent::with_skills` on rebuild.
+    /// Reloads happen in place under the same `Mutex` so every clone
+    /// sees the latest library on its next lock acquire — no agent
+    /// rebuild required to pick up edits.
     pub fn skills_handle(&self) -> Arc<Mutex<SkillLibrary>> {
-        Arc::clone(&self.skills.lock().expect("skills mutex poisoned"))
+        Arc::clone(&self.skills)
     }
 
-    /// Reload the skill library from `skills_dir`. Used by
-    /// `list_skills` so dropping a new file under the directory shows
-    /// up without an app restart, and by phase-3 edit / delete
-    /// commands. Replaces the inner `Mutex<SkillLibrary>` `Arc` so the
-    /// next `rebuild_agent` picks up the fresh library; existing
-    /// agents keep their old reference until rebuilt (acceptable —
-    /// edits take effect on the next turn).
+    /// Reload the skill library from `skills_dir`, replacing the
+    /// library in place so any `Agent` that already cloned the handle
+    /// sees the new content on its next turn.
     pub fn reload_skills_from_disk(&self) -> std::result::Result<(), skills::Error> {
         let dir = self
             .skills_dir
@@ -174,7 +173,7 @@ impl AppState {
             .expect("skills_dir mutex poisoned")
             .clone();
         let lib = SkillLibrary::load_from(&dir)?;
-        *self.skills.lock().expect("skills mutex poisoned") = Arc::new(Mutex::new(lib));
+        *self.skills.lock().expect("skills mutex poisoned") = lib;
         Ok(())
     }
 

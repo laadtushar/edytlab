@@ -431,6 +431,13 @@ fn category_for(name: &str) -> &'static str {
 
 #[tauri::command]
 pub async fn list_capabilities(state: State<'_, AppState>) -> CmdResult<Capabilities> {
+    // Refresh the skill library before snapshotting, the same way
+    // `list_skills` does. Keeps both surfaces consistent — the `+`
+    // menu can't show a different skill set than Settings → Skills
+    // just because the cached library is older.
+    if let Err(e) = state.reload_skills_from_disk() {
+        tracing::warn!(error = ?e, "skill reload from disk failed in list_capabilities");
+    }
     let dispatcher = lock_std(&state.dispatcher, "dispatcher")?;
     let schemas = dispatcher.tool_schemas();
     let mut tools: Vec<CapabilityDescriptor> = schemas

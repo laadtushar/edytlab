@@ -100,8 +100,10 @@ pub struct SkillLibrary {
 impl SkillLibrary {
     /// Load every `.md` file in `dir`. Missing directory is treated
     /// as "no skills" rather than an error so a fresh install boots
-    /// cleanly. Individual file errors are surfaced verbatim so the
-    /// user can fix the offending file by name.
+    /// cleanly. Per-file failures are logged via `tracing::warn!` and
+    /// the file is skipped — a single malformed skill doesn't bring
+    /// the whole library down (and so doesn't lock the user out of
+    /// the editor either).
     pub fn load_from(dir: &Path) -> Result<Self> {
         if !dir.exists() {
             return Ok(Self { skills: vec![] });
@@ -120,7 +122,12 @@ impl SkillLibrary {
             if path.extension().and_then(|s| s.to_str()) != Some("md") {
                 continue;
             }
-            skills.push(load_skill(&path)?);
+            match load_skill(&path) {
+                Ok(s) => skills.push(s),
+                Err(e) => {
+                    tracing::warn!(error = %e, path = %path.display(), "skipping malformed skill");
+                }
+            }
         }
         // Deterministic alphabetical order — the spec's prompt-assembly
         // step (skills, alphabetical) relies on this so identical
@@ -331,15 +338,54 @@ fn strip_quotes(s: &str) -> &str {
     }
 }
 
+/// Quote-aware inline-array splitter. Commas inside `"…"` or `'…'`
+/// literals are kept so a keyword like `"sidechain, compression"`
+/// survives the round trip. Each returned item is `strip_quotes`-d
+/// and trimmed; empty items are dropped.
 fn parse_array(s: &str) -> Option<Vec<String>> {
     let inner = s.strip_prefix('[')?.strip_suffix(']')?;
-    Some(
-        inner
-            .split(',')
-            .map(|p| strip_quotes(p.trim()).to_string())
-            .filter(|p| !p.is_empty())
-            .collect(),
-    )
+    let mut out: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut in_quote: Option<char> = None;
+    let mut escaped = false;
+    for ch in inner.chars() {
+        if escaped {
+            current.push(ch);
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' && in_quote.is_some() {
+            current.push(ch);
+            escaped = true;
+            continue;
+        }
+        match in_quote {
+            Some(q) if ch == q => {
+                current.push(ch);
+                in_quote = None;
+            }
+            Some(_) => current.push(ch),
+            None => {
+                if ch == '"' || ch == '\'' {
+                    in_quote = Some(ch);
+                    current.push(ch);
+                } else if ch == ',' {
+                    let item = strip_quotes(current.trim()).to_string();
+                    if !item.is_empty() {
+                        out.push(item);
+                    }
+                    current.clear();
+                } else {
+                    current.push(ch);
+                }
+            }
+        }
+    }
+    let item = strip_quotes(current.trim()).to_string();
+    if !item.is_empty() {
+        out.push(item);
+    }
+    Some(out)
 }
 
 #[cfg(test)]
@@ -374,19 +420,24 @@ mod tests {
     }
 
     #[test]
-    fn rejects_name_mismatch() {
+    fn skips_name_mismatch_skill() {
+        // Loader is tolerant — a frontmatter `name` that disagrees
+        // with the filename stem causes the file to be skipped (with
+        // a log line) rather than failing the whole library load.
         let tmp = tempfile::tempdir().unwrap();
         write(
             tmp.path(),
             "real.md",
             "---\nname: imposter\ndescription: x\ntrigger: always\n---\nbody\n",
         );
-        let err = SkillLibrary::load_from(tmp.path()).unwrap_err();
-        let s = err.to_string();
-        assert!(
-            s.contains("imposter"),
-            "expected name-mismatch error, got {s}"
+        write(
+            tmp.path(),
+            "good.md",
+            "---\ndescription: y\ntrigger: always\n---\nbody\n",
         );
+        let lib = SkillLibrary::load_from(tmp.path()).unwrap();
+        let names: Vec<&str> = lib.skills().iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, vec!["good"]);
     }
 
     #[test]
@@ -491,6 +542,45 @@ mod tests {
         assert_eq!(out.matches("</skill>").count(), 1, "{out}");
         assert!(out.contains("trust me"));
         assert!(out.contains("ignore previous"));
+    }
+
+    #[test]
+    fn keywords_with_quoted_commas_round_trip() {
+        let tmp = tempfile::tempdir().unwrap();
+        // The middle keyword embeds a literal comma — must stay a
+        // single token rather than split into two.
+        write(
+            tmp.path(),
+            "mix.md",
+            "---\ndescription: x\ntrigger: keywords\nkeywords: [one, \"two,three\", four]\n---\nb\n",
+        );
+        let lib = SkillLibrary::load_from(tmp.path()).unwrap();
+        let s = &lib.skills()[0];
+        match &s.trigger {
+            Trigger::Keywords(words) => {
+                assert_eq!(words.len(), 3, "got {words:?}");
+                assert_eq!(words[1], "two,three");
+            }
+            _ => panic!("expected Keywords trigger"),
+        }
+    }
+
+    #[test]
+    fn loader_skips_malformed_file_and_keeps_loading() {
+        let tmp = tempfile::tempdir().unwrap();
+        write(tmp.path(), "broken.md", "no frontmatter at all");
+        write(
+            tmp.path(),
+            "good.md",
+            "---\ndescription: x\ntrigger: always\n---\nbody\n",
+        );
+        let lib = SkillLibrary::load_from(tmp.path()).unwrap();
+        let names: Vec<&str> = lib.skills().iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec!["good"],
+            "broken.md must be skipped, good.md kept"
+        );
     }
 
     #[test]
