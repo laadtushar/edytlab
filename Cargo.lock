@@ -1185,6 +1185,7 @@ dependencies = [
  "chrono",
  "keyring",
  "memory",
+ "regex",
  "serde",
  "serde_json",
  "session",

@@ -261,6 +261,35 @@ export interface SkillSummary {
 export const listSkills = (): Promise<SkillSummary[]> =>
   invoke<SkillSummary[]>("list_skills");
 
+/** Round-trip shape for the skill editor. Mirrors `commands::SkillContent`. */
+export interface SkillContent {
+  name: string;
+  description: string;
+  trigger: "always" | "keywords" | "regex";
+  keywords: string[];
+  pattern: string;
+  enabled: boolean;
+  body: string;
+}
+
+/** Read one skill from disk into the editor shape. */
+export const readSkill = (name: string): Promise<SkillContent> =>
+  invoke<SkillContent>("read_skill", { name });
+
+/**
+ * Create or replace a skill. `name` must equal `content.name`. Writes
+ * atomically and triggers an in-process library reload so the next
+ * agent turn sees the change.
+ */
+export const upsertSkill = (
+  name: string,
+  content: SkillContent,
+): Promise<void> => invoke<void>("upsert_skill", { name, content });
+
+/** Delete the skill file. Missing files are a no-op. */
+export const deleteSkill = (name: string): Promise<void> =>
+  invoke<void>("delete_skill", { name });
+
 /** Look up a single session node by id. */
 export const getNode = (id: NodeId): Promise<SessionNode> =>
   invoke<SessionNode>("get_node", { id });
