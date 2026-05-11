@@ -12,7 +12,7 @@ pub mod state;
 use crate::commands::{
     accept_b, add_marker, approve_plan, clear_api_key, clear_api_key_for, get_active_model,
     get_active_provider, get_graph, get_node, get_session_head, has_api_key, has_api_key_for,
-    list_capabilities, list_markers, list_models_for, list_providers, open_project,
+    list_capabilities, list_markers, list_models_for, list_providers, list_skills, open_project,
     prepare_compare, read_memory, remove_marker, render_preview, send_message, set_active_model,
     set_active_provider, set_api_key, set_api_key_for, set_selection_context, test_api_key,
     test_api_key_for, try_load_api_key_at_startup, write_memory,
@@ -46,6 +46,12 @@ pub fn run() {
             // usable on sandboxed / non-HOME builds.
             let memory_path = resolve_global_memory_path(app);
             app_state.install_memory_store(memory_path);
+
+            // Install the skill library. Same fallback logic as
+            // memory — produces an empty library when the directory
+            // doesn't exist yet, so first-run is clean.
+            let skills_dir = resolve_global_skills_dir(app);
+            app_state.install_skill_library(skills_dir);
 
             // Auto-initialise a default project store under the OS app
             // data dir so the agent can be built immediately after
@@ -153,6 +159,7 @@ pub fn run() {
             remove_marker,
             list_markers,
             list_capabilities,
+            list_skills,
             read_memory,
             write_memory,
         ])
@@ -173,4 +180,16 @@ fn resolve_global_memory_path<R: tauri::Runtime>(app: &tauri::App<R>) -> std::pa
         .unwrap_or_else(|_| std::path::PathBuf::from("."))
         .join(".edytlab")
         .join("memory.md")
+}
+
+/// Resolve `~/.edytlab/skills/`. Same fallback as the memory path.
+fn resolve_global_skills_dir<R: tauri::Runtime>(app: &tauri::App<R>) -> std::path::PathBuf {
+    if let Ok(home) = app.path().home_dir() {
+        return home.join(".edytlab").join("skills");
+    }
+    app.path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+        .join(".edytlab")
+        .join("skills")
 }

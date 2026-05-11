@@ -457,13 +457,81 @@ pub async fn list_capabilities(state: State<'_, AppState>) -> CmdResult<Capabili
     // Stable alphabetical order so the menu doesn't reshuffle between
     // launches just because `HashMap` iteration is unspecified.
     tools.sort_by(|a, b| a.name.cmp(&b.name));
+    drop(dispatcher);
+
+    // The capabilities menu uses a single `CapabilityDescriptor`
+    // shape across all groups. Skills carry a trigger summary as
+    // their category so the popover can show users when the skill
+    // fires without growing the shape with a new field.
+    let skills: Vec<CapabilityDescriptor> = read_skill_summaries(&state)
+        .into_iter()
+        .map(|s| CapabilityDescriptor {
+            name: s.name,
+            description: s.description,
+            category: s.trigger,
+        })
+        .collect();
 
     Ok(Capabilities {
         tools,
-        skills: Vec::new(),
+        skills,
         agents: Vec::new(),
         mcp_servers: Vec::new(),
     })
+}
+
+// ---------------------------------------------------------------------------
+// skills: read-only list (phase 2). Edit / delete come in phase 3.
+// ---------------------------------------------------------------------------
+
+/// One skill entry returned by `list_skills` and `list_capabilities`.
+/// `trigger` is a short, human-friendly summary (`"always"`,
+/// `"keywords: mix, sidechain"`, `"regex"`) so the menu can show
+/// users when a skill fires without re-implementing the parser on the
+/// TS side.
+#[derive(Debug, Clone, Serialize)]
+pub struct SkillSummary {
+    pub name: String,
+    pub description: String,
+    pub trigger: String,
+    pub enabled: bool,
+}
+
+#[tauri::command]
+pub async fn list_skills(state: State<'_, AppState>) -> CmdResult<Vec<SkillSummary>> {
+    // Pick up new / removed files since startup without an app
+    // restart. Failures fall back to the previously-loaded library
+    // and surface as an empty list rather than an error.
+    if let Err(e) = state.reload_skills_from_disk() {
+        tracing::warn!(error = ?e, "skill reload from disk failed; returning cached library");
+    }
+    Ok(read_skill_summaries(&state))
+}
+
+fn read_skill_summaries(state: &AppState) -> Vec<SkillSummary> {
+    let handle = state.skills_handle();
+    let lib = handle.lock().expect("skill library mutex poisoned");
+    lib.skills()
+        .iter()
+        .map(|s| SkillSummary {
+            name: s.name.clone(),
+            description: s.description.clone(),
+            trigger: trigger_summary(&s.trigger),
+            enabled: s.enabled,
+        })
+        .collect()
+}
+
+fn trigger_summary(t: &skills::Trigger) -> String {
+    match t {
+        skills::Trigger::Always => "always".into(),
+        skills::Trigger::Keywords(words) => {
+            let preview: Vec<&str> = words.iter().take(4).map(String::as_str).collect();
+            let suffix = if words.len() > 4 { ", …" } else { "" };
+            format!("keywords: {}{suffix}", preview.join(", "))
+        }
+        skills::Trigger::Regex(_) => "regex".into(),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -948,6 +1016,10 @@ async fn rebuild_agent(state: &AppState) -> Result<(), CommandError> {
                 Some(mem) => agent.with_memory(mem),
                 None => agent,
             };
+            // Attach the skill library. Always present (production
+            // wires it at startup, tests get an empty one), so we
+            // pass it unconditionally rather than a builder.
+            let agent = agent.with_skills(state.skills_handle());
             Some(agent)
         }
         _ => None,
