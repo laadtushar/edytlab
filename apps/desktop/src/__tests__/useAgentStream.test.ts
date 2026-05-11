@@ -1,8 +1,9 @@
 /**
  * useAgentStream — text deltas accumulate across renders and commit on
- * `agent://done`; tool-call events appear as running badges; node
- * creation resolves the most recent running badge to ✓ and emits a
- * divider.
+ * `agent://done`; tool-call events appear as running badges; the
+ * matching tool-call-end event resolves the badge by id; node-created
+ * emits a divider. `awaiting` flips true on `pushUserMessage` and is
+ * cleared by any subsequent agent event.
  *
  * The bridge module is mocked so we drive the event stream directly
  * via captured callbacks instead of going through Tauri.
@@ -15,6 +16,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const cbs = {
   textDelta: [] as ((text: string) => void)[],
   toolCall: [] as ((name: string, id: string) => void)[],
+  toolCallEnd: [] as ((id: string, ok: boolean) => void)[],
   nodeCreated: [] as ((nodeId: string) => void)[],
   done: [] as (() => void)[],
   plan: [] as ((steps: Record<string, unknown>[]) => void)[],
@@ -32,6 +34,12 @@ vi.mock("../lib/tauri-bridge", () => ({
     cbs.toolCall.push(cb);
     return Promise.resolve(() => {
       cbs.toolCall = cbs.toolCall.filter((c) => c !== cb);
+    });
+  }),
+  onToolCallEnd: vi.fn((cb: (id: string, ok: boolean) => void) => {
+    cbs.toolCallEnd.push(cb);
+    return Promise.resolve(() => {
+      cbs.toolCallEnd = cbs.toolCallEnd.filter((c) => c !== cb);
     });
   }),
   onNodeCreated: vi.fn((cb: (n: string) => void) => {
@@ -62,6 +70,7 @@ describe("useAgentStream", () => {
   beforeEach(() => {
     cbs.textDelta = [];
     cbs.toolCall = [];
+    cbs.toolCallEnd = [];
     cbs.nodeCreated = [];
     cbs.done = [];
     cbs.plan = [];
@@ -112,7 +121,7 @@ describe("useAgentStream", () => {
     });
   });
 
-  it("resolves the most recent running badge to ok and emits a node divider", async () => {
+  it("resolves the running badge by id when tool-call-end arrives and emits a node divider", async () => {
     const { result } = renderHook(() => useAgentStream());
     await act(async () => {
       await flush();
@@ -120,17 +129,54 @@ describe("useAgentStream", () => {
 
     await act(async () => {
       cbs.toolCall[0]("normalize", "tool-1");
+      cbs.toolCallEnd[0]("tool-1", true);
       cbs.nodeCreated[0]("a".repeat(64));
     });
     expect(result.current.entries).toHaveLength(2);
     expect(result.current.entries[0]).toMatchObject({
       kind: "tool",
+      id: "tool-1",
       status: "ok",
     });
     expect(result.current.entries[1]).toMatchObject({
       kind: "node",
       nodeId: "a".repeat(64),
     });
+  });
+
+  it("marks the badge as error when tool-call-end reports ok=false", async () => {
+    const { result } = renderHook(() => useAgentStream());
+    await act(async () => {
+      await flush();
+    });
+
+    await act(async () => {
+      cbs.toolCall[0]("gain", "tool-7");
+      cbs.toolCallEnd[0]("tool-7", false);
+    });
+    expect(result.current.entries[0]).toMatchObject({
+      kind: "tool",
+      id: "tool-7",
+      status: "error",
+    });
+  });
+
+  it("awaiting flips true on submit and clears on first agent event", async () => {
+    const { result } = renderHook(() => useAgentStream());
+    await act(async () => {
+      await flush();
+    });
+
+    expect(result.current.awaiting).toBe(false);
+    act(() => {
+      result.current.pushUserMessage("normalize");
+    });
+    expect(result.current.awaiting).toBe(true);
+
+    await act(async () => {
+      cbs.textDelta[0]("ok");
+    });
+    expect(result.current.awaiting).toBe(false);
   });
 
   it("does not commit an empty assistant turn on done", async () => {

@@ -15,6 +15,10 @@ use serde::Serialize;
 pub const TEXT_DELTA: &str = "agent://text-delta";
 /// `agent://tool-call` — the model started invoking a tool.
 pub const TOOL_CALL: &str = "agent://tool-call";
+/// `agent://tool-call-end` — a previously-started tool call finished.
+/// Forwards the `ok` flag so the UI can mark badges error / success
+/// without waiting for the next `node-created`.
+pub const TOOL_CALL_END: &str = "agent://tool-call-end";
 /// `agent://node-created` — a tool call produced a new session node.
 pub const NODE_CREATED: &str = "agent://node-created";
 /// `agent://done` — the turn finished (success).
@@ -31,6 +35,12 @@ pub struct TextDeltaPayload {
 pub struct ToolCallPayload {
     pub name: String,
     pub id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ToolCallEndPayload {
+    pub id: String,
+    pub ok: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

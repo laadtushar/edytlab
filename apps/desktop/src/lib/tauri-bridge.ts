@@ -305,6 +305,18 @@ export const onToolCall = (
     cb(e.payload.name, e.payload.id),
   );
 
+/**
+ * Subscribe to tool-call end events. The `id` matches the one carried
+ * by the matching `agent://tool-call` event. `ok` is `false` for schema
+ * validation errors and tool-level errors alike.
+ */
+export const onToolCallEnd = (
+  cb: (id: string, ok: boolean) => void,
+): Promise<UnlistenFn> =>
+  listen<{ id: string; ok: boolean }>("agent://tool-call-end", (e) =>
+    cb(e.payload.id, e.payload.ok),
+  );
+
 /** Subscribe to "a new session node was created by the agent" events. */
 export const onNodeCreated = (
   cb: (nodeId: NodeId) => void,
@@ -390,3 +402,36 @@ export const listMarkers = (): Promise<Marker[]> =>
 /** Subscribe to "marker-changed" events. Returns unlisten fn. */
 export const onMarkerChanged = (cb: () => void): Promise<UnlistenFn> =>
   listen("marker-changed", () => cb());
+
+// -----------------------------------------------------------------------------
+// Capabilities — drives the `+` menu in the composer.
+// -----------------------------------------------------------------------------
+
+/**
+ * One capability advertised by the backend. `category` is a coarse
+ * grouping ("session", "analysis", "audio", "history", "annotation").
+ * Mirrors `commands::CapabilityDescriptor`.
+ */
+export interface CapabilityDescriptor {
+  name: string;
+  description: string;
+  category: string;
+}
+
+/**
+ * The shape returned by {@link listCapabilities}. `skills`, `agents`,
+ * and `mcp_servers` are placeholders for future surfaces (see
+ * `docs/specs/agentic-chat-ui.md`); the backend currently returns empty
+ * arrays for them but the menu still renders the group with a
+ * "coming soon" affordance.
+ */
+export interface Capabilities {
+  tools: CapabilityDescriptor[];
+  skills: CapabilityDescriptor[];
+  agents: CapabilityDescriptor[];
+  mcp_servers: CapabilityDescriptor[];
+}
+
+/** List every capability the agent can currently invoke. */
+export const listCapabilities = (): Promise<Capabilities> =>
+  invoke<Capabilities>("list_capabilities");
