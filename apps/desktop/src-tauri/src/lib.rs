@@ -160,15 +160,13 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
-/// Resolve `~/.edytlab/memory.md`. Falls back to
-/// `<app_data_dir>/.edytlab/memory.md` if neither `$HOME` nor
-/// `%USERPROFILE%` is set — covers sandboxed builds and tests.
+/// Resolve `~/.edytlab/memory.md`. Uses Tauri's path resolver so the
+/// home directory resolves consistently across Linux / macOS /
+/// Windows and through sandbox wrappers; falls back to the OS app
+/// data dir on the rare platform where `home_dir()` is unavailable.
 fn resolve_global_memory_path<R: tauri::Runtime>(app: &tauri::App<R>) -> std::path::PathBuf {
-    let home = std::env::var_os("HOME")
-        .map(std::path::PathBuf::from)
-        .or_else(|| std::env::var_os("USERPROFILE").map(std::path::PathBuf::from));
-    if let Some(h) = home {
-        return h.join(".edytlab").join("memory.md");
+    if let Ok(home) = app.path().home_dir() {
+        return home.join(".edytlab").join("memory.md");
     }
     app.path()
         .app_data_dir()

@@ -159,7 +159,12 @@ function Pane({ scope, label, helper, pane, setPane, onSave }: PaneProps) {
         value={pane.draft}
         disabled={disabled}
         onChange={(e) =>
-          setPane({ ...pane, draft: e.target.value, status: "idle" })
+          setPane({
+            ...pane,
+            draft: e.target.value,
+            status: "idle",
+            statusMessage: "",
+          })
         }
         rows={6}
         placeholder={
