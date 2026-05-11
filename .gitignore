@@ -36,6 +36,12 @@ Thumbs.db
 # Claude Code agent runtime state (isolated worktrees etc.)
 .claude/
 
+# Graphify tool output (local-only knowledge-graph cache)
+.graphify_python
+.graphify_uncached.txt
+graphify-out/
+**/graphify-out/
+
 # Environment / secrets
 .env
 .env.local
