@@ -11,13 +11,15 @@ pub mod state;
 
 use crate::commands::{
     accept_b, add_marker, approve_plan, clear_api_key, clear_api_key_for, delete_agent_profile,
-    delete_skill, get_active_agent_profile, get_active_model, get_active_provider, get_graph,
-    get_node, get_session_head, has_api_key, has_api_key_for, list_agent_profiles,
-    list_capabilities, list_markers, list_models_for, list_providers, list_skills, open_project,
-    prepare_compare, read_agent_profile, read_memory, read_skill, remove_marker, render_preview,
+    delete_mcp_server, delete_skill, get_active_agent_profile, get_active_model,
+    get_active_provider, get_graph, get_node, get_session_head, has_api_key, has_api_key_for,
+    list_agent_profiles, list_capabilities, list_markers, list_mcp_servers, list_models_for,
+    list_providers, list_skills, open_project, prepare_compare, read_agent_profile,
+    read_mcp_server, read_memory, read_skill, remove_marker, render_preview, restart_mcp_server,
     send_message, set_active_agent_profile, set_active_model, set_active_provider, set_api_key,
     set_api_key_for, set_selection_context, test_api_key, test_api_key_for,
-    try_load_api_key_at_startup, upsert_agent_profile, upsert_skill, write_memory,
+    try_load_api_key_at_startup, upsert_agent_profile, upsert_mcp_server, upsert_skill,
+    write_memory,
 };
 use crate::state::AppState;
 use std::sync::{Arc, Mutex};
@@ -60,6 +62,12 @@ pub fn run() {
             // user's last choice survives restart.
             let agents_dir = resolve_global_agent_profiles_dir(app);
             app_state.install_agent_profile_library(agents_dir);
+
+            // Install the MCP config (~/.edytlab/mcp.json). Servers
+            // are not auto-started here — the user explicitly
+            // restarts each one from the Settings panel.
+            let mcp_path = resolve_global_mcp_path(app);
+            app_state.install_mcp(mcp_path);
 
             // Auto-initialise a default project store under the OS app
             // data dir so the agent can be built immediately after
@@ -177,6 +185,11 @@ pub fn run() {
             delete_agent_profile,
             get_active_agent_profile,
             set_active_agent_profile,
+            list_mcp_servers,
+            read_mcp_server,
+            upsert_mcp_server,
+            delete_mcp_server,
+            restart_mcp_server,
             read_memory,
             write_memory,
         ])
@@ -212,7 +225,9 @@ fn resolve_global_skills_dir<R: tauri::Runtime>(app: &tauri::App<R>) -> std::pat
 }
 
 /// Resolve `~/.edytlab/agents/`. Same fallback strategy.
-fn resolve_global_agent_profiles_dir<R: tauri::Runtime>(app: &tauri::App<R>) -> std::path::PathBuf {
+fn resolve_global_agent_profiles_dir<R: tauri::Runtime>(
+    app: &tauri::App<R>,
+) -> std::path::PathBuf {
     if let Ok(home) = app.path().home_dir() {
         return home.join(".edytlab").join("agents");
     }
@@ -221,4 +236,16 @@ fn resolve_global_agent_profiles_dir<R: tauri::Runtime>(app: &tauri::App<R>) -> 
         .unwrap_or_else(|_| std::path::PathBuf::from("."))
         .join(".edytlab")
         .join("agents")
+}
+
+/// Resolve `~/.edytlab/mcp.json`. Same fallback strategy.
+fn resolve_global_mcp_path<R: tauri::Runtime>(app: &tauri::App<R>) -> std::path::PathBuf {
+    if let Ok(home) = app.path().home_dir() {
+        return home.join(".edytlab").join("mcp.json");
+    }
+    app.path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+        .join(".edytlab")
+        .join("mcp.json")
 }
