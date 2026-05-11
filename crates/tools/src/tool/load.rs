@@ -200,13 +200,21 @@ fn ensure_streamable_wav(src: &Path, decoded: &DecodedAudio) -> Result<PathBuf, 
         )
     })?;
 
+    // Pre-convert samples to LE bytes in one buffer so blake3 sees a
+    // single contiguous slice. Per-f32 `hasher.update` calls are
+    // measurably slow for multi-minute files; the byte form here keeps
+    // the same cross-platform determinism convention as
+    // `destructive_edit` (each sample as LE bytes) without paying per-
+    // sample call overhead.
+    let mut bytes = Vec::with_capacity(decoded.samples.len() * 4);
+    for s in &decoded.samples {
+        bytes.extend_from_slice(&s.to_le_bytes());
+    }
     let mut hasher = blake3::Hasher::new();
     hasher.update(src.as_os_str().as_encoded_bytes());
     hasher.update(&decoded.sample_rate.to_le_bytes());
     hasher.update(&(decoded.channels as u32).to_le_bytes());
-    for s in &decoded.samples {
-        hasher.update(&s.to_le_bytes());
-    }
+    hasher.update(&bytes);
     let cas_path = derived_dir.join(format!("{}.wav", hasher.finalize().to_hex()));
 
     if !cas_path.exists() {

@@ -13,7 +13,7 @@
  * instead of a console trace.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { sendMessage as bridgeSendMessage } from "../lib/tauri-bridge";
 import type { Marker } from "../lib/tauri-bridge";
@@ -105,21 +105,11 @@ export function Chat({
     ta.style.height = `${Math.min(ta.scrollHeight, 112)}px`;
   }, [input]);
 
-  const submit = async () => {
-    const text = input.trim();
-    if (!text || busy) return;
-    setInput("");
+  // Single send path used by both the form submit and chip clicks.
+  // Whoever calls this is responsible for the `busy` short-circuit and
+  // for shaping the wire text (selection / marker prefix or not).
+  const sendInternal = async (wireText: string) => {
     setLocalError(null);
-    const markerCtx =
-      markers && markers.length > 0
-        ? `[markers: ${markers
-            .filter((m): m is typeof m & { kind: "marker"; time_sec: number } => m.kind === "marker")
-            .map((m) => `${m.name}@${fmtTime(m.time_sec)}`)
-            .join(", ")}] `
-        : "";
-    const wireText = selection
-      ? `[apply to ${fmtTime(selection.start)}-${fmtTime(selection.end)}] ${markerCtx}${text}`
-      : markerCtx + text;
     pushUserMessage(wireText);
     setBusy(true);
     try {
@@ -131,37 +121,45 @@ export function Chat({
     }
   };
 
+  const submit = async () => {
+    const text = input.trim();
+    if (!text || busy) return;
+    setInput("");
+    const markerCtx =
+      markers && markers.length > 0
+        ? `[markers: ${markers
+            .filter((m): m is typeof m & { kind: "marker"; time_sec: number } => m.kind === "marker")
+            .map((m) => `${m.name}@${fmtTime(m.time_sec)}`)
+            .join(", ")}] `
+        : "";
+    const wireText = selection
+      ? `[apply to ${fmtTime(selection.start)}-${fmtTime(selection.end)}] ${markerCtx}${text}`
+      : markerCtx + text;
+    await sendInternal(wireText);
+  };
+
   // Send a chip-suggested prompt as if the user had typed it. Selection
   // / marker context is intentionally NOT prefixed: chips represent the
   // user accepting the agent's literal suggestion, not a new
   // contextual request.
   const submitChip = async (prompt: string) => {
     if (busy) return;
-    setLocalError(null);
-    pushUserMessage(prompt);
-    setBusy(true);
-    try {
-      await bridgeSendMessage(prompt);
-    } catch (err) {
-      setLocalError(friendlyError(err));
-    } finally {
-      setBusy(false);
-    }
+    await sendInternal(prompt);
   };
 
   const isEmpty = entries.length === 0 && current.length === 0;
 
   // Chips only show on the *most recent* assistant message — older
   // turns become plain transcript so the eye doesn't bounce between
-  // multiple chip rows. We compute that index up front so the render
-  // loop can compare.
-  const lastAssistantIdx = (() => {
+  // multiple chip rows. Memoised because the render loop fires on every
+  // streaming delta and we don't want to walk the transcript each tick.
+  const lastAssistantIdx = useMemo(() => {
     for (let i = entries.length - 1; i >= 0; i -= 1) {
       const e = entries[i];
       if (isMessage(e) && e.role === "assistant") return i;
     }
     return -1;
-  })();
+  }, [entries]);
 
   return (
     <div
@@ -426,6 +424,12 @@ export function Chat({
             data-testid="capabilities-toggle"
             aria-label="Show available tools and capabilities"
             aria-expanded={capsOpen}
+            // Stop `mousedown` propagation so the menu's outside-click
+            // handler (which also runs on `mousedown`) does not close
+            // the menu just before this `onClick` reopens it — that
+            // race made the toggle button feel inert from the user's
+            // perspective when the menu was already open.
+            onMouseDown={(e) => e.stopPropagation()}
             onClick={() => setCapsOpen((v) => !v)}
             className="
               inline-flex h-8 w-8 shrink-0 items-center justify-center
