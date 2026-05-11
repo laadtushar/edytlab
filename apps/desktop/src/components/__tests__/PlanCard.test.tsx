@@ -16,6 +16,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const cbs = {
   textDelta: [] as ((text: string) => void)[],
   toolCall: [] as ((name: string, id: string) => void)[],
+  toolCallEnd: [] as ((id: string, ok: boolean) => void)[],
   nodeCreated: [] as ((nodeId: string) => void)[],
   done: [] as (() => void)[],
   plan: [] as ((steps: Record<string, unknown>[]) => void)[],
@@ -33,6 +34,10 @@ vi.mock("../../lib/tauri-bridge", () => ({
   }),
   onToolCall: vi.fn((cb: (n: string, i: string) => void) => {
     cbs.toolCall.push(cb);
+    return Promise.resolve(() => undefined);
+  }),
+  onToolCallEnd: vi.fn((cb: (id: string, ok: boolean) => void) => {
+    cbs.toolCallEnd.push(cb);
     return Promise.resolve(() => undefined);
   }),
   onNodeCreated: vi.fn((cb: (n: string) => void) => {
@@ -69,6 +74,7 @@ describe("PlanCard (inside Chat)", () => {
     sendMessageMock.mockResolvedValue(undefined);
     cbs.textDelta = [];
     cbs.toolCall = [];
+    cbs.toolCallEnd = [];
     cbs.nodeCreated = [];
     cbs.done = [];
     cbs.plan = [];

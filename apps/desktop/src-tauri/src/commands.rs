@@ -21,8 +21,8 @@ use tauri::{AppHandle, Emitter, Runtime, State};
 use tools::Range;
 
 use crate::events::{
-    DonePayload, NodeCreatedPayload, PlanPayload, TextDeltaPayload, ToolCallPayload, DONE,
-    NODE_CREATED, PLAN, TEXT_DELTA, TOOL_CALL,
+    DonePayload, NodeCreatedPayload, PlanPayload, TextDeltaPayload, ToolCallEndPayload,
+    ToolCallPayload, DONE, NODE_CREATED, PLAN, TEXT_DELTA, TOOL_CALL, TOOL_CALL_END,
 };
 use crate::state::AppState;
 
@@ -372,6 +372,92 @@ pub async fn get_active_model(state: State<'_, AppState>, provider: String) -> C
 }
 
 // ---------------------------------------------------------------------------
+// list_capabilities
+// ---------------------------------------------------------------------------
+
+/// One tool descriptor in the capabilities listing.
+///
+/// `name` is the canonical tool name (matches the value used in
+/// `agent://tool-call` events). `description` is the model-facing
+/// description from the Anthropic tool schema, surfaced verbatim so
+/// the user sees the same hint the model does. `category` is one of
+/// `audio`, `session`, `analysis` — derived from a small name-prefix
+/// map so the popover can group tools without the dispatcher having
+/// to grow a category field.
+#[derive(Debug, Clone, Serialize)]
+pub struct CapabilityDescriptor {
+    pub name: String,
+    pub description: String,
+    pub category: String,
+}
+
+/// What the `+` capabilities menu renders.
+///
+/// `tools` is the live set of registered built-in tools. The other
+/// three arrays are placeholders so the menu can declare future
+/// surfaces ("Skills", "Agents", "MCP servers") with empty state
+/// today. Shipping them as part of the response keeps the TS shape
+/// stable when we wire real implementations in later.
+#[derive(Debug, Clone, Serialize)]
+pub struct Capabilities {
+    pub tools: Vec<CapabilityDescriptor>,
+    pub skills: Vec<CapabilityDescriptor>,
+    pub agents: Vec<CapabilityDescriptor>,
+    pub mcp_servers: Vec<CapabilityDescriptor>,
+}
+
+/// Map a tool name to a coarse UI category. Centralised here (and not
+/// on the `Tool` trait) so adding a tool does not require touching the
+/// trait; new prefixes fall back to "audio" which is what every
+/// edit-y tool already lives under.
+fn category_for(name: &str) -> &'static str {
+    match name {
+        "load" | "render_preview" | "render_final" | "add_track" | "remove_track" => "session",
+        "transcribe" | "separate_stems" | "analyze_track" => "analysis",
+        "fork_node" | "apply_diff" | "compare_nodes" | "revert_to" | "name_node" => "history",
+        "label" => "annotation",
+        _ => "audio",
+    }
+}
+
+#[tauri::command]
+pub async fn list_capabilities(state: State<'_, AppState>) -> CmdResult<Capabilities> {
+    let dispatcher = lock_std(&state.dispatcher, "dispatcher")?;
+    let schemas = dispatcher.tool_schemas();
+    let mut tools: Vec<CapabilityDescriptor> = schemas
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|s| {
+                    let name = s.get("name")?.as_str()?.to_string();
+                    let description = s
+                        .get("description")
+                        .and_then(|d| d.as_str())
+                        .unwrap_or_default()
+                        .to_string();
+                    let category = category_for(&name).to_string();
+                    Some(CapabilityDescriptor {
+                        name,
+                        description,
+                        category,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    // Stable alphabetical order so the menu doesn't reshuffle between
+    // launches just because `HashMap` iteration is unspecified.
+    tools.sort_by(|a, b| a.name.cmp(&b.name));
+
+    Ok(Capabilities {
+        tools,
+        skills: Vec::new(),
+        agents: Vec::new(),
+        mcp_servers: Vec::new(),
+    })
+}
+
+// ---------------------------------------------------------------------------
 // get_session_head
 // ---------------------------------------------------------------------------
 
@@ -651,11 +737,10 @@ fn emit_agent_event<R: tauri::Runtime>(app: &AppHandle<R>, event: ai::AgentEvent
                 tracing::warn!(error = %e, "failed to emit tool-call");
             }
         }
-        ai::AgentEvent::ToolCallEnd { .. } => {
-            // The Phase 1 frontend resolves tool badges off the
-            // subsequent NodeCreated / Done events. ToolCallEnd is kept
-            // internal; surfacing it would require a second event shape
-            // and is deferred to M12 if the UI ends up needing it.
+        ai::AgentEvent::ToolCallEnd { id, ok } => {
+            if let Err(e) = app.emit(TOOL_CALL_END, ToolCallEndPayload { id, ok }) {
+                tracing::warn!(error = %e, "failed to emit tool-call-end");
+            }
         }
         ai::AgentEvent::NodeCreated(id) => {
             let payload = NodeCreatedPayload {
@@ -945,5 +1030,38 @@ mod tests {
 
         let err: String = CommandError::NoAgent.into();
         assert!(err.contains("no agent configured"), "got: {err}");
+    }
+
+    #[test]
+    fn list_capabilities_returns_built_in_tools() {
+        let state = AppState::new();
+        let dispatcher = state.dispatcher.lock().unwrap();
+        let schemas = dispatcher.tool_schemas();
+        drop(dispatcher);
+
+        // Sanity: the dispatcher exposes at least the tools the user
+        // sees on day one — `load`, `gain`, and `render_preview` are
+        // load-bearing for the rest of the chat-UI work.
+        let names: Vec<&str> = schemas
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|s| s.get("name").and_then(|v| v.as_str()))
+            .collect();
+        assert!(names.contains(&"load"), "missing load tool");
+        assert!(names.contains(&"gain"), "missing gain tool");
+        assert!(
+            names.contains(&"render_preview"),
+            "missing render_preview tool"
+        );
+
+        // Category map covers the names we explicitly group.
+        assert_eq!(super::category_for("load"), "session");
+        assert_eq!(super::category_for("transcribe"), "analysis");
+        assert_eq!(super::category_for("fork_node"), "history");
+        assert_eq!(super::category_for("label"), "annotation");
+        // Anything unmapped lands in `audio` so new tools render without
+        // a code change to `category_for`.
+        assert_eq!(super::category_for("some_future_tool"), "audio");
     }
 }

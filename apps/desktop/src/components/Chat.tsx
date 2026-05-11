@@ -27,7 +27,9 @@ import {
   type ToolEntry,
 } from "../hooks/useAgentStream";
 
+import { CapabilitiesMenu } from "./CapabilitiesMenu";
 import { MessageBubble } from "./MessageBubble";
+import { ThinkingIndicator } from "./ThinkingIndicator";
 import { ToolBadge } from "./ToolBadge";
 
 export interface ChatProps {
@@ -73,20 +75,27 @@ export function Chat({
   onClearSelection,
   markers,
 }: ChatProps) {
-  const { entries, current, pushUserMessage, pendingPlan, approvePlan } =
-    useAgentStream();
+  const {
+    entries,
+    current,
+    awaiting,
+    pushUserMessage,
+    pendingPlan,
+    approvePlan,
+  } = useAgentStream();
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [editToast, setEditToast] = useState(false);
+  const [capsOpen, setCapsOpen] = useState(false);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Auto-scroll to bottom on new entries / streaming deltas.
+  // Auto-scroll to bottom on new entries / streaming deltas / awaiting state.
   useEffect(() => {
     const el = scrollerRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [entries.length, current]);
+  }, [entries.length, current, awaiting]);
 
   // Auto-grow the textarea up to ~4 lines.
   useEffect(() => {
@@ -122,7 +131,37 @@ export function Chat({
     }
   };
 
+  // Send a chip-suggested prompt as if the user had typed it. Selection
+  // / marker context is intentionally NOT prefixed: chips represent the
+  // user accepting the agent's literal suggestion, not a new
+  // contextual request.
+  const submitChip = async (prompt: string) => {
+    if (busy) return;
+    setLocalError(null);
+    pushUserMessage(prompt);
+    setBusy(true);
+    try {
+      await bridgeSendMessage(prompt);
+    } catch (err) {
+      setLocalError(friendlyError(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const isEmpty = entries.length === 0 && current.length === 0;
+
+  // Chips only show on the *most recent* assistant message — older
+  // turns become plain transcript so the eye doesn't bounce between
+  // multiple chip rows. We compute that index up front so the render
+  // loop can compare.
+  const lastAssistantIdx = (() => {
+    for (let i = entries.length - 1; i >= 0; i -= 1) {
+      const e = entries[i];
+      if (isMessage(e) && e.role === "assistant") return i;
+    }
+    return -1;
+  })();
 
   return (
     <div
@@ -144,13 +183,17 @@ export function Chat({
       >
         {isEmpty ? <ChatEmptyHints onPick={(t) => setInput(t)} /> : null}
 
-        {entries.map((entry) => {
+        {entries.map((entry, idx) => {
           if (isMessage(entry)) {
+            const isLastAssistant =
+              entry.role === "assistant" && idx === lastAssistantIdx;
             return (
               <MessageBubble
                 key={entry.id}
                 role={entry.role}
                 text={entry.text}
+                chips={isLastAssistant ? entry.chips : undefined}
+                onChipClick={isLastAssistant ? submitChip : undefined}
               />
             );
           }
@@ -217,6 +260,10 @@ export function Chat({
 
         {current.length > 0 ? (
           <MessageBubble role="assistant" text={current} pending />
+        ) : null}
+
+        {awaiting && current.length === 0 ? (
+          <ThinkingIndicator awaiting={awaiting} />
         ) : null}
 
         {localError ? (
@@ -360,6 +407,7 @@ export function Chat({
         ) : null}
         <div
           className="
+            relative
             flex items-end gap-2
             rounded-lg border border-[var(--border-strong)]
             bg-[var(--surface)]
@@ -369,6 +417,39 @@ export function Chat({
             focus-within:shadow-[0_0_0_3px_var(--accent-soft)]
           "
         >
+          <CapabilitiesMenu
+            open={capsOpen}
+            onClose={() => setCapsOpen(false)}
+          />
+          <button
+            type="button"
+            data-testid="capabilities-toggle"
+            aria-label="Show available tools and capabilities"
+            aria-expanded={capsOpen}
+            onClick={() => setCapsOpen((v) => !v)}
+            className="
+              inline-flex h-8 w-8 shrink-0 items-center justify-center
+              rounded-md
+              border border-[var(--border-strong)]
+              bg-[var(--surface-elev)]
+              text-[var(--text-dim)]
+              transition
+              hover:border-[var(--accent)]/45 hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]
+            "
+          >
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 13 13"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <path d="M6.5 2.5v8M2.5 6.5h8" />
+            </svg>
+          </button>
           <textarea
             ref={textareaRef}
             aria-label="Message"

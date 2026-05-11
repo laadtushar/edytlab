@@ -13,6 +13,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const cbs = {
   textDelta: [] as ((text: string) => void)[],
   toolCall: [] as ((name: string, id: string) => void)[],
+  toolCallEnd: [] as ((id: string, ok: boolean) => void)[],
   nodeCreated: [] as ((nodeId: string) => void)[],
   done: [] as (() => void)[],
   plan: [] as ((steps: Record<string, unknown>[]) => void)[],
@@ -23,12 +24,30 @@ const sendMessageMock = vi.fn();
 vi.mock("../lib/tauri-bridge", () => ({
   sendMessage: (text: string) => sendMessageMock(text),
   approvePlan: vi.fn(() => Promise.resolve()),
+  listCapabilities: vi.fn(() =>
+    Promise.resolve({
+      tools: [
+        {
+          name: "render_preview",
+          description: "Preview the rendered audio.",
+          category: "session",
+        },
+      ],
+      skills: [],
+      agents: [],
+      mcp_servers: [],
+    }),
+  ),
   onTextDelta: vi.fn((cb: (t: string) => void) => {
     cbs.textDelta.push(cb);
     return Promise.resolve(() => undefined);
   }),
   onToolCall: vi.fn((cb: (n: string, i: string) => void) => {
     cbs.toolCall.push(cb);
+    return Promise.resolve(() => undefined);
+  }),
+  onToolCallEnd: vi.fn((cb: (id: string, ok: boolean) => void) => {
+    cbs.toolCallEnd.push(cb);
     return Promise.resolve(() => undefined);
   }),
   onNodeCreated: vi.fn((cb: (n: string) => void) => {
@@ -55,6 +74,7 @@ describe("Chat", () => {
     sendMessageMock.mockResolvedValue(undefined);
     cbs.textDelta = [];
     cbs.toolCall = [];
+    cbs.toolCallEnd = [];
     cbs.nodeCreated = [];
     cbs.done = [];
     cbs.plan = [];
@@ -143,5 +163,67 @@ describe("Chat", () => {
     render(<Chat onRequestRenderPreview={onClick} />);
     await user.click(screen.getByTestId("render-preview-button"));
     expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the thinking indicator while awaiting the first delta", async () => {
+    const user = userEvent.setup();
+    render(<Chat />);
+    await act(async () => {
+      await flush();
+    });
+
+    const input = screen.getByLabelText("Message");
+    await user.type(input, "normalize to -1");
+    await user.click(screen.getByRole("button", { name: /send/i }));
+    await act(async () => {
+      await flush();
+    });
+    expect(screen.getByTestId("thinking-indicator")).toBeInTheDocument();
+
+    await act(async () => {
+      cbs.textDelta[0]("ok");
+    });
+    expect(screen.queryByTestId("thinking-indicator")).not.toBeInTheDocument();
+  });
+
+  it("renders action chips on the last assistant message and resubmits on click", async () => {
+    const user = userEvent.setup();
+    render(<Chat />);
+    await act(async () => {
+      await flush();
+    });
+
+    // Drive an assistant turn that mentions `render_preview`.
+    await act(async () => {
+      cbs.textDelta[0](
+        "Loaded track 0. You can `render_preview` or normalize.",
+      );
+      cbs.done[0]();
+    });
+
+    const chips = screen.getAllByTestId("message-chip");
+    expect(chips.length).toBeGreaterThan(0);
+    const previewChip = chips.find((c) =>
+      c.getAttribute("data-chip-id")?.startsWith("render_preview"),
+    );
+    expect(previewChip).toBeDefined();
+
+    sendMessageMock.mockReset();
+    sendMessageMock.mockResolvedValue(undefined);
+    await user.click(previewChip!);
+    expect(sendMessageMock).toHaveBeenCalledTimes(1);
+    expect(sendMessageMock.mock.calls[0][0]).toMatch(/preview/i);
+  });
+
+  it("opens the capabilities menu when the + toggle is clicked", async () => {
+    const user = userEvent.setup();
+    render(<Chat />);
+    await act(async () => {
+      await flush();
+    });
+
+    expect(screen.queryByTestId("capabilities-menu")).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("capabilities-toggle"));
+    expect(screen.getByTestId("capabilities-menu")).toBeInTheDocument();
   });
 });
