@@ -29,7 +29,6 @@ struct RemoteMcpTool {
     /// in the `tools/call` JSON-RPC request.
     server_tool_name: String,
     server_id: String,
-    description: String,
     /// Anthropic-shaped descriptor returned from `schema()`. We
     /// materialise it once at construction since `Tool::schema`
     /// returns by value and is called on every API call.
@@ -48,7 +47,6 @@ impl RemoteMcpTool {
             wire_name: desc.wire_name.clone(),
             server_tool_name: desc.tool.clone(),
             server_id: desc.server.clone(),
-            description: desc.description.clone(),
             descriptor,
             registry,
         }
@@ -177,8 +175,3 @@ pub fn refresh_dispatcher_all(dispatcher: &mut ToolDispatcher, registry: Arc<Mcp
     }
 }
 
-// Silence "unused field" lints — `description` is only present so a
-// future diagnostic surface (e.g. tracing on dispatch) can quote the
-// human-readable text without re-reading the registry. The dispatcher
-// already advertises it through `descriptor.description`.
-const _: fn(&RemoteMcpTool) -> &str = |t| t.description.as_str();
