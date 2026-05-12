@@ -174,4 +174,3 @@ pub fn refresh_dispatcher_all(dispatcher: &mut ToolDispatcher, registry: Arc<Mcp
         )));
     }
 }
-
