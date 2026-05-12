@@ -1354,11 +1354,7 @@ pub fn set_head_to(state: State<'_, AppState>, node_id: String) -> CmdResult<Str
 /// Set or clear a human-readable label on a node. Pass an empty
 /// string to clear. Used by the graph view's "Rename" overlay.
 #[tauri::command]
-pub fn rename_node(
-    state: State<'_, AppState>,
-    node_id: String,
-    label: String,
-) -> CmdResult<()> {
+pub fn rename_node(state: State<'_, AppState>, node_id: String, label: String) -> CmdResult<()> {
     let id = session::NodeId::from_hex(&node_id).map_err(CommandError::from)?;
     let label_opt = if label.trim().is_empty() {
         None
