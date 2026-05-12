@@ -152,11 +152,11 @@ export function CapabilitiesMenu({ open, onClose }: CapabilitiesMenuProps) {
           />
           <Group
             title="Skills"
-            hint="workflow recipes — coming soon"
+            hint="markdown rules from ~/.edytlab/skills/"
             items={caps.skills}
             disabled={toggle.disabled}
             onToggle={toggleTool}
-            comingSoon
+            emptyText="No skills yet. Drop a .md file under ~/.edytlab/skills/."
           />
           <Group
             title="Agents"
@@ -187,6 +187,7 @@ interface GroupProps {
   disabled: Set<string>;
   onToggle: (name: string) => void;
   comingSoon?: boolean;
+  emptyText?: string;
 }
 
 function Group({
@@ -196,6 +197,7 @@ function Group({
   disabled,
   onToggle,
   comingSoon,
+  emptyText,
 }: GroupProps) {
   return (
     <div className="mb-1.5 last:mb-0">
@@ -212,7 +214,7 @@ function Group({
           data-testid={`group-${title}-empty`}
           className="px-2 py-1 text-[11px] italic text-[var(--text-faint)]"
         >
-          {comingSoon ? "Nothing here yet." : "—"}
+          {emptyText ?? (comingSoon ? "Nothing here yet." : "—")}
         </p>
       ) : (
         <ul className="space-y-0.5">

@@ -24,6 +24,7 @@ use ai::Agent;
 use audio_engine::Engine;
 use memory::MemoryStore;
 use session::Store;
+use skills::SkillLibrary;
 use tools::{Range, ToolDispatcher};
 
 /// Shared, mutex-guarded application state. Cloning is cheap (`Arc`).
@@ -78,6 +79,20 @@ pub struct AppState {
     /// resolves correctly without a rebuild on `open_project`. Built
     /// once at startup via `install_memory_store`.
     pub memory: Arc<Mutex<Option<Arc<MemoryStore>>>>,
+    /// User-authored skill library. Reloaded via
+    /// `reload_skills_from_disk` whenever the directory may have
+    /// changed; reloads replace the library *in place* (under the
+    /// existing `Mutex`) so every `Agent` that previously cloned this
+    /// `Arc` continues to see the latest library on its next turn —
+    /// no agent rebuild required.
+    pub skills: Arc<Mutex<SkillLibrary>>,
+    /// Absolute path of the global skills directory
+    /// (`~/.edytlab/skills`). Resolved once at startup; subsequent
+    /// reloads scan this path. Empty `PathBuf` until
+    /// `install_skill_library` is called — production wires it in
+    /// `lib.rs::setup`; tests using bare `AppState::new()` see an
+    /// always-empty library.
+    pub skills_dir: Arc<Mutex<PathBuf>>,
 }
 
 impl AppState {
@@ -97,6 +112,11 @@ impl AppState {
             selection: Arc::new(Mutex::new(None)),
             clipboard: Arc::new(Mutex::new(None)),
             memory: Arc::new(Mutex::new(None)),
+            skills: Arc::new(Mutex::new(
+                SkillLibrary::load_from(std::path::Path::new(""))
+                    .expect("empty-dir skill library cannot fail"),
+            )),
+            skills_dir: Arc::new(Mutex::new(PathBuf::new())),
         }
     }
 
@@ -120,6 +140,41 @@ impl AppState {
             .expect("memory mutex poisoned")
             .as_ref()
             .map(Arc::clone)
+    }
+
+    /// Install the skill directory + initial load. Called once at
+    /// startup from `lib.rs::run` after the home dir is resolved.
+    pub fn install_skill_library(&self, skills_dir: PathBuf) {
+        *self.skills_dir.lock().expect("skills_dir mutex poisoned") = skills_dir.clone();
+        let lib = SkillLibrary::load_from(&skills_dir).unwrap_or_else(|e| {
+            tracing::warn!(error = ?e, "skill library load failed; starting empty");
+            SkillLibrary::load_from(std::path::Path::new(""))
+                .expect("empty-dir library cannot fail")
+        });
+        *self.skills.lock().expect("skills mutex poisoned") = lib;
+    }
+
+    /// Snapshot the currently-installed skill library handle. Cheap
+    /// to clone (`Arc`); passed to `Agent::with_skills` on rebuild.
+    /// Reloads happen in place under the same `Mutex` so every clone
+    /// sees the latest library on its next lock acquire — no agent
+    /// rebuild required to pick up edits.
+    pub fn skills_handle(&self) -> Arc<Mutex<SkillLibrary>> {
+        Arc::clone(&self.skills)
+    }
+
+    /// Reload the skill library from `skills_dir`, replacing the
+    /// library in place so any `Agent` that already cloned the handle
+    /// sees the new content on its next turn.
+    pub fn reload_skills_from_disk(&self) -> std::result::Result<(), skills::Error> {
+        let dir = self
+            .skills_dir
+            .lock()
+            .expect("skills_dir mutex poisoned")
+            .clone();
+        let lib = SkillLibrary::load_from(&dir)?;
+        *self.skills.lock().expect("skills mutex poisoned") = lib;
+        Ok(())
     }
 
     /// Snapshot the active provider id. Defaults to `"anthropic"` when

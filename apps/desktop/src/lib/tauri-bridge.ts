@@ -239,6 +239,28 @@ export const writeMemory = (
   contents: string,
 ): Promise<void> => invoke<void>("write_memory", { scope, contents });
 
+// -----------------------------------------------------------------------------
+// skills: one markdown file per skill at ~/.edytlab/skills/*.md
+// -----------------------------------------------------------------------------
+
+/** Mirrors `commands::SkillSummary` on the Rust side. `trigger` is a
+ *  short, human-readable summary like `"always"` /
+ *  `"keywords: mix, sidechain"` / `"regex"`. */
+export interface SkillSummary {
+  name: string;
+  description: string;
+  trigger: string;
+  enabled: boolean;
+}
+
+/**
+ * Rescan `~/.edytlab/skills/` and return the current set of skills.
+ * The Rust side reloads on every call so newly-dropped files show up
+ * without an app restart.
+ */
+export const listSkills = (): Promise<SkillSummary[]> =>
+  invoke<SkillSummary[]>("list_skills");
+
 /** Look up a single session node by id. */
 export const getNode = (id: NodeId): Promise<SessionNode> =>
   invoke<SessionNode>("get_node", { id });

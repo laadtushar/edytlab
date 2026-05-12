@@ -255,6 +255,11 @@ pub struct Agent {
     /// prompt after the base prompt and before `SessionContext`.
     /// `None` for tests / CLI callers that don't wire memory.
     pub(crate) memory: Option<Arc<memory::MemoryStore>>,
+    /// User-authored skills library. When present, the agent loop
+    /// calls `matches()` against each turn's user message + history
+    /// and appends matched skill bodies between the base prompt and
+    /// memory.
+    pub(crate) skills: Option<Arc<Mutex<skills::SkillLibrary>>>,
 }
 
 impl Agent {
@@ -279,6 +284,7 @@ impl Agent {
             conversation: Vec::new(),
             plan_notify,
             memory: None,
+            skills: None,
         }
     }
 
@@ -286,6 +292,15 @@ impl Agent {
     /// chain: `Agent::new(...).with_memory(store)`.
     pub fn with_memory(mut self, memory: Arc<memory::MemoryStore>) -> Self {
         self.memory = Some(memory);
+        self
+    }
+
+    /// Builder — attach a skill library. Skills are evaluated per
+    /// turn against the user message + history; matched skill bodies
+    /// are appended to the system prompt between the base prompt and
+    /// memory.
+    pub fn with_skills(mut self, skills: Arc<Mutex<skills::SkillLibrary>>) -> Self {
+        self.skills = Some(skills);
         self
     }
 
@@ -328,6 +343,7 @@ impl Agent {
             user_message,
             session_ctx,
             self.memory.as_deref(),
+            self.skills.as_ref().map(Arc::as_ref),
             on_event,
         )
         .await

@@ -31,6 +31,7 @@ ai = { path = "../../../crates/ai" }
 audio-engine = { path = "../../../crates/audio-engine" }
 memory = { path = "../../../crates/memory" }
 session = { path = "../../../crates/session" }
+skills = { path = "../../../crates/skills" }
 tools = { path = "../../../crates/tools" }
 
 [dev-dependencies]

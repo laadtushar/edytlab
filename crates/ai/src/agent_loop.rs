@@ -87,9 +87,7 @@ pub(crate) async fn classify_mode(
         .map(|m| {
             serde_json::json!({
                 "role": match m.role { Role::User => "user", Role::Assistant => "assistant" },
-                "content": m.content.iter().filter_map(|b| {
-                    if let ContentBlock::Text { text } = b { Some(text.as_str()) } else { None }
-                }).collect::<Vec<_>>().join(" ")
+                "content": message_text(m),
             })
         })
         .collect();
@@ -162,21 +160,53 @@ fn select_system_prompt(mode: Mode) -> &'static str {
 }
 
 /// Concatenate the per-turn system prompt fragments in canonical
-/// order: base prompt → memory → session context. Empty fragments are
-/// omitted cleanly so a single section never produces a leading or
-/// trailing double newline. Extracted as a free function so the
-/// ordering invariant can be unit-tested without booting `run_turn`.
-pub(crate) fn assemble_system_prompt(base: &str, memory_block: &str, ctx_block: &str) -> String {
+/// order: base prompt → skills (matched, alphabetical) → memory
+/// (global, project) → session context. Empty fragments are omitted
+/// cleanly so a single section never produces a leading or trailing
+/// double newline. Extracted as a free function so the ordering
+/// invariant can be unit-tested without booting `run_turn`.
+pub(crate) fn assemble_system_prompt(
+    base: &str,
+    skills_block: &str,
+    memory_block: &str,
+    ctx_block: &str,
+) -> String {
     let mut out = base.to_string();
-    if !memory_block.is_empty() {
-        out.push_str("\n\n");
-        out.push_str(memory_block);
-    }
-    if !ctx_block.is_empty() {
-        out.push_str("\n\n");
-        out.push_str(ctx_block);
+    for fragment in [skills_block, memory_block, ctx_block] {
+        if !fragment.is_empty() {
+            out.push_str("\n\n");
+            out.push_str(fragment);
+        }
     }
     out
+}
+
+/// Flatten a message's content blocks into a single space-joined
+/// string of its text blocks. Used by classify_mode / fetch_plan /
+/// run_turn — keeps the three call sites consistent and avoids
+/// silently dropping a block kind one path knows about and another
+/// doesn't.
+pub(crate) fn message_text(m: &Message) -> String {
+    m.content
+        .iter()
+        .filter_map(|b| match b {
+            ContentBlock::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Stringified conversation mode for the skill trigger context. Kept
+/// stable so frontmatter `modes: […]` matchers can rely on the same
+/// labels we surface elsewhere.
+fn mode_as_str(mode: Mode) -> &'static str {
+    match mode {
+        Mode::General => "general",
+        Mode::Mashup => "mashup",
+        Mode::Mix => "mix",
+        Mode::Voice => "voice",
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -210,9 +240,7 @@ async fn fetch_plan(
         .map(|m| {
             serde_json::json!({
                 "role": match m.role { Role::User => "user", Role::Assistant => "assistant" },
-                "content": m.content.iter().filter_map(|b| {
-                    if let ContentBlock::Text { text } = b { Some(text.as_str()) } else { None }
-                }).collect::<Vec<_>>().join(" ")
+                "content": message_text(m),
             })
         })
         .collect();
@@ -301,6 +329,7 @@ pub(crate) async fn run_turn<F>(
     user_message: String,
     session_ctx: Option<&SessionContext>,
     memory_store: Option<&memory::MemoryStore>,
+    skill_library: Option<&Mutex<skills::SkillLibrary>>,
     mut on_event: F,
 ) -> Result<TurnResult>
 where
@@ -312,8 +341,28 @@ where
     let base_prompt = select_system_prompt(mode);
 
     let memory_block = memory_store.map(|m| m.render()).unwrap_or_default();
+    let skills_block = skill_library
+        .map(|lib| {
+            // Pull prior user turns out of `conversation` to form the
+            // history haystack. Skills stay sticky across follow-up
+            // turns even when the trigger keyword isn't repeated.
+            let history: Vec<String> = conversation
+                .iter()
+                .filter(|m| m.role == Role::User)
+                .map(message_text)
+                .collect();
+            let ctx = skills::TriggerContext {
+                user_message: &user_message,
+                history: &history,
+                mode: Some(mode_as_str(mode)),
+            };
+            let guard = lib.lock().expect("skill library mutex poisoned");
+            guard.render(&ctx)
+        })
+        .unwrap_or_default();
     let ctx_block = session_ctx.map(render_block).unwrap_or_default();
-    let combined_prompt = assemble_system_prompt(base_prompt, &memory_block, &ctx_block);
+    let combined_prompt =
+        assemble_system_prompt(base_prompt, &skills_block, &memory_block, &ctx_block);
     let system_prompt: &str = &combined_prompt;
 
     // M27: if mashup mode, request a plan from the model and wait for
@@ -887,22 +936,24 @@ No other text."#;
 
     #[test]
     fn assemble_no_extras_passes_base_through_unchanged() {
-        assert_eq!(assemble_system_prompt("BASE", "", ""), "BASE");
+        assert_eq!(assemble_system_prompt("BASE", "", "", ""), "BASE");
     }
 
     #[test]
-    fn assemble_memory_appears_after_base_before_ctx() {
-        let out = assemble_system_prompt("BASE", "MEM", "CTX");
+    fn assemble_orders_base_skills_memory_ctx() {
+        let out = assemble_system_prompt("BASE", "SKL", "MEM", "CTX");
         let base = out.find("BASE").expect("missing base");
+        let skl = out.find("SKL").expect("missing skills");
         let mem = out.find("MEM").expect("missing memory");
         let ctx = out.find("CTX").expect("missing ctx");
-        assert!(base < mem, "memory must come after base");
+        assert!(base < skl, "skills must come after base");
+        assert!(skl < mem, "memory must come after skills");
         assert!(mem < ctx, "session ctx must come after memory");
     }
 
     #[test]
-    fn assemble_skips_empty_memory_block() {
-        let out = assemble_system_prompt("BASE", "", "CTX");
+    fn assemble_skips_empty_blocks_cleanly() {
+        let out = assemble_system_prompt("BASE", "", "", "CTX");
         assert!(out.contains("BASE"));
         assert!(out.contains("CTX"));
         assert!(!out.contains("\n\n\n"), "must not double-blank-line");
@@ -910,7 +961,7 @@ No other text."#;
 
     #[test]
     fn assemble_separates_with_blank_line() {
-        let out = assemble_system_prompt("BASE", "MEM", "");
+        let out = assemble_system_prompt("BASE", "", "MEM", "");
         assert!(
             out.contains("BASE\n\nMEM"),
             "base + memory should be separated by a blank line; got {out:?}"
