@@ -1339,6 +1339,47 @@ pub fn list_markers(state: State<'_, AppState>) -> CmdResult<Vec<serde_json::Val
         .collect())
 }
 
+/// One track at the current session head. `audio_path` is the source
+/// path of the track's single clip when there is exactly one; `None`
+/// when the track has zero or multiple clips (the multi-clip mix is
+/// not previewable until the M22+ realtime engine lands).
+#[derive(Debug, Clone, Serialize)]
+pub struct TrackSummary {
+    pub id: String,
+    pub name: String,
+    pub muted: bool,
+    pub gain_db: f32,
+    pub audio_path: Option<String>,
+}
+
+/// Return one entry per track at the current session head. Used by
+/// the frontend Timeline to render per-lane waveforms — without this
+/// every lane fell back to the same mix path.
+#[tauri::command]
+pub fn list_tracks(state: State<'_, AppState>) -> CmdResult<Vec<TrackSummary>> {
+    let store_arc = state.store_handle().ok_or(CommandError::NoSession)?;
+    let store = lock_std(&*store_arc, "store")?;
+    let head = store.head().ok_or(CommandError::NoSession)?;
+    let node = store.get(head).map_err(CommandError::from)?;
+    drop(store);
+    Ok(node
+        .state
+        .tracks
+        .into_iter()
+        .map(|t| TrackSummary {
+            id: t.id.0.to_string(),
+            name: t.name,
+            muted: t.muted,
+            gain_db: t.gain_db,
+            audio_path: if t.clips.len() == 1 {
+                Some(t.clips[0].source_path.to_string_lossy().into_owned())
+            } else {
+                None
+            },
+        })
+        .collect())
+}
+
 // ---------------------------------------------------------------------------
 // Agent (re)construction
 // ---------------------------------------------------------------------------

@@ -15,10 +15,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import type { Marker } from "./lib/tauri-bridge";
+import type { Marker, TrackSummary } from "./lib/tauri-bridge";
 import {
   addMarker,
   listMarkers,
+  listTracks,
   onMarkerChanged,
   removeMarker,
   setSelectionContext,
@@ -79,6 +80,7 @@ function App() {
   const [selection, setSelection] = useState<Selection | null>(null);
   const timelineRef = useRef<TimelineHandle>(null);
   const [markers, setMarkers] = useState<Marker[]>([]);
+  const [tracks, setTracks] = useState<TrackSummary[]>([]);
   const selectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Window-level keyboard transport. Active whenever the user isn't
@@ -234,10 +236,18 @@ function App() {
     let cancelled = false;
     onNodeCreated(() => {
       setGraphRefresh((n) => n + 1);
+      void listTracks()
+        .then(setTracks)
+        .catch(() => setTracks([]));
     }).then((fn) => {
       if (cancelled) fn();
       else unlisten = fn;
     });
+    // Initial fetch — covers the case where the project already had
+    // tracks at startup (auto-init creates a single empty track).
+    void listTracks()
+      .then(setTracks)
+      .catch(() => setTracks([]));
     return () => {
       cancelled = true;
       unlisten?.();
@@ -339,6 +349,13 @@ function App() {
                 <Timeline
                   ref={timelineRef}
                   audioPath={audioPath}
+                  tracks={tracks
+                    .filter((t) => t.audio_path)
+                    .map((t) => ({
+                      name: t.name,
+                      audioPath: t.audio_path as string,
+                      muted: t.muted,
+                    }))}
                   onFileDropped={() => undefined}
                   selection={selection}
                   onSelectionChange={handleSelectionChange}
