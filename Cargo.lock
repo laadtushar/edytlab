@@ -1194,6 +1194,7 @@ dependencies = [
  "audio-engine",
  "chrono",
  "keyring",
+ "mcp",
  "memory",
  "regex",
  "serde",
@@ -2526,6 +2527,18 @@ checksum = "a06de3016e9fae57a36fd14dba131fccf49f74b40b7fbdb472f96e361ec71a08"
 dependencies = [
  "autocfg",
  "rawpointer",
+]
+
+[[package]]
+name = "mcp"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tracing",
 ]
 
 [[package]]

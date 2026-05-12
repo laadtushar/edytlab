@@ -160,6 +160,30 @@ impl ToolDispatcher {
         self.tools.get(name).map(|r| r.tool.as_ref())
     }
 
+    /// Remove a previously-registered tool. Returns `true` when a
+    /// tool with that name was present.
+    pub fn unregister(&mut self, name: &str) -> bool {
+        self.tools.remove(name).is_some()
+    }
+
+    /// Remove every tool whose name starts with `prefix`. Returns the
+    /// number removed. Used by the MCP integration to clear a single
+    /// server's remote tools — wire names are namespaced
+    /// `<server>__<tool>` so the prefix is `"<server>__"`.
+    pub fn unregister_prefix(&mut self, prefix: &str) -> usize {
+        let names: Vec<String> = self
+            .tools
+            .keys()
+            .filter(|k| k.starts_with(prefix))
+            .cloned()
+            .collect();
+        let n = names.len();
+        for name in names {
+            self.tools.remove(&name);
+        }
+        n
+    }
+
     /// Schemas for every registered tool, shaped for the Anthropic API's
     /// `tools` parameter. Order is unspecified.
     pub fn tool_schemas(&self) -> Value {

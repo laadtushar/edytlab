@@ -1935,6 +1935,17 @@ pub async fn restart_mcp_server(state: State<'_, AppState>, id: String) -> CmdRe
         .mcp
         .restart(&id, &server, resolve)
         .map_err(CommandError::InvalidMcpServer)?;
+    // Re-register this server's remote tools in the dispatcher so the
+    // agent sees the up-to-date `tools/list`. `start` may have added,
+    // removed, or renamed tools relative to the previous run.
+    {
+        let mut dispatcher = lock_std(&state.dispatcher, "dispatcher")?;
+        crate::mcp_tool::refresh_dispatcher_for_server(
+            &mut dispatcher,
+            Arc::clone(&state.mcp),
+            &id,
+        );
+    }
     Ok(())
 }
 

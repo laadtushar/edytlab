@@ -7,6 +7,7 @@
 
 pub mod commands;
 pub mod events;
+pub mod mcp_tool;
 pub mod state;
 
 use crate::commands::{
