@@ -23,6 +23,10 @@ rayon = "1"
 # rubato version that audio-io uses for the realtime path; reused for the
 # offline path so resampling characteristics match.
 rubato = "0.16"
+# Temp WAV used by `play_state` for multi-track preview. Dropped
+# after `output.write_samples` returns; the OutputStream owns the
+# audio data from there on.
+tempfile = "3"
 thiserror = "2"
 
 [build-dependencies]
