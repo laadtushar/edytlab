@@ -75,13 +75,21 @@ impl Tool for RemoteMcpTool {
     }
 
     fn invoke(&self, args: Value, _ctx: &mut ToolContext) -> tools::Result<ToolResult> {
-        match self.registry.call_remote_tool(&self.server_id, &self.server_tool_name, args) {
+        match self
+            .registry
+            .call_remote_tool(&self.server_id, &self.server_tool_name, args)
+        {
             Ok(result) => {
-                let is_error = result.get("isError").and_then(|v| v.as_bool()).unwrap_or(false);
+                let is_error = result
+                    .get("isError")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 if is_error {
                     Ok(ToolResult::Error(format!(
                         "mcp tool `{}::{}` returned isError=true: {}",
-                        self.server_id, self.server_tool_name, summarise_content(&result)
+                        self.server_id,
+                        self.server_tool_name,
+                        summarise_content(&result)
                     )))
                 } else {
                     Ok(ToolResult::Ok(result))
@@ -150,10 +158,7 @@ pub fn refresh_dispatcher_for_server(
 
 /// Drop every server's remote tools, then re-register the union.
 /// Useful at startup once.
-pub fn refresh_dispatcher_all(
-    dispatcher: &mut ToolDispatcher,
-    registry: Arc<McpRegistry>,
-) {
+pub fn refresh_dispatcher_all(dispatcher: &mut ToolDispatcher, registry: Arc<McpRegistry>) {
     let snapshot = registry.remote_tools();
     // Deduplicate the server ids so we strip each prefix exactly once.
     let mut servers: Vec<String> = snapshot.iter().map(|d| d.server.clone()).collect();

@@ -129,10 +129,7 @@ impl StdioClient {
     /// shape to the agent as either a `ToolResult::Ok` or
     /// `ToolResult::Error`.
     pub fn call_tool(&mut self, name: &str, args: Value) -> Result<Value> {
-        self.request(
-            "tools/call",
-            json!({ "name": name, "arguments": args }),
-        )
+        self.request("tools/call", json!({ "name": name, "arguments": args }))
     }
 
     /// Call `tools/list`. Returns the parsed tool descriptors.
