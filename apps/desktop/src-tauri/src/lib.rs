@@ -225,9 +225,7 @@ fn resolve_global_skills_dir<R: tauri::Runtime>(app: &tauri::App<R>) -> std::pat
 }
 
 /// Resolve `~/.edytlab/agents/`. Same fallback strategy.
-fn resolve_global_agent_profiles_dir<R: tauri::Runtime>(
-    app: &tauri::App<R>,
-) -> std::path::PathBuf {
+fn resolve_global_agent_profiles_dir<R: tauri::Runtime>(app: &tauri::App<R>) -> std::path::PathBuf {
     if let Ok(home) = app.path().home_dir() {
         return home.join(".edytlab").join("agents");
     }
