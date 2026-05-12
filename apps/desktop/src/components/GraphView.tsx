@@ -10,9 +10,10 @@
  *  - Click a node → call the parent's `onSelectNode(id)` so the canvas
  *    pane re-renders that node's audio.
  *  - Right-click a node → context menu with Set-as-head / Compare /
- *    Rename / Delete. All four currently depend on M24 backend tools;
- *    the menu items are present but disabled with a tooltip until that
- *    lands. See the `// TODO(M24)` comments below.
+ *    Rename / Delete. Set-as-head and Rename are wired to the M24 IPC
+ *    commands `set_head_to` / `rename_node`. Compare is enabled when
+ *    the parent provides `onCompareNodes`. Delete is disabled — the
+ *    content-addressed DAG has no safe delete semantics yet.
  *
  * The component doesn't own any session-level state — that lives in
  * the parent's `useSession` hook. We expose only what the parent
@@ -51,6 +52,8 @@ import {
 } from "../lib/graph";
 import {
   getGraph as bridgeGetGraph,
+  renameNode as bridgeRenameNode,
+  setHeadTo as bridgeSetHeadTo,
   type GraphNode,
   type GraphSummary,
   type NodeId,
@@ -134,9 +137,14 @@ export function GraphView({ head, onSelectNode, onCompareNodes, refreshKey = 0 }
   const [error, setError] = useState<string | null>(null);
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
+  const [localRefresh, setLocalRefresh] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Fetch on mount + whenever `refreshKey` changes.
+  const refetch = useCallback(() => {
+    setLocalRefresh((n) => n + 1);
+  }, []);
+
+  // Fetch on mount + whenever `refreshKey` or `localRefresh` changes.
   useEffect(() => {
     let cancelled = false;
     bridgeGetGraph()
@@ -152,7 +160,31 @@ export function GraphView({ head, onSelectNode, onCompareNodes, refreshKey = 0 }
     return () => {
       cancelled = true;
     };
-  }, [refreshKey]);
+  }, [refreshKey, localRefresh]);
+
+  const handleSetHead = useCallback(
+    async (nodeId: string) => {
+      try {
+        await bridgeSetHeadTo(nodeId);
+        refetch();
+      } catch (e) {
+        setError(String(e));
+      }
+    },
+    [refetch],
+  );
+
+  const handleRename = useCallback(
+    async (nodeId: string, label: string) => {
+      try {
+        await bridgeRenameNode(nodeId, label);
+        refetch();
+      } catch (e) {
+        setError(String(e));
+      }
+    },
+    [refetch],
+  );
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent, nodeId: string) => {
@@ -289,6 +321,9 @@ export function GraphView({ head, onSelectNode, onCompareNodes, refreshKey = 0 }
           x={menu.x}
           y={menu.y}
           onClose={dismissMenu}
+          onSetHead={() => {
+            void handleSetHead(menu.nodeId);
+          }}
           onRename={() => startRename(menu.nodeId)}
           onCompare={
             onCompareNodes
@@ -304,6 +339,9 @@ export function GraphView({ head, onSelectNode, onCompareNodes, refreshKey = 0 }
       {renaming ? (
         <RenameOverlay
           nodeId={renaming}
+          onSubmit={async (value) => {
+            await handleRename(renaming, value);
+          }}
           onClose={() => setRenaming(null)}
         />
       ) : null}
@@ -315,20 +353,21 @@ interface ContextMenuProps {
   x: number;
   y: number;
   onClose: () => void;
+  onSetHead: () => void;
   onRename: () => void;
   /** M26: when provided, the "Compare with…" item is enabled. */
   onCompare?: () => void;
 }
 
 /**
- * Right-click menu. Set-as-head, Compare, and Delete are all gated on
- * M24 backend tools that aren't merged yet — they render disabled
- * with a tooltip explaining why. Rename is also gated (it needs the
- * `name_node` tool from M24) but we still wire the in-place input as
- * a TODO so the UX flow can be exercised end-to-end once the backend
- * lands.
+ * Right-click menu. Set-as-head and Rename are wired to the M24 IPC
+ * commands `set_head_to` and `rename_node`. Compare is enabled when
+ * the parent provides `onCompare`. Delete remains disabled — the
+ * content-addressed DAG has no clean delete semantics (a node may
+ * be a parent of others), so honouring "delete" without orphaning
+ * descendants would need a follow-up GC pass.
  */
-function ContextMenu({ x, y, onClose, onRename, onCompare }: ContextMenuProps) {
+function ContextMenu({ x, y, onClose, onSetHead, onRename, onCompare }: ContextMenuProps) {
   const item = (
     label: string,
     enabled: boolean,
@@ -339,7 +378,7 @@ function ContextMenu({ x, y, onClose, onRename, onCompare }: ContextMenuProps) {
       type="button"
       role="menuitem"
       disabled={!enabled}
-      title={title ?? (enabled ? undefined : "available after M24 lands")}
+      title={title}
       onClick={() => {
         onClick();
         onClose();
@@ -357,37 +396,35 @@ function ContextMenu({ x, y, onClose, onRename, onCompare }: ContextMenuProps) {
       style={{ left: x, top: y }}
       className="absolute z-30 w-44 overflow-hidden rounded-md border border-neutral-700 bg-neutral-900 py-1 shadow-lg"
     >
-      {/* TODO(M24): wire to `set_head` tool when the backend command lands. */}
-      {item("Set as head", false, () => undefined)}
-      {/* M26: enabled when the parent provides onCompare. */}
+      {item("Set as head", true, onSetHead)}
       {item(
         "Compare with…",
         !!onCompare,
         onCompare ?? (() => undefined),
-        onCompare ? undefined : "available after M24 lands",
+        onCompare ? undefined : "open a second node to enable",
       )}
-      {/* TODO(M24): wire to `name_node` tool when backend lands. */}
-      {item("Rename", false, onRename)}
-      {/* TODO(M24): wire to `delete_node` tool when backend lands. */}
-      {item("Delete", false, () => undefined)}
+      {item("Rename", true, onRename)}
+      {item(
+        "Delete",
+        false,
+        () => undefined,
+        "delete is not yet supported (content-addressed DAG)",
+      )}
     </div>
   );
 }
 
 interface RenameOverlayProps {
   nodeId: string;
+  onSubmit: (label: string) => void | Promise<void>;
   onClose: () => void;
 }
 
 /**
- * Tiny in-place input. Today it only closes itself — saving via the
- * `name_node` tool is gated on M24. The component is wired up so the
- * UX flow can be tested end-to-end as soon as the bridge call exists.
- *
- * TODO(M24): on submit, call `bridgeNameNode(nodeId, value)` once the
- * tool lands and refresh the graph.
+ * Tiny in-place input. Submit calls `rename_node` via the parent's
+ * `onSubmit` handler; empty input clears the label.
  */
-function RenameOverlay({ nodeId, onClose }: RenameOverlayProps) {
+function RenameOverlay({ nodeId, onSubmit, onClose }: RenameOverlayProps) {
   const [value, setValue] = useState("");
   return (
     <div
@@ -401,8 +438,7 @@ function RenameOverlay({ nodeId, onClose }: RenameOverlayProps) {
         className="flex flex-col gap-2 rounded-md border border-neutral-700 bg-neutral-900 p-3 text-xs text-neutral-100"
         onSubmit={(e) => {
           e.preventDefault();
-          // TODO(M24): persist via `name_node` once the tool lands.
-          onClose();
+          void Promise.resolve(onSubmit(value)).finally(onClose);
         }}
       >
         <label

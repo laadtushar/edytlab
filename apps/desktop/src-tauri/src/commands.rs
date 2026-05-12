@@ -1339,6 +1339,34 @@ pub fn list_markers(state: State<'_, AppState>) -> CmdResult<Vec<serde_json::Val
         .collect())
 }
 
+/// Move the session head pointer to `node_id`. Used by the graph
+/// view's context menu ("Set as head"). Returns the new head as
+/// hex on success.
+#[tauri::command]
+pub fn set_head_to(state: State<'_, AppState>, node_id: String) -> CmdResult<String> {
+    let id = session::NodeId::from_hex(&node_id).map_err(CommandError::from)?;
+    let store_arc = state.store_handle().ok_or(CommandError::NoSession)?;
+    let mut store = lock_std(&*store_arc, "store")?;
+    store.set_head(id).map_err(CommandError::from)?;
+    Ok(id.to_hex())
+}
+
+/// Set or clear a human-readable label on a node. Pass an empty
+/// string to clear. Used by the graph view's "Rename" overlay.
+#[tauri::command]
+pub fn rename_node(state: State<'_, AppState>, node_id: String, label: String) -> CmdResult<()> {
+    let id = session::NodeId::from_hex(&node_id).map_err(CommandError::from)?;
+    let label_opt = if label.trim().is_empty() {
+        None
+    } else {
+        Some(label)
+    };
+    let store_arc = state.store_handle().ok_or(CommandError::NoSession)?;
+    let mut store = lock_std(&*store_arc, "store")?;
+    store.set_label(id, label_opt).map_err(CommandError::from)?;
+    Ok(())
+}
+
 /// One track at the current session head. `audio_path` is the source
 /// path of the track's single clip when there is exactly one; `None`
 /// when the track has zero or multiple clips (the multi-clip mix is

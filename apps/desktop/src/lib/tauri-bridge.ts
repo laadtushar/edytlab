@@ -384,6 +384,18 @@ export const listTracks = (): Promise<TrackSummary[]> =>
   invoke<TrackSummary[]>("list_tracks");
 
 // -----------------------------------------------------------------------------
+// DAG ops (M24): set head + rename node
+// -----------------------------------------------------------------------------
+
+/** Move the session head to `nodeId`. Returns the new head as hex. */
+export const setHeadTo = (nodeId: string): Promise<string> =>
+  invoke<string>("set_head_to", { nodeId });
+
+/** Set (or clear, when `label` is empty) a human-readable label on a node. */
+export const renameNode = (nodeId: string, label: string): Promise<void> =>
+  invoke<void>("rename_node", { nodeId, label });
+
+// -----------------------------------------------------------------------------
 // Capabilities
 // -----------------------------------------------------------------------------
 
