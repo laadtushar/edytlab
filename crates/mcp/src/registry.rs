@@ -253,7 +253,7 @@ mod tests {
         let out = namespaced_wire_name(&server, &tool);
         assert!(out.len() <= 64, "got {} chars: {}", out.len(), out);
         assert!(out.contains("__"));
-        assert!(out.split('_').last().unwrap().len() == 8);
+        assert!(out.split('_').next_back().unwrap().len() == 8);
     }
 
     #[test]
