@@ -33,6 +33,8 @@ memory = { path = "../../../crates/memory" }
 session = { path = "../../../crates/session" }
 skills = { path = "../../../crates/skills" }
 tools = { path = "../../../crates/tools" }
+regex = "1"
+tempfile = "3"
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }

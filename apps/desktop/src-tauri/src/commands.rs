@@ -12,6 +12,7 @@
 //! [`rebuild_agent`] centralises the logic so the two commands cannot
 //! drift.
 
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -89,6 +90,12 @@ pub enum CommandError {
 
     #[error("memory store not initialised")]
     NoMemory,
+
+    #[error("skills directory not initialised")]
+    NoSkillsDir,
+
+    #[error("invalid skill: {0}")]
+    InvalidSkill(String),
 }
 
 impl From<CommandError> for String {
@@ -538,6 +545,378 @@ fn trigger_summary(t: &skills::Trigger) -> String {
             format!("keywords: {}{suffix}", preview.join(", "))
         }
         skills::Trigger::Regex(_) => "regex".into(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// skills: read / write / delete (phase 3)
+// ---------------------------------------------------------------------------
+
+/// Round-trip shape for the skill editor. Mirrors the on-disk
+/// frontmatter + body verbatim so the UI can edit either side. `name`
+/// is the canonical id (always the filename stem); the loader rejects
+/// a frontmatter `name` that doesn't match, so we keep it implicit on
+/// write and let the user rename via the dedicated UI affordance.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct SkillContent {
+    pub name: String,
+    pub description: String,
+    /// `"always"` | `"keywords"` | `"regex"`.
+    pub trigger: String,
+    #[serde(default)]
+    pub keywords: Vec<String>,
+    #[serde(default)]
+    pub pattern: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    pub body: String,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[tauri::command]
+pub async fn read_skill(state: State<'_, AppState>, name: String) -> CmdResult<SkillContent> {
+    let dir = skills_dir(&state)?;
+    let path = dir.join(format!("{name}.md"));
+    if !path.exists() {
+        return Err(CommandError::InvalidPath(format!(
+            "skill `{name}` not found at {}",
+            path.display()
+        ))
+        .into());
+    }
+    let raw = std::fs::read_to_string(&path).map_err(CommandError::from)?;
+    let parsed = parse_skill_file(&raw)?;
+    let stem = name.clone();
+    Ok(SkillContent {
+        name: stem,
+        description: parsed.description,
+        trigger: parsed.trigger,
+        keywords: parsed.keywords,
+        pattern: parsed.pattern,
+        enabled: parsed.enabled,
+        body: parsed.body,
+    })
+}
+
+#[tauri::command]
+pub async fn upsert_skill(
+    state: State<'_, AppState>,
+    name: String,
+    content: SkillContent,
+) -> CmdResult<()> {
+    if name != content.name {
+        return Err(CommandError::InvalidSkill(format!(
+            "name parameter `{name}` does not match content.name `{}`",
+            content.name
+        ))
+        .into());
+    }
+    validate_skill_name(&name)?;
+    validate_skill_content(&content)?;
+
+    let dir = skills_dir(&state)?;
+    std::fs::create_dir_all(&dir).map_err(CommandError::from)?;
+    let path = dir.join(format!("{name}.md"));
+    let serialised = serialise_skill_file(&content);
+
+    // Atomic write — tempfile in the same dir, then persist.
+    let mut tmp = tempfile::NamedTempFile::new_in(&dir).map_err(CommandError::from)?;
+    std::io::Write::write_all(&mut tmp, serialised.as_bytes()).map_err(CommandError::from)?;
+    tmp.flush().map_err(CommandError::from)?;
+    tmp.persist(&path).map_err(|e| CommandError::Io(e.error))?;
+
+    if let Err(e) = state.reload_skills_from_disk() {
+        // Save succeeded; surface the reload failure so the editor
+        // can show the user that the on-disk file looks malformed.
+        return Err(CommandError::InvalidSkill(format!("saved but reload failed: {e}")).into());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn delete_skill(state: State<'_, AppState>, name: String) -> CmdResult<()> {
+    validate_skill_name(&name)?;
+    let dir = skills_dir(&state)?;
+    let path = dir.join(format!("{name}.md"));
+    if path.exists() {
+        std::fs::remove_file(&path).map_err(CommandError::from)?;
+    }
+    if let Err(e) = state.reload_skills_from_disk() {
+        return Err(CommandError::InvalidSkill(format!(
+            "skill `{name}` deleted but reload failed: {e}"
+        ))
+        .into());
+    }
+    Ok(())
+}
+
+fn skills_dir(state: &AppState) -> Result<PathBuf, CommandError> {
+    let dir = state
+        .skills_dir
+        .lock()
+        .map_err(|_| CommandError::Poisoned("skills_dir"))?
+        .clone();
+    if dir.as_os_str().is_empty() {
+        return Err(CommandError::NoSkillsDir);
+    }
+    Ok(dir)
+}
+
+/// Filename-safe identifier: ASCII alphanumeric, dash, underscore.
+/// Refusing other characters keeps paths well-behaved on every
+/// filesystem and avoids `..`-style escapes since `/` and `\` aren't
+/// in the allowed set.
+fn validate_skill_name(name: &str) -> Result<(), CommandError> {
+    if name.is_empty() || name.len() > 64 {
+        return Err(CommandError::InvalidSkill(
+            "skill name must be 1-64 characters".into(),
+        ));
+    }
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(CommandError::InvalidSkill(
+            "skill name may only contain ASCII letters, digits, dash, or underscore".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_skill_content(content: &SkillContent) -> Result<(), CommandError> {
+    match content.trigger.as_str() {
+        "always" => {}
+        "keywords" => {
+            if content.keywords.is_empty() {
+                return Err(CommandError::InvalidSkill(
+                    "trigger=keywords requires at least one keyword".into(),
+                ));
+            }
+        }
+        "regex" => {
+            if content.pattern.trim().is_empty() {
+                return Err(CommandError::InvalidSkill(
+                    "trigger=regex requires a non-empty pattern".into(),
+                ));
+            }
+            // Cheap syntactic validation so the editor surfaces bad
+            // regexes immediately rather than at next agent turn.
+            regex::Regex::new(&content.pattern).map_err(|e| {
+                CommandError::InvalidSkill(format!("regex pattern is invalid: {e}"))
+            })?;
+        }
+        other => {
+            return Err(CommandError::InvalidSkill(format!(
+                "unknown trigger `{other}` (expected always|keywords|regex)"
+            )))
+        }
+    }
+    Ok(())
+}
+
+/// Serialise a `SkillContent` back to the on-disk markdown format.
+/// The schema mirrors what `crates/skills` parses; we deliberately
+/// omit empty optional fields so files written from the editor look
+/// the same as files a user would hand-write.
+fn serialise_skill_file(c: &SkillContent) -> String {
+    let mut out = String::from("---\n");
+    out.push_str(&format!(
+        "description: {}\n",
+        quote_if_needed(&c.description)
+    ));
+    out.push_str(&format!("trigger: {}\n", c.trigger));
+    if c.trigger == "keywords" && !c.keywords.is_empty() {
+        let inner: Vec<String> = c
+            .keywords
+            .iter()
+            .map(|k| quote_if_needed(k.trim()))
+            .collect();
+        out.push_str(&format!("keywords: [{}]\n", inner.join(", ")));
+    }
+    if c.trigger == "regex" && !c.pattern.is_empty() {
+        out.push_str(&format!("pattern: {}\n", quote_if_needed(&c.pattern)));
+    }
+    if !c.enabled {
+        out.push_str("enabled: false\n");
+    }
+    out.push_str("---\n");
+    out.push_str(&c.body);
+    if !c.body.ends_with('\n') {
+        out.push('\n');
+    }
+    out
+}
+
+/// Quote a scalar when it contains characters the loader would parse
+/// specially (`:`, `,`, `[`, `]`, leading/trailing whitespace). The
+/// loader accepts both quoted and unquoted forms, so quoting is a
+/// safety convenience.
+fn quote_if_needed(s: &str) -> String {
+    let trimmed = s.trim();
+    let needs = trimmed != s
+        || trimmed.is_empty()
+        || trimmed.contains([':', ',', '[', ']', '#'])
+        || trimmed.starts_with('"')
+        || trimmed.starts_with('\'');
+    if needs {
+        let escaped = trimmed.replace('"', "\\\"");
+        format!("\"{escaped}\"")
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// Loosely parse a skill file into the editor's flat shape. Mirrors
+/// the loader rules in `crates/skills` but keeps the legible fallback
+/// strings the UI wants (e.g. `enabled` defaults to `true`).
+fn parse_skill_file(raw: &str) -> Result<ParsedSkillFile, CommandError> {
+    let body_start = raw
+        .strip_prefix("---\n")
+        .or_else(|| raw.strip_prefix("---\r\n"))
+        .ok_or_else(|| CommandError::InvalidSkill("missing frontmatter delimiters".into()))?;
+    let end = body_start.find("\n---").ok_or_else(|| {
+        CommandError::InvalidSkill("missing frontmatter closing delimiter".into())
+    })?;
+    let fm = &body_start[..end];
+    let body = body_start[end + "\n---".len()..]
+        .trim_start_matches('\r')
+        .trim_start_matches('\n')
+        .to_string();
+
+    let mut out = ParsedSkillFile {
+        description: String::new(),
+        trigger: "always".into(),
+        keywords: Vec::new(),
+        pattern: String::new(),
+        enabled: true,
+        body,
+    };
+    for line in fm.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let (k, v) = match line.split_once(':') {
+            Some(kv) => kv,
+            None => continue,
+        };
+        let k = k.trim();
+        let v = strip_quotes(v.trim());
+        match k {
+            "description" => out.description = v.to_string(),
+            "trigger" => out.trigger = v.to_string(),
+            "pattern" => out.pattern = v.to_string(),
+            "enabled" => out.enabled = v == "true",
+            "keywords" => {
+                if let Some(arr) = v.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
+                    out.keywords = split_array_items(arr);
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(out)
+}
+
+struct ParsedSkillFile {
+    description: String,
+    trigger: String,
+    keywords: Vec<String>,
+    pattern: String,
+    enabled: bool,
+    body: String,
+}
+
+fn strip_quotes(s: &str) -> &str {
+    let s = s.trim();
+    if (s.starts_with('"') && s.ends_with('"') && s.len() >= 2)
+        || (s.starts_with('\'') && s.ends_with('\'') && s.len() >= 2)
+    {
+        &s[1..s.len() - 1]
+    } else {
+        s
+    }
+}
+
+/// Quote-aware split of an inline-array body (the part between the
+/// outer `[` and `]`). Commas inside `"…"` or `'…'` literals are
+/// preserved so a keyword like `"two,three"` survives the round trip.
+/// Each returned item is `strip_quotes`-d and trimmed; empty items
+/// are dropped.
+fn split_array_items(inner: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut in_quote: Option<char> = None;
+    let mut escaped = false;
+    for ch in inner.chars() {
+        if escaped {
+            current.push(ch);
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' && in_quote.is_some() {
+            // Preserve the backslash so `strip_quotes` sees the
+            // original `\"` sequence; the consumer can de-escape if
+            // it cares.
+            current.push(ch);
+            escaped = true;
+            continue;
+        }
+        match in_quote {
+            Some(q) if ch == q => {
+                current.push(ch);
+                in_quote = None;
+            }
+            Some(_) => current.push(ch),
+            None => {
+                if ch == '"' || ch == '\'' {
+                    in_quote = Some(ch);
+                    current.push(ch);
+                } else if ch == ',' {
+                    let item = strip_quotes(current.trim()).to_string();
+                    if !item.is_empty() {
+                        out.push(item);
+                    }
+                    current.clear();
+                } else {
+                    current.push(ch);
+                }
+            }
+        }
+    }
+    let item = strip_quotes(current.trim()).to_string();
+    if !item.is_empty() {
+        out.push(item);
+    }
+    out
+}
+
+#[cfg(test)]
+mod commands_tests {
+    use super::*;
+
+    #[test]
+    fn split_array_items_basic() {
+        assert_eq!(
+            split_array_items("a, b, c"),
+            vec!["a".to_string(), "b".into(), "c".into()]
+        );
+    }
+
+    #[test]
+    fn split_array_items_preserves_quoted_commas() {
+        assert_eq!(
+            split_array_items("one, \"two,three\", four"),
+            vec!["one".to_string(), "two,three".into(), "four".into()]
+        );
+    }
+
+    #[test]
+    fn split_array_items_drops_empties() {
+        assert_eq!(split_array_items(",,  a , ,"), vec!["a".to_string()]);
     }
 }
 
