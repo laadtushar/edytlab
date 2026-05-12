@@ -10,6 +10,7 @@ members = [
     "crates/audio-io",
     "crates/audio-time",
     "crates/agent_profiles",
+    "crates/mcp",
     "crates/memory",
     "crates/skills",
     "crates/ml-demucs",

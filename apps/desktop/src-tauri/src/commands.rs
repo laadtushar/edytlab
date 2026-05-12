@@ -102,6 +102,12 @@ pub enum CommandError {
 
     #[error("invalid agent profile: {0}")]
     InvalidAgentProfile(String),
+
+    #[error("mcp error: {0}")]
+    Mcp(#[from] mcp::McpError),
+
+    #[error("invalid mcp server: {0}")]
+    InvalidMcpServer(String),
 }
 
 impl From<CommandError> for String {
@@ -1719,6 +1725,232 @@ async fn rebuild_agent(state: &AppState) -> Result<(), CommandError> {
         _ => None,
     };
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// MCP servers (phase 5)
+// ---------------------------------------------------------------------------
+
+/// IPC shape for one server in the registration file. Mirrors
+/// `mcp::McpServerConfig` but flattened so the TS bridge can render
+/// it without an untagged-union discriminator.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct McpServerEntry {
+    pub id: String,
+    pub transport: String, // "stdio" | "sse"
+    #[serde(default)]
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub headers: std::collections::HashMap<String, String>,
+    #[serde(default = "default_true_helper")]
+    pub enabled: bool,
+}
+
+fn default_true_helper() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct McpServerListEntry {
+    pub id: String,
+    pub transport: String,
+    pub enabled: bool,
+    pub status: mcp::McpServerStatus,
+    pub tools_count: usize,
+    pub last_error: Option<String>,
+}
+
+#[tauri::command]
+pub async fn list_mcp_servers(state: State<'_, AppState>) -> CmdResult<Vec<McpServerListEntry>> {
+    let cfg = state
+        .mcp_config
+        .lock()
+        .map_err(|_| CommandError::Poisoned("mcp_config"))?
+        .clone();
+    let mut out: Vec<McpServerListEntry> = cfg
+        .servers
+        .iter()
+        .map(|(id, c)| {
+            let s = state.mcp.summary(id, c);
+            McpServerListEntry {
+                id: id.clone(),
+                transport: s.transport.into(),
+                enabled: c.enabled(),
+                status: s.status,
+                tools_count: s.tools_count,
+                last_error: s.last_error,
+            }
+        })
+        .collect();
+    out.sort_by(|a, b| a.id.cmp(&b.id));
+    Ok(out)
+}
+
+#[tauri::command]
+pub async fn read_mcp_server(state: State<'_, AppState>, id: String) -> CmdResult<McpServerEntry> {
+    let cfg = state
+        .mcp_config
+        .lock()
+        .map_err(|_| CommandError::Poisoned("mcp_config"))?
+        .clone();
+    let server = cfg
+        .servers
+        .get(&id)
+        .ok_or_else(|| CommandError::InvalidMcpServer(format!("server `{id}` not found")))?
+        .clone();
+    Ok(mcp_server_to_entry(&id, &server))
+}
+
+#[tauri::command]
+pub async fn upsert_mcp_server(
+    state: State<'_, AppState>,
+    id: String,
+    entry: McpServerEntry,
+) -> CmdResult<()> {
+    if id != entry.id {
+        return Err(CommandError::InvalidMcpServer(format!(
+            "id `{id}` does not match entry.id `{}`",
+            entry.id
+        ))
+        .into());
+    }
+    validate_mcp_id(&id)?;
+    let config = entry_to_server_config(&entry)?;
+    {
+        let mut cfg = state
+            .mcp_config
+            .lock()
+            .map_err(|_| CommandError::Poisoned("mcp_config"))?;
+        cfg.servers.insert(id, config);
+    }
+    state.save_mcp_config().map_err(CommandError::from)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn delete_mcp_server(state: State<'_, AppState>, id: String) -> CmdResult<()> {
+    validate_mcp_id(&id)?;
+    state.mcp.stop(&id);
+    {
+        let mut cfg = state
+            .mcp_config
+            .lock()
+            .map_err(|_| CommandError::Poisoned("mcp_config"))?;
+        cfg.servers.remove(&id);
+    }
+    state.save_mcp_config().map_err(CommandError::from)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn restart_mcp_server(state: State<'_, AppState>, id: String) -> CmdResult<()> {
+    validate_mcp_id(&id)?;
+    let server = {
+        let cfg = state
+            .mcp_config
+            .lock()
+            .map_err(|_| CommandError::Poisoned("mcp_config"))?;
+        cfg.servers
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| CommandError::InvalidMcpServer(format!("server `{id}` not found")))?
+    };
+    let resolve = |slot: &str| ai::keychain::load_api_key(slot);
+    state
+        .mcp
+        .restart(&id, &server, resolve)
+        .map_err(CommandError::InvalidMcpServer)?;
+    Ok(())
+}
+
+fn validate_mcp_id(id: &str) -> Result<(), CommandError> {
+    if id.is_empty() || id.len() > 64 {
+        return Err(CommandError::InvalidMcpServer(
+            "id must be 1-64 characters".into(),
+        ));
+    }
+    if !id
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(CommandError::InvalidMcpServer(
+            "id may only contain ASCII letters, digits, dash, or underscore".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn mcp_server_to_entry(id: &str, cfg: &mcp::McpServerConfig) -> McpServerEntry {
+    match cfg {
+        mcp::McpServerConfig::Stdio {
+            command,
+            args,
+            env,
+            enabled,
+        } => McpServerEntry {
+            id: id.to_string(),
+            transport: "stdio".into(),
+            command: command.clone(),
+            args: args.clone(),
+            env: env.clone(),
+            url: String::new(),
+            headers: Default::default(),
+            enabled: *enabled,
+        },
+        mcp::McpServerConfig::Sse {
+            url,
+            headers,
+            enabled,
+        } => McpServerEntry {
+            id: id.to_string(),
+            transport: "sse".into(),
+            command: String::new(),
+            args: Vec::new(),
+            env: Default::default(),
+            url: url.clone(),
+            headers: headers.clone(),
+            enabled: *enabled,
+        },
+    }
+}
+
+fn entry_to_server_config(e: &McpServerEntry) -> Result<mcp::McpServerConfig, CommandError> {
+    match e.transport.as_str() {
+        "stdio" => {
+            if e.command.trim().is_empty() {
+                return Err(CommandError::InvalidMcpServer(
+                    "stdio transport requires a `command`".into(),
+                ));
+            }
+            Ok(mcp::McpServerConfig::Stdio {
+                command: e.command.clone(),
+                args: e.args.clone(),
+                env: e.env.clone(),
+                enabled: e.enabled,
+            })
+        }
+        "sse" => {
+            if e.url.trim().is_empty() {
+                return Err(CommandError::InvalidMcpServer(
+                    "sse transport requires a `url`".into(),
+                ));
+            }
+            Ok(mcp::McpServerConfig::Sse {
+                url: e.url.clone(),
+                headers: e.headers.clone(),
+                enabled: e.enabled,
+            })
+        }
+        other => Err(CommandError::InvalidMcpServer(format!(
+            "unknown transport `{other}` (expected stdio|sse)"
+        ))),
+    }
 }
 
 /// At app startup, restore the active provider from the keychain (if
