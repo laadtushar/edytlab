@@ -7,10 +7,13 @@
 //!   [`session::SessionState`] for forward compatibility but are ignored.
 //! * Render is fully deterministic across platforms; see `render.rs`.
 //!
-//! The realtime [`play_state`] entry point is a thin stub: it opens an
-//! [`audio_io::OutputStream`], pushes the rendered samples, and returns a
-//! handle whose `Drop` pauses the stream. Frame-accurate transport, scrubbing,
-//! and seeking arrive in Phase 2.
+//! The realtime [`play_state`] entry point mixes the session through
+//! the same offline `render_state_to_wav` path used for final
+//! rendering (single-track sessions take a fast direct-decode path),
+//! opens an [`audio_io::OutputStream`], pushes the resulting
+//! samples, and returns a handle whose `Drop` pauses the stream.
+//! Frame-accurate transport, scrubbing, and a true streaming
+//! realtime mixer arrive in Phase 2.
 
 pub mod encode;
 pub mod graph;
@@ -110,34 +113,62 @@ impl Engine {
 
 /// Realtime preview entry point.
 ///
-/// M21 caveat: the realtime preview path does NOT yet do multi-track
-/// mixdown. It plays back the FIRST contributing track only. Offline
-/// `render_state_to_wav` is the multi-track mix path. The realtime mixer
-/// arrives in a later milestone (M22+); until then this is the pragmatic
-/// stub that preserves Phase 1 demo behaviour.
-// TODO(M22+): wire the multi-track offline mix into the realtime preview
-// stream so play and render stay in semantic lockstep.
+/// Renders `state` to a temp WAV via [`render_state_to_wav`] (the
+/// same multi-track mix path used by `render_final`) and streams
+/// the result through `output`. Single-track sessions take a fast
+/// path that decodes the source file directly — same behaviour as
+/// the M21 stub, no extra disk write.
+///
+/// Latency cost: the mix completes before the first sample plays.
+/// For Phase 1 demo sessions (≤ a few minutes) this is negligible
+/// relative to the audio-output buffer warm-up. A true streaming
+/// realtime mixer is the M22+ follow-up — this path keeps play
+/// and render in semantic lockstep until then.
 pub fn play_state<'a>(
     state: &SessionState,
     output: &'a mut dyn OutputStream,
     range: Option<TimeRange>,
 ) -> Result<PlayHandle<'a>> {
     let graph = graph::build(state)?;
-    let plan = graph
+    let contributing: Vec<_> = graph
         .tracks
         .iter()
-        .find(|t| t.contributes && t.length > 0)
-        .ok_or(Error::NoClip)?;
-    let mut decoded = audio_decoder::decode_file(&plan.source_path)?;
-    mixer::apply_gain_db(&mut decoded.samples, plan.gain_db);
+        .filter(|t| t.contributes && t.length > 0)
+        .collect();
+    if contributing.is_empty() {
+        return Err(Error::NoClip);
+    }
 
-    let chans = decoded.channels as usize;
-    let total_frames = decoded.samples.len() / chans;
-    let (start, end) = render::resolve_range(range, total_frames)?;
+    // Single-track fast path: decode the source directly. This
+    // preserves the M21 zero-extra-disk-IO behaviour for the common
+    // single-clip case and avoids the temp-file roundtrip cost.
+    if contributing.len() == 1 {
+        let plan = contributing[0];
+        let mut decoded = audio_decoder::decode_file(&plan.source_path)?;
+        mixer::apply_gain_db(&mut decoded.samples, plan.gain_db);
 
-    let slice = &decoded.samples[start * chans..end * chans];
+        let chans = decoded.channels as usize;
+        let total_frames = decoded.samples.len() / chans;
+        let (start, end) = render::resolve_range(range, total_frames)?;
+
+        let slice = &decoded.samples[start * chans..end * chans];
+        output.play()?;
+        output.write_samples(slice)?;
+        return Ok(PlayHandle { output });
+    }
+
+    // Multi-track path: render to a temp WAV and stream the result.
+    // The tempfile is dropped after the synchronous write_samples
+    // completes; the OutputStream owns the audio data from there on.
+    let tmp = tempfile::Builder::new()
+        .prefix("edytlab-preview-")
+        .suffix(".wav")
+        .tempfile()?;
+    render_state_to_wav(state, tmp.path(), range)?;
+    let decoded = audio_decoder::decode_file(tmp.path())?;
     output.play()?;
-    output.write_samples(slice)?;
+    output.write_samples(&decoded.samples)?;
+    drop(tmp);
 
     Ok(PlayHandle { output })
 }
