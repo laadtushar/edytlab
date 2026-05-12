@@ -3,17 +3,19 @@
  * and an imperative transport handle for window-level keyboard
  * shortcuts.
  *
- * The first lane (index 0) owns the active wavesurfer — it's the only
- * one currently fed audio, and it doubles as the timecode source for
- * keyboard transport (Space, Home/End, ←/→) bound at the App level.
+ * The first lane (index 0) owns the timecode source for keyboard
+ * transport (Space, Home/End, ←/→) bound at the App level. Every
+ * lane now renders its own audio when `tracks[i].audioPath` is set.
  *
  * Region selection: mousedown + drag inside the waveform creates a
  * selection range expressed in seconds, hoisted to App via
  * `onSelectionChange`. Selection is rendered as a translucent amber
  * overlay; clicking outside the overlay (without dragging) clears.
  *
- * NOTE: per-track audioPath is still TODO — every lane shows the
- * same mix until the stem-cache landing in Phase 3.
+ * Per-track waveforms: when the caller supplies a `tracks` prop, each
+ * lane renders the audio at its own `audioPath`. Multi-clip tracks
+ * (no single source path) are filtered out upstream until M22+
+ * realtime mixdown lands.
  */
 
 import {
@@ -556,7 +558,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
           <TrackLane
             key={track.name}
             name={track.name}
-            audioPath={idx === 0 ? track.audioPath || null : null}
+            audioPath={track.audioPath || null}
             muted={track.muted}
             onToggleMute={() => handleToggleMute(idx)}
             onFileDropped={idx === 0 ? onFileDropped : undefined}

@@ -368,6 +368,22 @@ export const onMarkerChanged = (cb: () => void): Promise<UnlistenFn> =>
   listen("marker-changed", () => cb());
 
 // -----------------------------------------------------------------------------
+// Tracks
+// -----------------------------------------------------------------------------
+
+export interface TrackSummary {
+  id: string;
+  name: string;
+  muted: boolean;
+  gain_db: number;
+  /** `null` when the track has zero or multiple clips. */
+  audio_path: string | null;
+}
+
+export const listTracks = (): Promise<TrackSummary[]> =>
+  invoke<TrackSummary[]>("list_tracks");
+
+// -----------------------------------------------------------------------------
 // Capabilities
 // -----------------------------------------------------------------------------
 
