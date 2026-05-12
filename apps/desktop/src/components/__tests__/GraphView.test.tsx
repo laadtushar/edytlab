@@ -151,7 +151,7 @@ describe("GraphView", () => {
     expect(onSelect).toHaveBeenCalledWith(bubbles[0].dataset.nodeId);
   });
 
-  it("opens a context menu on right-click with M24-gated items disabled", async () => {
+  it("opens a context menu on right-click — Set-as-head + Rename enabled, Compare + Delete disabled without onCompareNodes", async () => {
     const summary = makeGraph(3);
     getGraphMock.mockResolvedValue(summary);
     render(
@@ -166,7 +166,11 @@ describe("GraphView", () => {
     expect(menu).toBeInTheDocument();
     const items = menu.querySelectorAll('button[role="menuitem"]');
     expect(items.length).toBe(4);
-    items.forEach((b) => expect(b).toBeDisabled());
+    // Order: Set as head, Compare with…, Rename, Delete.
+    expect(items[0]).not.toBeDisabled();
+    expect(items[1]).toBeDisabled();
+    expect(items[2]).not.toBeDisabled();
+    expect(items[3]).toBeDisabled();
   });
 
   it("computes layout + colours for a 200-node graph in under 500ms", async () => {
