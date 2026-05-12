@@ -122,6 +122,16 @@ impl StdioClient {
         Ok(name)
     }
 
+    /// Invoke a tool on the server (`tools/call`). Returns the raw
+    /// `result` payload from the JSON-RPC response — typically the
+    /// `content` array per the MCP spec, plus an optional
+    /// `isError` flag. The caller is responsible for surfacing that
+    /// shape to the agent as either a `ToolResult::Ok` or
+    /// `ToolResult::Error`.
+    pub fn call_tool(&mut self, name: &str, args: Value) -> Result<Value> {
+        self.request("tools/call", json!({ "name": name, "arguments": args }))
+    }
+
     /// Call `tools/list`. Returns the parsed tool descriptors.
     pub fn list_tools(&mut self) -> Result<Vec<ToolDescriptor>> {
         let resp = self.request("tools/list", json!({}))?;

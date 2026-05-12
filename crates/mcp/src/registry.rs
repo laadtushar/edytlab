@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use serde::Serialize;
+use serde_json::Value;
 
 use crate::config::{McpServerConfig, McpTransport};
 use crate::transport::{StdioClient, ToolDescriptor};
@@ -44,13 +45,14 @@ pub struct RemoteToolDescriptor {
     pub server: String,
     pub tool: String,
     pub description: String,
+    /// Raw `input_schema` JSON from the MCP `tools/list` response.
+    /// Needed so the dispatcher can advertise the tool to the model
+    /// with full parameter schema (not just name + description).
+    pub schema: Value,
 }
 
 struct RunningServer {
-    /// Held so the child stays alive; dropping this struct kills the
-    /// child via `StdioClient::drop`. Actual JSON-RPC dispatch hangs
-    /// off this in the follow-up that wires remote tool invocation.
-    #[allow(dead_code)]
+    /// Live JSON-RPC client. Used for `tools/call` dispatch.
     client: StdioClient,
     tools: Vec<ToolDescriptor>,
 }
@@ -159,6 +161,37 @@ impl McpRegistry {
         }
     }
 
+    /// Invoke `tool_name` on the named server. The call is synchronous
+    /// (the underlying transport is sync stdio) and routes through the
+    /// long-lived child process opened by [`Self::start`]. Returns the
+    /// raw JSON-RPC `result` shape from the server — typically
+    /// `{ "content": [...], "isError": false }` per the MCP spec.
+    ///
+    /// `Err` covers: server not running, tool not advertised by that
+    /// server, transport / protocol failures. The agent loop maps any
+    /// `Err` here onto a `ToolResult::Error` so the model can recover.
+    pub fn call_remote_tool(
+        &self,
+        server_id: &str,
+        tool_name: &str,
+        args: Value,
+    ) -> std::result::Result<Value, String> {
+        let mut inner = self.inner.lock().expect("registry mutex poisoned");
+        let server = inner
+            .running
+            .get_mut(server_id)
+            .ok_or_else(|| format!("mcp server `{server_id}` is not running"))?;
+        if !server.tools.iter().any(|t| t.name == tool_name) {
+            return Err(format!(
+                "tool `{tool_name}` is not advertised by `{server_id}`"
+            ));
+        }
+        server
+            .client
+            .call_tool(tool_name, args)
+            .map_err(|e| e.to_string())
+    }
+
     /// Snapshot the union of every running server's tools, namespaced
     /// for safe exposure to the model. Empty when no servers are
     /// running.
@@ -174,6 +207,7 @@ impl McpRegistry {
                     server: id.clone(),
                     tool: t.name.clone(),
                     description: t.description.clone(),
+                    schema: t.schema.clone(),
                 });
             }
         }
