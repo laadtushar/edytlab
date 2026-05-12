@@ -29,13 +29,14 @@ import {
   type ModelInfo,
   type ProviderId,
 } from "../lib/tauri-bridge";
+import { AgentProfilesEditor } from "./AgentProfilesEditor";
 import { MemoryEditor } from "./MemoryEditor";
 import { SkillsEditor } from "./SkillsEditor";
 
 /** Settings panel tabs. The blocking onboarding flow is locked to
- *  "account"; the panel mode lets the user switch. Phases 1-3 ship
- *  "account", "memory", "skills"; phases 4-5 add "agents", "mcp". */
-type SettingsTab = "account" | "memory" | "skills";
+ *  "account"; the panel mode lets the user switch. Phases 1-4 ship
+ *  "account", "memory", "skills", "agents"; phase 5 adds "mcp". */
+type SettingsTab = "account" | "memory" | "skills" | "agents";
 
 /** Legacy (single-provider) localStorage key. Migrated to the
  * per-provider slot below on first read. */
@@ -405,12 +406,21 @@ export function Settings({
               active={tab === "skills"}
               onClick={() => setTab("skills")}
             />
+            <SettingsTabButton
+              id="agents"
+              label="Agents"
+              active={tab === "agents"}
+              onClick={() => setTab("agents")}
+            />
           </div>
         ) : null}
 
         <div className="px-5 py-4">
           {tab === "memory" && mode === "panel" ? <MemoryEditor /> : null}
           {tab === "skills" && mode === "panel" ? <SkillsEditor /> : null}
+          {tab === "agents" && mode === "panel" ? (
+            <AgentProfilesEditor />
+          ) : null}
           {tab === "account" ? (
           <>
           {mode === "blocking" ? (
