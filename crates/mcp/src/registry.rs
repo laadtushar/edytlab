@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use serde::Serialize;
+use serde_json::Value;
 
 use crate::config::{McpServerConfig, McpTransport};
 use crate::transport::{StdioClient, ToolDescriptor};
