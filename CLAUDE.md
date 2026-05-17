@@ -51,6 +51,24 @@ This repo lives at `C:\Users\tusha\Work\Playground\Edytlab\edytlab` on Windows 1
 - Signed releases (`release-mac.yml`, `release-win.yml`) are still manual `workflow_dispatch` and require Apple/Windows signing secrets.
 - Bundle targets are explicit in `tauri.conf.json`: `["app", "dmg", "msi", "nsis", "deb", "appimage"]`. Don't revert to `"all"` — it silently dropped installer formats under some build conditions.
 
+## Audio engine / WaveSurfer quirks
+
+- `wsRef.current.zoom()` throws "No audio loaded" when WaveSurfer has no decoded data — always guard with `if (!wsRef.current || duration === 0) return` and include `duration` in the useEffect dep array.
+- React's `onWheel` is passive in Chromium/Tauri — Ctrl+scroll requires `el.addEventListener("wheel", handler, { passive: false })` via useEffect, not the `onWheel` JSX prop.
+- Window-level `keydown` listeners do NOT stop each other via `e.stopPropagation()` — guard with a state variable (e.g., `!showShortcuts`) instead.
+- Keyboard shortcut handlers in App.tsx that should fire without audio must be placed **before** `if (!timelineRef.current) return`, not after.
+
+## Tauri command conventions
+
+- Return type alias: `CmdResult<T>` (= `Result<T, String>`) — all commands use it; never raw `Result<T, String>`.
+- Store and engine locks must be in separate scopes: acquire and drop store lock before opening engine lock to avoid double-borrow panics. Use `let state = { let store = lock_std(...); store.get(id)? };` pattern.
+
+## Website (`website/`)
+
+- Separate Next.js 16 app; build with `pnpm --filter @edytlab/website build`.
+- `framer-motion` v11 already installed — import from `"framer-motion"` (not `"motion/react"`).
+- All components using framer-motion hooks need `"use client"` directive.
+
 ## Acceptance gates
 
 Before merging anything:
