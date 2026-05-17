@@ -18,12 +18,15 @@ import { listen } from "@tauri-apps/api/event";
 import type { Marker, TrackSummary } from "./lib/tauri-bridge";
 import {
   addMarker,
+  getNode,
   listMarkers,
   listTracks,
   onMarkerChanged,
   removeMarker,
+  setHeadTo,
   setSelectionContext,
 } from "./lib/tauri-bridge";
+import { applyUndo, applyRedo } from "./lib/undoRedo";
 
 import { ABCompareBar } from "./components/ABCompareBar";
 import { Chat } from "./components/Chat";
@@ -83,6 +86,29 @@ function App() {
   const [tracks, setTracks] = useState<TrackSummary[]>([]);
   const selectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [zoomPxPerSec, setZoomPxPerSec] = useState(0);
+  const [redoStack, setRedoStack] = useState<string[]>([]);
+
+  const handleUndo = useCallback(async () => {
+    if (!head) return;
+    const node = await getNode(head);
+    const result = applyUndo(head, node.parent ?? null, redoStack);
+    if (!result) return;
+    await setHeadTo(result.head);
+    setHeadLocal(result.head);
+    setRedoStack(result.redoStack);
+    const newTracks = await listTracks();
+    setTracks(newTracks);
+  }, [head, redoStack, setHeadLocal]);
+
+  const handleRedo = useCallback(async () => {
+    const result = applyRedo(redoStack);
+    if (!result) return;
+    await setHeadTo(result.head);
+    setHeadLocal(result.head);
+    setRedoStack(result.redoStack);
+    const newTracks = await listTracks();
+    setTracks(newTracks);
+  }, [redoStack, setHeadLocal]);
 
   // Window-level keyboard transport. Active whenever the user isn't
   // typing into a chat input / settings field. Space toggles
@@ -96,6 +122,19 @@ function App() {
         tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable;
       const t = timelineRef.current;
       if (!t) return;
+      if (e.ctrlKey && !e.shiftKey && e.key === "z") {
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+      if (
+        (e.ctrlKey && e.key === "y") ||
+        (e.ctrlKey && e.shiftKey && e.key === "z")
+      ) {
+        e.preventDefault();
+        handleRedo();
+        return;
+      }
       if (e.key === " " && !isTyping) {
         e.preventDefault();
         t.togglePlay();
@@ -127,7 +166,7 @@ function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selection]);
+  }, [selection, handleUndo, handleRedo]);
 
   useEffect(() => {
     let cancelled = false;
@@ -244,11 +283,11 @@ function App() {
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     let cancelled = false;
-    onNodeCreated(() => {
+    onNodeCreated(async (_nodeId: string) => {
+      setRedoStack([]); // new branch clears forward history
       setGraphRefresh((n) => n + 1);
-      void listTracks()
-        .then(setTracks)
-        .catch(() => setTracks([]));
+      const newTracks = await listTracks();
+      setTracks(newTracks);
     }).then((fn) => {
       if (cancelled) fn();
       else unlisten = fn;
