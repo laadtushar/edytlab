@@ -77,7 +77,7 @@ pub(crate) fn check_channels(samples_len: usize, channels: u16) -> Result<()> {
     if channels == 0 {
         return Err(Error::ChannelMismatch("channels must be > 0".into()));
     }
-    if samples_len % channels as usize != 0 {
+    if !samples_len.is_multiple_of(channels as usize) {
         return Err(Error::ChannelMismatch(format!(
             "{samples_len} samples not divisible by {channels} channels",
         )));

@@ -127,7 +127,7 @@ pub fn detect_downbeats(beats: &[f32], time_signature: u32) -> Vec<f32> {
     beats
         .iter()
         .enumerate()
-        .filter(|(i, _)| (*i as u32) % time_signature == 0)
+        .filter(|(i, _)| (*i as u32).is_multiple_of(time_signature))
         .map(|(_, &t)| t)
         .collect()
 }

@@ -151,7 +151,7 @@ pub fn resample_to_16khz_mono(samples: &[f32], sr: u32, channels: u16) -> Result
         return Err(WhisperError::InvalidAudio("0 Hz sample rate".into()));
     }
     let chans = channels as usize;
-    if samples.len() % chans != 0 {
+    if !samples.len().is_multiple_of(chans) {
         return Err(WhisperError::InvalidAudio(format!(
             "interleaved buffer length {} not divisible by channels {chans}",
             samples.len()

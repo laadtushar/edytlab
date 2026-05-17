@@ -121,7 +121,7 @@ fn write_stem_to_wav(path: &Path, stem: &StemBuffer) -> Result<()> {
         )));
     }
     let frames = stem.channels as usize;
-    if stem.samples.len() % frames != 0 {
+    if !stem.samples.len().is_multiple_of(frames) {
         return Err(DemucsError::Wav(format!(
             "stem {:?}: interleaved buffer length {} not divisible by channels {}",
             stem.name,

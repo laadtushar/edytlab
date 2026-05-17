@@ -291,7 +291,7 @@ where
 
     fn write_samples(&mut self, samples: &[f32]) -> Result<()> {
         let channels = self.channels as usize;
-        if samples.len() % channels != 0 {
+        if !samples.len().is_multiple_of(channels) {
             return Err(Error::UnalignedFrames {
                 len: samples.len(),
                 channels: self.channels,
