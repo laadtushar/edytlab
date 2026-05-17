@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Chat — right-pane conversation panel (Studio Onyx).
  *
  * Renders the agent transcript: alternating message bubbles, tool
@@ -68,8 +68,8 @@ function isPlan(e: LogEntry): e is PlanEntry {
 const CHAT_HINTS = [
   "make this 6 dB louder",
   "fade out the last 3 seconds",
-  "remove vocals",
-  "transcribe and find the chorus",
+  "remove background noise",
+  "what tools do you have?",
 ];
 
 export function Chat({
@@ -96,6 +96,7 @@ export function Chat({
   const [capsOpen, setCapsOpen] = useState(false);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const lastSentRef = useRef<string>("");
 
   // Auto-scroll to bottom on new entries / streaming deltas / awaiting state.
   useEffect(() => {
@@ -114,7 +115,14 @@ export function Chat({
   // Single send path used by both the form submit and chip clicks.
   // Whoever calls this is responsible for the `busy` short-circuit and
   // for shaping the wire text (selection / marker prefix or not).
+  const retryLast = () => {
+    if (lastSentRef.current && !busy) {
+      void sendInternal(lastSentRef.current);
+    }
+  };
+
   const sendInternal = async (wireText: string) => {
+    lastSentRef.current = wireText;
     setLocalError(null);
     pushUserMessage(wireText);
     setBusy(true);
@@ -194,14 +202,18 @@ export function Chat({
           if (isMessage(entry)) {
             const isLastAssistant =
               entry.role === "assistant" && idx === lastAssistantIdx;
+            const showWhisperSetup =
+              entry.role === "assistant" && isWhisperError(entry.text);
             return (
-              <MessageBubble
-                key={entry.id}
-                role={entry.role}
-                text={entry.text}
-                chips={isLastAssistant ? entry.chips : undefined}
-                onChipClick={isLastAssistant ? submitChip : undefined}
-              />
+              <div key={entry.id} className="flex flex-col gap-2">
+                <MessageBubble
+                  role={entry.role}
+                  text={entry.text}
+                  chips={isLastAssistant ? entry.chips : undefined}
+                  onChipClick={isLastAssistant ? submitChip : undefined}
+                />
+                {showWhisperSetup ? <WhisperSetupCard /> : null}
+              </div>
             );
           }
           if (isTool(entry)) {
@@ -284,7 +296,22 @@ export function Chat({
               px-3 py-2 text-xs text-[var(--danger)]
             "
           >
-            {localError}
+            <div className="flex items-start justify-between gap-2">
+              <span>{localError}</span>
+              {lastSentRef.current ? (
+                <button
+                  type="button"
+                  onClick={retryLast}
+                  className="
+                    shrink-0 rounded border border-[var(--danger)]/40
+                    px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider
+                    hover:bg-[var(--danger)]/20
+                  "
+                >
+                  Retry
+                </button>
+              ) : null}
+            </div>
           </div>
         ) : null}
       </div>
@@ -433,35 +460,37 @@ export function Chat({
             data-testid="capabilities-toggle"
             aria-label="Show available tools and capabilities"
             aria-expanded={capsOpen}
-            // Stop `mousedown` propagation so the menu's outside-click
-            // handler (which also runs on `mousedown`) does not close
-            // the menu just before this `onClick` reopens it — that
-            // race made the toggle button feel inert from the user's
-            // perspective when the menu was already open.
+            title="View & toggle agent tools"
             onMouseDown={(e) => e.stopPropagation()}
             onClick={() => setCapsOpen((v) => !v)}
             className="
-              inline-flex h-8 w-8 shrink-0 items-center justify-center
+              inline-flex h-8 shrink-0 items-center gap-1.5
               rounded-md
               border border-[var(--border-strong)]
               bg-[var(--surface-elev)]
+              px-2
               text-[var(--text-dim)]
               transition
               hover:border-[var(--accent)]/45 hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]
             "
           >
             <svg
-              width="13"
-              height="13"
-              viewBox="0 0 13 13"
+              width="12"
+              height="12"
+              viewBox="0 0 12 12"
               fill="none"
               stroke="currentColor"
-              strokeWidth="1.8"
+              strokeWidth="1.7"
               strokeLinecap="round"
+              strokeLinejoin="round"
               aria-hidden="true"
             >
-              <path d="M6.5 2.5v8M2.5 6.5h8" />
+              <rect x="1.5" y="1.5" width="3.5" height="3.5" rx="0.6" />
+              <rect x="7" y="1.5" width="3.5" height="3.5" rx="0.6" />
+              <rect x="1.5" y="7" width="3.5" height="3.5" rx="0.6" />
+              <rect x="7" y="7" width="3.5" height="3.5" rx="0.6" />
             </svg>
+            <span className="font-mono text-[10px] uppercase tracking-wider">Tools</span>
           </button>
           <textarea
             ref={textareaRef}
@@ -608,29 +637,77 @@ interface ChatEmptyHintsProps {
 
 function ChatEmptyHints({ onPick }: ChatEmptyHintsProps) {
   return (
-    <div className="flex flex-col gap-2 py-2">
-      <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--text-faint)]">
-        try saying
-      </p>
-      <div className="flex flex-wrap gap-1.5">
-        {CHAT_HINTS.map((h) => (
-          <button
-            key={h}
-            type="button"
-            onClick={() => onPick(h)}
-            className="
-              rounded-full border border-[var(--border)]
-              bg-[var(--surface-elev)]
-              px-2.5 py-1
-              text-xs text-[var(--text-dim)]
-              transition
-              hover:border-[var(--accent)]/45 hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]
-            "
-          >
-            “{h}”
-          </button>
-        ))}
+    <div className="flex flex-col gap-3 py-2">
+      <div className="flex flex-col gap-1">
+        <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--text-dim)]">
+          How it works
+        </p>
+        <p className="text-xs leading-relaxed text-[var(--text-faint)]">
+          Load audio on the left, then describe what you want. The assistant uses tools to edit your session and saves each change as a node in the graph.
+        </p>
       </div>
+
+      <div>
+        <p className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--text-faint)]">
+          Try saying
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          {CHAT_HINTS.map((h) => (
+            <button
+              key={h}
+              type="button"
+              onClick={() => onPick(h)}
+              className="rounded-full border border-[var(--border)] bg-[var(--surface-elev)] px-2.5 py-1 text-xs text-[var(--text-dim)] transition hover:border-[var(--accent)]/45 hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]"
+            >
+              &quot;{h}&quot;
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <p className="text-[10px] text-[var(--text-faint)]">
+        Click the{" "}
+        <span className="rounded border border-[var(--border-strong)] bg-[var(--surface-elev-2)] px-1 font-mono">
+          Tools
+        </span>{" "}
+        button below to see all available audio editing operations.
+      </p>
+    </div>
+  );
+}
+
+function isWhisperError(text: string): boolean {
+  const t = text.toLowerCase();
+  return (
+    t.includes("whisper_model_path") ||
+    t.includes("fetch-models.sh") ||
+    t.includes("whisper model not found")
+  );
+}
+
+function WhisperSetupCard() {
+  return (
+    <div className="rounded-md border border-amber-500/30 bg-amber-500/8 px-3 py-2.5 text-xs">
+      <p className="mb-1.5 font-medium text-amber-400">
+        Whisper model not installed
+      </p>
+      <ol className="list-decimal space-y-1 pl-4 text-[var(--text-dim)]">
+        <li>
+          Run{" "}
+          <code className="rounded bg-[var(--surface-elev-2)] px-1 font-mono">
+            scripts/fetch-models.sh
+          </code>{" "}
+          in the repo root to download the model
+        </li>
+        <li>
+          Set{" "}
+          <code className="rounded bg-[var(--surface-elev-2)] px-1 font-mono">
+            WHISPER_MODEL_PATH
+          </code>{" "}
+          to the downloaded <code className="font-mono">.onnx</code> path
+        </li>
+        <li>Restart edytlab, then try transcribing again</li>
+      </ol>
     </div>
   );
 }

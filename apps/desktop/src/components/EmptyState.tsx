@@ -1,4 +1,4 @@
-/**
+﻿/**
  * EmptyState — friendly hero shown by the timeline when no audio is
  * loaded yet.
  *
@@ -116,11 +116,28 @@ export function EmptyState({ onOpen }: EmptyStateProps) {
         Drop an audio file anywhere on this window to load it.
       </p>
 
-      <div className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
+      <div className="mt-2 flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
         <Shortcut keys={["Space"]} label="play / pause" />
         <Shortcut keys={["←", "→"]} label="seek 5s" />
         <Shortcut keys={["Home", "End"]} label="jump" />
         <Shortcut keys={["Drag"]} label="select region" />
+      </div>
+
+      <div className="mt-4 max-w-xs rounded-md border border-[var(--border)] bg-[var(--surface-elev)] px-4 py-3 text-left">
+        <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-dim)]">
+          Then tell the assistant →
+        </p>
+        <ul className="space-y-1">
+          {ASSISTANT_EXAMPLES.map((ex) => (
+            <li
+              key={ex}
+              className="flex items-center gap-2 text-xs text-[var(--text-faint)]"
+            >
+              <span className="text-[var(--accent)] opacity-60">›</span>
+              <span>{ex}</span>
+            </li>
+          ))}
+        </ul>
       </div>
     </div>
   );
@@ -148,3 +165,10 @@ function Shortcut({ keys, label }: ShortcutProps) {
 }
 
 const WAVE_BARS = [0, 90, 180, 60, 240, 30, 150, 210, 75, 195];
+
+const ASSISTANT_EXAMPLES = [
+  "make this 6 dB louder",
+  "fade out the last 3 seconds",
+  "remove background noise",
+  "transcribe the audio",
+];
