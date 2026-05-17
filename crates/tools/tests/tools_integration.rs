@@ -701,6 +701,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "label",
             "load",
             "name_node",
+            "noise_reduction",
             "normalize",
             "paste_region",
             "pitch_shift",

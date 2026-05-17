@@ -85,10 +85,10 @@ impl ToolDispatcher {
         use crate::tool::{
             AddTrackTool, AlignToBeatTool, AnalyzeTrackTool, ApplyDiffTool, CompareNodesTool,
             CompressorTool, CopyRegionTool, CutRangeTool, EqTool, FadeTool, ForkNodeTool, GainTool,
-            InsertSilenceTool, LabelTool, LoadTool, NameNodeTool, NormalizeTool, PasteRegionTool,
-            PitchShiftTool, RemoveTrackTool, RenderFinalTool, RenderPreviewTool, ReverseTool,
-            RevertToTool, SeparateStemsTool, SetTrackGainTool, TimeStretchTool, TranscribeTool,
-            TrimTool,
+            InsertSilenceTool, LabelTool, LoadTool, NameNodeTool, NoiseReductionTool,
+            NormalizeTool, PasteRegionTool, PitchShiftTool, RemoveTrackTool, RenderFinalTool,
+            RenderPreviewTool, ReverseTool, RevertToTool, SeparateStemsTool, SetTrackGainTool,
+            TimeStretchTool, TranscribeTool, TrimTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -123,6 +123,8 @@ impl ToolDispatcher {
         d.register(Box::new(CopyRegionTool));
         d.register(Box::new(PasteRegionTool));
         d.register(Box::new(LabelTool));
+        // D7: spectral noise reduction.
+        d.register(Box::new(NoiseReductionTool));
         d
     }
 

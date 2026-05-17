@@ -5292,6 +5292,7 @@ dependencies = [
  "ml-demucs",
  "ml-pipeline",
  "ml-whisper",
+ "realfft",
  "regex",
  "schemars 0.8.22",
  "serde",

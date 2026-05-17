@@ -16,6 +16,7 @@ audio-decoder = { path = "../audio-decoder" }
 audio-analysis = { path = "../audio-analysis" }
 audio-time = { path = "../audio-time" }
 blake3 = "1"
+realfft = "3"
 ml-demucs = { path = "../ml-demucs" }
 ml-pipeline = { path = "../ml-pipeline" }
 ml-whisper = { path = "../ml-whisper" }
