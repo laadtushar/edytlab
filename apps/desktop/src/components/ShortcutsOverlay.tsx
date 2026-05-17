@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+﻿import { useEffect } from "react";
 
 interface Shortcut {
   keys: string;
@@ -12,6 +12,7 @@ const SHORTCUTS: Shortcut[] = [
   { keys: "← →", description: "Seek ±5 seconds" },
   { keys: "Shift+← →", description: "Seek ±1 second" },
   { keys: "Escape", description: "Clear selection" },
+  { keys: "Ctrl+K", description: "Command palette (all tools)" },
   { keys: "Ctrl+Z", description: "Undo" },
   { keys: "Ctrl+Y / Ctrl+Shift+Z", description: "Redo" },
   { keys: "+ / =", description: "Zoom in" },

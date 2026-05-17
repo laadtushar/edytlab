@@ -1,4 +1,4 @@
-/**
+﻿/**
  * App — top-level layout (Studio Onyx redesign).
  *
  * Three rows:
@@ -32,6 +32,8 @@ import { applyUndo, applyRedo } from "./lib/undoRedo";
 
 import { ABCompareBar } from "./components/ABCompareBar";
 import { Chat } from "./components/Chat";
+import type { ChatHandle } from "./components/Chat";
+import { CommandPalette } from "./components/CommandPalette";
 import { EmptyState } from "./components/EmptyState";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { GraphView } from "./components/GraphView";
@@ -91,6 +93,8 @@ function App() {
   const selectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [zoomPxPerSec, setZoomPxPerSec] = useState(0);
   const [redoStack, setRedoStack] = useState<string[]>([]);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const chatRef = useRef<ChatHandle>(null);
   const [exporting, setExporting] = useState(false);
 
   const handleUndo = useCallback(async () => {
@@ -471,7 +475,7 @@ function App() {
         </section>
 
         <aside className="h-full min-h-0 bg-[var(--surface)]">
-          <Chat
+          <Chat ref={chatRef} 
             rendering={rendering}
             onRequestRenderPreview={handleRenderPreview}
             selection={selection}
@@ -523,6 +527,7 @@ function App() {
           }}
         />
       ) : null}
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} onSelect={(prompt) => { setPaletteOpen(false); chatRef.current?.fillInput(prompt); }} />
       <ShortcutsOverlay open={showShortcuts} onClose={handleCloseShortcuts} />
     </main>
   );

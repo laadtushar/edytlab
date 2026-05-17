@@ -13,7 +13,7 @@
  * instead of a console trace.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 
 import { sendMessage as bridgeSendMessage } from "../lib/tauri-bridge";
 import type { Marker } from "../lib/tauri-bridge";
@@ -72,7 +72,11 @@ const CHAT_HINTS = [
   "what tools do you have?",
 ];
 
-export function Chat({
+export interface ChatHandle {
+  fillInput(text: string): void;
+}
+
+export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
   rendering,
   onRequestRenderPreview,
   selection,
@@ -80,7 +84,7 @@ export function Chat({
   markers,
   onExportSelection,
   exporting,
-}: ChatProps) {
+}: ChatProps, ref: React.Ref<ChatHandle>) {
   const {
     entries,
     current,
@@ -97,6 +101,13 @@ export function Chat({
   const scrollerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastSentRef = useRef<string>("");
+
+  useImperativeHandle(ref, () => ({
+    fillInput(text: string) {
+      setInput(text);
+      setTimeout(() => textareaRef.current?.focus(), 0);
+    },
+  }));
 
   // Auto-scroll to bottom on new entries / streaming deltas / awaiting state.
   useEffect(() => {
@@ -550,13 +561,13 @@ export function Chat({
           </button>
         </div>
         <p className="mt-1.5 px-1 text-[10px] font-mono uppercase tracking-[0.18em] text-[var(--text-faint)]">
-          enter to send · shift+enter for newline
+          enter to send · shift+enter for newline · ctrl+k for all tools
         </p>
       </form>
     </div>
   );
 }
-
+);
 interface ChatHeaderProps {
   rendering?: boolean;
   onRequestRenderPreview?: () => void;
