@@ -159,9 +159,7 @@ impl Tool for EqTool {
 
         // Validate bands.
         if parsed.bands.is_empty() {
-            return Ok(ToolResult::Error(
-                "bands must not be empty".to_string(),
-            ));
+            return Ok(ToolResult::Error("bands must not be empty".to_string()));
         }
         for (i, b) in parsed.bands.iter().enumerate() {
             if b.freq_hz <= 0.0 {
@@ -200,9 +198,7 @@ fn invoke_eq(ctx: &mut ToolContext, track_idx: usize, bands: Vec<Band>) -> ToolR
     }
 
     let Some(clip) = state.tracks[track_idx].clips.first().cloned() else {
-        return ToolResult::Error(format!(
-            "track {track_idx} has no clips; nothing to edit"
-        ));
+        return ToolResult::Error(format!("track {track_idx} has no clips; nothing to edit"));
     };
 
     // Decode — we need `channels` for per-channel biquad state.
@@ -253,9 +249,7 @@ fn invoke_eq(ctx: &mut ToolContext, track_idx: usize, bands: Vec<Band>) -> ToolR
     let cas_path = derived_dir.join(format!("{hash_hex}.wav"));
 
     if !cas_path.exists() {
-        if let Err(e) =
-            audio_engine::write_wav(&window, sample_rate, decoded.channels, &cas_path)
-        {
+        if let Err(e) = audio_engine::write_wav(&window, sample_rate, decoded.channels, &cas_path) {
             return ToolResult::Error(format!(
                 "failed to write CAS wav {}: {e}",
                 cas_path.display()
@@ -281,11 +275,7 @@ fn invoke_eq(ctx: &mut ToolContext, track_idx: usize, bands: Vec<Band>) -> ToolR
         .iter()
         .map(|b| format!("{:.0}Hz {:+.1}dB Q{:.2}", b.freq_hz, b.gain_db, b.q))
         .collect();
-    let label = format!(
-        "eq [{}] on track {}",
-        band_summary.join(", "),
-        track_idx
-    );
+    let label = format!("eq [{}] on track {}", band_summary.join(", "), track_idx);
 
     let new_id = match append_state(ctx, state, label.clone()) {
         Ok(id) => id,
