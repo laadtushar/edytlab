@@ -96,6 +96,7 @@ function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const chatRef = useRef<ChatHandle>(null);
   const [exporting, setExporting] = useState(false);
+  const [loopActive, setLoopActive] = useState(false);
 
   const handleUndo = useCallback(async () => {
     if (!head) return;
@@ -155,6 +156,11 @@ function App() {
       if (e.key === "?" && !e.ctrlKey && !e.altKey && !e.metaKey && !isTyping) {
         e.preventDefault();
         if (!showShortcuts) setShowShortcuts(true);
+        return;
+      }
+      if ((e.key === "l" || e.key === "L") && !isTyping) {
+        e.preventDefault();
+        setLoopActive((v) => !v);
         return;
       }
       const t = timelineRef.current;
@@ -459,6 +465,8 @@ function App() {
                   onSeekToMarker={handleSeekToMarker}
                   zoom={zoomPxPerSec}
                   onZoomChange={setZoomPxPerSec}
+                  loop={loopActive}
+                  onLoopChange={setLoopActive}
                 />
               ) : (
                 <EmptyState onOpen={handleOpenDialog} />

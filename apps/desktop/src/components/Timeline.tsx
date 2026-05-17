@@ -74,6 +74,8 @@ export interface TimelineProps {
   onSeekToMarker?: (timeSec: number) => void;
   zoom?: number;
   onZoomChange?: (zoom: number) => void;
+  loop?: boolean;
+  onLoopChange?: (loop: boolean) => void;
 }
 
 // -----------------------------------------------------------------------------
@@ -97,6 +99,7 @@ interface LaneProps {
   onDurationChange?: (d: number) => void;
   /** Pixels per second zoom level. 0 = auto-fit. */
   zoom?: number;
+  loop?: boolean;
 }
 
 function TrackLane({
@@ -111,6 +114,7 @@ function TrackLane({
   onSelectionChange,
   onDurationChange,
   zoom,
+  loop,
 }: LaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const waveformWrapperRef = useRef<HTMLDivElement>(null);
@@ -122,6 +126,10 @@ function TrackLane({
   const dragStateRef = useRef<{ originPx: number; rectLeft: number; rectWidth: number } | null>(
     null,
   );
+  const loopRef = useRef(loop);
+  const selectionRef = useRef(selection);
+  useEffect(() => { loopRef.current = loop; }, [loop]);
+  useEffect(() => { selectionRef.current = selection; }, [selection]);
 
   // Mount wavesurfer once.
   useEffect(() => {
@@ -147,6 +155,14 @@ function TrackLane({
     };
     ws.on("ready", onReady);
     ws.on("decode", onReady);
+    ws.on("audioprocess", () => {
+      if (!loopRef.current || !selectionRef.current) return;
+      const t = ws.getCurrentTime();
+      if (t >= selectionRef.current.end) {
+        const dur = ws.getDuration();
+        if (dur > 0) ws.seekTo(selectionRef.current.start / dur);
+      }
+    });
     return () => {
       ws.un("ready", onReady);
       ws.un("decode", onReady);
@@ -451,6 +467,8 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
     onSeekToMarker,
     zoom,
     onZoomChange,
+    loop,
+    onLoopChange,
   },
   ref,
 ) {
@@ -567,17 +585,32 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
         >
           Timeline
         </h2>
-        <span
-          style={{
-            fontFamily: "var(--font-mono)",
-            fontSize: 10,
-            letterSpacing: "0.18em",
-            textTransform: "uppercase",
-            color: "var(--text-faint)",
-          }}
-        >
-          {laneStates.length} track{laneStates.length !== 1 ? "s" : ""}
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button
+            type="button"
+            data-testid="loop-btn"
+            onClick={() => onLoopChange?.(!loop)}
+            className={`text-xs px-2 py-1 rounded border transition-colors ${
+              loop
+                ? "border-amber-400 text-amber-400 bg-amber-400/10"
+                : "border-neutral-600 text-neutral-400 hover:border-neutral-400"
+            }`}
+            title="Toggle loop (L)"
+          >
+            ↺
+          </button>
+          <span
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              letterSpacing: "0.18em",
+              textTransform: "uppercase",
+              color: "var(--text-faint)",
+            }}
+          >
+            {laneStates.length} track{laneStates.length !== 1 ? "s" : ""}
+          </span>
+        </div>
       </div>
 
       <Ruler duration={timelineDuration} onAddMarker={onAddMarker} />
@@ -603,6 +636,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
             onSelectionChange={idx === 0 ? onSelectionChange : undefined}
             onDurationChange={idx === 0 ? setTimelineDuration : undefined}
             zoom={zoom}
+            loop={idx === 0 ? loop : undefined}
           />
         ))}
         {markers && markers.length > 0 && timelineDuration > 0 && (
