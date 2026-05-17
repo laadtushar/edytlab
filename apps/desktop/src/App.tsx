@@ -149,7 +149,7 @@ function App() {
       }
       if (e.key === "?" && !e.ctrlKey && !e.altKey && !e.metaKey && !isTyping) {
         e.preventDefault();
-        setShowShortcuts(v => !v);
+        if (!showShortcuts) setShowShortcuts(true);
         return;
       }
       const t = timelineRef.current;
@@ -185,7 +185,7 @@ function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selection, handleUndo, handleRedo]);
+  }, [selection, showShortcuts, handleUndo, handleRedo]);
 
   useEffect(() => {
     let cancelled = false;
@@ -385,6 +385,8 @@ function App() {
     setCompareMode(null);
   }, [compareMode, setHeadLocal]);
 
+  const handleCloseShortcuts = useCallback(() => setShowShortcuts(false), []);
+
   const showBlocking = keyConfigured === false;
 
   const errorAction = useMemo(() => {
@@ -519,7 +521,7 @@ function App() {
           }}
         />
       ) : null}
-      <ShortcutsOverlay open={showShortcuts} onClose={() => setShowShortcuts(false)} />
+      <ShortcutsOverlay open={showShortcuts} onClose={handleCloseShortcuts} />
     </main>
   );
 }
