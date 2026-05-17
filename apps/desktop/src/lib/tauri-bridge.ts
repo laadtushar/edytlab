@@ -428,3 +428,15 @@ export interface Capabilities {
 
 export const listCapabilities = (): Promise<Capabilities> =>
   invoke<Capabilities>("list_capabilities");
+
+// -----------------------------------------------------------------------------
+// Batch import (Task 7)
+// -----------------------------------------------------------------------------
+
+export interface BatchLoadResult {
+  tracks_loaded: number;
+  last_node_id: string | null;
+}
+
+export const batchLoad = (paths: string[]): Promise<BatchLoadResult> =>
+  invoke<BatchLoadResult>("batch_load", { paths });

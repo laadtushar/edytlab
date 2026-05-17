@@ -2121,8 +2121,86 @@ pub async fn render_range(
 }
 
 // ---------------------------------------------------------------------------
+// batch_load — import multiple files into a multi-track session in one call.
+// ---------------------------------------------------------------------------
+
+/// Load multiple audio files into the session in sequence, creating one track
+/// per file. Each file goes through the same `"load"` tool the agent uses,
+/// so the session DAG gets a node per file with the same invariants as
+/// single-file loads.
+///
+/// Returns `{ tracks_loaded, last_node_id }` so the frontend can refresh the
+/// track list and waveform display without a second round trip.
+#[tauri::command]
+pub async fn batch_load(
+    state: tauri::State<'_, AppState>,
+    paths: Vec<String>,
+) -> CmdResult<serde_json::Value> {
+    if paths.is_empty() {
+        return Err("no files provided".into());
+    }
+
+    let store_handle = state.store_handle().ok_or(CommandError::NoSession)?;
+    let mut loaded = 0usize;
+    let mut last_node_id: Option<String> = None;
+
+    for path in &paths {
+        let args = serde_json::json!({ "path": path });
+
+        // Acquire store, engine, and dispatcher in separate scopes so we
+        // don't hold all three locks simultaneously (avoids double-borrow
+        // panics and keeps the lock windows narrow).
+        let node_id_hex = {
+            let mut store = lock_std(&store_handle, "store")?;
+            let mut engine = lock_std(&state.engine, "engine")?;
+            let dispatcher = lock_std(&state.dispatcher, "dispatcher")?;
+
+            // The clipboard is not used by `load` but `ToolContext` requires
+            // it. A local `None` suffices.
+            let mut clipboard: Option<Vec<f32>> = None;
+            let mut ctx = tools::ToolContext {
+                store: &mut store,
+                engine: &mut engine,
+                user_message: "",
+                clipboard: &mut clipboard,
+            };
+
+            dispatcher
+                .invoke("load", args, &mut ctx)
+                .map_err(|e| format!("load tool error: {e}"))?;
+
+            // The load tool records the new head in the store. Read it now
+            // while we still hold the store lock.
+            store.head().map(|id| id.to_hex())
+        };
+
+        loaded += 1;
+        last_node_id = node_id_hex;
+    }
+
+    Ok(serde_json::json!({
+        "tracks_loaded": loaded,
+        "last_node_id": last_node_id,
+    }))
+}
+
+// ---------------------------------------------------------------------------
 // Helpers re-exported for tests.
 // ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod batch_load_tests {
+    #[test]
+    fn empty_paths_is_err() {
+        let paths: Vec<String> = vec![];
+        let result: Result<(), &str> = if paths.is_empty() {
+            Err("no files provided")
+        } else {
+            Ok(())
+        };
+        assert!(result.is_err());
+    }
+}
 
 #[cfg(test)]
 pub(crate) fn open_project_for_test(

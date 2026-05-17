@@ -50,7 +50,12 @@ import {
   onNodeCreated,
   renderPreview as bridgeRenderPreview,
 } from "./lib/tauri-bridge";
-import { listenToFileDrops, loadAudio, pickAudioFile } from "./lib/file-open";
+import {
+  listenToFileDrops,
+  loadAudio,
+  pickAudioFiles,
+} from "./lib/file-open";
+import { batchLoad } from "./lib/tauri-bridge";
 
 type LeftView = "timeline" | "graph";
 
@@ -233,8 +238,23 @@ function App() {
 
   const handleOpenDialog = useCallback(async () => {
     try {
-      const path = await pickAudioFile();
-      if (path) handleFileSelected(path);
+      const paths = await pickAudioFiles(true);
+      if (!paths || paths.length === 0) return;
+      if (paths.length === 1) {
+        // Single file — use the existing single-file path so the agent
+        // receives a "load this file: …" message and waveform updates normally.
+        handleFileSelected(paths[0]);
+        return;
+      }
+      // Multiple files — call batch_load then refresh track list.
+      setAudioPath(paths[0]);
+      try {
+        await batchLoad(paths);
+        const newTracks = await listTracks();
+        setTracks(newTracks);
+      } catch (err) {
+        setRenderError(String(err));
+      }
     } catch (err) {
       setRenderError(String(err));
     }

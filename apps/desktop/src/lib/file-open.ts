@@ -60,6 +60,23 @@ export async function pickAudioFile(): Promise<string | null> {
 }
 
 /**
+ * Show the OS file picker with multi-select enabled. Returns an array of
+ * absolute paths, or `null` if the user cancelled. When `multiple` is
+ * `false` this is equivalent to `pickAudioFile` but wrapped in an array.
+ */
+export async function pickAudioFiles(
+  multiple: boolean = true,
+): Promise<string[] | null> {
+  const result = await open({
+    multiple,
+    directory: false,
+    filters: AUDIO_FILTERS,
+  });
+  if (!result) return null;
+  return Array.isArray(result) ? result : [result];
+}
+
+/**
  * Subscribe to native (OS-level) drag-and-drop. Tauri 2's webview
  * intercepts file drops itself, so HTML5 `onDrop` never sees them on
  * Windows or Linux. The callback receives the absolute path of the
