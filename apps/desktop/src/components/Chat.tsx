@@ -46,6 +46,8 @@ export interface ChatProps {
   onClearSelection?: () => void;
   /** Current markers — point markers are included in the outgoing message prefix. */
   markers?: Marker[];
+  /** Called when the user clicks the Export Selection button in the header. */
+  onExportSelection?: () => void;
 }
 
 function isMessage(e: LogEntry): e is MessageEntry {
@@ -74,6 +76,7 @@ export function Chat({
   selection,
   onClearSelection,
   markers,
+  onExportSelection,
 }: ChatProps) {
   const {
     entries,
@@ -169,6 +172,8 @@ export function Chat({
       <ChatHeader
         rendering={rendering}
         onRequestRenderPreview={onRequestRenderPreview}
+        selection={selection}
+        onExportSelection={onExportSelection}
       />
 
       <div
@@ -522,9 +527,16 @@ export function Chat({
 interface ChatHeaderProps {
   rendering?: boolean;
   onRequestRenderPreview?: () => void;
+  selection?: { start: number; end: number } | null;
+  onExportSelection?: () => void;
 }
 
-function ChatHeader({ rendering, onRequestRenderPreview }: ChatHeaderProps) {
+function ChatHeader({
+  rendering,
+  onRequestRenderPreview,
+  selection,
+  onExportSelection,
+}: ChatHeaderProps) {
   return (
     <div
       className="
@@ -539,34 +551,46 @@ function ChatHeader({ rendering, onRequestRenderPreview }: ChatHeaderProps) {
           Assistant
         </h2>
       </div>
-      <button
-        type="button"
-        data-testid="render-preview-button"
-        disabled={!!rendering}
-        onClick={onRequestRenderPreview}
-        className="
-          inline-flex items-center gap-1.5
-          rounded-md
-          border border-[var(--border-strong)]
-          bg-[var(--surface)]
-          px-2.5 py-1
-          font-mono text-[10px] uppercase tracking-wider text-[var(--text-dim)]
-          transition
-          hover:border-[var(--accent)]/50 hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]
-          disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-[var(--surface)] disabled:hover:text-[var(--text-dim)]
-        "
-      >
-        <svg
-          width="10"
-          height="10"
-          viewBox="0 0 10 10"
-          fill="currentColor"
-          aria-hidden="true"
+      <div className="flex items-center gap-2">
+        {selection ? (
+          <button
+            type="button"
+            data-testid="export-selection-btn"
+            onClick={onExportSelection}
+            className="text-xs text-amber-400 border border-amber-400/40 rounded px-2 py-1 hover:bg-amber-400/10 transition-colors"
+          >
+            Export Selection
+          </button>
+        ) : null}
+        <button
+          type="button"
+          data-testid="render-preview-button"
+          disabled={!!rendering}
+          onClick={onRequestRenderPreview}
+          className="
+            inline-flex items-center gap-1.5
+            rounded-md
+            border border-[var(--border-strong)]
+            bg-[var(--surface)]
+            px-2.5 py-1
+            font-mono text-[10px] uppercase tracking-wider text-[var(--text-dim)]
+            transition
+            hover:border-[var(--accent)]/50 hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]
+            disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-[var(--surface)] disabled:hover:text-[var(--text-dim)]
+          "
         >
-          <path d="M2 1.5v7l6-3.5z" />
-        </svg>
-        {rendering ? "rendering" : "preview"}
-      </button>
+          <svg
+            width="10"
+            height="10"
+            viewBox="0 0 10 10"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path d="M2 1.5v7l6-3.5z" />
+          </svg>
+          {rendering ? "rendering" : "preview"}
+        </button>
+      </div>
     </div>
   );
 }

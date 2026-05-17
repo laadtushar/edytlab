@@ -280,6 +280,20 @@ export const getGraph = (): Promise<GraphSummary> =>
 export const renderPreview = (node: NodeId): Promise<string> =>
   invoke<string>("render_preview", { node });
 
+export async function renderRange(
+  nodeId: string,
+  startSec: number,
+  endSec: number,
+  outPath: string,
+): Promise<Record<string, unknown>> {
+  return invoke("render_range", {
+    nodeId,
+    startSec,
+    endSec,
+    outPath,
+  });
+}
+
 export const prepareCompare = (
   a: NodeId,
   b: NodeId,

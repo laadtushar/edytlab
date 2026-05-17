@@ -907,6 +907,18 @@ fn split_array_items(inner: &str) -> Vec<String> {
 }
 
 #[cfg(test)]
+mod render_range_tests {
+    #[test]
+    fn sec_to_frame_conversion() {
+        let sample_rate: u32 = 44100;
+        let start_frame = (1.0_f64 * sample_rate as f64) as u64;
+        let end_frame = (2.5_f64 * sample_rate as f64) as u64;
+        assert_eq!(start_frame, 44100);
+        assert_eq!(end_frame, 110250);
+    }
+}
+
+#[cfg(test)]
 mod commands_tests {
     use super::*;
 
@@ -2045,6 +2057,63 @@ pub fn try_load_api_key_at_startup(state: &AppState) {
     if let Some(key) = ai::keychain::load_api_key(&provider_id) {
         state.set_api_key_cache(Some(key));
     }
+}
+
+// ---------------------------------------------------------------------------
+// render_range
+// ---------------------------------------------------------------------------
+
+/// Export a user-defined selection (start_sec … end_sec) of the session node
+/// identified by `node_id` to `out_path` as a 16-bit PCM WAV.
+///
+/// The frontend calls this when the user clicks "Export Selection" in the
+/// chat header. Frame conversion is done here (seconds × sample_rate) so the
+/// frontend never has to know the session's sample rate.
+#[tauri::command]
+pub async fn render_range(
+    state: State<'_, AppState>,
+    node_id: String,
+    start_sec: f64,
+    end_sec: f64,
+    out_path: String,
+) -> Result<serde_json::Value, String> {
+    let id = NodeId::from_hex(&node_id)
+        .map_err(|_| CommandError::InvalidNodeId(node_id.clone()).to_string())?;
+    let out = std::path::PathBuf::from(&out_path);
+
+    let store_handle = state
+        .store_handle()
+        .ok_or_else(|| CommandError::NoSession.to_string())?;
+
+    let session_node = {
+        let store = lock_std(&store_handle, "store")
+            .map_err(|e| e.to_string())?;
+        store.get(id).map_err(|e| CommandError::Session(e).to_string())?
+    };
+
+    let sample_rate = session_node.state.sample_rate;
+    let start_frame = (start_sec * sample_rate as f64) as u64;
+    let end_frame = (end_sec * sample_rate as f64) as u64;
+    let range = audio_engine::TimeRange { start_frame, end_frame };
+
+    let report = {
+        let engine = lock_std(&state.engine, "engine").map_err(|e| e.to_string())?;
+        engine
+            .render_to_wav(&session_node.state, &out, Some(range))
+            .map_err(|e| CommandError::Engine(e).to_string())?
+    };
+
+    Ok(serde_json::json!({
+        "path": out_path,
+        "frames_written": report.frames_written,
+        "sample_rate": report.sample_rate,
+        "channels": report.channels,
+        "peak_dbfs": report.peak_dbfs,
+        "summary": format!(
+            "Exported selection ({:.2}s–{:.2}s) → {}",
+            start_sec, end_sec, out_path
+        ),
+    }))
 }
 
 // ---------------------------------------------------------------------------

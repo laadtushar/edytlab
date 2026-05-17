@@ -23,9 +23,11 @@ import {
   listTracks,
   onMarkerChanged,
   removeMarker,
+  renderRange,
   setHeadTo,
   setSelectionContext,
 } from "./lib/tauri-bridge";
+import { save } from "@tauri-apps/plugin-dialog";
 import { applyUndo, applyRedo } from "./lib/undoRedo";
 
 import { ABCompareBar } from "./components/ABCompareBar";
@@ -312,6 +314,21 @@ function App() {
     };
   }, []);
 
+  const handleExportSelection = useCallback(async () => {
+    if (!head || !selection) return;
+    try {
+      const outPath = await save({
+        title: "Export Selection",
+        filters: [{ name: "WAV", extensions: ["wav"] }],
+        defaultPath: "export.wav",
+      });
+      if (!outPath) return;
+      await renderRange(head, selection.start, selection.end, outPath);
+    } catch (e) {
+      setRenderError(String(e));
+    }
+  }, [head, selection]);
+
   const handleRenderPreview = useCallback(async () => {
     if (!head || rendering) return;
     setRendering(true);
@@ -448,6 +465,7 @@ function App() {
               void setSelectionContext(null).catch(() => undefined);
             }}
             markers={markers}
+            onExportSelection={handleExportSelection}
           />
         </aside>
       </div>
