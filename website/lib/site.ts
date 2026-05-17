@@ -1,6 +1,6 @@
 export const siteConfig = {
   name: "edytlab",
-  title: "edytlab — Talk to Claude. Get pro-grade audio edits.",
+  title: "edytlab — Describe it. Get pro-grade audio edits.",
   description:
     "Desktop audio editor where you chat with an AI to load, cut, mix, transcribe, and render. Pure-Rust DSP, local-first, BYO LLM key.",
   url: "https://edytlab.app",
@@ -14,7 +14,6 @@ export const siteConfig = {
   keywords: [
     "audio editor",
     "AI audio editor",
-    "Claude",
     "conversational DAW",
     "mashup",
     "stem separation",

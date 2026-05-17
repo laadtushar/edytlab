@@ -7,7 +7,7 @@ import { FadeIn } from "./fade-in";
 const providers = [
   {
     name: "Anthropic",
-    body: "Claude Sonnet & Haiku. Best tool-use quality.",
+    body: "Sonnet & Haiku. Best tool-use quality.",
     href: "https://console.anthropic.com/settings/keys",
   },
   {

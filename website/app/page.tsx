@@ -1,3 +1,5 @@
+import { Comparison } from "@/components/landing/comparison";
+import { CTA } from "@/components/landing/cta";
 import { DemoFrame } from "@/components/landing/demo-frame";
 import { FAQ } from "@/components/landing/faq";
 import { FeatureGrid } from "@/components/landing/feature-grid";
@@ -7,6 +9,7 @@ import { HowItWorks } from "@/components/landing/how-it-works";
 import { Problem } from "@/components/landing/problem";
 import { ProviderCards } from "@/components/landing/provider-cards";
 import { SiteHeader } from "@/components/landing/site-header";
+import { StatsStrip } from "@/components/landing/stats-strip";
 import { siteConfig } from "@/lib/site";
 
 const jsonLd = {
@@ -41,12 +44,15 @@ export default function Home() {
       <SiteHeader />
       <main>
         <Hero />
+        <StatsStrip />
         <Problem />
+        <Comparison />
         <DemoFrame />
         <FeatureGrid />
         <HowItWorks />
         <ProviderCards />
         <FAQ />
+        <CTA />
       </main>
       <Footer />
     </>

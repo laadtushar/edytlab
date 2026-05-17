@@ -89,6 +89,7 @@ function App() {
   const selectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [zoomPxPerSec, setZoomPxPerSec] = useState(0);
   const [redoStack, setRedoStack] = useState<string[]>([]);
+  const [exporting, setExporting] = useState(false);
 
   const handleUndo = useCallback(async () => {
     if (!head) return;
@@ -315,19 +316,22 @@ function App() {
   }, []);
 
   const handleExportSelection = useCallback(async () => {
-    if (!head || !selection) return;
+    if (!head || !selection || exporting) return;
+    setExporting(true);
     try {
       const outPath = await save({
         title: "Export Selection",
         filters: [{ name: "WAV", extensions: ["wav"] }],
         defaultPath: "export.wav",
       });
-      if (!outPath) return;
+      if (!outPath) { setExporting(false); return; }
       await renderRange(head, selection.start, selection.end, outPath);
     } catch (e) {
       setRenderError(String(e));
+    } finally {
+      setExporting(false);
     }
-  }, [head, selection]);
+  }, [head, selection, exporting]);
 
   const handleRenderPreview = useCallback(async () => {
     if (!head || rendering) return;
@@ -466,6 +470,7 @@ function App() {
             }}
             markers={markers}
             onExportSelection={handleExportSelection}
+            exporting={exporting}
           />
         </aside>
       </div>

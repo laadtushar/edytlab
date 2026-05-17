@@ -2076,7 +2076,7 @@ pub async fn render_range(
     start_sec: f64,
     end_sec: f64,
     out_path: String,
-) -> Result<serde_json::Value, String> {
+) -> CmdResult<serde_json::Value> {
     let id = NodeId::from_hex(&node_id)
         .map_err(|_| CommandError::InvalidNodeId(node_id.clone()).to_string())?;
     let out = std::path::PathBuf::from(&out_path);

@@ -33,7 +33,7 @@ export const metadata: Metadata = {
         url: "/opengraph-image",
         width: 1200,
         height: 630,
-        alt: "edytlab — Talk to Claude. Get pro-grade audio edits.",
+        alt: "edytlab — Describe it. Get pro-grade audio edits.",
       },
     ],
   },

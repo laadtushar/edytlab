@@ -48,6 +48,8 @@ export interface ChatProps {
   markers?: Marker[];
   /** Called when the user clicks the Export Selection button in the header. */
   onExportSelection?: () => void;
+  /** Whether an export is currently in progress (disables the button). */
+  exporting?: boolean;
 }
 
 function isMessage(e: LogEntry): e is MessageEntry {
@@ -77,6 +79,7 @@ export function Chat({
   onClearSelection,
   markers,
   onExportSelection,
+  exporting,
 }: ChatProps) {
   const {
     entries,
@@ -174,6 +177,7 @@ export function Chat({
         onRequestRenderPreview={onRequestRenderPreview}
         selection={selection}
         onExportSelection={onExportSelection}
+        exporting={exporting}
       />
 
       <div
@@ -529,6 +533,7 @@ interface ChatHeaderProps {
   onRequestRenderPreview?: () => void;
   selection?: { start: number; end: number } | null;
   onExportSelection?: () => void;
+  exporting?: boolean;
 }
 
 function ChatHeader({
@@ -536,6 +541,7 @@ function ChatHeader({
   onRequestRenderPreview,
   selection,
   onExportSelection,
+  exporting,
 }: ChatHeaderProps) {
   return (
     <div
@@ -557,7 +563,8 @@ function ChatHeader({
             type="button"
             data-testid="export-selection-btn"
             onClick={onExportSelection}
-            className="text-xs text-amber-400 border border-amber-400/40 rounded px-2 py-1 hover:bg-amber-400/10 transition-colors"
+            disabled={!!exporting}
+            className="text-xs text-amber-400 border border-amber-400/40 rounded px-2 py-1 hover:bg-amber-400/10 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
           >
             Export Selection
           </button>

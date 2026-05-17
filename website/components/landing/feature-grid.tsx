@@ -1,10 +1,10 @@
 import {
   GitBranch,
   KeyRound,
-  Laptop,
   MessageSquare,
   ShieldCheck,
   Waves,
+  Zap,
 } from "lucide-react";
 
 import {
@@ -21,12 +21,12 @@ const features = [
   {
     icon: MessageSquare,
     title: "Conversational multi-track",
-    body: "Mash A's vocals over B's drums, key-match, give me three takes — say what you want, the agent plans and executes.",
+    body: "Mash A's vocals over B's drums, key-match, give me three takes. The agent plans, executes multi-track mixing, and renders branches — all from a single prompt.",
   },
   {
     icon: Waves,
     title: "Pro-grade DSP",
-    body: "Pure Rust audio graph (cpal · symphonia · dasp · fundsp · rubato) with Demucs, Whisper, and Rubber Band integrated end-to-end.",
+    body: "Pure Rust audio graph (cpal · symphonia · dasp · rubato) with Demucs stem separation, Whisper transcription, and Rubber Band pitch/time stretch. Zoom the waveform with Ctrl+scroll or +/−/0.",
   },
   {
     icon: ShieldCheck,
@@ -35,18 +35,18 @@ const features = [
   },
   {
     icon: GitBranch,
-    title: "Branchable sessions",
-    body: "Every state is a DAG node. Fork, A/B compare, merge, and revert are first-class — not buried behind an undo stack.",
+    title: "Undo, branch & compare",
+    body: "Every state is a DAG node. Ctrl+Z/Y traverse the branch history. Fork, A/B compare, and revert are first-class — not hidden behind a linear undo stack.",
   },
   {
     icon: KeyRound,
     title: "Bring your own LLM",
-    body: "Anthropic, OpenRouter, or OpenAI keys. Stored in your OS keychain. Swap providers any time without reinstalling.",
+    body: "Anthropic, OpenRouter, or OpenAI keys stored in your OS keychain. Per-model agent profiles let you tune tools and behavior. Swap providers without reinstalling.",
   },
   {
-    icon: Laptop,
-    title: "Mac and Windows",
-    body: "Signed installers for macOS (Apple Silicon + Intel) and Windows 10/11. Auto-update friendly.",
+    icon: Zap,
+    title: "MCP extensibility",
+    body: "Register Model Context Protocol servers from Settings to give the agent new tools. Wire in stdio JSON-RPC servers and extend what edytlab can do without touching core code.",
   },
 ];
 
@@ -59,8 +59,8 @@ export function FeatureGrid() {
             Built for producers who want help — not handcuffs.
           </h2>
           <p className="mt-3 text-muted-foreground">
-            Six pillars that make edytlab feel different from cleanup tools and
-            preset chains.
+            What makes edytlab different from cleanup tools, preset chains, and
+            shallow AI wrappers.
           </p>
         </FadeIn>
         <div className="mx-auto grid max-w-6xl gap-5 sm:grid-cols-2 lg:grid-cols-3">

@@ -2,32 +2,21 @@ import Link from "next/link";
 import { Apple, Download } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { siteConfig } from "@/lib/site";
 
-import { WaveformBackground } from "./waveform-bg";
 import { FadeIn } from "./fade-in";
 
-export function Hero() {
+export function CTA() {
   return (
-    <section className="relative overflow-hidden pb-24 pt-32 md:pb-32 md:pt-40">
-      <WaveformBackground />
-      <div className="container relative">
-        <FadeIn className="mx-auto max-w-4xl text-center">
-          <Badge
-            variant="outline"
-            className="mb-6 border-primary/30 bg-primary/10 text-primary"
-          >
-            Local-first AI audio editor · {siteConfig.version}
-          </Badge>
-          <h1 className="text-balance text-5xl font-bold tracking-tight sm:text-6xl md:text-7xl">
-            Describe it.
-            <br />
-            <span className="gradient-text">Get pro-grade audio edits.</span>
-          </h1>
-          <p className="mx-auto mt-6 max-w-2xl text-pretty text-lg text-muted-foreground md:text-xl">
-            Desktop audio editor where you chat with an AI to load, cut, mix,
-            transcribe, and render. Pure-Rust DSP, local-first, BYO LLM key.
+    <section className="border-t border-border/50 bg-secondary/20 py-24 md:py-32">
+      <div className="container">
+        <FadeIn className="mx-auto max-w-2xl text-center">
+          <h2 className="text-balance text-3xl font-bold tracking-tight sm:text-4xl md:text-5xl">
+            Ready to edit differently?
+          </h2>
+          <p className="mx-auto mt-4 max-w-xl text-pretty text-lg text-muted-foreground">
+            Free in BYO-key mode. Your audio stays on your machine. Download,
+            plug in an API key, and describe your first edit.
           </p>
           <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Button asChild size="lg" className="glow w-full sm:w-auto">

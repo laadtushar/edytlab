@@ -14,7 +14,7 @@ const faqs = [
   },
   {
     q: "Which LLM models work?",
-    a: "Anthropic (Claude Sonnet 4.6 / Haiku 4.5), any model on OpenRouter, and OpenAI's tool-use-capable models. You can switch providers from the settings panel without reinstalling.",
+    a: "Anthropic (Sonnet 4.6 / Haiku 4.5), any model on OpenRouter, and OpenAI's tool-use-capable models. You can switch providers — and swap per-model agent profiles — from the settings panel without reinstalling.",
   },
   {
     q: "What are the system requirements?",

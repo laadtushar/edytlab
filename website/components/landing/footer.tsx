@@ -12,7 +12,7 @@ export function Footer() {
           <div>
             <div className="text-lg font-semibold">edytlab</div>
             <p className="mt-1 text-sm text-muted-foreground">
-              Talk to Claude. Get pro-grade audio edits.
+              Describe it. Get pro-grade audio edits.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-6 text-sm">
