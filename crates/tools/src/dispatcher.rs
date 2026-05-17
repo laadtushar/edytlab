@@ -84,7 +84,7 @@ impl ToolDispatcher {
     pub fn default_dispatcher() -> Self {
         use crate::tool::{
             AddTrackTool, AlignToBeatTool, AnalyzeTrackTool, ApplyDiffTool, CompareNodesTool,
-            CopyRegionTool, CutRangeTool, EqTool, FadeTool, ForkNodeTool, GainTool,
+            CompressorTool, CopyRegionTool, CutRangeTool, EqTool, FadeTool, ForkNodeTool, GainTool,
             InsertSilenceTool, LabelTool, LoadTool, NameNodeTool, NormalizeTool, PasteRegionTool,
             PitchShiftTool, RemoveTrackTool, RenderFinalTool, RenderPreviewTool, ReverseTool,
             RevertToTool, SeparateStemsTool, SetTrackGainTool, TimeStretchTool, TranscribeTool,
@@ -115,6 +115,7 @@ impl ToolDispatcher {
         d.register(Box::new(NameNodeTool));
         // D1-D3: destructive sample edits.
         d.register(Box::new(EqTool));
+        d.register(Box::new(CompressorTool));
         d.register(Box::new(FadeTool));
         d.register(Box::new(ReverseTool));
         d.register(Box::new(InsertSilenceTool));
