@@ -90,24 +90,32 @@ function App() {
 
   const handleUndo = useCallback(async () => {
     if (!head) return;
-    const node = await getNode(head);
-    const result = applyUndo(head, node.parent ?? null, redoStack);
-    if (!result) return;
-    await setHeadTo(result.head);
-    setHeadLocal(result.head);
-    setRedoStack(result.redoStack);
-    const newTracks = await listTracks();
-    setTracks(newTracks);
+    try {
+      const node = await getNode(head);
+      const result = applyUndo(head, node.parent ?? null, redoStack);
+      if (!result) return;
+      await setHeadTo(result.head);
+      setHeadLocal(result.head);
+      setRedoStack(result.redoStack);
+      const newTracks = await listTracks();
+      setTracks(newTracks);
+    } catch (err) {
+      setRenderError(String(err));
+    }
   }, [head, redoStack, setHeadLocal]);
 
   const handleRedo = useCallback(async () => {
-    const result = applyRedo(redoStack);
-    if (!result) return;
-    await setHeadTo(result.head);
-    setHeadLocal(result.head);
-    setRedoStack(result.redoStack);
-    const newTracks = await listTracks();
-    setTracks(newTracks);
+    try {
+      const result = applyRedo(redoStack);
+      if (!result) return;
+      await setHeadTo(result.head);
+      setHeadLocal(result.head);
+      setRedoStack(result.redoStack);
+      const newTracks = await listTracks();
+      setTracks(newTracks);
+    } catch (err) {
+      setRenderError(String(err));
+    }
   }, [redoStack, setHeadLocal]);
 
   // Window-level keyboard transport. Active whenever the user isn't
@@ -120,8 +128,6 @@ function App() {
       const tag = target?.tagName ?? "";
       const isTyping =
         tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable;
-      const t = timelineRef.current;
-      if (!t) return;
       if (e.ctrlKey && !e.shiftKey && e.key === "z" && !isTyping) {
         e.preventDefault();
         handleUndo();
@@ -136,6 +142,8 @@ function App() {
         handleRedo();
         return;
       }
+      const t = timelineRef.current;
+      if (!t) return;
       if (e.key === " " && !isTyping) {
         e.preventDefault();
         t.togglePlay();
