@@ -87,8 +87,8 @@ impl ToolDispatcher {
             CompressorTool, CopyRegionTool, CutRangeTool, EqTool, FadeTool, ForkNodeTool, GainTool,
             InsertSilenceTool, LabelTool, LoadTool, NameNodeTool, NoiseReductionTool,
             NormalizeTool, PasteRegionTool, PitchShiftTool, RemoveTrackTool, RenderFinalTool,
-            RenderPreviewTool, ReverseTool, RevertToTool, SeparateStemsTool, SetTrackGainTool,
-            TimeStretchTool, TranscribeTool, TrimTool,
+            RenderPreviewTool, ReverseTool, RevertToTool, SeparateStemsTool, SetClipEnvelopeTool,
+            SetTrackGainTool, TimeStretchTool, TranscribeTool, TrimTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -125,6 +125,8 @@ impl ToolDispatcher {
         d.register(Box::new(LabelTool));
         // D7: spectral noise reduction.
         d.register(Box::new(NoiseReductionTool));
+        // Task 6: per-clip volume envelope.
+        d.register(Box::new(SetClipEnvelopeTool));
         d
     }
 

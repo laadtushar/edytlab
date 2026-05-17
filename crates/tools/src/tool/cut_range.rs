@@ -94,6 +94,7 @@ impl Tool for CutRangeTool {
                 time_stretch_factor: clip.time_stretch_factor,
                 pitch_shift_semitones: clip.pitch_shift_semitones,
                 beat_grid: clip.beat_grid.clone(),
+                volume_envelope: Vec::new(),
             });
         }
         if end < clip.length {
@@ -107,6 +108,7 @@ impl Tool for CutRangeTool {
                 time_stretch_factor: clip.time_stretch_factor,
                 pitch_shift_semitones: clip.pitch_shift_semitones,
                 beat_grid: clip.beat_grid.clone(),
+                volume_envelope: Vec::new(),
             });
         }
 

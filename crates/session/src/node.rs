@@ -214,6 +214,7 @@ mod canonical_hash_tests {
                     time_stretch_factor: None,
                     pitch_shift_semitones: None,
                     beat_grid: None,
+                    volume_envelope: Vec::new(),
                 }],
                 gain_db: 0.0,
                 pan: 0.0,

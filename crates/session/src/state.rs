@@ -58,6 +58,12 @@ pub struct Track {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EnvelopePoint {
+    pub time_samples: u64,
+    pub gain_db: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Clip {
     pub source_path: PathBuf,
     pub start_in_track: u64,
@@ -88,6 +94,12 @@ pub struct Clip {
     /// at render time. Phase 2 stub records the grid only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub beat_grid: Option<Vec<f32>>,
+
+    /// Per-clip volume automation curve. Each point is (time_samples, gain_db);
+    /// the engine linearly interpolates between consecutive points at render time.
+    /// Empty means no automation (unity gain).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub volume_envelope: Vec<EnvelopePoint>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

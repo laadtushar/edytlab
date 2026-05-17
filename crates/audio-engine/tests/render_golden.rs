@@ -44,6 +44,7 @@ fn build_state(source: &Path, gain_db: f32) -> SessionState {
                 time_stretch_factor: None,
                 pitch_shift_semitones: None,
                 beat_grid: None,
+                volume_envelope: Vec::new(),
             }],
             gain_db,
             pan: 0.0,

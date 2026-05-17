@@ -26,7 +26,7 @@
 
 use std::path::PathBuf;
 
-use session::SessionState;
+use session::{EnvelopePoint, SessionState};
 
 use crate::Error;
 
@@ -48,6 +48,8 @@ pub struct TrackPlan {
     /// outright. Captures both mute (no solo present) and "not-soloed"
     /// (some other track has solo).
     pub contributes: bool,
+    /// Per-clip volume automation points (sorted by time_samples).
+    pub volume_envelope: Vec<EnvelopePoint>,
 }
 
 /// The flattened render plan.
@@ -100,6 +102,7 @@ pub fn build(state: &SessionState) -> Result<RenderGraph, Error> {
                 source_offset: 0,
                 length: 0,
                 contributes: false,
+                volume_envelope: Vec::new(),
             });
             continue;
         };
@@ -116,6 +119,7 @@ pub fn build(state: &SessionState) -> Result<RenderGraph, Error> {
             source_offset: clip.source_offset,
             length: clip.length,
             contributes,
+            volume_envelope: clip.volume_envelope.clone(),
         });
     }
 

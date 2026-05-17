@@ -74,6 +74,25 @@ use session::SessionState;
 use crate::graph::{self, RenderGraph, TrackPlan};
 use crate::{Error, RenderReport, TimeRange};
 
+/// Linear interpolation of gain_db at `frame` from a sorted (time_samples, gain_db) list.
+/// Returns 0.0 dB for an empty list.
+pub(crate) fn interp_envelope_gain_db(pts: &[(u64, f32)], frame: u64) -> f32 {
+    if pts.is_empty() {
+        return 0.0;
+    }
+    if frame <= pts[0].0 {
+        return pts[0].1;
+    }
+    if frame >= pts[pts.len() - 1].0 {
+        return pts[pts.len() - 1].1;
+    }
+    let pos = pts.partition_point(|&(t, _)| t <= frame);
+    let (t0, g0) = pts[pos - 1];
+    let (t1, g1) = pts[pos];
+    let alpha = (frame - t0) as f32 / (t1 - t0) as f32;
+    g0 + alpha * (g1 - g0)
+}
+
 /// Resampler input chunk, in source frames.
 ///
 /// Held at 1024 to match the M21 buffered path (same constant in
@@ -207,6 +226,8 @@ struct TrackStreamer {
     source_chunk_interleaved: Vec<f32>,
     /// True when the source has been fully drained from the WAV file.
     source_eof: bool,
+    /// Per-clip volume automation points (sorted by time_samples).
+    volume_envelope: Vec<(u64, f32)>,
 }
 
 struct TrackResampler {
@@ -282,6 +303,12 @@ impl TrackStreamer {
             .unwrap_or(master_chunk_frames(project_rate));
         let source_chunk_interleaved = vec![0.0f32; chunk_in_frames * in_channels];
 
+        let volume_envelope: Vec<(u64, f32)> = plan
+            .volume_envelope
+            .iter()
+            .map(|p| (p.time_samples, p.gain_db))
+            .collect();
+
         Ok(Self {
             reader,
             in_channels,
@@ -296,6 +323,7 @@ impl TrackStreamer {
             pending_frames: 0,
             source_chunk_interleaved,
             source_eof: src_frames_remaining == 0,
+            volume_envelope,
         })
     }
 
@@ -467,6 +495,23 @@ impl TrackStreamer {
             self.gain_db,
             dst,
         )?;
+
+        // Apply per-clip volume envelope on top of the track gain.
+        // Each frame at project-rate position `project_frames_emitted + f`
+        // is scaled by the envelope's interpolated linear factor.
+        if !self.volume_envelope.is_empty() {
+            let base_frame = self.project_frames_emitted;
+            for f in 0..avail {
+                let frame = base_frame + f as u64;
+                let env_db = interp_envelope_gain_db(&self.volume_envelope, frame);
+                let env_linear = 10.0_f32.powf(env_db / 20.0);
+                let start = f * self.out_channels;
+                let end = start + self.out_channels;
+                for s in &mut dst[start..end] {
+                    *s *= env_linear;
+                }
+            }
+        }
 
         // Drain `avail` frames from the front of `pending_planar`.
         for ch in 0..self.in_channels {
@@ -801,5 +846,34 @@ fn peak_to_dbfs(peak: f32) -> f32 {
         f32::NEG_INFINITY
     } else {
         20.0 * peak.log10()
+    }
+}
+
+#[cfg(test)]
+mod envelope_tests {
+    use super::interp_envelope_gain_db;
+
+    #[test]
+    fn returns_first_point_before_start() {
+        let pts = vec![(0u64, -6.0_f32), (44100u64, 0.0_f32)];
+        assert!((interp_envelope_gain_db(&pts, 0) - (-6.0)).abs() < 1e-5);
+    }
+
+    #[test]
+    fn interpolates_between_points() {
+        let pts = vec![(0u64, -6.0_f32), (44100u64, 0.0_f32)];
+        let mid = interp_envelope_gain_db(&pts, 22050);
+        assert!((mid - (-3.0)).abs() < 0.01, "mid={mid}");
+    }
+
+    #[test]
+    fn clamps_to_last_point_beyond_end() {
+        let pts = vec![(0u64, -6.0_f32), (44100u64, 0.0_f32)];
+        assert!((interp_envelope_gain_db(&pts, 88200) - 0.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn empty_envelope_returns_zero_db() {
+        assert!((interp_envelope_gain_db(&[], 1000) - 0.0).abs() < 1e-5);
     }
 }
