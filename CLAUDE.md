@@ -26,6 +26,15 @@ Project-level instructions for Claude Code sessions in this repository. These pe
   ```
   where `<id>` is the current session id (substituted by the harness at write time).
 
+## Shell / path conventions
+
+This repo lives at `C:\Users\tusha\Work\Playground\Edytlab\edytlab` on Windows 11.
+
+- **Always use the PowerShell tool for git commands** (`git`, `pnpm`, `cargo`). The Bash tool's git binary cannot resolve `/c/...` paths reliably on this machine.
+- In PowerShell, prefix every command with `cd "C:\Users\tusha\Work\Playground\Edytlab\edytlab";` or chain with `;`.
+- The Bash tool works fine for read-only file operations (`find`, `ls`, path inspection) using `/c/Users/tusha/...` Unix-style paths, but **not for git or pnpm**.
+- `pnpm` is not on the Bash PATH — always invoke it via PowerShell.
+
 ## Repo specifics
 
 - Tauri 2 desktop app under `apps/desktop/`. Frontend in `apps/desktop/src/`, Rust backend in `apps/desktop/src-tauri/`.
