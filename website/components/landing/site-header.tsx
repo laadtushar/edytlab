@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { Github } from "lucide-react";
 
@@ -9,7 +10,14 @@ export function SiteHeader() {
     <header className="fixed inset-x-0 top-0 z-40 border-b border-border/40 bg-background/70 backdrop-blur-md">
       <div className="container flex h-14 items-center justify-between">
         <Link href="/" className="flex items-center gap-2 font-semibold">
-          <span className="size-6 rounded bg-gradient-to-br from-primary to-primary/40" />
+          <Image
+            src="/logo.png"
+            alt="edytlab logo"
+            width={24}
+            height={24}
+            className="rounded"
+            priority
+          />
           edytlab
         </Link>
         <nav className="hidden items-center gap-6 text-sm text-muted-foreground sm:flex">
@@ -24,6 +32,12 @@ export function SiteHeader() {
             className="transition-colors hover:text-foreground"
           >
             How it works
+          </Link>
+          <Link
+            href="/blog"
+            className="transition-colors hover:text-foreground"
+          >
+            Blog
           </Link>
           <Link
             href="/#faq"

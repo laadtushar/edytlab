@@ -33,6 +33,12 @@ export function Footer() {
               Design spec
             </Link>
             <Link
+              href="/blog"
+              className="text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Blog
+            </Link>
+            <Link
               href="/changelog"
               className="text-muted-foreground transition-colors hover:text-foreground"
             >
