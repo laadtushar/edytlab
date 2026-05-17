@@ -47,11 +47,15 @@ export const ANTHROPIC_KEYS_URL =
   "https://console.anthropic.com/settings/keys";
 export const OPENROUTER_KEYS_URL = "https://openrouter.ai/keys";
 export const OPENAI_KEYS_URL = "https://platform.openai.com/api-keys";
+export const GROQ_KEYS_URL = "https://console.groq.com/keys";
+export const GEMINI_KEYS_URL = "https://aistudio.google.com/apikey";
 
 const DEFAULT_MODEL_BY_PROVIDER: Record<ProviderId, string> = {
   anthropic: "claude-sonnet-4-6",
   openrouter: "anthropic/claude-sonnet-4-6",
   openai: "gpt-4o-mini",
+  groq: "llama-3.3-70b-versatile",
+  gemini: "gemini-2.0-flash",
 };
 
 const PROVIDERS: ReadonlyArray<{
@@ -77,6 +81,18 @@ const PROVIDERS: ReadonlyArray<{
     label: "OpenAI",
     keyPlaceholder: "sk-...",
     keysUrl: OPENAI_KEYS_URL,
+  },
+  {
+    id: "groq",
+    label: "Groq",
+    keyPlaceholder: "gsk_...",
+    keysUrl: GROQ_KEYS_URL,
+  },
+  {
+    id: "gemini",
+    label: "Google Gemini",
+    keyPlaceholder: "AIza...",
+    keysUrl: GEMINI_KEYS_URL,
   },
 ];
 
