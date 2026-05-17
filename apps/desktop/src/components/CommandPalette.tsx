@@ -36,6 +36,13 @@ const COMMANDS: Command[] = [
   { category: "Fades", label: "Fade in", prompt: "add a fade-in over the first 3 seconds", description: "Linear fade from silence", tags: ["fade", "intro", "ramp"] },
   { category: "Fades", label: "Fade out", prompt: "fade out the last 3 seconds", description: "Linear fade to silence", tags: ["fade", "outro", "end"] },
 
+  // Effects
+  { category: "Effects", label: "Reduce noise", prompt: "reduce the background noise — the first 0.5 seconds is silence I can use as a noise profile", description: "Spectral subtraction noise removal", tags: ["noise", "denoise", "hiss", "background", "clean"] },
+  { category: "Effects", label: "EQ boost highs", prompt: "apply EQ: boost 3 dB at 8000 Hz and 2 dB at 12000 Hz", description: "Peak EQ biquad filter chain", tags: ["eq", "equalizer", "treble", "highs", "frequency", "boost"] },
+  { category: "Effects", label: "EQ cut lows", prompt: "apply EQ: cut 6 dB at 80 Hz", description: "Peak EQ low-frequency cut", tags: ["eq", "equalizer", "bass", "lows", "frequency", "cut"] },
+  { category: "Effects", label: "Compress dynamics", prompt: "compress the dynamic range: threshold -12 dB, ratio 4:1, attack 5 ms, release 100 ms", description: "Dynamic range compressor", tags: ["compress", "compressor", "dynamics", "loudness", "ratio"] },
+  { category: "Effects", label: "Gentle compression", prompt: "apply gentle compression: threshold -18 dB, ratio 2:1, attack 10 ms, release 200 ms, makeup gain 3 dB", description: "Subtle levelling compressor", tags: ["compress", "compressor", "gentle", "level", "dynamics"] },
+
   // Editing
   { category: "Editing", label: "Cut region", prompt: "cut the selected region and close the gap", description: "Remove selection and close gap", tags: ["cut", "delete", "remove"] },
   { category: "Editing", label: "Trim to selection", prompt: "trim to keep only the selected region", description: "Discard everything outside selection", tags: ["trim", "crop", "keep"] },
@@ -76,6 +83,7 @@ const COMMANDS: Command[] = [
 const CATEGORY_ORDER = [
   "Volume",
   "Fades",
+  "Effects",
   "Editing",
   "Speed & Pitch",
   "Analysis",
