@@ -905,7 +905,10 @@ mod tests {
         assert_eq!(p.endpoint_path(), "/v1/chat/completions");
         assert_eq!(p.list_models_path(), "/v1/models");
         assert!(p.base_url().contains("groq.com"));
-        assert_eq!(p.translate_model("llama-3.3-70b-versatile"), "llama-3.3-70b-versatile");
+        assert_eq!(
+            p.translate_model("llama-3.3-70b-versatile"),
+            "llama-3.3-70b-versatile"
+        );
     }
 
     #[test]

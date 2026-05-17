@@ -2086,15 +2086,19 @@ pub async fn render_range(
         .ok_or_else(|| CommandError::NoSession.to_string())?;
 
     let session_node = {
-        let store = lock_std(&store_handle, "store")
-            .map_err(|e| e.to_string())?;
-        store.get(id).map_err(|e| CommandError::Session(e).to_string())?
+        let store = lock_std(&store_handle, "store").map_err(|e| e.to_string())?;
+        store
+            .get(id)
+            .map_err(|e| CommandError::Session(e).to_string())?
     };
 
     let sample_rate = session_node.state.sample_rate;
     let start_frame = (start_sec * sample_rate as f64) as u64;
     let end_frame = (end_sec * sample_rate as f64) as u64;
-    let range = audio_engine::TimeRange { start_frame, end_frame };
+    let range = audio_engine::TimeRange {
+        start_frame,
+        end_frame,
+    };
 
     let report = {
         let engine = lock_std(&state.engine, "engine").map_err(|e| e.to_string())?;
