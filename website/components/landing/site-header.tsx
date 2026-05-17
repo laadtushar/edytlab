@@ -40,6 +40,12 @@ export function SiteHeader() {
             Blog
           </Link>
           <Link
+            href="/docs"
+            className="transition-colors hover:text-foreground"
+          >
+            Docs
+          </Link>
+          <Link
             href="/#faq"
             className="transition-colors hover:text-foreground"
           >

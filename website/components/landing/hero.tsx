@@ -47,7 +47,7 @@ export function Hero() {
           </motion.div>
 
           <h1 className="text-balance text-5xl font-bold tracking-tight sm:text-6xl md:text-7xl">
-            <div className="mb-1 overflow-hidden">
+            <div className="mb-1">
               <motion.div
                 className="flex flex-wrap justify-center gap-x-[0.25em]"
                 initial="hidden"
@@ -60,7 +60,7 @@ export function Hero() {
                 ))}
               </motion.div>
             </div>
-            <div className="overflow-hidden">
+            <div>
               <motion.div
                 className="flex flex-wrap justify-center gap-x-[0.25em]"
                 initial="hidden"
