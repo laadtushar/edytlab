@@ -11,6 +11,7 @@ import { ProviderCards } from "@/components/landing/provider-cards";
 import { SiteHeader } from "@/components/landing/site-header";
 import { StatsStrip } from "@/components/landing/stats-strip";
 import { siteConfig } from "@/lib/site";
+import { getLatestRelease } from "@/lib/releases";
 
 const jsonLd = {
   "@context": "https://schema.org",
@@ -34,7 +35,8 @@ const jsonLd = {
   },
 };
 
-export default function Home() {
+export default async function Home() {
+  const release = await getLatestRelease();
   return (
     <>
       <script
@@ -43,7 +45,7 @@ export default function Home() {
       />
       <SiteHeader />
       <main>
-        <Hero />
+        <Hero release={release} />
         <StatsStrip />
         <Problem />
         <Comparison />

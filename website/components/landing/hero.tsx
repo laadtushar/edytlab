@@ -7,6 +7,7 @@ import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { siteConfig } from "@/lib/site";
+import type { ReleaseAssets } from "@/lib/releases";
 import { WaveformBackground } from "./waveform-bg";
 
 const line1 = ["Describe", "it."];
@@ -27,7 +28,7 @@ const word = {
   }),
 };
 
-export function Hero() {
+export function Hero({ release }: { release: ReleaseAssets }) {
   return (
     <section className="relative pb-24 pt-32 md:pb-32 md:pt-40">
       <WaveformBackground />
@@ -42,7 +43,7 @@ export function Hero() {
               variant="outline"
               className="mb-6 border-primary/30 bg-primary/10 text-primary"
             >
-              Local-first AI audio editor · {siteConfig.version}
+              Local-first AI audio editor · {release.version}
             </Badge>
           </motion.div>
 
@@ -98,7 +99,7 @@ export function Hero() {
           >
             <motion.div whileHover={{ scale: 1.06 }} whileTap={{ scale: 0.96 }}>
               <Button asChild size="lg" className="glow w-full sm:w-auto">
-                <Link href={siteConfig.releases}>
+                <Link href={release.macUrl}>
                   <Apple className="size-4" />
                   Download for Mac
                 </Link>
@@ -111,7 +112,7 @@ export function Hero() {
                 variant="outline"
                 className="w-full sm:w-auto"
               >
-                <Link href={siteConfig.releases}>
+                <Link href={release.winUrl}>
                   <Download className="size-4" />
                   Download for Windows
                 </Link>
