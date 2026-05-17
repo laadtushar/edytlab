@@ -32,6 +32,7 @@ import { applyUndo, applyRedo } from "./lib/undoRedo";
 
 import { ABCompareBar } from "./components/ABCompareBar";
 import { Chat } from "./components/Chat";
+import { TemplatePickerModal } from "./components/TemplatePickerModal";
 import type { ChatHandle } from "./components/Chat";
 import { CommandPalette } from "./components/CommandPalette";
 import { EmptyState } from "./components/EmptyState";
@@ -50,6 +51,8 @@ import {
   onNodeCreated,
   renderPreview as bridgeRenderPreview,
 } from "./lib/tauri-bridge";
+import { listTemplates, applyTemplate } from "./lib/tauri-bridge";
+import type { TemplateInfo } from "./components/TemplatePickerModal";
 import {
   listenToFileDrops,
   loadAudio,
@@ -102,6 +105,8 @@ function App() {
   const chatRef = useRef<ChatHandle>(null);
   const [exporting, setExporting] = useState(false);
   const [loopActive, setLoopActive] = useState(false);
+  const [templates, setTemplates] = useState<TemplateInfo[]>([]);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
 
   const handleUndo = useCallback(async () => {
     if (!head) return;
@@ -259,6 +264,21 @@ function App() {
       setRenderError(String(err));
     }
   }, [handleFileSelected]);
+
+  useEffect(() => {
+    void listTemplates().then(setTemplates).catch(console.error);
+  }, []);
+
+  const handleApplyTemplate = useCallback(async (name: string) => {
+    setShowTemplatePicker(false);
+    try {
+      await applyTemplate(name);
+      const newTracks = await listTracks();
+      setTracks(newTracks);
+    } catch (e) {
+      setRenderError(String(e));
+    }
+  }, []);
 
   // Debounced selection IPC — push the selection to Rust 250 ms after
   // the last change so rapid drags don't flood the backend.
@@ -489,7 +509,7 @@ function App() {
                   onLoopChange={setLoopActive}
                 />
               ) : (
-                <EmptyState onOpen={handleOpenDialog} />
+                <EmptyState onOpen={handleOpenDialog} onShowTemplates={() => setShowTemplatePicker(true)} />
               )
             ) : (
               <GraphView
@@ -557,6 +577,12 @@ function App() {
       ) : null}
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} onSelect={(prompt) => { setPaletteOpen(false); chatRef.current?.fillInput(prompt); }} />
       <ShortcutsOverlay open={showShortcuts} onClose={handleCloseShortcuts} />
+      <TemplatePickerModal
+        open={showTemplatePicker}
+        templates={templates}
+        onSelect={handleApplyTemplate}
+        onClose={() => setShowTemplatePicker(false)}
+      />
     </main>
   );
 }

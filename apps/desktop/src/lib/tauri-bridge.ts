@@ -440,3 +440,18 @@ export interface BatchLoadResult {
 
 export const batchLoad = (paths: string[]): Promise<BatchLoadResult> =>
   invoke<BatchLoadResult>("batch_load", { paths });
+
+// -----------------------------------------------------------------------------
+// Templates (Task 8)
+// -----------------------------------------------------------------------------
+
+export interface TemplateInfo {
+  name: string;
+  description: string;
+}
+
+export const listTemplates = (): Promise<TemplateInfo[]> =>
+  invoke<TemplateInfo[]>("list_templates");
+
+export const applyTemplate = (name: string): Promise<string> =>
+  invoke<string>("apply_template", { name });

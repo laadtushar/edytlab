@@ -1,0 +1,17 @@
+{
+  "name": "Podcast",
+  "description": "Two-speaker podcast with host and guest tracks",
+  "state": {
+    "tracks": [
+      { "id": "00000000-0000-0000-0000-000000000001", "name": "Host",  "gain_db": -3.0, "muted": false, "soloed": false, "pan": 0.0, "clips": [], "effects": [] },
+      { "id": "00000000-0000-0000-0000-000000000002", "name": "Guest", "gain_db": -3.0, "muted": false, "soloed": false, "pan": 0.0, "clips": [], "effects": [] }
+    ],
+    "bus_routing": { "buses": [] },
+    "master_chain": [],
+    "tempo_map": { "default_bpm": 120.0, "segments": [] },
+    "key_map": null,
+    "transcript": null,
+    "sample_rate": 44100,
+    "length_samples": 0
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "Music",
+  "description": "Four-track music arrangement: lead, harmony, bass, drums",
+  "state": {
+    "tracks": [
+      { "id": "00000000-0000-0000-0000-000000000001", "name": "Lead",    "gain_db": 0.0,  "muted": false, "soloed": false, "pan": 0.0,   "clips": [], "effects": [] },
+      { "id": "00000000-0000-0000-0000-000000000002", "name": "Harmony", "gain_db": -3.0, "muted": false, "soloed": false, "pan": -0.3,  "clips": [], "effects": [] },
+      { "id": "00000000-0000-0000-0000-000000000003", "name": "Bass",    "gain_db": -1.0, "muted": false, "soloed": false, "pan": 0.0,   "clips": [], "effects": [] },
+      { "id": "00000000-0000-0000-0000-000000000004", "name": "Drums",   "gain_db": -2.0, "muted": false, "soloed": false, "pan": 0.0,   "clips": [], "effects": [] }
+    ],
+    "bus_routing": { "buses": [] },
+    "master_chain": [],
+    "tempo_map": { "default_bpm": 120.0, "segments": [] },
+    "key_map": null,
+    "transcript": null,
+    "sample_rate": 44100,
+    "length_samples": 0
+  }
+}

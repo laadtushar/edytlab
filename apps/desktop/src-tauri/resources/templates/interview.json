@@ -1,0 +1,17 @@
+{
+  "name": "Interview",
+  "description": "Interviewer and subject tracks optimised for voice",
+  "state": {
+    "tracks": [
+      { "id": "00000000-0000-0000-0000-000000000001", "name": "Interviewer", "gain_db": -2.0, "muted": false, "soloed": false, "pan": -0.2, "clips": [], "effects": [] },
+      { "id": "00000000-0000-0000-0000-000000000002", "name": "Subject",     "gain_db": -2.0, "muted": false, "soloed": false, "pan": 0.2,  "clips": [], "effects": [] }
+    ],
+    "bus_routing": { "buses": [] },
+    "master_chain": [],
+    "tempo_map": { "default_bpm": 120.0, "segments": [] },
+    "key_map": null,
+    "transcript": null,
+    "sample_rate": 44100,
+    "length_samples": 0
+  }
+}

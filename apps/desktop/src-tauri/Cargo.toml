@@ -26,6 +26,7 @@ tracing = "0.1"
 keyring = { version = "3", default-features = false, features = ["linux-native", "apple-native", "windows-native"] }
 
 uuid = { version = "1", features = ["v4"] }
+chrono = "0.4"
 
 ai = { path = "../../../crates/ai" }
 agent_profiles = { path = "../../../crates/agent_profiles" }

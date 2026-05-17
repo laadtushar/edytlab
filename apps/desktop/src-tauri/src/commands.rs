@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use session::{NodeId, SessionNode, Store};
-use tauri::{AppHandle, Emitter, Runtime, State};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 use tools::Range;
 
 use crate::events::{
@@ -1418,6 +1418,82 @@ pub fn list_tracks(state: State<'_, AppState>) -> CmdResult<Vec<TrackSummary>> {
             },
         })
         .collect())
+}
+
+// ---------------------------------------------------------------------------
+// Templates
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, serde::Serialize)]
+pub struct TemplateInfo {
+    pub name: String,
+    pub description: String,
+}
+
+#[tauri::command]
+pub async fn list_templates(app_handle: tauri::AppHandle) -> CmdResult<Vec<TemplateInfo>> {
+    let resource_dir = app_handle
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("resource dir: {e}"))?;
+    let templates_dir = resource_dir.join("templates");
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(&templates_dir) else {
+        return Ok(out); // dev mode: no bundled resources
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let raw = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        let v: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+        out.push(TemplateInfo {
+            name: v["name"].as_str().unwrap_or("").to_string(),
+            description: v["description"].as_str().unwrap_or("").to_string(),
+        });
+    }
+    Ok(out)
+}
+
+#[tauri::command]
+pub async fn apply_template(
+    state: tauri::State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+    name: String,
+) -> CmdResult<String> {
+    let resource_dir = app_handle
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("resource dir: {e}"))?;
+    let templates_dir = resource_dir.join("templates");
+    let entries = std::fs::read_dir(&templates_dir).map_err(|e| e.to_string())?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let raw = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        let v: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+        if v["name"].as_str().unwrap_or("") != name {
+            continue;
+        }
+        let session_state: session::SessionState =
+            serde_json::from_value(v["state"].clone()).map_err(|e| e.to_string())?;
+        let store_arc = state.store_handle().ok_or(CommandError::NoSession)?;
+        let mut store = lock_std(&store_arc, "store")?;
+        let node = session::SessionNode {
+            id: session::NodeId([0u8; 32]),
+            parent: store.head(),
+            created_at: chrono::Utc::now(),
+            label: Some(format!("Template: {name}")),
+            reasoning: None,
+            state: session_state,
+        };
+        let new_id = store.append(node).map_err(|e| e.to_string())?;
+        return Ok(new_id.to_hex());
+    }
+    Err(format!("template '{name}' not found"))
 }
 
 // ---------------------------------------------------------------------------

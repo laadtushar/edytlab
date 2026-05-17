@@ -11,9 +11,10 @@
 
 interface EmptyStateProps {
   onOpen: () => void;
+  onShowTemplates?: () => void;
 }
 
-export function EmptyState({ onOpen }: EmptyStateProps) {
+export function EmptyState({ onOpen, onShowTemplates }: EmptyStateProps) {
   return (
     <div
       data-testid="empty-state"
@@ -61,6 +62,25 @@ export function EmptyState({ onOpen }: EmptyStateProps) {
       </div>
 
       <div className="flex items-center gap-3">
+        {onShowTemplates ? (
+          <button
+            type="button"
+            onClick={onShowTemplates}
+            data-testid="empty-state-templates-button"
+            className="
+              inline-flex items-center gap-2
+              rounded-md
+              border border-[var(--border-strong)]
+              bg-[var(--surface-elev)]
+              px-4 py-2
+              text-sm font-medium text-[var(--text-dim)]
+              transition
+              hover:border-[var(--accent)]/60 hover:text-[var(--text)]
+            "
+          >
+            Start from template
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={onOpen}
