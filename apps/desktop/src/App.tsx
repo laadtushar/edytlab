@@ -122,14 +122,15 @@ function App() {
         tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable;
       const t = timelineRef.current;
       if (!t) return;
-      if (e.ctrlKey && !e.shiftKey && e.key === "z") {
+      if (e.ctrlKey && !e.shiftKey && e.key === "z" && !isTyping) {
         e.preventDefault();
         handleUndo();
         return;
       }
       if (
-        (e.ctrlKey && e.key === "y") ||
-        (e.ctrlKey && e.shiftKey && e.key === "z")
+        ((e.ctrlKey && e.key === "y") ||
+          (e.ctrlKey && e.shiftKey && e.key === "z")) &&
+        !isTyping
       ) {
         e.preventDefault();
         handleRedo();
