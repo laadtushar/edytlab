@@ -155,17 +155,19 @@ function TrackLane({
     };
     ws.on("ready", onReady);
     ws.on("decode", onReady);
-    ws.on("audioprocess", () => {
+    const onAudioProcess = () => {
       if (!loopRef.current || !selectionRef.current) return;
       const t = ws.getCurrentTime();
       if (t >= selectionRef.current.end) {
         const dur = ws.getDuration();
         if (dur > 0) ws.seekTo(selectionRef.current.start / dur);
       }
-    });
+    };
+    ws.on("audioprocess", onAudioProcess);
     return () => {
       ws.un("ready", onReady);
       ws.un("decode", onReady);
+      ws.un("audioprocess", onAudioProcess);
       ws.destroy();
       wsRef.current = null;
       onWavesurfer?.(null);
