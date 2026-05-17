@@ -175,9 +175,9 @@ function TrackLane({
   }, [muted]);
 
   useEffect(() => {
-    if (!wsRef.current) return;
+    if (!wsRef.current || duration === 0) return;
     wsRef.current.zoom(zoom ?? 0);
-  }, [zoom]);
+  }, [zoom, duration]);
 
   const handleDrop = useCallback(
     async (e: React.DragEvent<HTMLDivElement>) => {
@@ -483,15 +483,20 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
     );
   };
 
-  const handleWheel = useCallback(
-    (e: React.WheelEvent) => {
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => {
       if (!e.ctrlKey) return;
       e.preventDefault();
       const delta = e.deltaY > 0 ? -20 : 20;
       onZoomChange?.(Math.max(0, (zoom ?? 0) + delta));
-    },
-    [zoom, onZoomChange],
-  );
+    };
+    el.addEventListener("wheel", handler, { passive: false });
+    return () => el.removeEventListener("wheel", handler);
+  }, [zoom, onZoomChange]);
 
   useImperativeHandle(
     ref,
@@ -526,9 +531,9 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
 
   return (
     <div
+      ref={rootRef}
       data-testid="timeline-root"
       className="app-fade-in"
-      onWheel={handleWheel}
       style={{
         display: "flex",
         flexDirection: "column",
