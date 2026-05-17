@@ -33,8 +33,14 @@ use std::sync::Arc;
 use serde_json::json;
 
 use crate::provider::{
-    AnthropicProvider, LlmProvider, OpenAIProvider, OpenRouterProvider, OPENAI_ID,
+    AnthropicProvider, GeminiProvider, GroqProvider, LlmProvider, OpenAIProvider,
+    OpenRouterProvider, GEMINI_ID, GROQ_ID, OPENAI_ID,
 };
+
+/// Providers that use an OpenAI-compatible `/models` probe rather than a
+/// 1-token Anthropic Messages call. Validation hits GET `{base}/{models_path}`
+/// which is auth-gated but costs zero tokens.
+const MODELS_PROBE_IDS: &[&str] = &[OPENAI_ID, GROQ_ID, GEMINI_ID];
 
 /// Validate an API key by issuing a one-token Messages call against
 /// `provider`'s endpoint. `base_url` is parameterised for tests;
@@ -56,13 +62,11 @@ pub async fn test_api_key_with(
 
     let client = reqwest::Client::new();
 
-    // OpenAI's `/v1/messages` doesn't exist; probe `/v1/models` instead.
-    // The endpoint is auth-gated and returns 200 with the catalogue
-    // shape, which is enough to confirm the key works without spending
-    // tokens on a one-shot completion. `Authorization: Bearer` is the
-    // only header required.
-    let resp = if provider.id() == OPENAI_ID {
-        let req = client.get(format!("{base_url}/v1/models"));
+    // OpenAI-compatible providers (OpenAI, Groq, Gemini) don't expose
+    // `/v1/messages`; probe their models catalogue endpoint instead. It's
+    // auth-gated, costs zero tokens, and returns 200/401 clearly.
+    let resp = if MODELS_PROBE_IDS.contains(&provider.id()) {
+        let req = client.get(format!("{base_url}{}", provider.list_models_path()));
         let req = provider.apply_auth(req, api_key);
         req.send().await.map_err(|e| e.to_string())?
     } else {
@@ -135,6 +139,16 @@ pub async fn test_openrouter_key_against(api_key: &str, base_url: &str) -> Resul
 /// suite uses this to assert the OpenAI Bearer header path.
 pub async fn test_openai_key_against(api_key: &str, base_url: &str) -> Result<(), String> {
     test_api_key_with(&OpenAIProvider::default(), api_key, base_url).await
+}
+
+/// Test-only: explicit Groq validation against a custom base URL.
+pub async fn test_groq_key_against(api_key: &str, base_url: &str) -> Result<(), String> {
+    test_api_key_with(&GroqProvider::default(), api_key, base_url).await
+}
+
+/// Test-only: explicit Gemini validation against a custom base URL.
+pub async fn test_gemini_key_against(api_key: &str, base_url: &str) -> Result<(), String> {
+    test_api_key_with(&GeminiProvider::default(), api_key, base_url).await
 }
 
 /// Resolve a provider trait object from a stable id. Re-exported here

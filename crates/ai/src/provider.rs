@@ -37,6 +37,10 @@ pub const ANTHROPIC_ID: &str = "anthropic";
 pub const OPENROUTER_ID: &str = "openrouter";
 /// Stable id for the OpenAI provider.
 pub const OPENAI_ID: &str = "openai";
+/// Stable id for the Groq provider.
+pub const GROQ_ID: &str = "groq";
+/// Stable id for the Gemini provider.
+pub const GEMINI_ID: &str = "gemini";
 
 /// Default base URL for Anthropic's Messages API.
 pub const ANTHROPIC_DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
@@ -45,6 +49,10 @@ pub const ANTHROPIC_DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 pub const OPENROUTER_DEFAULT_BASE_URL: &str = "https://openrouter.ai/api";
 /// Default base URL for OpenAI's Chat Completions API.
 pub const OPENAI_DEFAULT_BASE_URL: &str = "https://api.openai.com";
+/// Default base URL for Groq's OpenAI-compatible Chat Completions API.
+pub const GROQ_DEFAULT_BASE_URL: &str = "https://api.groq.com/openai";
+/// Default base URL for Google Gemini's OpenAI-compatible Chat Completions API.
+pub const GEMINI_DEFAULT_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta/openai";
 
 /// `anthropic-version` header value sent on every Anthropic call.
 pub use crate::prompt::ANTHROPIC_VERSION;
@@ -95,6 +103,13 @@ pub trait LlmProvider: Send + Sync + Debug {
     /// `/v1/messages`; OpenAI overrides to `/v1/chat/completions`.
     fn endpoint_path(&self) -> &str {
         "/v1/messages"
+    }
+
+    /// Path used to probe the key via a GET models list (OpenAI-compatible
+    /// providers). Defaults to `/v1/models`; Gemini overrides to `/models`
+    /// because its compat base URL already includes the version segment.
+    fn list_models_path(&self) -> &str {
+        "/v1/models"
     }
 
     /// Serialise a canonical [`MessagesRequest`] into the provider's
@@ -666,6 +681,120 @@ fn translate_tools(req: &MessagesRequest<'_>) -> Option<Value> {
 }
 
 // ---------------------------------------------------------------------
+// Groq
+// ---------------------------------------------------------------------
+
+/// Groq Cloud provider. Uses Groq's OpenAI-compatible Chat Completions
+/// endpoint. Delegates stream parsing and request serialisation to the
+/// shared [`OpenAIProvider`] state machine — only the base URL, auth
+/// header, and model defaults differ.
+#[derive(Debug, Default)]
+pub struct GroqProvider {
+    inner: OpenAIProvider,
+}
+
+impl Clone for GroqProvider {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl LlmProvider for GroqProvider {
+    fn id(&self) -> &'static str {
+        GROQ_ID
+    }
+    fn base_url(&self) -> &str {
+        GROQ_DEFAULT_BASE_URL
+    }
+    fn default_model(&self) -> &str {
+        "llama-3.3-70b-versatile"
+    }
+    fn classifier_model(&self) -> &str {
+        "llama-3.1-8b-instant"
+    }
+    fn translate_model(&self, model: &str) -> String {
+        model.to_string()
+    }
+    fn apply_auth(&self, req: reqwest::RequestBuilder, api_key: &str) -> reqwest::RequestBuilder {
+        req.header("authorization", format!("Bearer {api_key}"))
+            .header("content-type", "application/json")
+    }
+    fn endpoint_path(&self) -> &str {
+        "/v1/chat/completions"
+    }
+    fn serialize_request(&self, req: &MessagesRequest<'_>) -> Value {
+        self.inner.serialize_request(req)
+    }
+    fn parse_stream_chunk(&self, raw: &str) -> Result<Vec<StreamEvent>, ProviderError> {
+        self.inner.parse_stream_chunk(raw)
+    }
+    fn label(&self) -> &str {
+        "Groq"
+    }
+}
+
+// ---------------------------------------------------------------------
+// Gemini
+// ---------------------------------------------------------------------
+
+/// Google Gemini provider via the OpenAI-compatible endpoint at
+/// `generativelanguage.googleapis.com/v1beta/openai`. Delegates stream
+/// parsing and request serialisation to the shared [`OpenAIProvider`]
+/// state machine — only the base URL, auth header, and model defaults
+/// differ.
+#[derive(Debug, Default)]
+pub struct GeminiProvider {
+    inner: OpenAIProvider,
+}
+
+impl Clone for GeminiProvider {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl LlmProvider for GeminiProvider {
+    fn id(&self) -> &'static str {
+        GEMINI_ID
+    }
+    fn base_url(&self) -> &str {
+        GEMINI_DEFAULT_BASE_URL
+    }
+    fn default_model(&self) -> &str {
+        "gemini-2.0-flash"
+    }
+    fn classifier_model(&self) -> &str {
+        "gemini-2.0-flash"
+    }
+    fn translate_model(&self, model: &str) -> String {
+        model.to_string()
+    }
+    fn apply_auth(&self, req: reqwest::RequestBuilder, api_key: &str) -> reqwest::RequestBuilder {
+        req.header("authorization", format!("Bearer {api_key}"))
+            .header("content-type", "application/json")
+    }
+    fn endpoint_path(&self) -> &str {
+        "/chat/completions"
+    }
+    fn list_models_path(&self) -> &str {
+        "/models"
+    }
+    fn serialize_request(&self, req: &MessagesRequest<'_>) -> Value {
+        self.inner.serialize_request(req)
+    }
+    fn parse_stream_chunk(&self, raw: &str) -> Result<Vec<StreamEvent>, ProviderError> {
+        self.inner.parse_stream_chunk(raw)
+    }
+    fn label(&self) -> &str {
+        "Google Gemini"
+    }
+}
+
+// ---------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------
 
@@ -675,12 +804,15 @@ pub fn provider_from_id(id: &str) -> Arc<dyn LlmProvider> {
     match id {
         OPENROUTER_ID => Arc::new(OpenRouterProvider),
         OPENAI_ID => Arc::new(OpenAIProvider::default()),
+        GROQ_ID => Arc::new(GroqProvider::default()),
+        GEMINI_ID => Arc::new(GeminiProvider::default()),
         _ => Arc::new(AnthropicProvider),
     }
 }
 
 /// Stable ids for the providers shipped today.
-pub const SUPPORTED_PROVIDER_IDS: &[&str] = &[ANTHROPIC_ID, OPENROUTER_ID, OPENAI_ID];
+pub const SUPPORTED_PROVIDER_IDS: &[&str] =
+    &[ANTHROPIC_ID, OPENROUTER_ID, OPENAI_ID, GROQ_ID, GEMINI_ID];
 
 #[cfg(test)]
 mod tests {
@@ -758,6 +890,38 @@ mod tests {
     #[test]
     fn supported_provider_ids_contains_openai() {
         assert!(SUPPORTED_PROVIDER_IDS.contains(&"openai"));
+    }
+
+    #[test]
+    fn supported_provider_ids_contains_groq_and_gemini() {
+        assert!(SUPPORTED_PROVIDER_IDS.contains(&"groq"));
+        assert!(SUPPORTED_PROVIDER_IDS.contains(&"gemini"));
+    }
+
+    #[test]
+    fn groq_provider_attributes() {
+        let p = GroqProvider::default();
+        assert_eq!(p.id(), "groq");
+        assert_eq!(p.endpoint_path(), "/v1/chat/completions");
+        assert_eq!(p.list_models_path(), "/v1/models");
+        assert!(p.base_url().contains("groq.com"));
+        assert_eq!(p.translate_model("llama-3.3-70b-versatile"), "llama-3.3-70b-versatile");
+    }
+
+    #[test]
+    fn gemini_provider_attributes() {
+        let p = GeminiProvider::default();
+        assert_eq!(p.id(), "gemini");
+        assert_eq!(p.endpoint_path(), "/chat/completions");
+        assert_eq!(p.list_models_path(), "/models");
+        assert!(p.base_url().contains("generativelanguage.googleapis.com"));
+        assert_eq!(p.translate_model("gemini-2.0-flash"), "gemini-2.0-flash");
+    }
+
+    #[test]
+    fn provider_from_id_returns_groq_and_gemini() {
+        assert_eq!(provider_from_id("groq").id(), "groq");
+        assert_eq!(provider_from_id("gemini").id(), "gemini");
     }
 
     #[test]
