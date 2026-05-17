@@ -36,6 +36,7 @@ import { EmptyState } from "./components/EmptyState";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { GraphView } from "./components/GraphView";
 import { Settings } from "./components/Settings";
+import { ShortcutsOverlay } from "./components/ShortcutsOverlay";
 import {
   Timeline,
   type Selection,
@@ -81,6 +82,7 @@ function App() {
   const [graphRefresh, setGraphRefresh] = useState(0);
   const [keyConfigured, setKeyConfigured] = useState<boolean | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
   const [compareMode, setCompareMode] = useState<CompareMode | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
   const timelineRef = useRef<TimelineHandle>(null);
@@ -143,6 +145,11 @@ function App() {
       ) {
         e.preventDefault();
         handleRedo();
+        return;
+      }
+      if (e.key === "?" && !e.ctrlKey && !e.altKey && !e.metaKey && !isTyping) {
+        e.preventDefault();
+        setShowShortcuts(v => !v);
         return;
       }
       const t = timelineRef.current;
@@ -512,6 +519,7 @@ function App() {
           }}
         />
       ) : null}
+      <ShortcutsOverlay open={showShortcuts} onClose={() => setShowShortcuts(false)} />
     </main>
   );
 }
