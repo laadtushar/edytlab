@@ -1,4 +1,7 @@
+"use client";
+
 import { Check, Minus, X } from "lucide-react";
+import { motion } from "framer-motion";
 
 import { FadeIn } from "./fade-in";
 
@@ -12,14 +15,14 @@ interface Row {
 }
 
 const rows: Row[] = [
-  { label: "Learning curve",        daw: "100+ hours",  aiTool: "Minutes",    edytlab: "Minutes"       },
-  { label: "Audio quality",         daw: "yes",         aiTool: "no",         edytlab: "yes"           },
-  { label: "Privacy — local audio", daw: "yes",         aiTool: "no",         edytlab: "yes"           },
-  { label: "Natural language input",daw: "no",          aiTool: "partial",    edytlab: "yes"           },
-  { label: "Session branching",     daw: "no",          aiTool: "no",         edytlab: "yes"           },
-  { label: "BYO LLM key",          daw: "no",          aiTool: "no",         edytlab: "yes"           },
-  { label: "Stem separation",       daw: "partial",     aiTool: "partial",    edytlab: "yes"           },
-  { label: "MCP extensibility",     daw: "no",          aiTool: "no",         edytlab: "yes"           },
+  { label: "Learning curve",         daw: "100+ hours",  aiTool: "Minutes",   edytlab: "Minutes" },
+  { label: "Audio quality",          daw: "yes",         aiTool: "no",        edytlab: "yes"     },
+  { label: "Privacy — local audio",  daw: "yes",         aiTool: "no",        edytlab: "yes"     },
+  { label: "Natural language input",  daw: "no",          aiTool: "partial",   edytlab: "yes"     },
+  { label: "Session branching",       daw: "no",          aiTool: "no",        edytlab: "yes"     },
+  { label: "BYO LLM key",            daw: "no",          aiTool: "no",        edytlab: "yes"     },
+  { label: "Stem separation",         daw: "partial",     aiTool: "partial",   edytlab: "yes"     },
+  { label: "MCP extensibility",       daw: "no",          aiTool: "no",        edytlab: "yes"     },
 ];
 
 function Cell({ value, highlight }: { value: CellValue; highlight?: boolean }) {
@@ -47,6 +50,15 @@ function Cell({ value, highlight }: { value: CellValue; highlight?: boolean }) {
 
   return <div className={`${base} ${hl}`}>{value}</div>;
 }
+
+const rowVariants = {
+  hidden: { opacity: 0, x: -16 },
+  visible: (i: number) => ({
+    opacity: 1,
+    x: 0,
+    transition: { delay: i * 0.06, duration: 0.45, ease: [0.21, 0.47, 0.32, 0.98] },
+  }),
+};
 
 export function Comparison() {
   return (
@@ -86,10 +98,16 @@ export function Comparison() {
                   </th>
                 </tr>
               </thead>
-              <tbody>
+              <motion.tbody
+                initial="hidden"
+                whileInView="visible"
+                viewport={{ once: true, amount: 0.2 }}
+              >
                 {rows.map((row, i) => (
-                  <tr
+                  <motion.tr
                     key={row.label}
+                    custom={i}
+                    variants={rowVariants}
                     className={`border-b border-border/40 last:border-0 ${i % 2 === 0 ? "" : "bg-secondary/10"}`}
                   >
                     <td className="py-1 pl-6 pr-4 text-sm font-medium text-foreground/80">
@@ -104,9 +122,9 @@ export function Comparison() {
                     <td className="text-center">
                       <Cell value={row.edytlab} highlight />
                     </td>
-                  </tr>
+                  </motion.tr>
                 ))}
-              </tbody>
+              </motion.tbody>
             </table>
           </div>
         </FadeIn>

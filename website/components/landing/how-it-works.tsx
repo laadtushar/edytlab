@@ -1,4 +1,7 @@
+"use client";
+
 import { FileAudio, MessagesSquare, FileDown } from "lucide-react";
+import { motion } from "framer-motion";
 
 import { FadeIn } from "./fade-in";
 
@@ -11,7 +14,7 @@ const steps = [
   {
     icon: MessagesSquare,
     title: "2. Talk to the agent",
-    body: "“Mashup A over B, key-match, give me 3 takes on the drop.” The agent plans, shows the plan, and renders branches you can A/B.",
+    body: `“Mashup A over B, key-match, give me 3 takes on the drop.” The agent plans, shows the plan, and renders branches you can A/B.`,
   },
   {
     icon: FileDown,
@@ -19,6 +22,20 @@ const steps = [
     body: "Pick the branch you like. Export to WAV, MP3, FLAC, or OGG with LUFS targeting. The session graph keeps every alternative.",
   },
 ];
+
+const cardVariants = {
+  hidden: { opacity: 0, y: 48, scale: 0.94 },
+  visible: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    transition: {
+      delay: i * 0.14,
+      duration: 0.65,
+      ease: [0.21, 0.47, 0.32, 0.98],
+    },
+  }),
+};
 
 export function HowItWorks() {
   return (
@@ -32,20 +49,47 @@ export function HowItWorks() {
             Three steps. No DAW manual required.
           </h2>
         </FadeIn>
-        <div className="mx-auto grid max-w-5xl gap-5 md:grid-cols-3">
-          {steps.map((s, i) => (
-            <FadeIn key={s.title} delay={i * 0.08}>
-              <div className="relative h-full rounded-xl border border-border/60 bg-card/40 p-6 backdrop-blur">
-                <div className="mb-4 flex size-12 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">
+        <div className="relative mx-auto max-w-5xl">
+          {/* Animated connector line */}
+          <div className="absolute left-0 right-0 top-14 hidden md:block">
+            <motion.div
+              className="mx-auto h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent"
+              initial={{ scaleX: 0, opacity: 0 }}
+              whileInView={{ scaleX: 1, opacity: 1 }}
+              viewport={{ once: true }}
+              transition={{ delay: 0.3, duration: 1, ease: [0.21, 0.47, 0.32, 0.98] }}
+              style={{ originX: 0 }}
+            />
+          </div>
+
+          <motion.div
+            className="grid gap-5 md:grid-cols-3"
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true, amount: 0.2 }}
+          >
+            {steps.map((s, i) => (
+              <motion.div
+                key={s.title}
+                custom={i}
+                variants={cardVariants}
+                whileHover={{ y: -4, transition: { type: "spring", stiffness: 300, damping: 20 } }}
+                className="relative h-full rounded-xl border border-border/60 bg-card/40 p-6 backdrop-blur"
+              >
+                <motion.div
+                  className="mb-4 flex size-12 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20"
+                  whileHover={{ scale: 1.15, rotate: -6 }}
+                  transition={{ type: "spring", stiffness: 400, damping: 15 }}
+                >
                   <s.icon className="size-5" />
-                </div>
+                </motion.div>
                 <h3 className="text-lg font-semibold">{s.title}</h3>
                 <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
                   {s.body}
                 </p>
-              </div>
-            </FadeIn>
-          ))}
+              </motion.div>
+            ))}
+          </motion.div>
         </div>
       </div>
     </section>

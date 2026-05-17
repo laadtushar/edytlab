@@ -1,3 +1,5 @@
+"use client";
+
 import {
   GitBranch,
   KeyRound,
@@ -6,6 +8,7 @@ import {
   Waves,
   Zap,
 } from "lucide-react";
+import { motion } from "framer-motion";
 
 import {
   Card,
@@ -16,6 +19,7 @@ import {
 } from "@/components/ui/card";
 
 import { FadeIn } from "./fade-in";
+import { TiltCard } from "./tilt-card";
 
 const features = [
   {
@@ -50,9 +54,26 @@ const features = [
   },
 ];
 
+const cardVariants = {
+  hidden: { opacity: 0, y: 40, scale: 0.95 },
+  visible: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    transition: {
+      delay: i * 0.08,
+      duration: 0.6,
+      ease: [0.21, 0.47, 0.32, 0.98],
+    },
+  }),
+};
+
 export function FeatureGrid() {
   return (
-    <section id="features" className="border-y border-border/50 bg-secondary/20 py-20 md:py-28">
+    <section
+      id="features"
+      className="border-y border-border/50 bg-secondary/20 py-20 md:py-28"
+    >
       <div className="container">
         <FadeIn className="mx-auto mb-14 max-w-2xl text-center">
           <h2 className="text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
@@ -63,25 +84,36 @@ export function FeatureGrid() {
             shallow AI wrappers.
           </p>
         </FadeIn>
-        <div className="mx-auto grid max-w-6xl gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        <motion.div
+          className="mx-auto grid max-w-6xl gap-5 sm:grid-cols-2 lg:grid-cols-3"
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true, amount: 0.1 }}
+        >
           {features.map((f, i) => (
-            <FadeIn key={f.title} delay={i * 0.05}>
-              <Card className="h-full border-border/60 bg-card/60 backdrop-blur transition-colors hover:border-primary/40 hover:bg-card">
-                <CardHeader>
-                  <div className="mb-3 flex size-11 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">
-                    <f.icon className="size-5" />
-                  </div>
-                  <CardTitle>{f.title}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <CardDescription className="text-[0.95rem] leading-relaxed">
-                    {f.body}
-                  </CardDescription>
-                </CardContent>
-              </Card>
-            </FadeIn>
+            <motion.div key={f.title} custom={i} variants={cardVariants} className="group">
+              <TiltCard className="h-full">
+                <Card className="h-full border-border/60 bg-card/60 backdrop-blur transition-colors hover:border-primary/40 hover:bg-card">
+                  <CardHeader>
+                    <motion.div
+                      className="mb-3 flex size-11 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20"
+                      whileHover={{ scale: 1.18, rotate: 6 }}
+                      transition={{ type: "spring", stiffness: 400, damping: 15 }}
+                    >
+                      <f.icon className="size-5" />
+                    </motion.div>
+                    <CardTitle>{f.title}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <CardDescription className="text-[0.95rem] leading-relaxed">
+                      {f.body}
+                    </CardDescription>
+                  </CardContent>
+                </Card>
+              </TiltCard>
+            </motion.div>
           ))}
-        </div>
+        </motion.div>
       </div>
     </section>
   );
