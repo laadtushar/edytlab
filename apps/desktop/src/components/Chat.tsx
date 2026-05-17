@@ -13,7 +13,7 @@
  * instead of a console trace.
  */
 
-import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 
 import { sendMessage as bridgeSendMessage } from "../lib/tauri-bridge";
 import type { Marker } from "../lib/tauri-bridge";
@@ -28,6 +28,7 @@ import {
 } from "../hooks/useAgentStream";
 
 import { CapabilitiesMenu } from "./CapabilitiesMenu";
+import { COMMANDS } from "./CommandPalette";
 import { MessageBubble } from "./MessageBubble";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 import { ToolBadge } from "./ToolBadge";
@@ -98,9 +99,31 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
   const [localError, setLocalError] = useState<string | null>(null);
   const [editToast, setEditToast] = useState(false);
   const [capsOpen, setCapsOpen] = useState(false);
+  const [slashOpen, setSlashOpen] = useState(false);
+  const [slashIdx, setSlashIdx] = useState(0);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastSentRef = useRef<string>("");
+
+  const slashQuery = slashOpen ? input.slice(1).toLowerCase() : "";
+  const slashFiltered = useMemo(() => {
+    if (!slashOpen) return [];
+    const q = slashQuery.trim();
+    if (!q) return COMMANDS.slice(0, 8);
+    return COMMANDS.filter(
+      (c) =>
+        c.label.toLowerCase().includes(q) ||
+        c.category.toLowerCase().includes(q) ||
+        (c.tags ?? []).some((t) => t.includes(q)),
+    ).slice(0, 8);
+  }, [slashOpen, slashQuery]);
+
+  const selectSlash = useCallback((cmd: (typeof COMMANDS)[0]) => {
+    setInput(cmd.prompt);
+    setSlashOpen(false);
+    setSlashIdx(0);
+    setTimeout(() => textareaRef.current?.focus(), 0);
+  }, []);
 
   useImperativeHandle(ref, () => ({
     fillInput(text: string) {
@@ -450,6 +473,33 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
             </button>
           </div>
         ) : null}
+        {slashOpen && slashFiltered.length > 0 && (
+          <div className="mb-1 overflow-hidden rounded-lg border border-[var(--border-strong)] bg-[var(--surface-elev)] shadow-[0_8px_24px_-4px_rgba(0,0,0,0.6)]">
+            <div className="px-3 py-1.5 border-b border-[var(--border)]">
+              <span className="font-mono text-[9px] uppercase tracking-[0.2em] text-[var(--text-faint)]">Commands</span>
+            </div>
+            {slashFiltered.map((cmd, i) => (
+              <button
+                key={cmd.label}
+                type="button"
+                onMouseDown={(e) => { e.preventDefault(); selectSlash(cmd); }}
+                onMouseEnter={() => setSlashIdx(i)}
+                className={[
+                  "flex w-full items-center gap-3 px-3 py-2 text-left transition",
+                  i === slashIdx
+                    ? "bg-[var(--accent-soft)] text-[var(--text)]"
+                    : "text-[var(--text-dim)] hover:bg-[var(--surface-elev-2)]",
+                ].join(" ")}
+              >
+                <span className="flex-1 min-w-0">
+                  <span className="block text-sm font-medium leading-tight truncate">{cmd.label}</span>
+                  <span className="block text-[10px] leading-snug text-[var(--text-faint)] truncate">{cmd.description}</span>
+                </span>
+                <span className="shrink-0 font-mono text-[9px] uppercase tracking-wider text-[var(--text-faint)]">{cmd.category}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <div
           className="
             relative
@@ -506,12 +556,43 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
           <textarea
             ref={textareaRef}
             aria-label="Message"
-            placeholder="Tell the agent what to edit…"
+            placeholder="Tell the agent what to edit… or type / for commands"
             disabled={busy}
             value={input}
             rows={1}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              const val = e.target.value;
+              setInput(val);
+              if (val.startsWith("/")) {
+                setSlashOpen(true);
+                setSlashIdx(0);
+              } else {
+                setSlashOpen(false);
+              }
+            }}
             onKeyDown={(e) => {
+              if (slashOpen) {
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setSlashIdx((i) => Math.min(i + 1, slashFiltered.length - 1));
+                  return;
+                }
+                if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setSlashIdx((i) => Math.max(i - 1, 0));
+                  return;
+                }
+                if (e.key === "Enter" && slashFiltered[slashIdx]) {
+                  e.preventDefault();
+                  selectSlash(slashFiltered[slashIdx]);
+                  return;
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setSlashOpen(false);
+                  return;
+                }
+              }
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 void submit();
@@ -561,7 +642,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
           </button>
         </div>
         <p className="mt-1.5 px-1 text-[10px] font-mono uppercase tracking-[0.18em] text-[var(--text-faint)]">
-          enter to send · shift+enter for newline · ctrl+k for all tools
+          enter to send · shift+enter for newline · / for commands · ctrl+k for all tools
         </p>
       </form>
     </div>

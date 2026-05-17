@@ -17,7 +17,7 @@ export interface CommandPaletteProps {
   onSelect: (prompt: string) => void;
 }
 
-interface Command {
+export interface Command {
   category: string;
   label: string;
   prompt: string;
@@ -25,7 +25,7 @@ interface Command {
   tags?: string[];
 }
 
-const COMMANDS: Command[] = [
+export const COMMANDS: Command[] = [
   // Volume
   { category: "Volume", label: "Make louder", prompt: "make this 6 dB louder", description: "Boost track gain by +6 dB", tags: ["gain", "amplify", "louder"] },
   { category: "Volume", label: "Make quieter", prompt: "make this 6 dB quieter", description: "Reduce track gain by -6 dB", tags: ["gain", "quiet", "lower"] },
