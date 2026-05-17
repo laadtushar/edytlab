@@ -72,6 +72,8 @@ export interface TimelineProps {
   onAddMarker?: (timeSec: number) => void;
   onRemoveMarker?: (id: string) => void;
   onSeekToMarker?: (timeSec: number) => void;
+  zoom?: number;
+  onZoomChange?: (zoom: number) => void;
 }
 
 // -----------------------------------------------------------------------------
@@ -93,6 +95,8 @@ interface LaneProps {
   onSelectionChange?: (sel: Selection | null) => void;
   /** Called when the wavesurfer reports the audio duration. */
   onDurationChange?: (d: number) => void;
+  /** Pixels per second zoom level. 0 = auto-fit. */
+  zoom?: number;
 }
 
 function TrackLane({
@@ -106,6 +110,7 @@ function TrackLane({
   selection,
   onSelectionChange,
   onDurationChange,
+  zoom,
 }: LaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const waveformWrapperRef = useRef<HTMLDivElement>(null);
@@ -168,6 +173,11 @@ function TrackLane({
   useEffect(() => {
     wsRef.current?.setVolume(muted ? 0 : 1);
   }, [muted]);
+
+  useEffect(() => {
+    if (!wsRef.current) return;
+    wsRef.current.zoom(zoom ?? 0);
+  }, [zoom]);
 
   const handleDrop = useCallback(
     async (e: React.DragEvent<HTMLDivElement>) => {
@@ -339,6 +349,7 @@ function TrackLane({
         style={{
           flex: 1,
           position: "relative",
+          overflowX: "auto",
           background: isDragging
             ? "var(--accent-soft)"
             : "var(--surface-elev)",
@@ -438,6 +449,8 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
     onAddMarker,
     onRemoveMarker,
     onSeekToMarker,
+    zoom,
+    onZoomChange,
   },
   ref,
 ) {
@@ -469,6 +482,16 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
       prev.map((t, i) => (i === idx ? { ...t, muted: !t.muted } : t)),
     );
   };
+
+  const handleWheel = useCallback(
+    (e: React.WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -20 : 20;
+      onZoomChange?.(Math.max(0, (zoom ?? 0) + delta));
+    },
+    [zoom, onZoomChange],
+  );
 
   useImperativeHandle(
     ref,
@@ -505,6 +528,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
     <div
       data-testid="timeline-root"
       className="app-fade-in"
+      onWheel={handleWheel}
       style={{
         display: "flex",
         flexDirection: "column",
@@ -573,6 +597,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
             selection={idx === 0 ? selection : null}
             onSelectionChange={idx === 0 ? onSelectionChange : undefined}
             onDurationChange={idx === 0 ? setTimelineDuration : undefined}
+            zoom={zoom}
           />
         ))}
         {markers && markers.length > 0 && timelineDuration > 0 && (

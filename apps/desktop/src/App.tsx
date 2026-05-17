@@ -82,6 +82,7 @@ function App() {
   const [markers, setMarkers] = useState<Marker[]>([]);
   const [tracks, setTracks] = useState<TrackSummary[]>([]);
   const selectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [zoomPxPerSec, setZoomPxPerSec] = useState(0);
 
   // Window-level keyboard transport. Active whenever the user isn't
   // typing into a chat input / settings field. Space toggles
@@ -113,6 +114,15 @@ function App() {
       } else if (e.key === "Escape" && !isTyping && selection) {
         e.preventDefault();
         setSelection(null);
+      } else if ((e.key === "+" || e.key === "=") && !isTyping) {
+        e.preventDefault();
+        setZoomPxPerSec((z) => Math.min(z + 40, 2000));
+      } else if (e.key === "-" && !isTyping) {
+        e.preventDefault();
+        setZoomPxPerSec((z) => Math.max(z - 40, 0));
+      } else if (e.key === "0" && !isTyping) {
+        e.preventDefault();
+        setZoomPxPerSec(0);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -363,6 +373,8 @@ function App() {
                   onAddMarker={handleAddMarker}
                   onRemoveMarker={handleRemoveMarker}
                   onSeekToMarker={handleSeekToMarker}
+                  zoom={zoomPxPerSec}
+                  onZoomChange={setZoomPxPerSec}
                 />
               ) : (
                 <EmptyState onOpen={handleOpenDialog} />
