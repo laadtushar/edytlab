@@ -25,4 +25,13 @@ describe("undo/redo logic", () => {
     const afterRedo = applyRedo(afterUndo.redoStack)!;
     expect(afterRedo.head).toBe("node-b");
   });
+
+  it("redo stack cleared after new node resets all forward history", () => {
+    // After undo, redoStack has one entry
+    const afterUndo = applyUndo("node-b", "node-a", [])!;
+    expect(afterUndo.redoStack).toHaveLength(1);
+    // When onNodeCreated fires, App.tsx calls setRedoStack([])
+    // Verify that after that reset, applyRedo finds nothing
+    expect(applyRedo([])).toBeNull();
+  });
 });

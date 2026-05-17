@@ -110,6 +110,7 @@ function App() {
   }, [head, redoStack, setHeadLocal]);
 
   const handleRedo = useCallback(async () => {
+    if (!head) return;
     try {
       const result = applyRedo(redoStack);
       if (!result) return;
@@ -121,7 +122,7 @@ function App() {
     } catch (err) {
       setRenderError(String(err));
     }
-  }, [redoStack, setHeadLocal]);
+  }, [head, redoStack, setHeadLocal]);
 
   // Window-level keyboard transport. Active whenever the user isn't
   // typing into a chat input / settings field. Space toggles
@@ -169,7 +170,7 @@ function App() {
       } else if (e.key === "ArrowRight" && !isTyping) {
         e.preventDefault();
         t.seekBy(e.shiftKey ? 1 : 5);
-      } else if (e.key === "Escape" && !isTyping && selection) {
+      } else if (e.key === "Escape" && !isTyping && selection && !showShortcuts) {
         e.preventDefault();
         setSelection(null);
       } else if ((e.key === "+" || e.key === "=") && !isTyping) {
@@ -325,6 +326,7 @@ function App() {
   const handleExportSelection = useCallback(async () => {
     if (!head || !selection || exporting) return;
     setExporting(true);
+    setRenderError(null);
     try {
       const outPath = await save({
         title: "Export Selection",

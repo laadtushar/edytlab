@@ -285,8 +285,8 @@ export async function renderRange(
   startSec: number,
   endSec: number,
   outPath: string,
-): Promise<Record<string, unknown>> {
-  return invoke("render_range", {
+): Promise<void> {
+  await invoke("render_range", {
     nodeId,
     startSec,
     endSec,

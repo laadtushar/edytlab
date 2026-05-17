@@ -58,6 +58,7 @@ export function ShortcutsOverlay({ open, onClose }: ShortcutsOverlayProps) {
             Keyboard Shortcuts
           </h2>
           <button
+            type="button"
             onClick={onClose}
             className="text-neutral-500 hover:text-neutral-300 text-lg leading-none"
             aria-label="Close"
