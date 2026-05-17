@@ -29,7 +29,7 @@ const word = {
 
 export function Hero() {
   return (
-    <section className="relative overflow-hidden pb-24 pt-32 md:pb-32 md:pt-40">
+    <section className="relative pb-24 pt-32 md:pb-32 md:pt-40">
       <WaveformBackground />
       <div className="container relative">
         <div className="mx-auto max-w-4xl text-center" style={{ perspective: "1200px" }}>

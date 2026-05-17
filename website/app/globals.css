@@ -69,6 +69,7 @@
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
+    padding: 0 0.08em 0.05em;
   }
   .glow {
     box-shadow:
