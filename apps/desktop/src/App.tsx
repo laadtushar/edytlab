@@ -48,6 +48,7 @@ import {
 import { useSession } from "./hooks/useSession";
 import {
   hasApiKey,
+  installBundledSkills,
   onNodeCreated,
   renderPreview as bridgeRenderPreview,
 } from "./lib/tauri-bridge";
@@ -219,6 +220,14 @@ function App() {
       .catch(() => {
         if (!cancelled) setKeyConfigured(false);
       });
+
+    // Install the 8 bundled skill files to ~/.edytlab/skills/ on first
+    // launch. Fire-and-forget — non-fatal if the resource dir is absent
+    // (dev mode) or skills already exist.
+    installBundledSkills().catch(() => {
+      // Non-fatal: bundled skills may not be available in dev mode
+    });
+
     return () => {
       cancelled = true;
     };

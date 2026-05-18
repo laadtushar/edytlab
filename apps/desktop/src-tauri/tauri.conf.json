@@ -31,7 +31,8 @@
     "active": true,
     "targets": ["app", "dmg", "msi", "nsis", "deb", "appimage"],
     "resources": {
-      "resources/templates/*": "templates/"
+      "resources/templates/*": "templates/",
+      "resources/skills/*": "bundled-skills/"
     },
     "icon": [
       "icons/32x32.png",

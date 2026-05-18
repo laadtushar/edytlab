@@ -2294,6 +2294,74 @@ pub fn stop_recording(
 }
 
 // ---------------------------------------------------------------------------
+// install_bundled_skills (Task 2)
+// ---------------------------------------------------------------------------
+
+/// Copy the skills bundled inside the Tauri resource dir into
+/// `~/.edytlab/skills/` on the very first launch.
+///
+/// The command is idempotent: if the target directory already contains
+/// any `.md` file it exits immediately and returns `Ok(0)`, so user
+/// edits or manually added skills are never overwritten.
+///
+/// Returns the number of files copied (0 when the skills dir already
+/// exists, or when running in dev mode where the `bundled-skills/`
+/// resource subdir is absent).
+#[tauri::command]
+pub fn install_bundled_skills(app: tauri::AppHandle) -> CmdResult<usize> {
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|e| e.to_string())?;
+    let bundled_dir = resource_dir.join("bundled-skills");
+
+    let skills_dir = match app.path().home_dir() {
+        Ok(home) => home.join(".edytlab").join("skills"),
+        Err(_) => app
+            .path()
+            .app_data_dir()
+            .map_err(|e| e.to_string())?
+            .join(".edytlab")
+            .join("skills"),
+    };
+
+    // If skills dir already has .md files, don't overwrite user customisations.
+    if skills_dir.exists() {
+        let has_skills = std::fs::read_dir(&skills_dir)
+            .map_err(|e| e.to_string())?
+            .filter_map(|e| e.ok())
+            .any(|e| {
+                e.path()
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    == Some("md")
+            });
+        if has_skills {
+            return Ok(0);
+        }
+    }
+
+    std::fs::create_dir_all(&skills_dir).map_err(|e| e.to_string())?;
+
+    if !bundled_dir.exists() {
+        return Ok(0); // dev mode: bundled-skills/ not yet present
+    }
+
+    let mut count = 0usize;
+    for entry in std::fs::read_dir(&bundled_dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let src = entry.path();
+        if src.extension().and_then(|s| s.to_str()) != Some("md") {
+            continue;
+        }
+        let dst = skills_dir.join(entry.file_name());
+        std::fs::copy(&src, &dst).map_err(|e| e.to_string())?;
+        count += 1;
+    }
+    Ok(count)
+}
+
+// ---------------------------------------------------------------------------
 // Helpers re-exported for tests.
 // ---------------------------------------------------------------------------
 

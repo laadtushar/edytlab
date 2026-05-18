@@ -471,3 +471,16 @@ export const startRecording = (): Promise<string> =>
 
 export const stopRecording = (outputPath: string): Promise<RecordingResult> =>
   invoke<RecordingResult>("stop_recording", { outputPath });
+
+// -----------------------------------------------------------------------------
+// Bundled skills install (Task 2)
+// -----------------------------------------------------------------------------
+
+/** Copy the 8 pre-installed skill .md files from the Tauri resource bundle
+ *  into ~/.edytlab/skills/ on first launch.  Returns the number of files
+ *  copied, or 0 if the skills directory already contains .md files (so user
+ *  customisations are never overwritten) or if running in dev mode without
+ *  the bundled-skills resource dir.  Always safe to call; non-fatal. */
+export async function installBundledSkills(): Promise<number> {
+  return invoke<number>("install_bundled_skills");
+}
