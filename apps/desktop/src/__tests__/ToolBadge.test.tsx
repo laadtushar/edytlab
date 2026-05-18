@@ -8,19 +8,20 @@ import { render, screen } from "@testing-library/react";
 import { ToolBadge } from "../components/ToolBadge";
 
 describe("ToolBadge", () => {
-  it("renders running state with name and ellipsis", () => {
+  it("renders running state with friendly name and ellipsis", () => {
     render(<ToolBadge name="normalize" status="running" />);
     const badge = screen.getByTestId("tool-badge");
     expect(badge).toHaveAttribute("data-status", "running");
-    expect(badge.textContent).toContain("running normalize");
+    // ToolBadge maps "normalize" → "Normalize" and appends "…"
+    expect(badge.textContent).toContain("Normalize");
   });
 
-  it("renders ok state with check glyph", () => {
+  it("renders ok state with check glyph and friendly name", () => {
     render(<ToolBadge name="normalize" status="ok" />);
     const badge = screen.getByTestId("tool-badge");
     expect(badge).toHaveAttribute("data-status", "ok");
     expect(badge.textContent).toContain("✓");
-    expect(badge.textContent).toContain("normalize");
+    expect(badge.textContent).toContain("Normalize");
   });
 
   it("prefers explicit result text over the tool name on completion", () => {
