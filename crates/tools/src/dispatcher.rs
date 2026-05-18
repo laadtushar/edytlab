@@ -87,8 +87,9 @@ impl ToolDispatcher {
             CompressorTool, CopyRegionTool, CutRangeTool, EqTool, FadeTool, ForkNodeTool, GainTool,
             InsertSilenceTool, LabelTool, LoadTool, NameNodeTool, NoiseReductionTool,
             NormalizeTool, PasteRegionTool, PitchShiftTool, RemoveTrackTool, RenderFinalTool,
-            RenderPreviewTool, ReverseTool, RevertToTool, SeparateStemsTool, SetClipEnvelopeTool,
-            SetTrackGainTool, SilenceRegionTool, TimeStretchTool, TranscribeTool, TrimTool,
+            RenderPreviewTool, RenameTrackTool, ReverseTool, RevertToTool, SeparateStemsTool,
+            SetClipEnvelopeTool, SetPanTool, SetTrackGainTool, SilenceRegionTool,
+            TimeStretchTool, TranscribeTool, TrimTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -129,6 +130,9 @@ impl ToolDispatcher {
         d.register(Box::new(SetClipEnvelopeTool));
         // A1: silence region.
         d.register(Box::new(SilenceRegionTool));
+        // A1 task 2: metadata mutation.
+        d.register(Box::new(SetPanTool));
+        d.register(Box::new(RenameTrackTool));
         d
     }
 
