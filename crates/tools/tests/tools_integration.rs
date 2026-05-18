@@ -690,11 +690,13 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "analyze_track",
             "apply_diff",
             "change_speed",
+            "click_removal",
             "compare_nodes",
             "compressor",
             "copy_region",
             "cut_range",
             "duplicate_track",
+            "echo",
             "eq",
             "fade",
             "fork_node",
@@ -707,6 +709,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "low_pass_filter",
             "mute_track",
             "name_node",
+            "noise_gate",
             "noise_reduction",
             "normalize",
             "notch_filter",
@@ -717,6 +720,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "render_final",
             "render_preview",
             "repeat_selection",
+            "reverb",
             "reverse",
             "revert_to",
             "separate_stems",
@@ -730,6 +734,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "time_stretch",
             "transcribe",
             "trim",
+            "truncate_silence",
         ]
     );
 }

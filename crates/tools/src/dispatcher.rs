@@ -84,15 +84,15 @@ impl ToolDispatcher {
     pub fn default_dispatcher() -> Self {
         use crate::tool::{
             AddTrackTool, AlignToBeatTool, AnalyzeTrackTool, ApplyDiffTool, ChangeSpeedTool,
-            CompareNodesTool, CompressorTool, CopyRegionTool, CutRangeTool, DuplicateTrackTool,
-            EqTool, FadeTool, ForkNodeTool, GainTool, HighPassFilterTool, InsertSilenceTool,
-            InvertTool, LabelTool, LoadTool, LowPassFilterTool, MuteTrackTool, NameNodeTool,
-            NoiseGateTool, NoiseReductionTool, NormalizeTool, NotchFilterTool, PasteRegionTool,
-            PitchShiftTool, RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
-            RepeatSelectionTool, ReverbTool, ReverseTool, RevertToTool, SeparateStemsTool,
-            SetClipEnvelopeTool, SetPanTool, SetTrackGainTool, SilenceRegionTool, SoloTrackTool,
-            SplitClipTool, TimeShiftTool, TimeStretchTool, TranscribeTool, TrimTool,
-            TruncateSilenceTool,
+            ClickRemovalTool, CompareNodesTool, CompressorTool, CopyRegionTool, CutRangeTool,
+            DuplicateTrackTool, EchoTool, EqTool, FadeTool, ForkNodeTool, GainTool,
+            HighPassFilterTool, InsertSilenceTool, InvertTool, LabelTool, LoadTool,
+            LowPassFilterTool, MuteTrackTool, NameNodeTool, NoiseGateTool, NoiseReductionTool,
+            NormalizeTool, NotchFilterTool, PasteRegionTool, PitchShiftTool, RemoveTrackTool,
+            RenameTrackTool, RenderFinalTool, RenderPreviewTool, RepeatSelectionTool, ReverbTool,
+            ReverseTool, RevertToTool, SeparateStemsTool, SetClipEnvelopeTool, SetPanTool,
+            SetTrackGainTool, SilenceRegionTool, SoloTrackTool, SplitClipTool, TimeShiftTool,
+            TimeStretchTool, TranscribeTool, TrimTool, TruncateSilenceTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -124,6 +124,8 @@ impl ToolDispatcher {
         d.register(Box::new(ReverseTool));
         d.register(Box::new(ReverbTool));
         d.register(Box::new(InsertSilenceTool));
+        d.register(Box::new(ClickRemovalTool));
+        d.register(Box::new(EchoTool));
         // D4-D6: copy/paste + labels.
         d.register(Box::new(CopyRegionTool));
         d.register(Box::new(PasteRegionTool));
