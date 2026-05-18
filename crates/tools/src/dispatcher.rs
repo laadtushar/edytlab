@@ -88,7 +88,7 @@ impl ToolDispatcher {
             InsertSilenceTool, LabelTool, LoadTool, NameNodeTool, NoiseReductionTool,
             NormalizeTool, PasteRegionTool, PitchShiftTool, RemoveTrackTool, RenderFinalTool,
             RenderPreviewTool, ReverseTool, RevertToTool, SeparateStemsTool, SetClipEnvelopeTool,
-            SetTrackGainTool, TimeStretchTool, TranscribeTool, TrimTool,
+            SetTrackGainTool, SilenceRegionTool, TimeStretchTool, TranscribeTool, TrimTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -127,6 +127,8 @@ impl ToolDispatcher {
         d.register(Box::new(NoiseReductionTool));
         // Task 6: per-clip volume envelope.
         d.register(Box::new(SetClipEnvelopeTool));
+        // A1: silence region.
+        d.register(Box::new(SilenceRegionTool));
         d
     }
 

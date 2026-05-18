@@ -713,6 +713,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "separate_stems",
             "set_clip_envelope",
             "set_track_gain",
+            "silence_region",
             "time_stretch",
             "transcribe",
             "trim",
