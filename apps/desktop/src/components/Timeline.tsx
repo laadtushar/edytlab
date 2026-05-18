@@ -64,7 +64,9 @@ export interface TimelineHandle {
 
 export interface TimelineProps {
   tracks?: TrackDescriptor[];
-  audioPath: string | null;
+  audioPath?: string | null;
+  /** Alias for audioPath — accepted for backwards compat with tests. */
+  src?: string | null;
   onFileDropped?: (path: string) => void;
   selection?: Selection | null;
   onSelectionChange?: (sel: Selection | null) => void;
@@ -76,6 +78,8 @@ export interface TimelineProps {
   onZoomChange?: (zoom: number) => void;
   loop?: boolean;
   onLoopChange?: (loop: boolean) => void;
+  spectrogramEnabled?: boolean;
+  onSpectrogramChange?: (enabled: boolean) => void;
 }
 
 // -----------------------------------------------------------------------------
@@ -459,7 +463,8 @@ function clamp(n: number, lo: number, hi: number): number {
 export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timeline(
   {
     tracks,
-    audioPath,
+    audioPath: audioPathProp,
+    src,
     onFileDropped,
     selection,
     onSelectionChange,
@@ -471,9 +476,12 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
     onZoomChange,
     loop,
     onLoopChange,
+    spectrogramEnabled,
+    onSpectrogramChange,
   },
   ref,
 ) {
+  const audioPath = audioPathProp ?? src ?? null;
   const headWsRef = useRef<WaveSurfer | null>(null);
   const [timelineDuration, setTimelineDuration] = useState(0);
 
@@ -618,6 +626,19 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
             title="Toggle loop (L)"
           >
             ↺
+          </button>
+          <button
+            type="button"
+            data-testid="spectrogram-btn"
+            onClick={() => onSpectrogramChange?.(!spectrogramEnabled)}
+            className={`text-xs px-2 py-1 rounded border transition-colors ${
+              spectrogramEnabled
+                ? "border-amber-400 text-amber-400 bg-amber-400/10"
+                : "border-neutral-600 text-neutral-400 hover:border-neutral-400"
+            }`}
+            title="Toggle spectrogram"
+          >
+            Spec
           </button>
           <span
             style={{

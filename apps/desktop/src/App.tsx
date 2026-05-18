@@ -105,6 +105,7 @@ function App() {
   const chatRef = useRef<ChatHandle>(null);
   const [exporting, setExporting] = useState(false);
   const [loopActive, setLoopActive] = useState(false);
+  const [spectrogramEnabled, setSpectrogramEnabled] = useState(false);
   const [templates, setTemplates] = useState<TemplateInfo[]>([]);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
 
@@ -507,6 +508,8 @@ function App() {
                   onZoomChange={setZoomPxPerSec}
                   loop={loopActive}
                   onLoopChange={setLoopActive}
+                  spectrogramEnabled={spectrogramEnabled}
+                  onSpectrogramChange={setSpectrogramEnabled}
                 />
               ) : (
                 <EmptyState onOpen={handleOpenDialog} onShowTemplates={() => setShowTemplatePicker(true)} />
