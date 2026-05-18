@@ -62,7 +62,7 @@ impl AllpassFilter {
 }
 
 pub(crate) fn apply_reverb(
-    samples: &mut Vec<f32>,
+    samples: &mut [f32],
     sr: u32,
     channels: usize,
     room_size: f32,
@@ -124,8 +124,6 @@ struct Args {
     room_size: Option<f32>,
     damping: Option<f32>,
     wet: Option<f32>,
-    start_sec: Option<f64>,
-    end_sec: Option<f64>,
 }
 
 pub struct ReverbTool;

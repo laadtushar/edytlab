@@ -57,9 +57,7 @@ pub(crate) fn apply_truncate_silence(
     let n_frames = samples.len() / channels;
     let mut keep = vec![true; n_frames];
     for (s, e) in regions {
-        for f in s..e {
-            keep[f] = false;
-        }
+        keep[s..e].fill(false);
     }
     let mut out = Vec::with_capacity(samples.len());
     for (frame, &kept) in keep.iter().enumerate() {

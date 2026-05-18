@@ -30,8 +30,6 @@ struct Args {
     track: usize,
     delay_ms: f32,
     decay: Option<f32>,
-    start_sec: Option<f64>,
-    end_sec: Option<f64>,
 }
 
 pub struct EchoTool;

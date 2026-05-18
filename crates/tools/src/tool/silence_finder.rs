@@ -126,12 +126,8 @@ mod tests {
     #[test]
     fn finds_two_gaps() {
         let mut samples = vec![0.0f32; 100];
-        for i in 0..20 {
-            samples[i] = 0.5;
-        }
-        for i in 50..70 {
-            samples[i] = 0.5;
-        }
+        samples[0..20].fill(0.5);
+        samples[50..70].fill(0.5);
         let regions = find_silence_regions_sec(&samples, 100, 1, -40.0, 100.0);
         assert_eq!(regions.len(), 2);
         assert!((regions[0].0 - 0.2).abs() < 0.02);

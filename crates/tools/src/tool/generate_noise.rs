@@ -13,6 +13,7 @@ fn lcg_next(state: &mut u64) -> f32 {
     (*state >> 33) as f32 / (u32::MAX as f32 / 2.0) - 1.0
 }
 
+#[allow(clippy::excessive_precision)]
 pub(crate) fn generate_noise_samples(
     sr: u32,
     duration_sec: f32,
@@ -127,7 +128,7 @@ impl Tool for GenerateNoiseTool {
         let track_idx = state.tracks.len();
         state.tracks.push(Track {
             id: TrackId::new(),
-            name: format!("{} noise", noise),
+            name: format!("{noise} noise"),
             clips: vec![Clip {
                 source_path: path,
                 start_in_track: 0,

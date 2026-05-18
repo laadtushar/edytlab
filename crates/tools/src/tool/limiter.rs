@@ -110,9 +110,7 @@ mod tests {
         for s in &samples {
             assert!(
                 s.abs() <= ceiling + 1e-5,
-                "sample {} exceeds ceiling {}",
-                s,
-                ceiling
+                "sample {s} exceeds ceiling {ceiling}"
             );
         }
     }
