@@ -87,13 +87,13 @@ impl ToolDispatcher {
             ClickRemovalTool, CompareNodesTool, CompressorTool, CopyRegionTool, CutRangeTool,
             DuplicateTrackTool, EchoTool, EqTool, FadeTool, ForkNodeTool, GainTool,
             HighPassFilterTool, InsertSilenceTool, InvertTool, LabelTool, LevelerTool, LimiterTool,
-            LoadTool, LowPassFilterTool, MuteTrackTool, NameNodeTool, NoiseGateTool,
-            NoiseReductionTool, NormalizeTool, NotchFilterTool, PasteRegionTool, PitchShiftTool,
-            RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
+            LoadTool, LowPassFilterTool, MonoToStereoTool, MuteTrackTool, NameNodeTool,
+            NoiseGateTool, NoiseReductionTool, NormalizeTool, NotchFilterTool, PasteRegionTool,
+            PitchShiftTool, RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
             RepeatSelectionTool, ReverbTool, ReverseTool, RevertToTool, SeparateStemsTool,
             SetClipEnvelopeTool, SetPanTool, SetTrackGainTool, SilenceRegionTool, SoloTrackTool,
-            SplitClipTool, TimeShiftTool, TimeStretchTool, TranscribeTool, TrimTool,
-            TruncateSilenceTool,
+            SplitClipTool, StereoToMonoTool, TimeShiftTool, TimeStretchTool, TranscribeTool,
+            TrimTool, TruncateSilenceTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -163,6 +163,9 @@ impl ToolDispatcher {
         d.register(Box::new(NotchFilterTool));
         // truncate_silence.
         d.register(Box::new(TruncateSilenceTool));
+        // Channel conversion: stereo_to_mono, mono_to_stereo.
+        d.register(Box::new(MonoToStereoTool));
+        d.register(Box::new(StereoToMonoTool));
         d
     }
 
