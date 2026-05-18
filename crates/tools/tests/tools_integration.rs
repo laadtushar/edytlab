@@ -721,6 +721,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "notch_filter",
             "paste_region",
             "pitch_shift",
+            "plot_spectrum",
             "remove_track",
             "rename_track",
             "render_final",

@@ -89,12 +89,12 @@ impl ToolDispatcher {
             GenerateNoiseTool, GenerateToneTool, HighPassFilterTool, InsertSilenceTool, InvertTool,
             LabelTool, LevelerTool, LimiterTool, LoadTool, LowPassFilterTool, MonoToStereoTool,
             MuteTrackTool, NameNodeTool, NoiseGateTool, NoiseReductionTool, NormalizeTool,
-            NotchFilterTool, PasteRegionTool, PitchShiftTool, RemoveTrackTool, RenameTrackTool,
-            RenderFinalTool, RenderPreviewTool, RepeatSelectionTool, ReverbTool, ReverseTool,
-            RevertToTool, SeparateStemsTool, SetClipEnvelopeTool, SetPanTool, SetTrackGainTool,
-            SilenceFinderTool, SilenceRegionTool, SoloTrackTool, SplitClipTool, StereoToMonoTool,
-            TimeShiftTool, TimeStretchTool, TranscribeTool, TrimTool, TruncateSilenceTool,
-            VocalReductionTool,
+            NotchFilterTool, PasteRegionTool, PitchShiftTool, PlotSpectrumTool, RemoveTrackTool,
+            RenameTrackTool, RenderFinalTool, RenderPreviewTool, RepeatSelectionTool, ReverbTool,
+            ReverseTool, RevertToTool, SeparateStemsTool, SetClipEnvelopeTool, SetPanTool,
+            SetTrackGainTool, SilenceFinderTool, SilenceRegionTool, SoloTrackTool, SplitClipTool,
+            StereoToMonoTool, TimeShiftTool, TimeStretchTool, TranscribeTool, TrimTool,
+            TruncateSilenceTool, VocalReductionTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -175,6 +175,8 @@ impl ToolDispatcher {
         d.register(Box::new(GenerateNoiseTool));
         // vocal_reduction: L-R center cancellation for stereo.
         d.register(Box::new(VocalReductionTool));
+        // A3 task 2: FFT magnitude spectrum analysis.
+        d.register(Box::new(PlotSpectrumTool));
         d
     }
 

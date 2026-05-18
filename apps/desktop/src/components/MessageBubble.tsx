@@ -14,6 +14,18 @@
  */
 
 import type { ChatRole, Chip, ChipIcon } from "../hooks/useAgentStream";
+import { SpectrumChart } from "./SpectrumChart";
+
+interface SpectrumPoint {
+  hz: number;
+  db: number;
+}
+
+interface SpectrumToolResult {
+  type: "spectrum";
+  points: SpectrumPoint[];
+  summary?: string;
+}
 
 export interface MessageBubbleProps {
   role: ChatRole;
@@ -23,6 +35,8 @@ export interface MessageBubbleProps {
   chips?: Chip[];
   /** Click handler for a chip. Receives the chip's `prompt`. */
   onChipClick?: (prompt: string) => void;
+  /** Optional structured tool result to render inline (e.g. spectrum chart). */
+  toolResult?: SpectrumToolResult;
 }
 
 export function MessageBubble({
@@ -31,6 +45,7 @@ export function MessageBubble({
   pending,
   chips,
   onChipClick,
+  toolResult,
 }: MessageBubbleProps) {
   const isUser = role === "user";
   const showChips =
@@ -60,6 +75,14 @@ export function MessageBubble({
           >
             ▍
           </span>
+        ) : null}
+        {toolResult?.type === "spectrum" && Array.isArray(toolResult.points) ? (
+          <div className="mt-2">
+            <SpectrumChart points={toolResult.points} width={380} height={160} />
+            {toolResult.summary ? (
+              <p className="text-xs text-neutral-500 mt-1">{toolResult.summary}</p>
+            ) : null}
+          </div>
         ) : null}
       </div>
       {showChips ? (
