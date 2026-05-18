@@ -2375,7 +2375,9 @@ fn edytlab_agents_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, Stri
     Ok(home.join(".edytlab").join("agents"))
 }
 
-fn download_github_plugin(repo: &str) -> Result<std::path::PathBuf, String> {
+fn download_github_plugin(
+    repo: &str,
+) -> Result<(std::path::PathBuf, Option<std::path::PathBuf>), String> {
     let url = format!("https://github.com/{repo}/archive/refs/heads/main.zip");
     let response = reqwest::blocking::get(&url)
         .map_err(|e| format!("fetch {url}: {e}"))?;
@@ -2384,8 +2386,13 @@ fn download_github_plugin(repo: &str) -> Result<std::path::PathBuf, String> {
     }
     let bytes = response.bytes().map_err(|e| e.to_string())?;
 
+    // Fix 3: timestamp + PID to avoid collisions across concurrent installs.
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
     let tmp_dir = std::env::temp_dir()
-        .join(format!("edytlab-plugin-{}", std::process::id()));
+        .join(format!("edytlab-plugin-{}-{}", std::process::id(), ts));
     std::fs::create_dir_all(&tmp_dir).map_err(|e| e.to_string())?;
 
     let zip_path = tmp_dir.join("plugin.zip");
@@ -2396,7 +2403,31 @@ fn download_github_plugin(repo: &str) -> Result<std::path::PathBuf, String> {
 
     let zip_file = std::fs::File::open(&zip_path).map_err(|e| e.to_string())?;
     let mut archive = zip::ZipArchive::new(zip_file).map_err(|e| e.to_string())?;
-    archive.extract(&extract_dir).map_err(|e| e.to_string())?;
+
+    // Fix 2: safe zip extraction — reject any entry whose path escapes the
+    // target directory (zip-slip attack).
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
+        let outpath = match file.enclosed_name() {
+            Some(p) => extract_dir.join(p),
+            None => {
+                return Err(format!(
+                    "zip entry '{}' has unsafe path",
+                    file.name()
+                ))
+            }
+        };
+        if file.is_dir() {
+            std::fs::create_dir_all(&outpath).map_err(|e| e.to_string())?;
+        } else {
+            if let Some(parent) = outpath.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            let mut outfile =
+                std::fs::File::create(&outpath).map_err(|e| e.to_string())?;
+            std::io::copy(&mut file, &mut outfile).map_err(|e| e.to_string())?;
+        }
+    }
 
     // GitHub zip extracts to a single top-level dir: <repo-name>-main/
     let plugin_dir = std::fs::read_dir(&extract_dir)
@@ -2406,7 +2437,7 @@ fn download_github_plugin(repo: &str) -> Result<std::path::PathBuf, String> {
         .map(|e| e.path())
         .ok_or_else(|| "extracted zip has no top-level directory".to_string())?;
 
-    Ok(plugin_dir)
+    Ok((plugin_dir, Some(tmp_dir)))
 }
 
 /// Install a plugin from a GitHub repo (`github:org/repo`) or a local
@@ -2422,11 +2453,22 @@ fn download_github_plugin(repo: &str) -> Result<std::path::PathBuf, String> {
 /// is responsible for wiring those into `~/.edytlab/mcp.json` if desired).
 #[tauri::command]
 pub fn install_plugin(source: String, app: tauri::AppHandle) -> CmdResult<serde_json::Value> {
-    let plugin_dir = if source.starts_with("github:") {
+    let (plugin_dir, tmp_cleanup) = if source.starts_with("github:") {
         let repo = source.trim_start_matches("github:");
-        download_github_plugin(repo)?
+        let (dir, tmp) = download_github_plugin(repo)?;
+        (dir, tmp)
     } else if source.starts_with("local:") {
-        std::path::PathBuf::from(source.trim_start_matches("local:"))
+        // Fix 1: reject `..` components to prevent path-traversal attacks.
+        let raw = source.trim_start_matches("local:");
+        let p = std::path::PathBuf::from(raw);
+        if p.components()
+            .any(|c| c == std::path::Component::ParentDir)
+        {
+            return Err(
+                "local: path must not contain `..` components".into(),
+            );
+        }
+        (p, None)
     } else {
         return Err(format!(
             "unknown source `{source}`. Use `github:org/repo` or `local:/path/to/dir`"
@@ -2457,14 +2499,21 @@ pub fn install_plugin(source: String, app: tauri::AppHandle) -> CmdResult<serde_
         agents_installed.len(),
     );
 
-    Ok(serde_json::json!({
+    let result = serde_json::json!({
         "name": manifest.name,
         "version": manifest.version,
         "skills_installed": skills_installed.len(),
         "agents_installed": agents_installed.len(),
         "mcp_keys": mcp_keys,
         "summary": summary,
-    }))
+    });
+
+    // Fix 3: clean up the temp dir now that installation is complete.
+    if let Some(tmp) = tmp_cleanup {
+        let _ = std::fs::remove_dir_all(tmp);
+    }
+
+    Ok(result)
 }
 
 // ---------------------------------------------------------------------------
