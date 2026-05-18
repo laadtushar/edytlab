@@ -83,7 +83,7 @@ impl ToolDispatcher {
     /// register individually.
     pub fn default_dispatcher() -> Self {
         use crate::tool::{
-            AddTrackTool, AlignToBeatTool, AnalyzeTrackTool, ApplyDiffTool, CompareNodesTool,
+            AddTrackTool, AlignToBeatTool, AnalyzeTrackTool, ApplyDiffTool, ChangeSpeedTool, CompareNodesTool,
             CompressorTool, CopyRegionTool, CutRangeTool, EqTool, FadeTool, ForkNodeTool, GainTool,
             InsertSilenceTool, InvertTool, LabelTool, LoadTool, NameNodeTool, NoiseReductionTool,
             NormalizeTool, PasteRegionTool, PitchShiftTool, RemoveTrackTool, RenderFinalTool,
@@ -128,6 +128,8 @@ impl ToolDispatcher {
         d.register(Box::new(NoiseReductionTool));
         // Task 6: per-clip volume envelope.
         d.register(Box::new(SetClipEnvelopeTool));
+        // A1 task 5: change_speed linear resampling.
+        d.register(Box::new(ChangeSpeedTool));
         // A1: silence region, invert, repeat_selection.
         d.register(Box::new(SilenceRegionTool));
         d.register(Box::new(InvertTool));

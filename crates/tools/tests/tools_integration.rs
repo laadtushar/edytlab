@@ -689,6 +689,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "align_to_beat",
             "analyze_track",
             "apply_diff",
+            "change_speed",
             "compare_nodes",
             "compressor",
             "copy_region",
