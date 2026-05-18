@@ -1,6 +1,7 @@
 use serde::Deserialize;
 use serde_json::{json, Value};
 use session::{Clip, Track, TrackId};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::schema::anthropic_tool;
 use crate::tool::util::{append_state, load_head_state};
@@ -92,8 +93,19 @@ impl Tool for MixToNewTrackTool {
             return Ok(ToolResult::Error(format!("mkdir failed: {e}")));
         }
 
-        // Use a deterministic temp name inside gen_dir; we'll rename after hashing.
-        let tmp_path = gen_dir.join("__mix_tmp__.wav");
+        // Generate unique temp filename to prevent concurrent collisions.
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let tid = format!("{:?}", std::thread::current().id());
+        let tid_hash = {
+            let mut h = blake3::Hasher::new();
+            h.update(tid.as_bytes());
+            h.finalize().to_hex()
+        };
+        let tmp_name = format!("__mix_tmp_{ts}_{tid_hash:.8}.wav");
+        let tmp_path = gen_dir.join(tmp_name);
         let report = match audio_engine::render_state_to_wav(&filtered_state, &tmp_path, None) {
             Ok(r) => r,
             Err(e) => {
