@@ -82,6 +82,16 @@ impl Tool for ExportMultipleTool {
             ));
         }
 
+        // Reject duplicates — would produce identical output filenames and lie about count.
+        let mut seen = std::collections::HashSet::new();
+        for &idx in &args.track_indices {
+            if !seen.insert(idx) {
+                return Ok(ToolResult::Error(format!(
+                    "track_indices contains duplicate index {idx}"
+                )));
+            }
+        }
+
         let state = match load_head_state(ctx) {
             Ok(s) => s,
             Err(e) => return Ok(ToolResult::Error(e)),
@@ -98,9 +108,22 @@ impl Tool for ExportMultipleTool {
             }
         }
 
-        // Ensure output directory exists.
-        let out_dir = std::path::Path::new(&args.output_dir);
-        if let Err(e) = std::fs::create_dir_all(out_dir) {
+        // Restrict output_dir to a relative path inside the project directory.
+        let raw_out = std::path::Path::new(&args.output_dir);
+
+        // Reject absolute paths and parent-traversal components.
+        if raw_out.is_absolute()
+            || raw_out
+                .components()
+                .any(|c| c == std::path::Component::ParentDir)
+        {
+            return Ok(ToolResult::Error(
+                "output_dir must be a relative path with no '..' components".into(),
+            ));
+        }
+
+        let out_dir = ctx.store.project_dir().join(raw_out);
+        if let Err(e) = std::fs::create_dir_all(&out_dir) {
             return Ok(ToolResult::Error(format!(
                 "failed to create output_dir {}: {e}",
                 out_dir.display()
