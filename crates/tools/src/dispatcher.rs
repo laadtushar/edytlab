@@ -86,13 +86,14 @@ impl ToolDispatcher {
             AddTrackTool, AlignToBeatTool, AnalyzeTrackTool, ApplyDiffTool, ChangeSpeedTool,
             ClickRemovalTool, CompareNodesTool, CompressorTool, CopyRegionTool, CutRangeTool,
             DuplicateTrackTool, EchoTool, EqTool, FadeTool, ForkNodeTool, GainTool,
-            HighPassFilterTool, InsertSilenceTool, InvertTool, LabelTool, LoadTool,
-            LowPassFilterTool, MuteTrackTool, NameNodeTool, NoiseGateTool, NoiseReductionTool,
-            NormalizeTool, NotchFilterTool, PasteRegionTool, PitchShiftTool, RemoveTrackTool,
-            RenameTrackTool, RenderFinalTool, RenderPreviewTool, RepeatSelectionTool, ReverbTool,
-            ReverseTool, RevertToTool, SeparateStemsTool, SetClipEnvelopeTool, SetPanTool,
-            SetTrackGainTool, SilenceRegionTool, SoloTrackTool, SplitClipTool, TimeShiftTool,
-            TimeStretchTool, TranscribeTool, TrimTool, TruncateSilenceTool,
+            HighPassFilterTool, InsertSilenceTool, InvertTool, LabelTool, LevelerTool, LimiterTool,
+            LoadTool, LowPassFilterTool, MuteTrackTool, NameNodeTool, NoiseGateTool,
+            NoiseReductionTool, NormalizeTool, NotchFilterTool, PasteRegionTool, PitchShiftTool,
+            RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
+            RepeatSelectionTool, ReverbTool, ReverseTool, RevertToTool, SeparateStemsTool,
+            SetClipEnvelopeTool, SetPanTool, SetTrackGainTool, SilenceRegionTool, SoloTrackTool,
+            SplitClipTool, TimeShiftTool, TimeStretchTool, TranscribeTool, TrimTool,
+            TruncateSilenceTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -134,6 +135,9 @@ impl ToolDispatcher {
         d.register(Box::new(NoiseReductionTool));
         // D8: noise gate.
         d.register(Box::new(NoiseGateTool));
+        // D9-D10: leveler and limiter.
+        d.register(Box::new(LevelerTool));
+        d.register(Box::new(LimiterTool));
         // Task 6: per-clip volume envelope.
         d.register(Box::new(SetClipEnvelopeTool));
         // A1 task 5: change_speed linear resampling.

@@ -705,6 +705,8 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "insert_silence",
             "invert",
             "label",
+            "leveler",
+            "limiter",
             "load",
             "low_pass_filter",
             "mute_track",
