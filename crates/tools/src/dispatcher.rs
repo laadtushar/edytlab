@@ -11,7 +11,7 @@ use crate::{DispatchError, Result, ToolResult};
 /// invocation. Phase 1 carries the session store and the audio engine;
 /// later phases may add caches, logging sinks, etc.
 ///
-/// The lifetime parameter ties the borrows to the caller — tools must
+/// The lifetime parameter ties the borrows to the caller â€” tools must
 /// not stash these references beyond the call.
 pub struct ToolContext<'a> {
     pub store: &'a mut session::Store,
@@ -43,7 +43,7 @@ pub trait Tool: Send + Sync {
 /// A tool plus its precompiled `input_schema` validator.
 ///
 /// We compile the JSON schema once at [`ToolDispatcher::register`] time
-/// and reuse it on every dispatch — schema compilation is comparatively
+/// and reuse it on every dispatch â€” schema compilation is comparatively
 /// expensive and the schema is stable for the lifetime of the tool.
 ///
 /// `compiled_schema` is `Err(reason)` when the tool's advertised schema
@@ -91,11 +91,12 @@ impl ToolDispatcher {
             LevelerTool, LimiterTool, LoadTool, LowPassFilterTool, MonoToStereoTool, MuteTrackTool,
             NameNodeTool, NoiseGateTool, NoiseReductionTool, NormalizeTool, NotchFilterTool,
             PasteRegionTool, PhaserTool, PitchShiftTool, PlotSpectrumTool, RemoveTrackTool,
-            RenameTrackTool, RenderFinalTool, RenderPreviewTool, RepeatSelectionTool, ReverbTool,
-            ReverseTool, RevertToTool, SeparateStemsTool, SetClipEnvelopeTool, SetPanTool,
-            SetTrackGainTool, SilenceFinderTool, SilenceRegionTool, SoloTrackTool, SplitClipTool,
-            StereoToMonoTool, StereoWidenerTool, TimeShiftTool, TimeStretchTool, TranscribeTool,
-            TremoloTool, TrimTool, TruncateSilenceTool, VocalReductionTool,
+            RenameTrackTool, RenderFinalTool, RenderPreviewTool, RepeatSelectionTool,
+            ResampleTrackTool, ReverbTool, ReverseTool, RevertToTool, SeparateStemsTool,
+            SetClipEnvelopeTool, SetPanTool, SetTrackGainTool, SilenceFinderTool,
+            SilenceRegionTool, SoloTrackTool, SplitClipTool, StereoToMonoTool, StereoWidenerTool,
+            TimeShiftTool, TimeStretchTool, TranscribeTool, TremoloTool, TrimTool,
+            TruncateSilenceTool, VocalReductionTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -154,6 +155,7 @@ impl ToolDispatcher {
         // A1 task 2: metadata mutation.
         d.register(Box::new(SetPanTool));
         d.register(Box::new(RenameTrackTool));
+        d.register(Box::new(ResampleTrackTool));
         // A1 task 6: time_shift, duplicate_track.
         d.register(Box::new(TimeShiftTool));
         d.register(Box::new(DuplicateTrackTool));
@@ -201,7 +203,7 @@ impl ToolDispatcher {
     /// an object, or fails to compile as a JSON Schema), the failure is
     /// stored and surfaced later as
     /// [`DispatchError::MalformedToolSchema`] on `invoke`. We don't
-    /// fail registration — that would force the API to grow a `Result`
+    /// fail registration â€” that would force the API to grow a `Result`
     /// for what is fundamentally a tool-author bug.
     pub fn register(&mut self, tool: Box<dyn Tool>) {
         let name = tool.name();
@@ -234,7 +236,7 @@ impl ToolDispatcher {
 
     /// Remove every tool whose name starts with `prefix`. Returns the
     /// number removed. Used by the MCP integration to clear a single
-    /// server's remote tools — wire names are namespaced
+    /// server's remote tools â€” wire names are namespaced
     /// `<server>__<tool>` so the prefix is `"<server>__"`.
     pub fn unregister_prefix(&mut self, prefix: &str) -> usize {
         let names: Vec<String> = self

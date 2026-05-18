@@ -731,6 +731,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "render_final",
             "render_preview",
             "repeat_selection",
+            "resample_track",
             "reverb",
             "reverse",
             "revert_to",
