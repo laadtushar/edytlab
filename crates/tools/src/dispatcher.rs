@@ -87,8 +87,8 @@ impl ToolDispatcher {
             CompareNodesTool, CompressorTool, CopyRegionTool, CutRangeTool, DuplicateTrackTool,
             EqTool, FadeTool, ForkNodeTool, GainTool, HighPassFilterTool, InsertSilenceTool,
             InvertTool, LabelTool, LoadTool, LowPassFilterTool, MuteTrackTool, NameNodeTool,
-            NoiseReductionTool, NormalizeTool, NotchFilterTool, PasteRegionTool, PitchShiftTool,
-            RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
+            NoiseGateTool, NoiseReductionTool, NormalizeTool, NotchFilterTool, PasteRegionTool,
+            PitchShiftTool, RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
             RepeatSelectionTool, ReverseTool, RevertToTool, SeparateStemsTool, SetClipEnvelopeTool,
             SetPanTool, SetTrackGainTool, SilenceRegionTool, SoloTrackTool, SplitClipTool,
             TimeShiftTool, TimeStretchTool, TranscribeTool, TrimTool,
@@ -128,6 +128,8 @@ impl ToolDispatcher {
         d.register(Box::new(LabelTool));
         // D7: spectral noise reduction.
         d.register(Box::new(NoiseReductionTool));
+        // D8: noise gate.
+        d.register(Box::new(NoiseGateTool));
         // Task 6: per-clip volume envelope.
         d.register(Box::new(SetClipEnvelopeTool));
         // A1 task 5: change_speed linear resampling.
