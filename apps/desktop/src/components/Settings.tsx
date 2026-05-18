@@ -402,6 +402,7 @@ export function Settings({
               label="Plugins"
               active={tab === "plugins"}
               onClick={() => setTab("plugins")}
+              testId="plugins-tab"
             />
           </div>
         ) : null}
@@ -414,7 +415,7 @@ export function Settings({
           ) : null}
           {tab === "mcp" && mode === "panel" ? <McpServersEditor /> : null}
           {tab === "plugins" && mode === "panel" ? (
-            <div data-testid="plugins-tab">
+            <div data-testid="plugins-panel">
               <p className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-faint)]">
                 Install Plugin
               </p>
@@ -713,6 +714,7 @@ interface SettingsTabButtonProps {
   label: string;
   active: boolean;
   onClick: () => void;
+  testId?: string;
 }
 
 function SettingsTabButton({
@@ -720,13 +722,14 @@ function SettingsTabButton({
   label,
   active,
   onClick,
+  testId,
 }: SettingsTabButtonProps) {
   return (
     <button
       type="button"
       role="tab"
       aria-selected={active}
-      data-testid={`settings-tab-${id}`}
+      data-testid={testId ?? `settings-tab-${id}`}
       onClick={onClick}
       className={
         "rounded-t-md border-b-2 px-3 py-1.5 text-sm transition " +

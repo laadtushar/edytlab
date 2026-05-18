@@ -23,7 +23,7 @@ function renderPluginsTab() {
       onCleared={() => {}}
     />
   );
-  const pluginsTab = screen.getByTestId('settings-tab-plugins');
+  const pluginsTab = screen.getByTestId('plugins-tab');
   fireEvent.click(pluginsTab);
 }
 
