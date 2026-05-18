@@ -890,7 +890,7 @@ mod mute_solo_tests {
     fn muted_track_is_skipped_in_mix() {
         assert!(should_include_track(false, false, false)); // unmuted, no solo
         assert!(!should_include_track(true, false, false)); // muted
-        assert!(should_include_track(false, true, true));   // soloed, any_solo=true
+        assert!(should_include_track(false, true, true)); // soloed, any_solo=true
         assert!(!should_include_track(false, false, true)); // not soloed, but someone else is
     }
 }

@@ -1,18 +1,25 @@
-use serde::Deserialize;
-use serde_json::{json, Value};
 use crate::schema::anthropic_tool;
 use crate::tool::util::{append_state, check_track_index, load_head_state};
 use crate::{Tool, ToolContext, ToolResult};
+use serde::Deserialize;
+use serde_json::{json, Value};
 
-pub(crate) fn clamp_pan(p: f32) -> f32 { p.clamp(-1.0, 1.0) }
+pub(crate) fn clamp_pan(p: f32) -> f32 {
+    p.clamp(-1.0, 1.0)
+}
 
 #[derive(Debug, Deserialize)]
-struct Args { track: usize, pan: f32 }
+struct Args {
+    track: usize,
+    pan: f32,
+}
 
 pub struct SetPanTool;
 
 impl Tool for SetPanTool {
-    fn name(&self) -> &'static str { "set_pan" }
+    fn name(&self) -> &'static str {
+        "set_pan"
+    }
 
     fn schema(&self) -> Value {
         anthropic_tool(
@@ -43,11 +50,17 @@ impl Tool for SetPanTool {
         }
         let pan = clamp_pan(args.pan);
         state.tracks[args.track].pan = pan;
-        let new_id = match append_state(ctx, state, format!("set_pan track {} -> {:.2}", args.track, pan)) {
+        let new_id = match append_state(
+            ctx,
+            state,
+            format!("set_pan track {} -> {:.2}", args.track, pan),
+        ) {
             Ok(id) => id,
             Err(e) => return Ok(ToolResult::Error(e)),
         };
-        Ok(ToolResult::Ok(json!({ "node_id": new_id.to_hex(), "pan": pan, "summary": format!("Set track {} pan to {:.2}", args.track, pan) })))
+        Ok(ToolResult::Ok(
+            json!({ "node_id": new_id.to_hex(), "pan": pan, "summary": format!("Set track {} pan to {:.2}", args.track, pan) }),
+        ))
     }
 }
 
@@ -55,9 +68,15 @@ impl Tool for SetPanTool {
 mod tests {
     use super::clamp_pan;
     #[test]
-    fn clamps_positive() { assert_eq!(clamp_pan(1.5), 1.0); }
+    fn clamps_positive() {
+        assert_eq!(clamp_pan(1.5), 1.0);
+    }
     #[test]
-    fn clamps_negative() { assert_eq!(clamp_pan(-2.0), -1.0); }
+    fn clamps_negative() {
+        assert_eq!(clamp_pan(-2.0), -1.0);
+    }
     #[test]
-    fn passes_valid() { assert_eq!(clamp_pan(-0.5), -0.5); }
+    fn passes_valid() {
+        assert_eq!(clamp_pan(-0.5), -0.5);
+    }
 }

@@ -87,9 +87,7 @@ impl Tool for RepeatSelectionTool {
         };
 
         if args.start_sec >= args.end_sec {
-            return Ok(ToolResult::Error(
-                "start_sec must be < end_sec".into(),
-            ));
+            return Ok(ToolResult::Error("start_sec must be < end_sec".into()));
         }
 
         // Pre-read channel count so the closure can compute the correct
@@ -146,7 +144,10 @@ mod tests {
         apply_repeat(&mut samples, 10, 1, 0.3, 0.7, 2);
         assert_eq!(samples.len(), 18);
         // Original is untouched.
-        assert_eq!(&samples[0..10], &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
+        assert_eq!(
+            &samples[0..10],
+            &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]
+        );
         // First copy appended.
         assert_eq!(&samples[10..14], &[3.0, 4.0, 5.0, 6.0]);
         // Second copy appended.

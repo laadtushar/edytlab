@@ -1,8 +1,8 @@
-use serde::Deserialize;
-use serde_json::{json, Value};
 use crate::schema::anthropic_tool;
 use crate::tool::util::{append_state, check_track_index, load_head_state};
 use crate::{Tool, ToolContext, ToolResult};
+use serde::Deserialize;
+use serde_json::{json, Value};
 
 #[allow(dead_code)]
 pub(crate) fn apply_time_shift(current: u64, delta_samples: u64) -> u64 {
@@ -13,12 +13,17 @@ pub(crate) fn apply_time_shift_signed(current: u64, delta: i64) -> u64 {
 }
 
 #[derive(Debug, Deserialize)]
-struct Args { track: usize, offset_sec: f64 }
+struct Args {
+    track: usize,
+    offset_sec: f64,
+}
 
 pub struct TimeShiftTool;
 
 impl Tool for TimeShiftTool {
-    fn name(&self) -> &'static str { "time_shift" }
+    fn name(&self) -> &'static str {
+        "time_shift"
+    }
 
     fn schema(&self) -> Value {
         anthropic_tool("time_shift",
@@ -35,10 +40,12 @@ impl Tool for TimeShiftTool {
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
         let args: Args = match serde_json::from_value(args) {
-            Ok(a) => a, Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Ok(a) => a,
+            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
         };
         let mut state = match load_head_state(ctx) {
-            Ok(s) => s, Err(e) => return Ok(ToolResult::Error(e)),
+            Ok(s) => s,
+            Err(e) => return Ok(ToolResult::Error(e)),
         };
         if let Err(e) = check_track_index(&state.tracks, args.track) {
             return Ok(ToolResult::Error(e));
@@ -50,13 +57,23 @@ impl Tool for TimeShiftTool {
             clip.start_in_track = apply_time_shift_signed(clip.start_in_track, delta);
         }
         // Recompute session length
-        state.length_samples = state.tracks.iter()
+        state.length_samples = state
+            .tracks
+            .iter()
             .flat_map(|t| t.clips.iter().map(|c| c.start_in_track + c.length))
-            .max().unwrap_or(0);
-        let new_id = match append_state(ctx, state, format!("time_shift track {} {:+.3}s", args.track, args.offset_sec)) {
-            Ok(id) => id, Err(e) => return Ok(ToolResult::Error(e)),
+            .max()
+            .unwrap_or(0);
+        let new_id = match append_state(
+            ctx,
+            state,
+            format!("time_shift track {} {:+.3}s", args.track, args.offset_sec),
+        ) {
+            Ok(id) => id,
+            Err(e) => return Ok(ToolResult::Error(e)),
         };
-        Ok(ToolResult::Ok(json!({ "node_id": new_id.to_hex(), "summary": format!("Shifted track {} by {:+.3}s", args.track, args.offset_sec) })))
+        Ok(ToolResult::Ok(
+            json!({ "node_id": new_id.to_hex(), "summary": format!("Shifted track {} by {:+.3}s", args.track, args.offset_sec) }),
+        ))
     }
 }
 

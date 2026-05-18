@@ -1,22 +1,30 @@
-use serde::Deserialize;
-use serde_json::{json, Value};
-use session::TrackId;
 use crate::schema::anthropic_tool;
 use crate::tool::util::{append_state, check_track_index, load_head_state};
 use crate::{Tool, ToolContext, ToolResult};
+use serde::Deserialize;
+use serde_json::{json, Value};
+use session::TrackId;
 
 #[allow(dead_code)]
 pub(crate) fn validate_track_idx(idx: usize, len: usize) -> Result<(), String> {
-    if idx >= len { Err(format!("track {idx} out of range (len={len})")) } else { Ok(()) }
+    if idx >= len {
+        Err(format!("track {idx} out of range (len={len})"))
+    } else {
+        Ok(())
+    }
 }
 
 #[derive(Debug, Deserialize)]
-struct Args { track: usize }
+struct Args {
+    track: usize,
+}
 
 pub struct DuplicateTrackTool;
 
 impl Tool for DuplicateTrackTool {
-    fn name(&self) -> &'static str { "duplicate_track" }
+    fn name(&self) -> &'static str {
+        "duplicate_track"
+    }
 
     fn schema(&self) -> Value {
         anthropic_tool("duplicate_track",
@@ -30,10 +38,12 @@ impl Tool for DuplicateTrackTool {
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
         let args: Args = match serde_json::from_value(args) {
-            Ok(a) => a, Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Ok(a) => a,
+            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
         };
         let mut state = match load_head_state(ctx) {
-            Ok(s) => s, Err(e) => return Ok(ToolResult::Error(e)),
+            Ok(s) => s,
+            Err(e) => return Ok(ToolResult::Error(e)),
         };
         if let Err(e) = check_track_index(&state.tracks, args.track) {
             return Ok(ToolResult::Error(e));
@@ -43,9 +53,12 @@ impl Tool for DuplicateTrackTool {
         cloned.name = format!("{} (copy)", cloned.name);
         state.tracks.push(cloned);
         let new_id = match append_state(ctx, state, format!("duplicate_track {}", args.track)) {
-            Ok(id) => id, Err(e) => return Ok(ToolResult::Error(e)),
+            Ok(id) => id,
+            Err(e) => return Ok(ToolResult::Error(e)),
         };
-        Ok(ToolResult::Ok(json!({ "node_id": new_id.to_hex(), "summary": format!("Duplicated track {}", args.track) })))
+        Ok(ToolResult::Ok(
+            json!({ "node_id": new_id.to_hex(), "summary": format!("Duplicated track {}", args.track) }),
+        ))
     }
 }
 
@@ -53,7 +66,11 @@ impl Tool for DuplicateTrackTool {
 mod tests {
     use super::validate_track_idx;
     #[test]
-    fn rejects_out_of_range() { assert!(validate_track_idx(5, 3).is_err()); }
+    fn rejects_out_of_range() {
+        assert!(validate_track_idx(5, 3).is_err());
+    }
     #[test]
-    fn accepts_valid() { assert!(validate_track_idx(2, 5).is_ok()); }
+    fn accepts_valid() {
+        assert!(validate_track_idx(2, 5).is_ok());
+    }
 }

@@ -140,10 +140,7 @@ mod tests {
             samples[..200].iter().all(|&s| s == 1.0),
             "before range untouched"
         );
-        assert!(
-            samples[200..500].iter().all(|&s| s == 0.0),
-            "range zeroed"
-        );
+        assert!(samples[200..500].iter().all(|&s| s == 0.0), "range zeroed");
         assert!(
             samples[500..].iter().all(|&s| s == 1.0),
             "after range untouched"

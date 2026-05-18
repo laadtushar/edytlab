@@ -83,13 +83,15 @@ impl ToolDispatcher {
     /// register individually.
     pub fn default_dispatcher() -> Self {
         use crate::tool::{
-            AddTrackTool, AlignToBeatTool, AnalyzeTrackTool, ApplyDiffTool, ChangeSpeedTool, CompareNodesTool,
-            CompressorTool, CopyRegionTool, CutRangeTool, DuplicateTrackTool, EqTool, FadeTool, ForkNodeTool, GainTool,
-            HighPassFilterTool, InsertSilenceTool, InvertTool, LabelTool, LoadTool, LowPassFilterTool, MuteTrackTool,
-            NameNodeTool, NoiseReductionTool, NormalizeTool, NotchFilterTool, PasteRegionTool, PitchShiftTool,
-            RemoveTrackTool, RenderFinalTool, RenderPreviewTool, RenameTrackTool, ReverseTool, RevertToTool,
-            SeparateStemsTool, RepeatSelectionTool, SetClipEnvelopeTool, SetPanTool, SetTrackGainTool,
-            SilenceRegionTool, SoloTrackTool, SplitClipTool, TimeShiftTool, TimeStretchTool, TranscribeTool, TrimTool,
+            AddTrackTool, AlignToBeatTool, AnalyzeTrackTool, ApplyDiffTool, ChangeSpeedTool,
+            CompareNodesTool, CompressorTool, CopyRegionTool, CutRangeTool, DuplicateTrackTool,
+            EqTool, FadeTool, ForkNodeTool, GainTool, HighPassFilterTool, InsertSilenceTool,
+            InvertTool, LabelTool, LoadTool, LowPassFilterTool, MuteTrackTool, NameNodeTool,
+            NoiseReductionTool, NormalizeTool, NotchFilterTool, PasteRegionTool, PitchShiftTool,
+            RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
+            RepeatSelectionTool, ReverseTool, RevertToTool, SeparateStemsTool, SetClipEnvelopeTool,
+            SetPanTool, SetTrackGainTool, SilenceRegionTool, SoloTrackTool, SplitClipTool,
+            TimeShiftTool, TimeStretchTool, TranscribeTool, TrimTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));

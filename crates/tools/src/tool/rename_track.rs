@@ -1,20 +1,29 @@
-use serde::Deserialize;
-use serde_json::{json, Value};
 use crate::schema::anthropic_tool;
 use crate::tool::util::{append_state, check_track_index, load_head_state};
 use crate::{Tool, ToolContext, ToolResult};
+use serde::Deserialize;
+use serde_json::{json, Value};
 
 pub(crate) fn validate_name(n: &str) -> Result<(), String> {
-    if n.trim().is_empty() { Err("name must not be empty".into()) } else { Ok(()) }
+    if n.trim().is_empty() {
+        Err("name must not be empty".into())
+    } else {
+        Ok(())
+    }
 }
 
 #[derive(Debug, Deserialize)]
-struct Args { track: usize, name: String }
+struct Args {
+    track: usize,
+    name: String,
+}
 
 pub struct RenameTrackTool;
 
 impl Tool for RenameTrackTool {
-    fn name(&self) -> &'static str { "rename_track" }
+    fn name(&self) -> &'static str {
+        "rename_track"
+    }
 
     fn schema(&self) -> Value {
         anthropic_tool(
@@ -47,11 +56,17 @@ impl Tool for RenameTrackTool {
             return Ok(ToolResult::Error(e));
         }
         state.tracks[args.track].name = args.name.clone();
-        let new_id = match append_state(ctx, state, format!("rename_track {} -> {}", args.track, args.name)) {
+        let new_id = match append_state(
+            ctx,
+            state,
+            format!("rename_track {} -> {}", args.track, args.name),
+        ) {
             Ok(id) => id,
             Err(e) => return Ok(ToolResult::Error(e)),
         };
-        Ok(ToolResult::Ok(json!({ "node_id": new_id.to_hex(), "summary": format!("Renamed track {} to {:?}", args.track, args.name) })))
+        Ok(ToolResult::Ok(
+            json!({ "node_id": new_id.to_hex(), "summary": format!("Renamed track {} to {:?}", args.track, args.name) }),
+        ))
     }
 }
 
@@ -59,7 +74,11 @@ impl Tool for RenameTrackTool {
 mod tests {
     use super::validate_name;
     #[test]
-    fn rejects_empty() { assert!(validate_name("").is_err()); }
+    fn rejects_empty() {
+        assert!(validate_name("").is_err());
+    }
     #[test]
-    fn accepts_valid() { assert!(validate_name("Vocals").is_ok()); }
+    fn accepts_valid() {
+        assert!(validate_name("Vocals").is_ok());
+    }
 }

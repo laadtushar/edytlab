@@ -1,8 +1,8 @@
-use serde::Deserialize;
-use serde_json::Value;
 use crate::schema::anthropic_tool;
 use crate::tool::util::destructive_edit;
 use crate::{Tool, ToolContext, ToolResult};
+use serde::Deserialize;
+use serde_json::Value;
 
 /// Linear interpolation resampling. `factor` > 1 = faster (shorter), < 1 = slower (longer).
 pub(crate) fn apply_change_speed(samples: &[f32], channels: usize, factor: f32) -> Vec<f32> {
@@ -25,12 +25,17 @@ pub(crate) fn apply_change_speed(samples: &[f32], channels: usize, factor: f32) 
 }
 
 #[derive(Debug, Deserialize)]
-struct Args { track: usize, factor: f32 }
+struct Args {
+    track: usize,
+    factor: f32,
+}
 
 pub struct ChangeSpeedTool;
 
 impl Tool for ChangeSpeedTool {
-    fn name(&self) -> &'static str { "change_speed" }
+    fn name(&self) -> &'static str {
+        "change_speed"
+    }
 
     fn schema(&self) -> Value {
         anthropic_tool("change_speed",
@@ -47,25 +52,38 @@ impl Tool for ChangeSpeedTool {
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
         let args: Args = match serde_json::from_value(args) {
-            Ok(a) => a, Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+            Ok(a) => a,
+            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
         };
         if args.factor <= 0.0 || !args.factor.is_finite() {
-            return Ok(ToolResult::Error("factor must be a positive finite number".into()));
+            return Ok(ToolResult::Error(
+                "factor must be a positive finite number".into(),
+            ));
         }
         let channels = {
             let state = match crate::tool::util::load_head_state(ctx) {
-                Ok(s) => s, Err(e) => return Ok(ToolResult::Error(e)),
+                Ok(s) => s,
+                Err(e) => return Ok(ToolResult::Error(e)),
             };
             if let Err(e) = crate::tool::util::check_track_index(&state.tracks, args.track) {
                 return Ok(ToolResult::Error(e));
             }
             let clip = state.tracks[args.track].clips.first().cloned();
             if let Some(c) = clip {
-                audio_decoder::decode_file(&c.source_path).map(|d| d.channels as usize).unwrap_or(1)
-            } else { return Ok(ToolResult::Error(format!("track {} has no clips", args.track))); }
+                audio_decoder::decode_file(&c.source_path)
+                    .map(|d| d.channels as usize)
+                    .unwrap_or(1)
+            } else {
+                return Ok(ToolResult::Error(format!(
+                    "track {} has no clips",
+                    args.track
+                )));
+            }
         };
         let factor = args.factor;
-        Ok(destructive_edit(ctx, args.track,
+        Ok(destructive_edit(
+            ctx,
+            args.track,
             move |samples, _sr| {
                 let resampled = apply_change_speed(samples, channels, factor);
                 *samples = resampled;

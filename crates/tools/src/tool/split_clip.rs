@@ -1,9 +1,9 @@
-use serde::Deserialize;
-use serde_json::{json, Value};
-use session::Clip;
 use crate::schema::anthropic_tool;
 use crate::tool::util::{append_state, check_track_index, load_head_state};
 use crate::{Tool, ToolContext, ToolResult};
+use serde::Deserialize;
+use serde_json::{json, Value};
+use session::Clip;
 
 /// Split `clip` into two clips at `at_frames` frames from the clip's start_in_track.
 /// `at_frames` is relative to the clip's start (i.e. within [1, length-1]).

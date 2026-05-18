@@ -225,13 +225,18 @@ pub(crate) struct BiquadState {
 }
 
 impl BiquadState {
-    pub(crate) fn new() -> Self { Self { z1: 0.0, z2: 0.0 } }
+    pub(crate) fn new() -> Self {
+        Self { z1: 0.0, z2: 0.0 }
+    }
 }
 
 /// Biquad coefficients [b0, b1, b2, a1, a2] (a0 normalised to 1).
 pub(crate) struct BiquadCoeffs {
-    pub b0: f32, pub b1: f32, pub b2: f32,
-    pub a1: f32, pub a2: f32,
+    pub b0: f32,
+    pub b1: f32,
+    pub b2: f32,
+    pub a1: f32,
+    pub a2: f32,
 }
 
 impl BiquadCoeffs {
@@ -247,7 +252,13 @@ impl BiquadCoeffs {
         let a0 = 1.0 + alpha;
         let a1 = -2.0 * cos_w0;
         let a2 = 1.0 - alpha;
-        Self { b0: b0/a0, b1: b1/a0, b2: b2/a0, a1: a1/a0, a2: a2/a0 }
+        Self {
+            b0: b0 / a0,
+            b1: b1 / a0,
+            b2: b2 / a0,
+            a1: a1 / a0,
+            a2: a2 / a0,
+        }
     }
 
     /// Second-order Butterworth low-pass filter.
@@ -262,7 +273,13 @@ impl BiquadCoeffs {
         let a0 = 1.0 + alpha;
         let a1 = -2.0 * cos_w0;
         let a2 = 1.0 - alpha;
-        Self { b0: b0/a0, b1: b1/a0, b2: b2/a0, a1: a1/a0, a2: a2/a0 }
+        Self {
+            b0: b0 / a0,
+            b1: b1 / a0,
+            b2: b2 / a0,
+            a1: a1 / a0,
+            a2: a2 / a0,
+        }
     }
 
     /// Notch (band-reject) filter.
@@ -277,7 +294,13 @@ impl BiquadCoeffs {
         let a0 = 1.0 + alpha;
         let a1 = -2.0 * cos_w0;
         let a2 = 1.0 - alpha;
-        Self { b0: b0/a0, b1: b1/a0, b2: b2/a0, a1: a1/a0, a2: a2/a0 }
+        Self {
+            b0: b0 / a0,
+            b1: b1 / a0,
+            b2: b2 / a0,
+            a1: a1 / a0,
+            a2: a2 / a0,
+        }
     }
 }
 
@@ -318,7 +341,10 @@ mod biquad_tests {
         let coeffs = BiquadCoeffs::high_pass(1000.0, 44100);
         biquad_process(&mut samples, 1, &coeffs, 0, 4410);
         let tail_mean: f32 = samples[4000..].iter().sum::<f32>() / 410.0;
-        assert!(tail_mean.abs() < 0.01, "DC should be attenuated by HPF, got {tail_mean}");
+        assert!(
+            tail_mean.abs() < 0.01,
+            "DC should be attenuated by HPF, got {tail_mean}"
+        );
     }
 
     #[test]
@@ -328,6 +354,9 @@ mod biquad_tests {
         biquad_process(&mut samples, 1, &coeffs, 0, 4410);
         // DC (0 Hz) should pass through low-pass — tail should be near 1.0
         let tail_mean: f32 = samples[4000..].iter().sum::<f32>() / 410.0;
-        assert!(tail_mean > 0.9, "DC should pass through LPF, got {tail_mean}");
+        assert!(
+            tail_mean > 0.9,
+            "DC should pass through LPF, got {tail_mean}"
+        );
     }
 }
