@@ -2341,11 +2341,11 @@ pub fn install_bundled_skills(app: tauri::AppHandle) -> CmdResult<usize> {
         }
     }
 
-    std::fs::create_dir_all(&skills_dir).map_err(|e| e.to_string())?;
-
     if !bundled_dir.exists() {
         return Ok(0); // dev mode: bundled-skills/ not yet present
     }
+
+    std::fs::create_dir_all(&skills_dir).map_err(|e| e.to_string())?;
 
     let mut count = 0usize;
     for entry in std::fs::read_dir(&bundled_dir).map_err(|e| e.to_string())? {

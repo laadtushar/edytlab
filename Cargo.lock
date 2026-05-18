@@ -1196,6 +1196,7 @@ dependencies = [
  "keyring",
  "mcp",
  "memory",
+ "recorder",
  "regex",
  "serde",
  "serde_json",
@@ -3654,6 +3655,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "recorder"
+version = "0.1.0"
+dependencies = [
+ "cpal",
+ "hound",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5302,6 +5314,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
