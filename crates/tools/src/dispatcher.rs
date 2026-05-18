@@ -85,10 +85,10 @@ impl ToolDispatcher {
         use crate::tool::{
             AddTrackTool, AlignToBeatTool, AnalyzeTrackTool, ApplyDiffTool, ChangeSpeedTool, CompareNodesTool,
             CompressorTool, CopyRegionTool, CutRangeTool, DuplicateTrackTool, EqTool, FadeTool, ForkNodeTool, GainTool,
-            InsertSilenceTool, InvertTool, LabelTool, LoadTool, MuteTrackTool, NameNodeTool, NoiseReductionTool,
-            NormalizeTool, PasteRegionTool, PitchShiftTool, RemoveTrackTool, RenderFinalTool,
-            RenderPreviewTool, RenameTrackTool, ReverseTool, RevertToTool, SeparateStemsTool,
-            RepeatSelectionTool, SetClipEnvelopeTool, SetPanTool, SetTrackGainTool,
+            HighPassFilterTool, InsertSilenceTool, InvertTool, LabelTool, LoadTool, LowPassFilterTool, MuteTrackTool,
+            NameNodeTool, NoiseReductionTool, NormalizeTool, NotchFilterTool, PasteRegionTool, PitchShiftTool,
+            RemoveTrackTool, RenderFinalTool, RenderPreviewTool, RenameTrackTool, ReverseTool, RevertToTool,
+            SeparateStemsTool, RepeatSelectionTool, SetClipEnvelopeTool, SetPanTool, SetTrackGainTool,
             SilenceRegionTool, SoloTrackTool, SplitClipTool, TimeShiftTool, TimeStretchTool, TranscribeTool, TrimTool,
         };
         let mut d = Self::new();
@@ -145,6 +145,10 @@ impl ToolDispatcher {
         d.register(Box::new(SoloTrackTool));
         // A1 task 8: split_clip.
         d.register(Box::new(SplitClipTool));
+        // A1 task 9: biquad filters.
+        d.register(Box::new(HighPassFilterTool));
+        d.register(Box::new(LowPassFilterTool));
+        d.register(Box::new(NotchFilterTool));
         d
     }
 

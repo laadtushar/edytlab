@@ -213,3 +213,121 @@ pub(crate) fn check_sample_range(
     }
     Ok((start, end))
 }
+
+// ---------------------------------------------------------------------------
+// Biquad filter
+// ---------------------------------------------------------------------------
+
+/// Direct Form II biquad filter state (per channel).
+pub(crate) struct BiquadState {
+    pub z1: f32,
+    pub z2: f32,
+}
+
+impl BiquadState {
+    pub(crate) fn new() -> Self { Self { z1: 0.0, z2: 0.0 } }
+}
+
+/// Biquad coefficients [b0, b1, b2, a1, a2] (a0 normalised to 1).
+pub(crate) struct BiquadCoeffs {
+    pub b0: f32, pub b1: f32, pub b2: f32,
+    pub a1: f32, pub a2: f32,
+}
+
+impl BiquadCoeffs {
+    /// Second-order Butterworth high-pass filter.
+    pub(crate) fn high_pass(cutoff_hz: f32, sample_rate: u32) -> Self {
+        use std::f32::consts::PI;
+        let w0 = 2.0 * PI * cutoff_hz / sample_rate as f32;
+        let alpha = w0.sin() / (2.0 * 0.707_f32);
+        let cos_w0 = w0.cos();
+        let b0 = (1.0 + cos_w0) / 2.0;
+        let b1 = -(1.0 + cos_w0);
+        let b2 = (1.0 + cos_w0) / 2.0;
+        let a0 = 1.0 + alpha;
+        let a1 = -2.0 * cos_w0;
+        let a2 = 1.0 - alpha;
+        Self { b0: b0/a0, b1: b1/a0, b2: b2/a0, a1: a1/a0, a2: a2/a0 }
+    }
+
+    /// Second-order Butterworth low-pass filter.
+    pub(crate) fn low_pass(cutoff_hz: f32, sample_rate: u32) -> Self {
+        use std::f32::consts::PI;
+        let w0 = 2.0 * PI * cutoff_hz / sample_rate as f32;
+        let alpha = w0.sin() / (2.0 * 0.707_f32);
+        let cos_w0 = w0.cos();
+        let b0 = (1.0 - cos_w0) / 2.0;
+        let b1 = 1.0 - cos_w0;
+        let b2 = (1.0 - cos_w0) / 2.0;
+        let a0 = 1.0 + alpha;
+        let a1 = -2.0 * cos_w0;
+        let a2 = 1.0 - alpha;
+        Self { b0: b0/a0, b1: b1/a0, b2: b2/a0, a1: a1/a0, a2: a2/a0 }
+    }
+
+    /// Notch (band-reject) filter.
+    pub(crate) fn notch(center_hz: f32, q: f32, sample_rate: u32) -> Self {
+        use std::f32::consts::PI;
+        let w0 = 2.0 * PI * center_hz / sample_rate as f32;
+        let alpha = w0.sin() / (2.0 * q);
+        let cos_w0 = w0.cos();
+        let b0 = 1.0;
+        let b1 = -2.0 * cos_w0;
+        let b2 = 1.0;
+        let a0 = 1.0 + alpha;
+        let a1 = -2.0 * cos_w0;
+        let a2 = 1.0 - alpha;
+        Self { b0: b0/a0, b1: b1/a0, b2: b2/a0, a1: a1/a0, a2: a2/a0 }
+    }
+}
+
+/// Process interleaved `samples` in-place with a biquad filter.
+/// Only processes the frame range [start_frame, end_frame).
+pub(crate) fn biquad_process(
+    samples: &mut [f32],
+    channels: usize,
+    coeffs: &BiquadCoeffs,
+    start_frame: usize,
+    end_frame: usize,
+) {
+    let channels = channels.max(1);
+    let total_frames = samples.len() / channels;
+    let end = end_frame.min(total_frames);
+    let start = start_frame.min(end);
+    let mut states: Vec<BiquadState> = (0..channels).map(|_| BiquadState::new()).collect();
+    for frame in start..end {
+        let base = frame * channels;
+        for (ch, st) in states.iter_mut().enumerate() {
+            let idx = base + ch;
+            let x = samples[idx];
+            let y = coeffs.b0 * x + st.z1;
+            st.z1 = coeffs.b1 * x - coeffs.a1 * y + st.z2;
+            st.z2 = coeffs.b2 * x - coeffs.a2 * y;
+            samples[idx] = y;
+        }
+    }
+}
+
+#[cfg(test)]
+mod biquad_tests {
+    use super::{biquad_process, BiquadCoeffs};
+
+    #[test]
+    fn high_pass_attenuates_dc() {
+        let mut samples = vec![1.0f32; 4410]; // 0.1s at 44100
+        let coeffs = BiquadCoeffs::high_pass(1000.0, 44100);
+        biquad_process(&mut samples, 1, &coeffs, 0, 4410);
+        let tail_mean: f32 = samples[4000..].iter().sum::<f32>() / 410.0;
+        assert!(tail_mean.abs() < 0.01, "DC should be attenuated by HPF, got {tail_mean}");
+    }
+
+    #[test]
+    fn low_pass_passes_dc() {
+        let mut samples = vec![1.0f32; 4410];
+        let coeffs = BiquadCoeffs::low_pass(5000.0, 44100);
+        biquad_process(&mut samples, 1, &coeffs, 0, 4410);
+        // DC (0 Hz) should pass through low-pass — tail should be near 1.0
+        let tail_mean: f32 = samples[4000..].iter().sum::<f32>() / 410.0;
+        assert!(tail_mean > 0.9, "DC should pass through LPF, got {tail_mean}");
+    }
+}
