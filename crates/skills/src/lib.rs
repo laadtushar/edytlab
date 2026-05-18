@@ -11,6 +11,8 @@
 //! bespoke parser keeps the dep tree thin and the error messages
 //! precise.
 
+pub mod plugin;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 
