@@ -30,6 +30,7 @@ regex = "1"
 tempfile = "3"
 thiserror = "2"
 tracing = "0.1"
+uuid = { version = "1", features = ["serde", "v4"] }
 
 [dev-dependencies]
 hound = "3.5"

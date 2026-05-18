@@ -85,17 +85,17 @@ impl ToolDispatcher {
         use crate::tool::{
             AddTrackTool, AlignToBeatTool, AnalyzeTrackTool, ApplyDiffTool, ChangeSpeedTool,
             ClickRemovalTool, CompareNodesTool, CompressorTool, CopyRegionTool, CutRangeTool,
-            DeEsserTool, DistortionTool, DuplicateTrackTool, EchoTool, EqTool, FadeTool,
-            ForkNodeTool, GainTool, GenerateNoiseTool, GenerateToneTool, HighPassFilterTool,
-            InsertSilenceTool, InvertTool, LabelTool, LevelerTool, LimiterTool, LoadTool,
-            LowPassFilterTool, MonoToStereoTool, MuteTrackTool, NameNodeTool, NoiseGateTool,
-            NoiseReductionTool, NormalizeTool, NotchFilterTool, PasteRegionTool, PhaserTool,
-            PitchShiftTool, PlotSpectrumTool, RemoveTrackTool, RenameTrackTool, RenderFinalTool,
-            RenderPreviewTool, RepeatSelectionTool, ReverbTool, ReverseTool, RevertToTool,
-            SeparateStemsTool, SetClipEnvelopeTool, SetPanTool, SetTrackGainTool,
-            SilenceFinderTool, SilenceRegionTool, SoloTrackTool, SplitClipTool, StereoToMonoTool,
-            StereoWidenerTool, TimeShiftTool, TimeStretchTool, TranscribeTool, TremoloTool,
-            TrimTool, TruncateSilenceTool, VocalReductionTool,
+            DeEsserTool, DistortionTool, DuplicateTrackTool, EchoTool, EqTool, ExportLabelsTool,
+            FadeTool, ForkNodeTool, GainTool, GenerateNoiseTool, GenerateToneTool,
+            HighPassFilterTool, ImportLabelsTool, InsertSilenceTool, InvertTool, LabelTool,
+            LevelerTool, LimiterTool, LoadTool, LowPassFilterTool, MonoToStereoTool, MuteTrackTool,
+            NameNodeTool, NoiseGateTool, NoiseReductionTool, NormalizeTool, NotchFilterTool,
+            PasteRegionTool, PhaserTool, PitchShiftTool, PlotSpectrumTool, RemoveTrackTool,
+            RenameTrackTool, RenderFinalTool, RenderPreviewTool, RepeatSelectionTool, ReverbTool,
+            ReverseTool, RevertToTool, SeparateStemsTool, SetClipEnvelopeTool, SetPanTool,
+            SetTrackGainTool, SilenceFinderTool, SilenceRegionTool, SoloTrackTool, SplitClipTool,
+            StereoToMonoTool, StereoWidenerTool, TimeShiftTool, TimeStretchTool, TranscribeTool,
+            TremoloTool, TrimTool, TruncateSilenceTool, VocalReductionTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -183,6 +183,9 @@ impl ToolDispatcher {
         d.register(Box::new(PhaserTool));
         d.register(Box::new(StereoWidenerTool));
         d.register(Box::new(TremoloTool));
+        // A3 task 4: export_labels, import_labels (Audacity format).
+        d.register(Box::new(ExportLabelsTool));
+        d.register(Box::new(ImportLabelsTool));
         d
     }
 
