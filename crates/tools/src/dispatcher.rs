@@ -86,9 +86,9 @@ impl ToolDispatcher {
             AddTrackTool, AlignToBeatTool, AnalyzeTrackTool, ApplyDiffTool, ChangeSpeedTool,
             ClickRemovalTool, CompareNodesTool, CompressorTool, CopyRegionTool, CutRangeTool,
             DeEsserTool, DistortionTool, DuplicateTrackTool, EchoTool, EqTool, ExportLabelsTool,
-            FadeTool, ForkNodeTool, GainTool, GenerateNoiseTool, GenerateToneTool,
-            HighPassFilterTool, ImportLabelsTool, InsertSilenceTool, InvertTool, LabelTool,
-            LevelerTool, LimiterTool, LoadTool, LowPassFilterTool, MixToNewTrackTool,
+            ExportMultipleTool, FadeTool, ForkNodeTool, GainTool, GenerateNoiseTool,
+            GenerateToneTool, HighPassFilterTool, ImportLabelsTool, InsertSilenceTool, InvertTool,
+            LabelTool, LevelerTool, LimiterTool, LoadTool, LowPassFilterTool, MixToNewTrackTool,
             MonoToStereoTool, MuteTrackTool, NameNodeTool, NoiseGateTool, NoiseReductionTool,
             NormalizeTool, NotchFilterTool, PasteRegionTool, PhaserTool, PitchShiftTool,
             PlotSpectrumTool, RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
@@ -190,6 +190,8 @@ impl ToolDispatcher {
         // A3 task 4: export_labels, import_labels (Audacity format).
         d.register(Box::new(ExportLabelsTool));
         d.register(Box::new(ImportLabelsTool));
+        // export_multiple: non-destructive per-track WAV export.
+        d.register(Box::new(ExportMultipleTool));
         d
     }
 

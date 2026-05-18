@@ -701,6 +701,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "echo",
             "eq",
             "export_labels",
+            "export_multiple",
             "fade",
             "fork_node",
             "gain",
