@@ -89,9 +89,10 @@ impl ToolDispatcher {
             InvertTool, LabelTool, LoadTool, LowPassFilterTool, MuteTrackTool, NameNodeTool,
             NoiseGateTool, NoiseReductionTool, NormalizeTool, NotchFilterTool, PasteRegionTool,
             PitchShiftTool, RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
-            RepeatSelectionTool, ReverseTool, RevertToTool, SeparateStemsTool, SetClipEnvelopeTool,
-            SetPanTool, SetTrackGainTool, SilenceRegionTool, SoloTrackTool, SplitClipTool,
-            TimeShiftTool, TimeStretchTool, TranscribeTool, TrimTool, TruncateSilenceTool,
+            RepeatSelectionTool, ReverbTool, ReverseTool, RevertToTool, SeparateStemsTool,
+            SetClipEnvelopeTool, SetPanTool, SetTrackGainTool, SilenceRegionTool, SoloTrackTool,
+            SplitClipTool, TimeShiftTool, TimeStretchTool, TranscribeTool, TrimTool,
+            TruncateSilenceTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -121,6 +122,7 @@ impl ToolDispatcher {
         d.register(Box::new(CompressorTool));
         d.register(Box::new(FadeTool));
         d.register(Box::new(ReverseTool));
+        d.register(Box::new(ReverbTool));
         d.register(Box::new(InsertSilenceTool));
         // D4-D6: copy/paste + labels.
         d.register(Box::new(CopyRegionTool));
