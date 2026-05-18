@@ -21,6 +21,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import {
   clearApiKey,
+  installPlugin,
   listModelsFor,
   setApiKeyFor,
   setActiveModel,
@@ -36,8 +37,8 @@ import { SkillsEditor } from "./SkillsEditor";
 
 /** Settings panel tabs. The blocking onboarding flow is locked to
  *  "account"; the panel mode lets the user switch. Phases 1-5 ship
- *  "account", "memory", "skills", "agents", "mcp". */
-type SettingsTab = "account" | "memory" | "skills" | "agents" | "mcp";
+ *  "account", "memory", "skills", "agents", "mcp", "plugins". */
+type SettingsTab = "account" | "memory" | "skills" | "agents" | "mcp" | "plugins";
 
 export const LEGACY_MODEL_STORAGE_KEY = "edytlab.model";
 export const MODEL_STORAGE_KEY_PREFIX = "edytlab.model.";
@@ -157,6 +158,10 @@ export function Settings({
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [tab, setTab] = useState<SettingsTab>("account");
 
+  const [pluginSource, setPluginSource] = useState('');
+  const [pluginInstalling, setPluginInstalling] = useState(false);
+  const [pluginResult, setPluginResult] = useState<string | null>(null);
+
   useEffect(() => {
     if (typeof window !== "undefined") {
       window.localStorage.setItem(PROVIDER_STORAGE_KEY, provider);
@@ -265,6 +270,20 @@ export function Settings({
       setSaveError(String(err));
     }
   }, [onCleared]);
+
+  async function handleInstallPlugin() {
+    if (!pluginSource.trim()) return;
+    setPluginInstalling(true);
+    setPluginResult(null);
+    try {
+      const result = await installPlugin(pluginSource.trim());
+      setPluginResult(result.summary);
+    } catch (e) {
+      setPluginResult(`Error: ${e}`);
+    } finally {
+      setPluginInstalling(false);
+    }
+  }
 
   const activeProviderEntry =
     PROVIDERS.find((p) => p.id === provider) ?? PROVIDERS[0];
@@ -378,6 +397,12 @@ export function Settings({
               active={tab === "mcp"}
               onClick={() => setTab("mcp")}
             />
+            <SettingsTabButton
+              id="plugins"
+              label="Plugins"
+              active={tab === "plugins"}
+              onClick={() => setTab("plugins")}
+            />
           </div>
         ) : null}
 
@@ -388,6 +413,75 @@ export function Settings({
             <AgentProfilesEditor />
           ) : null}
           {tab === "mcp" && mode === "panel" ? <McpServersEditor /> : null}
+          {tab === "plugins" && mode === "panel" ? (
+            <div data-testid="plugins-tab">
+              <p className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-faint)]">
+                Install Plugin
+              </p>
+              <p className="mb-3 text-sm leading-relaxed text-[var(--text-dim)]">
+                Source format:{" "}
+                <code className="rounded bg-[var(--surface)] px-1 py-0.5 font-mono text-xs text-[var(--text)]">
+                  github:org/repo
+                </code>{" "}
+                or{" "}
+                <code className="rounded bg-[var(--surface)] px-1 py-0.5 font-mono text-xs text-[var(--text)]">
+                  local:/path/to/dir
+                </code>
+              </p>
+              <div className="mb-3 flex gap-2">
+                <input
+                  data-testid="plugin-source-input"
+                  placeholder="github:edytlab-community/podcast-toolkit"
+                  value={pluginSource}
+                  onChange={e => setPluginSource(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && void handleInstallPlugin()}
+                  className="
+                    w-full
+                    rounded-md border border-[var(--border-strong)]
+                    bg-[var(--surface)]
+                    px-3 py-2 text-sm font-mono text-[var(--text)]
+                    outline-none
+                    transition
+                    placeholder:text-[var(--text-faint)] placeholder:font-sans
+                    focus:border-[var(--accent)]/55
+                    focus:shadow-[0_0_0_3px_var(--accent-soft)]
+                  "
+                />
+                <button
+                  type="button"
+                  data-testid="plugin-install-btn"
+                  onClick={() => void handleInstallPlugin()}
+                  disabled={pluginInstalling || !pluginSource.trim()}
+                  className="
+                    rounded-md
+                    bg-[var(--accent)]
+                    px-4 py-1.5
+                    text-sm font-medium text-[var(--bg)]
+                    shadow-[0_4px_12px_-4px_var(--accent-glow)]
+                    transition
+                    hover:bg-[#ffa05f]
+                    disabled:cursor-not-allowed disabled:bg-[var(--surface-elev-2)] disabled:text-[var(--text-faint)] disabled:shadow-none
+                    whitespace-nowrap
+                  "
+                >
+                  {pluginInstalling ? 'Installing…' : 'Install'}
+                </button>
+              </div>
+              {pluginResult && (
+                <p
+                  data-testid="plugin-result"
+                  className={
+                    "rounded-md border px-3 py-1.5 text-xs " +
+                    (pluginResult.startsWith('Error:')
+                      ? "border-[var(--danger)]/40 bg-[var(--danger)]/10 text-[var(--danger)]"
+                      : "border-[var(--success)]/35 bg-[var(--success)]/10 text-[var(--success)]")
+                  }
+                >
+                  {pluginResult}
+                </p>
+              )}
+            </div>
+          ) : null}
           {tab === "account" ? (
           <>
           {mode === "blocking" ? (
