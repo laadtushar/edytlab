@@ -6,6 +6,7 @@
 //! together.
 
 pub mod add_track;
+pub mod duplicate_track;
 pub mod align_to_beat;
 pub mod analyze_track;
 pub mod apply_diff;
@@ -39,12 +40,14 @@ pub mod set_clip_envelope;
 pub mod set_pan;
 pub mod silence_region;
 pub mod set_track_gain;
+pub mod time_shift;
 pub mod time_stretch;
 pub mod transcribe;
 pub mod trim;
 mod util;
 
 pub use add_track::AddTrackTool;
+pub use duplicate_track::DuplicateTrackTool;
 pub use align_to_beat::AlignToBeatTool;
 pub use analyze_track::AnalyzeTrackTool;
 pub use apply_diff::ApplyDiffTool;
@@ -78,6 +81,7 @@ pub use set_clip_envelope::SetClipEnvelopeTool;
 pub use set_pan::SetPanTool;
 pub use silence_region::SilenceRegionTool;
 pub use set_track_gain::SetTrackGainTool;
+pub use time_shift::TimeShiftTool;
 pub use time_stretch::TimeStretchTool;
 pub use transcribe::TranscribeTool;
 pub use trim::TrimTool;

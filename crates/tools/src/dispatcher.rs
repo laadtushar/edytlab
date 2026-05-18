@@ -84,12 +84,12 @@ impl ToolDispatcher {
     pub fn default_dispatcher() -> Self {
         use crate::tool::{
             AddTrackTool, AlignToBeatTool, AnalyzeTrackTool, ApplyDiffTool, ChangeSpeedTool, CompareNodesTool,
-            CompressorTool, CopyRegionTool, CutRangeTool, EqTool, FadeTool, ForkNodeTool, GainTool,
+            CompressorTool, CopyRegionTool, CutRangeTool, DuplicateTrackTool, EqTool, FadeTool, ForkNodeTool, GainTool,
             InsertSilenceTool, InvertTool, LabelTool, LoadTool, NameNodeTool, NoiseReductionTool,
             NormalizeTool, PasteRegionTool, PitchShiftTool, RemoveTrackTool, RenderFinalTool,
             RenderPreviewTool, RenameTrackTool, ReverseTool, RevertToTool, SeparateStemsTool,
             RepeatSelectionTool, SetClipEnvelopeTool, SetPanTool, SetTrackGainTool,
-            SilenceRegionTool, TimeStretchTool, TranscribeTool, TrimTool,
+            SilenceRegionTool, TimeShiftTool, TimeStretchTool, TranscribeTool, TrimTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -137,6 +137,9 @@ impl ToolDispatcher {
         // A1 task 2: metadata mutation.
         d.register(Box::new(SetPanTool));
         d.register(Box::new(RenameTrackTool));
+        // A1 task 6: time_shift, duplicate_track.
+        d.register(Box::new(TimeShiftTool));
+        d.register(Box::new(DuplicateTrackTool));
         d
     }
 
