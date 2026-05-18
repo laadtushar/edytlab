@@ -91,7 +91,7 @@ impl ToolDispatcher {
             PitchShiftTool, RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
             RepeatSelectionTool, ReverseTool, RevertToTool, SeparateStemsTool, SetClipEnvelopeTool,
             SetPanTool, SetTrackGainTool, SilenceRegionTool, SoloTrackTool, SplitClipTool,
-            TimeShiftTool, TimeStretchTool, TranscribeTool, TrimTool,
+            TimeShiftTool, TimeStretchTool, TranscribeTool, TrimTool, TruncateSilenceTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -153,6 +153,8 @@ impl ToolDispatcher {
         d.register(Box::new(HighPassFilterTool));
         d.register(Box::new(LowPassFilterTool));
         d.register(Box::new(NotchFilterTool));
+        // truncate_silence.
+        d.register(Box::new(TruncateSilenceTool));
         d
     }
 

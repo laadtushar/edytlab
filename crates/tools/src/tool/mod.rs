@@ -51,6 +51,7 @@ pub mod time_shift;
 pub mod time_stretch;
 pub mod transcribe;
 pub mod trim;
+pub mod truncate_silence;
 mod util;
 
 pub use add_track::AddTrackTool;
@@ -99,3 +100,4 @@ pub use time_shift::TimeShiftTool;
 pub use time_stretch::TimeStretchTool;
 pub use transcribe::TranscribeTool;
 pub use trim::TrimTool;
+pub use truncate_silence::TruncateSilenceTool;
