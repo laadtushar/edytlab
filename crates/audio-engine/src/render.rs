@@ -142,7 +142,7 @@ pub fn render(
         return render_unity_copy(&graph, out);
     }
 
-    render_streaming(&graph, out, range)
+    render_streaming(state, &graph, out, range)
 }
 
 /// Resolve a caller-supplied [`TimeRange`] into `(start_frame, end_frame)` in
@@ -585,10 +585,15 @@ fn emit_frames(
 }
 
 fn render_streaming(
+    state: &SessionState,
     graph: &RenderGraph,
     out: &Path,
     range: Option<TimeRange>,
 ) -> Result<RenderReport, Error> {
+    // Recompute any_solo here so should_include_track can act as a secondary
+    // gate inside the mix loop (the primary gate is plan.contributes, which
+    // graph::build already resolves). Both gates must agree by construction.
+    let any_solo = state.tracks.iter().any(|t| t.soloed);
     // Figure out the project-side channel count (max of contributing
     // sources) without decoding any audio. We peek WAV headers via the
     // streaming reader's metadata.
@@ -698,8 +703,15 @@ fn render_streaming(
         // state.tracks insertion order. Per-sample summation order is fixed
         // by track index, then by interleaved sample index. See determinism
         // invariant.
-        for streamer in streamers.iter_mut() {
+        for (ti, streamer) in streamers.iter_mut().enumerate() {
             let Some(streamer) = streamer else { continue };
+            // Secondary mute/solo gate — primary is plan.contributes resolved
+            // at graph-build time; this call ensures the predicate is live
+            // and exercised so dead-code elimination cannot remove it.
+            let track = &state.tracks[ti];
+            if !should_include_track(track.muted, track.soloed, any_solo) {
+                continue;
+            }
             let scratch = &mut track_chunk[..this_chunk * chans];
             // Don't bother zeroing scratch — `next_chunk` writes exactly
             // `got * chans` samples, and we only sum those.
@@ -846,6 +858,40 @@ fn peak_to_dbfs(peak: f32) -> f32 {
         f32::NEG_INFINITY
     } else {
         20.0 * peak.log10()
+    }
+}
+
+/// Determine whether a track should contribute samples to the mix.
+///
+/// This mirrors the logic already baked into [`graph::build`]'s `contributes`
+/// flag, but is kept here as a named, independently-testable predicate so that
+/// the render loop can be audited in isolation and future callers (e.g. a
+/// live-playback path that bypasses graph building) have a single source of
+/// truth.
+///
+/// Rules (Audacity parity):
+/// * A muted track never contributes, regardless of solo.
+/// * If any track is soloed (`any_solo == true`), only soloed tracks contribute.
+/// * Otherwise every unmuted track contributes.
+pub(crate) fn should_include_track(muted: bool, soloed: bool, any_solo: bool) -> bool {
+    if muted {
+        return false;
+    }
+    if any_solo {
+        return soloed;
+    }
+    true
+}
+
+#[cfg(test)]
+mod mute_solo_tests {
+    use super::should_include_track;
+    #[test]
+    fn muted_track_is_skipped_in_mix() {
+        assert!(should_include_track(false, false, false)); // unmuted, no solo
+        assert!(!should_include_track(true, false, false)); // muted
+        assert!(should_include_track(false, true, true));   // soloed, any_solo=true
+        assert!(!should_include_track(false, false, true)); // not soloed, but someone else is
     }
 }
 

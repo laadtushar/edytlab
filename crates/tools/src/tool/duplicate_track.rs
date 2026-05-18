@@ -5,6 +5,7 @@ use crate::schema::anthropic_tool;
 use crate::tool::util::{append_state, check_track_index, load_head_state};
 use crate::{Tool, ToolContext, ToolResult};
 
+#[allow(dead_code)]
 pub(crate) fn validate_track_idx(idx: usize, len: usize) -> Result<(), String> {
     if idx >= len { Err(format!("track {idx} out of range (len={len})")) } else { Ok(()) }
 }

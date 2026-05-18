@@ -85,11 +85,11 @@ impl ToolDispatcher {
         use crate::tool::{
             AddTrackTool, AlignToBeatTool, AnalyzeTrackTool, ApplyDiffTool, ChangeSpeedTool, CompareNodesTool,
             CompressorTool, CopyRegionTool, CutRangeTool, DuplicateTrackTool, EqTool, FadeTool, ForkNodeTool, GainTool,
-            InsertSilenceTool, InvertTool, LabelTool, LoadTool, NameNodeTool, NoiseReductionTool,
+            InsertSilenceTool, InvertTool, LabelTool, LoadTool, MuteTrackTool, NameNodeTool, NoiseReductionTool,
             NormalizeTool, PasteRegionTool, PitchShiftTool, RemoveTrackTool, RenderFinalTool,
             RenderPreviewTool, RenameTrackTool, ReverseTool, RevertToTool, SeparateStemsTool,
             RepeatSelectionTool, SetClipEnvelopeTool, SetPanTool, SetTrackGainTool,
-            SilenceRegionTool, TimeShiftTool, TimeStretchTool, TranscribeTool, TrimTool,
+            SilenceRegionTool, SoloTrackTool, TimeShiftTool, TimeStretchTool, TranscribeTool, TrimTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -140,6 +140,9 @@ impl ToolDispatcher {
         // A1 task 6: time_shift, duplicate_track.
         d.register(Box::new(TimeShiftTool));
         d.register(Box::new(DuplicateTrackTool));
+        // A1 task 7: mute_track, solo_track.
+        d.register(Box::new(MuteTrackTool));
+        d.register(Box::new(SoloTrackTool));
         d
     }
 
