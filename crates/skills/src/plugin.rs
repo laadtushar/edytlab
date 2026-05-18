@@ -46,17 +46,27 @@ impl PluginManifest {
         plugin_dir: &Path,
         skills_dir: &Path,
     ) -> Result<Vec<PathBuf>, String> {
-        std::fs::create_dir_all(skills_dir)
-            .map_err(|e| format!("create skills dir: {e}"))?;
         let mut installed = Vec::new();
+        let canon_plugin = plugin_dir
+            .canonicalize()
+            .map_err(|e| format!("canonicalize plugin dir: {e}"))?;
         for rel in &self.skills {
             let src = plugin_dir.join(rel);
-            let filename = src
+            let canon_src = src
+                .canonicalize()
+                .map_err(|e| format!("resolve skill path `{rel}`: {e}"))?;
+            if !canon_src.starts_with(&canon_plugin) {
+                return Err(format!("skill path `{rel}` escapes plugin directory"));
+            }
+            let filename = canon_src
                 .file_name()
-                .ok_or_else(|| format!("no filename in skill path `{rel}`"))?;
+                .ok_or_else(|| format!("skill path `{rel}` has no filename"))?;
+            if !filename.to_string_lossy().ends_with(".md") {
+                return Err(format!("skill `{rel}` is not a .md file"));
+            }
+            std::fs::create_dir_all(skills_dir).map_err(|e| format!("create skills dir: {e}"))?;
             let dst = skills_dir.join(filename);
-            std::fs::copy(&src, &dst)
-                .map_err(|e| format!("copy {}: {e}", src.display()))?;
+            std::fs::copy(&canon_src, &dst).map_err(|e| format!("copy skill `{rel}`: {e}"))?;
             installed.push(dst);
         }
         Ok(installed)
@@ -71,17 +81,27 @@ impl PluginManifest {
         if self.agents.is_empty() {
             return Ok(vec![]);
         }
-        std::fs::create_dir_all(agents_dir)
-            .map_err(|e| format!("create agents dir: {e}"))?;
+        let canon_plugin = plugin_dir
+            .canonicalize()
+            .map_err(|e| format!("canonicalize plugin dir: {e}"))?;
         let mut installed = Vec::new();
         for rel in &self.agents {
             let src = plugin_dir.join(rel);
-            let filename = src
+            let canon_src = src
+                .canonicalize()
+                .map_err(|e| format!("resolve agent path `{rel}`: {e}"))?;
+            if !canon_src.starts_with(&canon_plugin) {
+                return Err(format!("agent path `{rel}` escapes plugin directory"));
+            }
+            let filename = canon_src
                 .file_name()
-                .ok_or_else(|| format!("no filename in agent path `{rel}`"))?;
+                .ok_or_else(|| format!("agent path `{rel}` has no filename"))?;
+            if !filename.to_string_lossy().ends_with(".md") {
+                return Err(format!("agent `{rel}` is not a .md file"));
+            }
+            std::fs::create_dir_all(agents_dir).map_err(|e| format!("create agents dir: {e}"))?;
             let dst = agents_dir.join(filename);
-            std::fs::copy(&src, &dst)
-                .map_err(|e| format!("copy {}: {e}", src.display()))?;
+            std::fs::copy(&canon_src, &dst).map_err(|e| format!("copy agent `{rel}`: {e}"))?;
             installed.push(dst);
         }
         Ok(installed)

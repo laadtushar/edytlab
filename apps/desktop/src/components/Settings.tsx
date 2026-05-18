@@ -141,12 +141,8 @@ export function Settings({
   const [provider, setProvider] = useState<ProviderId>(() => {
     if (typeof window === "undefined") return DEFAULT_PROVIDER;
     const stored = window.localStorage.getItem(PROVIDER_STORAGE_KEY);
-    if (
-      stored === "openrouter" ||
-      stored === "anthropic" ||
-      stored === "openai"
-    ) {
-      return stored;
+    if (stored && PROVIDERS.some((p) => p.id === stored)) {
+      return stored as ProviderId;
     }
     return DEFAULT_PROVIDER;
   });

@@ -2309,10 +2309,7 @@ pub fn stop_recording(
 /// resource subdir is absent).
 #[tauri::command]
 pub fn install_bundled_skills(app: tauri::AppHandle) -> CmdResult<usize> {
-    let resource_dir = app
-        .path()
-        .resource_dir()
-        .map_err(|e| e.to_string())?;
+    let resource_dir = app.path().resource_dir().map_err(|e| e.to_string())?;
     let bundled_dir = resource_dir.join("bundled-skills");
 
     let skills_dir = match app.path().home_dir() {
@@ -2330,12 +2327,7 @@ pub fn install_bundled_skills(app: tauri::AppHandle) -> CmdResult<usize> {
         let has_skills = std::fs::read_dir(&skills_dir)
             .map_err(|e| e.to_string())?
             .filter_map(|e| e.ok())
-            .any(|e| {
-                e.path()
-                    .extension()
-                    .and_then(|s| s.to_str())
-                    == Some("md")
-            });
+            .any(|e| e.path().extension().and_then(|s| s.to_str()) == Some("md"));
         if has_skills {
             return Ok(0);
         }
@@ -2366,21 +2358,41 @@ pub fn install_bundled_skills(app: tauri::AppHandle) -> CmdResult<usize> {
 // ---------------------------------------------------------------------------
 
 fn edytlab_skills_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
-    let home = app.path().home_dir().map_err(|e| e.to_string())?;
-    Ok(home.join(".edytlab").join("skills"))
+    let base = match app.path().home_dir() {
+        Ok(home) => home,
+        Err(_) => app.path().app_data_dir().map_err(|e| e.to_string())?,
+    };
+    Ok(base.join(".edytlab").join("skills"))
 }
 
 fn edytlab_agents_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
-    let home = app.path().home_dir().map_err(|e| e.to_string())?;
-    Ok(home.join(".edytlab").join("agents"))
+    let base = match app.path().home_dir() {
+        Ok(home) => home,
+        Err(_) => app.path().app_data_dir().map_err(|e| e.to_string())?,
+    };
+    Ok(base.join(".edytlab").join("agents"))
 }
 
 fn download_github_plugin(
     repo: &str,
 ) -> Result<(std::path::PathBuf, Option<std::path::PathBuf>), String> {
+    // Validate: must be exactly "org/repo" with alphanumeric, hyphens, underscores, dots only.
+    let parts: Vec<&str> = repo.splitn(2, '/').collect();
+    if parts.len() != 2 {
+        return Err(format!("invalid GitHub repo `{repo}`; expected `org/repo`"));
+    }
+    let valid_component = |s: &str| {
+        !s.is_empty()
+            && s.chars()
+                .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.')
+    };
+    if !valid_component(parts[0]) || !valid_component(parts[1]) {
+        return Err(format!(
+            "invalid GitHub repo `{repo}`; org and repo must be alphanumeric/-/_/."
+        ));
+    }
     let url = format!("https://github.com/{repo}/archive/refs/heads/main.zip");
-    let response = reqwest::blocking::get(&url)
-        .map_err(|e| format!("fetch {url}: {e}"))?;
+    let response = reqwest::blocking::get(&url).map_err(|e| format!("fetch {url}: {e}"))?;
     if !response.status().is_success() {
         return Err(format!("HTTP {} fetching {url}", response.status()));
     }
@@ -2391,8 +2403,8 @@ fn download_github_plugin(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
-    let tmp_dir = std::env::temp_dir()
-        .join(format!("edytlab-plugin-{}-{}", std::process::id(), ts));
+    let tmp_dir =
+        std::env::temp_dir().join(format!("edytlab-plugin-{}-{}", std::process::id(), ts));
     std::fs::create_dir_all(&tmp_dir).map_err(|e| e.to_string())?;
 
     let zip_path = tmp_dir.join("plugin.zip");
@@ -2410,12 +2422,7 @@ fn download_github_plugin(
         let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
         let outpath = match file.enclosed_name() {
             Some(p) => extract_dir.join(p),
-            None => {
-                return Err(format!(
-                    "zip entry '{}' has unsafe path",
-                    file.name()
-                ))
-            }
+            None => return Err(format!("zip entry '{}' has unsafe path", file.name())),
         };
         if file.is_dir() {
             std::fs::create_dir_all(&outpath).map_err(|e| e.to_string())?;
@@ -2423,8 +2430,7 @@ fn download_github_plugin(
             if let Some(parent) = outpath.parent() {
                 std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
             }
-            let mut outfile =
-                std::fs::File::create(&outpath).map_err(|e| e.to_string())?;
+            let mut outfile = std::fs::File::create(&outpath).map_err(|e| e.to_string())?;
             std::io::copy(&mut file, &mut outfile).map_err(|e| e.to_string())?;
         }
     }
@@ -2461,12 +2467,8 @@ pub fn install_plugin(source: String, app: tauri::AppHandle) -> CmdResult<serde_
         // Fix 1: reject `..` components to prevent path-traversal attacks.
         let raw = source.trim_start_matches("local:");
         let p = std::path::PathBuf::from(raw);
-        if p.components()
-            .any(|c| c == std::path::Component::ParentDir)
-        {
-            return Err(
-                "local: path must not contain `..` components".into(),
-            );
+        if p.components().any(|c| c == std::path::Component::ParentDir) {
+            return Err("local: path must not contain `..` components".into());
         }
         (p, None)
     } else {
@@ -2483,37 +2485,37 @@ pub fn install_plugin(source: String, app: tauri::AppHandle) -> CmdResult<serde_
         ));
     }
 
-    let manifest = skills::plugin::PluginManifest::load(&manifest_path)?;
+    let result = (|| -> Result<serde_json::Value, String> {
+        let manifest = skills::plugin::PluginManifest::load(&manifest_path)?;
 
-    let skills_installed =
-        manifest.install_skills(&plugin_dir, &edytlab_skills_dir(&app)?)?;
-    let agents_installed =
-        manifest.install_agents(&plugin_dir, &edytlab_agents_dir(&app)?)?;
-    let mcp_keys: Vec<String> = manifest.mcp_servers.keys().cloned().collect();
+        let skills_installed = manifest.install_skills(&plugin_dir, &edytlab_skills_dir(&app)?)?;
+        let agents_installed = manifest.install_agents(&plugin_dir, &edytlab_agents_dir(&app)?)?;
+        let mcp_keys: Vec<String> = manifest.mcp_servers.keys().cloned().collect();
 
-    let summary = format!(
-        "Installed plugin '{}' v{}: {} skill(s), {} agent(s)",
-        manifest.name,
-        manifest.version,
-        skills_installed.len(),
-        agents_installed.len(),
-    );
+        let summary = format!(
+            "Installed plugin '{}' v{}: {} skill(s), {} agent(s)",
+            manifest.name,
+            manifest.version,
+            skills_installed.len(),
+            agents_installed.len(),
+        );
 
-    let result = serde_json::json!({
-        "name": manifest.name,
-        "version": manifest.version,
-        "skills_installed": skills_installed.len(),
-        "agents_installed": agents_installed.len(),
-        "mcp_keys": mcp_keys,
-        "summary": summary,
-    });
+        Ok(serde_json::json!({
+            "name": manifest.name,
+            "version": manifest.version,
+            "skills_installed": skills_installed.len(),
+            "agents_installed": agents_installed.len(),
+            "mcp_keys": mcp_keys,
+            "summary": summary,
+        }))
+    })();
 
-    // Fix 3: clean up the temp dir now that installation is complete.
+    // Always clean up temp dir, even on error.
     if let Some(tmp) = tmp_cleanup {
         let _ = std::fs::remove_dir_all(tmp);
     }
 
-    Ok(result)
+    result
 }
 
 // ---------------------------------------------------------------------------
