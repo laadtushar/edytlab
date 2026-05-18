@@ -2261,6 +2261,39 @@ pub async fn batch_load(
 }
 
 // ---------------------------------------------------------------------------
+// Microphone recording commands.
+// ---------------------------------------------------------------------------
+
+pub struct RecorderState(pub std::sync::Mutex<Option<recorder::Recorder>>);
+
+#[tauri::command]
+pub fn start_recording(state: State<'_, RecorderState>) -> CmdResult<String> {
+    let rec = recorder::Recorder::start().map_err(|e| e.to_string())?;
+    *state.0.lock().unwrap() = Some(rec);
+    Ok("recording started".into())
+}
+
+#[tauri::command]
+pub fn stop_recording(
+    state: State<'_, RecorderState>,
+    output_path: String,
+) -> CmdResult<serde_json::Value> {
+    let rec = state
+        .0
+        .lock()
+        .unwrap()
+        .take()
+        .ok_or_else(|| "no active recording".to_string())?;
+    let path = std::path::PathBuf::from(&output_path);
+    let (saved_path, sr, ch) = rec.stop_and_save(&path).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "path": saved_path.to_string_lossy(),
+        "sample_rate": sr,
+        "channels": ch
+    }))
+}
+
+// ---------------------------------------------------------------------------
 // Helpers re-exported for tests.
 // ---------------------------------------------------------------------------
 

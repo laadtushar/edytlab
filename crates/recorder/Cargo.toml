@@ -1,0 +1,15 @@
+[package]
+name = "recorder"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+cpal = "0.15"
+hound = "3"
+tokio = { version = "1", features = ["rt"] }
+tracing = "0.1"
+thiserror = "2"

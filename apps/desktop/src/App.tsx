@@ -51,7 +51,7 @@ import {
   onNodeCreated,
   renderPreview as bridgeRenderPreview,
 } from "./lib/tauri-bridge";
-import { listTemplates, applyTemplate } from "./lib/tauri-bridge";
+import { listTemplates, applyTemplate, startRecording, stopRecording } from "./lib/tauri-bridge";
 import type { TemplateInfo } from "./components/TemplatePickerModal";
 import {
   listenToFileDrops,
@@ -108,6 +108,7 @@ function App() {
   const [spectrogramEnabled, setSpectrogramEnabled] = useState(false);
   const [templates, setTemplates] = useState<TemplateInfo[]>([]);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
 
   const handleUndo = useCallback(async () => {
     if (!head) return;
@@ -393,6 +394,29 @@ function App() {
     }
   }, [head, selection, exporting]);
 
+  const handleStartRecording = useCallback(async () => {
+    try {
+      await startRecording();
+      setIsRecording(true);
+    } catch (e) {
+      console.error("start_recording failed:", e);
+    }
+  }, []);
+
+  const handleStopRecording = useCallback(async () => {
+    try {
+      const result = await stopRecording(
+        `recording_${Date.now()}.wav`
+      );
+      setIsRecording(false);
+      await batchLoad([result.path]);
+      void listTracks().then(setTracks);
+    } catch (e) {
+      console.error("stop_recording failed:", e);
+      setIsRecording(false);
+    }
+  }, []);
+
   const handleRenderPreview = useCallback(async () => {
     if (!head || rendering) return;
     setRendering(true);
@@ -461,6 +485,8 @@ function App() {
         onSelectView={setLeftView}
         onOpen={handleOpenDialog}
         onSettings={() => setSettingsOpen(true)}
+        isRecording={isRecording}
+        onRecord={isRecording ? handleStopRecording : handleStartRecording}
       />
 
       <div className="grid min-h-0 grid-cols-[minmax(0,1fr)_360px] gap-px bg-[var(--border)]">
@@ -595,6 +621,8 @@ interface AppHeaderProps {
   onSelectView: (v: LeftView) => void;
   onOpen: () => void;
   onSettings: () => void;
+  isRecording: boolean;
+  onRecord: () => void;
 }
 
 function AppHeader({
@@ -602,6 +630,8 @@ function AppHeader({
   onSelectView,
   onOpen,
   onSettings,
+  isRecording,
+  onRecord,
 }: AppHeaderProps) {
   return (
     <header
@@ -665,6 +695,19 @@ function AppHeader({
             <path d="M2 3.2C2 2.54 2.54 2 3.2 2h2.6L7 3.5h3.8c.66 0 1.2.54 1.2 1.2v6.1c0 .66-.54 1.2-1.2 1.2H3.2C2.54 12 2 11.46 2 10.8V3.2Z" />
           </svg>
           Open Audio
+        </button>
+
+        <button
+          type="button"
+          data-testid="record-btn"
+          onClick={onRecord}
+          className={`px-3 py-1 text-sm rounded font-medium ${
+            isRecording
+              ? "bg-red-600 text-white animate-pulse"
+              : "bg-neutral-700 text-neutral-300 hover:bg-neutral-600"
+          }`}
+        >
+          {isRecording ? "⏹ Stop" : "⏺ Record"}
         </button>
 
         <button

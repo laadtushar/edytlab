@@ -455,3 +455,19 @@ export const listTemplates = (): Promise<TemplateInfo[]> =>
 
 export const applyTemplate = (name: string): Promise<string> =>
   invoke<string>("apply_template", { name });
+
+// -----------------------------------------------------------------------------
+// Microphone recording (Task 5)
+// -----------------------------------------------------------------------------
+
+export interface RecordingResult {
+  path: string;
+  sample_rate: number;
+  channels: number;
+}
+
+export const startRecording = (): Promise<string> =>
+  invoke<string>("start_recording");
+
+export const stopRecording = (outputPath: string): Promise<RecordingResult> =>
+  invoke<RecordingResult>("stop_recording", { outputPath });

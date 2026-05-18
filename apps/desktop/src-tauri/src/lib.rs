@@ -19,9 +19,9 @@ use crate::commands::{
     list_tracks, open_project, prepare_compare, read_agent_profile, read_mcp_server, read_memory,
     read_skill, remove_marker, rename_node, render_preview, render_range, restart_mcp_server,
     send_message, set_active_agent_profile, set_active_model, set_active_provider, set_api_key,
-    set_api_key_for, set_head_to, set_selection_context, test_api_key, test_api_key_for,
-    try_load_api_key_at_startup, upsert_agent_profile, upsert_mcp_server, upsert_skill,
-    write_memory,
+    set_api_key_for, set_head_to, set_selection_context, start_recording, stop_recording,
+    test_api_key, test_api_key_for, try_load_api_key_at_startup, upsert_agent_profile,
+    upsert_mcp_server, upsert_skill, write_memory, RecorderState,
 };
 use crate::state::AppState;
 use std::sync::{Arc, Mutex};
@@ -43,6 +43,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(app_state.clone())
+        .manage(RecorderState(std::sync::Mutex::new(None)))
         .setup(move |app| {
             try_load_api_key_at_startup(&app_state);
 
@@ -201,6 +202,8 @@ pub fn run() {
             write_memory,
             list_templates,
             apply_template,
+            start_recording,
+            stop_recording,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
