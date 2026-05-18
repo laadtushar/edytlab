@@ -12,18 +12,17 @@ pub mod state;
 
 use crate::commands::{
     accept_b, add_marker, apply_template, approve_plan, batch_load, clear_api_key,
-    install_bundled_skills,
-    install_plugin,
     clear_api_key_for, delete_agent_profile, delete_mcp_server, delete_skill,
     get_active_agent_profile, get_active_model, get_active_provider, get_graph, get_node,
-    get_session_head, has_api_key, has_api_key_for, list_agent_profiles, list_capabilities,
-    list_markers, list_mcp_servers, list_models_for, list_providers, list_skills, list_templates,
-    list_tracks, open_project, prepare_compare, read_agent_profile, read_mcp_server, read_memory,
-    read_skill, remove_marker, rename_node, render_preview, render_range, restart_mcp_server,
-    send_message, set_active_agent_profile, set_active_model, set_active_provider, set_api_key,
-    set_api_key_for, set_head_to, set_selection_context, start_recording, stop_recording,
-    test_api_key, test_api_key_for, try_load_api_key_at_startup, upsert_agent_profile,
-    upsert_mcp_server, upsert_skill, write_memory, RecorderState,
+    get_session_head, has_api_key, has_api_key_for, install_bundled_skills, install_plugin,
+    list_agent_profiles, list_capabilities, list_markers, list_mcp_servers, list_models_for,
+    list_providers, list_skills, list_templates, list_tracks, open_project, prepare_compare,
+    read_agent_profile, read_mcp_server, read_memory, read_skill, remove_marker, rename_node,
+    render_preview, render_range, restart_mcp_server, send_message, set_active_agent_profile,
+    set_active_model, set_active_provider, set_api_key, set_api_key_for, set_head_to,
+    set_selection_context, start_recording, stop_recording, test_api_key, test_api_key_for,
+    try_load_api_key_at_startup, upsert_agent_profile, upsert_mcp_server, upsert_skill,
+    write_memory, RecorderState,
 };
 use crate::state::AppState;
 use std::sync::{Arc, Mutex};
