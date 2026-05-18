@@ -369,6 +369,8 @@ function App() {
       setGraphRefresh((n) => n + 1);
       const newTracks = await listTracks();
       setTracks(newTracks);
+      const firstPath = newTracks[0]?.audio_path;
+      if (firstPath) setAudioPath(firstPath);
     }).then((fn) => {
       if (cancelled) fn();
       else unlisten = fn;
