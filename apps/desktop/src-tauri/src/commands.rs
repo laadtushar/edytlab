@@ -2362,6 +2362,112 @@ pub fn install_bundled_skills(app: tauri::AppHandle) -> CmdResult<usize> {
 }
 
 // ---------------------------------------------------------------------------
+// install_plugin (Task 4)
+// ---------------------------------------------------------------------------
+
+fn edytlab_skills_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    let home = app.path().home_dir().map_err(|e| e.to_string())?;
+    Ok(home.join(".edytlab").join("skills"))
+}
+
+fn edytlab_agents_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    let home = app.path().home_dir().map_err(|e| e.to_string())?;
+    Ok(home.join(".edytlab").join("agents"))
+}
+
+fn download_github_plugin(repo: &str) -> Result<std::path::PathBuf, String> {
+    let url = format!("https://github.com/{repo}/archive/refs/heads/main.zip");
+    let response = reqwest::blocking::get(&url)
+        .map_err(|e| format!("fetch {url}: {e}"))?;
+    if !response.status().is_success() {
+        return Err(format!("HTTP {} fetching {url}", response.status()));
+    }
+    let bytes = response.bytes().map_err(|e| e.to_string())?;
+
+    let tmp_dir = std::env::temp_dir()
+        .join(format!("edytlab-plugin-{}", std::process::id()));
+    std::fs::create_dir_all(&tmp_dir).map_err(|e| e.to_string())?;
+
+    let zip_path = tmp_dir.join("plugin.zip");
+    std::fs::write(&zip_path, &bytes).map_err(|e| e.to_string())?;
+
+    let extract_dir = tmp_dir.join("extracted");
+    std::fs::create_dir_all(&extract_dir).map_err(|e| e.to_string())?;
+
+    let zip_file = std::fs::File::open(&zip_path).map_err(|e| e.to_string())?;
+    let mut archive = zip::ZipArchive::new(zip_file).map_err(|e| e.to_string())?;
+    archive.extract(&extract_dir).map_err(|e| e.to_string())?;
+
+    // GitHub zip extracts to a single top-level dir: <repo-name>-main/
+    let plugin_dir = std::fs::read_dir(&extract_dir)
+        .map_err(|e| e.to_string())?
+        .filter_map(|e| e.ok())
+        .find(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .map(|e| e.path())
+        .ok_or_else(|| "extracted zip has no top-level directory".to_string())?;
+
+    Ok(plugin_dir)
+}
+
+/// Install a plugin from a GitHub repo (`github:org/repo`) or a local
+/// directory (`local:/abs/path`).
+///
+/// For GitHub sources the command downloads the `main` branch zip,
+/// extracts it to a temp directory, then delegates to
+/// `skills::plugin::PluginManifest` to copy skill and agent files into
+/// the user's `~/.edytlab/` directories.
+///
+/// Returns a JSON summary including counts of installed skills and agents
+/// plus the list of MCP server keys declared in the manifest (the caller
+/// is responsible for wiring those into `~/.edytlab/mcp.json` if desired).
+#[tauri::command]
+pub fn install_plugin(source: String, app: tauri::AppHandle) -> CmdResult<serde_json::Value> {
+    let plugin_dir = if source.starts_with("github:") {
+        let repo = source.trim_start_matches("github:");
+        download_github_plugin(repo)?
+    } else if source.starts_with("local:") {
+        std::path::PathBuf::from(source.trim_start_matches("local:"))
+    } else {
+        return Err(format!(
+            "unknown source `{source}`. Use `github:org/repo` or `local:/path/to/dir`"
+        ));
+    };
+
+    let manifest_path = plugin_dir.join("edytlab-plugin.json");
+    if !manifest_path.exists() {
+        return Err(format!(
+            "no edytlab-plugin.json found in `{}`",
+            plugin_dir.display()
+        ));
+    }
+
+    let manifest = skills::plugin::PluginManifest::load(&manifest_path)?;
+
+    let skills_installed =
+        manifest.install_skills(&plugin_dir, &edytlab_skills_dir(&app)?)?;
+    let agents_installed =
+        manifest.install_agents(&plugin_dir, &edytlab_agents_dir(&app)?)?;
+    let mcp_keys: Vec<String> = manifest.mcp_servers.keys().cloned().collect();
+
+    let summary = format!(
+        "Installed plugin '{}' v{}: {} skill(s), {} agent(s)",
+        manifest.name,
+        manifest.version,
+        skills_installed.len(),
+        agents_installed.len(),
+    );
+
+    Ok(serde_json::json!({
+        "name": manifest.name,
+        "version": manifest.version,
+        "skills_installed": skills_installed.len(),
+        "agents_installed": agents_installed.len(),
+        "mcp_keys": mcp_keys,
+        "summary": summary,
+    }))
+}
+
+// ---------------------------------------------------------------------------
 // Helpers re-exported for tests.
 // ---------------------------------------------------------------------------
 

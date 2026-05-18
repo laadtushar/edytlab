@@ -13,6 +13,7 @@ pub mod state;
 use crate::commands::{
     accept_b, add_marker, apply_template, approve_plan, batch_load, clear_api_key,
     install_bundled_skills,
+    install_plugin,
     clear_api_key_for, delete_agent_profile, delete_mcp_server, delete_skill,
     get_active_agent_profile, get_active_model, get_active_provider, get_graph, get_node,
     get_session_head, has_api_key, has_api_key_for, list_agent_profiles, list_capabilities,
@@ -206,6 +207,7 @@ pub fn run() {
             start_recording,
             stop_recording,
             install_bundled_skills,
+            install_plugin,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

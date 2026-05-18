@@ -484,3 +484,27 @@ export const stopRecording = (outputPath: string): Promise<RecordingResult> =>
 export async function installBundledSkills(): Promise<number> {
   return invoke<number>("install_bundled_skills");
 }
+
+// -----------------------------------------------------------------------------
+// Plugin install (Task 4)
+// -----------------------------------------------------------------------------
+
+export interface PluginInstallResult {
+  name: string;
+  version: string;
+  skills_installed: number;
+  agents_installed: number;
+  mcp_keys: string[];
+  summary: string;
+}
+
+/** Install a plugin from a GitHub repo or a local directory.
+ *
+ *  @param source  Either `"github:org/repo"` (downloads the main-branch zip
+ *                 from GitHub) or `"local:/abs/path/to/plugin-dir"`.
+ *  @returns       A summary object with the plugin name/version and counts of
+ *                 skills and agent profiles installed, plus any MCP server keys
+ *                 declared in the manifest. */
+export async function installPlugin(source: string): Promise<PluginInstallResult> {
+  return invoke<PluginInstallResult>("install_plugin", { source });
+}
