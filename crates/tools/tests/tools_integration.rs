@@ -710,6 +710,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "rename_track",
             "render_final",
             "render_preview",
+            "repeat_selection",
             "reverse",
             "revert_to",
             "separate_stems",

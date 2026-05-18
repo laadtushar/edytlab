@@ -88,8 +88,8 @@ impl ToolDispatcher {
             InsertSilenceTool, InvertTool, LabelTool, LoadTool, NameNodeTool, NoiseReductionTool,
             NormalizeTool, PasteRegionTool, PitchShiftTool, RemoveTrackTool, RenderFinalTool,
             RenderPreviewTool, RenameTrackTool, ReverseTool, RevertToTool, SeparateStemsTool,
-            SetClipEnvelopeTool, SetPanTool, SetTrackGainTool, SilenceRegionTool,
-            TimeStretchTool, TranscribeTool, TrimTool,
+            RepeatSelectionTool, SetClipEnvelopeTool, SetPanTool, SetTrackGainTool,
+            SilenceRegionTool, TimeStretchTool, TranscribeTool, TrimTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -128,9 +128,10 @@ impl ToolDispatcher {
         d.register(Box::new(NoiseReductionTool));
         // Task 6: per-clip volume envelope.
         d.register(Box::new(SetClipEnvelopeTool));
-        // A1: silence region, invert.
+        // A1: silence region, invert, repeat_selection.
         d.register(Box::new(SilenceRegionTool));
         d.register(Box::new(InvertTool));
+        d.register(Box::new(RepeatSelectionTool));
         // A1 task 2: metadata mutation.
         d.register(Box::new(SetPanTool));
         d.register(Box::new(RenameTrackTool));
