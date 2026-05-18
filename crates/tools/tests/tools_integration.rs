@@ -715,6 +715,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "limiter",
             "load",
             "low_pass_filter",
+            "mix_to_new_track",
             "mono_to_stereo",
             "mute_track",
             "name_node",

@@ -88,15 +88,15 @@ impl ToolDispatcher {
             DeEsserTool, DistortionTool, DuplicateTrackTool, EchoTool, EqTool, ExportLabelsTool,
             FadeTool, ForkNodeTool, GainTool, GenerateNoiseTool, GenerateToneTool,
             HighPassFilterTool, ImportLabelsTool, InsertSilenceTool, InvertTool, LabelTool,
-            LevelerTool, LimiterTool, LoadTool, LowPassFilterTool, MonoToStereoTool, MuteTrackTool,
-            NameNodeTool, NoiseGateTool, NoiseReductionTool, NormalizeTool, NotchFilterTool,
-            PasteRegionTool, PhaserTool, PitchShiftTool, PlotSpectrumTool, RemoveTrackTool,
-            RenameTrackTool, RenderFinalTool, RenderPreviewTool, RepeatSelectionTool,
-            ResampleTrackTool, ReverbTool, ReverseTool, RevertToTool, SeparateStemsTool,
-            SetClipEnvelopeTool, SetPanTool, SetTrackGainTool, SilenceFinderTool,
-            SilenceRegionTool, SoloTrackTool, SplitClipTool, StereoToMonoTool, StereoWidenerTool,
-            TimeShiftTool, TimeStretchTool, TranscribeTool, TremoloTool, TrimTool,
-            TruncateSilenceTool, VocalReductionTool,
+            LevelerTool, LimiterTool, LoadTool, LowPassFilterTool, MixToNewTrackTool,
+            MonoToStereoTool, MuteTrackTool, NameNodeTool, NoiseGateTool, NoiseReductionTool,
+            NormalizeTool, NotchFilterTool, PasteRegionTool, PhaserTool, PitchShiftTool,
+            PlotSpectrumTool, RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
+            RepeatSelectionTool, ResampleTrackTool, ReverbTool, ReverseTool, RevertToTool,
+            SeparateStemsTool, SetClipEnvelopeTool, SetPanTool, SetTrackGainTool,
+            SilenceFinderTool, SilenceRegionTool, SoloTrackTool, SplitClipTool, StereoToMonoTool,
+            StereoWidenerTool, TimeShiftTool, TimeStretchTool, TranscribeTool, TremoloTool,
+            TrimTool, TruncateSilenceTool, VocalReductionTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -178,6 +178,8 @@ impl ToolDispatcher {
         d.register(Box::new(GenerateNoiseTool));
         // vocal_reduction: L-R center cancellation for stereo.
         d.register(Box::new(VocalReductionTool));
+        // mix_to_new_track: offline-render selected tracks into a new track.
+        d.register(Box::new(MixToNewTrackTool));
         // A3 task 2: FFT magnitude spectrum analysis.
         d.register(Box::new(PlotSpectrumTool));
         // A3 task 3: tremolo, phaser, distortion, stereo_widener.
