@@ -698,6 +698,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "fork_node",
             "gain",
             "insert_silence",
+            "invert",
             "label",
             "load",
             "name_node",

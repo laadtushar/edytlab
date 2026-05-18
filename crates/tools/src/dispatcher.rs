@@ -85,7 +85,7 @@ impl ToolDispatcher {
         use crate::tool::{
             AddTrackTool, AlignToBeatTool, AnalyzeTrackTool, ApplyDiffTool, CompareNodesTool,
             CompressorTool, CopyRegionTool, CutRangeTool, EqTool, FadeTool, ForkNodeTool, GainTool,
-            InsertSilenceTool, LabelTool, LoadTool, NameNodeTool, NoiseReductionTool,
+            InsertSilenceTool, InvertTool, LabelTool, LoadTool, NameNodeTool, NoiseReductionTool,
             NormalizeTool, PasteRegionTool, PitchShiftTool, RemoveTrackTool, RenderFinalTool,
             RenderPreviewTool, RenameTrackTool, ReverseTool, RevertToTool, SeparateStemsTool,
             SetClipEnvelopeTool, SetPanTool, SetTrackGainTool, SilenceRegionTool,
@@ -128,8 +128,9 @@ impl ToolDispatcher {
         d.register(Box::new(NoiseReductionTool));
         // Task 6: per-clip volume envelope.
         d.register(Box::new(SetClipEnvelopeTool));
-        // A1: silence region.
+        // A1: silence region, invert.
         d.register(Box::new(SilenceRegionTool));
+        d.register(Box::new(InvertTool));
         // A1 task 2: metadata mutation.
         d.register(Box::new(SetPanTool));
         d.register(Box::new(RenameTrackTool));
