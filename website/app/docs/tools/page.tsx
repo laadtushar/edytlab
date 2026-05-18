@@ -5,11 +5,11 @@ import { DocShell } from "@/components/docs/doc-shell";
 export const metadata: Metadata = {
   title: "Audio Tools Reference",
   description:
-    "All 28 audio-editing tools available to the edytlab AI agent — cut, normalize, stem separate, transcribe, render, and more.",
+    "All 33 audio-editing tools available to the edytlab AI agent — cut, normalize, stem separate, transcribe, render, and more.",
   alternates: { canonical: "/docs/tools" },
   openGraph: {
     title: "Audio Tools Reference — edytlab Docs",
-    description: "Complete reference for all 28 agent-callable audio tools.",
+    description: "Complete reference for all 33 agent-callable audio tools.",
     url: `${siteConfig.url}/docs/tools`,
   },
 };
@@ -105,6 +105,35 @@ const groups = [
         name: "fade",
         prompt: 'add a 3-second fade-out',
         what: "Apply a fade-in or fade-out envelope. Curve options: linear, exponential, logarithmic.",
+        output: "node_id",
+      },
+      {
+        name: "set_clip_envelope",
+        prompt: 'set a volume fade: track 0 clip 0, from 0s at -20dB to 2s at 0dB',
+        what: "Set a per-clip volume automation curve. Provide (time_sec, gain_db) pairs and the engine linearly interpolates between them.",
+        output: "node_id",
+      },
+    ],
+  },
+  {
+    title: "Effects",
+    tools: [
+      {
+        name: "eq",
+        prompt: 'boost the highs on track 1 by 3 dB at 8 kHz',
+        what: "Apply a parametric EQ to a track using a chain of biquad peak filters. Specify frequency, gain (dB), and Q for each band.",
+        output: "node_id",
+      },
+      {
+        name: "compressor",
+        prompt: 'compress track 1: threshold -18 dB, ratio 4:1',
+        what: "Apply a dynamic compressor with configurable threshold, ratio, attack, and release. Uses an envelope follower for smooth gain reduction.",
+        output: "node_id",
+      },
+      {
+        name: "noise_reduction",
+        prompt: 'reduce background noise on track 1',
+        what: "Remove broadband noise via spectral subtraction (realFFT + overlap-add). Estimates the noise floor from a silent region and subtracts it from the signal.",
         output: "node_id",
       },
     ],
@@ -231,7 +260,7 @@ export default function ToolsPage() {
   return (
     <DocShell
       title="Audio Tools Reference"
-      description="All 28 tools the AI agent can call to edit your audio session."
+      description="All 33 tools the AI agent can call to edit your audio session."
     >
       <p>
         Tools are deterministic functions the agent calls to manipulate your

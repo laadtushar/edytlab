@@ -136,7 +136,8 @@ export default function GettingStartedPage() {
       <ul>
         <li>
           <strong>Drag and drop</strong> — drag an MP3, WAV, or FLAC file
-          directly onto the timeline area.
+          directly onto the timeline area. Drag multiple files at once to create
+          a multi-track session automatically.
         </li>
         <li>
           <strong>Open button</strong> — click "Open Audio" in the empty state
@@ -214,6 +215,7 @@ export default function GettingStartedPage() {
         </thead>
         <tbody>
           <tr><td>Space</td><td>Play / Pause</td></tr>
+          <tr><td>L</td><td>Toggle loop playback (loops the selected region)</td></tr>
           <tr><td>Ctrl/Cmd + Z</td><td>Undo</td></tr>
           <tr><td>Ctrl/Cmd + Y</td><td>Redo</td></tr>
           <tr><td>Ctrl + Scroll</td><td>Zoom waveform</td></tr>
@@ -232,7 +234,7 @@ export default function GettingStartedPage() {
           feature
         </li>
         <li>
-          <a href="/docs/tools">Audio Tools Reference</a> — all 28 tools the
+          <a href="/docs/tools">Audio Tools Reference</a> — all 33 tools the
           agent can call
         </li>
         <li>

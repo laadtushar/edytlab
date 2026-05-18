@@ -73,10 +73,37 @@ export default function UserGuidePage() {
         </li>
       </ul>
 
+      <h2>Session Templates</h2>
+      <p>
+        When no audio is loaded, click <strong>Start from template</strong> to
+        choose from a set of pre-configured session layouts:
+      </p>
+      <ul>
+        <li>
+          <strong>Podcast</strong> — host + guest tracks, pre-configured for
+          voice normalization and noise reduction.
+        </li>
+        <li>
+          <strong>Music</strong> — lead, harmony, bass, and drums tracks.
+        </li>
+        <li>
+          <strong>Interview</strong> — interviewer + subject tracks.
+        </li>
+      </ul>
+      <p>
+        Templates create the track structure and inject matching skills
+        automatically. You can still modify the session freely after choosing a
+        template.
+      </p>
+
       <h2>The Chat Interface</h2>
       <p>
         The chat panel on the right is where you direct the agent. Type your
         editing instruction in plain English — no commands to memorise.
+      </p>
+      <p>
+        Type <code>/</code> in the chat input to see an inline dropdown of all
+        available commands — press arrow keys to navigate, Enter to select.
       </p>
       <p>The agent:</p>
       <ul>
@@ -115,6 +142,10 @@ export default function UserGuidePage() {
           <strong>Space</strong> — play / pause from the current position.
         </li>
         <li>
+          <strong>L</strong> — toggle loop mode. When active, playback loops
+          within the selected region.
+        </li>
+        <li>
           <strong>Click the waveform</strong> — jump to that position.
         </li>
         <li>
@@ -123,7 +154,7 @@ export default function UserGuidePage() {
         </li>
         <li>
           <strong>Drag on the waveform</strong> — create a selection range (used
-          for range export and as agent context).
+          for range export, loop playback, and as agent context).
         </li>
       </ul>
 
@@ -273,6 +304,26 @@ export default function UserGuidePage() {
         </li>
       </ul>
       <p>Set the active profile from Settings → Agent Profiles.</p>
+
+      <h2>Tips and Keyboard Shortcuts</h2>
+      <ul>
+        <li>
+          Press <code>?</code> at any time to open the full keyboard shortcut
+          overlay.
+        </li>
+        <li>
+          Type <code>/</code> in the chat to browse all commands with
+          autocomplete — navigate with arrow keys, confirm with Enter.
+        </li>
+        <li>
+          Drag a selection on the waveform, then press <code>L</code> to loop
+          just that region during playback.
+        </li>
+        <li>
+          Drag multiple audio files onto the timeline at once to create a
+          multi-track session in one step.
+        </li>
+      </ul>
 
       <h2>LLM Provider and Model</h2>
       <p>
