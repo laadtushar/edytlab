@@ -89,7 +89,7 @@ impl ToolDispatcher {
             NormalizeTool, PasteRegionTool, PitchShiftTool, RemoveTrackTool, RenderFinalTool,
             RenderPreviewTool, RenameTrackTool, ReverseTool, RevertToTool, SeparateStemsTool,
             RepeatSelectionTool, SetClipEnvelopeTool, SetPanTool, SetTrackGainTool,
-            SilenceRegionTool, SoloTrackTool, TimeShiftTool, TimeStretchTool, TranscribeTool, TrimTool,
+            SilenceRegionTool, SoloTrackTool, SplitClipTool, TimeShiftTool, TimeStretchTool, TranscribeTool, TrimTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -143,6 +143,8 @@ impl ToolDispatcher {
         // A1 task 7: mute_track, solo_track.
         d.register(Box::new(MuteTrackTool));
         d.register(Box::new(SoloTrackTool));
+        // A1 task 8: split_clip.
+        d.register(Box::new(SplitClipTool));
         d
     }
 

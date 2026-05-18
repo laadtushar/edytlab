@@ -722,6 +722,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "set_track_gain",
             "silence_region",
             "solo_track",
+            "split_clip",
             "time_shift",
             "time_stretch",
             "transcribe",
