@@ -271,19 +271,19 @@ export function Settings({
     }
   }, [onCleared]);
 
-  async function handleInstallPlugin() {
+  const handleInstallPlugin = useCallback(async () => {
     if (!pluginSource.trim()) return;
     setPluginInstalling(true);
     setPluginResult(null);
     try {
       const result = await installPlugin(pluginSource.trim());
-      setPluginResult(result.summary);
+      setPluginResult(result?.summary ?? 'Plugin installed.');
     } catch (e) {
-      setPluginResult(`Error: ${e}`);
+      setPluginResult(`Error: ${String(e)}`);
     } finally {
       setPluginInstalling(false);
     }
-  }
+  }, [pluginSource]);
 
   const activeProviderEntry =
     PROVIDERS.find((p) => p.id === provider) ?? PROVIDERS[0];
@@ -402,7 +402,6 @@ export function Settings({
               label="Plugins"
               active={tab === "plugins"}
               onClick={() => setTab("plugins")}
-              testId="plugins-tab"
             />
           </div>
         ) : null}
@@ -714,7 +713,6 @@ interface SettingsTabButtonProps {
   label: string;
   active: boolean;
   onClick: () => void;
-  testId?: string;
 }
 
 function SettingsTabButton({
@@ -722,14 +720,13 @@ function SettingsTabButton({
   label,
   active,
   onClick,
-  testId,
 }: SettingsTabButtonProps) {
   return (
     <button
       type="button"
       role="tab"
       aria-selected={active}
-      data-testid={testId ?? `settings-tab-${id}`}
+      data-testid={`settings-tab-${id}`}
       onClick={onClick}
       className={
         "rounded-t-md border-b-2 px-3 py-1.5 text-sm transition " +
