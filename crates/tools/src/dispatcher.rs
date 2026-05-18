@@ -85,7 +85,7 @@ impl ToolDispatcher {
         use crate::tool::{
             AddTrackTool, AlignToBeatTool, AnalyzeTrackTool, ApplyDiffTool, ChangeSpeedTool,
             ClickRemovalTool, CompareNodesTool, CompressorTool, CopyRegionTool, CutRangeTool,
-            DuplicateTrackTool, EchoTool, EqTool, FadeTool, ForkNodeTool, GainTool,
+            DeEsserTool, DuplicateTrackTool, EchoTool, EqTool, FadeTool, ForkNodeTool, GainTool,
             GenerateNoiseTool, GenerateToneTool, HighPassFilterTool, InsertSilenceTool, InvertTool,
             LabelTool, LevelerTool, LimiterTool, LoadTool, LowPassFilterTool, MonoToStereoTool,
             MuteTrackTool, NameNodeTool, NoiseGateTool, NoiseReductionTool, NormalizeTool,
@@ -136,6 +136,8 @@ impl ToolDispatcher {
         d.register(Box::new(NoiseReductionTool));
         // D8: noise gate.
         d.register(Box::new(NoiseGateTool));
+        // A2: de_esser (sibilance reduction).
+        d.register(Box::new(DeEsserTool));
         // D9-D10: leveler and limiter.
         d.register(Box::new(LevelerTool));
         d.register(Box::new(LimiterTool));

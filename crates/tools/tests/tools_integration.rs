@@ -695,6 +695,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "compressor",
             "copy_region",
             "cut_range",
+            "de_esser",
             "duplicate_track",
             "echo",
             "eq",
