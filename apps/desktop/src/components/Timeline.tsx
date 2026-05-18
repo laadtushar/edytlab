@@ -590,6 +590,24 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <button
             type="button"
+            data-testid="zoom-out-btn"
+            onClick={() => onZoomChange?.(Math.max(10, Math.round((zoom ?? 50) / 1.5)))}
+            className="text-xs px-1.5 py-1 rounded border border-neutral-600 text-neutral-400 hover:border-neutral-400 transition-colors"
+            title="Zoom out (Ctrl+scroll)"
+          >
+            −
+          </button>
+          <button
+            type="button"
+            data-testid="zoom-in-btn"
+            onClick={() => onZoomChange?.(Math.min(500, Math.round((zoom ?? 50) * 1.5)))}
+            className="text-xs px-1.5 py-1 rounded border border-neutral-600 text-neutral-400 hover:border-neutral-400 transition-colors"
+            title="Zoom in (Ctrl+scroll)"
+          >
+            +
+          </button>
+          <button
+            type="button"
             data-testid="loop-btn"
             onClick={() => onLoopChange?.(!loop)}
             className={`text-xs px-2 py-1 rounded border transition-colors ${
