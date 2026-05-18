@@ -86,14 +86,14 @@ impl ToolDispatcher {
             AddTrackTool, AlignToBeatTool, AnalyzeTrackTool, ApplyDiffTool, ChangeSpeedTool,
             ClickRemovalTool, CompareNodesTool, CompressorTool, CopyRegionTool, CutRangeTool,
             DuplicateTrackTool, EchoTool, EqTool, FadeTool, ForkNodeTool, GainTool,
-            HighPassFilterTool, InsertSilenceTool, InvertTool, LabelTool, LevelerTool, LimiterTool,
-            LoadTool, LowPassFilterTool, MonoToStereoTool, MuteTrackTool, NameNodeTool,
-            NoiseGateTool, NoiseReductionTool, NormalizeTool, NotchFilterTool, PasteRegionTool,
-            PitchShiftTool, RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
-            RepeatSelectionTool, ReverbTool, ReverseTool, RevertToTool, SeparateStemsTool,
-            SetClipEnvelopeTool, SetPanTool, SetTrackGainTool, SilenceRegionTool, SoloTrackTool,
-            SplitClipTool, StereoToMonoTool, TimeShiftTool, TimeStretchTool, TranscribeTool,
-            TrimTool, TruncateSilenceTool,
+            GenerateNoiseTool, GenerateToneTool, HighPassFilterTool, InsertSilenceTool, InvertTool,
+            LabelTool, LevelerTool, LimiterTool, LoadTool, LowPassFilterTool, MonoToStereoTool,
+            MuteTrackTool, NameNodeTool, NoiseGateTool, NoiseReductionTool, NormalizeTool,
+            NotchFilterTool, PasteRegionTool, PitchShiftTool, RemoveTrackTool, RenameTrackTool,
+            RenderFinalTool, RenderPreviewTool, RepeatSelectionTool, ReverbTool, ReverseTool,
+            RevertToTool, SeparateStemsTool, SetClipEnvelopeTool, SetPanTool, SetTrackGainTool,
+            SilenceRegionTool, SoloTrackTool, SplitClipTool, StereoToMonoTool, TimeShiftTool,
+            TimeStretchTool, TranscribeTool, TrimTool, TruncateSilenceTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -166,6 +166,9 @@ impl ToolDispatcher {
         // Channel conversion: stereo_to_mono, mono_to_stereo.
         d.register(Box::new(MonoToStereoTool));
         d.register(Box::new(StereoToMonoTool));
+        // Audio generators: synthesize tones and noise.
+        d.register(Box::new(GenerateToneTool));
+        d.register(Box::new(GenerateNoiseTool));
         d
     }
 

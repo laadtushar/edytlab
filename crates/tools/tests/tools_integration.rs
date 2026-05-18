@@ -701,6 +701,8 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "fade",
             "fork_node",
             "gain",
+            "generate_noise",
+            "generate_tone",
             "high_pass_filter",
             "insert_silence",
             "invert",
