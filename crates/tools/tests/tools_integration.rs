@@ -732,6 +732,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "set_clip_envelope",
             "set_pan",
             "set_track_gain",
+            "silence_finder",
             "silence_region",
             "solo_track",
             "split_clip",
@@ -741,6 +742,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "transcribe",
             "trim",
             "truncate_silence",
+            "vocal_reduction",
         ]
     );
 }

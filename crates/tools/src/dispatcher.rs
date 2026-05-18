@@ -92,8 +92,9 @@ impl ToolDispatcher {
             NotchFilterTool, PasteRegionTool, PitchShiftTool, RemoveTrackTool, RenameTrackTool,
             RenderFinalTool, RenderPreviewTool, RepeatSelectionTool, ReverbTool, ReverseTool,
             RevertToTool, SeparateStemsTool, SetClipEnvelopeTool, SetPanTool, SetTrackGainTool,
-            SilenceRegionTool, SoloTrackTool, SplitClipTool, StereoToMonoTool, TimeShiftTool,
-            TimeStretchTool, TranscribeTool, TrimTool, TruncateSilenceTool,
+            SilenceFinderTool, SilenceRegionTool, SoloTrackTool, SplitClipTool, StereoToMonoTool,
+            TimeShiftTool, TimeStretchTool, TranscribeTool, TrimTool, TruncateSilenceTool,
+            VocalReductionTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -142,7 +143,8 @@ impl ToolDispatcher {
         d.register(Box::new(SetClipEnvelopeTool));
         // A1 task 5: change_speed linear resampling.
         d.register(Box::new(ChangeSpeedTool));
-        // A1: silence region, invert, repeat_selection.
+        // A1: silence_finder (analysis), silence region, invert, repeat_selection.
+        d.register(Box::new(SilenceFinderTool));
         d.register(Box::new(SilenceRegionTool));
         d.register(Box::new(InvertTool));
         d.register(Box::new(RepeatSelectionTool));
@@ -169,6 +171,8 @@ impl ToolDispatcher {
         // Audio generators: synthesize tones and noise.
         d.register(Box::new(GenerateToneTool));
         d.register(Box::new(GenerateNoiseTool));
+        // vocal_reduction: L-R center cancellation for stereo.
+        d.register(Box::new(VocalReductionTool));
         d
     }
 
