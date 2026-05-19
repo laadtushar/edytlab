@@ -428,19 +428,18 @@ where
     // 1. Push the user turn onto the running conversation.
     // Save a copy before `user_message` is consumed by the ContentBlock move.
     let user_msg_saved = user_message.clone();
+    // If the user edited the plan steps before approving, merge the override
+    // into the same user message to avoid consecutive Role::User turns, which
+    // the Anthropic API rejects with 400 Bad Request.
+    let user_text = if let Some(override_text) = step_override {
+        format!("{}\n\n{}", user_message, override_text)
+    } else {
+        user_message
+    };
     conversation.push(Message {
         role: Role::User,
-        content: vec![ContentBlock::Text { text: user_message }],
+        content: vec![ContentBlock::Text { text: user_text }],
     });
-    // If the user edited the plan steps before approving, inject their
-    // override as an additional user turn so the model follows the
-    // revised steps rather than the original plan.
-    if let Some(override_text) = step_override {
-        conversation.push(Message {
-            role: Role::User,
-            content: vec![ContentBlock::Text { text: override_text }],
-        });
-    }
 
     let tool_schemas = {
         let d = dispatcher.lock().expect("dispatcher mutex poisoned");
