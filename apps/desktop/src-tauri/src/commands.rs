@@ -2765,4 +2765,43 @@ mod tests {
         let result = filter_whitelist(whitelist.clone(), &blacklist);
         assert_eq!(result, whitelist);
     }
+
+    #[test]
+    fn apply_blacklist_none_whitelist_returns_all_tools_minus_blacklist() {
+        // When there is no profile whitelist (None), apply_blacklist should
+        // expand to all registered tool names and then remove the blacklisted
+        // ones — returning Some(filtered_all_tools).
+        let state = AppState::new();
+        let all_names = state.all_tool_names();
+        assert!(!all_names.is_empty(), "dispatcher must expose at least one tool");
+
+        // Pick any two real tool names to blacklist.
+        let blacklist: Vec<String> = all_names.iter().take(2).cloned().collect();
+
+        let result = apply_blacklist(None, &blacklist, &state);
+
+        // Result must be Some.
+        let filtered = result.expect("expected Some when whitelist is None and blacklist is non-empty");
+
+        // Must not contain the blacklisted tools.
+        for name in &blacklist {
+            assert!(
+                !filtered.contains(name),
+                "blacklisted tool '{name}' should not appear in result"
+            );
+        }
+
+        // Must contain every tool that was NOT blacklisted.
+        for name in &all_names {
+            if !blacklist.contains(name) {
+                assert!(
+                    filtered.contains(name),
+                    "non-blacklisted tool '{name}' should appear in result"
+                );
+            }
+        }
+
+        // The filtered list length should equal all_names minus the blacklist.
+        assert_eq!(filtered.len(), all_names.len() - blacklist.len());
+    }
 }
