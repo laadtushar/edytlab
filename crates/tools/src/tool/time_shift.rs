@@ -4,7 +4,7 @@ use crate::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn apply_time_shift(current: u64, delta_samples: u64) -> u64 {
     current + delta_samples
 }

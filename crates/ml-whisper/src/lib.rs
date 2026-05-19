@@ -82,6 +82,7 @@ pub struct WhisperModel {
     // doc-comment for the Phase-1 scope. We keep the field non-public so
     // we can swap in beam-search state and tokenizer handles later
     // without breaking callers.
+    // #[allow(dead_code)]: field is intentionally unused until Phase-2 inference is wired up
     #[allow(dead_code)]
     session: ort::session::Session,
 }

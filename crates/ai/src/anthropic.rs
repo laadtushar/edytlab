@@ -159,7 +159,7 @@ pub enum StreamEvent {
 #[derive(Debug, Deserialize)]
 pub struct MessageMeta {
     pub id: String,
-    #[allow(dead_code)]
+    // populated by serde from the SSE envelope; reserved for logging/telemetry
     pub model: String,
 }
 
@@ -171,13 +171,13 @@ pub struct MessageMeta {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentBlockStart {
     Text {
-        #[allow(dead_code)]
+        // populated by serde; text content arrives via TextDelta events instead
         text: String,
     },
     ToolUse {
         id: String,
         name: String,
-        #[allow(dead_code)]
+        // populated by serde; args stream in via InputJsonDelta events instead
         input: Value,
     },
     #[serde(other)]
@@ -205,7 +205,7 @@ pub struct MessageDeltaInner {
 #[derive(Debug, Deserialize, Clone)]
 pub struct ApiError {
     #[serde(rename = "type")]
-    #[allow(dead_code)]
+    // populated by serde from the API error envelope; message is what callers display
     pub kind: String,
     pub message: String,
 }

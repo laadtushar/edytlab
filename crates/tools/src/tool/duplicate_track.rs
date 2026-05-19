@@ -5,7 +5,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use session::TrackId;
 
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn validate_track_idx(idx: usize, len: usize) -> Result<(), String> {
     if idx >= len {
         Err(format!("track {idx} out of range (len={len})"))

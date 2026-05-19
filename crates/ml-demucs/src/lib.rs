@@ -123,6 +123,7 @@ pub type Result<T> = std::result::Result<T, DemucsError>;
 pub struct DemucsModel {
     /// Underlying ORT session. Held but not driven yet — see the
     /// module doc-comment for the Phase-2 scope.
+    // #[allow(dead_code)]: intentionally unused until Phase-2 stem-separation inference is wired up
     #[allow(dead_code)]
     session: Arc<ort::session::Session>,
     /// Canonical model identifier: `"htdemucs"` or `"htdemucs_ft"`.

@@ -39,12 +39,15 @@ struct JsonRpcResponse {
     #[serde(default)]
     error: Option<JsonRpcError>,
     #[serde(default)]
+    // populated by serde for protocol completeness; not inspected after parsing
+    // required by JSON-RPC spec; value is only needed for request correlation
     #[allow(dead_code)]
     id: Option<Value>,
 }
 
 #[derive(Debug, Deserialize)]
 struct JsonRpcError {
+    // required by JSON-RPC spec; only `message` is surfaced to callers
     #[allow(dead_code)]
     code: i64,
     message: String,
