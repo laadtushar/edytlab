@@ -328,12 +328,14 @@ async fn agent_dispatches_normalize_and_emits_node_created() {
     // Agent pointed at the mock.
     let cfg = ai::LlmConfig::new_anthropic("test-key").with_base_url(server.uri());
     let plan_notify = Arc::new(tokio::sync::Notify::new());
+    let plan_steps_override = Arc::new(std::sync::Mutex::new(None));
     let mut agent = ai::Agent::new(
         cfg,
         dispatcher.clone(),
         store.clone(),
         engine.clone(),
         plan_notify,
+        plan_steps_override,
         clipboard,
     );
 
@@ -578,7 +580,8 @@ async fn agent_enforces_tool_call_cap() {
 
     let cfg = ai::LlmConfig::new_anthropic("test-key").with_base_url(server.uri());
     let plan_notify = Arc::new(tokio::sync::Notify::new());
-    let mut agent = ai::Agent::new(cfg, dispatcher, store, engine, plan_notify, clipboard2);
+    let plan_steps_override = Arc::new(std::sync::Mutex::new(None));
+    let mut agent = ai::Agent::new(cfg, dispatcher, store, engine, plan_notify, plan_steps_override, clipboard2);
 
     let err = agent
         .turn("loop please".to_string(), |_| {})

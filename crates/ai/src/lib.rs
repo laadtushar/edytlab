@@ -24,6 +24,7 @@
 //!     store,
 //!     engine,
 //!     Arc::new(tokio::sync::Notify::new()),
+//!     Arc::new(std::sync::Mutex::new(None)),
 //! );
 //!
 //! let result = agent
@@ -250,6 +251,10 @@ pub struct Agent {
     /// Tauri `AppState` so the `approve_plan` command can fire it without
     /// acquiring the agent Mutex.
     pub(crate) plan_notify: Arc<tokio::sync::Notify>,
+    /// Edited plan steps forwarded by the frontend before approval. Shared
+    /// with `AppState`; the agent loop reads and clears it after waking so
+    /// subsequent turns start clean.
+    pub(crate) plan_steps_override: Arc<std::sync::Mutex<Option<String>>>,
     /// User memory (global + project). When present, `render()` is
     /// called per turn and the result is spliced into the system
     /// prompt after the base prompt and before `SessionContext`.
@@ -279,6 +284,7 @@ impl Agent {
         store: Arc<Mutex<session::Store>>,
         engine: Arc<Mutex<audio_engine::Engine>>,
         plan_notify: Arc<tokio::sync::Notify>,
+        plan_steps_override: Arc<std::sync::Mutex<Option<String>>>,
         clipboard: Arc<Mutex<Option<Vec<f32>>>>,
     ) -> Self {
         Self {
@@ -290,6 +296,7 @@ impl Agent {
             clipboard,
             conversation: Vec::new(),
             plan_notify,
+            plan_steps_override,
             memory: None,
             skills: None,
             profile_body: None,
@@ -368,6 +375,7 @@ impl Agent {
             &self.clipboard,
             &mut self.conversation,
             &self.plan_notify,
+            &self.plan_steps_override,
             user_message,
             session_ctx,
             self.memory.as_deref(),

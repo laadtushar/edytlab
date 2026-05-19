@@ -1314,8 +1314,35 @@ fn emit_agent_event<R: tauri::Runtime>(app: &AppHandle<R>, event: ai::AgentEvent
 /// Deliberately does NOT acquire the agent mutex — `send_message` holds
 /// it across its `.await` points, so touching the agent here would
 /// deadlock.  The notifier lives independently on `AppState`.
+///
+/// When `steps` is non-empty the edited step descriptions are stored in
+/// `plan_steps_override` before the notifier fires.  The agent loop reads
+/// and clears this slot immediately after it wakes, then appends the
+/// override text to the conversation so the model executes the user's
+/// modified plan rather than the original one.
 #[tauri::command]
-pub async fn approve_plan(state: State<'_, AppState>) -> CmdResult<()> {
+pub async fn approve_plan(
+    state: State<'_, AppState>,
+    steps: Option<Vec<String>>,
+) -> CmdResult<()> {
+    if let Some(steps) = steps {
+        if !steps.is_empty() {
+            let formatted = steps
+                .iter()
+                .enumerate()
+                .map(|(i, s)| format!("{}. {}", i + 1, s))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let override_text = format!(
+                "I've updated the plan. Please follow these revised steps instead:\n{}",
+                formatted
+            );
+            *state
+                .plan_steps_override
+                .lock()
+                .expect("plan_steps_override mutex poisoned") = Some(override_text);
+        }
+    }
     state.plan_notify.notify_one();
     Ok(())
 }
@@ -1916,6 +1943,7 @@ async fn rebuild_agent(state: &AppState) -> Result<(), CommandError> {
                 store,
                 Arc::clone(&state.engine),
                 Arc::clone(&state.plan_notify),
+                Arc::clone(&state.plan_steps_override),
                 state.clipboard_handle(),
             );
             let agent = match state.memory_handle() {

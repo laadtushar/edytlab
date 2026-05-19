@@ -402,7 +402,15 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
                   shadow-[0_4px_10px_-4px_var(--accent-glow)]
                   hover:bg-[#ffa05f]
                 "
-                onClick={() => void approvePlan()}
+                onClick={() => {
+                  // Only forward edited steps to the backend when at least
+                  // one description differs from the original plan.
+                  const hasEdits = localPlanSteps !== null &&
+                    localPlanSteps.some(
+                      (s, i) => s.description !== (pendingPlan.steps[i]?.description ?? ""),
+                    );
+                  void approvePlan(hasEdits ? localPlanSteps : undefined);
+                }}
               >
                 Run
               </button>
@@ -437,6 +445,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
                       <button
                         type="button"
                         data-testid="plan-step-save"
+                        disabled={!editDraft.trim()}
                         onClick={() => {
                           const trimmed = editDraft.trim();
                           if (trimmed) {
@@ -454,6 +463,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
                           rounded border border-[var(--accent)]/45
                           px-2 py-0.5 text-[10px] font-medium text-[var(--accent)]
                           hover:bg-[var(--accent-soft)]
+                          disabled:opacity-40 disabled:cursor-not-allowed
                         "
                       >
                         Save

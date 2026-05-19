@@ -27,7 +27,7 @@ const sendMessageMock = vi.fn();
 
 vi.mock("../../lib/tauri-bridge", () => ({
   sendMessage: (text: string) => sendMessageMock(text),
-  approvePlan: () => approvePlanMock(),
+  approvePlan: (steps?: string[]) => approvePlanMock(steps),
   onTextDelta: vi.fn((cb: (t: string) => void) => {
     cbs.textDelta.push(cb);
     return Promise.resolve(() => undefined);
@@ -122,7 +122,7 @@ describe("PlanCard (inside Chat)", () => {
     expect(screen.getAllByText(/Render mashup/).length).toBeGreaterThan(0);
   });
 
-  it("clicking Run calls approvePlan", async () => {
+  it("clicking Run calls approvePlan with no steps when unedited", async () => {
     const user = userEvent.setup();
     render(<Chat />);
     await act(async () => {
@@ -135,6 +135,57 @@ describe("PlanCard (inside Chat)", () => {
 
     await user.click(screen.getByTestId("plan-run-button"));
     expect(approvePlanMock).toHaveBeenCalledTimes(1);
+    // No edits — the bridge receives undefined so the backend gets null.
+    expect(approvePlanMock).toHaveBeenCalledWith(undefined);
+  });
+
+  it("clicking Run after editing a step forwards the updated descriptions", async () => {
+    const user = userEvent.setup();
+    render(<Chat />);
+    await act(async () => {
+      await flush();
+    });
+
+    await act(async () => {
+      cbs.plan[0](sampleSteps);
+    });
+
+    // Edit the first step
+    const editButtons = screen.getAllByTestId("plan-edit-button");
+    await user.click(editButtons[0]);
+    const editor = screen.getByTestId("plan-step-editor");
+    await user.clear(editor);
+    await user.type(editor, "Revised first step");
+    await user.click(screen.getByTestId("plan-step-save"));
+
+    // Click Run — should forward the edited descriptions
+    await user.click(screen.getByTestId("plan-run-button"));
+    expect(approvePlanMock).toHaveBeenCalledTimes(1);
+    const calledWith: string[] = approvePlanMock.mock.calls[0][0];
+    expect(calledWith[0]).toBe("Revised first step");
+    // Other steps unchanged
+    expect(calledWith[1]).toBe("Analyse B BPM and key");
+    expect(calledWith[2]).toBe("Separate A into 4 stems");
+  });
+
+  it("Save button is disabled when the textarea is empty", async () => {
+    const user = userEvent.setup();
+    render(<Chat />);
+    await act(async () => {
+      await flush();
+    });
+
+    await act(async () => {
+      cbs.plan[0](sampleSteps);
+    });
+
+    const editButtons = screen.getAllByTestId("plan-edit-button");
+    await user.click(editButtons[0]);
+    const editor = screen.getByTestId("plan-step-editor");
+    await user.clear(editor);
+
+    const saveBtn = screen.getByTestId("plan-step-save");
+    expect(saveBtn).toBeDisabled();
   });
 
   it("clicking Edit on a step opens inline textarea for that step", async () => {

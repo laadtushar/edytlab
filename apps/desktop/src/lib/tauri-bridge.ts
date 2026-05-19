@@ -336,8 +336,8 @@ export const onNodeCreated = (
 export const onAgentDone = (cb: () => void): Promise<UnlistenFn> =>
   listen<Record<string, never>>("agent://done", () => cb());
 
-export const approvePlan = (): Promise<void> =>
-  invoke<void>("approve_plan");
+export const approvePlan = (steps?: string[]): Promise<void> =>
+  invoke<void>("approve_plan", { steps: steps && steps.length > 0 ? steps : null });
 
 export const onPlan = (
   cb: (steps: Record<string, unknown>[]) => void,

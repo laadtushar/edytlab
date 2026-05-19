@@ -68,6 +68,12 @@ pub struct AppState {
     /// deadlock even though `send_message` holds the agent lock across its
     /// `.await` points.
     pub plan_notify: Arc<tokio::sync::Notify>,
+    /// Edited plan steps forwarded by the frontend when the user modifies
+    /// one or more step descriptions before clicking Run. Set by
+    /// `approve_plan` before it fires `plan_notify`; consumed and cleared
+    /// by the agent loop immediately after `await_plan_approval` returns.
+    /// `None` when the user approves without edits.
+    pub plan_steps_override: Arc<Mutex<Option<String>>>,
     /// Current timeline selection, pushed from the frontend via
     /// `set_selection_context`. Read per-turn in `send_message` to build
     /// the `SessionContext` injected into the system prompt.
@@ -131,6 +137,7 @@ impl AppState {
             active_provider: Arc::new(Mutex::new(ai::ANTHROPIC_ID.to_string())),
             active_model_by_provider: Arc::new(Mutex::new(std::collections::HashMap::new())),
             plan_notify: Arc::new(tokio::sync::Notify::new()),
+            plan_steps_override: Arc::new(Mutex::new(None)),
             selection: Arc::new(Mutex::new(None)),
             clipboard: Arc::new(Mutex::new(None)),
             memory: Arc::new(Mutex::new(None)),

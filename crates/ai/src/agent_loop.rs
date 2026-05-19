@@ -349,6 +349,7 @@ pub(crate) async fn run_turn<F>(
     clipboard: &Arc<Mutex<Option<Vec<f32>>>>,
     conversation: &mut Vec<Message>,
     plan_notify: &Arc<Notify>,
+    plan_steps_override: &Arc<std::sync::Mutex<Option<String>>>,
     user_message: String,
     session_ctx: Option<&SessionContext>,
     memory_store: Option<&memory::MemoryStore>,
@@ -403,6 +404,7 @@ where
 
     // M27: if mashup mode, request a plan from the model and wait for
     // the frontend to approve before executing any tools.
+    let mut step_override: Option<String> = None;
     if mode == Mode::Mashup {
         if let Some(steps) = fetch_plan(cfg, http, system_prompt, conversation, &user_message).await
         {
@@ -412,6 +414,12 @@ where
             // Block until the frontend fires plan_notify via the
             // `approve_plan` command, or time out after 5 minutes.
             await_plan_approval(plan_notify).await?;
+            // Consume any step overrides the frontend stored before
+            // firing the notifier.
+            step_override = plan_steps_override
+                .lock()
+                .expect("plan_steps_override mutex poisoned")
+                .take();
         }
         // If fetch_plan returns None (e.g. parse failure) we continue
         // without gating — graceful degradation.
@@ -424,6 +432,15 @@ where
         role: Role::User,
         content: vec![ContentBlock::Text { text: user_message }],
     });
+    // If the user edited the plan steps before approving, inject their
+    // override as an additional user turn so the model follows the
+    // revised steps rather than the original plan.
+    if let Some(override_text) = step_override {
+        conversation.push(Message {
+            role: Role::User,
+            content: vec![ContentBlock::Text { text: override_text }],
+        });
+    }
 
     let tool_schemas = {
         let d = dispatcher.lock().expect("dispatcher mutex poisoned");

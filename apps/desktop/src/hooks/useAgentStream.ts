@@ -111,8 +111,11 @@ export interface UseAgentStreamResult {
   reset: () => void;
   /** Non-null while the agent is awaiting plan approval (mashup mode). */
   pendingPlan: PlanEntry | null;
-  /** Approve the pending plan. Clears `pendingPlan` and unblocks the loop. */
-  approvePlan: () => Promise<void>;
+  /** Approve the pending plan. Clears `pendingPlan` and unblocks the loop.
+   *  Pass `steps` when the user edited one or more step descriptions; the
+   *  override is forwarded to the backend so the agent follows the revised
+   *  plan rather than the original one. */
+  approvePlan: (steps?: Array<{ step: number; tool: string; description: string }>) => Promise<void>;
 }
 
 /**
@@ -362,10 +365,14 @@ export function useAgentStream(): UseAgentStreamResult {
     setAwaiting(false);
   }, []);
 
-  const approvePlan = useCallback(async () => {
-    await bridgeApprovePlan();
-    setPendingPlan(null);
-  }, []);
+  const approvePlan = useCallback(
+    async (steps?: Array<{ step: number; tool: string; description: string }>) => {
+      const descriptions = steps?.map((s) => s.description);
+      await bridgeApprovePlan(descriptions);
+      setPendingPlan(null);
+    },
+    [],
+  );
 
   return {
     entries,
