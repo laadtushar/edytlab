@@ -161,7 +161,14 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
     pushUserMessage(wireText);
     setBusy(true);
     try {
-      await bridgeSendMessage(wireText);
+      let disabledTools: string[] = [];
+      try {
+        const raw = localStorage.getItem("edytlab.capabilities.disabled");
+        disabledTools = raw ? (JSON.parse(raw) as string[]) : [];
+      } catch {
+        // corrupt localStorage entry — send with no restrictions
+      }
+      await bridgeSendMessage(wireText, disabledTools);
     } catch (err) {
       setLocalError(friendlyError(err));
     } finally {

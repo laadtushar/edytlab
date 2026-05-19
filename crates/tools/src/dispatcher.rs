@@ -262,6 +262,11 @@ impl ToolDispatcher {
         Value::Array(self.tools.values().map(|r| r.tool.schema()).collect())
     }
 
+    /// Names of every registered tool. Order is unspecified.
+    pub fn tool_names(&self) -> Vec<String> {
+        self.tools.keys().cloned().collect()
+    }
+
     /// Validate `args` against the tool's precompiled `input_schema`
     /// and dispatch.
     ///

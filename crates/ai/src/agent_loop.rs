@@ -1029,6 +1029,30 @@ No other text."#;
     }
 
     #[test]
+    fn filter_tool_schemas_excludes_blacklisted() {
+        use serde_json::json;
+        let schemas = json!([
+            { "name": "load", "description": "" },
+            { "name": "gain", "description": "" },
+            { "name": "fade", "description": "" },
+        ]);
+        let all_names = vec!["load".to_string(), "gain".to_string(), "fade".to_string()];
+        let blacklist = ["gain".to_string()];
+        let remaining: Vec<String> = all_names
+            .into_iter()
+            .filter(|t| !blacklist.contains(t))
+            .collect();
+        let out = filter_tool_schemas(schemas, &remaining);
+        let names: Vec<&str> = out
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, vec!["load", "fade"]);
+    }
+
+    #[test]
     fn filter_tool_schemas_empty_whitelist_hides_everything() {
         use serde_json::json;
         let schemas = json!([{ "name": "load" }]);

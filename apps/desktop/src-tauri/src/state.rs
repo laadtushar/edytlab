@@ -426,6 +426,14 @@ impl AppState {
         *self.selection.lock().expect("selection mutex poisoned")
     }
 
+    /// Names of every tool registered in the dispatcher.
+    pub fn all_tool_names(&self) -> Vec<String> {
+        self.dispatcher
+            .lock()
+            .expect("dispatcher mutex poisoned")
+            .tool_names()
+    }
+
     /// Clone the clipboard `Arc` handle so callers (e.g. `rebuild_agent`)
     /// can share the same clipboard instance with the `Agent`.
     pub fn clipboard_handle(&self) -> Arc<Mutex<Option<Vec<f32>>>> {

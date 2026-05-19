@@ -47,8 +47,8 @@ export interface SessionState {
 export const openProject = (path: string): Promise<ProjectInfo> =>
   invoke<ProjectInfo>("open_project", { path });
 
-export const sendMessage = (text: string): Promise<void> =>
-  invoke<void>("send_message", { text });
+export const sendMessage = (text: string, disabledTools?: string[]): Promise<void> =>
+  invoke<void>("send_message", { text, disabledTools: disabledTools ?? [] });
 
 export type ProviderId = "anthropic" | "openrouter" | "openai" | "groq" | "gemini";
 

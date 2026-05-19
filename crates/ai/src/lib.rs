@@ -310,6 +310,12 @@ impl Agent {
         self
     }
 
+    /// Replace the current tool whitelist in place. Returns the previous
+    /// value so the caller can restore it after a single turn.
+    pub fn swap_tool_whitelist(&mut self, whitelist: Option<Vec<String>>) -> Option<Vec<String>> {
+        std::mem::replace(&mut self.tool_whitelist, whitelist)
+    }
+
     /// Builder — attach a memory store. Returns `self` so callers can
     /// chain: `Agent::new(...).with_memory(store)`.
     pub fn with_memory(mut self, memory: Arc<memory::MemoryStore>) -> Self {

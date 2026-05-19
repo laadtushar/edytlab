@@ -1156,11 +1156,46 @@ pub async fn accept_b<R: Runtime>(
 // send_message
 // ---------------------------------------------------------------------------
 
+/// Build an effective tool whitelist by removing `blacklist` entries.
+///
+/// * If the caller already has a profile-based whitelist, remove any
+///   blacklisted names from it.
+/// * If there is no profile whitelist, expand to *all* registered tools
+///   and then remove the blacklisted names (so the model still gets every
+///   non-disabled tool rather than an unrestricted set).
+/// * If `blacklist` is empty, return `whitelist` unchanged.
+fn apply_blacklist(
+    whitelist: Option<Vec<String>>,
+    blacklist: &[String],
+    state: &AppState,
+) -> Option<Vec<String>> {
+    if blacklist.is_empty() {
+        return whitelist;
+    }
+    match whitelist {
+        Some(list) => Some(
+            list.into_iter()
+                .filter(|t| !blacklist.contains(t))
+                .collect(),
+        ),
+        None => {
+            let names = state.all_tool_names();
+            Some(
+                names
+                    .into_iter()
+                    .filter(|t| !blacklist.contains(t))
+                    .collect(),
+            )
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn send_message<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
     text: String,
+    disabled_tools: Vec<String>,
 ) -> CmdResult<()> {
     // Build the per-turn SessionContext from the current selection and
     // the annotations on the store head. We snapshot these before
@@ -1198,10 +1233,24 @@ pub async fn send_message<R: Runtime>(
         emit_agent_event(&app_handle, event);
     };
 
-    agent
+    // Apply the per-turn disabled-tools blacklist. We snapshot the
+    // agent's current whitelist, compute an effective whitelist that
+    // excludes the disabled tools, swap it in for the duration of this
+    // turn, and restore the original afterwards — even on error.
+    let prev_whitelist = {
+        let current = agent.swap_tool_whitelist(None); // take current out
+        let effective = apply_blacklist(current, &disabled_tools, &state);
+        agent.swap_tool_whitelist(effective) // put effective in, get None back
+    };
+
+    let turn_result = agent
         .turn_with_context(text, session_ctx.as_ref(), on_event)
-        .await
-        .map_err(CommandError::from)?;
+        .await;
+
+    // Restore the original whitelist regardless of turn success/failure.
+    agent.swap_tool_whitelist(prev_whitelist);
+
+    turn_result.map_err(CommandError::from)?;
 
     Ok(())
 }
