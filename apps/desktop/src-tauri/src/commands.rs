@@ -1240,11 +1240,9 @@ pub async fn send_message<R: Runtime>(
     // agent's current whitelist, compute an effective whitelist that
     // excludes the disabled tools, swap it in for the duration of this
     // turn, and restore the original afterwards — even on error.
-    let prev_whitelist = {
-        let current = agent.swap_tool_whitelist(None); // take current out
-        let effective = apply_blacklist(current, &disabled_tools, &state);
-        agent.swap_tool_whitelist(effective) // put effective in, get None back
-    };
+    let current = agent.swap_tool_whitelist(None); // take current out
+    let effective = apply_blacklist(current.clone(), &disabled_tools, &state);
+    agent.swap_tool_whitelist(effective); // put effective in
 
     let turn_result = agent
         .turn_with_context(text, session_ctx.as_ref(), on_event)
@@ -1255,7 +1253,7 @@ pub async fn send_message<R: Runtime>(
     // on Err. Panics inside an async Tokio task surface as task failures
     // (not process panics), so the agent lock is released and the restore
     // is visible once the task unwinds — acceptable for this use-case.
-    agent.swap_tool_whitelist(prev_whitelist);
+    agent.swap_tool_whitelist(current);
 
     turn_result.map_err(CommandError::from)?;
 
@@ -2773,7 +2771,10 @@ mod tests {
         // ones — returning Some(filtered_all_tools).
         let state = AppState::new();
         let all_names = state.all_tool_names();
-        assert!(!all_names.is_empty(), "dispatcher must expose at least one tool");
+        assert!(
+            !all_names.is_empty(),
+            "dispatcher must expose at least one tool"
+        );
 
         // Pick any two real tool names to blacklist.
         let blacklist: Vec<String> = all_names.iter().take(2).cloned().collect();
@@ -2781,7 +2782,8 @@ mod tests {
         let result = apply_blacklist(None, &blacklist, &state);
 
         // Result must be Some.
-        let filtered = result.expect("expected Some when whitelist is None and blacklist is non-empty");
+        let filtered =
+            result.expect("expected Some when whitelist is None and blacklist is non-empty");
 
         // Must not contain the blacklisted tools.
         for name in &blacklist {
