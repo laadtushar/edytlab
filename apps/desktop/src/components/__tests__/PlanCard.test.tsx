@@ -137,7 +137,7 @@ describe("PlanCard (inside Chat)", () => {
     expect(approvePlanMock).toHaveBeenCalledTimes(1);
   });
 
-  it("clicking Edit shows 'Edit coming soon' toast", async () => {
+  it("clicking Edit on a step opens inline textarea for that step", async () => {
     const user = userEvent.setup();
     render(<Chat />);
     await act(async () => {
@@ -148,11 +148,61 @@ describe("PlanCard (inside Chat)", () => {
       cbs.plan[0](sampleSteps);
     });
 
-    await user.click(screen.getByTestId("plan-edit-button"));
-    expect(screen.getByTestId("plan-edit-toast")).toBeInTheDocument();
-    expect(screen.getByTestId("plan-edit-toast").textContent).toContain(
-      "Edit coming soon",
-    );
+    // Click the first step's Edit button
+    const editButtons = screen.getAllByTestId("plan-edit-button");
+    await user.click(editButtons[0]);
+
+    // Inline editor should now be visible with the step's description pre-filled
+    const editor = screen.getByTestId("plan-step-editor");
+    expect(editor).toBeInTheDocument();
+    expect((editor as HTMLTextAreaElement).value).toBe("Analyse A BPM and key");
+  });
+
+  it("saving an edited step updates the displayed description", async () => {
+    const user = userEvent.setup();
+    render(<Chat />);
+    await act(async () => {
+      await flush();
+    });
+
+    await act(async () => {
+      cbs.plan[0](sampleSteps);
+    });
+
+    const editButtons = screen.getAllByTestId("plan-edit-button");
+    await user.click(editButtons[0]);
+
+    const editor = screen.getByTestId("plan-step-editor");
+    await user.clear(editor);
+    await user.type(editor, "Updated step description");
+    await user.click(screen.getByTestId("plan-step-save"));
+
+    // Editor should be gone; updated text should appear
+    expect(screen.queryByTestId("plan-step-editor")).not.toBeInTheDocument();
+    expect(screen.getAllByText(/Updated step description/).length).toBeGreaterThan(0);
+  });
+
+  it("cancelling an edit reverts to original description", async () => {
+    const user = userEvent.setup();
+    render(<Chat />);
+    await act(async () => {
+      await flush();
+    });
+
+    await act(async () => {
+      cbs.plan[0](sampleSteps);
+    });
+
+    const editButtons = screen.getAllByTestId("plan-edit-button");
+    await user.click(editButtons[0]);
+
+    const editor = screen.getByTestId("plan-step-editor");
+    await user.clear(editor);
+    await user.type(editor, "Discard this");
+    await user.click(screen.getByTestId("plan-step-cancel"));
+
+    expect(screen.queryByTestId("plan-step-editor")).not.toBeInTheDocument();
+    expect(screen.getAllByText(/Analyse A BPM and key/).length).toBeGreaterThan(0);
   });
 
   it("plan approval card disappears after Run is clicked", async () => {

@@ -97,7 +97,10 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
-  const [editToast, setEditToast] = useState(false);
+  // Inline plan step editing state
+  const [editingStepIdx, setEditingStepIdx] = useState<number | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [localPlanSteps, setLocalPlanSteps] = useState<Array<{ step: number; tool: string; description: string }> | null>(null);
   const [capsOpen, setCapsOpen] = useState(false);
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashIdx, setSlashIdx] = useState(0);
@@ -131,6 +134,17 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
       setTimeout(() => textareaRef.current?.focus(), 0);
     },
   }));
+
+  // Sync local plan steps when a new pending plan arrives.
+  useEffect(() => {
+    if (pendingPlan) {
+      setLocalPlanSteps(pendingPlan.steps.map((s) => ({ ...s })));
+      setEditingStepIdx(null);
+      setEditDraft("");
+    } else {
+      setLocalPlanSteps(null);
+    }
+  }, [pendingPlan]);
 
   // Auto-scroll to bottom on new entries / streaming deltas / awaiting state.
   useEffect(() => {
@@ -379,21 +393,6 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
             <div className="flex gap-1.5">
               <button
                 type="button"
-                data-testid="plan-edit-button"
-                className="
-                  rounded border border-[var(--border-strong)]
-                  px-2 py-0.5 text-xs text-[var(--text-dim)]
-                  hover:bg-[var(--surface-elev-2)]
-                "
-                onClick={() => {
-                  setEditToast(true);
-                  setTimeout(() => setEditToast(false), 2000);
-                }}
-              >
-                Edit
-              </button>
-              <button
-                type="button"
                 data-testid="plan-run-button"
                 className="
                   rounded
@@ -410,22 +409,99 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
             </div>
           </div>
           <ol className="space-y-1 px-3 py-2.5 pl-7 list-decimal text-xs text-[var(--text-dim)]">
-            {pendingPlan.steps.map((s) => (
+            {(localPlanSteps ?? pendingPlan.steps).map((s, idx) => (
               <li key={s.step}>
-                <span className="font-mono text-[var(--text)]">{s.tool}</span>{" "}
-                <span>— {s.description}</span>
+                {editingStepIdx === idx ? (
+                  <span className="flex flex-col gap-1 mt-0.5">
+                    <span className="font-mono text-[var(--text)]">{s.tool}</span>
+                    <textarea
+                      data-testid="plan-step-editor"
+                      autoFocus
+                      rows={2}
+                      value={editDraft}
+                      onChange={(e) => setEditDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          setEditingStepIdx(null);
+                          setEditDraft("");
+                        }
+                      }}
+                      className="
+                        w-full resize-none rounded border border-[var(--accent)]/45
+                        bg-[var(--surface)] px-2 py-1
+                        text-xs text-[var(--text)]
+                        outline-none focus:border-[var(--accent)]/70
+                      "
+                    />
+                    <span className="flex gap-1">
+                      <button
+                        type="button"
+                        data-testid="plan-step-save"
+                        onClick={() => {
+                          const trimmed = editDraft.trim();
+                          if (trimmed) {
+                            setLocalPlanSteps((prev) => {
+                              if (!prev) return prev;
+                              return prev.map((step, i) =>
+                                i === idx ? { ...step, description: trimmed } : step,
+                              );
+                            });
+                          }
+                          setEditingStepIdx(null);
+                          setEditDraft("");
+                        }}
+                        className="
+                          rounded border border-[var(--accent)]/45
+                          px-2 py-0.5 text-[10px] font-medium text-[var(--accent)]
+                          hover:bg-[var(--accent-soft)]
+                        "
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="plan-step-cancel"
+                        onClick={() => {
+                          setEditingStepIdx(null);
+                          setEditDraft("");
+                        }}
+                        className="
+                          rounded border border-[var(--border-strong)]
+                          px-2 py-0.5 text-[10px] text-[var(--text-dim)]
+                          hover:bg-[var(--surface-elev-2)]
+                        "
+                      >
+                        Cancel
+                      </button>
+                    </span>
+                  </span>
+                ) : (
+                  <span className="group flex items-start gap-1.5">
+                    <span className="flex-1">
+                      <span className="font-mono text-[var(--text)]">{s.tool}</span>{" "}
+                      <span>— {s.description}</span>
+                    </span>
+                    <button
+                      type="button"
+                      data-testid="plan-edit-button"
+                      onClick={() => {
+                        setEditingStepIdx(idx);
+                        setEditDraft(s.description);
+                      }}
+                      className="
+                        shrink-0 rounded border border-[var(--border-strong)]
+                        px-1.5 py-0.5 text-[10px] text-[var(--text-faint)]
+                        opacity-0 group-hover:opacity-100 transition-opacity
+                        hover:bg-[var(--surface-elev-2)] hover:text-[var(--text-dim)]
+                      "
+                    >
+                      Edit
+                    </button>
+                  </span>
+                )}
               </li>
             ))}
           </ol>
-          {editToast ? (
-            <p
-              role="status"
-              data-testid="plan-edit-toast"
-              className="border-t border-[var(--border)] bg-[var(--surface-elev-2)] px-3 py-1.5 text-xs text-[var(--warning)]"
-            >
-              Edit coming soon
-            </p>
-          ) : null}
         </div>
       ) : null}
 
