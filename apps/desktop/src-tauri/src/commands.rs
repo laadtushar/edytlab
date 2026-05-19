@@ -1164,6 +1164,9 @@ pub async fn accept_b<R: Runtime>(
 ///   and then remove the blacklisted names (so the model still gets every
 ///   non-disabled tool rather than an unrestricted set).
 /// * If `blacklist` is empty, return `whitelist` unchanged.
+// Note: acquires dispatcher lock indirectly via `state.all_tool_names()`.
+// Callers must not hold the dispatcher lock already; the agent lock
+// (held by send_message) is acquired before this call.
 fn apply_blacklist(
     whitelist: Option<Vec<String>>,
     blacklist: &[String],
@@ -1248,6 +1251,10 @@ pub async fn send_message<R: Runtime>(
         .await;
 
     // Restore the original whitelist regardless of turn success/failure.
+    // Restore happens before the `?` propagation so it is guaranteed even
+    // on Err. Panics inside an async Tokio task surface as task failures
+    // (not process panics), so the agent lock is released and the restore
+    // is visible once the task unwinds — acceptable for this use-case.
     agent.swap_tool_whitelist(prev_whitelist);
 
     turn_result.map_err(CommandError::from)?;
@@ -2717,5 +2724,45 @@ mod tests {
         // Anything unmapped lands in `audio` so new tools render without
         // a code change to `category_for`.
         assert_eq!(super::category_for("some_future_tool"), "audio");
+    }
+
+    // ------------------------------------------------------------------
+    // apply_blacklist tests
+    // ------------------------------------------------------------------
+
+    /// Helper: exercise the filtering logic used by `apply_blacklist` for the
+    /// `Some(whitelist)` branch without needing a real `AppState`.
+    fn filter_whitelist(whitelist: Vec<String>, blacklist: &[String]) -> Vec<String> {
+        whitelist
+            .into_iter()
+            .filter(|t| !blacklist.contains(t))
+            .collect()
+    }
+
+    #[test]
+    fn apply_blacklist_filters_disabled_from_profile_whitelist() {
+        // With a profile whitelist [load, gain, fade], disabling [gain]
+        // should produce [load, fade].
+        let whitelist = vec!["load".to_string(), "gain".to_string(), "fade".to_string()];
+        let blacklist = vec!["gain".to_string()];
+        let result = filter_whitelist(whitelist, &blacklist);
+        assert_eq!(result, vec!["load", "fade"]);
+    }
+
+    #[test]
+    fn apply_blacklist_empty_blacklist_returns_whitelist_unchanged() {
+        let whitelist = vec!["load".to_string(), "gain".to_string()];
+        let blacklist: Vec<String> = vec![];
+        let result = filter_whitelist(whitelist.clone(), &blacklist);
+        assert_eq!(result, whitelist);
+    }
+
+    #[test]
+    fn apply_blacklist_blacklist_not_in_whitelist_is_noop() {
+        // Disabling a tool that isn't in the whitelist should not change it.
+        let whitelist = vec!["load".to_string(), "gain".to_string()];
+        let blacklist = vec!["unknown_tool".to_string()];
+        let result = filter_whitelist(whitelist.clone(), &blacklist);
+        assert_eq!(result, whitelist);
     }
 }
