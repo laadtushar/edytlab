@@ -228,6 +228,21 @@ struct TrackStreamer {
     source_eof: bool,
     /// Per-clip volume automation points (sorted by time_samples).
     volume_envelope: Vec<(u64, f32)>,
+    /// Project-rate frames of silence still owed before the clip's audio
+    /// starts, from the clip's `start_in_track`.
+    lead_frames_remaining: u64,
+}
+
+/// Convert a frame count from a source's rate into the project's rate.
+///
+/// `u128` intermediate so a long clip at a high rate can't overflow the
+/// multiply. Identity when the rates match, which keeps the common case
+/// bit-for-bit what it was before resampling entered the picture.
+fn to_project_frames(source_frames: u64, in_rate: u32, project_rate: u32) -> u64 {
+    if in_rate == project_rate || in_rate == 0 {
+        return source_frames;
+    }
+    ((source_frames as u128) * (project_rate as u128) / (in_rate as u128)) as u64
 }
 
 struct TrackResampler {
@@ -264,12 +279,8 @@ impl TrackStreamer {
 
         // Project-rate frame count for this track. u128 to avoid overflow;
         // matches M21's `expected_out_frames` formula bit-for-bit.
-        let project_frames_total = if in_rate == project_rate {
-            src_frames_remaining
-        } else {
-            let v = (src_frames_remaining as u128) * (project_rate as u128) / (in_rate as u128);
-            v as u64
-        };
+        let project_frames_total = to_project_frames(src_frames_remaining, in_rate, project_rate);
+        let lead_frames_remaining = to_project_frames(plan.start_in_track, in_rate, project_rate);
 
         let resampler = if in_rate == project_rate {
             None
@@ -324,6 +335,7 @@ impl TrackStreamer {
             source_chunk_interleaved,
             source_eof: src_frames_remaining == 0,
             volume_envelope,
+            lead_frames_remaining,
         })
     }
 
@@ -460,7 +472,35 @@ impl TrackStreamer {
     /// Returns the number of project-rate frames written. A return less
     /// than `want` means this track will not contribute beyond that point —
     /// the caller pads master output with zeros.
+    ///
+    /// A clip that starts partway into its track emits that many frames of
+    /// silence first. The silence is written explicitly rather than left to
+    /// the caller: the master loop sums exactly `got * channels` samples
+    /// from a scratch buffer it deliberately does not clear, so anything
+    /// counted in the return value has to actually be in `dst`.
     fn next_chunk(&mut self, want: usize, dst: &mut [f32]) -> Result<usize, Error> {
+        if want == 0 {
+            return Ok(0);
+        }
+        let mut written = 0usize;
+        if self.lead_frames_remaining > 0 {
+            let n = (self.lead_frames_remaining as usize).min(want);
+            for v in &mut dst[..n * self.out_channels] {
+                *v = 0.0;
+            }
+            self.lead_frames_remaining -= n as u64;
+            written = n;
+            if written == want {
+                return Ok(written);
+            }
+        }
+        let got = self.next_audio_chunk(want - written, &mut dst[written * self.out_channels..])?;
+        Ok(written + got)
+    }
+
+    /// [`next_chunk`](Self::next_chunk) past the leading silence: the clip's
+    /// own audio, resampled, channel-mapped and gained.
+    fn next_audio_chunk(&mut self, want: usize, dst: &mut [f32]) -> Result<usize, Error> {
         if self.eof || want == 0 {
             return Ok(0);
         }
@@ -620,13 +660,15 @@ fn render_streaming(
             .saturating_add(plan.length)
             .min(total_frames);
         let src_frames = clip_end.saturating_sub(clip_start);
-        let project_frames = if in_rate == graph.project_sample_rate {
-            src_frames
-        } else {
-            ((src_frames as u128) * (graph.project_sample_rate as u128) / (in_rate as u128)) as u64
-        };
-        if project_frames > total_project_frames {
-            total_project_frames = project_frames;
+        // The render runs until the last clip *ends*, which is where it
+        // starts plus how long it is — not merely the longest clip. A
+        // two-second clip parked at 0:30 makes a 32-second render.
+        let clip_end_in_project =
+            to_project_frames(src_frames, in_rate, graph.project_sample_rate).saturating_add(
+                to_project_frames(plan.start_in_track, in_rate, graph.project_sample_rate),
+            );
+        if clip_end_in_project > total_project_frames {
+            total_project_frames = clip_end_in_project;
         }
         openers.push(Some((reader, plan)));
     }
@@ -703,12 +745,14 @@ fn render_streaming(
         // state.tracks insertion order. Per-sample summation order is fixed
         // by track index, then by interleaved sample index. See determinism
         // invariant.
-        for (ti, streamer) in streamers.iter_mut().enumerate() {
+        for (pi, streamer) in streamers.iter_mut().enumerate() {
             let Some(streamer) = streamer else { continue };
             // Secondary mute/solo gate — primary is plan.contributes resolved
             // at graph-build time; this call ensures the predicate is live
             // and exercised so dead-code elimination cannot remove it.
-            let track = &state.tracks[ti];
+            // A plan entry is one *clip*, so its position no longer names a
+            // track; the owning index travels on the plan.
+            let track = &state.tracks[graph.tracks[pi].track_index];
             if !should_include_track(track.muted, track.soloed, any_solo) {
                 continue;
             }

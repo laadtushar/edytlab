@@ -4,18 +4,27 @@
 //!
 //! Phase 1 collapsed the session DAG to a single-track / single-clip linear
 //! chain because tracks were guaranteed `len() <= 1`. M21 lifts that:
-//! sessions can carry multiple tracks, each with one clip, all of which are
-//! summed into a deterministic mixdown at render time. Bus routing and the
-//! master chain remain forward-compat fields, ignored here.
+//! sessions can carry multiple tracks, all of which are summed into a
+//! deterministic mixdown at render time. Bus routing and the master chain
+//! remain forward-compat fields, ignored here.
+//!
+//! The single-clip assumption outlived Phase 1 by rather longer, and it
+//! was not harmless: `cut_range` with an interior range and `split_clip`
+//! both leave a track holding two clips, and the graph read only
+//! `clips.first()`. Everything after the cut was dropped from the
+//! mixdown with no error anywhere to say so. A track is now flattened
+//! into one plan entry *per clip*, each carrying the track index it came
+//! from so solo/mute stays a per-track decision.
 //!
 //! ### Mixdown order
 //!
-//! Tracks are added to the mix in their `state.tracks` order. The session
-//! preserves insertion order (it's a `Vec<Track>`) and downstream tools
-//! (`add_track`, `remove_track`) maintain that order, so two byte-identical
-//! sessions produce a byte-identical mix even on machines whose `HashMap`
-//! iteration order differs. This is the M14 determinism trap; do not
-//! reorder tracks inside the render path.
+//! Tracks are added to the mix in their `state.tracks` order, and each
+//! track's clips in their `Vec<Clip>` order. The session preserves
+//! insertion order and downstream tools (`add_track`, `remove_track`)
+//! maintain that order, so two byte-identical sessions produce a
+//! byte-identical mix even on machines whose `HashMap` iteration order
+//! differs. This is the M14 determinism trap; do not reorder tracks or
+//! clips inside the render path.
 //!
 //! ### Solo / mute semantics
 //!
@@ -30,21 +39,35 @@ use session::{EnvelopePoint, SessionState};
 
 use crate::Error;
 
-/// One entry in the multi-track mix.
+/// One clip, flattened into an entry in the mix.
 ///
 /// Each plan entry carries everything the offline render needs to materialise
-/// that track: where to read samples from, the trim window in source frames,
-/// the linear gain (in dB), and whether this track will actually contribute
-/// (after solo/mute resolution at graph-build time).
+/// one clip: where to read samples from, the trim window in source frames,
+/// where it sits on the track's timeline, the linear gain (in dB), and
+/// whether it will actually contribute (after solo/mute resolution at
+/// graph-build time).
+///
+/// The name is historical — a track used to be guaranteed one clip, so a
+/// plan entry and a track were the same thing. They are not any more, which
+/// is why [`track_index`](TrackPlan::track_index) has to be carried
+/// explicitly: the render loop still needs to reach the owning `Track` for
+/// its live solo/mute gate, and the plan index no longer answers that.
 #[derive(Debug, Clone)]
 pub struct TrackPlan {
     pub source_path: PathBuf,
+    /// Index into `state.tracks` of the track this clip belongs to.
+    /// Several plan entries share one index when a track has been split.
+    pub track_index: usize,
     pub gain_db: f32,
     /// Frame offset into the decoded source where the clip starts.
     pub source_offset: u64,
+    /// Where the clip begins on the track's timeline, in the source's
+    /// frame domain. Rendered as leading silence; a gap between two clips
+    /// stays a gap rather than being spliced shut.
+    pub start_in_track: u64,
     /// Frame length of the clip (counted in the source's sample rate).
     pub length: u64,
-    /// Resolved contribution flag: if `false`, the render skips this track
+    /// Resolved contribution flag: if `false`, the render skips this clip
     /// outright. Captures both mute (no solo present) and "not-soloed"
     /// (some other track has solo).
     pub contributes: bool,
@@ -88,24 +111,27 @@ pub fn build(state: &SessionState) -> Result<RenderGraph, Error> {
     let any_soloed = state.tracks.iter().any(|t| t.soloed);
 
     let mut plans: Vec<TrackPlan> = Vec::with_capacity(state.tracks.len());
-    for track in &state.tracks {
+    for (track_index, track) in state.tracks.iter().enumerate() {
         if !track.effects.is_empty() {
             return Err(Error::EffectsUnsupportedInPhase1);
         }
         // Tracks with zero clips are valid but contribute nothing; the
         // session-state model lets a freshly added empty track sit in the
-        // tree before any `load`/`cut_range` populates it.
-        let Some(clip) = track.clips.first() else {
+        // tree before any `load`/`cut_range` populates it. They still get a
+        // placeholder entry so an empty track is visible in the plan.
+        if track.clips.is_empty() {
             plans.push(TrackPlan {
                 source_path: PathBuf::new(),
+                track_index,
                 gain_db: track.gain_db,
                 source_offset: 0,
+                start_in_track: 0,
                 length: 0,
                 contributes: false,
                 volume_envelope: Vec::new(),
             });
             continue;
-        };
+        }
 
         let contributes = if any_soloed {
             track.soloed
@@ -113,14 +139,18 @@ pub fn build(state: &SessionState) -> Result<RenderGraph, Error> {
             !track.muted
         };
 
-        plans.push(TrackPlan {
-            source_path: clip.source_path.clone(),
-            gain_db: track.gain_db,
-            source_offset: clip.source_offset,
-            length: clip.length,
-            contributes,
-            volume_envelope: clip.volume_envelope.clone(),
-        });
+        for clip in &track.clips {
+            plans.push(TrackPlan {
+                source_path: clip.source_path.clone(),
+                track_index,
+                gain_db: track.gain_db,
+                source_offset: clip.source_offset,
+                start_in_track: clip.start_in_track,
+                length: clip.length,
+                contributes,
+                volume_envelope: clip.volume_envelope.clone(),
+            });
+        }
     }
 
     // Decide whether the whole graph reduces to a unity byte-copy. The
@@ -160,10 +190,17 @@ fn single_track_unity(
     {
         return Ok(None);
     }
-    let clip = match track.clips.first() {
-        Some(c) => c,
-        None => return Ok(None),
-    };
+    // A byte-copy can only stand in for a track that *is* exactly one
+    // source file. A split track is two clips whose concatenation is not
+    // any single file on disk, and a clip that starts late needs leading
+    // silence the source doesn't contain.
+    if track.clips.len() != 1 {
+        return Ok(None);
+    }
+    let clip = &track.clips[0];
+    if clip.start_in_track != 0 {
+        return Ok(None);
+    }
     let (source_frames, source_rate) = peek_source_spec(&clip.source_path)?;
     if clip.source_offset != 0 || clip.length != source_frames {
         return Ok(None);

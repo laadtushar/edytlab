@@ -308,6 +308,71 @@ fn cut_range_shortens_render_by_exact_duration() {
     );
 }
 
+/// An interior cut splits the track into two clips, and both must survive
+/// into the render.
+///
+/// The tail-cut test above sidesteps this on purpose — it cuts at the end
+/// so a single clip is left. An interior cut is where the render graph used
+/// to read `clips.first()` and drop everything after the cut point: the
+/// render came back the length of the *head* alone, with the rest of the
+/// track silently gone.
+#[test]
+fn interior_cut_range_keeps_both_halves_in_the_render() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.5);
+    let out = tmp.path().join("interior-cut.wav");
+
+    let mut clipboard: Option<Vec<f32>> = None;
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+        user_message: "",
+        clipboard: &mut clipboard,
+    };
+
+    let load = ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+    let original_len = load["length_samples"].as_u64().unwrap();
+
+    // Cut a chunk out of the middle, leaving audio on both sides of it.
+    let cut_start = original_len / 4;
+    let cut_end = cut_start + 10_000;
+    let cut = ok(dispatcher
+        .invoke(
+            "cut_range",
+            json!({
+                "track": 0,
+                "start_sample": cut_start,
+                "end_sample": cut_end,
+            }),
+            &mut ctx,
+        )
+        .unwrap());
+    let new_id = cut["node_id"].as_str().unwrap().to_string();
+
+    ok(dispatcher
+        .invoke(
+            "render_final",
+            json!({
+                "node_id": new_id,
+                "format": "wav",
+                "out_path": out.to_string_lossy(),
+            }),
+            &mut ctx,
+        )
+        .unwrap());
+
+    let reader = WavReader::open(&out).unwrap();
+    let frames = reader.duration() as u64;
+    assert_eq!(
+        frames,
+        original_len - 10_000,
+        "an interior cut must shorten the render by exactly the cut, \
+         not truncate it to the first clip"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Acceptance criterion 4: every mutating tool creates exactly one new node
 // parented to the prior head.
