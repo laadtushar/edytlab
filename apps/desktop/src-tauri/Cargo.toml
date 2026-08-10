@@ -3,6 +3,7 @@ name = "edytlab-desktop"
 version = "0.1.0"
 description = "edytlab — conversational audio editor (Tauri shell)"
 edition = "2021"
+license.workspace = true
 publish = false
 
 [lib]

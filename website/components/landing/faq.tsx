@@ -30,7 +30,7 @@ const faqs = [
   },
   {
     q: "Is it open source?",
-    a: "The desktop app and audio engine live in a public GitHub repository. The licensing split between the engine and any future hosted services is being finalized — see the design spec for the current thinking.",
+    a: "Yes. The desktop app and audio engine live in a public GitHub repository under the MIT License, so you can use, modify and redistribute them, including commercially.",
   },
 ];
 
