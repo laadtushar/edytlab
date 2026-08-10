@@ -341,11 +341,33 @@ pub(crate) struct BiquadCoeffs {
     pub a2: f32,
 }
 
+/// Normalised angular frequency for a biquad, held safely below Nyquist.
+///
+/// The coefficient formulas below assume `0 < w0 < π`. At or above
+/// Nyquist `sin(w0)` goes to zero and then negative, which flips the
+/// sign of `alpha` and pushes the filter's poles outside the unit
+/// circle — it stops attenuating and starts diverging exponentially,
+/// so the render saturates into a full-scale square wave. Asking a
+/// 44.1 kHz track for a 30 kHz low-pass is an easy thing for a model to
+/// do, and the intent ("pass everything") is clear, so the frequency is
+/// clamped rather than rejected.
+fn safe_w0(freq_hz: f32, sample_rate: u32) -> f32 {
+    let sr = sample_rate.max(1) as f32;
+    // 0.45·sr keeps a little headroom below Nyquist, where the bilinear
+    // transform's frequency warping is still well behaved.
+    let ceiling = sr * 0.45;
+    let clamped = if freq_hz.is_finite() {
+        freq_hz.clamp(1.0, ceiling.max(1.0))
+    } else {
+        ceiling.max(1.0)
+    };
+    2.0 * std::f32::consts::PI * clamped / sr
+}
+
 impl BiquadCoeffs {
     /// Second-order Butterworth high-pass filter.
     pub(crate) fn high_pass(cutoff_hz: f32, sample_rate: u32) -> Self {
-        use std::f32::consts::PI;
-        let w0 = 2.0 * PI * cutoff_hz / sample_rate as f32;
+        let w0 = safe_w0(cutoff_hz, sample_rate);
         let alpha = w0.sin() / (2.0 * 0.707_f32);
         let cos_w0 = w0.cos();
         let b0 = (1.0 + cos_w0) / 2.0;
@@ -365,8 +387,7 @@ impl BiquadCoeffs {
 
     /// Second-order Butterworth low-pass filter.
     pub(crate) fn low_pass(cutoff_hz: f32, sample_rate: u32) -> Self {
-        use std::f32::consts::PI;
-        let w0 = 2.0 * PI * cutoff_hz / sample_rate as f32;
+        let w0 = safe_w0(cutoff_hz, sample_rate);
         let alpha = w0.sin() / (2.0 * 0.707_f32);
         let cos_w0 = w0.cos();
         let b0 = (1.0 - cos_w0) / 2.0;
@@ -386,8 +407,7 @@ impl BiquadCoeffs {
 
     /// Notch (band-reject) filter.
     pub(crate) fn notch(center_hz: f32, q: f32, sample_rate: u32) -> Self {
-        use std::f32::consts::PI;
-        let w0 = 2.0 * PI * center_hz / sample_rate as f32;
+        let w0 = safe_w0(center_hz, sample_rate);
         let alpha = w0.sin() / (2.0 * q);
         let cos_w0 = w0.cos();
         let b0 = 1.0;
@@ -447,6 +467,70 @@ mod biquad_tests {
             tail_mean.abs() < 0.01,
             "DC should be attenuated by HPF, got {tail_mean}"
         );
+    }
+
+    /// A cutoff above Nyquist must not turn the filter into an oscillator.
+    ///
+    /// Without the clamp the poles land outside the unit circle and the
+    /// output grows exponentially: by the end of a tenth of a second the
+    /// samples are astronomically large, and the render clips into a
+    /// full-scale square wave.
+    #[test]
+    fn low_pass_above_nyquist_stays_bounded() {
+        let mut samples = vec![0.5f32; 4410];
+        let coeffs = BiquadCoeffs::low_pass(30_000.0, 44_100);
+        biquad_process(&mut samples, 1, &coeffs, 0, 4410);
+        let peak = samples.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+        assert!(
+            peak.is_finite() && peak <= 1.0,
+            "cutoff above Nyquist must stay bounded, got peak {peak}"
+        );
+        // Clamping to just under Nyquist means "pass everything", so the
+        // signal should still be recognisably itself rather than silence.
+        let tail_mean: f32 = samples[4000..].iter().sum::<f32>() / 410.0;
+        assert!(
+            (tail_mean - 0.5).abs() < 0.05,
+            "a low-pass above Nyquist should pass the signal, got {tail_mean}"
+        );
+    }
+
+    #[test]
+    fn high_pass_above_nyquist_stays_bounded() {
+        let mut samples = vec![0.5f32; 4410];
+        let coeffs = BiquadCoeffs::high_pass(30_000.0, 44_100);
+        biquad_process(&mut samples, 1, &coeffs, 0, 4410);
+        let peak = samples.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+        assert!(
+            peak.is_finite() && peak <= 1.0,
+            "cutoff above Nyquist must stay bounded, got peak {peak}"
+        );
+    }
+
+    #[test]
+    fn notch_above_nyquist_stays_bounded() {
+        let mut samples = vec![0.5f32; 4410];
+        let coeffs = BiquadCoeffs::notch(30_000.0, 1.0, 44_100);
+        biquad_process(&mut samples, 1, &coeffs, 0, 4410);
+        let peak = samples.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+        assert!(
+            peak.is_finite() && peak <= 1.0,
+            "centre above Nyquist must stay bounded, got peak {peak}"
+        );
+    }
+
+    /// A non-finite frequency must not produce NaN coefficients, which
+    /// would poison the whole buffer through the filter's delay line.
+    #[test]
+    fn non_finite_cutoff_yields_finite_coefficients() {
+        for freq in [f32::NAN, f32::INFINITY, -1.0, 0.0] {
+            let mut samples = vec![0.5f32; 512];
+            let coeffs = BiquadCoeffs::low_pass(freq, 44_100);
+            biquad_process(&mut samples, 1, &coeffs, 0, 512);
+            assert!(
+                samples.iter().all(|s| s.is_finite()),
+                "cutoff {freq} produced non-finite output"
+            );
+        }
     }
 
     #[test]

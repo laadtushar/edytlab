@@ -23,10 +23,33 @@ struct BiquadCoeffs {
     a2: f64,
 }
 
+/// Normalised angular frequency for a band, held safely below Nyquist.
+///
+/// The cookbook formulas assume `0 < w0 < π`. Past Nyquist `sin(w0)`
+/// turns negative, which flips the sign of `alpha` and can drive `a0`
+/// through zero — the band stops shaping the signal and starts
+/// diverging exponentially, so the render saturates into a full-scale
+/// square wave. A band above Nyquist has nothing to act on anyway, so
+/// the frequency is clamped rather than rejected. `crate::tool::util`
+/// carries the same guard for the shared biquad constructors.
+fn safe_w0(freq_hz: f32, sample_rate: u32) -> f64 {
+    let sr = sample_rate.max(1) as f64;
+    // 0.45·sr leaves headroom below Nyquist, where the bilinear
+    // transform's frequency warping is still well behaved.
+    let ceiling = (sr * 0.45).max(1.0);
+    let f = freq_hz as f64;
+    let clamped = if f.is_finite() {
+        f.clamp(1.0, ceiling)
+    } else {
+        ceiling
+    };
+    2.0 * std::f64::consts::PI * clamped / sr
+}
+
 impl BiquadCoeffs {
     fn peak_eq(freq_hz: f32, gain_db: f32, q: f32, sample_rate: u32) -> Self {
         let a = 10f64.powf(gain_db as f64 / 40.0);
-        let w0 = 2.0 * std::f64::consts::PI * freq_hz as f64 / sample_rate as f64;
+        let w0 = safe_w0(freq_hz, sample_rate);
         let alpha = w0.sin() / (2.0 * q as f64);
 
         let a0 = 1.0 + alpha / a;
@@ -351,6 +374,32 @@ mod tests {
         assert!(
             rms_after > rms_before * 1.5,
             "expected RMS to increase substantially: before={rms_before}, after={rms_after}"
+        );
+    }
+
+    /// A band above Nyquist must not turn the EQ into an oscillator.
+    ///
+    /// Unclamped, `peak_eq(30_000, …)` at 44.1 kHz puts the poles
+    /// outside the unit circle and the buffer grows without bound —
+    /// the render clips into a full-scale square wave.
+    #[test]
+    fn band_above_nyquist_stays_bounded() {
+        let sr = 44100u32;
+        let mut samples: Vec<f32> = (0..sr as usize)
+            .map(|i| (2.0 * std::f32::consts::PI * 1000.0 * i as f32 / sr as f32).sin() * 0.5)
+            .collect();
+
+        let bands = vec![Band {
+            freq_hz: 30_000.0,
+            gain_db: 6.0,
+            q: 1.0,
+        }];
+        apply_eq(&mut samples, 1, sr, &bands);
+
+        let peak = samples.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+        assert!(
+            peak.is_finite() && peak < 4.0,
+            "a band above Nyquist must stay bounded, got peak {peak}"
         );
     }
 
