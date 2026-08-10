@@ -31,6 +31,11 @@ pub mod util;
 pub use dispatcher::{Tool, ToolContext, ToolDispatcher};
 pub use util::range_resolver::{resolve as resolve_range, Range, RangeError};
 
+/// Materialise a multi-clip track as a single WAV, for callers outside
+/// this crate that need something to draw. Re-exported rather than made
+/// module-public so the rest of `tool::util` stays internal.
+pub use tool::util::flattened_track_wav;
+
 /// Result returned by an individual tool invocation.
 ///
 /// Maps directly to Anthropic's tool-use response shape: [`ToolResult::Ok`]

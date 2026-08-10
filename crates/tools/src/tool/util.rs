@@ -92,6 +92,57 @@ pub(crate) fn slice_envelope(
     out
 }
 
+/// Materialise a track's timeline as one WAV and return its path.
+///
+/// A track with a single clip already *is* a file on disk, and callers
+/// that only need something to draw can use `source_path` directly. A
+/// track split by a cut is not any single file, which is why the desktop
+/// app's `list_tracks` reported no audio path for one at all and the
+/// timeline lane came back blank.
+///
+/// The CAS name is hashed from the **clip descriptors**, not the audio.
+/// That is what keeps this cheap enough to call from a listing: the same
+/// clip list always yields the same audio, so a repeat call finds the
+/// file already there and never touches the sources. Only a genuine miss
+/// pays for a decode.
+pub fn flattened_track_wav(clips: &[Clip]) -> Result<PathBuf, String> {
+    let first = clips
+        .first()
+        .ok_or_else(|| "track has no clips".to_string())?;
+
+    let mut hasher = blake3::Hasher::new();
+    for c in clips {
+        hasher.update(c.source_path.to_string_lossy().as_bytes());
+        hasher.update(&c.start_in_track.to_le_bytes());
+        hasher.update(&c.source_offset.to_le_bytes());
+        hasher.update(&c.length.to_le_bytes());
+    }
+    let hash_hex = hasher.finalize().to_hex().to_string();
+
+    let parent: &Path = first.source_path.parent().unwrap_or_else(|| Path::new("."));
+    let derived_dir: PathBuf = parent.join("derived");
+    let cas_path = derived_dir.join(format!("track-{hash_hex}.wav"));
+    if cas_path.exists() {
+        return Ok(cas_path);
+    }
+
+    let audio = flatten_track(clips)?;
+    std::fs::create_dir_all(&derived_dir).map_err(|e| {
+        format!(
+            "failed to create derived dir {}: {e}",
+            derived_dir.display()
+        )
+    })?;
+    audio_engine::write_wav(
+        &audio.window,
+        audio.sample_rate,
+        audio.channels.max(1),
+        &cas_path,
+    )
+    .map_err(|e| format!("failed to write {}: {e}", cas_path.display()))?;
+    Ok(cas_path)
+}
+
 /// Where a track's timeline ends: the furthest point any clip reaches.
 ///
 /// Not `max(clip.length)`, which is what `cut_range` and `trim` used to
