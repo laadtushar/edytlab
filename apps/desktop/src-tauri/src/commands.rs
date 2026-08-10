@@ -1908,20 +1908,53 @@ pub async fn rebuild_agent_public(state: &AppState) -> Result<(), CommandError> 
     rebuild_agent(state).await
 }
 
+/// Resolve the `(provider_id, api_key, model)` triple the agent should
+/// be built with.
+///
+/// A profile that pins `model: { provider, id }` overrides *both* the
+/// provider and the model id. When the pinned provider differs from the
+/// globally active one, the cached API key belongs to the wrong
+/// provider — sending it would 401 against the pinned provider's
+/// endpoint — so the key is re-read from that provider's keychain slot
+/// via `load_key`.
+///
+/// Split out of [`rebuild_agent`] as a pure function so the
+/// provider/key pairing can be unit-tested without a keychain or a
+/// live `AppState`.
+fn resolve_effective_llm(
+    global_provider_id: String,
+    global_key: Option<String>,
+    global_model: Option<String>,
+    profile_model: Option<(String, String)>,
+    load_key: impl Fn(&str) -> Option<String>,
+) -> (String, Option<String>, Option<String>) {
+    match profile_model {
+        // Profile pins a provider that is not the active one: the
+        // cached key is for a different service.
+        Some((provider, id)) if provider != global_provider_id => {
+            let key = load_key(&provider);
+            (provider, key, Some(id))
+        }
+        // Profile pins a model on the provider that is already active.
+        Some((provider, id)) => (provider, global_key, Some(id)),
+        // No profile override: the global picker wins.
+        None => (global_provider_id, global_key, global_model),
+    }
+}
+
 async fn rebuild_agent(state: &AppState) -> Result<(), CommandError> {
-    let api_key = state.api_key_snapshot();
     let store_handle = state.store_handle();
     let global_provider_id = state.active_provider_id();
     let global_chosen_model = state.model_for(&global_provider_id);
     let (profile_body, tool_whitelist, profile_model) = state.active_profile_overrides();
 
-    // When the active profile pins a model, its `(provider, id)`
-    // overrides the global provider + model picker. We still need an
-    // API key for whichever provider ends up effective.
-    let (effective_provider_id, effective_model) = match profile_model {
-        Some((p, id)) => (p, Some(id)),
-        None => (global_provider_id, global_chosen_model),
-    };
+    let (effective_provider_id, api_key, effective_model) = resolve_effective_llm(
+        global_provider_id,
+        state.api_key_snapshot(),
+        global_chosen_model,
+        profile_model,
+        ai::keychain::load_api_key,
+    );
     let provider = ai::validate::provider_for(&effective_provider_id);
 
     let mut guard = state.agent.lock().await;
@@ -2829,5 +2862,81 @@ mod tests {
 
         // The filtered list length should equal all_names minus the blacklist.
         assert_eq!(filtered.len(), all_names.len() - blacklist.len());
+    }
+
+    // -----------------------------------------------------------------
+    // resolve_effective_llm — provider / key / model pairing
+    // -----------------------------------------------------------------
+
+    /// A profile pinning a model on a DIFFERENT provider must pull that
+    /// provider's key from the keychain. Using the cached key (which
+    /// belongs to the globally active provider) 401s at runtime.
+    #[test]
+    fn profile_on_other_provider_reloads_that_providers_key() {
+        let (provider, key, model) = super::resolve_effective_llm(
+            "anthropic".into(),
+            Some("anthropic-key".into()),
+            Some("claude-sonnet-4-6".into()),
+            Some(("openai".into(), "gpt-4o-mini".into())),
+            |p| {
+                assert_eq!(p, "openai", "must look up the pinned provider");
+                Some("openai-key".to_string())
+            },
+        );
+        assert_eq!(provider, "openai");
+        assert_eq!(key.as_deref(), Some("openai-key"));
+        assert_eq!(model.as_deref(), Some("gpt-4o-mini"));
+    }
+
+    /// Same provider as the active one: the cached key is already
+    /// correct, so no keychain round-trip is needed.
+    #[test]
+    fn profile_on_same_provider_keeps_cached_key() {
+        let (provider, key, model) = super::resolve_effective_llm(
+            "anthropic".into(),
+            Some("anthropic-key".into()),
+            Some("claude-sonnet-4-6".into()),
+            Some(("anthropic".into(), "claude-opus-4-7".into())),
+            |_| panic!("must not hit the keychain for the active provider"),
+        );
+        assert_eq!(provider, "anthropic");
+        assert_eq!(key.as_deref(), Some("anthropic-key"));
+        assert_eq!(model.as_deref(), Some("claude-opus-4-7"));
+    }
+
+    /// No profile override: the global picker's provider, key, and
+    /// model all pass through untouched.
+    #[test]
+    fn no_profile_uses_global_picker() {
+        let (provider, key, model) = super::resolve_effective_llm(
+            "openrouter".into(),
+            Some("or-key".into()),
+            Some("anthropic/claude-sonnet-4-6".into()),
+            None,
+            |_| panic!("must not hit the keychain when no profile is active"),
+        );
+        assert_eq!(provider, "openrouter");
+        assert_eq!(key.as_deref(), Some("or-key"));
+        assert_eq!(model.as_deref(), Some("anthropic/claude-sonnet-4-6"));
+    }
+
+    /// A pinned provider with no stored key yields `None` rather than
+    /// silently falling back to the wrong provider's key. `rebuild_agent`
+    /// then leaves the agent unbuilt, which surfaces as the familiar
+    /// "no agent configured" error instead of a confusing 401.
+    #[test]
+    fn pinned_provider_without_key_yields_none() {
+        let (provider, key, _) = super::resolve_effective_llm(
+            "anthropic".into(),
+            Some("anthropic-key".into()),
+            None,
+            Some(("openai".into(), "gpt-4o-mini".into())),
+            |_| None,
+        );
+        assert_eq!(provider, "openai");
+        assert!(
+            key.is_none(),
+            "must not fall back to the active provider's key"
+        );
     }
 }
