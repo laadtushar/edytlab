@@ -1,9 +1,14 @@
 //! Stdio JSON-RPC client for MCP servers.
 //!
-//! Scope for v1: spawn the child process, perform the `initialize`
-//! handshake, and call `tools/list` once to populate the registry's
-//! tool descriptors. Long-lived bidirectional dispatch is left for a
-//! follow-up — see the crate-level note in `lib.rs`.
+//! Spawns the child process, performs the `initialize` handshake,
+//! discovers tools via `tools/list`, and serves `tools/call` for the
+//! lifetime of the connection.
+//!
+//! Reads are deadline-bounded. `BufRead::read_line` blocks with no
+//! timeout, and callers hold the registry mutex across a request, so
+//! an inline read would let one unresponsive server wedge the
+//! dispatcher and the agent loop with it. stdout and stderr are each
+//! drained by a thread instead; requests wait on a channel.
 
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Write};
