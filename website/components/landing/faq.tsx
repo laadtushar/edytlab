@@ -18,7 +18,7 @@ const faqs = [
   },
   {
     q: "What are the system requirements?",
-    a: "macOS 12+ (Apple Silicon and Intel) or Windows 10/11. 8 GB RAM minimum, 16 GB recommended for stem separation. A GPU helps but isn't required — Metal on Mac and CUDA on Windows accelerate ML when available.",
+    a: "macOS 11 Big Sur or later (Apple Silicon and Intel), Windows 10/11, or Linux (.deb / AppImage). 8 GB RAM minimum, 16 GB recommended for stem separation. A GPU helps but isn't required — Metal on Mac and CUDA on Windows accelerate ML when available.",
   },
   {
     q: "Is it free?",

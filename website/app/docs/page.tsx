@@ -37,7 +37,7 @@ const cards = [
     href: "/docs/tools",
     icon: Wrench,
     title: "Audio Tools Reference",
-    desc: "All 33 tools the agent can call — cut, normalize, stem separate, transcribe, render, and more.",
+    desc: "All 69 tools the agent can call — cut, normalize, stem separate, transcribe, render, and more.",
     audience: "User",
   },
   {
@@ -132,8 +132,8 @@ export default function DocsPage() {
           </tr>
           <tr>
             <td>Linux</td>
-            <td>🔜 Planned (post-v1)</td>
-            <td>Ubuntu 22.04+</td>
+            <td>✅ Supported (unsigned)</td>
+            <td>Ubuntu 22.04+ (.deb / AppImage)</td>
           </tr>
         </tbody>
       </table>
