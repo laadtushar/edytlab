@@ -259,11 +259,11 @@ where
 }
 
 /// A track's clips decoded and laid out on one timeline.
-struct TrackAudio {
+pub(crate) struct TrackAudio {
     /// Interleaved samples from track frame 0 to the last clip's end.
-    window: Vec<f32>,
-    sample_rate: u32,
-    channels: u16,
+    pub(crate) window: Vec<f32>,
+    pub(crate) sample_rate: u32,
+    pub(crate) channels: u16,
 }
 
 /// Decode every clip on a track and lay them out on a single buffer,
@@ -286,7 +286,13 @@ struct TrackAudio {
 /// splitting one source, and mixing rates here would need a resampler
 /// the tool layer doesn't have. Disagreement is reported rather than
 /// papered over.
-fn flatten_track(clips: &[session::Clip]) -> Result<TrackAudio, String> {
+///
+/// Read-only tools want this too. Analysing `clips[0]`'s *source file*
+/// answers a question about the file on disk, not about the track: after
+/// a cut the file still contains the audio the cut removed, and after a
+/// split it contains only the part the first clip happens to point at.
+/// What the user asked about is the timeline.
+pub(crate) fn flatten_track(clips: &[session::Clip]) -> Result<TrackAudio, String> {
     let mut decoded_clips: Vec<(&session::Clip, audio_decoder::DecodedAudio)> =
         Vec::with_capacity(clips.len());
     let mut sample_rate = 0u32;

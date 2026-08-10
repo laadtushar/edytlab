@@ -4,7 +4,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{check_track_index, load_head_state};
+use crate::tool::util::{check_track_index, flatten_track, load_head_state};
 use crate::util::range_resolver::resolve as resolve_range;
 use crate::{Range, Tool, ToolContext, ToolResult};
 
@@ -102,33 +102,26 @@ impl Tool for CopyRegionTool {
             return Ok(ToolResult::Error(e));
         }
 
-        let clip = match state.tracks[parsed.track].clips.first() {
-            Some(c) => c.clone(),
-            None => {
-                return Ok(ToolResult::Error(format!(
-                    "track {} has no clips",
-                    parsed.track
-                )))
-            }
+        let clips = &state.tracks[parsed.track].clips;
+        if clips.is_empty() {
+            return Ok(ToolResult::Error(format!(
+                "track {} has no clips",
+                parsed.track
+            )));
+        }
+        // The range is a span on the track, so the buffer copied from has
+        // to be the track. Reading `clips[0]` alone put the wrong audio on
+        // the clipboard for any range reaching past the first clip — and
+        // silently, since a copy of the right *length* looks like a
+        // success.
+        let audio = match flatten_track(clips) {
+            Ok(a) => a,
+            Err(msg) => return Ok(ToolResult::Error(msg)),
         };
+        let window = &audio.window;
+        let channels = audio.channels as usize;
 
-        let decoded = match audio_decoder::decode_file(&clip.source_path) {
-            Ok(d) => d,
-            Err(e) => return Ok(ToolResult::Error(format!("decode failed: {e}"))),
-        };
-
-        // Slice to the clip window (same logic as `destructive_edit`).
-        let channels = decoded.channels as usize;
-        let total_frames = (decoded.samples.len() / channels) as u64;
-        let src_start = clip.source_offset.min(total_frames);
-        let src_end = clip
-            .source_offset
-            .saturating_add(clip.length)
-            .min(total_frames);
-        let window =
-            &decoded.samples[(src_start as usize * channels)..(src_end as usize * channels)];
-
-        if let Err(e) = apply(window, decoded.sample_rate, channels, range, ctx.clipboard) {
+        if let Err(e) = apply(window, audio.sample_rate, channels, range, ctx.clipboard) {
             return Ok(ToolResult::Error(e.to_string()));
         }
 
