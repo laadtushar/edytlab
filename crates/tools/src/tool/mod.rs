@@ -73,7 +73,10 @@ pub mod transcribe;
 pub mod tremolo;
 pub mod trim;
 pub mod truncate_silence;
-mod util;
+/// Shared tool internals. Public only so `flattened_track_wav` can be
+/// re-exported from the crate root — everything else in here is
+/// `pub(crate)` and stays inside the crate.
+pub mod util;
 
 pub mod vocal_reduction;
 

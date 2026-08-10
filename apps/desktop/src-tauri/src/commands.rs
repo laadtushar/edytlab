@@ -1504,10 +1504,27 @@ pub fn list_tracks(state: State<'_, AppState>) -> CmdResult<Vec<TrackSummary>> {
             name: t.name,
             muted: t.muted,
             gain_db: t.gain_db,
-            audio_path: if t.clips.len() == 1 {
-                Some(t.clips[0].source_path.to_string_lossy().into_owned())
-            } else {
-                None
+            // One clip already *is* a file, so hand its path over
+            // untouched — the overwhelmingly common case, and free.
+            //
+            // A track split by an interior cut is not any single file on
+            // disk, and returning `None` for it left the timeline lane
+            // blank: the audio was there, the render was correct, and the
+            // UI simply showed nothing. Flattening the clips into one
+            // content-addressed WAV gives the lane something true to
+            // draw. The CAS name is keyed on the clip list rather than
+            // the audio, so this listing pays for a decode once per
+            // distinct arrangement and finds the file already written
+            // every time after.
+            //
+            // A failure here is not worth failing the listing over — the
+            // lane falls back to blank, exactly as before.
+            audio_path: match t.clips.len() {
+                0 => None,
+                1 => Some(t.clips[0].source_path.to_string_lossy().into_owned()),
+                _ => tools::flattened_track_wav(&t.clips)
+                    .ok()
+                    .map(|p| p.to_string_lossy().into_owned()),
             },
         })
         .collect())
