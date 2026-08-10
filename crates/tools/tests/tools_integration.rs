@@ -976,7 +976,11 @@ fn time_stretch_records_factor_on_clip() {
         Some(0.5),
         "expected factor 0.5 on clip, got {factor:?}"
     );
-    assert!(res["summary"]
+    // The result must not claim the render will apply the factor — it
+    // does not, and saying so had the agent reporting a change the audio
+    // never received. See `tests/unapplied_clip_metadata.rs`.
+    assert_eq!(res["applied_at_render"], serde_json::json!(false));
+    assert!(!res["summary"]
         .as_str()
         .unwrap()
         .contains("applied at next render"));

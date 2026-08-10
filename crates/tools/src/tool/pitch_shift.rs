@@ -33,7 +33,7 @@ impl Tool for PitchShiftTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "pitch_shift",
-            "Record a pitch shift in semitones on every clip of a track. +12 is one octave up, -12 is one octave down. The `preserve_formants` flag requests vocal-formant preservation when the M28 backend lands. Phase 2 caveat: the value is stored on the session; the audio engine applies it at render time in M22+.",
+            "Record a pitch shift in semitones on every clip of a track (+12 is one octave up, -12 one octave down), with an optional request for vocal-formant preservation. NOT YET APPLIED AT RENDER: the value is recorded on the session and survives save/load, but the audio engine does not read it, so the rendered output is unchanged. Do not tell the user the audio has changed, and do not plan a duration or pitch around it. No tool shifts pitch audibly today; say so rather than reporting success.",
             object_schema(&[
                 ("track", "integer", true),
                 ("semitones", "number", true),
@@ -99,8 +99,10 @@ impl Tool for PitchShiftTool {
             "node_id": new_id.to_hex(),
             "semitones": args.semitones,
             "preserve_formants": args.preserve_formants,
+            "applied_at_render": false,
             "summary": format!(
-                "Recorded {:+} semitone pitch shift on track {} (applied at next render); new head {}",
+                "Recorded a {:+} semitone pitch shift on track {}. The render does not apply it \
+                 yet, so the audio is unchanged. New head {}",
                 args.semitones, args.track, new_id.to_hex(),
             ),
         })))
