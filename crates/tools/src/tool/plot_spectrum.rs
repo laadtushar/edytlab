@@ -3,7 +3,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{check_track_index, load_head_state};
+use crate::tool::util::{check_track_index, flatten_track, load_head_state};
 use crate::{Tool, ToolContext, ToolResult};
 
 const FFT_SIZE: usize = 4096;
@@ -77,28 +77,30 @@ impl Tool for PlotSpectrumTool {
         if let Err(e) = check_track_index(&state.tracks, args.track) {
             return Ok(ToolResult::Error(e));
         }
-        let clip = match state.tracks[args.track].clips.first() {
-            Some(c) => c.clone(),
-            None => {
-                return Ok(ToolResult::Error(format!(
-                    "track {} has no clips",
-                    args.track
-                )))
-            }
+        let clips = &state.tracks[args.track].clips;
+        if clips.is_empty() {
+            return Ok(ToolResult::Error(format!(
+                "track {} has no clips",
+                args.track
+            )));
+        }
+        // Seconds are positions on the track, so the buffer has to be the
+        // track. Indexing `clips[0]`'s source file put the window at the
+        // wrong place the moment anything had been cut, and never saw the
+        // second clip of a split track at all.
+        let audio = match flatten_track(clips) {
+            Ok(a) => a,
+            Err(msg) => return Ok(ToolResult::Error(msg)),
         };
-        let decoded = match audio_decoder::decode_file(&clip.source_path) {
-            Ok(d) => d,
-            Err(e) => return Ok(ToolResult::Error(format!("decode failed: {e}"))),
-        };
-        let sr = decoded.sample_rate;
-        let channels = (decoded.channels as usize).max(1);
-        let start_frame =
-            ((args.start_sec * sr as f64) as usize).min(decoded.samples.len() / channels);
-        let end_frame = ((args.end_sec * sr as f64) as usize).min(decoded.samples.len() / channels);
+        let sr = audio.sample_rate;
+        let channels = (audio.channels as usize).max(1);
+        let total_frames = audio.window.len() / channels;
+        let start_frame = ((args.start_sec * sr as f64) as usize).min(total_frames);
+        let end_frame = ((args.end_sec * sr as f64) as usize).min(total_frames);
         let mono: Vec<f32> = (start_frame..end_frame)
             .map(|f| {
                 (0..channels)
-                    .map(|ch| decoded.samples[f * channels + ch])
+                    .map(|ch| audio.window[f * channels + ch])
                     .sum::<f32>()
                     / channels as f32
             })

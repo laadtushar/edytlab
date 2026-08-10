@@ -8,15 +8,21 @@
 //! the on-disk source stays untouched and the operation is reversible
 //! by appending a new node.
 //!
-//! Phase 1 simplification: we look at the FIRST clip's source file. The
-//! plan only ever exercises a single-clip track, so this matches the
-//! `RenderGraph::source_path` invariant.
+//! The peak is measured across the track's whole timeline. Reading the
+//! first clip's source file answers a different question: after a cut
+//! that file still holds the audio the cut removed, and on a split track
+//! it covers only the part the first clip points at. Getting this wrong
+//! is not merely a bad reading — the gain lands on the whole track, so a
+//! peak measured from the head alone over-boosts a louder tail straight
+//! into clipping.
 
 use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::{anthropic_tool, object_schema};
-use crate::tool::util::{append_state, check_track_index, load_head_state};
+use crate::tool::util::{
+    append_state, check_track_index, flatten_track, load_head_state, TrackAudio,
+};
 use crate::{Tool, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
@@ -72,34 +78,22 @@ impl Tool for NormalizeTool {
         }
 
         let track = &mut state.tracks[args.track];
-        let Some(clip) = track.clips.first().cloned() else {
+        if track.clips.is_empty() {
             return Ok(ToolResult::Error(
                 "track has no clips; nothing to normalize".into(),
             ));
-        };
-
-        let decoded = match audio_decoder::decode_file(&clip.source_path) {
-            Ok(d) => d,
-            Err(e) => return Ok(ToolResult::Error(format!("decode failed: {e}"))),
-        };
-        let chans = decoded.channels as usize;
-        if chans == 0 {
-            return Ok(ToolResult::Error("decoded source has 0 channels".into()));
         }
 
-        // Scan only the clip's slice of the source — `source_offset` /
-        // `length` are in frames, not interleaved samples.
-        let frames_total = decoded.samples.len() / chans;
-        let clip_start = (clip.source_offset as usize).min(frames_total);
-        let clip_end =
-            ((clip.source_offset.saturating_add(clip.length)) as usize).min(frames_total);
+        let TrackAudio { window, .. } = match flatten_track(&track.clips) {
+            Ok(a) => a,
+            Err(msg) => return Ok(ToolResult::Error(msg)),
+        };
+
         let mut peak: f32 = 0.0;
-        for frame in clip_start..clip_end {
-            for ch in 0..chans {
-                let s = decoded.samples[frame * chans + ch].abs();
-                if s > peak {
-                    peak = s;
-                }
+        for s in &window {
+            let a = s.abs();
+            if a > peak {
+                peak = a;
             }
         }
 
