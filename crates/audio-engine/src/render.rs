@@ -231,6 +231,39 @@ struct TrackStreamer {
     /// Project-rate frames of silence still owed before the clip's audio
     /// starts, from the clip's `start_in_track`.
     lead_frames_remaining: u64,
+    /// Resolved left/right pan gains. `(1.0, 1.0)` for a centred track,
+    /// which is the overwhelmingly common case and a no-op.
+    pan: (f32, f32),
+}
+
+/// Per-channel gains for a pan position, `-1.0` hard left to `1.0` hard
+/// right.
+///
+/// This is a *balance* law: it attenuates the far side and leaves the
+/// near side alone. Centre is exactly `(1.0, 1.0)`.
+///
+/// The textbook choice is constant-power — `cos`/`sin` over a quarter
+/// turn — which keeps perceived loudness even as a source sweeps across
+/// the field. It cannot be used here as-is. Constant power puts centre at
+/// -3 dB, and every track in every existing session defaults to pan 0, so
+/// adopting it would quietly drop the level of every render ever made and
+/// break the byte-determinism tests along the way. Normalising it back to
+/// unity at centre instead pushes the hard-panned edges to +3 dB, which
+/// invents headroom problems in the other direction.
+///
+/// A balance law has neither failure: centre is untouched, nothing is
+/// ever boosted, and no existing render changes by a single sample. What
+/// it gives up is loudness constancy — a source swept hard to one side
+/// loses the other channel's energy and reads as quieter. That is the
+/// honest trade for a pan control that cannot alter what is already
+/// there.
+fn pan_gains(pan: f32) -> (f32, f32) {
+    let p = if pan.is_finite() {
+        pan.clamp(-1.0, 1.0)
+    } else {
+        0.0
+    };
+    ((1.0 - p).min(1.0), (1.0 + p).min(1.0))
 }
 
 /// Convert a frame count from a source's rate into the project's rate.
@@ -336,6 +369,7 @@ impl TrackStreamer {
             source_eof: src_frames_remaining == 0,
             volume_envelope,
             lead_frames_remaining,
+            pan: pan_gains(plan.pan),
         })
     }
 
@@ -553,6 +587,18 @@ impl TrackStreamer {
             }
         }
 
+        // Pan last, so it scales whatever gain and automation produced.
+        // Only the first two channels are positioned: a mono render has
+        // nowhere to put a pan, and beyond stereo there is no agreed
+        // meaning for a single left-right number.
+        if self.out_channels >= 2 && self.pan != (1.0, 1.0) {
+            for f in 0..avail {
+                let base = f * self.out_channels;
+                dst[base] *= self.pan.0;
+                dst[base + 1] *= self.pan.1;
+            }
+        }
+
         // Drain `avail` frames from the front of `pending_planar`.
         for ch in 0..self.in_channels {
             self.pending_planar[ch].drain(..avail);
@@ -650,6 +696,12 @@ fn render_streaming(
         let reader = WavStreamReader::open(&plan.source_path)?;
         if reader.channels() > max_channels {
             max_channels = reader.channels();
+        }
+        // A panned mono source has to widen the mix, or the pan is
+        // silently discarded — which is the bug this whole path exists
+        // to fix, reintroduced one layer down.
+        if plan.pan != 0.0 && max_channels < 2 {
+            max_channels = 2;
         }
         // Project-rate length per track; total render length = max.
         let in_rate = reader.sample_rate();
