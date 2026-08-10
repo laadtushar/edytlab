@@ -2,7 +2,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::destructive_edit;
+use crate::tool::util::{check_optional_seconds_order, destructive_edit};
 use crate::{Tool, ToolContext, ToolResult};
 
 /// L-R center cancellation. Effective on stereo tracks where vocals are panned center.
@@ -55,6 +55,12 @@ impl Tool for VocalReductionTool {
             Ok(a) => a,
             Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
         };
+
+        // A reversed window would survive independent clamping and
+        // panic on the slice below.
+        if let Err(e) = check_optional_seconds_order(args.start_sec, args.end_sec) {
+            return Ok(ToolResult::Error(e));
+        }
         let channels = {
             let state = match crate::tool::util::load_head_state(ctx) {
                 Ok(s) => s,
