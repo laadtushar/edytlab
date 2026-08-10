@@ -1,13 +1,10 @@
 //! Dynamic compressor tool — envelope follower with threshold/ratio/attack/release.
 
-use std::path::Path;
-use std::path::PathBuf;
-
 use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{append_state, check_track_index, load_head_state};
+use crate::tool::util::destructive_edit_rechannel;
 use crate::{Tool, ToolContext, ToolResult};
 
 // ---------------------------------------------------------------------------
@@ -173,6 +170,13 @@ impl Tool for CompressorTool {
 }
 
 /// Core compressor logic — follows the destructive_edit pattern from eq.rs.
+/// Core compressor logic.
+///
+/// Formerly a hand-copy of `destructive_edit`, made because the envelope
+/// follower needs the channel count for its per-frame peak and the shared
+/// helper didn't provide it. It does now, and the copy had drifted — it
+/// still edited only `clips[0]`, so compressing a track that an interior
+/// cut had split left the tail uncompressed.
 fn invoke_compressor(
     ctx: &mut ToolContext,
     track_idx: usize,
@@ -182,112 +186,29 @@ fn invoke_compressor(
     release_ms: f32,
     makeup_db: f32,
 ) -> ToolResult {
-    let mut state = match load_head_state(ctx) {
-        Ok(s) => s,
-        Err(msg) => return ToolResult::Error(msg),
-    };
-
-    if let Err(msg) = check_track_index(&state.tracks, track_idx) {
-        return ToolResult::Error(msg);
-    }
-
-    let Some(clip) = state.tracks[track_idx].clips.first().cloned() else {
-        return ToolResult::Error(format!("track {track_idx} has no clips; nothing to edit"));
-    };
-
-    // Decode — we need `channels` for the per-frame peak calculation.
-    let decoded = match audio_decoder::decode_file(&clip.source_path) {
-        Ok(d) => d,
-        Err(e) => {
-            return ToolResult::Error(format!(
-                "failed to decode {}: {e}",
-                clip.source_path.display()
-            ))
-        }
-    };
-    let sample_rate = decoded.sample_rate;
-    let channels = decoded.channels as usize;
-    if channels == 0 {
-        return ToolResult::Error("source has zero channels".into());
-    }
-
-    let total_frames = (decoded.samples.len() / channels) as u64;
-    let src_start = clip.source_offset.min(total_frames);
-    let src_end = clip
-        .source_offset
-        .saturating_add(clip.length)
-        .min(total_frames);
-    let start_idx = src_start as usize * channels;
-    let end_idx = src_end as usize * channels;
-    let window_in = &decoded.samples[start_idx..end_idx];
-
-    // Apply compression.
-    let window = compress_samples(
-        window_in,
-        channels,
-        threshold_db,
-        ratio,
-        attack_ms,
-        release_ms,
-        makeup_db,
-        sample_rate,
-    );
-
-    // CAS write.
-    let parent: &Path = clip.source_path.parent().unwrap_or_else(|| Path::new("."));
-    let derived_dir: PathBuf = parent.join("derived");
-    if let Err(e) = std::fs::create_dir_all(&derived_dir) {
-        return ToolResult::Error(format!(
-            "failed to create derived dir {}: {e}",
-            derived_dir.display()
-        ));
-    }
-
-    let mut hasher = blake3::Hasher::new();
-    for s in &window {
-        hasher.update(&s.to_le_bytes());
-    }
-    let hash = hasher.finalize();
-    let hash_hex = hash.to_hex().to_string();
-    let cas_path = derived_dir.join(format!("{hash_hex}.wav"));
-
-    if !cas_path.exists() {
-        if let Err(e) = audio_engine::write_wav(&window, sample_rate, decoded.channels, &cas_path) {
-            return ToolResult::Error(format!(
-                "failed to write CAS wav {}: {e}",
-                cas_path.display()
-            ));
-        }
-    }
-
-    let new_length_frames = (window.len() / channels) as u64;
-    let clip_mut = &mut state.tracks[track_idx].clips[0];
-    clip_mut.source_path = cas_path;
-    clip_mut.source_offset = 0;
-    clip_mut.length = new_length_frames;
-    clip_mut.content_hash = Some(*hash.as_bytes());
-
-    state.length_samples = state
-        .tracks
-        .iter()
-        .flat_map(|t| t.clips.iter().map(|c| c.start_in_track + c.length))
-        .max()
-        .unwrap_or(0);
-
     let label = format!(
         "compressor [thresh={threshold_db:.1}dB ratio={ratio:.1}:1 \
          atk={attack_ms:.1}ms rel={release_ms:.1}ms makeup={makeup_db:.1}dB] on track {track_idx}"
     );
 
-    let new_id = match append_state(ctx, state, label.clone()) {
-        Ok(id) => id,
-        Err(msg) => return ToolResult::Error(msg),
-    };
-
-    ToolResult::Ok(json!({
-        "node_id": new_id.to_hex(),
-        "summary": label,
-    }))
+    destructive_edit_rechannel(
+        ctx,
+        track_idx,
+        move |samples, sample_rate, channels| {
+            *samples = compress_samples(
+                samples,
+                channels as usize,
+                threshold_db,
+                ratio,
+                attack_ms,
+                release_ms,
+                makeup_db,
+                sample_rate,
+            );
+            channels
+        },
+        label,
+    )
 }
 
 // ---------------------------------------------------------------------------

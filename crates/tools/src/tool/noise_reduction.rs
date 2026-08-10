@@ -1,15 +1,13 @@
 //! Spectral noise-reduction tool — spectral subtraction with overlap-add.
 
 use std::f32::consts::PI;
-use std::path::Path;
-use std::path::PathBuf;
 
 use realfft::RealFftPlanner;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{append_state, check_track_index, load_head_state};
+use crate::tool::util::destructive_edit_rechannel;
 use crate::{Tool, ToolContext, ToolResult};
 
 // ---------------------------------------------------------------------------
@@ -241,6 +239,13 @@ impl Tool for NoiseReductionTool {
     }
 }
 
+/// Core noise-reduction logic.
+///
+/// Formerly a hand-copy of `destructive_edit`, made because the spectral
+/// subtraction runs per channel and the shared helper didn't hand over
+/// the channel count. It does now, and the copy had drifted — it still
+/// edited only `clips[0]`, so a track split by an interior cut kept its
+/// noise floor on everything after the cut.
 fn invoke_noise_reduction(
     ctx: &mut ToolContext,
     track_idx: usize,
@@ -248,119 +253,36 @@ fn invoke_noise_reduction(
     strength: f32,
     floor: f32,
 ) -> ToolResult {
-    let mut state = match load_head_state(ctx) {
-        Ok(s) => s,
-        Err(msg) => return ToolResult::Error(msg),
-    };
-
-    if let Err(msg) = check_track_index(&state.tracks, track_idx) {
-        return ToolResult::Error(msg);
-    }
-
-    let Some(clip) = state.tracks[track_idx].clips.first().cloned() else {
-        return ToolResult::Error(format!("track {track_idx} has no clips; nothing to edit"));
-    };
-
-    let decoded = match audio_decoder::decode_file(&clip.source_path) {
-        Ok(d) => d,
-        Err(e) => {
-            return ToolResult::Error(format!(
-                "failed to decode {}: {e}",
-                clip.source_path.display()
-            ))
-        }
-    };
-
-    let sample_rate = decoded.sample_rate;
-    let channels = decoded.channels as usize;
-    if channels == 0 {
-        return ToolResult::Error("source has zero channels".into());
-    }
-
-    let total_frames = (decoded.samples.len() / channels) as u64;
-    let src_start = clip.source_offset.min(total_frames);
-    let src_end = clip
-        .source_offset
-        .saturating_add(clip.length)
-        .min(total_frames);
-    let start_idx = src_start as usize * channels;
-    let end_idx = src_end as usize * channels;
-    let interleaved: &[f32] = &decoded.samples[start_idx..end_idx];
-
-    let num_frames = interleaved.len() / channels;
-
-    // Process each channel independently, then re-interleave.
-    let mut result = vec![0.0f32; interleaved.len()];
-    for ch in 0..channels {
-        // De-interleave.
-        let mono: Vec<f32> = (0..num_frames)
-            .map(|f| interleaved[f * channels + ch])
-            .collect();
-
-        let processed = process_channel(&mono, noise_duration_sec, strength, floor, sample_rate);
-
-        // Re-interleave.
-        for (f, &s) in processed.iter().enumerate() {
-            if f < num_frames {
-                result[f * channels + ch] = s;
-            }
-        }
-    }
-
-    // CAS write.
-    let parent: &Path = clip.source_path.parent().unwrap_or_else(|| Path::new("."));
-    let derived_dir: PathBuf = parent.join("derived");
-    if let Err(e) = std::fs::create_dir_all(&derived_dir) {
-        return ToolResult::Error(format!(
-            "failed to create derived dir {}: {e}",
-            derived_dir.display()
-        ));
-    }
-
-    let mut hasher = blake3::Hasher::new();
-    for s in &result {
-        hasher.update(&s.to_le_bytes());
-    }
-    let hash = hasher.finalize();
-    let hash_hex = hash.to_hex().to_string();
-    let cas_path = derived_dir.join(format!("{hash_hex}.wav"));
-
-    if !cas_path.exists() {
-        if let Err(e) = audio_engine::write_wav(&result, sample_rate, decoded.channels, &cas_path) {
-            return ToolResult::Error(format!(
-                "failed to write CAS wav {}: {e}",
-                cas_path.display()
-            ));
-        }
-    }
-
-    let new_length_frames = (result.len() / channels) as u64;
-    let clip_mut = &mut state.tracks[track_idx].clips[0];
-    clip_mut.source_path = cas_path;
-    clip_mut.source_offset = 0;
-    clip_mut.length = new_length_frames;
-    clip_mut.content_hash = Some(*hash.as_bytes());
-
-    state.length_samples = state
-        .tracks
-        .iter()
-        .flat_map(|t| t.clips.iter().map(|c| c.start_in_track + c.length))
-        .max()
-        .unwrap_or(0);
-
     let label = format!(
         "noise_reduction (profile={noise_duration_sec:.2}s, strength={strength:.2}, floor={floor:.2}) on track {track_idx}"
     );
 
-    let new_id = match append_state(ctx, state, label.clone()) {
-        Ok(id) => id,
-        Err(msg) => return ToolResult::Error(msg),
-    };
-
-    ToolResult::Ok(json!({
-        "node_id": new_id.to_hex(),
-        "summary": label,
-    }))
+    destructive_edit_rechannel(
+        ctx,
+        track_idx,
+        move |samples, sample_rate, channels| {
+            let channels = channels.max(1) as usize;
+            let num_frames = samples.len() / channels;
+            let mut result = vec![0.0f32; samples.len()];
+            // Spectral subtraction runs per channel, so the interleaved
+            // buffer is split apart and put back together around it.
+            for ch in 0..channels {
+                let mono: Vec<f32> = (0..num_frames)
+                    .map(|f| samples[f * channels + ch])
+                    .collect();
+                let processed =
+                    process_channel(&mono, noise_duration_sec, strength, floor, sample_rate);
+                for (f, &s) in processed.iter().enumerate() {
+                    if f < num_frames {
+                        result[f * channels + ch] = s;
+                    }
+                }
+            }
+            *samples = result;
+            channels as u16
+        },
+        label,
+    )
 }
 
 // ---------------------------------------------------------------------------
