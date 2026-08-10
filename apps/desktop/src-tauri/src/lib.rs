@@ -67,11 +67,22 @@ pub fn run() {
             let agents_dir = resolve_global_agent_profiles_dir(app);
             app_state.install_agent_profile_library(agents_dir);
 
-            // Install the MCP config (~/.edytlab/mcp.json). Servers
-            // are not auto-started here — the user explicitly
-            // restarts each one from the Settings panel.
+            // Install the MCP config (~/.edytlab/mcp.json), then start
+            // every enabled server on a background thread. Without this
+            // a registered server contributes no tools until the user
+            // opens Settings and restarts it by hand — every launch,
+            // for every server. Starting is off the setup thread
+            // because each server costs a process spawn plus an
+            // `initialize` round trip, which would otherwise delay the
+            // window appearing.
             let mcp_path = resolve_global_mcp_path(app);
             app_state.install_mcp(mcp_path);
+            {
+                let state_for_mcp = app_state.clone();
+                std::thread::spawn(move || {
+                    crate::commands::start_enabled_mcp_servers(&state_for_mcp);
+                });
+            }
 
             // Auto-initialise a default project store under the OS app
             // data dir so the agent can be built immediately after

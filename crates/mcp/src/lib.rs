@@ -5,15 +5,22 @@
 //! resolution, and the per-server runtime state (running / stopped /
 //! errored + last-known tool list).
 //!
-//! **Scope note for v1.** The dispatcher's `invoke` is synchronous;
-//! routing the agent's tool calls through async stdio / SSE clients
-//! requires non-trivial surgery on `ai::run_turn`. This crate ships
-//! the *management* layer end-to-end (config, secret resolution,
-//! process lifecycle, tools/list discovery) so users can register,
-//! start, and inspect MCP servers from the Settings panel. Wiring
-//! agent-side remote tool invocation is queued as a follow-up; the
-//! `tools::ToolDispatcher` integration point is left as
-//! `register_remote_tools`-shaped TODO in `McpRegistry`.
+//! Agent-side invocation is wired: the desktop app's `mcp_tool` module
+//! wraps each entry from [`McpRegistry::remote_tools`] in a
+//! `tools::Tool` and registers it with the shared `ToolDispatcher`, so
+//! a model-issued call reaches [`McpRegistry::call_remote_tool`]
+//! through the same path as a built-in tool. The transport is
+//! deliberately synchronous for that reason — the agent loop never has
+//! to bridge async-from-sync.
+//!
+//! Reads are deadline-bounded (see `transport`): a server that accepts
+//! a request and never answers would otherwise block a caller holding
+//! the registry mutex, and transitively the dispatcher and the whole
+//! agent loop.
+//!
+//! Transport support: stdio is implemented. SSE is parsed and stored
+//! but [`McpRegistry::start`] rejects it, so the UI can say so plainly
+//! rather than failing at first use.
 //!
 //! On the wire we speak JSON-RPC 2.0 over stdio per the MCP spec:
 //! requests are line-delimited JSON objects; `initialize` is the

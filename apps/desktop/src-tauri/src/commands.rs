@@ -498,11 +498,27 @@ pub async fn list_capabilities(state: State<'_, AppState>) -> CmdResult<Capabili
         })
         .collect();
 
+    // Remote MCP tools are real capabilities the model can call, so
+    // they belong in the menu alongside the built-ins. They are listed
+    // under their unmangled `<server>::<tool>` display name — the
+    // mangled wire name is an implementation detail of the 64-char
+    // Anthropic limit and means nothing to the user.
+    let mcp_servers: Vec<CapabilityDescriptor> = state
+        .mcp
+        .remote_tools()
+        .into_iter()
+        .map(|t| CapabilityDescriptor {
+            name: t.display_name,
+            description: t.description,
+            category: t.server,
+        })
+        .collect();
+
     Ok(Capabilities {
         tools,
         skills,
         agents: Vec::new(),
-        mcp_servers: Vec::new(),
+        mcp_servers,
     })
 }
 
@@ -1321,10 +1337,7 @@ fn emit_agent_event<R: tauri::Runtime>(app: &AppHandle<R>, event: ai::AgentEvent
 /// override text to the conversation so the model executes the user's
 /// modified plan rather than the original one.
 #[tauri::command]
-pub async fn approve_plan(
-    state: State<'_, AppState>,
-    steps: Option<Vec<String>>,
-) -> CmdResult<()> {
+pub async fn approve_plan(state: State<'_, AppState>, steps: Option<Vec<String>>) -> CmdResult<()> {
     if let Some(steps) = steps {
         if !steps.is_empty() {
             let formatted = steps
@@ -1334,8 +1347,7 @@ pub async fn approve_plan(
                 .collect::<Vec<_>>()
                 .join("\n");
             let override_text = format!(
-                "I've updated the plan. Please follow these revised steps instead:\n{}",
-                formatted
+                "I've updated the plan. Please follow these revised steps instead:\n{formatted}"
             );
             *state
                 .plan_steps_override
@@ -1912,20 +1924,53 @@ pub async fn rebuild_agent_public(state: &AppState) -> Result<(), CommandError> 
     rebuild_agent(state).await
 }
 
+/// Resolve the `(provider_id, api_key, model)` triple the agent should
+/// be built with.
+///
+/// A profile that pins `model: { provider, id }` overrides *both* the
+/// provider and the model id. When the pinned provider differs from the
+/// globally active one, the cached API key belongs to the wrong
+/// provider — sending it would 401 against the pinned provider's
+/// endpoint — so the key is re-read from that provider's keychain slot
+/// via `load_key`.
+///
+/// Split out of [`rebuild_agent`] as a pure function so the
+/// provider/key pairing can be unit-tested without a keychain or a
+/// live `AppState`.
+fn resolve_effective_llm(
+    global_provider_id: String,
+    global_key: Option<String>,
+    global_model: Option<String>,
+    profile_model: Option<(String, String)>,
+    load_key: impl Fn(&str) -> Option<String>,
+) -> (String, Option<String>, Option<String>) {
+    match profile_model {
+        // Profile pins a provider that is not the active one: the
+        // cached key is for a different service.
+        Some((provider, id)) if provider != global_provider_id => {
+            let key = load_key(&provider);
+            (provider, key, Some(id))
+        }
+        // Profile pins a model on the provider that is already active.
+        Some((provider, id)) => (provider, global_key, Some(id)),
+        // No profile override: the global picker wins.
+        None => (global_provider_id, global_key, global_model),
+    }
+}
+
 async fn rebuild_agent(state: &AppState) -> Result<(), CommandError> {
-    let api_key = state.api_key_snapshot();
     let store_handle = state.store_handle();
     let global_provider_id = state.active_provider_id();
     let global_chosen_model = state.model_for(&global_provider_id);
     let (profile_body, tool_whitelist, profile_model) = state.active_profile_overrides();
 
-    // When the active profile pins a model, its `(provider, id)`
-    // overrides the global provider + model picker. We still need an
-    // API key for whichever provider ends up effective.
-    let (effective_provider_id, effective_model) = match profile_model {
-        Some((p, id)) => (p, Some(id)),
-        None => (global_provider_id, global_chosen_model),
-    };
+    let (effective_provider_id, api_key, effective_model) = resolve_effective_llm(
+        global_provider_id,
+        state.api_key_snapshot(),
+        global_chosen_model,
+        profile_model,
+        ai::keychain::load_api_key,
+    );
     let provider = ai::validate::provider_for(&effective_provider_id);
 
     let mut guard = state.agent.lock().await;
@@ -2066,9 +2111,24 @@ pub async fn upsert_mcp_server(
             .mcp_config
             .lock()
             .map_err(|_| CommandError::Poisoned("mcp_config"))?;
-        cfg.servers.insert(id, config);
+        cfg.servers.insert(id.clone(), config);
     }
     state.save_mcp_config().map_err(CommandError::from)?;
+
+    // An edit can change the command, args, env, or disable the server
+    // outright, so whatever the old process advertised is now suspect.
+    // Stop it and drop its tools; the user restarts to pick the new
+    // config up. Leaving the old tools registered would let the model
+    // call into a process built from stale settings.
+    state.mcp.stop(&id);
+    {
+        let mut dispatcher = lock_std(&state.dispatcher, "dispatcher")?;
+        crate::mcp_tool::refresh_dispatcher_for_server(
+            &mut dispatcher,
+            Arc::clone(&state.mcp),
+            &id,
+        );
+    }
     Ok(())
 }
 
@@ -2084,6 +2144,18 @@ pub async fn delete_mcp_server(state: State<'_, AppState>, id: String) -> CmdRes
         cfg.servers.remove(&id);
     }
     state.save_mcp_config().map_err(CommandError::from)?;
+
+    // Stopping the server does not unregister its tools: without this
+    // the model keeps seeing tools for a server that no longer exists
+    // and every call fails at dispatch time with "is not running".
+    {
+        let mut dispatcher = lock_std(&state.dispatcher, "dispatcher")?;
+        crate::mcp_tool::refresh_dispatcher_for_server(
+            &mut dispatcher,
+            Arc::clone(&state.mcp),
+            &id,
+        );
+    }
     Ok(())
 }
 
@@ -2117,6 +2189,48 @@ pub async fn restart_mcp_server(state: State<'_, AppState>, id: String) -> CmdRe
         );
     }
     Ok(())
+}
+
+/// Start every enabled MCP server and register its tools.
+///
+/// Called once at startup from `lib.rs::run`, off the setup thread.
+/// Failures are logged and recorded on the registry (so the Settings
+/// list shows an `error` badge with the reason) but never abort the
+/// sweep — one misconfigured server must not stop the others.
+pub fn start_enabled_mcp_servers(state: &AppState) {
+    let servers = {
+        let Ok(cfg) = state.mcp_config.lock() else {
+            tracing::warn!("mcp_config mutex poisoned; skipping MCP autostart");
+            return;
+        };
+        cfg.servers
+            .iter()
+            .filter(|(_, c)| c.enabled())
+            .map(|(id, c)| (id.clone(), c.clone()))
+            .collect::<Vec<_>>()
+    };
+
+    for (id, config) in servers {
+        match state.mcp.restart(&id, &config, ai::keychain::load_api_key) {
+            Ok(()) => match state.dispatcher.lock() {
+                Ok(mut dispatcher) => {
+                    crate::mcp_tool::refresh_dispatcher_for_server(
+                        &mut dispatcher,
+                        Arc::clone(&state.mcp),
+                        &id,
+                    );
+                    tracing::info!(server = %id, "mcp: started");
+                }
+                Err(_) => {
+                    tracing::warn!(server = %id, "dispatcher mutex poisoned; tools not registered")
+                }
+            },
+            Err(reason) => {
+                // `restart` already stored the reason for the UI.
+                tracing::warn!(server = %id, %reason, "mcp: autostart failed");
+            }
+        }
+    }
 }
 
 fn validate_mcp_id(id: &str) -> Result<(), CommandError> {
@@ -2455,65 +2569,131 @@ fn edytlab_agents_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, Stri
     Ok(base.join(".edytlab").join("agents"))
 }
 
-fn download_github_plugin(
-    repo: &str,
-) -> Result<(std::path::PathBuf, Option<std::path::PathBuf>), String> {
-    // Validate: must be exactly "org/repo" with alphanumeric, hyphens, underscores, dots only.
+/// Ceiling on the compressed archive we will pull down.
+const PLUGIN_MAX_DOWNLOAD_BYTES: u64 = 50 * 1024 * 1024;
+
+/// Ceiling on the *uncompressed* total. A zip's declared sizes are
+/// attacker-controlled, so this is also enforced against bytes actually
+/// written, not just the header claim.
+const PLUGIN_MAX_UNPACKED_BYTES: u64 = 200 * 1024 * 1024;
+
+/// Ceiling on entry count, so a zip full of empty files cannot spend
+/// unbounded time and inodes.
+const PLUGIN_MAX_ENTRIES: usize = 4096;
+
+/// Network budget for fetching a plugin archive.
+const PLUGIN_DOWNLOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Reject `org` / `repo` components that are empty, dot-only, or contain
+/// anything outside the GitHub-legal set.
+///
+/// Dot-only components matter: `..` passes a naive "alphanumeric, dash,
+/// underscore, dot" filter, and while it can only walk the *path* of a
+/// hard-coded host (never the host itself) there is no legitimate repo
+/// named `.` or `..`, so it is rejected rather than reasoned about.
+fn valid_github_component(s: &str) -> bool {
+    !s.is_empty()
+        && !s.chars().all(|c| c == '.')
+        && s.chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.')
+}
+
+/// Download and unpack a plugin archive into a temp directory.
+///
+/// The returned [`tempfile::TempDir`] owns the extraction root: dropping
+/// it removes the tree, so every early return below cleans up without a
+/// bespoke error path.
+fn download_github_plugin(repo: &str) -> Result<(std::path::PathBuf, tempfile::TempDir), String> {
     let parts: Vec<&str> = repo.splitn(2, '/').collect();
     if parts.len() != 2 {
         return Err(format!("invalid GitHub repo `{repo}`; expected `org/repo`"));
     }
-    let valid_component = |s: &str| {
-        !s.is_empty()
-            && s.chars()
-                .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.')
-    };
-    if !valid_component(parts[0]) || !valid_component(parts[1]) {
+    if !valid_github_component(parts[0]) || !valid_github_component(parts[1]) {
         return Err(format!(
             "invalid GitHub repo `{repo}`; org and repo must be alphanumeric/-/_/."
         ));
     }
     let url = format!("https://github.com/{repo}/archive/refs/heads/main.zip");
-    let response = reqwest::blocking::get(&url).map_err(|e| format!("fetch {url}: {e}"))?;
+    let client = reqwest::blocking::Client::builder()
+        .timeout(PLUGIN_DOWNLOAD_TIMEOUT)
+        .build()
+        .map_err(|e| e.to_string())?;
+    let response = client
+        .get(&url)
+        .send()
+        .map_err(|e| format!("fetch {url}: {e}"))?;
     if !response.status().is_success() {
         return Err(format!("HTTP {} fetching {url}", response.status()));
     }
-    let bytes = response.bytes().map_err(|e| e.to_string())?;
 
-    // Fix 3: timestamp + PID to avoid collisions across concurrent installs.
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let tmp_dir =
-        std::env::temp_dir().join(format!("edytlab-plugin-{}-{}", std::process::id(), ts));
-    std::fs::create_dir_all(&tmp_dir).map_err(|e| e.to_string())?;
+    // Refuse an oversized body up front when the server declares one,
+    // then cap the read regardless — `Content-Length` is a hint, not a
+    // promise.
+    if let Some(len) = response.content_length() {
+        if len > PLUGIN_MAX_DOWNLOAD_BYTES {
+            return Err(format!(
+                "plugin archive is {len} bytes, over the {PLUGIN_MAX_DOWNLOAD_BYTES} byte limit"
+            ));
+        }
+    }
+    let mut bytes = Vec::new();
+    let mut capped = std::io::Read::take(response, PLUGIN_MAX_DOWNLOAD_BYTES + 1);
+    std::io::Read::read_to_end(&mut capped, &mut bytes).map_err(|e| e.to_string())?;
+    if bytes.len() as u64 > PLUGIN_MAX_DOWNLOAD_BYTES {
+        return Err(format!(
+            "plugin archive exceeds the {PLUGIN_MAX_DOWNLOAD_BYTES} byte limit"
+        ));
+    }
 
-    let zip_path = tmp_dir.join("plugin.zip");
-    std::fs::write(&zip_path, &bytes).map_err(|e| e.to_string())?;
+    // `TempDir` gives RAII cleanup and a name that is not predictable,
+    // so a pre-existing attacker-created path cannot be hijacked.
+    let tmp = tempfile::Builder::new()
+        .prefix("edytlab-plugin-")
+        .tempdir()
+        .map_err(|e| e.to_string())?;
 
-    let extract_dir = tmp_dir.join("extracted");
+    let extract_dir = tmp.path().join("extracted");
     std::fs::create_dir_all(&extract_dir).map_err(|e| e.to_string())?;
 
-    let zip_file = std::fs::File::open(&zip_path).map_err(|e| e.to_string())?;
-    let mut archive = zip::ZipArchive::new(zip_file).map_err(|e| e.to_string())?;
+    let mut archive =
+        zip::ZipArchive::new(std::io::Cursor::new(&bytes)).map_err(|e| e.to_string())?;
+    if archive.len() > PLUGIN_MAX_ENTRIES {
+        return Err(format!(
+            "plugin archive has {} entries, over the {PLUGIN_MAX_ENTRIES} limit",
+            archive.len()
+        ));
+    }
 
-    // Fix 2: safe zip extraction — reject any entry whose path escapes the
-    // target directory (zip-slip attack).
+    let mut unpacked: u64 = 0;
     for i in 0..archive.len() {
         let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
+        // `enclosed_name` rejects absolute paths, drive prefixes, and any
+        // `..` that escapes the root — the zip-slip guard.
         let outpath = match file.enclosed_name() {
             Some(p) => extract_dir.join(p),
             None => return Err(format!("zip entry '{}' has unsafe path", file.name())),
         };
         if file.is_dir() {
             std::fs::create_dir_all(&outpath).map_err(|e| e.to_string())?;
-        } else {
-            if let Some(parent) = outpath.parent() {
-                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-            }
-            let mut outfile = std::fs::File::create(&outpath).map_err(|e| e.to_string())?;
-            std::io::copy(&mut file, &mut outfile).map_err(|e| e.to_string())?;
+            continue;
+        }
+        if let Some(parent) = outpath.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        // Cap on bytes actually written rather than the header's claimed
+        // size, which an attacker controls.
+        let remaining = PLUGIN_MAX_UNPACKED_BYTES.saturating_sub(unpacked);
+        let mut outfile = std::fs::File::create(&outpath).map_err(|e| e.to_string())?;
+        let written = std::io::copy(
+            &mut std::io::Read::take(&mut file, remaining + 1),
+            &mut outfile,
+        )
+        .map_err(|e| e.to_string())?;
+        unpacked += written;
+        if unpacked > PLUGIN_MAX_UNPACKED_BYTES {
+            return Err(format!(
+                "plugin archive unpacks to more than {PLUGIN_MAX_UNPACKED_BYTES} bytes"
+            ));
         }
     }
 
@@ -2525,7 +2705,7 @@ fn download_github_plugin(
         .map(|e| e.path())
         .ok_or_else(|| "extracted zip has no top-level directory".to_string())?;
 
-    Ok((plugin_dir, Some(tmp_dir)))
+    Ok((plugin_dir, tmp))
 }
 
 /// Install a plugin from a GitHub repo (`github:org/repo`) or a local
@@ -2541,13 +2721,16 @@ fn download_github_plugin(
 /// is responsible for wiring those into `~/.edytlab/mcp.json` if desired).
 #[tauri::command]
 pub fn install_plugin(source: String, app: tauri::AppHandle) -> CmdResult<serde_json::Value> {
-    let (plugin_dir, tmp_cleanup) = if source.starts_with("github:") {
-        let repo = source.trim_start_matches("github:");
+    // `_tmp` is bound rather than dropped so the extracted tree outlives
+    // the install; every return below cleans it up automatically.
+    let (plugin_dir, _tmp) = if let Some(repo) = source.strip_prefix("github:") {
         let (dir, tmp) = download_github_plugin(repo)?;
-        (dir, tmp)
-    } else if source.starts_with("local:") {
-        // Fix 1: reject `..` components to prevent path-traversal attacks.
-        let raw = source.trim_start_matches("local:");
+        (dir, Some(tmp))
+    } else if let Some(raw) = source.strip_prefix("local:") {
+        // The user names this path themselves in the UI, so reading from
+        // it is their choice, not an escalation. `..` is still refused so
+        // a relative source cannot quietly climb out of the working
+        // directory into somewhere they did not mean to point at.
         let p = std::path::PathBuf::from(raw);
         if p.components().any(|c| c == std::path::Component::ParentDir) {
             return Err("local: path must not contain `..` components".into());
@@ -2567,37 +2750,28 @@ pub fn install_plugin(source: String, app: tauri::AppHandle) -> CmdResult<serde_
         ));
     }
 
-    let result = (|| -> Result<serde_json::Value, String> {
-        let manifest = skills::plugin::PluginManifest::load(&manifest_path)?;
+    let manifest = skills::plugin::PluginManifest::load(&manifest_path)?;
 
-        let skills_installed = manifest.install_skills(&plugin_dir, &edytlab_skills_dir(&app)?)?;
-        let agents_installed = manifest.install_agents(&plugin_dir, &edytlab_agents_dir(&app)?)?;
-        let mcp_keys: Vec<String> = manifest.mcp_servers.keys().cloned().collect();
+    let skills_installed = manifest.install_skills(&plugin_dir, &edytlab_skills_dir(&app)?)?;
+    let agents_installed = manifest.install_agents(&plugin_dir, &edytlab_agents_dir(&app)?)?;
+    let mcp_keys: Vec<String> = manifest.mcp_servers.keys().cloned().collect();
 
-        let summary = format!(
-            "Installed plugin '{}' v{}: {} skill(s), {} agent(s)",
-            manifest.name,
-            manifest.version,
-            skills_installed.len(),
-            agents_installed.len(),
-        );
+    let summary = format!(
+        "Installed plugin '{}' v{}: {} skill(s), {} agent(s)",
+        manifest.name,
+        manifest.version,
+        skills_installed.len(),
+        agents_installed.len(),
+    );
 
-        Ok(serde_json::json!({
-            "name": manifest.name,
-            "version": manifest.version,
-            "skills_installed": skills_installed.len(),
-            "agents_installed": agents_installed.len(),
-            "mcp_keys": mcp_keys,
-            "summary": summary,
-        }))
-    })();
-
-    // Always clean up temp dir, even on error.
-    if let Some(tmp) = tmp_cleanup {
-        let _ = std::fs::remove_dir_all(tmp);
-    }
-
-    result
+    Ok(serde_json::json!({
+        "name": manifest.name,
+        "version": manifest.version,
+        "skills_installed": skills_installed.len(),
+        "agents_installed": agents_installed.len(),
+        "mcp_keys": mcp_keys,
+        "summary": summary,
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -2833,5 +3007,81 @@ mod tests {
 
         // The filtered list length should equal all_names minus the blacklist.
         assert_eq!(filtered.len(), all_names.len() - blacklist.len());
+    }
+
+    // -----------------------------------------------------------------
+    // resolve_effective_llm — provider / key / model pairing
+    // -----------------------------------------------------------------
+
+    /// A profile pinning a model on a DIFFERENT provider must pull that
+    /// provider's key from the keychain. Using the cached key (which
+    /// belongs to the globally active provider) 401s at runtime.
+    #[test]
+    fn profile_on_other_provider_reloads_that_providers_key() {
+        let (provider, key, model) = super::resolve_effective_llm(
+            "anthropic".into(),
+            Some("anthropic-key".into()),
+            Some("claude-sonnet-4-6".into()),
+            Some(("openai".into(), "gpt-4o-mini".into())),
+            |p| {
+                assert_eq!(p, "openai", "must look up the pinned provider");
+                Some("openai-key".to_string())
+            },
+        );
+        assert_eq!(provider, "openai");
+        assert_eq!(key.as_deref(), Some("openai-key"));
+        assert_eq!(model.as_deref(), Some("gpt-4o-mini"));
+    }
+
+    /// Same provider as the active one: the cached key is already
+    /// correct, so no keychain round-trip is needed.
+    #[test]
+    fn profile_on_same_provider_keeps_cached_key() {
+        let (provider, key, model) = super::resolve_effective_llm(
+            "anthropic".into(),
+            Some("anthropic-key".into()),
+            Some("claude-sonnet-4-6".into()),
+            Some(("anthropic".into(), "claude-opus-4-7".into())),
+            |_| panic!("must not hit the keychain for the active provider"),
+        );
+        assert_eq!(provider, "anthropic");
+        assert_eq!(key.as_deref(), Some("anthropic-key"));
+        assert_eq!(model.as_deref(), Some("claude-opus-4-7"));
+    }
+
+    /// No profile override: the global picker's provider, key, and
+    /// model all pass through untouched.
+    #[test]
+    fn no_profile_uses_global_picker() {
+        let (provider, key, model) = super::resolve_effective_llm(
+            "openrouter".into(),
+            Some("or-key".into()),
+            Some("anthropic/claude-sonnet-4-6".into()),
+            None,
+            |_| panic!("must not hit the keychain when no profile is active"),
+        );
+        assert_eq!(provider, "openrouter");
+        assert_eq!(key.as_deref(), Some("or-key"));
+        assert_eq!(model.as_deref(), Some("anthropic/claude-sonnet-4-6"));
+    }
+
+    /// A pinned provider with no stored key yields `None` rather than
+    /// silently falling back to the wrong provider's key. `rebuild_agent`
+    /// then leaves the agent unbuilt, which surfaces as the familiar
+    /// "no agent configured" error instead of a confusing 401.
+    #[test]
+    fn pinned_provider_without_key_yields_none() {
+        let (provider, key, _) = super::resolve_effective_llm(
+            "anthropic".into(),
+            Some("anthropic-key".into()),
+            None,
+            Some(("openai".into(), "gpt-4o-mini".into())),
+            |_| None,
+        );
+        assert_eq!(provider, "openai");
+        assert!(
+            key.is_none(),
+            "must not fall back to the active provider's key"
+        );
     }
 }

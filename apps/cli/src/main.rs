@@ -96,7 +96,18 @@ async fn main() -> anyhow::Result<()> {
 
     let clipboard = Arc::new(Mutex::new(None::<Vec<f32>>));
     let plan_notify = std::sync::Arc::new(tokio::sync::Notify::new());
-    let mut agent = ai::Agent::new(cfg, dispatcher, store, engine, plan_notify, clipboard);
+    // The CLI is non-interactive: there is no UI to edit a proposed plan
+    // before approval, so the override slot stays empty for its lifetime.
+    let plan_steps_override = Arc::new(Mutex::new(None::<String>));
+    let mut agent = ai::Agent::new(
+        cfg,
+        dispatcher,
+        store,
+        engine,
+        plan_notify,
+        plan_steps_override,
+        clipboard,
+    );
 
     let result = agent
         .turn(args.message, |ev| {

@@ -10,7 +10,7 @@
  * server-launch time.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   deleteMcpServer,
@@ -42,6 +42,15 @@ type EditorState =
       entry: McpServerEntry;
       isNew: boolean;
       dirty: boolean;
+      /**
+       * Identity of this editing session, used as the form's React
+       * `key` so opening a different server remounts the form and
+       * re-derives its raw text from the new entry. It deliberately
+       * does NOT track `entry.id` — that changes on every keystroke
+       * while naming a new server, and remounting mid-edit would steal
+       * focus from the ID input.
+       */
+      formKey: number;
     };
 
 export function McpServersEditor() {
@@ -53,6 +62,13 @@ export function McpServersEditor() {
     kind: "idle" | "ok" | "err";
     message: string;
   }>({ kind: "idle", message: "" });
+  // Monotonic id handed to each new editing session; see `formKey`.
+  const draftSeq = useRef(0);
+
+  const nextFormKey = () => {
+    draftSeq.current += 1;
+    return draftSeq.current;
+  };
 
   const refresh = async () => {
     try {
@@ -73,7 +89,13 @@ export function McpServersEditor() {
     setStatus({ kind: "idle", message: "" });
     try {
       const entry = await readMcpServer(id);
-      setEditor({ kind: "draft", entry, isNew: false, dirty: false });
+      setEditor({
+        kind: "draft",
+        entry,
+        isNew: false,
+        dirty: false,
+        formKey: nextFormKey(),
+      });
     } catch (err) {
       setStatus({ kind: "err", message: String(err) });
       setEditor({ kind: "empty" });
@@ -86,6 +108,7 @@ export function McpServersEditor() {
       entry: { ...DRAFT_DEFAULT },
       isNew: true,
       dirty: true,
+      formKey: nextFormKey(),
     });
     setStatus({ kind: "idle", message: "" });
   };
@@ -97,11 +120,14 @@ export function McpServersEditor() {
     try {
       await upsertMcpServer(editor.entry.id, editor.entry);
       await refresh();
+      // Keep the same `formKey`: the entry is unchanged by a save, so
+      // remounting would only cost the user their cursor position.
       setEditor({
         kind: "draft",
         entry: editor.entry,
         isNew: false,
         dirty: false,
+        formKey: editor.formKey,
       });
       setStatus({ kind: "ok", message: "Saved." });
     } catch (err) {
@@ -234,11 +260,10 @@ export function McpServersEditor() {
           </div>
         ) : (
           <McpServerForm
+            key={editor.formKey}
             entry={editor.entry}
             isNew={editor.isNew}
-            onChange={(e) =>
-              setEditor({ ...editor, entry: e, dirty: true })
-            }
+            onChange={(e) => setEditor({ ...editor, entry: e, dirty: true })}
           />
         )}
 
@@ -312,6 +337,21 @@ interface FormProps {
 }
 
 function McpServerForm({ entry, isNew, onChange }: FormProps) {
+  // `args`, `env`, and `headers` are stored parsed but edited as text,
+  // and the parsed forms cannot represent an edit in progress: a key
+  // typed before its `=` parses to nothing, and a just-pressed newline
+  // is an empty entry that any sane parse drops. Rendering the textarea
+  // from the parsed value therefore deletes characters as fast as they
+  // are typed. Raw text lives here and drives what the user sees; the
+  // parsed value is pushed to the parent on every change so Save stays
+  // correct. The parent remounts this form when a different server is
+  // opened, so deriving the initial text once from props is enough.
+  const [argsText, setArgsText] = useState(() => entry.args.join("\n"));
+  const [envText, setEnvText] = useState(() => kvToText(entry.env, "="));
+  const [headersText, setHeadersText] = useState(() =>
+    kvToText(entry.headers, ": "),
+  );
+
   return (
     <div className="flex flex-1 flex-col gap-2 overflow-y-auto pr-1">
       <Row label="ID">
@@ -358,16 +398,11 @@ function McpServerForm({ entry, isNew, onChange }: FormProps) {
           <Row label="Args (one per line)">
             <textarea
               data-testid="mcp-args"
-              value={entry.args.join("\n")}
-              onChange={(e) =>
-                onChange({
-                  ...entry,
-                  args: e.target.value
-                    .split("\n")
-                    .map((s) => s.trim())
-                    .filter(Boolean),
-                })
-              }
+              value={argsText}
+              onChange={(e) => {
+                setArgsText(e.target.value);
+                onChange({ ...entry, args: parseArgs(e.target.value) });
+              }}
               rows={3}
               placeholder="-y\n@modelcontextprotocol/server-github"
               className="w-full resize-y rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1 font-mono text-xs text-[var(--text)] outline-none transition focus:border-[var(--accent)]/55"
@@ -376,10 +411,11 @@ function McpServerForm({ entry, isNew, onChange }: FormProps) {
           <Row label="Env (KEY=value per line; secrets as <keychain:slot>)">
             <textarea
               data-testid="mcp-env"
-              value={Object.entries(entry.env)
-                .map(([k, v]) => `${k}=${v}`)
-                .join("\n")}
-              onChange={(e) => onChange({ ...entry, env: parseKv(e.target.value) })}
+              value={envText}
+              onChange={(e) => {
+                setEnvText(e.target.value);
+                onChange({ ...entry, env: parseKv(e.target.value) });
+              }}
               rows={3}
               placeholder="GITHUB_TOKEN=<keychain:github_token>"
               className="w-full resize-y rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1 font-mono text-xs text-[var(--text)] outline-none transition focus:border-[var(--accent)]/55"
@@ -401,12 +437,11 @@ function McpServerForm({ entry, isNew, onChange }: FormProps) {
           <Row label="Headers (Name: value per line)">
             <textarea
               data-testid="mcp-headers"
-              value={Object.entries(entry.headers)
-                .map(([k, v]) => `${k}: ${v}`)
-                .join("\n")}
-              onChange={(e) =>
-                onChange({ ...entry, headers: parseKv(e.target.value, ":") })
-              }
+              value={headersText}
+              onChange={(e) => {
+                setHeadersText(e.target.value);
+                onChange({ ...entry, headers: parseKv(e.target.value, ":") });
+              }}
               rows={3}
               className="w-full resize-y rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1 font-mono text-xs text-[var(--text)] outline-none transition focus:border-[var(--accent)]/55"
             />
@@ -426,6 +461,21 @@ function McpServerForm({ entry, isNew, onChange }: FormProps) {
       </Row>
     </div>
   );
+}
+
+/** One argument per line; blanks and surrounding space are dropped. */
+function parseArgs(text: string): string[] {
+  return text
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** Inverse of {@link parseKv}, for seeding a textarea from stored pairs. */
+function kvToText(kv: Record<string, string>, sep: "=" | ": "): string {
+  return Object.entries(kv)
+    .map(([k, v]) => `${k}${sep}${v}`)
+    .join("\n");
 }
 
 function parseKv(text: string, sep: "=" | ":" = "="): Record<string, string> {
