@@ -1,12 +1,14 @@
 ﻿/**
- * CommandPalette — Ctrl+K searchable launcher for all 27 agent tools.
+ * CommandPalette — Ctrl+K searchable launcher for the agent's tools.
  *
  * Opens as a modal overlay. User types to filter, clicks or presses Enter
  * to select — the chosen prompt is injected into the chat input so the
  * user can review/edit before sending.
  *
- * Commands are grouped by category and cover every tool the Rust dispatcher
- * exposes, with natural-language prompts that the agent understands.
+ * Commands are grouped by category, with natural-language prompts that the
+ * agent understands. A command here is a promise to the user that something
+ * will happen, so a tool that records state without changing the audio must
+ * not appear — see the note on the Speed & Pitch group.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -52,11 +54,18 @@ export const COMMANDS: Command[] = [
   { category: "Editing", label: "Reverse", prompt: "reverse the audio", description: "Flip sample order — plays backwards", tags: ["reverse", "backwards", "flip"] },
 
   // Speed & Pitch
-  { category: "Speed & Pitch", label: "Slow down", prompt: "slow this down to 0.75x speed", description: "Time stretch without pitch change", tags: ["slow", "stretch", "tempo"] },
-  { category: "Speed & Pitch", label: "Speed up", prompt: "speed this up to 1.5x", description: "Time compress without pitch change", tags: ["speed", "compress", "tempo", "fast"] },
-  { category: "Speed & Pitch", label: "Pitch up", prompt: "pitch shift up 2 semitones", description: "Raise pitch, keep duration", tags: ["pitch", "semitone", "higher"] },
-  { category: "Speed & Pitch", label: "Pitch down", prompt: "pitch shift down 3 semitones", description: "Lower pitch, keep duration", tags: ["pitch", "semitone", "lower"] },
-  { category: "Speed & Pitch", label: "Align to beat", prompt: "align this track to the beat grid", description: "Quantize clip positions to detected BPM", tags: ["beat", "align", "quantize", "grid"] },
+  //
+  // Only the two entries below are here, and both say that pitch moves
+  // with the speed, because `change_speed` resamples. The palette used to
+  // also offer "Pitch up", "Pitch down" and "Align to beat", and to
+  // describe these two as "without pitch change" — all of which route to
+  // `time_stretch` / `pitch_shift` / `align_to_beat`. Those three tools
+  // record a value on the clip that the render engine does not read, so
+  // every one of those five commands returned success and changed nothing.
+  // Restore them when the DSP lands (the tools carry
+  // `applied_at_render: false` until it does).
+  { category: "Speed & Pitch", label: "Slow down", prompt: "slow this down to 0.75x speed by resampling", description: "Resamples — pitch drops with the speed", tags: ["slow", "tempo", "speed"] },
+  { category: "Speed & Pitch", label: "Speed up", prompt: "speed this up to 1.5x by resampling", description: "Resamples — pitch rises with the speed", tags: ["speed", "tempo", "fast"] },
 
   // Analysis
   { category: "Analysis", label: "Analyze audio", prompt: "analyze this audio — give me the BPM, key, loudness, and sections", description: "BPM, key, LUFS, beat grid, sections", tags: ["analyze", "bpm", "key", "loudness", "lufs"] },
