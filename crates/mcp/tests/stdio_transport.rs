@@ -87,9 +87,12 @@ fn server_that_exits_reports_closed_stdout() {
     let err = client.initialize().expect_err("must fail");
     let elapsed = started.elapsed();
 
+    // Whether the failure surfaces as EOF on stdout or `EPIPE` on the
+    // write depends on which side of the race the child loses, and both
+    // mean the same thing. Assert on the condition, not the mechanism.
     assert!(
-        err.to_string().contains("closed stdout"),
-        "expected a closed-stdout error, got: {err}"
+        err.to_string().contains("exited"),
+        "expected a server-exited error, got: {err}"
     );
     assert!(
         elapsed.as_secs() < 10,

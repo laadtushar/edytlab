@@ -378,7 +378,7 @@ function McpServerForm({ entry, isNew, onChange }: FormProps) {
           className="w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--text)] outline-none transition focus:border-[var(--accent)]/55"
         >
           <option value="stdio">stdio (local subprocess)</option>
-          <option value="sse">sse (remote URL)</option>
+          <option value="sse">remote (HTTP)</option>
         </select>
       </Row>
       {entry.transport === "stdio" ? (
@@ -430,7 +430,7 @@ function McpServerForm({ entry, isNew, onChange }: FormProps) {
               data-testid="mcp-url"
               value={entry.url}
               onChange={(e) => onChange({ ...entry, url: e.target.value })}
-              placeholder="https://mcp.example.com/sse"
+              placeholder="https://mcp.example.com/mcp"
               className="w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1 font-mono text-xs text-[var(--text)] outline-none transition focus:border-[var(--accent)]/55"
             />
           </Row>

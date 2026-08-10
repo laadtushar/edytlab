@@ -12,6 +12,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::config::{McpServerConfig, McpTransport};
+use crate::http::HttpClient;
 use crate::transport::{StdioClient, ToolDescriptor};
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -51,9 +52,42 @@ pub struct RemoteToolDescriptor {
     pub schema: Value,
 }
 
+/// A live connection to a server, over whichever transport it uses.
+///
+/// An enum rather than a trait object: there are exactly two transports
+/// and no plans for a third, so the match arms stay exhaustive and the
+/// compiler flags any future variant that forgets a method.
+enum Client {
+    Stdio(StdioClient),
+    Http(HttpClient),
+}
+
+impl Client {
+    fn initialize(&mut self) -> crate::config::Result<Option<String>> {
+        match self {
+            Client::Stdio(c) => c.initialize(),
+            Client::Http(c) => c.initialize(),
+        }
+    }
+
+    fn list_tools(&mut self) -> crate::config::Result<Vec<ToolDescriptor>> {
+        match self {
+            Client::Stdio(c) => c.list_tools(),
+            Client::Http(c) => c.list_tools(),
+        }
+    }
+
+    fn call_tool(&mut self, name: &str, args: Value) -> crate::config::Result<Value> {
+        match self {
+            Client::Stdio(c) => c.call_tool(name, args),
+            Client::Http(c) => c.call_tool(name, args),
+        }
+    }
+}
+
 struct RunningServer {
     /// Live JSON-RPC client. Used for `tools/call` dispatch.
-    client: StdioClient,
+    client: Client,
     tools: Vec<ToolDescriptor>,
 }
 
@@ -97,32 +131,29 @@ impl McpRegistry {
         }
     }
 
-    /// Start a server. SSE transport is not yet implemented — calls
-    /// return Err so the UI can render a clear "coming soon" badge
-    /// rather than a silent failure.
+    /// Start a server: connect, handshake, and record its tools.
     pub fn start(
         &self,
         id: &str,
         cfg: &McpServerConfig,
         resolve_secret: impl FnMut(&str) -> Option<String>,
     ) -> Result<(), String> {
-        let (mut client, _transport) = match cfg {
+        // Checked once for every transport. Previously this lived inside
+        // the stdio arm, so a disabled remote server would have been
+        // started anyway.
+        if !cfg.enabled() {
+            return Err("server is disabled".into());
+        }
+        let mut client = match cfg {
             McpServerConfig::Stdio {
-                command,
-                args,
-                env,
-                enabled,
-            } => {
-                if !enabled {
-                    return Err("server is disabled".into());
-                }
-                let client = StdioClient::spawn(command, args, env, resolve_secret)
-                    .map_err(|e| e.to_string())?;
-                (client, McpTransport::Stdio)
-            }
-            McpServerConfig::Sse { .. } => {
-                return Err("SSE transport is not yet supported in this build".into());
-            }
+                command, args, env, ..
+            } => Client::Stdio(
+                StdioClient::spawn(command, args, env, resolve_secret)
+                    .map_err(|e| e.to_string())?,
+            ),
+            McpServerConfig::Sse { url, headers, .. } => Client::Http(
+                HttpClient::connect(url, headers, resolve_secret).map_err(|e| e.to_string())?,
+            ),
         };
         client.initialize().map_err(|e| e.to_string())?;
         let tools = client.list_tools().map_err(|e| e.to_string())?;

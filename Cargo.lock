@@ -2664,6 +2664,7 @@ name = "mcp"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "tempfile",
