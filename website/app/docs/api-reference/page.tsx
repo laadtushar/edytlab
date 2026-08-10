@@ -49,9 +49,19 @@ const commands = [
         desc: "Check whether a specific provider has a key.",
       },
       {
+        name: "clearApiKeyFor(provider)",
+        returns: "void",
+        desc: "Remove a specific provider's key from the keychain.",
+      },
+      {
         name: "clearApiKey()",
         returns: "void",
         desc: "Remove the API key for the active provider from the keychain.",
+      },
+      {
+        name: "testApiKeyFor(provider, key)",
+        returns: "void",
+        desc: "Validate a key against a specific provider with a 1-token probe.",
       },
       {
         name: "testApiKey(key)",
@@ -194,9 +204,154 @@ const commands = [
     group: "Tracks",
     items: [
       {
+        name: "batchLoad(paths)",
+        returns: "LoadReport",
+        desc: "Load several audio files in one call, each as its own track.",
+      },
+      {
         name: "listTracks()",
         returns: "TrackSummary[]",
         desc: "List all tracks in the current session head.",
+      },
+    ],
+  },
+  {
+    group: "Skills",
+    items: [
+      {
+        name: "listSkills()",
+        returns: "SkillSummary[]",
+        desc: "List every skill in the library, re-reading the skills directory first so files added or removed since startup are picked up.",
+      },
+      {
+        name: "readSkill(name)",
+        returns: "SkillContent",
+        desc: "Read one skill's front matter and markdown body.",
+      },
+      {
+        name: "upsertSkill(name, content)",
+        returns: "void",
+        desc: "Create or overwrite a skill. The name is validated before it becomes a filename.",
+      },
+      {
+        name: "deleteSkill(name)",
+        returns: "void",
+        desc: "Delete a skill from the library.",
+      },
+      {
+        name: "installBundledSkills()",
+        returns: "number",
+        desc: "Copy the skills that ship with the app into the user's library. Returns how many were written.",
+      },
+    ],
+  },
+  {
+    group: "Agent Profiles",
+    items: [
+      {
+        name: "listAgentProfiles()",
+        returns: "AgentProfileSummary[]",
+        desc: "List saved agent profiles, re-reading them from disk first.",
+      },
+      {
+        name: "readAgentProfile(name)",
+        returns: "AgentProfileContent",
+        desc: "Read one profile's model override, tool whitelist and system-prompt addition.",
+      },
+      {
+        name: "upsertAgentProfile(name, content)",
+        returns: "void",
+        desc: "Create or overwrite an agent profile.",
+      },
+      {
+        name: "deleteAgentProfile(name)",
+        returns: "void",
+        desc: "Delete an agent profile.",
+      },
+      {
+        name: "getActiveAgentProfile()",
+        returns: "string | null",
+        desc: "The profile currently in effect, or null when none is selected.",
+      },
+      {
+        name: "setActiveAgentProfile(name)",
+        returns: "void",
+        desc: "Switch the active profile. Pass null to clear it.",
+      },
+    ],
+  },
+  {
+    group: "MCP Servers",
+    items: [
+      {
+        name: "listMcpServers()",
+        returns: "McpServerListEntry[]",
+        desc: "Every registered MCP server with its transport, enabled flag and current connection state.",
+      },
+      {
+        name: "readMcpServer(id)",
+        returns: "McpServerEntry",
+        desc: "Full configuration for one server — command, args, env, headers.",
+      },
+      {
+        name: "upsertMcpServer(id, entry)",
+        returns: "void",
+        desc: "Register or update a server. A server installed by a plugin always arrives disabled.",
+      },
+      {
+        name: "deleteMcpServer(id)",
+        returns: "void",
+        desc: "Stop the server and remove it from the configuration.",
+      },
+      {
+        name: "restartMcpServer(id)",
+        returns: "void",
+        desc: "Stop and re-launch one server, picking up an edited configuration.",
+      },
+    ],
+  },
+  {
+    group: "Plugins and Capabilities",
+    items: [
+      {
+        name: "installPlugin(source)",
+        returns: "PluginInstallReport",
+        desc: "Install skills and agent profiles from github:org/repo or a local path. Existing files are never overwritten, and any MCP servers the plugin declares are registered disabled.",
+      },
+      {
+        name: "listCapabilities()",
+        returns: "Capabilities",
+        desc: "A snapshot of everything the agent can currently reach: tools, skills, MCP servers and profiles, with their enabled state.",
+      },
+    ],
+  },
+  {
+    group: "Templates",
+    items: [
+      {
+        name: "listTemplates()",
+        returns: "TemplateInfo[]",
+        desc: "Session templates that ship with the app.",
+      },
+      {
+        name: "applyTemplate(name)",
+        returns: "nodeId",
+        desc: "Apply a template to the current session.",
+      },
+    ],
+  },
+  {
+    group: "Recording",
+    items: [
+      {
+        name: "startRecording()",
+        returns: "string",
+        desc: "Begin capturing from the default input device.",
+      },
+      {
+        name: "stopRecording(outputPath)",
+        returns: "{ path, duration_sec }",
+        desc: "Stop capture and write the take to a WAV file.",
       },
     ],
   },
