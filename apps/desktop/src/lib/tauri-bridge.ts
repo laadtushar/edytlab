@@ -494,7 +494,18 @@ export interface PluginInstallResult {
   version: string;
   skills_installed: number;
   agents_installed: number;
+  /** Alias of `mcp_registered`, kept for older callers. */
   mcp_keys: string[];
+  /**
+   * Server ids written into `~/.edytlab/mcp.json`. Always registered
+   * **disabled**: a server config is a command line, and enabled servers
+   * are spawned at launch, so installing a plugin must never amount to
+   * running what it names. The user enables each one deliberately, with
+   * the command visible in Settings → MCP.
+   */
+  mcp_registered: string[];
+  /** Ids skipped because the user already has a server by that name. */
+  mcp_skipped: string[];
   summary: string;
 }
 

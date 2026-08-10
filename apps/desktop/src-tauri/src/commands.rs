@@ -2716,11 +2716,18 @@ fn download_github_plugin(repo: &str) -> Result<(std::path::PathBuf, tempfile::T
 /// `skills::plugin::PluginManifest` to copy skill and agent files into
 /// the user's `~/.edytlab/` directories.
 ///
-/// Returns a JSON summary including counts of installed skills and agents
-/// plus the list of MCP server keys declared in the manifest (the caller
-/// is responsible for wiring those into `~/.edytlab/mcp.json` if desired).
+/// MCP servers declared by the manifest are registered too, but always
+/// **disabled** — see [`register_plugin_mcp_servers`].
+///
+/// Returns a JSON summary: counts of installed skills and agents, the
+/// server ids that were registered, and any that were skipped because
+/// the id was already taken.
 #[tauri::command]
-pub fn install_plugin(source: String, app: tauri::AppHandle) -> CmdResult<serde_json::Value> {
+pub fn install_plugin(
+    source: String,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> CmdResult<serde_json::Value> {
     // `_tmp` is bound rather than dropped so the extracted tree outlives
     // the install; every return below cleans it up automatically.
     let (plugin_dir, _tmp) = if let Some(repo) = source.strip_prefix("github:") {
@@ -2754,24 +2761,105 @@ pub fn install_plugin(source: String, app: tauri::AppHandle) -> CmdResult<serde_
 
     let skills_installed = manifest.install_skills(&plugin_dir, &edytlab_skills_dir(&app)?)?;
     let agents_installed = manifest.install_agents(&plugin_dir, &edytlab_agents_dir(&app)?)?;
-    let mcp_keys: Vec<String> = manifest.mcp_servers.keys().cloned().collect();
+    let mcp = register_plugin_mcp_servers(&state, &manifest.mcp_servers)?;
 
-    let summary = format!(
+    let mut summary = format!(
         "Installed plugin '{}' v{}: {} skill(s), {} agent(s)",
         manifest.name,
         manifest.version,
         skills_installed.len(),
         agents_installed.len(),
     );
+    if !mcp.registered.is_empty() {
+        summary.push_str(&format!(
+            ", {} MCP server(s) added but left disabled — review each command before enabling",
+            mcp.registered.len()
+        ));
+    }
+    if !mcp.skipped.is_empty() {
+        summary.push_str(&format!(
+            ", {} MCP server(s) skipped (id already in use)",
+            mcp.skipped.len()
+        ));
+    }
 
     Ok(serde_json::json!({
         "name": manifest.name,
         "version": manifest.version,
         "skills_installed": skills_installed.len(),
         "agents_installed": agents_installed.len(),
-        "mcp_keys": mcp_keys,
+        // Kept for back-compat with callers that only wanted the names.
+        "mcp_keys": mcp.registered,
+        "mcp_registered": mcp.registered,
+        "mcp_skipped": mcp.skipped,
         "summary": summary,
     }))
+}
+
+/// Outcome of merging a manifest's `mcpServers` into the user's config.
+#[derive(Debug, Default)]
+struct PluginMcpOutcome {
+    registered: Vec<String>,
+    /// Ids already present in the user's config. A plugin must not be
+    /// able to redefine a server the user has configured — that would
+    /// swap out a command line they vetted.
+    skipped: Vec<String>,
+}
+
+/// Merge plugin-declared MCP servers into `~/.edytlab/mcp.json`.
+///
+/// Two rules, both load-bearing:
+///
+/// 1. **Everything lands disabled.** An MCP server config is a command
+///    line, and enabled servers are spawned at launch, so registering a
+///    plugin's server in an enabled state would make *installing* a
+///    plugin equivalent to *running* whatever it names. Enabling stays a
+///    deliberate per-server act with the command visible in Settings.
+/// 2. **Existing ids are never overwritten.** Otherwise a plugin could
+///    redefine a server the user already trusts and inherit its
+///    keychain-backed secrets.
+///
+/// Malformed entries are reported rather than silently dropped: a
+/// manifest that declares a server the app cannot parse is a broken
+/// plugin, and saying so beats pretending it installed.
+fn register_plugin_mcp_servers(
+    state: &AppState,
+    declared: &std::collections::HashMap<String, serde_json::Value>,
+) -> Result<PluginMcpOutcome, CommandError> {
+    let mut outcome = PluginMcpOutcome::default();
+    if declared.is_empty() {
+        return Ok(outcome);
+    }
+
+    {
+        let mut cfg = state
+            .mcp_config
+            .lock()
+            .map_err(|_| CommandError::Poisoned("mcp_config"))?;
+        // Deterministic order so the summary reads the same twice.
+        let mut ids: Vec<&String> = declared.keys().collect();
+        ids.sort();
+        for id in ids {
+            validate_mcp_id(id)?;
+            if cfg.servers.contains_key(id) {
+                outcome.skipped.push(id.clone());
+                continue;
+            }
+            let parsed: mcp::McpServerConfig = serde_json::from_value(declared[id].clone())
+                .map_err(|e| {
+                    CommandError::InvalidMcpServer(format!(
+                        "plugin declares MCP server `{id}` in an unrecognised shape: {e}"
+                    ))
+                })?;
+            cfg.servers.insert(id.clone(), parsed.disabled());
+            outcome.registered.push(id.clone());
+        }
+    }
+
+    if !outcome.registered.is_empty() {
+        state.save_mcp_config().map_err(CommandError::from)?;
+    }
+    Ok(outcome)
 }
 
 // ---------------------------------------------------------------------------
