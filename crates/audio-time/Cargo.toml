@@ -12,6 +12,10 @@ workspace = true
 [dependencies]
 thiserror = "2"
 tracing = "0.1"
+# The workspace-blessed FFT path (see audio-analysis). A pure-Rust
+# vocoder is what lets this crate ship on all three CI targets without
+# the C++ toolchain a Rubber Band FFI build would have needed.
+realfft = "3"
 # rubberband-sys = "0.3"  # commented; pin once we have a working Phase 2.5 build.
 # Until M28 vendors a Rubber Band build, the stretch/shift APIs return
 # `Error::NotImplemented` so the crate has no native build dependency.

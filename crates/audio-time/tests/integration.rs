@@ -1,73 +1,63 @@
-//! Integration tests for the M20 audio-time stub.
+//! Contract tests for the time-stretch / pitch-shift primitives.
 //!
-//! Until M28 wires up Rubber Band, the contract surface is:
+//! These used to assert that valid arguments produced
+//! `Err(NotImplemented)` — the stub's contract, and the reason the tools
+//! above this crate spent so long reporting a change the audio never
+//! received. Valid arguments now produce audio, so the argument
+//! validation is checked alongside what the functions actually return.
 //!
-//! * Valid arguments → `Err(NotImplemented)`.
-//! * Invalid factor / semitones → the matching `Invalid*` variant.
-//! * Bad channel count → `ChannelMismatch`.
-//!
-//! The plan's quantitative acceptance criteria (frequency tolerance,
-//! round-trip RMS, formant preservation) gate the M28 PR.
+//! Signal-quality assertions (frequency accuracy, length exactness) live
+//! next to the implementation in `src/`, where a failure points at the
+//! line responsible.
 
 use audio_time::{pitch_shift, shift, time_stretch, Error};
 
+/// One second of a 440 Hz tone at 48 kHz.
+fn tone() -> Vec<f32> {
+    (0..48_000)
+        .map(|n| (2.0 * std::f32::consts::PI * 440.0 * n as f32 / 48_000.0).sin() * 0.5)
+        .collect()
+}
+
 #[test]
 fn time_stretch_validates_factor() {
-    let samples = [0.0f32; 1024];
-    // Sentinel: valid args produce NotImplemented, not a crash.
-    assert_eq!(
-        time_stretch(&samples, 48_000, 1, 0.5, false),
-        Err(Error::NotImplemented)
-    );
-    // factor = 0
-    assert!(matches!(
-        time_stretch(&samples, 48_000, 1, 0.0, false),
-        Err(Error::InvalidFactor(_))
-    ));
-    // negative
-    assert!(matches!(
-        time_stretch(&samples, 48_000, 1, -1.0, false),
-        Err(Error::InvalidFactor(_))
-    ));
-    // NaN
-    assert!(matches!(
-        time_stretch(&samples, 48_000, 1, f32::NAN, false),
-        Err(Error::InvalidFactor(_))
-    ));
-    // +inf
-    assert!(matches!(
-        time_stretch(&samples, 48_000, 1, f32::INFINITY, false),
-        Err(Error::InvalidFactor(_))
-    ));
+    let samples = tone();
+
+    // Valid arguments produce audio of the promised length.
+    let out = time_stretch(&samples, 48_000, 1, 0.5, false).expect("valid factor");
+    assert_eq!(out.len(), samples.len() * 2, "factor 0.5 is twice as long");
+
+    for bad in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+        assert!(
+            matches!(
+                time_stretch(&samples, 48_000, 1, bad, false),
+                Err(Error::InvalidFactor(_))
+            ),
+            "factor {bad} should be rejected"
+        );
+    }
 }
 
 #[test]
 fn pitch_shift_validates_semitones() {
-    let samples = [0.0f32; 1024];
-    // Valid args → NotImplemented.
-    assert_eq!(
-        pitch_shift(&samples, 48_000, 1, 12.0, false),
-        Err(Error::NotImplemented)
-    );
-    // Outside ±48
-    assert!(matches!(
-        pitch_shift(&samples, 48_000, 1, 60.0, false),
-        Err(Error::InvalidSemitones(_))
-    ));
-    assert!(matches!(
-        pitch_shift(&samples, 48_000, 1, -60.0, false),
-        Err(Error::InvalidSemitones(_))
-    ));
-    // NaN
-    assert!(matches!(
-        pitch_shift(&samples, 48_000, 1, f32::NAN, false),
-        Err(Error::InvalidSemitones(_))
-    ));
-    // Boundary value (exactly MAX_SEMITONES) is accepted.
-    assert_eq!(
-        pitch_shift(&samples, 48_000, 1, shift::MAX_SEMITONES, false),
-        Err(Error::NotImplemented)
-    );
+    let samples = tone();
+
+    let out = pitch_shift(&samples, 48_000, 1, 12.0, false).expect("valid semitones");
+    assert_eq!(out.len(), samples.len(), "pitch shift preserves duration");
+
+    for bad in [60.0, -60.0, f32::NAN] {
+        assert!(
+            matches!(
+                pitch_shift(&samples, 48_000, 1, bad, false),
+                Err(Error::InvalidSemitones(_))
+            ),
+            "{bad} semitones should be rejected"
+        );
+    }
+
+    // Exactly at the boundary is accepted.
+    assert!(pitch_shift(&samples, 48_000, 1, shift::MAX_SEMITONES, false).is_ok());
+    assert!(pitch_shift(&samples, 48_000, 1, -shift::MAX_SEMITONES, false).is_ok());
 }
 
 #[test]
@@ -84,18 +74,23 @@ fn channel_mismatch_surfaces_distinct_error() {
     ));
 }
 
+/// `preserve_formants` is accepted and currently ignored.
+///
+/// Ignored is not the same as rejected: the flag is part of the tool
+/// schema, so passing it must succeed and return the same audio as
+/// passing `false`. When formant preservation lands, this test is the
+/// one that should start failing.
 #[test]
-fn preserve_formants_flag_is_recorded_not_rejected() {
-    // Until M28 the flag is purely informational, but accepting
-    // `preserve_formants = true` without changing the error variant is
-    // a contract guarantee callers may rely on.
-    let samples = [0.0f32; 1024];
+fn preserve_formants_is_accepted_and_currently_ignored() {
+    let samples = tone();
+
+    let with = time_stretch(&samples, 48_000, 1, 1.5, true).expect("flag accepted");
+    let without = time_stretch(&samples, 48_000, 1, 1.5, false).expect("flag accepted");
     assert_eq!(
-        time_stretch(&samples, 48_000, 1, 1.0, true),
-        Err(Error::NotImplemented)
+        with, without,
+        "the flag is documented as ignored; if this diverges, the docs and \
+         the tool description need updating with it"
     );
-    assert_eq!(
-        pitch_shift(&samples, 48_000, 1, 0.0, true),
-        Err(Error::NotImplemented)
-    );
+
+    assert!(pitch_shift(&samples, 48_000, 1, 3.0, true).is_ok());
 }
