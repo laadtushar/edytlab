@@ -1,5 +1,5 @@
 use crate::schema::anthropic_tool;
-use crate::tool::util::destructive_edit;
+use crate::tool::util::destructive_edit_rechannel;
 use crate::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::Value;
@@ -68,12 +68,16 @@ impl Tool for StereoToMonoTool {
                 )));
             }
         };
-        Ok(destructive_edit(
+        Ok(destructive_edit_rechannel(
             ctx,
             args.track,
-            move |samples, _sr| {
+            move |samples, _sr, _ch| {
                 let mono = apply_stereo_to_mono(samples, channels);
                 *samples = mono;
+                // The buffer is now one channel; the header has to say
+                // so, or playback reads these samples as L/R pairs and
+                // the track comes out twice as fast, an octave high.
+                1
             },
             format!("stereo_to_mono track {}", args.track),
         ))

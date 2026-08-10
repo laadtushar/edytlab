@@ -87,6 +87,40 @@ pub(crate) fn destructive_edit<F>(
 where
     F: FnOnce(&mut Vec<f32>, u32),
 {
+    // The overwhelming majority of edits leave the channel layout
+    // alone, so they keep the two-argument closure and simply hand the
+    // incoming count straight back.
+    destructive_edit_rechannel(
+        ctx,
+        track_idx,
+        |samples, sample_rate, channels| {
+            edit_fn(samples, sample_rate);
+            channels
+        },
+        label,
+    )
+}
+
+/// [`destructive_edit`] for edits that change the channel layout.
+///
+/// The closure receives the source's channel count and returns the
+/// count its buffer now has. That return value is what gets written
+/// into the WAV header and used to recompute the clip length — the
+/// plain `destructive_edit` always wrote the *source's* count, so a
+/// tool that halved or doubled the buffer produced a file whose header
+/// disagreed with its contents. Playback then reinterprets the frames:
+/// half the samples under a stereo header plays twice as fast and an
+/// octave high, and twice the samples under a mono header plays half
+/// as fast and an octave low.
+pub(crate) fn destructive_edit_rechannel<F>(
+    ctx: &mut ToolContext,
+    track_idx: usize,
+    edit_fn: F,
+    label: impl Into<String>,
+) -> ToolResult
+where
+    F: FnOnce(&mut Vec<f32>, u32, u16) -> u16,
+{
     let label = label.into();
 
     let mut state = match load_head_state(ctx) {
@@ -130,8 +164,10 @@ where
     let end_idx = (src_end as usize) * stride;
     let mut window: Vec<f32> = decoded.samples[start_idx..end_idx].to_vec();
 
-    // Apply the user-provided edit.
-    edit_fn(&mut window, sample_rate);
+    // Apply the user-provided edit. It reports the channel count its
+    // buffer now has, which may differ from the source's.
+    let channels_out = edit_fn(&mut window, sample_rate, channels).max(1);
+    let stride_out = channels_out as usize;
 
     // CAS-address the result under `<source_dir>/derived/<hash>.wav`.
     let parent: &Path = clip.source_path.parent().unwrap_or_else(|| Path::new("."));
@@ -155,7 +191,7 @@ where
     let cas_path = derived_dir.join(format!("{hash_hex}.wav"));
 
     if !cas_path.exists() {
-        if let Err(e) = audio_engine::write_wav(&window, sample_rate, channels, &cas_path) {
+        if let Err(e) = audio_engine::write_wav(&window, sample_rate, channels_out, &cas_path) {
             return ToolResult::Error(format!(
                 "failed to write CAS wav {}: {e}",
                 cas_path.display()
@@ -165,7 +201,7 @@ where
 
     // Update the clip in place: point at the new source, zero offset,
     // length recomputed from the post-edit buffer.
-    let new_length_frames = (window.len() / stride) as u64;
+    let new_length_frames = (window.len() / stride_out) as u64;
     let clip_mut = &mut state.tracks[track_idx].clips[0];
     clip_mut.source_path = cas_path;
     clip_mut.source_offset = 0;
