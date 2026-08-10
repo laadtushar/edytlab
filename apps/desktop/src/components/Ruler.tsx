@@ -21,7 +21,15 @@ export function Ruler({ duration, sidebarWidth = 132, onAddMarker }: RulerProps)
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!duration || !rulerRef.current || !onAddMarker) return;
     const rect = rulerRef.current.getBoundingClientRect();
-    const pct = (e.clientX - rect.left) / rect.width;
+    if (rect.width <= 0) return;
+    // The handler is on the outer strip, which includes the sidebar
+    // spacer, but the position is measured against the tick area. A
+    // click in the spacer is therefore left of `rect.left` and lands
+    // before zero; one past the right edge lands after the end. Both
+    // used to go straight through to `add_marker`, which takes an f64
+    // and validates nothing — so the marker entered the session at a
+    // timestamp no view can render and no control can reach.
+    const pct = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
     onAddMarker(pct * duration);
   };
 
@@ -52,9 +60,11 @@ export function Ruler({ duration, sidebarWidth = 132, onAddMarker }: RulerProps)
       {/* Match sidebar width */}
       <div style={{ width: sidebarWidth, flexShrink: 0, borderRight: "1px solid var(--border)" }} />
       <div ref={rulerRef} style={{ flex: 1, position: "relative" }}>
-        {ticks.map(({ t, pct }) => (
+        {ticks.map(({ t, pct }, i) => (
           <span
-            key={t}
+            // Index, not `t`: at duration 0 every tick is 0 and the keys
+            // collide.
+            key={i}
             style={{
               position: "absolute",
               left: `${pct}%`,

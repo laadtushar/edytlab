@@ -79,6 +79,9 @@ pub enum CommandError {
     #[error("invalid path: {0}")]
     InvalidPath(String),
 
+    #[error("invalid marker: {0}")]
+    InvalidMarker(String),
+
     #[error("internal: a state mutex was poisoned ({0})")]
     Poisoned(&'static str),
 
@@ -1391,6 +1394,16 @@ pub fn add_marker(
     time: f64,
     name: String,
 ) -> CmdResult<String> {
+    // A marker outside the timeline cannot be rendered, selected or
+    // removed — it is simply stuck in the session. The ruler used to
+    // send negative times for a click on its sidebar spacer; that is
+    // fixed, but the command should not have accepted them either.
+    if !time.is_finite() || time < 0.0 {
+        return Err(CommandError::InvalidMarker(format!(
+            "time must be finite and >= 0; got {time}"
+        ))
+        .into());
+    }
     let store_arc = state.store_handle().ok_or(CommandError::NoSession)?;
     let mut store = lock_std(&*store_arc, "store")?;
     let head = store.head().ok_or(CommandError::NoSession)?;
