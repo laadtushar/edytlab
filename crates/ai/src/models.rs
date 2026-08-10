@@ -277,6 +277,26 @@ fn openai_rank(id: &str) -> u8 {
 mod tests {
     use super::*;
 
+    /// Serialises the tests that touch the process-wide model cache.
+    ///
+    /// `CACHE` is a `static`, so every test in this binary shares one.
+    /// The cache-touching tests each start with `clear_cache()`, and
+    /// `cargo test` runs them concurrently — so a sibling's `clear_cache`
+    /// could land between this test's `cache_put` and its read, wiping
+    /// the entry it was about to assert on. Measured at 5 failures in 40
+    /// runs before this guard, 0 in 40 after.
+    ///
+    /// A test-only mutex is the right instrument rather than
+    /// `--test-threads=1`: it costs nothing for the tests that don't
+    /// touch the cache, and it keeps the fix next to the shared state
+    /// instead of in CI configuration where the next person to add a
+    /// cache test won't see it.
+    ///
+    /// It has to be tokio's mutex, not `std`'s: these are `#[tokio::test]`
+    /// bodies and the guard is held across an `.await`, which is exactly
+    /// the case a blocking guard must not be used for.
+    static CACHE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
     #[test]
     fn anthropic_catalogue_includes_curated_ids() {
         let m = anthropic_models();
@@ -308,6 +328,7 @@ mod tests {
 
     #[tokio::test]
     async fn anthropic_list_does_not_hit_network() {
+        let _guard = CACHE_LOCK.lock().await;
         clear_cache();
         // Pass a bogus base URL via api_key=None — anthropic is static.
         let m = list_models_for(ANTHROPIC_ID, None).await.unwrap();
@@ -316,6 +337,7 @@ mod tests {
 
     #[tokio::test]
     async fn cache_returns_within_ttl() {
+        let _guard = CACHE_LOCK.lock().await;
         clear_cache();
         cache_put(
             "anthropic".to_string(),
@@ -333,6 +355,7 @@ mod tests {
 
     #[tokio::test]
     async fn unsupported_provider_yields_error() {
+        let _guard = CACHE_LOCK.lock().await;
         clear_cache();
         let err = list_models_for("nope", None).await.unwrap_err();
         assert!(err.contains("unsupported"));
@@ -340,6 +363,7 @@ mod tests {
 
     #[tokio::test]
     async fn openai_catalogue_requires_api_key() {
+        let _guard = CACHE_LOCK.lock().await;
         clear_cache();
         let err = list_models_for(OPENAI_ID, None).await.unwrap_err();
         assert!(err.contains("OpenAI catalogue requires an API key"));
@@ -352,6 +376,7 @@ mod tests {
         // wiremock + base url override), so we just confirm the auth
         // attachment compiles. A live network test lives in the
         // integration suite if any.
+        let _guard = CACHE_LOCK.lock().await;
         clear_cache();
         let _ = OPENROUTER_ID; // silence unused-import
     }
