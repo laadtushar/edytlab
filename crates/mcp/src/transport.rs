@@ -26,7 +26,7 @@ use crate::config::{McpError, Result, SecretRef};
 /// before giving up. The MCP spec has no mandated value; 10 s is long
 /// enough for a cold `npx` server to answer `initialize` and short
 /// enough that a wedged server doesn't look like a hang to the user.
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+pub(crate) const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Number of trailing stderr lines retained per server for diagnostics.
 const STDERR_TAIL_LINES: usize = 20;
@@ -34,9 +34,6 @@ const STDERR_TAIL_LINES: usize = 20;
 /// How long an error path waits for the stderr drain thread to catch
 /// up before giving up on including a diagnosis.
 const STDERR_GRACE: Duration = Duration::from_millis(250);
-
-/// Poll interval while waiting out [`STDERR_GRACE`].
-const STDERR_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 /// A single tool advertised by an MCP server. The `schema` is the
 /// raw `input_schema` JSON from the MCP `tools/list` response.
@@ -66,6 +63,10 @@ pub struct StdioClient {
     /// report missing env vars, auth failures, and crash traces there,
     /// so it is folded into error messages rather than discarded.
     stderr_tail: Arc<Mutex<VecDeque<String>>>,
+    /// Disconnects when the stderr drain thread reaches EOF — i.e. the
+    /// child's stderr closed, so no further line can arrive. Used as a
+    /// wait-for-event rather than sleeping a fixed period.
+    stderr_done: Receiver<()>,
     next_id: u64,
 }
 
@@ -161,10 +162,14 @@ impl StdioClient {
         });
 
         let stderr_tail = Arc::new(Mutex::new(VecDeque::with_capacity(STDERR_TAIL_LINES)));
+        let (stderr_done_tx, stderr_done) = mpsc::channel::<()>();
         {
             let tail = Arc::clone(&stderr_tail);
             let server = command.to_string();
             std::thread::spawn(move || {
+                // Owned solely so that finishing this thread disconnects
+                // the channel; nothing is ever sent on it.
+                let _signal_on_drop = stderr_done_tx;
                 for line in BufReader::new(stderr)
                     .lines()
                     .map_while(std::result::Result::ok)
@@ -187,6 +192,7 @@ impl StdioClient {
             stdin,
             stdout_rx,
             stderr_tail,
+            stderr_done,
             next_id: 1,
         })
     }
@@ -202,23 +208,36 @@ impl StdioClient {
     /// dropped exactly when it matters most. Callers pass
     /// [`Duration::ZERO`] when the server is known to still be alive.
     fn stderr_context(&self, grace: Duration) -> String {
-        let deadline = Instant::now() + grace;
-        loop {
-            if let Ok(tail) = self.stderr_tail.lock() {
-                if !tail.is_empty() {
-                    let joined = tail
-                        .iter()
-                        .map(|l| l.trim_end())
-                        .collect::<Vec<_>>()
-                        .join(" | ");
-                    return format!("; last stderr: {joined}");
-                }
-            }
-            if Instant::now() >= deadline {
-                return String::new();
-            }
-            std::thread::sleep(STDERR_POLL_INTERVAL);
+        if let Some(rendered) = self.rendered_stderr_tail() {
+            return rendered;
         }
+        if !grace.is_zero() {
+            // Wait for the drain thread to sign off rather than sleeping
+            // a fixed period. When the server has died — precisely when
+            // this diagnosis matters — EOF on its stderr is the exact
+            // moment the last line becomes available. Polling a fixed
+            // 250ms raced the scheduler instead, and lost under load.
+            let _ = self.stderr_done.recv_timeout(grace);
+            if let Some(rendered) = self.rendered_stderr_tail() {
+                return rendered;
+            }
+        }
+        String::new()
+    }
+
+    /// The buffered stderr lines as an error suffix, or `None` when
+    /// nothing has been captured.
+    fn rendered_stderr_tail(&self) -> Option<String> {
+        let tail = self.stderr_tail.lock().ok()?;
+        if tail.is_empty() {
+            return None;
+        }
+        let joined = tail
+            .iter()
+            .map(|l| l.trim_end())
+            .collect::<Vec<_>>()
+            .join(" | ");
+        Some(format!("; last stderr: {joined}"))
     }
 
     /// MCP handshake: send `initialize`, wait for response. Returns
@@ -256,34 +275,7 @@ impl StdioClient {
     /// Call `tools/list`. Returns the parsed tool descriptors.
     pub fn list_tools(&mut self) -> Result<Vec<ToolDescriptor>> {
         let resp = self.request("tools/list", json!({}))?;
-        let arr = resp
-            .get("tools")
-            .and_then(|t| t.as_array())
-            .cloned()
-            .unwrap_or_default();
-        let mut out = Vec::with_capacity(arr.len());
-        for t in arr {
-            let name = t
-                .get("name")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| McpError::InvalidConfig("tool entry missing string `name`".into()))?
-                .to_string();
-            let description = t
-                .get("description")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string();
-            let schema = t
-                .get("inputSchema")
-                .cloned()
-                .unwrap_or(json!({ "type": "object" }));
-            out.push(ToolDescriptor {
-                name,
-                description,
-                schema,
-            });
-        }
-        Ok(out)
+        parse_tool_descriptors(&resp)
     }
 
     fn request(&mut self, method: &str, params: Value) -> Result<Value> {
@@ -331,14 +323,26 @@ impl StdioClient {
     fn write_frame(&mut self, frame: &Value) -> Result<()> {
         let bytes =
             serde_json::to_vec(frame).map_err(|e| McpError::InvalidConfig(e.to_string()))?;
-        self.stdin
+        let written = self
+            .stdin
             .write_all(&bytes)
             .and_then(|_| self.stdin.write_all(b"\n"))
-            .and_then(|_| self.stdin.flush())
-            .map_err(|source| McpError::Io {
-                path: "stdin".into(),
-                source,
-            })
+            .and_then(|_| self.stdin.flush());
+
+        match written {
+            Ok(()) => Ok(()),
+            Err(source) => {
+                // A server that dies on startup usually loses the race
+                // to our first write, so this is `EPIPE` rather than an
+                // EOF on the read side — and it is exactly the moment
+                // the user needs to know *why* it died. Without the
+                // stderr tail the whole failure reads as "Broken pipe".
+                Err(McpError::InvalidConfig(format!(
+                    "server exited before it could be sent a request ({source}){}",
+                    self.stderr_context(STDERR_GRACE)
+                )))
+            }
+        }
     }
 
     /// Read one JSON frame, giving up at `deadline`.
@@ -362,7 +366,7 @@ impl StdioClient {
             }
             Err(RecvTimeoutError::Disconnected) => {
                 return Err(McpError::InvalidConfig(format!(
-                    "server closed stdout{}",
+                    "server exited without responding (closed stdout){}",
                     self.stderr_context(STDERR_GRACE)
                 )));
             }
@@ -376,4 +380,41 @@ impl Drop for StdioClient {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
+}
+
+/// Parse a `tools/list` result into descriptors.
+///
+/// Shared by both transports so a tool advertised over HTTP is
+/// interpreted exactly as the same tool advertised over stdio — the
+/// schema default in particular, which the dispatcher relies on to
+/// advertise parameters to the model.
+pub(crate) fn parse_tool_descriptors(resp: &Value) -> Result<Vec<ToolDescriptor>> {
+    let arr = resp
+        .get("tools")
+        .and_then(|t| t.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let mut out = Vec::with_capacity(arr.len());
+    for t in arr {
+        let name = t
+            .get("name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| McpError::InvalidConfig("tool entry missing string `name`".into()))?
+            .to_string();
+        let description = t
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let schema = t
+            .get("inputSchema")
+            .cloned()
+            .unwrap_or(json!({ "type": "object" }));
+        out.push(ToolDescriptor {
+            name,
+            description,
+            schema,
+        });
+    }
+    Ok(out)
 }

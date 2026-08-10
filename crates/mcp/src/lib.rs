@@ -18,21 +18,27 @@
 //! the registry mutex, and transitively the dispatcher and the whole
 //! agent loop.
 //!
-//! Transport support: stdio is implemented. SSE is parsed and stored
-//! but [`McpRegistry::start`] rejects it, so the UI can say so plainly
-//! rather than failing at first use.
+//! Two transports, both speaking JSON-RPC 2.0:
 //!
-//! On the wire we speak JSON-RPC 2.0 over stdio per the MCP spec:
-//! requests are line-delimited JSON objects; `initialize` is the
-//! handshake; `tools/list` returns the server's tools.
+//! * **stdio** (`transport`) — a local child process; requests are
+//!   line-delimited JSON on its stdin/stdout.
+//! * **remote HTTP** (`http`) — the Streamable HTTP transport: each
+//!   request is a POST, and the server answers with either JSON or an
+//!   event stream. Config still keys this as `sse` for compatibility
+//!   with files written before it was implemented.
+//!
+//! `initialize` is the handshake, `tools/list` discovers tools, and
+//! `tools/call` invokes one.
 
 mod config;
+mod http;
 mod registry;
 mod transport;
 
 pub use config::{
     load_config, save_config, McpConfig, McpError, McpServerConfig, McpTransport, Result, SecretRef,
 };
+pub use http::HttpClient;
 pub use registry::{
     namespaced_wire_name, McpRegistry, McpServerStatus, McpServerSummary, RemoteToolDescriptor,
 };

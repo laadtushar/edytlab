@@ -13,6 +13,9 @@ thiserror = "2"
 tracing = "0.1"
 tempfile = "3"
 blake3 = "1"
+# `rustls-tls` matches the `ai` crate so the workspace links one TLS
+# stack rather than two.
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 
 [dev-dependencies]
 tempfile = "3"
