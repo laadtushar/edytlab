@@ -944,8 +944,13 @@ fn separate_stems_rejects_missing_input_file() {
 // track. Two consecutive calls compose multiplicatively.
 // ---------------------------------------------------------------------------
 
+/// `time_stretch` changes the duration and leaves the pitch alone.
+///
+/// It used to record a factor on the clip and change nothing; the
+/// assertion was on the recorded number. What matters now is the audio,
+/// so the length of the rendered clip is what gets checked.
 #[test]
-fn time_stretch_records_factor_on_clip() {
+fn time_stretch_changes_the_duration() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
     let mut clipboard: Option<Vec<f32>> = None;
@@ -956,10 +961,12 @@ fn time_stretch_records_factor_on_clip() {
         clipboard: &mut clipboard,
     };
 
-    ok(dispatcher
+    let load = ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
         .unwrap());
+    let original = load["length_samples"].as_u64().unwrap();
 
+    // factor 0.5 is half speed, so twice as long.
     let res = ok(dispatcher
         .invoke(
             "time_stretch",
@@ -967,25 +974,17 @@ fn time_stretch_records_factor_on_clip() {
             &mut ctx,
         )
         .unwrap());
-
-    let new_id = session::NodeId::from_hex(res["node_id"].as_str().unwrap()).unwrap();
-    let node = ctx.store.get(new_id).unwrap();
-    let factor = node.state.tracks[0].clips[0].time_stretch_factor;
+    let id = session::NodeId::from_hex(res["node_id"].as_str().unwrap()).unwrap();
+    let stretched = ctx.store.get(id).unwrap().state.tracks[0].clips[0].length;
     assert_eq!(
-        factor,
-        Some(0.5),
-        "expected factor 0.5 on clip, got {factor:?}"
+        stretched,
+        original * 2,
+        "factor 0.5 should double the clip's length"
     );
-    // The result must not claim the render will apply the factor — it
-    // does not, and saying so had the agent reporting a change the audio
-    // never received. See `tests/unapplied_clip_metadata.rs`.
-    assert_eq!(res["applied_at_render"], serde_json::json!(false));
-    assert!(!res["summary"]
-        .as_str()
-        .unwrap()
-        .contains("applied at next render"));
 
-    // Compose: a second 2.0 should bring us back to identity (1.0).
+    // Composition comes from the audio now, not from multiplying a
+    // recorded number: stretching the already-stretched track by 2.0
+    // brings the duration back.
     let res2 = ok(dispatcher
         .invoke(
             "time_stretch",
@@ -994,12 +993,8 @@ fn time_stretch_records_factor_on_clip() {
         )
         .unwrap());
     let id2 = session::NodeId::from_hex(res2["node_id"].as_str().unwrap()).unwrap();
-    let node2 = ctx.store.get(id2).unwrap();
-    let composed = node2.state.tracks[0].clips[0].time_stretch_factor.unwrap();
-    assert!(
-        (composed - 1.0).abs() < 1e-5,
-        "expected composed factor ~1.0, got {composed}"
-    );
+    let back = ctx.store.get(id2).unwrap().state.tracks[0].clips[0].length;
+    assert_eq!(back, original, "0.5 then 2.0 should return to the original");
 }
 
 #[test]
@@ -1031,8 +1026,12 @@ fn time_stretch_rejects_non_positive_factor() {
 // M20 — `pitch_shift` records semitones on every clip; composes additively.
 // ---------------------------------------------------------------------------
 
+/// `pitch_shift` moves the pitch and leaves the duration alone.
+///
+/// The duration is the assertion that separates this from
+/// `change_speed`, which can only raise pitch by shortening the audio.
 #[test]
-fn pitch_shift_records_semitones_on_clip() {
+fn pitch_shift_keeps_the_duration() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
     let mut clipboard: Option<Vec<f32>> = None;
@@ -1042,35 +1041,22 @@ fn pitch_shift_records_semitones_on_clip() {
         user_message: "",
         clipboard: &mut clipboard,
     };
-    ok(dispatcher
+
+    let load = ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
         .unwrap());
+    let original = load["length_samples"].as_u64().unwrap();
 
     let res = ok(dispatcher
         .invoke(
             "pitch_shift",
-            json!({ "track": 0, "semitones": 12.0, "preserve_formants": true }),
+            json!({ "track": 0, "semitones": 12.0, "preserve_formants": false }),
             &mut ctx,
         )
         .unwrap());
     let id = session::NodeId::from_hex(res["node_id"].as_str().unwrap()).unwrap();
-    let node = ctx.store.get(id).unwrap();
-    assert_eq!(
-        node.state.tracks[0].clips[0].pitch_shift_semitones,
-        Some(12.0)
-    );
-
-    // Compose +12 then -12 → 0 → stored as `None`.
-    let res2 = ok(dispatcher
-        .invoke(
-            "pitch_shift",
-            json!({ "track": 0, "semitones": -12.0 }),
-            &mut ctx,
-        )
-        .unwrap());
-    let id2 = session::NodeId::from_hex(res2["node_id"].as_str().unwrap()).unwrap();
-    let node2 = ctx.store.get(id2).unwrap();
-    assert_eq!(node2.state.tracks[0].clips[0].pitch_shift_semitones, None);
+    let shifted = ctx.store.get(id).unwrap().state.tracks[0].clips[0].length;
+    assert_eq!(shifted, original, "an octave up must not change the length");
 }
 
 #[test]

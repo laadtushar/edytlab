@@ -18,7 +18,7 @@ import { COMMANDS, type Command } from "../components/CommandPalette";
  * command that steers the agent towards one of them reports success and
  * changes nothing.
  */
-const INERT_TOOLS = ["time_stretch", "pitch_shift", "align_to_beat"];
+const INERT_TOOLS = ["align_to_beat"];
 
 /** The order the results list renders groups in. */
 const CATEGORY_ORDER = [
@@ -39,14 +39,7 @@ describe("COMMANDS", () => {
     // Deliberately narrow. `analyze_track` genuinely reports a beat grid
     // and its command says so — reporting one is fine, warping audio onto
     // one is what nothing does. Match the action, not the noun.
-    const inertPhrases = [
-      /pitch shift/i,
-      /\bsemitone/i,
-      /align.*\bbeat/i,
-      /quantize/i,
-      /without pitch change/i,
-      /keep duration/i,
-    ];
+    const inertPhrases = [/align.*\bbeat/i, /quantize/i];
 
     const offenders = COMMANDS.filter((c) =>
       inertPhrases.some(
@@ -62,13 +55,16 @@ describe("COMMANDS", () => {
     ).toEqual([]);
   });
 
-  it("says pitch moves with speed, because change_speed resamples", () => {
+  it("says what happens to pitch in every speed command", () => {
+    // Two different things live in this group now: time-stretch, which
+    // holds pitch, and change_speed, which does not. A user picking one
+    // has to be able to tell which they are getting.
     const speed = COMMANDS.filter((c) => c.category === "Speed & Pitch");
     expect(speed.length).toBeGreaterThan(0);
     for (const c of speed) {
       expect(
         c.description.toLowerCase(),
-        `"${c.label}" should tell the user pitch moves with the speed`,
+        `"${c.label}" should say what happens to the pitch`,
       ).toMatch(/pitch/);
     }
   });

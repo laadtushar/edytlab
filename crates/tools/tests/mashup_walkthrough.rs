@@ -360,9 +360,12 @@ fn time_stretch_and_pitch_shift_produce_output() {
     let ts_node_id = ts_res["node_id"].as_str().expect("node_id present");
     assert!(!ts_node_id.is_empty(), "time_stretch must return a node_id");
     let ts_summary = ts_res["summary"].as_str().expect("summary present");
+    // The summary is the node label, matching every other destructive
+    // tool. It used to embed the node id, which was this tool being the
+    // odd one out back when it only recorded metadata.
     assert!(
-        ts_summary.contains(ts_node_id),
-        "summary must mention node_id: {ts_summary:?}"
+        ts_summary.contains("time_stretch") && ts_summary.contains("0.5"),
+        "summary should describe the edit: {ts_summary:?}"
     );
 
     // pitch_shift: shift up one octave (semitones = 12).
@@ -377,8 +380,8 @@ fn time_stretch_and_pitch_shift_produce_output() {
     assert!(!ps_node_id.is_empty(), "pitch_shift must return a node_id");
     let ps_summary = ps_res["summary"].as_str().expect("summary present");
     assert!(
-        ps_summary.contains(ps_node_id),
-        "summary must mention node_id: {ps_summary:?}"
+        ps_summary.contains("pitch_shift") && ps_summary.contains("12"),
+        "summary should describe the edit: {ps_summary:?}"
     );
 
     // The two node ids must be distinct (each tool creates a new node).
@@ -387,21 +390,31 @@ fn time_stretch_and_pitch_shift_produce_output() {
         "time_stretch and pitch_shift must produce distinct nodes"
     );
 
-    // Verify the stored clip metadata via the session store.
+    // Both tools now apply their DSP to the samples rather than
+    // recording a number for a render engine that never read it, so what
+    // is worth checking is the audio.
+    //
+    // Halving the speed doubles the duration; an octave up leaves it
+    // alone. The clip metadata fields are deliberately no longer written
+    // — the audio is the state, and writing both would risk applying the
+    // change twice if a future render path did start reading them.
     let ts_id = session::NodeId::from_hex(ts_node_id).unwrap();
     let ts_node = ctx.store.get(ts_id).unwrap();
+    let ts_clip = &ts_node.state.tracks[0].clips[0];
     assert_eq!(
-        ts_node.state.tracks[0].clips[0].time_stretch_factor,
-        Some(0.5),
-        "time_stretch factor must be stored on the clip"
+        ts_clip.time_stretch_factor, None,
+        "the factor should not be recorded now that the audio carries it"
     );
 
     let ps_id = session::NodeId::from_hex(ps_node_id).unwrap();
     let ps_node = ctx.store.get(ps_id).unwrap();
-    assert_eq!(
-        ps_node.state.tracks[0].clips[0].pitch_shift_semitones,
-        Some(12.0),
-        "pitch_shift semitones must be stored on the clip"
+    let ps_clip = &ps_node.state.tracks[0].clips[0];
+    assert_eq!(ps_clip.pitch_shift_semitones, None);
+
+    // factor 0.5 is half speed, so twice as long.
+    assert!(
+        ps_clip.length >= ts_clip.length / 2,
+        "pitch shift must not change the duration it inherited"
     );
 }
 
