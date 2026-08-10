@@ -101,6 +101,105 @@ where
     )
 }
 
+/// A track's clips decoded and laid out on one timeline.
+struct TrackAudio {
+    /// Interleaved samples from track frame 0 to the last clip's end.
+    window: Vec<f32>,
+    sample_rate: u32,
+    channels: u16,
+}
+
+/// Decode every clip on a track and lay them out on a single buffer,
+/// starting at track frame 0.
+///
+/// A track is a `Vec<Clip>`, and both `cut_range` with an interior range
+/// and `split_clip` leave two of them behind. Editing only `clips[0]` —
+/// which is what this used to do — reverbs the first half of a cut track
+/// and leaves the second half dry, with a hard seam at the join.
+///
+/// The buffer starts at frame 0 rather than at the first clip so the
+/// seconds a tool was handed still mean what the user meant. `fade
+/// 0s–2s` has to fade the first two seconds *of the track*; if the
+/// buffer began at a clip that starts at 0:05, the same call would fade
+/// 0:05–0:07 instead. Gaps between clips — and any lead-in before the
+/// first — are silence, exactly as the render engine treats them.
+///
+/// Clips are required to agree on sample rate and channel count. In
+/// practice they always do, because multiple clips only ever arise from
+/// splitting one source, and mixing rates here would need a resampler
+/// the tool layer doesn't have. Disagreement is reported rather than
+/// papered over.
+fn flatten_track(clips: &[session::Clip]) -> Result<TrackAudio, String> {
+    let mut decoded_clips: Vec<(&session::Clip, audio_decoder::DecodedAudio)> =
+        Vec::with_capacity(clips.len());
+    let mut sample_rate = 0u32;
+    let mut channels = 0u16;
+
+    for clip in clips {
+        let decoded = audio_decoder::decode_file(&clip.source_path)
+            .map_err(|e| format!("failed to decode {}: {e}", clip.source_path.display()))?;
+        if decoded.channels == 0 {
+            return Err(format!(
+                "source {} has zero channels",
+                clip.source_path.display()
+            ));
+        }
+        if sample_rate == 0 {
+            sample_rate = decoded.sample_rate;
+            channels = decoded.channels;
+        } else if decoded.sample_rate != sample_rate || decoded.channels != channels {
+            return Err(format!(
+                "track mixes formats across clips ({sample_rate} Hz / {channels} ch vs \
+                 {} Hz / {} ch in {}); split the edit per clip or render the track first",
+                decoded.sample_rate,
+                decoded.channels,
+                clip.source_path.display()
+            ));
+        }
+        decoded_clips.push((clip, decoded));
+    }
+
+    let stride = channels as usize;
+    let total_frames = clips
+        .iter()
+        .map(|c| c.start_in_track.saturating_add(c.length))
+        .max()
+        .unwrap_or(0) as usize;
+    let mut window = vec![0.0f32; total_frames * stride];
+
+    for (clip, decoded) in &decoded_clips {
+        let src_total = (decoded.samples.len() / stride) as u64;
+        let src_start = clip.source_offset.min(src_total);
+        let src_end = clip
+            .source_offset
+            .saturating_add(clip.length)
+            .min(src_total);
+        let frames = src_end.saturating_sub(src_start) as usize;
+        if frames == 0 {
+            continue;
+        }
+        let src = &decoded.samples[(src_start as usize) * stride..(src_end as usize) * stride];
+        let dst_start = (clip.start_in_track as usize) * stride;
+        // `total_frames` is the furthest clip end, so a clip can only
+        // overrun it when its source is shorter than its declared length
+        // — already handled by clamping to `src_total` above. The `min`
+        // is belt and braces against a malformed session.
+        let dst_end = (dst_start + frames * stride).min(window.len());
+        let copied = dst_end.saturating_sub(dst_start);
+        // Overlapping clips sum, matching how the render engine mixes
+        // them; a plain copy would silently drop whichever came first.
+        for (d, s) in window[dst_start..dst_end].iter_mut().zip(&src[..copied]) {
+            *d += *s;
+        }
+    }
+
+    Ok(TrackAudio {
+        window,
+        sample_rate,
+        channels,
+    })
+}
+
 /// [`destructive_edit`] for edits that change the channel layout.
 ///
 /// The closure receives the source's channel count and returns the
@@ -132,37 +231,19 @@ where
         return ToolResult::Error(msg);
     }
 
-    let Some(clip) = state.tracks[track_idx].clips.first().cloned() else {
+    let clips = state.tracks[track_idx].clips.clone();
+    let Some(first) = clips.first().cloned() else {
         return ToolResult::Error(format!("track {track_idx} has no clips; nothing to edit"));
     };
 
-    // Decode the source WAV into interleaved f32. The audio-decoder
-    // returns the entire file regardless of clip window, so we slice
-    // down to `[source_offset, source_offset + length)` in frames.
-    let decoded = match audio_decoder::decode_file(&clip.source_path) {
-        Ok(d) => d,
-        Err(e) => {
-            return ToolResult::Error(format!(
-                "failed to decode {}: {e}",
-                clip.source_path.display()
-            ))
-        }
+    let TrackAudio {
+        mut window,
+        sample_rate,
+        channels,
+    } = match flatten_track(&clips) {
+        Ok(a) => a,
+        Err(msg) => return ToolResult::Error(msg),
     };
-    let sample_rate = decoded.sample_rate;
-    let channels = decoded.channels;
-    if channels == 0 {
-        return ToolResult::Error("source has zero channels".into());
-    }
-    let stride = channels as usize;
-    let total_frames = (decoded.samples.len() / stride) as u64;
-    let src_start = clip.source_offset.min(total_frames);
-    let src_end = clip
-        .source_offset
-        .saturating_add(clip.length)
-        .min(total_frames);
-    let start_idx = (src_start as usize) * stride;
-    let end_idx = (src_end as usize) * stride;
-    let mut window: Vec<f32> = decoded.samples[start_idx..end_idx].to_vec();
 
     // Apply the user-provided edit. It reports the channel count its
     // buffer now has, which may differ from the source's.
@@ -170,7 +251,7 @@ where
     let stride_out = channels_out as usize;
 
     // CAS-address the result under `<source_dir>/derived/<hash>.wav`.
-    let parent: &Path = clip.source_path.parent().unwrap_or_else(|| Path::new("."));
+    let parent: &Path = first.source_path.parent().unwrap_or_else(|| Path::new("."));
     let derived_dir: PathBuf = parent.join("derived");
     if let Err(e) = std::fs::create_dir_all(&derived_dir) {
         return ToolResult::Error(format!(
@@ -199,14 +280,23 @@ where
         }
     }
 
-    // Update the clip in place: point at the new source, zero offset,
-    // length recomputed from the post-edit buffer.
+    // The edited buffer is the whole track laid end to end, so the track
+    // collapses to the single clip that buffer now represents. For the
+    // common one-clip track this is the same rewrite as before —
+    // `start_in_track` was already 0 and the other fields are carried
+    // over — and for a split track it is the join.
     let new_length_frames = (window.len() / stride_out) as u64;
-    let clip_mut = &mut state.tracks[track_idx].clips[0];
-    clip_mut.source_path = cas_path;
-    clip_mut.source_offset = 0;
-    clip_mut.length = new_length_frames;
-    clip_mut.content_hash = Some(*hash.as_bytes());
+    state.tracks[track_idx].clips = vec![session::Clip {
+        source_path: cas_path,
+        start_in_track: 0,
+        source_offset: 0,
+        length: new_length_frames,
+        content_hash: Some(*hash.as_bytes()),
+        time_stretch_factor: first.time_stretch_factor,
+        pitch_shift_semitones: first.pitch_shift_semitones,
+        beat_grid: first.beat_grid.clone(),
+        volume_envelope: first.volume_envelope.clone(),
+    }];
 
     // Recompute `length_samples` as the max of every track's max-clip
     // length. This matches the convention used elsewhere in the
