@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use chrono::Utc;
 use serde_json::json;
-use session::{EnvelopePoint, NodeId, SessionNode, SessionState, Track};
+use session::{Clip, EnvelopePoint, NodeId, SessionNode, SessionState, Track};
 
 use crate::{ToolContext, ToolResult};
 
@@ -89,6 +89,85 @@ pub(crate) fn slice_envelope(
     if out.len() == 2 && out[0].gain_db == out[1].gain_db {
         out.truncate(1);
     }
+    out
+}
+
+/// Where a track's timeline ends: the furthest point any clip reaches.
+///
+/// Not `max(clip.length)`, which is what `cut_range` and `trim` used to
+/// measure. On a track split into a 2 000-frame head and a 5 000-frame
+/// tail, that reads 5 000 — so a range at 6 000, which is squarely
+/// inside the timeline, came back "out of range".
+pub(crate) fn timeline_end(clips: &[Clip]) -> u64 {
+    clips
+        .iter()
+        .map(|c| c.start_in_track.saturating_add(c.length))
+        .max()
+        .unwrap_or(0)
+}
+
+/// The part of `clip` lying inside the timeline window `[from, to)`, moved
+/// so the window's origin sits at `new_origin`.
+///
+/// `None` when the clip doesn't reach into the window at all. Everything
+/// that travels with a clip travels with the piece: the source window
+/// narrows to match, and the volume envelope is sliced to the same span so
+/// automation stays attached to the audio it was written for.
+fn clip_window(clip: &Clip, from: u64, to: u64, new_origin: u64) -> Option<Clip> {
+    let clip_start = clip.start_in_track;
+    let clip_end = clip_start.saturating_add(clip.length);
+    let lo = clip_start.max(from);
+    let hi = clip_end.min(to);
+    if hi <= lo {
+        return None;
+    }
+    let into_clip = lo - clip_start;
+    let len = hi - lo;
+    Some(Clip {
+        source_path: clip.source_path.clone(),
+        start_in_track: new_origin + (lo - from),
+        source_offset: clip.source_offset.saturating_add(into_clip),
+        length: len,
+        content_hash: clip.content_hash,
+        time_stretch_factor: clip.time_stretch_factor,
+        pitch_shift_semitones: clip.pitch_shift_semitones,
+        beat_grid: clip.beat_grid.clone(),
+        volume_envelope: slice_envelope(&clip.volume_envelope, into_clip, len),
+    })
+}
+
+/// Remove the timeline range `[start, end)` from a track and close the gap.
+///
+/// Every clip is considered, not just the first. A clip wholly before the
+/// cut is untouched; one wholly after slides left by the cut's length; one
+/// straddling it contributes whichever of its two ends survive. Rewriting
+/// only `clips[0]` and assigning the result over `track.clips` — which is
+/// what this used to do — deleted every other clip on the track, so a
+/// second cut silently truncated the track at the first cut's join.
+pub(crate) fn cut_timeline(clips: &[Clip], start: u64, end: u64) -> Vec<Clip> {
+    let mut out = Vec::with_capacity(clips.len() + 1);
+    for clip in clips {
+        if let Some(head) = clip_window(clip, 0, start, 0) {
+            out.push(head);
+        }
+        // The tail's window opens at `end` and its origin is `start`, which
+        // is the leftward slide: a clip sitting at `end + d` lands at
+        // `start + d`.
+        if let Some(tail) = clip_window(clip, end, u64::MAX, start) {
+            out.push(tail);
+        }
+    }
+    out.sort_by_key(|c| c.start_in_track);
+    out
+}
+
+/// Keep only the timeline range `[start, end)` and re-base it to zero.
+pub(crate) fn keep_timeline(clips: &[Clip], start: u64, end: u64) -> Vec<Clip> {
+    let mut out: Vec<Clip> = clips
+        .iter()
+        .filter_map(|c| clip_window(c, start, end, 0))
+        .collect();
+    out.sort_by_key(|c| c.start_in_track);
     out
 }
 
