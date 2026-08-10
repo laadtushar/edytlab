@@ -194,6 +194,51 @@ where
     }))
 }
 
+/// Reject a `[start_sec, end_sec)` window that is reversed or not a
+/// finite number, before it reaches slice arithmetic.
+///
+/// Tools that take bare `start_sec` / `end_sec` were clamping each end
+/// to the buffer length *independently*, which leaves `start > end`
+/// intact for a reversed window — and `samples[start..end]` then
+/// panics, taking the whole app down. Asking for `start_sec: 10,
+/// end_sec: 5` is an easy slip for a model to make, so this is reported
+/// the way every other bad argument is, rather than silently treated as
+/// an empty selection that hides the mistake.
+pub(crate) fn check_seconds_order(start_sec: f64, end_sec: f64) -> Result<(), String> {
+    if !start_sec.is_finite() || !end_sec.is_finite() {
+        return Err(format!(
+            "invalid range: start_sec ({start_sec}) and end_sec ({end_sec}) must be finite numbers"
+        ));
+    }
+    if start_sec < 0.0 || end_sec < 0.0 {
+        return Err(format!(
+            "invalid range: start_sec ({start_sec}) and end_sec ({end_sec}) must not be negative"
+        ));
+    }
+    if start_sec >= end_sec {
+        return Err(format!(
+            "invalid range: start_sec ({start_sec}) must be < end_sec ({end_sec})"
+        ));
+    }
+    Ok(())
+}
+
+/// [`check_seconds_order`] for tools whose bounds are optional. A
+/// missing bound means "from the start" / "to the end", so only a pair
+/// that is present on both sides can be out of order.
+pub(crate) fn check_optional_seconds_order(
+    start_sec: Option<f64>,
+    end_sec: Option<f64>,
+) -> Result<(), String> {
+    match (start_sec, end_sec) {
+        (Some(s), Some(e)) => check_seconds_order(s, e),
+        (Some(s), None) | (None, Some(s)) if !s.is_finite() || s < 0.0 => Err(format!(
+            "invalid range: {s} must be a finite, non-negative number of seconds"
+        )),
+        _ => Ok(()),
+    }
+}
+
 /// Validate `[start, end)` against a track's total length. Returns the
 /// pair as `(usize, usize)` to make downstream slice math less noisy.
 pub(crate) fn check_sample_range(

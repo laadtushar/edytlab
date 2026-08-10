@@ -1,5 +1,5 @@
 use crate::schema::anthropic_tool;
-use crate::tool::util::destructive_edit;
+use crate::tool::util::{check_optional_seconds_order, destructive_edit};
 use crate::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::Value;
@@ -80,6 +80,12 @@ impl Tool for NoiseGateTool {
             Ok(a) => a,
             Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
         };
+
+        // A reversed window would survive independent clamping and
+        // panic on the slice below.
+        if let Err(e) = check_optional_seconds_order(args.start_sec, args.end_sec) {
+            return Ok(ToolResult::Error(e));
+        }
         let attack = args.attack_ms.unwrap_or(5.0).max(0.1);
         let release = args.release_ms.unwrap_or(100.0).max(0.1);
         let channels = {

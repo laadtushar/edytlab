@@ -5,7 +5,9 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{check_track_index, destructive_edit, load_head_state};
+use crate::tool::util::{
+    check_optional_seconds_order, check_track_index, destructive_edit, load_head_state,
+};
 use crate::{Tool, ToolContext, ToolResult};
 
 /// Negate every sample in `[start_sec, end_sec)` of `samples` (or all samples
@@ -78,6 +80,12 @@ impl Tool for InvertTool {
             Ok(a) => a,
             Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
         };
+
+        // A reversed window would survive independent clamping and
+        // panic on the slice below.
+        if let Err(e) = check_optional_seconds_order(args.start_sec, args.end_sec) {
+            return Ok(ToolResult::Error(e));
+        }
 
         // Pre-read channel count so the closure (which only receives sr)
         // can compute the correct interleaved byte range.

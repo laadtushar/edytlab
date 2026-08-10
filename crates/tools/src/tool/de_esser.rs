@@ -2,7 +2,9 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{biquad_process, destructive_edit, BiquadCoeffs};
+use crate::tool::util::{
+    biquad_process, check_optional_seconds_order, destructive_edit, BiquadCoeffs,
+};
 use crate::{Tool, ToolContext, ToolResult};
 
 pub(crate) fn apply_de_esser(
@@ -79,6 +81,12 @@ impl Tool for DeEsserTool {
             Ok(a) => a,
             Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
         };
+
+        // A reversed window would survive independent clamping and
+        // panic on the slice below.
+        if let Err(e) = check_optional_seconds_order(args.start_sec, args.end_sec) {
+            return Ok(ToolResult::Error(e));
+        }
         let freq = args.frequency_hz.unwrap_or(7000.0).max(1000.0);
         let channels = {
             let state = match crate::tool::util::load_head_state(ctx) {
