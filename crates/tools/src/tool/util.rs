@@ -10,9 +10,87 @@ use std::path::{Path, PathBuf};
 
 use chrono::Utc;
 use serde_json::json;
-use session::{NodeId, SessionNode, SessionState, Track};
+use session::{EnvelopePoint, NodeId, SessionNode, SessionState, Track};
 
 use crate::{ToolContext, ToolResult};
+
+/// Gain of a volume envelope at `frame`, matching the render engine's
+/// interpolation exactly: flat before the first point, flat after the
+/// last, linear in between.
+///
+/// Duplicated here rather than shared with `audio-engine` because the
+/// engine's copy is `pub(crate)` and this crate only needs it to *slice*
+/// a curve, never to render one. If the two ever disagree, the engine is
+/// the authority — a slice that interpolates differently would shift the
+/// automation by a fraction of a dB at the boundary.
+fn envelope_gain_db_at(points: &[EnvelopePoint], frame: u64) -> f32 {
+    if points.is_empty() {
+        return 0.0;
+    }
+    if frame <= points[0].time_samples {
+        return points[0].gain_db;
+    }
+    let last = &points[points.len() - 1];
+    if frame >= last.time_samples {
+        return last.gain_db;
+    }
+    let pos = points.partition_point(|p| p.time_samples <= frame);
+    let a = &points[pos - 1];
+    let b = &points[pos];
+    let alpha = (frame - a.time_samples) as f32 / (b.time_samples - a.time_samples) as f32;
+    a.gain_db + alpha * (b.gain_db - a.gain_db)
+}
+
+/// Restrict a clip's volume envelope to the window
+/// `[from_frames, from_frames + len_frames)` and re-base it to zero.
+///
+/// Envelope times are relative to the clip's own start, so a tool that
+/// cuts or splits a clip has to move them. Copying the points across
+/// verbatim — which `split_clip` did — leaves the second half playing
+/// the *beginning* of the curve: a fade-out written across a clip
+/// restarts at full volume after the split.
+///
+/// Boundary points are synthesised at both ends so the surviving curve
+/// keeps its shape. Without the one at 0 the sub-clip would start at
+/// whatever gain the first *retained* point holds rather than the gain
+/// the curve actually had there; without the one at `len_frames` the
+/// tail would flatten off instead of continuing its ramp.
+pub(crate) fn slice_envelope(
+    points: &[EnvelopePoint],
+    from_frames: u64,
+    len_frames: u64,
+) -> Vec<EnvelopePoint> {
+    if points.is_empty() || len_frames == 0 {
+        return Vec::new();
+    }
+    let end = from_frames.saturating_add(len_frames);
+    let mut out = Vec::with_capacity(points.len() + 2);
+
+    out.push(EnvelopePoint {
+        time_samples: 0,
+        gain_db: envelope_gain_db_at(points, from_frames),
+    });
+    for p in points {
+        if p.time_samples > from_frames && p.time_samples < end {
+            out.push(EnvelopePoint {
+                time_samples: p.time_samples - from_frames,
+                gain_db: p.gain_db,
+            });
+        }
+    }
+    out.push(EnvelopePoint {
+        time_samples: len_frames,
+        gain_db: envelope_gain_db_at(points, end),
+    });
+
+    // A window that lands entirely inside one flat segment produces the
+    // same gain at both ends and nothing between; two identical points
+    // say no more than one does.
+    if out.len() == 2 && out[0].gain_db == out[1].gain_db {
+        out.truncate(1);
+    }
+    out
+}
 
 /// Load the current head's [`SessionState`]. Returns `Err(message)`
 /// shaped for [`crate::ToolResult::Error`] when there is no head or the
