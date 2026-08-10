@@ -1,13 +1,8 @@
-use std::path::Path;
-
-use blake3::Hasher;
-use chrono::Utc;
 use serde::Deserialize;
-use serde_json::{json, Value};
-use session::{NodeId, SessionNode};
+use serde_json::Value;
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{check_track_index, load_head_state};
+use crate::tool::util::destructive_edit_resample;
 use crate::{Tool, ToolContext, ToolResult};
 
 /// Linear interpolation resample: interleaved `channels`-channel input
@@ -78,112 +73,22 @@ impl Tool for ResampleTrackTool {
             ));
         }
 
-        let mut state = match load_head_state(ctx) {
-            Ok(s) => s,
-            Err(e) => return Ok(ToolResult::Error(e)),
-        };
-        if let Err(e) = check_track_index(&state.tracks, args.track) {
-            return Ok(ToolResult::Error(e));
-        }
-        let clip = match state.tracks[args.track].clips.first().cloned() {
-            Some(c) => c,
-            None => {
-                return Ok(ToolResult::Error(format!(
-                    "track {} has no clips",
-                    args.track
-                )))
-            }
-        };
+        let target = args.target_sample_rate;
+        let label = format!("resample_track {} to {}Hz", args.track, target);
 
-        let decoded = match audio_decoder::decode_file(&clip.source_path) {
-            Ok(d) => d,
-            Err(e) => {
-                return Ok(ToolResult::Error(format!(
-                    "failed to decode {}: {e}",
-                    clip.source_path.display()
-                )))
-            }
-        };
-        let src_rate = decoded.sample_rate;
-        let channels = decoded.channels as usize;
-        if channels == 0 {
-            return Ok(ToolResult::Error("source has zero channels".into()));
-        }
-
-        // Slice to clip window
-        let stride = channels;
-        let total_frames = decoded.samples.len() / stride;
-        let src_start = clip.source_offset.min(total_frames as u64) as usize;
-        let src_end = clip
-            .source_offset
-            .saturating_add(clip.length)
-            .min(total_frames as u64) as usize;
-        let window = &decoded.samples[src_start * stride..src_end * stride];
-
-        let resampled = linear_resample(window, channels, src_rate, args.target_sample_rate);
-
-        // CAS write
-        let parent = clip.source_path.parent().unwrap_or_else(|| Path::new("."));
-        let derived_dir = parent.join("derived");
-        if let Err(e) = std::fs::create_dir_all(&derived_dir) {
-            return Ok(ToolResult::Error(format!(
-                "failed to create derived dir: {e}"
-            )));
-        }
-        let mut hasher = Hasher::new();
-        for s in &resampled {
-            hasher.update(&s.to_le_bytes());
-        }
-        let hash = hasher.finalize();
-        let hash_hex = hash.to_hex().to_string();
-        let cas_path = derived_dir.join(format!("{hash_hex}.wav"));
-
-        if !cas_path.exists() {
-            if let Err(e) = audio_engine::write_wav(
-                &resampled,
-                args.target_sample_rate,
-                channels as u16,
-                &cas_path,
-            ) {
-                return Ok(ToolResult::Error(format!("failed to write WAV: {e}")));
-            }
-        }
-
-        let new_length_frames = (resampled.len() / channels) as u64;
-        let clip_mut = &mut state.tracks[args.track].clips[0];
-        clip_mut.source_path = cas_path;
-        clip_mut.source_offset = 0;
-        clip_mut.length = new_length_frames;
-        clip_mut.content_hash = Some(*hash.as_bytes());
-
-        state.length_samples = state
-            .tracks
-            .iter()
-            .flat_map(|t| t.clips.iter().map(|c| c.start_in_track + c.length))
-            .max()
-            .unwrap_or(0);
-
-        let label = format!(
-            "resample_track {} {}Hz→{}Hz",
-            args.track, src_rate, args.target_sample_rate
-        );
-        let node = SessionNode {
-            id: NodeId([0u8; 32]),
-            parent: None,
-            created_at: Utc::now(),
-            label: Some(label.clone()),
-            reasoning: None,
-            state,
-        };
-        let new_id = match ctx.store.append(node) {
-            Ok(id) => id,
-            Err(e) => return Ok(ToolResult::Error(format!("session append failed: {e}"))),
-        };
-
-        Ok(ToolResult::Ok(json!({
-            "node_id": new_id.to_hex(),
-            "summary": label,
-        })))
+        // The one tool that writes a file at a rate its source never had,
+        // which is why it used to carry its own copy of the destructive-edit
+        // path. That copy edited `clips[0]` alone, so resampling a track an
+        // interior cut had split converted the head and dropped the tail.
+        Ok(destructive_edit_resample(
+            ctx,
+            args.track,
+            move |samples, src_rate, channels| {
+                *samples = linear_resample(samples, channels.max(1) as usize, src_rate, target);
+                (target, channels)
+            },
+            label,
+        ))
     }
 }
 

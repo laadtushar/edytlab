@@ -377,6 +377,37 @@ pub(crate) fn destructive_edit_rechannel<F>(
 where
     F: FnOnce(&mut Vec<f32>, u32, u16) -> u16,
 {
+    // Almost every edit keeps the sample rate it was handed, so the
+    // three-argument closure stays the common case and the rate is
+    // simply passed back through.
+    destructive_edit_resample(
+        ctx,
+        track_idx,
+        |samples, sample_rate, channels| {
+            let channels_out = edit_fn(samples, sample_rate, channels);
+            (sample_rate, channels_out)
+        },
+        label,
+    )
+}
+
+/// [`destructive_edit_rechannel`] for edits that change the sample rate.
+///
+/// The closure returns the rate *and* the channel count its buffer now
+/// has, and both go into the WAV header. `resample_track` is the one
+/// tool that needs this: it writes a file at a rate the source never
+/// had, which is why it carried its own copy of this function — and why
+/// that copy went on editing `clips[0]` alone after the shared path
+/// learned to flatten a split track.
+pub(crate) fn destructive_edit_resample<F>(
+    ctx: &mut ToolContext,
+    track_idx: usize,
+    edit_fn: F,
+    label: impl Into<String>,
+) -> ToolResult
+where
+    F: FnOnce(&mut Vec<f32>, u32, u16) -> (u32, u16),
+{
     let label = label.into();
 
     let mut state = match load_head_state(ctx) {
@@ -402,9 +433,11 @@ where
         Err(msg) => return ToolResult::Error(msg),
     };
 
-    // Apply the user-provided edit. It reports the channel count its
-    // buffer now has, which may differ from the source's.
-    let channels_out = edit_fn(&mut window, sample_rate, channels).max(1);
+    // Apply the user-provided edit. It reports the rate and channel count
+    // its buffer now has, either of which may differ from the source's.
+    let (rate_out, channels_out) = edit_fn(&mut window, sample_rate, channels);
+    let rate_out = rate_out.max(1);
+    let channels_out = channels_out.max(1);
     let stride_out = channels_out as usize;
 
     // CAS-address the result under `<source_dir>/derived/<hash>.wav`.
@@ -429,7 +462,7 @@ where
     let cas_path = derived_dir.join(format!("{hash_hex}.wav"));
 
     if !cas_path.exists() {
-        if let Err(e) = audio_engine::write_wav(&window, sample_rate, channels_out, &cas_path) {
+        if let Err(e) = audio_engine::write_wav(&window, rate_out, channels_out, &cas_path) {
             return ToolResult::Error(format!(
                 "failed to write CAS wav {}: {e}",
                 cas_path.display()
