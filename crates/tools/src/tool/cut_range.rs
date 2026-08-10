@@ -17,7 +17,9 @@ use serde_json::{json, Value};
 use session::Clip;
 
 use crate::schema::{anthropic_tool, object_schema};
-use crate::tool::util::{append_state, check_sample_range, check_track_index, load_head_state};
+use crate::tool::util::{
+    append_state, check_sample_range, check_track_index, load_head_state, slice_envelope,
+};
 use crate::{Tool, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
@@ -94,7 +96,10 @@ impl Tool for CutRangeTool {
                 time_stretch_factor: clip.time_stretch_factor,
                 pitch_shift_semitones: clip.pitch_shift_semitones,
                 beat_grid: clip.beat_grid.clone(),
-                volume_envelope: Vec::new(),
+                // Automation written before the cut still applies to the
+                // audio before the cut; dropping it silently reset the
+                // clip to unity gain.
+                volume_envelope: slice_envelope(&clip.volume_envelope, 0, start),
             });
         }
         if end < clip.length {
@@ -108,7 +113,7 @@ impl Tool for CutRangeTool {
                 time_stretch_factor: clip.time_stretch_factor,
                 pitch_shift_semitones: clip.pitch_shift_semitones,
                 beat_grid: clip.beat_grid.clone(),
-                volume_envelope: Vec::new(),
+                volume_envelope: slice_envelope(&clip.volume_envelope, end, clip.length - end),
             });
         }
 
@@ -135,5 +140,77 @@ impl Tool for CutRangeTool {
                 args.start_sample, args.end_sample, cut_len, args.track, new_id.to_hex(),
             ),
         })))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tool::util::slice_envelope;
+    use session::EnvelopePoint;
+
+    fn fade_out(len: u64) -> Vec<EnvelopePoint> {
+        vec![
+            EnvelopePoint {
+                time_samples: 0,
+                gain_db: 0.0,
+            },
+            EnvelopePoint {
+                time_samples: len,
+                gain_db: -20.0,
+            },
+        ]
+    }
+
+    fn gain_at(points: &[EnvelopePoint], frame: u64) -> f32 {
+        if points.is_empty() {
+            return 0.0;
+        }
+        if frame <= points[0].time_samples {
+            return points[0].gain_db;
+        }
+        let last = &points[points.len() - 1];
+        if frame >= last.time_samples {
+            return last.gain_db;
+        }
+        let pos = points.partition_point(|p| p.time_samples <= frame);
+        let a = &points[pos - 1];
+        let b = &points[pos];
+        let alpha = (frame - a.time_samples) as f32 / (b.time_samples - a.time_samples) as f32;
+        a.gain_db + alpha * (b.gain_db - a.gain_db)
+    }
+
+    /// Both halves of an interior cut keep the automation that applied to
+    /// them. This used to be `Vec::new()` on both sides — the cut reset
+    /// the clip to unity gain and nothing said so.
+    #[test]
+    fn an_interior_cut_keeps_the_automation_on_both_halves() {
+        let original = fade_out(1000);
+
+        // Cut [400, 600). Head keeps [0,400); tail is [600,1000)
+        // re-based to zero.
+        let head = slice_envelope(&original, 0, 400);
+        let tail = slice_envelope(&original, 600, 400);
+
+        assert!(!head.is_empty(), "head lost its automation");
+        assert!(!tail.is_empty(), "tail lost its automation");
+
+        let head_end = gain_at(&head, 399);
+        let want_head_end = gain_at(&original, 399);
+        assert!(
+            (head_end - want_head_end).abs() < 0.01,
+            "head should still read {want_head_end} dB at its end, got {head_end}"
+        );
+
+        let tail_start = gain_at(&tail, 0);
+        let want_tail_start = gain_at(&original, 600);
+        assert!(
+            (tail_start - want_tail_start).abs() < 0.01,
+            "tail should resume at {want_tail_start} dB, got {tail_start}"
+        );
+        assert!(
+            tail_start < -1.0,
+            "{tail_start} dB at the resume point looks like a reset to the start of \
+             the curve"
+        );
     }
 }
