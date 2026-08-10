@@ -1,12 +1,17 @@
 //! `time_stretch` — record a per-clip time-stretch factor on a track.
 //!
-//! Phase 2 (M20) ships this as a metadata-only tool: the factor is
-//! validated through `audio_time::time_stretch`'s argument check (so we
-//! reject non-positive / non-finite factors with the same diagnostic as
-//! the eventual DSP path) and stored on every clip of the targeted
-//! track. The audio engine learns to honour the stored factor at render
-//! time in M22+; until then `render_final` ignores it and the tool
-//! response includes a "applied at next render" caveat.
+//! This is a metadata-only tool: the factor is validated through
+//! `audio_time::time_stretch`'s argument check (so we reject
+//! non-positive / non-finite factors with the same diagnostic as the
+//! eventual DSP path) and stored on every clip of the targeted track.
+//!
+//! The engine was meant to honour the stored factor "at render time in
+//! M22+". M22 — the streaming engine — has shipped, and it does not read
+//! this field. Until some render path does, the description and the
+//! result both say plainly that the audio is unchanged, and the result
+//! carries `applied_at_render: false` for callers that would rather
+//! branch than read prose. `change_speed` is the tool that alters speed
+//! audibly today, at the cost of shifting pitch with it.
 //!
 //! Composition: a second `time_stretch` *multiplies* the factor onto
 //! whatever the clip already carries (so `0.5` then `2.0` returns to
@@ -39,7 +44,7 @@ impl Tool for TimeStretchTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "time_stretch",
-            "Record a time-stretch factor on every clip of a track. Output duration at render time will be `input_duration / factor` (factor=0.5 → 2x slower, factor=2.0 → 2x faster). The `preserve_formants` flag requests vocal-formant preservation when the M28 backend lands. Phase 2 caveat: the factor is stored on the session; the audio engine applies it at render time in M22+.",
+            "Record a time-stretch factor on every clip of a track (factor=0.5 would be 2x slower, factor=2.0 2x faster), with an optional request for vocal-formant preservation. NOT YET APPLIED AT RENDER: the value is recorded on the session and survives save/load, but the audio engine does not read it, so the rendered output is unchanged. Do not tell the user the audio has changed, and do not plan a duration or pitch around it. To change a track's speed audibly today, use `change_speed`, which resamples and so shifts pitch along with the speed.",
             object_schema(&[
                 ("track", "integer", true),
                 ("factor", "number", true),
@@ -95,8 +100,11 @@ impl Tool for TimeStretchTool {
             "node_id": new_id.to_hex(),
             "factor": args.factor,
             "preserve_formants": args.preserve_formants,
+            "applied_at_render": false,
             "summary": format!(
-                "Recorded time_stretch factor {:.4} on track {} (applied at next render); new head {}",
+                "Recorded time_stretch factor {:.4} on track {}. The render does not apply it \
+                 yet, so the audio is unchanged; use `change_speed` for an audible speed \
+                 change. New head {}",
                 args.factor, args.track, new_id.to_hex(),
             ),
         })))

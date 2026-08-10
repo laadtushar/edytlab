@@ -45,7 +45,7 @@ impl Tool for AlignToBeatTool {
         });
         anthropic_tool(
             "align_to_beat",
-            "Record a target beat grid (an array of beat times in seconds, relative to clip start) on every clip of a track. At render time the audio engine resamples each beat-bound chunk to land on the target grid. Phase 2 caveat: the grid is stored on the session; the engine applies it at render time in M22+.",
+            "Record a target beat grid (an array of beat times in seconds, relative to clip start) on every clip of a track. NOT YET APPLIED AT RENDER: the value is recorded on the session and survives save/load, but the audio engine does not read it, so the rendered output is unchanged. Do not tell the user the audio has changed, and do not plan a duration or pitch around it. Nothing warps audio to a grid today; say so rather than reporting success.",
             input_schema,
         )
     }
@@ -106,8 +106,10 @@ impl Tool for AlignToBeatTool {
         Ok(ToolResult::Ok(json!({
             "node_id": new_id.to_hex(),
             "beats": beats_count,
+            "applied_at_render": false,
             "summary": format!(
-                "Recorded beat grid ({beats_count} beats) on track {} (applied at next render); new head {}",
+                "Recorded a beat grid ({beats_count} beats) on track {}. The render does not warp \
+                 audio to it yet, so the audio is unchanged. New head {}",
                 args.track, new_id.to_hex(),
             ),
         })))
