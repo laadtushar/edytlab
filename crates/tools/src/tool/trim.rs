@@ -1,15 +1,17 @@
 //! `trim` — keep only `[start_sample, end_sample)` of a track.
 //!
 //! Mirrors `cut_range` but keeps the slice instead of removing it. The
-//! resulting track has a single clip whose `source_offset` advances by
-//! `start_sample` and whose `length` is `end - start`.
+//! window is a range on the track's *timeline*, so every clip reaching
+//! into it contributes its overlapping part, re-based to zero.
 
 use serde::Deserialize;
 use serde_json::{json, Value};
-use session::Clip;
 
 use crate::schema::{anthropic_tool, object_schema};
-use crate::tool::util::{append_state, check_sample_range, check_track_index, load_head_state};
+use crate::tool::util::{
+    append_state, check_sample_range, check_track_index, keep_timeline, load_head_state,
+    timeline_end,
+};
 use crate::{Tool, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
@@ -54,34 +56,34 @@ impl Tool for TrimTool {
         }
 
         let track = &mut state.tracks[args.track];
-        let track_len = track.clips.iter().map(|c| c.length).max().unwrap_or(0);
+        // Measured across the whole timeline, not the longest single clip
+        // — those differ as soon as a cut has split the track.
+        let track_len = timeline_end(&track.clips);
         let (start, end) = match check_sample_range(args.start_sample, args.end_sample, track_len) {
             Ok(p) => p,
             Err(msg) => return Ok(ToolResult::Error(msg)),
         };
 
-        let Some(clip) = track.clips.first().cloned() else {
+        if track.clips.is_empty() {
             return Ok(ToolResult::Error(
                 "track has no clips; nothing to trim".into(),
             ));
-        };
+        }
 
         let new_length = end - start;
-        let trimmed = Clip {
-            source_path: clip.source_path.clone(),
-            start_in_track: 0,
-            source_offset: clip.source_offset + start,
-            length: new_length,
-            content_hash: clip.content_hash,
-            // Preserve any M20 time/pitch/beat metadata across the trim.
-            time_stretch_factor: clip.time_stretch_factor,
-            pitch_shift_semitones: clip.pitch_shift_semitones,
-            beat_grid: clip.beat_grid.clone(),
-            volume_envelope: Vec::new(),
-        };
-
-        track.clips = vec![trimmed];
-        state.length_samples = new_length;
+        // Keeping the window means keeping it from every clip that reaches
+        // into it. Trimming `clips.first()` alone and assigning the result
+        // over `track.clips` dropped the rest of a split track, and worse,
+        // read the kept span straight out of the first clip's source — so
+        // a window spanning an earlier cut's join brought the cut-out
+        // audio back.
+        track.clips = keep_timeline(&track.clips, start, end);
+        state.length_samples = state
+            .tracks
+            .iter()
+            .map(|t| timeline_end(&t.clips))
+            .max()
+            .unwrap_or(0);
 
         let new_id = match append_state(
             ctx,
