@@ -1,5 +1,5 @@
 use crate::schema::anthropic_tool;
-use crate::tool::util::destructive_edit;
+use crate::tool::util::destructive_edit_rechannel;
 use crate::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::Value;
@@ -42,12 +42,15 @@ impl Tool for MonoToStereoTool {
             Ok(a) => a,
             Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
         };
-        Ok(destructive_edit(
+        Ok(destructive_edit_rechannel(
             ctx,
             args.track,
-            |samples, _sr| {
+            |samples, _sr, _ch| {
                 let stereo = apply_mono_to_stereo(samples);
                 *samples = stereo;
+                // Two channels now — writing a mono header here would
+                // stretch the track to twice its length, an octave low.
+                2
             },
             format!("mono_to_stereo track {}", args.track),
         ))
