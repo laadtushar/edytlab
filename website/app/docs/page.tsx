@@ -144,7 +144,15 @@ export default function DocsPage() {
         <a href={siteConfig.github} target="_blank" rel="noopener noreferrer">
           View the source on GitHub
         </a>
-        . License is TBD — will be committed before public distribution.
+        , released under the{" "}
+        <a
+          href="https://github.com/laadtushar/edytlab/blob/main/LICENSE"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          MIT License
+        </a>
+        .
       </p>
     </DocShell>
   );
