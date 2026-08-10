@@ -498,11 +498,27 @@ pub async fn list_capabilities(state: State<'_, AppState>) -> CmdResult<Capabili
         })
         .collect();
 
+    // Remote MCP tools are real capabilities the model can call, so
+    // they belong in the menu alongside the built-ins. They are listed
+    // under their unmangled `<server>::<tool>` display name — the
+    // mangled wire name is an implementation detail of the 64-char
+    // Anthropic limit and means nothing to the user.
+    let mcp_servers: Vec<CapabilityDescriptor> = state
+        .mcp
+        .remote_tools()
+        .into_iter()
+        .map(|t| CapabilityDescriptor {
+            name: t.display_name,
+            description: t.description,
+            category: t.server,
+        })
+        .collect();
+
     Ok(Capabilities {
         tools,
         skills,
         agents: Vec::new(),
-        mcp_servers: Vec::new(),
+        mcp_servers,
     })
 }
 
@@ -2095,9 +2111,24 @@ pub async fn upsert_mcp_server(
             .mcp_config
             .lock()
             .map_err(|_| CommandError::Poisoned("mcp_config"))?;
-        cfg.servers.insert(id, config);
+        cfg.servers.insert(id.clone(), config);
     }
     state.save_mcp_config().map_err(CommandError::from)?;
+
+    // An edit can change the command, args, env, or disable the server
+    // outright, so whatever the old process advertised is now suspect.
+    // Stop it and drop its tools; the user restarts to pick the new
+    // config up. Leaving the old tools registered would let the model
+    // call into a process built from stale settings.
+    state.mcp.stop(&id);
+    {
+        let mut dispatcher = lock_std(&state.dispatcher, "dispatcher")?;
+        crate::mcp_tool::refresh_dispatcher_for_server(
+            &mut dispatcher,
+            Arc::clone(&state.mcp),
+            &id,
+        );
+    }
     Ok(())
 }
 
@@ -2113,6 +2144,18 @@ pub async fn delete_mcp_server(state: State<'_, AppState>, id: String) -> CmdRes
         cfg.servers.remove(&id);
     }
     state.save_mcp_config().map_err(CommandError::from)?;
+
+    // Stopping the server does not unregister its tools: without this
+    // the model keeps seeing tools for a server that no longer exists
+    // and every call fails at dispatch time with "is not running".
+    {
+        let mut dispatcher = lock_std(&state.dispatcher, "dispatcher")?;
+        crate::mcp_tool::refresh_dispatcher_for_server(
+            &mut dispatcher,
+            Arc::clone(&state.mcp),
+            &id,
+        );
+    }
     Ok(())
 }
 
@@ -2146,6 +2189,48 @@ pub async fn restart_mcp_server(state: State<'_, AppState>, id: String) -> CmdRe
         );
     }
     Ok(())
+}
+
+/// Start every enabled MCP server and register its tools.
+///
+/// Called once at startup from `lib.rs::run`, off the setup thread.
+/// Failures are logged and recorded on the registry (so the Settings
+/// list shows an `error` badge with the reason) but never abort the
+/// sweep — one misconfigured server must not stop the others.
+pub fn start_enabled_mcp_servers(state: &AppState) {
+    let servers = {
+        let Ok(cfg) = state.mcp_config.lock() else {
+            tracing::warn!("mcp_config mutex poisoned; skipping MCP autostart");
+            return;
+        };
+        cfg.servers
+            .iter()
+            .filter(|(_, c)| c.enabled())
+            .map(|(id, c)| (id.clone(), c.clone()))
+            .collect::<Vec<_>>()
+    };
+
+    for (id, config) in servers {
+        match state.mcp.restart(&id, &config, ai::keychain::load_api_key) {
+            Ok(()) => match state.dispatcher.lock() {
+                Ok(mut dispatcher) => {
+                    crate::mcp_tool::refresh_dispatcher_for_server(
+                        &mut dispatcher,
+                        Arc::clone(&state.mcp),
+                        &id,
+                    );
+                    tracing::info!(server = %id, "mcp: started");
+                }
+                Err(_) => {
+                    tracing::warn!(server = %id, "dispatcher mutex poisoned; tools not registered")
+                }
+            },
+            Err(reason) => {
+                // `restart` already stored the reason for the UI.
+                tracing::warn!(server = %id, %reason, "mcp: autostart failed");
+            }
+        }
+    }
 }
 
 fn validate_mcp_id(id: &str) -> Result<(), CommandError> {
