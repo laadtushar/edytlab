@@ -1,13 +1,10 @@
 //! Parametric EQ tool — biquad peak filter chain (Audio-EQ-Cookbook).
 
-use std::path::Path;
-use std::path::PathBuf;
-
 use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{append_state, check_track_index, load_head_state};
+use crate::tool::util::destructive_edit_rechannel;
 use crate::{Tool, ToolContext, ToolResult};
 
 // ---------------------------------------------------------------------------
@@ -208,107 +205,30 @@ impl Tool for EqTool {
     }
 }
 
-/// Core EQ logic — inlined from `destructive_edit` so we can capture
-/// `channels` from the decoded audio (needed for per-channel biquad state).
+/// Core EQ logic.
+///
+/// This used to be a hand-copy of `destructive_edit`, written that way
+/// because the EQ needs the source's channel count for its per-channel
+/// biquad state and the shared helper didn't hand it over. It does now —
+/// and the copy had gone stale in the meantime, still editing only
+/// `clips[0]`, so an EQ applied after an interior cut boosted the head of
+/// the track and left the tail flat.
 fn invoke_eq(ctx: &mut ToolContext, track_idx: usize, bands: Vec<Band>) -> ToolResult {
-    let mut state = match load_head_state(ctx) {
-        Ok(s) => s,
-        Err(msg) => return ToolResult::Error(msg),
-    };
-
-    if let Err(msg) = check_track_index(&state.tracks, track_idx) {
-        return ToolResult::Error(msg);
-    }
-
-    let Some(clip) = state.tracks[track_idx].clips.first().cloned() else {
-        return ToolResult::Error(format!("track {track_idx} has no clips; nothing to edit"));
-    };
-
-    // Decode — we need `channels` for per-channel biquad state.
-    let decoded = match audio_decoder::decode_file(&clip.source_path) {
-        Ok(d) => d,
-        Err(e) => {
-            return ToolResult::Error(format!(
-                "failed to decode {}: {e}",
-                clip.source_path.display()
-            ))
-        }
-    };
-    let sample_rate = decoded.sample_rate;
-    let channels = decoded.channels as usize;
-    if channels == 0 {
-        return ToolResult::Error("source has zero channels".into());
-    }
-
-    let total_frames = (decoded.samples.len() / channels) as u64;
-    let src_start = clip.source_offset.min(total_frames);
-    let src_end = clip
-        .source_offset
-        .saturating_add(clip.length)
-        .min(total_frames);
-    let start_idx = src_start as usize * channels;
-    let end_idx = src_end as usize * channels;
-    let mut window: Vec<f32> = decoded.samples[start_idx..end_idx].to_vec();
-
-    // Apply the EQ.
-    apply_eq(&mut window, channels, sample_rate, &bands);
-
-    // CAS write.
-    let parent: &Path = clip.source_path.parent().unwrap_or_else(|| Path::new("."));
-    let derived_dir: PathBuf = parent.join("derived");
-    if let Err(e) = std::fs::create_dir_all(&derived_dir) {
-        return ToolResult::Error(format!(
-            "failed to create derived dir {}: {e}",
-            derived_dir.display()
-        ));
-    }
-
-    let mut hasher = blake3::Hasher::new();
-    for s in &window {
-        hasher.update(&s.to_le_bytes());
-    }
-    let hash = hasher.finalize();
-    let hash_hex = hash.to_hex().to_string();
-    let cas_path = derived_dir.join(format!("{hash_hex}.wav"));
-
-    if !cas_path.exists() {
-        if let Err(e) = audio_engine::write_wav(&window, sample_rate, decoded.channels, &cas_path) {
-            return ToolResult::Error(format!(
-                "failed to write CAS wav {}: {e}",
-                cas_path.display()
-            ));
-        }
-    }
-
-    let new_length_frames = (window.len() / channels) as u64;
-    let clip_mut = &mut state.tracks[track_idx].clips[0];
-    clip_mut.source_path = cas_path;
-    clip_mut.source_offset = 0;
-    clip_mut.length = new_length_frames;
-    clip_mut.content_hash = Some(*hash.as_bytes());
-
-    state.length_samples = state
-        .tracks
-        .iter()
-        .flat_map(|t| t.clips.iter().map(|c| c.start_in_track + c.length))
-        .max()
-        .unwrap_or(0);
-
     let band_summary: Vec<String> = bands
         .iter()
         .map(|b| format!("{:.0}Hz {:+.1}dB Q{:.2}", b.freq_hz, b.gain_db, b.q))
         .collect();
     let label = format!("eq [{}] on track {}", band_summary.join(", "), track_idx);
 
-    let new_id = match append_state(ctx, state, label.clone()) {
-        Ok(id) => id,
-        Err(msg) => return ToolResult::Error(msg),
-    };
-
-    ToolResult::Ok(json!({
-        "node_id": new_id.to_hex(),
-        "summary": label,
-    }))
+    destructive_edit_rechannel(
+        ctx,
+        track_idx,
+        move |samples, sample_rate, channels| {
+            apply_eq(samples, channels as usize, sample_rate, &bands);
+            channels
+        },
+        label,
+    )
 }
 
 // ---------------------------------------------------------------------------
