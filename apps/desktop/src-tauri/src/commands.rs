@@ -2569,65 +2569,131 @@ fn edytlab_agents_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, Stri
     Ok(base.join(".edytlab").join("agents"))
 }
 
-fn download_github_plugin(
-    repo: &str,
-) -> Result<(std::path::PathBuf, Option<std::path::PathBuf>), String> {
-    // Validate: must be exactly "org/repo" with alphanumeric, hyphens, underscores, dots only.
+/// Ceiling on the compressed archive we will pull down.
+const PLUGIN_MAX_DOWNLOAD_BYTES: u64 = 50 * 1024 * 1024;
+
+/// Ceiling on the *uncompressed* total. A zip's declared sizes are
+/// attacker-controlled, so this is also enforced against bytes actually
+/// written, not just the header claim.
+const PLUGIN_MAX_UNPACKED_BYTES: u64 = 200 * 1024 * 1024;
+
+/// Ceiling on entry count, so a zip full of empty files cannot spend
+/// unbounded time and inodes.
+const PLUGIN_MAX_ENTRIES: usize = 4096;
+
+/// Network budget for fetching a plugin archive.
+const PLUGIN_DOWNLOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Reject `org` / `repo` components that are empty, dot-only, or contain
+/// anything outside the GitHub-legal set.
+///
+/// Dot-only components matter: `..` passes a naive "alphanumeric, dash,
+/// underscore, dot" filter, and while it can only walk the *path* of a
+/// hard-coded host (never the host itself) there is no legitimate repo
+/// named `.` or `..`, so it is rejected rather than reasoned about.
+fn valid_github_component(s: &str) -> bool {
+    !s.is_empty()
+        && !s.chars().all(|c| c == '.')
+        && s.chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.')
+}
+
+/// Download and unpack a plugin archive into a temp directory.
+///
+/// The returned [`tempfile::TempDir`] owns the extraction root: dropping
+/// it removes the tree, so every early return below cleans up without a
+/// bespoke error path.
+fn download_github_plugin(repo: &str) -> Result<(std::path::PathBuf, tempfile::TempDir), String> {
     let parts: Vec<&str> = repo.splitn(2, '/').collect();
     if parts.len() != 2 {
         return Err(format!("invalid GitHub repo `{repo}`; expected `org/repo`"));
     }
-    let valid_component = |s: &str| {
-        !s.is_empty()
-            && s.chars()
-                .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.')
-    };
-    if !valid_component(parts[0]) || !valid_component(parts[1]) {
+    if !valid_github_component(parts[0]) || !valid_github_component(parts[1]) {
         return Err(format!(
             "invalid GitHub repo `{repo}`; org and repo must be alphanumeric/-/_/."
         ));
     }
     let url = format!("https://github.com/{repo}/archive/refs/heads/main.zip");
-    let response = reqwest::blocking::get(&url).map_err(|e| format!("fetch {url}: {e}"))?;
+    let client = reqwest::blocking::Client::builder()
+        .timeout(PLUGIN_DOWNLOAD_TIMEOUT)
+        .build()
+        .map_err(|e| e.to_string())?;
+    let response = client
+        .get(&url)
+        .send()
+        .map_err(|e| format!("fetch {url}: {e}"))?;
     if !response.status().is_success() {
         return Err(format!("HTTP {} fetching {url}", response.status()));
     }
-    let bytes = response.bytes().map_err(|e| e.to_string())?;
 
-    // Fix 3: timestamp + PID to avoid collisions across concurrent installs.
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let tmp_dir =
-        std::env::temp_dir().join(format!("edytlab-plugin-{}-{}", std::process::id(), ts));
-    std::fs::create_dir_all(&tmp_dir).map_err(|e| e.to_string())?;
+    // Refuse an oversized body up front when the server declares one,
+    // then cap the read regardless — `Content-Length` is a hint, not a
+    // promise.
+    if let Some(len) = response.content_length() {
+        if len > PLUGIN_MAX_DOWNLOAD_BYTES {
+            return Err(format!(
+                "plugin archive is {len} bytes, over the {PLUGIN_MAX_DOWNLOAD_BYTES} byte limit"
+            ));
+        }
+    }
+    let mut bytes = Vec::new();
+    let mut capped = std::io::Read::take(response, PLUGIN_MAX_DOWNLOAD_BYTES + 1);
+    std::io::Read::read_to_end(&mut capped, &mut bytes).map_err(|e| e.to_string())?;
+    if bytes.len() as u64 > PLUGIN_MAX_DOWNLOAD_BYTES {
+        return Err(format!(
+            "plugin archive exceeds the {PLUGIN_MAX_DOWNLOAD_BYTES} byte limit"
+        ));
+    }
 
-    let zip_path = tmp_dir.join("plugin.zip");
-    std::fs::write(&zip_path, &bytes).map_err(|e| e.to_string())?;
+    // `TempDir` gives RAII cleanup and a name that is not predictable,
+    // so a pre-existing attacker-created path cannot be hijacked.
+    let tmp = tempfile::Builder::new()
+        .prefix("edytlab-plugin-")
+        .tempdir()
+        .map_err(|e| e.to_string())?;
 
-    let extract_dir = tmp_dir.join("extracted");
+    let extract_dir = tmp.path().join("extracted");
     std::fs::create_dir_all(&extract_dir).map_err(|e| e.to_string())?;
 
-    let zip_file = std::fs::File::open(&zip_path).map_err(|e| e.to_string())?;
-    let mut archive = zip::ZipArchive::new(zip_file).map_err(|e| e.to_string())?;
+    let mut archive =
+        zip::ZipArchive::new(std::io::Cursor::new(&bytes)).map_err(|e| e.to_string())?;
+    if archive.len() > PLUGIN_MAX_ENTRIES {
+        return Err(format!(
+            "plugin archive has {} entries, over the {PLUGIN_MAX_ENTRIES} limit",
+            archive.len()
+        ));
+    }
 
-    // Fix 2: safe zip extraction — reject any entry whose path escapes the
-    // target directory (zip-slip attack).
+    let mut unpacked: u64 = 0;
     for i in 0..archive.len() {
         let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
+        // `enclosed_name` rejects absolute paths, drive prefixes, and any
+        // `..` that escapes the root — the zip-slip guard.
         let outpath = match file.enclosed_name() {
             Some(p) => extract_dir.join(p),
             None => return Err(format!("zip entry '{}' has unsafe path", file.name())),
         };
         if file.is_dir() {
             std::fs::create_dir_all(&outpath).map_err(|e| e.to_string())?;
-        } else {
-            if let Some(parent) = outpath.parent() {
-                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-            }
-            let mut outfile = std::fs::File::create(&outpath).map_err(|e| e.to_string())?;
-            std::io::copy(&mut file, &mut outfile).map_err(|e| e.to_string())?;
+            continue;
+        }
+        if let Some(parent) = outpath.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        // Cap on bytes actually written rather than the header's claimed
+        // size, which an attacker controls.
+        let remaining = PLUGIN_MAX_UNPACKED_BYTES.saturating_sub(unpacked);
+        let mut outfile = std::fs::File::create(&outpath).map_err(|e| e.to_string())?;
+        let written = std::io::copy(
+            &mut std::io::Read::take(&mut file, remaining + 1),
+            &mut outfile,
+        )
+        .map_err(|e| e.to_string())?;
+        unpacked += written;
+        if unpacked > PLUGIN_MAX_UNPACKED_BYTES {
+            return Err(format!(
+                "plugin archive unpacks to more than {PLUGIN_MAX_UNPACKED_BYTES} bytes"
+            ));
         }
     }
 
@@ -2639,7 +2705,7 @@ fn download_github_plugin(
         .map(|e| e.path())
         .ok_or_else(|| "extracted zip has no top-level directory".to_string())?;
 
-    Ok((plugin_dir, Some(tmp_dir)))
+    Ok((plugin_dir, tmp))
 }
 
 /// Install a plugin from a GitHub repo (`github:org/repo`) or a local
@@ -2655,13 +2721,16 @@ fn download_github_plugin(
 /// is responsible for wiring those into `~/.edytlab/mcp.json` if desired).
 #[tauri::command]
 pub fn install_plugin(source: String, app: tauri::AppHandle) -> CmdResult<serde_json::Value> {
-    let (plugin_dir, tmp_cleanup) = if source.starts_with("github:") {
-        let repo = source.trim_start_matches("github:");
+    // `_tmp` is bound rather than dropped so the extracted tree outlives
+    // the install; every return below cleans it up automatically.
+    let (plugin_dir, _tmp) = if let Some(repo) = source.strip_prefix("github:") {
         let (dir, tmp) = download_github_plugin(repo)?;
-        (dir, tmp)
-    } else if source.starts_with("local:") {
-        // Fix 1: reject `..` components to prevent path-traversal attacks.
-        let raw = source.trim_start_matches("local:");
+        (dir, Some(tmp))
+    } else if let Some(raw) = source.strip_prefix("local:") {
+        // The user names this path themselves in the UI, so reading from
+        // it is their choice, not an escalation. `..` is still refused so
+        // a relative source cannot quietly climb out of the working
+        // directory into somewhere they did not mean to point at.
         let p = std::path::PathBuf::from(raw);
         if p.components().any(|c| c == std::path::Component::ParentDir) {
             return Err("local: path must not contain `..` components".into());
@@ -2681,37 +2750,28 @@ pub fn install_plugin(source: String, app: tauri::AppHandle) -> CmdResult<serde_
         ));
     }
 
-    let result = (|| -> Result<serde_json::Value, String> {
-        let manifest = skills::plugin::PluginManifest::load(&manifest_path)?;
+    let manifest = skills::plugin::PluginManifest::load(&manifest_path)?;
 
-        let skills_installed = manifest.install_skills(&plugin_dir, &edytlab_skills_dir(&app)?)?;
-        let agents_installed = manifest.install_agents(&plugin_dir, &edytlab_agents_dir(&app)?)?;
-        let mcp_keys: Vec<String> = manifest.mcp_servers.keys().cloned().collect();
+    let skills_installed = manifest.install_skills(&plugin_dir, &edytlab_skills_dir(&app)?)?;
+    let agents_installed = manifest.install_agents(&plugin_dir, &edytlab_agents_dir(&app)?)?;
+    let mcp_keys: Vec<String> = manifest.mcp_servers.keys().cloned().collect();
 
-        let summary = format!(
-            "Installed plugin '{}' v{}: {} skill(s), {} agent(s)",
-            manifest.name,
-            manifest.version,
-            skills_installed.len(),
-            agents_installed.len(),
-        );
+    let summary = format!(
+        "Installed plugin '{}' v{}: {} skill(s), {} agent(s)",
+        manifest.name,
+        manifest.version,
+        skills_installed.len(),
+        agents_installed.len(),
+    );
 
-        Ok(serde_json::json!({
-            "name": manifest.name,
-            "version": manifest.version,
-            "skills_installed": skills_installed.len(),
-            "agents_installed": agents_installed.len(),
-            "mcp_keys": mcp_keys,
-            "summary": summary,
-        }))
-    })();
-
-    // Always clean up temp dir, even on error.
-    if let Some(tmp) = tmp_cleanup {
-        let _ = std::fs::remove_dir_all(tmp);
-    }
-
-    result
+    Ok(serde_json::json!({
+        "name": manifest.name,
+        "version": manifest.version,
+        "skills_installed": skills_installed.len(),
+        "agents_installed": agents_installed.len(),
+        "mcp_keys": mcp_keys,
+        "summary": summary,
+    }))
 }
 
 // ---------------------------------------------------------------------------
