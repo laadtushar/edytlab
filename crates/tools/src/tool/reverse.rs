@@ -2,22 +2,40 @@
 //! when no range is provided.
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::destructive_edit;
+use crate::tool::util::{destructive_edit, track_channels};
 use crate::util::range_resolver::{resolve as resolve_range, RangeError};
 use crate::{Range, Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::Value;
 
-pub fn apply_reverse(samples: &mut [f32], sample_rate: u32, range: Option<Range>) {
-    match range {
+/// Reverse `range` (or the whole track when `None`).
+///
+/// Whole *frames* are swapped so the channel order inside each frame
+/// survives. Reversing the interleaved buffer directly turns
+/// `[L0,R0,L1,R1]` into `[R1,L1,R0,L0]` — the frames come back in the
+/// right order but every one of them has its left and right swapped,
+/// mirroring the stereo image across the reversed span.
+pub fn apply_reverse(samples: &mut [f32], sample_rate: u32, channels: usize, range: Option<Range>) {
+    let stride = channels.max(1);
+    let total_frames = samples.len() / stride;
+    let (start, end) = match range {
         Some(r) => {
-            let start = (r.start_sec * sample_rate as f64) as usize;
-            let end = ((r.end_sec * sample_rate as f64) as usize).min(samples.len());
-            if end > start {
-                samples[start..end].reverse();
-            }
+            let s = ((r.start_sec * sample_rate as f64) as usize).min(total_frames);
+            let e = ((r.end_sec * sample_rate as f64) as usize).min(total_frames);
+            (s.min(e), e)
         }
-        None => samples.reverse(),
+        None => (0, total_frames),
+    };
+    if end <= start {
+        return;
+    }
+    let frames = end - start;
+    for i in 0..frames / 2 {
+        let a = (start + i) * stride;
+        let b = (end - 1 - i) * stride;
+        for ch in 0..stride {
+            samples.swap(a + ch, b + ch);
+        }
     }
 }
 
@@ -31,9 +49,10 @@ pub fn dispatch_reverse(
     user_message: &str,
     samples: &mut [f32],
     sample_rate: u32,
+    channels: usize,
 ) -> Result<(), ReverseError> {
     let range = resolve_range(params.range, user_message, false).map_err(ReverseError::Range)?;
-    apply_reverse(samples, sample_rate, range);
+    apply_reverse(samples, sample_rate, channels, range);
     Ok(())
 }
 
@@ -98,6 +117,10 @@ impl Tool for ReverseTool {
             };
 
         let track = parsed.track;
+        let channels = match track_channels(ctx, track) {
+            Ok(c) => c,
+            Err(e) => return Ok(ToolResult::Error(e)),
+        };
         let label = match range {
             Some(r) => format!(
                 "reverse {:.2}s\u{2013}{:.2}s on track {track}",
@@ -110,7 +133,7 @@ impl Tool for ReverseTool {
             ctx,
             track,
             move |samples, sample_rate| {
-                apply_reverse(samples, sample_rate, range);
+                apply_reverse(samples, sample_rate, channels, range);
             },
             label,
         ))

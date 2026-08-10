@@ -194,6 +194,27 @@ where
     }))
 }
 
+/// Interleave stride of the first clip on `track_idx`, read from the
+/// decoded source.
+///
+/// `destructive_edit` hands its closure only `(samples, sample_rate)`,
+/// so a tool that needs to convert seconds into an index has to learn
+/// the channel count separately. Getting this wrong is not a subtle
+/// error: indexing an interleaved stereo buffer as if it were mono
+/// covers half the requested span and, when the length lands odd,
+/// swaps left and right for everything after it.
+pub(crate) fn track_channels(ctx: &mut ToolContext, track_idx: usize) -> Result<usize, String> {
+    let state = load_head_state(ctx)?;
+    check_track_index(&state.tracks, track_idx)?;
+    let clip = state.tracks[track_idx]
+        .clips
+        .first()
+        .ok_or_else(|| format!("track {track_idx} has no clips"))?;
+    let decoded = audio_decoder::decode_file(&clip.source_path)
+        .map_err(|e| format!("failed to decode {}: {e}", clip.source_path.display()))?;
+    Ok((decoded.channels as usize).max(1))
+}
+
 /// Reject a `[start_sec, end_sec)` window that is reversed or not a
 /// finite number, before it reaches slice arithmetic.
 ///

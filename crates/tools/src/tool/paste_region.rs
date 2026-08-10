@@ -4,7 +4,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::destructive_edit;
+use crate::tool::util::{destructive_edit, track_channels};
 use crate::{Tool, ToolContext, ToolResult};
 
 /// Splice `clipboard` into `samples` at `at_sec`. The insertion point is
@@ -13,11 +13,17 @@ use crate::{Tool, ToolContext, ToolResult};
 pub fn apply(
     samples: &mut Vec<f32>,
     sample_rate: u32,
+    channels: usize,
     at_sec: f64,
     clipboard: &Option<Vec<f32>>,
 ) -> Result<(), PasteError> {
     let data = clipboard.as_ref().ok_or(PasteError::EmptyClipboard)?;
-    let offset = ((at_sec * sample_rate as f64) as usize).min(samples.len());
+    let stride = channels.max(1);
+    let total_frames = samples.len() / stride;
+    // Splice on a frame boundary: an offset landing mid-frame would
+    // shift every following sample by one and swap left and right for
+    // the rest of the track.
+    let offset = ((at_sec * sample_rate as f64) as usize).min(total_frames) * stride;
     samples.splice(offset..offset, data.iter().copied());
     Ok(())
 }
@@ -78,13 +84,17 @@ impl Tool for PasteRegionTool {
         }
         let at = parsed.at;
         let track = parsed.track;
+        let channels = match track_channels(ctx, track) {
+            Ok(c) => c,
+            Err(e) => return Ok(ToolResult::Error(e)),
+        };
 
         Ok(destructive_edit(
             ctx,
             track,
             move |samples, sample_rate| {
                 // Ignore error: already validated clipboard is Some above.
-                let _ = apply(samples, sample_rate, at, &clipboard_snap);
+                let _ = apply(samples, sample_rate, channels, at, &clipboard_snap);
             },
             format!("paste clipboard at {at:.2}s on track {track}"),
         ))

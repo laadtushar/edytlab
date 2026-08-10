@@ -11,18 +11,28 @@ use crate::{Range, Tool, ToolContext, ToolResult};
 /// Copy the samples in `[range.start_sec, range.end_sec)` from `samples`
 /// (already windowed to the clip) into `clipboard`. The sample buffer
 /// uses the same interleaved layout as the decoded source.
+/// Copy `range` into the clipboard.
+///
+/// Seconds convert to *frames* and are scaled by `channels`, so the
+/// captured region is the one that was asked for and begins on a frame
+/// boundary. Slicing the interleaved buffer as if it were mono grabbed
+/// half the requested duration, and an odd start index began the
+/// clipboard mid-frame — pasting it back then swapped left and right.
 pub fn apply(
     samples: &[f32],
     sample_rate: u32,
+    channels: usize,
     range: Range,
     clipboard: &mut Option<Vec<f32>>,
 ) -> Result<(), CopyError> {
-    let start = (range.start_sec * sample_rate as f64) as usize;
-    let end = ((range.end_sec * sample_rate as f64) as usize).min(samples.len());
+    let stride = channels.max(1);
+    let total_frames = samples.len() / stride;
+    let start = ((range.start_sec * sample_rate as f64) as usize).min(total_frames);
+    let end = ((range.end_sec * sample_rate as f64) as usize).min(total_frames);
     if end <= start {
         return Err(CopyError::EmptyRange);
     }
-    *clipboard = Some(samples[start..end].to_vec());
+    *clipboard = Some(samples[start * stride..end * stride].to_vec());
     Ok(())
 }
 
@@ -118,7 +128,7 @@ impl Tool for CopyRegionTool {
         let window =
             &decoded.samples[(src_start as usize * channels)..(src_end as usize * channels)];
 
-        if let Err(e) = apply(window, decoded.sample_rate, range, ctx.clipboard) {
+        if let Err(e) = apply(window, decoded.sample_rate, channels, range, ctx.clipboard) {
             return Ok(ToolResult::Error(e.to_string()));
         }
 

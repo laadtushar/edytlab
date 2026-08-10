@@ -1,7 +1,7 @@
 //! Linear fade-in / fade-out within a region.
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::destructive_edit;
+use crate::tool::util::{destructive_edit, track_channels};
 use crate::util::range_resolver::{resolve as resolve_range, RangeError};
 use crate::{Range, Tool, ToolContext, ToolResult};
 use serde::Deserialize;
@@ -13,20 +13,37 @@ pub enum Kind {
     Out,
 }
 
-pub fn apply_fade(samples: &mut [f32], sample_rate: u32, range: Range, kind: Kind) {
-    let start = (range.start_sec * sample_rate as f64) as usize;
-    let end = ((range.end_sec * sample_rate as f64) as usize).min(samples.len());
+/// Ramp `[range.start_sec, range.end_sec)` in or out.
+///
+/// `channels` is the interleave stride. Seconds convert to *frames*,
+/// and the gain is computed per frame and applied to every channel of
+/// it — indexing the interleaved buffer as if it were mono would both
+/// halve the ramp's duration on stereo and give the two channels
+/// slightly different gains at each step.
+pub fn apply_fade(
+    samples: &mut [f32],
+    sample_rate: u32,
+    channels: usize,
+    range: Range,
+    kind: Kind,
+) {
+    let stride = channels.max(1);
+    let total_frames = samples.len() / stride;
+    let start = ((range.start_sec * sample_rate as f64) as usize).min(total_frames);
+    let end = ((range.end_sec * sample_rate as f64) as usize).min(total_frames);
     if end <= start {
         return;
     }
     let len = (end - start) as f32;
-    for (i, sample) in samples[start..end].iter_mut().enumerate() {
-        let t = i as f32 / len;
+    for frame in start..end {
+        let t = (frame - start) as f32 / len;
         let gain = match kind {
             Kind::In => t,
             Kind::Out => 1.0 - t,
         };
-        *sample *= gain;
+        for ch in 0..stride {
+            samples[frame * stride + ch] *= gain;
+        }
     }
 }
 
@@ -62,11 +79,12 @@ pub fn dispatch_fade(
     user_message: &str,
     samples: &mut [f32],
     sample_rate: u32,
+    channels: usize,
 ) -> Result<(), FadeError> {
     let range = resolve_range(params.range, user_message, true)
         .map_err(FadeError::Range)?
         .expect("required => Some on Ok");
-    apply_fade(samples, sample_rate, range, params.kind.into());
+    apply_fade(samples, sample_rate, channels, range, params.kind.into());
     Ok(())
 }
 
@@ -136,11 +154,15 @@ impl Tool for FadeTool {
 
         let kind: Kind = parsed.kind.into();
         let track = parsed.track;
+        let channels = match track_channels(ctx, track) {
+            Ok(c) => c,
+            Err(e) => return Ok(ToolResult::Error(e)),
+        };
         Ok(destructive_edit(
             ctx,
             track,
             move |samples, sample_rate| {
-                apply_fade(samples, sample_rate, range, kind);
+                apply_fade(samples, sample_rate, channels, range, kind);
             },
             format!(
                 "fade {:?} {:.2}s\u{2013}{:.2}s on track {}",
