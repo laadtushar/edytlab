@@ -1321,10 +1321,7 @@ fn emit_agent_event<R: tauri::Runtime>(app: &AppHandle<R>, event: ai::AgentEvent
 /// override text to the conversation so the model executes the user's
 /// modified plan rather than the original one.
 #[tauri::command]
-pub async fn approve_plan(
-    state: State<'_, AppState>,
-    steps: Option<Vec<String>>,
-) -> CmdResult<()> {
+pub async fn approve_plan(state: State<'_, AppState>, steps: Option<Vec<String>>) -> CmdResult<()> {
     if let Some(steps) = steps {
         if !steps.is_empty() {
             let formatted = steps
@@ -1334,8 +1331,7 @@ pub async fn approve_plan(
                 .collect::<Vec<_>>()
                 .join("\n");
             let override_text = format!(
-                "I've updated the plan. Please follow these revised steps instead:\n{}",
-                formatted
+                "I've updated the plan. Please follow these revised steps instead:\n{formatted}"
             );
             *state
                 .plan_steps_override

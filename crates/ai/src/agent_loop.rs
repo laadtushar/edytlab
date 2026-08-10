@@ -432,7 +432,7 @@ where
     // into the same user message to avoid consecutive Role::User turns, which
     // the Anthropic API rejects with 400 Bad Request.
     let user_text = if let Some(override_text) = step_override {
-        format!("{}\n\n{}", user_message, override_text)
+        format!("{user_message}\n\n{override_text}")
     } else {
         user_message
     };
