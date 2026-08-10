@@ -59,6 +59,10 @@ pub struct TrackPlan {
     /// Several plan entries share one index when a track has been split.
     pub track_index: usize,
     pub gain_db: f32,
+    /// Stereo position, -1.0 hard left to 1.0 hard right. Applied at
+    /// emit time; see `pan_gains` in the render module for the law and
+    /// why it is the one chosen.
+    pub pan: f32,
     /// Frame offset into the decoded source where the clip starts.
     pub source_offset: u64,
     /// Where the clip begins on the track's timeline, in the source's
@@ -124,6 +128,7 @@ pub fn build(state: &SessionState) -> Result<RenderGraph, Error> {
                 source_path: PathBuf::new(),
                 track_index,
                 gain_db: track.gain_db,
+                pan: 0.0,
                 source_offset: 0,
                 start_in_track: 0,
                 length: 0,
@@ -144,6 +149,7 @@ pub fn build(state: &SessionState) -> Result<RenderGraph, Error> {
                 source_path: clip.source_path.clone(),
                 track_index,
                 gain_db: track.gain_db,
+                pan: track.pan.clamp(-1.0, 1.0),
                 source_offset: clip.source_offset,
                 start_in_track: clip.start_in_track,
                 length: clip.length,
