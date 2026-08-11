@@ -159,6 +159,33 @@ impl LlmConfig {
 /// should reach for [`LlmConfig`] directly.
 pub type AnthropicConfig = LlmConfig;
 
+/// One point of a magnitude spectrum: frequency in hertz, magnitude in
+/// dBFS.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SpectrumPoint {
+    pub hz: f32,
+    pub db: f32,
+}
+
+/// The drawable projection of a tool result.
+///
+/// Tool results are JSON aimed at the model. A couple of them also
+/// describe something worth *plotting*, and this is that part and only
+/// that part — forwarding whole results to the UI would ship transcripts
+/// and analysis dumps to a frontend with no use for them.
+///
+/// A tool opts in by tagging its result with a `type` this enum knows.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ToolView {
+    /// `plot_spectrum` — an FFT magnitude curve, ordered by frequency.
+    Spectrum {
+        points: Vec<SpectrumPoint>,
+        #[serde(default)]
+        summary: Option<String>,
+    },
+}
+
 /// Events emitted to `on_event` during a [`Agent::turn`] call.
 #[derive(Debug, Clone)]
 pub enum AgentEvent {
@@ -170,7 +197,15 @@ pub enum AgentEvent {
     ToolCallStart { name: String, id: String },
     /// The dispatcher finished invoking a tool call. `ok` is false for
     /// schema validation errors and tool-level errors alike.
-    ToolCallEnd { id: String, ok: bool },
+    ///
+    /// `view` carries the drawable part of the result, for the few tools
+    /// that produce one. It is `None` for every error path and for every
+    /// tool that returns only text and numbers.
+    ToolCallEnd {
+        id: String,
+        ok: bool,
+        view: Option<ToolView>,
+    },
     /// A tool call resulted in a new session node. Emitted before the
     /// matching [`AgentEvent::ToolCallEnd`].
     NodeCreated(session::NodeId),

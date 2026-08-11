@@ -114,7 +114,10 @@ async fn main() -> anyhow::Result<()> {
             let mapped = match ev {
                 ai::AgentEvent::TextDelta(t) => CliEvent::Text { delta: t },
                 ai::AgentEvent::ToolCallStart { name, id } => CliEvent::ToolCallStart { id, name },
-                ai::AgentEvent::ToolCallEnd { id, ok } => CliEvent::ToolCallEnd { id, ok },
+                // `view` is a chart for a GUI to draw; a line-oriented
+                // CLI has nowhere to put it, and the tool's own JSON
+                // result is already on the model's side of the wire.
+                ai::AgentEvent::ToolCallEnd { id, ok, view: _ } => CliEvent::ToolCallEnd { id, ok },
                 ai::AgentEvent::NodeCreated(id) => CliEvent::NodeCreated {
                     node_id: id.to_hex(),
                 },

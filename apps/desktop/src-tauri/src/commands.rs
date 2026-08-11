@@ -1314,8 +1314,8 @@ fn emit_agent_event<R: tauri::Runtime>(app: &AppHandle<R>, event: ai::AgentEvent
                 tracing::warn!(error = %e, "failed to emit tool-call");
             }
         }
-        ai::AgentEvent::ToolCallEnd { id, ok } => {
-            if let Err(e) = app.emit(TOOL_CALL_END, ToolCallEndPayload { id, ok }) {
+        ai::AgentEvent::ToolCallEnd { id, ok, view } => {
+            if let Err(e) = app.emit(TOOL_CALL_END, ToolCallEndPayload { id, ok, view }) {
                 tracing::warn!(error = %e, "failed to emit tool-call-end");
             }
         }

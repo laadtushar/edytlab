@@ -37,7 +37,10 @@ import {
   onToolCall,
   onToolCallEnd,
   type NodeId,
+  type ToolView,
 } from "../lib/tauri-bridge";
+
+export type { ToolView, SpectrumPoint } from "../lib/tauri-bridge";
 
 export type ChatRole = "user" | "assistant";
 
@@ -77,6 +80,11 @@ export interface ToolEntry {
   status: ToolStatus;
   /** Optional human-friendly result text (e.g. "normalized -1 dBFS"). */
   result?: string;
+  /**
+   * Chart data from the tool's result, for the tools that produce one.
+   * Arrives on the `tool-call-end` event and renders under the badge.
+   */
+  view?: ToolView;
 }
 
 export interface NodeDividerEntry {
@@ -264,14 +272,14 @@ export function useAgentStream(): UseAgentStreamResult {
     );
 
     attach(
-      onToolCallEnd((id, ok) => {
+      onToolCallEnd((id, ok, view) => {
         // Resolve the badge with the matching id. We look up by id
         // (not "most recent running") so concurrent tool calls — or
         // tools that don't produce a node — still resolve correctly.
         setEntries((prev) =>
           prev.map((e) =>
             e.kind === "tool" && e.id === id
-              ? { ...e, status: ok ? "ok" : "error" }
+              ? { ...e, status: ok ? "ok" : "error", view }
               : e,
           ),
         );

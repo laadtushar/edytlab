@@ -319,11 +319,28 @@ export const onToolCall = (
     cb(e.payload.name, e.payload.id),
   );
 
+export interface SpectrumPoint {
+  hz: number;
+  db: number;
+}
+
+/**
+ * The drawable projection of a tool result — mirrors `ai::ToolView`.
+ * Tagged on `type`, so adding a second chart kind here means adding a
+ * variant there.
+ */
+export type ToolView = {
+  type: "spectrum";
+  points: SpectrumPoint[];
+  summary?: string | null;
+};
+
 export const onToolCallEnd = (
-  cb: (id: string, ok: boolean) => void,
+  cb: (id: string, ok: boolean, view?: ToolView) => void,
 ): Promise<UnlistenFn> =>
-  listen<{ id: string; ok: boolean }>("agent://tool-call-end", (e) =>
-    cb(e.payload.id, e.payload.ok),
+  listen<{ id: string; ok: boolean; view?: ToolView }>(
+    "agent://tool-call-end",
+    (e) => cb(e.payload.id, e.payload.ok, e.payload.view),
   );
 
 export const onNodeCreated = (
