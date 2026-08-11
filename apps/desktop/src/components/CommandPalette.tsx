@@ -55,17 +55,15 @@ export const COMMANDS: Command[] = [
 
   // Speed & Pitch
   //
-  // Only the two entries below are here, and both say that pitch moves
-  // with the speed, because `change_speed` resamples. The palette used to
-  // also offer "Pitch up", "Pitch down" and "Align to beat", and to
-  // describe these two as "without pitch change" — all of which route to
-  // `time_stretch` / `pitch_shift` / `align_to_beat`. Those three tools
-  // record a value on the clip that the render engine does not read, so
-  // every one of those five commands returned success and changed nothing.
-  // Restore them when the DSP lands (the tools carry
-  // `applied_at_render: false` until it does).
-  { category: "Speed & Pitch", label: "Slow down", prompt: "slow this down to 0.75x speed by resampling", description: "Resamples — pitch drops with the speed", tags: ["slow", "tempo", "speed"] },
-  { category: "Speed & Pitch", label: "Speed up", prompt: "speed this up to 1.5x by resampling", description: "Resamples — pitch rises with the speed", tags: ["speed", "tempo", "fast"] },
+  // `time_stretch` and `pitch_shift` apply a phase vocoder now. These
+  // five were removed when they routed to tools that recorded a value
+  // the render engine never read; they are back because the DSP landed.
+  // `align_to_beat` is still absent — nothing warps audio to a grid yet.
+  { category: "Speed & Pitch", label: "Slow down", prompt: "slow this down to 0.75x speed, keeping the pitch", description: "Time stretch — duration changes, pitch does not", tags: ["slow", "stretch", "tempo"] },
+  { category: "Speed & Pitch", label: "Speed up", prompt: "speed this up to 1.5x, keeping the pitch", description: "Time compress — duration changes, pitch does not", tags: ["speed", "stretch", "tempo", "fast"] },
+  { category: "Speed & Pitch", label: "Change speed (pitch follows)", prompt: "speed this up to 1.5x by resampling", description: "Resamples — pitch rises with the speed", tags: ["speed", "resample", "tempo"] },
+  { category: "Speed & Pitch", label: "Pitch up", prompt: "pitch shift up 2 semitones", description: "Raise pitch, duration unchanged", tags: ["pitch", "semitone", "higher"] },
+  { category: "Speed & Pitch", label: "Pitch down", prompt: "pitch shift down 3 semitones", description: "Lower pitch, duration unchanged", tags: ["pitch", "semitone", "lower"] },
 
   // Analysis
   { category: "Analysis", label: "Analyze audio", prompt: "analyze this audio — give me the BPM, key, loudness, and sections", description: "BPM, key, LUFS, beat grid, sections", tags: ["analyze", "bpm", "key", "loudness", "lufs"] },

@@ -1,29 +1,27 @@
-//! `time_stretch` — record a per-clip time-stretch factor on a track.
+//! `time_stretch` — change a track's duration without moving its pitch.
 //!
-//! This is a metadata-only tool: the factor is validated through
-//! `audio_time::time_stretch`'s argument check (so we reject
-//! non-positive / non-finite factors with the same diagnostic as the
-//! eventual DSP path) and stored on every clip of the targeted track.
+//! The DSP is `audio_time::time_stretch`, a phase vocoder. This tool
+//! applies it to the track's samples and writes the result the way every
+//! other destructive tool does — a new content-addressed WAV and a new
+//! session node, so undo still works.
 //!
-//! The engine was meant to honour the stored factor "at render time in
-//! M22+". M22 — the streaming engine — has shipped, and it does not read
-//! this field. Until some render path does, the description and the
-//! result both say plainly that the audio is unchanged, and the result
-//! carries `applied_at_render: false` for callers that would rather
-//! branch than read prose. `change_speed` is the tool that alters speed
-//! audibly today, at the cost of shifting pitch with it.
+//! It used to record `time_stretch_factor` on each clip and leave the
+//! audio alone, on the understanding that the render engine would honour
+//! the factor later. The engine never learned to, so the tool reported
+//! success for a change nobody could hear. That field is no longer
+//! written: the audio *is* the state now, and writing both would risk a
+//! double application if some future render path did start reading it.
 //!
-//! Composition: a second `time_stretch` *multiplies* the factor onto
-//! whatever the clip already carries (so `0.5` then `2.0` returns to
-//! identity). This matches the user mental model of two consecutive
-//! stretches and falls out naturally from how a streaming engine will
-//! apply the stored value.
+//! Composition falls out of that. Two consecutive stretches compose
+//! because the second stretches audio the first already stretched — no
+//! factor multiplication, and no way for a recorded number to drift out
+//! of step with the samples.
 
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use crate::schema::{anthropic_tool, object_schema};
-use crate::tool::util::{append_state, check_track_index, load_head_state};
+use crate::tool::util::destructive_edit_rechannel;
 use crate::{Tool, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
@@ -44,7 +42,7 @@ impl Tool for TimeStretchTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "time_stretch",
-            "Record a time-stretch factor on every clip of a track (factor=0.5 would be 2x slower, factor=2.0 2x faster), with an optional request for vocal-formant preservation. NOT YET APPLIED AT RENDER: the value is recorded on the session and survives save/load, but the audio engine does not read it, so the rendered output is unchanged. Do not tell the user the audio has changed, and do not plan a duration or pitch around it. To change a track's speed audibly today, use `change_speed`, which resamples and so shifts pitch along with the speed.",
+            "Stretch or compress a track in time without changing its pitch. factor=0.5 is 2x slower (twice as long), factor=2.0 is 2x faster (half as long). `preserve_formants` is accepted but not yet honoured, so a large shift on a voice will not sound like the same person. Quality is a phase vocoder's: sustained material is clean, sharp transients smear, and factors far from 1.0 make that worse. Use `change_speed` instead when the pitch should move with the speed. Appends a new session node.",
             object_schema(&[
                 ("track", "integer", true),
                 ("factor", "number", true),
@@ -68,46 +66,41 @@ impl Tool for TimeStretchTool {
             )));
         }
 
-        let mut state = match load_head_state(ctx) {
-            Ok(s) => s,
-            Err(msg) => return Ok(ToolResult::Error(msg)),
-        };
+        let (factor, preserve_formants, track) = (args.factor, args.preserve_formants, args.track);
 
-        if let Err(msg) = check_track_index(&state.tracks, args.track) {
+        // `destructive_edit_rechannel` hands the closure the channel
+        // count, which the vocoder needs to process each channel
+        // separately. The layout is unchanged, so the source count goes
+        // straight back.
+        let mut failure: Option<String> = None;
+        let result = destructive_edit_rechannel(
+            ctx,
+            track,
+            |samples, sample_rate, channels| {
+                match audio_time::time_stretch(
+                    samples,
+                    sample_rate,
+                    channels,
+                    factor,
+                    preserve_formants,
+                ) {
+                    Ok(out) => *samples = out,
+                    // The buffer is left untouched, so the edit writes the
+                    // audio back unchanged and the caller gets the reason.
+                    Err(e) => failure = Some(e.to_string()),
+                }
+                channels
+            },
+            format!(
+                "time_stretch track {track} factor {factor:.4} \
+                 (preserve_formants={preserve_formants})"
+            ),
+        );
+
+        if let Some(msg) = failure {
             return Ok(ToolResult::Error(msg));
         }
-
-        // Compose: multiply onto any prior factor so two consecutive
-        // stretches act like a single stretch with the product factor.
-        for clip in &mut state.tracks[args.track].clips {
-            let prior = clip.time_stretch_factor.unwrap_or(1.0);
-            clip.time_stretch_factor = Some(prior * args.factor);
-        }
-
-        let new_id = match append_state(
-            ctx,
-            state,
-            format!(
-                "time_stretch track {} factor {:.4} (preserve_formants={})",
-                args.track, args.factor, args.preserve_formants
-            ),
-        ) {
-            Ok(id) => id,
-            Err(msg) => return Ok(ToolResult::Error(msg)),
-        };
-
-        Ok(ToolResult::Ok(json!({
-            "node_id": new_id.to_hex(),
-            "factor": args.factor,
-            "preserve_formants": args.preserve_formants,
-            "applied_at_render": false,
-            "summary": format!(
-                "Recorded time_stretch factor {:.4} on track {}. The render does not apply it \
-                 yet, so the audio is unchanged; use `change_speed` for an audible speed \
-                 change. New head {}",
-                args.factor, args.track, new_id.to_hex(),
-            ),
-        })))
+        Ok(result)
     }
 }
 

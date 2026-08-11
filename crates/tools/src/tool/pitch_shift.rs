@@ -1,18 +1,22 @@
-//! `pitch_shift` — record a per-clip pitch shift in semitones.
+//! `pitch_shift` — move a track's pitch without changing its duration.
 //!
-//! Phase 2 (M20) metadata-only tool, mirroring `time_stretch`. Argument
-//! validation uses the same ±48-semitone bound as
-//! `audio_time::pitch_shift`. Composition is **additive** in semitones:
-//! a `+12` followed by `-12` returns to the source pitch. The audio
-//! engine applies the stored value at render time in M22+.
+//! The DSP is `audio_time::pitch_shift`: the phase vocoder stretches the
+//! timeline by the pitch ratio and the result is read back that much
+//! faster, so the duration returns to where it started and every
+//! frequency is multiplied. That composition is what separates this from
+//! `change_speed`, which can raise pitch only by shortening the audio.
+//!
+//! Like `time_stretch`, this used to record a number on each clip and
+//! leave the samples alone, waiting on a render engine that never read
+//! it. The audio is the state now; the field is not written.
 
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use audio_time::shift::MAX_SEMITONES;
 
 use crate::schema::{anthropic_tool, object_schema};
-use crate::tool::util::{append_state, check_track_index, load_head_state};
+use crate::tool::util::destructive_edit_rechannel;
 use crate::{Tool, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
@@ -33,7 +37,7 @@ impl Tool for PitchShiftTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "pitch_shift",
-            "Record a pitch shift in semitones on every clip of a track (+12 is one octave up, -12 one octave down), with an optional request for vocal-formant preservation. NOT YET APPLIED AT RENDER: the value is recorded on the session and survives save/load, but the audio engine does not read it, so the rendered output is unchanged. Do not tell the user the audio has changed, and do not plan a duration or pitch around it. No tool shifts pitch audibly today; say so rather than reporting success.",
+            "Shift a track's pitch in semitones without changing its duration. +12 is one octave up, -12 one octave down; the range is +/-48. `preserve_formants` is accepted but not yet honoured, so a large shift on a voice sounds like the classic chipmunk or giant rather than the same person singing higher. Quality is a phase vocoder's: sustained material is clean and sharp transients smear. Appends a new session node.",
             object_schema(&[
                 ("track", "integer", true),
                 ("semitones", "number", true),
@@ -55,57 +59,36 @@ impl Tool for PitchShiftTool {
             )));
         }
 
-        let mut state = match load_head_state(ctx) {
-            Ok(s) => s,
-            Err(msg) => return Ok(ToolResult::Error(msg)),
-        };
+        let (semitones, preserve_formants, track) =
+            (args.semitones, args.preserve_formants, args.track);
 
-        if let Err(msg) = check_track_index(&state.tracks, args.track) {
+        let mut failure: Option<String> = None;
+        let result = destructive_edit_rechannel(
+            ctx,
+            track,
+            |samples, sample_rate, channels| {
+                match audio_time::pitch_shift(
+                    samples,
+                    sample_rate,
+                    channels,
+                    semitones,
+                    preserve_formants,
+                ) {
+                    Ok(out) => *samples = out,
+                    Err(e) => failure = Some(e.to_string()),
+                }
+                channels
+            },
+            format!(
+                "pitch_shift track {track} {semitones:+} semitones \
+                 (preserve_formants={preserve_formants})"
+            ),
+        );
+
+        if let Some(msg) = failure {
             return Ok(ToolResult::Error(msg));
         }
-
-        // Compose additively: +12 then -12 cancels.
-        for clip in &mut state.tracks[args.track].clips {
-            let prior = clip.pitch_shift_semitones.unwrap_or(0.0);
-            let composed = prior + args.semitones;
-            // Re-validate the composed value so a long chain that
-            // wanders out of the supported range is caught here rather
-            // than at render time.
-            if composed.abs() > MAX_SEMITONES {
-                return Ok(ToolResult::Error(format!(
-                    "composed pitch shift {composed} exceeds ±{MAX_SEMITONES}",
-                )));
-            }
-            clip.pitch_shift_semitones = if composed == 0.0 {
-                None
-            } else {
-                Some(composed)
-            };
-        }
-
-        let new_id = match append_state(
-            ctx,
-            state,
-            format!(
-                "pitch_shift track {} {:+} semitones (preserve_formants={})",
-                args.track, args.semitones, args.preserve_formants
-            ),
-        ) {
-            Ok(id) => id,
-            Err(msg) => return Ok(ToolResult::Error(msg)),
-        };
-
-        Ok(ToolResult::Ok(json!({
-            "node_id": new_id.to_hex(),
-            "semitones": args.semitones,
-            "preserve_formants": args.preserve_formants,
-            "applied_at_render": false,
-            "summary": format!(
-                "Recorded a {:+} semitone pitch shift on track {}. The render does not apply it \
-                 yet, so the audio is unchanged. New head {}",
-                args.semitones, args.track, new_id.to_hex(),
-            ),
-        })))
+        Ok(result)
     }
 }
 

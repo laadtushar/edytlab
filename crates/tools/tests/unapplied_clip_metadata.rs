@@ -1,5 +1,10 @@
-//! `time_stretch`, `pitch_shift` and `align_to_beat` record metadata that
-//! the render engine does not read.
+//! `align_to_beat` records metadata that nothing reads.
+//!
+//! `time_stretch` and `pitch_shift` used to be here too. They now apply
+//! a phase vocoder to the samples, so the honest contract for them is
+//! the ordinary one and their tests live with the other destructive
+//! tools. `align_to_beat` still needs audio warped onto a grid, which
+//! nothing does, so it keeps the warning and the flag.
 //!
 //! Their descriptions used to say the engine "applies it at render time in
 //! M22+", and their results said "(applied at next render)". M22 is the
@@ -15,7 +20,7 @@
 
 use std::path::{Path, PathBuf};
 
-use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
+use hound::{SampleFormat, WavSpec, WavWriter};
 use serde_json::{json, Value};
 use tempfile::TempDir;
 use tools::{ToolContext, ToolDispatcher, ToolResult};
@@ -96,26 +101,18 @@ fn record(tool: &str, args: Value) -> (Value, PathBuf, TempDir) {
 /// and summary sitting beside it get updated in the same edit.
 #[test]
 fn all_three_declare_that_the_render_does_not_apply_them() {
-    for (tool, args) in [
-        ("time_stretch", json!({ "track": 0, "factor": 2.0 })),
-        ("pitch_shift", json!({ "track": 0, "semitones": 12 })),
-        (
-            "align_to_beat",
-            json!({ "track": 0, "beat_grid": [0.0, 0.5, 1.0] }),
-        ),
-    ] {
-        let (res, _, _tmp) = record(tool, args);
-        assert_eq!(
-            res["applied_at_render"],
-            json!(false),
-            "{tool} must declare that its value is recorded but not rendered"
-        );
-        let summary = res["summary"].as_str().unwrap();
-        assert!(
-            !summary.contains("applied at next render"),
-            "{tool} still tells the caller the render will apply it: {summary}"
-        );
-    }
+    let tool = "align_to_beat";
+    let (res, _, _tmp) = record(tool, json!({ "track": 0, "beat_grid": [0.0, 0.5, 1.0] }));
+    assert_eq!(
+        res["applied_at_render"],
+        json!(false),
+        "{tool} must declare that its value is recorded but not rendered"
+    );
+    let summary = res["summary"].as_str().unwrap();
+    assert!(
+        !summary.contains("applied at next render"),
+        "{tool} still tells the caller the render will apply it: {summary}"
+    );
 }
 
 /// And the description a model reads before choosing the tool must say so
@@ -126,35 +123,42 @@ fn all_three_warn_in_the_schema_the_model_reads() {
     let schemas = dispatcher.tool_schemas();
     let schemas = schemas.as_array().expect("tool_schemas returns an array");
 
-    for tool in ["time_stretch", "pitch_shift", "align_to_beat"] {
+    let tool = "align_to_beat";
+    let schema = schemas
+        .iter()
+        .find(|s| s["name"] == tool)
+        .unwrap_or_else(|| panic!("{tool} is not registered"));
+    let desc = schema["description"].as_str().unwrap();
+    assert!(
+        desc.contains("NOT YET APPLIED AT RENDER"),
+        "{tool}'s description does not warn that it is inert: {desc}"
+    );
+    assert!(
+        !desc.contains("M22+"),
+        "{tool} still points at a milestone that has already shipped: {desc}"
+    );
+}
+
+/// The two that were fixed must no longer carry the warning.
+///
+/// A stale "NOT YET APPLIED" on a tool that now works is the same
+/// failure as the original, pointing the other way: the agent declines
+/// to use something that would have done the job.
+#[test]
+fn the_implemented_tools_no_longer_warn() {
+    let dispatcher = ToolDispatcher::default_dispatcher();
+    let schemas = dispatcher.tool_schemas();
+    let schemas = schemas.as_array().expect("tool_schemas returns an array");
+
+    for tool in ["time_stretch", "pitch_shift"] {
         let schema = schemas
             .iter()
             .find(|s| s["name"] == tool)
             .unwrap_or_else(|| panic!("{tool} is not registered"));
         let desc = schema["description"].as_str().unwrap();
         assert!(
-            desc.contains("NOT YET APPLIED AT RENDER"),
-            "{tool}'s description does not warn that it is inert: {desc}"
-        );
-        assert!(
-            !desc.contains("M22+"),
-            "{tool} still points at a milestone that has already shipped: {desc}"
+            !desc.contains("NOT YET APPLIED AT RENDER"),
+            "{tool} works now; the warning would talk the agent out of using it"
         );
     }
-}
-
-/// The render is untouched, which is the fact the wording now reflects.
-///
-/// A factor of 2.0 claims to halve the duration. It does not change a
-/// single frame.
-#[test]
-fn time_stretch_leaves_the_render_identical() {
-    let (_, out, _tmp) = record("time_stretch", json!({ "track": 0, "factor": 2.0 }));
-    let reader = WavReader::open(&out).expect("open out");
-    assert_eq!(
-        reader.duration(),
-        SAMPLE_RATE,
-        "a 2x stretch changes nothing about the rendered length — which is \
-         exactly why the tool must not claim otherwise"
-    );
 }
