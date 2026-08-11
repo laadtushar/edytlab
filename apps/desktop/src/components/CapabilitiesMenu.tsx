@@ -68,12 +68,25 @@ export function CapabilitiesMenu({ open, onClose }: CapabilitiesMenuProps) {
   const [toggle, setToggle] = useState<ToggleState>(() => loadToggleState());
   const popRef = useRef<HTMLDivElement>(null);
 
-  // Load capabilities the first time the menu opens. The Rust side
-  // resolves synchronously off the in-memory dispatcher so this is
-  // cheap, but we still cache to avoid an extra IPC on every reopen.
+  // Reload every time the menu opens.
+  //
+  // This used to fetch once and keep the result for the app's lifetime,
+  // which defeated the backend: `list_capabilities` deliberately calls
+  // `reload_skills_from_disk()` and reads MCP tools live, precisely so
+  // this surface stays current. A user who followed the empty state's own
+  // instruction — "Drop a .md file under ~/.edytlab/skills/" — reopened
+  // the menu and still read "No skills yet." until they restarted the
+  // app, while Settings → Skills showed the same skill perfectly well.
+  //
+  // The call resolves off in-memory state, so re-running it per open is
+  // cheap and always right.
   useEffect(() => {
-    if (!open || caps) return;
+    if (!open) return;
     let cancelled = false;
+    // Clear the previous error, or one transient IPC failure pins the
+    // error banner forever — it is checked before `caps`, so the menu
+    // never recovers even though the retry would have succeeded.
+    setError(null);
     listCapabilities()
       .then((c) => {
         if (!cancelled) setCaps(c);
@@ -84,7 +97,7 @@ export function CapabilitiesMenu({ open, onClose }: CapabilitiesMenuProps) {
     return () => {
       cancelled = true;
     };
-  }, [open, caps]);
+  }, [open]);
 
   // Close on outside click + Escape.
   useEffect(() => {
@@ -151,6 +164,7 @@ export function CapabilitiesMenu({ open, onClose }: CapabilitiesMenuProps) {
             onToggle={toggleTool}
           />
           <Group
+            readOnly
             title="Skills"
             hint="markdown rules from ~/.edytlab/skills/"
             items={caps.skills}
@@ -168,11 +182,11 @@ export function CapabilitiesMenu({ open, onClose }: CapabilitiesMenuProps) {
           />
           <Group
             title="MCP servers"
-            hint="external connectors — coming soon"
+            hint="tools from connected servers"
             items={caps.mcp_servers}
             disabled={toggle.disabled}
             onToggle={toggleTool}
-            comingSoon
+            emptyText="No MCP servers connected. Add one in Settings → MCP Servers."
           />
         </>
       )}
@@ -187,6 +201,16 @@ interface GroupProps {
   disabled: Set<string>;
   onToggle: (name: string) => void;
   comingSoon?: boolean;
+  /**
+   * Render rows without a checkbox.
+   *
+   * For groups whose entries the disabled-list cannot filter. The tool
+   * blacklist is matched against dispatcher tool names only, so a skill
+   * checkbox persisted a preference nothing acted on — the row appeared
+   * switched off while the skill kept being injected into the system
+   * prompt. Showing no control is honest; showing a dead one is not.
+   */
+  readOnly?: boolean;
   emptyText?: string;
 }
 
@@ -197,6 +221,7 @@ function Group({
   disabled,
   onToggle,
   comingSoon,
+  readOnly,
   emptyText,
 }: GroupProps) {
   return (
@@ -219,7 +244,10 @@ function Group({
       ) : (
         <ul className="space-y-0.5">
           {items.map((it) => {
-            const off = disabled.has(it.name);
+            // Keyed on `id`, not `name`: for MCP tools those differ, and
+            // persisting the display name meant the backend blacklist —
+            // which matches dispatcher wire names — never saw a match.
+            const off = disabled.has(it.id);
             return (
               <li key={it.name}>
                 <label
@@ -231,13 +259,15 @@ function Group({
                     hover:bg-[var(--surface-elev-2)]
                   "
                 >
+                  {readOnly ? null : (
                   <input
                     type="checkbox"
                     checked={!off}
-                    onChange={() => onToggle(it.name)}
+                    onChange={() => onToggle(it.id)}
                     aria-label={`Enable ${it.name}`}
                     className="mt-0.5 accent-[var(--accent)]"
                   />
+                  )}
                   <span className="flex flex-col">
                     <span className="font-mono text-[11px] text-[var(--text)]">
                       {it.name}
