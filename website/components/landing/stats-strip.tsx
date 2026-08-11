@@ -5,7 +5,7 @@ import { AnimatedCounter } from "./animated-counter";
 
 const stats = [
   { value: "0", unit: "bytes", label: "audio uploaded to any server" },
-  { value: "3", unit: "providers", label: "Anthropic · OpenRouter · OpenAI" },
+  { value: "5", unit: "providers", label: "Anthropic · OpenAI · Gemini · Groq · OpenRouter" },
   { value: "∞", unit: "branches", label: "every state saved as a DAG node" },
   { value: "100%", unit: "on-device", label: "DSP runs locally, always" },
 ];

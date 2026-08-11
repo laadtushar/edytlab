@@ -85,6 +85,24 @@ export default function GettingStartedPage() {
             <td>No — pay-as-you-go</td>
           </tr>
           <tr>
+            <td>Google Gemini</td>
+            <td>
+              <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">
+                aistudio.google.com/apikey
+              </a>
+            </td>
+            <td>Yes — free tier available</td>
+          </tr>
+          <tr>
+            <td>Groq</td>
+            <td>
+              <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer">
+                console.groq.com/keys
+              </a>
+            </td>
+            <td>Yes — free tier available</td>
+          </tr>
+          <tr>
             <td>OpenRouter</td>
             <td>
               <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer">
@@ -116,7 +134,7 @@ export default function GettingStartedPage() {
         <li>Launch edytlab.</li>
         <li>Click the gear icon (⚙) in the top-right corner.</li>
         <li>
-          Select your provider (Anthropic, OpenRouter, or OpenAI) from the
+          Select your provider (Anthropic, OpenAI, Gemini, Groq or OpenRouter) from the
           dropdown.
         </li>
         <li>Paste your API key into the field and press Save.</li>

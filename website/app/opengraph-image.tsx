@@ -89,7 +89,7 @@ export default function OpengraphImage() {
           <span>·</span>
           <span>Windows</span>
           <span>·</span>
-          <span>Anthropic / OpenRouter / OpenAI</span>
+          <span>Anthropic / OpenAI / Gemini / Groq / OpenRouter</span>
         </div>
       </div>
     ),

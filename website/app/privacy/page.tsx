@@ -29,7 +29,7 @@ export default function PrivacyPage() {
 
       <h2>LLM API keys</h2>
       <p>
-        edytlab supports multiple LLM providers (Anthropic, OpenRouter, OpenAI).
+        edytlab supports multiple LLM providers (Anthropic, OpenAI, Google Gemini, Groq, and OpenRouter).
         When you add an API key, it is stored in your operating system&apos;s
         secure credential store: macOS Keychain on Mac and Credential Manager on
         Windows. Keys are never written to plain-text files and never sent

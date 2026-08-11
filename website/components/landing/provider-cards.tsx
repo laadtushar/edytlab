@@ -20,6 +20,16 @@ const providers = [
     body: "GPT-class models. Drop-in if your team already has access.",
     href: "https://platform.openai.com/api-keys",
   },
+  {
+    name: "Google Gemini",
+    body: "Long context, generous free tier.",
+    href: "https://aistudio.google.com/apikey",
+  },
+  {
+    name: "Groq",
+    body: "Open models at very low latency.",
+    href: "https://console.groq.com/keys",
+  },
 ];
 
 export function ProviderCards() {
@@ -35,7 +45,7 @@ export function ProviderCards() {
             tokens.
           </p>
         </FadeIn>
-        <div className="mx-auto grid max-w-4xl gap-4 sm:grid-cols-3">
+        <div className="mx-auto grid max-w-5xl gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {providers.map((p, i) => (
             <FadeIn key={p.name} delay={i * 0.05}>
               <Link

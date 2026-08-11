@@ -45,7 +45,7 @@ const features = [
   {
     icon: KeyRound,
     title: "Bring your own LLM",
-    body: "Anthropic, OpenRouter, or OpenAI keys stored in your OS keychain. Per-model agent profiles let you tune tools and behavior. Swap providers without reinstalling.",
+    body: "Anthropic, OpenAI, Gemini, Groq or OpenRouter keys stored in your OS keychain. Per-model agent profiles let you tune tools and behavior. Swap providers without reinstalling.",
   },
   {
     icon: Zap,
