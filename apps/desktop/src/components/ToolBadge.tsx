@@ -15,36 +15,113 @@ export interface ToolBadgeProps {
   result?: string;
 }
 
+/**
+ * Display name for every tool the dispatcher registers.
+ *
+ * Must stay exactly in step with the registered set — no key without a
+ * tool, no tool without a key. `tool_badge_labels.rs` in `crates/tools`
+ * enforces both directions, because this map had silently drifted:
+ * nine entries named tools that had been renamed away (`cut` →
+ * `cut_range`, `fade_in`/`fade_out` → `fade`, `set_volume` →
+ * `set_track_gain`, …) and 49 of the 69 real tools had no entry at all,
+ * falling through to the underscore-stripping fallback and rendering as
+ * "de esser" and "high pass filter".
+ */
 const TOOL_LABELS: Record<string, string> = {
-  analyze_track: "Analyze audio",
+  // Session and I/O
   load: "Load audio",
-  eq: "Equalizer",
-  compressor: "Compressor",
-  noise_reduction: "Noise reduction",
-  normalize: "Normalize",
-  gain: "Gain",
-  fade_in: "Fade in",
-  fade_out: "Fade out",
-  cut: "Cut",
-  trim: "Trim",
-  copy: "Copy",
-  paste: "Paste",
-  insert_silence: "Insert silence",
-  reverse: "Reverse",
-  time_stretch: "Time stretch",
-  pitch_shift: "Pitch shift",
-  transcribe: "Transcribe",
-  separate_stems: "Separate stems",
-  add_track: "Add track",
-  remove_track: "Remove track",
-  mute_track: "Mute track",
   render_preview: "Preview",
   render_final: "Export",
-  add_marker: "Add marker",
+  export_multiple: "Export tracks",
+  export_labels: "Export labels",
+  import_labels: "Import labels",
+
+  // Analysis (read-only)
+  analyze_track: "Analyze audio",
+  plot_spectrum: "Spectrum",
+  silence_finder: "Find silence",
+  transcribe: "Transcribe",
+  separate_stems: "Separate stems",
+
+  // History / session graph
+  fork_node: "Fork session",
+  apply_diff: "Apply diff",
+  compare_nodes: "Compare versions",
   revert_to: "Revert",
-  fork: "Fork session",
-  rename_node: "Rename node",
-  set_volume: "Set volume",
+  name_node: "Rename version",
+  label: "Add marker",
+
+  // Tracks
+  add_track: "Add track",
+  remove_track: "Remove track",
+  rename_track: "Rename track",
+  duplicate_track: "Duplicate track",
+  mute_track: "Mute track",
+  solo_track: "Solo track",
+  set_track_gain: "Track volume",
+  set_pan: "Pan",
+  mix_to_new_track: "Mix to new track",
+
+  // Arrangement
+  cut_range: "Cut",
+  trim: "Trim",
+  copy_region: "Copy",
+  paste_region: "Paste",
+  split_clip: "Split clip",
+  insert_silence: "Insert silence",
+  silence_region: "Silence region",
+  repeat_selection: "Repeat selection",
+  time_shift: "Shift in time",
+  truncate_silence: "Truncate silence",
+  set_clip_envelope: "Volume envelope",
+  align_to_beat: "Align to beat",
+
+  // Level
+  gain: "Gain",
+  normalize: "Normalize",
+  leveler: "Leveler",
+  compressor: "Compressor",
+  limiter: "Limiter",
+  noise_gate: "Noise gate",
+
+  // Tone
+  eq: "Equalizer",
+  low_pass_filter: "Low-pass filter",
+  high_pass_filter: "High-pass filter",
+  notch_filter: "Notch filter",
+
+  // Repair
+  noise_reduction: "Noise reduction",
+  click_removal: "Click removal",
+  de_esser: "De-esser",
+  vocal_reduction: "Vocal reduction",
+
+  // Effects
+  reverb: "Reverb",
+  echo: "Echo",
+  distortion: "Distortion",
+  phaser: "Phaser",
+  tremolo: "Tremolo",
+  stereo_widener: "Stereo widener",
+
+  // Time and pitch
+  time_stretch: "Time stretch",
+  pitch_shift: "Pitch shift",
+  change_speed: "Change speed",
+
+  // Sample-level
+  reverse: "Reverse",
+  invert: "Invert polarity",
+  fade: "Fade",
+
+  // Format
+  resample_track: "Resample",
+  mono_to_stereo: "Mono to stereo",
+  stereo_to_mono: "Stereo to mono",
+
+  // Generators
+  generate_tone: "Generate tone",
+  generate_noise: "Generate noise",
 };
 
 const STATUS_GLYPH: Record<ToolStatus, string> = {
