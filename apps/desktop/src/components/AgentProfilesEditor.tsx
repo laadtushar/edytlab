@@ -9,7 +9,7 @@
  *    `setActiveAgentProfile`; toggling off clears the selection.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   deleteAgentProfile,
@@ -93,6 +93,20 @@ export function AgentProfilesEditor() {
 
   const handleSave = async () => {
     if (editor.kind !== "draft") return;
+
+    // Creating a profile whose name is already taken used to overwrite it
+    // and report "Saved." The backend `upsert` is unconditional by
+    // design — it is the same call the edit path uses — so the create
+    // path is the only place that can tell the difference between
+    // "save my edits" and "make a new one".
+    if (editor.isNew && list.some((p) => p.name === editor.content.name)) {
+      setStatus({
+        kind: "err",
+        message: `A profile named "${editor.content.name}" already exists. Choose another name, or open that profile to edit it.`,
+      });
+      return;
+    }
+
     setSaving(true);
     setStatus({ kind: "idle", message: "" });
     try {
@@ -292,6 +306,22 @@ interface ProfileFormProps {
   onToggleActive: (on: boolean) => void;
 }
 
+/// A model override is only meaningful with both halves filled in.
+///
+/// The old rule collapsed to `null` only when *both* boxes were empty, so
+/// filling one persisted a half pair. `{provider:"", id:"gpt-5"}` is the
+/// natural thing to save when you just want to name a model — and an
+/// empty provider resolves to no provider at all, which disables the
+/// agent the moment the profile is activated. Treat a half pair as "no
+/// override" until the second half arrives.
+function coerceModel(
+  provider: string,
+  id: string,
+): { provider: string; id: string } | null {
+  if (provider.trim() === "" || id.trim() === "") return null;
+  return { provider, id };
+}
+
 function ProfileForm({
   content,
   isNew,
@@ -299,6 +329,29 @@ function ProfileForm({
   onChange,
   onToggleActive,
 }: ProfileFormProps) {
+  // The whitelist field holds raw text so a half-typed list survives a
+  // keystroke; `content.tools` stays the parsed truth. Re-seeded when the
+  // form switches to a different profile, so opening one shows its tools
+  // rather than whatever was last typed.
+  const [toolsText, setToolsText] = useState((content.tools ?? []).join(", "));
+
+  // The model override's two halves also live in form state. Emitting
+  // `null` for a half pair is right for what gets *saved*, but if the
+  // fields read back from `content.model` they would lose the first half
+  // the moment it collapsed — and the second half could never join it.
+  const [modelProvider, setModelProvider] = useState(
+    content.model?.provider ?? "",
+  );
+  const [modelId, setModelId] = useState(content.model?.id ?? "");
+
+  const seededFor = useRef(content.name);
+  if (seededFor.current !== content.name) {
+    seededFor.current = content.name;
+    setToolsText((content.tools ?? []).join(", "));
+    setModelProvider(content.model?.provider ?? "");
+    setModelId(content.model?.id ?? "");
+  }
+
   return (
     <div className="flex flex-1 flex-col gap-2 overflow-y-auto pr-1">
       <Row label="Name">
@@ -328,36 +381,24 @@ function ProfileForm({
           <input
             type="text"
             data-testid="profiles-model-provider"
-            value={content.model?.provider ?? ""}
+            value={modelProvider}
             placeholder="anthropic"
             onChange={(e) => {
               const provider = e.target.value;
-              const id = content.model?.id ?? "";
-              onChange({
-                ...content,
-                model:
-                  provider.trim() === "" && id.trim() === ""
-                    ? null
-                    : { provider, id },
-              });
+              setModelProvider(provider);
+              onChange({ ...content, model: coerceModel(provider, modelId) });
             }}
             className="rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1 font-mono text-xs text-[var(--text)] outline-none transition focus:border-[var(--accent)]/55"
           />
           <input
             type="text"
             data-testid="profiles-model-id"
-            value={content.model?.id ?? ""}
+            value={modelId}
             placeholder="claude-opus-4-7"
             onChange={(e) => {
               const id = e.target.value;
-              const provider = content.model?.provider ?? "";
-              onChange({
-                ...content,
-                model:
-                  provider.trim() === "" && id.trim() === ""
-                    ? null
-                    : { provider, id },
-              });
+              setModelId(id);
+              onChange({ ...content, model: coerceModel(modelProvider, id) });
             }}
             className="rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1 font-mono text-xs text-[var(--text)] outline-none transition focus:border-[var(--accent)]/55"
           />
@@ -367,17 +408,23 @@ function ProfileForm({
         <input
           type="text"
           data-testid="profiles-tools"
-          value={(content.tools ?? []).join(", ")}
+          value={toolsText}
           onChange={(e) => {
-            const trimmed = e.target.value.trim();
-            const tools =
-              trimmed === ""
-                ? null
-                : e.target.value
-                    .split(",")
-                    .map((w) => w.trim())
-                    .filter(Boolean);
-            onChange({ ...content, tools });
+            // Keep the raw text in local state and parse on the way out.
+            //
+            // This used to be a controlled input whose value was
+            // `tools.join(", ")` while every keystroke re-parsed with
+            // `.filter(Boolean)`. That filter deletes the empty segment a
+            // freshly typed comma creates, so React restored the joined
+            // value and the comma never survived — typing "load, gain"
+            // left the field reading "loadgain" and saved a single
+            // nonexistent tool. The list was unusable.
+            setToolsText(e.target.value);
+            const parsed = e.target.value
+              .split(",")
+              .map((w) => w.trim())
+              .filter(Boolean);
+            onChange({ ...content, tools: parsed.length === 0 ? null : parsed });
           }}
           placeholder="load, gain, normalize"
           className="w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1 font-mono text-xs text-[var(--text)] outline-none transition focus:border-[var(--accent)]/55"
