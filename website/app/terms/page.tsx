@@ -26,7 +26,7 @@ export default function TermsPage() {
 
       <h2>Third-party services</h2>
       <p>
-        When you connect an LLM provider (Anthropic, OpenRouter, OpenAI, or a
+        When you connect an LLM provider (Anthropic, OpenAI, Google Gemini, Groq, OpenRouter, or a
         local model) you are subject to that provider&apos;s terms. edytlab is
         not a party to that relationship and is not responsible for charges
         you incur with that provider.

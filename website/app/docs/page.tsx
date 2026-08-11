@@ -98,10 +98,11 @@ export default function DocsPage() {
         your chosen LLM provider.
       </p>
       <p>
-        edytlab supports three LLM providers out of the box:{" "}
-        <strong>Anthropic</strong>, <strong>OpenRouter</strong>, and{" "}
-        <strong>OpenAI</strong>. You bring your own API key, stored in your OS
-        keychain. You can switch providers at any time from Settings without
+        edytlab supports five LLM providers out of the box:{" "}
+        <strong>Anthropic</strong>, <strong>OpenAI</strong>,{" "}
+        <strong>Google Gemini</strong>, <strong>Groq</strong>, and{" "}
+        <strong>OpenRouter</strong>. You bring your own API key, stored in your
+        OS keychain. You can switch providers at any time from Settings without
         reinstalling.
       </p>
 
