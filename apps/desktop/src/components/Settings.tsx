@@ -326,7 +326,7 @@ export function Settings({
       >
         <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
           <div className="flex items-baseline gap-2">
-            <h2 className="font-[var(--font-serif)] text-2xl leading-none text-[var(--text)]">
+            <h2 className="font-[family-name:var(--font-serif)] text-2xl leading-none text-[var(--text)]">
               {mode === "blocking" ? (
                 <>
                   <span className="italic text-[var(--accent)]">Welcome</span>{" "}

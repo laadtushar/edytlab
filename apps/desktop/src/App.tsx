@@ -764,7 +764,7 @@ function Wordmark() {
         text-[var(--text)]
       "
     >
-      <span className="font-[var(--font-serif)] italic text-[var(--accent)] text-[18px]">
+      <span className="font-[family-name:var(--font-serif)] italic text-[var(--accent)] text-[18px]">
         edyt
       </span>
       <span>lab</span>
