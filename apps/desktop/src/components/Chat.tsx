@@ -30,6 +30,7 @@ import {
 import { CapabilitiesMenu } from "./CapabilitiesMenu";
 import { COMMANDS } from "./CommandPalette";
 import { MessageBubble } from "./MessageBubble";
+import { SpectrumChart } from "./SpectrumChart";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 import { ToolBadge } from "./ToolBadge";
 
@@ -273,12 +274,20 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
           }
           if (isTool(entry)) {
             return (
-              <div key={entry.id} className="flex">
+              <div key={entry.id} className="flex flex-col items-start gap-1.5">
                 <ToolBadge
                   name={entry.name}
                   status={entry.status}
                   result={entry.result}
                 />
+                {/* A chart belongs to the call that computed it, not to
+                    whatever the assistant happened to say next. */}
+                {entry.view?.type === "spectrum" ? (
+                  <SpectrumChart
+                    points={entry.view.points}
+                    caption={entry.view.summary ?? undefined}
+                  />
+                ) : null}
               </div>
             );
           }

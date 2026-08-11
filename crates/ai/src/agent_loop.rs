@@ -676,6 +676,7 @@ where
                     on_event(AgentEvent::ToolCallEnd {
                         id: id.clone(),
                         ok: false,
+                        view: None,
                     });
                     tool_results.push(ContentBlock::ToolResult {
                         tool_use_id: id,
@@ -714,6 +715,7 @@ where
                     on_event(AgentEvent::ToolCallEnd {
                         id: id.clone(),
                         ok: false,
+                        view: None,
                     });
                     if is_unrecoverable {
                         return Err(Error::ToolValidation(format!(
@@ -735,6 +737,7 @@ where
                     on_event(AgentEvent::ToolCallEnd {
                         id: id.clone(),
                         ok: true,
+                        view: extract_tool_view(&value),
                     });
                     tool_results.push(ContentBlock::ToolResult {
                         tool_use_id: id,
@@ -747,6 +750,7 @@ where
                     on_event(AgentEvent::ToolCallEnd {
                         id: id.clone(),
                         ok: false,
+                        view: None,
                     });
                     tool_results.push(ContentBlock::ToolResult {
                         tool_use_id: id,
@@ -863,6 +867,19 @@ fn extract_node_id(value: &Value) -> Option<session::NodeId> {
         .and_then(|s| session::NodeId::from_hex(s).ok())
 }
 
+/// Pull the drawable part out of a tool result, for the tools that have
+/// one. See [`crate::ToolView`].
+///
+/// The tag is checked before the parse so that the overwhelming majority
+/// of tool results — which are not drawable — don't pay to clone
+/// themselves into a deserialise that was always going to fail.
+fn extract_tool_view(value: &Value) -> Option<crate::ToolView> {
+    match value.get("type").and_then(Value::as_str) {
+        Some("spectrum") => serde_json::from_value(value.clone()).ok(),
+        _ => None,
+    }
+}
+
 /// Per-block accumulator. Index in the block array matches the
 /// streaming server's `index` field.
 #[derive(Debug)]
@@ -913,6 +930,94 @@ mod tests {
     #[test]
     fn parse_plan_returns_none_when_no_block() {
         assert!(parse_plan("some text without plan tags").is_none());
+    }
+
+    // ------------------------------------------------------------------
+    // extract_tool_view
+    // ------------------------------------------------------------------
+
+    /// The shape `plot_spectrum` emits and the shape the UI draws are
+    /// declared in two different crates, and nothing used to hold them
+    /// together — the chart component sat unreachable for exactly that
+    /// reason. So this drives the real tool rather than a JSON literal:
+    /// a literal would keep passing after the tool's output changed.
+    #[test]
+    fn plot_spectrum_result_becomes_a_drawable_view() {
+        use hound::{SampleFormat, WavSpec, WavWriter};
+
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let src = tmp.path().join("tone.wav");
+        let sr = 8_000u32;
+        let spec = WavSpec {
+            channels: 1,
+            sample_rate: sr,
+            bits_per_sample: 16,
+            sample_format: SampleFormat::Int,
+        };
+        let mut w = WavWriter::create(&src, spec).expect("wav writer");
+        for n in 0..sr {
+            let t = n as f32 / sr as f32;
+            let s = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.4;
+            w.write_sample((s * 32_767.0) as i16).unwrap();
+        }
+        w.finalize().unwrap();
+
+        let mut store = session::Store::open(tmp.path()).expect("open store");
+        let mut engine = audio_engine::Engine::new();
+        let dispatcher = ToolDispatcher::default_dispatcher();
+        let mut clipboard: Option<Vec<f32>> = None;
+        let mut ctx = ToolContext {
+            store: &mut store,
+            engine: &mut engine,
+            user_message: "",
+            clipboard: &mut clipboard,
+        };
+
+        let load = dispatcher
+            .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+            .expect("load dispatches");
+        assert!(matches!(load, ToolResult::Ok(_)), "load failed: {load:?}");
+
+        let result = dispatcher
+            .invoke(
+                "plot_spectrum",
+                json!({ "track": 0, "start_sec": 0.0, "end_sec": 0.5 }),
+                &mut ctx,
+            )
+            .expect("plot_spectrum dispatches");
+        let value = match result {
+            ToolResult::Ok(v) => v,
+            ToolResult::Error(msg) => panic!("plot_spectrum errored: {msg}"),
+        };
+
+        let view = extract_tool_view(&value)
+            .expect("plot_spectrum's result must survive the trip to the UI as a ToolView");
+        let crate::ToolView::Spectrum { points, summary } = view;
+        assert!(
+            !points.is_empty(),
+            "a spectrum with no points draws nothing"
+        );
+        assert!(
+            points.windows(2).all(|w| w[1].hz > w[0].hz),
+            "the chart plots points in array order, so they must ascend in frequency"
+        );
+        assert!(
+            summary.is_some(),
+            "the caption under the chart came back empty"
+        );
+    }
+
+    /// Every other tool has to stay off this path: a `ToolView` for a
+    /// tool the UI can't draw would be a wasted IPC payload at best.
+    #[test]
+    fn ordinary_tool_results_produce_no_view() {
+        assert!(
+            extract_tool_view(&json!({ "node_id": "ab12", "summary": "gain applied" })).is_none()
+        );
+        assert!(extract_tool_view(&json!({ "type": "waveform", "points": [] })).is_none());
+        // Tagged as a spectrum but shaped wrong — better to draw nothing
+        // than to hand the canvas a malformed curve.
+        assert!(extract_tool_view(&json!({ "type": "spectrum", "points": "lots" })).is_none());
     }
 
     #[test]
