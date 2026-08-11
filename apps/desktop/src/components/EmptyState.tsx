@@ -14,6 +14,23 @@ interface EmptyStateProps {
   onShowTemplates?: () => void;
 }
 
+/**
+ * The label for the platform's primary modifier.
+ *
+ * The menu registers `CmdOrCtrl+O`, which Tauri resolves to Cmd on macOS
+ * and Ctrl elsewhere. Hardcoding "Ctrl+O" told every Mac user the wrong
+ * key for the app's single most important action — opening a file.
+ *
+ * `navigator.platform` is deprecated but is what is reliably available
+ * inside the webview; `userAgentData` is not implemented in WKWebView,
+ * which is the one platform this needs to get right.
+ */
+function modifierKey(): string {
+  if (typeof navigator === "undefined") return "Ctrl";
+  const platform = `${navigator.platform ?? ""} ${navigator.userAgent ?? ""}`;
+  return /Mac|iPhone|iPad/i.test(platform) ? "\u2318" : "Ctrl";
+}
+
 export function EmptyState({ onOpen, onShowTemplates }: EmptyStateProps) {
   return (
     <div
@@ -49,7 +66,7 @@ export function EmptyState({ onOpen, onShowTemplates }: EmptyStateProps) {
         <h1
           className="
             text-5xl font-normal tracking-tight text-[var(--text)]
-            font-[var(--font-serif)]
+            font-[family-name:var(--font-serif)]
             leading-[1.05]
           "
         >
@@ -123,13 +140,13 @@ export function EmptyState({ onOpen, onShowTemplates }: EmptyStateProps) {
               font-mono text-[10px] text-[var(--text-dim)]
             "
           >
-            Ctrl+O
+            {modifierKey()}+O
           </kbd>
         </span>
       </div>
 
       <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--text-faint)]">
-        wav · mp3 · flac · ogg · m4a · aac
+        wav · mp3 · flac · ogg
       </p>
 
       <p className="max-w-sm text-xs text-[var(--text-faint)]">
