@@ -417,6 +417,18 @@ pub async fn get_active_model(state: State<'_, AppState>, provider: String) -> C
 /// to grow a category field.
 #[derive(Debug, Clone, Serialize)]
 pub struct CapabilityDescriptor {
+    /// The identifier the rest of the system uses for this capability —
+    /// what a disabled-list entry has to contain to actually match.
+    ///
+    /// Separate from `name` because the two differ for MCP tools, and
+    /// conflating them made the menu's checkboxes inert: it persisted the
+    /// `<server>::<tool>` display name while the tool blacklist is
+    /// matched against the dispatcher's mangled `<server>__<tool>` wire
+    /// name, so nothing a user disabled was ever filtered.
+    pub id: String,
+    /// What the user reads. For MCP tools this is the unmangled
+    /// `<server>::<tool>`; the wire name is an implementation detail of
+    /// the 64-character Anthropic limit and means nothing to a person.
     pub name: String,
     pub description: String,
     pub category: String,
@@ -475,6 +487,9 @@ pub async fn list_capabilities(state: State<'_, AppState>) -> CmdResult<Capabili
                         .to_string();
                     let category = category_for(&name).to_string();
                     Some(CapabilityDescriptor {
+                        // A built-in tool's dispatcher name is both its
+                        // identifier and its label.
+                        id: name.clone(),
                         name,
                         description,
                         category,
@@ -495,6 +510,7 @@ pub async fn list_capabilities(state: State<'_, AppState>) -> CmdResult<Capabili
     let skills: Vec<CapabilityDescriptor> = read_skill_summaries(&state)
         .into_iter()
         .map(|s| CapabilityDescriptor {
+            id: s.name.clone(),
             name: s.name,
             description: s.description,
             category: s.trigger,
@@ -511,6 +527,7 @@ pub async fn list_capabilities(state: State<'_, AppState>) -> CmdResult<Capabili
         .remote_tools()
         .into_iter()
         .map(|t| CapabilityDescriptor {
+            id: t.wire_name,
             name: t.display_name,
             description: t.description,
             category: t.server,

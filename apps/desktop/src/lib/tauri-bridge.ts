@@ -414,6 +414,14 @@ export const renameNode = (nodeId: string, label: string): Promise<void> =>
 // -----------------------------------------------------------------------------
 
 export interface CapabilityDescriptor {
+  /**
+   * The identifier the backend matches a disabled entry against.
+   *
+   * Differs from `name` for MCP tools: `name` is the readable
+   * `<server>::<tool>`, `id` is the dispatcher's `<server>__<tool>`.
+   * Persisting the wrong one is why the menu's checkboxes did nothing.
+   */
+  id: string;
   name: string;
   description: string;
   category: string;
