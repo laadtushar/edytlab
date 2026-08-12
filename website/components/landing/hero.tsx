@@ -126,7 +126,7 @@ export function Hero({ release }: { release: ReleaseAssets }) {
             animate={{ opacity: 1 }}
             transition={{ delay: 1.1, duration: 0.5 }}
           >
-            Signed installers · Universal Mac (Apple Silicon + Intel) · Windows 10/11
+            Unsigned dev builds · Mac (Apple Silicon) · Windows 10/11 · Linux
           </motion.p>
         </div>
       </div>
