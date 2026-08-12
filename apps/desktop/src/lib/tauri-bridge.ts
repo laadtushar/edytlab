@@ -413,12 +413,33 @@ export interface TrackSummary {
   name: string;
   muted: boolean;
   gain_db: number;
+  /** -1 hard left, 0 centre, 1 hard right. */
+  pan: number;
+  soloed: boolean;
   /** `null` when the track has zero or multiple clips. */
   audio_path: string | null;
 }
 
 export const listTracks = (): Promise<TrackSummary[]> =>
   invoke<TrackSummary[]>("list_tracks");
+
+// Mixer controls. Each appends one undoable session node and resolves
+// to the new head, so the caller refreshes with `listTracks` after.
+// The backend validates ranges too — these are not the only guard.
+
+export const setTrackGain = (track: number, gainDb: number): Promise<string> =>
+  invoke<string>("set_track_gain", { track, gainDb });
+
+export const setTrackPan = (track: number, pan: number): Promise<string> =>
+  invoke<string>("set_track_pan", { track, pan });
+
+export const setTrackMuted = (track: number, muted: boolean): Promise<string> =>
+  invoke<string>("set_track_muted", { track, muted });
+
+export const setTrackSoloed = (
+  track: number,
+  soloed: boolean,
+): Promise<string> => invoke<string>("set_track_soloed", { track, soloed });
 
 // -----------------------------------------------------------------------------
 // DAG ops (M24): set head + rename node

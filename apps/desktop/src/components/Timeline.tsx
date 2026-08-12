@@ -43,6 +43,22 @@ export interface TrackDescriptor {
   name: string;
   audioPath: string;
   muted: boolean;
+  /**
+   * Position in the *session's* track list.
+   *
+   * Not the lane's position: App filters out tracks with no audio
+   * before handing them over, so lane 1 can be session track 3. The
+   * mixer commands address tracks by session index, and without this
+   * a pan on the second visible lane would land on whichever track
+   * happened to be second overall. Absent falls back to lane order,
+   * which is right whenever nothing was filtered.
+   */
+  index?: number;
+  /** Track gain in dB. Absent is treated as 0 (unity). */
+  gainDb?: number;
+  /** -1 hard left, 0 centre, 1 hard right. Absent is treated as 0. */
+  pan?: number;
+  soloed?: boolean;
 }
 
 /** A region selected on the waveform, expressed in seconds. */
@@ -80,6 +96,59 @@ export interface TimelineProps {
   onLoopChange?: (loop: boolean) => void;
   spectrogramEnabled?: boolean;
   onSpectrogramChange?: (enabled: boolean) => void;
+  /**
+   * Mixer commits. Called with the lane index and the new value once
+   * the user finishes a gesture (pointer release / keyboard change),
+   * not on every intermediate slider position — each commit appends a
+   * session node, and a drag would otherwise write one per pixel.
+   *
+   * Omitting a handler leaves that control local-only, which is what
+   * the mute button did on its own before these existed.
+   */
+  onTrackGainChange?: (index: number, gainDb: number) => void;
+  onTrackPanChange?: (index: number, pan: number) => void;
+  onTrackMuteChange?: (index: number, muted: boolean) => void;
+  onTrackSoloChange?: (index: number, soloed: boolean) => void;
+}
+
+// -----------------------------------------------------------------------------
+// Lane control presentation
+// -----------------------------------------------------------------------------
+
+const toggleStyle = (on: boolean): React.CSSProperties => ({
+  background: on ? "var(--accent-soft)" : "var(--surface-elev-2)",
+  border: "1px solid",
+  borderColor: on ? "rgba(255,138,61,0.45)" : "var(--border-strong)",
+  borderRadius: 4,
+  color: on ? "var(--accent)" : "var(--text-dim)",
+  fontFamily: "var(--font-mono)",
+  fontSize: 10,
+  letterSpacing: "0.05em",
+  textTransform: "uppercase",
+  padding: "2px 6px",
+  cursor: "pointer",
+});
+
+const faderLabelStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  width: "100%",
+  fontFamily: "var(--font-mono)",
+  fontSize: 9,
+  letterSpacing: "0.05em",
+  textTransform: "uppercase",
+  color: "var(--text-dim)",
+};
+
+/**
+ * Pan as mixing desks write it: C at centre, then L/R with the distance
+ * as a percentage. A bare "-0.34" tells the user nothing about which
+ * speaker it went to.
+ */
+function panLabel(pan: number): string {
+  const pct = Math.round(Math.abs(pan) * 100);
+  if (pct === 0) return "C";
+  return `${pan < 0 ? "L" : "R"}${pct}`;
 }
 
 // -----------------------------------------------------------------------------
@@ -91,6 +160,16 @@ interface LaneProps {
   audioPath: string | null;
   muted: boolean;
   onToggleMute: () => void;
+  gainDb: number;
+  pan: number;
+  soloed: boolean;
+  /** Live value while dragging; no session write. */
+  onGainInput: (gainDb: number) => void;
+  onPanInput: (pan: number) => void;
+  /** Gesture finished — persist. */
+  onGainCommit: (gainDb: number) => void;
+  onPanCommit: (pan: number) => void;
+  onToggleSolo: () => void;
   onFileDropped?: (path: string) => void;
   showDropHint?: boolean;
   /** Called once with the wavesurfer instance the first time it
@@ -111,6 +190,14 @@ function TrackLane({
   audioPath,
   muted,
   onToggleMute,
+  gainDb,
+  pan,
+  soloed,
+  onGainInput,
+  onPanInput,
+  onGainCommit,
+  onPanCommit,
+  onToggleSolo,
   onFileDropped,
   showDropHint,
   onWavesurfer,
@@ -192,9 +279,17 @@ function TrackLane({
     }
   }, [audioPath]);
 
+  // Preview level follows the fader as well as the mute button, so
+  // dragging gain does something audible before a render.
+  //
+  // Only downward: WaveSurfer drives a media element, whose volume is
+  // clamped to [0, 1], so boosts above unity cannot be previewed. They
+  // are still written to the session and still apply at render — the
+  // dB readout is the honest indicator there, not the loudspeaker.
   useEffect(() => {
-    wsRef.current?.setVolume(muted ? 0 : 1);
-  }, [muted]);
+    const linear = muted ? 0 : Math.min(1, 10 ** (gainDb / 20));
+    wsRef.current?.setVolume(linear);
+  }, [muted, gainDb]);
 
   useEffect(() => {
     if (!wsRef.current || duration === 0) return;
@@ -338,30 +433,78 @@ function TrackLane({
         >
           {name}
         </span>
-        <button
-          type="button"
-          data-testid="timeline-lane-mute"
-          onClick={onToggleMute}
-          aria-label={muted ? `Unmute ${name}` : `Mute ${name}`}
-          aria-pressed={muted}
-          style={{
-            background: muted ? "var(--accent-soft)" : "var(--surface-elev-2)",
-            border: "1px solid",
-            borderColor: muted
-              ? "rgba(255,138,61,0.45)"
-              : "var(--border-strong)",
-            borderRadius: 4,
-            color: muted ? "var(--accent)" : "var(--text-dim)",
-            fontFamily: "var(--font-mono)",
-            fontSize: 10,
-            letterSpacing: "0.05em",
-            textTransform: "uppercase",
-            padding: "2px 8px",
-            cursor: "pointer",
+        <div style={{ display: "flex", gap: 4 }}>
+          <button
+            type="button"
+            data-testid="timeline-lane-mute"
+            onClick={onToggleMute}
+            aria-label={muted ? `Unmute ${name}` : `Mute ${name}`}
+            aria-pressed={muted}
+            style={toggleStyle(muted)}
+          >
+            {muted ? "muted" : "mute"}
+          </button>
+          <button
+            type="button"
+            data-testid="timeline-lane-solo"
+            onClick={onToggleSolo}
+            aria-label={soloed ? `Un-solo ${name}` : `Solo ${name}`}
+            aria-pressed={soloed}
+            style={toggleStyle(soloed)}
+          >
+            {soloed ? "soloed" : "solo"}
+          </button>
+        </div>
+
+        {/* Gain. `onChange` tracks the drag for feedback; `onPointerUp`
+            and `onKeyUp` are what write to the session, so one drag is
+            one undoable node rather than one per pixel. */}
+        <label style={faderLabelStyle}>
+          <span>gain</span>
+          <span data-testid="timeline-lane-gain-readout">
+            {gainDb > 0 ? `+${gainDb.toFixed(1)}` : gainDb.toFixed(1)} dB
+          </span>
+        </label>
+        <input
+          type="range"
+          data-testid="timeline-lane-gain"
+          aria-label={`${name} gain in decibels`}
+          min={-60}
+          max={24}
+          step={0.5}
+          value={gainDb}
+          onChange={(e) => onGainInput(Number(e.target.value))}
+          onPointerUp={(e) => onGainCommit(Number(e.currentTarget.value))}
+          onKeyUp={(e) => onGainCommit(Number(e.currentTarget.value))}
+          onBlur={(e) => onGainCommit(Number(e.currentTarget.value))}
+          style={{ width: "100%", accentColor: "var(--accent)" }}
+        />
+
+        <label style={faderLabelStyle}>
+          <span>pan</span>
+          <span data-testid="timeline-lane-pan-readout">{panLabel(pan)}</span>
+        </label>
+        <input
+          type="range"
+          data-testid="timeline-lane-pan"
+          aria-label={`${name} stereo pan`}
+          min={-1}
+          max={1}
+          step={0.02}
+          value={pan}
+          onChange={(e) => onPanInput(Number(e.target.value))}
+          onPointerUp={(e) => onPanCommit(Number(e.currentTarget.value))}
+          onKeyUp={(e) => onPanCommit(Number(e.currentTarget.value))}
+          onBlur={(e) => onPanCommit(Number(e.currentTarget.value))}
+          // Double-click returns to centre. A 0.02 step cannot always
+          // land exactly on 0 from a drag, and "almost centred" is a
+          // real mixing annoyance.
+          onDoubleClick={() => {
+            onPanInput(0);
+            onPanCommit(0);
           }}
-        >
-          {muted ? "muted" : "mute"}
-        </button>
+          style={{ width: "100%", accentColor: "var(--accent)" }}
+        />
       </div>
 
       {/* Waveform region */}
@@ -478,6 +621,10 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
     onLoopChange,
     spectrogramEnabled,
     onSpectrogramChange,
+    onTrackGainChange,
+    onTrackPanChange,
+    onTrackMuteChange,
+    onTrackSoloChange,
   },
   ref,
 ) {
@@ -492,23 +639,41 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
 
   const [laneStates, setLaneStates] = useState<TrackDescriptor[]>(defaultTracks);
 
+  // Reconcile from the props, which come from `list_tracks` — the
+  // session is the authority.
+  //
+  // This used to carry the previous lane's `muted` forward instead,
+  // which made the toggle purely local: a mute set by the agent never
+  // reached the button, and a mute set by the button never reached the
+  // session. Optimistic writes below are overwritten by the next
+  // refresh, which is the point of them.
   useEffect(() => {
-    setLaneStates((prev) => {
-      const newBase =
-        tracks && tracks.length > 0
-          ? tracks
-          : [{ name: "Mix", audioPath: audioPath ?? "", muted: false }];
-      return newBase.map((t) => {
-        const existing = prev.find((p) => p.name === t.name);
-        return existing ? { ...t, muted: existing.muted } : t;
-      });
-    });
+    setLaneStates(
+      tracks && tracks.length > 0
+        ? tracks
+        : [{ name: "Mix", audioPath: audioPath ?? "", muted: false }],
+    );
   }, [tracks, audioPath]);
 
-  const handleToggleMute = (idx: number) => {
+  /** Optimistic local edit, applied before the round trip. */
+  const patchLane = (idx: number, patch: Partial<TrackDescriptor>) =>
     setLaneStates((prev) =>
-      prev.map((t, i) => (i === idx ? { ...t, muted: !t.muted } : t)),
+      prev.map((t, i) => (i === idx ? { ...t, ...patch } : t)),
     );
+
+  /** Session-level index for a lane — see `TrackDescriptor.index`. */
+  const trackIndex = (idx: number) => laneStates[idx]?.index ?? idx;
+
+  const handleToggleMute = (idx: number) => {
+    const next = !(laneStates[idx]?.muted ?? false);
+    patchLane(idx, { muted: next });
+    onTrackMuteChange?.(trackIndex(idx), next);
+  };
+
+  const handleToggleSolo = (idx: number) => {
+    const next = !(laneStates[idx]?.soloed ?? false);
+    patchLane(idx, { soloed: next });
+    onTrackSoloChange?.(trackIndex(idx), next);
   };
 
   const rootRef = useRef<HTMLDivElement>(null);
@@ -664,6 +829,14 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timel
             audioPath={track.audioPath || null}
             muted={track.muted}
             onToggleMute={() => handleToggleMute(idx)}
+            gainDb={track.gainDb ?? 0}
+            pan={track.pan ?? 0}
+            soloed={track.soloed ?? false}
+            onGainInput={(v) => patchLane(idx, { gainDb: v })}
+            onPanInput={(v) => patchLane(idx, { pan: v })}
+            onGainCommit={(v) => onTrackGainChange?.(trackIndex(idx), v)}
+            onPanCommit={(v) => onTrackPanChange?.(trackIndex(idx), v)}
+            onToggleSolo={() => handleToggleSolo(idx)}
             onFileDropped={idx === 0 ? onFileDropped : undefined}
             showDropHint={idx === 0 && !audioPath}
             onWavesurfer={
