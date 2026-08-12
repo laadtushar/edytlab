@@ -29,14 +29,45 @@
 //! wrapped into `(-π, π]` — the standard assumption that no partial
 //! drifts more than half a bin per hop.
 //!
-//! ## What it does not do
+//! ## Transient preservation
 //!
-//! No transient preservation and no phase locking across bins. Sustained
-//! tones come through cleanly; sharp attacks smear, and dense material
-//! acquires the "phasiness" the technique is known for. Stretch factors
-//! far from 1.0 make both worse. Those are properties of a plain phase
-//! vocoder, not bugs — fixing them means peak-locking or a transient
-//! detector, which can be added here without changing the public API.
+//! Left alone, the phase advance above is exactly what smears an attack:
+//! each bin's synthesis phase drifts from its analysis phase, so the
+//! alignment that makes a snare hit *sound* like one edge is spread
+//! across the window.
+//!
+//! On a frame that looks like an onset, every bin's synthesis phase is
+//! reset to its analysis phase. That frame is then reconstructed with
+//! the input's own phase relationships and the attack survives; the
+//! frames after it carry on accumulating from the new origin.
+//!
+//! Onsets are found by spectral flux — the sum of per-bin magnitude
+//! *increases* since the previous frame — which is the same measure
+//! `audio-analysis::bpm` uses for beat detection. The algorithm is
+//! borrowed; the code deliberately is not. `audio-time` has no workspace
+//! dependencies at all, and taking one on `audio-analysis` to reach a
+//! 40-line function would drag in `audio-decoder`, `ebur128` and
+//! `serde`. It would also mean a second full STFT pass over data this
+//! loop is already transforming, at a window size (1024) that doesn't
+//! line up with this one (2048).
+//!
+//! Flux is normalised by the frame's total magnitude, so the detector
+//! is level-independent and near-silence can't trip it. Thresholding is
+//! causal — a rolling mean + 1.5σ over the last [`FLUX_HISTORY`] frames,
+//! matching `bpm.rs`'s constant — because this loop sees frames in order
+//! and cannot look ahead.
+//!
+//! A false positive is worse than a miss: resetting phase mid-tone puts
+//! a discontinuity into a steady sound, which is audible as a click.
+//! Hence the deliberately conservative pairing of a relative floor with
+//! the adaptive test, and the refractory gap.
+//!
+//! ## What it still does not do
+//!
+//! No phase locking across bins. Dense material keeps some of the
+//! "phasiness" the technique is known for, and stretch factors far from
+//! 1.0 make it worse. Peak-locking is the next step and composes with
+//! the above rather than replacing it.
 
 use std::f32::consts::PI;
 
@@ -61,6 +92,55 @@ fn hann(n: usize) -> Vec<f32> {
     (0..n)
         .map(|i| 0.5 - 0.5 * (2.0 * PI * i as f32 / n as f32).cos())
         .collect()
+}
+
+/// Frames of spectral-flux history behind the adaptive threshold.
+///
+/// 16 frames is ~186 ms at 44.1 kHz with this hop — long enough to
+/// establish what "normal" looks like for the current material, short
+/// enough to track a change of texture.
+const FLUX_HISTORY: usize = 16;
+
+/// Standard deviations above the rolling mean that count as an onset.
+/// 1.5 is the same constant `audio-analysis::bpm::pick_onsets` settled
+/// on for the same measure.
+const FLUX_THRESHOLD_K: f32 = 1.5;
+
+/// Minimum frames between two phase resets.
+///
+/// One attack spans several frames at 75% overlap, and locking on each
+/// of them in turn would re-cut the same edge repeatedly. Four frames
+/// is roughly one window (~46 ms at 44.1 kHz).
+///
+/// In frames rather than milliseconds because this function is never
+/// told the sample rate — it works on a bare `&[f32]`.
+const MIN_TRANSIENT_GAP_FRAMES: usize = 4;
+
+/// Floor on flux as a fraction of the frame's total magnitude.
+///
+/// The adaptive test alone is not enough: on a perfectly steady tone
+/// both the mean and the deviation collapse toward zero, and float
+/// noise clears `mean + kσ` on its own. Normalising by total magnitude
+/// makes the measure level-independent, and this floor demands that a
+/// real share of the spectrum actually appeared before phase is reset.
+const MIN_RELATIVE_FLUX: f32 = 0.10;
+
+/// Decide whether this frame's flux is an onset.
+///
+/// `history` holds the previous frames' relative flux, most recent
+/// last. Returns false until the history is full: with nothing to
+/// compare against, every early frame looks exceptional.
+fn is_onset(rel_flux: f32, history: &[f32], frames_since_last: usize) -> bool {
+    if history.len() < FLUX_HISTORY || frames_since_last < MIN_TRANSIENT_GAP_FRAMES {
+        return false;
+    }
+    if rel_flux < MIN_RELATIVE_FLUX {
+        return false;
+    }
+    let n = history.len() as f32;
+    let mean = history.iter().sum::<f32>() / n;
+    let variance = history.iter().map(|x| (x - mean) * (x - mean)).sum::<f32>() / n;
+    rel_flux > mean + FLUX_THRESHOLD_K * variance.sqrt()
 }
 
 /// Wrap a phase into `(-π, π]`.
@@ -95,6 +175,15 @@ impl Fft {
 /// `ratio` is the output length over the input length: 2.0 is twice as
 /// long (slower), 0.5 is half (faster). Pitch is unchanged.
 pub(crate) fn stretch_mono(input: &[f32], ratio: f32) -> Vec<f32> {
+    stretch_mono_opts(input, ratio, true)
+}
+
+/// [`stretch_mono`] with transient preservation switchable.
+///
+/// Production always passes `true`. The switch exists so the tests can
+/// measure the feature against its own absence on identical input —
+/// "attacks are sharp" is only meaningful next to how blunt they were.
+pub(crate) fn stretch_mono_opts(input: &[f32], ratio: f32, preserve_transients: bool) -> Vec<f32> {
     if input.is_empty() || !ratio.is_finite() || ratio <= 0.0 {
         return Vec::new();
     }
@@ -119,6 +208,15 @@ pub(crate) fn stretch_mono(input: &[f32], ratio: f32) -> Vec<f32> {
     // analysed and the overlap-add ends on a frame boundary.
     let target_len = ((input.len() as f32) * ratio).round().max(1.0) as usize;
 
+    // Where the real signal stops. Frames reaching past this see the
+    // zero padding below, and the step from signal to silence is a
+    // discontinuity that splatters energy across the spectrum — which
+    // reads as a large flux rise and fires the onset detector at the end
+    // of every single stretch. Detection is suppressed there; the cost
+    // is missing a transient in the final window, which is a better
+    // trade than a phase reset planted in every output.
+    let real_len = input.len();
+
     // Pad so the tail of the input gets analysed at all.
     let mut padded = Vec::with_capacity(input.len() + FRAME);
     padded.extend_from_slice(input);
@@ -133,6 +231,16 @@ pub(crate) fn stretch_mono(input: &[f32], ratio: f32) -> Vec<f32> {
     // Phase state carried between frames.
     let mut last_phase = vec![0.0f32; bins];
     let mut sum_phase = vec![0.0f32; bins];
+
+    // Onset detection state. `mags`/`phases` exist because the flux is a
+    // whole-frame sum: the decision has to be made before the loop that
+    // acts on it, so the per-bin values are computed once and reused
+    // rather than the spectrum being read twice.
+    let mut mags = vec![0.0f32; bins];
+    let mut phases = vec![0.0f32; bins];
+    let mut prev_mag = vec![0.0f32; bins];
+    let mut flux_history: Vec<f32> = Vec::with_capacity(FLUX_HISTORY);
+    let mut frames_since_transient = MIN_TRANSIENT_GAP_FRAMES;
 
     let frames = (input.len() - FRAME) / HOP_A + 1;
     let out_len = (frames - 1) * hop_s + FRAME;
@@ -157,25 +265,68 @@ pub(crate) fn stretch_mono(input: &[f32], ratio: f32) -> Vec<f32> {
             return Vec::new();
         }
 
+        // Pass 1 — magnitudes, phases, and how much of the spectrum
+        // grew since the last frame. Only increases count: a partial
+        // decaying is not an onset.
+        let mut flux = 0.0f32;
+        let mut total_mag = 0.0f32;
         for k in 0..bins {
             let (re, im) = (spectrum[k].re, spectrum[k].im);
             let mag = (re * re + im * im).sqrt();
-            let phase = im.atan2(re);
+            mags[k] = mag;
+            phases[k] = im.atan2(re);
+            let rise = mag - prev_mag[k];
+            if rise > 0.0 {
+                flux += rise;
+            }
+            prev_mag[k] = mag;
+            total_mag += mag;
+        }
 
+        let rel_flux = if total_mag > 1e-12 {
+            flux / total_mag
+        } else {
+            0.0
+        };
+        // `start + FRAME > real_len` means this window straddles the
+        // zero padding; see `real_len` above.
+        let inside_real_signal = start + FRAME <= real_len;
+        let transient = preserve_transients
+            && inside_real_signal
+            && is_onset(rel_flux, &flux_history, frames_since_transient);
+        if flux_history.len() == FLUX_HISTORY {
+            flux_history.remove(0);
+        }
+        flux_history.push(rel_flux);
+        frames_since_transient = if transient {
+            0
+        } else {
+            frames_since_transient.saturating_add(1)
+        };
+
+        // Pass 2 — advance or reset the synthesis phase, then rebuild.
+        for k in 0..bins {
             // How far this bin's partial actually moved, beyond what its
             // centre frequency predicts. Wrapped, on the assumption that
             // it is within half a bin of the centre.
-            let delta = wrap_phase(phase - last_phase[k] - expected[k]);
-            last_phase[k] = phase;
+            let delta = wrap_phase(phases[k] - last_phase[k] - expected[k]);
+            last_phase[k] = phases[k];
 
-            // Advance the synthesis phase by the true frequency scaled to
-            // the synthesis hop. This is the step that keeps pitch fixed
-            // while the timeline changes.
-            let true_freq = expected[k] + delta;
-            sum_phase[k] += true_freq * (hop_s as f32) / (HOP_A as f32);
+            if transient {
+                // Reproduce this frame with the input's own phase
+                // relationships. That alignment is what an attack *is*;
+                // accumulating through it is what smears it.
+                sum_phase[k] = phases[k];
+            } else {
+                // Advance the synthesis phase by the true frequency
+                // scaled to the synthesis hop. This is the step that
+                // keeps pitch fixed while the timeline changes.
+                let true_freq = expected[k] + delta;
+                sum_phase[k] += true_freq * (hop_s as f32) / (HOP_A as f32);
+            }
 
-            spectrum[k].re = mag * sum_phase[k].cos();
-            spectrum[k].im = mag * sum_phase[k].sin();
+            spectrum[k].re = mags[k] * sum_phase[k].cos();
+            spectrum[k].im = mags[k] * sum_phase[k].sin();
         }
 
         // A real signal's DC and Nyquist bins have no imaginary part, and
@@ -270,6 +421,42 @@ pub(crate) fn interleave(planes: &[Vec<f32>]) -> Vec<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A train of short percussive bursts on silence: a fast attack
+    /// followed by an exponential decay. Closer to real percussion than
+    /// a bare impulse, and it gives the envelope something measurable.
+    fn click_train(sr: u32, hits: usize, gap: usize) -> Vec<f32> {
+        let mut out = vec![0.0f32; hits * gap];
+        for h in 0..hits {
+            let start = h * gap;
+            for i in 0..(sr as usize / 100) {
+                let t = i as f32 / sr as f32;
+                let env = (-t * 400.0).exp();
+                let s = (2.0 * PI * 2_000.0 * t).sin() * env;
+                if start + i < out.len() {
+                    out[start + i] = s;
+                }
+            }
+        }
+        out
+    }
+
+    /// Peak over RMS. Smearing an attack spreads its energy in time,
+    /// which lowers the peak and raises the RMS — so this number falls
+    /// exactly when transients are being lost, and it needs no reference
+    /// signal to interpret.
+    fn crest_factor(x: &[f32]) -> f32 {
+        if x.is_empty() {
+            return 0.0;
+        }
+        let peak = x.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+        let rms = (x.iter().map(|v| v * v).sum::<f32>() / x.len() as f32).sqrt();
+        if rms <= 1e-12 {
+            0.0
+        } else {
+            peak / rms
+        }
+    }
 
     fn sine(freq: f32, sr: u32, len: usize) -> Vec<f32> {
         (0..len)
@@ -368,5 +555,150 @@ mod tests {
         assert_eq!(planes[0], vec![1.0, 2.0, 3.0]);
         assert_eq!(planes[1], vec![-1.0, -2.0, -3.0]);
         assert_eq!(interleave(&planes), interleaved);
+    }
+    // ------------------------------------------------------------------
+    // Transient preservation
+    // ------------------------------------------------------------------
+
+    /// The point of the feature, measured against its own absence on
+    /// identical input. A plain phase vocoder spreads each attack across
+    /// the analysis window; preserving transients keeps the edge, which
+    /// shows up as a higher crest factor.
+    #[test]
+    fn transient_preservation_keeps_attacks_sharper_than_without() {
+        let sr = 44_100u32;
+        let input = click_train(sr, 8, sr as usize / 4);
+
+        let with = stretch_mono_opts(&input, 2.0, true);
+        let without = stretch_mono_opts(&input, 2.0, false);
+
+        let (cf_with, cf_without) = (crest_factor(&with), crest_factor(&without));
+        assert!(
+            cf_with > cf_without,
+            "preserving transients must not blunt them further: \
+             {cf_with:.2} with vs {cf_without:.2} without"
+        );
+        // A margin, so this fails on a detector that never fires rather
+        // than passing on float noise.
+        assert!(
+            cf_with > cf_without * 1.05,
+            "the improvement is within noise — the detector probably \
+             never fired: {cf_with:.2} vs {cf_without:.2}"
+        );
+    }
+
+    /// A steady tone must not trip the detector. Resetting phase in the
+    /// middle of a sustained sound puts a discontinuity into it, which
+    /// is audible as a click — a false positive is worse than a miss.
+    #[test]
+    fn a_steady_tone_does_not_trigger_a_phase_reset() {
+        let sr = 44_100u32;
+        let input = sine(440.0, sr, sr as usize);
+
+        let with = stretch_mono_opts(&input, 2.0, true);
+        let without = stretch_mono_opts(&input, 2.0, false);
+
+        assert_eq!(with.len(), without.len());
+        // On material with no onsets the two paths should agree
+        // sample-for-sample: the detector should never have fired.
+        let diff = with
+            .iter()
+            .zip(without.iter())
+            .fold(0.0f32, |m, (a, b)| m.max((a - b).abs()));
+        assert!(
+            diff < 1e-6,
+            "the detector fired on a steady 440 Hz sine (max sample \
+             difference {diff:.6}); phase resets mid-tone are clicks"
+        );
+    }
+
+    /// Near-silence has a tiny total magnitude, so an unnormalised flux
+    /// measure would see huge relative swings in the noise floor. The
+    /// relative-flux floor exists to stop that.
+    #[test]
+    fn near_silence_does_not_trigger_a_phase_reset() {
+        let sr = 44_100u32;
+        let input: Vec<f32> = sine(440.0, sr, sr as usize)
+            .iter()
+            .map(|s| s * 1e-7)
+            .collect();
+
+        let with = stretch_mono_opts(&input, 2.0, true);
+        let without = stretch_mono_opts(&input, 2.0, false);
+        let diff = with
+            .iter()
+            .zip(without.iter())
+            .fold(0.0f32, |m, (a, b)| m.max((a - b).abs()));
+        assert!(diff < 1e-9, "the detector fired on near-silence");
+    }
+
+    /// The exact-length contract predates this feature and must survive
+    /// it: phase resets change the samples, never the frame count.
+    #[test]
+    fn preserving_transients_does_not_change_the_output_length() {
+        let sr = 44_100u32;
+        let input = click_train(sr, 6, sr as usize / 4);
+        for ratio in [0.5f32, 1.0, 1.5, 2.0] {
+            let with = stretch_mono_opts(&input, ratio, true);
+            let without = stretch_mono_opts(&input, ratio, false);
+            let expected = ((input.len() as f32) * ratio).round() as usize;
+            assert_eq!(with.len(), expected, "ratio {ratio}");
+            assert_eq!(without.len(), expected, "ratio {ratio}");
+        }
+    }
+
+    /// Stretching must not add or drop hits. Counting envelope peaks
+    /// above a fraction of the maximum is crude but independent of the
+    /// detector under test.
+    #[test]
+    fn stretching_preserves_the_number_of_hits() {
+        let sr = 44_100u32;
+        let hits = 6;
+        let input = click_train(sr, hits, sr as usize / 4);
+        let out = stretch_mono(&input, 2.0);
+
+        let peak = out.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+        let threshold = peak * 0.3;
+        // Count runs above threshold, with a refractory window so one
+        // decaying hit isn't counted several times.
+        let mut count = 0usize;
+        let mut cooldown = 0usize;
+        for &v in &out {
+            if cooldown > 0 {
+                cooldown -= 1;
+                continue;
+            }
+            if v.abs() > threshold {
+                count += 1;
+                cooldown = sr as usize / 10;
+            }
+        }
+        assert_eq!(
+            count, hits,
+            "a 2x stretch of {hits} hits produced {count} of them"
+        );
+    }
+
+    /// The threshold itself, away from the FFT.
+    #[test]
+    fn onset_detection_needs_history_a_gap_and_a_real_rise() {
+        let steady = vec![0.05f32; FLUX_HISTORY];
+
+        // A clear rise over a settled history.
+        assert!(is_onset(0.5, &steady, MIN_TRANSIENT_GAP_FRAMES));
+
+        // Same rise, but too soon after the last reset.
+        assert!(!is_onset(0.5, &steady, MIN_TRANSIENT_GAP_FRAMES - 1));
+
+        // Same rise, but nothing to compare against yet.
+        assert!(!is_onset(0.5, &steady[..FLUX_HISTORY - 1], 99));
+
+        // Above the adaptive threshold but below the absolute floor:
+        // a big relative jump in a spectrum where nothing much happened.
+        let quiet = vec![0.0f32; FLUX_HISTORY];
+        assert!(!is_onset(MIN_RELATIVE_FLUX * 0.5, &quiet, 99));
+
+        // No rise at all.
+        assert!(!is_onset(0.05, &steady, 99));
     }
 }
