@@ -26,6 +26,10 @@ import {
   renderRange,
   setHeadTo,
   setSelectionContext,
+  setTrackGain,
+  setTrackMuted,
+  setTrackPan,
+  setTrackSoloed,
 } from "./lib/tauri-bridge";
 import { save } from "@tauri-apps/plugin-dialog";
 import { applyUndo, applyRedo } from "./lib/undoRedo";
@@ -291,6 +295,50 @@ function App() {
     }
   }, []);
 
+  // Mixer commits. Each command appends one session node, so the head
+  // moves and the track list has to be re-read: the Timeline shows the
+  // value optimistically, and this is what confirms or corrects it.
+  //
+  // A rejected value (out of range, track gone) surfaces in the error
+  // banner and the refresh puts the control back where the session
+  // actually is, rather than leaving the fader lying.
+  const commitTrackChange = useCallback(
+    async (apply: () => Promise<string>) => {
+      try {
+        await apply();
+      } catch (e) {
+        setRenderError(String(e));
+      }
+      try {
+        setTracks(await listTracks());
+      } catch (e) {
+        setRenderError(String(e));
+      }
+    },
+    [],
+  );
+
+  const handleTrackGainChange = useCallback(
+    (index: number, gainDb: number) =>
+      void commitTrackChange(() => setTrackGain(index, gainDb)),
+    [commitTrackChange],
+  );
+  const handleTrackPanChange = useCallback(
+    (index: number, pan: number) =>
+      void commitTrackChange(() => setTrackPan(index, pan)),
+    [commitTrackChange],
+  );
+  const handleTrackMuteChange = useCallback(
+    (index: number, muted: boolean) =>
+      void commitTrackChange(() => setTrackMuted(index, muted)),
+    [commitTrackChange],
+  );
+  const handleTrackSoloChange = useCallback(
+    (index: number, soloed: boolean) =>
+      void commitTrackChange(() => setTrackSoloed(index, soloed)),
+    [commitTrackChange],
+  );
+
   // Debounced selection IPC — push the selection to Rust 250 ms after
   // the last change so rapid drags don't flood the backend.
   const handleSelectionChange = useCallback((sel: Selection | null) => {
@@ -528,12 +576,24 @@ function App() {
                   ref={timelineRef}
                   audioPath={audioPath}
                   tracks={tracks
-                    .filter((t) => t.audio_path)
-                    .map((t) => ({
+                    // `index` is captured before the filter: a track
+                    // with no audio is not drawn but still occupies a
+                    // slot the mixer commands address by.
+                    .map((t, index) => ({ t, index }))
+                    .filter(({ t }) => t.audio_path)
+                    .map(({ t, index }) => ({
+                      index,
                       name: t.name,
                       audioPath: t.audio_path as string,
                       muted: t.muted,
+                      gainDb: t.gain_db,
+                      pan: t.pan,
+                      soloed: t.soloed,
                     }))}
+                  onTrackGainChange={handleTrackGainChange}
+                  onTrackPanChange={handleTrackPanChange}
+                  onTrackMuteChange={handleTrackMuteChange}
+                  onTrackSoloChange={handleTrackSoloChange}
                   onFileDropped={() => undefined}
                   selection={selection}
                   onSelectionChange={handleSelectionChange}

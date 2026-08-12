@@ -82,6 +82,9 @@ pub enum CommandError {
     #[error("invalid marker: {0}")]
     InvalidMarker(String),
 
+    #[error("invalid track control: {0}")]
+    InvalidTrackControl(String),
+
     #[error("internal: a state mutex was poisoned ({0})")]
     Poisoned(&'static str),
 
@@ -1525,6 +1528,9 @@ pub struct TrackSummary {
     pub name: String,
     pub muted: bool,
     pub gain_db: f32,
+    /// -1.0 hard left, 0.0 centre, 1.0 hard right.
+    pub pan: f32,
+    pub soloed: bool,
     pub audio_path: Option<String>,
 }
 
@@ -1547,6 +1553,8 @@ pub fn list_tracks(state: State<'_, AppState>) -> CmdResult<Vec<TrackSummary>> {
             name: t.name,
             muted: t.muted,
             gain_db: t.gain_db,
+            pan: t.pan,
+            soloed: t.soloed,
             // One clip already *is* a file, so hand its path over
             // untouched — the overwhelmingly common case, and free.
             //
@@ -1571,6 +1579,164 @@ pub fn list_tracks(state: State<'_, AppState>) -> CmdResult<Vec<TrackSummary>> {
             },
         })
         .collect())
+}
+
+// ---------------------------------------------------------------------------
+// Mixer controls (#94)
+// ---------------------------------------------------------------------------
+//
+// Gain, pan, mute and solo were reachable only by asking the agent in
+// English. The engine has had a pan law since #84 with nothing in the
+// product able to reach it, and the timeline's `mute` button only ever
+// set the local WaveSurfer volume — it looked like a mixer control and
+// persisted nothing.
+//
+// These four commands run the *tools* rather than mutating the session
+// themselves. The tools already validate the track index, append
+// exactly one node and produce the label that shows up in history, and
+// duplicating that is the trap #80 was: three copies of one edit path,
+// two of which kept a bug after the third was fixed.
+//
+// Range checks stay here as well as in the tool, because this is the
+// layer that accepts input from outside the process — the same reason
+// `add_marker` validates its own time rather than trusting the ruler.
+
+/// Widest gain a fader may set, in dB.
+///
+/// Not a limit of the mixer — `set_track_gain` the *tool* accepts any
+/// finite value, and a session written by the agent can hold more. It
+/// is a bound on what a slider is allowed to send, so a UI bug or a
+/// hand-rolled `invoke` cannot put +200 dB into the session where it
+/// would render as a wall of clipping.
+const GAIN_LIMIT_DB: f32 = 24.0;
+const GAIN_FLOOR_DB: f32 = -60.0;
+
+/// Invoke `tool` with `args` and return the new session head.
+///
+/// The store, engine and dispatcher locks are taken together and
+/// dropped together, matching `open_multiple`: a tool needs all three
+/// for the duration of one call, and the head has to be read while the
+/// store lock is still held or another caller could append in between.
+fn run_track_tool(state: &AppState, tool: &str, args: serde_json::Value) -> CmdResult<String> {
+    let store_arc = state.store_handle().ok_or(CommandError::NoSession)?;
+    let head_hex = {
+        let mut store = lock_std(&store_arc, "store")?;
+        let mut engine = lock_std(&state.engine, "engine")?;
+        let dispatcher = lock_std(&state.dispatcher, "dispatcher")?;
+        let mut clipboard: Option<Vec<f32>> = None;
+        let mut ctx = tools::ToolContext {
+            store: &mut store,
+            engine: &mut engine,
+            user_message: "",
+            clipboard: &mut clipboard,
+        };
+        // A tool that fails validation returns `ToolResult::Error`
+        // rather than `Err` — that is the dispatcher contract, and it
+        // is where "track index 7 out of range" comes from. Surfacing
+        // it as a command error is what puts the message in front of
+        // the user instead of silently reporting the unchanged head.
+        match dispatcher
+            .invoke(tool, args, &mut ctx)
+            .map_err(|e| CommandError::InvalidTrackControl(format!("{tool}: {e}")))?
+        {
+            tools::ToolResult::Ok(_) => {}
+            tools::ToolResult::Error(msg) => {
+                return Err(CommandError::InvalidTrackControl(msg).into())
+            }
+        }
+        store.head().map(|id| id.to_hex())
+    };
+    head_hex.ok_or_else(|| CommandError::NoSession.into())
+}
+
+/// Set a track's gain in dB. Returns the new session head.
+#[tauri::command]
+pub fn set_track_gain(state: State<'_, AppState>, track: usize, gain_db: f32) -> CmdResult<String> {
+    set_track_gain_inner(&state, track, gain_db)
+}
+
+pub(crate) fn set_track_gain_inner(
+    state: &AppState,
+    track: usize,
+    gain_db: f32,
+) -> CmdResult<String> {
+    if !gain_db.is_finite() || !(GAIN_FLOOR_DB..=GAIN_LIMIT_DB).contains(&gain_db) {
+        return Err(CommandError::InvalidTrackControl(format!(
+            "gain must be finite and between {GAIN_FLOOR_DB} and {GAIN_LIMIT_DB} dB; got {gain_db}"
+        ))
+        .into());
+    }
+    run_track_tool(
+        state,
+        "set_track_gain",
+        serde_json::json!({ "track": track, "db": gain_db }),
+    )
+}
+
+/// Set a track's stereo position: -1.0 hard left, 0.0 centre, 1.0 hard
+/// right. Returns the new session head.
+///
+/// Out-of-range values are rejected rather than silently clamped. The
+/// tool clamps because a model can reasonably say "pan it to 1.5" and
+/// mean "hard right"; a slider that sends 1.5 is broken, and quietly
+/// accepting it hides that.
+#[tauri::command]
+pub fn set_track_pan(state: State<'_, AppState>, track: usize, pan: f32) -> CmdResult<String> {
+    set_track_pan_inner(&state, track, pan)
+}
+
+pub(crate) fn set_track_pan_inner(state: &AppState, track: usize, pan: f32) -> CmdResult<String> {
+    if !pan.is_finite() || !(-1.0..=1.0).contains(&pan) {
+        return Err(CommandError::InvalidTrackControl(format!(
+            "pan must be finite and between -1.0 and 1.0; got {pan}"
+        ))
+        .into());
+    }
+    run_track_tool(
+        state,
+        "set_pan",
+        serde_json::json!({ "track": track, "pan": pan }),
+    )
+}
+
+/// Mute or unmute a track. Returns the new session head.
+#[tauri::command]
+pub fn set_track_muted(state: State<'_, AppState>, track: usize, muted: bool) -> CmdResult<String> {
+    set_track_muted_inner(&state, track, muted)
+}
+
+pub(crate) fn set_track_muted_inner(
+    state: &AppState,
+    track: usize,
+    muted: bool,
+) -> CmdResult<String> {
+    run_track_tool(
+        state,
+        "mute_track",
+        serde_json::json!({ "track": track, "muted": muted }),
+    )
+}
+
+/// Solo or un-solo a track. Returns the new session head.
+#[tauri::command]
+pub fn set_track_soloed(
+    state: State<'_, AppState>,
+    track: usize,
+    soloed: bool,
+) -> CmdResult<String> {
+    set_track_soloed_inner(&state, track, soloed)
+}
+
+pub(crate) fn set_track_soloed_inner(
+    state: &AppState,
+    track: usize,
+    soloed: bool,
+) -> CmdResult<String> {
+    run_track_tool(
+        state,
+        "solo_track",
+        serde_json::json!({ "track": track, "solo": soloed }),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -3031,6 +3197,148 @@ mod tests {
             store.get(id).unwrap()
         };
         assert_eq!(node.id, id);
+    }
+
+    // -----------------------------------------------------------------
+    // Mixer controls (#94)
+    // -----------------------------------------------------------------
+
+    /// A project with `n` tracks at the head, ready for the mixer
+    /// commands. The tracks carry no clips — gain, pan, mute and solo
+    /// are all track metadata, and none of them needs audio to be set.
+    fn state_with_tracks(tmp: &std::path::Path, n: usize) -> AppState {
+        let state = AppState::new();
+        open_project_for_test(&state, tmp).unwrap();
+        let mut session_state = empty_session_state();
+        for i in 0..n {
+            session_state.tracks.push(session::Track {
+                id: session::TrackId::new(),
+                name: format!("track {i}"),
+                clips: Vec::new(),
+                gain_db: 0.0,
+                pan: 0.0,
+                muted: false,
+                soloed: false,
+                sends: Vec::new(),
+                effects: Vec::new(),
+            });
+        }
+        let handle = state.store_handle().unwrap();
+        let mut store = handle.lock().unwrap();
+        store
+            .append(session::SessionNode {
+                id: session::NodeId([0u8; 32]),
+                parent: None,
+                created_at: chrono::Utc::now(),
+                label: Some("fixture".into()),
+                reasoning: None,
+                state: session_state,
+            })
+            .unwrap();
+        drop(store);
+        state
+    }
+
+    fn head_tracks(state: &AppState) -> Vec<session::Track> {
+        let handle = state.store_handle().unwrap();
+        let store = handle.lock().unwrap();
+        let head = store.head().unwrap();
+        store.get(head).unwrap().state.tracks
+    }
+
+    fn node_count(state: &AppState) -> usize {
+        let handle = state.store_handle().unwrap();
+        let store = handle.lock().unwrap();
+        let mut n = 0usize;
+        let mut cursor = store.head();
+        while let Some(id) = cursor {
+            n += 1;
+            cursor = store.get(id).unwrap().parent;
+        }
+        n
+    }
+
+    /// The acceptance criterion: each control writes the value through
+    /// to the session, and does it in exactly one node so a single undo
+    /// takes it back.
+    #[test]
+    fn each_mixer_command_appends_one_node_and_round_trips() {
+        let tmp = tempdir().unwrap();
+        let state = state_with_tracks(tmp.path(), 2);
+        let before = node_count(&state);
+
+        set_track_gain_inner(&state, 1, -6.5).unwrap();
+        assert_eq!(head_tracks(&state)[1].gain_db, -6.5);
+        assert_eq!(node_count(&state), before + 1);
+
+        set_track_pan_inner(&state, 1, -1.0).unwrap();
+        assert_eq!(head_tracks(&state)[1].pan, -1.0);
+        assert_eq!(node_count(&state), before + 2);
+
+        set_track_muted_inner(&state, 0, true).unwrap();
+        assert!(head_tracks(&state)[0].muted);
+        assert_eq!(node_count(&state), before + 3);
+
+        set_track_soloed_inner(&state, 0, true).unwrap();
+        assert!(head_tracks(&state)[0].soloed);
+        assert_eq!(node_count(&state), before + 4);
+
+        // Track 1's earlier edits survived every later append — the
+        // commands build on the head rather than on the fixture.
+        let tracks = head_tracks(&state);
+        assert_eq!(tracks[1].gain_db, -6.5);
+        assert_eq!(tracks[1].pan, -1.0);
+    }
+
+    /// Out-of-range input is refused at the command, not left to the
+    /// slider's `min`/`max`. A rejected call must also leave the
+    /// session alone — a half-applied mixer move is worse than none.
+    #[test]
+    fn mixer_commands_reject_out_of_range_values() {
+        let tmp = tempdir().unwrap();
+        let state = state_with_tracks(tmp.path(), 1);
+        let before = node_count(&state);
+
+        for bad in [1.5f32, -1.5, f32::NAN, f32::INFINITY] {
+            let err = set_track_pan_inner(&state, 0, bad).expect_err("pan {bad} should be refused");
+            assert!(err.contains("pan must be"), "got: {err}");
+        }
+        for bad in [100.0f32, -1000.0, f32::NAN] {
+            let err =
+                set_track_gain_inner(&state, 0, bad).expect_err("gain {bad} should be refused");
+            assert!(err.contains("gain must be"), "got: {err}");
+        }
+        assert_eq!(node_count(&state), before, "a refused call wrote a node");
+        assert_eq!(head_tracks(&state)[0].pan, 0.0);
+    }
+
+    /// The tool's own validation has to reach the user. Without the
+    /// `ToolResult::Error` arm this returned the unchanged head and the
+    /// UI would have shown success.
+    #[test]
+    fn an_out_of_range_track_index_is_an_error_not_a_silent_no_op() {
+        let tmp = tempdir().unwrap();
+        let state = state_with_tracks(tmp.path(), 1);
+        let before = node_count(&state);
+
+        let err = set_track_muted_inner(&state, 7, true).expect_err("track 7 does not exist");
+        assert!(err.contains("out of range"), "got: {err}");
+        assert_eq!(node_count(&state), before);
+    }
+
+    #[test]
+    fn list_tracks_reports_pan_and_solo() {
+        let tmp = tempdir().unwrap();
+        let state = state_with_tracks(tmp.path(), 1);
+        set_track_pan_inner(&state, 0, 0.75).unwrap();
+        set_track_soloed_inner(&state, 0, true).unwrap();
+
+        // `list_tracks` takes `State`, which needs a running app; its
+        // body is a projection of the head node, so assert on the same
+        // source the projection reads.
+        let t = &head_tracks(&state)[0];
+        assert_eq!(t.pan, 0.75);
+        assert!(t.soloed);
     }
 
     #[test]
