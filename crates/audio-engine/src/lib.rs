@@ -43,6 +43,8 @@ pub enum Error {
     MasterEffectNotStreamable(String),
     #[error("unknown master effect '{0}'")]
     UnknownMasterEffect(String),
+    #[error("a track sends to bus '{0}', which the session does not define")]
+    UnknownBus(String),
     #[error("render range end is before start")]
     InvalidRange,
     #[error("unsupported channel map: source has {from} channels, render target has {to}")]

@@ -67,6 +67,7 @@ fn state_with_chain(source: &Path, chain: Vec<EffectInstance>) -> SessionState {
             muted: false,
             soloed: false,
             effects: Vec::new(),
+            sends: Vec::new(),
         }],
         bus_routing: BusGraph::default(),
         master_chain: chain,

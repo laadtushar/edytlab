@@ -66,6 +66,7 @@ fn track_for(source: &Path, gain_db: f32, muted: bool, soloed: bool) -> Track {
         muted,
         soloed,
         effects: Vec::<EffectInstance>::new(),
+        sends: Vec::new(),
     }
 }
 

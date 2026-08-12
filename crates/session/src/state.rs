@@ -55,6 +55,12 @@ pub struct Track {
     pub muted: bool,
     pub soloed: bool,
     pub effects: Vec<EffectInstance>,
+    /// Parallel copies of this track routed to buses. See [`Send`].
+    ///
+    /// Defaulted and skipped when empty, so every session written before
+    /// buses existed loads and re-serialises unchanged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sends: Vec<Send>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -112,6 +118,29 @@ pub struct Bus {
     pub id: Uuid,
     pub name: String,
     pub effects: Vec<EffectInstance>,
+}
+
+/// A track's contribution to a bus.
+///
+/// **Parallel, not a move.** The track still reaches the master at full
+/// level; this is an additional scaled copy. That is what reverb and
+/// delay want, and it is what could not be expressed before: `Bus` had
+/// a name and an effect list but no way for audio to reach it.
+///
+/// **Post-fader.** The tap is the track's output after gain, volume
+/// automation and pan, because that is what the renderer's per-track
+/// chunk actually contains. A pre-fader send would need the signal
+/// before those are applied, which the streamer does not expose — so
+/// rather than add a `pre_fader` flag the engine would have to ignore,
+/// there isn't one. Adding it later is additive, the same way this is.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Send {
+    /// Which bus receives the copy. Must name a bus in
+    /// [`BusGraph::buses`]; the render rejects a dangling id rather than
+    /// silently dropping the send.
+    pub bus_id: Uuid,
+    /// Level of the copy, in dB. 0 sends the track at full level.
+    pub level_db: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

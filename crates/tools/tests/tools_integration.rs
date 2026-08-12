@@ -770,6 +770,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "compare_nodes",
             "compressor",
             "copy_region",
+            "create_bus",
             "cut_range",
             "de_esser",
             "distortion",
@@ -804,6 +805,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "phaser",
             "pitch_shift",
             "plot_spectrum",
+            "remove_send",
             "remove_track",
             "rename_track",
             "render_final",
@@ -816,6 +818,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "separate_stems",
             "set_clip_envelope",
             "set_pan",
+            "set_send",
             "set_track_gain",
             "silence_finder",
             "silence_region",
@@ -1858,5 +1861,114 @@ fn render_final_advertises_only_formats_it_supports() {
         formats,
         &json!(["wav", "flac"]),
         "the enum must contain only formats that succeed"
+    );
+}
+
+/// Buses were in the session schema since Phase 1 with no tool able to
+/// create one and no field able to feed one. The engine half is tested
+/// in `audio-engine`; this is the half that matters for #108's lesson —
+/// that an agent can actually reach it.
+#[test]
+fn an_agent_can_create_a_bus_and_route_a_track_to_it() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.2);
+    let mut clipboard: Option<Vec<f32>> = None;
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+        user_message: "",
+        clipboard: &mut clipboard,
+    };
+
+    ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+
+    let created = ok(dispatcher
+        .invoke("create_bus", json!({ "name": "Reverb" }), &mut ctx)
+        .unwrap());
+    let bus_id = created["bus_id"].as_str().expect("bus_id returned");
+
+    let routed = ok(dispatcher
+        .invoke(
+            "set_send",
+            json!({ "track": 0, "bus_id": bus_id, "level_db": -6.0 }),
+            &mut ctx,
+        )
+        .unwrap());
+    assert_eq!(routed["level_db"], json!(-6.0));
+
+    // The send has to survive into the rendered mix, not just the state.
+    let dry_out = tmp.path().join("dry.wav");
+    let wet_out = tmp.path().join("wet.wav");
+    let node = routed["node_id"].as_str().unwrap().to_string();
+    ok(dispatcher
+        .invoke(
+            "render_final",
+            json!({ "node_id": node, "format": "wav", "out_path": wet_out.to_string_lossy() }),
+            &mut ctx,
+        )
+        .unwrap());
+
+    let removed = ok(dispatcher
+        .invoke(
+            "remove_send",
+            json!({ "track": 0, "bus_id": bus_id }),
+            &mut ctx,
+        )
+        .unwrap());
+    ok(dispatcher
+        .invoke(
+            "render_final",
+            json!({
+                "node_id": removed["node_id"].as_str().unwrap(),
+                "format": "wav",
+                "out_path": dry_out.to_string_lossy(),
+            }),
+            &mut ctx,
+        )
+        .unwrap());
+
+    let wet = read_wav_samples(&wet_out);
+    let dry = read_wav_samples(&dry_out);
+    let energy = |x: &[i16]| x.iter().map(|v| (*v as f64).abs()).sum::<f64>();
+    assert!(
+        energy(&wet) > energy(&dry) * 1.2,
+        "routing a track to a bus should add a parallel copy; wet and dry \
+         are too close, so the send never reached the mix"
+    );
+}
+
+/// A send to a bus that does not exist is a mistake worth naming at the
+/// point it is made, rather than only when the render later refuses.
+#[test]
+fn set_send_rejects_an_unknown_bus_and_says_what_exists() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.2);
+    let mut clipboard: Option<Vec<f32>> = None;
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+        user_message: "",
+        clipboard: &mut clipboard,
+    };
+    ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+
+    let msg = err(dispatcher
+        .invoke(
+            "set_send",
+            json!({
+                "track": 0,
+                "bus_id": "00000000-0000-4000-8000-000000000000",
+                "level_db": 0.0,
+            }),
+            &mut ctx,
+        )
+        .unwrap());
+    assert!(
+        msg.contains("create_bus"),
+        "with no buses yet, the error should say how to make one: {msg}"
     );
 }

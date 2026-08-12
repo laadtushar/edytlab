@@ -221,6 +221,7 @@ mod canonical_hash_tests {
                 muted: false,
                 soloed: false,
                 effects: vec![],
+                sends: vec![],
             }],
             ..empty_state()
         }

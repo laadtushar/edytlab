@@ -62,6 +62,11 @@ const TOOL_LABELS: Record<string, string> = {
   set_pan: "Pan",
   mix_to_new_track: "Mix to new track",
 
+  // Buses
+  create_bus: "Create bus",
+  set_send: "Route to bus",
+  remove_send: "Remove send",
+
   // Arrangement
   cut_range: "Cut",
   trim: "Trim",

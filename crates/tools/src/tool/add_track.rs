@@ -63,6 +63,7 @@ impl Tool for AddTrackTool {
             muted: false,
             soloed: false,
             effects: Vec::new(),
+            sends: Vec::new(),
         });
 
         let new_id = match append_state(ctx, state, format!("add_track {name}")) {

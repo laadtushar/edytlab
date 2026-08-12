@@ -129,11 +129,11 @@ fn master_chunk_frames(project_sample_rate: u32) -> usize {
 /// NOT silently fall through to byte-copy and bypass downstream logic.
 /// Whether the render can be served by copying the source file.
 ///
-/// `state` is consulted for the master chain, and that is not
-/// incidental: this path byte-copies the source and never opens the
-/// mixer, so an active master effect would be silently dropped — and
-/// dropped for exactly the simplest sessions, which are the ones most
-/// likely to be tried first.
+/// `state` is consulted for the master chain *and* for sends, and that
+/// is not incidental: this path byte-copies the source and never opens
+/// the mixer, so either would be silently dropped — and dropped for
+/// exactly the simplest sessions, which are the ones most likely to be
+/// tried first.
 ///
 /// An entirely bypassed chain still qualifies, because a bypassed
 /// effect is defined to be identical to an absent one.
@@ -145,6 +145,9 @@ fn is_unity_passthrough(
     range.is_none()
         && graph.unity_passthrough_track.is_some()
         && state.master_chain.iter().all(|e| e.bypassed)
+        // A send is a second signal path. Copying the source file would
+        // drop it as surely as it would drop a master effect.
+        && state.tracks.iter().all(|t| t.sends.is_empty())
 }
 
 pub fn render(
@@ -798,6 +801,50 @@ fn render_streaming(
         }
     }
 
+    // Bus routing. Each bus gets a scratch buffer and its own effect
+    // chain, both built once so the chains keep state across chunks —
+    // same reason as the master chain below.
+    //
+    // A send naming a bus that does not exist is an error rather than a
+    // skipped send: dropping it silently would mean the mix is missing
+    // a signal path the session says is there, which is the failure
+    // `master_chain` had before #110.
+    // Inferred rather than annotated so this crate doesn't take a
+    // `uuid` dependency for one type name.
+    let bus_ids: Vec<_> = state.bus_routing.buses.iter().map(|b| b.id).collect();
+    for track in &state.tracks {
+        for send in &track.sends {
+            if !bus_ids.contains(&send.bus_id) {
+                return Err(Error::UnknownBus(send.bus_id.to_string()));
+            }
+        }
+    }
+    let mut bus_chains: Vec<Vec<Box<dyn audio_dsp::Processor>>> = state
+        .bus_routing
+        .buses
+        .iter()
+        .map(|b| crate::master_chain::build(&b.effects, project_rate, chans))
+        .collect::<Result<_, _>>()?;
+    let mut bus_chunks: Vec<Vec<f32>> = vec![vec![0.0; chunk_frames * chans]; bus_ids.len()];
+
+    // Per-track send levels, resolved to bus indices once rather than
+    // looked up by uuid inside the sample loop.
+    let track_sends: Vec<Vec<(usize, f32)>> = state
+        .tracks
+        .iter()
+        .map(|t| {
+            t.sends
+                .iter()
+                .filter_map(|s| {
+                    bus_ids
+                        .iter()
+                        .position(|id| *id == s.bus_id)
+                        .map(|i| (i, 10.0f32.powf(s.level_db / 20.0)))
+                })
+                .collect()
+        })
+        .collect();
+
     // The master chain, instantiated once so its processors keep their
     // state across chunks. Built before the loop rather than inside it
     // for exactly that reason — a chain rebuilt per chunk would reset
@@ -817,6 +864,11 @@ fn render_streaming(
         // Zero out the master chunk before summing.
         for v in dst.iter_mut() {
             *v = 0.0;
+        }
+        for bus in bus_chunks.iter_mut() {
+            for v in bus[..this_chunk * chans].iter_mut() {
+                *v = 0.0;
+            }
         }
 
         // Sum each track's contribution. Track order is graph order ==
@@ -844,6 +896,29 @@ fn render_streaming(
             let n = got * chans;
             for i in 0..n {
                 dst[i] += scratch[i];
+            }
+
+            // Sends are parallel: the track has already gone to master
+            // at full level, and this adds a scaled copy on top. The tap
+            // is post-fader because `scratch` is what the streamer
+            // produced — gain, automation and pan already applied.
+            for &(bus_index, level) in &track_sends[graph.tracks[pi].track_index] {
+                let bus = &mut bus_chunks[bus_index];
+                for i in 0..n {
+                    bus[i] += scratch[i] * level;
+                }
+            }
+        }
+
+        // Bus chains, then buses into master. Declaration order
+        // throughout, per the determinism invariant.
+        for (bus_index, chain) in bus_chains.iter_mut().enumerate() {
+            let bus = &mut bus_chunks[bus_index][..this_chunk * chans];
+            for processor in chain.iter_mut() {
+                processor.process(bus, chans);
+            }
+            for i in 0..bus.len() {
+                dst[i] += bus[i];
             }
         }
 
