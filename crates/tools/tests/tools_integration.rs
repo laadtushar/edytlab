@@ -800,6 +800,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "noise_gate",
             "noise_reduction",
             "normalize",
+            "normalize_loudness",
             "notch_filter",
             "paste_region",
             "phaser",
@@ -1970,5 +1971,187 @@ fn set_send_rejects_an_unknown_bus_and_says_what_exists() {
     assert!(
         msg.contains("create_bus"),
         "with no buses yet, the error should say how to make one: {msg}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// normalize_loudness — LUFS targeting, and the clipping decision
+// ---------------------------------------------------------------------------
+
+/// Build a session from a sine at `amp` and run `normalize_loudness`.
+fn normalize_to_lufs(amp: f32, target: f32) -> (Value, PathBuf, TempDir) {
+    let tmp = TempDir::new().expect("tempdir");
+    let mut store = session::Store::open(tmp.path()).expect("open store");
+    let mut engine = audio_engine::Engine::new();
+    let dispatcher = ToolDispatcher::default_dispatcher();
+    let src = write_sine_wav(tmp.path(), "in.wav", amp);
+    let out = tmp.path().join("out.wav");
+
+    let mut clipboard: Option<Vec<f32>> = None;
+    let res = {
+        let mut ctx = ToolContext {
+            store: &mut store,
+            engine: &mut engine,
+            user_message: "",
+            clipboard: &mut clipboard,
+        };
+        ok(dispatcher
+            .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+            .unwrap());
+        let res = ok(dispatcher
+            .invoke(
+                "normalize_loudness",
+                json!({ "track": 0, "target_lufs": target }),
+                &mut ctx,
+            )
+            .unwrap());
+        ok(dispatcher
+            .invoke(
+                "render_final",
+                json!({
+                    "node_id": res["node_id"].as_str().unwrap(),
+                    "format": "wav",
+                    "out_path": out.to_string_lossy(),
+                }),
+                &mut ctx,
+            )
+            .unwrap());
+        res
+    };
+    (res, out, tmp)
+}
+
+/// The acceptance criterion: a quiet source lands on the target after
+/// render, measured with the same EBU R128 implementation.
+#[test]
+fn a_quiet_track_reaches_its_lufs_target_after_render() {
+    // Quiet enough that the required boost has headroom under -1 dBFS.
+    let (res, out, _tmp) = normalize_to_lufs(0.02, -20.0);
+    assert_eq!(
+        res["capped_by_ceiling"],
+        json!(false),
+        "this fixture should have headroom: {}",
+        res["summary"]
+    );
+
+    let decoded = audio_decoder::decode_file(&out).expect("decode render");
+    let achieved = audio_analysis::loudness::integrated_lufs(
+        &decoded.samples,
+        decoded.sample_rate,
+        decoded.channels,
+    )
+    .expect("measure render");
+
+    assert!(
+        (achieved - (-20.0)).abs() < 0.5,
+        "rendered loudness {achieved:.2} LUFS is not within 0.5 of the -20 target"
+    );
+}
+
+/// The decision this ticket exists to make explicitly. Gain enough to
+/// hit a loud target on already-loud material would clip; the tool caps
+/// instead and says by how much it fell short, rather than reporting
+/// success while wrecking the audio.
+#[test]
+fn a_target_that_would_clip_is_capped_and_reports_the_shortfall() {
+    // Near full scale already: peak is -0.9 dBFS, so the -1 dBFS
+    // ceiling leaves -0.1 dB of headroom. A sine at this amplitude
+    // measures about -4.6 LUFS, so asking for -3 needs roughly +1.6 dB
+    // that it cannot have.
+    let (res, out, _tmp) = normalize_to_lufs(0.9, -3.0);
+
+    assert_eq!(
+        res["capped_by_ceiling"],
+        json!(true),
+        "expected the ceiling to bite: {}",
+        res["summary"]
+    );
+    let shortfall = res["shortfall_db"].as_f64().expect("shortfall reported");
+    assert!(
+        shortfall > 0.0,
+        "a capped normalise must report a positive shortfall, got {shortfall}"
+    );
+    assert!(
+        res["applied_gain_db"].as_f64().unwrap() < res["requested_gain_db"].as_f64().unwrap(),
+        "applied gain should be less than requested when capped"
+    );
+
+    // And the audio must actually stay under the ceiling.
+    let pcm = read_wav_samples(&out);
+    let peak = pcm.iter().fold(0i16, |m, v| m.max(v.abs())) as f32 / 32_768.0;
+    let peak_dbfs = 20.0 * peak.log10();
+    assert!(
+        peak_dbfs <= -0.9,
+        "peak {peak_dbfs:.2} dBFS exceeded the -1 dBFS ceiling"
+    );
+}
+
+/// Loudness must be measured across the whole timeline. Reading
+/// `clips[0]`'s source file measures audio a cut removed, so the gain
+/// would be set from material the listener never hears.
+#[test]
+fn loudness_is_measured_across_a_split_track() {
+    let tmp = TempDir::new().expect("tempdir");
+    let mut store = session::Store::open(tmp.path()).expect("open store");
+    let mut engine = audio_engine::Engine::new();
+    let dispatcher = ToolDispatcher::default_dispatcher();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.05);
+    let mut clipboard: Option<Vec<f32>> = None;
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+        user_message: "",
+        clipboard: &mut clipboard,
+    };
+    ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+    ok(dispatcher
+        .invoke(
+            "cut_range",
+            json!({ "track": 0, "start_sample": 2000, "end_sample": 3000 }),
+            &mut ctx,
+        )
+        .unwrap());
+
+    let res = ok(dispatcher
+        .invoke(
+            "normalize_loudness",
+            json!({ "track": 0, "target_lufs": -20.0 }),
+            &mut ctx,
+        )
+        .unwrap());
+    assert!(
+        res["measured_lufs"].as_f64().unwrap() > -70.0,
+        "a split track must still measure; got {}",
+        res["measured_lufs"]
+    );
+}
+
+#[test]
+fn normalize_loudness_rejects_absurd_targets() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.2);
+    let mut clipboard: Option<Vec<f32>> = None;
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+        user_message: "",
+        clipboard: &mut clipboard,
+    };
+    ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+
+    let msg = err(dispatcher
+        .invoke(
+            "normalize_loudness",
+            json!({ "track": 0, "target_lufs": 6.0 }),
+            &mut ctx,
+        )
+        .unwrap());
+    assert!(
+        msg.contains("-14") || msg.contains("<= 0"),
+        "a positive target should be rejected with guidance: {msg}"
     );
 }
