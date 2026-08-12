@@ -1,0 +1,457 @@
+name: Release (signed)
+
+# Signed, notarized production release. Replaces release-mac.yml and
+# release-win.yml, which were separate workflows and never ran.
+#
+# Shape is deliberately the same as release-dev.yml: one create-release
+# job, a build matrix that uploads into that single draft by id, and a
+# publish job that flips it live. That file documents why — two legs
+# each calling tauri-action with `tagName` race to "find or create
+# draft" and produce two drafts for one tag. The old split workflows
+# both passed `tagName`, so dispatching them for the same tag
+# reintroduced exactly the bug release-dev.yml was rewritten to avoid.
+#
+# ── The rule that matters here ──────────────────────────────────────
+# tauri-action is given NEITHER `tagName` NOR `releaseId`, so it only
+# builds. Every upload happens in a later step, after signing.
+#
+# This is not a style preference. release-win.yml passed `tagName`,
+# which made tauri-action build *and upload* — and then signed the
+# copies left on the runner's disk, which nothing ever re-uploaded
+# before the cleanup step deleted the cert and the job ended. The
+# release assets were the unsigned pre-signing copies, and
+# `signtool verify` passed against the local files, so the workflow
+# reported success while shipping unsigned installers.
+#
+# Keeping the upload out of tauri-action makes "the bytes we signed are
+# the bytes we ship" a property of the job's shape rather than of step
+# ordering someone has to notice.
+#
+# macOS signing/notarization is different: it happens *inside*
+# tauri-action's bundle step via the APPLE_* env vars, so those
+# artifacts are already signed when the build finishes.
+#
+# ── Required secrets (Settings → Secrets → Actions) ─────────────────
+#   APPLE_CERTIFICATE              base64-encoded Developer ID Application .p12
+#   APPLE_CERTIFICATE_PASSWORD     password for the .p12
+#   APPLE_SIGNING_IDENTITY         "Developer ID Application: Foo Bar (TEAMID)"
+#   APPLE_ID                       Apple ID email
+#   APPLE_PASSWORD                 app-specific password (NOT the account password)
+#   APPLE_TEAM_ID                  10-char team ID
+#   KEYCHAIN_PASSWORD              any random string, locks the temp keychain
+#   WINDOWS_CERTIFICATE            base64-encoded Authenticode .pfx
+#   WINDOWS_CERTIFICATE_PASSWORD   password for the .pfx
+#
+# Each platform verifies its own secrets before doing any work, so a
+# missing one fails in seconds rather than after a 40-minute build.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.1.0). Created if missing."
+        required: true
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: short
+
+permissions:
+  contents: write # create the Release and upload assets
+
+jobs:
+  create-release:
+    name: create draft release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      release_id: ${{ steps.create.outputs.release_id }}
+    steps:
+      - name: Find or create draft release
+        id: create
+        uses: actions/github-script@v7
+        env:
+          TAG: ${{ inputs.tag }}
+          COMMIT_SHA: ${{ github.sha }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const tag = process.env.TAG;
+
+            // listReleases includes drafts; getReleaseByTag does not
+            // reliably return them, so paginate and filter.
+            const releases = await github.paginate(
+              github.rest.repos.listReleases,
+              { owner, repo, per_page: 100 },
+            );
+            const matches = releases.filter((r) => r.tag_name === tag);
+
+            const draft = matches.find((r) => r.draft === true);
+            if (draft) {
+              core.info(`Reusing existing draft release id ${draft.id}`);
+              core.setOutput("release_id", draft.id);
+              return;
+            }
+
+            const published = matches.find((r) => r.draft === false);
+            if (published) {
+              core.setFailed(
+                `A non-draft release already exists for tag "${tag}" ` +
+                `(id ${published.id}, ${published.html_url}). ` +
+                `Delete it before re-running this workflow, or push a new tag.`,
+              );
+              return;
+            }
+
+            const body = [
+              "Signed and notarized release.",
+              "",
+              "**macOS** — universal binary (Apple Silicon + Intel), signed",
+              "with a Developer ID and notarized by Apple. Opens without a",
+              "Gatekeeper prompt.",
+              "",
+              "**Windows** — installers are Authenticode-signed. SmartScreen",
+              "may still warn until the certificate builds reputation through",
+              "download volume; click **More info → Run anyway** if it does.",
+              "",
+              "**Linux** — `.deb` and AppImage, x86_64. Unsigned, as is normal",
+              "for Linux desktop packages.",
+              "",
+              `Built from commit \`${process.env.COMMIT_SHA}\`.`,
+            ].join("\n");
+
+            const { data: created } = await github.rest.repos.createRelease({
+              owner,
+              repo,
+              tag_name: tag,
+              name: `edytlab ${tag}`,
+              body,
+              draft: true,
+              prerelease: false,
+            });
+            core.info(`Created draft release id ${created.id}`);
+            core.setOutput("release_id", created.id);
+
+  build:
+    name: build (${{ matrix.platform.name }})
+    needs: create-release
+    runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - name: macos-universal
+            runner: macos-14
+            # A universal binary needs BOTH slices installed. The
+            # runner is arm64, so x86_64-apple-darwin is absent unless
+            # asked for — and `rust-toolchain.toml` declares no
+            # targets. release-mac.yml asked for
+            # `--target universal-apple-darwin` without ever installing
+            # the Intel target.
+            rust_targets: x86_64-apple-darwin,aarch64-apple-darwin
+            args: --target universal-apple-darwin --bundles app,dmg
+          - name: windows-x86_64
+            runner: windows-latest
+            rust_targets: ""
+            args: --bundles msi,nsis
+          - name: linux-x86_64
+            runner: ubuntu-22.04
+            rust_targets: x86_64-unknown-linux-gnu
+            # Linux was absent from both old signed workflows, so a
+            # signed release shipped no Linux artifacts at all even
+            # though the dev workflow builds them.
+            args: --target x86_64-unknown-linux-gnu --bundles deb,appimage
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Preflight: fail in seconds, not after a 40-minute build ──
+      - name: Verify Apple secrets are set
+        if: matrix.platform.runner == 'macos-14'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          missing=()
+          for var in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD \
+                     APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD \
+                     APPLE_TEAM_ID KEYCHAIN_PASSWORD; do
+            if [ -z "${!var}" ]; then missing+=("$var"); fi
+          done
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::Missing required secrets: ${missing[*]}"
+            exit 1
+          fi
+
+      - name: Verify Windows secrets are set
+        if: matrix.platform.runner == 'windows-latest'
+        shell: bash
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          missing=()
+          for var in WINDOWS_CERTIFICATE WINDOWS_CERTIFICATE_PASSWORD; do
+            if [ -z "${!var}" ]; then missing+=("$var"); fi
+          done
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::Missing required secrets: ${missing[*]}"
+            exit 1
+          fi
+
+      # ── Toolchain ────────────────────────────────────────────────
+      - name: Install Rust toolchain (rustup-shim honours rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform.rust_targets }}
+
+      - name: Cache cargo registry & target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            apps/desktop/src-tauri
+          # Per-OS key so the legs don't trample each other's target dir.
+          key: release-signed-${{ matrix.platform.name }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: pnpm install
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Linux build deps
+        if: matrix.platform.runner == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libasound2-dev \
+            libfuse2 \
+            patchelf
+
+      - name: Decode Windows signing certificate
+        if: matrix.platform.runner == 'windows-latest'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+        run: |
+          $bytes = [System.Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
+          [System.IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx", $bytes)
+          echo "CERT_PATH=$env:RUNNER_TEMP\cert.pfx" >> $env:GITHUB_ENV
+
+      # ── Build only. No tagName, no releaseId: see the header. ────
+      - name: Build bundles via tauri-action
+        id: build
+        uses: tauri-apps/tauri-action@v0
+        env:
+          # macOS signs and notarizes inside this step when these are
+          # present; tauri-action shells out to notarytool itself.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        with:
+          projectPath: apps/desktop
+          args: ${{ matrix.platform.args }}
+
+      # ── Sign (Windows only) BEFORE anything is uploaded ──────────
+      - name: Sign .msi and NSIS .exe with signtool
+        if: matrix.platform.runner == 'windows-latest'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $artifacts = @()
+          $artifacts += Get-ChildItem -Path apps/desktop/src-tauri/target `
+            -Recurse -Filter *.msi
+          $artifacts += Get-ChildItem -Path apps/desktop/src-tauri/target `
+            -Recurse -Filter *-setup.exe
+          if ($artifacts.Count -eq 0) {
+            Write-Error "No .msi or NSIS -setup.exe produced by tauri-action"
+            exit 1
+          }
+          # Resolve signtool: prefer PATH, fall back to scanning the SDK
+          # dir. Hard-coding the path breaks when the runner image moves it.
+          $signtool = (Get-Command signtool.exe -ErrorAction SilentlyContinue).Source
+          if (-not $signtool) {
+            $sdkRoot = 'C:\Program Files (x86)\Windows Kits\10\bin'
+            if (Test-Path $sdkRoot) {
+              $signtool = (Get-ChildItem $sdkRoot -Recurse -Filter signtool.exe |
+                           Where-Object { $_.FullName -like '*x64*' } |
+                           Select-Object -First 1).FullName
+            }
+          }
+          if (-not $signtool) {
+            Write-Error "signtool.exe not found on PATH or under Windows Kits"
+            exit 1
+          }
+          foreach ($a in $artifacts) {
+            Write-Host "Signing $($a.FullName)"
+            & $signtool sign `
+              /fd SHA256 `
+              /tr http://timestamp.digicert.com `
+              /td SHA256 `
+              /f $env:CERT_PATH `
+              /p $env:WINDOWS_CERTIFICATE_PASSWORD `
+              $a.FullName
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "signtool sign failed for $($a.FullName)"
+              exit 1
+            }
+            & $signtool verify /pa /v $a.FullName
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "signtool verify failed for $($a.FullName)"
+              exit 1
+            }
+          }
+
+      # ── Verify (macOS) ──────────────────────────────────────────
+      - name: Verify Gatekeeper acceptance and notarization staple
+        if: matrix.platform.runner == 'macos-14'
+        run: |
+          set -euo pipefail
+          DMG=$(find apps/desktop/src-tauri/target -name "*.dmg" | head -1)
+          if [ -z "$DMG" ]; then
+            echo "::error::No .dmg produced by tauri-action"
+            exit 1
+          fi
+          echo "Verifying $DMG"
+          # `--type install` is the correct assessment kind for a .dmg;
+          # `--type open` is for apps and gives a misleading verdict on
+          # disk images.
+          spctl --assess --type install --verbose=4 "$DMG"
+
+          # spctl can pass on a machine that reaches Apple's servers
+          # while the ticket is NOT stapled to the artifact — which then
+          # fails for any user who is offline on first launch. Stapling
+          # is the thing that makes it work without a network round trip,
+          # so verify it explicitly.
+          APP=$(find apps/desktop/src-tauri/target -name "*.app" -maxdepth 6 | head -1)
+          if [ -z "$APP" ]; then
+            echo "::error::No .app produced by tauri-action"
+            exit 1
+          fi
+          echo "Validating notarization staple on $APP"
+          xcrun stapler validate "$APP"
+
+      # ── Upload, last, so only signed bytes ship ─────────────────
+      - name: Upload artifacts to the draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
+          ARTIFACT_PATHS: ${{ steps.build.outputs.artifactPaths }}
+        run: |
+          set -euo pipefail
+          repo="${GITHUB_REPOSITORY}"
+
+          # tauri-action documents `artifactPaths` as "the paths of the
+          # generated artifacts" but not its encoding. It emits a JSON
+          # array today; accept a newline-separated list too so a change
+          # there surfaces as a normal failure rather than an empty
+          # upload that still reports success.
+          if printf '%s' "$ARTIFACT_PATHS" | jq -e 'type == "array"' >/dev/null 2>&1; then
+            mapfile -t paths < <(printf '%s' "$ARTIFACT_PATHS" | jq -r '.[]')
+          else
+            echo "::warning::artifactPaths was not a JSON array; falling back to line splitting"
+            mapfile -t paths < <(printf '%s\n' "$ARTIFACT_PATHS" | sed '/^[[:space:]]*$/d')
+          fi
+          if [ ${#paths[@]} -eq 0 ]; then
+            echo "::error::tauri-action reported no artifacts"
+            exit 1
+          fi
+
+          uploaded=0
+          for path in "${paths[@]}"; do
+            # `--bundles app` yields a .app *directory* when the updater
+            # isn't configured. Directories can't be uploaded as assets;
+            # say which ones were skipped rather than dropping them
+            # silently.
+            if [ ! -f "$path" ]; then
+              echo "::notice::skipping non-file artifact $path"
+              continue
+            fi
+            name="$(basename "$path")"
+
+            # Make re-runs idempotent: a second attempt would otherwise
+            # 422 on the existing asset name.
+            existing=$(gh api "repos/${repo}/releases/${RELEASE_ID}/assets" \
+              --jq ".[] | select(.name == \"${name}\") | .id" || true)
+            for asset_id in $existing; do
+              echo "Replacing existing asset ${name} (id ${asset_id})"
+              gh api -X DELETE "repos/${repo}/releases/assets/${asset_id}"
+            done
+
+            echo "Uploading ${name}"
+            # curl rather than `gh api --input`: this is binary payload
+            # and curl's --data-binary is unambiguous about not touching it.
+            curl -sS --fail-with-body -X POST \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary @"${path}" \
+              "https://uploads.github.com/repos/${repo}/releases/${RELEASE_ID}/assets?name=${name}" \
+              >/dev/null
+            uploaded=$((uploaded + 1))
+          done
+
+          if [ "$uploaded" -eq 0 ]; then
+            echo "::error::no uploadable files among ${#paths[@]} artifact paths"
+            exit 1
+          fi
+          echo "Uploaded ${uploaded} asset(s) for ${{ matrix.platform.name }}"
+
+      - name: Cleanup certificate
+        if: always() && matrix.platform.runner == 'windows-latest'
+        shell: pwsh
+        run: |
+          if (Test-Path "$env:RUNNER_TEMP\cert.pfx") {
+            Remove-Item "$env:RUNNER_TEMP\cert.pfx" -Force
+          }
+
+  publish:
+    name: publish draft release
+    needs: [create-release, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Only publish when every leg uploaded. A failed leg leaves the
+    # draft in place for inspection rather than shipping a partial set —
+    # the old workflows had no publish step at all, so a successful run
+    # left the release a draft forever.
+    if: ${{ needs.build.result == 'success' }}
+    steps:
+      - name: Flip draft -> published
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # `-F` is raw (bool/number), `-f` is string. The releases API
+        # wants `draft: bool` and `make_latest: string`.
+        # Unlike the dev workflow, these ARE the latest release.
+        run: |
+          gh api -X PATCH \
+            repos/${{ github.repository }}/releases/${{ needs.create-release.outputs.release_id }} \
+            -F draft=false \
+            -f make_latest=true \
+            >/dev/null
+          echo "Published release ${{ inputs.tag }}"

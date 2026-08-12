@@ -109,5 +109,5 @@ jobs:
         run: pnpm --filter @edytlab/desktop build
 
       # Full Tauri bundle build is intentionally NOT in CI: it triples wall clock
-      # and the release workflows (release-mac.yml / release-win.yml) cover that
+      # and the release workflows (release-dev.yml / release-signed.yml) cover
       # path. CI only verifies that source compiles and tests pass.

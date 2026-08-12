@@ -456,7 +456,7 @@ Requires Apple Developer Program membership + signing secrets in GitHub.
 - `APPLE_ID` (for notarization)
 - `APPLE_ID_PASSWORD` (app-specific password)
 
-Trigger `release-mac.yml` via GitHub Actions manual dispatch.
+Trigger `release-signed.yml` via GitHub Actions manual dispatch.
 
 ### Signed Windows Build
 
@@ -520,9 +520,11 @@ App version is **canonical** in `apps/desktop/src-tauri/tauri.conf.json`:
 
 Fires when `ci.yml` completes successfully on `main`. Tags and dispatches `release-dev.yml`.
 
-### Workflows: `release-mac.yml` + `release-win.yml`
+### Workflow: `release-signed.yml`
 
-Manual `workflow_dispatch`. Require signing secrets. Build signed, notarized installers.
+Manual `workflow_dispatch`. Requires signing secrets. Builds signed, notarized installers for mac, Windows and Linux in one matrix, then publishes.
+
+Replaced the earlier `release-mac.yml` / `release-win.yml` pair, which raced each other for the same tag and — on the Windows side — uploaded the artifacts *before* signing them.
 
 ---
 
