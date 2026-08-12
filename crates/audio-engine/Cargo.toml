@@ -11,6 +11,9 @@ workspace = true
 
 [dependencies]
 audio-decoder = { path = "../audio-decoder" }
+# The point of extracting `audio-dsp`: render-time effects run here, and
+# the algorithms used to be unreachable from this crate. See #101.
+audio-dsp = { path = "../audio-dsp" }
 audio-io = { path = "../audio-io" }
 session = { path = "../session" }
 hound = "3.5"

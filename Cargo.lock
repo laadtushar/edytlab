@@ -278,10 +278,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "audio-dsp"
+version = "0.1.0"
+
+[[package]]
 name = "audio-engine"
 version = "0.1.0"
 dependencies = [
  "audio-decoder",
+ "audio-dsp",
  "audio-io",
  "hound",
  "rayon",
@@ -5450,6 +5455,7 @@ version = "0.1.0"
 dependencies = [
  "audio-analysis",
  "audio-decoder",
+ "audio-dsp",
  "audio-engine",
  "audio-time",
  "blake3",

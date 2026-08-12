@@ -1,0 +1,19 @@
+[package]
+name = "audio-dsp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+# Deliberately dependency-free.
+#
+# This crate sits below both `tools` and `audio-engine`, so anything it
+# pulls in is pulled into the render path too. Its whole surface is
+# functions over `&mut [f32]` plus a sample rate and a channel count —
+# no session types, no IO, no decoding. Keep it that way: a dependency
+# here is a dependency everywhere.
+[dependencies]

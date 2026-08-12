@@ -13,6 +13,7 @@ workspace = true
 session = { path = "../session" }
 audio-engine = { path = "../audio-engine" }
 audio-decoder = { path = "../audio-decoder" }
+audio-dsp = { path = "../audio-dsp" }
 audio-analysis = { path = "../audio-analysis" }
 audio-time = { path = "../audio-time" }
 blake3 = "1"
