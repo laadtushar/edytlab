@@ -208,22 +208,46 @@ pub(crate) fn stretch_mono_opts(input: &[f32], ratio: f32, preserve_transients: 
     // analysed and the overlap-add ends on a frame boundary.
     let target_len = ((input.len() as f32) * ratio).round().max(1.0) as usize;
 
-    // Where the real signal stops. Frames reaching past this see the
-    // zero padding below, and the step from signal to silence is a
-    // discontinuity that splatters energy across the spectrum — which
-    // reads as a large flux rise and fires the onset detector at the end
-    // of every single stretch. Detection is suppressed there; the cost
-    // is missing a transient in the final window, which is a better
-    // trade than a phase reset planted in every output.
-    let real_len = input.len();
-
-    // Pad so the tail of the input gets analysed at all.
-    let mut padded = Vec::with_capacity(input.len() + FRAME);
-    padded.extend_from_slice(input);
-    padded.resize(input.len() + FRAME, 0.0);
-    let input = &padded[..];
-
     let hop_s = ((HOP_A as f32) * ratio).round().max(1.0) as usize;
+
+    // Analysis frames to run before the real signal starts.
+    //
+    // The overlap-add's window energy ramps from zero over the first
+    // `FRAME - hop_s` output samples, so anything landing in that ramp
+    // is reconstructed from a fraction of a window and comes out faded.
+    // Feeding the loop silence first moves the whole ramp into padding
+    // that is trimmed off, and the input's own sample 0 arrives with the
+    // full overlap behind it.
+    //
+    // Enough frames that the real signal starts at or past the end of
+    // the ramp: `lead * hop_s >= FRAME - hop_s`. At ratio 2.0 that is 1
+    // frame; at 0.5 the synthesis frames are packed four times tighter
+    // and it takes 7.
+    //
+    // Without this the leading samples were simply lost — a click at
+    // sample 0 fell inside the ramp and faded out of a 6-hit train.
+    // (It *looked* preserved before the normalisation fix above, but
+    // only because the raw divisor was amplifying that same region.)
+    let lead_frames = FRAME.div_ceil(hop_s).saturating_sub(1);
+    let lead = lead_frames * HOP_A;
+
+    // Where the real signal stops, in padded coordinates. Frames
+    // reaching past this see the trailing zero padding, and the step
+    // from signal to silence is a discontinuity that splatters energy
+    // across the spectrum — which reads as a large flux rise and fires
+    // the onset detector at the end of every single stretch. Detection
+    // is suppressed there; the cost is missing a transient in the final
+    // window, which is a better trade than a phase reset planted in
+    // every output.
+    let real_len = lead + input.len();
+
+    // Silence in front (see `lead_frames`), and enough behind that the
+    // tail of the input gets analysed at all.
+    let mut padded = Vec::with_capacity(lead + input.len() + FRAME);
+    padded.resize(lead, 0.0);
+    padded.extend_from_slice(input);
+    padded.resize(lead + input.len() + FRAME, 0.0);
+    let input = &padded[..];
     let window = hann(FRAME);
     let fft = Fft::new();
     let bins = FRAME / 2 + 1;
@@ -352,13 +376,37 @@ pub(crate) fn stretch_mono_opts(input: &[f32], ratio: f32, preserve_transients: 
     }
 
     // Divide out the summed window energy. It is constant across the
-    // interior but ramps at both ends, where fewer frames overlap; the
-    // epsilon keeps the very edges from dividing by ~0.
-    for (o, n) in out.iter_mut().zip(norm.iter()) {
-        if *n > 1e-6 {
-            *o /= *n;
+    // interior but ramps to zero at both ends, where fewer frames
+    // overlap — and that ramp is why the divisor is floored at the
+    // interior value rather than used raw.
+    //
+    // Dividing raw is only correct when the synthesis frame still
+    // carries the analysis taper, because then the `w²` in the numerator
+    // and the `w²` in the divisor cancel. Every frame here has had its
+    // phases rewritten, so the inverse transform comes back at roughly
+    // full amplitude across the whole window, taper and all. Near the
+    // edges that full-amplitude value was divided by `w²` of a sample
+    // just inside the window — 2.7e-6 at sample 15 — and the output
+    // exploded. Measured on a plain 2 kHz sine stretched 2x: a peak of
+    // 740.9 against an input of 1.0, entirely in the first few hundred
+    // samples. A steady sine, not some pathological input.
+    //
+    // Flooring costs a fade of one synthesis hop at each end, which is
+    // the honest answer: with only a fraction of a window overlapping
+    // there, there is no reconstruction to recover, and inventing one by
+    // amplification is what produced the blowup.
+    let norm_interior = norm.iter().fold(0.0f32, |m, n| m.max(*n));
+    if norm_interior > 1e-6 {
+        for (o, n) in out.iter_mut().zip(norm.iter()) {
+            *o /= n.max(norm_interior);
         }
     }
+
+    // Drop the lead-in. Each padded analysis frame advances the output
+    // by one synthesis hop, so the input's sample 0 sits exactly
+    // `lead_frames * hop_s` samples in.
+    let skip = (lead_frames * hop_s).min(out.len());
+    out.drain(..skip);
 
     // Trim (or zero-extend) to the promised length. The overshoot is the
     // zero padding coming back out; the shortfall only happens for inputs
@@ -530,6 +578,51 @@ mod tests {
             (f - 440.0).abs() < 15.0,
             "compressing must not move the pitch; got {f} Hz"
         );
+    }
+
+    /// Stretching redistributes energy in time; it never creates any.
+    ///
+    /// This is the invariant the overlap-add normalisation broke: with
+    /// the divisor used raw, a steady 2 kHz sine stretched 2x came back
+    /// with a peak of 740.9 against an input of 1.0 — not a rounding
+    /// error, an output that would blow a speaker. The frequencies are
+    /// chosen off the bin centres (2 kHz is 92.9 bins at this size)
+    /// because a partial sitting exactly on a centre hides the phase
+    /// rewriting that causes it.
+    #[test]
+    fn stretching_never_amplifies_beyond_the_input() {
+        let sr = 44_100;
+        for freq in [220.0f32, 440.0, 2_000.0, 7_350.0] {
+            for ratio in [0.5f32, 0.75, 1.5, 2.0, 4.0] {
+                let input = sine(freq, sr, sr as usize / 2);
+                let out = stretch_mono(&input, ratio);
+                let peak = out.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+                assert!(
+                    peak < 1.5,
+                    "{freq} Hz at {ratio}x came back at {peak:.3} \
+                     against an input peak of 1.0"
+                );
+            }
+        }
+    }
+
+    /// The same invariant on material the analysis cannot model as a few
+    /// stationary partials — a decaying burst has energy everywhere and
+    /// is where an amplitude bug is loudest.
+    #[test]
+    fn stretching_a_decaying_burst_never_amplifies() {
+        let sr = 44_100;
+        let input: Vec<f32> = (0..sr as usize)
+            .map(|i| {
+                let t = i as f32 / sr as f32;
+                (2.0 * PI * 2_000.0 * t).sin() * (-t * 4.0).exp()
+            })
+            .collect();
+        for ratio in [0.5f32, 2.0] {
+            let out = stretch_mono(&input, ratio);
+            let peak = out.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+            assert!(peak < 1.5, "{ratio}x came back at {peak:.3}");
+        }
     }
 
     #[test]
