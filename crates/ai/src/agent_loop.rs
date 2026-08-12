@@ -728,7 +728,7 @@ where
                         is_error: Some(true),
                     });
                 }
-                Ok(ToolResult::Ok(value)) => {
+                Ok(ToolResult::Ok(mut value)) => {
                     consecutive_validation_errors = 0;
                     if let Some(node_id) = extract_node_id(&value) {
                         on_event(AgentEvent::NodeCreated(node_id));
@@ -739,6 +739,9 @@ where
                         ok: true,
                         view: extract_tool_view(&value),
                     });
+                    // Order matters: the view has its copy now, so the
+                    // chart's bulk can come out of the model's copy.
+                    strip_view_only_fields(&mut value);
                     tool_results.push(ContentBlock::ToolResult {
                         tool_use_id: id,
                         content: serde_json::to_string(&value).unwrap_or_else(|_| "{}".to_string()),
@@ -880,6 +883,40 @@ fn extract_tool_view(value: &Value) -> Option<crate::ToolView> {
     }
 }
 
+/// Fields that exist for the chart and are worthless to the model.
+///
+/// Keyed by the result's `type` tag, same as [`extract_tool_view`].
+const VIEW_ONLY_FIELDS: &[(&str, &[&str])] = &[("spectrum", &["points"])];
+
+/// Drop the chart's payload from the copy the model reads.
+///
+/// A tool result is one document serving two audiences. `plot_spectrum`
+/// returns 2048 `{hz, db}` pairs because the chart needs every bin; at
+/// 44.1 kHz that is ~83 KB of JSON, about 24k tokens, and the model
+/// cannot read a spectrum out of it. Worse, a tool result stays in the
+/// conversation, so the cost is paid again on every later round trip.
+///
+/// The tool emits the analysis a model can actually use — peak, band
+/// energies, centroid, rolloff, noise floor — alongside the curve. This
+/// removes the curve once [`extract_tool_view`] has taken its copy.
+///
+/// Called only after the view has been extracted; doing it in the other
+/// order would strip the data out from under the chart.
+fn strip_view_only_fields(value: &mut Value) {
+    let Some(tag) = value.get("type").and_then(Value::as_str) else {
+        return;
+    };
+    let Some((_, fields)) = VIEW_ONLY_FIELDS.iter().find(|(t, _)| *t == tag) else {
+        return;
+    };
+    let Some(obj) = value.as_object_mut() else {
+        return;
+    };
+    for field in *fields {
+        obj.remove(*field);
+    }
+}
+
 /// Per-block accumulator. Index in the block array matches the
 /// streaming server's `index` field.
 #[derive(Debug)]
@@ -1004,6 +1041,117 @@ mod tests {
         assert!(
             summary.is_some(),
             "the caption under the chart came back empty"
+        );
+    }
+
+    /// The chart keeps the curve; the model gets the analysis instead.
+    ///
+    /// `plot_spectrum` returns 2048 `{hz, db}` pairs — ~83 KB at 44.1
+    /// kHz, about 24k tokens — which the chart needs and a model cannot
+    /// read. This drives the real tool and checks the split both ways,
+    /// because getting it backwards would either blank the chart or put
+    /// the curve back in the context.
+    #[test]
+    fn the_model_gets_the_analysis_and_the_chart_gets_the_curve() {
+        use hound::{SampleFormat, WavSpec, WavWriter};
+
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let src = tmp.path().join("tone.wav");
+        let sr = 8_000u32;
+        let spec = WavSpec {
+            channels: 1,
+            sample_rate: sr,
+            bits_per_sample: 16,
+            sample_format: SampleFormat::Int,
+        };
+        let mut w = WavWriter::create(&src, spec).expect("wav writer");
+        for n in 0..sr {
+            let t = n as f32 / sr as f32;
+            let s = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.4;
+            w.write_sample((s * 32_767.0) as i16).unwrap();
+        }
+        w.finalize().unwrap();
+
+        let mut store = session::Store::open(tmp.path()).expect("open store");
+        let mut engine = audio_engine::Engine::new();
+        let dispatcher = ToolDispatcher::default_dispatcher();
+        let mut clipboard: Option<Vec<f32>> = None;
+        let mut ctx = ToolContext {
+            store: &mut store,
+            engine: &mut engine,
+            user_message: "",
+            clipboard: &mut clipboard,
+        };
+        dispatcher
+            .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+            .expect("load dispatches");
+        let result = dispatcher
+            .invoke(
+                "plot_spectrum",
+                json!({ "track": 0, "start_sec": 0.0, "end_sec": 0.5 }),
+                &mut ctx,
+            )
+            .expect("plot_spectrum dispatches");
+        let mut value = match result {
+            ToolResult::Ok(v) => v,
+            ToolResult::Error(msg) => panic!("plot_spectrum errored: {msg}"),
+        };
+
+        // The chart's half, taken first.
+        let view = extract_tool_view(&value).expect("the chart must still get its curve");
+        let crate::ToolView::Spectrum { points, .. } = &view;
+        assert!(
+            points.len() > 100,
+            "the curve was gutted: {} points",
+            points.len()
+        );
+
+        // The model's half, after the split.
+        strip_view_only_fields(&mut value);
+        assert!(
+            value.get("points").is_none(),
+            "the curve is still in the model's copy"
+        );
+
+        // What replaced it has to be worth reading.
+        for field in [
+            "peak_hz",
+            "peak_db",
+            "centroid_hz",
+            "rolloff_hz",
+            "noise_floor_db",
+            "bands_dbfs",
+            "summary",
+        ] {
+            assert!(
+                value.get(field).is_some(),
+                "the model lost the curve and got no {field} in exchange"
+            );
+        }
+        let peak = value["peak_hz"].as_f64().expect("peak_hz is a number");
+        assert!(
+            (peak - 440.0).abs() < 30.0,
+            "peak_hz {peak} should be ~440 for a 440 Hz tone"
+        );
+
+        let serialised = serde_json::to_string(&value).unwrap();
+        assert!(
+            serialised.len() < 1_000,
+            "the model's copy is {} bytes; the point of this split was to \
+             stop sending it kilobytes of float pairs",
+            serialised.len()
+        );
+    }
+
+    /// Stripping must not touch results that carry no view.
+    #[test]
+    fn stripping_leaves_ordinary_tool_results_alone() {
+        let mut value = json!({ "node_id": "ab12", "summary": "gain applied", "points": 3 });
+        let before = value.clone();
+        strip_view_only_fields(&mut value);
+        assert_eq!(
+            value, before,
+            "an untagged result must survive the strip untouched"
         );
     }
 
