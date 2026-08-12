@@ -11,11 +11,23 @@
 //! whose decoded samples are bit-equal to what the renderer would have
 //! emitted from the source. See `render.rs` for the determinism contract.
 //!
-//! The function multiplies by `32_767.0` (not `32_768.0`) so a sample of
-//! exactly `1.0` clamps to `i16::MAX` rather than wrapping. The render
-//! path uses `32_768.0` *with* a `clamp` to the same range; both paths
-//! produce identical bytes for any in-range input, and the choice here
-//! matches the architect's spec.
+//! The scale factor is `32_768.0`, matching the render path and the
+//! decoder. This used to be `32_767.0`, on the reasoning that a sample
+//! of exactly `1.0` should land on `i16::MAX` rather than wrap — but the
+//! `clamp` on the next line already guarantees that, so the smaller
+//! factor bought nothing and cost accuracy.
+//!
+//! It cost it asymmetrically. The decoder produces `v as f32 / 32_768.0`
+//! for a 16-bit sample `v`, so multiplying by `32_768.0` returns exactly
+//! `v` (integers below 2^24 are exact in `f32`), while multiplying by
+//! `32_767.0` returns `v - v/32_768`, which rounds down to `v - 1` for
+//! every `|v| > 16_384`. Every destructive edit pulled the loud half of
+//! the signal one LSB toward zero — and, since edits chain, did it again
+//! on the next one. The claim two paragraphs up, that a no-op edit is
+//! bit-equal to no edit, was false for exactly that reason.
+//!
+//! `crates/tools/tests/untested_destructive_tools.rs` pins both halves:
+//! a no-op edit is byte-identical to no edit, and ten of them still are.
 
 use std::path::Path;
 
@@ -37,7 +49,7 @@ pub fn write_wav(samples: &[f32], sample_rate: u32, channels: u16, out: &Path) -
     };
     let mut writer = WavWriter::create(out, spec).map_err(Error::from)?;
     for &s in samples {
-        let q = (s * 32_767.0)
+        let q = (s * 32_768.0)
             .round()
             .clamp(i16::MIN as f32, i16::MAX as f32) as i16;
         writer.write_sample(q).map_err(Error::from)?;
