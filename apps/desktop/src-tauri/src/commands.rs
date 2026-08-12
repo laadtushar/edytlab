@@ -195,7 +195,10 @@ pub async fn set_api_key_for(
 }
 
 async fn set_api_key_for_inner(state: &AppState, provider_id: &str, key: &str) -> CmdResult<()> {
-    if key.trim().is_empty() {
+    // Selecting a keyless provider is a save with an empty key — that is
+    // how the UI says "make this one active" — so it must be allowed
+    // through rather than rejected as a blank credential.
+    if ai::validate::provider_for(provider_id).requires_api_key() && key.trim().is_empty() {
         return Err("api key must not be empty".into());
     }
     ai::keychain::save_api_key(provider_id, key).map_err(CommandError::from)?;
@@ -224,7 +227,17 @@ async fn set_api_key_for_inner(state: &AppState, provider_id: &str, key: &str) -
 #[tauri::command]
 pub async fn has_api_key(state: State<'_, AppState>) -> CmdResult<bool> {
     let provider_id = state.active_provider_id();
-    Ok(ai::keychain::load_api_key(&provider_id).is_some())
+    Ok(provider_is_configured(&provider_id))
+}
+
+/// Whether `provider_id` is ready to use.
+///
+/// For a keyless provider that is unconditionally true: there is no
+/// credential to store, so asking the keychain would answer "no" forever
+/// and leave first launch stuck behind a key prompt it can never satisfy.
+fn provider_is_configured(provider_id: &str) -> bool {
+    !ai::validate::provider_for(provider_id).requires_api_key()
+        || ai::keychain::load_api_key(provider_id).is_some()
 }
 
 /// Whether a key is stored for `provider`. The Settings UI uses this
@@ -232,7 +245,7 @@ pub async fn has_api_key(state: State<'_, AppState>) -> CmdResult<bool> {
 /// vs "needs a key" without forcing a save.
 #[tauri::command]
 pub async fn has_api_key_for(provider: String) -> CmdResult<bool> {
-    Ok(ai::keychain::load_api_key(&provider).is_some())
+    Ok(provider_is_configured(&provider))
 }
 
 /// Remove the stored API key for the active provider and tear down the
@@ -2019,6 +2032,16 @@ async fn rebuild_agent(state: &AppState) -> Result<(), CommandError> {
         ai::keychain::load_api_key,
     );
     let provider = ai::validate::provider_for(&effective_provider_id);
+
+    // A provider that needs no key (a local Ollama daemon) still has to
+    // produce an agent. Before `requires_api_key` existed, the match
+    // below was the hard stop: no key meant no agent, so a keyless
+    // provider could never be used at all.
+    let api_key = match api_key {
+        Some(k) => Some(k),
+        None if !provider.requires_api_key() => Some(String::new()),
+        None => None,
+    };
 
     let mut guard = state.agent.lock().await;
     *guard = match (api_key, store_handle) {

@@ -34,13 +34,13 @@ use serde_json::json;
 
 use crate::provider::{
     AnthropicProvider, GeminiProvider, GroqProvider, LlmProvider, OpenAIProvider,
-    OpenRouterProvider, GEMINI_ID, GROQ_ID, OPENAI_ID,
+    OpenRouterProvider, GEMINI_ID, GROQ_ID, OLLAMA_ID, OPENAI_ID,
 };
 
 /// Providers that use an OpenAI-compatible `/models` probe rather than a
 /// 1-token Anthropic Messages call. Validation hits GET `{base}/{models_path}`
 /// which is auth-gated but costs zero tokens.
-const MODELS_PROBE_IDS: &[&str] = &[OPENAI_ID, GROQ_ID, GEMINI_ID];
+const MODELS_PROBE_IDS: &[&str] = &[OPENAI_ID, GROQ_ID, GEMINI_ID, OLLAMA_ID];
 
 /// Validate an API key by issuing a one-token Messages call against
 /// `provider`'s endpoint. `base_url` is parameterised for tests;
@@ -56,7 +56,10 @@ pub async fn test_api_key_with(
     api_key: &str,
     base_url: &str,
 ) -> Result<(), String> {
-    if api_key.trim().is_empty() {
+    // A keyless provider is validated by reaching it at all — there is
+    // no credential to be wrong. Rejecting the empty string here would
+    // make a local daemon unconfigurable.
+    if provider.requires_api_key() && api_key.trim().is_empty() {
         return Err("api key must not be empty".to_string());
     }
 
@@ -171,6 +174,37 @@ mod tests {
         let err = test_api_key_against("", "http://127.0.0.1:1")
             .await
             .expect_err("empty key");
+        assert!(err.contains("must not be empty"), "got {err}");
+    }
+
+    /// The empty-key rejection must not apply to a provider that has no
+    /// key. It used to be unconditional, which made a local daemon
+    /// impossible to validate and therefore impossible to configure.
+    #[tokio::test]
+    async fn a_keyless_provider_validates_with_an_empty_key() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/models"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "object": "list", "data": [] })),
+            )
+            .mount(&server)
+            .await;
+
+        let provider = crate::provider::provider_from_id(OLLAMA_ID);
+        test_api_key_with(provider.as_ref(), "", &server.uri())
+            .await
+            .expect("a keyless provider must validate on reachability alone");
+    }
+
+    /// And the rejection must still apply to everyone else.
+    #[tokio::test]
+    async fn a_hosted_provider_still_rejects_an_empty_key() {
+        let provider = crate::provider::provider_from_id(OPENAI_ID);
+        let err = test_api_key_with(provider.as_ref(), "  ", "http://127.0.0.1:1")
+            .await
+            .unwrap_err();
         assert!(err.contains("must not be empty"), "got {err}");
     }
 

@@ -49,7 +49,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::provider::{
     ANTHROPIC_ID, GEMINI_DEFAULT_BASE_URL, GEMINI_ID, GROQ_DEFAULT_BASE_URL, GROQ_ID,
-    OPENAI_DEFAULT_BASE_URL, OPENAI_ID, OPENROUTER_ID,
+    OLLAMA_DEFAULT_BASE_URL, OLLAMA_ID, OPENAI_DEFAULT_BASE_URL, OPENAI_ID, OPENROUTER_ID,
 };
 
 /// One entry in a provider's model catalogue.
@@ -118,6 +118,7 @@ pub async fn list_models_for(
         OPENAI_ID => OPENAI_DEFAULT_BASE_URL,
         GROQ_ID => GROQ_DEFAULT_BASE_URL,
         GEMINI_ID => GEMINI_DEFAULT_BASE_URL,
+        OLLAMA_ID => OLLAMA_DEFAULT_BASE_URL,
         _ => "",
     };
     list_models_at(provider_id, api_key, base).await
@@ -148,6 +149,7 @@ pub(crate) async fn list_models_at(
         OPENAI_ID => fetch_openai_models(base_url, api_key).await?,
         GROQ_ID => fetch_groq_models(base_url, api_key).await?,
         GEMINI_ID => fetch_gemini_models(base_url, api_key).await?,
+        OLLAMA_ID => fetch_ollama_models(base_url).await?,
         other => return Err(format!("unsupported provider id: {other}")),
     };
 
@@ -330,6 +332,43 @@ async fn fetch_groq_models(
     let key = require_key(api_key, "Groq")?;
     let mut ids =
         fetch_openai_compatible_ids(&format!("{base_url}/v1/models"), key, "groq").await?;
+    ids.sort();
+    Ok(ids
+        .into_iter()
+        .map(|id| ModelInfo {
+            display_name: id.clone(),
+            context_length: None,
+            provider_hint: None,
+            id,
+        })
+        .collect())
+}
+
+/// Live fetch from a local Ollama daemon.
+///
+/// No key: the daemon is not authenticated, so there is nothing to
+/// check before making the request.
+///
+/// The failure mode is different from every other provider here, and
+/// it is the *common* case rather than the exception — Ollama is
+/// usually just not running. A bare connection-refused would surface as
+/// an unexplained transport error, so it is translated into the one
+/// instruction that fixes it.
+async fn fetch_ollama_models(base_url: &str) -> Result<Vec<ModelInfo>, String> {
+    let mut ids = fetch_openai_compatible_ids(&format!("{base_url}/models"), "", "ollama")
+        .await
+        .map_err(|e| {
+            format!(
+                "could not reach Ollama at {base_url} ({e}). \
+                 Start it with `ollama serve`, then pull a model — \
+                 e.g. `ollama pull llama3.2`."
+            )
+        })?;
+    if ids.is_empty() {
+        return Err(
+            "Ollama is running but has no models pulled. Try `ollama pull llama3.2`.".to_string(),
+        );
+    }
     ids.sort();
     Ok(ids
         .into_iter()
@@ -654,6 +693,47 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.contains("Gemini"), "got {err}");
+    }
+
+    #[tokio::test]
+    async fn ollama_lists_pulled_models_without_a_key() {
+        let _guard = CACHE_LOCK.lock().await;
+        clear_cache();
+        let server = serve("/models", &["llama3.2:latest", "qwen2.5-coder:7b"]).await;
+
+        let models = list_models_at(OLLAMA_ID, None, &server.uri())
+            .await
+            .expect("a keyless provider must resolve without a key");
+        let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
+        assert!(ids.contains(&"llama3.2:latest"), "got {ids:?}");
+    }
+
+    /// The common case for a local daemon is that it isn't running. A
+    /// bare connection-refused would surface as an unexplained transport
+    /// error, so the message has to carry the fix.
+    #[tokio::test]
+    async fn a_stopped_daemon_says_how_to_start_it() {
+        let _guard = CACHE_LOCK.lock().await;
+        clear_cache();
+        // Port 1 is reserved and nothing listens on it.
+        let err = list_models_at(OLLAMA_ID, None, "http://127.0.0.1:1")
+            .await
+            .unwrap_err();
+        assert!(err.contains("Ollama"), "got {err}");
+        assert!(err.contains("ollama serve"), "got {err}");
+    }
+
+    /// Running but empty is a different problem with a different fix,
+    /// and an empty dropdown would explain neither.
+    #[tokio::test]
+    async fn a_daemon_with_no_models_says_to_pull_one() {
+        let _guard = CACHE_LOCK.lock().await;
+        clear_cache();
+        let server = serve("/models", &[]).await;
+        let err = list_models_at(OLLAMA_ID, None, &server.uri())
+            .await
+            .unwrap_err();
+        assert!(err.contains("ollama pull"), "got {err}");
     }
 
     /// Upstream failures must name the provider the user picked, not

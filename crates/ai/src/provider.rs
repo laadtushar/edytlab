@@ -41,6 +41,8 @@ pub const OPENAI_ID: &str = "openai";
 pub const GROQ_ID: &str = "groq";
 /// Stable id for the Gemini provider.
 pub const GEMINI_ID: &str = "gemini";
+/// Stable id for the Ollama provider (local models, no API key).
+pub const OLLAMA_ID: &str = "ollama";
 
 /// Default base URL for Anthropic's Messages API.
 pub const ANTHROPIC_DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
@@ -53,6 +55,12 @@ pub const OPENAI_DEFAULT_BASE_URL: &str = "https://api.openai.com";
 pub const GROQ_DEFAULT_BASE_URL: &str = "https://api.groq.com/openai";
 /// Default base URL for Google Gemini's OpenAI-compatible Chat Completions API.
 pub const GEMINI_DEFAULT_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta/openai";
+/// Default base URL for a local Ollama daemon's OpenAI-compatible API.
+///
+/// Overridable: running Ollama on another machine over the LAN is a
+/// normal setup, and it is the one case where a keyless provider is not
+/// on localhost.
+pub const OLLAMA_DEFAULT_BASE_URL: &str = "http://localhost:11434/v1";
 
 /// `anthropic-version` header value sent on every Anthropic call.
 pub use crate::prompt::ANTHROPIC_VERSION;
@@ -103,6 +111,18 @@ pub trait LlmProvider: Send + Sync + Debug {
     /// `/v1/messages`; OpenAI overrides to `/v1/chat/completions`.
     fn endpoint_path(&self) -> &str {
         "/v1/messages"
+    }
+
+    /// Whether this provider needs an API key to be usable.
+    ///
+    /// Every hosted provider does, so the default is `true` and no
+    /// existing implementation changes. A local daemon does not, and
+    /// before this existed there was no way to say so: the agent was
+    /// only constructed when a key was present, saving a blank key was
+    /// rejected, and first launch blocked behind a key prompt. Those
+    /// checks now ask the provider instead of assuming.
+    fn requires_api_key(&self) -> bool {
+        true
     }
 
     /// Path used to probe the key via a GET models list (OpenAI-compatible
@@ -795,6 +815,81 @@ impl LlmProvider for GeminiProvider {
 }
 
 // ---------------------------------------------------------------------
+// Ollama (local)
+// ---------------------------------------------------------------------
+
+/// Local models via Ollama's OpenAI-compatible API.
+///
+/// Same wrapper shape as [`GroqProvider`] and [`GeminiProvider`] —
+/// request serialisation and stream parsing delegate to the shared
+/// [`OpenAIProvider`] state machine.
+///
+/// What is different is that there is no key. `apply_auth` ignores the
+/// one it is handed rather than sending an empty `Bearer`, which some
+/// proxies in front of a daemon will reject outright.
+///
+/// `default_model` is a guess in a way the hosted providers' are not:
+/// Ollama serves whatever the user has pulled, and there is no model
+/// that is guaranteed present. `llama3.2` is the common default, and if
+/// it is absent the daemon says so clearly — which is a better failure
+/// than an empty dropdown.
+#[derive(Debug, Default)]
+pub struct OllamaProvider {
+    inner: OpenAIProvider,
+}
+
+impl Clone for OllamaProvider {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl LlmProvider for OllamaProvider {
+    fn id(&self) -> &'static str {
+        OLLAMA_ID
+    }
+    fn base_url(&self) -> &str {
+        OLLAMA_DEFAULT_BASE_URL
+    }
+    fn default_model(&self) -> &str {
+        "llama3.2"
+    }
+    fn classifier_model(&self) -> &str {
+        "llama3.2"
+    }
+    fn translate_model(&self, model: &str) -> String {
+        model.to_string()
+    }
+    fn apply_auth(&self, req: reqwest::RequestBuilder, _api_key: &str) -> reqwest::RequestBuilder {
+        // No Authorization header at all. An empty `Bearer ` is worse
+        // than none: it looks like a malformed credential rather than
+        // an absent one.
+        req.header("content-type", "application/json")
+    }
+    fn requires_api_key(&self) -> bool {
+        false
+    }
+    fn endpoint_path(&self) -> &str {
+        "/chat/completions"
+    }
+    fn list_models_path(&self) -> &str {
+        // The base URL already carries `/v1`.
+        "/models"
+    }
+    fn serialize_request(&self, req: &MessagesRequest<'_>) -> Value {
+        self.inner.serialize_request(req)
+    }
+    fn parse_stream_chunk(&self, raw: &str) -> Result<Vec<StreamEvent>, ProviderError> {
+        self.inner.parse_stream_chunk(raw)
+    }
+    fn label(&self) -> &str {
+        "Ollama (local)"
+    }
+}
+
+// ---------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------
 
@@ -806,13 +901,20 @@ pub fn provider_from_id(id: &str) -> Arc<dyn LlmProvider> {
         OPENAI_ID => Arc::new(OpenAIProvider::default()),
         GROQ_ID => Arc::new(GroqProvider::default()),
         GEMINI_ID => Arc::new(GeminiProvider::default()),
+        OLLAMA_ID => Arc::new(OllamaProvider::default()),
         _ => Arc::new(AnthropicProvider),
     }
 }
 
 /// Stable ids for the providers shipped today.
-pub const SUPPORTED_PROVIDER_IDS: &[&str] =
-    &[ANTHROPIC_ID, OPENROUTER_ID, OPENAI_ID, GROQ_ID, GEMINI_ID];
+pub const SUPPORTED_PROVIDER_IDS: &[&str] = &[
+    ANTHROPIC_ID,
+    OPENROUTER_ID,
+    OPENAI_ID,
+    GROQ_ID,
+    GEMINI_ID,
+    OLLAMA_ID,
+];
 
 #[cfg(test)]
 mod tests {
@@ -890,6 +992,39 @@ mod tests {
     #[test]
     fn supported_provider_ids_contains_openai() {
         assert!(SUPPORTED_PROVIDER_IDS.contains(&"openai"));
+    }
+
+    /// The default has to stay `true`, or adding a provider silently
+    /// makes it keyless and the key prompt disappears for it.
+    #[test]
+    fn every_hosted_provider_still_requires_a_key() {
+        for id in [ANTHROPIC_ID, OPENROUTER_ID, OPENAI_ID, GROQ_ID, GEMINI_ID] {
+            assert!(
+                provider_from_id(id).requires_api_key(),
+                "{id} must still require a key"
+            );
+        }
+    }
+
+    #[test]
+    fn ollama_is_keyless_and_registered() {
+        let p = provider_from_id(OLLAMA_ID);
+        assert_eq!(p.id(), OLLAMA_ID, "the factory fell through to Anthropic");
+        assert!(!p.requires_api_key());
+        assert!(SUPPORTED_PROVIDER_IDS.contains(&OLLAMA_ID));
+    }
+
+    /// An empty `Bearer` reads as a malformed credential rather than an
+    /// absent one, and some proxies in front of a daemon reject it.
+    #[test]
+    fn ollama_sends_no_authorization_header() {
+        let p = provider_from_id(OLLAMA_ID);
+        let req = reqwest::Client::new().post("http://localhost:11434/v1/chat/completions");
+        let built = p.apply_auth(req, "").build().expect("request builds");
+        assert!(
+            built.headers().get("authorization").is_none(),
+            "ollama must not send an Authorization header"
+        );
     }
 
     #[test]
