@@ -43,6 +43,7 @@
 //! that way; see `render.rs`'s determinism invariant.
 
 pub mod biquad;
+pub mod effects;
 
 pub use biquad::{Biquad, BiquadCoeffs, BiquadState};
 

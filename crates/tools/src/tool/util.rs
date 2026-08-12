@@ -653,13 +653,10 @@ pub(crate) fn check_sample_range(
     Ok((start, end))
 }
 
-// ---------------------------------------------------------------------------
-// Biquad filter
-// ---------------------------------------------------------------------------
-
-// Moved to the `audio-dsp` crate so the render path can use it too: an
-// effect chain has to run inside `audio-engine`, and `tools` depends on
-// `audio-engine` rather than the reverse, so anything shared between
-// them has to live below both. Re-exported here because four tools
-// import it from this module.
-pub(crate) use audio_dsp::biquad::{biquad_process, BiquadCoeffs};
+// Biquad filtering lives in the `audio-dsp` crate.
+//
+// It used to be defined here and shared by four tools. Those tools'
+// algorithms have since moved to `audio-dsp` too, so nothing in this
+// crate references it any more — the re-export that briefly stood here
+// was itself unused, which is the refactor having landed rather than
+// something missing.
