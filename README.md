@@ -138,7 +138,7 @@ The Tauri bundle build is intentionally **not** in CI (too slow); release workfl
 ## Releases
 
 - **Auto dev releases.** `auto-release.yml` listens to `ci.yml`'s `workflow_run` on `main`. On green, it tags `v<version>-dev.<run_number>` and dispatches `release-dev.yml`, which builds **unsigned** mac + win bundles and attaches them to a draft GitHub Release. The workflow does not auto-publish.
-- **Signed releases.** `release-mac.yml` (Apple notarization) and `release-win.yml` (Authenticode + DigiCert timestamp) are **manual** `workflow_dispatch` and gated on signing secrets being provisioned. See [`docs/packaging-windows.md`](docs/packaging-windows.md) for the Windows side, including the SmartScreen reputation note.
+- **Signed releases.** `release-signed.yml` builds all three platforms in one matrix — Apple notarization on mac, Authenticode + DigiCert timestamp on Windows, unsigned `.deb`/AppImage on Linux. **Manual** `workflow_dispatch`, gated on signing secrets being provisioned. It builds first and uploads only after signing, so the published assets are always the signed bytes. See [`docs/packaging-windows.md`](docs/packaging-windows.md) for the Windows side, including the SmartScreen reputation note.
 - Bundle targets are pinned in `tauri.conf.json` to `["app", "dmg", "msi", "nsis", "deb", "appimage"]` — don't revert to `"all"`.
 
 App version is canonical in `apps/desktop/src-tauri/tauri.conf.json`; `package.json` files mirror it.
