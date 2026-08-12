@@ -35,6 +35,20 @@ use hound::{SampleFormat, WavSpec, WavWriter};
 
 use crate::{Error, Result};
 
+/// Quantise one f32 sample to 16-bit.
+///
+/// Shared by both encoders so a WAV and a FLAC of the same render are
+/// sample-identical rather than merely similar. FLAC is lossless, so
+/// that is an equality the round-trip test can assert — and it only
+/// holds if both formats round the same way. See the scale-factor note
+/// in the module docs for why this is `32_768.0`.
+#[inline]
+fn quantise(s: f32) -> i16 {
+    (s * 32_768.0)
+        .round()
+        .clamp(i16::MIN as f32, i16::MAX as f32) as i16
+}
+
 /// Write interleaved `samples` to a 16-bit PCM WAV at `out`.
 ///
 /// `channels` is the interleave stride; `samples.len()` must be a
@@ -49,11 +63,64 @@ pub fn write_wav(samples: &[f32], sample_rate: u32, channels: u16, out: &Path) -
     };
     let mut writer = WavWriter::create(out, spec).map_err(Error::from)?;
     for &s in samples {
-        let q = (s * 32_768.0)
-            .round()
-            .clamp(i16::MIN as f32, i16::MAX as f32) as i16;
-        writer.write_sample(q).map_err(Error::from)?;
+        writer.write_sample(quantise(s)).map_err(Error::from)?;
     }
     writer.finalize().map_err(Error::from)?;
+    Ok(())
+}
+
+/// Write interleaved `samples` to a 16-bit FLAC at `out`.
+///
+/// ## Why `flac-codec`
+///
+/// Chosen for what it *doesn’t* bring: four small pure-Rust
+/// dependencies, no build script, no `-sys` crate. The workspace builds
+/// on macOS, Windows and Linux in CI, and a native dependency is the
+/// kind of thing that breaks all three at once — it is why Rubber Band
+/// stayed out of the tree and the time-stretch tools sat unimplemented
+/// for months (see `crates/audio-time/src/vocoder.rs`). MIT/Apache-2.0
+/// also matches this repo’s licence.
+///
+/// ## Buffered, not streaming
+///
+/// The render path writes WAV chunk-by-chunk through `hound`. This
+/// takes the whole buffer instead. `render_final` already materialises
+/// the mix before calling an encoder, so nothing is made worse today;
+/// if that stops being true, `FlacSampleWriter::write` accepts
+/// successive slices and this can be fed incrementally without changing
+/// its callers.
+pub fn write_flac(samples: &[f32], sample_rate: u32, channels: u16, out: &Path) -> Result<()> {
+    use flac_codec::encode::{FlacSampleWriter, Options};
+
+    let channel_count =
+        u8::try_from(channels.max(1)).map_err(|_| Error::UnsupportedChannelMap {
+            from: channels,
+            to: 8,
+        })?;
+
+    let file = std::fs::File::create(out)?;
+    let writer = std::io::BufWriter::new(file);
+
+    // `total_samples` is deliberately `None`. The encoder errors if the
+    // declared count and the written count disagree, and passing a
+    // length we would have to keep in step with the loop below is a
+    // second source of truth for no benefit — the header is patched on
+    // finalize either way.
+    let mut enc = FlacSampleWriter::new(
+        writer,
+        Options::default(),
+        sample_rate,
+        16,
+        channel_count,
+        None,
+    )
+    .map_err(|e| Error::Encode(e.to_string()))?;
+
+    // The encoder takes i32 holding 16-bit-range values, quantised
+    // identically to the WAV path so the two agree sample-for-sample.
+    let quantised: Vec<i32> = samples.iter().map(|&s| quantise(s) as i32).collect();
+    enc.write(&quantised)
+        .map_err(|e| Error::Encode(e.to_string()))?;
+    enc.finalize().map_err(|e| Error::Encode(e.to_string()))?;
     Ok(())
 }

@@ -698,8 +698,16 @@ fn render_preview_returns_path_without_creating_node() {
 // render_final reports clear errors for unsupported formats.
 // ---------------------------------------------------------------------------
 
+/// Updated deliberately: `flac` used to be rejected here, and this test
+/// pinned that. It now works (#92).
+///
+/// What replaces it is the other half of the ticket — the schema must
+/// offer only what succeeds. `mp3` is gone from the enum, so a request
+/// for it is refused by schema validation and the model is told which
+/// formats exist, rather than being invited to pick one that returns an
+/// error naming a milestone it cannot act on.
 #[test]
-fn render_final_rejects_mp3_and_flac_in_phase_1() {
+fn render_final_refuses_mp3_at_the_schema_and_names_what_works() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
     let mut clipboard: Option<Vec<f32>> = None;
@@ -715,20 +723,23 @@ fn render_final_rejects_mp3_and_flac_in_phase_1() {
     let id = load["node_id"].as_str().unwrap().to_string();
     let out = tmp.path().join("out.bin");
 
-    for fmt in ["mp3", "flac"] {
-        let msg = err(dispatcher
-            .invoke(
-                "render_final",
-                json!({
-                    "node_id": id,
-                    "format": fmt,
-                    "out_path": out.to_string_lossy(),
-                }),
-                &mut ctx,
-            )
-            .unwrap());
-        assert!(msg.contains("not supported in Phase 1"), "got: {msg}");
-    }
+    let e = dispatcher
+        .invoke(
+            "render_final",
+            json!({
+                "node_id": id,
+                "format": "mp3",
+                "out_path": out.to_string_lossy(),
+            }),
+            &mut ctx,
+        )
+        .expect_err("mp3 is not in the schema enum");
+    let msg = e.to_string();
+    assert!(msg.contains("wav") && msg.contains("flac"), "got: {msg}");
+    assert!(
+        !msg.contains("Phase 1"),
+        "a milestone name is not something a user can act on: {msg}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1771,4 +1782,81 @@ fn name_node_overwrites_existing_label() {
         .unwrap());
     let n = ctx.store.get(id).unwrap();
     assert!(n.label.is_none(), "empty string should clear label");
+}
+
+/// `render_final` offered three formats and implemented one. The other
+/// two errored the moment they were chosen — a schema promising
+/// something the implementation refuses, the same shape as the inert
+/// tools fixed in #85, except here it is the output of the whole
+/// application.
+#[test]
+fn render_final_writes_a_flac_that_decodes() {
+    let tmp = TempDir::new().expect("tempdir");
+    let mut store = session::Store::open(tmp.path()).expect("open store");
+    let mut engine = audio_engine::Engine::new();
+    let dispatcher = ToolDispatcher::default_dispatcher();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.6);
+    let flac_out = tmp.path().join("out.flac");
+    let wav_out = tmp.path().join("out.wav");
+
+    let mut clipboard: Option<Vec<f32>> = None;
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+        user_message: "",
+        clipboard: &mut clipboard,
+    };
+
+    let loaded = ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+    let node_id = loaded["node_id"].as_str().unwrap().to_string();
+
+    for (format, path) in [("wav", &wav_out), ("flac", &flac_out)] {
+        let res = ok(dispatcher
+            .invoke(
+                "render_final",
+                json!({
+                    "node_id": node_id,
+                    "format": format,
+                    "out_path": path.to_string_lossy(),
+                }),
+                &mut ctx,
+            )
+            .unwrap());
+        assert_eq!(res["format"], json!(format));
+        assert!(path.exists(), "{format} render produced no file");
+    }
+
+    // Lossless: the exported FLAC has to be the same master as the WAV,
+    // not merely a similar one.
+    let from_wav = audio_decoder::decode_file(&wav_out).expect("decode wav");
+    let from_flac = audio_decoder::decode_file(&flac_out).expect("decode flac");
+    assert_eq!(from_flac.samples, from_wav.samples);
+    assert!(
+        std::fs::metadata(&flac_out).unwrap().len() < std::fs::metadata(&wav_out).unwrap().len(),
+        "flac should be smaller than wav"
+    );
+}
+
+/// The schema must offer only what works. MP3 is gone from the enum,
+/// and asking for it points at the format that does exist rather than
+/// at "Phase 1".
+#[test]
+fn render_final_advertises_only_formats_it_supports() {
+    let dispatcher = ToolDispatcher::default_dispatcher();
+    let schemas = dispatcher.tool_schemas();
+    let schema = schemas
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["name"] == "render_final")
+        .expect("render_final is registered");
+
+    let formats = &schema["input_schema"]["properties"]["format"]["enum"];
+    assert_eq!(
+        formats,
+        &json!(["wav", "flac"]),
+        "the enum must contain only formats that succeed"
+    );
 }

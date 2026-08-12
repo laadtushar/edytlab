@@ -20,7 +20,7 @@ pub mod graph;
 pub mod mixer;
 pub mod render;
 
-pub use encode::write_wav;
+pub use encode::{write_flac, write_wav};
 
 use std::path::Path;
 
@@ -47,6 +47,8 @@ pub enum Error {
     Decode(#[from] audio_decoder::DecodeError),
     #[error("wav writer error: {0}")]
     Wav(#[from] hound::Error),
+    #[error("encoder error: {0}")]
+    Encode(String),
     #[error("audio output error: {0}")]
     AudioIo(#[from] audio_io::Error),
     #[error("i/o error: {0}")]
