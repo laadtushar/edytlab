@@ -292,6 +292,7 @@ dependencies = [
  "rayon",
  "realfft",
  "rubato",
+ "serde_json",
  "session",
  "tempfile",
  "thiserror 2.0.18",

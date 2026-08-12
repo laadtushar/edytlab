@@ -127,8 +127,24 @@ fn master_chunk_frames(project_sample_rate: u32) -> usize {
 /// verified the rendered file would be byte-equivalent to the source. Adding a
 /// new processing knob (pan, effect, clip trim, mute, solo, second track) must
 /// NOT silently fall through to byte-copy and bypass downstream logic.
-fn is_unity_passthrough(graph: &RenderGraph, range: Option<TimeRange>) -> bool {
-    range.is_none() && graph.unity_passthrough_track.is_some()
+/// Whether the render can be served by copying the source file.
+///
+/// `state` is consulted for the master chain, and that is not
+/// incidental: this path byte-copies the source and never opens the
+/// mixer, so an active master effect would be silently dropped — and
+/// dropped for exactly the simplest sessions, which are the ones most
+/// likely to be tried first.
+///
+/// An entirely bypassed chain still qualifies, because a bypassed
+/// effect is defined to be identical to an absent one.
+fn is_unity_passthrough(
+    state: &SessionState,
+    graph: &RenderGraph,
+    range: Option<TimeRange>,
+) -> bool {
+    range.is_none()
+        && graph.unity_passthrough_track.is_some()
+        && state.master_chain.iter().all(|e| e.bypassed)
 }
 
 pub fn render(
@@ -138,7 +154,7 @@ pub fn render(
 ) -> Result<RenderReport, Error> {
     let graph = graph::build(state)?;
 
-    if is_unity_passthrough(&graph, range) {
+    if is_unity_passthrough(state, &graph, range) {
         return render_unity_copy(&graph, out);
     }
 
@@ -782,6 +798,16 @@ fn render_streaming(
         }
     }
 
+    // The master chain, instantiated once so its processors keep their
+    // state across chunks. Built before the loop rather than inside it
+    // for exactly that reason — a chain rebuilt per chunk would reset
+    // every filter's delay line at each seam.
+    //
+    // An unusable chain fails the render here. It used to be ignored
+    // outright, so a session with master effects rendered as though they
+    // were absent and said nothing.
+    let mut master = crate::master_chain::build(&state.master_chain, project_rate, chans)?;
+
     // Master chunk loop. Emits exactly `frames_to_write` project-rate
     // frames in total; the final chunk may be partial.
     let mut frames_remaining = frames_to_write;
@@ -819,6 +845,13 @@ fn render_streaming(
             for i in 0..n {
                 dst[i] += scratch[i];
             }
+        }
+
+        // Master chain, in declaration order — see the determinism
+        // invariant. Runs after the sum and before the peak, so the
+        // reported peak is the level actually written to the file.
+        for processor in master.iter_mut() {
+            processor.process(dst, chans);
         }
 
         // Quantize and write this chunk; track running peak.

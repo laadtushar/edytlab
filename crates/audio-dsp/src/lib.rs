@@ -43,9 +43,11 @@
 //! that way; see `render.rs`'s determinism invariant.
 
 pub mod biquad;
+pub mod dynamics;
 pub mod effects;
 
 pub use biquad::{Biquad, BiquadCoeffs, BiquadState};
+pub use dynamics::{Gain, Limiter};
 
 /// A stateful audio processor that can be fed a signal in pieces.
 ///
@@ -59,7 +61,7 @@ pub use biquad::{Biquad, BiquadCoeffs, BiquadState};
 /// the same samples. `audio-engine` documents that its master chunk size
 /// does not affect output bytes, and a processor that resets state per
 /// call would quietly make that false.
-pub trait Processor {
+pub trait Processor: std::fmt::Debug {
     /// Process one chunk of interleaved samples in place.
     ///
     /// `channels` is the interleave stride and is constant for the

@@ -14,6 +14,9 @@ audio-decoder = { path = "../audio-decoder" }
 # The point of extracting `audio-dsp`: render-time effects run here, and
 # the algorithms used to be unreachable from this crate. See #101.
 audio-dsp = { path = "../audio-dsp" }
+# `EffectInstance::params` is untyped JSON, so reading an effect's
+# parameters means touching serde_json here.
+serde_json = "1"
 audio-io = { path = "../audio-io" }
 session = { path = "../session" }
 hound = "3.5"
@@ -36,6 +39,7 @@ thiserror = "2"
 hound = "3.5"
 
 [dev-dependencies]
+audio-decoder = { path = "../audio-decoder" }
 hound = "3.5"
 # M21: FFT-based spectral assertions for the multi-track mix tests
 # (sum-of-tones must show both peaks). `realfft` is the workspace-blessed
