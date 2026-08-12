@@ -3,9 +3,9 @@ name: Release (dev / unsigned)
 # Builds unsigned .dmg (Mac) + .msi / NSIS .exe (Win) artifacts and
 # attaches them to a draft GitHub Release. Use this for beta / preview
 # drops while the real Apple Developer ID + Authenticode certs aren't
-# yet provisioned. The signed pipelines (release-mac.yml,
-# release-win.yml) stay as the source of truth for shippable builds —
-# this workflow is intentionally smaller.
+# yet provisioned. The signed pipeline (release-signed.yml) stays as
+# the source of truth for shippable builds — this workflow is
+# intentionally smaller.
 #
 # Triggers:
 #   - tag push matching `v*-dev.*`, `v*-beta.*`, or `v*-rc.*` (auto)
@@ -116,7 +116,7 @@ jobs:
             const body = [
               "**Unsigned developer preview** — convenience build for testing",
               "on machines without code-signing infrastructure. Production",
-              "releases are produced via release-mac.yml / release-win.yml",
+              "releases are produced via release-signed.yml",
               "with the real Apple Developer ID + Authenticode certs.",
               "",
               "### Install warnings (expected on unsigned builds)",
