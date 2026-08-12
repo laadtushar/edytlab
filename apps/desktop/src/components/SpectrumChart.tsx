@@ -89,8 +89,16 @@ export function SpectrumChart({
     const logMin = Math.log10(MIN_HZ);
     const logSpan = Math.log10(maxHz) - logMin;
     const xOf = (hz: number) => ((Math.log10(hz) - logMin) / logSpan) * width;
-    const yOf = (db: number) =>
-      height - ((db - MIN_DB) / (MAX_DB - MIN_DB)) * height;
+    // Clamped, not just floored. A `db` above 0 maps to a negative y and
+    // a `db` below the floor maps past `height`; the canvas clips both,
+    // so the line silently leaves the plot instead of riding its edge.
+    // `plot_spectrum` should not emit either, but a chart that quietly
+    // omits data when handed something unexpected is the failure this
+    // component already had once.
+    const yOf = (db: number) => {
+      const clamped = Math.min(Math.max(db, MIN_DB), MAX_DB);
+      return height - ((clamped - MIN_DB) / (MAX_DB - MIN_DB)) * height;
+    };
 
     // Decade grid, so the axis is readable without a legend.
     ctx.strokeStyle = grid;
@@ -130,7 +138,7 @@ export function SpectrumChart({
       // Bin 0 is DC and everything under 20 Hz is off the left edge.
       if (p.hz < MIN_HZ) continue;
       const x = xOf(p.hz);
-      const y = yOf(Math.max(p.db, MIN_DB));
+      const y = yOf(p.db);
       if (started) ctx.lineTo(x, y);
       else {
         ctx.moveTo(x, y);
