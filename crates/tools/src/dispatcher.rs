@@ -90,14 +90,14 @@ impl ToolDispatcher {
             GenerateNoiseTool, GenerateToneTool, HighPassFilterTool, ImportLabelsTool,
             InsertSilenceTool, InvertTool, LabelTool, LevelerTool, LimiterTool, LoadTool,
             LowPassFilterTool, MixToNewTrackTool, MonoToStereoTool, MuteTrackTool, NameNodeTool,
-            NoiseGateTool, NoiseReductionTool, NormalizeTool, NotchFilterTool, PasteRegionTool,
-            PhaserTool, PitchShiftTool, PlotSpectrumTool, RemoveSendTool, RemoveTrackTool,
-            RenameTrackTool, RenderFinalTool, RenderPreviewTool, RepeatSelectionTool,
-            ResampleTrackTool, ReverbTool, ReverseTool, RevertToTool, SeparateStemsTool,
-            SetClipEnvelopeTool, SetPanTool, SetSendTool, SetTrackGainTool, SilenceFinderTool,
-            SilenceRegionTool, SoloTrackTool, SplitClipTool, StereoToMonoTool, StereoWidenerTool,
-            TimeShiftTool, TimeStretchTool, TranscribeTool, TremoloTool, TrimTool,
-            TruncateSilenceTool, VocalReductionTool,
+            NoiseGateTool, NoiseReductionTool, NormalizeLoudnessTool, NormalizeTool,
+            NotchFilterTool, PasteRegionTool, PhaserTool, PitchShiftTool, PlotSpectrumTool,
+            RemoveSendTool, RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
+            RepeatSelectionTool, ResampleTrackTool, ReverbTool, ReverseTool, RevertToTool,
+            SeparateStemsTool, SetClipEnvelopeTool, SetPanTool, SetSendTool, SetTrackGainTool,
+            SilenceFinderTool, SilenceRegionTool, SoloTrackTool, SplitClipTool, StereoToMonoTool,
+            StereoWidenerTool, TimeShiftTool, TimeStretchTool, TranscribeTool, TremoloTool,
+            TrimTool, TruncateSilenceTool, VocalReductionTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -108,6 +108,7 @@ impl ToolDispatcher {
         d.register(Box::new(TrimTool));
         d.register(Box::new(GainTool));
         d.register(Box::new(NormalizeTool));
+        d.register(Box::new(NormalizeLoudnessTool));
         d.register(Box::new(TimeStretchTool));
         d.register(Box::new(PitchShiftTool));
         d.register(Box::new(AlignToBeatTool));

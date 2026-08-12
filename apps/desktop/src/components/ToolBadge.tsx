@@ -84,6 +84,7 @@ const TOOL_LABELS: Record<string, string> = {
   // Level
   gain: "Gain",
   normalize: "Normalize",
+  normalize_loudness: "Normalize loudness",
   leveler: "Leveler",
   compressor: "Compressor",
   limiter: "Limiter",
