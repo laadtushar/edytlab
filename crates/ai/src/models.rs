@@ -15,6 +15,20 @@
 //! * **OpenAI** — `GET /v1/models` (auth required). We filter to
 //!   chat-capable model ids (heuristic: prefix `gpt-`, `o1-`, `o3-`,
 //!   `chatgpt-`).
+//! * **Groq** — `GET /v1/models` (auth required). No filtering: the
+//!   OpenAI heuristic above would reject every `llama-*` id and leave
+//!   the dropdown empty.
+//! * **Gemini** — `GET /models` (auth required). The path lacks the
+//!   `/v1` because `GEMINI_DEFAULT_BASE_URL` already ends in
+//!   `/v1beta/openai`, mirroring `GeminiProvider::list_models_path`.
+//!
+//! The last three share one wire format — `{"data": [{"id": …}]}` —
+//! and therefore one fetch helper. Only the filtering and ordering
+//! differ. Every arm here must cover an id in `SUPPORTED_PROVIDER_IDS`:
+//! Groq and Gemini reached the provider layer and the Settings dropdown
+//! long before they reached this match, and until they did, selecting
+//! either showed `unsupported provider id: groq` where the model list
+//! belongs.
 //!
 //! # Cache
 //!
@@ -33,7 +47,10 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-use crate::provider::{ANTHROPIC_ID, OPENAI_ID, OPENROUTER_ID};
+use crate::provider::{
+    ANTHROPIC_ID, GEMINI_DEFAULT_BASE_URL, GEMINI_ID, GROQ_DEFAULT_BASE_URL, GROQ_ID,
+    OPENAI_DEFAULT_BASE_URL, OPENAI_ID, OPENROUTER_ID,
+};
 
 /// One entry in a provider's model catalogue.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,14 +114,40 @@ pub async fn list_models_for(
     provider_id: &str,
     api_key: Option<&str>,
 ) -> Result<Vec<ModelInfo>, String> {
+    let base = match provider_id {
+        OPENAI_ID => OPENAI_DEFAULT_BASE_URL,
+        GROQ_ID => GROQ_DEFAULT_BASE_URL,
+        GEMINI_ID => GEMINI_DEFAULT_BASE_URL,
+        _ => "",
+    };
+    list_models_at(provider_id, api_key, base).await
+}
+
+/// [`list_models_for`] with the upstream base URL parameterised.
+///
+/// `validate.rs` does the same thing for the same reason: the fetchers
+/// used to hardcode `https://api.openai.com/...`, which made them
+/// impossible to exercise without a live key. Every arm is now driven
+/// by `wiremock` in the tests below.
+pub(crate) async fn list_models_at(
+    provider_id: &str,
+    api_key: Option<&str>,
+    base_url: &str,
+) -> Result<Vec<ModelInfo>, String> {
     if let Some(cached) = cache_get(provider_id) {
         return Ok(cached);
     }
 
+    // Every id in `SUPPORTED_PROVIDER_IDS` needs an arm here. Groq and
+    // Gemini were added to the provider layer and to the Settings
+    // dropdown but never to this match, so picking either showed
+    // "unsupported provider id: groq" where the model list belongs.
     let models = match provider_id {
         ANTHROPIC_ID => anthropic_models(),
         OPENROUTER_ID => fetch_openrouter_models(api_key).await?,
-        OPENAI_ID => fetch_openai_models(api_key).await?,
+        OPENAI_ID => fetch_openai_models(base_url, api_key).await?,
+        GROQ_ID => fetch_groq_models(base_url, api_key).await?,
+        GEMINI_ID => fetch_gemini_models(base_url, api_key).await?,
         other => return Err(format!("unsupported provider id: {other}")),
     };
 
@@ -191,16 +234,21 @@ async fn fetch_openrouter_models(api_key: Option<&str>) -> Result<Vec<ModelInfo>
     Ok(models)
 }
 
-/// Live fetch from OpenAI's `/v1/models`. Filters to chat-capable
-/// model ids using a prefix heuristic; OpenAI's catalogue mixes
-/// embeddings, audio, and image models we never want to surface here.
-async fn fetch_openai_models(api_key: Option<&str>) -> Result<Vec<ModelInfo>, String> {
-    let key = api_key
-        .ok_or_else(|| "OpenAI catalogue requires an API key — save your key first".to_string())?;
-    if key.trim().is_empty() {
-        return Err("OpenAI catalogue requires an API key".to_string());
-    }
-
+/// Raw model ids from any OpenAI-compatible `/models` endpoint.
+///
+/// Shared by OpenAI, Groq, and Gemini, which all serve the same
+/// `{"data": [{"id": …}]}` envelope — that envelope *is* what
+/// "OpenAI-compatible" means for this route. What differs is the
+/// filtering and ordering each caller wants afterwards, so this
+/// deliberately returns everything and lets them decide.
+///
+/// `label` only appears in error text, so a failure names the provider
+/// the user actually picked.
+async fn fetch_openai_compatible_ids(
+    url: &str,
+    api_key: &str,
+    label: &str,
+) -> Result<Vec<String>, String> {
     #[derive(Deserialize)]
     struct Wire {
         data: Vec<WireModel>,
@@ -212,26 +260,49 @@ async fn fetch_openai_models(api_key: Option<&str>) -> Result<Vec<ModelInfo>, St
 
     let client = reqwest::Client::new();
     let resp = client
-        .get("https://api.openai.com/v1/models")
-        .header("authorization", format!("Bearer {key}"))
+        .get(url)
+        .header("authorization", format!("Bearer {api_key}"))
         .send()
         .await
         .map_err(|e| e.to_string())?;
 
     if !resp.status().is_success() {
-        return Err(format!("openai models {}", resp.status().as_u16()));
+        return Err(format!("{label} models {}", resp.status().as_u16()));
     }
 
     let parsed: Wire = resp.json().await.map_err(|e| e.to_string())?;
-    let mut models: Vec<ModelInfo> = parsed
-        .data
+    Ok(parsed.data.into_iter().map(|m| m.id).collect())
+}
+
+/// Reject an absent or blank key before making a request that would
+/// only 401.
+fn require_key<'a>(api_key: Option<&'a str>, label: &str) -> Result<&'a str, String> {
+    let key = api_key
+        .ok_or_else(|| format!("{label} catalogue requires an API key — save your key first"))?;
+    if key.trim().is_empty() {
+        return Err(format!("{label} catalogue requires an API key"));
+    }
+    Ok(key)
+}
+
+/// Live fetch from OpenAI's `/v1/models`. Filters to chat-capable
+/// model ids using a prefix heuristic; OpenAI's catalogue mixes
+/// embeddings, audio, and image models we never want to surface here.
+async fn fetch_openai_models(
+    base_url: &str,
+    api_key: Option<&str>,
+) -> Result<Vec<ModelInfo>, String> {
+    let key = require_key(api_key, "OpenAI")?;
+    let ids = fetch_openai_compatible_ids(&format!("{base_url}/v1/models"), key, "openai").await?;
+
+    let mut models: Vec<ModelInfo> = ids
         .into_iter()
-        .filter(|m| is_chat_capable(&m.id))
-        .map(|m| ModelInfo {
-            display_name: m.id.clone(),
+        .filter(|id| is_chat_capable(id))
+        .map(|id| ModelInfo {
+            display_name: id.clone(),
             context_length: None,
             provider_hint: None,
-            id: m.id,
+            id,
         })
         .collect();
 
@@ -242,6 +313,68 @@ async fn fetch_openai_models(api_key: Option<&str>) -> Result<Vec<ModelInfo>, St
             .then_with(|| a.id.cmp(&b.id))
     });
     Ok(models)
+}
+
+/// Live fetch from Groq's OpenAI-compatible `/v1/models`.
+///
+/// Note what is *not* here: `is_chat_capable`. That filter keeps ids
+/// prefixed `gpt-`/`o1-`/`o3-`/`chatgpt-`, and every Groq model is
+/// named something like `llama-3.3-70b-versatile`, so reusing it would
+/// return an empty list — a worse failure than the "unsupported
+/// provider id" this replaces, because an empty dropdown reads as
+/// "Groq has no models" rather than as a bug.
+async fn fetch_groq_models(
+    base_url: &str,
+    api_key: Option<&str>,
+) -> Result<Vec<ModelInfo>, String> {
+    let key = require_key(api_key, "Groq")?;
+    let mut ids =
+        fetch_openai_compatible_ids(&format!("{base_url}/v1/models"), key, "groq").await?;
+    ids.sort();
+    Ok(ids
+        .into_iter()
+        .map(|id| ModelInfo {
+            display_name: id.clone(),
+            context_length: None,
+            provider_hint: None,
+            id,
+        })
+        .collect())
+}
+
+/// Live fetch from Gemini's OpenAI-compatible model list.
+///
+/// The path is `/models`, not `/v1/models`: `GEMINI_DEFAULT_BASE_URL`
+/// already ends in `/v1beta/openai`. That asymmetry is why
+/// `GeminiProvider` overrides `list_models_path`, and it is mirrored
+/// here.
+///
+/// Ids come back either bare (`gemini-2.0-flash`) or resource-qualified
+/// (`models/gemini-2.0-flash`) depending on which surface answers. We
+/// strip the prefix rather than assuming a form: the bare id is what
+/// the OpenAI-compatible chat endpoint accepts, `translate_model` is
+/// identity for this provider, and stripping is a no-op when the ids
+/// are already bare. Correct either way, so the shape doesn't have to
+/// be guessed.
+async fn fetch_gemini_models(
+    base_url: &str,
+    api_key: Option<&str>,
+) -> Result<Vec<ModelInfo>, String> {
+    let key = require_key(api_key, "Gemini")?;
+    let mut ids = fetch_openai_compatible_ids(&format!("{base_url}/models"), key, "gemini").await?;
+    ids.sort();
+    Ok(ids
+        .into_iter()
+        .map(|id| {
+            let bare = id.strip_prefix("models/").unwrap_or(&id).to_string();
+            ModelInfo {
+                display_name: bare.clone(),
+                context_length: None,
+                provider_hint: None,
+                id: bare,
+            }
+        })
+        .collect())
 }
 
 fn is_chat_capable(id: &str) -> bool {
@@ -379,5 +512,166 @@ mod tests {
         let _guard = CACHE_LOCK.lock().await;
         clear_cache();
         let _ = OPENROUTER_ID; // silence unused-import
+    }
+
+    // ------------------------------------------------------------------
+    // Live-fetch arms, driven through wiremock
+    // ------------------------------------------------------------------
+
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    /// An OpenAI-compatible `{"data":[{"id":…}]}` body.
+    fn models_body(ids: &[&str]) -> serde_json::Value {
+        serde_json::json!({
+            "object": "list",
+            "data": ids.iter().map(|id| serde_json::json!({
+                "id": id, "object": "model", "owned_by": "test"
+            })).collect::<Vec<_>>(),
+        })
+    }
+
+    async fn serve(route: &str, ids: &[&str]) -> MockServer {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(route))
+            .respond_with(ResponseTemplate::new(200).set_body_json(models_body(ids)))
+            .mount(&server)
+            .await;
+        server
+    }
+
+    /// The defect: Groq is selectable in Settings and was not in the
+    /// match, so the dropdown showed "unsupported provider id: groq".
+    #[tokio::test]
+    async fn groq_catalogue_lists_groq_models() {
+        let _guard = CACHE_LOCK.lock().await;
+        clear_cache();
+        let server = serve(
+            "/v1/models",
+            &["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
+        )
+        .await;
+
+        let models = list_models_at(GROQ_ID, Some("k"), &server.uri())
+            .await
+            .expect("groq catalogue should resolve");
+
+        let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
+        assert!(ids.contains(&"llama-3.3-70b-versatile"), "got {ids:?}");
+        assert_eq!(ids.len(), 2);
+    }
+
+    /// The trap in the obvious fix: `is_chat_capable` keeps only
+    /// `gpt-`/`o1-`/`o3-`/`chatgpt-` prefixes, so pointing Groq at
+    /// OpenAI's fetcher would filter every Llama model away and return
+    /// an empty list — which reads as "Groq has no models" rather than
+    /// as a bug, and is therefore worse than the error it replaced.
+    #[tokio::test]
+    async fn groq_catalogue_is_not_filtered_by_the_openai_heuristic() {
+        let _guard = CACHE_LOCK.lock().await;
+        clear_cache();
+        let server = serve("/v1/models", &["llama-3.3-70b-versatile"]).await;
+
+        let models = list_models_at(GROQ_ID, Some("k"), &server.uri())
+            .await
+            .unwrap();
+        assert!(
+            !models.is_empty(),
+            "an empty dropdown is a worse failure than an error message"
+        );
+        assert!(!is_chat_capable(&models[0].id), "premise of this test");
+    }
+
+    /// Gemini's list lives at `/models` because its base URL already
+    /// carries `/v1beta/openai` — mirroring `GeminiProvider`'s
+    /// `list_models_path` override.
+    #[tokio::test]
+    async fn gemini_catalogue_uses_the_bare_models_path() {
+        let _guard = CACHE_LOCK.lock().await;
+        clear_cache();
+        let server = serve("/models", &["gemini-2.0-flash"]).await;
+
+        let models = list_models_at(GEMINI_ID, Some("k"), &server.uri())
+            .await
+            .expect("gemini catalogue should resolve");
+        assert_eq!(models[0].id, "gemini-2.0-flash");
+    }
+
+    /// Ids may come back resource-qualified. The bare form is what the
+    /// chat endpoint accepts and `translate_model` is identity for this
+    /// provider, so both shapes have to land on the same id — otherwise
+    /// a model picked from the dropdown would be rejected at inference.
+    #[tokio::test]
+    async fn gemini_strips_a_resource_prefix_when_present() {
+        let _guard = CACHE_LOCK.lock().await;
+        clear_cache();
+        let server = serve("/models", &["models/gemini-2.0-flash"]).await;
+
+        let models = list_models_at(GEMINI_ID, Some("k"), &server.uri())
+            .await
+            .unwrap();
+        assert_eq!(
+            models[0].id, "gemini-2.0-flash",
+            "a `models/`-qualified id must resolve to the same id as a bare one"
+        );
+        assert_eq!(models[0].display_name, "gemini-2.0-flash");
+    }
+
+    /// OpenAI keeps its filter and its ordering — the refactor that
+    /// added the other two arms must not have loosened it.
+    #[tokio::test]
+    async fn openai_catalogue_keeps_its_filter_and_ranking() {
+        let _guard = CACHE_LOCK.lock().await;
+        clear_cache();
+        let server = serve(
+            "/v1/models",
+            &["text-embedding-3-small", "gpt-4o-mini", "dall-e-3", "o1"],
+        )
+        .await;
+
+        let models = list_models_at(OPENAI_ID, Some("k"), &server.uri())
+            .await
+            .unwrap();
+        let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec!["gpt-4o-mini", "o1"],
+            "embeddings and image models must stay out, gpt-4o ranks first"
+        );
+    }
+
+    #[tokio::test]
+    async fn groq_and_gemini_report_a_missing_key_by_name() {
+        let _guard = CACHE_LOCK.lock().await;
+        clear_cache();
+        let err = list_models_at(GROQ_ID, None, "http://unused")
+            .await
+            .unwrap_err();
+        assert!(err.contains("Groq"), "got {err}");
+        clear_cache();
+        let err = list_models_at(GEMINI_ID, None, "http://unused")
+            .await
+            .unwrap_err();
+        assert!(err.contains("Gemini"), "got {err}");
+    }
+
+    /// Upstream failures must name the provider the user picked, not
+    /// whichever fetcher happens to be shared underneath.
+    #[tokio::test]
+    async fn upstream_errors_name_the_provider() {
+        let _guard = CACHE_LOCK.lock().await;
+        clear_cache();
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/models"))
+            .respond_with(ResponseTemplate::new(401))
+            .mount(&server)
+            .await;
+
+        let err = list_models_at(GROQ_ID, Some("bad"), &server.uri())
+            .await
+            .unwrap_err();
+        assert!(err.contains("groq") && err.contains("401"), "got {err}");
     }
 }
