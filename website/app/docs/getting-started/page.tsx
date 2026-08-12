@@ -22,12 +22,18 @@ export default function GettingStartedPage() {
     >
       <h2>1. Download and install</h2>
       <p>
-        Download the latest signed installer for your platform from the{" "}
+        Download the latest build for your platform from the{" "}
         <a href={siteConfig.releases} target="_blank" rel="noopener noreferrer">
           GitHub Releases page
         </a>
         .
       </p>
+      <blockquote>
+        <strong>These are unsigned developer previews.</strong> Code-signing
+        certificates aren&rsquo;t provisioned yet, so macOS and Windows will
+        both object on first launch. Neither download is broken — the steps
+        below get you past it.
+      </blockquote>
       <table>
         <thead>
           <tr>
@@ -38,27 +44,62 @@ export default function GettingStartedPage() {
         </thead>
         <tbody>
           <tr>
-            <td>macOS (Apple Silicon + Intel)</td>
-            <td>.dmg (Universal)</td>
-            <td>Drag to Applications. Apple-notarized.</td>
+            <td>macOS (Apple Silicon)</td>
+            <td>.dmg (arm64)</td>
+            <td>Drag to Applications, then run the command below.</td>
+          </tr>
+          <tr>
+            <td>macOS (Intel)</td>
+            <td>—</td>
+            <td>
+              No Intel build is published yet. Current releases are arm64
+              only.
+            </td>
           </tr>
           <tr>
             <td>Windows 10 / 11</td>
             <td>.msi or .exe (NSIS)</td>
             <td>WebView2 installed automatically if absent.</td>
           </tr>
+          <tr>
+            <td>Linux</td>
+            <td>.deb or AppImage</td>
+            <td>x86_64. No signing step needed.</td>
+          </tr>
         </tbody>
       </table>
-      <blockquote>
-        <strong>macOS Gatekeeper:</strong> If you see "cannot be opened because
-        the developer cannot be verified", right-click the app and choose Open,
-        then confirm. This prompt only appears once.
-      </blockquote>
-      <blockquote>
-        <strong>Windows SmartScreen:</strong> Click "More info" → "Run anyway"
-        on first launch. SmartScreen reputation builds over time as more users
-        install the app.
-      </blockquote>
+
+      <h3>macOS: &ldquo;edytlab is damaged and can&rsquo;t be opened&rdquo;</h3>
+      <p>
+        The app is not damaged. macOS attaches a quarantine flag to anything
+        downloaded from the internet, and refuses to launch a quarantined app
+        that Apple hasn&rsquo;t notarized. Because the refusal is phrased as
+        damage, the dialog offers only <em>Move to Trash</em> — there is no
+        &ldquo;Open Anyway&rdquo; button to click, and right-click &rarr; Open
+        will not help either.
+      </p>
+      <p>Remove the flag after dragging the app to Applications:</p>
+      <pre>
+        <code>xattr -dr com.apple.quarantine /Applications/edytlab.app</code>
+      </pre>
+      <p>
+        Then open it normally. You only need to do this once per install. If
+        you see a milder &ldquo;unidentified developer&rdquo; message instead,
+        System Settings &rarr; Privacy &amp; Security &rarr;{" "}
+        <strong>Open Anyway</strong> is enough on its own.
+      </p>
+      <p>
+        This goes away once notarization is set up; until then every release
+        needs the command above.
+      </p>
+
+      <h3>Windows: SmartScreen</h3>
+      <p>
+        Click &ldquo;More info&rdquo; &rarr; &ldquo;Run anyway&rdquo; on first
+        launch. SmartScreen reputation is earned through download volume and
+        cannot be shortcut, so this warning persists until the installers are
+        signed.
+      </p>
 
       <h2>2. Get an API key</h2>
       <p>

@@ -118,17 +118,17 @@ export default function DocsPage() {
         <tbody>
           <tr>
             <td>macOS (Apple Silicon)</td>
-            <td>✅ Supported</td>
+            <td>✅ Supported (unsigned)</td>
             <td>macOS 11.0 (Big Sur)</td>
           </tr>
           <tr>
             <td>macOS (Intel)</td>
-            <td>✅ Supported</td>
+            <td>⚠️ No build published</td>
             <td>macOS 11.0 (Big Sur)</td>
           </tr>
           <tr>
             <td>Windows</td>
-            <td>✅ Supported</td>
+            <td>✅ Supported (unsigned)</td>
             <td>Windows 10 (with WebView2)</td>
           </tr>
           <tr>
