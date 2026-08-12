@@ -19,7 +19,7 @@ const steps = [
   {
     icon: FileDown,
     title: "3. Export",
-    body: "Pick the branch you like. Export to WAV, MP3, FLAC, or OGG with LUFS targeting. The session graph keeps every alternative.",
+    body: "Pick the branch you like. Export to WAV, or to FLAC for a lossless file about half the size. The session graph keeps every alternative.",
   },
 ];
 

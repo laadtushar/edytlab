@@ -475,7 +475,7 @@ const groups = [
       {
         name: "render_final",
         prompt: 'export to /Users/me/Desktop/final.wav',
-        what: "Render the full session to a WAV file at 16, 24, or 32-bit depth.",
+        what: "Render the full session to a 16-bit WAV or FLAC file. FLAC is lossless — identical audio, roughly half the size.",
         output: "path, duration_sec, peak_dbfs, sample_rate",
       },
       {
