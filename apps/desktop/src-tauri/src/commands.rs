@@ -16,7 +16,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use session::{NodeId, SessionNode, Store};
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 use tools::Range;
@@ -1532,6 +1532,29 @@ pub struct TrackSummary {
     pub pan: f32,
     pub soloed: bool,
     pub audio_path: Option<String>,
+    /// Clips in track order, with whatever the automation lane needs to
+    /// draw. Deliberately not the whole [`session::Clip`] — the clip
+    /// timeline (#103) will want source paths, stretch factors and
+    /// content hashes, and can widen this when it needs them.
+    pub clips: Vec<ClipSummary>,
+}
+
+/// One clip's placement and its volume automation, in seconds.
+///
+/// Seconds rather than samples because the lane draws against the
+/// waveform's time axis and `set_clip_envelope` already speaks seconds;
+/// converting in two places invites the two from drifting apart.
+#[derive(Debug, Clone, Serialize)]
+pub struct ClipSummary {
+    pub start_sec: f64,
+    pub length_sec: f64,
+    pub volume_envelope: Vec<EnvelopePointSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnvelopePointSummary {
+    pub time_sec: f64,
+    pub gain_db: f32,
 }
 
 /// Return one entry per track at the current session head. Used by
@@ -1544,11 +1567,28 @@ pub fn list_tracks(state: State<'_, AppState>) -> CmdResult<Vec<TrackSummary>> {
     let head = store.head().ok_or(CommandError::NoSession)?;
     let node = store.get(head).map_err(CommandError::from)?;
     drop(store);
+    let sr = node.state.sample_rate.max(1) as f64;
     Ok(node
         .state
         .tracks
         .into_iter()
         .map(|t| TrackSummary {
+            clips: t
+                .clips
+                .iter()
+                .map(|c| ClipSummary {
+                    start_sec: c.start_in_track as f64 / sr,
+                    length_sec: c.length as f64 / sr,
+                    volume_envelope: c
+                        .volume_envelope
+                        .iter()
+                        .map(|p| EnvelopePointSummary {
+                            time_sec: p.time_samples as f64 / sr,
+                            gain_db: p.gain_db,
+                        })
+                        .collect(),
+                })
+                .collect(),
             id: t.id.0.to_string(),
             name: t.name,
             muted: t.muted,
@@ -1736,6 +1776,75 @@ pub(crate) fn set_track_soloed_inner(
         state,
         "solo_track",
         serde_json::json!({ "track": track, "solo": soloed }),
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Volume automation (#95)
+// ---------------------------------------------------------------------------
+
+/// Range a drawn automation point may occupy, in dB.
+///
+/// Same reasoning as `GAIN_LIMIT_DB`: not a limit of the engine, a limit
+/// on what a drag is allowed to write. The floor is lower than the
+/// fader's because an automation curve's job includes ducking to
+/// silence, and -60 dB is not silence.
+const ENVELOPE_MIN_DB: f32 = -96.0;
+const ENVELOPE_MAX_DB: f32 = 12.0;
+
+/// Replace a clip's volume automation curve. Returns the new head.
+///
+/// Points are `(time_sec, gain_db)` measured from the clip's own start,
+/// which is the coordinate system `set_clip_envelope` the tool already
+/// uses. An empty list clears the curve.
+///
+/// Sorting is the tool's job and it already does it, so a caller that
+/// drags a point past its neighbour does not have to reorder first.
+#[tauri::command]
+pub fn set_clip_envelope(
+    state: State<'_, AppState>,
+    track: usize,
+    clip: usize,
+    points: Vec<EnvelopePointSummary>,
+) -> CmdResult<String> {
+    set_clip_envelope_inner(&state, track, clip, points)
+}
+
+pub(crate) fn set_clip_envelope_inner(
+    state: &AppState,
+    track: usize,
+    clip: usize,
+    points: Vec<EnvelopePointSummary>,
+) -> CmdResult<String> {
+    for p in &points {
+        if !p.time_sec.is_finite() || p.time_sec < 0.0 {
+            return Err(CommandError::InvalidTrackControl(format!(
+                "envelope times must be finite and >= 0; got {}",
+                p.time_sec
+            ))
+            .into());
+        }
+        if !p.gain_db.is_finite() || !(ENVELOPE_MIN_DB..=ENVELOPE_MAX_DB).contains(&p.gain_db) {
+            return Err(CommandError::InvalidTrackControl(format!(
+                "envelope gain must be finite and between {ENVELOPE_MIN_DB} and \
+                 {ENVELOPE_MAX_DB} dB; got {}",
+                p.gain_db
+            ))
+            .into());
+        }
+    }
+    let points: Vec<serde_json::Value> = points
+        .iter()
+        .map(|p| serde_json::json!({ "time_sec": p.time_sec, "gain_db": p.gain_db }))
+        .collect();
+    run_track_tool(
+        state,
+        "set_clip_envelope",
+        serde_json::json!({
+            "track_index": track,
+            "clip_index": clip,
+            "points": points,
+        }),
     )
 }
 
@@ -3339,6 +3448,153 @@ mod tests {
         let t = &head_tracks(&state)[0];
         assert_eq!(t.pan, 0.75);
         assert!(t.soloed);
+    }
+
+    // -----------------------------------------------------------------
+    // Volume automation (#95)
+    // -----------------------------------------------------------------
+
+    /// A track with one clip, so `set_clip_envelope` has something to
+    /// write to. The clip points at no real file — nothing here decodes
+    /// audio, and the envelope is clip metadata.
+    fn state_with_one_clip(tmp: &std::path::Path) -> AppState {
+        let state = state_with_tracks(tmp, 1);
+        let handle = state.store_handle().unwrap();
+        let mut store = handle.lock().unwrap();
+        let head = store.head().unwrap();
+        let mut session_state = store.get(head).unwrap().state;
+        session_state.tracks[0].clips.push(session::Clip {
+            source_path: tmp.join("clip.wav"),
+            start_in_track: 0,
+            source_offset: 0,
+            length: 48_000,
+            content_hash: None,
+            time_stretch_factor: None,
+            pitch_shift_semitones: None,
+            beat_grid: None,
+            volume_envelope: Vec::new(),
+        });
+        store
+            .append(session::SessionNode {
+                id: session::NodeId([0u8; 32]),
+                parent: None,
+                created_at: chrono::Utc::now(),
+                label: Some("clip fixture".into()),
+                reasoning: None,
+                state: session_state,
+            })
+            .unwrap();
+        drop(store);
+        state
+    }
+
+    fn head_envelope(state: &AppState) -> Vec<session::EnvelopePoint> {
+        head_tracks(state)[0].clips[0].volume_envelope.clone()
+    }
+
+    /// Points go in as seconds and come back as samples on the session's
+    /// own rate — the conversion the tool does. The fixture is 48 kHz.
+    #[test]
+    fn setting_an_envelope_appends_one_node_and_round_trips() {
+        let tmp = tempdir().unwrap();
+        let state = state_with_one_clip(tmp.path());
+        let before = node_count(&state);
+
+        set_clip_envelope_inner(
+            &state,
+            0,
+            0,
+            vec![
+                EnvelopePointSummary {
+                    time_sec: 0.5,
+                    gain_db: -6.0,
+                },
+                EnvelopePointSummary {
+                    time_sec: 0.0,
+                    gain_db: 0.0,
+                },
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(node_count(&state), before + 1, "one gesture, one node");
+        let env = head_envelope(&state);
+        assert_eq!(env.len(), 2);
+        // Sorted on the way in, so a point dragged past its neighbour
+        // does not need the caller to reorder first.
+        assert_eq!(env[0].time_samples, 0);
+        assert_eq!(env[0].gain_db, 0.0);
+        assert_eq!(env[1].time_samples, 24_000);
+        assert_eq!(env[1].gain_db, -6.0);
+    }
+
+    #[test]
+    fn an_empty_point_list_clears_the_curve() {
+        let tmp = tempdir().unwrap();
+        let state = state_with_one_clip(tmp.path());
+        set_clip_envelope_inner(
+            &state,
+            0,
+            0,
+            vec![EnvelopePointSummary {
+                time_sec: 0.1,
+                gain_db: -3.0,
+            }],
+        )
+        .unwrap();
+        assert_eq!(head_envelope(&state).len(), 1);
+
+        set_clip_envelope_inner(&state, 0, 0, Vec::new()).unwrap();
+        assert!(head_envelope(&state).is_empty());
+    }
+
+    /// Out-of-range input is refused at the command, and a refused call
+    /// leaves the curve alone.
+    #[test]
+    fn envelope_values_are_validated_before_anything_is_written() {
+        let tmp = tempdir().unwrap();
+        let state = state_with_one_clip(tmp.path());
+        let before = node_count(&state);
+
+        for bad in [200.0f32, -300.0, f32::NAN] {
+            let err = set_clip_envelope_inner(
+                &state,
+                0,
+                0,
+                vec![EnvelopePointSummary {
+                    time_sec: 0.0,
+                    gain_db: bad,
+                }],
+            )
+            .expect_err("gain out of range should be refused");
+            assert!(err.contains("envelope gain"), "got: {err}");
+        }
+
+        let err = set_clip_envelope_inner(
+            &state,
+            0,
+            0,
+            vec![EnvelopePointSummary {
+                time_sec: -1.0,
+                gain_db: 0.0,
+            }],
+        )
+        .expect_err("negative time should be refused");
+        assert!(err.contains("envelope times"), "got: {err}");
+
+        assert_eq!(node_count(&state), before, "a refused call wrote a node");
+        assert!(head_envelope(&state).is_empty());
+    }
+
+    /// The tool's own range check has to reach the user rather than
+    /// returning the unchanged head as if it had worked.
+    #[test]
+    fn a_bad_clip_index_is_an_error() {
+        let tmp = tempdir().unwrap();
+        let state = state_with_one_clip(tmp.path());
+        let err =
+            set_clip_envelope_inner(&state, 0, 9, Vec::new()).expect_err("clip 9 does not exist");
+        assert!(err.contains("clip_index"), "got: {err}");
     }
 
     #[test]

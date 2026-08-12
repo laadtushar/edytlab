@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import type { Marker, TrackSummary } from "./lib/tauri-bridge";
+import type { EnvelopePoint, Marker, TrackSummary } from "./lib/tauri-bridge";
 import {
   addMarker,
   getNode,
@@ -25,6 +25,7 @@ import {
   removeMarker,
   renderRange,
   setHeadTo,
+  setClipEnvelope,
   setSelectionContext,
   setTrackGain,
   setTrackMuted,
@@ -333,6 +334,14 @@ function App() {
       void commitTrackChange(() => setTrackMuted(index, muted)),
     [commitTrackChange],
   );
+  const handleClipEnvelopeChange = useCallback(
+    (trackIndex: number, clipIndex: number, points: EnvelopePoint[]) =>
+      void commitTrackChange(() =>
+        setClipEnvelope(trackIndex, clipIndex, points),
+      ),
+    [commitTrackChange],
+  );
+
   const handleTrackSoloChange = useCallback(
     (index: number, soloed: boolean) =>
       void commitTrackChange(() => setTrackSoloed(index, soloed)),
@@ -589,11 +598,13 @@ function App() {
                       gainDb: t.gain_db,
                       pan: t.pan,
                       soloed: t.soloed,
+                      clips: t.clips,
                     }))}
                   onTrackGainChange={handleTrackGainChange}
                   onTrackPanChange={handleTrackPanChange}
                   onTrackMuteChange={handleTrackMuteChange}
                   onTrackSoloChange={handleTrackSoloChange}
+                  onClipEnvelopeChange={handleClipEnvelopeChange}
                   onFileDropped={() => undefined}
                   selection={selection}
                   onSelectionChange={handleSelectionChange}

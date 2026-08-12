@@ -19,10 +19,11 @@ use crate::commands::{
     list_providers, list_skills, list_templates, list_tracks, open_project, prepare_compare,
     read_agent_profile, read_mcp_server, read_memory, read_skill, remove_marker, rename_node,
     render_preview, render_range, restart_mcp_server, send_message, set_active_agent_profile,
-    set_active_model, set_active_provider, set_api_key, set_api_key_for, set_head_to,
-    set_selection_context, set_track_gain, set_track_muted, set_track_pan, set_track_soloed,
-    start_recording, stop_recording, test_api_key, test_api_key_for, try_load_api_key_at_startup,
-    upsert_agent_profile, upsert_mcp_server, upsert_skill, write_memory, RecorderState,
+    set_active_model, set_active_provider, set_api_key, set_api_key_for, set_clip_envelope,
+    set_head_to, set_selection_context, set_track_gain, set_track_muted, set_track_pan,
+    set_track_soloed, start_recording, stop_recording, test_api_key, test_api_key_for,
+    try_load_api_key_at_startup, upsert_agent_profile, upsert_mcp_server, upsert_skill,
+    write_memory, RecorderState,
 };
 use crate::state::AppState;
 use std::sync::{Arc, Mutex};
@@ -196,6 +197,7 @@ pub fn run() {
             set_track_pan,
             set_track_muted,
             set_track_soloed,
+            set_clip_envelope,
             set_head_to,
             rename_node,
             list_capabilities,
