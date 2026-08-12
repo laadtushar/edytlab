@@ -84,19 +84,20 @@ impl ToolDispatcher {
     pub fn default_dispatcher() -> Self {
         use crate::tool::{
             AddTrackTool, AlignToBeatTool, AnalyzeTrackTool, ApplyDiffTool, ChangeSpeedTool,
-            ClickRemovalTool, CompareNodesTool, CompressorTool, CopyRegionTool, CutRangeTool,
-            DeEsserTool, DistortionTool, DuplicateTrackTool, EchoTool, EqTool, ExportLabelsTool,
-            ExportMultipleTool, FadeTool, ForkNodeTool, GainTool, GenerateNoiseTool,
-            GenerateToneTool, HighPassFilterTool, ImportLabelsTool, InsertSilenceTool, InvertTool,
-            LabelTool, LevelerTool, LimiterTool, LoadTool, LowPassFilterTool, MixToNewTrackTool,
-            MonoToStereoTool, MuteTrackTool, NameNodeTool, NoiseGateTool, NoiseReductionTool,
-            NormalizeTool, NotchFilterTool, PasteRegionTool, PhaserTool, PitchShiftTool,
-            PlotSpectrumTool, RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
-            RepeatSelectionTool, ResampleTrackTool, ReverbTool, ReverseTool, RevertToTool,
-            SeparateStemsTool, SetClipEnvelopeTool, SetPanTool, SetTrackGainTool,
-            SilenceFinderTool, SilenceRegionTool, SoloTrackTool, SplitClipTool, StereoToMonoTool,
-            StereoWidenerTool, TimeShiftTool, TimeStretchTool, TranscribeTool, TremoloTool,
-            TrimTool, TruncateSilenceTool, VocalReductionTool,
+            ClickRemovalTool, CompareNodesTool, CompressorTool, CopyRegionTool, CreateBusTool,
+            CutRangeTool, DeEsserTool, DistortionTool, DuplicateTrackTool, EchoTool, EqTool,
+            ExportLabelsTool, ExportMultipleTool, FadeTool, ForkNodeTool, GainTool,
+            GenerateNoiseTool, GenerateToneTool, HighPassFilterTool, ImportLabelsTool,
+            InsertSilenceTool, InvertTool, LabelTool, LevelerTool, LimiterTool, LoadTool,
+            LowPassFilterTool, MixToNewTrackTool, MonoToStereoTool, MuteTrackTool, NameNodeTool,
+            NoiseGateTool, NoiseReductionTool, NormalizeTool, NotchFilterTool, PasteRegionTool,
+            PhaserTool, PitchShiftTool, PlotSpectrumTool, RemoveSendTool, RemoveTrackTool,
+            RenameTrackTool, RenderFinalTool, RenderPreviewTool, RepeatSelectionTool,
+            ResampleTrackTool, ReverbTool, ReverseTool, RevertToTool, SeparateStemsTool,
+            SetClipEnvelopeTool, SetPanTool, SetSendTool, SetTrackGainTool, SilenceFinderTool,
+            SilenceRegionTool, SoloTrackTool, SplitClipTool, StereoToMonoTool, StereoWidenerTool,
+            TimeShiftTool, TimeStretchTool, TranscribeTool, TremoloTool, TrimTool,
+            TruncateSilenceTool, VocalReductionTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -111,6 +112,9 @@ impl ToolDispatcher {
         d.register(Box::new(PitchShiftTool));
         d.register(Box::new(AlignToBeatTool));
         d.register(Box::new(AddTrackTool));
+        d.register(Box::new(CreateBusTool));
+        d.register(Box::new(SetSendTool));
+        d.register(Box::new(RemoveSendTool));
         d.register(Box::new(RemoveTrackTool));
         d.register(Box::new(SetTrackGainTool));
         d.register(Box::new(RenderPreviewTool));

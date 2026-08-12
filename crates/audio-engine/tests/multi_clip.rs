@@ -73,6 +73,7 @@ fn session_with(clips: Vec<Clip>) -> SessionState {
             muted: false,
             soloed: false,
             effects: Vec::<EffectInstance>::new(),
+            sends: Vec::new(),
         }],
         bus_routing: BusGraph::default(),
         master_chain: Vec::new(),

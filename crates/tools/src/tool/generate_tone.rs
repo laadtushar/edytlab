@@ -128,6 +128,7 @@ impl Tool for GenerateToneTool {
             muted: false,
             soloed: false,
             effects: vec![],
+            sends: Vec::new(),
         });
         state.length_samples = state.length_samples.max(n_frames);
         let new_id = match append_state(

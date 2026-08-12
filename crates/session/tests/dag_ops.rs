@@ -52,6 +52,7 @@ fn track(name: &str) -> Track {
         muted: false,
         soloed: false,
         effects: Vec::new(),
+        sends: Vec::new(),
     }
 }
 

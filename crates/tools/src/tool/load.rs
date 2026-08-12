@@ -109,6 +109,7 @@ impl Tool for LoadTool {
             muted: false,
             soloed: false,
             effects: Vec::new(),
+            sends: Vec::new(),
         };
 
         // If there's already a head, append; otherwise create a fresh session.

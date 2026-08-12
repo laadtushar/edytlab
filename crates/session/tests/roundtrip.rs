@@ -10,8 +10,8 @@ use std::path::PathBuf;
 
 use chrono::TimeZone;
 use session::{
-    Bus, BusGraph, Clip, EffectInstance, KeyMap, KeySegment, NodeId, SessionNode, SessionState,
-    TempoMap, TempoSegment, Track, TrackId, Transcript, TranscriptWord,
+    Bus, BusGraph, Clip, EffectInstance, KeyMap, KeySegment, NodeId, Send, SessionNode,
+    SessionState, TempoMap, TempoSegment, Track, TrackId, Transcript, TranscriptWord,
 };
 use uuid::Uuid;
 
@@ -43,6 +43,12 @@ fn fixture() -> SessionNode {
                 params: serde_json::json!({ "db": -3.0 }),
                 bypassed: false,
             }],
+            // Deliberately empty: `sends` is `skip_serializing_if` empty,
+            // so a session written before buses existed must serialise
+            // byte-identically. The snapshot below is that proof, and it
+            // only holds if this fixture stays send-free. Send
+            // round-tripping is covered separately.
+            sends: vec![],
         }],
         bus_routing: BusGraph {
             buses: vec![Bus {
@@ -120,4 +126,42 @@ fn snapshot_roundtrips_byte_equal() {
     let parsed: SessionNode = serde_json::from_str(&on_disk).unwrap();
     let reserialized = serde_json::to_string_pretty(&parsed).unwrap();
     assert_eq!(reserialized, on_disk, "roundtrip not byte-equal");
+}
+
+/// `sends` is a schema addition, so both directions matter: a session
+/// with sends must survive a round trip, and one without must serialise
+/// as though the field never existed (which the snapshot above pins).
+#[test]
+fn sends_round_trip_and_stay_absent_when_empty() {
+    let bus_id = Uuid::parse_str("66666666-7777-8888-9999-aaaaaaaaaaaa").unwrap();
+    let mut state = fixture().state;
+    state.tracks[0].sends = vec![Send {
+        bus_id,
+        level_db: -6.0,
+    }];
+
+    let json = serde_json::to_string(&state).expect("serialise");
+    assert!(json.contains("sends"), "a non-empty sends list must appear");
+
+    let back: SessionState = serde_json::from_str(&json).expect("deserialise");
+    assert_eq!(back.tracks[0].sends.len(), 1);
+    assert_eq!(back.tracks[0].sends[0].bus_id, bus_id);
+    assert_eq!(back.tracks[0].sends[0].level_db, -6.0);
+
+    state.tracks[0].sends.clear();
+    let empty = serde_json::to_string(&state).expect("serialise");
+    assert!(
+        !empty.contains("sends"),
+        "an empty sends list must not appear at all, or every session \
+         file written before buses existed changes on the next save"
+    );
+}
+
+/// A session file predating the field must load.
+#[test]
+fn a_session_without_sends_still_loads() {
+    let json = serde_json::to_string(&fixture().state).expect("serialise");
+    assert!(!json.contains("sends"), "fixture should have no sends");
+    let back: SessionState = serde_json::from_str(&json).expect("deserialise");
+    assert!(back.tracks[0].sends.is_empty());
 }

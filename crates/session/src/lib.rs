@@ -19,8 +19,8 @@ pub use diff::{
 };
 pub use node::{NodeId, SessionNode};
 pub use state::{
-    Bus, BusGraph, Clip, EffectInstance, EnvelopePoint, KeyMap, KeySegment, SessionState, TempoMap,
-    TempoSegment, Track, TrackId, Transcript, TranscriptWord,
+    Bus, BusGraph, Clip, EffectInstance, EnvelopePoint, KeyMap, KeySegment, Send, SessionState,
+    TempoMap, TempoSegment, Track, TrackId, Transcript, TranscriptWord,
 };
 pub use store::Store;
 

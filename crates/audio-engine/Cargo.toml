@@ -43,6 +43,8 @@ hound = "3.5"
 
 [dev-dependencies]
 audio-decoder = { path = "../audio-decoder" }
+uuid = { version = "1", features = ["v4"] }
+serde_json = "1"
 hound = "3.5"
 # M21: FFT-based spectral assertions for the multi-track mix tests
 # (sum-of-tones must show both peaks). `realfft` is the workspace-blessed

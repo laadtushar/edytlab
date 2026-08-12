@@ -145,6 +145,7 @@ impl Tool for GenerateNoiseTool {
             muted: false,
             soloed: false,
             effects: vec![],
+            sends: Vec::new(),
         });
         state.length_samples = state.length_samples.max(n_frames);
         let new_id = match append_state(

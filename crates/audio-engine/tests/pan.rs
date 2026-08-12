@@ -63,6 +63,7 @@ fn session_with_pan(source: &Path, pan: f32) -> SessionState {
             muted: false,
             soloed: false,
             effects: Vec::<EffectInstance>::new(),
+            sends: Vec::new(),
         }],
         bus_routing: BusGraph::default(),
         master_chain: Vec::new(),

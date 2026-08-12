@@ -163,6 +163,7 @@ impl Tool for MixToNewTrackTool {
             muted: false,
             soloed: false,
             effects: vec![],
+            sends: Vec::new(),
         });
         new_state.length_samples = new_state.length_samples.max(n_frames);
 
