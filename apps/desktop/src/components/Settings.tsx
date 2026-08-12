@@ -50,6 +50,7 @@ export const OPENROUTER_KEYS_URL = "https://openrouter.ai/keys";
 export const OPENAI_KEYS_URL = "https://platform.openai.com/api-keys";
 export const GROQ_KEYS_URL = "https://console.groq.com/keys";
 export const GEMINI_KEYS_URL = "https://aistudio.google.com/apikey";
+export const OLLAMA_DOCS_URL = "https://ollama.com/download";
 
 const DEFAULT_MODEL_BY_PROVIDER: Record<ProviderId, string> = {
   anthropic: "claude-sonnet-4-6",
@@ -57,6 +58,7 @@ const DEFAULT_MODEL_BY_PROVIDER: Record<ProviderId, string> = {
   openai: "gpt-4o-mini",
   groq: "llama-3.3-70b-versatile",
   gemini: "gemini-2.0-flash",
+  ollama: "llama3.2",
 };
 
 const PROVIDERS: ReadonlyArray<{
@@ -64,6 +66,13 @@ const PROVIDERS: ReadonlyArray<{
   label: string;
   keyPlaceholder: string;
   keysUrl: string;
+  /**
+   * Providers that authenticate. A local daemon does not, and the
+   * key field is hidden for it — mirrors `LlmProvider::requires_api_key`
+   * on the Rust side, which is what actually gates saving and agent
+   * construction.
+   */
+  needsKey?: boolean;
 }> = [
   {
     id: "anthropic",
@@ -94,6 +103,13 @@ const PROVIDERS: ReadonlyArray<{
     label: "Google Gemini",
     keyPlaceholder: "AIza...",
     keysUrl: GEMINI_KEYS_URL,
+  },
+  {
+    id: "ollama",
+    label: "Ollama (local)",
+    keyPlaceholder: "",
+    keysUrl: OLLAMA_DOCS_URL,
+    needsKey: false,
   },
 ];
 
@@ -146,6 +162,14 @@ export function Settings({
     }
     return DEFAULT_PROVIDER;
   });
+  /**
+   * Whether the selected provider authenticates. Mirrors
+   * `LlmProvider::requires_api_key` on the Rust side, which is what
+   * actually gates saving and agent construction — this only controls
+   * what the form asks for.
+   */
+  const needsKey = PROVIDERS.find((p) => p.id === provider)?.needsKey !== false;
+
   const [model, setModel] = useState<string>(() => readStoredModel(provider));
   const [test, setTest] = useState<TestState>({ kind: "idle" });
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -223,7 +247,10 @@ export function Settings({
   );
 
   const handleSave = useCallback(async () => {
-    if (!key.trim() || saving) return;
+    // A keyless provider saves an empty string — that is how the UI
+    // says "make this one active". Requiring a key here is what kept a
+    // local daemon unselectable.
+    if ((needsKey && !key.trim()) || saving) return;
     setSaving(true);
     setSaveError(null);
     try {
@@ -243,10 +270,12 @@ export function Settings({
     } finally {
       setSaving(false);
     }
-  }, [key, provider, model, saving, onSaved]);
+  }, [key, needsKey, provider, model, saving, onSaved]);
 
   const handleTest = useCallback(async () => {
-    if (!key.trim()) return;
+    // Testing a keyless provider is a reachability check, so an empty
+    // key is the expected input rather than a reason to bail.
+    if (needsKey && !key.trim()) return;
     setTest({ kind: "running" });
     try {
       await testApiKeyFor(provider, key);
@@ -254,7 +283,7 @@ export function Settings({
     } catch (err) {
       setTest({ kind: "err", message: String(err) });
     }
-  }, [key, provider]);
+  }, [key, needsKey, provider]);
 
   const handleClear = useCallback(async () => {
     try {
@@ -284,8 +313,8 @@ export function Settings({
   const activeProviderEntry =
     PROVIDERS.find((p) => p.id === provider) ?? PROVIDERS[0];
 
-  const saveDisabled = !key.trim() || saving;
-  const testDisabled = !key.trim() || test.kind === "running";
+  const saveDisabled = (needsKey && !key.trim()) || saving;
+  const testDisabled = (needsKey && !key.trim()) || test.kind === "running";
 
   const containerClass =
     mode === "blocking"
@@ -524,6 +553,8 @@ export function Settings({
             </div>
           </fieldset>
 
+          {needsKey ? (
+            <>
           <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-faint)]">
             {activeProviderEntry.label} API key
           </label>
@@ -551,6 +582,23 @@ export function Settings({
               focus:shadow-[0_0_0_3px_var(--accent-soft)]
             "
           />
+
+            </>
+          ) : (
+            <p
+              data-testid="settings-no-key-needed"
+              className="mb-3 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs text-[var(--text-dim)]"
+            >
+              Ollama runs on your machine and needs no API key. Start it with{" "}
+              <code className="font-mono text-[var(--text)]">ollama serve</code>{" "}
+              and pull a model &mdash;{" "}
+              <code className="font-mono text-[var(--text)]">
+                ollama pull llama3.2
+              </code>
+              . Press Save to make it active. Note that tool calling is
+              per-model, and a model without it will fail on the first edit.
+            </p>
+          )}
 
           <div className="mb-3 flex items-center justify-between text-xs">
             <a

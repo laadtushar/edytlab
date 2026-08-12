@@ -50,7 +50,13 @@ export const openProject = (path: string): Promise<ProjectInfo> =>
 export const sendMessage = (text: string, disabledTools?: string[]): Promise<void> =>
   invoke<void>("send_message", { text, disabledTools: disabledTools ?? [] });
 
-export type ProviderId = "anthropic" | "openrouter" | "openai" | "groq" | "gemini";
+export type ProviderId =
+  | "anthropic"
+  | "openrouter"
+  | "openai"
+  | "groq"
+  | "gemini"
+  | "ollama";
 
 export interface ModelInfo {
   id: string;
