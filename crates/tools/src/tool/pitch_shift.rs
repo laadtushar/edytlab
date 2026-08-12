@@ -37,7 +37,7 @@ impl Tool for PitchShiftTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "pitch_shift",
-            "Shift a track's pitch in semitones without changing its duration. +12 is one octave up, -12 one octave down; the range is +/-48. `preserve_formants` is accepted but not yet honoured, so a large shift on a voice sounds like the classic chipmunk or giant rather than the same person singing higher. Quality is a phase vocoder's: sustained material is clean and sharp transients smear. Appends a new session node.",
+            "Shift a track's pitch in semitones without changing its duration. +12 is one octave up, -12 one octave down; the range is +/-48. `preserve_formants` is accepted but not yet honoured, so a large shift on a voice sounds like the classic chipmunk or giant rather than the same person singing higher. Quality is a phase vocoder's: sustained material is clean and attacks are preserved by onset-triggered phase resets, though dense material can sound slightly phasey. Appends a new session node.",
             object_schema(&[
                 ("track", "integer", true),
                 ("semitones", "number", true),

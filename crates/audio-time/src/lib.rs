@@ -14,12 +14,14 @@
 //! these functions returned `NotImplemented` for long enough that the
 //! tools above them started reporting success they had not earned.
 //!
-//! The vocoder is worse than Rubber Band and available everywhere. It
-//! has no transient preservation and no phase locking, so sustained
-//! material comes through cleanly while sharp attacks smear; large
-//! factors make that worse. `preserve_formants` is accepted and ignored.
-//! All three limits are documented on the functions themselves, and none
-//! of them requires a public API change to fix.
+//! The vocoder is worse than Rubber Band and available everywhere.
+//! Onsets are detected by spectral flux and the synthesis phase is reset
+//! on them, so attacks survive a stretch rather than smearing across the
+//! window. There is still no phase locking across bins, so dense
+//! material keeps some "phasiness", and large factors make that worse.
+//! `preserve_formants` is accepted and ignored. Both remaining limits
+//! are documented on the functions themselves, and neither requires a
+//! public API change to fix.
 //!
 //! See `vocoder.rs` for how it works.
 
