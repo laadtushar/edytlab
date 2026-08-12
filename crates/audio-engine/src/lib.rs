@@ -17,6 +17,7 @@
 
 pub mod encode;
 pub mod graph;
+pub mod master_chain;
 pub mod mixer;
 pub mod render;
 
@@ -35,6 +36,13 @@ pub enum Error {
     NoClip,
     #[error("track effects are not supported in Phase 1")]
     EffectsUnsupportedInPhase1,
+    #[error(
+        "master effect '{0}' exists but cannot run at render time yet — it needs \
+         state that survives a chunk boundary. Apply it destructively instead."
+    )]
+    MasterEffectNotStreamable(String),
+    #[error("unknown master effect '{0}'")]
+    UnknownMasterEffect(String),
     #[error("render range end is before start")]
     InvalidRange,
     #[error("unsupported channel map: source has {from} channels, render target has {to}")]
