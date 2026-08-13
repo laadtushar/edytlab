@@ -21,7 +21,7 @@ pub mod master_chain;
 pub mod mixer;
 pub mod render;
 
-pub use encode::{write_flac, write_wav};
+pub use encode::{write_flac, write_mp3, write_wav, MP3_DEFAULT_KBPS};
 
 use std::path::Path;
 

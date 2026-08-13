@@ -10,6 +10,9 @@ publish = false
 workspace = true
 
 [dependencies]
+# Pure-Rust MP3 encoder (Apache-2.0). No C, no build script, and it
+# locks exactly one package — itself. See #93 for the spike.
+rusty_mp3 = "0.7"
 audio-decoder = { path = "../audio-decoder" }
 # The point of extracting `audio-dsp`: render-time effects run here, and
 # the algorithms used to be unreachable from this crate. See #101.

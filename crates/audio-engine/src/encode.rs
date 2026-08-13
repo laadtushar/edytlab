@@ -124,3 +124,77 @@ pub fn write_flac(samples: &[f32], sample_rate: u32, channels: u16, out: &Path) 
     enc.finalize().map_err(|e| Error::Encode(e.to_string()))?;
     Ok(())
 }
+
+/// Default MP3 bitrate, in kbps.
+///
+/// 192 CBR is the "obviously fine" setting: transparent enough for
+/// delivery on most material, universally decodable, and unambiguous in
+/// a way a VBR quality index is not when someone reads it back later.
+pub const MP3_DEFAULT_KBPS: u32 = 192;
+
+/// Write interleaved `samples` to an MP3 at `out`.
+///
+/// `bitrate_kbps` is a CBR target, snapped by the encoder to the nearest
+/// valid Layer III value. `None` uses [`MP3_DEFAULT_KBPS`].
+///
+/// Unlike [`write_wav`] and [`write_flac`], this one is **lossy**, so
+/// none of the byte-identity guarantees in the module docs apply to it.
+/// It quantises through the same [`quantise`] so what the encoder sees
+/// is exactly what the other two would have written, but what comes back
+/// out is a psychoacoustic approximation and the round-trip test asserts
+/// a tolerance rather than equality.
+///
+/// The encoder is `rusty_mp3` — pure Rust, Apache-2.0, no C and no build
+/// script. That mattered: this export sat unimplemented because the
+/// obvious path was LAME through FFI, which means a native dependency on
+/// three CI targets and an LGPL interaction with this repo's MIT.
+pub fn write_mp3(
+    samples: &[f32],
+    sample_rate: u32,
+    channels: u16,
+    bitrate_kbps: Option<u32>,
+    out: &Path,
+) -> Result<()> {
+    use rusty_mp3::{Mp3Encoder, Mp3EncoderConfig};
+
+    if channels == 0 {
+        return Err(Error::UnsupportedChannelMap { from: 0, to: 2 });
+    }
+
+    let mut enc = Mp3Encoder::new(Mp3EncoderConfig {
+        bitrate_kbps: bitrate_kbps.unwrap_or(MP3_DEFAULT_KBPS),
+        vbr_quality: None,
+    });
+
+    // Round-trip through the 16-bit grid the other two encoders write,
+    // so "export the same render as WAV and as MP3" starts from the same
+    // numbers rather than from the float mix in one case and the
+    // quantised mix in the other.
+    let quantised: Vec<f32> = samples
+        .iter()
+        .map(|&s| quantise(s) as f32 / 32_768.0)
+        .collect();
+
+    enc.push_pcm_f32(&quantised, channels, sample_rate)
+        .map_err(|e| Error::Encode(format!("mp3 encode: {e:?}")))?;
+
+    let mut bytes: Vec<u8> = Vec::new();
+    // `next_packet` returns `Err(Again)` when it wants more PCM and
+    // `Err(Eof)` once finished and drained, so draining to the first
+    // error is the documented shape both before and after `finish`.
+    while let Ok(p) = enc.next_packet() {
+        bytes.extend_from_slice(&p);
+    }
+    enc.finish();
+    while let Ok(p) = enc.next_packet() {
+        bytes.extend_from_slice(&p);
+    }
+
+    if bytes.is_empty() {
+        return Err(Error::Encode(
+            "mp3 encoder produced no frames — the input may be shorter than one frame".into(),
+        ));
+    }
+    std::fs::write(out, &bytes)?;
+    Ok(())
+}
