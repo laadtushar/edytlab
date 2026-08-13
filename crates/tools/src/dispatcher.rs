@@ -89,15 +89,15 @@ impl ToolDispatcher {
             ExportLabelsTool, ExportMultipleTool, FadeTool, ForkNodeTool, GainTool,
             GenerateNoiseTool, GenerateToneTool, HighPassFilterTool, ImportLabelsTool,
             InsertSilenceTool, InvertTool, LabelTool, LevelerTool, LimiterTool, LoadTool,
-            LowPassFilterTool, MixToNewTrackTool, MonoToStereoTool, MuteTrackTool, NameNodeTool,
-            NoiseGateTool, NoiseReductionTool, NormalizeLoudnessTool, NormalizeTool,
+            LowPassFilterTool, MixToNewTrackTool, MonoToStereoTool, MoveClipTool, MuteTrackTool,
+            NameNodeTool, NoiseGateTool, NoiseReductionTool, NormalizeLoudnessTool, NormalizeTool,
             NotchFilterTool, PasteRegionTool, PhaserTool, PitchShiftTool, PlotSpectrumTool,
-            RemoveSendTool, RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
-            RepeatSelectionTool, ResampleTrackTool, ReverbTool, ReverseTool, RevertToTool,
-            SeparateStemsTool, SetClipEnvelopeTool, SetPanTool, SetSendTool, SetTrackGainTool,
-            SilenceFinderTool, SilenceRegionTool, SoloTrackTool, SplitClipTool, StereoToMonoTool,
-            StereoWidenerTool, TimeShiftTool, TimeStretchTool, TranscribeTool, TremoloTool,
-            TrimTool, TruncateSilenceTool, VocalReductionTool,
+            RemoveClipTool, RemoveSendTool, RemoveTrackTool, RenameTrackTool, RenderFinalTool,
+            RenderPreviewTool, RepeatSelectionTool, ResampleTrackTool, ReverbTool, ReverseTool,
+            RevertToTool, SeparateStemsTool, SetClipEnvelopeTool, SetPanTool, SetSendTool,
+            SetTrackGainTool, SilenceFinderTool, SilenceRegionTool, SoloTrackTool, SplitClipTool,
+            StereoToMonoTool, StereoWidenerTool, TimeShiftTool, TimeStretchTool, TranscribeTool,
+            TremoloTool, TrimTool, TruncateSilenceTool, VocalReductionTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -169,6 +169,9 @@ impl ToolDispatcher {
         d.register(Box::new(SoloTrackTool));
         // A1 task 8: split_clip.
         d.register(Box::new(SplitClipTool));
+        // #103: single-clip placement and deletion.
+        d.register(Box::new(MoveClipTool));
+        d.register(Box::new(RemoveClipTool));
         // A1 task 9: biquad filters.
         d.register(Box::new(HighPassFilterTool));
         d.register(Box::new(LowPassFilterTool));

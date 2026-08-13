@@ -795,6 +795,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "low_pass_filter",
             "mix_to_new_track",
             "mono_to_stereo",
+            "move_clip",
             "mute_track",
             "name_node",
             "noise_gate",
@@ -806,6 +807,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "phaser",
             "pitch_shift",
             "plot_spectrum",
+            "remove_clip",
             "remove_send",
             "remove_track",
             "rename_track",
@@ -2154,4 +2156,253 @@ fn normalize_loudness_rejects_absurd_targets() {
         msg.contains("-14") || msg.contains("<= 0"),
         "a positive target should be rejected with guidance: {msg}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// move_clip / remove_clip — single-clip placement (#103)
+// ---------------------------------------------------------------------------
+
+/// Load a 1 s file and cut an interior range, which leaves two clips.
+/// Returns the head after the cut.
+fn two_clip_session(dispatcher: &ToolDispatcher, ctx: &mut ToolContext, tmp: &Path) -> String {
+    let src = write_sine_wav(tmp, "in.wav", 0.5);
+    ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), ctx)
+        .unwrap());
+    let res = ok(dispatcher
+        .invoke(
+            "cut_range",
+            json!({
+                "track": 0,
+                "start_sample": SAMPLE_RATE as u64 / 4,
+                "end_sample": SAMPLE_RATE as u64 / 2,
+            }),
+            ctx,
+        )
+        .unwrap());
+    res["node_id"].as_str().unwrap().to_string()
+}
+
+fn clips_at_head(store: &session::Store) -> Vec<session::Clip> {
+    let head = store.head().expect("head");
+    store.get(head).expect("node").state.tracks[0].clips.clone()
+}
+
+#[test]
+fn move_clip_moves_one_clip_and_leaves_the_others() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let mut clipboard: Option<Vec<f32>> = None;
+    {
+        let mut ctx = ToolContext {
+            store: &mut store,
+            engine: &mut engine,
+            user_message: "",
+            clipboard: &mut clipboard,
+        };
+        two_clip_session(&dispatcher, &mut ctx, tmp.path());
+    }
+    let before = clips_at_head(&store);
+    assert!(
+        before.len() >= 2,
+        "the fixture needs an interior cut to produce two clips; got {}",
+        before.len()
+    );
+    let first_start = before[0].start_in_track;
+
+    {
+        let mut ctx = ToolContext {
+            store: &mut store,
+            engine: &mut engine,
+            user_message: "",
+            clipboard: &mut clipboard,
+        };
+        ok(dispatcher
+            .invoke(
+                "move_clip",
+                json!({ "track": 0, "clip_index": 1, "start_sec": 5.0 }),
+                &mut ctx,
+            )
+            .unwrap());
+    }
+
+    let after = clips_at_head(&store);
+    assert_eq!(
+        after.len(),
+        before.len(),
+        "moving must not add or drop clips"
+    );
+    assert_eq!(
+        after[0].start_in_track, first_start,
+        "the other clip must not move — that is what time_shift is for"
+    );
+    assert_eq!(after[1].start_in_track, 5 * SAMPLE_RATE as u64);
+}
+
+/// The session's length is the furthest clip end, so dragging a clip
+/// out to 5 s makes the timeline longer. Leaving it stale would make a
+/// render stop before the clip the user just placed.
+#[test]
+fn moving_a_clip_later_extends_the_session_length() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let mut clipboard: Option<Vec<f32>> = None;
+    {
+        let mut ctx = ToolContext {
+            store: &mut store,
+            engine: &mut engine,
+            user_message: "",
+            clipboard: &mut clipboard,
+        };
+        two_clip_session(&dispatcher, &mut ctx, tmp.path());
+        ok(dispatcher
+            .invoke(
+                "move_clip",
+                json!({ "track": 0, "clip_index": 1, "start_sec": 5.0 }),
+                &mut ctx,
+            )
+            .unwrap());
+    }
+    let head = store.head().unwrap();
+    let state = store.get(head).unwrap().state;
+    let furthest = state
+        .tracks
+        .iter()
+        .flat_map(|t| t.clips.iter().map(|c| c.start_in_track + c.length))
+        .max()
+        .unwrap();
+    assert_eq!(state.length_samples, furthest);
+    assert!(state.length_samples > 5 * SAMPLE_RATE as u64);
+}
+
+/// Clips are rendered and drawn in vector order, so a clip dragged
+/// before its neighbour has to be reordered — otherwise the session is
+/// right and the waveform is wrong.
+#[test]
+fn a_clip_dragged_before_its_neighbour_is_reordered() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let mut clipboard: Option<Vec<f32>> = None;
+    {
+        let mut ctx = ToolContext {
+            store: &mut store,
+            engine: &mut engine,
+            user_message: "",
+            clipboard: &mut clipboard,
+        };
+        two_clip_session(&dispatcher, &mut ctx, tmp.path());
+        // Push clip 0 past clip 1.
+        ok(dispatcher
+            .invoke(
+                "move_clip",
+                json!({ "track": 0, "clip_index": 0, "start_sec": 9.0 }),
+                &mut ctx,
+            )
+            .unwrap());
+    }
+    let clips = clips_at_head(&store);
+    assert!(
+        clips
+            .windows(2)
+            .all(|w| w[0].start_in_track <= w[1].start_in_track),
+        "clips must stay in start order: {:?}",
+        clips.iter().map(|c| c.start_in_track).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn move_clip_rejects_a_negative_start_and_a_bad_index() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let mut clipboard: Option<Vec<f32>> = None;
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+        user_message: "",
+        clipboard: &mut clipboard,
+    };
+    two_clip_session(&dispatcher, &mut ctx, tmp.path());
+
+    // A negative start is refused by the schema, before the tool body
+    // runs — which is the right layer: the model gets a machine-readable
+    // reason rather than prose. That makes it a dispatch error rather
+    // than a `ToolResult::Error`, so it is asserted differently from the
+    // index check below.
+    let e = dispatcher
+        .invoke(
+            "move_clip",
+            json!({ "track": 0, "clip_index": 0, "start_sec": -1.0 }),
+            &mut ctx,
+        )
+        .expect_err("a negative start must not reach the session");
+    assert!(
+        format!("{e}").contains("start_sec"),
+        "the error should name the offending field: {e}"
+    );
+
+    let msg = err(dispatcher
+        .invoke(
+            "move_clip",
+            json!({ "track": 0, "clip_index": 99, "start_sec": 1.0 }),
+            &mut ctx,
+        )
+        .unwrap());
+    assert!(msg.contains("clip_index"), "got: {msg}");
+}
+
+#[test]
+fn remove_clip_drops_one_clip_and_keeps_the_rest() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let mut clipboard: Option<Vec<f32>> = None;
+    {
+        let mut ctx = ToolContext {
+            store: &mut store,
+            engine: &mut engine,
+            user_message: "",
+            clipboard: &mut clipboard,
+        };
+        two_clip_session(&dispatcher, &mut ctx, tmp.path());
+    }
+    let before = clips_at_head(&store);
+    let survivor = before[1].start_in_track;
+
+    {
+        let mut ctx = ToolContext {
+            store: &mut store,
+            engine: &mut engine,
+            user_message: "",
+            clipboard: &mut clipboard,
+        };
+        ok(dispatcher
+            .invoke(
+                "remove_clip",
+                json!({ "track": 0, "clip_index": 0 }),
+                &mut ctx,
+            )
+            .unwrap());
+    }
+
+    let after = clips_at_head(&store);
+    assert_eq!(after.len(), before.len() - 1);
+    assert_eq!(
+        after[0].start_in_track, survivor,
+        "removing a clip must not move the ones that remain"
+    );
+}
+
+#[test]
+fn remove_clip_rejects_a_bad_index() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let mut clipboard: Option<Vec<f32>> = None;
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+        user_message: "",
+        clipboard: &mut clipboard,
+    };
+    two_clip_session(&dispatcher, &mut ctx, tmp.path());
+    let msg = err(dispatcher
+        .invoke(
+            "remove_clip",
+            json!({ "track": 0, "clip_index": 99 }),
+            &mut ctx,
+        )
+        .unwrap());
+    assert!(msg.contains("clip_index"), "got: {msg}");
 }

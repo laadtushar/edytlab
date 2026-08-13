@@ -1548,6 +1548,10 @@ pub struct TrackSummary {
 pub struct ClipSummary {
     pub start_sec: f64,
     pub length_sec: f64,
+    /// File this clip reads from. The lane labels chips with its stem,
+    /// which is the only way to tell two clips apart once a track has
+    /// been cut and both halves point at the same source.
+    pub source_path: String,
     pub volume_envelope: Vec<EnvelopePointSummary>,
 }
 
@@ -1579,6 +1583,7 @@ pub fn list_tracks(state: State<'_, AppState>) -> CmdResult<Vec<TrackSummary>> {
                 .map(|c| ClipSummary {
                     start_sec: c.start_in_track as f64 / sr,
                     length_sec: c.length as f64 / sr,
+                    source_path: c.source_path.to_string_lossy().into_owned(),
                     volume_envelope: c
                         .volume_envelope
                         .iter()
@@ -1845,6 +1850,60 @@ pub(crate) fn set_clip_envelope_inner(
             "clip_index": clip,
             "points": points,
         }),
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Clip placement (#103)
+// ---------------------------------------------------------------------------
+
+/// Move one clip to a new start, in seconds from the top of the
+/// timeline. Returns the new head.
+///
+/// The tool sorts the track's clips afterwards, so a clip dragged past
+/// its neighbour comes back at a different index than it went in with.
+/// Callers re-read `list_tracks` rather than assuming their index
+/// survived — which the UI does anyway to reconcile.
+#[tauri::command]
+pub fn move_clip(
+    state: State<'_, AppState>,
+    track: usize,
+    clip: usize,
+    start_sec: f64,
+) -> CmdResult<String> {
+    move_clip_inner(&state, track, clip, start_sec)
+}
+
+pub(crate) fn move_clip_inner(
+    state: &AppState,
+    track: usize,
+    clip: usize,
+    start_sec: f64,
+) -> CmdResult<String> {
+    if !start_sec.is_finite() || start_sec < 0.0 {
+        return Err(CommandError::InvalidTrackControl(format!(
+            "clip start must be finite and >= 0; got {start_sec}"
+        ))
+        .into());
+    }
+    run_track_tool(
+        state,
+        "move_clip",
+        serde_json::json!({ "track": track, "clip_index": clip, "start_sec": start_sec }),
+    )
+}
+
+/// Remove one clip from a track. Returns the new head.
+#[tauri::command]
+pub fn remove_clip(state: State<'_, AppState>, track: usize, clip: usize) -> CmdResult<String> {
+    remove_clip_inner(&state, track, clip)
+}
+
+pub(crate) fn remove_clip_inner(state: &AppState, track: usize, clip: usize) -> CmdResult<String> {
+    run_track_tool(
+        state,
+        "remove_clip",
+        serde_json::json!({ "track": track, "clip_index": clip }),
     )
 }
 

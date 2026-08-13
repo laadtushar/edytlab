@@ -33,6 +33,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { sendMessage as bridgeSendMessage } from "../lib/tauri-bridge";
 import type { Marker } from "../lib/tauri-bridge";
 import { AutomationLane } from "./AutomationLane";
+import { ClipStrip } from "./ClipStrip";
 import type { ClipSummary, EnvelopePoint } from "../lib/tauri-bridge";
 import { Ruler } from "./Ruler";
 import { MarkerLayer } from "./MarkerLayer";
@@ -127,6 +128,16 @@ export interface TimelineProps {
     clipIndex: number,
     points: EnvelopePoint[],
   ) => void;
+  /**
+   * Clip placement. Omitting these hides the clip strip, which is what
+   * every existing caller and test gets.
+   */
+  onMoveClip?: (
+    trackIndex: number,
+    clipIndex: number,
+    startSec: number,
+  ) => void;
+  onRemoveClip?: (trackIndex: number, clipIndex: number) => void;
 }
 
 // -----------------------------------------------------------------------------
@@ -650,6 +661,8 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
       onTrackMuteChange,
       onTrackSoloChange,
       onClipEnvelopeChange,
+      onMoveClip,
+      onRemoveClip,
     },
     ref,
   ) {
@@ -686,6 +699,15 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
       setLaneStates((prev) =>
         prev.map((t, i) => (i === idx ? { ...t, ...patch } : t)),
       );
+
+    /**
+     * Which clip the user last clicked, as `"laneIndex:clipIndex"`.
+     *
+     * One selection across the whole timeline rather than one per lane:
+     * clicking a clip on another track should deselect the first, the
+     * same way a file manager behaves.
+     */
+    const [selectedClip, setSelectedClip] = useState<string | null>(null);
 
     /** Session-level index for a lane — see `TrackDescriptor.index`. */
     const trackIndex = (idx: number) => laneStates[idx]?.index ?? idx;
@@ -889,6 +911,30 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
                 zoom={zoom}
                 loop={idx === 0 ? loop : undefined}
               />
+              {onMoveClip && (track.clips?.length ?? 0) > 0 && (
+                <ClipStrip
+                  trackName={track.name}
+                  clips={track.clips ?? []}
+                  duration={timelineDuration}
+                  selectedClip={
+                    selectedClip?.startsWith(`${idx}:`)
+                      ? Number(selectedClip.split(":")[1])
+                      : null
+                  }
+                  onSelectClip={(clipIndex) =>
+                    setSelectedClip(
+                      clipIndex === null ? null : `${idx}:${clipIndex}`,
+                    )
+                  }
+                  onMoveClip={(clipIndex, startSec) =>
+                    onMoveClip(trackIndex(idx), clipIndex, startSec)
+                  }
+                  onRemoveClip={(clipIndex) => {
+                    setSelectedClip(null);
+                    onRemoveClip?.(trackIndex(idx), clipIndex);
+                  }}
+                />
+              )}
               {onClipEnvelopeChange && (track.clips?.length ?? 0) > 0 && (
                 <AutomationLane
                   trackName={track.name}

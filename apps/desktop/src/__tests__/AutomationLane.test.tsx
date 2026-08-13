@@ -31,7 +31,7 @@ function stubSurfaceRect(width = 1000, height = 56) {
 }
 
 const ONE_CLIP: ClipSummary[] = [
-  { start_sec: 0, length_sec: 10, volume_envelope: [] },
+  { start_sec: 0, length_sec: 10, source_path: "/tmp/a.wav", volume_envelope: [] },
 ];
 
 /** A track cut in two: the second clip starts 4 s in. */
@@ -39,11 +39,13 @@ const TWO_CLIPS: ClipSummary[] = [
   {
     start_sec: 0,
     length_sec: 4,
+    source_path: "/tmp/a.wav",
     volume_envelope: [{ time_sec: 1, gain_db: -6 }],
   },
   {
     start_sec: 4,
     length_sec: 6,
+    source_path: "/tmp/b.wav",
     volume_envelope: [{ time_sec: 2, gain_db: 3 }],
   },
 ];
