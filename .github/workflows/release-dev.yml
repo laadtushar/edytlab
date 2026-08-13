@@ -72,6 +72,11 @@ on:
         options:
           - dev
           - release
+      notes:
+        description: "Optional release notes, placed above the install warnings. Markdown. Previews rarely need them; a versioned release does."
+        required: false
+        default: ""
+        type: string
 
 env:
   CARGO_TERM_COLOR: always
@@ -112,6 +117,7 @@ jobs:
         env:
           TAG: ${{ steps.tag.outputs.tag }}
           CHANNEL: ${{ steps.tag.outputs.channel }}
+          NOTES: ${{ github.event.inputs.notes }}
           COMMIT_SHA: ${{ github.sha }}
         with:
           script: |
@@ -169,7 +175,13 @@ jobs:
                   "with the real Apple Developer ID + Authenticode certs.",
                 ];
 
+            // Caller-supplied notes go first: someone opening the page
+            // wants to know what this release *is* before being told how
+            // to get past Gatekeeper. The warnings still follow, because
+            // they are what makes the download usable.
+            const notes = (process.env.NOTES || "").trim();
             const body = [
+              ...(notes ? [notes, "", "---", ""] : []),
               ...preamble,
               "",
               "### Install warnings (expected on unsigned builds)",
