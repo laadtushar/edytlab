@@ -293,6 +293,7 @@ dependencies = [
  "rayon",
  "realfft",
  "rubato",
+ "rusty_mp3",
  "serde_json",
  "session",
  "tempfile",
@@ -4149,6 +4150,12 @@ dependencies = [
  "tempfile",
  "wait-timeout",
 ]
+
+[[package]]
+name = "rusty_mp3"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3fd89ed8a368cceb87ffcc9f3f128fff535ff1cd3ad27e4e64406c29d307a956"
 
 [[package]]
 name = "ryu"

@@ -706,8 +706,11 @@ fn render_preview_returns_path_without_creating_node() {
 /// for it is refused by schema validation and the model is told which
 /// formats exist, rather than being invited to pick one that returns an
 /// error naming a milestone it cannot act on.
+/// `bitrate_kbps` is mp3's alone. Accepting it silently on a lossless
+/// format would tell the caller their setting took effect when nothing
+/// read it.
 #[test]
-fn render_final_refuses_mp3_at_the_schema_and_names_what_works() {
+fn render_final_rejects_a_bitrate_on_a_lossless_format() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
     let mut clipboard: Option<Vec<f32>> = None;
@@ -721,25 +724,21 @@ fn render_final_refuses_mp3_at_the_schema_and_names_what_works() {
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
         .unwrap());
     let id = load["node_id"].as_str().unwrap().to_string();
-    let out = tmp.path().join("out.bin");
+    let out = tmp.path().join("out.flac");
 
-    let e = dispatcher
+    let msg = err(dispatcher
         .invoke(
             "render_final",
             json!({
                 "node_id": id,
-                "format": "mp3",
+                "format": "flac",
                 "out_path": out.to_string_lossy(),
+                "bitrate_kbps": 192,
             }),
             &mut ctx,
         )
-        .expect_err("mp3 is not in the schema enum");
-    let msg = e.to_string();
-    assert!(msg.contains("wav") && msg.contains("flac"), "got: {msg}");
-    assert!(
-        !msg.contains("Phase 1"),
-        "a milestone name is not something a user can act on: {msg}"
-    );
+        .unwrap());
+    assert!(msg.contains("mp3 only"), "got: {msg}");
 }
 
 // ---------------------------------------------------------------------------
@@ -1845,26 +1844,67 @@ fn render_final_writes_a_flac_that_decodes() {
     );
 }
 
-/// The schema must offer only what works. MP3 is gone from the enum,
-/// and asking for it points at the format that does exist rather than
-/// at "Phase 1".
+/// The schema must offer only what works — checked by *running* every
+/// format the enum advertises, not by comparing it to a list.
+///
+/// The literal-comparison version of this test had to be edited to add
+/// mp3, which means it was pinning my opinion of the enum rather than
+/// the property. This version fails when a format is advertised and
+/// broken, and passes when one is added and works.
 #[test]
 fn render_final_advertises_only_formats_it_supports() {
-    let dispatcher = ToolDispatcher::default_dispatcher();
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut clipboard: Option<Vec<f32>> = None;
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+        user_message: "",
+        clipboard: &mut clipboard,
+    };
+    let load = ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+    let id = load["node_id"].as_str().unwrap().to_string();
+
     let schemas = dispatcher.tool_schemas();
     let schema = schemas
         .as_array()
         .unwrap()
         .iter()
         .find(|s| s["name"] == "render_final")
-        .expect("render_final is registered");
-
-    let formats = &schema["input_schema"]["properties"]["format"]["enum"];
-    assert_eq!(
-        formats,
-        &json!(["wav", "flac"]),
-        "the enum must contain only formats that succeed"
+        .expect("render_final is registered")
+        .clone();
+    let formats: Vec<String> = schema["input_schema"]["properties"]["format"]["enum"]
+        .as_array()
+        .expect("format enum")
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    assert!(
+        formats.contains(&"wav".to_string()),
+        "wav must always be offered: {formats:?}"
     );
+
+    for fmt in &formats {
+        let out = tmp.path().join(format!("out.{fmt}"));
+        let res = ok(dispatcher
+            .invoke(
+                "render_final",
+                json!({
+                    "node_id": id,
+                    "format": fmt,
+                    "out_path": out.to_string_lossy(),
+                }),
+                &mut ctx,
+            )
+            .unwrap_or_else(|e| panic!("{fmt} is advertised but the call failed: {e}")));
+        assert_eq!(res["format"], json!(fmt));
+        let len = std::fs::metadata(&out)
+            .unwrap_or_else(|e| panic!("{fmt} produced no file: {e}"))
+            .len();
+        assert!(len > 0, "{fmt} produced an empty file");
+    }
 }
 
 /// Buses were in the session schema since Phase 1 with no tool able to
@@ -2405,4 +2445,186 @@ fn remove_clip_rejects_a_bad_index() {
         )
         .unwrap());
     assert!(msg.contains("clip_index"), "got: {msg}");
+}
+
+// ---------------------------------------------------------------------------
+// MP3 export (#93)
+// ---------------------------------------------------------------------------
+
+/// The acceptance criterion, with a tolerance rather than equality.
+///
+/// FLAC's round-trip test asserts sample equality because FLAC is
+/// lossless. MP3 is not, so asserting equality here would either fail or
+/// — worse — be written loose enough to pass on garbage. What is
+/// actually claimed is that the decoded audio *is the same signal*:
+/// correlated with the source and at the same level.
+///
+/// Correlation is taken at the best lag. MP3 carries encoder and decoder
+/// delay (~2800 samples at 44.1 kHz), so a sample-aligned comparison
+/// would fail on a perfect codec.
+#[test]
+fn mp3_export_round_trips_within_tolerance() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.5);
+    let mut clipboard: Option<Vec<f32>> = None;
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+        user_message: "",
+        clipboard: &mut clipboard,
+    };
+    let load = ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+    let id = load["node_id"].as_str().unwrap().to_string();
+
+    let wav_out = tmp.path().join("ref.wav");
+    let mp3_out = tmp.path().join("out.mp3");
+    for (fmt, path) in [("wav", &wav_out), ("mp3", &mp3_out)] {
+        ok(dispatcher
+            .invoke(
+                "render_final",
+                json!({
+                    "node_id": id,
+                    "format": fmt,
+                    "out_path": path.to_string_lossy(),
+                }),
+                &mut ctx,
+            )
+            .unwrap());
+    }
+
+    let reference = audio_decoder::decode_file(&wav_out).expect("decode wav");
+    let decoded = audio_decoder::decode_file(&mp3_out).expect("decode mp3");
+    assert_eq!(decoded.sample_rate, reference.sample_rate);
+    assert_eq!(decoded.channels, reference.channels);
+
+    // Skip the first 50 ms of the reference, where the decoder is still
+    // filling its overlap buffers, and compare a half-second window.
+    let sr = reference.sample_rate as usize;
+    let a: Vec<f32> = reference
+        .samples
+        .iter()
+        .skip(sr / 20)
+        .take(sr / 2)
+        .copied()
+        .collect();
+    let ea = a.iter().map(|v| v * v).sum::<f32>().sqrt();
+    let mut best = 0.0f32;
+    let mut best_lag = 0usize;
+    for lag in 0..4000usize {
+        if lag + a.len() > decoded.samples.len() {
+            break;
+        }
+        let w = &decoded.samples[lag..lag + a.len()];
+        let eb = w.iter().map(|v| v * v).sum::<f32>().sqrt();
+        if ea <= 0.0 || eb <= 0.0 {
+            continue;
+        }
+        let dot: f32 = a.iter().zip(w).map(|(x, y)| x * y).sum();
+        let c = dot / (ea * eb);
+        if c > best {
+            best = c;
+            best_lag = lag;
+        }
+    }
+    assert!(
+        best > 0.98,
+        "mp3 round trip correlates only {best:.4} with the source — \
+         that is not the same signal"
+    );
+
+    let w = &decoded.samples[best_lag..best_lag + a.len()];
+    let rms_in = (a.iter().map(|v| v * v).sum::<f32>() / a.len() as f32).sqrt();
+    let rms_out = (w.iter().map(|v| v * v).sum::<f32>() / w.len() as f32).sqrt();
+    let db = 20.0 * (rms_out / rms_in).log10();
+    assert!(
+        db.abs() < 1.0,
+        "mp3 round trip changed the level by {db:.2} dB"
+    );
+
+    // And it should actually be compressed.
+    let wav_len = std::fs::metadata(&wav_out).unwrap().len();
+    let mp3_len = std::fs::metadata(&mp3_out).unwrap().len();
+    assert!(
+        mp3_len < wav_len,
+        "mp3 ({mp3_len} B) should be smaller than wav ({wav_len} B)"
+    );
+}
+
+/// A lower bitrate must produce a smaller file. Without this, a
+/// `bitrate_kbps` that was parsed and then ignored would look fine —
+/// the round-trip test above passes either way.
+#[test]
+fn mp3_bitrate_argument_reaches_the_encoder() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.5);
+    let mut clipboard: Option<Vec<f32>> = None;
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+        user_message: "",
+        clipboard: &mut clipboard,
+    };
+    let load = ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+    let id = load["node_id"].as_str().unwrap().to_string();
+
+    let mut sizes = Vec::new();
+    for kbps in [64u32, 320] {
+        let out = tmp.path().join(format!("out{kbps}.mp3"));
+        let res = ok(dispatcher
+            .invoke(
+                "render_final",
+                json!({
+                    "node_id": id,
+                    "format": "mp3",
+                    "out_path": out.to_string_lossy(),
+                    "bitrate_kbps": kbps,
+                }),
+                &mut ctx,
+            )
+            .unwrap());
+        assert_eq!(res["bitrate_kbps"], json!(kbps));
+        sizes.push(std::fs::metadata(&out).unwrap().len());
+    }
+    assert!(
+        sizes[0] < sizes[1],
+        "64 kbps ({} B) should be smaller than 320 kbps ({} B)",
+        sizes[0],
+        sizes[1]
+    );
+}
+
+/// The default is reported, so a caller that did not ask can still see
+/// what they got.
+#[test]
+fn mp3_reports_the_default_bitrate_when_none_is_given() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.3);
+    let mut clipboard: Option<Vec<f32>> = None;
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+        user_message: "",
+        clipboard: &mut clipboard,
+    };
+    let load = ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+    let id = load["node_id"].as_str().unwrap().to_string();
+    let out = tmp.path().join("out.mp3");
+    let res = ok(dispatcher
+        .invoke(
+            "render_final",
+            json!({
+                "node_id": id,
+                "format": "mp3",
+                "out_path": out.to_string_lossy(),
+            }),
+            &mut ctx,
+        )
+        .unwrap());
+    assert_eq!(res["bitrate_kbps"], json!(192));
 }
