@@ -312,7 +312,7 @@ const groups = [
       {
         name: "pitch_shift",
         prompt: 'shift the vocals up 2 semitones',
-        what: "Change the pitch without changing the duration. Range: −12 to +12 semitones.",
+        what: "Change the pitch without changing the duration. Set preserve_formants on voices so a shift sounds like the same person singing higher, not a chipmunk. Range: −12 to +12 semitones.",
         output: "node_id",
       },
       {

@@ -19,15 +19,18 @@
 //! on them, so attacks survive a stretch rather than smearing across the
 //! window. There is still no phase locking across bins, so dense
 //! material keeps some "phasiness", and large factors make that worse.
-//! `preserve_formants` is accepted and ignored. Both remaining limits
-//! are documented on the functions themselves, and neither requires a
-//! public API change to fix.
+//! `preserve_formants` is honoured by `pitch_shift` (see `formant.rs`)
+//! and is a no-op for `time_stretch`, which moves no frequency and so
+//! has no formants to hold in place. The remaining limits are
+//! documented on the functions themselves, and none requires a public
+//! API change to fix.
 //!
 //! See `vocoder.rs` for how it works.
 
 pub use shift::pitch_shift;
 pub use stretch::time_stretch;
 
+mod formant;
 pub mod shift;
 pub mod stretch;
 mod vocoder;
