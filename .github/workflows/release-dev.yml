@@ -162,11 +162,11 @@ jobs:
               ? [
                   "**Unsigned build.** The Apple Developer ID and Authenticode",
                   "certificates are not provisioned yet, so these artifacts are",
-                  "not signed or notarized. They are the same builds CI produces",
-                  "and pass the full test suite; what they lack is a signature,",
-                  "which is why the install steps below are needed. Signed",
-                  "artifacts will come from release-signed.yml once the certs",
-                  "exist.",
+                  "not signed or notarized. They are built from a commit that",
+                  "passes the full test suite on all three platforms; what they",
+                  "lack is a signature, which is why the install steps below are",
+                  "needed. Signed artifacts will come from release-signed.yml",
+                  "once the certs exist.",
                 ]
               : [
                   "**Unsigned developer preview** — convenience build for testing",
