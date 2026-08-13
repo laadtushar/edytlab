@@ -58,12 +58,14 @@ export const COMMANDS: Command[] = [
   // `time_stretch` and `pitch_shift` apply a phase vocoder now. These
   // five were removed when they routed to tools that recorded a value
   // the render engine never read; they are back because the DSP landed.
-  // `align_to_beat` is still absent — nothing warps audio to a grid yet.
+  // `align_to_beat` is back too: it warps audio to a grid as of #97,
+  // where before it recorded a grid nothing read.
   { category: "Speed & Pitch", label: "Slow down", prompt: "slow this down to 0.75x speed, keeping the pitch", description: "Time stretch — duration changes, pitch does not", tags: ["slow", "stretch", "tempo"] },
   { category: "Speed & Pitch", label: "Speed up", prompt: "speed this up to 1.5x, keeping the pitch", description: "Time compress — duration changes, pitch does not", tags: ["speed", "stretch", "tempo", "fast"] },
   { category: "Speed & Pitch", label: "Change speed (pitch follows)", prompt: "speed this up to 1.5x by resampling", description: "Resamples — pitch rises with the speed", tags: ["speed", "resample", "tempo"] },
   { category: "Speed & Pitch", label: "Pitch up", prompt: "pitch shift up 2 semitones", description: "Raise pitch, duration unchanged", tags: ["pitch", "semitone", "higher"] },
   { category: "Speed & Pitch", label: "Pitch down", prompt: "pitch shift down 3 semitones", description: "Lower pitch, duration unchanged", tags: ["pitch", "semitone", "lower"] },
+  { category: "Speed & Pitch", label: "Align to a steady beat", prompt: "analyze this to find the beats, then warp it so they land on a steady grid at the same average tempo", description: "Warps timing onto a beat grid — pitch unchanged", tags: ["beat", "grid", "align", "quantize", "timing", "warp"] },
 
   // Analysis
   { category: "Analysis", label: "Analyze audio", prompt: "analyze this audio — give me the BPM, key, loudness, and sections", description: "BPM, key, LUFS, beat grid, sections", tags: ["analyze", "bpm", "key", "loudness", "lufs"] },

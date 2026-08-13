@@ -1101,11 +1101,14 @@ fn pitch_shift_rejects_out_of_range_semitones() {
 }
 
 // ---------------------------------------------------------------------------
-// M20 — `align_to_beat` records a beat grid on every clip.
+// `align_to_beat` warps the audio (#97)
 // ---------------------------------------------------------------------------
 
+/// It used to record a grid and change nothing — `applied_at_render:
+/// false`, and a description telling the model to say so. This asserts
+/// the audio actually moved, which is the whole ticket.
 #[test]
-fn align_to_beat_records_grid_on_clip() {
+fn align_to_beat_changes_the_audio() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
     let mut clipboard: Option<Vec<f32>> = None;
@@ -1119,23 +1122,68 @@ fn align_to_beat_records_grid_on_clip() {
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
         .unwrap());
 
-    let grid = vec![0.0, 0.5, 1.0, 1.5];
+    let before = ctx.store.head().unwrap();
+    let before_path = ctx.store.get(before).unwrap().state.tracks[0].clips[0]
+        .source_path
+        .clone();
+
+    // Half-second beats pulled out to two-thirds of a second: the track
+    // gets longer.
     let res = ok(dispatcher
         .invoke(
             "align_to_beat",
-            json!({ "track": 0, "beat_grid": grid }),
+            json!({
+                "track": 0,
+                "source_beats": [0.1, 0.35, 0.6, 0.85],
+                "beat_grid": [0.1, 0.45, 0.8, 1.15],
+            }),
             &mut ctx,
         )
         .unwrap());
+
     let id = session::NodeId::from_hex(res["node_id"].as_str().unwrap()).unwrap();
-    let node = ctx.store.get(id).unwrap();
-    let stored = node.state.tracks[0].clips[0].beat_grid.as_ref().unwrap();
-    assert_eq!(stored, &vec![0.0, 0.5, 1.0, 1.5]);
-    assert_eq!(res["beats"].as_u64().unwrap(), 4);
+    let after_path = ctx.store.get(id).unwrap().state.tracks[0].clips[0]
+        .source_path
+        .clone();
+    assert_ne!(
+        before_path, after_path,
+        "a warp must write new audio, not annotate the old file"
+    );
+
+    let original = audio_decoder::decode_file(&before_path).expect("decode before");
+    let warped = audio_decoder::decode_file(&after_path).expect("decode after");
+    assert!(
+        warped.samples.len() > original.samples.len(),
+        "stretching the beats apart should lengthen the audio: {} -> {}",
+        original.samples.len(),
+        warped.samples.len()
+    );
+}
+
+/// No stale "not applied" warning anywhere: the reason
+/// `unapplied_clip_metadata.rs` existed was this tool, and with it
+/// warping there is nothing left in the repo that reports a change it
+/// does not make.
+#[test]
+fn no_tool_still_claims_it_is_unapplied() {
+    let dispatcher = ToolDispatcher::default_dispatcher();
+    let schemas = dispatcher.tool_schemas();
+    for tool in schemas.as_array().unwrap() {
+        let desc = tool["description"].as_str().unwrap_or("");
+        let name = tool["name"].as_str().unwrap_or("?");
+        assert!(
+            !desc.contains("NOT YET APPLIED"),
+            "{name} still carries the unapplied-metadata warning"
+        );
+        assert!(
+            !desc.contains("does not read it"),
+            "{name} still describes a value nothing reads"
+        );
+    }
 }
 
 #[test]
-fn align_to_beat_rejects_non_monotonic_grid() {
+fn align_to_beat_rejects_a_non_monotonic_grid() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
     let mut clipboard: Option<Vec<f32>> = None;
@@ -1149,11 +1197,14 @@ fn align_to_beat_rejects_non_monotonic_grid() {
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
         .unwrap());
 
-    // Out of order — 0.4 follows 0.5.
     let msg = err(dispatcher
         .invoke(
             "align_to_beat",
-            json!({ "track": 0, "beat_grid": [0.0, 0.5, 0.4] }),
+            json!({
+                "track": 0,
+                "source_beats": [0.0, 0.5, 1.0],
+                "beat_grid": [0.0, 0.5, 0.4],
+            }),
             &mut ctx,
         )
         .unwrap());
@@ -1163,8 +1214,11 @@ fn align_to_beat_rejects_non_monotonic_grid() {
     );
 }
 
+/// Mismatched grids are refused rather than truncated. Silently warping
+/// the first eight beats of a twelve-beat request is not something a
+/// caller can notice.
 #[test]
-fn align_to_beat_rejects_empty_grid() {
+fn align_to_beat_refuses_mismatched_grids() {
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
     let mut clipboard: Option<Vec<f32>> = None;
@@ -1178,20 +1232,21 @@ fn align_to_beat_rejects_empty_grid() {
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
         .unwrap());
 
-    // Schema's minItems=1 rejects an empty array at validation time, so
-    // this surfaces as a `DispatchError`, not a `ToolResult::Error`.
-    let r = dispatcher.invoke(
-        "align_to_beat",
-        json!({ "track": 0, "beat_grid": [] }),
-        &mut ctx,
-    );
-    let err = r.unwrap_err();
-    let msg = err.to_string();
+    let msg = err(dispatcher
+        .invoke(
+            "align_to_beat",
+            json!({
+                "track": 0,
+                "source_beats": [0.0, 0.5, 1.0],
+                "beat_grid": [0.0, 0.5],
+            }),
+            &mut ctx,
+        )
+        .unwrap());
+    assert!(msg.contains("same number of beats"), "got: {msg}");
     assert!(
-        msg.contains("less than 1 item")
-            || msg.contains("minItems")
-            || msg.contains("shorter than"),
-        "expected schema validation error, got: {msg}"
+        msg.contains("silently drop"),
+        "the error should say why: {msg}"
     );
 }
 

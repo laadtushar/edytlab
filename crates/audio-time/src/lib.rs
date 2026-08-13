@@ -29,11 +29,13 @@
 
 pub use shift::pitch_shift;
 pub use stretch::time_stretch;
+pub use warp::warp_to_grid;
 
 mod formant;
 pub mod shift;
 pub mod stretch;
 mod vocoder;
+pub mod warp;
 
 /// Errors raised by the time-stretch / pitch-shift primitives.
 #[derive(Debug, thiserror::Error, PartialEq)]
