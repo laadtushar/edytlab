@@ -73,6 +73,8 @@ const TOOL_LABELS: Record<string, string> = {
   copy_region: "Copy",
   paste_region: "Paste",
   split_clip: "Split clip",
+  move_clip: "Move clip",
+  remove_clip: "Remove clip",
   insert_silence: "Insert silence",
   silence_region: "Silence region",
   repeat_selection: "Repeat selection",

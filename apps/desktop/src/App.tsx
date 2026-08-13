@@ -25,6 +25,8 @@ import {
   removeMarker,
   renderRange,
   setHeadTo,
+  moveClip,
+  removeClip,
   setClipEnvelope,
   setSelectionContext,
   setTrackGain,
@@ -342,6 +344,18 @@ function App() {
     [commitTrackChange],
   );
 
+  const handleMoveClip = useCallback(
+    (trackIndex: number, clipIndex: number, startSec: number) =>
+      void commitTrackChange(() => moveClip(trackIndex, clipIndex, startSec)),
+    [commitTrackChange],
+  );
+
+  const handleRemoveClip = useCallback(
+    (trackIndex: number, clipIndex: number) =>
+      void commitTrackChange(() => removeClip(trackIndex, clipIndex)),
+    [commitTrackChange],
+  );
+
   const handleTrackSoloChange = useCallback(
     (index: number, soloed: boolean) =>
       void commitTrackChange(() => setTrackSoloed(index, soloed)),
@@ -605,6 +619,8 @@ function App() {
                   onTrackMuteChange={handleTrackMuteChange}
                   onTrackSoloChange={handleTrackSoloChange}
                   onClipEnvelopeChange={handleClipEnvelopeChange}
+                  onMoveClip={handleMoveClip}
+                  onRemoveClip={handleRemoveClip}
                   onFileDropped={() => undefined}
                   selection={selection}
                   onSelectionChange={handleSelectionChange}

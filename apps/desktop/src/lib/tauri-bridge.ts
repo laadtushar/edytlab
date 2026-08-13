@@ -417,6 +417,7 @@ export interface EnvelopePoint {
 export interface ClipSummary {
   start_sec: number;
   length_sec: number;
+  source_path: string;
   volume_envelope: EnvelopePoint[];
 }
 
@@ -460,6 +461,26 @@ export const setTrackSoloed = (
  * Points need not be sorted — the tool sorts, so dragging one past its
  * neighbour does not need the caller to reorder first.
  */
+/**
+ * Move one clip to a new start, in seconds from the top of the
+ * timeline. The other clips stay put — `time_shift` is the whole-track
+ * version.
+ *
+ * Clips are re-sorted by start afterwards, so a clip dragged past its
+ * neighbour comes back at a different index. Re-read `listTracks`
+ * rather than reusing the index.
+ */
+export const moveClip = (
+  track: number,
+  clip: number,
+  startSec: number,
+): Promise<string> =>
+  invoke<string>("move_clip", { track, clip, startSec });
+
+/** Remove one clip, leaving a silent gap where it was. */
+export const removeClip = (track: number, clip: number): Promise<string> =>
+  invoke<string>("remove_clip", { track, clip });
+
 export const setClipEnvelope = (
   track: number,
   clip: number,
