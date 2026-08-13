@@ -42,7 +42,7 @@ impl Tool for TimeStretchTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "time_stretch",
-            "Stretch or compress a track in time without changing its pitch. factor=0.5 is 2x slower (twice as long), factor=2.0 is 2x faster (half as long). `preserve_formants` is accepted but not yet honoured, so a large shift on a voice will not sound like the same person. Quality is a phase vocoder's: sustained material is clean and attacks are preserved by onset-triggered phase resets, but dense material can sound slightly phasey and factors far from 1.0 make that worse. Use `change_speed` instead when the pitch should move with the speed. Appends a new session node.",
+            "Stretch or compress a track in time without changing its pitch. factor=0.5 is 2x slower (twice as long), factor=2.0 is 2x faster (half as long). `preserve_formants` does nothing here and is accepted only because the two tools share a shape: a time stretch moves no frequency, so there are no formants to hold in place. Use it on `pitch_shift`, which does move them. Quality is a phase vocoder's: sustained material is clean and attacks are preserved by onset-triggered phase resets, but dense material can sound slightly phasey and factors far from 1.0 make that worse. Use `change_speed` instead when the pitch should move with the speed. Appends a new session node.",
             object_schema(&[
                 ("track", "integer", true),
                 ("factor", "number", true),

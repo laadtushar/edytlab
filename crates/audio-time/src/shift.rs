@@ -6,6 +6,7 @@
 //!
 //! See the crate-level docs for the Phase-2 stub status.
 
+use crate::formant::reapply_envelope;
 use crate::vocoder::{deinterleave, interleave, resample_mono, stretch_mono};
 use crate::{check_channels, Error, Result};
 
@@ -22,11 +23,14 @@ pub const MAX_SEMITONES: f32 = 48.0;
 /// `change_speed` already offered — replaying faster alone would shorten
 /// the audio too.
 ///
-/// `preserve_formants` is accepted and currently ignored, so a large
-/// shift on a voice will sound like the classic chipmunk or giant
-/// rather than the same person singing higher. Fixing that needs
-/// spectral-envelope estimation; the flag stays in the signature
-/// because it is part of the tool schema.
+/// `preserve_formants` keeps the spectral envelope where it was while
+/// the harmonics move. Without it, a large shift on a voice sounds like
+/// the classic chipmunk or giant, because the resonances of the vocal
+/// tract travel with the pitch when physically they cannot — the tract
+/// is the same length whatever note is sung. With it, the shifted
+/// signal's envelope is replaced by the original's; see
+/// [`crate::formant`] for how, and for why it is a correction pass over
+/// the output rather than something threaded through the stretch.
 ///
 /// # Errors
 ///
@@ -69,7 +73,13 @@ pub fn pitch_shift(
             // Round-off in the two length calculations can leave a frame
             // either side; the caller was promised the original duration.
             shifted.resize(frames, 0.0);
-            shifted
+            if preserve_formants {
+                // Both signals are now the same length and the same
+                // moments in time, which is what the correction needs.
+                reapply_envelope(p, &shifted)
+            } else {
+                shifted
+            }
         })
         .collect();
     Ok(interleave(&planes))
