@@ -408,6 +408,18 @@ export const onMarkerChanged = (cb: () => void): Promise<UnlistenFn> =>
 // Tracks
 // -----------------------------------------------------------------------------
 
+/** One automation point, measured from the clip's own start. */
+export interface EnvelopePoint {
+  time_sec: number;
+  gain_db: number;
+}
+
+export interface ClipSummary {
+  start_sec: number;
+  length_sec: number;
+  volume_envelope: EnvelopePoint[];
+}
+
 export interface TrackSummary {
   id: string;
   name: string;
@@ -418,6 +430,7 @@ export interface TrackSummary {
   soloed: boolean;
   /** `null` when the track has zero or multiple clips. */
   audio_path: string | null;
+  clips: ClipSummary[];
 }
 
 export const listTracks = (): Promise<TrackSummary[]> =>
@@ -440,6 +453,19 @@ export const setTrackSoloed = (
   track: number,
   soloed: boolean,
 ): Promise<string> => invoke<string>("set_track_soloed", { track, soloed });
+
+/**
+ * Replace a clip's volume automation curve. An empty array clears it.
+ *
+ * Points need not be sorted — the tool sorts, so dragging one past its
+ * neighbour does not need the caller to reorder first.
+ */
+export const setClipEnvelope = (
+  track: number,
+  clip: number,
+  points: EnvelopePoint[],
+): Promise<string> =>
+  invoke<string>("set_clip_envelope", { track, clip, points });
 
 // -----------------------------------------------------------------------------
 // DAG ops (M24): set head + rename node

@@ -32,6 +32,8 @@ import WaveSurfer from "wavesurfer.js";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { sendMessage as bridgeSendMessage } from "../lib/tauri-bridge";
 import type { Marker } from "../lib/tauri-bridge";
+import { AutomationLane } from "./AutomationLane";
+import type { ClipSummary, EnvelopePoint } from "../lib/tauri-bridge";
 import { Ruler } from "./Ruler";
 import { MarkerLayer } from "./MarkerLayer";
 
@@ -54,6 +56,12 @@ export interface TrackDescriptor {
    * which is right whenever nothing was filtered.
    */
   index?: number;
+  /**
+   * Clips on this track, for the automation lane. Absent or empty
+   * means no lane is drawn — a track with no clips has nothing to
+   * automate.
+   */
+  clips?: ClipSummary[];
   /** Track gain in dB. Absent is treated as 0 (unity). */
   gainDb?: number;
   /** -1 hard left, 0 centre, 1 hard right. Absent is treated as 0. */
@@ -109,6 +117,16 @@ export interface TimelineProps {
   onTrackPanChange?: (index: number, pan: number) => void;
   onTrackMuteChange?: (index: number, muted: boolean) => void;
   onTrackSoloChange?: (index: number, soloed: boolean) => void;
+  /**
+   * Volume automation commit, once per finished gesture. Points are
+   * relative to the clip's own start, matching `set_clip_envelope`.
+   * Omitting it hides the automation lanes entirely.
+   */
+  onClipEnvelopeChange?: (
+    trackIndex: number,
+    clipIndex: number,
+    points: EnvelopePoint[],
+  ) => void;
 }
 
 // -----------------------------------------------------------------------------
@@ -214,13 +232,19 @@ function TrackLane({
   const [isDragging, setIsDragging] = useState(false);
   const [duration, setDuration] = useState(0);
   const [draftSelection, setDraftSelection] = useState<Selection | null>(null);
-  const dragStateRef = useRef<{ originPx: number; rectLeft: number; rectWidth: number } | null>(
-    null,
-  );
+  const dragStateRef = useRef<{
+    originPx: number;
+    rectLeft: number;
+    rectWidth: number;
+  } | null>(null);
   const loopRef = useRef(loop);
   const selectionRef = useRef(selection);
-  useEffect(() => { loopRef.current = loop; }, [loop]);
-  useEffect(() => { selectionRef.current = selection; }, [selection]);
+  useEffect(() => {
+    loopRef.current = loop;
+  }, [loop]);
+  useEffect(() => {
+    selectionRef.current = selection;
+  }, [selection]);
 
   // Mount wavesurfer once.
   useEffect(() => {
@@ -319,7 +343,8 @@ function TrackLane({
 
   const beginSelection = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      if (!onSelectionChange || !duration || !waveformWrapperRef.current) return;
+      if (!onSelectionChange || !duration || !waveformWrapperRef.current)
+        return;
       // Only left-click; Shift is reserved for multi-select later.
       if (e.button !== 0) return;
       const rect = waveformWrapperRef.current.getBoundingClientRect();
@@ -515,9 +540,7 @@ function TrackLane({
           flex: 1,
           position: "relative",
           overflowX: "auto",
-          background: isDragging
-            ? "var(--accent-soft)"
-            : "var(--surface-elev)",
+          background: isDragging ? "var(--accent-soft)" : "var(--surface-elev)",
           padding: "10px 12px",
           boxShadow: isDragging ? "inset 0 0 0 1px var(--accent)" : "none",
           transition: "background 160ms ease, box-shadow 160ms ease",
@@ -603,265 +626,291 @@ function clamp(n: number, lo: number, hi: number): number {
 // Timeline
 // -----------------------------------------------------------------------------
 
-export const Timeline = forwardRef<TimelineHandle, TimelineProps>(function Timeline(
-  {
-    tracks,
-    audioPath: audioPathProp,
-    src,
-    onFileDropped,
-    selection,
-    onSelectionChange,
-    markers,
-    onAddMarker,
-    onRemoveMarker,
-    onSeekToMarker,
-    zoom,
-    onZoomChange,
-    loop,
-    onLoopChange,
-    spectrogramEnabled,
-    onSpectrogramChange,
-    onTrackGainChange,
-    onTrackPanChange,
-    onTrackMuteChange,
-    onTrackSoloChange,
-  },
-  ref,
-) {
-  const audioPath = audioPathProp ?? src ?? null;
-  const headWsRef = useRef<WaveSurfer | null>(null);
-  const [timelineDuration, setTimelineDuration] = useState(0);
+export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
+  function Timeline(
+    {
+      tracks,
+      audioPath: audioPathProp,
+      src,
+      onFileDropped,
+      selection,
+      onSelectionChange,
+      markers,
+      onAddMarker,
+      onRemoveMarker,
+      onSeekToMarker,
+      zoom,
+      onZoomChange,
+      loop,
+      onLoopChange,
+      spectrogramEnabled,
+      onSpectrogramChange,
+      onTrackGainChange,
+      onTrackPanChange,
+      onTrackMuteChange,
+      onTrackSoloChange,
+      onClipEnvelopeChange,
+    },
+    ref,
+  ) {
+    const audioPath = audioPathProp ?? src ?? null;
+    const headWsRef = useRef<WaveSurfer | null>(null);
+    const [timelineDuration, setTimelineDuration] = useState(0);
 
-  const defaultTracks: TrackDescriptor[] =
-    tracks && tracks.length > 0
-      ? tracks
-      : [{ name: "Mix", audioPath: audioPath ?? "", muted: false }];
-
-  const [laneStates, setLaneStates] = useState<TrackDescriptor[]>(defaultTracks);
-
-  // Reconcile from the props, which come from `list_tracks` — the
-  // session is the authority.
-  //
-  // This used to carry the previous lane's `muted` forward instead,
-  // which made the toggle purely local: a mute set by the agent never
-  // reached the button, and a mute set by the button never reached the
-  // session. Optimistic writes below are overwritten by the next
-  // refresh, which is the point of them.
-  useEffect(() => {
-    setLaneStates(
+    const defaultTracks: TrackDescriptor[] =
       tracks && tracks.length > 0
         ? tracks
-        : [{ name: "Mix", audioPath: audioPath ?? "", muted: false }],
-    );
-  }, [tracks, audioPath]);
+        : [{ name: "Mix", audioPath: audioPath ?? "", muted: false }];
 
-  /** Optimistic local edit, applied before the round trip. */
-  const patchLane = (idx: number, patch: Partial<TrackDescriptor>) =>
-    setLaneStates((prev) =>
-      prev.map((t, i) => (i === idx ? { ...t, ...patch } : t)),
-    );
+    const [laneStates, setLaneStates] =
+      useState<TrackDescriptor[]>(defaultTracks);
 
-  /** Session-level index for a lane — see `TrackDescriptor.index`. */
-  const trackIndex = (idx: number) => laneStates[idx]?.index ?? idx;
+    // Reconcile from the props, which come from `list_tracks` — the
+    // session is the authority.
+    //
+    // This used to carry the previous lane's `muted` forward instead,
+    // which made the toggle purely local: a mute set by the agent never
+    // reached the button, and a mute set by the button never reached the
+    // session. Optimistic writes below are overwritten by the next
+    // refresh, which is the point of them.
+    useEffect(() => {
+      setLaneStates(
+        tracks && tracks.length > 0
+          ? tracks
+          : [{ name: "Mix", audioPath: audioPath ?? "", muted: false }],
+      );
+    }, [tracks, audioPath]);
 
-  const handleToggleMute = (idx: number) => {
-    const next = !(laneStates[idx]?.muted ?? false);
-    patchLane(idx, { muted: next });
-    onTrackMuteChange?.(trackIndex(idx), next);
-  };
+    /** Optimistic local edit, applied before the round trip. */
+    const patchLane = (idx: number, patch: Partial<TrackDescriptor>) =>
+      setLaneStates((prev) =>
+        prev.map((t, i) => (i === idx ? { ...t, ...patch } : t)),
+      );
 
-  const handleToggleSolo = (idx: number) => {
-    const next = !(laneStates[idx]?.soloed ?? false);
-    patchLane(idx, { soloed: next });
-    onTrackSoloChange?.(trackIndex(idx), next);
-  };
+    /** Session-level index for a lane — see `TrackDescriptor.index`. */
+    const trackIndex = (idx: number) => laneStates[idx]?.index ?? idx;
 
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const el = rootRef.current;
-    if (!el) return;
-    const handler = (e: WheelEvent) => {
-      if (!e.ctrlKey) return;
-      e.preventDefault();
-      const delta = e.deltaY > 0 ? -20 : 20;
-      onZoomChange?.(Math.max(0, (zoom ?? 0) + delta));
+    const handleToggleMute = (idx: number) => {
+      const next = !(laneStates[idx]?.muted ?? false);
+      patchLane(idx, { muted: next });
+      onTrackMuteChange?.(trackIndex(idx), next);
     };
-    el.addEventListener("wheel", handler, { passive: false });
-    return () => el.removeEventListener("wheel", handler);
-  }, [zoom, onZoomChange]);
 
-  useImperativeHandle(
-    ref,
-    () => ({
-      togglePlay: () => {
-        const ws = headWsRef.current;
-        if (!ws) return;
-        if (ws.isPlaying()) ws.pause();
-        else void ws.play();
-      },
-      play: () => void headWsRef.current?.play(),
-      pause: () => headWsRef.current?.pause(),
-      seekTo: (sec: number) => {
-        const ws = headWsRef.current;
-        if (!ws) return;
-        const d = ws.getDuration() || 0;
-        if (d <= 0) return;
-        ws.setTime(clamp(sec, 0, d));
-      },
-      seekBy: (delta: number) => {
-        const ws = headWsRef.current;
-        if (!ws) return;
-        const d = ws.getDuration() || 0;
-        if (d <= 0) return;
-        ws.setTime(clamp(ws.getCurrentTime() + delta, 0, d));
-      },
-      getCurrentTime: () => headWsRef.current?.getCurrentTime() ?? 0,
-      getDuration: () => headWsRef.current?.getDuration() ?? 0,
-    }),
-    [],
-  );
+    const handleToggleSolo = (idx: number) => {
+      const next = !(laneStates[idx]?.soloed ?? false);
+      patchLane(idx, { soloed: next });
+      onTrackSoloChange?.(trackIndex(idx), next);
+    };
 
-  return (
-    <div
-      ref={rootRef}
-      data-testid="timeline-root"
-      className="app-fade-in"
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        width: "100%",
-        background: "var(--surface)",
-        overflowY: "auto",
-      }}
-    >
+    const rootRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+      const el = rootRef.current;
+      if (!el) return;
+      const handler = (e: WheelEvent) => {
+        if (!e.ctrlKey) return;
+        e.preventDefault();
+        const delta = e.deltaY > 0 ? -20 : 20;
+        onZoomChange?.(Math.max(0, (zoom ?? 0) + delta));
+      };
+      el.addEventListener("wheel", handler, { passive: false });
+      return () => el.removeEventListener("wheel", handler);
+    }, [zoom, onZoomChange]);
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        togglePlay: () => {
+          const ws = headWsRef.current;
+          if (!ws) return;
+          if (ws.isPlaying()) ws.pause();
+          else void ws.play();
+        },
+        play: () => void headWsRef.current?.play(),
+        pause: () => headWsRef.current?.pause(),
+        seekTo: (sec: number) => {
+          const ws = headWsRef.current;
+          if (!ws) return;
+          const d = ws.getDuration() || 0;
+          if (d <= 0) return;
+          ws.setTime(clamp(sec, 0, d));
+        },
+        seekBy: (delta: number) => {
+          const ws = headWsRef.current;
+          if (!ws) return;
+          const d = ws.getDuration() || 0;
+          if (d <= 0) return;
+          ws.setTime(clamp(ws.getCurrentTime() + delta, 0, d));
+        },
+        getCurrentTime: () => headWsRef.current?.getCurrentTime() ?? 0,
+        getDuration: () => headWsRef.current?.getDuration() ?? 0,
+      }),
+      [],
+    );
+
+    return (
       <div
+        ref={rootRef}
+        data-testid="timeline-root"
+        className="app-fade-in"
         style={{
           display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          borderBottom: "1px solid var(--border)",
-          padding: "8px 16px",
-          flexShrink: 0,
-          background: "var(--surface-elev)",
+          flexDirection: "column",
+          height: "100%",
+          width: "100%",
+          background: "var(--surface)",
+          overflowY: "auto",
         }}
       >
-        <h2
+        <div
           style={{
-            fontFamily: "var(--font-mono)",
-            fontSize: 11,
-            fontWeight: 500,
-            letterSpacing: "0.2em",
-            textTransform: "uppercase",
-            color: "var(--text-dim)",
-            margin: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            borderBottom: "1px solid var(--border)",
+            padding: "8px 16px",
+            flexShrink: 0,
+            background: "var(--surface-elev)",
           }}
         >
-          Timeline
-        </h2>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <button
-            type="button"
-            data-testid="zoom-out-btn"
-            onClick={() => onZoomChange?.(Math.max(10, Math.round((zoom ?? 50) / 1.5)))}
-            className="text-xs px-1.5 py-1 rounded border border-neutral-600 text-neutral-400 hover:border-neutral-400 transition-colors"
-            title="Zoom out (Ctrl+scroll)"
-          >
-            −
-          </button>
-          <button
-            type="button"
-            data-testid="zoom-in-btn"
-            onClick={() => onZoomChange?.(Math.min(500, Math.round((zoom ?? 50) * 1.5)))}
-            className="text-xs px-1.5 py-1 rounded border border-neutral-600 text-neutral-400 hover:border-neutral-400 transition-colors"
-            title="Zoom in (Ctrl+scroll)"
-          >
-            +
-          </button>
-          <button
-            type="button"
-            data-testid="loop-btn"
-            onClick={() => onLoopChange?.(!loop)}
-            className={`text-xs px-2 py-1 rounded border transition-colors ${
-              loop
-                ? "border-amber-400 text-amber-400 bg-amber-400/10"
-                : "border-neutral-600 text-neutral-400 hover:border-neutral-400"
-            }`}
-            title="Toggle loop (L)"
-          >
-            ↺
-          </button>
-          <button
-            type="button"
-            data-testid="spectrogram-btn"
-            onClick={() => onSpectrogramChange?.(!spectrogramEnabled)}
-            className={`text-xs px-2 py-1 rounded border transition-colors ${
-              spectrogramEnabled
-                ? "border-amber-400 text-amber-400 bg-amber-400/10"
-                : "border-neutral-600 text-neutral-400 hover:border-neutral-400"
-            }`}
-            title="Toggle spectrogram"
-          >
-            Spec
-          </button>
-          <span
+          <h2
             style={{
               fontFamily: "var(--font-mono)",
-              fontSize: 10,
-              letterSpacing: "0.18em",
+              fontSize: 11,
+              fontWeight: 500,
+              letterSpacing: "0.2em",
               textTransform: "uppercase",
-              color: "var(--text-faint)",
+              color: "var(--text-dim)",
+              margin: 0,
             }}
           >
-            {laneStates.length} track{laneStates.length !== 1 ? "s" : ""}
-          </span>
+            Timeline
+          </h2>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button
+              type="button"
+              data-testid="zoom-out-btn"
+              onClick={() =>
+                onZoomChange?.(Math.max(10, Math.round((zoom ?? 50) / 1.5)))
+              }
+              className="text-xs px-1.5 py-1 rounded border border-neutral-600 text-neutral-400 hover:border-neutral-400 transition-colors"
+              title="Zoom out (Ctrl+scroll)"
+            >
+              −
+            </button>
+            <button
+              type="button"
+              data-testid="zoom-in-btn"
+              onClick={() =>
+                onZoomChange?.(Math.min(500, Math.round((zoom ?? 50) * 1.5)))
+              }
+              className="text-xs px-1.5 py-1 rounded border border-neutral-600 text-neutral-400 hover:border-neutral-400 transition-colors"
+              title="Zoom in (Ctrl+scroll)"
+            >
+              +
+            </button>
+            <button
+              type="button"
+              data-testid="loop-btn"
+              onClick={() => onLoopChange?.(!loop)}
+              className={`text-xs px-2 py-1 rounded border transition-colors ${
+                loop
+                  ? "border-amber-400 text-amber-400 bg-amber-400/10"
+                  : "border-neutral-600 text-neutral-400 hover:border-neutral-400"
+              }`}
+              title="Toggle loop (L)"
+            >
+              ↺
+            </button>
+            <button
+              type="button"
+              data-testid="spectrogram-btn"
+              onClick={() => onSpectrogramChange?.(!spectrogramEnabled)}
+              className={`text-xs px-2 py-1 rounded border transition-colors ${
+                spectrogramEnabled
+                  ? "border-amber-400 text-amber-400 bg-amber-400/10"
+                  : "border-neutral-600 text-neutral-400 hover:border-neutral-400"
+              }`}
+              title="Toggle spectrogram"
+            >
+              Spec
+            </button>
+            <span
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                letterSpacing: "0.18em",
+                textTransform: "uppercase",
+                color: "var(--text-faint)",
+              }}
+            >
+              {laneStates.length} track{laneStates.length !== 1 ? "s" : ""}
+            </span>
+          </div>
+        </div>
+
+        <Ruler duration={timelineDuration} onAddMarker={onAddMarker} />
+
+        <div
+          style={{
+            flex: 1,
+            position: "relative",
+            overflow: "hidden",
+            overflowY: "auto",
+          }}
+        >
+          {laneStates.map((track, idx) => (
+            <div key={track.name}>
+              <TrackLane
+                name={track.name}
+                audioPath={track.audioPath || null}
+                muted={track.muted}
+                onToggleMute={() => handleToggleMute(idx)}
+                gainDb={track.gainDb ?? 0}
+                pan={track.pan ?? 0}
+                soloed={track.soloed ?? false}
+                onGainInput={(v) => patchLane(idx, { gainDb: v })}
+                onPanInput={(v) => patchLane(idx, { pan: v })}
+                onGainCommit={(v) => onTrackGainChange?.(trackIndex(idx), v)}
+                onPanCommit={(v) => onTrackPanChange?.(trackIndex(idx), v)}
+                onToggleSolo={() => handleToggleSolo(idx)}
+                onFileDropped={idx === 0 ? onFileDropped : undefined}
+                showDropHint={idx === 0 && !audioPath}
+                onWavesurfer={
+                  idx === 0
+                    ? (ws) => {
+                        headWsRef.current = ws;
+                      }
+                    : undefined
+                }
+                selection={idx === 0 ? selection : null}
+                onSelectionChange={idx === 0 ? onSelectionChange : undefined}
+                onDurationChange={idx === 0 ? setTimelineDuration : undefined}
+                zoom={zoom}
+                loop={idx === 0 ? loop : undefined}
+              />
+              {onClipEnvelopeChange && (track.clips?.length ?? 0) > 0 && (
+                <AutomationLane
+                  trackName={track.name}
+                  clips={track.clips ?? []}
+                  duration={timelineDuration}
+                  onCommit={(clipIndex, points) =>
+                    onClipEnvelopeChange(trackIndex(idx), clipIndex, points)
+                  }
+                />
+              )}
+            </div>
+          ))}
+          {markers && markers.length > 0 && timelineDuration > 0 && (
+            <MarkerLayer
+              markers={markers}
+              duration={timelineDuration}
+              onSeek={(t) => onSeekToMarker?.(t)}
+              onRemove={(id) => onRemoveMarker?.(id)}
+            />
+          )}
         </div>
       </div>
-
-      <Ruler duration={timelineDuration} onAddMarker={onAddMarker} />
-
-      <div style={{ flex: 1, position: "relative", overflow: "hidden", overflowY: "auto" }}>
-        {laneStates.map((track, idx) => (
-          <TrackLane
-            key={track.name}
-            name={track.name}
-            audioPath={track.audioPath || null}
-            muted={track.muted}
-            onToggleMute={() => handleToggleMute(idx)}
-            gainDb={track.gainDb ?? 0}
-            pan={track.pan ?? 0}
-            soloed={track.soloed ?? false}
-            onGainInput={(v) => patchLane(idx, { gainDb: v })}
-            onPanInput={(v) => patchLane(idx, { pan: v })}
-            onGainCommit={(v) => onTrackGainChange?.(trackIndex(idx), v)}
-            onPanCommit={(v) => onTrackPanChange?.(trackIndex(idx), v)}
-            onToggleSolo={() => handleToggleSolo(idx)}
-            onFileDropped={idx === 0 ? onFileDropped : undefined}
-            showDropHint={idx === 0 && !audioPath}
-            onWavesurfer={
-              idx === 0
-                ? (ws) => {
-                    headWsRef.current = ws;
-                  }
-                : undefined
-            }
-            selection={idx === 0 ? selection : null}
-            onSelectionChange={idx === 0 ? onSelectionChange : undefined}
-            onDurationChange={idx === 0 ? setTimelineDuration : undefined}
-            zoom={zoom}
-            loop={idx === 0 ? loop : undefined}
-          />
-        ))}
-        {markers && markers.length > 0 && timelineDuration > 0 && (
-          <MarkerLayer
-            markers={markers}
-            duration={timelineDuration}
-            onSeek={(t) => onSeekToMarker?.(t)}
-            onRemove={(id) => onRemoveMarker?.(id)}
-          />
-        )}
-      </div>
-    </div>
-  );
-});
+    );
+  },
+);
