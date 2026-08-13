@@ -184,7 +184,48 @@ pub(crate) fn stretch_mono(input: &[f32], ratio: f32) -> Vec<f32> {
 /// measure the feature against its own absence on identical input —
 /// "attacks are sharp" is only meaningful next to how blunt they were.
 pub(crate) fn stretch_mono_opts(input: &[f32], ratio: f32, preserve_transients: bool) -> Vec<f32> {
-    if input.is_empty() || !ratio.is_finite() || ratio <= 0.0 {
+    if !ratio.is_finite() || ratio <= 0.0 {
+        return Vec::new();
+    }
+    let target_len = ((input.len() as f32) * ratio).round().max(1.0) as usize;
+    stretch_varying(input, &|_| ratio, target_len, preserve_transients)
+}
+
+/// Time-scale one channel with a stretch ratio that varies along the
+/// signal.
+///
+/// `ratio_at(pos)` gives the local ratio for an analysis frame whose
+/// window starts at input sample `pos`. A constant function is an
+/// ordinary stretch; a piecewise-constant one built from two beat grids
+/// is a warp onto those beats, which is what `warp_to_grid` does.
+///
+/// `target_len` is the exact output length the caller is owed. The frame
+/// arithmetic lands a few percent short on its own — the last partial
+/// frame has no room to be analysed and the overlap-add ends on a frame
+/// boundary — so the length is a contract rather than a consequence.
+///
+/// ## Why one pass rather than a stretch per segment
+///
+/// The obvious way to warp is to cut the signal at each beat, stretch
+/// each piece by its own ratio, and concatenate. That produces an
+/// audible seam at *every beat*: each call has its own overlap-add ramp
+/// at both ends, and its own phase state starting from zero, so the
+/// partials restart out of step at each join.
+///
+/// Here the phase state runs continuously across the whole signal and
+/// only the synthesis hop changes, so a segment boundary is not an event
+/// the reconstruction can see.
+pub(crate) fn stretch_varying(
+    input: &[f32],
+    ratio_at: &dyn Fn(usize) -> f32,
+    target_len: usize,
+    preserve_transients: bool,
+) -> Vec<f32> {
+    if input.is_empty() {
+        return Vec::new();
+    }
+    let ratio = ratio_at(0);
+    if !ratio.is_finite() || ratio <= 0.0 {
         return Vec::new();
     }
     // A signal shorter than one frame has no overlap structure to work
@@ -192,8 +233,7 @@ pub(crate) fn stretch_mono_opts(input: &[f32], ratio: f32, preserve_transients: 
     // just fade it. Length-scaling by repetition is the least wrong
     // answer, and at these sizes (< 46 ms) nothing is audible either way.
     if input.len() < FRAME {
-        let out_len = ((input.len() as f32) * ratio).round().max(1.0) as usize;
-        return (0..out_len)
+        return (0..target_len)
             .map(|i| {
                 let src = ((i as f32) / ratio).floor() as usize;
                 input[src.min(input.len() - 1)]
@@ -201,14 +241,12 @@ pub(crate) fn stretch_mono_opts(input: &[f32], ratio: f32, preserve_transients: 
             .collect();
     }
 
-    // What the caller is owed. The tool contract is "output duration =
-    // input duration / factor", so the length has to be exact rather
-    // than whatever falls out of the frame arithmetic — that lands a few
-    // percent short, because the last partial frame has no room to be
-    // analysed and the overlap-add ends on a frame boundary.
-    let target_len = ((input.len() as f32) * ratio).round().max(1.0) as usize;
-
-    let hop_s = ((HOP_A as f32) * ratio).round().max(1.0) as usize;
+    // Synthesis hop for the frame whose window starts at padded position
+    // `start`. `lead` is subtracted because the schedule speaks in the
+    // caller's coordinates, not the padded buffer's; frames inside the
+    // lead-in take the ratio at input sample 0.
+    let hop_for = |ratio: f32| ((HOP_A as f32) * ratio).round().max(1.0) as usize;
+    let hop_s = hop_for(ratio);
 
     // Analysis frames to run before the real signal starts.
     //
@@ -228,7 +266,18 @@ pub(crate) fn stretch_mono_opts(input: &[f32], ratio: f32, preserve_transients: 
     // sample 0 fell inside the ramp and faded out of a 6-hit train.
     // (It *looked* preserved before the normalisation fix above, but
     // only because the raw divisor was amplifying that same region.)
-    let lead_frames = FRAME.div_ceil(hop_s).saturating_sub(1);
+    // With a varying hop the ramp condition binds hardest where the hop
+    // is smallest, so the lead is sized on the minimum over the whole
+    // schedule rather than on the first frame's.
+    let mut min_hop = hop_s;
+    {
+        let mut pos = 0usize;
+        while pos + FRAME <= input.len() {
+            min_hop = min_hop.min(hop_for(ratio_at(pos)));
+            pos += HOP_A;
+        }
+    }
+    let lead_frames = FRAME.div_ceil(min_hop).saturating_sub(1);
     let lead = lead_frames * HOP_A;
 
     // Where the real signal stops, in padded coordinates. Frames
@@ -267,7 +316,45 @@ pub(crate) fn stretch_mono_opts(input: &[f32], ratio: f32, preserve_transients: 
     let mut frames_since_transient = MIN_TRANSIENT_GAP_FRAMES;
 
     let frames = (input.len() - FRAME) / HOP_A + 1;
-    let out_len = (frames - 1) * hop_s + FRAME;
+
+    // Per-frame synthesis hop, and where each frame lands. Uniform
+    // spacing (`f * hop_s`) only holds when the hop is constant; with a
+    // schedule the output position is the running sum of the hops before
+    // it.
+    // The accumulator is a float and each *position* is rounded once,
+    // rather than each hop being rounded and the errors summing. At
+    // ratio 1.2 the hop is 614.4 samples and rounding it per frame loses
+    // 0.4 every 512 input samples; measured on a 120-to-100 BPM warp
+    // that put beat five 10.5 ms early, which is outside the tolerance
+    // the whole feature is judged by. Rounding the position instead
+    // keeps the error bounded at half a sample forever.
+    //
+    // `hops[f]` is then the *actual* distance to the next frame, so the
+    // phase advance below matches where the audio really goes.
+    let mut starts: Vec<usize> = Vec::with_capacity(frames);
+    {
+        let mut acc = 0.0f64;
+        for f in 0..frames {
+            starts.push(acc.round() as usize);
+            let padded_start = f * HOP_A;
+            let r = if padded_start < lead {
+                ratio
+            } else {
+                ratio_at(padded_start - lead)
+            };
+            acc += (HOP_A as f64) * (r.clamp(1e-3, 1e3) as f64);
+        }
+    }
+    let hops: Vec<usize> = (0..frames)
+        .map(|f| {
+            if f + 1 < frames {
+                starts[f + 1] - starts[f]
+            } else {
+                hop_s
+            }
+        })
+        .collect();
+    let out_len = starts[frames - 1] + FRAME;
     let mut out = vec![0.0f32; out_len];
     let mut norm = vec![0.0f32; out_len];
 
@@ -346,7 +433,7 @@ pub(crate) fn stretch_mono_opts(input: &[f32], ratio: f32, preserve_transients: 
                 // scaled to the synthesis hop. This is the step that
                 // keeps pitch fixed while the timeline changes.
                 let true_freq = expected[k] + delta;
-                sum_phase[k] += true_freq * (hop_s as f32) / (HOP_A as f32);
+                sum_phase[k] += true_freq * (hops[f] as f32) / (HOP_A as f32);
             }
 
             spectrum[k].re = mags[k] * sum_phase[k].cos();
@@ -365,7 +452,7 @@ pub(crate) fn stretch_mono_opts(input: &[f32], ratio: f32, preserve_transients: 
             return Vec::new();
         }
 
-        let out_start = f * hop_s;
+        let out_start = starts[f];
         for i in 0..FRAME {
             // realfft's inverse is unnormalised; dividing by FRAME here
             // keeps the scalar in one place.
@@ -404,8 +491,9 @@ pub(crate) fn stretch_mono_opts(input: &[f32], ratio: f32, preserve_transients: 
 
     // Drop the lead-in. Each padded analysis frame advances the output
     // by one synthesis hop, so the input's sample 0 sits exactly
-    // `lead_frames * hop_s` samples in.
-    let skip = (lead_frames * hop_s).min(out.len());
+    // `starts[lead_frames]` samples in — a running sum, not a product,
+    // because the hops before it need not all be equal.
+    let skip = starts[lead_frames.min(frames - 1)].min(out.len());
     out.drain(..skip);
 
     // Trim (or zero-extend) to the promised length. The overshoot is the

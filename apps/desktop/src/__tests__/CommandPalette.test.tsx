@@ -3,22 +3,14 @@
  *
  * Picking a command injects its prompt into the chat, and the label and
  * description are what the user believes will happen. Two things can go
- * wrong that a rendering test would not catch: a command can name a tool
- * that records state without touching the audio, and the keyboard's idea
- * of "the highlighted row" can drift from the rendered order.
+ * wrong that a rendering test would not catch: a command can promise
+ * something the tool behind it does not do, and the keyboard's idea of
+ * "the highlighted row" can drift from the rendered order.
  */
 
 import { describe, expect, it } from "vitest";
 
 import { COMMANDS, type Command } from "../components/CommandPalette";
-
-/**
- * Tools whose value the render engine does not read. They carry
- * `applied_at_render: false` in their results; until that flips, a
- * command that steers the agent towards one of them reports success and
- * changes nothing.
- */
-const INERT_TOOLS = ["align_to_beat"];
 
 /** The order the results list renders groups in. */
 const CATEGORY_ORDER = [
@@ -33,26 +25,27 @@ const CATEGORY_ORDER = [
 ];
 
 describe("COMMANDS", () => {
-  it("does not promise anything the render engine ignores", () => {
-    // The palette can't name tools directly — it sends prose — so this
-    // looks for the phrasing that steers the agent to one of them.
-    // Deliberately narrow. `analyze_track` genuinely reports a beat grid
-    // and its command says so — reporting one is fine, warping audio onto
-    // one is what nothing does. Match the action, not the noun.
-    const inertPhrases = [/align.*\bbeat/i, /quantize/i];
-
-    const offenders = COMMANDS.filter((c) =>
-      inertPhrases.some(
-        (re) => re.test(c.prompt) || re.test(c.description) || re.test(c.label),
-      ),
-    ).map((c) => `${c.label}: "${c.prompt}" / "${c.description}"`);
-
-    expect(
-      offenders,
-      `these commands steer the agent at ${INERT_TOOLS.join(", ")}, which ` +
-        `record a value the render engine never reads — the user is told it ` +
-        `worked and hears no difference`,
-    ).toEqual([]);
+  it("offers beat alignment, now that something warps audio to a grid", () => {
+    // This test used to assert the opposite: that no command steered the
+    // agent at `align_to_beat`, because that tool recorded a grid the
+    // render engine never read and the user was told it worked while
+    // hearing no difference. #97 made it warp, so the entry is back.
+    //
+    // The underlying invariant — no tool may report a change it does not
+    // make — did not go away, it moved somewhere it can be checked
+    // properly: `no_tool_still_claims_it_is_unapplied` in
+    // `crates/tools/tests/tools_integration.rs` reads every registered
+    // tool's own description rather than pattern-matching palette prose.
+    const aligners = COMMANDS.filter(
+      (c) => /align.*\bbeat/i.test(c.label) || /warp/i.test(c.description),
+    );
+    expect(aligners.length).toBeGreaterThan(0);
+    for (const c of aligners) {
+      expect(
+        c.description.toLowerCase(),
+        `"${c.label}" should say what happens to pitch`,
+      ).toMatch(/pitch/);
+    }
   });
 
   it("says what happens to pitch in every speed command", () => {

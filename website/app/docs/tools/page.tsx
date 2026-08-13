@@ -340,9 +340,9 @@ const groups = [
       },
       {
         name: "align_to_beat",
-        prompt: 'align track 2 to the beat',
-        what: "Shift the start of a track to align with the nearest beat grid.",
-        output: "node_id, shift_sec",
+        prompt: 'find the beats, then warp this onto a steady grid',
+        what: "Warp a track in time so its beats land on a target grid, without changing the pitch. Each segment between beats is stretched by its own ratio in one pass, so there is no seam at the beats. Get source_beats from analyze_track.",
+        output: "node_id",
       },
       {
         name: "plot_spectrum",
