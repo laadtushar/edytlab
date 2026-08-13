@@ -88,9 +88,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # `channel` is passed explicitly rather than relying on its
+          # default. Auto-release only ever produces previews, and a
+          # future change to that default must not silently turn every
+          # merge to main into a release marked Latest.
           gh workflow run release-dev.yml \
             --ref "${{ steps.tag.outputs.tag }}" \
             -f tag="${{ steps.tag.outputs.tag }}" \
+            -f channel=dev \
             --repo "${{ github.repository }}"
 
       - name: Summary

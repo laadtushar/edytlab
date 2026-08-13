@@ -48,6 +48,7 @@ This repo lives at `C:\Users\tusha\Work\Playground\Edytlab\edytlab` on Windows 1
 - `ci.yml` runs on push to main + PRs: fmt, clippy, cargo test, frontend build, vitest. Tauri bundle is intentionally NOT in CI (too slow); release workflows cover that.
 - `auto-release.yml` fires off CI's `workflow_run` on main: tags `v0.1.0-dev.<run_number>` and dispatches `release-dev.yml`.
 - `release-dev.yml` uses a `create-release` job + matrix to avoid the parallel-job race that produced duplicate releases for the same tag.
+- `release-dev.yml` has a `channel` dispatch input: `dev` (default — prerelease, not Latest, "unsigned dev build") and `release` (a real versioned release, not a prerelease, marked Latest). Tag pushes are always `dev`; a bare `vX.Y.Z` tag deliberately does not trigger it, so `release-signed.yml` owns those tags once certs exist. Both channels emit the same install warnings, because those describe the artifact rather than the channel.
 - Signed releases (`release-signed.yml`) are manual `workflow_dispatch` and require Apple/Windows signing secrets. Same `create-release` + matrix + `publish` shape as `release-dev.yml`. tauri-action is given neither `tagName` nor `releaseId` there — it only builds, and upload happens after signing, so unsigned artifacts can never reach the release.
 - Bundle targets are explicit in `tauri.conf.json`: `["app", "dmg", "msi", "nsis", "deb", "appimage"]`. Don't revert to `"all"` — it silently dropped installer formats under some build conditions.
 
