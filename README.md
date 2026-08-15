@@ -15,11 +15,12 @@ Local-first, multi-provider, pure-Rust DSP. Mac and Windows in v1.
 ## Key features
 
 - **Conversational multi-track production.** Say *"mashup A's vocals over B's drums, key-match, give me 3 takes on the drop"* and the agent plans, executes, and renders. Branches per take, A/B in the canvas.
-- **Pure-Rust DSP graph.** Decode (`symphonia`), routing/effects (`fundsp` / `dasp`), resampling (`rubato`), I/O (`cpal`). DSP quality is non-negotiable — no Python in the hot path.
+- **Pure-Rust DSP.** Decode (`symphonia`), resampling (`rubato`), I/O (`cpal`), and effects written in-house in `crates/audio-dsp` — a crate with deliberately zero dependencies. DSP quality is non-negotiable and there is no Python in the hot path.
 - **Local-first.** Audio never leaves your machine unless you export. The agent talks to a remote LLM; the audio engine runs entirely in-process.
-- **Multi-provider LLMs out of the box.** Anthropic, OpenRouter, and OpenAI — each with its own key in the OS keychain, switchable from the Settings panel without reinstall. Adding a fourth is a single `LlmProvider` impl.
+- **Multi-provider LLMs out of the box.** Anthropic, OpenRouter, OpenAI, Groq, Gemini and Ollama — each with its own key in the OS keychain, switchable from the Settings panel without reinstall. Adding another is a single `LlmProvider` impl.
 - **Branchable session graph.** Every state is a node in a DAG. Fork, name, compare, revert — A/B is first-class, not an undo stack. *(Linear timeline shipping in Phase 1; full DAG view lands in Phase 2.)*
-- **ML primitives where they matter.** Demucs (stem separation) and Whisper (transcription) integrated as ONNX-driven tools the agent can call. Rubber Band for time-stretch / pitch-shift in Phase 2.
+- **ML primitives where they matter.** Demucs (stem separation) and Whisper (transcription) integrated as ONNX-driven tools the agent can call.
+- **Time and pitch without a C dependency.** Time-stretch, pitch-shift, formant preservation and beat-grid warping run on a phase vocoder written here, on `realfft`. Rubber Band was the original plan and was dropped: it needs a different native package on each of the three CI targets, and a native dependency is the kind of thing that breaks every build at once. See the module docs in `crates/audio-time/src/vocoder.rs` for the trade that buys and what it costs.
 
 ## Quick start
 
@@ -40,15 +41,18 @@ The first build is slow — `cargo` compiles the full Rust workspace plus Tauri.
 
 ## AI provider setup
 
-edytlab supports three providers out of the box. Each provider has its own API key slot in the OS keychain, and you can switch the active provider from the gear icon in the chat header without restarting.
+edytlab supports six providers out of the box. Each has its own API key slot in the OS keychain, and you can switch the active provider from the gear icon in the chat header without restarting.
 
 | Provider | Get a key |
 |---|---|
 | Anthropic | <https://console.anthropic.com/settings/keys> |
 | OpenRouter | <https://openrouter.ai/keys> |
 | OpenAI | <https://platform.openai.com/api-keys> |
+| Groq | <https://console.groq.com/keys> |
+| Gemini | <https://aistudio.google.com/apikey> |
+| Ollama | none — runs locally, point it at your own daemon |
 
-Keys are stored via the [`keyring`](https://crates.io/crates/keyring) crate — Keychain on macOS, Credential Manager on Windows. The keychain entry is namespaced per provider (`anthropic_api_key`, `openrouter_api_key`, `openai_api_key`); the active provider is mirrored in `active_provider`. A legacy unsuffixed `anthropic_api_key` slot is read for back-compat and migrated on first run.
+Keys are stored via the [`keyring`](https://crates.io/crates/keyring) crate — Keychain on macOS, Credential Manager on Windows. The keychain entry is namespaced per provider (`<provider_id>_api_key`); the active provider is mirrored in `active_provider`. A legacy unsuffixed `anthropic_api_key` slot is read for back-compat and migrated on first run.
 
 The model picker is a combo (free-form input + curated suggestions from the live catalogue) so a brand-new model id works the moment you know it.
 
@@ -83,7 +87,7 @@ For the long version, read [`docs/specs/2026-05-05-conversational-audio-editor-d
 
 - **Shell:** Tauri 2, Rust workspace (edition 2021, toolchain 1.88), `cargo` profile-release with `lto = true`
 - **Frontend:** React 19, Vite 7, Tailwind 4, `@xyflow/react` for the graph view, `wavesurfer.js` for waveforms
-- **Audio:** `cpal`, `symphonia`, `dasp`, `fundsp`, `rubato`
+- **Audio:** `cpal` (I/O), `symphonia` (decode), `rubato` (resampling), `realfft` (spectral), `hound` (WAV), `flac-codec` and `rusty_mp3` (export), plus in-house effects in `crates/audio-dsp`
 - **ML:** ONNX Runtime via `ort` for Demucs / Whisper
 - **LLM:** `reqwest` + `eventsource-stream` for SSE; `keyring` for OS-keychain credential storage
 - **Test:** `cargo test` (unit + integration), `vitest` (frontend), `wiremock` for HTTP fakes
