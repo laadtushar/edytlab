@@ -1,15 +1,31 @@
-name: Release (dev / unsigned)
+name: Release (unsigned)
 
-# Builds unsigned .dmg (Mac) + .msi / NSIS .exe (Win) artifacts and
-# attaches them to a draft GitHub Release. Use this for beta / preview
-# drops while the real Apple Developer ID + Authenticode certs aren't
-# yet provisioned. The signed pipeline (release-signed.yml) stays as
-# the source of truth for shippable builds — this workflow is
-# intentionally smaller.
+# Builds unsigned .dmg (Mac), .msi / NSIS .exe (Win) and .deb /
+# .AppImage (Linux) artifacts and attaches them to a GitHub Release.
+# The signed pipeline (release-signed.yml) stays the source of truth
+# for shippable builds once the Apple Developer ID + Authenticode certs
+# are provisioned — this workflow is intentionally smaller.
+#
+# Two channels, chosen by the `channel` dispatch input:
+#
+#   dev      (default) — a preview drop. Prerelease, not marked Latest,
+#                        named "(unsigned dev build)". Every tag push
+#                        takes this path.
+#   release            — a real versioned release. Not a prerelease,
+#                        marked Latest, named plainly. Manual dispatch
+#                        only: a bare `v1.2.3` tag push deliberately
+#                        does NOT trigger this workflow, so that once
+#                        signing exists, release-signed.yml owns those
+#                        tags and an unsigned build cannot claim one by
+#                        accident.
+#
+# Both channels carry the same install warnings, because both produce
+# unsigned artifacts and the warnings are a property of the artifact,
+# not of the channel.
 #
 # Triggers:
-#   - tag push matching `v*-dev.*`, `v*-beta.*`, or `v*-rc.*` (auto)
-#   - workflow_dispatch with an explicit tag input (manual)
+#   - tag push matching `v*-dev.*`, `v*-beta.*`, or `v*-rc.*` (auto, dev)
+#   - workflow_dispatch with an explicit tag input (manual, either channel)
 #
 # End-user warnings on unsigned artifacts:
 #   - macOS: "edytlab.app is damaged and can't be opened". That wording
@@ -48,6 +64,19 @@ on:
         description: "Release tag to publish (e.g. v0.1.0-beta.1). Created if missing."
         required: true
         type: string
+      channel:
+        description: "dev = prerelease preview; release = a real versioned release (not a prerelease, marked Latest)."
+        required: false
+        default: dev
+        type: choice
+        options:
+          - dev
+          - release
+      notes:
+        description: "Optional release notes, placed above the install warnings. Markdown. Previews rarely need them; a versioned release does."
+        required: false
+        default: ""
+        type: string
 
 env:
   CARGO_TERM_COLOR: always
@@ -65,16 +94,21 @@ jobs:
     outputs:
       release_id: ${{ steps.create.outputs.release_id }}
       tag: ${{ steps.tag.outputs.tag }}
+      channel: ${{ steps.tag.outputs.channel }}
     steps:
-      - name: Resolve release tag
+      - name: Resolve release tag and channel
         id: tag
         shell: bash
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+            echo "channel=${{ inputs.channel }}" >> "$GITHUB_OUTPUT"
           else
-            # github.ref on a tag push is `refs/tags/<tag>`
+            # github.ref on a tag push is `refs/tags/<tag>`. A tag push
+            # only matches the dev/beta/rc patterns above, so it is
+            # always the dev channel.
             echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+            echo "channel=dev" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Find or create draft release
@@ -82,6 +116,8 @@ jobs:
         uses: actions/github-script@v7
         env:
           TAG: ${{ steps.tag.outputs.tag }}
+          CHANNEL: ${{ steps.tag.outputs.channel }}
+          NOTES: ${{ github.event.inputs.notes }}
           COMMIT_SHA: ${{ github.sha }}
         with:
           script: |
@@ -113,11 +149,40 @@ jobs:
               return;
             }
 
+            const isRelease = process.env.CHANNEL === "release";
+
+            // The channel changes the opening paragraph and nothing
+            // else. Everything below it describes what an unsigned
+            // artifact does on the user's machine, which is identical
+            // either way — a real release that happens to be unsigned
+            // hits exactly the same Gatekeeper wall as a preview, and
+            // omitting the instructions there would be the failure this
+            // whole section exists to prevent.
+            const preamble = isRelease
+              ? [
+                  "**Unsigned build.** The Apple Developer ID and Authenticode",
+                  "certificates are not provisioned yet, so these artifacts are",
+                  "not signed or notarized. They are built from a commit that",
+                  "passes the full test suite on all three platforms; what they",
+                  "lack is a signature, which is why the install steps below are",
+                  "needed. Signed artifacts will come from release-signed.yml",
+                  "once the certs exist.",
+                ]
+              : [
+                  "**Unsigned developer preview** — convenience build for testing",
+                  "on machines without code-signing infrastructure. Production",
+                  "releases are produced via release-signed.yml",
+                  "with the real Apple Developer ID + Authenticode certs.",
+                ];
+
+            // Caller-supplied notes go first: someone opening the page
+            // wants to know what this release *is* before being told how
+            // to get past Gatekeeper. The warnings still follow, because
+            // they are what makes the download usable.
+            const notes = (process.env.NOTES || "").trim();
             const body = [
-              "**Unsigned developer preview** — convenience build for testing",
-              "on machines without code-signing infrastructure. Production",
-              "releases are produced via release-signed.yml",
-              "with the real Apple Developer ID + Authenticode certs.",
+              ...(notes ? [notes, "", "---", ""] : []),
+              ...preamble,
               "",
               "### Install warnings (expected on unsigned builds)",
               "",
@@ -153,10 +218,14 @@ jobs:
               owner,
               repo,
               tag_name: tag,
-              name: `edytlab ${tag} (unsigned dev build)`,
+              name: isRelease ? `edytlab ${tag}` : `edytlab ${tag} (unsigned dev build)`,
               body,
+              // Draft either way: the publish job flips it only after
+              // every matrix leg has uploaded, so a failed platform
+              // leaves an inspectable draft rather than a half-populated
+              // release on the public page.
               draft: true,
-              prerelease: true,
+              prerelease: !isRelease,
             });
             core.info(`Created draft release id ${created.id}`);
             core.setOutput("release_id", created.id);
@@ -265,17 +334,23 @@ jobs:
       - name: Flip draft -> published
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        # Single API call: latest=false (don't move the "Latest"
-        # badge — these are unsigned dev builds), draft=false makes
-        # the release visible on the public Releases page with the
-        # mac .dmg, win .msi/.exe, and linux .deb/.AppImage attached.
+        # draft=false makes the release visible on the public Releases
+        # page with the mac .dmg, win .msi/.exe and linux .deb/.AppImage
+        # attached. `make_latest` follows the channel: a dev preview must
+        # not move the "Latest" badge off a real release, and a real
+        # release should take it.
         run: |
+          if [ "${{ needs.create-release.outputs.channel }}" = "release" ]; then
+            MAKE_LATEST=true
+          else
+            MAKE_LATEST=false
+          fi
           # gh api flags: -F = raw (bool/number), -f = string. The
           # GitHub releases API expects `draft: bool` and
           # `make_latest: string` ("true"|"false"|"legacy").
           gh api -X PATCH \
             repos/${{ github.repository }}/releases/${{ needs.create-release.outputs.release_id }} \
             -F draft=false \
-            -f make_latest=false \
+            -f make_latest="$MAKE_LATEST" \
             >/dev/null
-          echo "Published release ${{ needs.create-release.outputs.tag }}"
+          echo "Published ${{ needs.create-release.outputs.channel }} release ${{ needs.create-release.outputs.tag }} (latest=$MAKE_LATEST)"
