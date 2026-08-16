@@ -56,7 +56,7 @@ export const posts: BlogPost[] = [
       },
       {
         type: "callout",
-        text: "edytlab uses a pure-Rust audio graph (cpal · symphonia · dasp · rubato). Every cut, gain adjustment, pitch shift, and stem separation call runs on-device. Only the chat conversation hits the network — and you choose which LLM provider that goes to.",
+        text: "edytlab uses a pure-Rust audio graph (cpal · symphonia · rubato · realfft). Every cut, gain adjustment, pitch shift, and stem separation call runs on-device. Only the chat conversation hits the network — and you choose which LLM provider that goes to.",
       },
       {
         type: "h2",

@@ -30,6 +30,11 @@ const providers = [
     body: "Open models at very low latency.",
     href: "https://console.groq.com/keys",
   },
+  {
+    name: "Ollama",
+    body: "Runs on your own machine. No key, no account, no tokens leaving the building.",
+    href: "https://ollama.com",
+  },
 ];
 
 export function ProviderCards() {
