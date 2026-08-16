@@ -17,7 +17,25 @@ interface Entry {
 // GitHub Releases — link below.
 const entries: Entry[] = [
   {
-    version: "v0.1.0-dev (in progress)",
+    version: "v0.1.0",
+    date: "2026-08",
+    bullets: [
+      "Mixer controls. Gain, pan, mute and solo are editable per track without asking the agent — none of them had a command before, so every mixing decision went through a sentence and a model round trip. Pan in particular had a balance law in the render engine and nothing in the product able to reach it.",
+      "Volume automation is visible and editable. The curve, its persistence and the render integration all existed; there was no way to see or touch it. Draw points on the lane, drag them, nudge with arrows — one gesture is one undoable step, not one per pixel.",
+      "Clip timeline. A track split by an interior cut used to render as one continuous lane, so the seam was invisible. Clips now appear as chips you can select, move and delete, with move_clip and remove_clip available to the agent too.",
+      "align_to_beat warps audio. It recorded a beat grid that nothing read and reported success while changing nothing — the last tool in the repo doing that. It now stretches each inter-beat segment by its own ratio in a single vocoder pass, so there is no seam at the beats.",
+      "Formant preservation. preserve_formants was a documented, accepted, ignored flag on two tools. Shifted voices now keep the resonances of the vocal tract where they were instead of travelling with the pitch.",
+      "MP3 export, on a pure-Rust encoder — no LAME, no C dependency, no licence interaction. Bitrate is settable and defaults to 192 kbps CBR.",
+      "normalize_loudness targets LUFS rather than a peak. Two files peak-normalised to the same value can differ by 10 LUFS, so peak normalisation cannot answer 'make this as loud as everything else'. Gain is capped at a true-peak ceiling and the shortfall is reported when the cap bites.",
+      "Bus routing. Sends, per-bus effect chains, and the tools to reach them, so one reverb can serve several tracks.",
+      "FLAC export — lossless, about half the size of WAV, sample-identical to the WAV of the same render.",
+      "A time-stretch bug that could produce a full-scale output. A steady 2 kHz sine stretched 2x came back peaking at 740x the input: the overlap-add divided phase-rewritten frames by a window energy that ramps to zero at the edges. Fixed, with tests asserting that stretching redistributes energy in time and never creates any.",
+      "A timing drift in every long stretch. Rounding each synthesis hop to an integer accumulated — measured on a 120-to-100 BPM warp, that put the fifth beat 10.5 ms early. Positions are now accumulated in floating point and rounded once.",
+      "Ollama joins Anthropic, OpenAI, Gemini, Groq and OpenRouter — six providers, and the local one needs no key at all.",
+    ],
+  },
+  {
+    version: "v0.1.0-dev (earlier)",
     date: "2026-08",
     bullets: [
       "Audio fidelity: five tools — fade, reverse, insert_silence, copy_region and paste_region — converted seconds straight into a sample index with no interleave stride. On a stereo track that halved every span, and an odd sample count swapped left and right for the rest of the track. All five now count in frames.",
