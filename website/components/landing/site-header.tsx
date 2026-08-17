@@ -11,11 +11,10 @@ export function SiteHeader() {
       <div className="container flex h-14 items-center justify-between">
         <Link href="/" className="flex items-center gap-2 font-semibold">
           <Image
-            src="/logo.png"
+            src="/logo.svg"
             alt="edytlab logo"
             width={24}
             height={24}
-            className="rounded"
             priority
           />
           edytlab
