@@ -33,7 +33,7 @@ pub mod util;
 
 pub use dispatcher::{Tool, ToolContext, ToolDispatcher, READS_OUTSIDE_THE_SESSION};
 pub use preview_cache::{Hit as PreviewHit, PreviewCache};
-pub use provenance::{verify_chain, Problem};
+pub use provenance::{derived_dir, verify_chain, Problem};
 pub use recipe::{Recipe, RecipeStep};
 pub use util::range_resolver::{resolve as resolve_range, Range, RangeError};
 

@@ -105,10 +105,10 @@ pub(crate) fn slice_envelope(
 /// clip list always yields the same audio, so a repeat call finds the
 /// file already there and never touches the sources. Only a genuine miss
 /// pays for a decode.
-pub fn flattened_track_wav(clips: &[Clip]) -> Result<PathBuf, String> {
-    let first = clips
-        .first()
-        .ok_or_else(|| "track has no clips".to_string())?;
+pub fn flattened_track_wav(project_dir: &Path, clips: &[Clip]) -> Result<PathBuf, String> {
+    if clips.is_empty() {
+        return Err("track has no clips".to_string());
+    }
 
     let mut hasher = blake3::Hasher::new();
     for c in clips {
@@ -119,8 +119,10 @@ pub fn flattened_track_wav(clips: &[Clip]) -> Result<PathBuf, String> {
     }
     let hash_hex = hasher.finalize().to_hex().to_string();
 
-    let parent: &Path = first.source_path.parent().unwrap_or_else(|| Path::new("."));
-    let derived_dir: PathBuf = parent.join("derived");
+    // Inside the project (#156), not beside whichever source happened to
+    // be first: a project has to contain the audio it points at, or it
+    // is not a thing anyone can copy or move.
+    let derived_dir: PathBuf = crate::provenance::derived_dir(project_dir);
     let cas_path = derived_dir.join(format!("track-{hash_hex}.wav"));
     if cas_path.exists() {
         return Ok(cas_path);
@@ -498,9 +500,8 @@ where
     let channels_out = channels_out.max(1);
     let stride_out = channels_out as usize;
 
-    // CAS-address the result under `<source_dir>/derived/<hash>.wav`.
-    let parent: &Path = first.source_path.parent().unwrap_or_else(|| Path::new("."));
-    let derived_dir: PathBuf = parent.join("derived");
+    // CAS-address the result under `<project>/.audiograph/derived/`.
+    let derived_dir: PathBuf = crate::provenance::derived_dir(ctx.store.project_dir());
     if let Err(e) = std::fs::create_dir_all(&derived_dir) {
         return ToolResult::Error(format!(
             "failed to create derived dir {}: {e}",

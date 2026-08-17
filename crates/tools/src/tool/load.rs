@@ -83,7 +83,7 @@ impl Tool for LoadTool {
         // and point the clip there. WAV sources that the streaming
         // reader accepts are used as-is so the byte-identity guarantee
         // for unity-passthrough renders still holds.
-        let source_path = match ensure_streamable_wav(&path, &decoded) {
+        let source_path = match ensure_streamable_wav(ctx.store.project_dir(), &path, &decoded) {
             Ok(p) => p,
             Err(msg) => return Ok(ToolResult::Error(msg)),
         };
@@ -209,18 +209,24 @@ impl Tool for LoadTool {
 ///
 /// If `src` already opens cleanly via `WavStreamReader`, returns it
 /// unchanged so the unity-passthrough byte-identity path still applies.
-/// Otherwise, writes `decoded` to a CAS-addressed sibling WAV at
-/// `<src.parent>/derived/<hash>.wav` and returns that path. The hash is
+/// Otherwise, writes `decoded` to a CAS-addressed WAV at
+/// `<project>/.audiograph/derived/<hash>.wav` and returns that path. The hash is
 /// over sample-rate, channel count and little-endian sample bytes, so
 /// the same audio always lands on the same name — whether it is the same
 /// file re-loaded or a copy of it from somewhere else.
-fn ensure_streamable_wav(src: &Path, decoded: &DecodedAudio) -> Result<PathBuf, String> {
+fn ensure_streamable_wav(
+    project_dir: &Path,
+    src: &Path,
+    decoded: &DecodedAudio,
+) -> Result<PathBuf, String> {
     if WavStreamReader::open(src).is_ok() {
         return Ok(src.to_path_buf());
     }
 
-    let parent: &Path = src.parent().unwrap_or_else(|| Path::new("."));
-    let derived_dir = parent.join("derived");
+    // Inside the project (#156). A transcode is derived audio, and
+    // derived audio that lives beside the user's source file is audio
+    // the project does not contain.
+    let derived_dir = crate::provenance::derived_dir(project_dir);
     std::fs::create_dir_all(&derived_dir).map_err(|e| {
         format!(
             "failed to create derived dir {}: {e}",
@@ -293,7 +299,7 @@ mod tests {
         let wav = dir.path().join("a.wav");
         write_wav(&wav, &[0.0; 1024], 44_100, 1);
         let decoded = audio_decoder::decode_file(&wav).unwrap();
-        let out = ensure_streamable_wav(&wav, &decoded).unwrap();
+        let out = ensure_streamable_wav(dir.path(), &wav, &decoded).unwrap();
         assert_eq!(out, wav, "real WAV must not be re-encoded");
     }
 
@@ -311,10 +317,14 @@ mod tests {
             sample_rate: 48_000,
             channels: 2,
         };
-        let out = ensure_streamable_wav(&fake, &decoded).unwrap();
+        let out = ensure_streamable_wav(dir.path(), &fake, &decoded).unwrap();
         assert_ne!(out, fake, "non-WAV source must be transcoded");
         // The renderer must be able to open the result.
         WavStreamReader::open(&out).expect("transcoded file is a valid WAV");
-        assert!(out.starts_with(dir.path().join("derived")));
+        assert!(
+            out.starts_with(dir.path().join(".audiograph").join("derived")),
+            "a transcode belongs inside the project: {}",
+            out.display()
+        );
     }
 }

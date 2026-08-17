@@ -59,6 +59,23 @@ pub fn audio_hash(samples: &[f32], sample_rate: u32, channels: u16) -> String {
     hasher.finalize().to_hex().to_string()
 }
 
+/// Directory under `.audiograph/` holding derived audio.
+pub const DERIVED_DIR: &str = "derived";
+
+/// Where derived audio lives: `<project>/.audiograph/derived/`.
+///
+/// Inside the project, not beside the source (#156). Derived files used
+/// to be written to `<source_dir>/derived/`, which meant a project
+/// folder held only `project.json` and `.audiograph/` while every
+/// sample sat next to whatever the user happened to open — usually
+/// somewhere else entirely. A project was therefore not a thing you
+/// could copy, move or back up, because the audio it points at was not
+/// in it. The clipboard blobs and the preview cache already live under
+/// `.audiograph/`; this puts the derived audio with them.
+pub fn derived_dir(project_dir: &Path) -> PathBuf {
+    project_dir.join(session::STORE_DIR).join(DERIVED_DIR)
+}
+
 /// Where clipboard blobs live for a project.
 pub fn clipboard_dir(project_dir: &Path) -> PathBuf {
     project_dir.join(session::STORE_DIR).join(CLIPBOARD_DIR)

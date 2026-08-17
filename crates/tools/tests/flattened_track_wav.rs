@@ -63,7 +63,7 @@ fn writes_the_whole_timeline_not_the_first_clip() {
 
     // The shape an interior cut of [200,600) leaves behind.
     let clips = vec![clip(&src, 0, 0, 200), clip(&src, 200, 600, 200)];
-    let path = flattened_track_wav(&clips).expect("flatten");
+    let path = flattened_track_wav(tmp.path(), &clips).expect("flatten");
 
     let mut reader = WavReader::open(&path).expect("open flattened");
     assert_eq!(reader.spec().sample_rate, RATE);
@@ -93,7 +93,7 @@ fn a_gap_between_clips_is_silence() {
     let src = write_ramp_wav(tmp.path());
 
     let clips = vec![clip(&src, 0, 0, 100), clip(&src, 300, 0, 100)];
-    let path = flattened_track_wav(&clips).expect("flatten");
+    let path = flattened_track_wav(tmp.path(), &clips).expect("flatten");
 
     let mut reader = WavReader::open(&path).expect("open flattened");
     let samples: Vec<i16> = reader.samples::<i16>().map(|r| r.unwrap()).collect();
@@ -118,10 +118,10 @@ fn a_repeat_call_does_not_re_read_the_sources() {
     let src = write_ramp_wav(tmp.path());
     let clips = vec![clip(&src, 0, 0, 200), clip(&src, 200, 600, 200)];
 
-    let first = flattened_track_wav(&clips).expect("first call");
+    let first = flattened_track_wav(tmp.path(), &clips).expect("first call");
     std::fs::remove_file(&src).expect("remove source");
 
-    let second = flattened_track_wav(&clips).expect("second call must not re-decode");
+    let second = flattened_track_wav(tmp.path(), &clips).expect("second call must not re-decode");
     assert_eq!(
         first, second,
         "the same clip list must map to the same file"
@@ -135,8 +135,16 @@ fn a_different_clip_list_gets_a_different_file() {
     let tmp = TempDir::new().unwrap();
     let src = write_ramp_wav(tmp.path());
 
-    let a = flattened_track_wav(&[clip(&src, 0, 0, 200), clip(&src, 200, 600, 200)]).unwrap();
-    let b = flattened_track_wav(&[clip(&src, 0, 0, 300), clip(&src, 300, 600, 200)]).unwrap();
+    let a = flattened_track_wav(
+        tmp.path(),
+        &[clip(&src, 0, 0, 200), clip(&src, 200, 600, 200)],
+    )
+    .unwrap();
+    let b = flattened_track_wav(
+        tmp.path(),
+        &[clip(&src, 0, 0, 300), clip(&src, 300, 600, 200)],
+    )
+    .unwrap();
     assert_ne!(
         a, b,
         "two different cuts of one source must not share a waveform"
@@ -146,5 +154,6 @@ fn a_different_clip_list_gets_a_different_file() {
 /// An empty track has no timeline to write.
 #[test]
 fn an_empty_track_is_an_error_not_an_empty_file() {
-    assert!(flattened_track_wav(&[]).is_err());
+    let tmp = TempDir::new().unwrap();
+    assert!(flattened_track_wav(tmp.path(), &[]).is_err());
 }
