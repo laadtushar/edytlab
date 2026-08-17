@@ -5,11 +5,11 @@ import { DocShell } from "@/components/docs/doc-shell";
 export const metadata: Metadata = {
   title: "Audio Tools Reference",
   description:
-    "All 69 audio-editing tools available to the edytlab AI agent — cut, normalize, stem separate, transcribe, render, and more.",
+    "All 81 audio-editing tools available to the edytlab AI agent — cut, normalize, stem separate, transcribe, render, and more.",
   alternates: { canonical: "/docs/tools" },
   openGraph: {
     title: "Audio Tools Reference — edytlab Docs",
-    description: "Complete reference for all 69 agent-callable audio tools.",
+    description: "Complete reference for all 81 agent-callable audio tools.",
     url: `${siteConfig.url}/docs/tools`,
   },
 };
@@ -577,7 +577,7 @@ export default function ToolsPage() {
   return (
     <DocShell
       title="Audio Tools Reference"
-      description="All 69 tools the AI agent can call to edit your audio session."
+      description="All 81 tools the AI agent can call to edit your audio session."
     >
       <p>
         Tools are deterministic functions the agent calls to manipulate your
