@@ -34,6 +34,7 @@ import { sendMessage as bridgeSendMessage } from "../lib/tauri-bridge";
 import type { Marker } from "../lib/tauri-bridge";
 import { snapRange } from "../lib/zeroCrossing";
 import { AutomationLane } from "./AutomationLane";
+import { TrackMenu } from "./TrackMenu";
 import { ClipStrip } from "./ClipStrip";
 import type { ClipSummary, EnvelopePoint } from "../lib/tauri-bridge";
 import { Ruler } from "./Ruler";
@@ -112,6 +113,13 @@ export interface TimelineProps {
   /** Waveform height multiplier; 1 is the real amplitude. */
   verticalZoom?: number;
   onVerticalZoomChange?: (factor: number) => void;
+  /**
+   * Track-head actions. All three are required together — the menu is
+   * hidden unless every item in it can do something.
+   */
+  onRenameTrack?: (trackIndex: number, name: string) => void;
+  onDuplicateTrack?: (trackIndex: number) => void;
+  onRemoveTrack?: (trackIndex: number) => void;
   loop?: boolean;
   onLoopChange?: (loop: boolean) => void;
   spectrogramEnabled?: boolean;
@@ -243,6 +251,15 @@ interface LaneProps {
    * amplitude; higher magnifies quiet material without changing it.
    */
   verticalZoom?: number;
+  /**
+   * Track-head menu. Absent hides the menu entirely, which is what a
+   * caller that cannot act on these gets — a menu whose items do
+   * nothing is worse than no menu.
+   */
+  trackIndex?: number;
+  onRenameTrack?: (trackIndex: number, name: string) => void;
+  onDuplicateTrack?: (trackIndex: number) => void;
+  onRemoveTrack?: (trackIndex: number) => void;
   /** Pixels per second zoom level. 0 = auto-fit. */
   zoom?: number;
   loop?: boolean;
@@ -270,6 +287,10 @@ function TrackLane({
   sessionDuration,
   snapToZero,
   verticalZoom,
+  trackIndex,
+  onRenameTrack,
+  onDuplicateTrack,
+  onRemoveTrack,
   zoom,
   loop,
 }: LaneProps) {
@@ -543,22 +564,41 @@ function TrackLane({
           gap: 6,
         }}
       >
-        <span
-          data-testid="timeline-lane-name"
-          title={name}
+        <div
           style={{
-            fontSize: 11,
-            fontWeight: 500,
-            color: "var(--text)",
-            letterSpacing: "0.01em",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-            maxWidth: "100%",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            width: "100%",
           }}
         >
-          {name}
-        </span>
+          <span
+            data-testid="timeline-lane-name"
+            title={name}
+            style={{
+              fontSize: 11,
+              fontWeight: 500,
+              color: "var(--text)",
+              letterSpacing: "0.01em",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              flex: 1,
+              minWidth: 0,
+            }}
+          >
+            {name}
+          </span>
+          {onRenameTrack && onDuplicateTrack && onRemoveTrack && (
+            <TrackMenu
+              trackIndex={trackIndex ?? 0}
+              trackName={name}
+              onRename={onRenameTrack}
+              onDuplicate={onDuplicateTrack}
+              onRemove={onRemoveTrack}
+            />
+          )}
+        </div>
         <div style={{ display: "flex", gap: 4 }}>
           <button
             type="button"
@@ -762,6 +802,9 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
       onSnapToZeroChange,
       verticalZoom,
       onVerticalZoomChange,
+      onRenameTrack,
+      onDuplicateTrack,
+      onRemoveTrack,
       loop,
       onLoopChange,
       spectrogramEnabled,
@@ -1171,6 +1214,10 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
                 sessionDuration={timelineDuration}
                 snapToZero={snapToZero}
                 verticalZoom={verticalZoom}
+                trackIndex={trackIndex(idx)}
+                onRenameTrack={onRenameTrack}
+                onDuplicateTrack={onDuplicateTrack}
+                onRemoveTrack={onRemoveTrack}
                 zoom={zoom}
                 loop={idx === 0 ? loop : undefined}
               />
