@@ -197,6 +197,64 @@ pub async fn set_api_key_for(
     set_api_key_for_inner(&state, &provider, &key).await
 }
 
+// ---------------------------------------------------------------------------
+// Base URL override
+// ---------------------------------------------------------------------------
+
+/// Read a provider's base-URL override, or `None` when it uses the
+/// built-in one.
+#[tauri::command]
+pub async fn get_base_url_for(provider: String) -> CmdResult<Option<String>> {
+    Ok(ai::keychain::load_base_url(&provider))
+}
+
+/// The URL a provider ships with, so the UI can show it as a placeholder
+/// rather than hardcoding six strings that would drift.
+#[tauri::command]
+pub async fn default_base_url_for(provider: String) -> CmdResult<String> {
+    Ok(ai::validate::provider_for(&provider).base_url().to_string())
+}
+
+/// Point a provider somewhere else — a local server on another port, a
+/// gateway, a proxy, anything speaking the same API.
+///
+/// An empty string clears the override and restores the built-in URL,
+/// which is what the UI sends when the field is emptied.
+///
+/// The URL is validated here rather than at request time. A typo saved
+/// now would otherwise surface much later as a connection error with no
+/// hint that the cause was a malformed setting.
+#[tauri::command]
+pub async fn set_base_url_for(
+    state: State<'_, AppState>,
+    provider: String,
+    base_url: String,
+) -> CmdResult<()> {
+    let trimmed = base_url.trim();
+    if trimmed.is_empty() {
+        ai::keychain::delete_base_url(&provider).map_err(CommandError::from)?;
+    } else {
+        let rest = trimmed
+            .strip_prefix("http://")
+            .or_else(|| trimmed.strip_prefix("https://"))
+            .ok_or_else(|| {
+                format!("base URL must start with http:// or https:// — got `{trimmed}`")
+            })?;
+        if rest.is_empty() || rest.starts_with('/') {
+            return Err(format!("base URL has no host — got `{trimmed}`"));
+        }
+        // A trailing slash turns `{base}/v1/models` into `{base}//v1/models`
+        // on some servers. Normalising once here beats every call site
+        // remembering.
+        ai::keychain::save_base_url(&provider, trimmed.trim_end_matches('/'))
+            .map_err(CommandError::from)?;
+    }
+    // The agent holds its endpoint for the life of the config, so a
+    // saved URL that never reaches it looks like the setting was ignored.
+    rebuild_agent(state.inner()).await?;
+    Ok(())
+}
+
 async fn set_api_key_for_inner(state: &AppState, provider_id: &str, key: &str) -> CmdResult<()> {
     // Selecting a keyless provider is a save with an empty key — that is
     // how the UI says "make this one active" — so it must be allowed
@@ -380,7 +438,10 @@ pub async fn list_models_for(
     api_key: Option<String>,
 ) -> CmdResult<Vec<ModelInfoDto>> {
     let key_ref = api_key.as_deref();
-    let models = ai::list_models_for(&provider, key_ref)
+    // Follow the same endpoint the agent will use. Listing one server's
+    // catalogue while chat talks to another is worse than not listing.
+    let base = ai::keychain::load_base_url(&provider);
+    let models = ai::list_models_for_at(&provider, key_ref, base.as_deref())
         .await
         .map_err(|e| e.to_string())?;
     Ok(models.into_iter().map(ModelInfoDto::from).collect())
@@ -2386,6 +2447,11 @@ async fn rebuild_agent(state: &AppState) -> Result<(), CommandError> {
                 if !m.trim().is_empty() {
                     cfg = cfg.with_model(m);
                 }
+            }
+            // Point at a local server, a gateway, or a proxy. Absent, the
+            // provider's own URL applies.
+            if let Some(base) = ai::keychain::load_base_url(&effective_provider_id) {
+                cfg = cfg.with_base_url(base);
             }
             let agent = ai::Agent::new(
                 cfg,

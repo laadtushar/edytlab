@@ -26,6 +26,9 @@ import {
   setApiKeyFor,
   setActiveModel,
   setActiveProvider,
+  getBaseUrlFor,
+  defaultBaseUrlFor,
+  setBaseUrlFor,
   testApiKeyFor,
   type ModelInfo,
   type ProviderId,
@@ -171,6 +174,10 @@ export function Settings({
   const needsKey = PROVIDERS.find((p) => p.id === provider)?.needsKey !== false;
 
   const [model, setModel] = useState<string>(() => readStoredModel(provider));
+  // Empty means "use the provider's own endpoint". Kept per provider, so
+  // switching to Anthropic does not inherit a local server's URL.
+  const [baseUrl, setBaseUrl] = useState("");
+  const [defaultBaseUrl, setDefaultBaseUrl] = useState("");
   const [test, setTest] = useState<TestState>({ kind: "idle" });
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -190,6 +197,27 @@ export function Settings({
 
   useEffect(() => {
     setModel(readStoredModel(provider));
+  }, [provider]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [stored, fallback] = await Promise.all([
+          getBaseUrlFor(provider),
+          defaultBaseUrlFor(provider),
+        ]);
+        if (cancelled) return;
+        setBaseUrl(stored ?? "");
+        setDefaultBaseUrl(fallback);
+      } catch {
+        // A settings panel that cannot read one optional field should
+        // still open; the placeholder simply stays blank.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [provider]);
 
   const fetchCatalogue = useCallback(
@@ -254,6 +282,10 @@ export function Settings({
     setSaving(true);
     setSaveError(null);
     try {
+      // Saved first: `set_api_key_for` rebuilds the agent, and the
+      // rebuild reads this. The other order builds an agent pointing at
+      // the old endpoint until something else triggers another rebuild.
+      await setBaseUrlFor(provider, baseUrl);
       await setApiKeyFor(provider, key);
       if (model.trim()) {
         try {
@@ -270,7 +302,7 @@ export function Settings({
     } finally {
       setSaving(false);
     }
-  }, [key, needsKey, provider, model, saving, onSaved]);
+  }, [key, needsKey, provider, model, baseUrl, saving, onSaved]);
 
   const handleTest = useCallback(async () => {
     // Testing a keyless provider is a reachability check, so an empty
@@ -645,6 +677,41 @@ export function Settings({
               {test.message}
             </p>
           ) : null}
+
+          <label
+            htmlFor="settings-base-url-input"
+            className="mb-1.5 block font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-faint)]"
+          >
+            Base URL
+          </label>
+          <input
+            id="settings-base-url-input"
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            data-testid="settings-base-url-input"
+            aria-label="Base URL"
+            spellCheck={false}
+            autoComplete="off"
+            placeholder={defaultBaseUrl}
+            className="
+              mb-1 w-full
+              rounded-md border border-[var(--border-strong)]
+              bg-[var(--surface)]
+              px-3 py-2 text-sm font-mono text-[var(--text)]
+              outline-none
+              transition
+              placeholder:text-[var(--text-faint)]
+              focus:border-[var(--accent)]/55
+              focus:shadow-[0_0_0_3px_var(--accent-soft)]
+            "
+          />
+          <p className="mb-4 text-xs text-[var(--text-faint)]">
+            Point this provider anywhere that speaks its API — a local
+            server on another port, a gateway, a proxy. Leave empty for
+            the default. LM Studio and most local runners serve an
+            OpenAI-compatible API, usually at{" "}
+            <code className="font-mono">http://localhost:1234/v1</code>.
+          </p>
 
           <label
             htmlFor="settings-model-input"

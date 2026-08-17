@@ -114,6 +114,23 @@ pub async fn list_models_for(
     provider_id: &str,
     api_key: Option<&str>,
 ) -> Result<Vec<ModelInfo>, String> {
+    list_models_for_at(provider_id, api_key, None).await
+}
+
+/// [`list_models_for`] against a caller-supplied endpoint.
+///
+/// `base_url_override` is what the user typed into Settings when they
+/// pointed a provider at a local server or a gateway. The catalogue has
+/// to follow the same endpoint the agent will use, or the model picker
+/// lists one server's models while chat talks to another.
+pub async fn list_models_for_at(
+    provider_id: &str,
+    api_key: Option<&str>,
+    base_url_override: Option<&str>,
+) -> Result<Vec<ModelInfo>, String> {
+    if let Some(base) = base_url_override.map(str::trim).filter(|b| !b.is_empty()) {
+        return list_models_at(provider_id, api_key, base).await;
+    }
     let base = match provider_id {
         OPENAI_ID => OPENAI_DEFAULT_BASE_URL,
         GROQ_ID => GROQ_DEFAULT_BASE_URL,

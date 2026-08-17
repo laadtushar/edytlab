@@ -120,6 +120,20 @@ export const getActiveProvider = (): Promise<ProviderId> =>
 export const setActiveProvider = (provider: ProviderId): Promise<void> =>
   invoke<void>("set_active_provider", { provider });
 
+/** A provider's base-URL override, or null when it uses the built-in one. */
+export const getBaseUrlFor = (provider: ProviderId): Promise<string | null> =>
+  invoke<string | null>("get_base_url_for", { provider });
+
+/** The URL a provider ships with — shown as the placeholder. */
+export const defaultBaseUrlFor = (provider: ProviderId): Promise<string> =>
+  invoke<string>("default_base_url_for", { provider });
+
+/** Point a provider elsewhere. An empty string restores the default. */
+export const setBaseUrlFor = (
+  provider: ProviderId,
+  baseUrl: string,
+): Promise<void> => invoke<void>("set_base_url_for", { provider, baseUrl });
+
 export const getSessionHead = (): Promise<NodeId> =>
   invoke<NodeId>("get_session_head");
 
