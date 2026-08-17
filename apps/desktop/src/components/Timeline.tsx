@@ -32,6 +32,7 @@ import WaveSurfer from "wavesurfer.js";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { sendMessage as bridgeSendMessage } from "../lib/tauri-bridge";
 import type { Marker } from "../lib/tauri-bridge";
+import { snapRange } from "../lib/zeroCrossing";
 import { AutomationLane } from "./AutomationLane";
 import { ClipStrip } from "./ClipStrip";
 import type { ClipSummary, EnvelopePoint } from "../lib/tauri-bridge";
@@ -105,6 +106,9 @@ export interface TimelineProps {
   onSeekToMarker?: (timeSec: number) => void;
   zoom?: number;
   onZoomChange?: (zoom: number) => void;
+  /** Snap selection edges to zero crossings. Off is today's behaviour. */
+  snapToZero?: boolean;
+  onSnapToZeroChange?: (enabled: boolean) => void;
   loop?: boolean;
   onLoopChange?: (loop: boolean) => void;
   spectrogramEnabled?: boolean;
@@ -226,6 +230,11 @@ interface LaneProps {
    * single-file session never showed it.
    */
   sessionDuration?: number;
+  /**
+   * Snap selection edges to the nearest zero crossing before committing
+   * them. Off by default, because off is the behaviour that existed.
+   */
+  snapToZero?: boolean;
   /** Pixels per second zoom level. 0 = auto-fit. */
   zoom?: number;
   loop?: boolean;
@@ -251,6 +260,7 @@ function TrackLane({
   onSelectionChange,
   onDurationChange,
   sessionDuration,
+  snapToZero,
   zoom,
   loop,
 }: LaneProps) {
@@ -395,6 +405,36 @@ function TrackLane({
     [axis, onSelectionChange],
   );
 
+  /**
+   * Move the committed edges onto zero crossings, when asked to and
+   * when it is this lane's audio the selection is over.
+   *
+   * That second condition is not fussiness. Selection is measured on
+   * the session axis (#171), and this lane's samples are only the audio
+   * at that time when the lane runs the length of the session. Snapping
+   * against the wrong buffer would move the boundary to a crossing that
+   * is not where the user is cutting — worse than not snapping, and
+   * invisible. So when the axes disagree we leave the selection alone,
+   * which is the behaviour that existed before the toggle.
+   */
+  const maybeSnap = useCallback(
+    (range: Selection): Selection => {
+      if (!snapToZero) return range;
+      const ws = wsRef.current;
+      if (!ws) return range;
+      const laneIsTheAxis = duration > 0 && Math.abs(axis - duration) < 0.01;
+      if (!laneIsTheAxis) return range;
+
+      const decoded = ws.getDecodedData?.();
+      if (!decoded) return range;
+      const channel = decoded.getChannelData(0);
+      if (!channel?.length) return range;
+
+      return snapRange(channel, decoded.sampleRate, range);
+    },
+    [snapToZero, axis, duration],
+  );
+
   useEffect(() => {
     if (!draftSelection) return;
     const onMove = (e: MouseEvent) => {
@@ -418,7 +458,7 @@ function TrackLane({
       if (final.end - final.start < 0.05) {
         onSelectionChange?.(null);
       } else {
-        onSelectionChange?.(final);
+        onSelectionChange?.(maybeSnap(final));
       }
     };
     window.addEventListener("mousemove", onMove);
@@ -427,7 +467,7 @@ function TrackLane({
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [draftSelection, axis, onSelectionChange]);
+  }, [draftSelection, axis, onSelectionChange, maybeSnap]);
 
   const overlay = useMemo(() => {
     const range = draftSelection ?? selection ?? null;
@@ -684,6 +724,8 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
       onSeekToMarker,
       zoom,
       onZoomChange,
+      snapToZero,
+      onSnapToZeroChange,
       loop,
       onLoopChange,
       spectrogramEnabled,
@@ -965,6 +1007,20 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
             </button>
             <button
               type="button"
+              data-testid="snap-zero-btn"
+              onClick={() => onSnapToZeroChange?.(!snapToZero)}
+              aria-pressed={snapToZero ? "true" : "false"}
+              className={`text-xs px-2 py-1 rounded border transition-colors ${
+                snapToZero
+                  ? "border-amber-400 text-amber-400 bg-amber-400/10"
+                  : "border-neutral-600 text-neutral-400 hover:border-neutral-400"
+              }`}
+              title="Snap selection to zero crossings — avoids clicks at cut boundaries"
+            >
+              ⌇
+            </button>
+            <button
+              type="button"
               data-testid="loop-btn"
               onClick={() => onLoopChange?.(!loop)}
               className={`text-xs px-2 py-1 rounded border transition-colors ${
@@ -1041,6 +1097,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
                 onSelectionChange={idx === 0 ? onSelectionChange : undefined}
                 onDurationChange={idx === 0 ? setHeadLaneDuration : undefined}
                 sessionDuration={timelineDuration}
+                snapToZero={snapToZero}
                 zoom={zoom}
                 loop={idx === 0 ? loop : undefined}
               />
