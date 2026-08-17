@@ -147,6 +147,115 @@ pub async fn open_project(state: State<'_, AppState>, path: String) -> CmdResult
     Ok(info)
 }
 
+// ---------------------------------------------------------------------------
+// project metadata, view state and recents (#156)
+// ---------------------------------------------------------------------------
+
+/// `~/.edytlab`, where things that belong to no single project live.
+///
+/// Resolved from the OS home directory rather than from Tauri's path
+/// resolver so these commands stay callable from tests, which have no
+/// `App`. Same location either way.
+fn edytlab_home() -> PathBuf {
+    #[allow(deprecated)]
+    std::env::home_dir().unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// The project currently open, or an error naming what to do instead.
+fn current_project_dir(state: &AppState) -> Result<PathBuf, CommandError> {
+    let dir = lock_std(&state.project_dir, "project_dir")?;
+    dir.clone().ok_or(CommandError::NoSession)
+}
+
+/// Metadata for the open project: its name, when it was created, notes.
+#[tauri::command]
+pub fn get_project_meta(state: State<'_, AppState>) -> CmdResult<crate::project::ProjectMeta> {
+    let dir = current_project_dir(&state)?;
+    Ok(crate::project::read_meta(&dir))
+}
+
+/// Rename the open project. The name is the project's own — a folder
+/// path is not a name, which is the gap #156 describes.
+#[tauri::command]
+pub fn set_project_meta(
+    state: State<'_, AppState>,
+    name: String,
+    notes: Option<String>,
+) -> CmdResult<crate::project::ProjectMeta> {
+    let dir = current_project_dir(&state)?;
+    if name.trim().is_empty() {
+        return Err(CommandError::InvalidPath("a project name cannot be empty".into()).into());
+    }
+    let mut meta = crate::project::read_meta(&dir);
+    meta.name = name.trim().to_string();
+    if let Some(n) = notes {
+        meta.notes = n;
+    }
+    crate::project::write_meta(&dir, &meta).map_err(CommandError::from)?;
+    // Keep the recents row in step, or the list shows the old name
+    // until the project is next opened.
+    let _ = crate::project::push_recent(
+        &edytlab_home(),
+        crate::project::RecentProject {
+            path: dir.to_string_lossy().to_string(),
+            name: meta.name.clone(),
+            last_opened_at: meta.last_opened_at.clone(),
+        },
+    );
+    Ok(meta)
+}
+
+/// Where the user was: head, zoom, selection, playhead.
+#[tauri::command]
+pub fn get_view_state(state: State<'_, AppState>) -> CmdResult<crate::project::ViewState> {
+    let dir = current_project_dir(&state)?;
+    Ok(crate::project::read_view(&dir))
+}
+
+/// Remember where the user is, so reopening resumes rather than
+/// restarts. Disposable by design — losing it costs a scroll.
+#[tauri::command]
+pub fn save_view_state(
+    state: State<'_, AppState>,
+    view: crate::project::ViewState,
+) -> CmdResult<()> {
+    let dir = current_project_dir(&state)?;
+    crate::project::write_view(&dir, &view).map_err(CommandError::from)?;
+    Ok(())
+}
+
+/// Projects this machine has opened, most recent first.
+///
+/// Entries whose folder is gone are dropped on read: a recents list
+/// full of dead rows is worse than a short one.
+#[tauri::command]
+pub fn list_recent_projects() -> CmdResult<Vec<crate::project::RecentProject>> {
+    let home = edytlab_home();
+    let all = crate::project::read_recents(&home);
+    let live: Vec<_> = all
+        .iter()
+        .filter(|r| std::path::Path::new(&r.path).is_dir())
+        .cloned()
+        .collect();
+    if live.len() != all.len() {
+        // Rewrite so the pruning sticks rather than repeating every
+        // time the list is shown.
+        for dead in all
+            .iter()
+            .filter(|r| !std::path::Path::new(&r.path).is_dir())
+        {
+            let _ = crate::project::forget_recent(&home, &dead.path);
+        }
+    }
+    Ok(live)
+}
+
+/// Remove a project from the list without touching the project itself.
+#[tauri::command]
+pub fn forget_recent_project(path: String) -> CmdResult<Vec<crate::project::RecentProject>> {
+    crate::project::forget_recent(&edytlab_home(), &path).map_err(|e| CommandError::Io(e).into())
+}
+
 fn open_project_inner(state: &AppState, path: PathBuf) -> Result<ProjectInfo, CommandError> {
     if !path.is_absolute() {
         return Err(CommandError::InvalidPath(format!(
@@ -160,6 +269,21 @@ fn open_project_inner(state: &AppState, path: PathBuf) -> Result<ProjectInfo, Co
         .to_str()
         .ok_or_else(|| CommandError::InvalidPath("project path is not valid UTF-8".into()))?
         .to_string();
+
+    // A project is now a thing with a name and a history of being
+    // opened (#156), not just a folder that happens to contain a store.
+    // Neither write is allowed to stop the project opening: a read-only
+    // folder still has readable audio in it.
+    let now = chrono::Utc::now().to_rfc3339();
+    let meta = crate::project::touch_opened(&path, &now);
+    let _ = crate::project::push_recent(
+        &edytlab_home(),
+        crate::project::RecentProject {
+            path: path_str.clone(),
+            name: meta.name,
+            last_opened_at: Some(now),
+        },
+    );
 
     state.set_store(Some(Arc::new(Mutex::new(store))));
     state.set_project_dir(Some(path));
