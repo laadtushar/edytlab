@@ -37,8 +37,8 @@ name: Release (unsigned)
 #     "unidentified developer" message is the one Open Anyway fixes.
 #     The release notes below give the command; getting this wrong
 #     leaves users believing the download is corrupt.
-#   - macOS builds here are arm64 only (see the matrix), so Intel Macs
-#     are not served by this workflow at all.
+#   - macOS builds here are universal (see the matrix): one .dmg for
+#     both Apple Silicon and Intel, same as the signed pipeline.
 #   - Windows: SmartScreen "Don't run / More info → Run anyway". Reputation
 #     can't be earned without code signing, so every download stays warned.
 #
@@ -204,8 +204,8 @@ jobs:
               "developer” message, System Settings → Privacy & Security →",
               "**Open Anyway** is enough on its own.",
               "",
-              "The macOS build is **Apple Silicon (arm64) only** — there is",
-              "no Intel or universal binary in this release.",
+              "The macOS build is a **universal binary** — the same .dmg",
+              "runs on Apple Silicon and Intel.",
               "",
               "**Windows** — SmartScreen will block the installer",
               "(“Microsoft Defender SmartScreen prevented an unrecognized",
@@ -234,27 +234,40 @@ jobs:
     name: build (${{ matrix.platform.name }})
     needs: create-release
     runs-on: ${{ matrix.platform.runner }}
-    timeout-minutes: 60
+    # 90, not 60: the macOS leg now compiles two architectures, and the
+    # signed workflow — which has built universal all along — already
+    # uses this budget.
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         platform:
-          - name: macos-arm64
+          - name: macos-universal
             runner: macos-14
+            # Universal rather than arm64: one artifact that runs on
+            # both architectures beats two the user has to choose
+            # between, and matches what release-signed.yml already
+            # ships. A universal binary needs BOTH slices installed —
+            # the runner is arm64 and `rust-toolchain.toml` declares no
+            # targets, so x86_64-apple-darwin is absent unless asked
+            # for.
+            rust_targets: x86_64-apple-darwin,aarch64-apple-darwin
             # `--bundles app,dmg` is explicit on purpose: when only
             # `bundle.targets: "all"` was used, tauri-action sometimes
             # silently dropped the .dmg and uploaded only the .app
             # archive. Listing the bundles forces both to be built and
             # surfaces a hard error if either step fails.
-            args: --target aarch64-apple-darwin --bundles app,dmg
+            args: --target universal-apple-darwin --bundles app,dmg
           - name: windows-x86_64
             runner: windows-latest
+            rust_targets: ""
             # Build both Windows installer formats: .msi (WiX) and the
             # NSIS setup .exe. Users tend to prefer one or the other,
             # so we ship both.
             args: --bundles msi,nsis
           - name: linux-x86_64
             runner: ubuntu-22.04
+            rust_targets: x86_64-unknown-linux-gnu
             # `.deb` for Debian/Ubuntu users, `.AppImage` as the
             # distro-agnostic fallback. Mirrors `bundle.targets` in
             # tauri.conf.json so Linux artifacts land in releases too.
@@ -284,7 +297,13 @@ jobs:
         # `@stable` bootstraps rustup; rust-toolchain.toml is then
         # auto-applied by rustup's shim on the first cargo invocation
         # (channel = 1.88, required by Tauri 2's edition2024 deps).
+        #
+        # `targets` matters for the macOS leg: a universal build links
+        # an Intel slice that the arm64 runner cannot produce unless
+        # x86_64-apple-darwin is installed here.
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform.rust_targets }}
 
       - name: Cache cargo registry & target
         uses: Swatinem/rust-cache@v2

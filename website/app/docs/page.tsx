@@ -117,13 +117,8 @@ export default function DocsPage() {
         </thead>
         <tbody>
           <tr>
-            <td>macOS (Apple Silicon)</td>
-            <td>✅ Supported (unsigned)</td>
-            <td>macOS 11.0 (Big Sur)</td>
-          </tr>
-          <tr>
-            <td>macOS (Intel)</td>
-            <td>⚠️ No build published</td>
+            <td>macOS (Apple Silicon or Intel)</td>
+            <td>✅ Supported (unsigned, universal binary)</td>
             <td>macOS 11.0 (Big Sur)</td>
           </tr>
           <tr>

@@ -44,16 +44,11 @@ export default function GettingStartedPage() {
         </thead>
         <tbody>
           <tr>
-            <td>macOS (Apple Silicon)</td>
-            <td>.dmg (arm64)</td>
-            <td>Drag to Applications, then run the command below.</td>
-          </tr>
-          <tr>
-            <td>macOS (Intel)</td>
-            <td>—</td>
+            <td>macOS (Apple Silicon or Intel)</td>
+            <td>.dmg (universal)</td>
             <td>
-              No Intel build is published yet. Current releases are arm64
-              only.
+              One universal binary covers both architectures. Drag to
+              Applications, then run the command below.
             </td>
           </tr>
           <tr>
