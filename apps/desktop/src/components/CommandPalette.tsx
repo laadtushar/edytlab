@@ -44,6 +44,10 @@ export const COMMANDS: Command[] = [
   { category: "Effects", label: "EQ cut lows", prompt: "apply EQ: cut 6 dB at 80 Hz", description: "Peak EQ low-frequency cut", tags: ["eq", "equalizer", "bass", "lows", "frequency", "cut"] },
   { category: "Effects", label: "Compress dynamics", prompt: "compress the dynamic range: threshold -12 dB, ratio 4:1, attack 5 ms, release 100 ms", description: "Dynamic range compressor", tags: ["compress", "compressor", "dynamics", "loudness", "ratio"] },
   { category: "Effects", label: "Gentle compression", prompt: "apply gentle compression: threshold -18 dB, ratio 2:1, attack 10 ms, release 200 ms, makeup gain 3 dB", description: "Subtle levelling compressor", tags: ["compress", "compressor", "gentle", "level", "dynamics"] },
+  { category: "Effects", label: "Add a live effect to a track", prompt: "add a low-pass filter at 4000 Hz to track 1's effect chain", description: "Non-destructive — applied at render, stays editable", tags: ["effect", "chain", "live", "non-destructive", "add"] },
+  { category: "Effects", label: "Bypass a live effect", prompt: "bypass effect 0 on track 1", description: "A/B a chain effect without removing it", tags: ["effect", "chain", "bypass", "off", "ab"] },
+  { category: "Effects", label: "Reorder a track's effects", prompt: "reorder track 1's effects so the EQ runs before the compressor", description: "Chain order changes the sound", tags: ["effect", "chain", "reorder", "order"] },
+  { category: "Effects", label: "Remove a live effect", prompt: "remove effect 0 from track 1", description: "Delete an effect from the chain", tags: ["effect", "chain", "remove", "delete"] },
 
   // Editing
   { category: "Editing", label: "Cut region", prompt: "cut the selected region and close the gap", description: "Remove selection and close gap", tags: ["cut", "delete", "remove"] },

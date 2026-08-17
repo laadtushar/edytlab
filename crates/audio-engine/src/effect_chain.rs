@@ -1,11 +1,17 @@
-//! Render-time master effect chain.
+//! Render-time effect chains — master, bus and per-track.
 //!
-//! `SessionState::master_chain` has round-tripped through save/load and
-//! the diff/merge layer since Phase 1, and the render path ignored it
-//! completely — a session with master effects rendered as if they were
-//! not there, with no error. Silent wrong output is worse than the
-//! rejection track effects get, which is why an unusable chain now
-//! fails the render instead.
+//! One registry serves all three. It began as the master chain's
+//! (#110), which was the first place a chain of `EffectInstance` had to
+//! become processors; buses reused it, and per-track chains (#102) made
+//! the "master" in its name simply wrong. A second copy of the match
+//! below would have been the duplication #80 and #81 came from.
+//!
+//! `SessionState::master_chain` and `Track.effects` had both round-
+//! tripped through save/load and the diff/merge layer since Phase 1
+//! while the render path ignored one and hard-errored on the other. A
+//! session with master effects rendered as if they were not there, with
+//! no error at all — silent wrong output, which is worse than a
+//! rejection, and why an unusable chain now fails the render.
 //!
 //! ## Why the registry is short
 //!
@@ -67,9 +73,14 @@ fn param(params: &serde_json::Value, name: &str, default: f32) -> f32 {
         .unwrap_or(default)
 }
 
-/// Instantiate the master chain for one render.
+/// Instantiate one effect chain for one render.
 ///
-/// Order is `master_chain`'s declaration order, which the determinism
+/// Shared by the master chain, the bus chains and — as of #102 — the
+/// per-track chains. The registry was never master-specific; only its
+/// name was, and a second copy of this match would have been the
+/// duplication #80 and #81 came from.
+///
+/// Order is the `Vec`'s declaration order, which the determinism
 /// invariant in `render.rs` requires ("apply effects in declaration
 /// order, never `HashMap`-iteration order").
 ///
@@ -107,9 +118,9 @@ pub fn build(
                 channels,
             )),
             other if NOT_YET_STREAMING.contains(&other) => {
-                return Err(Error::MasterEffectNotStreamable(other.to_string()));
+                return Err(Error::EffectNotStreamable(other.to_string()));
             }
-            other => return Err(Error::UnknownMasterEffect(other.to_string())),
+            other => return Err(Error::UnknownEffect(other.to_string())),
         };
         out.push(processor);
     }

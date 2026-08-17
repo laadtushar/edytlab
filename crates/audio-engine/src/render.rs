@@ -148,6 +148,17 @@ fn is_unity_passthrough(
         // A send is a second signal path. Copying the source file would
         // drop it as surely as it would drop a master effect.
         && state.tracks.iter().all(|t| t.sends.is_empty())
+        // Same reasoning for a per-track chain: the passthrough copies
+        // the source bytes and never opens the mixer, so an active
+        // effect would render as though it were not there. Twice now a
+        // feature has been added above this function and silently
+        // skipped by it (#110's master chain, #111's sends); a bypassed
+        // chain still qualifies, because bypassed is defined to be
+        // identical to absent.
+        && state
+            .tracks
+            .iter()
+            .all(|t| t.effects.iter().all(|e| e.bypassed))
 }
 
 pub fn render(
@@ -253,6 +264,16 @@ struct TrackStreamer {
     /// Resolved left/right pan gains. `(1.0, 1.0)` for a centred track,
     /// which is the overwhelmingly common case and a no-op.
     pan: (f32, f32),
+    /// The track's effect chain, instantiated **once** for the life of
+    /// the streamer.
+    ///
+    /// This is the whole point. `render_streaming` works a chunk at a
+    /// time and calls `next_chunk` repeatedly on the same streamer, so a
+    /// processor built here keeps its state across chunk boundaries — a
+    /// reverb tail crosses the seam instead of restarting. Building them
+    /// per chunk would put an audible click at every chunk boundary,
+    /// which #102 names as the single most likely way to get this wrong.
+    effects: Vec<Box<dyn audio_dsp::Processor>>,
 }
 
 /// Per-channel gains for a pan position, `-1.0` hard left to `1.0` hard
@@ -372,6 +393,9 @@ impl TrackStreamer {
             .map(|p| (p.time_samples, p.gain_db))
             .collect();
 
+        // Built once, here, rather than per chunk — see the field's docs.
+        let effects = crate::effect_chain::build(&plan.effects, project_rate, out_channels)?;
+
         Ok(Self {
             reader,
             in_channels,
@@ -389,6 +413,7 @@ impl TrackStreamer {
             volume_envelope,
             lead_frames_remaining,
             pan: pan_gains(plan.pan),
+            effects,
         })
     }
 
@@ -603,6 +628,20 @@ impl TrackStreamer {
                 for s in &mut dst[start..end] {
                     *s *= env_linear;
                 }
+            }
+        }
+
+        // Effects after gain and automation, before pan. Pan stays last
+        // so its balance law operates on the finished signal, which is
+        // what `pan_gains` documents and what #102 specifies.
+        //
+        // The slice is exactly the frames just emitted: a processor must
+        // never see the stale tail of `dst` from a previous, longer
+        // chunk.
+        if !self.effects.is_empty() {
+            let end = avail * self.out_channels;
+            for fx in &mut self.effects {
+                fx.process(&mut dst[..end], self.out_channels);
             }
         }
 
@@ -823,7 +862,7 @@ fn render_streaming(
         .bus_routing
         .buses
         .iter()
-        .map(|b| crate::master_chain::build(&b.effects, project_rate, chans))
+        .map(|b| crate::effect_chain::build(&b.effects, project_rate, chans))
         .collect::<Result<_, _>>()?;
     let mut bus_chunks: Vec<Vec<f32>> = vec![vec![0.0; chunk_frames * chans]; bus_ids.len()];
 
@@ -853,7 +892,7 @@ fn render_streaming(
     // An unusable chain fails the render here. It used to be ignored
     // outright, so a session with master effects rendered as though they
     // were absent and said nothing.
-    let mut master = crate::master_chain::build(&state.master_chain, project_rate, chans)?;
+    let mut master = crate::effect_chain::build(&state.master_chain, project_rate, chans)?;
 
     // Master chunk loop. Emits exactly `frames_to_write` project-rate
     // frames in total; the final chunk may be partial.

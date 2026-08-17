@@ -6,7 +6,7 @@ import { AnimatedCounter } from "./animated-counter";
 const stats = [
   { value: "0", unit: "bytes", label: "audio uploaded to any server" },
   { value: "6", unit: "providers", label: "Anthropic · OpenAI · Gemini · Groq · OpenRouter · Ollama" },
-  { value: "75", unit: "tools", label: "the agent can call, from fade to beat-warp" },
+  { value: "80", unit: "tools", label: "the agent can call, from fade to beat-warp" },
   { value: "100%", unit: "on-device", label: "DSP runs locally, always" },
 ];
 

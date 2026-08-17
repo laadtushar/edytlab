@@ -77,6 +77,12 @@ pub struct TrackPlan {
     pub contributes: bool,
     /// Per-clip volume automation points (sorted by time_samples).
     pub volume_envelope: Vec<EnvelopePoint>,
+    /// The track's effect chain, carried through so the streamer can
+    /// instantiate it once. Cloned per plan entry because a split track
+    /// produces one entry per clip and they share the track's chain —
+    /// the *processors* are built once per streamer, which is what
+    /// actually matters for state across chunk boundaries.
+    pub effects: Vec<session::EffectInstance>,
 }
 
 /// The flattened render plan.
@@ -116,9 +122,6 @@ pub fn build(state: &SessionState) -> Result<RenderGraph, Error> {
 
     let mut plans: Vec<TrackPlan> = Vec::with_capacity(state.tracks.len());
     for (track_index, track) in state.tracks.iter().enumerate() {
-        if !track.effects.is_empty() {
-            return Err(Error::EffectsUnsupportedInPhase1);
-        }
         // Tracks with zero clips are valid but contribute nothing; the
         // session-state model lets a freshly added empty track sit in the
         // tree before any `load`/`cut_range` populates it. They still get a
@@ -134,6 +137,7 @@ pub fn build(state: &SessionState) -> Result<RenderGraph, Error> {
                 length: 0,
                 contributes: false,
                 volume_envelope: Vec::new(),
+                effects: track.effects.clone(),
             });
             continue;
         }
@@ -155,6 +159,7 @@ pub fn build(state: &SessionState) -> Result<RenderGraph, Error> {
                 length: clip.length,
                 contributes,
                 volume_envelope: clip.volume_envelope.clone(),
+                effects: track.effects.clone(),
             });
         }
     }

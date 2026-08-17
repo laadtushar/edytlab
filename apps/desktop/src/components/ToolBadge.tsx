@@ -104,6 +104,13 @@ const TOOL_LABELS: Record<string, string> = {
   de_esser: "De-esser",
   vocal_reduction: "Vocal reduction",
 
+  // Effect chain (non-destructive)
+  add_effect: "Add effect",
+  remove_effect: "Remove effect",
+  reorder_effects: "Reorder effects",
+  set_effect_params: "Effect settings",
+  set_effect_bypassed: "Bypass effect",
+
   // Effects
   reverb: "Reverb",
   echo: "Echo",

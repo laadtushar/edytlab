@@ -83,21 +83,22 @@ impl ToolDispatcher {
     /// register individually.
     pub fn default_dispatcher() -> Self {
         use crate::tool::{
-            AddTrackTool, AlignToBeatTool, AnalyzeTrackTool, ApplyDiffTool, ChangeSpeedTool,
-            ClickRemovalTool, CompareNodesTool, CompressorTool, CopyRegionTool, CreateBusTool,
-            CutRangeTool, DeEsserTool, DistortionTool, DuplicateTrackTool, EchoTool, EqTool,
-            ExportLabelsTool, ExportMultipleTool, FadeTool, ForkNodeTool, GainTool,
+            AddEffectTool, AddTrackTool, AlignToBeatTool, AnalyzeTrackTool, ApplyDiffTool,
+            ChangeSpeedTool, ClickRemovalTool, CompareNodesTool, CompressorTool, CopyRegionTool,
+            CreateBusTool, CutRangeTool, DeEsserTool, DistortionTool, DuplicateTrackTool, EchoTool,
+            EqTool, ExportLabelsTool, ExportMultipleTool, FadeTool, ForkNodeTool, GainTool,
             GenerateNoiseTool, GenerateToneTool, HighPassFilterTool, ImportLabelsTool,
             InsertSilenceTool, InvertTool, LabelTool, LevelerTool, LimiterTool, LoadTool,
             LowPassFilterTool, MixToNewTrackTool, MonoToStereoTool, MoveClipTool, MuteTrackTool,
             NameNodeTool, NoiseGateTool, NoiseReductionTool, NormalizeLoudnessTool, NormalizeTool,
             NotchFilterTool, PasteRegionTool, PhaserTool, PitchShiftTool, PlotSpectrumTool,
-            RemoveClipTool, RemoveSendTool, RemoveTrackTool, RenameTrackTool, RenderFinalTool,
-            RenderPreviewTool, RepeatSelectionTool, ResampleTrackTool, ReverbTool, ReverseTool,
-            RevertToTool, SeparateStemsTool, SetClipEnvelopeTool, SetPanTool, SetSendTool,
-            SetTrackGainTool, SilenceFinderTool, SilenceRegionTool, SoloTrackTool, SplitClipTool,
-            StereoToMonoTool, StereoWidenerTool, TimeShiftTool, TimeStretchTool, TranscribeTool,
-            TremoloTool, TrimTool, TruncateSilenceTool, VocalReductionTool,
+            RemoveClipTool, RemoveEffectTool, RemoveSendTool, RemoveTrackTool, RenameTrackTool,
+            RenderFinalTool, RenderPreviewTool, ReorderEffectsTool, RepeatSelectionTool,
+            ResampleTrackTool, ReverbTool, ReverseTool, RevertToTool, SeparateStemsTool,
+            SetClipEnvelopeTool, SetEffectBypassedTool, SetEffectParamsTool, SetPanTool,
+            SetSendTool, SetTrackGainTool, SilenceFinderTool, SilenceRegionTool, SoloTrackTool,
+            SplitClipTool, StereoToMonoTool, StereoWidenerTool, TimeShiftTool, TimeStretchTool,
+            TranscribeTool, TremoloTool, TrimTool, TruncateSilenceTool, VocalReductionTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -172,6 +173,12 @@ impl ToolDispatcher {
         // #103: single-clip placement and deletion.
         d.register(Box::new(MoveClipTool));
         d.register(Box::new(RemoveClipTool));
+        // #102: non-destructive per-track effect chains.
+        d.register(Box::new(AddEffectTool));
+        d.register(Box::new(RemoveEffectTool));
+        d.register(Box::new(ReorderEffectsTool));
+        d.register(Box::new(SetEffectParamsTool));
+        d.register(Box::new(SetEffectBypassedTool));
         // A1 task 9: biquad filters.
         d.register(Box::new(HighPassFilterTool));
         d.register(Box::new(LowPassFilterTool));
