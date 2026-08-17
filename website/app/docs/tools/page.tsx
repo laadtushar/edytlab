@@ -5,11 +5,11 @@ import { DocShell } from "@/components/docs/doc-shell";
 export const metadata: Metadata = {
   title: "Audio Tools Reference",
   description:
-    "All 81 audio-editing tools available to the edytlab AI agent — cut, normalize, stem separate, transcribe, render, and more.",
+    "All 83 audio-editing tools available to the edytlab AI agent — cut, normalize, stem separate, transcribe, render, and more.",
   alternates: { canonical: "/docs/tools" },
   openGraph: {
     title: "Audio Tools Reference — edytlab Docs",
-    description: "Complete reference for all 81 agent-callable audio tools.",
+    description: "Complete reference for all 83 agent-callable audio tools.",
     url: `${siteConfig.url}/docs/tools`,
   },
 };
@@ -429,6 +429,20 @@ const groups = [
         output: "list of {start_sec, end_sec}",
       },
       {
+        name: "export_recipe",
+        prompt: "export this edit chain so I can reuse it",
+        what: "Write the session's edit chain — every tool and its parameters, in order — to a JSON file with no audio in it. Reviewable by eye before anyone runs it, and replayable against the same source or a different one.",
+        output: "path, steps, blockers",
+        note: "Steps that cannot be replayed (ML models) are marked in the file rather than silently dropped.",
+      },
+      {
+        name: "apply_recipe",
+        prompt: "run my podcast chain on this recording",
+        what: "Replay an exported edit chain. Every step is checked before any of them runs, so a recipe that cannot keep its promise is refused whole — naming the step — rather than half-applied. Takes an optional different source, and a dry run that reports the plan without touching the session.",
+        output: "steps_applied, head, notes",
+        note: "Replaying against the same audio reproduces the same bytes; the derived files are named by their own samples, so a drifted rebuild is detected rather than substituted.",
+      },
+      {
         name: "storage_report",
         prompt: "how much disk is this session using?",
         what: "Report what the session costs on disk, split by category: audio the current version needs, audio only the undo history needs (and how much of that is rebuildable from recorded operations), audio nothing references at all, the bounded preview cache, and clipboard blobs. Every destructive edit writes a new file and none are deleted, so a long session grows without bound. Reads only — it deletes nothing.",
@@ -577,7 +591,7 @@ export default function ToolsPage() {
   return (
     <DocShell
       title="Audio Tools Reference"
-      description="All 81 tools the AI agent can call to edit your audio session."
+      description="All 83 tools the AI agent can call to edit your audio session."
     >
       <p>
         Tools are deterministic functions the agent calls to manipulate your
