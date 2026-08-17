@@ -15,8 +15,9 @@ export function Problem() {
           <p className="mt-6 text-pretty text-lg text-muted-foreground">
             Nobody offers conversational, multi-track production at professional
             DSP quality. edytlab is the agent layer that plans, executes, and
-            iterates over Demucs, Whisper, and Rubber Band — in a session you
-            can actually trust and steer.
+            iterates over a real audio engine — stem separation, transcription,
+            time and pitch, a full effect chain — in a session you can actually
+            trust and steer.
           </p>
         </FadeIn>
       </div>

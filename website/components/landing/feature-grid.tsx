@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  AudioWaveform,
+  FileDown,
   GitBranch,
   KeyRound,
   MessageSquare,
@@ -30,7 +32,7 @@ const features = [
   {
     icon: Waves,
     title: "Pro-grade DSP",
-    body: "Pure Rust audio graph (cpal · symphonia · dasp · rubato) with Demucs stem separation, Whisper transcription, and Rubber Band pitch/time stretch. Zoom the waveform with Ctrl+scroll or +/−/0.",
+    body: "Pure Rust audio graph (cpal · symphonia · rubato · realfft) with Demucs stem separation and Whisper transcription. Time-stretch, pitch-shift and formant preservation run on a phase vocoder written for this project — no C dependency in the audio path.",
   },
   {
     icon: ShieldCheck,
@@ -45,7 +47,17 @@ const features = [
   {
     icon: KeyRound,
     title: "Bring your own LLM",
-    body: "Anthropic, OpenAI, Gemini, Groq or OpenRouter keys stored in your OS keychain. Per-model agent profiles let you tune tools and behavior. Swap providers without reinstalling.",
+    body: "Anthropic, OpenAI, Gemini, Groq, OpenRouter or a local Ollama daemon. Keys live in your OS keychain. Per-model agent profiles tune tools and behaviour. Swap providers without reinstalling.",
+  },
+  {
+    icon: AudioWaveform,
+    title: "Time, pitch and timing",
+    body: "Stretch without moving the pitch, shift pitch without moving the clock, and preserve formants so a shifted voice still sounds like the same person. Warp a performance onto a beat grid in a single pass — no seam at the beats.",
+  },
+  {
+    icon: FileDown,
+    title: "Export that plays anywhere",
+    body: "WAV when you want the samples, FLAC for lossless at about half the size, MP3 when it has to open on anything. Loudness-normalise to a LUFS target — the number streaming platforms actually use — with a true-peak ceiling so it never clips getting there.",
   },
   {
     icon: Zap,

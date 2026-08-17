@@ -138,6 +138,18 @@ const groups = [
         output: "node_id",
       },
       {
+        name: "move_clip",
+        prompt: "move the second clip on track 1 to 8 seconds",
+        what: "Move one clip to a new start position, leaving the other clips where they are. Use time_shift to move a whole track together. Clips are re-sorted by start, so a clip dragged past its neighbour keeps the arrangement and the waveform in step.",
+        output: "node_id",
+      },
+      {
+        name: "remove_clip",
+        prompt: "delete the second clip on track 1",
+        what: "Remove one clip from a track. The gap it leaves is silence — this does not close up the timeline. Use remove_track to drop a whole track.",
+        output: "node_id",
+      },
+      {
         name: "invert",
         prompt: "invert the polarity of track 2",
         what: "Invert (negate) audio polarity on a track, optionally within a time range.",
@@ -161,10 +173,34 @@ const groups = [
         output: "node_id",
       },
       {
+        name: "create_bus",
+        prompt: 'make a reverb bus',
+        what: "Create a mix bus with its own effect chain. Tracks feed it through sends, so one reverb can serve several tracks instead of being applied to each.",
+        output: "node_id, bus_id",
+      },
+      {
+        name: "set_send",
+        prompt: 'send 30% of the vocal to the reverb bus',
+        what: "Route a track to a bus at a given level in dB. The send is tapped after the track's own gain and pan.",
+        output: "node_id",
+      },
+      {
+        name: "remove_send",
+        prompt: 'stop sending the vocal to the reverb bus',
+        what: "Remove a track's send to a bus, leaving both the track and the bus in place.",
+        output: "node_id",
+      },
+      {
         name: "normalize",
-        prompt: 'normalize to -14 LUFS for Spotify',
-        what: "Normalize a track to an integrated LUFS target or true peak limit.",
+        prompt: 'normalize the peak to -1 dBFS',
+        what: "Scan a track for its peak amplitude and set its gain so the peak lands on target_dbfs. Peak-based — two files normalised to the same peak can still differ by 10 LUFS in perceived loudness, so use normalize_loudness when the goal is 'as loud as everything else'.",
         output: "node_id, applied_gain_db",
+      },
+      {
+        name: "normalize_loudness",
+        prompt: 'normalize to -14 LUFS for Spotify',
+        what: "Set gain so the track hits an integrated LUFS target, measured with EBU R128. Gain is capped at a true-peak ceiling (−1 dBFS by default) so it never clips getting there; when the cap bites, the result reports the shortfall rather than claiming success.",
+        output: "node_id, measured_lufs, applied_gain_db, achieved_lufs, shortfall_db, capped_by_ceiling",
         note: "Common targets: −14 LUFS Spotify/YouTube, −16 LUFS Apple Podcasts, −23 LUFS broadcast.",
       },
       {

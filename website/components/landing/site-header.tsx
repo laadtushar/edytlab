@@ -28,6 +28,18 @@ export function SiteHeader() {
             Features
           </Link>
           <Link
+            href="/#interface"
+            className="transition-colors hover:text-foreground"
+          >
+            Interface
+          </Link>
+          <Link
+            href="/#tools"
+            className="transition-colors hover:text-foreground"
+          >
+            Tools
+          </Link>
+          <Link
             href="/#how-it-works"
             className="transition-colors hover:text-foreground"
           >

@@ -10,6 +10,8 @@ import { Problem } from "@/components/landing/problem";
 import { ProviderCards } from "@/components/landing/provider-cards";
 import { SiteHeader } from "@/components/landing/site-header";
 import { StatsStrip } from "@/components/landing/stats-strip";
+import { ToolCatalogue } from "@/components/landing/tool-catalogue";
+import { UiShowcase } from "@/components/landing/ui-showcase";
 import { siteConfig } from "@/lib/site";
 import { getLatestRelease } from "@/lib/releases";
 
@@ -51,6 +53,8 @@ export default async function Home() {
         <Comparison />
         <DemoFrame />
         <FeatureGrid />
+        <UiShowcase />
+        <ToolCatalogue />
         <HowItWorks />
         <ProviderCards />
         <FAQ />
