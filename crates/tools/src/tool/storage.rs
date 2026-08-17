@@ -34,7 +34,7 @@
 //! Reporting them apart is the point. Collapsing them into one "reclaim
 //! me" number is exactly the mistake that would make a sweep look safe.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
@@ -134,6 +134,36 @@ impl Tool for StorageReportTool {
         let live = collect_refs(std::iter::once(&head_node));
         let any = collect_refs(all.iter());
 
+        // Which history files could be rebuilt rather than kept.
+        //
+        // A node's audio is rebuildable when the node records the
+        // operation that produced it *and* every node between it and a
+        // root does too — replay starts from a state that still exists,
+        // so one missing link upstream strands everything below it.
+        // Nodes written before provenance existed have no record, which
+        // reads as "not known to be rebuildable": the safe direction.
+        let by_id: HashMap<_, _> = all.iter().map(|n| (n.id, n)).collect();
+        let mut rebuildable_paths: BTreeSet<PathBuf> = BTreeSet::new();
+        for node in &all {
+            let mut cur = Some(node);
+            let chain_is_replayable = loop {
+                let Some(n) = cur else { break true }; // reached a root
+                match &n.op {
+                    Some(op) if op.reproducible => {
+                        cur = n.parent.and_then(|p| by_id.get(&p).copied())
+                    }
+                    _ => break false,
+                }
+            };
+            if chain_is_replayable {
+                for track in &node.state.tracks {
+                    for clip in &track.clips {
+                        rebuildable_paths.insert(key(&clip.source_path));
+                    }
+                }
+            }
+        }
+
         // Walk every `derived/` directory the graph knows about and
         // classify what is actually there. Files are the unit rather
         // than nodes: two nodes naming the same content-addressed file
@@ -143,6 +173,10 @@ impl Tool for StorageReportTool {
         let mut history_bytes = 0u64;
         let mut unref_bytes = 0u64;
         let (mut live_n, mut history_n, mut unref_n) = (0usize, 0usize, 0usize);
+        // A subset of `history`: the part a sweep could reclaim and put
+        // back, rather than merely delete.
+        let mut rebuildable_bytes = 0u64;
+        let mut rebuildable_n = 0usize;
         let mut unreferenced: Vec<(PathBuf, u64)> = Vec::new();
 
         for dir in derived_dirs(&all) {
@@ -165,6 +199,10 @@ impl Tool for StorageReportTool {
                 } else if any.contains(&k) {
                     history_bytes += bytes;
                     history_n += 1;
+                    if rebuildable_paths.contains(&k) {
+                        rebuildable_bytes += bytes;
+                        rebuildable_n += 1;
+                    }
                 } else {
                     unref_bytes += bytes;
                     unref_n += 1;
@@ -193,7 +231,12 @@ impl Tool for StorageReportTool {
             "total_bytes": total,
             "total_mib": (mib(total) * 100.0).round() / 100.0,
             "live": { "files": live_n, "bytes": live_bytes },
-            "history": { "files": history_n, "bytes": history_bytes },
+            "history": {
+                "files": history_n,
+                "bytes": history_bytes,
+                "rebuildable_files": rebuildable_n,
+                "rebuildable_bytes": rebuildable_bytes,
+            },
             "unreferenced": { "files": unref_n, "bytes": unref_bytes },
             "largest_unreferenced": sample,
             "summary": format!(

@@ -88,6 +88,43 @@ fn canonicalize_value(value: serde_json::Value) -> serde_json::Value {
     }
 }
 
+/// How a node was produced, so the audio it points at can be rebuilt
+/// rather than merely kept.
+///
+/// Every destructive edit writes a content-addressed WAV and none are
+/// ever deleted (#98). The obvious fix — evict the cold ones and rebuild
+/// on demand — needs something nothing recorded: *which* edit to replay.
+/// `label` is a human sentence ("gain track 0 +6 dB") and was never a
+/// contract; the transform itself was an anonymous closure.
+///
+/// This is that record. Together with `parent`, a node carries the whole
+/// derivation: parent state, tool, parameters.
+///
+/// ## Why this is safe to replay
+///
+/// A derived file is named `blake3(post-edit samples)`. The filename is
+/// therefore a checksum of the result a replay must produce — so a
+/// rebuild is *self-verifying*, and a replay that drifts (a DSP fix
+/// landing between the original edit and the rebuild) is detected rather
+/// than silently substituted. That property is why recording the
+/// operation is enough, and it is worth stating plainly because
+/// content-addressed does not by itself mean reproducible.
+///
+/// `engine_version` is recorded for diagnosis when a rebuild does drift.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeOp {
+    /// Registered tool name, e.g. `"reverb"`.
+    pub tool: String,
+    /// The arguments it was called with, exactly as validated.
+    pub params: serde_json::Value,
+    /// Workspace version of the code that ran it.
+    pub engine_version: String,
+    /// False when the tool reads something the session does not contain
+    /// — an in-memory clipboard, a file elsewhere on disk, an ML model —
+    /// so replaying it here cannot be expected to reproduce the bytes.
+    pub reproducible: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionNode {
     pub id: NodeId,
@@ -96,6 +133,11 @@ pub struct SessionNode {
     pub label: Option<String>,
     pub reasoning: Option<String>,
     pub state: SessionState,
+    /// Absent on nodes written before provenance was recorded, and on
+    /// any node produced outside the tool dispatcher. Absent means "not
+    /// known to be rebuildable", which is the safe reading.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub op: Option<NodeOp>,
 }
 
 mod hex_array_32 {

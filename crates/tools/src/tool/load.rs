@@ -154,6 +154,7 @@ impl Tool for LoadTool {
             label: Some(format!("load {}", path.display())),
             reasoning: None,
             state,
+            op: None,
         };
 
         let id = match ctx.store.append(node) {

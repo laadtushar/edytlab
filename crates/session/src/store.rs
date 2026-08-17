@@ -286,6 +286,27 @@ impl Store {
         Ok(())
     }
 
+    /// Record how a node was produced (#98).
+    ///
+    /// Safe to call after the node is written, because [`NodeId`] hashes
+    /// only `state` — provenance is a sibling field and cannot change
+    /// the node's identity.
+    ///
+    /// **First writer wins.** Node ids are content-addressed on state, so
+    /// two different routes to the same state land on the same node. The
+    /// existing record describes the run that actually produced the file
+    /// on disk, and overwriting it with a later, equivalent derivation
+    /// would trade a fact for a guess.
+    pub fn set_op(&mut self, id: NodeId, op: crate::node::NodeOp) -> Result<()> {
+        let mut node = self.get(id)?;
+        if node.op.is_some() {
+            return Ok(());
+        }
+        node.op = Some(op);
+        self.write_node_overwrite(&node)?;
+        Ok(())
+    }
+
     /// Atomically append several states as siblings of `parent`. All
     /// new node files are written via tempfile-then-rename; the head
     /// pointer is updated only after every node is durable on disk.
@@ -318,6 +339,7 @@ impl Store {
                 label,
                 reasoning: None,
                 state,
+                op: None,
             };
             self.write_node_idempotent(&node)?;
             written.push(id);

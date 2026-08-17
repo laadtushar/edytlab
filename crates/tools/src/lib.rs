@@ -28,7 +28,7 @@ pub mod schema;
 pub mod tool;
 pub mod util;
 
-pub use dispatcher::{Tool, ToolContext, ToolDispatcher};
+pub use dispatcher::{Tool, ToolContext, ToolDispatcher, READS_OUTSIDE_THE_SESSION};
 pub use util::range_resolver::{resolve as resolve_range, Range, RangeError};
 
 /// Materialise a multi-clip track as a single WAV, for callers outside

@@ -316,9 +316,61 @@ impl ToolDispatcher {
             return Err(DispatchError::SchemaValidation(joined));
         }
 
-        entry.tool.invoke(args, ctx)
+        // Provenance is recorded here rather than in each tool, and that
+        // is the whole reason it is feasible: this is the one place every
+        // edit passes through, so all 81 tools are covered by one code
+        // path and a tool added tomorrow is covered without being
+        // touched. Threading it through the tools instead would mean
+        // editing sixty-odd files and would drift the first time someone
+        // forgot — the failure mode this repo already keeps guard tests
+        // for.
+        let head_before = ctx.store.head();
+        let result = entry.tool.invoke(args.clone(), ctx)?;
+
+        // A moved head means a node was appended, and that node is the
+        // one this call produced.
+        if let Some(new_head) = ctx.store.head() {
+            if Some(new_head) != head_before {
+                let op = session::NodeOp {
+                    tool: name.to_string(),
+                    params: args,
+                    engine_version: env!("CARGO_PKG_VERSION").to_string(),
+                    reproducible: !READS_OUTSIDE_THE_SESSION.contains(&name),
+                };
+                // Provenance is metadata about an edit that has already
+                // happened and is already durable. Failing the call now
+                // would report an error for work that succeeded, so a
+                // write failure is logged and swallowed; the node simply
+                // reads as "not known to be rebuildable", which is the
+                // safe direction.
+                if let Err(e) = ctx.store.set_op(new_head, op) {
+                    tracing::warn!(tool = name, error = %e, "failed to record node provenance");
+                }
+            }
+        }
+        Ok(result)
     }
 }
+
+/// Tools whose output depends on something the session does not contain,
+/// so replaying them here cannot be expected to reproduce the bytes.
+///
+/// * `paste_region` splices `ToolContext::clipboard`, which lives in
+///   memory and is never persisted — after a paste, that audio exists
+///   *only* in the derived file.
+/// * `load` reads a file from somewhere else on disk that may have moved
+///   or changed since.
+/// * `transcribe` and `separate_stems` shell out to ML models whose
+///   weights are not part of the session.
+///
+/// This list is an optimisation and a diagnostic, not the safety
+/// mechanism. The safety mechanism is that a derived file is named
+/// `blake3(its own samples)`, so any rebuild is checked against the name
+/// it has to produce — a misclassification here cannot corrupt audio, it
+/// can only waste a rebuild attempt. `tool_provenance.rs` pins these
+/// names against the registry so a rename cannot quietly drop one.
+pub const READS_OUTSIDE_THE_SESSION: &[&str] =
+    &["load", "paste_region", "transcribe", "separate_stems"];
 
 /// Extract `input_schema` from `tool.schema()` and compile it. Returns
 /// `Err(reason)` for any tool-author bug so the dispatcher can surface

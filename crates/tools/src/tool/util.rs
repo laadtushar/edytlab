@@ -252,6 +252,7 @@ pub(crate) fn append_state(
         label: Some(label.into()),
         reasoning: None,
         state,
+        op: None,
     };
     ctx.store
         .append(node)

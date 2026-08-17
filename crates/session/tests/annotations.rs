@@ -34,6 +34,7 @@ fn empty_node() -> SessionNode {
         label: None,
         reasoning: None,
         state: empty_state(),
+        op: None,
     }
 }
 
@@ -47,6 +48,7 @@ fn node_with_annotations(annotations: Vec<Annotation>) -> SessionNode {
         label: None,
         reasoning: None,
         state,
+        op: None,
     }
 }
 

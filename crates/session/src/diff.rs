@@ -943,6 +943,7 @@ pub fn revert_to(store: &mut Store, target: NodeId) -> Result<NodeId> {
         label: Some(format!("revert to {}", target.to_hex())),
         reasoning: None,
         state: target_node.state,
+        op: None,
     };
     store.append(new_node)
 }
@@ -996,6 +997,7 @@ pub fn merge(store: &mut Store, a: NodeId, b: NodeId) -> Result<NodeId> {
         label: Some(format!("merge {} + {}", a.to_hex(), b.to_hex())),
         reasoning: None,
         state: merged,
+        op: None,
     };
     store.append(new_node)
 }
