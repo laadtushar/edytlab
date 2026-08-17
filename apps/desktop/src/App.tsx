@@ -71,6 +71,12 @@ import {
   pickAudioFiles,
 } from "./lib/file-open";
 import { batchLoad } from "./lib/tauri-bridge";
+import {
+  forgetRecentProject,
+  listRecentProjects,
+  openProject,
+  type RecentProject,
+} from "./lib/tauri-bridge";
 
 type LeftView = "timeline" | "graph";
 
@@ -143,6 +149,10 @@ function App() {
   const [templates, setTemplates] = useState<TemplateInfo[]>([]);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  // Projects this machine has opened. Empty on a first launch, and the
+  // empty state hides the list entirely rather than showing a heading
+  // with nothing under it.
+  const [recents, setRecents] = useState<RecentProject[]>([]);
 
   const handleUndo = useCallback(async () => {
     if (!head) return;
@@ -482,6 +492,49 @@ function App() {
     [commitTrackChange, afterTrackListChange],
   );
 
+  /**
+   * Reopening a project is opening it: same command, so the recents
+   * row moves to the top and `project.json` records the visit exactly
+   * as it would from the file dialog.
+   */
+  const handleOpenRecent = useCallback(
+    async (path: string) => {
+      try {
+        const info = await openProject(path);
+        if (info.head) setHeadLocal(info.head);
+        setTracks(await listTracks());
+        setRecents(await listRecentProjects());
+      } catch (e) {
+        setRenderError(String(e));
+      }
+    },
+    [setHeadLocal],
+  );
+
+  /** Forget the row, not the project. */
+  const handleForgetRecent = useCallback(async (path: string) => {
+    try {
+      setRecents(await forgetRecentProject(path));
+    } catch (e) {
+      setRenderError(String(e));
+    }
+  }, []);
+
+  // Load the recents list once at startup. A failure here is not worth
+  // an error banner — the list is a convenience, and the Open button
+  // still works without it.
+  useEffect(() => {
+    let cancelled = false;
+    listRecentProjects()
+      .then((list) => {
+        if (!cancelled) setRecents(list);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Debounced selection IPC — push the selection to Rust 250 ms after
   // the last change so rapid drags don't flood the backend.
   const handleSelectionChange = useCallback((sel: Selection | null) => {
@@ -771,7 +824,13 @@ function App() {
                   onSpectrogramChange={setSpectrogramEnabled}
                 />
               ) : (
-                <EmptyState onOpen={handleOpenDialog} onShowTemplates={() => setShowTemplatePicker(true)} />
+                <EmptyState
+                  onOpen={handleOpenDialog}
+                  onShowTemplates={() => setShowTemplatePicker(true)}
+                  recents={recents}
+                  onOpenRecent={handleOpenRecent}
+                  onForgetRecent={handleForgetRecent}
+                />
               )
             ) : (
               <GraphView
