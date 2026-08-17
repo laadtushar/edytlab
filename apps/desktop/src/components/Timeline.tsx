@@ -85,6 +85,10 @@ export interface TimelineHandle {
   seekBy: (deltaSeconds: number) => void;
   getCurrentTime: () => number;
   getDuration: () => number;
+  /** Fill the pane with the current selection, and scroll to it. */
+  zoomToSelection: () => void;
+  /** Back to the whole session across the pane. */
+  fitToWindow: () => void;
 }
 
 export interface TimelineProps {
@@ -644,6 +648,14 @@ function TrackLane({
   );
 }
 
+/**
+ * Zoom bounds, in pixels per second. The lower bound keeps a zoomed
+ * view readable; the upper stops a one-frame selection from asking for
+ * a scale no browser will draw.
+ */
+const MIN_ZOOM_PX_PER_SEC = 1;
+const MAX_ZOOM_PX_PER_SEC = 2000;
+
 function pxToSeconds(px: number, totalPx: number, durationSec: number): number {
   if (totalPx <= 0) return 0;
   return clamp((px / totalPx) * durationSec, 0, durationSec);
@@ -786,6 +798,58 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
       return () => el.removeEventListener("wheel", handler);
     }, [zoom, onZoomChange]);
 
+    /**
+     * Width of the drawing surface, in pixels — the lane minus its head.
+     * Read from the DOM rather than tracked in state: it changes with
+     * the window and with the panel layout, and a stale number here
+     * would frame the wrong region.
+     */
+    const paneWidth = useCallback(() => {
+      const el = rootRef.current?.querySelector<HTMLElement>(
+        "[data-testid='timeline-lane-waveform']",
+      );
+      return el?.clientWidth ?? 0;
+    }, []);
+
+    /**
+     * Fill the pane with the selection. Along with fit-to-window these
+     * are the two most-used zoom verbs on any timeline, and until now
+     * getting to a selected region meant zooming with ± and then
+     * scrolling to find it by hand.
+     */
+    const zoomToSelection = useCallback(() => {
+      if (!selection || !onZoomChange) return;
+      const span = selection.end - selection.start;
+      const width = paneWidth();
+      if (span <= 0 || width <= 0) return;
+
+      const pxPerSec = clamp(width / span, MIN_ZOOM_PX_PER_SEC, MAX_ZOOM_PX_PER_SEC);
+      onZoomChange(pxPerSec);
+
+      // Scroll after the zoom has been applied — the scrollable width
+      // does not exist until wavesurfer has redrawn at the new scale.
+      requestAnimationFrame(() => {
+        const surfaces = rootRef.current?.querySelectorAll<HTMLElement>(
+          "[data-testid='timeline-lane-waveform']",
+        );
+        surfaces?.forEach((el) => {
+          const scroller = el.parentElement;
+          if (scroller) scroller.scrollLeft = selection.start * pxPerSec;
+        });
+      });
+    }, [selection, onZoomChange, paneWidth]);
+
+    /** Zero means auto-fit, which is what the lanes already do. */
+    const fitToWindow = useCallback(() => {
+      onZoomChange?.(0);
+      const surfaces = rootRef.current?.querySelectorAll<HTMLElement>(
+        "[data-testid='timeline-lane-waveform']",
+      );
+      surfaces?.forEach((el) => {
+        if (el.parentElement) el.parentElement.scrollLeft = 0;
+      });
+    }, [onZoomChange]);
+
     useImperativeHandle(
       ref,
       () => ({
@@ -813,8 +877,10 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
         },
         getCurrentTime: () => headWsRef.current?.getCurrentTime() ?? 0,
         getDuration: () => headWsRef.current?.getDuration() ?? 0,
+        zoomToSelection,
+        fitToWindow,
       }),
-      [],
+      [zoomToSelection, fitToWindow],
     );
 
     return (
@@ -877,6 +943,25 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
               title="Zoom in (Ctrl+scroll)"
             >
               +
+            </button>
+            <button
+              type="button"
+              data-testid="zoom-to-selection-btn"
+              onClick={zoomToSelection}
+              disabled={!selection}
+              className="text-xs px-1.5 py-1 rounded border border-neutral-600 text-neutral-400 hover:border-neutral-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Zoom to selection (Ctrl+E)"
+            >
+              ⇱⇲
+            </button>
+            <button
+              type="button"
+              data-testid="fit-to-window-btn"
+              onClick={fitToWindow}
+              className="text-xs px-1.5 py-1 rounded border border-neutral-600 text-neutral-400 hover:border-neutral-400 transition-colors"
+              title="Fit to window (Ctrl+F)"
+            >
+              ⇤⇥
             </button>
             <button
               type="button"
