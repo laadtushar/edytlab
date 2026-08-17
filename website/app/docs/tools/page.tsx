@@ -427,6 +427,13 @@ const groups = [
         prompt: "where are the silent bits?",
         what: "Analyse a track and return the time ranges of silent regions.",
         output: "list of {start_sec, end_sec}",
+      },
+      {
+        name: "storage_report",
+        prompt: "how much disk is this session using?",
+        what: "Report what the session costs on disk, split three ways: audio the current version needs, audio only the undo history needs, and audio nothing references at all. Every destructive edit writes a new file and none are deleted, so a long session grows without bound. Reads only — it deletes nothing.",
+        output: "total_bytes, live, history, unreferenced, largest_unreferenced",
+        note: "There is no reclamation policy yet, so this measures the problem rather than solving it.",
       }
     ],
   },

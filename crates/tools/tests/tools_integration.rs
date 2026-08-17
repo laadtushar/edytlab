@@ -833,6 +833,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "split_clip",
             "stereo_to_mono",
             "stereo_widener",
+            "storage_report",
             "time_shift",
             "time_stretch",
             "transcribe",

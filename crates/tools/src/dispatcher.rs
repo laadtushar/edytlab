@@ -97,8 +97,9 @@ impl ToolDispatcher {
             ResampleTrackTool, ReverbTool, ReverseTool, RevertToTool, SeparateStemsTool,
             SetClipEnvelopeTool, SetEffectBypassedTool, SetEffectParamsTool, SetPanTool,
             SetSendTool, SetTrackGainTool, SilenceFinderTool, SilenceRegionTool, SoloTrackTool,
-            SplitClipTool, StereoToMonoTool, StereoWidenerTool, TimeShiftTool, TimeStretchTool,
-            TranscribeTool, TremoloTool, TrimTool, TruncateSilenceTool, VocalReductionTool,
+            SplitClipTool, StereoToMonoTool, StereoWidenerTool, StorageReportTool, TimeShiftTool,
+            TimeStretchTool, TranscribeTool, TremoloTool, TrimTool, TruncateSilenceTool,
+            VocalReductionTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -174,6 +175,7 @@ impl ToolDispatcher {
         d.register(Box::new(MoveClipTool));
         d.register(Box::new(RemoveClipTool));
         // #102: non-destructive per-track effect chains.
+        d.register(Box::new(StorageReportTool));
         d.register(Box::new(AddEffectTool));
         d.register(Box::new(RemoveEffectTool));
         d.register(Box::new(ReorderEffectsTool));
