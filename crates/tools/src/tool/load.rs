@@ -187,8 +187,9 @@ impl Tool for LoadTool {
 /// unchanged so the unity-passthrough byte-identity path still applies.
 /// Otherwise, writes `decoded` to a CAS-addressed sibling WAV at
 /// `<src.parent>/derived/<hash>.wav` and returns that path. The hash is
-/// over the source path bytes plus sample-rate, channel count, and
-/// little-endian sample bytes so re-loading the same file is idempotent.
+/// over sample-rate, channel count and little-endian sample bytes, so
+/// the same audio always lands on the same name — whether it is the same
+/// file re-loaded or a copy of it from somewhere else.
 fn ensure_streamable_wav(src: &Path, decoded: &DecodedAudio) -> Result<PathBuf, String> {
     if WavStreamReader::open(src).is_ok() {
         return Ok(src.to_path_buf());
@@ -213,8 +214,18 @@ fn ensure_streamable_wav(src: &Path, decoded: &DecodedAudio) -> Result<PathBuf, 
     for s in &decoded.samples {
         bytes.extend_from_slice(&s.to_le_bytes());
     }
+    // The source path is deliberately NOT hashed (#160). It used to be,
+    // which meant the same audio imported from two locations — a copy, a
+    // move, a re-download — produced two different names and was stored
+    // twice, at roughly 55 MB per re-import for a five-minute stereo
+    // file. That defeats content addressing for exactly the case it
+    // exists to serve: two files whose samples, rate and channel count
+    // all match *are* the same audio for every purpose this store has.
+    //
+    // Dropping it does not risk collisions. The hash still covers every
+    // property of the decoded audio, so two genuinely different files
+    // cannot land on one name without colliding blake3 itself.
     let mut hasher = blake3::Hasher::new();
-    hasher.update(src.as_os_str().as_encoded_bytes());
     hasher.update(&decoded.sample_rate.to_le_bytes());
     hasher.update(&(decoded.channels as u32).to_le_bytes());
     hasher.update(&bytes);
