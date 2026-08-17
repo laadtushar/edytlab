@@ -509,6 +509,20 @@ export const setTrackSoloed = (
 ): Promise<string> => invoke<string>("set_track_soloed", { track, soloed });
 
 /**
+ * Track-head actions (#161). Each appends an ordinary session node and
+ * returns the new head, so they undo like anything else — which is why
+ * `removeTrack` does not need a confirmation down here.
+ */
+export const renameTrack = (track: number, name: string): Promise<string> =>
+  invoke<string>("rename_track", { track, name });
+
+export const removeTrack = (track: number): Promise<string> =>
+  invoke<string>("remove_track", { track });
+
+export const duplicateTrack = (track: number): Promise<string> =>
+  invoke<string>("duplicate_track", { track });
+
+/**
  * Replace a clip's volume automation curve. An empty array clears it.
  *
  * Points need not be sorted — the tool sorts, so dragging one past its

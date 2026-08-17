@@ -1884,6 +1884,66 @@ pub(crate) fn set_track_pan_inner(state: &AppState, track: usize, pan: f32) -> C
     )
 }
 
+/// Rename a track. Returns the new session head.
+///
+/// The name is the one thing on a track head that a user expects to be
+/// able to change directly; until now it could only be changed by
+/// asking the agent in a sentence.
+#[tauri::command]
+pub fn rename_track(state: State<'_, AppState>, track: usize, name: String) -> CmdResult<String> {
+    rename_track_inner(&state, track, name)
+}
+
+pub(crate) fn rename_track_inner(
+    state: &AppState,
+    track: usize,
+    name: String,
+) -> CmdResult<String> {
+    // Rejected here rather than clamped or defaulted: an empty name on
+    // a track head is indistinguishable from a rendering bug, and the
+    // tool's schema requires one character anyway — catching it here
+    // gives the UI a message instead of a schema-validation string.
+    if name.trim().is_empty() {
+        return Err(
+            CommandError::InvalidTrackControl("a track name cannot be empty".into()).into(),
+        );
+    }
+    run_track_tool(
+        state,
+        "rename_track",
+        serde_json::json!({ "track": track, "name": name }),
+    )
+}
+
+/// Remove a track from the session. Returns the new session head.
+///
+/// Destructive in the ordinary sense — the node it appends can be
+/// undone like any other, which is why this does not ask for
+/// confirmation down here. Whether to ask is the UI's decision.
+#[tauri::command]
+pub fn remove_track(state: State<'_, AppState>, track: usize) -> CmdResult<String> {
+    remove_track_inner(&state, track)
+}
+
+pub(crate) fn remove_track_inner(state: &AppState, track: usize) -> CmdResult<String> {
+    run_track_tool(state, "remove_track", serde_json::json!({ "track": track }))
+}
+
+/// Duplicate a track, clips and mixer settings included. Returns the
+/// new session head.
+#[tauri::command]
+pub fn duplicate_track(state: State<'_, AppState>, track: usize) -> CmdResult<String> {
+    duplicate_track_inner(&state, track)
+}
+
+pub(crate) fn duplicate_track_inner(state: &AppState, track: usize) -> CmdResult<String> {
+    run_track_tool(
+        state,
+        "duplicate_track",
+        serde_json::json!({ "track": track }),
+    )
+}
+
 /// Mute or unmute a track. Returns the new session head.
 #[tauri::command]
 pub fn set_track_muted(state: State<'_, AppState>, track: usize, muted: bool) -> CmdResult<String> {

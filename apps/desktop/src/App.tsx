@@ -29,6 +29,9 @@ import {
   removeClip,
   setClipEnvelope,
   setSelectionContext,
+  duplicateTrack,
+  removeTrack,
+  renameTrack,
   setTrackGain,
   setTrackMuted,
   setTrackPan,
@@ -417,6 +420,42 @@ function App() {
     [commitTrackChange],
   );
 
+  // Track-head actions (#161). Each is one existing tool, one node, and
+  // undoes like any other edit — which is why removing does not stop to
+  // ask. `listTracks` is refreshed after, since these change the list
+  // itself rather than a value on a track.
+  const afterTrackListChange = useCallback(async () => {
+    try {
+      setTracks(await listTracks());
+    } catch (e) {
+      setRenderError(String(e));
+    }
+  }, []);
+
+  const handleRenameTrack = useCallback(
+    (index: number, name: string) =>
+      void commitTrackChange(() => renameTrack(index, name)).then(
+        afterTrackListChange,
+      ),
+    [commitTrackChange, afterTrackListChange],
+  );
+
+  const handleDuplicateTrack = useCallback(
+    (index: number) =>
+      void commitTrackChange(() => duplicateTrack(index)).then(
+        afterTrackListChange,
+      ),
+    [commitTrackChange, afterTrackListChange],
+  );
+
+  const handleRemoveTrack = useCallback(
+    (index: number) =>
+      void commitTrackChange(() => removeTrack(index)).then(
+        afterTrackListChange,
+      ),
+    [commitTrackChange, afterTrackListChange],
+  );
+
   // Debounced selection IPC — push the selection to Rust 250 ms after
   // the last change so rapid drags don't flood the backend.
   const handleSelectionChange = useCallback((sel: Selection | null) => {
@@ -681,6 +720,9 @@ function App() {
                   onTrackPanChange={handleTrackPanChange}
                   onTrackMuteChange={handleTrackMuteChange}
                   onTrackSoloChange={handleTrackSoloChange}
+                  onRenameTrack={handleRenameTrack}
+                  onDuplicateTrack={handleDuplicateTrack}
+                  onRemoveTrack={handleRemoveTrack}
                   onClipEnvelopeChange={handleClipEnvelopeChange}
                   onMoveClip={handleMoveClip}
                   onRemoveClip={handleRemoveClip}
