@@ -59,9 +59,9 @@ const commands = [
         desc: "Remove the API key for the active provider from the keychain.",
       },
       {
-        name: "testApiKeyFor(provider, key)",
-        returns: "void",
-        desc: "Validate a key against a specific provider with a 1-token probe.",
+        name: "testApiKeyFor(provider, key, baseUrl?, model?)",
+        returns: "ProbeReport",
+        desc: "Probe a provider at the endpoint and model currently on screen. Reports three outcomes: ready, connected but the model cannot call tools (so editing will fail), or unreachable.",
       },
       {
         name: "testApiKey(key)",

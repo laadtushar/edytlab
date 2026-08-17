@@ -106,10 +106,35 @@ export const clearApiKeyFor = (provider: ProviderId): Promise<void> =>
 export const testApiKey = (key: string): Promise<void> =>
   invoke<void>("test_api_key", { key });
 
+/**
+ * What a TEST press found out. A rejection still throws — this is the
+ * success side, and it has two halves: `toolsOk` false means the
+ * endpoint answered but the model ignored the tool it was offered, so
+ * every edit would fail. `detail` is what it said instead.
+ */
+export interface ProbeReport {
+  model: string;
+  toolsOk: boolean;
+  detail: string | null;
+}
+
+/**
+ * `baseUrl` and `model` are the values currently typed into Settings,
+ * not the saved ones — testing an endpoint before saving it is the
+ * point of the button.
+ */
 export const testApiKeyFor = (
   provider: ProviderId,
   key: string,
-): Promise<void> => invoke<void>("test_api_key_for", { provider, key });
+  baseUrl?: string,
+  model?: string,
+): Promise<ProbeReport> =>
+  invoke<ProbeReport>("test_api_key_for", {
+    provider,
+    key,
+    baseUrl: baseUrl ?? null,
+    model: model ?? null,
+  });
 
 export const listProviders = (): Promise<ProviderId[]> =>
   invoke<ProviderId[]>("list_providers");

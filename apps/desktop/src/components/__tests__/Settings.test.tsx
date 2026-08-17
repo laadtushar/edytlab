@@ -7,7 +7,7 @@
  *  2. Toggling the radio fires `setActiveProvider` with the new id and
  *     swaps the visible label / placeholder so the user knows which key
  *     they're entering.
- *  3. "Test" routes through `testApiKeyFor(provider, key)`.
+ *  3. "Test" routes through `testApiKeyFor(provider, key, …)`.
  *  4. "Save" routes through `setApiKeyFor(provider, key)` and the input
  *     is wiped on success.
  *  5. The model combo populates suggestions from the catalogue mock
@@ -36,8 +36,12 @@ vi.mock("../../lib/tauri-bridge", async () => {
     ...actual,
     setApiKeyFor: (provider: string, key: string) =>
       setApiKeyForMock(provider, key),
-    testApiKeyFor: (provider: string, key: string) =>
-      testApiKeyForMock(provider, key),
+    testApiKeyFor: (
+      provider: string,
+      key: string,
+      baseUrl?: string,
+      model?: string,
+    ) => testApiKeyForMock(provider, key, baseUrl, model),
     setActiveProvider: (provider: string) => setActiveProviderMock(provider),
     setActiveModel: (provider: string, model: string) =>
       setActiveModelMock(provider, model),
@@ -95,7 +99,11 @@ beforeEach(() => {
   clearApiKeyMock.mockReset();
   listModelsForMock.mockReset();
   setApiKeyForMock.mockResolvedValue(undefined);
-  testApiKeyForMock.mockResolvedValue(undefined);
+  testApiKeyForMock.mockResolvedValue({
+    model: "claude-sonnet-4-6",
+    toolsOk: true,
+    detail: null,
+  });
   setActiveProviderMock.mockResolvedValue(undefined);
   setActiveModelMock.mockResolvedValue(undefined);
   getActiveModelMock.mockResolvedValue("");
@@ -170,6 +178,8 @@ describe("Settings provider picker", () => {
       expect(testApiKeyForMock).toHaveBeenCalledWith(
         "openrouter",
         "sk-or-v1-test",
+        undefined,
+        expect.any(String),
       ),
     );
     await waitFor(() =>
