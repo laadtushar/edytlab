@@ -560,7 +560,7 @@ const groups = [
       {
         name: "render_preview",
         prompt: "(used internally for playback)",
-        what: "Render a preview WAV to a temp file. Valid for the current app session.",
+        what: "Render a preview WAV, cached by node id — re-previewing the same session state reuses the render instead of redoing it.",
         output: "path",
       },
       {

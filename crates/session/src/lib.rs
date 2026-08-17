@@ -22,7 +22,7 @@ pub use state::{
     Bus, BusGraph, Clip, EffectInstance, EnvelopePoint, KeyMap, KeySegment, Send, SessionState,
     TempoMap, TempoSegment, Track, TrackId, Transcript, TranscriptWord,
 };
-pub use store::Store;
+pub use store::{Store, STORE_DIR};
 
 /// Unified error type for the session crate.
 #[derive(Debug, thiserror::Error)]

@@ -141,7 +141,7 @@ const commands = [
       {
         name: "renderPreview(node)",
         returns: "string (path)",
-        desc: "Render session to a temp WAV for playback. Returns file path.",
+        desc: "Render the session to a WAV for playback. Cached by node id under .audiograph/previews/, so repeating a head — undo, redo — costs nothing.",
       },
       {
         name: "renderRange(node, startSec, endSec, outPath)",

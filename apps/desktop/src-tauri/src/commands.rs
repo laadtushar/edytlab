@@ -1161,18 +1161,24 @@ pub async fn render_preview(state: State<'_, AppState>, node: String) -> CmdResu
         store.get(node_id).map_err(CommandError::from)?
     };
 
-    // Tempdir path so we don't litter the project. Phase 2 will write
-    // these into a per-project preview cache; today's transient render
-    // is purely for the playback button in the UI.
-    let mut out_path = std::env::temp_dir();
-    out_path.push(format!("edytlab-preview-{}.wav", node_id.to_hex()));
+    // Cached under `<project>/.audiograph/previews/`, keyed by node id.
+    // The id is a hash of the session state, so undo and redo land back
+    // on renders that already exist instead of paying for the mix again
+    // — which is the difference between an editor that feels live and
+    // one that goes quiet after every edit.
+    let project_dir = {
+        let store = lock_std(&store_handle, "store")?;
+        store.project_dir().to_path_buf()
+    };
+    let cache = tools::PreviewCache::new(&project_dir);
 
-    {
+    let (out_path, _hit) = cache.get_or_render::<_, CommandError>(node_id, |path| {
         let engine = lock_std(&state.engine, "engine")?;
         engine
-            .render_to_wav(&session_node.state, &out_path, None)
+            .render_to_wav(&session_node.state, path, None)
             .map_err(CommandError::from)?;
-    }
+        Ok(())
+    })?;
 
     out_path
         .to_str()

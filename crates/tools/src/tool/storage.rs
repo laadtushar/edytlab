@@ -107,8 +107,8 @@ impl Tool for StorageReportTool {
             "Report what this session is costing on disk. Every destructive edit writes a new \
              audio file and none are ever deleted, so a long session grows without bound. Splits \
              the derived audio three ways: files the current head needs, files only older nodes \
-             need (what undo is holding onto), and files no node references at all. Reads only — \
-             it deletes nothing.",
+             need (what undo is holding onto), and files no node references at all, plus what the \
+             bounded preview cache is holding. Reads only — it deletes nothing.",
             json!({ "type": "object", "properties": {}, "required": [] }),
         )
     }
@@ -220,6 +220,15 @@ impl Tool for StorageReportTool {
             .map(|(p, b)| json!({ "path": p.display().to_string(), "bytes": b }))
             .collect();
 
+        // Rendered previews (#164) are a fourth, separate thing: not
+        // edit history at all, and the one category that is *designed*
+        // to be thrown away — every entry is re-derivable byte-for-byte
+        // from the node it is named for. Reported apart so the number a
+        // person sees for "history" is not inflated by a cache.
+        let cache = crate::PreviewCache::new(ctx.store.project_dir());
+        let preview_files = cache.len();
+        let preview_bytes = cache.size_bytes();
+
         let total = live_bytes + history_bytes + unref_bytes;
         let mut by_category = BTreeMap::new();
         by_category.insert("live", (live_n, live_bytes));
@@ -238,12 +247,19 @@ impl Tool for StorageReportTool {
                 "rebuildable_bytes": rebuildable_bytes,
             },
             "unreferenced": { "files": unref_n, "bytes": unref_bytes },
+            "preview_cache": {
+                "files": preview_files,
+                "bytes": preview_bytes,
+                "dir": cache.dir().display().to_string(),
+                "cap_bytes": crate::preview_cache::DEFAULT_CAP_BYTES,
+            },
             "largest_unreferenced": sample,
             "summary": format!(
                 "{:.1} MiB of derived audio across {} node{}: {:.1} MiB the current version \
                  needs, {:.1} MiB held only by undo history ({} file{}), {:.1} MiB referenced \
-                 by nothing ({} file{}). Nothing was deleted — there is no reclamation policy \
-                 yet.",
+                 by nothing ({} file{}). Separately, {:.1} MiB of rendered previews ({} \
+                 file{}) sit in a bounded cache that evicts itself. Nothing was deleted here — \
+                 there is no reclamation policy for derived audio yet.",
                 mib(total),
                 all.len(),
                 if all.len() == 1 { "" } else { "s" },
@@ -254,6 +270,9 @@ impl Tool for StorageReportTool {
                 mib(unref_bytes),
                 unref_n,
                 if unref_n == 1 { "" } else { "s" },
+                mib(preview_bytes),
+                preview_files,
+                if preview_files == 1 { "" } else { "s" },
             ),
         })))
     }

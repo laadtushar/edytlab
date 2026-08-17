@@ -270,11 +270,16 @@ await bridge.renameNode("abc123", "vocals boosted +3dB");
 
 ### `renderPreview(node: NodeId) → string`
 
-Render the session at `node` to a temp WAV file for playback. Returns the temp file path.
+Render the session at `node` to a WAV file for playback. Returns the path.
 
 **Returns:** Absolute path to the rendered WAV.
 
-**Note:** Temp files are managed by the engine. Do not cache the path across sessions.
+**Cached.** Renders live in `<project>/.audiograph/previews/`, keyed by node
+id. A node id is a hash of the session state, so asking for the same head
+twice does no work and undo/redo replay renders that already exist. The cache
+is bounded (1 GiB by default, overridable with `EDYTLAB_PREVIEW_CACHE_BYTES`)
+and evicts least-recently-used entries; an evicted entry is re-rendered
+byte-identically on demand. `storage_report` reports what it is holding.
 
 ```typescript
 const wavPath = await bridge.renderPreview(nodeId);

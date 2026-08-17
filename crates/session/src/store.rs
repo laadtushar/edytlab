@@ -28,7 +28,11 @@ use crate::node::{NodeId, SessionNode};
 use crate::state::SessionState;
 use crate::{Error, Result};
 
-const STORE_DIR: &str = ".audiograph";
+/// The store's own directory inside a project. Public because other
+/// caches live beside it — the preview cache (#164) is under
+/// `<project>/.audiograph/previews/`, and `storage_report` has to be
+/// able to find them without hardcoding the name a second time.
+pub const STORE_DIR: &str = ".audiograph";
 const NODES_DIR: &str = "nodes";
 const HEAD_FILE: &str = "head";
 
