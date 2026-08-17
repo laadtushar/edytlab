@@ -36,6 +36,7 @@ import {
 } from "./lib/tauri-bridge";
 import { save } from "@tauri-apps/plugin-dialog";
 import { applyUndo, applyRedo } from "./lib/undoRedo";
+import { mixIsStale } from "./lib/mixState";
 
 import { ABCompareBar } from "./components/ABCompareBar";
 import { Chat } from "./components/Chat";
@@ -324,7 +325,23 @@ function App() {
   const commitTrackChange = useCallback(
     async (apply: () => Promise<string>) => {
       try {
-        await apply();
+        // Every one of these commands appends a node and returns its id.
+        // That return value used to be discarded, so `head` never moved
+        // for a UI-driven edit — `NODE_CREATED` is emitted only from the
+        // agent path (commands.rs:1403).
+        //
+        // A stale head is not cosmetic. `render_preview` names its
+        // output after the node id, so re-rendering a stale head hands
+        // back the *same path string*; setting it then hits React's
+        // useState bailout, the load effect never fires, and nothing
+        // reloads — no change, and no error either. Moving a fader and
+        // pressing render appeared to work and did nothing.
+        const newHead = await apply();
+        if (newHead) {
+          setHeadLocal(newHead);
+          setMixPath(null);
+          setMixNodeId(null);
+        }
       } catch (e) {
         setRenderError(String(e));
       }
@@ -334,7 +351,7 @@ function App() {
         setRenderError(String(e));
       }
     },
-    [],
+    [setHeadLocal],
   );
 
   const handleTrackGainChange = useCallback(
@@ -694,7 +711,7 @@ function App() {
         head={head}
         rendering={rendering}
         selection={selection}
-        mixStale={mixPath !== null && mixNodeId !== head}
+        mixStale={mixIsStale({ mixPath, mixNodeId }, head)}
       />
 
       {showBlocking ? (
