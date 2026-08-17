@@ -209,6 +209,19 @@ interface LaneProps {
   onSelectionChange?: (sel: Selection | null) => void;
   /** Called when the wavesurfer reports the audio duration. */
   onDurationChange?: (d: number) => void;
+  /**
+   * Length of the *session*, which is the axis the ruler, the clip
+   * strip and every range-taking tool use.
+   *
+   * Selection used to be measured against this lane's own decoded
+   * duration and then handed to `render_range` as session-absolute
+   * seconds (#171). On a 60 s session whose first track is a 10 s clip,
+   * dragging across half the lane exported 0–5 s of the session — a
+   * different span of different audio. The two agree only when the
+   * lane happens to be as long as the session, which is why a
+   * single-file session never showed it.
+   */
+  sessionDuration?: number;
   /** Pixels per second zoom level. 0 = auto-fit. */
   zoom?: number;
   loop?: boolean;
@@ -233,6 +246,7 @@ function TrackLane({
   selection,
   onSelectionChange,
   onDurationChange,
+  sessionDuration,
   zoom,
   loop,
 }: LaneProps) {
@@ -352,10 +366,14 @@ function TrackLane({
     [onFileDropped],
   );
 
+  // What a pixel means. The session axis when we know it; this lane's
+  // own audio only as a fallback for a lane with no session context,
+  // which is the single-file case where the two are equal anyway.
+  const axis = sessionDuration && sessionDuration > 0 ? sessionDuration : duration;
+
   const beginSelection = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      if (!onSelectionChange || !duration || !waveformWrapperRef.current)
-        return;
+      if (!onSelectionChange || !axis || !waveformWrapperRef.current) return;
       // Only left-click; Shift is reserved for multi-select later.
       if (e.button !== 0) return;
       const rect = waveformWrapperRef.current.getBoundingClientRect();
@@ -366,11 +384,11 @@ function TrackLane({
         rectWidth: rect.width,
       };
       setDraftSelection({
-        start: pxToSeconds(originPx, rect.width, duration),
-        end: pxToSeconds(originPx, rect.width, duration),
+        start: pxToSeconds(originPx, rect.width, axis),
+        end: pxToSeconds(originPx, rect.width, axis),
       });
     },
-    [duration, onSelectionChange],
+    [axis, onSelectionChange],
   );
 
   useEffect(() => {
@@ -379,8 +397,8 @@ function TrackLane({
       const drag = dragStateRef.current;
       if (!drag) return;
       const px = clamp(e.clientX - drag.rectLeft, 0, drag.rectWidth);
-      const tEnd = pxToSeconds(px, drag.rectWidth, duration);
-      const tOrigin = pxToSeconds(drag.originPx, drag.rectWidth, duration);
+      const tEnd = pxToSeconds(px, drag.rectWidth, axis);
+      const tOrigin = pxToSeconds(drag.originPx, drag.rectWidth, axis);
       setDraftSelection({
         start: Math.min(tOrigin, tEnd),
         end: Math.max(tOrigin, tEnd),
@@ -405,19 +423,21 @@ function TrackLane({
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [draftSelection, duration, onSelectionChange]);
+  }, [draftSelection, axis, onSelectionChange]);
 
   const overlay = useMemo(() => {
     const range = draftSelection ?? selection ?? null;
-    if (!range || !duration || !waveformWrapperRef.current) return null;
+    if (!range || !axis || !waveformWrapperRef.current) return null;
     const width = waveformWrapperRef.current.clientWidth || 1;
-    const startPx = (range.start / duration) * width;
-    const endPx = (range.end / duration) * width;
+    // Same axis the ruler above is drawn on, so the overlay lines up
+    // with the ticks rather than merely looking plausible.
+    const startPx = (range.start / axis) * width;
+    const endPx = (range.end / axis) * width;
     return {
       left: Math.min(startPx, endPx),
       width: Math.abs(endPx - startPx),
     };
-  }, [draftSelection, selection, duration]);
+  }, [draftSelection, selection, axis]);
 
   return (
     <div
@@ -555,7 +575,7 @@ function TrackLane({
           padding: "10px 12px",
           boxShadow: isDragging ? "inset 0 0 0 1px var(--accent)" : "none",
           transition: "background 160ms ease, box-shadow 160ms ease",
-          cursor: duration > 0 ? "crosshair" : "default",
+          cursor: axis > 0 ? "crosshair" : "default",
         }}
       >
         <div
@@ -668,7 +688,34 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
   ) {
     const audioPath = audioPathProp ?? src ?? null;
     const headWsRef = useRef<WaveSurfer | null>(null);
-    const [timelineDuration, setTimelineDuration] = useState(0);
+    /**
+     * How long lane 0's own audio decoded to. Still needed — it is the
+     * only length available before any clip metadata arrives — but it
+     * is not the session's length, and treating it as such is what
+     * #171 was.
+     */
+    const [headLaneDuration, setHeadLaneDuration] = useState(0);
+
+    /**
+     * The session's length: the furthest point any clip on any track
+     * reaches. This is the axis the ruler, the clip strip and every
+     * range-taking tool agree on, so it is the one selection has to be
+     * measured against.
+     *
+     * Falls back to lane 0's decoded duration when no clip metadata has
+     * arrived yet — for a single loaded file the two are the same
+     * number, which is exactly why the bug stayed invisible.
+     */
+    const timelineDuration = useMemo(() => {
+      const end = (tracks ?? []).reduce((max, t) => {
+        for (const c of t.clips ?? []) {
+          const e = c.start_sec + c.length_sec;
+          if (e > max) max = e;
+        }
+        return max;
+      }, 0);
+      return end > 0 ? end : headLaneDuration;
+    }, [tracks, headLaneDuration]);
 
     const defaultTracks: TrackDescriptor[] =
       tracks && tracks.length > 0
@@ -907,7 +954,8 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
                 }
                 selection={idx === 0 ? selection : null}
                 onSelectionChange={idx === 0 ? onSelectionChange : undefined}
-                onDurationChange={idx === 0 ? setTimelineDuration : undefined}
+                onDurationChange={idx === 0 ? setHeadLaneDuration : undefined}
+                sessionDuration={timelineDuration}
                 zoom={zoom}
                 loop={idx === 0 ? loop : undefined}
               />
