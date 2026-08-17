@@ -62,12 +62,31 @@
 //! Hence the deliberately conservative pairing of a relative floor with
 //! the adaptive test, and the refractory gap.
 //!
+//! ## Phase locking
+//!
+//! Advancing each bin independently lets bins belonging to the same
+//! partial stop agreeing, so the partial alternately reinforces and
+//! cancels itself. On a steady 2 kHz sine stretched 2x that is an
+//! envelope swinging 2.09x — 6 dB of warble on a flat input. This is
+//! the "phasiness" a phase vocoder is known for.
+//!
+//! Identity phase locking (Laroche & Dolson 1999) fixes it: find the
+//! spectral peaks, advance only those, and give every other bin its
+//! owning peak's *rotation* rather than its own drift, so the phase
+//! relationships inside a partial's lobe stay locked to that partial.
+//! Same measurement, locked: 1.003x.
+//!
+//! It composes with transient preservation rather than replacing it, but
+//! only if it stands down while an attack is decaying — see the note at
+//! `find_peaks`' call site, where the numbers are.
+//!
 //! ## What it still does not do
 //!
-//! No phase locking across bins. Dense material keeps some of the
-//! "phasiness" the technique is known for, and stretch factors far from
-//! 1.0 make it worse. Peak-locking is the next step and composes with
-//! the above rather than replacing it.
+//! Peaks are found per frame with no attempt to track a partial from one
+//! frame to the next, so a fast glissando gets locked to whichever bin
+//! happens to be the local maximum. Scaled phase locking, which
+//! interpolates the rotation across a lobe rather than applying one
+//! value to all of it, is the next refinement and is not implemented.
 
 use std::f32::consts::PI;
 
@@ -143,6 +162,77 @@ fn is_onset(rel_flux: f32, history: &[f32], frames_since_last: usize) -> bool {
     rel_flux > mean + FLUX_THRESHOLD_K * variance.sqrt()
 }
 
+/// How far above the frame's mean magnitude a local maximum has to sit
+/// before it counts as a partial.
+///
+/// Locking is a claim about the signal: that its energy is concentrated
+/// in a few partials, and that the bins around each one belong to it.
+/// A broadband spectrum — an impulse, noise, a cymbal — breaks that
+/// claim. Its magnitude curve is flat, every local maximum is ripple,
+/// and locking hands whole regions of the spectrum a rotation taken
+/// from a bin that means nothing. Measured on a click train stretched
+/// 2x, that put the first hit at 6.86 against an input of 1.0.
+///
+/// So peaks have to stand out. On flat material nothing clears the bar,
+/// `find_peaks` returns empty, and the caller falls back to the plain
+/// per-bin path — which is the right vocoder for that material anyway.
+const PEAK_PROMINENCE: f32 = 3.0;
+
+/// Bins whose magnitude exceeds their two neighbours on each side, and
+/// which clear [`PEAK_PROMINENCE`] times the frame's mean magnitude.
+///
+/// Two neighbours rather than one: a single-neighbour test fires on
+/// every ripple in the window's sidelobes, and a partial's main lobe
+/// spans several bins at this window size, so the wider test finds the
+/// lobe rather than the noise on it.
+///
+/// DC and Nyquist are excluded — they have no neighbour on one side,
+/// and their imaginary part is forced to zero later regardless.
+fn find_peaks(mags: &[f32], out: &mut Vec<usize>) {
+    out.clear();
+    if mags.len() < 5 {
+        return;
+    }
+    let floor = mags.iter().sum::<f32>() / mags.len() as f32 * PEAK_PROMINENCE;
+    for k in 2..mags.len() - 2 {
+        let m = mags[k];
+        if m > floor && m > mags[k - 1] && m > mags[k - 2] && m > mags[k + 1] && m > mags[k + 2] {
+            out.push(k);
+        }
+    }
+}
+
+/// Assign every bin to the peak whose region of influence it falls in.
+///
+/// Regions are bounded by the midpoint between adjacent peaks, which is
+/// the usual choice: it splits the spectrum where two partials' lobes
+/// meet. Bins below the first peak and above the last belong to those
+/// peaks, so every bin has an owner and no bin is left accumulating on
+/// its own.
+///
+/// `peaks` must be non-empty and ascending — `find_peaks` produces both.
+fn assign_peaks(peaks: &[usize], owner: &mut [usize], bins: usize) {
+    debug_assert!(!peaks.is_empty());
+    let mut k = 0usize;
+    for (i, &p) in peaks.iter().enumerate() {
+        // Everything up to the midpoint with the next peak belongs here.
+        let boundary = match peaks.get(i + 1) {
+            Some(&next) => (p + next) / 2 + 1,
+            None => bins,
+        };
+        while k < boundary.min(bins) {
+            owner[k] = p;
+            k += 1;
+        }
+    }
+    // Defensive: a rounding edge could leave a tail unassigned.
+    let last = *peaks.last().expect("peaks is non-empty");
+    while k < bins {
+        owner[k] = last;
+        k += 1;
+    }
+}
+
 /// Wrap a phase into `(-π, π]`.
 fn wrap_phase(p: f32) -> f32 {
     let mut x = p;
@@ -175,20 +265,37 @@ impl Fft {
 /// `ratio` is the output length over the input length: 2.0 is twice as
 /// long (slower), 0.5 is half (faster). Pitch is unchanged.
 pub(crate) fn stretch_mono(input: &[f32], ratio: f32) -> Vec<f32> {
-    stretch_mono_opts(input, ratio, true)
+    stretch_mono_opts(input, ratio, StretchOpts::default())
 }
 
-/// [`stretch_mono`] with transient preservation switchable.
+/// Which of the vocoder's refinements are active.
 ///
-/// Production always passes `true`. The switch exists so the tests can
-/// measure the feature against its own absence on identical input —
-/// "attacks are sharp" is only meaningful next to how blunt they were.
-pub(crate) fn stretch_mono_opts(input: &[f32], ratio: f32, preserve_transients: bool) -> Vec<f32> {
+/// Production always uses [`StretchOpts::default`], which enables both.
+/// The switches exist so the tests can measure each feature against its
+/// own absence on identical input — "attacks are sharper" and "less
+/// phasey" only mean something next to how they were before.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct StretchOpts {
+    pub preserve_transients: bool,
+    pub lock_phase: bool,
+}
+
+impl Default for StretchOpts {
+    fn default() -> Self {
+        Self {
+            preserve_transients: true,
+            lock_phase: true,
+        }
+    }
+}
+
+/// [`stretch_mono`] with the refinements switchable.
+pub(crate) fn stretch_mono_opts(input: &[f32], ratio: f32, opts: StretchOpts) -> Vec<f32> {
     if !ratio.is_finite() || ratio <= 0.0 {
         return Vec::new();
     }
     let target_len = ((input.len() as f32) * ratio).round().max(1.0) as usize;
-    stretch_varying(input, &|_| ratio, target_len, preserve_transients)
+    stretch_varying_opts(input, &|_| ratio, target_len, opts)
 }
 
 /// Time-scale one channel with a stretch ratio that varies along the
@@ -221,6 +328,28 @@ pub(crate) fn stretch_varying(
     target_len: usize,
     preserve_transients: bool,
 ) -> Vec<f32> {
+    stretch_varying_opts(
+        input,
+        ratio_at,
+        target_len,
+        StretchOpts {
+            preserve_transients,
+            ..StretchOpts::default()
+        },
+    )
+}
+
+/// [`stretch_varying`] with every refinement switchable.
+fn stretch_varying_opts(
+    input: &[f32],
+    ratio_at: &dyn Fn(usize) -> f32,
+    target_len: usize,
+    opts: StretchOpts,
+) -> Vec<f32> {
+    let StretchOpts {
+        preserve_transients,
+        lock_phase,
+    } = opts;
     if input.is_empty() {
         return Vec::new();
     }
@@ -327,6 +456,10 @@ pub(crate) fn stretch_varying(
     let mut phases = vec![0.0f32; bins];
     let mut prev_mag = vec![0.0f32; bins];
     let mut flux_history: Vec<f32> = Vec::with_capacity(FLUX_HISTORY);
+    // Peak bins for the current frame, and each bin's owning peak. Both
+    // reused across frames so the loop allocates nothing.
+    let mut peaks: Vec<usize> = Vec::with_capacity(bins / 4);
+    let mut owner: Vec<usize> = vec![0; bins];
     let mut frames_since_transient = MIN_TRANSIENT_GAP_FRAMES;
 
     let frames = (input.len() - FRAME) / HOP_A + 1;
@@ -430,28 +563,116 @@ pub(crate) fn stretch_varying(
         };
 
         // Pass 2 — advance or reset the synthesis phase, then rebuild.
-        for k in 0..bins {
-            // How far this bin's partial actually moved, beyond what its
-            // centre frequency predicts. Wrapped, on the assumption that
-            // it is within half a bin of the centre.
-            let delta = wrap_phase(phases[k] - last_phase[k] - expected[k]);
-            last_phase[k] = phases[k];
+        //
+        // With locking on, only spectral peaks accumulate; every other
+        // bin takes its peak's *rotation* rather than drifting on its
+        // own. See `assign_peaks` for why that removes the phasiness.
+        // On material with no peaks that clear `PEAK_PROMINENCE` —
+        // noise, a cymbal, an impulse — `find_peaks` comes back empty
+        // and the plain per-bin path below runs instead, which is the
+        // right vocoder for that material anyway.
+        //
+        // Locking also stands down for the frames an attack is still
+        // decaying through, and that turned out to matter more than
+        // anything else here. A percussive hit is a strong partial with
+        // broadband energy piled around it, so peaks *are* found — and
+        // then whole regions of that broadband energy get handed the
+        // rotation of a partial they have nothing to do with, which is
+        // precisely the smear the transient reset exists to prevent.
+        // Measured on a six-hit click train stretched 2x, crest factor
+        // with preservation against without:
+        //
+        // | | without locking | locking always | locking off during decay |
+        // |---|---|---|---|
+        // | ratio | 1.09x | 0.99x | **1.53x** |
+        //
+        // Locking every frame does not merely fail to help, it cancels
+        // the feature out. Standing down for the refractory window —
+        // the same [`MIN_TRANSIENT_GAP_FRAMES`] the detector already
+        // uses, roughly one window — makes the two compose instead of
+        // fight, and beats either one alone.
+        find_peaks(&mags, &mut peaks);
+        let locked =
+            lock_phase && !peaks.is_empty() && frames_since_transient >= MIN_TRANSIENT_GAP_FRAMES;
+        if locked {
+            assign_peaks(&peaks, &mut owner, bins);
+        }
 
-            if transient {
-                // Reproduce this frame with the input's own phase
-                // relationships. That alignment is what an attack *is*;
-                // accumulating through it is what smears it.
+        let hop_ratio = (hops[f] as f32) / (HOP_A as f32);
+        let advance = |k: usize, last: f32, sum: &mut f32| {
+            let delta = wrap_phase(phases[k] - last - expected[k]);
+            *sum += (expected[k] + delta) * hop_ratio;
+        };
+
+        if locked && transient {
+            // A reset means "reproduce this frame as it was", so every
+            // bin takes its own analysis phase and no rotation is
+            // applied. Routing it through the locking path instead would
+            // hand each bin the peak's rotation — which is *not* zero
+            // here, because `last_phase` still holds the previous
+            // frame — and quietly undo the reset. Measured: with that
+            // bug the transient A/B showed 62.42 both with and without
+            // preservation, i.e. the feature had stopped doing anything.
+            for k in 0..bins {
                 sum_phase[k] = phases[k];
-            } else {
-                // Advance the synthesis phase by the true frequency
-                // scaled to the synthesis hop. This is the step that
-                // keeps pitch fixed while the timeline changes.
-                let true_freq = expected[k] + delta;
-                sum_phase[k] += true_freq * (hops[f] as f32) / (HOP_A as f32);
+                spectrum[k].re = mags[k] * sum_phase[k].cos();
+                spectrum[k].im = mags[k] * sum_phase[k].sin();
             }
+            last_phase.copy_from_slice(&phases);
+        } else if locked {
+            // Peaks first: the non-peak bins below read their result.
+            for &p in &peaks {
+                let last = last_phase[p];
+                advance(p, last, &mut sum_phase[p]);
+            }
+            for k in 0..bins {
+                let p = owner[k];
+                if k != p {
+                    // Identity phase locking (Laroche & Dolson 1999):
+                    // the bin keeps its own analysis phase and receives
+                    // the rotation its peak underwent, so the phase
+                    // relationships *inside* a partial's lobe stay
+                    // locked to that partial instead of each bin
+                    // drifting independently.
+                    //
+                    // Rotation is the peak's synthesis phase minus its
+                    // *current* analysis phase. Using `last_phase[p]`
+                    // here — which still holds the previous frame — was
+                    // measurably wrong: it made the first hit of a click
+                    // train peak at 2.72 against an input of 1.0 while
+                    // flattening the last to 0.06.
+                    sum_phase[k] = phases[k] + (sum_phase[p] - phases[p]);
+                }
+                spectrum[k].re = mags[k] * sum_phase[k].cos();
+                spectrum[k].im = mags[k] * sum_phase[k].sin();
+            }
+            // Analysis state is per-bin regardless of locking, and has
+            // to be updated *after* the rotation above reads the old
+            // value.
+            last_phase.copy_from_slice(&phases);
+        } else {
+            for k in 0..bins {
+                // How far this bin's partial actually moved, beyond what
+                // its centre frequency predicts. Wrapped, on the
+                // assumption that it is within half a bin of the centre.
+                let last = last_phase[k];
+                last_phase[k] = phases[k];
 
-            spectrum[k].re = mags[k] * sum_phase[k].cos();
-            spectrum[k].im = mags[k] * sum_phase[k].sin();
+                if transient {
+                    // Reproduce this frame with the input's own phase
+                    // relationships. That alignment is what an attack
+                    // *is*; accumulating through it is what smears it.
+                    sum_phase[k] = phases[k];
+                } else {
+                    // Advance the synthesis phase by the true frequency
+                    // scaled to the synthesis hop. This is the step that
+                    // keeps pitch fixed while the timeline changes.
+                    advance(k, last, &mut sum_phase[k]);
+                }
+
+                spectrum[k].re = mags[k] * sum_phase[k].cos();
+                spectrum[k].im = mags[k] * sum_phase[k].sin();
+            }
         }
 
         // A real signal's DC and Nyquist bins have no imaginary part, and
@@ -496,10 +717,46 @@ pub(crate) fn stretch_varying(
     // the honest answer: with only a fraction of a window overlapping
     // there, there is no reconstruction to recover, and inventing one by
     // amplification is what produced the blowup.
-    let norm_interior = norm.iter().fold(0.0f32, |m, n| m.max(*n));
-    if norm_interior > 1e-6 {
+    // How far the divisor is allowed to fall below its largest value is
+    // coupled to locking, and the coupling is not a coincidence.
+    //
+    // Periodic Hann squared does not sum to a constant at 50% overlap —
+    // `w²(i) + w²(i + N/2) = ½(1 + cos² 2πi/N)` ripples between half the
+    // maximum and the maximum — so at ratio 2.0 the interior divisor
+    // ripples too. Whether dividing that ripple out helps depends on
+    // whether `out = x · norm` holds, and that holds only if the frames
+    // agree with each other.
+    //
+    // Unlocked they do not. Dividing by the true norm then amplifies
+    // exactly the troughs where the frames cancelled: measured on a
+    // steady 2 kHz tone stretched 2x, the envelope swing goes from 2.09x
+    // to 4.98x, so clamping to the maximum is the lesser evil and the
+    // ripple stays in.
+    //
+    // Locked the frames are coherent, and dividing by the true norm
+    // recovers `x`. Same measurement: 1.37x with the divisor clamped to
+    // the maximum, 1.00x with it floored at a quarter — flat, which is
+    // what a flat input deserves.
+    //
+    // Either way the floor is what stops the ends exploding. There the
+    // ramp runs to zero, and a synthesis frame whose phases have been
+    // rewritten comes back at full amplitude across the whole window,
+    // taper and all — divided by `w²` of a sample just inside the window
+    // (2.7e-6 at sample 15) that produced a peak of 740.9 against an
+    // input of 1.0. Flooring costs a fade of one synthesis hop at each
+    // end, which is the honest answer: with a fraction of a window
+    // overlapping there is no reconstruction to recover, and inventing
+    // one by amplification is what produced the blowup.
+    const LOCKED_NORM_FLOOR_FRACTION: f32 = 0.25;
+    let norm_max = norm.iter().fold(0.0f32, |m, n| m.max(*n));
+    let floor = if lock_phase {
+        norm_max * LOCKED_NORM_FLOOR_FRACTION
+    } else {
+        norm_max
+    };
+    if norm_max > 1e-6 {
         for (o, n) in out.iter_mut().zip(norm.iter()) {
-            *o /= n.max(norm_interior);
+            *o /= n.max(floor);
         }
     }
 
@@ -853,8 +1110,22 @@ mod tests {
         let sr = 44_100u32;
         let input = click_train(sr, 8, sr as usize / 4);
 
-        let with = stretch_mono_opts(&input, 2.0, true);
-        let without = stretch_mono_opts(&input, 2.0, false);
+        let with = stretch_mono_opts(
+            &input,
+            2.0,
+            StretchOpts {
+                preserve_transients: true,
+                ..StretchOpts::default()
+            },
+        );
+        let without = stretch_mono_opts(
+            &input,
+            2.0,
+            StretchOpts {
+                preserve_transients: false,
+                ..StretchOpts::default()
+            },
+        );
 
         let (cf_with, cf_without) = (crest_factor(&with), crest_factor(&without));
         assert!(
@@ -871,6 +1142,63 @@ mod tests {
         );
     }
 
+    /// What phase locking is for, measured against its own absence.
+    ///
+    /// A phase vocoder without it lets every bin's synthesis phase drift
+    /// independently, so bins belonging to the same partial stop
+    /// agreeing and the partial alternately reinforces and cancels
+    /// itself. On a steady 2 kHz sine stretched 2x that is an envelope
+    /// swinging 2.09x — 6 dB of warble on a signal whose input envelope
+    /// is flat. That is the "phasiness" the technique is known for, and
+    /// it is not subtle. Locked, the same measurement is 1.003x.
+    ///
+    /// The thresholds sit either side of that gap rather than on top of
+    /// the measured numbers, so a small drift does not fail the build
+    /// and a feature that stops working does.
+    ///
+    /// 2 kHz sits off the bin centres (92.9 bins at this size). A
+    /// partial parked exactly on a centre needs no phase correction at
+    /// all and would hide the whole effect.
+    #[test]
+    fn locking_flattens_the_envelope_of_a_stretched_tone() {
+        let sr = 44_100;
+        let input = sine(2_000.0, sr, sr as usize);
+
+        let swing = |opts: StretchOpts| {
+            let out = stretch_mono_opts(&input, 2.0, opts);
+            let env: Vec<f32> = out
+                .chunks(256)
+                .map(|c| c.iter().fold(0.0f32, |m, v| m.max(v.abs())))
+                .collect();
+            // Skip one window at each end, where the overlap-add
+            // legitimately ramps.
+            let interior = &env[FRAME / 256..env.len() - FRAME / 256];
+            let lo = interior.iter().fold(f32::MAX, |m, v| m.min(*v));
+            let hi = interior.iter().fold(0.0f32, |m, v| m.max(*v));
+            hi / lo
+        };
+
+        let locked = swing(StretchOpts {
+            preserve_transients: false,
+            lock_phase: true,
+        });
+        let plain = swing(StretchOpts {
+            preserve_transients: false,
+            lock_phase: false,
+        });
+
+        assert!(
+            plain > 1.8,
+            "the bug this feature exists for should be visible without it; \
+             plain swing was only {plain:.2}x"
+        );
+        assert!(
+            locked < 1.1,
+            "locking must hold a flat input flat: {locked:.2}x swing \
+             (plain was {plain:.2}x)"
+        );
+    }
+
     /// A steady tone must not trip the detector. Resetting phase in the
     /// middle of a sustained sound puts a discontinuity into it, which
     /// is audible as a click — a false positive is worse than a miss.
@@ -879,8 +1207,22 @@ mod tests {
         let sr = 44_100u32;
         let input = sine(440.0, sr, sr as usize);
 
-        let with = stretch_mono_opts(&input, 2.0, true);
-        let without = stretch_mono_opts(&input, 2.0, false);
+        let with = stretch_mono_opts(
+            &input,
+            2.0,
+            StretchOpts {
+                preserve_transients: true,
+                ..StretchOpts::default()
+            },
+        );
+        let without = stretch_mono_opts(
+            &input,
+            2.0,
+            StretchOpts {
+                preserve_transients: false,
+                ..StretchOpts::default()
+            },
+        );
 
         assert_eq!(with.len(), without.len());
         // On material with no onsets the two paths should agree
@@ -907,8 +1249,22 @@ mod tests {
             .map(|s| s * 1e-7)
             .collect();
 
-        let with = stretch_mono_opts(&input, 2.0, true);
-        let without = stretch_mono_opts(&input, 2.0, false);
+        let with = stretch_mono_opts(
+            &input,
+            2.0,
+            StretchOpts {
+                preserve_transients: true,
+                ..StretchOpts::default()
+            },
+        );
+        let without = stretch_mono_opts(
+            &input,
+            2.0,
+            StretchOpts {
+                preserve_transients: false,
+                ..StretchOpts::default()
+            },
+        );
         let diff = with
             .iter()
             .zip(without.iter())
@@ -923,8 +1279,22 @@ mod tests {
         let sr = 44_100u32;
         let input = click_train(sr, 6, sr as usize / 4);
         for ratio in [0.5f32, 1.0, 1.5, 2.0] {
-            let with = stretch_mono_opts(&input, ratio, true);
-            let without = stretch_mono_opts(&input, ratio, false);
+            let with = stretch_mono_opts(
+                &input,
+                ratio,
+                StretchOpts {
+                    preserve_transients: true,
+                    ..StretchOpts::default()
+                },
+            );
+            let without = stretch_mono_opts(
+                &input,
+                ratio,
+                StretchOpts {
+                    preserve_transients: false,
+                    ..StretchOpts::default()
+                },
+            );
             let expected = ((input.len() as f32) * ratio).round() as usize;
             assert_eq!(with.len(), expected, "ratio {ratio}");
             assert_eq!(without.len(), expected, "ratio {ratio}");
