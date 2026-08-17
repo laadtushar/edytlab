@@ -16,6 +16,27 @@ afterEach(() => {
 
 describe("EmptyState", () => {
   /**
+   * "Open project" is a different verb from "Open audio" (#156). Until
+   * this existed, the only way into edytlab was to open an audio
+   * *file*, which created a project as a side effect and never said so
+   * — leaving no way at all to reopen one by folder.
+   */
+  it("offers opening a project, distinctly from opening audio", () => {
+    const onOpen = vi.fn();
+    const onOpenProject = vi.fn();
+    render(<EmptyState onOpen={onOpen} onOpenProject={onOpenProject} />);
+
+    screen.getByTestId("empty-state-open-project-button").click();
+    expect(onOpenProject).toHaveBeenCalled();
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it("hides the project button when the caller cannot open one", () => {
+    render(<EmptyState onOpen={() => {}} />);
+    expect(screen.queryByTestId("empty-state-open-project-button")).toBeNull();
+  });
+
+  /**
    * `audio-decoder` builds symphonia with mp3/wav/flac, and symphonia's
    * defaults add ogg + vorbis. Nothing provides isomp4 or aac, so an
    * .m4a was advertised on the landing screen and failed on open.

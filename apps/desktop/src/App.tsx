@@ -69,6 +69,7 @@ import {
   listenToFileDrops,
   loadAudio,
   pickAudioFiles,
+  pickProjectDirectory,
 } from "./lib/file-open";
 import { batchLoad } from "./lib/tauri-bridge";
 import {
@@ -588,6 +589,21 @@ function App() {
     return () => window.removeEventListener("beforeunload", persistView);
   }, [persistView]);
 
+  /**
+   * Open a project by folder — the verb that was missing entirely.
+   * Until now the only way in was to open an audio *file*, which
+   * created a project as a side effect and never said so.
+   */
+  const handleOpenProject = useCallback(async () => {
+    try {
+      const dir = await pickProjectDirectory();
+      if (!dir) return;
+      await handleOpenRecent(dir);
+    } catch (e) {
+      setRenderError(String(e));
+    }
+  }, [handleOpenRecent]);
+
   /** Forget the row, not the project. */
   const handleForgetRecent = useCallback(async (path: string) => {
     try {
@@ -903,6 +919,7 @@ function App() {
               ) : (
                 <EmptyState
                   onOpen={handleOpenDialog}
+                  onOpenProject={handleOpenProject}
                   onShowTemplates={() => setShowTemplatePicker(true)}
                   recents={recents}
                   onOpenRecent={handleOpenRecent}

@@ -77,6 +77,18 @@ export async function pickAudioFiles(
 }
 
 /**
+ * Show the OS picker for a *project* directory (#156).
+ *
+ * A project is a folder — the store lives in `.audiograph/` inside it —
+ * so this is a directory picker rather than a file one. Returns the
+ * absolute path, or `null` if the user cancelled.
+ */
+export async function pickProjectDirectory(): Promise<string | null> {
+  const result = await open({ multiple: false, directory: true });
+  return typeof result === "string" ? result : null;
+}
+
+/**
  * Subscribe to native (OS-level) drag-and-drop. Tauri 2's webview
  * intercepts file drops itself, so HTML5 `onDrop` never sees them on
  * Windows or Linux.
