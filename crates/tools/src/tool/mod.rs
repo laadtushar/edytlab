@@ -20,6 +20,7 @@ pub mod de_esser;
 pub mod distortion;
 pub mod duplicate_track;
 pub mod echo;
+pub mod effects;
 pub mod eq;
 pub mod export_labels;
 pub mod export_multiple;
@@ -99,6 +100,9 @@ pub use de_esser::DeEsserTool;
 pub use distortion::DistortionTool;
 pub use duplicate_track::DuplicateTrackTool;
 pub use echo::EchoTool;
+pub use effects::{
+    AddEffectTool, RemoveEffectTool, ReorderEffectsTool, SetEffectBypassedTool, SetEffectParamsTool,
+};
 pub use eq::EqTool;
 pub use export_labels::ExportLabelsTool;
 pub use export_multiple::ExportMultipleTool;

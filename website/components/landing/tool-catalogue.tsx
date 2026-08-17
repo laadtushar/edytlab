@@ -57,6 +57,16 @@ const GROUPS = [
     ],
   },
   {
+    name: "Effect chains",
+    tools: [
+      "add_effect",
+      "set_effect_params",
+      "set_effect_bypassed",
+      "reorder_effects",
+      "remove_effect",
+    ],
+  },
+  {
     name: "Time & pitch",
     tools: ["time_stretch", "pitch_shift", "change_speed", "align_to_beat"],
   },
@@ -120,7 +130,7 @@ export function ToolCatalogue() {
             The toolbox
           </p>
           <h2 className="mt-3 text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
-            75 tools the agent can reach for.
+            80 tools the agent can reach for.
           </h2>
           <p className="mt-4 text-pretty text-lg text-muted-foreground">
             Named, not counted. Ask in plain language and the agent picks — but

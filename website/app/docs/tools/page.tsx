@@ -337,6 +337,42 @@ const groups = [
     ],
   },
   {
+    title: "Effect Chains",
+    tools: [
+      {
+        name: "add_effect",
+        prompt: 'put a low-pass at 4 kHz on the guitar track',
+        what: "Append an effect to a track's chain. The chain is applied at render time and the source audio is never rewritten, so the parameters stay editable — unlike the destructive effect tools above, which bake their result into a new node.",
+        output: "node_id, effect_index",
+        note: "Effects run in the order they appear in the chain. Not every effect can stream yet; ones that cannot are rejected at render time with a message naming them.",
+      },
+      {
+        name: "set_effect_params",
+        prompt: 'change that low-pass to 2 kHz',
+        what: "Edit an effect already in a chain. Given parameters are merged into the existing ones by default; pass replace to swap the whole set instead.",
+        output: "node_id",
+      },
+      {
+        name: "set_effect_bypassed",
+        prompt: 'bypass the compressor on track 1',
+        what: "Turn an effect off without removing it. A bypassed effect renders byte-identically to one that is not there, so it is an A/B switch rather than an approximation.",
+        output: "node_id",
+      },
+      {
+        name: "reorder_effects",
+        prompt: 'put the EQ before the compressor',
+        what: "Reorder a track's chain. Takes a full permutation of the existing indices — a partial list is rejected rather than silently dropping effects.",
+        output: "node_id",
+      },
+      {
+        name: "remove_effect",
+        prompt: 'take the reverb off the drums',
+        what: "Remove an effect from a track's chain by index.",
+        output: "node_id",
+      }
+    ],
+  },
+  {
     title: "Time and Pitch",
     tools: [
       {
