@@ -17,7 +17,7 @@ pub use diff::{
     diff as diff_nodes, diff_states, fork as fork_node, merge as merge_nodes,
     revert_to as revert_to_node, BusMeta, DiffOp, DiffTarget, EffectScope, SessionDiff,
 };
-pub use node::{NodeId, SessionNode};
+pub use node::{NodeId, NodeOp, SessionNode};
 pub use state::{
     Bus, BusGraph, Clip, EffectInstance, EnvelopePoint, KeyMap, KeySegment, Send, SessionState,
     TempoMap, TempoSegment, Track, TrackId, Transcript, TranscriptWord,
