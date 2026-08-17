@@ -125,7 +125,32 @@ impl Tool for CopyRegionTool {
             return Ok(ToolResult::Error(e.to_string()));
         }
 
+        // Persist the buffer to the CAS (#163). Until this, copied audio
+        // lived only in memory, so after a paste it existed *only* inside
+        // the derived file — nothing on disk could recreate it, and no
+        // reclamation policy could ever be allowed to touch it. Written
+        // here rather than at paste time because this is where the
+        // source's own rate and channel count are known; the paste sees
+        // only the target track's.
+        let blob = match crate::provenance::store_clipboard_blob(
+            ctx.store.project_dir(),
+            ctx.clipboard.as_deref().unwrap_or(&[]),
+            audio.sample_rate,
+            audio.channels,
+        ) {
+            Ok(hash) => Some(hash),
+            Err(e) => {
+                // A copy that succeeded is not worth failing over a
+                // blob that could not be written; the paste that follows
+                // simply records itself as unreplayable, which is the
+                // behaviour before this existed.
+                tracing::warn!(error = %e, "failed to persist clipboard blob");
+                None
+            }
+        };
+
         Ok(ToolResult::Ok(json!({
+            "clipboard_blob": blob,
             "summary": format!(
                 "copied {:.2}s–{:.2}s from track {} to clipboard",
                 range.start_sec, range.end_sec, parsed.track

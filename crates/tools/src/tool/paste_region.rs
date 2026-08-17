@@ -89,7 +89,30 @@ impl Tool for PasteRegionTool {
             Err(e) => return Ok(ToolResult::Error(e)),
         };
 
-        Ok(destructive_edit(
+        // The clipboard is the hidden input that made this op
+        // unreplayable (#163): it lived in memory and was never
+        // persisted, so after a paste the audio existed only inside the
+        // derived file. `copy_region` writes a CAS blob; find it by
+        // content, and write it here if the copy could not (an older
+        // session, or a failed write) so the op still closes over what
+        // it read.
+        let pasted = clipboard_snap.clone().unwrap_or_default();
+        let sample_rate = ctx
+            .store
+            .head()
+            .and_then(|h| ctx.store.get(h).ok())
+            .map(|n| n.state.sample_rate)
+            .unwrap_or(48_000);
+        let project_dir = ctx.store.project_dir().to_path_buf();
+        let blob = crate::provenance::store_clipboard_blob(
+            &project_dir,
+            &pasted,
+            sample_rate,
+            channels as u16,
+        )
+        .ok();
+
+        let result = destructive_edit(
             ctx,
             track,
             move |samples, sample_rate| {
@@ -97,6 +120,23 @@ impl Tool for PasteRegionTool {
                 let _ = apply(samples, sample_rate, channels, at, &clipboard_snap);
             },
             format!("paste clipboard at {at:.2}s on track {track}"),
-        ))
+        );
+
+        // Record the op here rather than letting the dispatcher's default
+        // apply: the default marks every paste unreplayable, which was
+        // true before the blob existed and is not now.
+        if let (Some(hash), Some(head)) = (blob, ctx.store.head()) {
+            let op = session::NodeOp::new(
+                "paste_region".to_string(),
+                json!({ "track": track, "at": at }),
+                env!("CARGO_PKG_VERSION").to_string(),
+            )
+            .with_inputs(json!({ "clipboard": hash }));
+            if let Err(e) = ctx.store.set_op(head, op) {
+                tracing::warn!(error = %e, "failed to record paste provenance");
+            }
+        }
+
+        Ok(result)
     }
 }

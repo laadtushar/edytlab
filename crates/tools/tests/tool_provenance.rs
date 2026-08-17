@@ -28,21 +28,27 @@ use tools::{ToolContext, ToolDispatcher, ToolResult};
 const SAMPLE_RATE: u32 = 48_000;
 
 fn write_sine(dir: &Path, name: &str) -> std::path::PathBuf {
-    let path = dir.join(name);
+    write_sine_at(&dir.join(name), 440.0)
+}
+
+/// Write a sine of `freq` to `path`, replacing whatever was there.
+/// Different frequency, different audio — which is the case a content
+/// hash has to notice.
+fn write_sine_at(path: &Path, freq: f32) -> std::path::PathBuf {
     let spec = WavSpec {
         channels: 1,
         sample_rate: SAMPLE_RATE,
         bits_per_sample: 16,
         sample_format: SampleFormat::Int,
     };
-    let mut w = WavWriter::create(&path, spec).expect("wav writer");
+    let mut w = WavWriter::create(path, spec).expect("wav writer");
     for n in 0..SAMPLE_RATE as usize {
         let t = n as f32 / SAMPLE_RATE as f32;
-        let s = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.25;
+        let s = (2.0 * std::f32::consts::PI * freq * t).sin() * 0.25;
         w.write_sample((s * 32_767.0) as i16).unwrap();
     }
     w.finalize().unwrap();
-    path
+    path.to_path_buf()
 }
 
 fn ok(result: ToolResult) -> Value {
@@ -53,7 +59,7 @@ fn ok(result: ToolResult) -> Value {
 }
 
 struct Session {
-    _tmp: TempDir,
+    dir: TempDir,
     store: session::Store,
     engine: audio_engine::Engine,
     dispatcher: ToolDispatcher,
@@ -71,7 +77,7 @@ fn session() -> Session {
         dispatcher: ToolDispatcher::default_dispatcher(),
         clipboard: None,
         src,
-        _tmp: tmp,
+        dir: tmp,
     }
 }
 
@@ -145,17 +151,144 @@ fn tools_reading_outside_the_session_are_marked_unreproducible() {
     }
 }
 
-/// `load` reads a file from somewhere else on disk, so replaying it here
-/// cannot be expected to reproduce anything. It must not claim otherwise.
+/// `load` reads a file from somewhere else on disk. It used to be
+/// unreplayable for that reason, which made *every* chain unreplayable
+/// at its root. #163 closes it over what it read: the content hash of
+/// the audio imported, so a replay can check the source is still the
+/// same audio rather than trusting a path.
 #[test]
-fn loading_a_file_is_not_marked_replayable() {
+fn loading_a_file_records_the_audio_it_imported() {
     let mut s = session();
     s.load();
     let op = s.head_op().expect("load records an op");
     assert_eq!(op.tool, "load");
     assert!(
-        !op.reproducible,
-        "load depends on a file the session does not contain"
+        op.reproducible,
+        "load closes over its source now, so a chain is replayable at its root"
+    );
+
+    let hash = op.inputs["source"]["audio_hash"]
+        .as_str()
+        .expect("the imported audio is pinned by content");
+    assert_eq!(hash.len(), 64, "a blake3 hex digest");
+    assert!(
+        op.inputs["source"]["path"].as_str().is_some(),
+        "the path is recorded too — it is how a replay finds the file again"
+    );
+}
+
+/// Pinning by content and not by path is the point: a source that has
+/// changed since it was imported must be refused by name, because
+/// replaying against different audio would produce output that is
+/// quietly not what was recorded.
+#[test]
+fn a_changed_source_is_refused_and_named() {
+    let mut s = session();
+    s.load();
+    let head = s.store.head().expect("head");
+    assert!(
+        tools::verify_chain(&s.store, head).is_empty(),
+        "a freshly loaded session verifies"
+    );
+
+    // Rewrite the source with different audio, same path.
+    write_sine_at(&s.dir.path().join("in.wav"), 880.0);
+
+    let problems = tools::verify_chain(&s.store, head);
+    let reasons: Vec<String> = problems.iter().map(|p| p.reason.clone()).collect();
+    assert!(
+        reasons
+            .iter()
+            .any(|r| r.contains("has changed") && r.contains("in.wav")),
+        "expected a refusal naming the file, got {reasons:?}"
+    );
+}
+
+/// A source that is simply gone is a different refusal, and also names
+/// the file — "cannot rebuild" without saying what is missing is not
+/// actionable.
+#[test]
+fn a_missing_source_is_refused_and_named() {
+    let mut s = session();
+    s.load();
+    let head = s.store.head().expect("head");
+    std::fs::remove_file(s.dir.path().join("in.wav")).expect("remove source");
+
+    let problems = tools::verify_chain(&s.store, head);
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.reason.contains("gone") && p.reason.contains("in.wav")),
+        "expected a refusal naming the missing file, got {problems:?}"
+    );
+}
+
+/// The clipboard was the hardest hidden input: it lived in memory and
+/// was never persisted, so after a paste the audio existed only inside
+/// the derived file. `copy_region` now writes a CAS blob and the paste
+/// references it.
+#[test]
+fn a_paste_closes_over_the_clipboard_it_spliced() {
+    let mut s = session();
+    s.load();
+    s.call(
+        "copy_region",
+        json!({ "track": 0, "range": { "start_sec": 0.0, "end_sec": 0.2 } }),
+    );
+    s.call("paste_region", json!({ "track": 0, "at": 0.5 }));
+
+    let op = s.head_op().expect("paste records an op");
+    assert_eq!(op.tool, "paste_region");
+    assert!(
+        op.reproducible,
+        "a paste whose clipboard is on disk is replayable"
+    );
+    let hash = op.inputs["clipboard"]
+        .as_str()
+        .expect("the pasted audio is named by content");
+
+    // And the blob is really there — a reference to a file that does not
+    // exist would be a worse lie than admitting the paste was opaque.
+    let blob = s
+        .dir
+        .path()
+        .join(".audiograph")
+        .join("clipboard")
+        .join(format!("{hash}.wav"));
+    assert!(
+        blob.is_file(),
+        "clipboard blob missing at {}",
+        blob.display()
+    );
+    assert!(
+        tools::verify_chain(&s.store, s.store.head().unwrap()).is_empty(),
+        "a paste with its blob present verifies"
+    );
+}
+
+/// And if the blob is deleted, the chain says so rather than reporting
+/// history it cannot actually rebuild.
+#[test]
+fn a_missing_clipboard_blob_is_reported() {
+    let mut s = session();
+    s.load();
+    s.call(
+        "copy_region",
+        json!({ "track": 0, "range": { "start_sec": 0.0, "end_sec": 0.2 } }),
+    );
+    s.call("paste_region", json!({ "track": 0, "at": 0.5 }));
+
+    let dir = s.dir.path().join(".audiograph").join("clipboard");
+    for entry in std::fs::read_dir(&dir).expect("clipboard dir").flatten() {
+        std::fs::remove_file(entry.path()).expect("remove blob");
+    }
+
+    let problems = tools::verify_chain(&s.store, s.store.head().unwrap());
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.reason.contains("clipboard blob is missing")),
+        "expected the missing blob to be reported, got {problems:?}"
     );
 }
 
@@ -254,10 +387,10 @@ fn the_storage_report_can_now_see_what_is_rebuildable() {
         .expect("rebuildable files");
     assert_eq!(files, 3, "three superseded edits");
     assert_eq!(
-        rebuildable, 0,
-        "every chain runs back through `load`, which is not replayable — \
-         so none of this history is safely evictable, and the report has \
-         to say so rather than flatter the number"
+        rebuildable, files,
+        "every chain runs back through `load`, which now closes over the \
+         file it read (#163) — so this history is rebuildable rather than \
+         merely deletable, which is the number #98's decision turns on"
     );
     assert!(v["history"]["rebuildable_bytes"].is_number());
 }

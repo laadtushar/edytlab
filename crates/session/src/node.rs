@@ -123,6 +123,53 @@ pub struct NodeOp {
     /// — an in-memory clipboard, a file elsewhere on disk, an ML model —
     /// so replaying it here cannot be expected to reproduce the bytes.
     pub reproducible: bool,
+    /// What the op read that its `params` do not name (#163).
+    ///
+    /// A tool that reads outside the session can still be replayable if
+    /// it *closes over* what it read: `paste_region` records the CAS
+    /// blob its clipboard was persisted to, `load` records the content
+    /// hash of the file it imported. A replay checks these before
+    /// running, so a source that has changed underneath is a clear
+    /// refusal naming the file rather than silently different output.
+    ///
+    /// Some inputs cannot be closed over and are recorded for diagnosis
+    /// instead: `transcribe` and `separate_stems` name their model and
+    /// version, and stay permanently non-replayable — re-running Demucs
+    /// to reclaim 50 MB is a bad trade regardless.
+    ///
+    /// `null` on nodes written before this existed, which reads the same
+    /// as "nothing was closed over".
+    #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+    pub inputs: serde_json::Value,
+}
+
+impl NodeOp {
+    /// An op with no closed-over inputs — the shape every tool that
+    /// reads only the session produces.
+    pub fn new(tool: String, params: serde_json::Value, engine_version: String) -> Self {
+        Self {
+            tool,
+            params,
+            engine_version,
+            reproducible: true,
+            inputs: serde_json::Value::Null,
+        }
+    }
+
+    /// Mark this op as reading outside the session without closing over
+    /// what it read.
+    pub fn not_reproducible(mut self) -> Self {
+        self.reproducible = false;
+        self
+    }
+
+    /// Record what the op closed over. Whether that makes it replayable
+    /// is the caller's judgement: a persisted clipboard blob does,
+    /// a model version does not.
+    pub fn with_inputs(mut self, inputs: serde_json::Value) -> Self {
+        self.inputs = inputs;
+        self
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
