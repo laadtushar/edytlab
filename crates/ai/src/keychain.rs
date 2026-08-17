@@ -106,6 +106,50 @@ pub fn save_active_provider(provider_id: &str) -> Result<(), keyring::Error> {
     entry.set_password(provider_id)
 }
 
+/// Account slot for a provider's base-URL override.
+fn base_url_account_for(provider_id: &str) -> String {
+    format!("{provider_id}_base_url")
+}
+
+/// Read a provider's base-URL override.
+///
+/// `None` means "use the provider's built-in URL", which is the case for
+/// everyone who has never opened the field.
+///
+/// Stored per provider rather than globally on purpose: a URL that makes
+/// sense for a local server is nonsense for Anthropic, and a single slot
+/// would follow you across a provider switch and fail confusingly.
+///
+/// This is configuration rather than a secret, and it shares the
+/// keychain with the API keys because `active_provider` already
+/// established that this module is where per-provider settings live.
+/// Standing up a second store for one string would be worse.
+pub fn load_base_url(provider_id: &str) -> Option<String> {
+    let entry = Entry::new(SERVICE, &base_url_account_for(provider_id)).ok()?;
+    match entry.get_password() {
+        Ok(url) if !url.trim().is_empty() => Some(url),
+        _ => None,
+    }
+}
+
+/// Store a provider's base-URL override.
+pub fn save_base_url(provider_id: &str, base_url: &str) -> Result<(), keyring::Error> {
+    let entry = Entry::new(SERVICE, &base_url_account_for(provider_id))?;
+    entry.set_password(base_url)
+}
+
+/// Forget a provider's override so the built-in URL applies again.
+///
+/// A missing entry is success: the caller asked for "no override", and
+/// that is the state either way.
+pub fn delete_base_url(provider_id: &str) -> Result<(), keyring::Error> {
+    let entry = Entry::new(SERVICE, &base_url_account_for(provider_id))?;
+    match entry.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -114,5 +158,23 @@ mod tests {
     fn account_uses_provider_id_suffix() {
         assert_eq!(account_for("anthropic"), "anthropic_api_key");
         assert_eq!(account_for("openrouter"), "openrouter_api_key");
+    }
+
+    /// The two slots must not collide, or saving a base URL would
+    /// overwrite the API key for the same provider.
+    #[test]
+    fn base_url_and_key_use_separate_slots() {
+        assert_eq!(base_url_account_for("ollama"), "ollama_base_url");
+        assert_ne!(base_url_account_for("ollama"), account_for("ollama"));
+        for p in [
+            "anthropic",
+            "openai",
+            "openrouter",
+            "groq",
+            "gemini",
+            "ollama",
+        ] {
+            assert_ne!(base_url_account_for(p), account_for(p), "collision for {p}");
+        }
     }
 }

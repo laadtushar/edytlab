@@ -17,7 +17,7 @@
  * Anthropic as the default selection.
  */
 
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -27,6 +27,9 @@ const clearApiKeyMock = vi.fn();
 const setActiveProviderMock = vi.fn();
 const listModelsForMock = vi.fn();
 const setActiveModelMock = vi.fn();
+const getBaseUrlForMock = vi.fn();
+const defaultBaseUrlForMock = vi.fn();
+const setBaseUrlForMock = vi.fn();
 
 vi.mock("../lib/tauri-bridge", () => ({
   setApiKeyFor: (provider: string, key: string) =>
@@ -39,6 +42,10 @@ vi.mock("../lib/tauri-bridge", () => ({
   listModelsFor: (provider: string, apiKey?: string) =>
     listModelsForMock(provider, apiKey),
   clearApiKey: () => clearApiKeyMock(),
+  getBaseUrlFor: (provider: string) => getBaseUrlForMock(provider),
+  defaultBaseUrlFor: (provider: string) => defaultBaseUrlForMock(provider),
+  setBaseUrlFor: (provider: string, baseUrl: string) =>
+    setBaseUrlForMock(provider, baseUrl),
 }));
 
 import { Settings } from "../components/Settings";
@@ -51,6 +58,11 @@ describe("Settings", () => {
     setActiveProviderMock.mockReset().mockResolvedValue(undefined);
     setActiveModelMock.mockReset().mockResolvedValue(undefined);
     listModelsForMock.mockReset().mockResolvedValue([]);
+    getBaseUrlForMock.mockReset().mockResolvedValue(null);
+    defaultBaseUrlForMock
+      .mockReset()
+      .mockResolvedValue("https://api.anthropic.com");
+    setBaseUrlForMock.mockReset().mockResolvedValue(undefined);
     window.localStorage.clear();
   });
 
@@ -58,6 +70,46 @@ describe("Settings", () => {
     render(<Settings mode="blocking" onSaved={vi.fn()} />);
     const save = screen.getByTestId("settings-save-button");
     expect(save).toBeDisabled();
+  });
+
+  it("saves a base URL, and saves it before the key so the rebuilt agent uses it", async () => {
+    const user = userEvent.setup();
+    render(<Settings mode="blocking" onSaved={vi.fn()} />);
+
+    await user.type(
+      screen.getByTestId("settings-base-url-input"),
+      "http://localhost:1234/v1",
+    );
+    await user.type(screen.getByTestId("settings-key-input"), "sk-ant-good");
+    await user.click(screen.getByTestId("settings-save-button"));
+
+    expect(setBaseUrlForMock).toHaveBeenCalledWith(
+      "anthropic",
+      "http://localhost:1234/v1",
+    );
+    // `setApiKeyFor` rebuilds the agent and the rebuild reads the stored
+    // URL, so the other order would leave the agent on the old endpoint.
+    expect(setBaseUrlForMock.mock.invocationCallOrder[0]).toBeLessThan(
+      setApiKeyForMock.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("shows the provider's own endpoint as the placeholder", async () => {
+    defaultBaseUrlForMock.mockResolvedValue("http://localhost:11434/v1");
+    render(<Settings mode="blocking" onSaved={vi.fn()} />);
+
+    const input = await screen.findByTestId("settings-base-url-input");
+    await waitFor(() =>
+      expect(input).toHaveAttribute("placeholder", "http://localhost:11434/v1"),
+    );
+  });
+
+  it("prefills an override that was already saved", async () => {
+    getBaseUrlForMock.mockResolvedValue("https://gateway.internal/v1");
+    render(<Settings mode="blocking" onSaved={vi.fn()} />);
+
+    const input = await screen.findByTestId("settings-base-url-input");
+    await waitFor(() => expect(input).toHaveValue("https://gateway.internal/v1"));
   });
 
   it("calls setApiKeyFor with the active provider and onSaved when Save is clicked with a non-empty key", async () => {
