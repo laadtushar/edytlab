@@ -319,10 +319,21 @@ async fn fetch_plan(
 /// The notifier is stored in `AppState` (not behind the agent Mutex),
 /// so the `approve_plan` Tauri command can fire it without holding any
 /// lock that `send_message` also holds, eliminating the deadlock.
-async fn await_plan_approval(notify: &Arc<Notify>) -> Result<()> {
+/// Block until the frontend answers the plan gate.
+///
+/// There used to be exactly two ways out: approve, or wait five minutes.
+/// A user who disliked the plan had no way to say so, which made the
+/// gate feel like a trap rather than a checkpoint. `rejected` is set by
+/// the `reject_plan` command before it fires the same notifier, so a
+/// rejection is a normal answer rather than a timeout.
+async fn await_plan_approval(
+    notify: &Arc<Notify>,
+    rejected: &Arc<std::sync::atomic::AtomicBool>,
+) -> Result<bool> {
     tokio::time::timeout(Duration::from_secs(300), notify.notified())
         .await
-        .map_err(|_| Error::PlanTimeout)
+        .map_err(|_| Error::PlanTimeout)?;
+    Ok(rejected.swap(false, std::sync::atomic::Ordering::SeqCst))
 }
 
 /// Hard upper bound on the number of content blocks we'll allocate for
@@ -350,6 +361,8 @@ pub(crate) async fn run_turn<F>(
     conversation: &mut Vec<Message>,
     plan_notify: &Arc<Notify>,
     plan_steps_override: &Arc<std::sync::Mutex<Option<String>>>,
+    plan_rejected: &Arc<std::sync::atomic::AtomicBool>,
+    plan_first: bool,
     user_message: String,
     session_ctx: Option<&SessionContext>,
     memory_store: Option<&memory::MemoryStore>,
@@ -402,18 +415,28 @@ where
     );
     let system_prompt: &str = &combined_prompt;
 
-    // M27: if mashup mode, request a plan from the model and wait for
-    // the frontend to approve before executing any tools.
+    // Plan first when the user asked for it, or when the request
+    // classified as a mashup — those are historically plan-gated and
+    // stay that way.
+    //
+    // The gate was previously reachable *only* through `Mode::Mashup`,
+    // so whether you got a plan depended on how a classifier read your
+    // sentence. From outside that is indistinguishable from arbitrary:
+    // the same phrasing sometimes planned and sometimes just acted, with
+    // nothing to explain why. `plan_first` makes it a choice.
     let mut step_override: Option<String> = None;
-    if mode == Mode::Mashup {
+    if plan_first || mode == Mode::Mashup {
         if let Some(steps) = fetch_plan(cfg, http, system_prompt, conversation, &user_message).await
         {
             on_event(AgentEvent::Plan {
                 steps: steps.clone(),
             });
-            // Block until the frontend fires plan_notify via the
-            // `approve_plan` command, or time out after 5 minutes.
-            await_plan_approval(plan_notify).await?;
+            // Block until the frontend answers via `approve_plan` or
+            // `reject_plan`, or time out after 5 minutes.
+            if await_plan_approval(plan_notify, plan_rejected).await? {
+                on_event(AgentEvent::PlanRejected);
+                return Ok(TurnResult::default());
+            }
             // Consume any step overrides the frontend stored before
             // firing the notifier.
             step_override = plan_steps_override

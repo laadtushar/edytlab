@@ -26,6 +26,9 @@ const sendMessageMock = vi.fn();
 vi.mock("../lib/tauri-bridge", () => ({
   sendMessage: (text: string) => sendMessageMock(text),
   approvePlan: vi.fn(() => Promise.resolve()),
+  rejectPlan: vi.fn(() => Promise.resolve()),
+  getPlanFirst: vi.fn(() => Promise.resolve(false)),
+  setPlanFirst: vi.fn(() => Promise.resolve()),
   listCapabilities: vi.fn(() =>
     Promise.resolve({
       tools: [

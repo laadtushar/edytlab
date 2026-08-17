@@ -25,6 +25,8 @@ pub const NODE_CREATED: &str = "agent://node-created";
 pub const DONE: &str = "agent://done";
 /// `agent://plan` — mashup mode plan awaiting frontend approval.
 pub const PLAN: &str = "agent://plan";
+/// The user declined a plan. The turn ended having run no tools.
+pub const PLAN_REJECTED: &str = "agent://plan-rejected";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TextDeltaPayload {

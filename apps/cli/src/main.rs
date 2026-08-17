@@ -106,6 +106,7 @@ async fn main() -> anyhow::Result<()> {
         engine,
         plan_notify,
         plan_steps_override,
+        Arc::new(std::sync::atomic::AtomicBool::new(false)),
         clipboard,
     );
 
@@ -126,6 +127,12 @@ async fn main() -> anyhow::Result<()> {
                 // prints the steps as a text delta so the user can see them.
                 ai::AgentEvent::Plan { steps } => CliEvent::Text {
                     delta: format!("[plan: {} steps]", steps.len()),
+                },
+                // The CLI has no approval UI and never sets plan_first,
+                // so this is unreachable there today — but printing it
+                // beats a silent turn if that ever changes.
+                ai::AgentEvent::PlanRejected => CliEvent::Text {
+                    delta: "[plan rejected]".to_string(),
                 },
             };
             // Best-effort: a stdout broken-pipe (consumer process exited)

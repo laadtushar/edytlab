@@ -23,7 +23,7 @@ use tools::Range;
 
 use crate::events::{
     DonePayload, NodeCreatedPayload, PlanPayload, TextDeltaPayload, ToolCallEndPayload,
-    ToolCallPayload, DONE, NODE_CREATED, PLAN, TEXT_DELTA, TOOL_CALL, TOOL_CALL_END,
+    ToolCallPayload, DONE, NODE_CREATED, PLAN, PLAN_REJECTED, TEXT_DELTA, TOOL_CALL, TOOL_CALL_END,
 };
 use crate::state::AppState;
 
@@ -1414,6 +1414,11 @@ fn emit_agent_event<R: tauri::Runtime>(app: &AppHandle<R>, event: ai::AgentEvent
                 tracing::warn!(error = %e, "failed to emit plan");
             }
         }
+        ai::AgentEvent::PlanRejected => {
+            if let Err(e) = app.emit(PLAN_REJECTED, ()) {
+                tracing::warn!(error = %e, "failed to emit plan rejection");
+            }
+        }
     }
 }
 
@@ -1433,6 +1438,37 @@ fn emit_agent_event<R: tauri::Runtime>(app: &AppHandle<R>, event: ai::AgentEvent
 /// and clears this slot immediately after it wakes, then appends the
 /// override text to the conversation so the model executes the user's
 /// modified plan rather than the original one.
+/// Turn "plan before acting" on or off.
+///
+/// Held on `AppState` rather than the agent because the agent is rebuilt
+/// on every key, model or base-URL change, and a preference that
+/// silently reset itself would be worse than not having one.
+#[tauri::command]
+pub async fn set_plan_first(state: State<'_, AppState>, enabled: bool) -> CmdResult<()> {
+    state
+        .plan_first
+        .store(enabled, std::sync::atomic::Ordering::SeqCst);
+    rebuild_agent(state.inner()).await?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_plan_first(state: State<'_, AppState>) -> CmdResult<bool> {
+    Ok(state.plan_first.load(std::sync::atomic::Ordering::SeqCst))
+}
+
+/// Decline a plan. Sets the rejection flag, then fires the same notifier
+/// `approve_plan` uses, so the waiting turn wakes and ends cleanly
+/// having run no tools and appended no node.
+#[tauri::command]
+pub async fn reject_plan(state: State<'_, AppState>) -> CmdResult<()> {
+    state
+        .plan_rejected
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    state.plan_notify.notify_one();
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn approve_plan(state: State<'_, AppState>, steps: Option<Vec<String>>) -> CmdResult<()> {
     if let Some(steps) = steps {
@@ -2453,15 +2489,18 @@ async fn rebuild_agent(state: &AppState) -> Result<(), CommandError> {
             if let Some(base) = ai::keychain::load_base_url(&effective_provider_id) {
                 cfg = cfg.with_base_url(base);
             }
-            let agent = ai::Agent::new(
+            let plan_first = state.plan_first.load(std::sync::atomic::Ordering::SeqCst);
+            let mut agent = ai::Agent::new(
                 cfg,
                 Arc::clone(&state.dispatcher),
                 store,
                 Arc::clone(&state.engine),
                 Arc::clone(&state.plan_notify),
                 Arc::clone(&state.plan_steps_override),
+                Arc::clone(&state.plan_rejected),
                 state.clipboard_handle(),
             );
+            agent.set_plan_first(plan_first);
             let agent = match state.memory_handle() {
                 Some(mem) => agent.with_memory(mem),
                 None => agent,

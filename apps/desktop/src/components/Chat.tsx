@@ -15,7 +15,12 @@
 
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 
-import { sendMessage as bridgeSendMessage } from "../lib/tauri-bridge";
+import {
+  sendMessage as bridgeSendMessage,
+  rejectPlan,
+  getPlanFirst,
+  setPlanFirst as setPlanFirstBridge,
+} from "../lib/tauri-bridge";
 import type { Marker } from "../lib/tauri-bridge";
 
 import {
@@ -103,6 +108,35 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
   const [editDraft, setEditDraft] = useState("");
   const [localPlanSteps, setLocalPlanSteps] = useState<Array<{ step: number; tool: string; description: string }> | null>(null);
   const [capsOpen, setCapsOpen] = useState(false);
+  // Whether to see a plan before the agent touches anything. The gate
+  // itself has existed since M27 but was reachable only when a
+  // classifier happened to call the request a mashup, which from the
+  // outside looked arbitrary.
+  const [planFirst, setPlanFirst] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getPlanFirst()
+      .then((on) => {
+        if (!cancelled) setPlanFirst(on);
+      })
+      // A composer that cannot read one optional preference should still
+      // work; the toggle simply starts off.
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const togglePlanFirst = useCallback(async () => {
+    const next = !planFirst;
+    setPlanFirst(next); // optimistic: the button should not lag the click
+    try {
+      await setPlanFirstBridge(next);
+    } catch {
+      setPlanFirst(!next); // put it back rather than lie about the state
+    }
+  }, [planFirst]);
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashIdx, setSlashIdx] = useState(0);
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -402,6 +436,19 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
             <div className="flex gap-1.5">
               <button
                 type="button"
+                data-testid="plan-discard-button"
+                className="
+                  rounded border border-[var(--border-strong)]
+                  px-2.5 py-0.5
+                  text-xs text-[var(--text-dim)]
+                  hover:border-[var(--danger)]/50 hover:text-[var(--danger)]
+                "
+                onClick={() => void rejectPlan()}
+              >
+                Discard
+              </button>
+              <button
+                type="button"
                 data-testid="plan-run-button"
                 className="
                   rounded
@@ -620,6 +667,28 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
           />
           <button
             type="button"
+            data-testid="plan-first-toggle"
+            aria-label="Plan before acting"
+            aria-pressed={planFirst}
+            title={
+              planFirst
+                ? "Planning first — the agent will show its steps before running them"
+                : "Acting directly — turn this on to review a plan first"
+            }
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={() => void togglePlanFirst()}
+            className={
+              "flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 " +
+              "font-mono text-[10px] uppercase tracking-[0.14em] transition " +
+              (planFirst
+                ? "bg-[var(--accent-soft)] text-[var(--accent)] border border-[var(--accent)]/40"
+                : "border border-[var(--border-strong)] text-[var(--text-faint)] hover:text-[var(--text-dim)]")
+            }
+          >
+            Plan
+          </button>
+          <button
+            type="button"
             data-testid="capabilities-toggle"
             aria-label="Show available tools and capabilities"
             aria-expanded={capsOpen}
@@ -750,7 +819,8 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
     </div>
   );
 }
-);
+
+);
 interface ChatHeaderProps {
   rendering?: boolean;
   onRequestRenderPreview?: () => void;

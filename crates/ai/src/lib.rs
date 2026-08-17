@@ -211,10 +211,14 @@ pub enum AgentEvent {
     NodeCreated(session::NodeId),
     /// Final event of a turn. Always emitted on success.
     Done,
-    /// Emitted in mashup mode before tool execution. Contains the
-    /// serialised plan steps. The loop suspends until `approve_plan` is
-    /// called on the agent.
+    /// Emitted before tool execution when a plan was requested — either
+    /// because the user turned plan mode on, or because the request
+    /// classified as a mashup. Contains the serialised plan steps. The
+    /// loop suspends until `approve_plan` or `reject_plan` is called.
     Plan { steps: Vec<serde_json::Value> },
+    /// The user declined the plan. The turn ends having run no tools and
+    /// appended no node.
+    PlanRejected,
 }
 
 /// Outcome of a single [`Agent::turn`] call.
@@ -290,6 +294,12 @@ pub struct Agent {
     /// with `AppState`; the agent loop reads and clears it after waking so
     /// subsequent turns start clean.
     pub(crate) plan_steps_override: Arc<std::sync::Mutex<Option<String>>>,
+    /// Set by `reject_plan` before it fires `plan_notify`, so the gate
+    /// can tell a rejection from an approval on the same notifier.
+    pub(crate) plan_rejected: Arc<std::sync::atomic::AtomicBool>,
+    /// Ask for a plan on every turn, not only the ones a classifier
+    /// happens to call a mashup.
+    pub(crate) plan_first: bool,
     /// User memory (global + project). When present, `render()` is
     /// called per turn and the result is spliced into the system
     /// prompt after the base prompt and before `SessionContext`.
@@ -312,7 +322,18 @@ pub struct Agent {
 impl Agent {
     /// Build a new agent. `dispatcher`, `store`, `engine`, and `clipboard`
     /// are reference-counted so the caller can keep using them concurrently
+    /// Ask for a plan before every turn, rather than only when the
+    /// request classifies as a mashup.
+    pub fn set_plan_first(&mut self, on: bool) {
+        self.plan_first = on;
+    }
+
     /// (under their respective mutexes).
+    // Eight handles, all of which the agent genuinely needs for the life
+    // of the session. `run_turn` carries the same allow for the same
+    // reason; bundling them into a params struct would move the argument
+    // list rather than shorten it.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         cfg: LlmConfig,
         dispatcher: Arc<Mutex<tools::ToolDispatcher>>,
@@ -320,6 +341,7 @@ impl Agent {
         engine: Arc<Mutex<audio_engine::Engine>>,
         plan_notify: Arc<tokio::sync::Notify>,
         plan_steps_override: Arc<std::sync::Mutex<Option<String>>>,
+        plan_rejected: Arc<std::sync::atomic::AtomicBool>,
         clipboard: Arc<Mutex<Option<Vec<f32>>>>,
     ) -> Self {
         Self {
@@ -332,6 +354,8 @@ impl Agent {
             conversation: Vec::new(),
             plan_notify,
             plan_steps_override,
+            plan_rejected,
+            plan_first: false,
             memory: None,
             skills: None,
             profile_body: None,
@@ -411,6 +435,8 @@ impl Agent {
             &mut self.conversation,
             &self.plan_notify,
             &self.plan_steps_override,
+            &self.plan_rejected,
+            self.plan_first,
             user_message,
             session_ctx,
             self.memory.as_deref(),
