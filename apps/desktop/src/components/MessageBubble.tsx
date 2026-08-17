@@ -33,6 +33,14 @@ export function MessageBubble({
   onChipClick,
 }: MessageBubbleProps) {
   const isUser = role === "user";
+  // The bubble is `whitespace-pre-wrap`, which is right for the middle of
+  // a message and wrong at its edges. Models routinely open a reply with
+  // newlines — more so once a thinking block has been stripped out — and
+  // every one of them was rendered, so a bubble grew tall and blank with
+  // the caret stranded at the bottom. Trimming the ends is purely
+  // presentational: nobody means to begin a sentence with three blank
+  // lines, and interior formatting is untouched.
+  const body = text.replace(/^\s+/, "").replace(/\s+$/, "");
   const showChips =
     !isUser && !pending && chips && chips.length > 0 && !!onChipClick;
   return (
@@ -47,19 +55,21 @@ export function MessageBubble({
       <div
         className={
           "max-w-[85%] whitespace-pre-wrap break-words text-sm leading-relaxed " +
+          // An in-flight bubble with nothing in it yet should be the size
+          // of the caret, not the size of a paragraph.
+          (body.length === 0 && pending ? "inline-flex items-center " : "") +
           (isUser
             ? "rounded-2xl rounded-br-sm bg-[var(--accent-soft)] border border-[var(--accent)]/25 px-3.5 py-2 text-[var(--text)]"
             : "rounded-2xl rounded-bl-sm bg-[var(--surface-elev)] px-3.5 py-2 text-[var(--text)]")
         }
       >
-        {text}
+        {body}
         {pending ? (
           <span
             data-testid="caret"
-            className="ml-0.5 inline-block w-1.5 animate-pulse text-[var(--accent)]"
-          >
-            ▍
-          </span>
+            aria-hidden="true"
+            className="ml-0.5 inline-block h-[1.05em] w-[2px] translate-y-[0.18em] animate-pulse rounded-[1px] bg-[var(--accent)] align-baseline"
+          />
         ) : null}
       </div>
       {showChips ? (
