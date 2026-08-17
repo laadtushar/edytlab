@@ -33,6 +33,12 @@ export const COMMANDS: Command[] = [
   { category: "Volume", label: "Make quieter", prompt: "make this 6 dB quieter", description: "Reduce track gain by -6 dB", tags: ["gain", "quiet", "lower"] },
   { category: "Volume", label: "Normalize", prompt: "normalize to -1 dBFS", description: "Set peak amplitude to target level", tags: ["normalize", "peak", "level"] },
   { category: "Volume", label: "Set track volume", prompt: "set track 1 volume to -12 dB", description: "Set absolute gain (not additive)", tags: ["volume", "gain", "dB"] },
+  // Loudness targets by name (#169). The numbers live in the tool's
+  // preset table, not here — a platform that moves its target moves it
+  // in one place, and the user never has to know it.
+  { category: "Volume", label: "Loudness: Spotify / YouTube", prompt: "normalize track 1 loudness using the spotify preset", description: "-14 LUFS, EBU R128 integrated", tags: ["loudness", "lufs", "spotify", "youtube", "streaming", "master"] },
+  { category: "Volume", label: "Loudness: Apple Podcasts", prompt: "normalize track 1 loudness using the apple_podcasts preset", description: "-16 LUFS, EBU R128 integrated", tags: ["loudness", "lufs", "apple", "podcast", "master"] },
+  { category: "Volume", label: "Loudness: Broadcast", prompt: "normalize track 1 loudness using the broadcast preset", description: "-23 LUFS, EBU R128 (broadcast)", tags: ["loudness", "lufs", "broadcast", "ebu", "r128", "master"] },
 
   // Fades
   { category: "Fades", label: "Fade in", prompt: "add a fade-in over the first 3 seconds", description: "Linear fade from silence", tags: ["fade", "intro", "ramp"] },

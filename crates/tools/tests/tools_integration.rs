@@ -2124,6 +2124,110 @@ fn normalize_to_lufs(amp: f32, target: f32) -> (Value, PathBuf, TempDir) {
     (res, out, tmp)
 }
 
+/// Run `normalize_loudness` with arbitrary args on a fresh session.
+///
+/// Returns the dispatcher's own result, because a bad preset is caught
+/// by the schema *before* the tool runs — and that is the better
+/// failure. Tests need to see both layers.
+fn normalize_with(args: Value) -> (std::result::Result<ToolResult, String>, TempDir) {
+    let tmp = TempDir::new().expect("tempdir");
+    let mut store = session::Store::open(tmp.path()).expect("open store");
+    let mut engine = audio_engine::Engine::new();
+    let dispatcher = ToolDispatcher::default_dispatcher();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.02);
+
+    let mut clipboard: Option<Vec<f32>> = None;
+    let res = {
+        let mut ctx = ToolContext {
+            store: &mut store,
+            engine: &mut engine,
+            user_message: "",
+            clipboard: &mut clipboard,
+        };
+        ok(dispatcher
+            .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+            .unwrap());
+        dispatcher
+            .invoke("normalize_loudness", args, &mut ctx)
+            .map_err(|e| e.to_string())
+    };
+    (res, tmp)
+}
+
+/// Whatever the call said went wrong, from either layer.
+fn why_it_failed(res: std::result::Result<ToolResult, String>) -> String {
+    match res {
+        Err(dispatch) => dispatch,
+        Ok(ToolResult::Error(msg)) => msg,
+        Ok(ToolResult::Ok(v)) => panic!("expected a failure, got {v}"),
+    }
+}
+
+/// A delivery target by name, so nobody has to remember that Apple
+/// Podcasts is -16 (#169). The number the preset resolves to is the
+/// claim worth pinning — a preset that quietly meant something else
+/// would be worse than no preset.
+#[test]
+fn a_preset_resolves_to_its_platform_target() {
+    for (preset, expected) in [
+        ("spotify", -14.0),
+        ("youtube", -14.0),
+        ("apple_podcasts", -16.0),
+        ("broadcast", -23.0),
+    ] {
+        let (res, _tmp) = normalize_with(json!({ "track": 0, "preset": preset }));
+        let v = ok(res.expect("a known preset passes the schema"));
+        assert_eq!(
+            v["target_lufs"].as_f64().unwrap(),
+            expected,
+            "preset {preset} resolved to the wrong target"
+        );
+        assert!(
+            v["preset"].as_str().is_some(),
+            "the result should name the preset it used: {v}"
+        );
+    }
+}
+
+/// An unknown platform names the ones that exist rather than failing
+/// blank — the whole point is not having to know the numbers. The
+/// schema catches it first, which is the better place: the caller is
+/// told before any audio is measured.
+#[test]
+fn an_unknown_preset_lists_the_known_ones() {
+    let (res, _tmp) = normalize_with(json!({ "track": 0, "preset": "tidal" }));
+    let msg = why_it_failed(res);
+    assert!(msg.contains("tidal"), "should name what was asked: {msg}");
+    assert!(msg.contains("spotify"), "should list the known ones: {msg}");
+}
+
+/// A number and a name together is a mistake, not a preference.
+#[test]
+fn a_preset_and_a_number_together_is_refused() {
+    let (res, _tmp) =
+        normalize_with(json!({ "track": 0, "preset": "spotify", "target_lufs": -23.0 }));
+    let msg = why_it_failed(res);
+    assert!(msg.contains("not both"), "got {msg}");
+}
+
+/// Neither is also refused, and the refusal is a menu.
+#[test]
+fn no_target_at_all_lists_the_presets() {
+    let (res, _tmp) = normalize_with(json!({ "track": 0 }));
+    let msg = why_it_failed(res);
+    assert!(msg.contains("broadcast"), "got {msg}");
+}
+
+/// The custom value still works — presets are an addition, not a
+/// replacement.
+#[test]
+fn an_explicit_target_is_still_accepted() {
+    let (res, _tmp) = normalize_with(json!({ "track": 0, "target_lufs": -18.5 }));
+    let v = ok(res.expect("a plain number needs no preset"));
+    assert_eq!(v["target_lufs"].as_f64().unwrap(), -18.5);
+    assert!(v["preset"].is_null(), "no preset was used: {v}");
+}
+
 /// The acceptance criterion: a quiet source lands on the target after
 /// render, measured with the same EBU R128 implementation.
 #[test]

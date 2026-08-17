@@ -198,10 +198,10 @@ const groups = [
       },
       {
         name: "normalize_loudness",
-        prompt: 'normalize to -14 LUFS for Spotify',
-        what: "Set gain so the track hits an integrated LUFS target, measured with EBU R128. Gain is capped at a true-peak ceiling (−1 dBFS by default) so it never clips getting there; when the cap bites, the result reports the shortfall rather than claiming success.",
-        output: "node_id, measured_lufs, applied_gain_db, achieved_lufs, shortfall_db, capped_by_ceiling",
-        note: "Common targets: −14 LUFS Spotify/YouTube, −16 LUFS Apple Podcasts, −23 LUFS broadcast.",
+        prompt: 'normalize for Spotify',
+        what: "Set gain so the track hits an integrated LUFS target, measured with EBU R128. Takes either a number or a platform by name — spotify, youtube, apple_podcasts, broadcast — so the target does not have to be remembered. Gain is capped at a true-peak ceiling (−1 dBFS by default) so it never clips getting there; when the cap bites, the result reports the shortfall rather than claiming success.",
+        output: "node_id, measured_lufs, preset, applied_gain_db, achieved_lufs, shortfall_db, capped_by_ceiling",
+        note: "Presets: spotify / youtube −14 LUFS, apple_podcasts −16, broadcast −23. A custom target_lufs still works.",
       },
       {
         name: "fade",

@@ -46,6 +46,40 @@ use crate::{Tool, ToolContext, ToolResult};
 /// for digital silence.
 const MIN_MEASURABLE_LUFS: f32 = -70.0;
 
+/// Delivery targets by name, so the number does not have to be
+/// remembered or typed (#169).
+///
+/// These three are the ones that matter, and they were already written
+/// down in the tool description and the docs — as prose, in two places,
+/// reachable only by knowing them. Here they are data in one place: if
+/// a platform moves its target, it moves here.
+///
+/// `(id, lufs, label)`.
+pub const LOUDNESS_PRESETS: &[(&str, f32, &str)] = &[
+    ("spotify", -14.0, "Spotify"),
+    ("youtube", -14.0, "YouTube"),
+    ("apple_podcasts", -16.0, "Apple Podcasts"),
+    ("broadcast", -23.0, "Broadcast (EBU R128)"),
+];
+
+/// Resolve a preset id to its target, case- and separator-insensitively
+/// — "Apple Podcasts" and "apple-podcasts" are the same request.
+fn preset_lufs(name: &str) -> Option<(f32, &'static str)> {
+    let key = name.trim().to_ascii_lowercase().replace([' ', '-'], "_");
+    LOUDNESS_PRESETS
+        .iter()
+        .find(|(id, _, _)| *id == key)
+        .map(|(_, lufs, label)| (*lufs, *label))
+}
+
+fn preset_ids() -> String {
+    LOUDNESS_PRESETS
+        .iter()
+        .map(|(id, lufs, _)| format!("{id} ({lufs:.0} LUFS)"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 fn default_ceiling() -> f32 {
     -1.0
 }
@@ -53,7 +87,12 @@ fn default_ceiling() -> f32 {
 #[derive(Debug, Deserialize)]
 struct Args {
     track: usize,
-    target_lufs: f32,
+    /// The number, when the caller has one.
+    #[serde(default)]
+    target_lufs: Option<f32>,
+    /// A delivery platform by name, when they do not.
+    #[serde(default)]
+    preset: Option<String>,
     #[serde(default = "default_ceiling")]
     true_peak_ceiling_db: f32,
 }
@@ -82,14 +121,19 @@ impl Tool for NormalizeLoudnessTool {
                     "track": { "type": "integer" },
                     "target_lufs": {
                         "type": "number",
-                        "description": "e.g. -14 for streaming, -23 for broadcast"
+                        "description": "e.g. -14 for streaming, -23 for broadcast. Omit when `preset` is given."
+                    },
+                    "preset": {
+                        "type": "string",
+                        "enum": ["spotify", "youtube", "apple_podcasts", "broadcast"],
+                        "description": "A delivery target by name instead of a number: spotify/youtube = -14 LUFS, apple_podcasts = -16, broadcast = -23."
                     },
                     "true_peak_ceiling_db": {
                         "type": "number",
                         "description": "Peak ceiling in dBFS; gain is capped to respect it. Default -1.0"
                     },
                 },
-                "required": ["track", "target_lufs"],
+                "required": ["track"],
                 "additionalProperties": false,
             }),
         )
@@ -101,25 +145,50 @@ impl Tool for NormalizeLoudnessTool {
             Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
         };
 
-        if !args.target_lufs.is_finite() {
+        // One target, from either a number or a name. Both given is an
+        // ambiguity worth refusing rather than silently preferring one:
+        // "-14 for broadcast" is a mistake, not a preference.
+        let (target_lufs, preset_label) = match (args.target_lufs, args.preset.as_deref()) {
+            (Some(_), Some(p)) => {
+                return Ok(ToolResult::Error(format!(
+                    "give either target_lufs or preset, not both (got {} and {p:?})",
+                    args.target_lufs.unwrap_or_default()
+                )))
+            }
+            (Some(n), None) => (n, None),
+            (None, Some(p)) => match preset_lufs(p) {
+                Some((lufs, label)) => (lufs, Some(label)),
+                None => {
+                    return Ok(ToolResult::Error(format!(
+                        "unknown preset {p:?}; known presets are {}",
+                        preset_ids()
+                    )))
+                }
+            },
+            (None, None) => {
+                return Ok(ToolResult::Error(format!(
+                    "give a target: either target_lufs, or one of {}",
+                    preset_ids()
+                )))
+            }
+        };
+
+        if !target_lufs.is_finite() {
             return Ok(ToolResult::Error(format!(
-                "target_lufs must be finite; got {}",
-                args.target_lufs
+                "target_lufs must be finite; got {target_lufs}"
             )));
         }
         // LUFS targets are negative by construction: 0 LUFS is full-scale
         // pink noise, and nothing is delivered above it.
-        if args.target_lufs > 0.0 {
+        if target_lufs > 0.0 {
             return Ok(ToolResult::Error(format!(
-                "target_lufs must be <= 0; got {}. Common targets are -14 \
-                 (streaming), -16 (podcasts), -23 (broadcast)",
-                args.target_lufs
+                "target_lufs must be <= 0; got {target_lufs}. Common targets are -14 \
+                 (streaming), -16 (podcasts), -23 (broadcast)"
             )));
         }
-        if args.target_lufs < MIN_MEASURABLE_LUFS {
+        if target_lufs < MIN_MEASURABLE_LUFS {
             return Ok(ToolResult::Error(format!(
-                "target_lufs {} is below the measurable floor ({MIN_MEASURABLE_LUFS} LUFS)",
-                args.target_lufs
+                "target_lufs {target_lufs} is below the measurable floor ({MIN_MEASURABLE_LUFS} LUFS)"
             )));
         }
         if !args.true_peak_ceiling_db.is_finite() || args.true_peak_ceiling_db > 0.0 {
@@ -175,7 +244,7 @@ impl Tool for NormalizeLoudnessTool {
             )));
         }
 
-        let requested_gain_db = args.target_lufs - measured;
+        let requested_gain_db = target_lufs - measured;
 
         // What the peak becomes after that gain, and how much headroom
         // the ceiling actually leaves.
@@ -193,7 +262,7 @@ impl Tool for NormalizeLoudnessTool {
         // Loudness moves dB-for-dB with gain, so the achieved value is
         // the measurement plus whatever gain survived the cap.
         let achieved_lufs = measured + applied_gain_db;
-        let shortfall_db = args.target_lufs - achieved_lufs;
+        let shortfall_db = target_lufs - achieved_lufs;
 
         // Absolute, not compositional: the caller asked for a level, not
         // for a nudge relative to whatever gain is already set.
@@ -204,7 +273,7 @@ impl Tool for NormalizeLoudnessTool {
             state,
             format!(
                 "normalize_loudness track {} -> {} LUFS",
-                args.track, args.target_lufs
+                args.track, target_lufs
             ),
         ) {
             Ok(id) => id,
@@ -218,7 +287,7 @@ impl Tool for NormalizeLoudnessTool {
                  {:.1} LUFS, {:.1} dB short. Run limiter first to close the gap.",
                 args.track,
                 measured,
-                args.target_lufs,
+                target_lufs,
                 requested_gain_db,
                 args.true_peak_ceiling_db,
                 applied_gain_db,
@@ -235,7 +304,8 @@ impl Tool for NormalizeLoudnessTool {
         Ok(ToolResult::Ok(json!({
             "node_id": new_id.to_hex(),
             "measured_lufs": measured,
-            "target_lufs": args.target_lufs,
+            "target_lufs": target_lufs,
+            "preset": preset_label,
             "requested_gain_db": requested_gain_db,
             "applied_gain_db": applied_gain_db,
             "achieved_lufs": achieved_lufs,
