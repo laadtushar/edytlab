@@ -67,12 +67,94 @@ interface ProjectInfo {
 ```
 
 **Side effects:** Rebuilds the Agent if an API key is already configured.
+Also stamps `last_opened_at` into `project.json`, creating it on the
+first open, and moves the project to the top of the recents list.
 
 **Example:**
 ```typescript
 const project = await bridge.openProject("/Users/alice/Music/my-session");
 console.log(project.head); // null | "abc123..."
 ```
+
+### What a project is on disk
+
+```
+my-session/
+  project.json            name, created, last opened, notes
+  .audiograph/
+    nodes/                the edit history
+    head                  where you are in it
+    view.json             zoom, selection, playhead
+    derived/              audio produced by edits
+    clipboard/            blobs a paste depends on
+    previews/             render cache — disposable
+```
+
+The split is by lifetime. `project.json` is the project's identity and
+sits outside the store because the store is an implementation detail.
+`view.json` is disposable — losing it costs a scroll. `previews/` is a
+cache: every entry re-derives byte-identically from the node it is named
+for, so it is the one directory a copy of a project can safely skip.
+
+Derived audio lives **inside** the project. It used to be written beside
+whichever source file was opened, which meant a project folder held the
+history and none of the sound — so it could not be copied, moved or
+backed up.
+
+### `getProjectMeta() → ProjectMeta`
+
+```typescript
+interface ProjectMeta {
+  name: string;          // defaults to the folder name
+  created_at?: string;   // ISO 8601
+  last_opened_at?: string;
+  notes?: string;
+}
+```
+
+A missing or corrupt `project.json` returns a folder-named default
+rather than failing: the audio and its history are not in that file.
+
+### `setProjectMeta(name: string, notes?: string) → ProjectMeta`
+
+Rename the open project. An empty name is refused. The recents row is
+updated in step, so the list does not show the old name until the next
+open.
+
+### `getViewState() → ViewState` · `saveViewState(view: ViewState) → void`
+
+```typescript
+interface ViewState {
+  head?: string | null;
+  zoom_px_per_sec?: number | null;
+  selection?: [number, number] | null;   // session seconds
+  playhead_sec?: number | null;
+}
+```
+
+Every field is independently optional, and an absent one means "was not
+recorded" rather than "reset this". A recorded head that no longer
+exists is ignored on restore — a folder copied without `.audiograph/`
+leaves one behind, and refusing to open the project over it would be
+absurd.
+
+### `listRecentProjects() → RecentProject[]`
+
+Most recent first, one entry per project, capped at 10. Entries whose
+folder has gone are pruned on read and the pruning is written back, so a
+dead row is never offered twice.
+
+```typescript
+interface RecentProject {
+  path: string;
+  name: string;
+  last_opened_at?: string | null;
+}
+```
+
+### `forgetRecentProject(path: string) → RecentProject[]`
+
+Removes the row. Does not touch the project.
 
 ---
 
