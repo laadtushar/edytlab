@@ -73,10 +73,13 @@ import {
 import { batchLoad } from "./lib/tauri-bridge";
 import {
   forgetRecentProject,
+  getViewState,
   listRecentProjects,
   openProject,
+  saveViewState,
   type RecentProject,
 } from "./lib/tauri-bridge";
+import { viewToApply, viewToSave } from "./lib/viewState";
 
 type LeftView = "timeline" | "graph";
 
@@ -153,6 +156,7 @@ function App() {
   // empty state hides the list entirely rather than showing a heading
   // with nothing under it.
   const [recents, setRecents] = useState<RecentProject[]>([]);
+  const viewSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleUndo = useCallback(async () => {
     if (!head) return;
@@ -493,6 +497,38 @@ function App() {
   );
 
   /**
+   * Put the user back where they were.
+   *
+   * Each field is restored only if the file actually had it — an absent
+   * zoom must not reset the timeline while claiming to restore it. The
+   * head is a *request*: `view.json` can name a node that no longer
+   * exists (a folder copied without `.audiograph/`, a rebuilt store),
+   * so a failure there leaves the head the store reported and is not an
+   * error worth showing.
+   */
+  const restoreView = useCallback(
+    async (fallbackHead: string | null) => {
+      const view = viewToApply(await getViewState().catch(() => null));
+      if (view.zoomPxPerSec !== undefined) setZoomPxPerSec(view.zoomPxPerSec);
+      if (view.selection !== undefined) setSelection(view.selection);
+      if (view.playheadSec !== undefined) {
+        timelineRef.current?.seekTo(view.playheadSec);
+      }
+      if (view.head) {
+        try {
+          await setHeadTo(view.head);
+          setHeadLocal(view.head);
+          return;
+        } catch {
+          // Stale head: fall through to whatever the store reported.
+        }
+      }
+      if (fallbackHead) setHeadLocal(fallbackHead);
+    },
+    [setHeadLocal],
+  );
+
+  /**
    * Reopening a project is opening it: same command, so the recents
    * row moves to the top and `project.json` records the visit exactly
    * as it would from the file dialog.
@@ -501,15 +537,56 @@ function App() {
     async (path: string) => {
       try {
         const info = await openProject(path);
-        if (info.head) setHeadLocal(info.head);
+        await restoreView(info.head ?? null);
         setTracks(await listTracks());
         setRecents(await listRecentProjects());
       } catch (e) {
         setRenderError(String(e));
       }
     },
-    [setHeadLocal],
+    [restoreView],
   );
+
+  /**
+   * Remember the view, 500 ms after it stops changing.
+   *
+   * Debounced because zoom and selection change continuously while a
+   * gesture is in flight, and a file write per pixel is absurd. Losing
+   * the last half-second of a scroll position on a hard kill is not a
+   * loss worth defending against.
+   */
+  const persistView = useCallback(() => {
+    if (!head) return;
+    // The playhead is read at save time rather than mirrored into
+    // state: it changes on every audioprocess tick, and a React state
+    // update per tick to feed a debounced disk write would be a lot of
+    // machinery to end up in the same place.
+    void saveViewState(
+      viewToSave({
+        head,
+        zoomPxPerSec,
+        selection,
+        playheadSec: timelineRef.current?.getCurrentTime() ?? 0,
+      }),
+    ).catch(() => undefined);
+  }, [head, zoomPxPerSec, selection]);
+
+  useEffect(() => {
+    if (!head) return;
+    if (viewSaveTimerRef.current) clearTimeout(viewSaveTimerRef.current);
+    viewSaveTimerRef.current = setTimeout(persistView, 500);
+    return () => {
+      if (viewSaveTimerRef.current) clearTimeout(viewSaveTimerRef.current);
+    };
+  }, [head, persistView]);
+
+  // A session that was only *played* changes none of the state above,
+  // so without this the playhead would never be written for it. Closing
+  // the window is the one moment that is guaranteed to matter.
+  useEffect(() => {
+    window.addEventListener("beforeunload", persistView);
+    return () => window.removeEventListener("beforeunload", persistView);
+  }, [persistView]);
 
   /** Forget the row, not the project. */
   const handleForgetRecent = useCallback(async (path: string) => {
