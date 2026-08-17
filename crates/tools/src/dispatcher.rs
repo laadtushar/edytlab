@@ -331,11 +331,28 @@ impl ToolDispatcher {
         // one this call produced.
         if let Some(new_head) = ctx.store.head() {
             if Some(new_head) != head_before {
+                // A tool that reads outside the session may have closed
+                // over what it read and recorded a richer op itself
+                // (#163) — `load` pins its source by content hash,
+                // `paste_region` names the CAS blob its clipboard went
+                // to. Only those few do; everything else is covered by
+                // the default below, which is the point of recording
+                // here rather than in sixty-odd tools.
+                let already_recorded = ctx
+                    .store
+                    .get(new_head)
+                    .map(|n| n.op.is_some())
+                    .unwrap_or(false);
+                if already_recorded {
+                    return Ok(result);
+                }
+
                 let op = session::NodeOp {
                     tool: name.to_string(),
                     params: args,
                     engine_version: env!("CARGO_PKG_VERSION").to_string(),
                     reproducible: !READS_OUTSIDE_THE_SESSION.contains(&name),
+                    inputs: serde_json::Value::Null,
                 };
                 // Provenance is metadata about an edit that has already
                 // happened and is already durable. Failing the call now
@@ -352,16 +369,26 @@ impl ToolDispatcher {
     }
 }
 
-/// Tools whose output depends on something the session does not contain,
-/// so replaying them here cannot be expected to reproduce the bytes.
+/// Tools whose output depends on something the session does not contain.
 ///
-/// * `paste_region` splices `ToolContext::clipboard`, which lives in
-///   memory and is never persisted — after a paste, that audio exists
-///   *only* in the derived file.
+/// This is the **fallback** classification, applied when the tool did not
+/// record an op of its own. Since #163 three of the four close over what
+/// they read and record themselves, so the entry here only applies when
+/// that recording failed — a clipboard blob that could not be written,
+/// say — and the safe reading is the one this list gives.
+///
+/// * `paste_region` splices `ToolContext::clipboard`. It used to live
+///   only in memory, so after a paste that audio existed *only* in the
+///   derived file; `copy_region` now persists it as a CAS blob and the
+///   paste references it.
 /// * `load` reads a file from somewhere else on disk that may have moved
-///   or changed since.
-/// * `transcribe` and `separate_stems` shell out to ML models whose
-///   weights are not part of the session.
+///   or changed since; it now pins the *audio* by content hash, so a
+///   move is still recognised and a change is refused by name.
+/// * `transcribe` records its model and stays here permanently: model
+///   weights are not part of the session and should not be.
+/// * `separate_stems` appends no node at all — it writes stems and
+///   returns their paths — so it has no op to classify. Listed anyway,
+///   because the day it does append one, the safe default is this one.
 ///
 /// This list is an optimisation and a diagnostic, not the safety
 /// mechanism. The safety mechanism is that a derived file is named

@@ -159,6 +159,31 @@ impl Tool for TranscribeTool {
             Err(msg) => return Ok(ToolResult::Error(msg)),
         };
 
+        // Record which model produced this (#163). Model weights are not
+        // part of the session and should not be, so this stays
+        // permanently non-replayable — what the record buys is
+        // diagnosis: a transcript that looks wrong can be traced to the
+        // model that made it.
+        let op = session::NodeOp::new(
+            "transcribe".to_string(),
+            json!({ "path": args.path }),
+            env!("CARGO_PKG_VERSION").to_string(),
+        )
+        .not_reproducible()
+        .with_inputs(crate::provenance::model_inputs(
+            "whisper",
+            // The file name, not the path: provenance is meant to be
+            // shareable (#162 exports it as a recipe), and an absolute
+            // path names the machine it ran on.
+            model_path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown"),
+        ));
+        if let Err(e) = ctx.store.set_op(new_id, op) {
+            tracing::warn!(error = %e, "failed to record transcribe provenance");
+        }
+
         Ok(ToolResult::Ok(json!({
             "node_id": new_id.to_hex(),
             "words": words.iter().map(word_to_json).collect::<Vec<_>>(),

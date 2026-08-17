@@ -229,6 +229,27 @@ impl Tool for StorageReportTool {
         let preview_files = cache.len();
         let preview_bytes = cache.size_bytes();
 
+        // Clipboard blobs (#163) are a fifth thing, and the one category
+        // that must never be swept: a pasted region's audio exists
+        // nowhere else once the derived file it went into is gone.
+        let (clip_files, clip_bytes) = {
+            let dir = crate::provenance::clipboard_dir(ctx.store.project_dir());
+            match std::fs::read_dir(&dir) {
+                Ok(entries) => {
+                    let mut n = 0usize;
+                    let mut bytes = 0u64;
+                    for e in entries.flatten() {
+                        if e.path().is_file() {
+                            n += 1;
+                            bytes += size_of(&e.path());
+                        }
+                    }
+                    (n, bytes)
+                }
+                Err(_) => (0, 0),
+            }
+        };
+
         let total = live_bytes + history_bytes + unref_bytes;
         let mut by_category = BTreeMap::new();
         by_category.insert("live", (live_n, live_bytes));
@@ -253,6 +274,7 @@ impl Tool for StorageReportTool {
                 "dir": cache.dir().display().to_string(),
                 "cap_bytes": crate::preview_cache::DEFAULT_CAP_BYTES,
             },
+            "clipboard_blobs": { "files": clip_files, "bytes": clip_bytes },
             "largest_unreferenced": sample,
             "summary": format!(
                 "{:.1} MiB of derived audio across {} node{}: {:.1} MiB the current version \

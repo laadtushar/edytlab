@@ -92,8 +92,8 @@ const groups = [
       {
         name: "copy_region",
         prompt: 'copy the section from 0:30 to 1:00',
-        what: "Copy a time region to the clipboard.",
-        output: "duration_sec of copied region",
+        what: "Copy a time region to the clipboard, and persist it as a content-addressed blob so a later paste can be replayed rather than merely kept.",
+        output: "clipboard_blob hash",
       },
       {
         name: "paste_region",
@@ -431,8 +431,8 @@ const groups = [
       {
         name: "storage_report",
         prompt: "how much disk is this session using?",
-        what: "Report what the session costs on disk, split three ways: audio the current version needs, audio only the undo history needs, and audio nothing references at all. Every destructive edit writes a new file and none are deleted, so a long session grows without bound. Reads only — it deletes nothing.",
-        output: "total_bytes, live, history, unreferenced, largest_unreferenced",
+        what: "Report what the session costs on disk, split by category: audio the current version needs, audio only the undo history needs (and how much of that is rebuildable from recorded operations), audio nothing references at all, the bounded preview cache, and clipboard blobs. Every destructive edit writes a new file and none are deleted, so a long session grows without bound. Reads only — it deletes nothing.",
+        output: "total_bytes, live, history, unreferenced, preview_cache, clipboard_blobs",
         note: "There is no reclamation policy yet, so this measures the problem rather than solving it.",
       }
     ],

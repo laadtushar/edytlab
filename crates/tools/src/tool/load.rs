@@ -74,6 +74,8 @@ impl Tool for LoadTool {
             return Ok(ToolResult::Error("decoded source has 0 channels".into()));
         }
         let length_samples = (decoded.samples.len() / chans) as u64;
+        let source_hash =
+            crate::provenance::audio_hash(&decoded.samples, decoded.sample_rate, decoded.channels);
 
         // The renderer opens clip sources via the WAV-only streaming
         // reader. If the original file isn't a WAV the streaming reader
@@ -162,6 +164,28 @@ impl Tool for LoadTool {
             Err(e) => return Ok(ToolResult::Error(format!("session append failed: {e}"))),
         };
 
+        // Close the op over the file it read (#163). `load` reads from
+        // outside the session by definition, and until this was recorded
+        // every chain was unreplayable at its root — which is why
+        // `storage_report` showed zero rebuildable history for an
+        // ordinary session. Pinning the *audio* rather than the path
+        // means a source that moved is still recognised, and one that
+        // changed is refused by name rather than silently substituted.
+        let op = session::NodeOp::new(
+            "load".to_string(),
+            json!({ "path": args.path }),
+            env!("CARGO_PKG_VERSION").to_string(),
+        )
+        .with_inputs(json!({
+            "source": {
+                "path": path.display().to_string(),
+                "audio_hash": source_hash,
+            }
+        }));
+        if let Err(e) = ctx.store.set_op(id, op) {
+            tracing::warn!(error = %e, "failed to record load provenance");
+        }
+
         Ok(ToolResult::Ok(json!({
             "node_id": id.to_hex(),
             "track_index": track_index,
@@ -204,16 +228,6 @@ fn ensure_streamable_wav(src: &Path, decoded: &DecodedAudio) -> Result<PathBuf, 
         )
     })?;
 
-    // Pre-convert samples to LE bytes in one buffer so blake3 sees a
-    // single contiguous slice. Per-f32 `hasher.update` calls are
-    // measurably slow for multi-minute files; the byte form here keeps
-    // the same cross-platform determinism convention as
-    // `destructive_edit` (each sample as LE bytes) without paying per-
-    // sample call overhead.
-    let mut bytes = Vec::with_capacity(decoded.samples.len() * 4);
-    for s in &decoded.samples {
-        bytes.extend_from_slice(&s.to_le_bytes());
-    }
     // The source path is deliberately NOT hashed (#160). It used to be,
     // which meant the same audio imported from two locations — a copy, a
     // move, a re-download — produced two different names and was stored
@@ -225,11 +239,15 @@ fn ensure_streamable_wav(src: &Path, decoded: &DecodedAudio) -> Result<PathBuf, 
     // Dropping it does not risk collisions. The hash still covers every
     // property of the decoded audio, so two genuinely different files
     // cannot land on one name without colliding blake3 itself.
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(&decoded.sample_rate.to_le_bytes());
-    hasher.update(&(decoded.channels as u32).to_le_bytes());
-    hasher.update(&bytes);
-    let cas_path = derived_dir.join(format!("{}.wav", hasher.finalize().to_hex()));
+    //
+    // The convention — rate, channels, then samples as little-endian
+    // bytes — lives in `provenance::audio_hash` and is shared with the
+    // hash `load` records in the node op, so the name a transcode lands
+    // on and the identity a replay checks are the same number.
+    let cas_path = derived_dir.join(format!(
+        "{}.wav",
+        crate::provenance::audio_hash(&decoded.samples, decoded.sample_rate, decoded.channels)
+    ));
 
     if !cas_path.exists() {
         audio_engine::write_wav(
