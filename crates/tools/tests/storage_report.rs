@@ -95,6 +95,59 @@ fn u(v: &Value, path: &[&str]) -> u64 {
         .unwrap_or_else(|| panic!("expected a number at {path:?}, got {cur}"))
 }
 
+/// **A project contains the audio it points at** (#156).
+///
+/// Derived files used to be written to `<source_dir>/derived/`, so a
+/// project folder held only `project.json` and `.audiograph/` while
+/// every sample sat next to whatever the user happened to open. A
+/// project was therefore not a thing you could copy, move or back up.
+#[test]
+fn derived_audio_is_written_inside_the_project() {
+    let tmp = TempDir::new().expect("tempdir");
+    // The source lives somewhere else entirely, which is the normal
+    // case: a user opens a file from their music folder.
+    let elsewhere = TempDir::new().expect("source dir");
+    let src = write_sine(elsewhere.path(), "in.wav");
+
+    let mut store = session::Store::open(tmp.path()).expect("open store");
+    let mut engine = audio_engine::Engine::new();
+    let dispatcher = ToolDispatcher::default_dispatcher();
+    let mut clipboard: Option<Vec<f32>> = None;
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+        user_message: "",
+        clipboard: &mut clipboard,
+    };
+
+    ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+    ok(dispatcher
+        .invoke(
+            "silence_region",
+            json!({ "track": 0, "start_sec": 0.0, "end_sec": 0.2 }),
+            &mut ctx,
+        )
+        .unwrap());
+
+    let head = ctx.store.head().expect("a head");
+    let node = ctx.store.get(head).expect("head node");
+    let derived = &node.state.tracks[0].clips[0].source_path;
+
+    assert!(
+        derived.starts_with(tmp.path()),
+        "derived audio landed outside the project: {}",
+        derived.display()
+    );
+    assert!(
+        !derived.starts_with(elsewhere.path()),
+        "derived audio was written beside the source: {}",
+        derived.display()
+    );
+    assert!(derived.is_file(), "and it must actually be there");
+}
+
 /// A session with no edits has written no derived audio, and the report
 /// says so rather than erroring or inventing a number.
 #[test]
@@ -185,7 +238,11 @@ fn a_file_no_node_names_is_reported_unreferenced() {
         .unwrap());
 
     // An orphan, as an interrupted edit would leave behind.
-    let orphan = tmp.path().join("derived").join("orphan.wav");
+    let orphan = tmp
+        .path()
+        .join(".audiograph")
+        .join("derived")
+        .join("orphan.wav");
     std::fs::write(&orphan, vec![0u8; 4096]).expect("write orphan");
 
     let v = ok(dispatcher
@@ -236,10 +293,14 @@ fn the_report_deletes_nothing() {
             )
             .unwrap());
     }
-    let orphan = tmp.path().join("derived").join("orphan.wav");
+    let orphan = tmp
+        .path()
+        .join(".audiograph")
+        .join("derived")
+        .join("orphan.wav");
     std::fs::write(&orphan, vec![0u8; 1024]).expect("write orphan");
 
-    let before: Vec<_> = std::fs::read_dir(tmp.path().join("derived"))
+    let before: Vec<_> = std::fs::read_dir(tmp.path().join(".audiograph").join("derived"))
         .expect("read derived")
         .flatten()
         .map(|e| e.path())
@@ -247,7 +308,7 @@ fn the_report_deletes_nothing() {
     ok(dispatcher
         .invoke("storage_report", json!({}), &mut ctx)
         .unwrap());
-    let after: Vec<_> = std::fs::read_dir(tmp.path().join("derived"))
+    let after: Vec<_> = std::fs::read_dir(tmp.path().join(".audiograph").join("derived"))
         .expect("read derived")
         .flatten()
         .map(|e| e.path())

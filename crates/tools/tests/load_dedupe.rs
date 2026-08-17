@@ -67,9 +67,12 @@ fn ok(r: ToolResult) -> Value {
 }
 
 /// Load `path` into a fresh session and return how many files ended up
-/// in that project's `derived/` directory.
+/// in that project's derived directory.
+///
+/// Under `.audiograph/` since #156: derived audio belongs to the
+/// project, not to whichever folder the source was opened from.
 fn derived_count(dir: &Path) -> usize {
-    let d = dir.join("derived");
+    let d = dir.join(".audiograph").join("derived");
     if !d.exists() {
         return 0;
     }

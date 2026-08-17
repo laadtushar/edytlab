@@ -1834,6 +1834,9 @@ pub fn list_tracks(state: State<'_, AppState>) -> CmdResult<Vec<TrackSummary>> {
     let store = lock_std(&*store_arc, "store")?;
     let head = store.head().ok_or(CommandError::NoSession)?;
     let node = store.get(head).map_err(CommandError::from)?;
+    // Read before the lock drops: flattening a multi-clip track writes
+    // its result into the project's own derived directory (#156).
+    let project_dir_for_flatten = store.project_dir().to_path_buf();
     drop(store);
     let sr = node.state.sample_rate.max(1) as f64;
     Ok(node
@@ -1882,7 +1885,7 @@ pub fn list_tracks(state: State<'_, AppState>) -> CmdResult<Vec<TrackSummary>> {
             audio_path: match t.clips.len() {
                 0 => None,
                 1 => Some(t.clips[0].source_path.to_string_lossy().into_owned()),
-                _ => tools::flattened_track_wav(&t.clips)
+                _ => tools::flattened_track_wav(&project_dir_for_flatten, &t.clips)
                     .ok()
                     .map(|p| p.to_string_lossy().into_owned()),
             },
