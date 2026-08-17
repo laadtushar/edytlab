@@ -102,6 +102,7 @@ const GROUPS = [
     name: "Analysis",
     tools: [
       "analyze_track",
+      "storage_report",
       "plot_spectrum",
       "silence_finder",
       "transcribe",
@@ -130,7 +131,7 @@ export function ToolCatalogue() {
             The toolbox
           </p>
           <h2 className="mt-3 text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
-            80 tools the agent can reach for.
+            81 tools the agent can reach for.
           </h2>
           <p className="mt-4 text-pretty text-lg text-muted-foreground">
             Named, not counted. Ask in plain language and the agent picks — but
