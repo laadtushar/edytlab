@@ -513,6 +513,53 @@ export const setTrackSoloed = (
  * returns the new head, so they undo like anything else — which is why
  * `removeTrack` does not need a confirmation down here.
  */
+/**
+ * A project is a thing with a name, not only a folder path (#156).
+ */
+export interface ProjectMeta {
+  name: string;
+  created_at?: string | null;
+  last_opened_at?: string | null;
+  notes?: string;
+}
+
+/** Where the user was, so reopening resumes instead of restarting. */
+export interface ViewState {
+  head?: string | null;
+  zoom_px_per_sec?: number | null;
+  /** `[start, end]` in session seconds. */
+  selection?: [number, number] | null;
+  playhead_sec?: number | null;
+}
+
+export interface RecentProject {
+  path: string;
+  name: string;
+  last_opened_at?: string | null;
+}
+
+export const getProjectMeta = (): Promise<ProjectMeta> =>
+  invoke<ProjectMeta>("get_project_meta");
+
+export const setProjectMeta = (
+  name: string,
+  notes?: string,
+): Promise<ProjectMeta> =>
+  invoke<ProjectMeta>("set_project_meta", { name, notes: notes ?? null });
+
+export const getViewState = (): Promise<ViewState> =>
+  invoke<ViewState>("get_view_state");
+
+export const saveViewState = (view: ViewState): Promise<void> =>
+  invoke<void>("save_view_state", { view });
+
+/** Most recent first; folders that have gone are pruned on read. */
+export const listRecentProjects = (): Promise<RecentProject[]> =>
+  invoke<RecentProject[]>("list_recent_projects");
+
+export const forgetRecentProject = (path: string): Promise<RecentProject[]> =>
+  invoke<RecentProject[]>("forget_recent_project", { path });
+
 export const renameTrack = (track: number, name: string): Promise<string> =>
   invoke<string>("rename_track", { track, name });
 

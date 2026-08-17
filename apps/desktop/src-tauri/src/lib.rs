@@ -8,24 +8,25 @@
 pub mod commands;
 pub mod events;
 pub mod mcp_tool;
+pub mod project;
 pub mod state;
 
 use crate::commands::{
     accept_b, add_marker, apply_template, approve_plan, batch_load, clear_api_key,
     clear_api_key_for, default_base_url_for, delete_agent_profile, delete_mcp_server, delete_skill,
-    duplicate_track, get_active_agent_profile, get_active_model, get_active_provider,
-    get_base_url_for, get_graph, get_node, get_plan_first, get_session_head, has_api_key,
-    has_api_key_for, install_bundled_skills, install_plugin, list_agent_profiles,
-    list_capabilities, list_markers, list_mcp_servers, list_models_for, list_providers,
-    list_skills, list_templates, list_tracks, move_clip, open_project, prepare_compare,
-    read_agent_profile, read_mcp_server, read_memory, read_skill, reject_plan, remove_clip,
-    remove_marker, remove_track, rename_node, rename_track, render_preview, render_range,
-    restart_mcp_server, send_message, set_active_agent_profile, set_active_model,
-    set_active_provider, set_api_key, set_api_key_for, set_base_url_for, set_clip_envelope,
-    set_head_to, set_plan_first, set_selection_context, set_track_gain, set_track_muted,
-    set_track_pan, set_track_soloed, start_recording, stop_recording, test_api_key,
-    test_api_key_for, try_load_api_key_at_startup, upsert_agent_profile, upsert_mcp_server,
-    upsert_skill, write_memory, RecorderState,
+    duplicate_track, forget_recent_project, get_active_agent_profile, get_active_model,
+    get_active_provider, get_base_url_for, get_graph, get_node, get_plan_first, get_project_meta,
+    get_session_head, get_view_state, has_api_key, has_api_key_for, install_bundled_skills,
+    install_plugin, list_agent_profiles, list_capabilities, list_markers, list_mcp_servers,
+    list_models_for, list_providers, list_recent_projects, list_skills, list_templates,
+    list_tracks, move_clip, open_project, prepare_compare, read_agent_profile, read_mcp_server,
+    read_memory, read_skill, reject_plan, remove_clip, remove_marker, remove_track, rename_node,
+    rename_track, render_preview, render_range, restart_mcp_server, save_view_state, send_message,
+    set_active_agent_profile, set_active_model, set_active_provider, set_api_key, set_api_key_for,
+    set_base_url_for, set_clip_envelope, set_head_to, set_plan_first, set_project_meta,
+    set_selection_context, set_track_gain, set_track_muted, set_track_pan, set_track_soloed,
+    start_recording, stop_recording, test_api_key, test_api_key_for, try_load_api_key_at_startup,
+    upsert_agent_profile, upsert_mcp_server, upsert_skill, write_memory, RecorderState,
 };
 use crate::state::AppState;
 use std::sync::{Arc, Mutex};
@@ -207,6 +208,12 @@ pub fn run() {
             rename_track,
             remove_track,
             duplicate_track,
+            get_project_meta,
+            set_project_meta,
+            get_view_state,
+            save_view_state,
+            list_recent_projects,
+            forget_recent_project,
             set_track_soloed,
             set_clip_envelope,
             move_clip,
