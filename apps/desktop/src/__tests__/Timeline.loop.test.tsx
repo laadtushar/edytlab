@@ -22,6 +22,7 @@ vi.mock("wavesurfer.js", () => ({
       seekTo: mockSeekTo,
       setTime: vi.fn(),
       setVolume: vi.fn(),
+      setOptions: vi.fn(),
       isPlaying: vi.fn(() => false),
       destroy: vi.fn(),
       getDuration: () => 10,
