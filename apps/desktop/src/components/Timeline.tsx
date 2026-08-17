@@ -22,6 +22,7 @@ import {
   forwardRef,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useImperativeHandle,
   useMemo,
   useRef,
@@ -113,6 +114,13 @@ export interface TimelineProps {
   /** Waveform height multiplier; 1 is the real amplitude. */
   verticalZoom?: number;
   onVerticalZoomChange?: (factor: number) => void;
+  /**
+   * Playhead position in session seconds. Omitted, the timeline follows
+   * its own transport; supplied, the caller is the authority — which is
+   * what a seek driven from outside (a marker click, a chapter jump)
+   * needs.
+   */
+  playheadSec?: number;
   /**
    * Track-head actions. All three are required together — the menu is
    * hidden unless every item in it can do something.
@@ -252,6 +260,17 @@ interface LaneProps {
    */
   verticalZoom?: number;
   /**
+   * Playhead position in *session* seconds, drawn by the lane itself.
+   *
+   * WaveSurfer's own cursor cannot be used for this. `setTime` clamps
+   * to the lane's media duration (`player.js`), so a 3-second lane
+   * asked to show t=30 pins at 3 and a lane with no audio pins at 0 —
+   * and at zoom 0 every lane stretches its own duration across the full
+   * width, so the same x means a different time on every one. Absent
+   * means no playhead is drawn.
+   */
+  playheadSec?: number;
+  /**
    * Track-head menu. Absent hides the menu entirely, which is what a
    * caller that cannot act on these gets — a menu whose items do
    * nothing is worse than no menu.
@@ -287,6 +306,7 @@ function TrackLane({
   sessionDuration,
   snapToZero,
   verticalZoom,
+  playheadSec,
   trackIndex,
   onRenameTrack,
   onDuplicateTrack,
@@ -322,8 +342,12 @@ function TrackLane({
       container: containerRef.current,
       waveColor: "rgba(236, 237, 242, 0.35)",
       progressColor: "var(--accent)",
-      cursorColor: "rgba(255, 138, 61, 0.85)",
-      cursorWidth: 1,
+      // No cursor of its own: it is drawn on this lane's duration,
+       // which is not the axis the ruler, the clips or the selection
+       // use. The playhead div below is drawn on the session axis, so
+       // every lane agrees with every other and with the ruler.
+      cursorColor: "transparent",
+      cursorWidth: 0,
       height: 72,
       barWidth: 2,
       barGap: 1,
@@ -516,10 +540,42 @@ function TrackLane({
     };
   }, [draftSelection, axis, onSelectionChange, maybeSnap]);
 
+  /**
+   * The drawing surface's width, in pixels.
+   *
+   * Measured into state rather than read from the ref inside a memo:
+   * the ref is null on the first render, so a memo that closed over it
+   * would compute `null` once and never re-run — the playhead would
+   * simply never appear. It also has to follow the window, since the
+   * pane is a flex child of a resizable layout.
+   */
+  const [paneWidth, setPaneWidth] = useState(0);
+  useLayoutEffect(() => {
+    const measure = () =>
+      setPaneWidth(waveformWrapperRef.current?.clientWidth ?? 0);
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+
+  /**
+   * Where the playhead sits on this lane, in pixels, or null when there
+   * is nothing to draw.
+   *
+   * Measured on the same axis as the ruler and the selection, so a
+   * seek moves every lane's playhead to the same place — including
+   * lanes whose own audio is shorter than the session, which is exactly
+   * where WaveSurfer's clamped cursor gave the wrong answer.
+   */
+  const playhead = useMemo(() => {
+    if (playheadSec === undefined || !axis || paneWidth <= 0) return null;
+    return (clamp(playheadSec, 0, axis) / axis) * paneWidth;
+  }, [playheadSec, axis, paneWidth]);
+
   const overlay = useMemo(() => {
     const range = draftSelection ?? selection ?? null;
-    if (!range || !axis || !waveformWrapperRef.current) return null;
-    const width = waveformWrapperRef.current.clientWidth || 1;
+    if (!range || !axis || paneWidth <= 0) return null;
+    const width = paneWidth;
     // Same axis the ruler above is drawn on, so the overlay lines up
     // with the ticks rather than merely looking plausible.
     const startPx = (range.start / axis) * width;
@@ -528,7 +584,7 @@ function TrackLane({
       left: Math.min(startPx, endPx),
       width: Math.abs(endPx - startPx),
     };
-  }, [draftSelection, selection, axis]);
+  }, [draftSelection, selection, axis, paneWidth]);
 
   return (
     <div
@@ -693,6 +749,23 @@ function TrackLane({
           data-testid="timeline-lane-waveform"
           style={{ height: "100%", width: "100%", pointerEvents: "none" }}
         />
+        {playhead !== null ? (
+          <div
+            data-testid="timeline-playhead"
+            data-playhead-sec={playheadSec}
+            style={{
+              position: "absolute",
+              top: 4,
+              bottom: 4,
+              // +12 matches the wrapper's horizontal padding, the same
+              // offset the selection overlay uses.
+              left: playhead + 12,
+              width: 1,
+              background: "rgba(255, 138, 61, 0.85)",
+              pointerEvents: "none",
+            }}
+          />
+        ) : null}
         {overlay ? (
           <div
             data-testid="timeline-selection-overlay"
@@ -802,6 +875,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
       onSnapToZeroChange,
       verticalZoom,
       onVerticalZoomChange,
+      playheadSec: playheadSecProp,
       onRenameTrack,
       onDuplicateTrack,
       onRemoveTrack,
@@ -828,6 +902,18 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
      * #171 was.
      */
     const [headLaneDuration, setHeadLaneDuration] = useState(0);
+
+    /**
+     * Playhead position in session seconds, published to every lane.
+     *
+     * Sourced from the one player that actually plays (lane 0's) but
+     * *drawn* by each lane against the session axis, so seeking moves
+     * every lane's playhead together — the thing #155 says is broken.
+     * When the mix becomes the thing being played, this is the value
+     * that changes and nothing else has to.
+     */
+    const [transportSec, setTransportSec] = useState(0);
+    const playheadSec = playheadSecProp ?? transportSec;
 
     /**
      * The session's length: the furthest point any clip on any track
@@ -1205,6 +1291,15 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
                   idx === 0
                     ? (ws) => {
                         headWsRef.current = ws;
+                        if (!ws) return;
+                        // `audioprocess` fires while playing;
+                        // `seeking`/`timeupdate` cover the paused
+                        // moves, which is most of what an editor does.
+                        const publish = () =>
+                          setTransportSec(ws.getCurrentTime());
+                        ws.on("audioprocess", publish);
+                        ws.on("seeking", publish);
+                        ws.on("timeupdate", publish);
                       }
                     : undefined
                 }
@@ -1212,6 +1307,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
                 onSelectionChange={idx === 0 ? onSelectionChange : undefined}
                 onDurationChange={idx === 0 ? setHeadLaneDuration : undefined}
                 sessionDuration={timelineDuration}
+                playheadSec={playheadSec}
                 snapToZero={snapToZero}
                 verticalZoom={verticalZoom}
                 trackIndex={trackIndex(idx)}
