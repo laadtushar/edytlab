@@ -301,6 +301,32 @@ function App() {
     void loadAudio(path, setSourcePath, (err) => setRenderError(err));
   }, []);
 
+  /**
+   * Load whatever arrived — from the picker or from a drop.
+   *
+   * One file keeps the single-file path so the agent gets a "load this
+   * file: …" message and the waveform updates the way it always has.
+   * Several go through `batch_load`, which adds each as its own track
+   * rather than replacing the session.
+   */
+  const handleFilesSelected = useCallback(
+    async (paths: string[]) => {
+      if (paths.length === 0) return;
+      if (paths.length === 1) {
+        handleFileSelected(paths[0]);
+        return;
+      }
+      setSourcePath(paths[0]);
+      try {
+        await batchLoad(paths);
+        setTracks(await listTracks());
+      } catch (err) {
+        setRenderError(String(err));
+      }
+    },
+    [handleFileSelected],
+  );
+
   const handleOpenDialog = useCallback(async () => {
     try {
       const paths = await pickAudioFiles(true);
@@ -514,7 +540,7 @@ function App() {
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     let cancelled = false;
-    listenToFileDrops(handleFileSelected)
+    listenToFileDrops((paths) => void handleFilesSelected(paths))
       .then((fn) => {
         if (cancelled) fn();
         else unlisten = fn;
@@ -524,7 +550,7 @@ function App() {
       cancelled = true;
       unlisten?.();
     };
-  }, [handleFileSelected]);
+  }, [handleFilesSelected]);
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;

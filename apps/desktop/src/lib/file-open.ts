@@ -79,8 +79,12 @@ export async function pickAudioFiles(
 /**
  * Subscribe to native (OS-level) drag-and-drop. Tauri 2's webview
  * intercepts file drops itself, so HTML5 `onDrop` never sees them on
- * Windows or Linux. The callback receives the absolute path of the
- * first dropped file.
+ * Windows or Linux.
+ *
+ * The callback receives **every** dropped path. It used to receive only
+ * `paths[0]`: dropping five files loaded one and discarded the rest
+ * without saying so, which is the kind of silence that reads as a
+ * broken drop rather than a deliberate limit.
  *
  * Returns an unlisten function. Safe to call outside a Tauri runtime
  * (e.g. in vitest / jsdom): in that case `getCurrentWebview()` throws
@@ -88,7 +92,7 @@ export async function pickAudioFiles(
  * the test environment.
  */
 export async function listenToFileDrops(
-  onDropped: (path: string) => void,
+  onDropped: (paths: string[]) => void,
 ): Promise<() => void> {
   let webview;
   try {
@@ -98,8 +102,8 @@ export async function listenToFileDrops(
   }
   return await webview.onDragDropEvent((event) => {
     if (event.payload.type !== "drop") return;
-    const path = event.payload.paths?.[0];
-    if (!path) return;
-    onDropped(path);
+    const paths = event.payload.paths ?? [];
+    if (paths.length === 0) return;
+    onDropped(paths);
   });
 }
