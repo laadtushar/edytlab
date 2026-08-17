@@ -257,18 +257,29 @@ pub(crate) fn stretch_varying(
     // that is trimmed off, and the input's own sample 0 arrives with the
     // full overlap behind it.
     //
-    // Enough frames that the real signal starts at or past the end of
-    // the ramp: `lead * hop_s >= FRAME - hop_s`. At ratio 2.0 that is 1
-    // frame; at 0.5 the synthesis frames are packed four times tighter
-    // and it takes 7.
+    // Two conditions bind here, and the lead has to satisfy both.
+    //
+    // *Synthesis* — enough frames that the real signal starts at or past
+    // the end of the ramp: `lead_frames * hop_s >= FRAME - hop_s`. At
+    // ratio 2.0 that is 1 frame; at 0.5 the synthesis frames are packed
+    // four times tighter and it takes 7. With a varying hop the ramp
+    // condition binds hardest where the hop is smallest, so the lead is
+    // sized on the minimum over the whole schedule rather than on the
+    // first frame's.
     //
     // Without this the leading samples were simply lost — a click at
     // sample 0 fell inside the ramp and faded out of a 6-hit train.
     // (It *looked* preserved before the normalisation fix above, but
     // only because the raw divisor was amplifying that same region.)
-    // With a varying hop the ramp condition binds hardest where the hop
-    // is smallest, so the lead is sized on the minimum over the whole
-    // schedule rather than on the first frame's.
+    //
+    // *Analysis* — input sample 0 must be seen by a full set of analysis
+    // windows: `lead >= FRAME - HOP_A`, three frames at 75% overlap.
+    // Silence in front is how a frame at a negative offset is expressed
+    // in padded coordinates. Below three, sample 0 is covered by two
+    // windows rather than four and one of those weights it `w(0) = 0` —
+    // one effective window, which nothing can be reconstructed from. At
+    // ratio 2.0 the synthesis condition alone asks for a single frame,
+    // so the analysis condition is the binding one there.
     let mut min_hop = hop_s;
     {
         let mut pos = 0usize;
@@ -277,7 +288,10 @@ pub(crate) fn stretch_varying(
             pos += HOP_A;
         }
     }
-    let lead_frames = FRAME.div_ceil(min_hop).saturating_sub(1);
+    let lead_frames = FRAME
+        .div_ceil(min_hop)
+        .max(FRAME.div_ceil(HOP_A))
+        .saturating_sub(1);
     let lead = lead_frames * HOP_A;
 
     // Where the real signal stops, in padded coordinates. Frames
@@ -489,11 +503,30 @@ pub(crate) fn stretch_varying(
         }
     }
 
-    // Drop the lead-in. Each padded analysis frame advances the output
-    // by one synthesis hop, so the input's sample 0 sits exactly
-    // `starts[lead_frames]` samples in — a running sum, not a product,
-    // because the hops before it need not all be equal.
-    let skip = starts[lead_frames.min(frames - 1)].min(out.len());
+    // Drop the lead-in.
+    //
+    // `starts[lead_frames]` is the wrong amount, and was the reason a
+    // stretched signal landed early. A frame does not time-scale its own
+    // contents: whatever sits at offset `d` inside analysis frame `f` is
+    // written back at offset `d` inside a synthesis frame beginning at
+    // `starts[f]`. Padded position `q` therefore lands at `starts[f] + q
+    // - f * HOP_A`, which depends on *which* frame you ask — and the one
+    // carrying the weight is the frame holding `q` at its centre, since
+    // that is where the analysis window peaks. For `q = lead` that frame
+    // is `lead_frames - FRAME / (2 * HOP_A)`, and sample 0 lands at its
+    // start plus half a frame.
+    //
+    // The old expression named the frame that holds sample 0 at its
+    // *left edge* instead, where the window weight is zero. That is
+    // exact at ratio 1 (the two agree when the hops match) and wrong in
+    // proportion to `ratio - 1` either side: measured on a lone impulse,
+    // 1.4k samples early at ratio 2.0 and 2.5k early at 4.0, against a
+    // wanted position of `p * ratio`.
+    //
+    // `FRAME / (2 * HOP_A)` is 2 with these constants and `lead_frames`
+    // is at least 3, so the index cannot underflow.
+    let centre_frame = lead_frames - FRAME / (2 * HOP_A);
+    let skip = (starts[centre_frame.min(frames - 1)] + FRAME / 2).min(out.len());
     out.drain(..skip);
 
     // Trim (or zero-extend) to the promised length. The overshoot is the
@@ -591,6 +624,76 @@ mod tests {
             0.0
         } else {
             peak / rms
+        }
+    }
+
+    /// Silence, then a steady tone from `onset` to the end. The edge is
+    /// something whose position can be *measured*, unlike a continuous
+    /// tone, and unlike a click it is material the vocoder is designed
+    /// for, so what is left over is the timing error and not the smear.
+    fn late_tone(sr: u32, len: usize, onset: usize) -> Vec<f32> {
+        (0..len)
+            .map(|n| {
+                if n < onset {
+                    0.0
+                } else {
+                    (2.0 * PI * 440.0 * (n - onset) as f32 / sr as f32).sin() * 0.8
+                }
+            })
+            .collect()
+    }
+
+    /// First short-window RMS to reach half the signal's plateau —
+    /// where the edge landed, to within the window.
+    fn onset_of(x: &[f32]) -> Option<usize> {
+        const W: usize = 256;
+        let env: Vec<f32> = x
+            .chunks(W)
+            .map(|c| (c.iter().map(|v| v * v).sum::<f32>() / c.len() as f32).sqrt())
+            .collect();
+        let peak = env.iter().cloned().fold(0.0f32, f32::max);
+        env.iter().position(|e| *e > peak * 0.5).map(|i| i * W)
+    }
+
+    /// Input sample `p` must come out at `p * ratio`.
+    ///
+    /// This is the contract the whole feature rests on — "same audio,
+    /// different clock" — and nothing pinned it. The lead-in trim was
+    /// computed from the frame holding input sample 0 at its left edge,
+    /// where the analysis window weight is zero, instead of the frame
+    /// holding it at its centre. The two agree only at ratio 1, which is
+    /// why every existing test missed it: the error is proportional to
+    /// `ratio - 1`.
+    ///
+    /// Measured before the fix, this same tone: 1.1k samples late at
+    /// ratio 0.25 and 1.8k early at 2.0 — 25 ms and 41 ms, far past
+    /// anything that could be called sample-accurate, and enough to pull
+    /// a stretched track off a grid it was meant to land on.
+    ///
+    /// Ratios stop at 2.0 deliberately. At 4.0 the synthesis hop equals
+    /// the frame and the overlap-add has no overlap left; timing there is
+    /// governed by a different problem than this one.
+    #[test]
+    fn a_feature_lands_where_the_ratio_says_it_should() {
+        let sr = 44_100u32;
+        // Half an analysis window. A frame-based method cannot place an
+        // edge closer than that, and the pre-fix error clears it at every
+        // ratio but 1.
+        let tolerance = (FRAME / 2) as f32;
+
+        for ratio in [0.25f32, 0.5, 0.8, 1.0, 1.5, 2.0] {
+            for onset in [sr as usize / 4, sr as usize / 2] {
+                let input = late_tone(sr, sr as usize, onset);
+                let out = stretch_mono(&input, ratio);
+                let got = onset_of(&out).expect("the tone is in there somewhere") as f32;
+                let want = onset as f32 * ratio;
+                assert!(
+                    (got - want).abs() <= tolerance,
+                    "at ratio {ratio} an onset at {onset} landed at {got}, \
+                     wanted {want} (off by {:.0} samples)",
+                    got - want
+                );
+            }
         }
     }
 
