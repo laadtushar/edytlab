@@ -229,6 +229,22 @@ function App() {
       } else if (e.key === "0" && !isTyping) {
         e.preventDefault();
         setZoomPxPerSec(0);
+      } else if (
+        (e.key === "e" || e.key === "E") &&
+        (e.metaKey || e.ctrlKey) &&
+        !isTyping
+      ) {
+        // Audacity's Ctrl+E. Frames the selection rather than leaving
+        // the user to zoom and then hunt for it.
+        e.preventDefault();
+        t.zoomToSelection();
+      } else if (
+        (e.key === "f" || e.key === "F") &&
+        (e.metaKey || e.ctrlKey) &&
+        !isTyping
+      ) {
+        e.preventDefault();
+        t.fitToWindow();
       }
     };
     window.addEventListener("keydown", onKey);

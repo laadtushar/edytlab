@@ -18,6 +18,8 @@ const SHORTCUTS: Shortcut[] = [
   { keys: "+ / =", description: "Zoom in" },
   { keys: "-", description: "Zoom out" },
   { keys: "0", description: "Reset zoom" },
+  { keys: "Ctrl/Cmd + E", description: "Zoom to selection" },
+  { keys: "Ctrl/Cmd + F", description: "Fit to window" },
   { keys: "?", description: "Show this overlay" },
 ];
 
