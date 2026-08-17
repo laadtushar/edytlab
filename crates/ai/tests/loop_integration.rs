@@ -336,6 +336,7 @@ async fn agent_dispatches_normalize_and_emits_node_created() {
         engine.clone(),
         plan_notify,
         plan_steps_override,
+        Arc::new(std::sync::atomic::AtomicBool::new(false)),
         clipboard,
     );
 
@@ -374,10 +375,14 @@ async fn agent_dispatches_normalize_and_emits_node_created() {
                 assert!(saw_tool_end_ok);
                 saw_done = true;
             }
-            // Plan events are only emitted in mashup mode (which the
-            // integration test does not exercise — the mock server is
-            // not the classifier endpoint). Ignore here.
+            // Plan events need either mashup classification or
+            // plan_first, and this test exercises neither — the mock
+            // server is not the classifier endpoint. A rejection is
+            // likewise unreachable without a plan to reject.
             ai::AgentEvent::Plan { .. } => {}
+            ai::AgentEvent::PlanRejected => {
+                panic!("no plan was requested, so none can be rejected")
+            }
         }
     }
     assert!(saw_text && saw_tool_start && saw_node && saw_tool_end_ok && saw_done);
@@ -588,6 +593,7 @@ async fn agent_enforces_tool_call_cap() {
         engine,
         plan_notify,
         plan_steps_override,
+        Arc::new(std::sync::atomic::AtomicBool::new(false)),
         clipboard2,
     );
 

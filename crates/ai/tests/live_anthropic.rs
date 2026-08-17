@@ -80,6 +80,7 @@ async fn live_round_trip() {
         engine,
         plan_notify,
         plan_steps_override,
+        Arc::new(std::sync::atomic::AtomicBool::new(false)),
         clipboard,
     );
 

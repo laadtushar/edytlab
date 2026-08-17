@@ -74,6 +74,13 @@ pub struct AppState {
     /// by the agent loop immediately after `await_plan_approval` returns.
     /// `None` when the user approves without edits.
     pub plan_steps_override: Arc<Mutex<Option<String>>>,
+    /// Set by `reject_plan` before it fires `plan_notify`, so the agent
+    /// can tell a rejection from an approval on the same notifier.
+    pub plan_rejected: Arc<std::sync::atomic::AtomicBool>,
+    /// Whether the user asked to see a plan before every turn. Kept on
+    /// the state rather than in the agent so it survives an agent
+    /// rebuild — which happens on every key, model or base-URL change.
+    pub plan_first: Arc<std::sync::atomic::AtomicBool>,
     /// Current timeline selection, pushed from the frontend via
     /// `set_selection_context`. Read per-turn in `send_message` to build
     /// the `SessionContext` injected into the system prompt.
@@ -138,6 +145,8 @@ impl AppState {
             active_model_by_provider: Arc::new(Mutex::new(std::collections::HashMap::new())),
             plan_notify: Arc::new(tokio::sync::Notify::new()),
             plan_steps_override: Arc::new(Mutex::new(None)),
+            plan_rejected: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            plan_first: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             selection: Arc::new(Mutex::new(None)),
             clipboard: Arc::new(Mutex::new(None)),
             memory: Arc::new(Mutex::new(None)),

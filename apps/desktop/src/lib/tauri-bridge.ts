@@ -376,6 +376,20 @@ export const onAgentDone = (cb: () => void): Promise<UnlistenFn> =>
 export const approvePlan = (steps?: string[]): Promise<void> =>
   invoke<void>("approve_plan", { steps: steps && steps.length > 0 ? steps : null });
 
+/**
+ * Decline a plan. The waiting turn ends having run no tools and
+ * appended no node — previously the only exits were approving it or
+ * waiting out a five-minute timeout.
+ */
+export const rejectPlan = (): Promise<void> => invoke<void>("reject_plan");
+
+/** Ask for a plan before every turn, not only mashup-classified ones. */
+export const setPlanFirst = (enabled: boolean): Promise<void> =>
+  invoke<void>("set_plan_first", { enabled });
+
+export const getPlanFirst = (): Promise<boolean> =>
+  invoke<boolean>("get_plan_first");
+
 export const onPlan = (
   cb: (steps: Record<string, unknown>[]) => void,
 ): Promise<UnlistenFn> =>

@@ -23,11 +23,17 @@ const cbs = {
 };
 
 const approvePlanMock = vi.fn();
+const rejectPlanMock = vi.fn();
+const getPlanFirstMock = vi.fn();
+const setPlanFirstMock = vi.fn();
 const sendMessageMock = vi.fn();
 
 vi.mock("../../lib/tauri-bridge", () => ({
   sendMessage: (text: string) => sendMessageMock(text),
   approvePlan: (steps?: string[]) => approvePlanMock(steps),
+  rejectPlan: () => rejectPlanMock(),
+  getPlanFirst: () => getPlanFirstMock(),
+  setPlanFirst: (on: boolean) => setPlanFirstMock(on),
   onTextDelta: vi.fn((cb: (t: string) => void) => {
     cbs.textDelta.push(cb);
     return Promise.resolve(() => undefined);
@@ -69,6 +75,9 @@ const sampleSteps: Record<string, unknown>[] = [
 describe("PlanCard (inside Chat)", () => {
   beforeEach(() => {
     approvePlanMock.mockReset();
+    rejectPlanMock.mockReset().mockResolvedValue(undefined);
+    getPlanFirstMock.mockReset().mockResolvedValue(false);
+    setPlanFirstMock.mockReset().mockResolvedValue(undefined);
     approvePlanMock.mockResolvedValue(undefined);
     sendMessageMock.mockReset();
     sendMessageMock.mockResolvedValue(undefined);
@@ -277,4 +286,69 @@ describe("PlanCard (inside Chat)", () => {
 
     expect(screen.queryByTestId("plan-approval-card")).not.toBeInTheDocument();
   });
+
+  /**
+   * Before this, the only exits from the plan gate were approving it and
+   * waiting out a five-minute timeout — so a user who disliked the plan
+   * had no way to say so, and the gate read as a trap rather than a
+   * checkpoint.
+   */
+  it("Discard rejects the plan instead of running it", async () => {
+    const user = userEvent.setup();
+    render(<Chat />);
+    await act(async () => {
+      cbs.plan.forEach((cb) =>
+        cb([{ step: 1, tool: "reverb", description: "add reverb" }]),
+      );
+    });
+
+    await user.click(screen.getByTestId("plan-discard-button"));
+
+    expect(rejectPlanMock).toHaveBeenCalledTimes(1);
+    expect(approvePlanMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The gate exists but was reachable only when a classifier called the
+   * request a mashup, which from outside looked arbitrary. The toggle is
+   * what makes it a choice.
+   */
+  it("the plan toggle reflects the stored preference on mount", async () => {
+    getPlanFirstMock.mockResolvedValue(true);
+    render(<Chat />);
+    const toggle = await screen.findByTestId("plan-first-toggle");
+    await act(async () => {});
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("clicking the toggle persists the new state", async () => {
+    const user = userEvent.setup();
+    render(<Chat />);
+    const toggle = await screen.findByTestId("plan-first-toggle");
+    await act(async () => {});
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+
+    await user.click(toggle);
+
+    expect(setPlanFirstMock).toHaveBeenCalledWith(true);
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+  });
+
+  /**
+   * An optimistic toggle that keeps a state the backend refused would be
+   * lying about what the next turn will do.
+   */
+  it("a failed save puts the toggle back rather than lying", async () => {
+    setPlanFirstMock.mockRejectedValue(new Error("keychain locked"));
+    const user = userEvent.setup();
+    render(<Chat />);
+    const toggle = await screen.findByTestId("plan-first-toggle");
+    await act(async () => {});
+
+    await user.click(toggle);
+    await act(async () => {});
+
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+  });
+
 });
