@@ -125,7 +125,7 @@ export function CTA() {
             viewport={{ once: true }}
             transition={{ delay: 0.4, duration: 0.5 }}
           >
-            Unsigned dev builds · Mac (Apple Silicon) · Windows 10/11 · Linux
+            Unsigned dev builds · Mac (universal) · Windows 10/11 · Linux
           </motion.p>
         </FadeIn>
       </div>
