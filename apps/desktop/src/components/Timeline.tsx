@@ -109,6 +109,9 @@ export interface TimelineProps {
   /** Snap selection edges to zero crossings. Off is today's behaviour. */
   snapToZero?: boolean;
   onSnapToZeroChange?: (enabled: boolean) => void;
+  /** Waveform height multiplier; 1 is the real amplitude. */
+  verticalZoom?: number;
+  onVerticalZoomChange?: (factor: number) => void;
   loop?: boolean;
   onLoopChange?: (loop: boolean) => void;
   spectrogramEnabled?: boolean;
@@ -235,6 +238,11 @@ interface LaneProps {
    * them. Off by default, because off is the behaviour that existed.
    */
   snapToZero?: boolean;
+  /**
+   * Waveform height multiplier. 1 draws the samples at their real
+   * amplitude; higher magnifies quiet material without changing it.
+   */
+  verticalZoom?: number;
   /** Pixels per second zoom level. 0 = auto-fit. */
   zoom?: number;
   loop?: boolean;
@@ -261,6 +269,7 @@ function TrackLane({
   onDurationChange,
   sessionDuration,
   snapToZero,
+  verticalZoom,
   zoom,
   loop,
 }: LaneProps) {
@@ -328,6 +337,23 @@ function TrackLane({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /**
+   * Magnify the drawn waveform.
+   *
+   * `normalize` has to come off above 1x. Normalising scales each
+   * lane's peak to full height, which is pleasant to look at and hides
+   * exactly what this control exists to show: normalised, a -40 dBFS
+   * passage and a hot one are drawn the same, so magnifying one
+   * magnifies nothing. At 1x it stays on, because that is how the lanes
+   * have always looked.
+   */
+  useEffect(() => {
+    const ws = wsRef.current;
+    if (!ws) return;
+    const factor = verticalZoom && verticalZoom > 0 ? verticalZoom : 1;
+    ws.setOptions({ barHeight: factor, normalize: factor <= 1 });
+  }, [verticalZoom]);
 
   // Reload when audioPath changes.
   useEffect(() => {
@@ -696,6 +722,14 @@ function TrackLane({
 const MIN_ZOOM_PX_PER_SEC = 1;
 const MAX_ZOOM_PX_PER_SEC = 2000;
 
+/**
+ * Vertical zoom bounds. 64x lifts a -36 dBFS passage to full height,
+ * which covers the noise floors and fade tails this exists for; past
+ * that the drawing is all clipping and no information.
+ */
+const MIN_VERTICAL_ZOOM = 1;
+const MAX_VERTICAL_ZOOM = 64;
+
 function pxToSeconds(px: number, totalPx: number, durationSec: number): number {
   if (totalPx <= 0) return 0;
   return clamp((px / totalPx) * durationSec, 0, durationSec);
@@ -726,6 +760,8 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
       onZoomChange,
       snapToZero,
       onSnapToZeroChange,
+      verticalZoom,
+      onVerticalZoomChange,
       loop,
       onLoopChange,
       spectrogramEnabled,
@@ -988,6 +1024,42 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
             </button>
             <button
               type="button"
+              data-testid="vzoom-out-btn"
+              onClick={() =>
+                onVerticalZoomChange?.(
+                  clamp(
+                    (verticalZoom ?? 1) / 2,
+                    MIN_VERTICAL_ZOOM,
+                    MAX_VERTICAL_ZOOM,
+                  ),
+                )
+              }
+              disabled={(verticalZoom ?? 1) <= MIN_VERTICAL_ZOOM}
+              className="text-xs px-1.5 py-1 rounded border border-neutral-600 text-neutral-400 hover:border-neutral-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Shrink the waveform vertically"
+            >
+              ↕−
+            </button>
+            <button
+              type="button"
+              data-testid="vzoom-in-btn"
+              onClick={() =>
+                onVerticalZoomChange?.(
+                  clamp(
+                    (verticalZoom ?? 1) * 2,
+                    MIN_VERTICAL_ZOOM,
+                    MAX_VERTICAL_ZOOM,
+                  ),
+                )
+              }
+              disabled={(verticalZoom ?? 1) >= MAX_VERTICAL_ZOOM}
+              className="text-xs px-1.5 py-1 rounded border border-neutral-600 text-neutral-400 hover:border-neutral-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Magnify the waveform vertically — makes a quiet passage readable"
+            >
+              ↕+
+            </button>
+            <button
+              type="button"
               data-testid="zoom-to-selection-btn"
               onClick={zoomToSelection}
               disabled={!selection}
@@ -1098,6 +1170,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
                 onDurationChange={idx === 0 ? setHeadLaneDuration : undefined}
                 sessionDuration={timelineDuration}
                 snapToZero={snapToZero}
+                verticalZoom={verticalZoom}
                 zoom={zoom}
                 loop={idx === 0 ? loop : undefined}
               />

@@ -134,6 +134,9 @@ function App() {
   // Off by default: snapping changes where an edit lands, and the
   // behaviour that existed is the one a user is not surprised by.
   const [snapToZero, setSnapToZero] = useState(false);
+  // 1 = the samples at their real amplitude, which is where the lanes
+  // have always been.
+  const [verticalZoom, setVerticalZoom] = useState(1);
   const [templates, setTemplates] = useState<TemplateInfo[]>([]);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -692,6 +695,8 @@ function App() {
                   onZoomChange={setZoomPxPerSec}
                   snapToZero={snapToZero}
                   onSnapToZeroChange={setSnapToZero}
+                  verticalZoom={verticalZoom}
+                  onVerticalZoomChange={setVerticalZoom}
                   loop={loopActive}
                   onLoopChange={setLoopActive}
                   spectrogramEnabled={spectrogramEnabled}
