@@ -93,7 +93,23 @@ function isApiKeyError(message: string): boolean {
 
 function App() {
   const { renderHead, head, setHeadLocal } = useSession();
-  const [audioPath, setAudioPath] = useState<string | null>(null);
+  // Two different things used to share one variable, and the collision
+  // is why the mixer is inaudible (#155).
+  //
+  // `sourcePath` is a *source* file — what the user opened, or a track's
+  // own flattened WAV. It has no mixer state applied and is only ever
+  // right for drawing a lane or naming the session in the status bar.
+  //
+  // `mixPath` is the output of `render_preview` for a specific node: the
+  // mix, with gain, pan, mute, solo, chains, sends and the master chain
+  // in it. It is the only thing that should ever be *played*.
+  //
+  // Merged, `onNodeCreated` overwrote the mix with a raw track path after
+  // every agent turn, so the mix was correct for about one render and
+  // then quietly was not.
+  const [sourcePath, setSourcePath] = useState<string | null>(null);
+  const [mixPath, setMixPath] = useState<string | null>(null);
+  const [mixNodeId, setMixNodeId] = useState<string | null>(null);
   const [rendering, setRendering] = useState(false);
   const [renderError, setRenderError] = useState<string | null>(null);
   const [leftView, setLeftView] = useState<LeftView>("timeline");
@@ -256,7 +272,7 @@ function App() {
   // toolbar Open button, the native File > Open menu, and OS-level
   // drag-and-drop.
   const handleFileSelected = useCallback((path: string) => {
-    void loadAudio(path, setAudioPath, (err) => setRenderError(err));
+    void loadAudio(path, setSourcePath, (err) => setRenderError(err));
   }, []);
 
   const handleOpenDialog = useCallback(async () => {
@@ -270,7 +286,7 @@ function App() {
         return;
       }
       // Multiple files — call batch_load then refresh track list.
-      setAudioPath(paths[0]);
+      setSourcePath(paths[0]);
       try {
         await batchLoad(paths);
         const newTracks = await listTracks();
@@ -440,8 +456,14 @@ function App() {
       setGraphRefresh((n) => n + 1);
       const newTracks = await listTracks();
       setTracks(newTracks);
+      // A track's own audio, for the lane and the status bar. It is
+      // NOT the mix, so it must not touch `mixPath` — doing so is what
+      // made every edit fall back to unmixed audio.
       const firstPath = newTracks[0]?.audio_path;
-      if (firstPath) setAudioPath(firstPath);
+      if (firstPath) setSourcePath(firstPath);
+      // The session moved, so any previously rendered mix is stale.
+      setMixPath(null);
+      setMixNodeId(null);
     }).then((fn) => {
       if (cancelled) fn();
       else unlisten = fn;
@@ -505,7 +527,8 @@ function App() {
     setRenderError(null);
     try {
       const path = await renderHead();
-      setAudioPath(path);
+      setMixPath(path);
+      setMixNodeId(head);
     } catch (err) {
       setRenderError(String(err));
     } finally {
@@ -520,7 +543,8 @@ function App() {
       setRenderError(null);
       try {
         const path = await bridgeRenderPreview(nodeId);
-        setAudioPath(path);
+        setMixPath(path);
+        setMixNodeId(nodeId);
       } catch (err) {
         setRenderError(String(err));
       } finally {
@@ -586,7 +610,7 @@ function App() {
             <ABCompareBar
               aNodeId={compareMode.a}
               bNodeId={compareMode.b}
-              onAudioPathChange={setAudioPath}
+              onAudioPathChange={setMixPath}
               onAcceptB={handleAcceptB}
               onClose={() => setCompareMode(null)}
             />
@@ -594,10 +618,10 @@ function App() {
 
           <div className="flex-1 min-h-0 overflow-hidden">
             {leftView === "timeline" ? (
-              audioPath ? (
+              sourcePath ? (
                 <Timeline
                   ref={timelineRef}
-                  audioPath={audioPath}
+                  audioPath={sourcePath}
                   tracks={tracks
                     // `index` is captured before the filter: a track
                     // with no audio is not drawn but still occupies a
@@ -666,10 +690,11 @@ function App() {
       </div>
 
       <StatusBar
-        audioPath={audioPath}
+        audioPath={sourcePath}
         head={head}
         rendering={rendering}
         selection={selection}
+        mixStale={mixPath !== null && mixNodeId !== head}
       />
 
       {showBlocking ? (
@@ -901,9 +926,22 @@ interface StatusBarProps {
   head: string | null;
   rendering: boolean;
   selection: Selection | null;
+  /**
+   * True when a mix has been rendered but the session has moved on since.
+   * Without this there is no way to tell whether what you would hear
+   * matches what you are looking at — the preview is named after the node
+   * it came from, so a stale one is indistinguishable from a current one.
+   */
+  mixStale?: boolean;
 }
 
-function StatusBar({ audioPath, head, rendering, selection }: StatusBarProps) {
+export function StatusBar({
+  audioPath,
+  head,
+  rendering,
+  selection,
+  mixStale,
+}: StatusBarProps) {
   const fileLabel = audioPath ? trimPath(audioPath) : "no file loaded";
   const headLabel = head ? `head ${head.slice(0, 7)}` : "no head";
   return (
@@ -931,6 +969,18 @@ function StatusBar({ audioPath, head, rendering, selection }: StatusBarProps) {
         />
         {rendering ? "rendering…" : audioPath ? "ready" : "idle"}
       </span>
+      {mixStale ? (
+        <>
+          <span className="text-[var(--text-faint)]/80">·</span>
+          <span
+            data-testid="status-bar-mix-stale"
+            className="text-[var(--warning)]"
+            title="The session has changed since the last preview render"
+          >
+            preview out of date
+          </span>
+        </>
+      ) : null}
       <span className="text-[var(--text-faint)]/80">·</span>
       <span data-testid="status-bar-file" title={audioPath ?? undefined}>
         {fileLabel}
