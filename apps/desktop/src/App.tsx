@@ -131,6 +131,9 @@ function App() {
   const [exporting, setExporting] = useState(false);
   const [loopActive, setLoopActive] = useState(false);
   const [spectrogramEnabled, setSpectrogramEnabled] = useState(false);
+  // Off by default: snapping changes where an edit lands, and the
+  // behaviour that existed is the one a user is not surprised by.
+  const [snapToZero, setSnapToZero] = useState(false);
   const [templates, setTemplates] = useState<TemplateInfo[]>([]);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -687,6 +690,8 @@ function App() {
                   onSeekToMarker={handleSeekToMarker}
                   zoom={zoomPxPerSec}
                   onZoomChange={setZoomPxPerSec}
+                  snapToZero={snapToZero}
+                  onSnapToZeroChange={setSnapToZero}
                   loop={loopActive}
                   onLoopChange={setLoopActive}
                   spectrogramEnabled={spectrogramEnabled}
