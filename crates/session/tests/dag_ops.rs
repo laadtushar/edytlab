@@ -64,6 +64,7 @@ fn append(store: &mut Store, state: SessionState, label: &str) -> NodeId {
         label: Some(label.into()),
         reasoning: None,
         state,
+        op: None,
     };
     store.append(node).unwrap()
 }

@@ -1976,6 +1976,7 @@ pub async fn apply_template(
             label: Some(format!("Template: {name}")),
             reasoning: None,
             state: session_state,
+            op: None,
         };
         let new_id = store.append(node).map_err(|e| e.to_string())?;
         return Ok(new_id.to_hex());
@@ -3355,6 +3356,7 @@ mod tests {
                     label: Some("test".into()),
                     reasoning: None,
                     state: empty_session_state(),
+                    op: None,
                 })
                 .unwrap()
         };
@@ -3401,6 +3403,7 @@ mod tests {
                 label: Some("fixture".into()),
                 reasoning: None,
                 state: session_state,
+                op: None,
             })
             .unwrap();
         drop(store);
@@ -3541,6 +3544,7 @@ mod tests {
                 label: Some("clip fixture".into()),
                 reasoning: None,
                 state: session_state,
+                op: None,
             })
             .unwrap();
         drop(store);

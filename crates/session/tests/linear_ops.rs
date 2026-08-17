@@ -28,6 +28,7 @@ fn make_node(length_samples: u64) -> SessionNode {
             length_samples,
             annotations: Vec::new(),
         },
+        op: None,
     }
 }
 

@@ -43,6 +43,7 @@ fn main() {
             label: Some(format!("crash_writer iter {i}")),
             reasoning: None,
             state,
+            op: None,
         };
         store.append(node).expect("append");
     }

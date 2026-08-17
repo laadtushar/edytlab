@@ -92,6 +92,7 @@ fn fixture() -> SessionNode {
         label: Some("seed".into()),
         reasoning: Some("initial fixture for snapshot test".into()),
         state,
+        op: None,
     }
 }
 
