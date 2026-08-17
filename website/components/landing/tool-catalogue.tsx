@@ -3,7 +3,7 @@
 /**
  * What the agent can actually call.
  *
- * "81 tools" is a number nobody believes and nobody can check. Naming
+ * "83 tools" is a number nobody believes and nobody can check. Naming
  * them is the difference between a claim and a fact, and it doubles as
  * the honest answer to "can it do X?" — if X is not on this list, it
  * cannot.
@@ -131,7 +131,7 @@ export function ToolCatalogue() {
             The toolbox
           </p>
           <h2 className="mt-3 text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
-            81 tools the agent can reach for.
+            83 tools the agent can reach for.
           </h2>
           <p className="mt-4 text-pretty text-lg text-muted-foreground">
             Named, not counted. Ask in plain language and the agent picks — but

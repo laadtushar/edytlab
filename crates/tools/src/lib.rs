@@ -26,6 +26,7 @@
 pub mod dispatcher;
 pub mod preview_cache;
 pub mod provenance;
+pub mod recipe;
 pub mod schema;
 pub mod tool;
 pub mod util;
@@ -33,6 +34,7 @@ pub mod util;
 pub use dispatcher::{Tool, ToolContext, ToolDispatcher, READS_OUTSIDE_THE_SESSION};
 pub use preview_cache::{Hit as PreviewHit, PreviewCache};
 pub use provenance::{verify_chain, Problem};
+pub use recipe::{Recipe, RecipeStep};
 pub use util::range_resolver::{resolve as resolve_range, Range, RangeError};
 
 /// Materialise a multi-clip track as a single WAV, for callers outside
