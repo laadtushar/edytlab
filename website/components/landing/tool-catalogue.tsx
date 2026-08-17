@@ -3,15 +3,15 @@
 /**
  * What the agent can actually call.
  *
- * "75 tools" is a number nobody believes and nobody can check. Naming
+ * "81 tools" is a number nobody believes and nobody can check. Naming
  * them is the difference between a claim and a fact, and it doubles as
  * the honest answer to "can it do X?" — if X is not on this list, it
  * cannot.
  *
- * Kept in step with `crates/tools/src/dispatcher.rs`. The repo has a
- * test (`tool_badge_labels.rs`) that fails when the desktop app's label
- * map drifts from the registry; this page has no such guard, so treat
- * the dispatcher as the source of truth when editing.
+ * Kept in step with `crates/tools/src/dispatcher.rs`, and guarded:
+ * `website_tool_docs.rs` fails if this list names a tool the agent
+ * cannot call, and if any page on the site quotes a count the registry
+ * disagrees with. Treat the dispatcher as the source of truth.
  */
 
 import { motion } from "framer-motion";

@@ -42,6 +42,53 @@ fn read_website(relative: &str) -> String {
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
 }
 
+/// Every text file on the marketing site, as (relative path, contents).
+///
+/// Walked rather than listed: a claim on a page nobody thought to name
+/// is exactly the failure this file exists to prevent.
+fn website_sources() -> Vec<(String, String)> {
+    fn walk(dir: &std::path::Path, root: &std::path::Path, out: &mut Vec<(String, String)>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if path.is_dir() {
+                // Build output and dependencies are not authored copy.
+                if name == "node_modules" || name == ".next" || name == "public" {
+                    continue;
+                }
+                walk(&path, root, out);
+            } else if matches!(
+                path.extension().and_then(|e| e.to_str()),
+                Some("tsx" | "ts" | "md" | "mdx")
+            ) {
+                if let Ok(text) = std::fs::read_to_string(&path) {
+                    let rel = path
+                        .strip_prefix(root)
+                        .unwrap_or(&path)
+                        .to_string_lossy()
+                        .to_string();
+                    out.push((rel, text));
+                }
+            }
+        }
+    }
+
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../website");
+    let mut out = Vec::new();
+    walk(&root, &root, &mut out);
+    assert!(
+        !out.is_empty(),
+        "found no website sources under {} — the layout moved and these \
+         guards are now reading nothing",
+        root.display()
+    );
+    out
+}
+
 /// Every registered tool name, from the dispatcher itself.
 fn registered() -> BTreeSet<String> {
     ToolDispatcher::default_dispatcher()
@@ -150,22 +197,64 @@ fn the_landing_catalogue_invents_no_tools() {
     );
 }
 
-/// The headline count on the landing page has to be the real one.
+/// **Every** number the site quotes has to be the real one.
 ///
-/// "75 tools" is the claim the catalogue below it exists to substantiate;
-/// if the registry grows and the number does not, the page undersells,
-/// and if the registry shrinks it lies.
+/// This used to check two named files, and six stale claims lived
+/// happily outside them: four pages still said "69 tools" and the
+/// catalogue's own module comment said "75", while the registry had 81.
+/// A guard that names its files can only ever cover the files someone
+/// remembered to name.
+///
+/// So this scans the whole site instead. Any file that quotes a count is
+/// covered the moment it is written, including pages that do not exist
+/// yet — which is the only version of this test that stays true.
+///
+/// The changelog is exempt: its older entries describe what a past
+/// release shipped, and rewriting history to match today would be a
+/// different kind of lie.
 #[test]
-fn the_advertised_tool_count_matches_the_registry() {
+fn no_page_quotes_a_stale_tool_count() {
     let n = registered().len();
-    let catalogue = read_website("components/landing/tool-catalogue.tsx");
-    let stats = read_website("components/landing/stats-strip.tsx");
+    let mut wrong: Vec<String> = Vec::new();
+
+    for (rel, src) in website_sources() {
+        if rel.contains("changelog") {
+            continue;
+        }
+        for (i, _) in src.match_indices(" tools") {
+            // Walk back over the digits immediately before " tools".
+            let head = &src[..i];
+            let digits: String = head
+                .chars()
+                .rev()
+                .take_while(char::is_ascii_digit)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
+            if digits.is_empty() {
+                continue;
+            }
+            if digits != n.to_string() {
+                wrong.push(format!("{rel}: says \"{digits} tools\""));
+            }
+        }
+    }
 
     assert!(
-        catalogue.contains(&format!("{n} tools")),
-        "tool-catalogue.tsx does not say \"{n} tools\"; the registry has \
-         {n} registered tools and the heading has drifted"
+        wrong.is_empty(),
+        "the registry has {n} tools; these claims disagree and would ship \
+         as marketing copy that is simply false:\n  {}",
+        wrong.join("\n  ")
     );
+}
+
+/// The stats strip shows the count as a bare figure rather than as
+/// "N tools", so it needs its own check.
+#[test]
+fn the_stats_strip_shows_the_real_count() {
+    let n = registered().len();
+    let stats = read_website("components/landing/stats-strip.tsx");
     assert!(
         stats.contains(&format!("\"{n}\"")),
         "the stats strip does not show {n}; the registry has {n} \
