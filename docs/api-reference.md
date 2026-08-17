@@ -129,9 +129,30 @@ try {
 }
 ```
 
-### `testApiKeyFor(provider: ProviderId, key: string) → void`
+### `testApiKeyFor(provider, key, baseUrl?, model?) → ProbeReport`
 
-Same as `testApiKey` for a specific provider.
+Probe a specific provider. `baseUrl` and `model` are the values currently
+on screen, not the saved ones — the point of a test is to check settings
+before committing them.
+
+Two requests: one for reachability and credentials, one that offers the
+model a trivial tool and checks whether it calls it. Tool support is a
+property of the model, not the server, and every edit in edytlab is a
+tool call — so a model that connects but ignores tools is reported
+rather than passed.
+
+```typescript
+interface ProbeReport {
+  model: string;        // the model that was probed
+  toolsOk: boolean;     // did it call the tool it was offered?
+  detail: string | null; // what it said instead, when it did not
+}
+```
+
+**Throws:** the endpoint is unreachable or the key was rejected —
+`"<status> <body>"`, e.g. `"401 invalid x-api-key"`. A model that
+connects but cannot call tools resolves with `toolsOk: false` instead of
+throwing: the key is fine, the model is not.
 
 ---
 

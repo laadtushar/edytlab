@@ -351,12 +351,49 @@ pub async fn test_api_key(state: State<'_, AppState>, key: String) -> CmdResult<
     ai::validate::test_api_key_for(&provider_id, &key).await
 }
 
+/// Mirror of [`ai::validate::ProbeReport`] for the IPC boundary. Kept
+/// as its own struct so the TS bindings stay self-contained, in the
+/// same way [`ModelInfoDto`] does.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProbeReportDto {
+    pub model: String,
+    pub tools_ok: bool,
+    pub detail: Option<String>,
+}
+
+impl From<ai::validate::ProbeReport> for ProbeReportDto {
+    fn from(r: ai::validate::ProbeReport) -> Self {
+        Self {
+            model: r.model,
+            tools_ok: r.tools_ok,
+            detail: r.detail,
+        }
+    }
+}
+
 /// Probe an API key against `provider`'s endpoint. The Settings UI
 /// uses this when the user picks a provider — the test should be run
 /// against the chosen provider, not the currently-active one.
+///
+/// `base_url` and `model` are the values currently on screen. They are
+/// passed rather than read from the keychain because TEST exists to
+/// check settings *before* they are saved; probing the saved endpoint
+/// would report on a server the user is not about to use.
+///
+/// `Err` still means unreachable or rejected. `Ok` now distinguishes
+/// two states via `tools_ok`: a model that calls tools, and one that
+/// connects but will fail on the first edit.
 #[tauri::command]
-pub async fn test_api_key_for(provider: String, key: String) -> CmdResult<()> {
-    ai::validate::test_api_key_for(&provider, &key).await
+pub async fn test_api_key_for(
+    provider: String,
+    key: String,
+    base_url: Option<String>,
+    model: Option<String>,
+) -> CmdResult<ProbeReportDto> {
+    ai::validate::probe_provider_for(&provider, &key, base_url.as_deref(), model.as_deref())
+        .await
+        .map(ProbeReportDto::from)
 }
 
 // ---------------------------------------------------------------------------

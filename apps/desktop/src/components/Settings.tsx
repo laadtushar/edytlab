@@ -137,10 +137,17 @@ function readStoredModel(provider: ProviderId): string {
   return DEFAULT_MODEL_BY_PROVIDER[provider];
 }
 
+/**
+ * Three outcomes, not two. "Reachable" and "can edit" are different
+ * questions: tool support is a property of the model, and a local model
+ * without it connects, tests green, and then fails on the first edit —
+ * which is a confusing way to learn something we can say here.
+ */
 type TestState =
   | { kind: "idle" }
   | { kind: "running" }
   | { kind: "ok" }
+  | { kind: "no-tools"; model: string; detail: string | null }
   | { kind: "err"; message: string };
 
 export interface SettingsProps {
@@ -310,12 +317,23 @@ export function Settings({
     if (needsKey && !key.trim()) return;
     setTest({ kind: "running" });
     try {
-      await testApiKeyFor(provider, key);
-      setTest({ kind: "ok" });
+      // The typed values, not the saved ones — testing settings before
+      // committing them is what the button is for.
+      const report = await testApiKeyFor(
+        provider,
+        key,
+        baseUrl.trim() || undefined,
+        model.trim() || undefined,
+      );
+      setTest(
+        report.toolsOk
+          ? { kind: "ok" }
+          : { kind: "no-tools", model: report.model, detail: report.detail },
+      );
     } catch (err) {
       setTest({ kind: "err", message: String(err) });
     }
-  }, [key, needsKey, provider]);
+  }, [key, needsKey, provider, baseUrl, model]);
 
   const handleClear = useCallback(async () => {
     try {
@@ -665,8 +683,27 @@ export function Settings({
               data-testid="settings-test-ok"
               className="mb-3 rounded-md border border-[var(--success)]/35 bg-[var(--success)]/10 px-3 py-1.5 text-xs text-[var(--success)]"
             >
-              Key looks good.
+              Connected — this model can call tools.
             </p>
+          ) : null}
+          {test.kind === "no-tools" ? (
+            <div
+              data-testid="settings-test-no-tools"
+              role="alert"
+              className="mb-3 rounded-md border border-[var(--warning)]/40 bg-[var(--warning)]/10 px-3 py-1.5 text-xs text-[var(--warning)]"
+            >
+              <p>
+                Connected, but <span className="font-mono">{test.model}</span>{" "}
+                did not call the tool it was offered. Every edit in edytlab is a
+                tool call, so editing will not work with this model — pick one
+                that supports tool calling.
+              </p>
+              {test.detail ? (
+                <p className="mt-1 font-mono text-[10px] opacity-70">
+                  {test.detail}
+                </p>
+              ) : null}
+            </div>
           ) : null}
           {test.kind === "err" ? (
             <p

@@ -34,8 +34,12 @@ const setBaseUrlForMock = vi.fn();
 vi.mock("../lib/tauri-bridge", () => ({
   setApiKeyFor: (provider: string, key: string) =>
     setApiKeyForMock(provider, key),
-  testApiKeyFor: (provider: string, key: string) =>
-    testApiKeyForMock(provider, key),
+  testApiKeyFor: (
+    provider: string,
+    key: string,
+    baseUrl?: string,
+    model?: string,
+  ) => testApiKeyForMock(provider, key, baseUrl, model),
   setActiveProvider: (provider: string) => setActiveProviderMock(provider),
   setActiveModel: (provider: string, model: string) =>
     setActiveModelMock(provider, model),
@@ -53,7 +57,9 @@ import { Settings } from "../components/Settings";
 describe("Settings", () => {
   beforeEach(() => {
     setApiKeyForMock.mockReset().mockResolvedValue(undefined);
-    testApiKeyForMock.mockReset().mockResolvedValue(undefined);
+    testApiKeyForMock
+      .mockReset()
+      .mockResolvedValue({ model: "claude-sonnet-4-6", toolsOk: true, detail: null });
     clearApiKeyMock.mockReset().mockResolvedValue(undefined);
     setActiveProviderMock.mockReset().mockResolvedValue(undefined);
     setActiveModelMock.mockReset().mockResolvedValue(undefined);
@@ -150,7 +156,66 @@ describe("Settings", () => {
     await user.click(screen.getByTestId("settings-test-button"));
 
     expect(await screen.findByTestId("settings-test-ok")).toBeInTheDocument();
-    expect(testApiKeyForMock).toHaveBeenCalledWith("anthropic", "sk-ant-good");
+    expect(testApiKeyForMock).toHaveBeenCalledWith(
+      "anthropic",
+      "sk-ant-good",
+      undefined,
+      "claude-sonnet-4-6",
+    );
+  });
+
+  /**
+   * The middle state. A model that connects but ignores tools passes the
+   * old reachability test and then fails on the first edit — the panel
+   * has to say so, and say which model is at fault, rather than showing
+   * a green tick.
+   */
+  it("warns instead of confirming when the model cannot call tools", async () => {
+    testApiKeyForMock.mockResolvedValueOnce({
+      model: "gemma-2-9b",
+      toolsOk: false,
+      detail: "Sure, ok = true.",
+    });
+    const user = userEvent.setup();
+    render(<Settings mode="blocking" onSaved={vi.fn()} />);
+
+    await user.type(screen.getByTestId("settings-key-input"), "sk-ant-good");
+    await user.click(screen.getByTestId("settings-test-button"));
+
+    const warn = await screen.findByTestId("settings-test-no-tools");
+    expect(warn.textContent).toContain("gemma-2-9b");
+    expect(warn.textContent).toMatch(/editing will not work/i);
+    expect(warn.textContent).toContain("Sure, ok = true.");
+    expect(screen.queryByTestId("settings-test-ok")).toBeNull();
+    expect(screen.queryByTestId("settings-test-error")).toBeNull();
+  });
+
+  /**
+   * Test has to probe the endpoint that is on screen. It used to probe
+   * the provider's default, so testing a local server reported on a
+   * server the user was not about to use.
+   */
+  it("tests the typed base URL and model, not the saved ones", async () => {
+    const user = userEvent.setup();
+    render(<Settings mode="blocking" onSaved={vi.fn()} />);
+
+    await user.type(
+      screen.getByTestId("settings-base-url-input"),
+      "http://localhost:1234/v1",
+    );
+    await user.clear(screen.getByTestId("settings-model-input"));
+    await user.type(screen.getByTestId("settings-model-input"), "local-model");
+    await user.type(screen.getByTestId("settings-key-input"), "sk-ant-good");
+    await user.click(screen.getByTestId("settings-test-button"));
+
+    await waitFor(() =>
+      expect(testApiKeyForMock).toHaveBeenCalledWith(
+        "anthropic",
+        "sk-ant-good",
+        "http://localhost:1234/v1",
+        "local-model",
+      ),
+    );
   });
 
   it("renders Clear only in panel mode and triggers onCleared", async () => {
