@@ -9,9 +9,20 @@
  * users don't sit and wonder what to do.
  */
 
+import { RecentProjects } from "./RecentProjects";
+import type { RecentProject } from "../lib/tauri-bridge";
+
 interface EmptyStateProps {
   onOpen: () => void;
   onShowTemplates?: () => void;
+  /**
+   * Projects this machine has opened. Absent or empty hides the list
+   * entirely, which is what a first launch should look like — an empty
+   * "Recent" heading is worse than no heading.
+   */
+  recents?: RecentProject[];
+  onOpenRecent?: (path: string) => void;
+  onForgetRecent?: (path: string) => void;
 }
 
 /**
@@ -31,7 +42,13 @@ function modifierKey(): string {
   return /Mac|iPhone|iPad/i.test(platform) ? "\u2318" : "Ctrl";
 }
 
-export function EmptyState({ onOpen, onShowTemplates }: EmptyStateProps) {
+export function EmptyState({
+  onOpen,
+  onShowTemplates,
+  recents,
+  onOpenRecent,
+  onForgetRecent,
+}: EmptyStateProps) {
   return (
     <div
       data-testid="empty-state"
@@ -144,6 +161,14 @@ export function EmptyState({ onOpen, onShowTemplates }: EmptyStateProps) {
           </kbd>
         </span>
       </div>
+
+      {recents && recents.length > 0 && onOpenRecent && onForgetRecent ? (
+        <RecentProjects
+          projects={recents}
+          onOpen={onOpenRecent}
+          onForget={onForgetRecent}
+        />
+      ) : null}
 
       <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--text-faint)]">
         wav · mp3 · flac · ogg
