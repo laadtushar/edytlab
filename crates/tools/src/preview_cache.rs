@@ -77,10 +77,20 @@ pub struct PreviewCache {
 }
 
 impl PreviewCache {
-    /// Open (creating on demand) the cache for `project_dir`.
+    /// Open (creating on demand) the preview cache for `project_dir`.
     pub fn new(project_dir: &Path) -> Self {
+        Self::in_dir(project_dir, CACHE_DIR)
+    }
+
+    /// A cache of the same shape under a different name.
+    ///
+    /// Auditions (#166) use this: they are renders keyed by content
+    /// like previews are, and want the same bounded LRU behaviour, but
+    /// they are excerpts rather than whole mixes and must never be
+    /// served in place of one.
+    pub fn in_dir(project_dir: &Path, subdir: &str) -> Self {
         Self {
-            dir: project_dir.join(session::STORE_DIR).join(CACHE_DIR),
+            dir: project_dir.join(session::STORE_DIR).join(subdir),
             cap_bytes: cap_from_env(),
         }
     }

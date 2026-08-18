@@ -766,6 +766,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "analyze_track",
             "apply_diff",
             "apply_recipe",
+            "audition_effect",
             "change_speed",
             "click_removal",
             "compare_nodes",
