@@ -84,6 +84,7 @@ const TOOL_LABELS: Record<string, string> = {
   remove_clip: "Remove clip",
   insert_silence: "Insert silence",
   silence_region: "Silence region",
+  punch_in: "Punch in",
   repeat_selection: "Repeat selection",
   time_shift: "Shift in time",
   truncate_silence: "Truncate silence",

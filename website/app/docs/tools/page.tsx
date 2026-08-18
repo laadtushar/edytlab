@@ -98,6 +98,13 @@ const groups = [
         note: "Each affected edit is still one undoable node covering every track it moved, so undo restores the whole edit rather than half of it. The mode is part of the session, so it survives Save As and the agent can read it before deciding whether a cut is safe.",
       },
       {
+        name: "punch_in",
+        prompt: "replace 1:20 to 1:35 with the retake I just recorded",
+        what: "Replace a region of a track with audio from a file, in place. The region's length does not change, so everything after the punch stays exactly where it was — this is how a misread line gets fixed without re-recording the whole take or shifting the rest of the session out of sync.",
+        output: "node_id, region_sec, take_sec, trimmed_sec, padded_sec",
+        note: "A take longer than the region is trimmed and a shorter one is padded with silence, and the tool says which happened. It never stretches the performance and never ripples the timeline — rippling is exactly what punching in exists to avoid.",
+      },
+      {
         name: "copy_region",
         prompt: 'copy the section from 0:30 to 1:00',
         what: "Copy a time region to the clipboard, and persist it as a content-addressed blob so a later paste can be replayed rather than merely kept.",
@@ -635,7 +642,7 @@ export default function ToolsPage() {
   return (
     <DocShell
       title="Audio Tools Reference"
-      description="All 89 tools the AI agent can call to edit your audio session."
+      description="All 90 tools the AI agent can call to edit your audio session."
     >
       <p>
         Tools are deterministic functions the agent calls to manipulate your
