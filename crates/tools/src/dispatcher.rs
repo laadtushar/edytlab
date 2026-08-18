@@ -86,21 +86,21 @@ impl ToolDispatcher {
             AddEffectTool, AddTrackTool, AlignToBeatTool, AnalyzeTrackTool, ApplyDiffTool,
             ApplyRecipeTool, AuditionEffectTool, BatchApplyTool, ChangeSpeedTool, ClickRemovalTool,
             CompareNodesTool, CompressorTool, CopyRegionTool, CreateBusTool, CutRangeTool,
-            CutWordsTool, DeEsserTool, DistortionTool, DuplicateTrackTool, EchoTool, EqTool,
-            ExportLabelsTool, ExportMultipleTool, ExportRecipeTool, FadeTool, ForkNodeTool,
-            GainTool, GenerateNoiseTool, GenerateToneTool, HighPassFilterTool, ImportLabelsTool,
-            InsertSilenceTool, InvertTool, LabelTool, LevelerTool, LimiterTool, LoadTool,
-            LowPassFilterTool, MixToNewTrackTool, MonoToStereoTool, MoveClipTool, MuteTrackTool,
-            NameNodeTool, NoiseGateTool, NoiseReductionTool, NormalizeLoudnessTool, NormalizeTool,
-            NotchFilterTool, PasteRegionTool, PhaserTool, PitchShiftTool, PlotSpectrumTool,
-            RemoveClipTool, RemoveEffectTool, RemoveFillersTool, RemoveSendTool, RemoveTrackTool,
-            RenameTrackTool, RenderFinalTool, RenderPreviewTool, ReorderEffectsTool,
-            RepeatSelectionTool, ResampleTrackTool, ReverbTool, ReverseTool, RevertToTool,
-            SeparateStemsTool, SetClipEnvelopeTool, SetEffectBypassedTool, SetEffectParamsTool,
-            SetPanTool, SetSendTool, SetSyncLockTool, SetTrackGainTool, SilenceFinderTool,
-            SilenceRegionTool, SoloTrackTool, SplitClipTool, StereoToMonoTool, StereoWidenerTool,
-            StorageReportTool, TimeShiftTool, TimeStretchTool, TranscribeTool, TremoloTool,
-            TrimTool, TruncateSilenceTool, VocalReductionTool,
+            CutWordsTool, DeEsserTool, DistortionTool, DuckUnderSpeechTool, DuplicateTrackTool,
+            EchoTool, EqTool, ExportLabelsTool, ExportMultipleTool, ExportRecipeTool, FadeTool,
+            ForkNodeTool, GainTool, GenerateNoiseTool, GenerateToneTool, HighPassFilterTool,
+            ImportLabelsTool, InsertSilenceTool, InvertTool, LabelTool, LevelerTool, LimiterTool,
+            LoadTool, LowPassFilterTool, MixToNewTrackTool, MonoToStereoTool, MoveClipTool,
+            MuteTrackTool, NameNodeTool, NoiseGateTool, NoiseReductionTool, NormalizeLoudnessTool,
+            NormalizeTool, NotchFilterTool, PasteRegionTool, PhaserTool, PitchShiftTool,
+            PlotSpectrumTool, RemoveClipTool, RemoveEffectTool, RemoveFillersTool, RemoveSendTool,
+            RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
+            ReorderEffectsTool, RepeatSelectionTool, ResampleTrackTool, ReverbTool, ReverseTool,
+            RevertToTool, SeparateStemsTool, SetClipEnvelopeTool, SetEffectBypassedTool,
+            SetEffectParamsTool, SetPanTool, SetSendTool, SetSyncLockTool, SetTrackGainTool,
+            SilenceFinderTool, SilenceRegionTool, SoloTrackTool, SplitClipTool, StereoToMonoTool,
+            StereoWidenerTool, StorageReportTool, TimeShiftTool, TimeStretchTool, TranscribeTool,
+            TremoloTool, TrimTool, TruncateSilenceTool, VocalReductionTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -189,6 +189,8 @@ impl ToolDispatcher {
         d.register(Box::new(CutWordsTool));
         // #165: the most-performed edit in podcast production.
         d.register(Box::new(RemoveFillersTool));
+        // #168: music under voice, keyed on words rather than level.
+        d.register(Box::new(DuckUnderSpeechTool));
         d.register(Box::new(AddEffectTool));
         d.register(Box::new(RemoveEffectTool));
         d.register(Box::new(ReorderEffectsTool));

@@ -89,6 +89,7 @@ const TOOL_LABELS: Record<string, string> = {
   truncate_silence: "Truncate silence",
   set_clip_envelope: "Volume envelope",
   set_sync_lock: "Sync-lock",
+  duck_under_speech: "Duck under speech",
   align_to_beat: "Align to beat",
 
   // Level

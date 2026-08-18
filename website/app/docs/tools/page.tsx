@@ -224,6 +224,13 @@ const groups = [
         output: "node_id",
       },
       {
+        name: "duck_under_speech",
+        prompt: "duck the music under the voiceover",
+        what: "Drop a music track under the speech and bring it back in the gaps, keyed on the transcript rather than on level. A sidechain compressor keys on level, so a breath triggers it and a quiet line escapes it; the transcript says where the words actually are. It also ducks slightly before each line starts, which a level trigger cannot do — it only knows a line began after it has.",
+        output: "node_id, passages, ducks",
+        note: "The result is an ordinary volume-automation curve on the music clip, so it is visible in the automation lane and draggable if a duck lands wrong. Short pauses inside a sentence do not un-duck: bringing the music up for a comma is a pump, not an edit.",
+      },
+      {
         name: "limiter",
         prompt: "limit track 1 to -1 dBFS",
         what: "Brick-wall limiter: hard-clip any samples exceeding ceiling_db. Prevents digital clipping.",
@@ -628,7 +635,7 @@ export default function ToolsPage() {
   return (
     <DocShell
       title="Audio Tools Reference"
-      description="All 88 tools the AI agent can call to edit your audio session."
+      description="All 89 tools the AI agent can call to edit your audio session."
     >
       <p>
         Tools are deterministic functions the agent calls to manipulate your
