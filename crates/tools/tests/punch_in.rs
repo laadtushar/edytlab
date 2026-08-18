@@ -230,6 +230,43 @@ fn a_take_at_the_wrong_sample_rate_is_refused() {
     assert!(msg.contains("resample"), "and says what to do: {msg}");
 }
 
+/// The bug a channel mismatch causes is not subtle: the stride belongs
+/// to the buffer being written into, so a mono take spliced into a
+/// stereo track at the wrong stride lands at half the intended position
+/// and swaps the channels for the rest of the region. Refusing names
+/// something the user can fix.
+#[test]
+fn a_take_with_the_wrong_channel_count_is_refused() {
+    let mut s = Session::new();
+    let path = s.dir.path().join("stereo.wav");
+    let spec = WavSpec {
+        channels: 2,
+        sample_rate: SR,
+        bits_per_sample: 16,
+        sample_format: SampleFormat::Int,
+    };
+    let mut w = WavWriter::create(&path, spec).unwrap();
+    for _ in 0..(SR as usize) {
+        w.write_sample(1000i16).unwrap();
+        w.write_sample(1000i16).unwrap();
+    }
+    w.finalize().unwrap();
+
+    let msg = err(s.call(
+        "punch_in",
+        json!({
+            "track": 0,
+            "start_sec": 1.0,
+            "end_sec": 2.0,
+            "take_path": path.to_string_lossy(),
+        }),
+    ));
+    assert!(
+        msg.contains("2-channel") && msg.contains("1-channel"),
+        "it should name both layouts: {msg}"
+    );
+}
+
 /// A missing file is a typo, not a crash.
 #[test]
 fn a_missing_take_says_so() {

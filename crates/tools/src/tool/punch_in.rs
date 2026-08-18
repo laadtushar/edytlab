@@ -23,7 +23,7 @@ use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
-    check_seconds_order, check_track_index, destructive_edit, load_head_state,
+    check_seconds_order, check_track_index, destructive_edit, load_head_state, track_channels,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -142,29 +142,41 @@ impl Tool for PunchInTool {
             )));
         }
 
+        // The stride belongs to the buffer being written into, not to
+        // the take. Getting this from the take is how a mono retake
+        // spliced into a stereo track lands at half the intended
+        // position and swaps the channels for the rest of the region.
+        let track_ch = match track_channels(ctx, args.track) {
+            Ok(c) => c,
+            Err(msg) => return Ok(ToolResult::Error(msg)),
+        };
+
+        // And a take whose interleaving differs from the track's cannot
+        // be spliced in at any stride — the samples themselves are laid
+        // out differently. Refusing names something the user can fix;
+        // guessing produces audio they have to catch by ear.
+        if take.channels.max(1) as usize != track_ch {
+            return Ok(ToolResult::Error(format!(
+                "the take is {}-channel but track {} is {}-channel; convert it first — the two \
+                 interleave differently and splicing one into the other would scramble it",
+                take.channels.max(1),
+                args.track,
+                track_ch,
+            )));
+        }
+
         let take_sec = take.samples.len() as f64
             / (take.sample_rate.max(1) as f64 * take.channels.max(1) as f64);
         let region_sec = end_sec - start_sec;
         let take_samples = take.samples.clone();
-        let take_channels = take.channels;
 
-        let mut punched = 0usize;
         let mut padded = 0usize;
         let result = destructive_edit(
             ctx,
             args.track,
             |samples, sr| {
-                // The track's own channel count wins: the region is being
-                // replaced inside an existing interleaved buffer, and a
-                // mono take spliced into a stereo track at stereo stride
-                // would swap the channels for the rest of the region.
-                let ch = if take_channels as usize == 0 {
-                    1
-                } else {
-                    take_channels as usize
-                };
-                let (u, p) = apply_punch(samples, &take_samples, sr, ch, start_sec, end_sec);
-                punched = u;
+                let (_used, p) =
+                    apply_punch(samples, &take_samples, sr, track_ch, start_sec, end_sec);
                 padded = p;
             },
             format!(
