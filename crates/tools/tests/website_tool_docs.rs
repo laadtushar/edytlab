@@ -175,6 +175,59 @@ fn the_docs_reference_covers_every_registered_tool() {
     );
 }
 
+/// Tool names inside the scroll story's `const TOOLS = [...]`.
+///
+/// A separate reader from `names_in_tools_arrays` because the story
+/// holds a bare array rather than the catalogue's `tools: [...]` inside
+/// a group object. Matching on the shape each file actually has beats
+/// contorting one of them to suit a parser.
+fn names_in_story_tools(src: &str) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    let Some(i) = src.find("const TOOLS = [") else {
+        return out;
+    };
+    let rest = &src[i + "const TOOLS = [".len()..];
+    let end = rest.find(']').expect("`const TOOLS = [` is never closed");
+    for part in rest[..end].split('"').skip(1).step_by(2) {
+        if !part.is_empty()
+            && part
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        {
+            out.insert(part.to_owned());
+        }
+    }
+    out
+}
+
+/// The scroll story names the tools it shows running, and a name there
+/// is a promise like any other.
+///
+/// This exists because it already went wrong: the story shipped a chip
+/// reading `duck_under_speech` while that tool was still sitting in an
+/// unmerged branch. The catalogue guard below did not catch it — that
+/// one reads a single named file and this was a different file. Same
+/// failure the count walk was widened to prevent, one surface over.
+#[test]
+fn the_scroll_story_invents_no_tools() {
+    let registered = registered();
+    let listed = names_in_story_tools(&read_website("components/story/scroll-story.tsx"));
+
+    assert!(
+        !listed.is_empty(),
+        "found no tool names in scroll-story.tsx — the `const TOOLS = [...]` \
+         shape changed and this test is no longer reading anything"
+    );
+
+    let invented: Vec<_> = listed.difference(&registered).cloned().collect();
+    assert!(
+        invented.is_empty(),
+        "the scroll story shows {} tool(s) running that the agent cannot \
+         call: {invented:?}",
+        invented.len()
+    );
+}
+
 /// The landing catalogue is a highlight reel: it may omit, but it may
 /// never invent. Its whole job is making the tool count checkable.
 #[test]

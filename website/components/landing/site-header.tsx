@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRef } from "react";
-import { Github } from "lucide-react";
+import { Download, Github } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { gsap, useGSAP, motionOk, NO_PREFERENCE, ScrollTrigger } from "@/lib/gsap";
@@ -92,12 +92,24 @@ export function SiteHeader() {
             </Link>
           ))}
         </nav>
-        <Button asChild size="sm" variant="outline">
-          <Link href={siteConfig.github} target="_blank" rel="noopener noreferrer">
-            <Github className="size-4" />
-            GitHub
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button asChild size="sm" variant="outline">
+            <Link href={siteConfig.github} target="_blank" rel="noopener noreferrer">
+              <Github className="size-4" />
+              GitHub
+            </Link>
+          </Button>
+          {/* The hero is a scroll-driven story now, so its download
+              buttons live in the final scene. This keeps the primary
+              action reachable from anywhere on the page rather than
+              only at the end of the sequence. */}
+          <Button asChild size="sm" className="hidden sm:inline-flex">
+            <Link href={siteConfig.releases}>
+              <Download className="size-4" />
+              Download
+            </Link>
+          </Button>
+        </div>
       </div>
     </header>
   );

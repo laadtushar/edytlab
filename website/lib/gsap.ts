@@ -16,9 +16,17 @@
 
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
+import { DrawSVGPlugin } from "gsap/DrawSVGPlugin";
+import { SplitText } from "gsap/SplitText";
 import { useGSAP } from "@gsap/react";
 
-gsap.registerPlugin(ScrollTrigger, useGSAP);
+// DrawSVG and SplitText were the paid "Club GreenSock" plugins until
+// GSAP 3.13 made the whole set free under the standard licence. They
+// ship inside the `gsap` package we already depend on — there is
+// nothing extra to install and nothing to pay for, which is worth
+// saying out loud because the internet is still full of posts
+// explaining how to work around not having them.
+gsap.registerPlugin(ScrollTrigger, DrawSVGPlugin, SplitText, useGSAP);
 
 // The house curve. `power3.out` starts fast and settles, which reads as
 // "the page is keeping up with you" rather than "the page is putting on
@@ -53,4 +61,4 @@ export function motionOk(): gsap.MatchMedia {
 /** The query the whole site uses, spelled once. */
 export const NO_PREFERENCE = "(prefers-reduced-motion: no-preference)";
 
-export { gsap, ScrollTrigger, useGSAP };
+export { gsap, ScrollTrigger, DrawSVGPlugin, SplitText, useGSAP };
