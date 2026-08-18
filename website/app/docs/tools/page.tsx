@@ -450,6 +450,13 @@ const groups = [
         note: "The audition includes gain, pan, mute, solo, sends and the master chain, so it sounds like the result will. Repeating settings you have already heard is instant.",
       },
       {
+        name: "batch_apply",
+        prompt: "run my podcast chain over every file in this folder",
+        what: "Run an exported edit chain across every audio file in a folder. Each file becomes its own project with its own history — a batch is not one giant session. Every file is attempted even if an earlier one fails, and the report says what succeeded, what refused, and why.",
+        output: "files, succeeded, refused, per-file results",
+        note: "A chain that cannot be replayed is refused once, up front — that is a property of the chain, not of the twelve files.",
+      },
+      {
         name: "storage_report",
         prompt: "how much disk is this session using?",
         what: "Report what the session costs on disk, split by category: audio the current version needs, audio only the undo history needs (and how much of that is rebuildable from recorded operations), audio nothing references at all, the bounded preview cache, and clipboard blobs. Every destructive edit writes a new file and none are deleted, so a long session grows without bound. Reads only — it deletes nothing.",
@@ -599,7 +606,7 @@ export default function ToolsPage() {
   return (
     <DocShell
       title="Audio Tools Reference"
-      description="All 84 tools the AI agent can call to edit your audio session."
+      description="All 85 tools the AI agent can call to edit your audio session."
     >
       <p>
         Tools are deterministic functions the agent calls to manipulate your

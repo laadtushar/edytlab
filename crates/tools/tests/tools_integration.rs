@@ -767,6 +767,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "apply_diff",
             "apply_recipe",
             "audition_effect",
+            "batch_apply",
             "change_speed",
             "click_removal",
             "compare_nodes",
