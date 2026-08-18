@@ -93,8 +93,8 @@ impl ToolDispatcher {
             LoadTool, LowPassFilterTool, MixToNewTrackTool, MonoToStereoTool, MoveClipTool,
             MuteTrackTool, NameNodeTool, NoiseGateTool, NoiseReductionTool, NormalizeLoudnessTool,
             NormalizeTool, NotchFilterTool, PasteRegionTool, PhaserTool, PitchShiftTool,
-            PlotSpectrumTool, RemoveClipTool, RemoveEffectTool, RemoveFillersTool, RemoveSendTool,
-            RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
+            PlotSpectrumTool, PunchInTool, RemoveClipTool, RemoveEffectTool, RemoveFillersTool,
+            RemoveSendTool, RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
             ReorderEffectsTool, RepeatSelectionTool, ResampleTrackTool, ReverbTool, ReverseTool,
             RevertToTool, SeparateStemsTool, SetClipEnvelopeTool, SetEffectBypassedTool,
             SetEffectParamsTool, SetPanTool, SetSendTool, SetSyncLockTool, SetTrackGainTool,
@@ -161,6 +161,8 @@ impl ToolDispatcher {
         d.register(Box::new(SilenceRegionTool));
         d.register(Box::new(InvertTool));
         d.register(Box::new(RepeatSelectionTool));
+        // #203: fix a misread line without redoing the take.
+        d.register(Box::new(PunchInTool));
         // A1 task 2: metadata mutation.
         d.register(Box::new(SetPanTool));
         d.register(Box::new(RenameTrackTool));

@@ -813,6 +813,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "phaser",
             "pitch_shift",
             "plot_spectrum",
+            "punch_in",
             "remove_clip",
             "remove_effect",
             "remove_fillers",

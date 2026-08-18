@@ -288,7 +288,7 @@ export default function GettingStartedPage() {
           feature
         </li>
         <li>
-          <a href="/docs/tools">Audio Tools Reference</a> — all 89 tools the
+          <a href="/docs/tools">Audio Tools Reference</a> — all 90 tools the
           agent can call
         </li>
         <li>
