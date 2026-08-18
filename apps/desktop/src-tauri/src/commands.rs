@@ -224,6 +224,40 @@ pub fn save_view_state(
     Ok(())
 }
 
+/// Copy the open project to `dest` and continue in the copy.
+///
+/// Save As, in the sense a DAW means it: the work carries on in the new
+/// place, and the original is left as it was at this moment. That is
+/// only honest because a project folder now contains its own audio
+/// (#156) — before the storage layout moved, a copy would have been a
+/// history pointing at files somewhere else.
+#[tauri::command]
+pub async fn save_project_as(
+    state: State<'_, AppState>,
+    dest: String,
+) -> CmdResult<crate::project::CopyReport> {
+    let src = current_project_dir(&state)?;
+    let dest_path = PathBuf::from(&dest);
+    if !dest_path.is_absolute() {
+        return Err(
+            CommandError::InvalidPath(format!("expected absolute path, got `{dest}`")).into(),
+        );
+    }
+    if dest_path == src {
+        return Err(
+            CommandError::InvalidPath("that is where the project already is".into()).into(),
+        );
+    }
+
+    let report = crate::project::copy_project(&src, &dest_path).map_err(CommandError::Io)?;
+
+    // Continue in the copy. Leaving the original open would make Save As
+    // a backup button, which is a different feature with a different
+    // name.
+    open_project_inner(&state, dest_path)?;
+    Ok(report)
+}
+
 /// Projects this machine has opened, most recent first.
 ///
 /// Entries whose folder is gone are dropped on read: a recents list

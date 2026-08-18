@@ -147,6 +147,77 @@ pub fn write_view(project_dir: &Path, view: &ViewState) -> std::io::Result<()> {
     std::fs::write(path, serde_json::to_string_pretty(view)?)
 }
 
+/// Copy a project to `dest`, and say how much was written.
+///
+/// Save As, now that a project folder actually contains its audio
+/// (#156). Before the storage layout moved, this could not have worked:
+/// derived files lived beside whichever source the user opened, so a
+/// copy of the project folder captured the history and none of the
+/// sound.
+///
+/// What travels:
+///
+/// * `project.json` — the copy is the same project, under a new name on
+///   disk. Renaming it is a separate verb and doing it here silently
+///   would be a surprise.
+/// * `.audiograph/nodes/`, `head`, `view.json` — the history and where
+///   you were in it.
+/// * `.audiograph/derived/` and `clipboard/` — the audio. Without these
+///   the copy is a list of edits pointing at nothing.
+///
+/// What does not: `.audiograph/previews/`. It is a cache keyed by node
+/// id, every entry re-derives byte-identically on demand, and it is the
+/// largest thing in the directory. Copying it would make Save As slow
+/// in exchange for nothing.
+pub fn copy_project(src: &Path, dest: &Path) -> std::io::Result<CopyReport> {
+    if dest.exists() && std::fs::read_dir(dest)?.next().is_some() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            format!("{} already exists and is not empty", dest.display()),
+        ));
+    }
+    let mut report = CopyReport::default();
+    copy_dir(src, dest, &mut report)?;
+    Ok(report)
+}
+
+/// What a copy moved, so the caller can say something true about it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct CopyReport {
+    pub files: usize,
+    pub bytes: u64,
+    /// Preview-cache files deliberately left behind.
+    pub skipped_previews: usize,
+}
+
+fn copy_dir(src: &Path, dest: &Path, report: &mut CopyReport) -> std::io::Result<()> {
+    std::fs::create_dir_all(dest)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let from = entry.path();
+        let name = entry.file_name();
+        let to = dest.join(&name);
+
+        if from.is_dir() {
+            // The preview cache is the one thing worth leaving: it is a
+            // cache, it is the biggest directory, and every entry
+            // rebuilds byte-identically from the node it is named for.
+            if name == std::ffi::OsStr::new(tools::preview_cache::CACHE_DIR) {
+                report.skipped_previews += std::fs::read_dir(&from)
+                    .map(|d| d.flatten().filter(|e| e.path().is_file()).count())
+                    .unwrap_or(0);
+                continue;
+            }
+            copy_dir(&from, &to, report)?;
+        } else if from.is_file() {
+            let bytes = std::fs::copy(&from, &to)?;
+            report.files += 1;
+            report.bytes += bytes;
+        }
+    }
+    Ok(())
+}
+
 /// Where the recents list lives — outside every project, since a list
 /// of projects cannot live inside one of them.
 pub fn recents_path(home: &Path) -> PathBuf {
@@ -310,6 +381,104 @@ mod tests {
         let list = forget_recent(home.path(), "/a").unwrap();
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].path, "/b");
+    }
+
+    /// Save As only works because a project contains its own audio
+    /// now. The copy has to carry the history *and* the sound.
+    #[test]
+    fn a_copy_takes_the_history_and_the_audio() {
+        let tmp = TempDir::new().unwrap();
+        let src = tmp.path().join("original");
+        let store = src.join(session::STORE_DIR);
+        std::fs::create_dir_all(store.join("nodes")).unwrap();
+        std::fs::create_dir_all(store.join("derived")).unwrap();
+        std::fs::create_dir_all(store.join("clipboard")).unwrap();
+        std::fs::create_dir_all(store.join(tools::preview_cache::CACHE_DIR)).unwrap();
+        std::fs::write(src.join(PROJECT_FILE), "{\"name\":\"Episode 12\"}").unwrap();
+        std::fs::write(store.join("head"), "abc").unwrap();
+        std::fs::write(store.join("nodes").join("a.json"), "{}").unwrap();
+        std::fs::write(store.join("derived").join("edit.wav"), vec![0u8; 2048]).unwrap();
+        std::fs::write(store.join("clipboard").join("c.wav"), vec![0u8; 512]).unwrap();
+        // Two cached previews, which must not travel.
+        std::fs::write(
+            store.join(tools::preview_cache::CACHE_DIR).join("p1.wav"),
+            vec![0u8; 4096],
+        )
+        .unwrap();
+        std::fs::write(
+            store.join(tools::preview_cache::CACHE_DIR).join("p2.wav"),
+            vec![0u8; 4096],
+        )
+        .unwrap();
+
+        let dest = tmp.path().join("copy");
+        let report = copy_project(&src, &dest).expect("copy");
+
+        assert!(dest.join(PROJECT_FILE).is_file(), "the project itself");
+        assert!(
+            dest.join(session::STORE_DIR)
+                .join("nodes")
+                .join("a.json")
+                .is_file(),
+            "its history"
+        );
+        assert!(
+            dest.join(session::STORE_DIR)
+                .join("derived")
+                .join("edit.wav")
+                .is_file(),
+            "and the audio that history points at"
+        );
+        assert!(
+            dest.join(session::STORE_DIR)
+                .join("clipboard")
+                .join("c.wav")
+                .is_file(),
+            "including the clipboard blobs a paste depends on"
+        );
+
+        // The cache is the one thing left behind: it is the biggest
+        // directory and every entry re-derives on demand.
+        assert!(
+            !dest
+                .join(session::STORE_DIR)
+                .join(tools::preview_cache::CACHE_DIR)
+                .exists(),
+            "the preview cache must not be copied"
+        );
+        assert_eq!(report.skipped_previews, 2);
+        assert_eq!(report.files, 5);
+        assert!(report.bytes >= 2048 + 512);
+    }
+
+    /// Copying into somebody's existing folder would merge two projects
+    /// into one and corrupt both.
+    #[test]
+    fn a_copy_refuses_a_destination_that_is_not_empty() {
+        let tmp = TempDir::new().unwrap();
+        let src = tmp.path().join("original");
+        std::fs::create_dir_all(&src).unwrap();
+        let dest = tmp.path().join("occupied");
+        std::fs::create_dir_all(&dest).unwrap();
+        std::fs::write(dest.join("someone-elses.txt"), "hello").unwrap();
+
+        let err = copy_project(&src, &dest).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists);
+        assert!(
+            dest.join("someone-elses.txt").is_file(),
+            "and touched nothing"
+        );
+    }
+
+    #[test]
+    fn a_copy_into_a_fresh_path_creates_it() {
+        let tmp = TempDir::new().unwrap();
+        let src = tmp.path().join("original");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join(PROJECT_FILE), "{}").unwrap();
+        let dest = tmp.path().join("nested").join("copy");
+        copy_project(&src, &dest).expect("copy into a path that does not exist yet");
+        assert!(dest.join(PROJECT_FILE).is_file());
     }
 
     #[test]

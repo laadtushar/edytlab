@@ -557,6 +557,21 @@ export const saveViewState = (view: ViewState): Promise<void> =>
 export const listRecentProjects = (): Promise<RecentProject[]> =>
   invoke<RecentProject[]>("list_recent_projects");
 
+/** What a Save As actually moved. */
+export interface CopyReport {
+  files: number;
+  bytes: number;
+  /** Preview-cache entries deliberately left behind; they re-derive. */
+  skipped_previews: number;
+}
+
+/**
+ * Copy the open project to `dest` and continue in the copy — Save As in
+ * the sense a DAW means it, with the original left as it was.
+ */
+export const saveProjectAs = (dest: string): Promise<CopyReport> =>
+  invoke<CopyReport>("save_project_as", { dest });
+
 export const forgetRecentProject = (path: string): Promise<RecentProject[]> =>
   invoke<RecentProject[]>("forget_recent_project", { path });
 
