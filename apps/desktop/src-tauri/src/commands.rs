@@ -1863,6 +1863,68 @@ pub fn update_marker(
     Ok(new_head.to_hex())
 }
 
+/// One transcribed word, as the transcript pane needs it.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TranscriptWordOut {
+    pub text: String,
+    pub start_sec: f64,
+    pub end_sec: f64,
+    pub confidence: f32,
+}
+
+/// The transcript at the current head, or an empty list.
+///
+/// Empty and absent are deliberately the same shape here. The pane's
+/// job when there is no transcript is to say "run transcribe", and it
+/// can say that from an empty list — an error would make "you have not
+/// transcribed yet", which is an ordinary state, look like a fault.
+#[tauri::command]
+pub fn get_transcript(state: State<'_, AppState>) -> CmdResult<Vec<TranscriptWordOut>> {
+    let Some(store_arc) = state.store_handle() else {
+        return Ok(Vec::new());
+    };
+    let store = lock_std(&store_arc, "store")?;
+    let Some(head) = store.head() else {
+        return Ok(Vec::new());
+    };
+    let node = store.get(head).map_err(CommandError::from)?;
+    Ok(node
+        .state
+        .transcript
+        .map(|t| {
+            t.words
+                .into_iter()
+                .map(|w| TranscriptWordOut {
+                    text: w.text,
+                    start_sec: w.start_s as f64,
+                    end_sec: w.end_s as f64,
+                    confidence: w.confidence,
+                })
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
+/// Cut a span of transcribed words, and the audio underneath.
+///
+/// Thin wrapper over the `cut_words` tool so the pane goes through the
+/// same code path the agent does — one node, same provenance, same
+/// timing fix-ups. A second implementation here is how the two would
+/// drift.
+#[tauri::command]
+pub fn cut_transcript_words(
+    state: State<'_, AppState>,
+    track: usize,
+    from_word: usize,
+    to_word: usize,
+) -> CmdResult<String> {
+    run_track_tool(
+        &state,
+        "cut_words",
+        serde_json::json!({ "track": track, "from_word": from_word, "to_word": to_word }),
+    )
+}
+
 /// Return all annotations (markers and region labels) visible at the
 /// current session head as a JSON array. Each entry is the serialised
 /// [`session::Annotation`] shape.

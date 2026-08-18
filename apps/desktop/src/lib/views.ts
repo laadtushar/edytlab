@@ -5,4 +5,4 @@
  * component importing a type from the file that renders it is a cycle
  * waiting to happen.
  */
-export type LeftView = "timeline" | "graph";
+export type LeftView = "timeline" | "graph" | "transcript";

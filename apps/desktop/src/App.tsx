@@ -15,11 +15,18 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import type { EnvelopePoint, Marker, TrackSummary } from "./lib/tauri-bridge";
+import type {
+  EnvelopePoint,
+  Marker,
+  TrackSummary,
+  TranscriptWord,
+} from "./lib/tauri-bridge";
 import {
   addMarker,
   getNode,
   listMarkers,
+  getTranscript,
+  cutTranscriptWords,
   listTracks,
   getSyncLock,
   setSyncLock,
@@ -48,6 +55,7 @@ import { ABCompareBar } from "./components/ABCompareBar";
 import { Chat } from "./components/Chat";
 import { LabelLane } from "./components/LabelLane";
 import { ToolProgressBar } from "./components/ToolProgressBar";
+import { TranscriptPane } from "./components/TranscriptPane";
 import { TemplatePickerModal } from "./components/TemplatePickerModal";
 import type { ChatHandle } from "./components/Chat";
 import { CommandPalette } from "./components/CommandPalette";
@@ -747,6 +755,42 @@ function App() {
     [tracks],
   );
 
+  // The transcript at the current head. Re-read whenever the head moves
+  // — a cut shifts every later word, and the pane must not go on
+  // showing the timings from before the edit.
+  const [transcript, setTranscript] = useState<TranscriptWord[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getTranscript()
+      .then((w) => {
+        if (!cancelled) setTranscript(w);
+      })
+      .catch(() => {
+        // No session yet; the pane's empty state is the right answer.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [head]);
+
+  const handleCutWords = useCallback(
+    async (from: number, to: number) => {
+      try {
+        // Track 0: the transcript is a session-level record and the
+        // tool cuts the track it is told to. One voice track is the
+        // case this ships for; per-track transcripts are #168.
+        const newHead = await cutTranscriptWords(0, from, to);
+        setHeadLocal(newHead);
+        setTracks(await listTracks());
+        setSelection(null);
+      } catch (err) {
+        setRenderError(String(err));
+      }
+    },
+    [setHeadLocal],
+  );
+
   const handleRenameMarker = useCallback(async (id: string, name: string) => {
     try {
       await updateMarker(id, { name });
@@ -1051,6 +1095,14 @@ function App() {
                   onForgetRecent={handleForgetRecent}
                 />
               )
+            ) : leftView === "transcript" ? (
+              <TranscriptPane
+                words={transcript}
+                selection={selection}
+                onSelectRange={handleSelectionChange}
+                onCutWords={handleCutWords}
+                onSeek={handleSeekToMarker}
+              />
             ) : (
               <GraphView
                 head={head}
