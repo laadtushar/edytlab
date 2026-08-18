@@ -44,10 +44,6 @@ const DEFAULT_JOIN_GAP_S: f32 = 1.0;
 struct Args {
     /// The track to duck — the music.
     music_track: usize,
-    /// The track whose transcript says where the speech is. Defaults to
-    /// the session transcript, which is the single-voice case.
-    #[serde(default)]
-    speech_track: Option<usize>,
     #[serde(default)]
     duck_db: Option<f32>,
     #[serde(default)]
@@ -81,10 +77,6 @@ impl Tool for DuckUnderSpeechTool {
                 "type": "object",
                 "properties": {
                     "music_track": { "type": "integer", "description": "Track to duck" },
-                    "speech_track": {
-                        "type": "integer",
-                        "description": "Track the transcript belongs to. Informational; the session transcript is used.",
-                    },
                     "duck_db": { "type": "number", "description": "How far to drop, in dB. Default -12." },
                     "attack_ms": { "type": "number", "description": "Time to drop. Default 120 ms." },
                     "release_ms": { "type": "number", "description": "Time to recover. Default 400 ms." },
@@ -127,11 +119,6 @@ impl Tool for DuckUnderSpeechTool {
         if let Err(msg) = check_track_index(&state.tracks, args.music_track) {
             return Ok(ToolResult::Error(msg));
         }
-        if let Some(t) = args.speech_track {
-            if let Err(msg) = check_track_index(&state.tracks, t) {
-                return Ok(ToolResult::Error(msg));
-            }
-        }
 
         let Some(transcript) = state.transcript.clone() else {
             return Ok(ToolResult::Error(
@@ -149,29 +136,42 @@ impl Tool for DuckUnderSpeechTool {
 
         let sr = state.sample_rate.max(1) as f64;
         let music = &mut state.tracks[args.music_track];
-        let Some(clip) = music.clips.first_mut() else {
+        if music.clips.is_empty() {
             return Ok(ToolResult::Error(format!(
                 "track {} has no clips to automate",
                 args.music_track
             )));
-        };
+        }
 
-        // Envelope times are relative to the clip's own start, which is
-        // what `set_clip_envelope` and the automation lane both use.
-        let clip_start_s = clip.start_in_track as f64 / sr;
-        let clip_len = clip.length;
-
-        let (points, ducks) = build_envelope(
-            &passages,
-            clip_start_s,
-            clip_len,
-            sr,
-            duck_db,
-            attack_s,
-            release_s,
-            pre_roll_s,
-        );
-        clip.volume_envelope = points;
+        // Every clip on the track, not just the first. A track that has
+        // been cut or split holds several, and ducking only `clips[0]`
+        // would leave the music at full level under every line after
+        // the first edit — the failure being silent, since the first
+        // half of the track would sound exactly right.
+        //
+        // Envelope times are relative to each clip's own start, which is
+        // what `set_clip_envelope` and the automation lane both use, so
+        // each clip gets the passages mapped into its own frame.
+        let mut ducks = 0usize;
+        let mut clips_touched = 0usize;
+        for clip in music.clips.iter_mut() {
+            let (points, n) = build_envelope(
+                &passages,
+                clip.start_in_track as f64 / sr,
+                clip.length,
+                sr,
+                duck_db,
+                attack_s,
+                release_s,
+                pre_roll_s,
+            );
+            if points.is_empty() {
+                continue;
+            }
+            clip.volume_envelope = points;
+            ducks += n;
+            clips_touched += 1;
+        }
 
         let new_id = match append_state(
             ctx,
@@ -191,6 +191,7 @@ impl Tool for DuckUnderSpeechTool {
             "node_id": new_id.to_hex(),
             "passages": passages.len(),
             "ducks": ducks,
+            "clips": clips_touched,
             "duck_db": duck_db,
             "summary": format!(
                 "Ducked track {} by {:.1} dB under {} passage{} of speech, starting {:.0}ms \
@@ -281,7 +282,13 @@ fn build_envelope(
         }
         raw.push((full_at, duck_db));
         raw.push((hold_to, duck_db));
-        if up_at < clip_len {
+        // `<=`, not `<`. A release ramp that lands exactly on the clip
+        // boundary is the common case for a passage near the end, and
+        // dropping the point there leaves the last value at `duck_db` —
+        // the music stays ducked to the end of the clip instead of
+        // recovering by it. A point at `clip_len` is a valid envelope
+        // position; the renderer holds the last value forwards anyway.
+        if up_at <= clip_len {
             raw.push((up_at, 0.0));
         }
         ducks += 1;

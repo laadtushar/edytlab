@@ -248,6 +248,56 @@ fn the_result_is_an_editable_automation_curve() {
     ));
 }
 
+/// A track cut into two clips must duck across both.
+///
+/// Automating only `clips[0]` is the kind of failure that sounds fine
+/// for the first half of the episode and wrong for the second — the
+/// worst sort, because it passes a spot check.
+#[test]
+fn every_clip_on_the_track_gets_ducked() {
+    let mut s = Session::new();
+    s.with_transcript(&two_passages());
+
+    // Split the music at 8s so the second line falls on the second clip.
+    ok(s.call(
+        "split_clip",
+        json!({ "track": 1, "clip_index": 0, "at_sec": 8.0 }),
+    ));
+    assert_eq!(s.state().tracks[1].clips.len(), 2, "two clips to cover");
+
+    let v = ok(s.call("duck_under_speech", json!({ "music_track": 1 })));
+    assert_eq!(v["clips"], json!(2), "both clips carry a curve: {v}");
+
+    for (i, clip) in s.state().tracks[1].clips.iter().enumerate() {
+        assert!(
+            !clip.volume_envelope.is_empty(),
+            "clip {i} has no automation, so the music never ducks under it"
+        );
+    }
+}
+
+/// A release that lands exactly on the clip boundary must still put the
+/// recovery point down. Dropping it leaves the last value ducked, so the
+/// music never comes back up before the clip ends.
+#[test]
+fn a_duck_recovering_at_the_very_end_still_comes_back_up() {
+    let mut s = Session::new();
+    // The track is 20s; put a line so its release lands past the end.
+    s.with_transcript(&[("last", 19.0, 19.6)]);
+
+    ok(s.call(
+        "duck_under_speech",
+        json!({ "music_track": 1, "release_ms": 2000 }),
+    ));
+
+    let env = s.envelope();
+    let (_, last_db) = *env.last().expect("an envelope");
+    assert!(
+        last_db > -0.5,
+        "the curve must end back at unity, not stuck down: {env:?}"
+    );
+}
+
 /// The voice track is untouched: this is an edit to the music.
 #[test]
 fn the_speech_track_is_not_modified() {
