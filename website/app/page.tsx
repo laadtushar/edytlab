@@ -46,7 +46,10 @@ export default async function Home() {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
       <SiteHeader />
-      <main>
+      <main className="relative">
+        {/* One slow colour wash behind the top of the page, so the fold
+            is not a flat sheet of near-black. */}
+        <div aria-hidden className="aurora" />
         <Hero release={release} />
         <StatsStrip />
         <Problem />

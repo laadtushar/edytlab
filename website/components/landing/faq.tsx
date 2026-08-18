@@ -5,7 +5,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 
-import { FadeIn } from "./fade-in";
+import { Reveal } from "@/components/motion";
 
 const faqs = [
   {
@@ -38,12 +38,12 @@ export function FAQ() {
   return (
     <section id="faq" className="py-20 md:py-28">
       <div className="container">
-        <FadeIn className="mx-auto mb-12 max-w-2xl text-center">
+        <Reveal className="mx-auto mb-12 max-w-2xl text-center">
           <h2 className="text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
             Frequently asked
           </h2>
-        </FadeIn>
-        <FadeIn className="mx-auto max-w-2xl">
+        </Reveal>
+        <Reveal className="mx-auto max-w-2xl">
           <Accordion type="single" collapsible className="w-full">
             {faqs.map((f, i) => (
               <AccordionItem key={f.q} value={`item-${i}`}>
@@ -52,7 +52,7 @@ export function FAQ() {
               </AccordionItem>
             ))}
           </Accordion>
-        </FadeIn>
+        </Reveal>
       </div>
     </section>
   );

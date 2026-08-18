@@ -1,10 +1,10 @@
-import { FadeIn } from "./fade-in";
+import { Reveal } from "@/components/motion";
 
 export function Problem() {
   return (
     <section className="border-y border-border/50 bg-secondary/30 py-20">
       <div className="container">
-        <FadeIn className="mx-auto max-w-3xl text-center">
+        <Reveal className="mx-auto max-w-3xl text-center">
           <p className="text-sm font-semibold uppercase tracking-wider text-primary">
             The gap
           </p>
@@ -19,7 +19,7 @@ export function Problem() {
             time and pitch, a full effect chain — in a session you can actually
             trust and steer.
           </p>
-        </FadeIn>
+        </Reveal>
       </div>
     </section>
   );

@@ -1,3 +1,4 @@
+import { Reveal } from "@/components/motion";
 import type { Metadata } from "next";
 
 import { LegalShell } from "@/components/landing/legal-shell";
@@ -83,7 +84,7 @@ export default function ChangelogPage() {
         .
       </p>
       {entries.map((e) => (
-        <section key={e.version} className="mt-10">
+        <Reveal as="section" key={e.version} className="mt-10" distance={16}>
           <h2>
             {e.version}
             <span className="ml-3 text-sm font-normal text-muted-foreground">
@@ -95,7 +96,7 @@ export default function ChangelogPage() {
               <li key={i}>{b}</li>
             ))}
           </ul>
-        </section>
+        </Reveal>
       ))}
     </LegalShell>
   );

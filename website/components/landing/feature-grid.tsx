@@ -10,7 +10,6 @@ import {
   Waves,
   Zap,
 } from "lucide-react";
-import { motion } from "framer-motion";
 
 import {
   Card,
@@ -20,8 +19,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-import { FadeIn } from "./fade-in";
-import { TiltCard } from "./tilt-card";
+import { Reveal, Stagger, TiltCard } from "@/components/motion";
 
 const features = [
   {
@@ -66,20 +64,6 @@ const features = [
   },
 ];
 
-const cardVariants = {
-  hidden: { opacity: 0, y: 40, scale: 0.95 },
-  visible: (i: number) => ({
-    opacity: 1,
-    y: 0,
-    scale: 1,
-    transition: {
-      delay: i * 0.08,
-      duration: 0.6,
-      ease: [0.21, 0.47, 0.32, 0.98],
-    },
-  }),
-};
-
 export function FeatureGrid() {
   return (
     <section
@@ -87,7 +71,7 @@ export function FeatureGrid() {
       className="border-y border-border/50 bg-secondary/20 py-20 md:py-28"
     >
       <div className="container">
-        <FadeIn className="mx-auto mb-14 max-w-2xl text-center">
+        <Reveal className="mx-auto mb-14 max-w-2xl text-center">
           <h2 className="text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
             Built for producers who want help — not handcuffs.
           </h2>
@@ -95,25 +79,21 @@ export function FeatureGrid() {
             What makes edytlab different from cleanup tools, preset chains, and
             shallow AI wrappers.
           </p>
-        </FadeIn>
-        <motion.div
+        </Reveal>
+        <Stagger
           className="mx-auto grid max-w-6xl gap-5 sm:grid-cols-2 lg:grid-cols-3"
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true, amount: 0.1 }}
+          each={0.06}
+          distance={28}
+          scale
         >
-          {features.map((f, i) => (
-            <motion.div key={f.title} custom={i} variants={cardVariants} className="group">
+          {features.map((f) => (
+            <div key={f.title} className="group">
               <TiltCard className="h-full">
-                <Card className="h-full border-border/60 bg-card/60 backdrop-blur transition-colors hover:border-primary/40 hover:bg-card">
+                <Card className="surface h-full border-border/60 backdrop-blur transition-colors group-hover:border-primary/40">
                   <CardHeader>
-                    <motion.div
-                      className="mb-3 flex size-11 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20"
-                      whileHover={{ scale: 1.18, rotate: 6 }}
-                      transition={{ type: "spring", stiffness: 400, damping: 15 }}
-                    >
+                    <div className="mb-3 flex size-11 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20 transition-transform duration-300 group-hover:rotate-6 group-hover:scale-110">
                       <f.icon className="size-5" />
-                    </motion.div>
+                    </div>
                     <CardTitle>{f.title}</CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -123,9 +103,9 @@ export function FeatureGrid() {
                   </CardContent>
                 </Card>
               </TiltCard>
-            </motion.div>
+            </div>
           ))}
-        </motion.div>
+        </Stagger>
       </div>
     </section>
   );

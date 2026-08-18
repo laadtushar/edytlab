@@ -14,12 +14,23 @@
  * is only planned.
  */
 
-import { useEffect, useRef, useState } from "react";
-import { motion, useInView } from "framer-motion";
+import { useRef } from "react";
 
-import { FadeIn } from "./fade-in";
+import { Reveal, Stagger } from "@/components/motion";
+import { gsap, useGSAP, motionOk, NO_PREFERENCE } from "@/lib/gsap";
 
-const EASE = [0.21, 0.47, 0.32, 0.98] as const;
+/**
+ * Each panel renders its **finished** state and GSAP animates *from* the
+ * starting one. That ordering is the whole trick: with motion reduced,
+ * or before the script runs, the fader is already at -4.5 dB and the
+ * curve is already drawn, so the panel illustrates the feature either
+ * way. Rendering the start state instead — which is what `initial` on a
+ * motion component does — leaves a reader with reduced motion looking at
+ * a flat line and a fader at zero.
+ */
+function panelTrigger(el: Element | null) {
+  return { trigger: el, start: "top 85%", once: true } as const;
+}
 
 /** Deterministic pseudo-random in [0, 1) — no hydration mismatch. */
 function seeded(i: number, seed: number) {
@@ -69,53 +80,81 @@ function panLabel(pan: number) {
 
 function MixerPanel() {
   const ref = useRef<HTMLDivElement>(null);
-  const inView = useInView(ref, { once: true, margin: "-60px" });
+
+  // -60..+24 dB mapped to 0..100% of the fader.
+  const pos = (db: number) => ((db + 60) / 84) * 100;
+
+  useGSAP(
+    () => {
+      const mm = motionOk();
+      mm.add(NO_PREFERENCE, () => {
+        const st = panelTrigger(ref.current);
+        MIXER_TRACKS.forEach((t, i) => {
+          const from = `${pos(t.from)}%`;
+          const delay = 0.2 + i * 0.15;
+          gsap.from(`[data-fill="${t.name}"]`, {
+            width: from,
+            duration: 1.1,
+            delay,
+            scrollTrigger: st,
+          });
+          gsap.from(`[data-knob="${t.name}"]`, {
+            left: from,
+            duration: 1.1,
+            delay,
+            scrollTrigger: st,
+          });
+        });
+        gsap.from("[data-mixer-btn]", {
+          opacity: 0,
+          y: 6,
+          duration: 0.4,
+          delay: 0.9,
+          stagger: 0.1,
+          scrollTrigger: st,
+        });
+      });
+      return () => mm.revert();
+    },
+    { scope: ref },
+  );
 
   return (
     <div ref={ref} className="space-y-3">
-      {MIXER_TRACKS.map((t, i) => {
-        // -60..+24 dB mapped to 0..100% of the fader.
-        const pos = (db: number) => ((db + 60) / 84) * 100;
-        return (
-          <div key={t.name} className="flex items-center gap-3">
-            <span className="w-12 shrink-0 truncate font-mono text-[10px] text-muted-foreground">
-              {t.name}
-            </span>
-            <div className="relative h-1.5 flex-1 rounded-full bg-secondary">
-              <motion.div
-                className="absolute inset-y-0 left-0 rounded-full bg-primary/70"
-                initial={{ width: `${pos(t.from)}%` }}
-                animate={inView ? { width: `${pos(t.to)}%` } : undefined}
-                transition={{ duration: 1.1, delay: 0.2 + i * 0.15, ease: EASE }}
-              />
-              <motion.div
-                className="absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full border border-primary bg-background"
-                initial={{ left: `${pos(t.from)}%` }}
-                animate={inView ? { left: `${pos(t.to)}%` } : undefined}
-                transition={{ duration: 1.1, delay: 0.2 + i * 0.15, ease: EASE }}
-                style={{ marginLeft: -6 }}
-              />
-            </div>
-            <span className="w-14 shrink-0 text-right font-mono text-[10px] tabular-nums text-muted-foreground">
-              {t.to > 0 ? `+${t.to.toFixed(1)}` : t.to.toFixed(1)} dB
-            </span>
-            <span className="w-8 shrink-0 text-right font-mono text-[10px] text-primary">
-              {panLabel(t.pan)}
-            </span>
+      {MIXER_TRACKS.map((t) => (
+        <div key={t.name} className="flex items-center gap-3">
+          <span className="w-12 shrink-0 truncate font-mono text-[10px] text-muted-foreground">
+            {t.name}
+          </span>
+          <div className="relative h-1.5 flex-1 rounded-full bg-secondary">
+            <div
+              data-fill={t.name}
+              className="absolute inset-y-0 left-0 rounded-full bg-primary/70"
+              style={{ width: `${pos(t.to)}%` }}
+            />
+            <div
+              data-knob={t.name}
+              className="absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full border border-primary bg-background"
+              style={{ left: `${pos(t.to)}%`, marginLeft: -6 }}
+            />
           </div>
-        );
-      })}
+          <span className="w-14 shrink-0 text-right font-mono text-[10px] tabular-nums text-muted-foreground">
+            {t.to > 0 ? `+${t.to.toFixed(1)}` : t.to.toFixed(1)} dB
+          </span>
+          <span className="w-8 shrink-0 text-right font-mono text-[10px] text-primary">
+            {panLabel(t.pan)}
+          </span>
+        </div>
+      ))}
       <div className="flex gap-1.5 pt-1">
-        {["mute", "solo"].map((b, i) => (
-          <motion.span
+        {["mute", "solo"].map((b) => (
+          <span
             key={b}
+            data-mixer-btn
             className="rounded border border-border px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-muted-foreground"
-            initial={{ opacity: 0, y: 6 }}
-            animate={inView ? { opacity: 1, y: 0 } : undefined}
-            transition={{ duration: 0.4, delay: 0.9 + i * 0.1 }}
           >
             {b}
-          </motion.span>
+          </span>
         ))}
       </div>
     </div>
@@ -136,8 +175,47 @@ const CURVE = [
 
 function AutomationPanel() {
   const ref = useRef<HTMLDivElement>(null);
-  const inView = useInView(ref, { once: true, margin: "-60px" });
   const d = CURVE.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ");
+
+  useGSAP(
+    () => {
+      const mm = motionOk();
+      mm.add(NO_PREFERENCE, () => {
+        const path = ref.current?.querySelector<SVGPathElement>("[data-curve]");
+        if (path) {
+          // Draw the stroke by animating a dash gap the length of the
+          // path back to zero. GSAP's DrawSVG plugin does this too and
+          // is a paid extra; for a single open path the two lines below
+          // are the whole of it.
+          const len = path.getTotalLength();
+          gsap.fromTo(
+            path,
+            { strokeDasharray: len, strokeDashoffset: len },
+            {
+              strokeDashoffset: 0,
+              duration: 1.4,
+              delay: 0.2,
+              ease: "power2.inOut",
+              scrollTrigger: panelTrigger(ref.current),
+              // Leave no dash pattern behind once it has drawn, or the
+              // curve stays subtly dotted at some zoom levels.
+              onComplete: () => gsap.set(path, { clearProps: "strokeDasharray,strokeDashoffset" }),
+            },
+          );
+        }
+        gsap.from("[data-point]", {
+          opacity: 0,
+          scale: 0,
+          duration: 0.3,
+          delay: 0.5,
+          stagger: 0.22,
+          scrollTrigger: panelTrigger(ref.current),
+        });
+      });
+      return () => mm.revert();
+    },
+    { scope: ref },
+  );
 
   return (
     <div ref={ref}>
@@ -160,22 +238,21 @@ function AutomationPanel() {
           strokeWidth="0.5"
           vectorEffect="non-scaling-stroke"
         />
-        <motion.path
+        <path
+          data-curve
           d={d}
           fill="none"
           stroke="currentColor"
           className="text-primary"
           strokeWidth="1.5"
           vectorEffect="non-scaling-stroke"
-          initial={{ pathLength: 0 }}
-          animate={inView ? { pathLength: 1 } : undefined}
-          transition={{ duration: 1.4, ease: EASE, delay: 0.2 }}
         />
       </svg>
       <div className="relative -mt-24 h-24">
         {CURVE.slice(1, -1).map((p, i) => (
-          <motion.span
+          <span
             key={i}
+            data-point
             className="absolute h-2 w-2 rounded-full bg-primary ring-2 ring-card"
             style={{
               left: `${p.x}%`,
@@ -183,9 +260,6 @@ function AutomationPanel() {
               marginLeft: -4,
               marginTop: -4,
             }}
-            initial={{ opacity: 0, scale: 0 }}
-            animate={inView ? { opacity: 1, scale: 1 } : undefined}
-            transition={{ duration: 0.3, delay: 0.5 + i * 0.22, ease: EASE }}
           />
         ))}
       </div>
@@ -197,30 +271,53 @@ function AutomationPanel() {
 
 function ClipStripPanel() {
   const ref = useRef<HTMLDivElement>(null);
-  const inView = useInView(ref, { once: true, margin: "-60px" });
+
+  useGSAP(
+    () => {
+      const mm = motionOk();
+      mm.add(NO_PREFERENCE, () => {
+        const st = panelTrigger(ref.current);
+        gsap.from("[data-clip-a]", { opacity: 0, duration: 0.4, scrollTrigger: st });
+        // The second clip slides from where it sat before the cut, which
+        // is the whole point of the panel: the gap opened, the tail moved.
+        gsap.from("[data-clip-b]", {
+          left: "36%",
+          opacity: 0,
+          duration: 1.2,
+          delay: 0.6,
+          ease: "power2.inOut",
+          scrollTrigger: st,
+        });
+        gsap.from("[data-bar]", {
+          height: 2,
+          duration: 0.5,
+          stagger: 0.008,
+          scrollTrigger: st,
+        });
+      });
+      return () => mm.revert();
+    },
+    { scope: ref },
+  );
 
   return (
     <div ref={ref} className="space-y-2">
-      {/* Chips: one cut into two, the second sliding later. */}
+      {/* Chips: one cut into two, the second sitting later. */}
       <div className="relative h-6">
-        <motion.div
+        <div
+          data-clip-a
           className="absolute top-0 h-6 rounded border border-primary/50 bg-primary/15 px-2 font-mono text-[9px] leading-6 text-primary"
           style={{ left: "0%", width: "34%" }}
-          initial={{ opacity: 0 }}
-          animate={inView ? { opacity: 1 } : undefined}
-          transition={{ duration: 0.4 }}
         >
           take.wav
-        </motion.div>
-        <motion.div
+        </div>
+        <div
+          data-clip-b
           className="absolute top-0 h-6 overflow-hidden rounded border border-primary/50 bg-primary/15 px-2 font-mono text-[9px] leading-6 text-primary"
-          style={{ width: "44%" }}
-          initial={{ left: "36%", opacity: 0 }}
-          animate={inView ? { left: "56%", opacity: 1 } : undefined}
-          transition={{ duration: 1.2, delay: 0.6, ease: EASE }}
+          style={{ left: "56%", width: "44%" }}
         >
           take.wav
-        </motion.div>
+        </div>
       </div>
       {/* Waveform underneath, with a gap where the cut is. */}
       <div className="flex h-16 items-center gap-[2px]">
@@ -228,14 +325,11 @@ function ClipStripPanel() {
           const inGap = i > 22 && i < 36;
           const h = inGap ? 2 : 8 + seeded(i, 5) * 46;
           return (
-            <motion.span
+            <span
               key={i}
-              className={
-                inGap ? "flex-1 rounded-sm bg-border" : "flex-1 rounded-sm bg-primary/45"
-              }
-              initial={{ height: 2 }}
-              animate={inView ? { height: h } : undefined}
-              transition={{ duration: 0.5, delay: i * 0.008, ease: EASE }}
+              data-bar
+              className={inGap ? "flex-1 rounded-sm bg-border" : "flex-1 rounded-sm bg-primary/45"}
+              style={{ height: h }}
             />
           );
         })}
@@ -271,7 +365,7 @@ export function UiShowcase() {
   return (
     <section id="interface" className="py-20 md:py-28">
       <div className="container">
-        <FadeIn className="mx-auto mb-12 max-w-2xl text-center">
+        <Reveal className="mx-auto mb-12 max-w-2xl text-center">
           <p className="font-mono text-xs uppercase tracking-widest text-primary">
             The interface
           </p>
@@ -283,16 +377,14 @@ export function UiShowcase() {
             curves and clips are all directly editable, and every change lands
             in the same undoable session graph the agent writes to.
           </p>
-        </FadeIn>
-        <div className="mx-auto grid max-w-6xl gap-5 lg:grid-cols-3">
-          {PANELS.map((p, i) => (
-            <FadeIn key={p.title} delay={i * 0.1}>
-              <Panel title={p.title} caption={p.caption}>
-                {p.render}
-              </Panel>
-            </FadeIn>
+        </Reveal>
+        <Stagger className="mx-auto grid max-w-6xl gap-5 lg:grid-cols-3" each={0.1} distance={28}>
+          {PANELS.map((p) => (
+            <Panel key={p.title} title={p.title} caption={p.caption}>
+              {p.render}
+            </Panel>
           ))}
-        </div>
+        </Stagger>
       </div>
     </section>
   );

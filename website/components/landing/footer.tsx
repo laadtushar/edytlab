@@ -2,13 +2,14 @@ import Link from "next/link";
 import { Github } from "lucide-react";
 
 import { Separator } from "@/components/ui/separator";
+import { Reveal } from "@/components/motion";
 import { siteConfig } from "@/lib/site";
 
 export function Footer() {
   return (
     <footer className="border-t border-border/50 bg-secondary/20">
       <div className="container py-12">
-        <div className="flex flex-col items-start justify-between gap-6 md:flex-row md:items-center">
+        <Reveal className="flex flex-col items-start justify-between gap-6 md:flex-row md:items-center" distance={16}>
           <div>
             <div className="text-lg font-semibold">edytlab</div>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -67,7 +68,7 @@ export function Footer() {
             <Link href="https://www.linkedin.com/company/edytlab">LinkedIn</Link>
             */}
           </div>
-        </div>
+        </Reveal>
         <Separator className="my-8" />
         <p className="text-xs text-muted-foreground" suppressHydrationWarning>
           © {new Date().getFullYear()} edytlab. Audio stays on your machine.

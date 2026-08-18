@@ -4,6 +4,7 @@ import { Calendar, Clock, ArrowRight } from "lucide-react";
 
 import { siteConfig } from "@/lib/site";
 import { posts } from "@/lib/blog";
+import { Reveal, Stagger } from "@/components/motion";
 import { SiteHeader } from "@/components/landing/site-header";
 import { Footer } from "@/components/landing/footer";
 import { Badge } from "@/components/ui/badge";
@@ -43,7 +44,7 @@ export default function BlogPage() {
       <main className="min-h-screen pt-20">
         <section className="border-b border-border/50 py-16 md:py-20">
           <div className="container">
-            <div className="mx-auto max-w-2xl">
+            <Reveal className="mx-auto max-w-2xl">
               <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">
                 Blog
               </h1>
@@ -52,13 +53,13 @@ export default function BlogPage() {
                 separation, podcast production, and why local-first software
                 matters.
               </p>
-            </div>
+            </Reveal>
           </div>
         </section>
 
         <section className="py-12">
           <div className="container">
-            <div className="mx-auto max-w-2xl space-y-10">
+            <Stagger className="mx-auto max-w-2xl space-y-10" selector="article" each={0.08}>
               {sorted.map((post) => (
                 <article
                   key={post.slug}
@@ -98,7 +99,7 @@ export default function BlogPage() {
                   </Link>
                 </article>
               ))}
-            </div>
+            </Stagger>
           </div>
         </section>
       </main>
