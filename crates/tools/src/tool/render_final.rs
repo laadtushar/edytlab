@@ -22,6 +22,29 @@ struct Args {
     /// MP3 only. Ignored by the lossless formats.
     #[serde(default)]
     bitrate_kbps: Option<u32>,
+    /// Tags to write on the exported file (#170). Absent writes none.
+    #[serde(default)]
+    metadata: Option<MetadataArgs>,
+    /// Write the session's markers as chapters. Off by default: a
+    /// marker is a working annotation, and not every one of them is a
+    /// chapter someone wants shipped.
+    #[serde(default)]
+    markers_as_chapters: bool,
+}
+
+/// The tags a person would put on a file they are sending somewhere.
+#[derive(Debug, Deserialize)]
+struct MetadataArgs {
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    artist: Option<String>,
+    #[serde(default)]
+    album: Option<String>,
+    #[serde(default)]
+    year: Option<String>,
+    #[serde(default)]
+    comment: Option<String>,
 }
 
 /// Widest CBR bitrate an argument may request, in kbps.
@@ -54,6 +77,22 @@ impl Tool for RenderFinalTool {
                     "node_id": { "type": "string" },
                     "format": { "type": "string", "enum": ["wav", "flac", "mp3"] },
                     "out_path": { "type": "string" },
+                    "metadata": {
+                        "type": "object",
+                        "description": "Tags for the exported file. FLAC gets Vorbis comments, MP3 gets ID3v2. WAV has no standard tag container worth using and ignores this.",
+                        "properties": {
+                            "title": { "type": "string" },
+                            "artist": { "type": "string" },
+                            "album": { "type": "string" },
+                            "year": { "type": "string", "description": "Four-digit year" },
+                            "comment": { "type": "string" },
+                        },
+                        "additionalProperties": false,
+                    },
+                    "markers_as_chapters": {
+                        "type": "boolean",
+                        "description": "Write the session's markers as chapters. Off by default — a marker is a working annotation, and not every one is a chapter worth shipping.",
+                    },
                     "bitrate_kbps": {
                         "type": "integer",
                         "minimum": MP3_MIN_KBPS,
@@ -132,6 +171,46 @@ impl Tool for RenderFinalTool {
             .map(|t| t.path().to_path_buf())
             .unwrap_or_else(|| out_path.clone());
 
+        // Built before the render so a bad chapter list is refused
+        // before the expensive part rather than after it.
+        let mut tags = audio_engine::Tags {
+            title: args.metadata.as_ref().and_then(|m| m.title.clone()),
+            artist: args.metadata.as_ref().and_then(|m| m.artist.clone()),
+            album: args.metadata.as_ref().and_then(|m| m.album.clone()),
+            year: args.metadata.as_ref().and_then(|m| m.year.clone()),
+            comment: args.metadata.as_ref().and_then(|m| m.comment.clone()),
+            chapters: Vec::new(),
+        };
+        if args.markers_as_chapters {
+            let mut chapters: Vec<audio_engine::Chapter> = node
+                .state
+                .annotations
+                .iter()
+                .filter_map(|a| match &a.kind {
+                    // Point markers only. A region has a duration, and a
+                    // chapter is a start — turning one into the other
+                    // would silently discard the half the user drew.
+                    session::AnnotationKind::Marker { time_sec } => Some(audio_engine::Chapter {
+                        start_sec: *time_sec,
+                        title: a.name.clone(),
+                    }),
+                    _ => None,
+                })
+                .collect();
+            // In time order, because a chapter list out of order is a
+            // chapter list no player will read.
+            chapters.sort_by(|a, b| a.start_sec.total_cmp(&b.start_sec));
+            tags.chapters = chapters;
+        }
+        if !tags.is_empty() && transcode.is_none() {
+            return Ok(ToolResult::Error(
+                "WAV has no standard tag container worth using; export as flac or mp3 to carry \
+                 metadata, or drop the metadata argument"
+                    .to_string(),
+            ));
+        }
+        let mut tag_warning: Option<String> = None;
+
         let report = match ctx.engine.render_to_wav(&node.state, &render_path, None) {
             Ok(r) => r,
             Err(e) => return Ok(ToolResult::Error(format!("render failed: {e}"))),
@@ -168,6 +247,21 @@ impl Tool for RenderFinalTool {
                     args.format
                 )));
             }
+
+            // Tags go on after encoding: FLAC's blocks are rewritten in
+            // place and an ID3 tag is a prefix, so neither touches a
+            // sample. A tagging failure does not fail the export — the
+            // audio is already written and correct, and losing the file
+            // over a missing title would be the worse outcome.
+            if !tags.is_empty() {
+                let tagged = match kind {
+                    Encoded::Flac => audio_engine::tag_flac(&out_path, &tags),
+                    Encoded::Mp3 => audio_engine::tag_mp3(&out_path, &tags),
+                };
+                if let Err(e) = tagged {
+                    tag_warning = Some(format!("the audio was written but tagging failed: {e}"));
+                }
+            }
         }
 
         let mut out = json!({
@@ -186,6 +280,17 @@ impl Tool for RenderFinalTool {
         if args.format == "mp3" {
             out["bitrate_kbps"] =
                 json!(args.bitrate_kbps.unwrap_or(audio_engine::MP3_DEFAULT_KBPS));
+        }
+        if !tags.is_empty() {
+            out["tagged"] = json!(tag_warning.is_none());
+            out["chapters"] = json!(tags.chapters.len());
+        }
+        if let Some(warning) = tag_warning {
+            out["warning"] = json!(warning);
+            out["summary"] = json!(format!(
+                "{} — {warning}",
+                out["summary"].as_str().unwrap_or_default()
+            ));
         }
         Ok(ToolResult::Ok(out))
     }
