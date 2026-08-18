@@ -38,7 +38,11 @@ use std::path::{Path, PathBuf};
 use serde_json::{json, Value};
 
 /// Directory under `.audiograph/` where clipboard blobs are kept.
-pub const CLIPBOARD_DIR: &str = "clipboard";
+///
+/// Defined in `session` because the store rebinds against these
+/// directories when a project has been moved (`session::relocate`), and
+/// two definitions of where the audio lives is one too many.
+pub use session::relocate::CLIPBOARD_DIR;
 
 /// Content hash of decoded audio: rate, channels, then samples as
 /// little-endian bytes.
@@ -60,7 +64,7 @@ pub fn audio_hash(samples: &[f32], sample_rate: u32, channels: u16) -> String {
 }
 
 /// Directory under `.audiograph/` holding derived audio.
-pub const DERIVED_DIR: &str = "derived";
+pub use session::relocate::DERIVED_DIR;
 
 /// Where derived audio lives: `<project>/.audiograph/derived/`.
 ///

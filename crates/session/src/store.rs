@@ -186,7 +186,11 @@ impl Store {
             return Err(Error::NodeNotFound(hex));
         }
         let bytes = fs::read(&path)?;
-        let node: SessionNode = serde_json::from_slice(&bytes)?;
+        let mut node: SessionNode = serde_json::from_slice(&bytes)?;
+        // A project that has been copied or moved holds its own audio
+        // under paths the nodes do not name. See `crate::relocate`; in a
+        // project that has not moved this does nothing.
+        crate::relocate::rebind(&mut node.state, &self.project_dir);
         Ok(node)
     }
 
@@ -232,7 +236,8 @@ impl Store {
                     continue;
                 }
                 let bytes = fs::read(&path)?;
-                let node: SessionNode = serde_json::from_slice(&bytes)?;
+                let mut node: SessionNode = serde_json::from_slice(&bytes)?;
+                crate::relocate::rebind(&mut node.state, &self.project_dir);
                 out.push(node);
             }
         }

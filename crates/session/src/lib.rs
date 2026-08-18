@@ -9,6 +9,7 @@
 pub mod annotation;
 pub mod diff;
 pub mod node;
+pub mod relocate;
 pub mod state;
 pub mod store;
 
