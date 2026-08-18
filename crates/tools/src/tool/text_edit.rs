@@ -32,7 +32,9 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{append_state, check_track_index, cut_timeline, load_head_state};
+use crate::tool::util::{
+    append_state, check_track_index, cut_annotations, cut_timeline, load_head_state,
+};
 use crate::{Tool, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
@@ -143,6 +145,13 @@ impl Tool for CutWordsTool {
         let removed_s = end_s - start_s;
         let removed_frames = end_frame.saturating_sub(start_frame);
 
+        // The labels. Cutting words is cutting audio, so a chapter mark
+        // after the removed span is now earlier by the same amount
+        // (#203) — the transcript below already gets this treatment and
+        // the annotations deserve the same.
+        let (kept_labels, dropped_labels) = cut_annotations(&state.annotations, start_s, end_s);
+        state.annotations = kept_labels;
+
         // The words. Everything after the cut is now earlier by exactly
         // the removed duration; everything inside it is gone.
         let removed_text: Vec<String> = words[args.from_word..args.to_word]
@@ -189,6 +198,7 @@ impl Tool for CutWordsTool {
             "removed_words": removed_text.len(),
             "removed_text": removed_text.join(" "),
             "removed_sec": removed_s,
+            "dropped_labels": dropped_labels,
             "start_sec": start_s,
             "end_sec": end_s,
             "summary": format!(

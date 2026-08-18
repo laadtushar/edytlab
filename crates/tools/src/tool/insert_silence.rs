@@ -2,7 +2,8 @@
 
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
-    destructive_edit_then, insert_gap_timeline, sync_other_tracks, track_channels,
+    destructive_edit_then, insert_annotations, insert_gap_timeline, sync_other_tracks,
+    track_channels,
 };
 use crate::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
@@ -128,6 +129,11 @@ impl Tool for InsertSilenceTool {
                 (sample_rate, chans)
             },
             move |state, edited| {
+                // Labels move whether or not sync-lock is on: an insert
+                // lengthens the recording, and every mark after the
+                // splice point is now that much later (#203).
+                state.annotations = insert_annotations(&state.annotations, at, duration);
+
                 if !state.sync_lock {
                     return;
                 }
