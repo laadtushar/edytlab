@@ -451,6 +451,20 @@ export const addMarker = (time: number, name: string): Promise<string> =>
 export const removeMarker = (id: string): Promise<string> =>
   invoke<string>("remove_marker", { id });
 
+/**
+ * Rename and/or move a label (#203 §1).
+ *
+ * One call rather than a rename and a move, so a drag-and-rename is one
+ * undo step rather than two, and so a caller changing only the name does
+ * not have to read the position back to leave it alone. Omitted fields
+ * are left as they are; a change that changes nothing appends no node
+ * and returns the head unchanged.
+ */
+export const updateMarker = (
+  id: string,
+  patch: { name?: string; time?: number; start?: number; end?: number },
+): Promise<string> => invoke<string>("update_marker", { id, ...patch });
+
 export const listMarkers = (): Promise<Marker[]> =>
   invoke<Marker[]>("list_markers");
 

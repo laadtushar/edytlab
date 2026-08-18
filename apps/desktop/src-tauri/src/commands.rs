@@ -1772,6 +1772,66 @@ pub fn remove_marker(app: AppHandle, state: State<'_, AppState>, id: String) -> 
     Ok(new_head.to_hex())
 }
 
+/// Rename and/or move a label. Returns the new session head.
+///
+/// One command rather than a `rename` and a `move`, because the label
+/// lane can do both in one gesture (drag while renaming) and because
+/// each would otherwise be a separate undo step for what the user did
+/// once. Omitted fields are left alone; a change that changes nothing
+/// appends no node.
+#[tauri::command]
+pub fn update_marker(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    name: Option<String>,
+    time: Option<f64>,
+    start: Option<f64>,
+    end: Option<f64>,
+) -> CmdResult<String> {
+    let annotation_id = session::AnnotationId(
+        uuid::Uuid::parse_str(&id).map_err(|e| CommandError::InvalidNodeId(e.to_string()))?,
+    );
+
+    // Same guard as `add_marker`: a label off the end of the timeline
+    // cannot be seen, seeked to or deleted, so it must not be reachable
+    // by dragging one there either.
+    let kind = match (time, start, end) {
+        (Some(t), _, _) => {
+            if !t.is_finite() || t < 0.0 {
+                return Err(CommandError::InvalidMarker(format!(
+                    "time must be finite and >= 0; got {t}"
+                ))
+                .into());
+            }
+            Some(session::AnnotationKind::Marker { time_sec: t })
+        }
+        (None, Some(s), Some(e)) => {
+            if !s.is_finite() || !e.is_finite() || s < 0.0 || e <= s {
+                return Err(CommandError::InvalidMarker(format!(
+                    "region must be finite with end > start >= 0; got {s}..{e}"
+                ))
+                .into());
+            }
+            Some(session::AnnotationKind::Region {
+                start_sec: s,
+                end_sec: e,
+            })
+        }
+        _ => None,
+    };
+
+    let store_arc = state.store_handle().ok_or(CommandError::NoSession)?;
+    let mut store = lock_std(&*store_arc, "store")?;
+    let head = store.head().ok_or(CommandError::NoSession)?;
+    let new_head = store
+        .update_annotation(head, annotation_id, name, kind)
+        .map_err(CommandError::from)?;
+    drop(store);
+    let _ = app.emit("marker-changed", ());
+    Ok(new_head.to_hex())
+}
+
 /// Return all annotations (markers and region labels) visible at the
 /// current session head as a JSON array. Each entry is the serialised
 /// [`session::Annotation`] shape.
