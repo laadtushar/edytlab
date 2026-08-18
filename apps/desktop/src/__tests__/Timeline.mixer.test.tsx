@@ -223,7 +223,18 @@ describe("Timeline mixer controls", () => {
     );
   });
 
-  it("drives the preview level from gain as well as mute", () => {
+  /**
+   * A lane makes no sound (#155), so its volume is not a preview of
+   * anything — it is pinned to zero so that a lane played by some
+   * future change is silent rather than quietly wrong.
+   *
+   * This test used to assert the opposite: that a −6 dB fader set the
+   * lane's volume to ~0.501. That was a real preview when lane 0 was
+   * the transport. It is not one now — what you hear is the rendered
+   * mix, and a fader move is audible after the next render, which the
+   * status bar's stale-mix indicator is there to say.
+   */
+  it("leaves the lanes silent, whatever the fader says", () => {
     mockSetVolume.mockClear();
     render(
       <Timeline
@@ -231,8 +242,11 @@ describe("Timeline mixer controls", () => {
         audioPath="/tmp/drums.wav"
       />,
     );
-    // -6 dB is ~0.501 linear.
     const called = mockSetVolume.mock.calls.map((c) => c[0] as number);
-    expect(called.some((v) => Math.abs(v - 0.5012) < 0.001)).toBe(true);
+    expect(called.length).toBeGreaterThan(0);
+    expect(
+      called.every((v) => v === 0),
+      `a lane must never be audible; got ${JSON.stringify(called)}`,
+    ).toBe(true);
   });
 });

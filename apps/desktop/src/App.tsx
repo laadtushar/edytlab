@@ -941,6 +941,7 @@ function App() {
                   onSeekToMarker={handleSeekToMarker}
                   zoom={zoomPxPerSec}
                   onZoomChange={setZoomPxPerSec}
+                  mixPath={mixPath}
                   snapToZero={snapToZero}
                   onSnapToZeroChange={setSnapToZero}
                   verticalZoom={verticalZoom}

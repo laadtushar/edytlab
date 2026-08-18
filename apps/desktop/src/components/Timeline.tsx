@@ -108,6 +108,17 @@ export interface TimelineProps {
   onSeekToMarker?: (timeSec: number) => void;
   zoom?: number;
   onZoomChange?: (zoom: number) => void;
+  /**
+   * The rendered mix — the output of `render_preview` for the current
+   * head, with gain, pan, mute, solo, chains, sends and the master
+   * chain in it (#155).
+   *
+   * This is the **only** thing that is ever played. The lanes draw
+   * their own source audio and are silent: a lane holds one track with
+   * no mixer state applied, so playing lane 0 played one track raw and
+   * every other track not at all — the bug this closes.
+   */
+  mixPath?: string | null;
   /** Snap selection edges to zero crossings. Off is today's behaviour. */
   snapToZero?: boolean;
   onSnapToZeroChange?: (enabled: boolean) => void;
@@ -363,19 +374,12 @@ function TrackLane({
     };
     ws.on("ready", onReady);
     ws.on("decode", onReady);
-    const onAudioProcess = () => {
-      if (!loopRef.current || !selectionRef.current) return;
-      const t = ws.getCurrentTime();
-      if (t >= selectionRef.current.end) {
-        const dur = ws.getDuration();
-        if (dur > 0) ws.seekTo(selectionRef.current.start / dur);
-      }
-    };
-    ws.on("audioprocess", onAudioProcess);
+    // No playback handlers here. A lane is a picture of one track's
+    // own audio, with no mixer state applied — it is never played, so
+    // looping and level belong to the mix player instead.
     return () => {
       ws.un("ready", onReady);
       ws.un("decode", onReady);
-      ws.un("audioprocess", onAudioProcess);
       ws.destroy();
       wsRef.current = null;
       onWavesurfer?.(null);
@@ -413,17 +417,17 @@ function TrackLane({
     }
   }, [audioPath]);
 
-  // Preview level follows the fader as well as the mute button, so
-  // dragging gain does something audible before a render.
+  // A lane makes no sound, so its volume is not a preview of anything
+  // — but it is set to zero anyway, so that a lane which somehow gets
+  // played by a future change is silent rather than quietly wrong.
   //
-  // Only downward: WaveSurfer drives a media element, whose volume is
-  // clamped to [0, 1], so boosts above unity cannot be previewed. They
-  // are still written to the session and still apply at render — the
-  // dB readout is the honest indicator there, not the loudspeaker.
+  // This used to follow the fader, which was a real preview back when
+  // lane 0 was the transport. It is not one now: what you hear is the
+  // rendered mix, and a fader move is audible after the next render.
+  // The status bar's stale-mix indicator is what says so.
   useEffect(() => {
-    const linear = muted ? 0 : Math.min(1, 10 ** (gainDb / 20));
-    wsRef.current?.setVolume(linear);
-  }, [muted, gainDb]);
+    wsRef.current?.setVolume(0);
+  }, []);
 
   useEffect(() => {
     if (!wsRef.current || duration === 0) return;
@@ -871,6 +875,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
       onSeekToMarker,
       zoom,
       onZoomChange,
+      mixPath,
       snapToZero,
       onSnapToZeroChange,
       verticalZoom,
@@ -894,7 +899,6 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
     ref,
   ) {
     const audioPath = audioPathProp ?? src ?? null;
-    const headWsRef = useRef<WaveSurfer | null>(null);
     /**
      * How long lane 0's own audio decoded to. Still needed — it is the
      * only length available before any clip metadata arrives — but it
@@ -913,6 +917,72 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
      * that changes and nothing else has to.
      */
     const [transportSec, setTransportSec] = useState(0);
+
+    /**
+     * The one player. Hidden, because it has no waveform to show — the
+     * lanes draw the picture and this makes the sound.
+     */
+    const mixWsRef = useRef<WaveSurfer | null>(null);
+    const mixHostRef = useRef<HTMLDivElement>(null);
+    const loopRef = useRef(loop);
+    const selectionRef = useRef(selection);
+    useEffect(() => {
+      loopRef.current = loop;
+    }, [loop]);
+    useEffect(() => {
+      selectionRef.current = selection;
+    }, [selection]);
+
+    useEffect(() => {
+      if (!mixHostRef.current) return;
+      const ws = WaveSurfer.create({
+        container: mixHostRef.current,
+        height: 1,
+        cursorWidth: 0,
+        // Never drawn, so nothing here is a visual decision.
+        waveColor: "transparent",
+        progressColor: "transparent",
+      });
+      mixWsRef.current = ws;
+
+      const publish = () => setTransportSec(ws.getCurrentTime());
+      ws.on("audioprocess", publish);
+      ws.on("seeking", publish);
+      ws.on("timeupdate", publish);
+
+      // Looping belongs to whatever is actually playing. It used to
+      // live on lane 0, which is no longer the thing making sound.
+      const onProcess = () => {
+        if (!loopRef.current || !selectionRef.current) return;
+        if (ws.getCurrentTime() >= selectionRef.current.end) {
+          ws.setTime(selectionRef.current.start);
+        }
+      };
+      ws.on("audioprocess", onProcess);
+
+      return () => {
+        ws.un("audioprocess", publish);
+        ws.un("seeking", publish);
+        ws.un("timeupdate", publish);
+        ws.un("audioprocess", onProcess);
+        ws.destroy();
+        mixWsRef.current = null;
+      };
+    }, []);
+
+    // Load the mix when it changes. A null path means there is nothing
+    // to play yet — a cold start with no head — and the transport
+    // simply does nothing rather than throwing.
+    useEffect(() => {
+      const ws = mixWsRef.current;
+      if (!ws || !mixPath) return;
+      try {
+        void ws.load(convertFileSrc(mixPath)).catch(() => undefined);
+      } catch {
+        // A path the webview cannot convert is not worth crashing the
+        // timeline over; the lanes still draw.
+      }
+    }, [mixPath]);
     const playheadSec = playheadSecProp ?? transportSec;
 
     /**
@@ -1061,29 +1131,29 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
       ref,
       () => ({
         togglePlay: () => {
-          const ws = headWsRef.current;
+          const ws = mixWsRef.current;
           if (!ws) return;
           if (ws.isPlaying()) ws.pause();
           else void ws.play();
         },
-        play: () => void headWsRef.current?.play(),
-        pause: () => headWsRef.current?.pause(),
+        play: () => void mixWsRef.current?.play(),
+        pause: () => mixWsRef.current?.pause(),
         seekTo: (sec: number) => {
-          const ws = headWsRef.current;
+          const ws = mixWsRef.current;
           if (!ws) return;
           const d = ws.getDuration() || 0;
           if (d <= 0) return;
           ws.setTime(clamp(sec, 0, d));
         },
         seekBy: (delta: number) => {
-          const ws = headWsRef.current;
+          const ws = mixWsRef.current;
           if (!ws) return;
           const d = ws.getDuration() || 0;
           if (d <= 0) return;
           ws.setTime(clamp(ws.getCurrentTime() + delta, 0, d));
         },
-        getCurrentTime: () => headWsRef.current?.getCurrentTime() ?? 0,
-        getDuration: () => headWsRef.current?.getDuration() ?? 0,
+        getCurrentTime: () => mixWsRef.current?.getCurrentTime() ?? 0,
+        getDuration: () => mixWsRef.current?.getDuration() ?? 0,
         zoomToSelection,
         fitToWindow,
       }),
@@ -1260,6 +1330,17 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
           </div>
         </div>
 
+        {/*
+          The transport. One player for the whole session, on the
+          rendered mix, drawn as nothing — the lanes are the picture.
+        */}
+        <div
+          ref={mixHostRef}
+          data-testid="timeline-mix-player"
+          aria-hidden="true"
+          style={{ position: "absolute", width: 0, height: 0, overflow: "hidden" }}
+        />
+
         <Ruler duration={timelineDuration} onAddMarker={onAddMarker} />
 
         <div
@@ -1287,22 +1368,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
                 onToggleSolo={() => handleToggleSolo(idx)}
                 onFileDropped={idx === 0 ? onFileDropped : undefined}
                 showDropHint={idx === 0 && !audioPath}
-                onWavesurfer={
-                  idx === 0
-                    ? (ws) => {
-                        headWsRef.current = ws;
-                        if (!ws) return;
-                        // `audioprocess` fires while playing;
-                        // `seeking`/`timeupdate` cover the paused
-                        // moves, which is most of what an editor does.
-                        const publish = () =>
-                          setTransportSec(ws.getCurrentTime());
-                        ws.on("audioprocess", publish);
-                        ws.on("seeking", publish);
-                        ws.on("timeupdate", publish);
-                      }
-                    : undefined
-                }
+
                 selection={idx === 0 ? selection : null}
                 onSelectionChange={idx === 0 ? onSelectionChange : undefined}
                 onDurationChange={idx === 0 ? setHeadLaneDuration : undefined}
