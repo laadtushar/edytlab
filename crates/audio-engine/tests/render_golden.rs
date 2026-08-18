@@ -61,6 +61,7 @@ fn build_state(source: &Path, gain_db: f32) -> SessionState {
         sample_rate: decoded.sample_rate,
         length_samples: frames,
         annotations: Vec::new(),
+        sync_lock: false,
     }
 }
 

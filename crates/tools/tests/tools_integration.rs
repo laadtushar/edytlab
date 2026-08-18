@@ -831,6 +831,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "set_effect_params",
             "set_pan",
             "set_send",
+            "set_sync_lock",
             "set_track_gain",
             "silence_finder",
             "silence_region",

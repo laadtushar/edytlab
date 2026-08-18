@@ -1,7 +1,9 @@
 //! Splice silence into a buffer at a given offset.
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{destructive_edit, track_channels};
+use crate::tool::util::{
+    destructive_edit_then, insert_gap_timeline, sync_other_tracks, track_channels,
+};
 use crate::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::Value;
@@ -111,11 +113,33 @@ impl Tool for InsertSilenceTool {
             Ok(c) => c,
             Err(e) => return Ok(ToolResult::Error(e)),
         };
-        Ok(destructive_edit(
+        // Sync-lock (#170 §3): the gap has to open on every track, or
+        // everything after it drifts by exactly the amount inserted.
+        // The other tracks get a timeline shift rather than a rewrite —
+        // it is the same silence and it costs no derived file.
+        //
+        // It happens inside the same node as the sample edit, because
+        // "keep the tracks aligned" is one thing to undo.
+        Ok(destructive_edit_then(
             ctx,
             track,
-            move |samples, sample_rate| {
+            move |samples, sample_rate, chans| {
                 let _ = apply_insert_silence(samples, sample_rate, channels, at, duration);
+                (sample_rate, chans)
+            },
+            move |state, edited| {
+                if !state.sync_lock {
+                    return;
+                }
+                let rate = state.sample_rate.max(1) as f64;
+                let at_frames = (at * rate).round().max(0.0) as u64;
+                let len_frames = (duration * rate).round().max(0.0) as u64;
+                if len_frames == 0 {
+                    return;
+                }
+                sync_other_tracks(state, edited, |clips| {
+                    insert_gap_timeline(clips, at_frames, len_frames)
+                });
             },
             format!("insert {duration:.2}s silence at {at:.2}s on track {track}"),
         ))

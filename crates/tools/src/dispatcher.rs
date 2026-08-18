@@ -97,10 +97,10 @@ impl ToolDispatcher {
             RenderFinalTool, RenderPreviewTool, ReorderEffectsTool, RepeatSelectionTool,
             ResampleTrackTool, ReverbTool, ReverseTool, RevertToTool, SeparateStemsTool,
             SetClipEnvelopeTool, SetEffectBypassedTool, SetEffectParamsTool, SetPanTool,
-            SetSendTool, SetTrackGainTool, SilenceFinderTool, SilenceRegionTool, SoloTrackTool,
-            SplitClipTool, StereoToMonoTool, StereoWidenerTool, StorageReportTool, TimeShiftTool,
-            TimeStretchTool, TranscribeTool, TremoloTool, TrimTool, TruncateSilenceTool,
-            VocalReductionTool,
+            SetSendTool, SetSyncLockTool, SetTrackGainTool, SilenceFinderTool, SilenceRegionTool,
+            SoloTrackTool, SplitClipTool, StereoToMonoTool, StereoWidenerTool, StorageReportTool,
+            TimeShiftTool, TimeStretchTool, TranscribeTool, TremoloTool, TrimTool,
+            TruncateSilenceTool, VocalReductionTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -121,6 +121,7 @@ impl ToolDispatcher {
         d.register(Box::new(RemoveSendTool));
         d.register(Box::new(RemoveTrackTool));
         d.register(Box::new(SetTrackGainTool));
+        d.register(Box::new(SetSyncLockTool));
         d.register(Box::new(RenderPreviewTool));
         d.register(Box::new(RenderFinalTool));
         // M24: branching DAG ops.

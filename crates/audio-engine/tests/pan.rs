@@ -73,6 +73,7 @@ fn session_with_pan(source: &Path, pan: f32) -> SessionState {
         sample_rate: RATE,
         length_samples: frames,
         annotations: Vec::new(),
+        sync_lock: false,
     }
 }
 

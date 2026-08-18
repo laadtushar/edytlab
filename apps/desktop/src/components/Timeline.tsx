@@ -122,6 +122,14 @@ export interface TimelineProps {
   /** Snap selection edges to zero crossings. Off is today's behaviour. */
   snapToZero?: boolean;
   onSnapToZeroChange?: (enabled: boolean) => void;
+  /**
+   * Sync-lock: an edit that shifts time on one track shifts them all
+   * (#170 §3). Shown as a toggle in the header rather than parked in a
+   * menu, because it silently changes what the next cut does and the
+   * user has to be able to see that it is on.
+   */
+  syncLock?: boolean;
+  onSyncLockChange?: (enabled: boolean) => void;
   /** Waveform height multiplier; 1 is the real amplitude. */
   verticalZoom?: number;
   onVerticalZoomChange?: (factor: number) => void;
@@ -878,6 +886,8 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
       mixPath,
       snapToZero,
       onSnapToZeroChange,
+      syncLock,
+      onSyncLockChange,
       verticalZoom,
       onVerticalZoomChange,
       playheadSec: playheadSecProp,
@@ -1275,6 +1285,21 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
               title="Fit to window (Ctrl+F)"
             >
               ⇤⇥
+            </button>
+            <button
+              type="button"
+              data-testid="sync-lock-btn"
+              onClick={() => onSyncLockChange?.(!syncLock)}
+              aria-pressed={syncLock ? "true" : "false"}
+              aria-label={syncLock ? "Turn sync-lock off" : "Turn sync-lock on"}
+              className={`text-xs px-2 py-1 rounded border transition-colors ${
+                syncLock
+                  ? "border-amber-400 text-amber-400 bg-amber-400/10"
+                  : "border-neutral-600 text-neutral-400 hover:border-neutral-400"
+              }`}
+              title="Sync-lock — cuts and inserts move every track together, so a multitrack recording stays aligned"
+            >
+              ⛓
             </button>
             <button
               type="button"

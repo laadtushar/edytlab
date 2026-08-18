@@ -127,6 +127,7 @@ mod tests {
             sample_rate: 48_000,
             length_samples: 100,
             annotations: Vec::new(),
+            sync_lock: false,
         }
     }
 

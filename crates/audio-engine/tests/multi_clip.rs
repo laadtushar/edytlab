@@ -83,6 +83,7 @@ fn session_with(clips: Vec<Clip>) -> SessionState {
         sample_rate: RATE,
         length_samples: length,
         annotations: Vec::new(),
+        sync_lock: false,
     }
 }
 

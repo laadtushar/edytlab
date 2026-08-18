@@ -96,6 +96,7 @@ fn state_with_effects(source: &Path, effects: Vec<EffectInstance>) -> SessionSta
         sample_rate: decoded.sample_rate,
         length_samples: frames,
         annotations: Vec::new(),
+        sync_lock: false,
     }
 }
 

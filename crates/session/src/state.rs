@@ -43,6 +43,26 @@ pub struct SessionState {
     /// hash stable for nodes that don't use annotations.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub annotations: Vec<Annotation>,
+
+    /// Sync-lock: an edit that shifts time on one track shifts every
+    /// track (#170 §3).
+    ///
+    /// An interview is one track per speaker, and a cut on one of them
+    /// desynchronises the conversation unless the others move with it.
+    /// This is the mode that says they should.
+    ///
+    /// It lives in the session state rather than in the view because it
+    /// changes what an edit *means*, not how it is drawn — and because
+    /// the agent has to be able to see it before deciding whether a cut
+    /// is safe. Defaulted and skipped when off, so every node written
+    /// before it existed loads and re-hashes to the same id.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub sync_lock: bool,
+}
+
+/// `skip_serializing_if` for a flag that is absent when off.
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -217,6 +237,7 @@ mod state_tests {
             sample_rate: 48_000,
             length_samples: 0,
             annotations: Vec::new(),
+            sync_lock: false,
         }
     }
 

@@ -87,6 +87,7 @@ const TOOL_LABELS: Record<string, string> = {
   time_shift: "Shift in time",
   truncate_silence: "Truncate silence",
   set_clip_envelope: "Volume envelope",
+  set_sync_lock: "Sync-lock",
   align_to_beat: "Align to beat",
 
   // Level

@@ -87,7 +87,15 @@ const groups = [
         name: "cut_range",
         prompt: 'cut from 1:30 to 2:00 on track 1',
         what: "Remove a time range. Audio after the cut point shifts left.",
-        output: "node_id",
+        output: "node_id, synced_tracks",
+        note: "With sync-lock on, the same span comes out of every track so a multitrack recording stays aligned.",
+      },
+      {
+        name: "set_sync_lock",
+        prompt: "keep the tracks in sync when you cut",
+        what: "Turn sync-lock on or off. With it on, an edit that shifts time on one track shifts every track. An interview is one track per speaker, and cutting a sentence from one of them leaves every later word on that track early while the other speaker stays put — the conversation comes apart, and nothing about the edit says it will. Affects cut_range and insert_silence.",
+        output: "node_id, sync_lock, changed",
+        note: "Each affected edit is still one undoable node covering every track it moved, so undo restores the whole edit rather than half of it. The mode is part of the session, so it survives Save As and the agent can read it before deciding whether a cut is safe.",
       },
       {
         name: "copy_region",
@@ -613,7 +621,7 @@ export default function ToolsPage() {
   return (
     <DocShell
       title="Audio Tools Reference"
-      description="All 86 tools the AI agent can call to edit your audio session."
+      description="All 87 tools the AI agent can call to edit your audio session."
     >
       <p>
         Tools are deterministic functions the agent calls to manipulate your
