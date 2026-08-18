@@ -568,8 +568,9 @@ const groups = [
       {
         name: "render_final",
         prompt: 'export to /Users/me/Desktop/final.wav',
-        what: "Render the full session to WAV, FLAC or MP3. FLAC is lossless — identical audio, roughly half the size. MP3 is lossy but plays anywhere; bitrate defaults to 192 kbps.",
-        output: "path, duration_sec, peak_dbfs, sample_rate",
+        what: "Render the full session to WAV, FLAC or MP3. FLAC is lossless — identical audio, roughly half the size. MP3 is lossy but plays anywhere; bitrate defaults to 192 kbps. Takes title, artist, album, year and comment, written as Vorbis comments on FLAC and ID3v2 on MP3, and can carry the session's markers through as chapters.",
+        output: "path, duration_sec, peak_dbfs, sample_rate, tagged, chapters",
+        note: "Tags are applied after encoding — FLAC blocks are rewritten in place and an ID3 tag is a prefix — so tagging never touches a sample. WAV has no standard tag container worth using and refuses metadata rather than dropping it silently.",
       },
       {
         name: "render_preview",
