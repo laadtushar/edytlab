@@ -14,6 +14,8 @@ import type { RecentProject } from "../lib/tauri-bridge";
 
 interface EmptyStateProps {
   onOpen: () => void;
+  /** Open an existing project folder, as opposed to an audio file. */
+  onOpenProject?: () => void;
   onShowTemplates?: () => void;
   /**
    * Projects this machine has opened. Absent or empty hides the list
@@ -44,6 +46,7 @@ function modifierKey(): string {
 
 export function EmptyState({
   onOpen,
+  onOpenProject,
   onShowTemplates,
   recents,
   onOpenRecent,
@@ -96,6 +99,25 @@ export function EmptyState({
       </div>
 
       <div className="flex items-center gap-3">
+        {onOpenProject ? (
+          <button
+            type="button"
+            onClick={onOpenProject}
+            data-testid="empty-state-open-project-button"
+            className="
+              inline-flex items-center gap-2
+              rounded-md
+              border border-[var(--border-strong)]
+              bg-[var(--surface-elev)]
+              px-4 py-2
+              text-sm font-medium text-[var(--text-dim)]
+              transition
+              hover:border-[var(--accent)]/60 hover:text-[var(--text)]
+            "
+          >
+            Open project…
+          </button>
+        ) : null}
         {onShowTemplates ? (
           <button
             type="button"
