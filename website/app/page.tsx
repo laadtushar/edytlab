@@ -4,7 +4,7 @@ import { DemoFrame } from "@/components/landing/demo-frame";
 import { FAQ } from "@/components/landing/faq";
 import { FeatureGrid } from "@/components/landing/feature-grid";
 import { Footer } from "@/components/landing/footer";
-import { Hero } from "@/components/landing/hero";
+import { ScrollStory } from "@/components/story/scroll-story";
 import { HowItWorks } from "@/components/landing/how-it-works";
 import { Problem } from "@/components/landing/problem";
 import { ProviderCards } from "@/components/landing/provider-cards";
@@ -46,8 +46,11 @@ export default async function Home() {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
       <SiteHeader />
-      <main>
-        <Hero release={release} />
+      <main className="relative">
+        {/* One slow colour wash behind the top of the page, so the fold
+            is not a flat sheet of near-black. */}
+        <div aria-hidden className="aurora" />
+        <ScrollStory release={release} />
         <StatsStrip />
         <Problem />
         <Comparison />

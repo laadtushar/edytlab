@@ -14,9 +14,8 @@
  * disagrees with. Treat the dispatcher as the source of truth.
  */
 
-import { motion } from "framer-motion";
 
-import { FadeIn } from "./fade-in";
+import { Marquee, Reveal, Stagger } from "@/components/motion";
 
 const GROUPS = [
   {
@@ -126,7 +125,7 @@ export function ToolCatalogue() {
       className="border-y border-border/50 bg-secondary/20 py-20 md:py-28"
     >
       <div className="container">
-        <FadeIn className="mx-auto mb-12 max-w-2xl text-center">
+        <Reveal className="mx-auto mb-12 max-w-2xl text-center">
           <p className="font-mono text-xs uppercase tracking-widest text-primary">
             The toolbox
           </p>
@@ -138,43 +137,49 @@ export function ToolCatalogue() {
             if something is not on this list, it cannot do it, and it will tell
             you so rather than pretend.
           </p>
-        </FadeIn>
+        </Reveal>
+
+        {/* A slow pass of the real names before the grid spells them out.
+            Drawn from the same GROUPS array, so it can never drift from
+            the list underneath it or name a tool that does not exist. */}
+        <Marquee className="mb-12" duration={60}>
+          {GROUPS.flatMap((g) => g.tools).map((t) => (
+            <span
+              key={t}
+              className="mx-1.5 whitespace-nowrap rounded border border-border/50 bg-card/60 px-2.5 py-1 font-mono text-[11px] text-muted-foreground"
+            >
+              {t}
+            </span>
+          ))}
+        </Marquee>
 
         <div className="mx-auto grid max-w-6xl gap-x-8 gap-y-8 sm:grid-cols-2 lg:grid-cols-3">
           {GROUPS.map((g, gi) => (
-            <FadeIn key={g.name} delay={gi * 0.05}>
+            <Reveal key={g.name} delay={gi * 0.05}>
               <h3 className="mb-3 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
                 {g.name}
               </h3>
-              <ul className="flex flex-wrap gap-1.5">
-                {g.tools.map((t, i) => (
-                  <motion.li
+              <Stagger as="ul" className="flex flex-wrap gap-1.5" each={0.015} distance={8} duration={0.35}>
+                {g.tools.map((t) => (
+                  <li
                     key={t}
-                    initial={{ opacity: 0, y: 8 }}
-                    whileInView={{ opacity: 1, y: 0 }}
-                    viewport={{ once: true, margin: "-40px" }}
-                    transition={{
-                      duration: 0.35,
-                      delay: i * 0.02,
-                      ease: [0.21, 0.47, 0.32, 0.98],
-                    }}
-                    className="rounded border border-border/60 bg-card px-2 py-1 font-mono text-[11px] text-foreground/80"
+                    className="rounded border border-border/60 bg-card px-2 py-1 font-mono text-[11px] text-foreground/80 transition-colors hover:border-primary/50 hover:text-foreground"
                   >
                     {t}
-                  </motion.li>
+                  </li>
                 ))}
-              </ul>
-            </FadeIn>
+              </Stagger>
+            </Reveal>
           ))}
         </div>
 
-        <FadeIn delay={0.2}>
+        <Reveal delay={0.2}>
           <p className="mx-auto mt-12 max-w-2xl text-center text-sm text-muted-foreground">
             Plus track and format management — add, remove, rename and duplicate
             tracks, resample, mono/stereo conversion, tone and noise
             generators, markers and label import/export.
           </p>
-        </FadeIn>
+        </Reveal>
       </div>
     </section>
   );

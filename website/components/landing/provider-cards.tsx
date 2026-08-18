@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { Card, CardContent } from "@/components/ui/card";
 
-import { FadeIn } from "./fade-in";
+import { Reveal } from "@/components/motion";
 
 const providers = [
   {
@@ -41,7 +41,7 @@ export function ProviderCards() {
   return (
     <section id="providers" className="border-y border-border/50 bg-secondary/20 py-20 md:py-28">
       <div className="container">
-        <FadeIn className="mx-auto mb-12 max-w-2xl text-center">
+        <Reveal className="mx-auto mb-12 max-w-2xl text-center">
           <h2 className="text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
             Bring your own key. Switch any time.
           </h2>
@@ -49,10 +49,10 @@ export function ProviderCards() {
             Keys live in your OS keychain. We never proxy your audio or your
             tokens.
           </p>
-        </FadeIn>
+        </Reveal>
         <div className="mx-auto grid max-w-5xl gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {providers.map((p, i) => (
-            <FadeIn key={p.name} delay={i * 0.05}>
+            <Reveal key={p.name} delay={i * 0.05}>
               <Link
                 href={p.href}
                 target="_blank"
@@ -69,7 +69,7 @@ export function ProviderCards() {
                   </CardContent>
                 </Card>
               </Link>
-            </FadeIn>
+            </Reveal>
           ))}
         </div>
       </div>

@@ -1,41 +1,66 @@
 "use client";
 
-import { motion } from "framer-motion";
-import { useMemo } from "react";
+import { useRef } from "react";
+
+import { gsap, useGSAP, motionOk, NO_PREFERENCE } from "@/lib/gsap";
+
+const BAR_COUNT = 64;
 
 /**
- * Animated, decorative waveform-like SVG background.
- * Pure SVG paths — no canvas, no audio. Subtle motion only.
+ * The bars behind the hero.
+ *
+ * Not real audio and not pretending to be — it is a rhythm, sized from
+ * a fixed arithmetic sequence rather than `Math.random` so the server
+ * and the client agree on every height and React never has to reconcile
+ * a hydration mismatch.
+ *
+ * One GSAP timeline drives all sixty-four bars with a stagger, instead
+ * of sixty-four independent animations. That is the difference between
+ * one tick per frame and sixty-four, and on a page where this runs
+ * forever behind the fold it is worth the difference.
  */
 export function WaveformBackground() {
-  const lines = useMemo(() => {
-    // Deterministic pseudo-random layout so SSR/CSR match.
-    return Array.from({ length: 64 }, (_, i) => {
-      const seed = (i * 9301 + 49297) % 233280;
-      const rand = seed / 233280;
-      const height = 8 + rand * 70;
-      return { i, height };
-    });
-  }, []);
+  const ref = useRef<HTMLDivElement>(null);
+
+  const bars = Array.from({ length: BAR_COUNT }, (_, i) => {
+    const seed = (i * 9301 + 49297) % 233280;
+    return 8 + (seed / 233280) * 70;
+  });
+
+  useGSAP(
+    () => {
+      const mm = motionOk();
+      mm.add(NO_PREFERENCE, () => {
+        const els = ref.current?.querySelectorAll<HTMLElement>("[data-bar]");
+        if (!els?.length) return;
+
+        gsap.to(els, {
+          scaleY: () => 0.35 + Math.abs(Math.sin(gsap.utils.random(0, Math.PI))) * 0.75,
+          duration: 1.6,
+          ease: "sine.inOut",
+          repeat: -1,
+          yoyo: true,
+          // `from: "center"` makes the ripple travel outward from the
+          // middle, which lines up with where the headline sits.
+          stagger: { each: 0.045, from: "center", grid: "auto" },
+        });
+      });
+      return () => mm.revert();
+    },
+    { scope: ref },
+  );
 
   return (
-    <div
-      aria-hidden
-      className="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
-    >
-      <div className="absolute inset-x-0 bottom-0 flex h-72 items-end justify-center gap-[3px] px-4 opacity-30">
-        {lines.map(({ i, height }) => (
-          <motion.div
+    <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+      <div
+        ref={ref}
+        className="absolute inset-x-0 bottom-0 flex h-72 items-end justify-center gap-[3px] px-4 opacity-30"
+      >
+        {bars.map((height, i) => (
+          <div
             key={i}
-            className="w-[3px] rounded-full bg-gradient-to-t from-primary/0 via-primary/60 to-primary"
-            initial={{ height: 4 }}
-            animate={{ height: [height * 0.4, height, height * 0.5, height * 0.8, height * 0.4] }}
-            transition={{
-              duration: 4 + (i % 7) * 0.3,
-              repeat: Infinity,
-              ease: "easeInOut",
-              delay: (i % 13) * 0.07,
-            }}
+            data-bar
+            className="w-[3px] origin-bottom rounded-full bg-gradient-to-t from-primary/0 via-primary/60 to-primary"
             style={{ height }}
           />
         ))}

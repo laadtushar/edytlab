@@ -1,9 +1,8 @@
 "use client";
 
 import { Check, Minus, X } from "lucide-react";
-import { motion } from "framer-motion";
 
-import { FadeIn } from "./fade-in";
+import { Reveal, Stagger } from "@/components/motion";
 
 type CellValue = "yes" | "no" | "partial" | string;
 
@@ -51,20 +50,11 @@ function Cell({ value, highlight }: { value: CellValue; highlight?: boolean }) {
   return <div className={`${base} ${hl}`}>{value}</div>;
 }
 
-const rowVariants = {
-  hidden: { opacity: 0, x: -16 },
-  visible: (i: number) => ({
-    opacity: 1,
-    x: 0,
-    transition: { delay: i * 0.06, duration: 0.45, ease: [0.21, 0.47, 0.32, 0.98] },
-  }),
-};
-
 export function Comparison() {
   return (
     <section className="py-20 md:py-28">
       <div className="container">
-        <FadeIn className="mx-auto mb-12 max-w-2xl text-center">
+        <Reveal className="mx-auto mb-12 max-w-2xl text-center">
           <p className="text-sm font-semibold uppercase tracking-wider text-primary">
             How it stacks up
           </p>
@@ -74,9 +64,9 @@ export function Comparison() {
           <p className="mt-3 text-muted-foreground">
             The column that matters is the one with every row filled.
           </p>
-        </FadeIn>
+        </Reveal>
 
-        <FadeIn>
+        <Reveal>
           <div className="mx-auto max-w-4xl overflow-x-auto rounded-xl border border-border/60">
             <table className="w-full min-w-[480px] border-collapse text-sm">
               <thead>
@@ -98,16 +88,15 @@ export function Comparison() {
                   </th>
                 </tr>
               </thead>
-              <motion.tbody
-                initial="hidden"
-                whileInView="visible"
-                viewport={{ once: true, amount: 0.2 }}
+              <Stagger
+                as="tbody"
+                selector="tr"
+                each={0.06}
+                distance={12}
               >
                 {rows.map((row, i) => (
-                  <motion.tr
+                  <tr
                     key={row.label}
-                    custom={i}
-                    variants={rowVariants}
                     className={`border-b border-border/40 last:border-0 ${i % 2 === 0 ? "" : "bg-secondary/10"}`}
                   >
                     <td className="py-1 pl-6 pr-4 text-sm font-medium text-foreground/80">
@@ -122,12 +111,12 @@ export function Comparison() {
                     <td className="text-center">
                       <Cell value={row.edytlab} highlight />
                     </td>
-                  </motion.tr>
+                  </tr>
                 ))}
-              </motion.tbody>
+              </Stagger>
             </table>
           </div>
-        </FadeIn>
+        </Reveal>
       </div>
     </section>
   );

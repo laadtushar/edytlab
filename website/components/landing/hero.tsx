@@ -1,133 +1,105 @@
 "use client";
 
 import Link from "next/link";
+import { useRef } from "react";
 import { Apple, Download } from "lucide-react";
-import { motion } from "framer-motion";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { siteConfig } from "@/lib/site";
+import { Magnetic, SplitWords } from "@/components/motion";
+import { gsap, useGSAP, motionOk, NO_PREFERENCE } from "@/lib/gsap";
 import type { ReleaseAssets } from "@/lib/releases";
 import { WaveformBackground } from "./waveform-bg";
 
-const line1 = ["Describe", "it."];
-const line2 = ["Get", "pro-grade", "audio", "edits."];
-
-const word = {
-  hidden: { opacity: 0, y: 48, rotateX: -25, filter: "blur(4px)" },
-  visible: (i: number) => ({
-    opacity: 1,
-    y: 0,
-    rotateX: 0,
-    filter: "blur(0px)",
-    transition: {
-      delay: i * 0.07,
-      duration: 0.65,
-      ease: [0.21, 0.47, 0.32, 0.98],
-    },
-  }),
-};
-
+/**
+ * The hero runs on a timeline rather than on per-element delays.
+ *
+ * Hand-tuned delays are how an entrance drifts out of sync: change the
+ * headline animation and every number underneath it is silently wrong.
+ * A timeline states the *order* — headline, then subhead overlapping its
+ * tail, then buttons — and the relative offsets hold when any one
+ * duration changes.
+ */
 export function Hero({ release }: { release: ReleaseAssets }) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useGSAP(
+    () => {
+      const mm = motionOk();
+      mm.add(NO_PREFERENCE, () => {
+        const tl = gsap.timeline({ defaults: { ease: "power3.out" } });
+        tl.from("[data-hero-badge]", { opacity: 0, y: -14, scale: 0.85, duration: 0.5 })
+          // `<` and `-=` keep these anchored to the headline's reveal,
+          // which `SplitWords` owns and this timeline never sees.
+          .from("[data-hero-sub]", { opacity: 0, y: 20, duration: 0.6 }, 0.75)
+          .from("[data-hero-cta] > *", { opacity: 0, y: 20, stagger: 0.09, duration: 0.55 }, "-=0.35")
+          .from("[data-hero-note]", { opacity: 0, duration: 0.5 }, "-=0.25");
+      });
+      return () => mm.revert();
+    },
+    { scope: ref },
+  );
+
   return (
     <section className="relative pb-24 pt-32 md:pb-32 md:pt-40">
       <WaveformBackground />
       <div className="container relative">
-        <div className="mx-auto max-w-4xl text-center" style={{ perspective: "1200px" }}>
-          <motion.div
-            initial={{ opacity: 0, scale: 0.85, y: -12 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            transition={{ duration: 0.5, ease: [0.21, 0.47, 0.32, 0.98] }}
-          >
+        <div ref={ref} className="mx-auto max-w-4xl text-center">
+          <div data-hero-badge>
             <Badge
               variant="outline"
               className="mb-6 border-primary/30 bg-primary/10 text-primary"
             >
               Local-first AI audio editor · {release.version}
             </Badge>
-          </motion.div>
+          </div>
 
           <h1 className="text-balance text-5xl font-bold tracking-tight sm:text-6xl md:text-7xl">
-            <div className="mb-1">
-              <motion.div
-                className="flex flex-wrap justify-center gap-x-[0.25em]"
-                initial="hidden"
-                animate="visible"
-              >
-                {line1.map((w, i) => (
-                  <motion.span key={i} custom={i} variants={word} className="inline-block">
-                    {w}
-                  </motion.span>
-                ))}
-              </motion.div>
-            </div>
-            <div>
-              <motion.div
-                className="flex flex-wrap justify-center gap-x-[0.25em]"
-                initial="hidden"
-                animate="visible"
-              >
-                {line2.map((w, i) => (
-                  <motion.span
-                    key={i}
-                    custom={i + line1.length}
-                    variants={word}
-                    className="gradient-text inline-block"
-                  >
-                    {w}
-                  </motion.span>
-                ))}
-              </motion.div>
-            </div>
+            <span className="mb-1 block">
+              <SplitWords text="Describe it." />
+            </span>
+            <span className="block">
+              <SplitWords
+                text="Get pro-grade audio edits."
+                wordClassName="gradient-text-split"
+                delay={0.14}
+              />
+            </span>
           </h1>
 
-          <motion.p
+          <p
+            data-hero-sub
             className="mx-auto mt-6 max-w-2xl text-pretty text-lg text-muted-foreground md:text-xl"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.65, duration: 0.55, ease: [0.21, 0.47, 0.32, 0.98] }}
           >
             Desktop audio editor where you chat with an AI to load, cut, mix,
             transcribe, and render. Pure-Rust DSP, local-first, BYO LLM key.
-          </motion.p>
+          </p>
 
-          <motion.div
+          <div
+            data-hero-cta
             className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.82, duration: 0.5, ease: [0.21, 0.47, 0.32, 0.98] }}
           >
-            <motion.div whileHover={{ scale: 1.06 }} whileTap={{ scale: 0.96 }}>
+            <Magnetic>
               <Button asChild size="lg" className="glow w-full sm:w-auto">
                 <Link href={release.macUrl}>
                   <Apple className="size-4" />
                   Download for Mac
                 </Link>
               </Button>
-            </motion.div>
-            <motion.div whileHover={{ scale: 1.06 }} whileTap={{ scale: 0.96 }}>
-              <Button
-                asChild
-                size="lg"
-                variant="outline"
-                className="w-full sm:w-auto"
-              >
+            </Magnetic>
+            <Magnetic>
+              <Button asChild size="lg" variant="outline" className="w-full sm:w-auto">
                 <Link href={release.winUrl}>
                   <Download className="size-4" />
                   Download for Windows
                 </Link>
               </Button>
-            </motion.div>
-          </motion.div>
+            </Magnetic>
+          </div>
 
-          <motion.p
-            className="mt-4 text-xs text-muted-foreground"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 1.1, duration: 0.5 }}
-          >
+          <p data-hero-note className="mt-4 text-xs text-muted-foreground">
             Unsigned dev builds · Mac (universal) · Windows 10/11 · Linux
-          </motion.p>
+          </p>
         </div>
       </div>
     </section>

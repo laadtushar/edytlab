@@ -63,6 +63,35 @@
   }
 }
 
+@layer base {
+  /* The one global opt-out. Anything GSAP drives is already guarded by
+     `prefers-reduced-motion` in JS; this catches CSS transitions and the
+     smooth-scroll above, which JS never sees. */
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
+  ::selection {
+    background: hsl(var(--primary) / 0.3);
+  }
+
+  /* A dark page with a default scrollbar has a bright stripe down one
+     side. */
+  * {
+    scrollbar-color: hsl(var(--border)) transparent;
+    scrollbar-width: thin;
+  }
+}
+
 @layer utilities {
   .gradient-text {
     background: linear-gradient(135deg, hsl(270 95% 75%) 0%, hsl(290 90% 60%) 100%);
@@ -71,9 +100,119 @@
     -webkit-text-fill-color: transparent;
     padding: 0 0.08em 0.05em;
   }
+  /* `gradient-text` pads its sides so `background-clip: text` does not
+     shave the edge glyphs. On a headline split into per-word spans that
+     padding lands between every word and the line reads loose-set, so
+     the split variant keeps the descender room and drops the sides. */
+  .gradient-text-split {
+    background: linear-gradient(135deg, hsl(270 95% 75%) 0%, hsl(290 90% 60%) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    padding: 0 0 0.05em;
+  }
   .glow {
     box-shadow:
       0 0 80px -20px hsl(270 95% 60% / 0.4),
       0 0 30px -10px hsl(270 95% 60% / 0.3);
+  }
+
+  /* A hairline that fades out at both ends. A section divider drawn as a
+     full-width solid rule cuts the page in half; this suggests the break
+     without claiming the whole width. */
+  .rule-fade {
+    height: 1px;
+    background: linear-gradient(
+      to right,
+      transparent,
+      hsl(var(--border)) 20%,
+      hsl(var(--border)) 80%,
+      transparent
+    );
+  }
+
+  /* Card surface used across the site: a very slight vertical lift so a
+     card reads as raised rather than as a flat outlined box. */
+  .surface {
+    background:
+      linear-gradient(to bottom, hsl(var(--foreground) / 0.035), transparent 60%),
+      hsl(var(--card));
+  }
+
+  /* The highlight that follows the cursor on a tilt card. The gradient
+     lives here so only two numbers cross the JS boundary; --gx/--gy are
+     set by `TiltCard`. */
+  .tilt-card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    opacity: 0;
+    transition: opacity 0.35s ease;
+    background: radial-gradient(
+      circle at var(--gx, 50%) var(--gy, 50%),
+      hsl(var(--primary) / 0.16),
+      transparent 60%
+    );
+    pointer-events: none;
+    z-index: 1;
+  }
+  .tilt-card:hover::before {
+    opacity: 1;
+  }
+
+  /* A ring that brightens on hover, for cards that are links. */
+  .ring-hover {
+    transition:
+      border-color 0.3s ease,
+      box-shadow 0.3s ease;
+  }
+  .ring-hover:hover {
+    border-color: hsl(var(--primary) / 0.45);
+    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.15), 0 18px 40px -24px hsl(270 95% 50% / 0.5);
+  }
+
+  /* Very fine film grain over the whole page. Flat dark backgrounds band
+     visibly on wide-gamut displays; a little noise breaks the bands up
+     and costs one repeated 120px tile. */
+  .grain::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    pointer-events: none;
+    opacity: 0.035;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* Slow-drifting colour wash behind a section. Two blurred blobs at
+     opposite corners, which is enough to keep a long dark page from
+     reading as one flat sheet. */
+  .aurora {
+    position: absolute;
+    inset: 0;
+    z-index: -10;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .aurora::before,
+  .aurora::after {
+    content: "";
+    position: absolute;
+    width: 46rem;
+    height: 46rem;
+    border-radius: 9999px;
+    filter: blur(120px);
+    opacity: 0.16;
+  }
+  .aurora::before {
+    top: -18rem;
+    left: -12rem;
+    background: hsl(270 95% 60%);
+  }
+  .aurora::after {
+    right: -14rem;
+    bottom: -20rem;
+    background: hsl(300 85% 55%);
   }
 }
