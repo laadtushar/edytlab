@@ -46,6 +46,7 @@ import { Chat } from "./components/Chat";
 import { TemplatePickerModal } from "./components/TemplatePickerModal";
 import type { ChatHandle } from "./components/Chat";
 import { CommandPalette } from "./components/CommandPalette";
+import { AppHeader } from "./components/AppHeader";
 import { EmptyState } from "./components/EmptyState";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { GraphView } from "./components/GraphView";
@@ -77,12 +78,13 @@ import {
   getViewState,
   listRecentProjects,
   openProject,
+  saveProjectAs,
   saveViewState,
   type RecentProject,
 } from "./lib/tauri-bridge";
 import { viewToApply, viewToSave } from "./lib/viewState";
 
-type LeftView = "timeline" | "graph";
+import type { LeftView } from "./lib/views";
 
 interface CompareMode {
   a: string;
@@ -604,6 +606,36 @@ function App() {
     }
   }, [handleOpenRecent]);
 
+  /**
+   * Save As: copy the project somewhere new and carry on there.
+   *
+   * The view is flushed first. It is normally written 500 ms after the
+   * last change, and a copy taken inside that window would land at a
+   * different scroll position than the one being left behind.
+   */
+  const handleSaveProjectAs = useCallback(async () => {
+    try {
+      const dir = await pickProjectDirectory();
+      if (!dir) return;
+      persistView();
+      const report = await saveProjectAs(dir);
+      setRecents(await listRecentProjects());
+      setTracks(await listTracks());
+      // Not an error, so it does not go through the error banner — but
+      // the numbers are worth seeing, since a copy that skipped the
+      // cache is smaller than the folder it came from and that would
+      // otherwise look like data loss.
+      // eslint-disable-next-line no-console
+      console.info(
+        `Saved a copy to ${dir}: ${report.files} files, ` +
+          `${(report.bytes / 1e6).toFixed(1)} MB, ` +
+          `${report.skipped_previews} cached preview(s) left behind.`,
+      );
+    } catch (e) {
+      setRenderError(String(e));
+    }
+  }, [persistView]);
+
   /** Forget the row, not the project. */
   const handleForgetRecent = useCallback(async (path: string) => {
     try {
@@ -843,6 +875,8 @@ function App() {
         onSettings={() => setSettingsOpen(true)}
         isRecording={isRecording}
         onRecord={isRecording ? handleStopRecording : handleStartRecording}
+        onSaveAs={handleSaveProjectAs}
+        hasProject={Boolean(head)}
       />
 
       <div className="grid min-h-0 grid-cols-[minmax(0,1fr)_360px] gap-px bg-[var(--border)]">
@@ -1000,188 +1034,6 @@ function App() {
         onClose={() => setShowTemplatePicker(false)}
       />
     </main>
-  );
-}
-
-interface AppHeaderProps {
-  leftView: LeftView;
-  onSelectView: (v: LeftView) => void;
-  onOpen: () => void;
-  onSettings: () => void;
-  isRecording: boolean;
-  onRecord: () => void;
-}
-
-function AppHeader({
-  leftView,
-  onSelectView,
-  onOpen,
-  onSettings,
-  isRecording,
-  onRecord,
-}: AppHeaderProps) {
-  return (
-    <header
-      data-testid="left-pane-tabs"
-      className="
-        relative z-10 flex shrink-0 items-center gap-4
-        border-b border-[var(--border)]
-        bg-[var(--surface-elev)]
-        px-4 py-2.5
-      "
-    >
-      <Wordmark />
-      <div
-        className="
-          ml-3 flex items-center gap-1
-          rounded-md border border-[var(--border)]
-          bg-[var(--surface)]
-          p-0.5
-        "
-      >
-        <TabButton
-          label="Timeline"
-          testId="tab-timeline"
-          active={leftView === "timeline"}
-          onClick={() => onSelectView("timeline")}
-        />
-        <TabButton
-          label="Graph"
-          testId="tab-graph"
-          active={leftView === "graph"}
-          onClick={() => onSelectView("graph")}
-        />
-      </div>
-
-      <div className="ml-auto flex items-center gap-2">
-        <button
-          type="button"
-          data-testid="open-audio-button"
-          onClick={onOpen}
-          className="
-            inline-flex items-center gap-2
-            rounded-md border border-[var(--border-strong)]
-            bg-[var(--surface)]
-            px-3 py-1.5
-            font-mono text-[11px] uppercase tracking-wider text-[var(--text-dim)]
-            transition
-            hover:border-[var(--accent)]/50 hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]
-          "
-        >
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 14 14"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.7"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M2 3.2C2 2.54 2.54 2 3.2 2h2.6L7 3.5h3.8c.66 0 1.2.54 1.2 1.2v6.1c0 .66-.54 1.2-1.2 1.2H3.2C2.54 12 2 11.46 2 10.8V3.2Z" />
-          </svg>
-          Open Audio
-        </button>
-
-        <button
-          type="button"
-          data-testid="record-btn"
-          onClick={onRecord}
-          className={`px-3 py-1 text-sm rounded font-medium ${
-            isRecording
-              ? "bg-red-600 text-white animate-pulse"
-              : "bg-neutral-700 text-neutral-300 hover:bg-neutral-600"
-          }`}
-        >
-          {isRecording ? "⏹ Stop" : "⏺ Record"}
-        </button>
-
-        <button
-          type="button"
-          onClick={onSettings}
-          data-testid="open-settings-button"
-          aria-label="Open settings"
-          className="
-            inline-flex h-8 w-8 items-center justify-center
-            rounded-md border border-[var(--border-strong)]
-            bg-[var(--surface)]
-            text-[var(--text-dim)]
-            transition
-            hover:border-[var(--accent)]/50 hover:bg-[var(--surface-elev-2)] hover:text-[var(--text)]
-          "
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 14 14"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <circle cx="7" cy="7" r="2.2" />
-            <path d="M7 1.5v2M7 10.5v2M1.5 7h2M10.5 7h2M3 3l1.4 1.4M9.6 9.6L11 11M3 11l1.4-1.4M9.6 4.4L11 3" />
-          </svg>
-        </button>
-      </div>
-    </header>
-  );
-}
-
-function Wordmark() {
-  return (
-    <div
-      className="
-        flex items-baseline gap-1
-        text-[15px] font-medium leading-none
-        text-[var(--text)]
-      "
-    >
-      <span className="font-[family-name:var(--font-serif)] italic text-[var(--accent)] text-[18px]">
-        edyt
-      </span>
-      <span>lab</span>
-      <span
-        className="
-          ml-2 rounded
-          bg-[var(--surface-elev-2)]
-          px-1.5 py-0.5
-          font-mono text-[9px] uppercase tracking-[0.18em] text-[var(--text-faint)]
-        "
-      >
-        studio
-      </span>
-    </div>
-  );
-}
-
-interface TabButtonProps {
-  label: string;
-  testId: string;
-  active: boolean;
-  onClick: () => void;
-}
-
-function TabButton({ label, testId, active, onClick }: TabButtonProps) {
-  return (
-    <button
-      type="button"
-      data-testid={testId}
-      data-active={active ? "true" : "false"}
-      onClick={onClick}
-      aria-pressed={active}
-      className={
-        "rounded px-3 py-1 text-xs font-medium transition " +
-        (active
-          ? "bg-[var(--surface-elev-2)] text-[var(--text)] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]"
-          : "text-[var(--text-faint)] hover:bg-[var(--surface-elev-2)]/60 hover:text-[var(--text-dim)]")
-      }
-    >
-      {label}
-    </button>
   );
 }
 
