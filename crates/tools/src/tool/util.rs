@@ -745,3 +745,140 @@ pub(crate) fn check_sample_range(
 // crate references it any more — the re-export that briefly stood here
 // was itself unused, which is the refactor having landed rather than
 // something missing.
+
+// =============================================================================
+// Annotations that follow the audio (#203 §1)
+// =============================================================================
+
+/// Move annotations to keep up with a cut of `[start_sec, end_sec)`.
+///
+/// A label names a *moment in the recording*, not an offset in a file.
+/// Cutting thirty seconds out of the middle and leaving the labels where
+/// they were renames every chapter after the cut to something thirty
+/// seconds off — silently, and only discovered when someone ships the
+/// episode and the chapter marks land mid-sentence.
+///
+/// Returns the surviving annotations and how many were dropped, because
+/// dropping is the one outcome the caller has to be able to mention.
+///
+/// The rules are the ones a person would apply by hand:
+///
+/// * Before the cut — untouched.
+/// * After the cut — slides left by the cut's length.
+/// * A **marker strictly inside** the cut — dropped. The instant it
+///   named is not in the recording any more, and moving it to the seam
+///   would be inventing a position the user never chose.
+/// * A **marker exactly on either boundary** — kept, at the seam. The
+///   audio range removed is half-open, so `start_sec` is technically
+///   the first removed instant; but a mark placed deliberately at the
+///   edge of a cut is naming the edit, and after the cut the seam is
+///   still there. Dropping it would delete a label for a position that
+///   still exists.
+/// * A **region overlapping** the cut — clipped to what survives on
+///   either side, and dropped only if nothing does. A chapter that
+///   started before the cut still starts where it did.
+pub(crate) fn cut_annotations(
+    annotations: &[session::Annotation],
+    start_sec: f64,
+    end_sec: f64,
+) -> (Vec<session::Annotation>, usize) {
+    use session::AnnotationKind::{Marker, Region};
+
+    let len = (end_sec - start_sec).max(0.0);
+    // Where a point in the original lands afterwards. Points inside the
+    // cut collapse onto the seam, which is right for a region edge and
+    // wrong for a marker — hence markers are handled separately.
+    let map = |t: f64| {
+        if t <= start_sec {
+            t
+        } else {
+            (t - len).max(start_sec)
+        }
+    };
+
+    let mut out = Vec::with_capacity(annotations.len());
+    let mut dropped = 0;
+
+    for a in annotations {
+        match a.kind {
+            Marker { time_sec } => {
+                if time_sec > start_sec && time_sec < end_sec {
+                    dropped += 1;
+                    continue;
+                }
+                out.push(session::Annotation {
+                    kind: Marker {
+                        time_sec: map(time_sec),
+                    },
+                    ..a.clone()
+                });
+            }
+            Region {
+                start_sec: s,
+                end_sec: e,
+            } => {
+                let (ns, ne) = (map(s), map(e));
+                // A region wholly inside the cut collapses to zero
+                // length; there is nothing left of it to label.
+                if ne - ns <= f64::EPSILON {
+                    dropped += 1;
+                    continue;
+                }
+                out.push(session::Annotation {
+                    kind: Region {
+                        start_sec: ns,
+                        end_sec: ne,
+                    },
+                    ..a.clone()
+                });
+            }
+        }
+    }
+    (out, dropped)
+}
+
+/// Move annotations to keep up with `len_sec` of silence inserted at
+/// `at_sec`.
+///
+/// Mirror of [`cut_annotations`], and nothing is ever dropped — an
+/// insert only ever makes room. A region that *spans* the insert point
+/// grows to contain the new silence, which is the reading that matches
+/// what the user sees: the passage they marked is now longer.
+pub(crate) fn insert_annotations(
+    annotations: &[session::Annotation],
+    at_sec: f64,
+    len_sec: f64,
+) -> Vec<session::Annotation> {
+    use session::AnnotationKind::{Marker, Region};
+
+    let shift = |t: f64| if t < at_sec { t } else { t + len_sec };
+
+    annotations
+        .iter()
+        .map(|a| match a.kind {
+            Marker { time_sec } => session::Annotation {
+                kind: Marker {
+                    time_sec: shift(time_sec),
+                },
+                ..a.clone()
+            },
+            Region { start_sec, end_sec } => session::Annotation {
+                kind: Region {
+                    start_sec: shift(start_sec),
+                    // A region *spanning* the insert stretches; one that
+                    // merely ends where the silence begins does not.
+                    // Regions are half-open, so an end exactly at
+                    // `at_sec` is the first instant outside the region —
+                    // the silence goes after it, and the passage the
+                    // user marked is no longer than it was.
+                    end_sec: if end_sec > at_sec {
+                        end_sec + len_sec
+                    } else {
+                        end_sec
+                    },
+                },
+                ..a.clone()
+            },
+        })
+        .collect()
+}
