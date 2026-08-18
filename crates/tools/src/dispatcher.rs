@@ -86,9 +86,9 @@ impl ToolDispatcher {
             AddEffectTool, AddTrackTool, AlignToBeatTool, AnalyzeTrackTool, ApplyDiffTool,
             ApplyRecipeTool, AuditionEffectTool, BatchApplyTool, ChangeSpeedTool, ClickRemovalTool,
             CompareNodesTool, CompressorTool, CopyRegionTool, CreateBusTool, CutRangeTool,
-            DeEsserTool, DistortionTool, DuplicateTrackTool, EchoTool, EqTool, ExportLabelsTool,
-            ExportMultipleTool, ExportRecipeTool, FadeTool, ForkNodeTool, GainTool,
-            GenerateNoiseTool, GenerateToneTool, HighPassFilterTool, ImportLabelsTool,
+            CutWordsTool, DeEsserTool, DistortionTool, DuplicateTrackTool, EchoTool, EqTool,
+            ExportLabelsTool, ExportMultipleTool, ExportRecipeTool, FadeTool, ForkNodeTool,
+            GainTool, GenerateNoiseTool, GenerateToneTool, HighPassFilterTool, ImportLabelsTool,
             InsertSilenceTool, InvertTool, LabelTool, LevelerTool, LimiterTool, LoadTool,
             LowPassFilterTool, MixToNewTrackTool, MonoToStereoTool, MoveClipTool, MuteTrackTool,
             NameNodeTool, NoiseGateTool, NoiseReductionTool, NormalizeLoudnessTool, NormalizeTool,
@@ -184,6 +184,8 @@ impl ToolDispatcher {
         d.register(Box::new(ApplyRecipeTool));
         // #169: one chain across a folder.
         d.register(Box::new(BatchApplyTool));
+        // #157: editing the audio by editing the transcript.
+        d.register(Box::new(CutWordsTool));
         d.register(Box::new(AddEffectTool));
         d.register(Box::new(RemoveEffectTool));
         d.register(Box::new(ReorderEffectsTool));

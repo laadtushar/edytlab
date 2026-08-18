@@ -457,6 +457,13 @@ const groups = [
         note: "A chain that cannot be replayed is refused once, up front — that is a property of the chain, not of the twelve files.",
       },
       {
+        name: "cut_words",
+        prompt: "delete the bit where he repeats himself",
+        what: "Delete a span of transcribed words and the audio underneath, closing the gap. Indices are into the session transcript from `transcribe`. The remaining word timings shift so they still line up with the audio, and the whole thing is one undoable node.",
+        output: "node_id, removed_words, removed_text, removed_sec",
+        note: "The span runs from the first word's start to the last word's end — cutting from the first word's end would leave a clipped syllable behind.",
+      },
+      {
         name: "storage_report",
         prompt: "how much disk is this session using?",
         what: "Report what the session costs on disk, split by category: audio the current version needs, audio only the undo history needs (and how much of that is rebuildable from recorded operations), audio nothing references at all, the bounded preview cache, and clipboard blobs. Every destructive edit writes a new file and none are deleted, so a long session grows without bound. Reads only — it deletes nothing.",
@@ -606,7 +613,7 @@ export default function ToolsPage() {
   return (
     <DocShell
       title="Audio Tools Reference"
-      description="All 85 tools the AI agent can call to edit your audio session."
+      description="All 86 tools the AI agent can call to edit your audio session."
     >
       <p>
         Tools are deterministic functions the agent calls to manipulate your

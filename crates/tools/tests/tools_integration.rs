@@ -775,6 +775,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "copy_region",
             "create_bus",
             "cut_range",
+            "cut_words",
             "de_esser",
             "distortion",
             "duplicate_track",

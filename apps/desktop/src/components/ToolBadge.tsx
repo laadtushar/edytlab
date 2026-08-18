@@ -76,6 +76,7 @@ const TOOL_LABELS: Record<string, string> = {
   storage_report: "Disk usage",
   audition_effect: "Audition effect",
   batch_apply: "Batch apply",
+  cut_words: "Cut words",
   export_recipe: "Export recipe",
   apply_recipe: "Apply recipe",
   move_clip: "Move clip",
