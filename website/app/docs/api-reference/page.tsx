@@ -21,7 +21,37 @@ const commands = [
       {
         name: "openProject(path)",
         returns: "ProjectInfo",
-        desc: "Open or create a project directory. Returns the current head node ID (null if empty).",
+        desc: "Open or create a project directory. Returns the current head node ID (null if empty), stamps last-opened into project.json, and moves the project to the top of the recents list.",
+      },
+      {
+        name: "getProjectMeta()",
+        returns: "ProjectMeta",
+        desc: "The open project's name, when it was created, and its notes. A missing or corrupt project.json returns a folder-named default rather than failing — the audio and its history are not in that file.",
+      },
+      {
+        name: "setProjectMeta(name, notes?)",
+        returns: "ProjectMeta",
+        desc: "Rename the open project. An empty name is refused, and the recents row is updated in step.",
+      },
+      {
+        name: "getViewState()",
+        returns: "ViewState",
+        desc: "Where you were: head, zoom, selection, playhead. Every field is independently optional — absent means 'was not recorded', not 'reset this'.",
+      },
+      {
+        name: "saveViewState(view)",
+        returns: "void",
+        desc: "Remember where you are. Disposable by design: losing it costs a scroll, not work.",
+      },
+      {
+        name: "listRecentProjects()",
+        returns: "RecentProject[]",
+        desc: "Projects this machine has opened, most recent first, one row each, capped at 10. Folders that have gone are pruned on read and the pruning is written back.",
+      },
+      {
+        name: "forgetRecentProject(path)",
+        returns: "RecentProject[]",
+        desc: "Remove the row. Does not touch the project.",
       },
     ],
   },
