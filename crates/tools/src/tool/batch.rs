@@ -139,7 +139,31 @@ impl Tool for BatchApplyTool {
         let mut results = Vec::new();
         let (mut done, mut refused) = (0usize, 0usize);
 
-        for file in &files {
+        // Clear any stale cancel before the first file. Doing it here
+        // rather than at the cancel site means a stop that arrives just
+        // after a run finishes cannot kill the *next* one.
+        crate::progress::begin();
+        let mut cancelled = false;
+
+        for (index, file) in files.iter().enumerate() {
+            // Between files, never inside one. A file is either edited
+            // and rendered or not started — stopping midway would leave
+            // a project whose history ends in the middle of a chain,
+            // which is worse than one more file's wait.
+            if crate::progress::cancelled() {
+                cancelled = true;
+                break;
+            }
+
+            crate::progress::report(json!({
+                "kind": "batch_apply",
+                "index": index,
+                "total": files.len(),
+                "file": file.display().to_string(),
+                "succeeded": done,
+                "refused": refused,
+            }));
+
             let stem = file
                 .file_stem()
                 .and_then(|s| s.to_str())
@@ -172,19 +196,36 @@ impl Tool for BatchApplyTool {
             }
         }
 
-        Ok(ToolResult::Ok(json!({
-            "files": files.len(),
+        let attempted = done + refused;
+        crate::progress::report(json!({
+            "kind": "batch_apply",
+            "done": true,
+            "cancelled": cancelled,
+            "total": files.len(),
             "succeeded": done,
             "refused": refused,
+        }));
+
+        Ok(ToolResult::Ok(json!({
+            "files": files.len(),
+            "attempted": attempted,
+            "succeeded": done,
+            "refused": refused,
+            "cancelled": cancelled,
             "results": results,
             "summary": format!(
-                "Ran a {}-step chain over {} file{}: {} succeeded, {} refused.{}",
+                "{} a {}-step chain over {} of {} file{}: {} succeeded, {} refused.{}",
+                if cancelled { "Stopped partway through" } else { "Ran" },
                 template.steps.len(),
+                attempted,
                 files.len(),
                 if files.len() == 1 { "" } else { "s" },
                 done,
                 refused,
-                if refused > 0 {
+                if cancelled {
+                    " Cancelled between files, so every project either has the whole chain or was \
+                     never started."
+                } else if refused > 0 {
                     " The refusals are listed with their reasons rather than folded into a count."
                 } else {
                     ""

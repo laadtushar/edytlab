@@ -468,6 +468,34 @@ export const updateMarker = (
 export const listMarkers = (): Promise<Marker[]> =>
   invoke<Marker[]>("list_markers");
 
+/**
+ * Progress from a long-running tool (#169 §1).
+ *
+ * `batch_apply` emits one event per file plus a final `done`. A tool
+ * call is a single round trip, so without this a twelve-file batch is
+ * an unexplained pause.
+ */
+export interface ToolProgress {
+  kind: string;
+  /** Absent on the final event. */
+  index?: number;
+  total: number;
+  file?: string;
+  succeeded: number;
+  refused: number;
+  done?: boolean;
+  cancelled?: boolean;
+}
+
+export const onToolProgress = (
+  cb: (p: ToolProgress) => void,
+): Promise<UnlistenFn> =>
+  listen<ToolProgress>("tool-progress", (e) => cb(e.payload));
+
+/** Ask the running tool to stop at its next checkpoint. */
+export const cancelLongRunningTool = (): Promise<void> =>
+  invoke("cancel_long_running_tool");
+
 export const onMarkerChanged = (cb: () => void): Promise<UnlistenFn> =>
   listen("marker-changed", () => cb());
 

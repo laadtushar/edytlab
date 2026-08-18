@@ -47,6 +47,7 @@ import { mixIsStale } from "./lib/mixState";
 import { ABCompareBar } from "./components/ABCompareBar";
 import { Chat } from "./components/Chat";
 import { LabelLane } from "./components/LabelLane";
+import { ToolProgressBar } from "./components/ToolProgressBar";
 import { TemplatePickerModal } from "./components/TemplatePickerModal";
 import type { ChatHandle } from "./components/Chat";
 import { CommandPalette } from "./components/CommandPalette";
@@ -961,6 +962,10 @@ function App() {
               onDismiss={() => setRenderError(null)}
             />
           ) : null}
+
+          {/* Above the timeline so a long run is visible wherever the
+              user is looking, and gone again the moment it finishes. */}
+          <ToolProgressBar />
 
           {compareMode ? (
             <ABCompareBar

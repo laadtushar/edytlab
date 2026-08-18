@@ -1772,6 +1772,18 @@ pub fn remove_marker(app: AppHandle, state: State<'_, AppState>, id: String) -> 
     Ok(new_head.to_hex())
 }
 
+/// Ask a running long tool to stop at its next checkpoint (#169 §1).
+///
+/// `batch_apply` checks between files, so a cancel never leaves a
+/// project whose history ends halfway through a chain. Setting the flag
+/// when nothing is running is harmless: the next run clears it before
+/// its first file.
+#[tauri::command]
+pub fn cancel_long_running_tool() -> CmdResult<()> {
+    tools::progress::request_cancel();
+    Ok(())
+}
+
 /// Rename and/or move a label. Returns the new session head.
 ///
 /// One command rather than a `rename` and a `move`, because the label
