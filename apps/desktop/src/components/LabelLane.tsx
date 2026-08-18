@@ -10,13 +10,15 @@
  * What it supports, and why each is a direct gesture rather than a
  * sentence to the agent:
  *
- * * **Add** — click empty lane. Naming a chapter while listening is a
- *   dozen-times-an-episode action; a round trip through the model for
- *   each is absurd.
+ * * **Add** — double-click empty lane. Naming a chapter while listening
+ *   is a dozen-times-an-episode action; a round trip through the model
+ *   for each is absurd. Double rather than single because a single
+ *   click in an empty lane is how you deselect, and a label per stray
+ *   click would be maddening.
  * * **Rename** — double-click the chip, type, Enter. Escape reverts.
  * * **Move** — drag the chip. The time under the pointer is what it
  *   gets, so it lands where you looked.
- * * **Delete** — right-click, or select and press Delete.
+ * * **Delete** — right-click the chip.
  *
  * Positions are seconds on the session axis, the same axis the timeline
  * and the ruler use, so a label lines up with the audio at any zoom.

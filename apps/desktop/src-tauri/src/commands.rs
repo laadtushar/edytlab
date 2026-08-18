@@ -1793,9 +1793,28 @@ pub fn update_marker(
         uuid::Uuid::parse_str(&id).map_err(|e| CommandError::InvalidNodeId(e.to_string()))?,
     );
 
-    // Same guard as `add_marker`: a label off the end of the timeline
-    // cannot be seen, seeked to or deleted, so it must not be reachable
-    // by dragging one there either.
+    // A marker and a region are different shapes, and accepting both in
+    // one call means silently picking one. That hides a caller bug —
+    // the UI sending `time` alongside a stale `start`/`end` would look
+    // like it worked — so a mixed request is refused instead.
+    if time.is_some() && (start.is_some() || end.is_some()) {
+        return Err(CommandError::InvalidMarker(
+            "pass either `time` (a marker) or `start` and `end` (a region), not both".into(),
+        )
+        .into());
+    }
+    if start.is_some() != end.is_some() {
+        return Err(
+            CommandError::InvalidMarker("a region needs both `start` and `end`".into()).into(),
+        );
+    }
+
+    // Same lower-bound guard as `add_marker`: a label at a negative
+    // time cannot be seen, seeked to or deleted, so it must not be
+    // reachable by dragging one there either. There is deliberately no
+    // upper bound — the session length is not known here, and a label
+    // past the end stays addressable and is pulled back by the next
+    // edit rather than being lost.
     let kind = match (time, start, end) {
         (Some(t), _, _) => {
             if !t.is_finite() || t < 0.0 {
