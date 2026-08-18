@@ -78,6 +78,7 @@ const TOOL_LABELS: Record<string, string> = {
   batch_apply: "Batch apply",
   cut_words: "Cut words",
   export_recipe: "Export recipe",
+  remove_fillers: "Remove fillers",
   apply_recipe: "Apply recipe",
   move_clip: "Move clip",
   remove_clip: "Remove clip",

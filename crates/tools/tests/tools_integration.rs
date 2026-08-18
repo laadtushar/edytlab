@@ -814,6 +814,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "plot_spectrum",
             "remove_clip",
             "remove_effect",
+            "remove_fillers",
             "remove_send",
             "remove_track",
             "rename_track",
