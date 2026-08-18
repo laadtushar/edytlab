@@ -93,14 +93,14 @@ impl ToolDispatcher {
             LowPassFilterTool, MixToNewTrackTool, MonoToStereoTool, MoveClipTool, MuteTrackTool,
             NameNodeTool, NoiseGateTool, NoiseReductionTool, NormalizeLoudnessTool, NormalizeTool,
             NotchFilterTool, PasteRegionTool, PhaserTool, PitchShiftTool, PlotSpectrumTool,
-            RemoveClipTool, RemoveEffectTool, RemoveSendTool, RemoveTrackTool, RenameTrackTool,
-            RenderFinalTool, RenderPreviewTool, ReorderEffectsTool, RepeatSelectionTool,
-            ResampleTrackTool, ReverbTool, ReverseTool, RevertToTool, SeparateStemsTool,
-            SetClipEnvelopeTool, SetEffectBypassedTool, SetEffectParamsTool, SetPanTool,
-            SetSendTool, SetSyncLockTool, SetTrackGainTool, SilenceFinderTool, SilenceRegionTool,
-            SoloTrackTool, SplitClipTool, StereoToMonoTool, StereoWidenerTool, StorageReportTool,
-            TimeShiftTool, TimeStretchTool, TranscribeTool, TremoloTool, TrimTool,
-            TruncateSilenceTool, VocalReductionTool,
+            RemoveClipTool, RemoveEffectTool, RemoveFillersTool, RemoveSendTool, RemoveTrackTool,
+            RenameTrackTool, RenderFinalTool, RenderPreviewTool, ReorderEffectsTool,
+            RepeatSelectionTool, ResampleTrackTool, ReverbTool, ReverseTool, RevertToTool,
+            SeparateStemsTool, SetClipEnvelopeTool, SetEffectBypassedTool, SetEffectParamsTool,
+            SetPanTool, SetSendTool, SetSyncLockTool, SetTrackGainTool, SilenceFinderTool,
+            SilenceRegionTool, SoloTrackTool, SplitClipTool, StereoToMonoTool, StereoWidenerTool,
+            StorageReportTool, TimeShiftTool, TimeStretchTool, TranscribeTool, TremoloTool,
+            TrimTool, TruncateSilenceTool, VocalReductionTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -187,6 +187,8 @@ impl ToolDispatcher {
         d.register(Box::new(BatchApplyTool));
         // #157: editing the audio by editing the transcript.
         d.register(Box::new(CutWordsTool));
+        // #165: the most-performed edit in podcast production.
+        d.register(Box::new(RemoveFillersTool));
         d.register(Box::new(AddEffectTool));
         d.register(Box::new(RemoveEffectTool));
         d.register(Box::new(ReorderEffectsTool));

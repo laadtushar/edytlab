@@ -5,11 +5,11 @@ import { DocShell } from "@/components/docs/doc-shell";
 export const metadata: Metadata = {
   title: "Audio Tools Reference",
   description:
-    "All 84 audio-editing tools available to the edytlab AI agent — cut, normalize, stem separate, transcribe, render, and more.",
+    "All 85 audio-editing tools available to the edytlab AI agent — cut, normalize, stem separate, transcribe, render, and more.",
   alternates: { canonical: "/docs/tools" },
   openGraph: {
     title: "Audio Tools Reference — edytlab Docs",
-    description: "Complete reference for all 84 agent-callable audio tools.",
+    description: "Complete reference for all 85 agent-callable audio tools.",
     url: `${siteConfig.url}/docs/tools`,
   },
 };
@@ -472,6 +472,13 @@ const groups = [
         note: "The span runs from the first word's start to the last word's end — cutting from the first word's end would leave a clipped syllable behind.",
       },
       {
+        name: "remove_fillers",
+        prompt: "how many ums are in this?",
+        what: "Find filler words in the transcript and, when asked, remove them and their audio in one undoable edit. Reports by default without changing anything — this is a destructive edit across a whole track. Hesitations (um, uh, er) go wherever they appear; discourse markers (like, actually) only where they stand alone between pauses, because speech with every hesitation stripped sounds rushed.",
+        output: "found, would_save_sec, per-word list; node_id when applied",
+        note: "Leaves a short pause where each filler was, so the result does not sound spliced. The word list can be replaced — fillers are language- and speaker-specific.",
+      },
+      {
         name: "storage_report",
         prompt: "how much disk is this session using?",
         what: "Report what the session costs on disk, split by category: audio the current version needs, audio only the undo history needs (and how much of that is rebuildable from recorded operations), audio nothing references at all, the bounded preview cache, and clipboard blobs. Every destructive edit writes a new file and none are deleted, so a long session grows without bound. Reads only — it deletes nothing.",
@@ -621,7 +628,7 @@ export default function ToolsPage() {
   return (
     <DocShell
       title="Audio Tools Reference"
-      description="All 87 tools the AI agent can call to edit your audio session."
+      description="All 88 tools the AI agent can call to edit your audio session."
     >
       <p>
         Tools are deterministic functions the agent calls to manipulate your
