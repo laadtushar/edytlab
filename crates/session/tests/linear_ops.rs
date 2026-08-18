@@ -27,6 +27,7 @@ fn make_node(length_samples: u64) -> SessionNode {
             sample_rate: 48_000,
             length_samples,
             annotations: Vec::new(),
+            sync_lock: false,
         },
         op: None,
     }

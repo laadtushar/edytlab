@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 use crate::schema::{anthropic_tool, object_schema};
 use crate::tool::util::{
     append_state, check_sample_range, check_track_index, cut_timeline, load_head_state,
-    timeline_end,
+    sync_other_tracks, timeline_end,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -78,6 +78,19 @@ impl Tool for CutRangeTool {
         }
 
         track.clips = cut_timeline(&track.clips, start, end);
+
+        // Sync-lock (#170 §3): an interview is one track per speaker,
+        // and cutting a sentence out of one of them desynchronises the
+        // conversation unless the others lose the same span. One node,
+        // not one per track — undo has to put the whole edit back.
+        let synced = if state.sync_lock {
+            sync_other_tracks(&mut state, args.track, |clips| {
+                cut_timeline(clips, start, end)
+            })
+        } else {
+            0
+        };
+
         state.length_samples = state
             .tracks
             .iter()
@@ -100,9 +113,19 @@ impl Tool for CutRangeTool {
         Ok(ToolResult::Ok(json!({
             "node_id": new_id.to_hex(),
             "removed_samples": cut_len,
+            "synced_tracks": synced,
             "summary": format!(
-                "Cut [{}, {}) ({} samples) from track {}; new head {}",
-                args.start_sample, args.end_sample, cut_len, args.track, new_id.to_hex(),
+                "Cut [{}, {}) ({} samples) from track {}{}; new head {}",
+                args.start_sample,
+                args.end_sample,
+                cut_len,
+                args.track,
+                if synced > 0 {
+                    format!(" and {synced} other track(s), sync-locked")
+                } else {
+                    String::new()
+                },
+                new_id.to_hex(),
             ),
         })))
     }

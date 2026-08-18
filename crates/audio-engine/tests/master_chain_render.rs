@@ -77,6 +77,7 @@ fn state_with_chain(source: &Path, chain: Vec<EffectInstance>) -> SessionState {
         sample_rate: decoded.sample_rate,
         length_samples: frames,
         annotations: Vec::new(),
+        sync_lock: false,
     }
 }
 

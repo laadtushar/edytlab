@@ -35,6 +35,7 @@ fn main() {
             // Vary length so each state has a distinct content hash.
             length_samples: i,
             annotations: Vec::new(),
+            sync_lock: false,
         };
         let node = SessionNode {
             id: NodeId([0u8; 32]),

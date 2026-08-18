@@ -21,6 +21,8 @@ import {
   getNode,
   listMarkers,
   listTracks,
+  getSyncLock,
+  setSyncLock,
   onMarkerChanged,
   removeMarker,
   renderRange,
@@ -149,6 +151,10 @@ function App() {
   // Off by default: snapping changes where an edit lands, and the
   // behaviour that existed is the one a user is not surprised by.
   const [snapToZero, setSnapToZero] = useState(false);
+  // Sync-lock is session state, not a UI preference: undo can turn it
+  // back off and a project can open with it already on, so this mirror
+  // is re-read from the session rather than owned here.
+  const [syncLock, setSyncLockState] = useState(false);
   // 1 = the samples at their real amplitude, which is where the lanes
   // have always been.
   const [verticalZoom, setVerticalZoom] = useState(1);
@@ -176,6 +182,37 @@ function App() {
       setRenderError(String(err));
     }
   }, [head, redoStack, setHeadLocal]);
+
+  // Whenever the head moves — an edit, an undo, a project opening — the
+  // toggle re-reads the session rather than trusting what it last set.
+  // Undo past a `set_sync_lock` node is exactly the case a local guess
+  // gets wrong, and it gets it wrong silently.
+  useEffect(() => {
+    let cancelled = false;
+    getSyncLock()
+      .then((v) => {
+        if (!cancelled) setSyncLockState(v);
+      })
+      .catch(() => {
+        // No session open yet; the default stands.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [head]);
+
+  const handleSyncLockChange = useCallback(
+    async (enabled: boolean) => {
+      try {
+        const newHead = await setSyncLock(enabled);
+        setHeadLocal(newHead);
+        setSyncLockState(enabled);
+      } catch (err) {
+        setRenderError(String(err));
+      }
+    },
+    [setHeadLocal],
+  );
 
   const handleRedo = useCallback(async () => {
     if (!head) return;
@@ -944,6 +981,8 @@ function App() {
                   mixPath={mixPath}
                   snapToZero={snapToZero}
                   onSnapToZeroChange={setSnapToZero}
+                  syncLock={syncLock}
+                  onSyncLockChange={handleSyncLockChange}
                   verticalZoom={verticalZoom}
                   onVerticalZoomChange={setVerticalZoom}
                   loop={loopActive}

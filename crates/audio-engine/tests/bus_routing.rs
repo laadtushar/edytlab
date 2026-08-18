@@ -73,6 +73,7 @@ fn state(source: &Path, buses: Vec<Bus>, sends: Vec<Send>) -> SessionState {
         sample_rate: decoded.sample_rate,
         length_samples: frames,
         annotations: Vec::new(),
+        sync_lock: false,
     }
 }
 

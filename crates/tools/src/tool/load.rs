@@ -143,6 +143,7 @@ impl Tool for LoadTool {
                     sample_rate: decoded.sample_rate,
                     length_samples,
                     annotations: Vec::new(),
+                    sync_lock: false,
                 };
                 (s, 0)
             }

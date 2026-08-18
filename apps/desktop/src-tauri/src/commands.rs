@@ -2123,6 +2123,43 @@ pub(crate) fn set_track_muted_inner(
     )
 }
 
+/// Whether sync-lock is on for the open session.
+///
+/// Read separately from `list_tracks` because it is a property of the
+/// session rather than of any track — and the toggle has to show the
+/// right state the moment a project opens, not after the first edit.
+#[tauri::command]
+pub fn get_sync_lock(state: State<'_, AppState>) -> CmdResult<bool> {
+    let store_arc = state.store_handle().ok_or(CommandError::NoSession)?;
+    let store = lock_std(&store_arc, "store")?;
+    let Some(head) = store.head() else {
+        // No session yet is not an error here: the toggle just shows
+        // its default rather than the window refusing to draw.
+        return Ok(false);
+    };
+    let node = store.get(head).map_err(CommandError::from)?;
+    Ok(node.state.sync_lock)
+}
+
+/// Turn sync-lock on or off. Returns the new session head.
+///
+/// The mode lives in the session state rather than in the view, so it
+/// travels with the project and the agent can read it before deciding
+/// whether a cut is safe (#170 §3). Setting it to what it already is
+/// appends no node, and the head comes back unchanged.
+#[tauri::command]
+pub fn set_sync_lock(state: State<'_, AppState>, enabled: bool) -> CmdResult<String> {
+    set_sync_lock_inner(&state, enabled)
+}
+
+pub(crate) fn set_sync_lock_inner(state: &AppState, enabled: bool) -> CmdResult<String> {
+    run_track_tool(
+        state,
+        "set_sync_lock",
+        serde_json::json!({ "enabled": enabled }),
+    )
+}
+
 /// Solo or un-solo a track. Returns the new session head.
 #[tauri::command]
 pub fn set_track_soloed(
@@ -3682,6 +3719,7 @@ mod tests {
             sample_rate: 48_000,
             length_samples: 0,
             annotations: Vec::new(),
+            sync_lock: false,
         }
     }
 

@@ -503,6 +503,21 @@ export const setTrackPan = (track: number, pan: number): Promise<string> =>
 export const setTrackMuted = (track: number, muted: boolean): Promise<string> =>
   invoke<string>("set_track_muted", { track, muted });
 
+/**
+ * Sync-lock: whether an edit that shifts time on one track shifts them
+ * all (#170 §3).
+ *
+ * Read separately from `listTracks` because it belongs to the session,
+ * not to a track — the toggle has to show the right state the moment a
+ * project opens rather than after the first edit.
+ */
+export const getSyncLock = (): Promise<boolean> =>
+  invoke<boolean>("get_sync_lock");
+
+/** Resolves to the new head, or the unchanged one if nothing changed. */
+export const setSyncLock = (enabled: boolean): Promise<string> =>
+  invoke<string>("set_sync_lock", { enabled });
+
 export const setTrackSoloed = (
   track: number,
   soloed: boolean,

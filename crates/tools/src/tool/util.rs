@@ -214,6 +214,61 @@ pub(crate) fn cut_timeline(clips: &[Clip], start: u64, end: u64) -> Vec<Clip> {
     out
 }
 
+/// Shift every clip at or after `at` right by `len` samples, splitting
+/// any clip that straddles the point.
+///
+/// The insert half of sync-lock (#170 §3): the target track has silence
+/// spliced into its samples, and every other track has to open the same
+/// gap or the tracks come out of alignment by exactly the amount that
+/// was inserted.
+pub(crate) fn insert_gap_timeline(clips: &[Clip], at: u64, len: u64) -> Vec<Clip> {
+    let mut out = Vec::with_capacity(clips.len() + 1);
+    for clip in clips {
+        let start = clip.start_in_track;
+        let end = start + clip.length;
+        if end <= at {
+            // Wholly before the point: untouched.
+            out.push(clip.clone());
+        } else if start >= at {
+            // Wholly after: slides right.
+            let mut moved = clip.clone();
+            moved.start_in_track = start + len;
+            out.push(moved);
+        } else {
+            // Straddling: the gap opens inside it, so it becomes two.
+            if let Some(head) = clip_window(clip, 0, at, 0) {
+                out.push(head);
+            }
+            if let Some(tail) = clip_window(clip, at, u64::MAX, at + len) {
+                out.push(tail);
+            }
+        }
+    }
+    out.sort_by_key(|c| c.start_in_track);
+    out
+}
+
+/// Apply a timeline edit to every track *except* `except`.
+///
+/// The exception is the track the tool already edited; sync-lock is
+/// about carrying that edit to its neighbours, and applying it twice to
+/// the originator would double the shift.
+pub(crate) fn sync_other_tracks(
+    state: &mut SessionState,
+    except: usize,
+    edit: impl Fn(&[Clip]) -> Vec<Clip>,
+) -> usize {
+    let mut moved = 0;
+    for (i, track) in state.tracks.iter_mut().enumerate() {
+        if i == except || track.clips.is_empty() {
+            continue;
+        }
+        track.clips = edit(&track.clips);
+        moved += 1;
+    }
+    moved
+}
+
 /// Keep only the timeline range `[start, end)` and re-base it to zero.
 pub(crate) fn keep_timeline(clips: &[Clip], start: u64, end: u64) -> Vec<Clip> {
     let mut out: Vec<Clip> = clips
@@ -468,6 +523,29 @@ pub(crate) fn destructive_edit_resample<F>(
 where
     F: FnOnce(&mut Vec<f32>, u32, u16) -> (u32, u16),
 {
+    destructive_edit_then(ctx, track_idx, edit_fn, |_, _| {}, label)
+}
+
+/// [`destructive_edit_resample`] with a hook that sees the whole state
+/// after the edited track has been rewritten and before the node is
+/// appended.
+///
+/// Sync-lock is why this exists: an edit that changes one track's length
+/// has to move the others *in the same node*, and the acceptance says so
+/// explicitly — "one undoable node, not one per track". Only tools that
+/// need it pass a hook; the rest go through the plain wrapper above and
+/// are unchanged.
+pub(crate) fn destructive_edit_then<F, A>(
+    ctx: &mut ToolContext,
+    track_idx: usize,
+    edit_fn: F,
+    after: A,
+    label: impl Into<String>,
+) -> ToolResult
+where
+    F: FnOnce(&mut Vec<f32>, u32, u16) -> (u32, u16),
+    A: FnOnce(&mut SessionState, usize),
+{
     let label = label.into();
 
     let mut state = match load_head_state(ctx) {
@@ -546,6 +624,11 @@ where
         beat_grid: first.beat_grid.clone(),
         volume_envelope: first.volume_envelope.clone(),
     }];
+
+    // Anything that has to see the whole state — sync-lock moving the
+    // other tracks — runs here, before the length is recomputed, so the
+    // recompute covers what it did.
+    after(&mut state, track_idx);
 
     // Recompute `length_samples` as the max of every track's max-clip
     // length. This matches the convention used elsewhere in the

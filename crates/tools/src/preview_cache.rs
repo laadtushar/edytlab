@@ -243,6 +243,7 @@ mod tests {
             sample_rate: 48_000,
             length_samples: seed as u64,
             annotations: Vec::new(),
+            sync_lock: false,
         };
         session::NodeId::from_state(&state).expect("hashable state")
     }
