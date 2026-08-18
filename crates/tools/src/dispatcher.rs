@@ -84,7 +84,7 @@ impl ToolDispatcher {
     pub fn default_dispatcher() -> Self {
         use crate::tool::{
             AddEffectTool, AddTrackTool, AlignToBeatTool, AnalyzeTrackTool, ApplyDiffTool,
-            ApplyRecipeTool, AuditionEffectTool, ChangeSpeedTool, ClickRemovalTool,
+            ApplyRecipeTool, AuditionEffectTool, BatchApplyTool, ChangeSpeedTool, ClickRemovalTool,
             CompareNodesTool, CompressorTool, CopyRegionTool, CreateBusTool, CutRangeTool,
             DeEsserTool, DistortionTool, DuplicateTrackTool, EchoTool, EqTool, ExportLabelsTool,
             ExportMultipleTool, ExportRecipeTool, FadeTool, ForkNodeTool, GainTool,
@@ -182,6 +182,8 @@ impl ToolDispatcher {
         // #166: hear an effect before committing to it.
         d.register(Box::new(AuditionEffectTool));
         d.register(Box::new(ApplyRecipeTool));
+        // #169: one chain across a folder.
+        d.register(Box::new(BatchApplyTool));
         d.register(Box::new(AddEffectTool));
         d.register(Box::new(RemoveEffectTool));
         d.register(Box::new(ReorderEffectsTool));
