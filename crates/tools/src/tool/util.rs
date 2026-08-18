@@ -765,9 +765,15 @@ pub(crate) fn check_sample_range(
 ///
 /// * Before the cut — untouched.
 /// * After the cut — slides left by the cut's length.
-/// * A **marker inside** the cut — dropped. The instant it named is not
-///   in the recording any more, and moving it to the seam would be
-///   inventing a position the user never chose.
+/// * A **marker strictly inside** the cut — dropped. The instant it
+///   named is not in the recording any more, and moving it to the seam
+///   would be inventing a position the user never chose.
+/// * A **marker exactly on either boundary** — kept, at the seam. The
+///   audio range removed is half-open, so `start_sec` is technically
+///   the first removed instant; but a mark placed deliberately at the
+///   edge of a cut is naming the edit, and after the cut the seam is
+///   still there. Dropping it would delete a label for a position that
+///   still exists.
 /// * A **region overlapping** the cut — clipped to what survives on
 ///   either side, and dropped only if nothing does. A chapter that
 ///   started before the cut still starts where it did.
@@ -859,10 +865,13 @@ pub(crate) fn insert_annotations(
             Region { start_sec, end_sec } => session::Annotation {
                 kind: Region {
                     start_sec: shift(start_sec),
-                    // The end always moves when the insert is at or
-                    // before it, so a spanning region stretches rather
-                    // than sliding whole.
-                    end_sec: if end_sec >= at_sec {
+                    // A region *spanning* the insert stretches; one that
+                    // merely ends where the silence begins does not.
+                    // Regions are half-open, so an end exactly at
+                    // `at_sec` is the first instant outside the region —
+                    // the silence goes after it, and the passage the
+                    // user marked is no longer than it was.
+                    end_sec: if end_sec > at_sec {
                         end_sec + len_sec
                     } else {
                         end_sec

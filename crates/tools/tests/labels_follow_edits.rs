@@ -187,6 +187,49 @@ fn an_insert_pushes_the_later_chapters_along() {
     assert_eq!(s.at("chapter two"), 12.0, "after it, by exactly the gap");
 }
 
+/// The boundaries, pinned deliberately rather than left to whatever the
+/// comparison operators happened to do.
+///
+/// A mark placed exactly at the edge of a cut is naming the edit, and
+/// the seam still exists afterwards — so it survives at the seam rather
+/// than being deleted for a position that is still there.
+#[test]
+fn a_mark_on_the_cut_boundary_survives_at_the_seam() {
+    let mut s = Session::new();
+    s.mark("at the start", 4.0);
+    s.mark("at the end", 9.0);
+
+    let v = ok(s.call(
+        "cut_range",
+        json!({ "track": 0, "start_sample": 4 * SR, "end_sample": 9 * SR }),
+    ));
+
+    assert_eq!(v["dropped_labels"], json!(0), "neither is inside: {v}");
+    assert_eq!(s.at("at the start"), 4.0);
+    assert_eq!(s.at("at the end"), 4.0, "the far edge closes onto the seam");
+}
+
+/// A region that merely *ends* where silence is inserted does not
+/// stretch: regions are half-open, so the silence lands after it and
+/// the passage the user marked is no longer than it was.
+#[test]
+fn a_region_ending_at_the_insert_point_does_not_stretch() {
+    let mut s = Session::new();
+    ok(s.call(
+        "import_labels",
+        json!({ "labels_text": "1.0\t5.0\tcold open" }),
+    ));
+
+    ok(s.call(
+        "insert_silence",
+        json!({ "track": 0, "at": 5.0, "duration": 2.0 }),
+    ));
+
+    let (_, start, end) = s.labels().into_iter().next().expect("the region");
+    assert_eq!(start, 1.0);
+    assert_eq!(end, 5.0, "it ends where it did — the silence is after it");
+}
+
 /// Cutting words is cutting audio, so the labels follow that too.
 #[test]
 fn cutting_words_moves_the_labels_as_well() {
