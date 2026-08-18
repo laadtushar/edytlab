@@ -20,6 +20,7 @@ pub mod copy_region;
 pub mod cut_range;
 pub mod de_esser;
 pub mod distortion;
+pub mod ducking;
 pub mod duplicate_track;
 pub mod echo;
 pub mod effects;
@@ -107,6 +108,7 @@ pub use copy_region::CopyRegionTool;
 pub use cut_range::CutRangeTool;
 pub use de_esser::DeEsserTool;
 pub use distortion::DistortionTool;
+pub use ducking::DuckUnderSpeechTool;
 pub use duplicate_track::DuplicateTrackTool;
 pub use echo::EchoTool;
 pub use effects::{
