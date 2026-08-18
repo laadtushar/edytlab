@@ -451,6 +451,94 @@ mod tests {
         assert!(report.bytes >= 2048 + 512);
     }
 
+    /// The promise Save As actually makes: the copy is a project, not a
+    /// second window onto the first one.
+    ///
+    /// The bytes travel (the test above), but the nodes name the
+    /// *original's* absolute paths — so until `session::relocate`, a
+    /// copy played only while the folder it came from still existed,
+    /// and the audio sitting in its own `derived/` was never reached.
+    /// Deleting the original is the honest test of "self-contained".
+    #[test]
+    fn a_copy_still_plays_after_the_original_is_deleted() {
+        use session::{Clip, SessionNode, SessionState, Store, Track, TrackId};
+
+        let tmp = TempDir::new().unwrap();
+        let src = tmp.path().join("original");
+        std::fs::create_dir_all(&src).unwrap();
+
+        // A derived file where the storage layout now puts it (#190),
+        // named by content as the CAS writes it.
+        let derived = session::relocate::derived_dir(&src);
+        std::fs::create_dir_all(&derived).unwrap();
+        let audio = derived.join("9f3c0000.wav");
+        std::fs::write(&audio, vec![0u8; 1024]).unwrap();
+
+        let mut store = Store::open(&src).unwrap();
+        store
+            .append(SessionNode {
+                id: session::NodeId([0u8; 32]),
+                parent: None,
+                created_at: chrono::Utc::now(),
+                label: Some("an edit".into()),
+                reasoning: None,
+                state: SessionState {
+                    tracks: vec![Track {
+                        id: TrackId(uuid::Uuid::new_v4()),
+                        name: "Vox".into(),
+                        clips: vec![Clip {
+                            source_path: audio.clone(),
+                            start_in_track: 0,
+                            source_offset: 0,
+                            length: 256,
+                            content_hash: None,
+                            time_stretch_factor: None,
+                            pitch_shift_semitones: None,
+                            beat_grid: None,
+                            volume_envelope: Vec::new(),
+                        }],
+                        gain_db: 0.0,
+                        pan: 0.0,
+                        muted: false,
+                        soloed: false,
+                        effects: Vec::new(),
+                        sends: Vec::new(),
+                    }],
+                    bus_routing: Default::default(),
+                    master_chain: Vec::new(),
+                    tempo_map: Default::default(),
+                    key_map: None,
+                    transcript: None,
+                    sample_rate: 48_000,
+                    length_samples: 256,
+                    annotations: Vec::new(),
+                },
+                op: None,
+            })
+            .unwrap();
+        drop(store);
+
+        let dest = tmp.path().join("copy");
+        copy_project(&src, &dest).expect("copy");
+        std::fs::remove_dir_all(&src).expect("the original is gone");
+
+        let copy = Store::open(&dest).unwrap();
+        let head = copy.head().expect("the copy has a head");
+        let node = copy.get(head).expect("and the node reads back");
+        let path = &node.state.tracks[0].clips[0].source_path;
+
+        assert!(
+            path.is_file(),
+            "the copy must reach its own audio, not the deleted original's: {}",
+            path.display()
+        );
+        assert!(
+            path.starts_with(&dest),
+            "and it must be the copy's file, not something else on disk: {}",
+            path.display()
+        );
+    }
+
     /// Copying into somebody's existing folder would merge two projects
     /// into one and corrupt both.
     #[test]
