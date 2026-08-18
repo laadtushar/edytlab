@@ -26,7 +26,7 @@ use crate::commands::{
     set_active_provider, set_api_key, set_api_key_for, set_base_url_for, set_clip_envelope,
     set_head_to, set_plan_first, set_project_meta, set_selection_context, set_sync_lock,
     set_track_gain, set_track_muted, set_track_pan, set_track_soloed, start_recording,
-    stop_recording, test_api_key, test_api_key_for, try_load_api_key_at_startup,
+    stop_recording, test_api_key, test_api_key_for, try_load_api_key_at_startup, update_marker,
     upsert_agent_profile, upsert_mcp_server, upsert_skill, write_memory, RecorderState,
 };
 use crate::state::AppState;
@@ -201,6 +201,7 @@ pub fn run() {
             set_selection_context,
             add_marker,
             remove_marker,
+            update_marker,
             list_markers,
             list_tracks,
             set_track_gain,

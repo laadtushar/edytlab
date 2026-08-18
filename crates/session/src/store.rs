@@ -179,6 +179,48 @@ impl Store {
         self.append(node)
     }
 
+    /// Rename and/or move the annotation with id `target`, appending a
+    /// new node with the change. Returns the new head id.
+    ///
+    /// Both parts are optional so one call covers a rename, a move, or
+    /// both: the label lane offers all three and a caller should not
+    /// have to read the current value back just to leave it alone.
+    ///
+    /// A no-op — unknown id, or nothing actually different — returns
+    /// `head` unchanged rather than appending a node. Dragging a label
+    /// and putting it back where it started should not cost an undo
+    /// step, and neither should a rename dialog dismissed unedited.
+    pub fn update_annotation(
+        &mut self,
+        head: NodeId,
+        target: crate::annotation::AnnotationId,
+        name: Option<String>,
+        kind: Option<crate::annotation::AnnotationKind>,
+    ) -> Result<NodeId> {
+        let mut node = self.get(head)?;
+        let Some(existing) = node.state.annotations.iter_mut().find(|a| a.id == target) else {
+            return Ok(head);
+        };
+
+        let mut changed = false;
+        if let Some(name) = name {
+            if name != existing.name {
+                existing.name = name;
+                changed = true;
+            }
+        }
+        if let Some(kind) = kind {
+            if kind != existing.kind {
+                existing.kind = kind;
+                changed = true;
+            }
+        }
+        if !changed {
+            return Ok(head);
+        }
+        self.append(node)
+    }
+
     pub fn get(&self, id: NodeId) -> Result<SessionNode> {
         let hex = id.to_hex();
         let path = self.shard_dir(&hex).join(format!("{hex}.json"));

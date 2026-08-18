@@ -25,6 +25,7 @@ import {
   setSyncLock,
   onMarkerChanged,
   removeMarker,
+  updateMarker,
   renderRange,
   setHeadTo,
   moveClip,
@@ -45,6 +46,7 @@ import { mixIsStale } from "./lib/mixState";
 
 import { ABCompareBar } from "./components/ABCompareBar";
 import { Chat } from "./components/Chat";
+import { LabelLane } from "./components/LabelLane";
 import { TemplatePickerModal } from "./components/TemplatePickerModal";
 import type { ChatHandle } from "./components/Chat";
 import { CommandPalette } from "./components/CommandPalette";
@@ -727,6 +729,39 @@ function App() {
     }
   }, []);
 
+  // The lane's three edits. Each is one call and therefore one undoable
+  // node — a rename is not a delete plus an add, and a drag is not a
+  // sequence of moves (#203 §1).
+  // The session axis: the furthest point any clip on any track reaches.
+  // The timeline computes the same number internally for its own lanes,
+  // but the label lane sits outside it and has to agree, or a label at
+  // 30s lands somewhere other than 30s on the ruler above it.
+  const sessionDuration = useMemo(
+    () =>
+      tracks.reduce(
+        (max, t) =>
+          t.clips.reduce((m, c) => Math.max(m, c.start_sec + c.length_sec), max),
+        0,
+      ),
+    [tracks],
+  );
+
+  const handleRenameMarker = useCallback(async (id: string, name: string) => {
+    try {
+      await updateMarker(id, { name });
+    } catch (err) {
+      setRenderError(String(err));
+    }
+  }, []);
+
+  const handleMoveMarker = useCallback(async (id: string, timeSec: number) => {
+    try {
+      await updateMarker(id, { time: timeSec });
+    } catch (err) {
+      setRenderError(String(err));
+    }
+  }, []);
+
   const handleSeekToMarker = useCallback((timeSec: number) => {
     timelineRef.current?.seekTo(timeSec);
   }, []);
@@ -940,6 +975,7 @@ function App() {
           <div className="flex-1 min-h-0 overflow-hidden">
             {leftView === "timeline" ? (
               sourcePath ? (
+                <>
                 <Timeline
                   ref={timelineRef}
                   audioPath={sourcePath}
@@ -990,6 +1026,16 @@ function App() {
                   spectrogramEnabled={spectrogramEnabled}
                   onSpectrogramChange={setSpectrogramEnabled}
                 />
+                  <LabelLane
+                    labels={markers}
+                    duration={sessionDuration}
+                    onAdd={handleAddMarker}
+                    onRename={handleRenameMarker}
+                    onMove={handleMoveMarker}
+                    onRemove={handleRemoveMarker}
+                    onSeek={handleSeekToMarker}
+                  />
+                </>
               ) : (
                 <EmptyState
                   onOpen={handleOpenDialog}
