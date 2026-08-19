@@ -46,24 +46,35 @@ jobs:
 
       # Linux Tauri builds need GTK/WebKit/AppIndicator system libs.
       # Skipped on the other matrix legs.
-      # `apt-get update` has twice hung against the Azure Ubuntu mirror
-      # and taken the whole job to the 30-minute limit with it — the log
-      # stops mid-fetch and the run is cancelled having tested nothing.
-      # That reads as a CI failure on an unrelated PR, which is the
-      # expensive part: a green suite that intermittently reports red
-      # trains everyone to re-run rather than to look.
       #
-      # `timeout-minutes: 6` fails this step in six minutes rather than
-      # burning thirty, and `Retries` covers the ordinary transient. The
-      # step is retried once as a whole because a stalled mirror usually
-      # resolves on a fresh connection.
+      # The runner image points apt at azure.archive.ubuntu.com, which has
+      # now stalled mid-index-fetch on four separate runs: the log shows
+      # `Ign:` on every azure line, then silence until something kills the
+      # job. It is not a transient — the canonical archive.ubuntu.com in
+      # the same sources file answers fine in the very same log, so the
+      # fix is to stop asking the mirror that doesn't answer.
+      #
+      # The previous attempt at this bounded the step with
+      # `timeout-minutes: 6` and retried the shell function. That never
+      # fired: a step timeout kills the step, so the `||` branch below it
+      # is unreachable, and the job failed having only ever tried once.
+      # The timeout has to be on the *command* for a retry to exist, hence
+      # `timeout 150` / `timeout 300` here. `Acquire::*::Timeout` keeps a
+      # single unresponsive host from eating that budget on its own.
       - name: Install Linux build deps
         if: matrix.platform.runner == 'ubuntu-22.04'
-        timeout-minutes: 6
+        timeout-minutes: 12
         run: |
+          sudo sed -i 's|https\?://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null || true
+
           install_deps() {
-            sudo apt-get -o Acquire::Retries=3 update
-            sudo apt-get install -y --no-install-recommends \
+            sudo timeout 150 apt-get \
+              -o Acquire::Retries=3 \
+              -o Acquire::http::Timeout=15 \
+              -o Acquire::https::Timeout=15 \
+              update
+            sudo timeout 300 apt-get install -y --no-install-recommends \
               libwebkit2gtk-4.1-dev \
               libgtk-3-dev \
               libayatana-appindicator3-dev \
@@ -73,7 +84,7 @@ jobs:
           }
           install_deps || {
             echo "::warning::apt failed once — retrying on a fresh connection"
-            sleep 5
+            sleep 10
             install_deps
           }
 

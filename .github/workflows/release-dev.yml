@@ -279,19 +279,38 @@ jobs:
 
       # Linux Tauri builds need GTK/WebKit/AppIndicator system libs
       # (and `libfuse2` for AppImage). No-op on the other matrix legs.
+      #
+      # Same azure-mirror stall that has repeatedly hung CI — see the
+      # long note in ci.yml. It matters more here: a release job that
+      # dies in apt has published nothing, and the tag is already cut.
       - name: Install Linux build deps
         if: matrix.platform.runner == 'ubuntu-22.04'
+        timeout-minutes: 12
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libssl-dev \
-            libasound2-dev \
-            libfuse2 \
-            patchelf
+          sudo sed -i 's|https\?://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null || true
+
+          install_deps() {
+            sudo timeout 150 apt-get \
+              -o Acquire::Retries=3 \
+              -o Acquire::http::Timeout=15 \
+              -o Acquire::https::Timeout=15 \
+              update
+            sudo timeout 300 apt-get install -y \
+              libwebkit2gtk-4.1-dev \
+              libgtk-3-dev \
+              libayatana-appindicator3-dev \
+              librsvg2-dev \
+              libssl-dev \
+              libasound2-dev \
+              libfuse2 \
+              patchelf
+          }
+          install_deps || {
+            echo "::warning::apt failed once — retrying on a fresh connection"
+            sleep 10
+            install_deps
+          }
 
       - name: Install Rust toolchain (rustup-shim honours rust-toolchain.toml)
         # `@stable` bootstraps rustup; rust-toolchain.toml is then
