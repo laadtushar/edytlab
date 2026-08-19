@@ -3,6 +3,7 @@
 import {
   AudioWaveform,
   FileDown,
+  FileText,
   GitBranch,
   KeyRound,
   MessageSquare,
@@ -22,6 +23,11 @@ import {
 import { Reveal, Stagger, TiltCard } from "@/components/motion";
 
 const features = [
+  {
+    icon: FileText,
+    title: "Edit the words, not the waveform",
+    body: "Transcribe a take and the transcript becomes the editor. Select a sentence to select the audio; delete it and the audio is cut and the gap closed. The remaining word timings shift to match, so the transcript keeps lining up with what you can hear. It is an ordinary edit underneath — undoable, branchable, and recorded like any other.",
+  },
   {
     icon: MessageSquare,
     title: "Conversational multi-track",
