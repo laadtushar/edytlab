@@ -168,6 +168,41 @@ prevents the next person from "fixing" it:
 | `AutomationLane` | 1 | A curve drawing itself would explain what `duck_under_speech` did. Wants the timeline work first — the two share a coordinate space |
 | `ABCompareBar` | 1 | A crossfade would make the comparison legible as a comparison. Small, but it belongs with the timeline change |
 
+## Phase 2 — micro-interactions
+
+Distinct from transitions: the feedback that makes direct manipulation
+feel direct. Two gaps, both found by looking rather than guessing.
+
+**Focus was invisible.** `--ring-focus` had been sitting in the token
+block since the theme landed, referenced by nothing, and the app
+contained **zero** occurrences of `focus-visible`. A keyboard user got
+whatever the webview's default outline is against a near-black
+background — faint on WebKit, effectively absent in the darker panels.
+This is the cheapest and most valuable micro-interaction in the app,
+because it is the difference between tabbing being usable and being a
+guess. Hung off `:focus-visible` rather than `:focus`, so a mouse click
+leaves nothing behind — using `:focus` is what leads people to delete
+focus styling altogether.
+
+**The faders did not acknowledge the grab.** The *response* half was
+already right: `onChange` updates the readout every frame while the
+value is held, and only `onPointerUp` writes a session node, so one
+drag is one undo step rather than one per pixel. What was missing was
+any sign that the thumb was under the pointer or being held, so the
+control read as a picture of a fader until the number started moving.
+The thumb now grows on hover and again on press — 1.15 and 1.3, small
+on purpose, because a mixing control dragged hundreds of times must not
+become a thing that moves while you are aiming at it.
+
+**The clip chip said `grab` and kept saying it while being dragged**, so
+the one moment the pointer was actually holding something looked
+identical to hovering over it.
+
+Measured against the ticket's own reference point: `LabelLane`'s drag
+was already the app's best micro-interaction, and the faders fell short
+of it not in responsiveness but in ever admitting they had been
+touched.
+
 ## What this does not do
 
 No decorative motion was added. Nothing was animated because it could be.

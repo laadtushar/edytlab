@@ -277,7 +277,11 @@ export function ClipStrip({
                 overflow: "hidden",
                 whiteSpace: "nowrap",
                 textOverflow: "ellipsis",
-                cursor: "grab",
+                // The chip said `grab` and kept saying it while being
+                // dragged, so the one moment the pointer was actually
+                // holding something looked identical to hovering over
+                // it (#211 phase 2).
+                cursor: dragging ? "grabbing" : "grab",
                 transition:
                   dragging || !painted.current ? undefined : CLIP_MOTION,
               }}
