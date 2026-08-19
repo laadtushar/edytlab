@@ -62,6 +62,12 @@ export function AppHeader({
           onClick={() => onSelectView("timeline")}
         />
         <TabButton
+          label="Transcript"
+          testId="tab-transcript"
+          active={leftView === "transcript"}
+          onClick={() => onSelectView("transcript")}
+        />
+        <TabButton
           label="Graph"
           testId="tab-graph"
           active={leftView === "graph"}

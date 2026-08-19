@@ -465,6 +465,33 @@ export const updateMarker = (
   patch: { name?: string; time?: number; start?: number; end?: number },
 ): Promise<string> => invoke<string>("update_marker", { id, ...patch });
 
+// ---- Transcript IPC (#157) ----
+
+export interface TranscriptWord {
+  text: string;
+  start_sec: number;
+  end_sec: number;
+  confidence: number;
+}
+
+/**
+ * The transcript at the current head.
+ *
+ * An empty list is the honest answer for "not transcribed yet" — that
+ * is an ordinary state, not a fault, and the pane says so from the
+ * empty list rather than from an error.
+ */
+export const getTranscript = (): Promise<TranscriptWord[]> =>
+  invoke<TranscriptWord[]>("get_transcript");
+
+/** Cut `[fromWord, toWord)` and the audio underneath. Returns the new head. */
+export const cutTranscriptWords = (
+  track: number,
+  fromWord: number,
+  toWord: number,
+): Promise<string> =>
+  invoke<string>("cut_transcript_words", { track, fromWord, toWord });
+
 export const listMarkers = (): Promise<Marker[]> =>
   invoke<Marker[]>("list_markers");
 
