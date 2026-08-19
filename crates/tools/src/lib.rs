@@ -25,6 +25,7 @@
 
 pub mod dispatcher;
 pub mod preview_cache;
+pub mod progress;
 pub mod provenance;
 pub mod recipe;
 pub mod schema;

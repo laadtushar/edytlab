@@ -12,22 +12,23 @@ pub mod project;
 pub mod state;
 
 use crate::commands::{
-    accept_b, add_marker, apply_template, approve_plan, batch_load, clear_api_key,
-    clear_api_key_for, default_base_url_for, delete_agent_profile, delete_mcp_server, delete_skill,
-    duplicate_track, forget_recent_project, get_active_agent_profile, get_active_model,
-    get_active_provider, get_base_url_for, get_graph, get_node, get_plan_first, get_project_meta,
-    get_session_head, get_sync_lock, get_view_state, has_api_key, has_api_key_for,
-    install_bundled_skills, install_plugin, list_agent_profiles, list_capabilities, list_markers,
-    list_mcp_servers, list_models_for, list_providers, list_recent_projects, list_skills,
-    list_templates, list_tracks, move_clip, open_project, prepare_compare, read_agent_profile,
-    read_mcp_server, read_memory, read_skill, reject_plan, remove_clip, remove_marker,
-    remove_track, rename_node, rename_track, render_preview, render_range, restart_mcp_server,
-    save_project_as, save_view_state, send_message, set_active_agent_profile, set_active_model,
-    set_active_provider, set_api_key, set_api_key_for, set_base_url_for, set_clip_envelope,
-    set_head_to, set_plan_first, set_project_meta, set_selection_context, set_sync_lock,
-    set_track_gain, set_track_muted, set_track_pan, set_track_soloed, start_recording,
-    stop_recording, test_api_key, test_api_key_for, try_load_api_key_at_startup, update_marker,
-    upsert_agent_profile, upsert_mcp_server, upsert_skill, write_memory, RecorderState,
+    accept_b, add_marker, apply_template, approve_plan, batch_load, cancel_long_running_tool,
+    clear_api_key, clear_api_key_for, default_base_url_for, delete_agent_profile,
+    delete_mcp_server, delete_skill, duplicate_track, forget_recent_project,
+    get_active_agent_profile, get_active_model, get_active_provider, get_base_url_for, get_graph,
+    get_node, get_plan_first, get_project_meta, get_session_head, get_sync_lock, get_view_state,
+    has_api_key, has_api_key_for, install_bundled_skills, install_plugin, list_agent_profiles,
+    list_capabilities, list_markers, list_mcp_servers, list_models_for, list_providers,
+    list_recent_projects, list_skills, list_templates, list_tracks, move_clip, open_project,
+    prepare_compare, read_agent_profile, read_mcp_server, read_memory, read_skill, reject_plan,
+    remove_clip, remove_marker, remove_track, rename_node, rename_track, render_preview,
+    render_range, restart_mcp_server, save_project_as, save_view_state, send_message,
+    set_active_agent_profile, set_active_model, set_active_provider, set_api_key, set_api_key_for,
+    set_base_url_for, set_clip_envelope, set_head_to, set_plan_first, set_project_meta,
+    set_selection_context, set_sync_lock, set_track_gain, set_track_muted, set_track_pan,
+    set_track_soloed, start_recording, stop_recording, test_api_key, test_api_key_for,
+    try_load_api_key_at_startup, update_marker, upsert_agent_profile, upsert_mcp_server,
+    upsert_skill, write_memory, RecorderState,
 };
 use crate::state::AppState;
 use std::sync::{Arc, Mutex};
@@ -52,6 +53,15 @@ pub fn run() {
         .manage(RecorderState(std::sync::Mutex::new(None)))
         .setup(move |app| {
             try_load_api_key_at_startup(&app_state);
+
+            // Where a long tool's progress goes (#169 §1). Registered
+            // once, here, because `tools` reports without knowing who
+            // is listening — see `tools::progress`. The handle is
+            // cloned into the closure so the sink outlives setup.
+            let progress_handle = app.handle().clone();
+            tools::progress::set_sink(move |event| {
+                let _ = progress_handle.emit("tool-progress", event);
+            });
 
             // Install the memory store. Spec location is `~/.edytlab/
             // memory.md`; if the user's home dir can't be resolved we
@@ -202,6 +212,7 @@ pub fn run() {
             add_marker,
             remove_marker,
             update_marker,
+            cancel_long_running_tool,
             list_markers,
             list_tracks,
             set_track_gain,
