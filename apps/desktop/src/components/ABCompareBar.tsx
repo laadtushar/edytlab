@@ -133,6 +133,16 @@ export function ABCompareBar({
           fontSize: 14,
           cursor: preparing ? "default" : "pointer",
           letterSpacing: 1,
+          // The switch was instant, so an A/B comparison looked like
+          // two unrelated states rather than like one thing being
+          // compared (#211). Easing the colour makes the toggle read
+          // as a toggle. Only the colours move — the button must not
+          // change size under a pointer that is about to click it
+          // again, which is what an A/B test is: repeated clicking.
+          transition:
+            "background var(--dur-2) var(--ease-out), " +
+            "border-color var(--dur-2) var(--ease-out), " +
+            "color var(--dur-2) var(--ease-out)",
         }}
       >
         A
@@ -171,6 +181,10 @@ export function ABCompareBar({
           fontSize: 14,
           cursor: preparing ? "default" : "pointer",
           letterSpacing: 1,
+          transition:
+            "background var(--dur-2) var(--ease-out), " +
+            "border-color var(--dur-2) var(--ease-out), " +
+            "color var(--dur-2) var(--ease-out)",
         }}
       >
         B

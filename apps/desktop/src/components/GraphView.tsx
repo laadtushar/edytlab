@@ -100,8 +100,21 @@ const GraphBubble = memo(function GraphBubble({ data }: NodeProps) {
       data-node-id={bubble.id}
       data-is-head={isHead ? "true" : "false"}
       onContextMenu={(e) => onContextMenu(e, bubble.id)}
+      // Motion (#211). Branching is the product's core idea and this
+      // view was silent about it: a new node appeared fully formed and
+      // the head ring jumped between bubbles, so neither "something was
+      // added" nor "you are now here" was ever shown.
+      //
+      // `node-in` runs on mount. That is once per node rather than once
+      // per render because this component is memoised by node id and
+      // React Flow keeps mounted nodes across pan and zoom — so
+      // existing bubbles stay still while a newly appended one arrives.
+      //
+      // `transition` (the vocabulary's --dur-1) is on the ring, so the
+      // head moving reads as a move rather than as two separate
+      // redraws.
       className={
-        "min-w-[160px] max-w-[200px] rounded-lg border bg-neutral-900 px-3 py-2 text-xs text-neutral-100 shadow " +
+        "node-in transition min-w-[160px] max-w-[200px] rounded-lg border bg-neutral-900 px-3 py-2 text-xs text-neutral-100 shadow " +
         (isHead
           ? "ring-2 ring-blue-500 border-blue-500"
           : "border-neutral-700")

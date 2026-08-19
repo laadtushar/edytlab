@@ -369,3 +369,30 @@ input[type="range"]:active::-moz-range-thumb {
   overflow: hidden;
   min-height: 0;
 }
+
+/*
+ * A node arriving in the session graph (#211).
+ *
+ * Branching is the product's central idea and the graph was silent
+ * about it — a new node appeared fully formed, indistinguishable from
+ * one that had been there all along.
+ *
+ * Scale from 0.94 rather than 0, and no translation. A node that grows
+ * from nothing draws the eye to the growing rather than to where it
+ * landed, and the *position* is the information here: which parent it
+ * hangs off is the whole point of the view.
+ */
+@keyframes node-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.node-in {
+  animation: node-in var(--dur-2) var(--ease-out) both;
+}

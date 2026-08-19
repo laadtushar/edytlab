@@ -126,6 +126,37 @@ describe("GraphView", () => {
     ).toBe(true);
   });
 
+  it("gives each bubble an entry animation and an eased head ring (#211)", async () => {
+    // Branching is the product's central idea and this view was silent
+    // about it: a new node appeared fully formed, indistinguishable
+    // from one that had always been there, and the head ring jumped
+    // between bubbles rather than moving.
+    //
+    // Asserted on the classes rather than on observed motion — jsdom
+    // computes no animations, so a test claiming to watch the bubble
+    // arrive would be watching nothing and passing regardless.
+    //
+    // `node-in` runs on mount, which is once per node rather than once
+    // per render: GraphBubble is memoised by node id and react-flow
+    // keeps mounted nodes across pan and zoom. If either of those stops
+    // being true, every existing bubble re-animates on every
+    // interaction, and this test is the thing that should be revisited.
+    const summary = makeGraph(4);
+    getGraphMock.mockResolvedValue(summary);
+    render(
+      <GraphView head={summary.head} onSelectNode={vi.fn()} refreshKey={0} />,
+    );
+    await act(async () => {
+      await flush();
+    });
+    const bubbles = screen.getAllByTestId("graph-bubble");
+    expect(bubbles.length).toBeGreaterThan(0);
+    for (const bubble of bubbles) {
+      expect(bubble.className).toContain("node-in");
+      expect(bubble.className).toContain("transition");
+    }
+  });
+
   it("calls onSelectNode when a node bubble is clicked", async () => {
     const summary = makeGraph(3);
     getGraphMock.mockResolvedValue(summary);
