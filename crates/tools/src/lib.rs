@@ -28,6 +28,8 @@ pub mod preview_cache;
 pub mod progress;
 pub mod provenance;
 pub mod recipe;
+pub mod reclaim;
+pub mod rederive;
 pub mod schema;
 pub mod tool;
 pub mod util;

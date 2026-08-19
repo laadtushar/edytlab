@@ -85,22 +85,23 @@ impl ToolDispatcher {
         use crate::tool::{
             AddEffectTool, AddTrackTool, AlignToBeatTool, AnalyzeTrackTool, ApplyDiffTool,
             ApplyRecipeTool, AuditionEffectTool, BatchApplyTool, ChangeSpeedTool, ClickRemovalTool,
-            CompareNodesTool, CompressorTool, CopyRegionTool, CreateBusTool, CutRangeTool,
-            CutWordsTool, DeEsserTool, DistortionTool, DuckUnderSpeechTool, DuplicateTrackTool,
-            EchoTool, EqTool, ExportLabelsTool, ExportMultipleTool, ExportRecipeTool, FadeTool,
-            ForkNodeTool, GainTool, GenerateNoiseTool, GenerateToneTool, HighPassFilterTool,
-            ImportLabelsTool, InsertSilenceTool, InvertTool, LabelTool, LevelerTool, LimiterTool,
-            LoadTool, LowPassFilterTool, MixToNewTrackTool, MonoToStereoTool, MoveClipTool,
-            MuteTrackTool, NameNodeTool, NoiseGateTool, NoiseReductionTool, NormalizeLoudnessTool,
-            NormalizeTool, NotchFilterTool, PasteRegionTool, PhaserTool, PitchShiftTool,
-            PlotSpectrumTool, PunchInTool, RemoveClipTool, RemoveEffectTool, RemoveFillersTool,
-            RemoveSendTool, RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
-            ReorderEffectsTool, RepeatSelectionTool, ResampleTrackTool, ReverbTool, ReverseTool,
-            RevertToTool, SeparateStemsTool, SetClipEnvelopeTool, SetEffectBypassedTool,
-            SetEffectParamsTool, SetPanTool, SetSendTool, SetSyncLockTool, SetTrackGainTool,
-            SilenceFinderTool, SilenceRegionTool, SoloTrackTool, SplitClipTool, StereoToMonoTool,
-            StereoWidenerTool, StorageReportTool, TimeShiftTool, TimeStretchTool, TranscribeTool,
-            TremoloTool, TrimTool, TruncateSilenceTool, VocalReductionTool,
+            CompactSessionTool, CompareNodesTool, CompressorTool, CopyRegionTool, CreateBusTool,
+            CutRangeTool, CutWordsTool, DeEsserTool, DistortionTool, DuckUnderSpeechTool,
+            DuplicateTrackTool, EchoTool, EqTool, ExportLabelsTool, ExportMultipleTool,
+            ExportRecipeTool, FadeTool, ForkNodeTool, GainTool, GenerateNoiseTool,
+            GenerateToneTool, HighPassFilterTool, ImportLabelsTool, InsertSilenceTool, InvertTool,
+            LabelTool, LevelerTool, LimiterTool, LoadTool, LowPassFilterTool, MixToNewTrackTool,
+            MonoToStereoTool, MoveClipTool, MuteTrackTool, NameNodeTool, NoiseGateTool,
+            NoiseReductionTool, NormalizeLoudnessTool, NormalizeTool, NotchFilterTool,
+            PasteRegionTool, PhaserTool, PitchShiftTool, PlotSpectrumTool, PunchInTool,
+            RemoveClipTool, RemoveEffectTool, RemoveFillersTool, RemoveSendTool, RemoveTrackTool,
+            RenameTrackTool, RenderFinalTool, RenderPreviewTool, ReorderEffectsTool,
+            RepeatSelectionTool, ResampleTrackTool, ReverbTool, ReverseTool, RevertToTool,
+            SeparateStemsTool, SetClipEnvelopeTool, SetEffectBypassedTool, SetEffectParamsTool,
+            SetPanTool, SetSendTool, SetSyncLockTool, SetTrackGainTool, SilenceFinderTool,
+            SilenceRegionTool, SoloTrackTool, SplitClipTool, StereoToMonoTool, StereoWidenerTool,
+            StorageReportTool, TimeShiftTool, TimeStretchTool, TranscribeTool, TremoloTool,
+            TrimTool, TruncateSilenceTool, VocalReductionTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -180,6 +181,8 @@ impl ToolDispatcher {
         d.register(Box::new(RemoveClipTool));
         // #102: non-destructive per-track effect chains.
         d.register(Box::new(StorageReportTool));
+        // #98: the deliberate half of reclamation.
+        d.register(Box::new(CompactSessionTool));
         // #162: the edit chain as a portable file.
         d.register(Box::new(ExportRecipeTool));
         // #166: hear an effect before committing to it.

@@ -770,6 +770,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "batch_apply",
             "change_speed",
             "click_removal",
+            "compact_session",
             "compare_nodes",
             "compressor",
             "copy_region",

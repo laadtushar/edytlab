@@ -221,6 +221,57 @@ impl Store {
         self.append(node)
     }
 
+    /// Delete a node's file from the store.
+    ///
+    /// The only way history is ever removed, and it exists solely for
+    /// `compact_session` (#98). Nothing else should reach for it: the
+    /// DAG's whole value is that an edit stays there to undo to, and a
+    /// node deleted while something still parents off it leaves a chain
+    /// that cannot be walked. The caller is responsible for pruning
+    /// leaves-first and for never removing the head or its ancestors.
+    ///
+    /// A node that is already gone is not an error — a compaction
+    /// interrupted halfway can be run again.
+    pub fn remove_node(&mut self, id: NodeId) -> Result<bool> {
+        let hex = id.to_hex();
+        let path = self.shard_dir(&hex).join(format!("{hex}.json"));
+        if !path.exists() {
+            return Ok(false);
+        }
+        fs::remove_file(&path)?;
+        Ok(true)
+    }
+
+    /// Make `id` a root by clearing its parent link.
+    ///
+    /// The companion to [`Self::remove_node`]: after a compaction the
+    /// oldest surviving node still points at one that is gone, and a
+    /// walk back along parents then fails with "node not found" — which
+    /// reads as a corrupt store rather than as the beginning of
+    /// history. Cutting the link makes the kept chain a well-formed DAG
+    /// that simply ends.
+    ///
+    /// Safe because a node's id is the hash of its **state** alone;
+    /// `parent` is metadata the store maintains, so rewriting it does
+    /// not change what the node is or where it lives on disk.
+    pub fn detach_parent(&mut self, id: NodeId) -> Result<()> {
+        let mut node = self.get(id)?;
+        if node.parent.is_none() {
+            return Ok(());
+        }
+        node.parent = None;
+
+        let hex = id.to_hex();
+        let shard_dir = self.shard_dir(&hex);
+        let json = serde_json::to_vec_pretty(&node)?;
+        let mut tmp = NamedTempFile::new_in(&shard_dir)?;
+        tmp.write_all(&json)?;
+        tmp.as_file().sync_all()?;
+        tmp.persist(shard_dir.join(format!("{hex}.json")))?;
+        fsync_dir(&shard_dir)?;
+        Ok(())
+    }
+
     pub fn get(&self, id: NodeId) -> Result<SessionNode> {
         let hex = id.to_hex();
         let path = self.shard_dir(&hex).join(format!("{hex}.json"));
