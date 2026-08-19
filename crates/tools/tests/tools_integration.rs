@@ -841,6 +841,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "silence_finder",
             "silence_region",
             "solo_track",
+            "split_by_speaker",
             "split_clip",
             "stereo_to_mono",
             "stereo_widener",

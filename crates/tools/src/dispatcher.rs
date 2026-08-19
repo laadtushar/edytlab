@@ -99,14 +99,15 @@ impl ToolDispatcher {
             RepeatSelectionTool, ResampleTrackTool, ReverbTool, ReverseTool, RevertToTool,
             SelectRegionTool, SeparateStemsTool, SetClipEnvelopeTool, SetEffectBypassedTool,
             SetEffectParamsTool, SetPanTool, SetSendTool, SetSyncLockTool, SetTrackGainTool,
-            SilenceFinderTool, SilenceRegionTool, SoloTrackTool, SplitClipTool, StereoToMonoTool,
-            StereoWidenerTool, StorageReportTool, TimeShiftTool, TimeStretchTool, TranscribeTool,
-            TremoloTool, TrimTool, TruncateSilenceTool, VocalReductionTool,
+            SilenceFinderTool, SilenceRegionTool, SoloTrackTool, SplitBySpeakerTool, SplitClipTool,
+            StereoToMonoTool, StereoWidenerTool, StorageReportTool, TimeShiftTool, TimeStretchTool,
+            TranscribeTool, TremoloTool, TrimTool, TruncateSilenceTool, VocalReductionTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
         d.register(Box::new(TranscribeTool));
         d.register(Box::new(SeparateStemsTool));
+        d.register(Box::new(SplitBySpeakerTool));
         d.register(Box::new(AnalyzeTrackTool));
         d.register(Box::new(CutRangeTool));
         d.register(Box::new(TrimTool));

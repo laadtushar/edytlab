@@ -511,7 +511,7 @@ const groups = [
         prompt: "how much disk is this session using?",
         what: "Report what the session costs on disk, split by category: audio the current version needs, audio only the undo history needs (and how much of that is rebuildable from recorded operations), audio nothing references at all, the bounded preview cache, and clipboard blobs. Every destructive edit writes a new file and none are deleted, so a long session grows without bound. Reads only — it deletes nothing.",
         output: "total_bytes, live, history, unreferenced, preview_cache, clipboard_blobs",
-        note: "There is no reclamation policy yet, so this measures the problem rather than solving it.",
+        note: "Pair it with compact_session, which does the reclaiming — this is the before-and-after measurement.",
       }
     ],
   },
@@ -524,6 +524,13 @@ const groups = [
         what: "Run Demucs stem separation on-device. Produces 4 tracks: vocals, drums, bass, other. Model: htdemucs (~80 MB). Processing: ~45 sec/min audio on CPU.",
         output: "node_id, stem track IDs",
         note: "First use downloads the model automatically. htdemucs_6s adds guitar and piano stems at ~2× the processing time.",
+      },
+      {
+        name: "split_by_speaker",
+        prompt: 'split track 1 by speaker: Priya 0-12s, Sam 12-30s',
+        what: "Turn one track and a set of speaker segments into a track per speaker, so each voice gets its own gain, EQ and noise treatment. Writes no new audio — every speaker track points at the same source file, which is why combined playback is unchanged. Audio no segment covers goes to an 'unassigned' track rather than being dropped, and overlapping turns are awarded to whoever was listed first and reported back.",
+        output: "node_id, tracks, speakers, unassigned_samples, overlapping_segments",
+        note: "Segments can come from anywhere — a diariser, a transcript that names speakers, or a cue sheet you type. Speaker turns land as ordinary clips, so you correct a boundary by dragging it.",
       },
       {
         name: "transcribe",
@@ -656,7 +663,7 @@ export default function ToolsPage() {
   return (
     <DocShell
       title="Audio Tools Reference"
-      description="All 92 tools the AI agent can call to edit your audio session."
+      description="All 93 tools the AI agent can call to edit your audio session."
     >
       <p>
         Tools are deterministic functions the agent calls to manipulate your
