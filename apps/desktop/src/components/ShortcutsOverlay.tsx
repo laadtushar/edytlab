@@ -46,7 +46,7 @@ export function ShortcutsOverlay({ open, onClose }: ShortcutsOverlayProps) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      className="backdrop-in fixed inset-0 z-50 flex items-center justify-center bg-black/60"
       onClick={onClose}
       data-testid="shortcuts-overlay"
       role="dialog"
@@ -54,7 +54,7 @@ export function ShortcutsOverlay({ open, onClose }: ShortcutsOverlayProps) {
       aria-labelledby="shortcuts-heading"
     >
       <div
-        className="bg-neutral-900 border border-neutral-700 rounded-xl shadow-2xl w-96 p-6"
+        className="overlay-in bg-neutral-900 border border-neutral-700 rounded-xl shadow-2xl w-96 p-6"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">

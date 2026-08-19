@@ -19,11 +19,11 @@ export function TemplatePickerModal({
   if (!open) return null;
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      className="backdrop-in fixed inset-0 z-50 flex items-center justify-center bg-black/60"
       onClick={onClose}
     >
       <div
-        className="bg-[var(--surface-elev)] border border-[var(--border-strong)] rounded-xl shadow-2xl w-80 p-6"
+        className="overlay-in bg-[var(--surface-elev)] border border-[var(--border-strong)] rounded-xl shadow-2xl w-80 p-6"
         onClick={e => e.stopPropagation()}
       >
         <h2 className="text-sm font-semibold text-[var(--text)] tracking-wide uppercase mb-4">

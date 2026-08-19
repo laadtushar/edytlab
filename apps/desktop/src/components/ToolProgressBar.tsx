@@ -55,83 +55,99 @@ export function ToolProgressBar() {
   const name = progress.file?.split(/[/\\]/).pop() ?? "";
 
   return (
-    <div
-      data-testid="tool-progress"
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
-        padding: "6px 12px",
-        borderBottom: "1px solid var(--border)",
-        background: "var(--surface-elev, rgba(255,255,255,0.03))",
-        fontSize: 12,
-      }}
-    >
-      <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}>
-        {/* One-based for reading: "1 of 3" while the first is running. */}
-        {done + 1} of {progress.total}
-      </span>
-      <span
-        data-testid="tool-progress-file"
-        style={{
-          flex: 1,
-          minWidth: 0,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-          color: "var(--text)",
-        }}
-        title={progress.file}
-      >
-        {name}
-      </span>
-      {progress.refused > 0 ? (
-        <span data-testid="tool-progress-refused" style={{ color: "var(--warn, #e0a03a)" }}>
-          {progress.refused} refused
-        </span>
-      ) : null}
+    // The strip inserts itself above the timeline, so everything below
+    // shifts down the moment a batch starts. `strip-in` animates the
+    // height open so that shift is a movement to follow rather than a
+    // relayout to re-read — which matters here more than anywhere else,
+    // because this component exists specifically to cover a wait, and a
+    // thing that covers a wait should not itself arrive as a jolt.
+    <div className="strip-in" data-testid="tool-progress-shell">
       <div
-        aria-hidden
+        data-testid="tool-progress"
         style={{
-          width: 120,
-          height: 3,
-          borderRadius: 2,
-          background: "var(--border)",
-          overflow: "hidden",
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          padding: "6px 12px",
+          borderBottom: "1px solid var(--border)",
+          background: "var(--surface-elev, rgba(255,255,255,0.03))",
+          fontSize: 12,
         }}
       >
-        <div
-          data-testid="tool-progress-fill"
+        <span
+          style={{ fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}
+        >
+          {/* One-based for reading: "1 of 3" while the first is running. */}
+          {done + 1} of {progress.total}
+        </span>
+        <span
+          data-testid="tool-progress-file"
           style={{
-            width: `${pct}%`,
-            height: "100%",
-            background: "var(--accent)",
-            transition: "width 0.2s ease",
+            flex: 1,
+            minWidth: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            color: "var(--text)",
           }}
-        />
+          title={progress.file}
+        >
+          {name}
+        </span>
+        {progress.refused > 0 ? (
+          <span
+            data-testid="tool-progress-refused"
+            style={{ color: "var(--warn, #e0a03a)" }}
+          >
+            {progress.refused} refused
+          </span>
+        ) : null}
+        <div
+          aria-hidden
+          style={{
+            width: 120,
+            height: 3,
+            borderRadius: 2,
+            background: "var(--border)",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            data-testid="tool-progress-fill"
+            style={{
+              width: `${pct}%`,
+              height: "100%",
+              background: "var(--accent)",
+              // Was a hard-coded 200ms/ease. Same timing, named — this
+              // is the vocabulary's "something arriving", which is what
+              // a bar advancing to a new position is.
+              transition: "width var(--dur-2) var(--ease-out)",
+            }}
+          />
+        </div>
+        <button
+          type="button"
+          data-testid="tool-progress-cancel"
+          disabled={cancelling}
+          onClick={() => {
+            setCancelling(true);
+            void cancelLongRunningTool().catch(() => setCancelling(false));
+          }}
+          style={{
+            fontSize: 11,
+            padding: "2px 8px",
+            borderRadius: 3,
+            border: "1px solid var(--border)",
+            background: "transparent",
+            color: "var(--text-dim)",
+            cursor: cancelling ? "default" : "pointer",
+          }}
+        >
+          {/* The label changes because the stop is not instant — it lands
+              at the end of the file in flight. */}
+          {cancelling ? "Stopping…" : "Cancel"}
+        </button>
       </div>
-      <button
-        type="button"
-        data-testid="tool-progress-cancel"
-        disabled={cancelling}
-        onClick={() => {
-          setCancelling(true);
-          void cancelLongRunningTool().catch(() => setCancelling(false));
-        }}
-        style={{
-          fontSize: 11,
-          padding: "2px 8px",
-          borderRadius: 3,
-          border: "1px solid var(--border)",
-          background: "transparent",
-          color: "var(--text-dim)",
-          cursor: cancelling ? "default" : "pointer",
-        }}
-      >
-        {/* The label changes because the stop is not instant — it lands
-            at the end of the file in flight. */}
-        {cancelling ? "Stopping…" : "Cancel"}
-      </button>
     </div>
   );
 }
