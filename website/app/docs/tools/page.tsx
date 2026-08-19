@@ -493,6 +493,13 @@ const groups = [
         note: "Leaves a short pause where each filler was, so the result does not sound spliced. The word list can be replaced — fillers are language- and speaker-specific.",
       },
       {
+        name: "compact_session",
+        prompt: "this project is huge — reclaim some disk",
+        what: "Prune old history and delete the audio only it referenced. Reports what it would remove and changes nothing unless asked twice, because this removes undo steps permanently — the nodes are gone, not archived. The most recent nodes on the current chain are never pruned, so ordinary undo keeps working; what goes is the tail beyond them and any branches forked away from and never returned to.",
+        output: "prunable_nodes, reclaimable_bytes; removed_nodes and freed_bytes when applied",
+        note: "For space without losing history, the derived-audio cache sweeps itself: a file whose whole chain records a reproducible op regenerates byte-identically, so removing it costs a re-render on undo and nothing else.",
+      },
+      {
         name: "storage_report",
         prompt: "how much disk is this session using?",
         what: "Report what the session costs on disk, split by category: audio the current version needs, audio only the undo history needs (and how much of that is rebuildable from recorded operations), audio nothing references at all, the bounded preview cache, and clipboard blobs. Every destructive edit writes a new file and none are deleted, so a long session grows without bound. Reads only — it deletes nothing.",
@@ -642,7 +649,7 @@ export default function ToolsPage() {
   return (
     <DocShell
       title="Audio Tools Reference"
-      description="All 90 tools the AI agent can call to edit your audio session."
+      description="All 91 tools the AI agent can call to edit your audio session."
     >
       <p>
         Tools are deterministic functions the agent calls to manipulate your
