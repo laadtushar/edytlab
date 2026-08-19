@@ -42,6 +42,7 @@ const TOOL_LABELS: Record<string, string> = {
   silence_finder: "Find silence",
   transcribe: "Transcribe",
   separate_stems: "Separate stems",
+  split_by_speaker: "Split by speaker",
 
   // History / session graph
   fork_node: "Fork session",
