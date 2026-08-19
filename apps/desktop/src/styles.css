@@ -190,6 +190,86 @@ button {
   font-family: inherit;
 }
 
+/*
+ * Focus, visible at last (#211 phase 2).
+ *
+ * `--ring-focus` has been defined in the token block since the theme
+ * landed and referenced by exactly nothing — the app had zero
+ * occurrences of `focus-visible` anywhere. So a keyboard user got
+ * whatever the webview's default outline happened to be against a
+ * near-black background, which on WebKit is a faint ring that is
+ * genuinely hard to find, and in some of the darker panels is
+ * invisible.
+ *
+ * This is the most valuable micro-interaction in the app and the
+ * cheapest: it is the difference between tabbing being usable and
+ * being a guess.
+ *
+ * `:focus-visible` rather than `:focus` so a mouse click on a button
+ * does not leave a ring behind — that is the reason the pseudo-class
+ * exists, and using `:focus` here is what makes people remove focus
+ * styling altogether.
+ */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+  border-radius: 3px;
+}
+
+/*
+ * Direct manipulation should feel direct (#211 phase 2).
+ *
+ * The faders already respond *while* held — `onChange` updates the
+ * readout every frame and only `onPointerUp` writes a session node, so
+ * one drag is one undo step. That half was right already.
+ *
+ * What was missing is the grab itself. A native range input with only
+ * `accent-color` set gives no acknowledgement that the thumb is under
+ * the pointer, or that it is being held, so the control reads as a
+ * picture of a fader until the value starts changing.
+ *
+ * The thumb grows on hover and again on press. 1.15 and 1.3 are small
+ * on purpose: this is a mixing control that gets dragged hundreds of
+ * times, and anything larger becomes a thing that moves when you are
+ * trying to be precise with it.
+ *
+ * WebKit and Gecko need separate selectors and will not parse a shared
+ * rule — one unknown pseudo-element invalidates the whole selector
+ * list. Tauri only ever runs WebKit (macOS, Linux) or Chromium
+ * (Windows); the `-moz-` block is for `vite dev` in Firefox.
+ */
+input[type="range"] {
+  cursor: grab;
+}
+
+input[type="range"]:active {
+  cursor: grabbing;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  transition: transform var(--dur-1) var(--ease-out);
+}
+
+input[type="range"]:hover::-webkit-slider-thumb {
+  transform: scale(1.15);
+}
+
+input[type="range"]:active::-webkit-slider-thumb {
+  transform: scale(1.3);
+}
+
+input[type="range"]::-moz-range-thumb {
+  transition: transform var(--dur-1) var(--ease-out);
+}
+
+input[type="range"]:hover::-moz-range-thumb {
+  transform: scale(1.15);
+}
+
+input[type="range"]:active::-moz-range-thumb {
+  transform: scale(1.3);
+}
+
 /* App-wide entry animation — staggered fade for first paint. */
 @keyframes app-fade-in {
   from {
