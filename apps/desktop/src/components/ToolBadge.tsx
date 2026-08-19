@@ -75,6 +75,7 @@ const TOOL_LABELS: Record<string, string> = {
   split_clip: "Split clip",
   storage_report: "Disk usage",
   compact_session: "Compact session",
+  select_region: "Select region",
   audition_effect: "Audition effect",
   batch_apply: "Batch apply",
   cut_words: "Cut words",

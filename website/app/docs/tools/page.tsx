@@ -445,6 +445,13 @@ const groups = [
         output: "frequency/magnitude data",
       },
       {
+        name: "select_region",
+        prompt: "select the bit where he talks about latency",
+        what: "Resolve a description of a region into a concrete time range, using the session's transcript and tempo map. Give a phrase to find, a passage of speech (1 is the first, -1 the last), or a beat range. Returns start_sec and end_sec for any tool that takes a range.",
+        output: "start_sec, end_sec, duration_sec, matched",
+        note: "It refuses rather than approximating: a phrase that is not in the transcript selects nothing, because the next call is usually a destructive edit and a range that is nearly right is worse than none. Every range-taking tool became describable without any of them changing.",
+      },
+      {
         name: "silence_finder",
         prompt: "where are the silent bits?",
         what: "Analyse a track and return the time ranges of silent regions.",
@@ -649,7 +656,7 @@ export default function ToolsPage() {
   return (
     <DocShell
       title="Audio Tools Reference"
-      description="All 91 tools the AI agent can call to edit your audio session."
+      description="All 92 tools the AI agent can call to edit your audio session."
     >
       <p>
         Tools are deterministic functions the agent calls to manipulate your

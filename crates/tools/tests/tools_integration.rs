@@ -829,6 +829,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "reverb",
             "reverse",
             "revert_to",
+            "select_region",
             "separate_stems",
             "set_clip_envelope",
             "set_effect_bypassed",

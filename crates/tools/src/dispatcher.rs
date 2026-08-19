@@ -97,11 +97,11 @@ impl ToolDispatcher {
             RemoveClipTool, RemoveEffectTool, RemoveFillersTool, RemoveSendTool, RemoveTrackTool,
             RenameTrackTool, RenderFinalTool, RenderPreviewTool, ReorderEffectsTool,
             RepeatSelectionTool, ResampleTrackTool, ReverbTool, ReverseTool, RevertToTool,
-            SeparateStemsTool, SetClipEnvelopeTool, SetEffectBypassedTool, SetEffectParamsTool,
-            SetPanTool, SetSendTool, SetSyncLockTool, SetTrackGainTool, SilenceFinderTool,
-            SilenceRegionTool, SoloTrackTool, SplitClipTool, StereoToMonoTool, StereoWidenerTool,
-            StorageReportTool, TimeShiftTool, TimeStretchTool, TranscribeTool, TremoloTool,
-            TrimTool, TruncateSilenceTool, VocalReductionTool,
+            SelectRegionTool, SeparateStemsTool, SetClipEnvelopeTool, SetEffectBypassedTool,
+            SetEffectParamsTool, SetPanTool, SetSendTool, SetSyncLockTool, SetTrackGainTool,
+            SilenceFinderTool, SilenceRegionTool, SoloTrackTool, SplitClipTool, StereoToMonoTool,
+            StereoWidenerTool, StorageReportTool, TimeShiftTool, TimeStretchTool, TranscribeTool,
+            TremoloTool, TrimTool, TruncateSilenceTool, VocalReductionTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -155,6 +155,8 @@ impl ToolDispatcher {
         d.register(Box::new(LimiterTool));
         // Task 6: per-clip volume envelope.
         d.register(Box::new(SetClipEnvelopeTool));
+        // #168: make every range-taking tool describable.
+        d.register(Box::new(SelectRegionTool));
         // A1 task 5: change_speed linear resampling.
         d.register(Box::new(ChangeSpeedTool));
         // A1: silence_finder (analysis), silence region, invert, repeat_selection.
