@@ -189,11 +189,11 @@ export function CommandPalette({ open, onClose, onSelect }: CommandPaletteProps)
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-[15vh]"
+      className="backdrop-in fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-[15vh]"
       onClick={handleBackdrop}
     >
       <div
-        className="flex w-full max-w-xl flex-col overflow-hidden rounded-xl border border-[var(--border-strong)] bg-[var(--surface-elev)] shadow-[0_24px_60px_-12px_rgba(0,0,0,0.8)]"
+        className="overlay-in flex w-full max-w-xl flex-col overflow-hidden rounded-xl border border-[var(--border-strong)] bg-[var(--surface-elev)] shadow-[0_24px_60px_-12px_rgba(0,0,0,0.8)]"
         style={{ maxHeight: "60vh" }}
       >
         {/* Search input */}

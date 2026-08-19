@@ -31,6 +31,26 @@
   --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Geist Mono", ui-monospace, "JetBrains Mono", monospace;
   --font-serif: "Instrument Serif", "Iowan Old Style", "Apple Garamond", serif;
+
+  /*
+   * What a bare Tailwind `transition` means in this app.
+   *
+   * Forty-odd call sites across thirteen components write bare
+   * `transition` for a hover or focus state. Rewriting each one to
+   * carry an explicit duration would be forty lines of churn to reach
+   * the same place, and would leave the forty-first — written next
+   * week — back on Tailwind's default.
+   *
+   * Setting the default instead means the vocabulary applies to every
+   * existing site and every future one, and a component that genuinely
+   * needs different timing still says so by writing it explicitly.
+   *
+   * 150ms -> 120ms is the one deliberate timing change in this
+   * migration: these are all controls echoing a pointer, which is the
+   * --dur-1 job. Everything else keeps the timing it already had.
+   */
+  --default-transition-duration: 120ms;
+  --default-transition-timing-function: cubic-bezier(0.2, 0.65, 0.3, 1);
 }
 
 :root {
@@ -50,6 +70,59 @@
   --warning: #f5b941;
   --danger: #ef6f72;
   --ring-focus: 0 0 0 1px rgba(255, 138, 61, 0.55), 0 0 0 4px rgba(255, 138, 61, 0.18);
+
+  /*
+   * Motion vocabulary. Three durations and two easings, named — see
+   * docs/motion-audit.md for how these were chosen and which
+   * components deliberately use none of them.
+   *
+   * Before this block the app had no named timing at all: thirteen
+   * components hand-typed a bare Tailwind `transition`, which is
+   * 150ms/cubic-bezier(0.4,0,0.2,1) by default. That is a duration
+   * nobody picked, recorded nowhere, and impossible to change in one
+   * place.
+   *
+   * The split is by job, not by size:
+   *   --dur-1  a control echoing your finger. Under ~100ms reads as
+   *            instant and wastes the frame; over ~200ms reads as lag
+   *            on something you are still holding.
+   *   --dur-2  something arriving on screen or leaving it.
+   *   --dur-3  something being *explained* — a change the eye has to
+   *            follow. Matches the existing app-fade-in, which was
+   *            already the de-facto value for this.
+   *
+   * --ease-in-out is Tailwind's default kept on purpose, so migrating
+   * the existing call sites changes no timing that was already right.
+   */
+  --dur-1: 120ms;
+  --dur-2: 200ms;
+  --dur-3: 320ms;
+  --ease-out: cubic-bezier(0.2, 0.65, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/*
+ * Reduced motion, honoured globally.
+ *
+ * Global rather than per-component on purpose: a per-component opt-in
+ * is a list that goes one component out of date the moment anybody
+ * adds a component, and the failure mode is silent — the person who
+ * needs this setting is the last to be told it was missed.
+ *
+ * 0.01ms rather than 0 so `transitionend` and `animationend` still
+ * fire. Anything sequencing off those keeps working instead of
+ * waiting for an event that will never arrive, which is how a
+ * reduced-motion setting turns into a hang.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 html,
@@ -139,5 +212,80 @@ button {
 }
 
 .app-fade-in {
-  animation: app-fade-in 320ms cubic-bezier(0.2, 0.65, 0.3, 1) both;
+  animation: app-fade-in var(--dur-3) var(--ease-out) both;
+}
+
+/*
+ * Overlay entry — command palette, shortcuts sheet, template picker.
+ *
+ * All three render `null` when closed, so they arrive between two
+ * frames with nothing in between. At the size these things are, that
+ * reads as a flash rather than as something opening, and the eye has
+ * to re-find where the focus went.
+ *
+ * The scale is 0.98, not 0.9. A modal that grows visibly is a modal
+ * announcing itself; this only needs to say "this arrived, it was not
+ * always here". Paired with a fade so the scale is felt more than
+ * seen.
+ */
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.overlay-in {
+  animation: overlay-in var(--dur-2) var(--ease-out) both;
+}
+
+/*
+ * The backdrop fades without scaling — scaling a full-screen scrim
+ * shows its edges.
+ */
+@keyframes backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.backdrop-in {
+  animation: backdrop-in var(--dur-2) var(--ease-out) both;
+}
+
+/*
+ * The progress strip inserts itself into the layout above the
+ * timeline, so everything below it jumps down the instant a batch
+ * starts. Animating the height means the jump is a movement you can
+ * follow rather than a relayout you have to re-read.
+ *
+ * `grid-template-rows: 0fr -> 1fr` is the trick that makes this work
+ * on content of unknown height; `height: auto` is not animatable.
+ */
+@keyframes strip-in {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+  to {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+}
+
+.strip-in {
+  display: grid;
+  animation: strip-in var(--dur-2) var(--ease-out) both;
+}
+
+.strip-in > * {
+  overflow: hidden;
+  min-height: 0;
 }
