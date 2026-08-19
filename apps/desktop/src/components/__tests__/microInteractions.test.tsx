@@ -72,6 +72,22 @@ describe("faders acknowledge being grabbed", () => {
   });
 });
 
+describe("a node arriving in the graph", () => {
+  it("scales from 0.94 rather than from nothing", () => {
+    // A node growing from zero draws the eye to the growing. The
+    // *position* is the information in this view — which parent it
+    // hangs off is the entire point — so the entry must not compete
+    // with where it landed.
+    expect(css).toMatch(/@keyframes node-in[\s\S]*?scale\(0\.94\)/);
+  });
+
+  it("does not translate", () => {
+    const block = css.slice(css.indexOf("@keyframes node-in"));
+    const body = block.slice(0, block.indexOf("\n}"));
+    expect(body).not.toContain("translate");
+  });
+});
+
 describe("the clip chip says when it is being held", () => {
   const clips = [
     { source_path: "/a/one.wav", start_sec: 0, length_sec: 10 },

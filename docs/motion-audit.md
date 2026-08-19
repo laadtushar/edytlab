@@ -163,10 +163,35 @@ prevents the next person from "fixing" it:
 
 | Component | Job | Why not here |
 |---|---|---|
-| `Timeline` / `ClipStrip` | 1 — the biggest one in the app | A cut or a move is *the* change that needs explaining, and doing it properly means FLIP against real layout. It is a different kind of change from a vocabulary migration and wants its own review |
-| `GraphView` | 1 | Branching is the product's core idea and is currently silent. Node entry and head movement are worth showing; it is also 478 lines of `@xyflow/react` with its own layout pass, so it is not a token migration |
-| `AutomationLane` | 1 | A curve drawing itself would explain what `duck_under_speech` did. Wants the timeline work first — the two share a coordinate space |
-| `ABCompareBar` | 1 | A crossfade would make the comparison legible as a comparison. Small, but it belongs with the timeline change |
+| `Timeline` / `ClipStrip` | 1 — the biggest one in the app | A cut or a move is *the* change that needs explaining. **Done in the follow-up**, and it needed no FLIP: the chips are already absolutely positioned by percentage, so the browser interpolates them directly |
+| `GraphView` | 1 | Branching is the product's core idea and was silent. **Done in the follow-up** — node entry and an eased head ring |
+| `ABCompareBar` | 1 | **Done in the follow-up**, for the visible switch. See the note below on what was *not* done |
+| `AutomationLane` | 1 | Still open. A curve drawing itself would explain what `duck_under_speech` did |
+
+### The one genuinely left: `AutomationLane`
+
+Worth being specific rather than leaving it as "later", because the
+reason is not effort.
+
+The curve is an SVG `polyline`, so drawing it on means animating
+`stroke-dashoffset` against the path's measured length — a ref and a
+measurement per clip. That part is ordinary. The part that is not is
+*when* it should run: on a curve that a tool has just written, and never
+while the user is dragging a control point. That is the same suppression
+the clip strip needed, against a component whose coordinate space is
+shared with the timeline. Doing it before the timeline work settles
+means building the suppression twice.
+
+### A note on the A/B "crossfade"
+
+The audit originally said a crossfade would make the comparison legible
+as a comparison. That reads as one thing and is two:
+
+- **The visible switch** — the A and B buttons changing state instantly,
+  so the toggle did not read as a toggle. Done.
+- **An audio crossfade between the two sides.** Not done, and not a
+  motion change at all — it is work in the playback engine, and it
+  should not be claimed under this ticket.
 
 ## Phase 2 — micro-interactions
 
