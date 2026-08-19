@@ -492,6 +492,25 @@ export const onToolProgress = (
 ): Promise<UnlistenFn> =>
   listen<ToolProgress>("tool-progress", (e) => cb(e.payload));
 
+/**
+ * Record unattended: begin after a delay, stop after a duration
+ * (#203 §2). Either half alone is useful — "start in ten minutes" and
+ * "record for thirty seconds" are different requests.
+ *
+ * Resolves when the take is saved. Progress and the countdown arrive on
+ * the same channel as batch progress, and `cancelLongRunningTool`
+ * stops it — during the countdown as well as during the take.
+ */
+export const timerRecord = (
+  outputPath: string,
+  schedule: { startAfterSec?: number; durationSec?: number },
+): Promise<{ path?: string; cancelled: boolean }> =>
+  invoke("timer_record", {
+    outputPath,
+    startAfterSec: schedule.startAfterSec ?? null,
+    durationSec: schedule.durationSec ?? null,
+  });
+
 /** Ask the running tool to stop at its next checkpoint. */
 export const cancelLongRunningTool = (): Promise<void> =>
   invoke("cancel_long_running_tool");

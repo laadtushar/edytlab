@@ -3371,6 +3371,103 @@ pub fn start_recording(state: State<'_, RecorderState>) -> CmdResult<String> {
     Ok("recording started".into())
 }
 
+/// Record unattended: begin after a delay, stop after a duration
+/// (#203 §2).
+///
+/// The decision of *when* lives in `recorder::next_action`, which is a
+/// pure function and tested there — an unattended take that stops a
+/// second early has clipped the last word of something nobody was in
+/// the room for, and that off-by-one is worth testing away from a sound
+/// card. This is the shell that drives it.
+///
+/// Runs on a background task so the command returns immediately and the
+/// UI can show a countdown; progress goes through the same sink the
+/// batch runner uses, and the same Cancel stops it.
+#[tauri::command]
+pub async fn timer_record(
+    state: State<'_, RecorderState>,
+    output_path: String,
+    start_after_sec: Option<f64>,
+    duration_sec: Option<f64>,
+) -> CmdResult<serde_json::Value> {
+    let schedule = recorder::Schedule {
+        start_after_sec,
+        duration_sec,
+    };
+    if !schedule.is_armed() {
+        return Err(CommandError::InvalidPath(
+            "a timer needs a start delay, a duration, or both — with neither, use start_recording"
+                .into(),
+        )
+        .into());
+    }
+    if state.0.lock().unwrap().is_some() {
+        return Err(CommandError::InvalidPath("already recording".into()).into());
+    }
+
+    tools::progress::begin();
+    let armed_at = std::time::Instant::now();
+    let mut recording = false;
+
+    loop {
+        // Cancel is the user's, and it applies whether the timer is
+        // still counting down or already capturing. Stopping during the
+        // countdown simply never starts.
+        if tools::progress::cancelled() {
+            let rec = state.0.lock().unwrap().take();
+            if let Some(rec) = rec {
+                let path = std::path::PathBuf::from(&output_path);
+                let _ = rec.stop_and_save(&path);
+            }
+            tools::progress::report(serde_json::json!({
+                "kind": "timer_record", "done": true, "cancelled": true,
+            }));
+            return Ok(serde_json::json!({ "cancelled": true, "recorded": recording }));
+        }
+
+        let elapsed = armed_at.elapsed().as_secs_f64();
+        match recorder::next_action(&schedule, elapsed, recording) {
+            recorder::Action::Wait | recorder::Action::Continue => {}
+            recorder::Action::Start => {
+                let rec = recorder::Recorder::start().map_err(|e| e.to_string())?;
+                *state.0.lock().unwrap() = Some(rec);
+                recording = true;
+            }
+            recorder::Action::Stop => break,
+        }
+
+        tools::progress::report(serde_json::json!({
+            "kind": "timer_record",
+            "recording": recording,
+            "remaining_sec": schedule.remaining(elapsed, recording),
+        }));
+
+        // A quarter second is well inside what anyone can hear as late
+        // and cheap enough to leave running through a long countdown.
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+
+    let rec = state
+        .0
+        .lock()
+        .unwrap()
+        .take()
+        .ok_or_else(|| "the recording vanished before it could be saved".to_string())?;
+    let path = std::path::PathBuf::from(&output_path);
+    let (saved, sr, ch) = rec.stop_and_save(&path).map_err(|e| e.to_string())?;
+
+    tools::progress::report(serde_json::json!({
+        "kind": "timer_record", "done": true, "cancelled": false,
+    }));
+
+    Ok(serde_json::json!({
+        "path": saved.to_string_lossy(),
+        "sample_rate": sr,
+        "channels": ch,
+        "cancelled": false,
+    }))
+}
+
 #[tauri::command]
 pub fn stop_recording(
     state: State<'_, RecorderState>,
