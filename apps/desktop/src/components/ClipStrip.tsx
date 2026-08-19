@@ -43,6 +43,34 @@ const DRAG_SLOP = 3;
 
 const STRIP_HEIGHT = 22;
 
+/**
+ * Motion — see docs/motion-audit.md, which called this the biggest one
+ * in the app and deferred it out of the vocabulary change.
+ *
+ * A cut, a split or a paste rearranges this strip. Until now every clip
+ * teleported to its new place, so the only way to know what an edit did
+ * was to remember where things were and compare. A chip that *travels*
+ * to its new position says which clip it was and how far it moved,
+ * which is the whole "explaining a change" job.
+ *
+ * `left`/`width` are laid out rather than composited, and normally that
+ * would be the wrong pair to animate. It is fine here and worth being
+ * explicit about why:
+ *
+ *   - The chips are `position: absolute` inside a fixed-height box, so
+ *     changing one lays out nothing else on the page.
+ *   - There are a handful of them, not thousands.
+ *   - It runs when the clip list changes — never during playback, never
+ *     during a drag, never on the render path.
+ *
+ * The alternative, translating on the compositor, needs pixel
+ * measurement because a percentage `translateX` resolves against the
+ * element's own width rather than the container's. That is real
+ * machinery, and a resize observer to keep it honest, to animate two
+ * properties on ten elements once per edit.
+ */
+const CLIP_MOTION = `left var(--dur-3) var(--ease-in-out), width var(--dur-3) var(--ease-in-out)`;
+
 export interface ClipStripProps {
   clips: ClipSummary[];
   /** Timeline duration in seconds; 0 while audio is still loading. */
@@ -84,6 +112,18 @@ export function ClipStrip({
   // frame. Replaced wholesale whenever the session says otherwise.
   const [draft, setDraft] = useState<ClipSummary[]>(clips);
   const [drag, setDrag] = useState<DragState | null>(null);
+
+  // Whether a chip has ever been painted at a real position.
+  //
+  // Without this, the first paint animates every chip in from the left
+  // edge — the browser transitions from the initial `left: 0` to the
+  // computed one. That is a loading flourish nobody asked for, on the
+  // surface that most needs to look settled, and it would fire again
+  // every time the track is switched.
+  const painted = useRef(false);
+  useEffect(() => {
+    painted.current = true;
+  }, []);
 
   useEffect(() => {
     setDraft(clips);
@@ -186,6 +226,13 @@ export function ClipStrip({
       >
         {draft.map((clip, i) => {
           const selected = selectedClip === i;
+          // The chip under the pointer must not ease. It is already
+          // following the finger frame by frame, and a 320ms transition
+          // on top of that turns a direct-manipulation drag into
+          // something that trails behind the cursor and overshoots on
+          // release — the exact feel this whole change exists to avoid.
+          // Only the chips being *rearranged by an edit* travel.
+          const dragging = drag?.clipIndex === i;
           return (
             <button
               type="button"
@@ -231,7 +278,12 @@ export function ClipStrip({
                 whiteSpace: "nowrap",
                 textOverflow: "ellipsis",
                 cursor: "grab",
+                transition:
+                  dragging || !painted.current ? undefined : CLIP_MOTION,
               }}
+              data-motion={
+                dragging || !painted.current ? "none" : "clip-travel"
+              }
             >
               {clipLabel(clip, i)}
             </button>
