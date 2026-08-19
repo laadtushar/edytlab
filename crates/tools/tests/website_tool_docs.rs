@@ -327,3 +327,57 @@ fn the_parsers_still_find_something() {
         documented.len()
     );
 }
+
+/// The landing page's headline claims must outlive nothing.
+///
+/// The tool lists above are checked by name, which catches a tool being
+/// renamed away. It does not catch the other direction: prose that
+/// describes a *capability* staying on the site after the capability is
+/// gone. That copy is the most damaging kind to get wrong, because it
+/// is what someone decides to download on.
+///
+/// So each claim here is pinned to the tool that makes it true. The
+/// pairing is the point — remove the tool and the sentence fails, which
+/// is the only moment anyone would think to reword it.
+#[test]
+fn the_landing_page_claims_only_what_the_registry_can_do() {
+    let registry = registered();
+    let grid = read_website("components/landing/feature-grid.tsx");
+
+    // (a phrase on the site, the tool that has to exist for it to be true)
+    let claims: &[(&str, &str)] = &[
+        // Text-based editing (#157): the transcript is the editor, and
+        // deleting words cuts the audio.
+        ("Edit the words, not the waveform", "cut_words"),
+        ("the transcript becomes the editor", "transcribe"),
+        // Stem separation and the phase vocoder.
+        ("Demucs stem separation", "separate_stems"),
+        ("Time-stretch", "time_stretch"),
+        ("pitch-shift", "pitch_shift"),
+        ("Warp a performance onto a beat grid", "align_to_beat"),
+        // Export claims.
+        ("Loudness-normalise", "normalize_loudness"),
+        // History.
+        ("Fork, A/B compare, and revert", "fork_node"),
+    ];
+
+    let mut broken = Vec::new();
+    for (phrase, tool) in claims {
+        if !grid.contains(phrase) {
+            // The copy was reworded. That is allowed — but this test
+            // has to be told, or it silently stops guarding anything.
+            broken.push(format!(
+                "the feature grid no longer says {phrase:?}; update this test \
+                 to match the new wording (or drop the claim)"
+            ));
+        } else if !registry.contains(*tool) {
+            broken.push(format!(
+                "the feature grid claims {phrase:?} but `{tool}` is not \
+                 registered — that is marketing copy for something the agent \
+                 cannot do"
+            ));
+        }
+    }
+
+    assert!(broken.is_empty(), "{}", broken.join("\n  "));
+}
