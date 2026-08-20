@@ -210,9 +210,29 @@ jobs:
 
       # ── Toolchain ────────────────────────────────────────────────
       - name: Install Rust toolchain (rustup-shim honours rust-toolchain.toml)
+        # No `targets:` — they would install on `stable`, and
+        # rust-toolchain.toml pins 1.88. See the next step.
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.platform.rust_targets }}
+
+      # Same fix as release-dev.yml, and the long explanation lives
+      # there. Short version: passing `targets:` to the action above
+      # adds them to `stable`, but rust-toolchain.toml pins 1.88 with
+      # `profile = "minimal"`, so the build runs on a toolchain that has
+      # only the host target and the universal macOS build fails with
+      # "Target x86_64-apple-darwin is not installed".
+      #
+      # This workflow had the identical bug and had never shown it,
+      # because it is manual-dispatch only and needs signing secrets
+      # that do not exist yet — so it has not run. It would have failed
+      # the first time somebody tried to cut a signed release, which is
+      # the worst moment to find out.
+      - name: Add cross targets to the pinned toolchain
+        if: matrix.platform.rust_targets != ''
+        shell: bash
+        run: |
+          rustup show
+          rustup target add $(echo '${{ matrix.platform.rust_targets }}' | tr ',' ' ')
+          rustup target list --installed
 
       - name: Cache cargo registry & target
         uses: Swatinem/rust-cache@v2
