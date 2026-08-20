@@ -655,6 +655,29 @@ function App() {
   }, [handleOpenRecent]);
 
   /**
+   * Start a new project.
+   *
+   * Mechanically identical to opening one: `open_project` creates the
+   * store when the folder does not already contain one. That is the
+   * whole reason "New" did not exist — it was already possible, just
+   * never named, so the only way to discover it was to point "Open
+   * project…" at an empty folder and notice that it worked.
+   *
+   * Naming it is the fix. The two entries do the same call and differ
+   * in what they promise, which is what a user is actually choosing
+   * between.
+   */
+  const handleNewProject = useCallback(async () => {
+    try {
+      const dir = await pickProjectDirectory();
+      if (!dir) return;
+      await handleOpenRecent(dir);
+    } catch (e) {
+      setRenderError(String(e));
+    }
+  }, [handleOpenRecent]);
+
+  /**
    * Save As: copy the project somewhere new and carry on there.
    *
    * The view is flushed first. It is normally written 500 ms after the
@@ -994,6 +1017,8 @@ function App() {
         onRecord={isRecording ? handleStopRecording : handleStartRecording}
         onSaveAs={handleSaveProjectAs}
         hasProject={Boolean(head)}
+        onNewProject={handleNewProject}
+        onOpenProject={handleOpenProject}
       />
 
       <div className="grid min-h-0 grid-cols-[minmax(0,1fr)_360px] gap-px bg-[var(--border)]">
@@ -1089,6 +1114,7 @@ function App() {
                 <EmptyState
                   onOpen={handleOpenDialog}
                   onOpenProject={handleOpenProject}
+                  onNewProject={handleNewProject}
                   onShowTemplates={() => setShowTemplatePicker(true)}
                   recents={recents}
                   onOpenRecent={handleOpenRecent}
