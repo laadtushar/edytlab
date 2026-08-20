@@ -24,6 +24,16 @@ export interface AppHeaderProps {
    */
   onSaveAs?: () => void;
   hasProject?: boolean;
+  /**
+   * Start a project in an empty folder, and open an existing one.
+   *
+   * These are in the header rather than only on the empty state
+   * because the empty state stops existing the moment audio loads —
+   * so mid-session there was no way to reach either, and no way at all
+   * to leave the current project for another one.
+   */
+  onNewProject?: () => void;
+  onOpenProject?: () => void;
 }
 
 export function AppHeader({
@@ -35,6 +45,8 @@ export function AppHeader({
   onRecord,
   onSaveAs,
   hasProject,
+  onNewProject,
+  onOpenProject,
 }: AppHeaderProps) {
   return (
     <header
@@ -76,6 +88,44 @@ export function AppHeader({
       </div>
 
       <div className="ml-auto flex items-center gap-2">
+        {onNewProject ? (
+          <button
+            type="button"
+            data-testid="new-project-button"
+            onClick={onNewProject}
+            title="Start a new project in an empty folder"
+            className="
+              inline-flex items-center gap-2
+              rounded-md border border-[var(--border-strong)]
+              bg-[var(--surface)]
+              px-3 py-1.5
+              font-mono text-[11px] uppercase tracking-wider text-[var(--text-dim)]
+              transition
+              hover:border-[var(--accent)]/50 hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]
+            "
+          >
+            New project…
+          </button>
+        ) : null}
+        {onOpenProject ? (
+          <button
+            type="button"
+            data-testid="open-project-button"
+            onClick={onOpenProject}
+            title="Open an existing project folder"
+            className="
+              inline-flex items-center gap-2
+              rounded-md border border-[var(--border-strong)]
+              bg-[var(--surface)]
+              px-3 py-1.5
+              font-mono text-[11px] uppercase tracking-wider text-[var(--text-dim)]
+              transition
+              hover:border-[var(--accent)]/50 hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]
+            "
+          >
+            Open project…
+          </button>
+        ) : null}
         {onSaveAs && hasProject ? (
           <button
             type="button"
