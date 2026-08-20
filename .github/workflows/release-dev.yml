@@ -317,12 +317,45 @@ jobs:
         # auto-applied by rustup's shim on the first cargo invocation
         # (channel = 1.88, required by Tauri 2's edition2024 deps).
         #
-        # `targets` matters for the macOS leg: a universal build links
-        # an Intel slice that the arm64 runner cannot produce unless
-        # x86_64-apple-darwin is installed here.
+        # Deliberately no `targets:` here — see the next step. Passing
+        # them to this action installs them on **stable**, which is not
+        # the toolchain the build runs on.
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.platform.rust_targets }}
+
+      # The macOS leg died here for every dev release, and the reason is
+      # worth spelling out because the previous fix looked correct.
+      #
+      # A universal binary links an Intel slice, which an arm64 runner
+      # cannot produce unless x86_64-apple-darwin is installed. That was
+      # known, and `targets: ${{ matrix.platform.rust_targets }}` was
+      # passed to the toolchain action above to handle it.
+      #
+      # It installed the target on the wrong toolchain. The action
+      # installs `stable` and adds the targets to `stable`; then
+      # rust-toolchain.toml pins channel 1.88 with `profile = "minimal"`,
+      # so the first cargo invocation switches to 1.88 — which has only
+      # the host target. Hence:
+      #
+      #   failed to build x86_64-apple-darwin binary: Target
+      #   x86_64-apple-darwin is not installed
+      #   (installed targets: aarch64-apple-darwin)
+      #
+      # `rustup target add` acts on the *active* toolchain, which
+      # rust-toolchain.toml decides, so doing it as its own step puts
+      # the target where the build will look for it. `rustup show`
+      # first, because the pinned toolchain may not be installed yet and
+      # that is what triggers it.
+      #
+      # Listing the installed targets afterwards is not noise: the whole
+      # failure was a target being absent from a toolchain nobody
+      # printed.
+      - name: Add cross targets to the pinned toolchain
+        if: matrix.platform.rust_targets != ''
+        shell: bash
+        run: |
+          rustup show
+          rustup target add $(echo '${{ matrix.platform.rust_targets }}' | tr ',' ' ')
+          rustup target list --installed
 
       - name: Cache cargo registry & target
         uses: Swatinem/rust-cache@v2
