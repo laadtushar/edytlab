@@ -226,6 +226,22 @@ jobs:
               // release on the public page.
               draft: true,
               prerelease: !isRelease,
+              // Pin the tag to the commit this run is building.
+              //
+              // A draft release does not create its tag until it is
+              // published. Without this, GitHub creates the tag at
+              // whatever the default branch points to *at publish
+              // time*, which is fifteen minutes and any number of
+              // merges after the build started. The release would then
+              // be tagged at one commit while its artifacts were built
+              // from another — and the body a few lines up would say
+              // so, which is the only way anyone would ever notice.
+              //
+              // `github.sha` is the commit auto-release dispatched for,
+              // and the build job checks out this same sha rather than
+              // the branch tip, so tag, artifacts and the "Built from
+              // commit" line all name one commit.
+              target_commitish: process.env.COMMIT_SHA,
             });
             core.info(`Created draft release id ${created.id}`);
             core.setOutput("release_id", created.id);
@@ -276,6 +292,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # The commit this run was dispatched for, not the branch tip.
+          #
+          # Without a ref, each matrix leg checks out the default branch
+          # as it stands when *that leg* starts. The three legs start
+          # minutes apart, so a merge landing in between would have the
+          # macOS artifact built from a different commit than the
+          # Windows one, in the same release, silently.
+          #
+          # This is the same sha `create-release` pins the tag to.
+          ref: ${{ github.sha }}
 
       # Linux Tauri builds need GTK/WebKit/AppIndicator system libs
       # (and `libfuse2` for AppImage). No-op on the other matrix legs.
