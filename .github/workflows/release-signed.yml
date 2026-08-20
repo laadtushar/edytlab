@@ -130,6 +130,14 @@ jobs:
               body,
               draft: true,
               prerelease: false,
+              // Pin the tag to the commit being built — see the long
+              // note in release-dev.yml. A draft's tag is created at
+              // publish time against whatever the default branch points
+              // to then, which for a signed release is a 40-minute
+              // build later. Shipping a signed artifact under a tag
+              // that names a different commit is the version of this
+              // bug that actually matters.
+              target_commitish: process.env.COMMIT_SHA,
             });
             core.info(`Created draft release id ${created.id}`);
             core.setOutput("release_id", created.id);
@@ -168,6 +176,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # The dispatched commit, not the branch tip — the same sha
+          # `create-release` pins the tag to. See release-dev.yml.
+          ref: ${{ github.sha }}
 
       # ── Preflight: fail in seconds, not after a 40-minute build ──
       - name: Verify Apple secrets are set
