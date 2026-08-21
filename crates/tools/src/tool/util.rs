@@ -578,6 +578,25 @@ where
     let channels_out = channels_out.max(1);
     let stride_out = channels_out as usize;
 
+    // An edit that changed the sample rate has invalidated the session's.
+    //
+    // `resample_track` is the only edit that does this, and it wrote the
+    // new rate into the WAV and into the clip's frame count while leaving
+    // `SessionState::sample_rate` at the old value. Everything that
+    // converts between seconds and samples reads that field — `cut_range`,
+    // `select_region`, `duck_under_speech`, the annotation shifts,
+    // `split_by_speaker` — so after resampling 48k to 44.1k every one of
+    // them was off by 8.8%, silently, on a session that looked fine.
+    //
+    // Guarded on the rate actually *changing* rather than always
+    // assigning `rate_out`: every other edit returns the rate it was
+    // handed, which for a session whose tracks are not all at one rate is
+    // that track's rate, not the session's. Assigning unconditionally
+    // would let a gain change rewrite the session's declared rate.
+    if rate_out != sample_rate {
+        state.sample_rate = rate_out;
+    }
+
     // CAS-address the result under `<project>/.audiograph/derived/`.
     let derived_dir: PathBuf = crate::provenance::derived_dir(ctx.store.project_dir());
     if let Err(e) = std::fs::create_dir_all(&derived_dir) {
