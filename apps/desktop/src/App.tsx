@@ -264,6 +264,22 @@ function App() {
         handleRedo();
         return;
       }
+      // Ctrl/Cmd+K opens the command palette.
+      //
+      // Nothing opened it before. `paletteOpen` was initialised to
+      // `false` and the only other reference set it back to `false`, so
+      // the component rendered `null` for the entire life of the app —
+      // 87 commands behind a door with no handle.
+      //
+      // Deliberately runs while `isTyping`: the palette's whole purpose
+      // is to reach a command without leaving the keyboard, and the
+      // chat box is exactly where a hand already is. ⌘K is not a
+      // text-editing key, so intercepting it there costs nothing.
+      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+        e.preventDefault();
+        setPaletteOpen((open) => !open);
+        return;
+      }
       if (e.key === "?" && !e.ctrlKey && !e.altKey && !e.metaKey && !isTyping) {
         e.preventDefault();
         if (!showShortcuts) setShowShortcuts(true);
