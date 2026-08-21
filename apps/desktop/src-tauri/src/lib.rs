@@ -163,7 +163,40 @@ pub fn run() {
                 .separator()
                 .item(&quit)
                 .build()?;
-            let menu = MenuBuilder::new(app).item(&file_menu).build()?;
+
+            // Cut / Copy / Paste / Select All / Undo have to be real
+            // menu items or they do not work at all.
+            //
+            // On macOS those shortcuts are not handled by the webview.
+            // They are dispatched through the responder chain by the
+            // Edit menu's *key equivalents*, so an application with no
+            // Edit menu has no ⌘V — the keystroke reaches nothing and
+            // is silently dropped.
+            //
+            // Tauri's default menu includes this submenu. Building a
+            // menu from scratch with `MenuBuilder::new` and calling
+            // `set_menu` replaces that default wholesale, so adding a
+            // File menu had the side effect of deleting Edit — and with
+            // it, pasting into every text field in the app: the chat
+            // box, the API key and base URL fields, the model picker,
+            // the graph's rename overlay, the label lane.
+            //
+            // Nothing about the failure points at the menu bar, which
+            // is why it survived: the field just ignores ⌘V.
+            let edit_menu = SubmenuBuilder::new(app, "Edit")
+                .undo()
+                .redo()
+                .separator()
+                .cut()
+                .copy()
+                .paste()
+                .select_all()
+                .build()?;
+
+            let menu = MenuBuilder::new(app)
+                .item(&file_menu)
+                .item(&edit_menu)
+                .build()?;
             app.set_menu(menu)?;
             app.on_menu_event(|app_handle, event| match event.id().as_ref() {
                 "open_audio" => {

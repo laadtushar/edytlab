@@ -1,11 +1,11 @@
 ﻿import { useEffect } from "react";
 
-interface Shortcut {
+export interface Shortcut {
   keys: string;
   description: string;
 }
 
-const SHORTCUTS: Shortcut[] = [
+export const SHORTCUTS: Shortcut[] = [
   { keys: "Space", description: "Play / Pause" },
   { keys: "Home", description: "Seek to start" },
   { keys: "End", description: "Seek to end" },
@@ -21,6 +21,7 @@ const SHORTCUTS: Shortcut[] = [
   { keys: "Ctrl/Cmd + E", description: "Zoom to selection" },
   { keys: "Ctrl/Cmd + F", description: "Fit to window" },
   { keys: "↕+ / ↕−", description: "Vertical zoom (toolbar)" },
+  { keys: "L", description: "Toggle loop playback" },
   { keys: "?", description: "Show this overlay" },
 ];
 
