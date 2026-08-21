@@ -135,6 +135,22 @@ jobs:
         # that calls `clear_cache()`.
         run: cargo test --workspace --no-fail-fast -- --test-threads=1
 
+      # The frontend test suite was not run by CI at all.
+      #
+      # `cargo test` covers the Rust side and `pnpm build` proves the
+      # TypeScript compiles, so a green tick meant "it builds" while
+      # reading as "it passes". Every frontend guard in the repo — the
+      # command palette's coverage tests, the motion vocabulary, the
+      # shortcuts-are-real check, 388 assertions in all — ran only on
+      # whichever machine the author happened to use, and a PR that
+      # broke every one of them merged green.
+      #
+      # Placed before the build because a failing test is a more useful
+      # first failure than a failing bundle: it names the behaviour that
+      # broke rather than the step that noticed.
+      - name: pnpm test (frontend)
+        run: pnpm --filter @edytlab/desktop test
+
       - name: pnpm build (frontend)
         run: pnpm --filter @edytlab/desktop build
 
