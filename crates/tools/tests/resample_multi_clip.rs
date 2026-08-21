@@ -119,3 +119,103 @@ fn resample_covers_every_clip_of_a_split_track() {
         "the clip length must match the file it points at"
     );
 }
+
+/// Resampling must move the session's declared rate with it.
+///
+/// The WAV was written at the new rate and the clip's frame count was
+/// recomputed for it, but `SessionState::sample_rate` kept the old
+/// value. Everything that converts between seconds and samples reads
+/// that field — `cut_range`, `select_region`, `duck_under_speech`, the
+/// annotation shifts, `split_by_speaker` — so after 8k -> 4k every one
+/// of them addressed the wrong sample, on a session that looked fine.
+///
+/// Asserted as "a second of audio is still a second": the check that
+/// actually matters to a user, and the one a stale rate breaks.
+#[test]
+fn resampling_updates_the_sessions_sample_rate() {
+    let tmp = TempDir::new().expect("tempdir");
+    let mut store = session::Store::open(tmp.path()).expect("open store");
+    let mut engine = audio_engine::Engine::new();
+    let dispatcher = ToolDispatcher::default_dispatcher();
+    let src = write_tone_wav(tmp.path());
+
+    let mut clipboard: Option<Vec<f32>> = None;
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+        user_message: "",
+        clipboard: &mut clipboard,
+    };
+
+    ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+
+    let before = {
+        let head = ctx.store.head().expect("head");
+        ctx.store.get(head).expect("get head").state.sample_rate
+    };
+    assert_eq!(before, SAMPLE_RATE);
+
+    let target = SAMPLE_RATE / 2;
+    ok(dispatcher
+        .invoke(
+            "resample_track",
+            json!({ "track": 0, "target_sample_rate": target }),
+            &mut ctx,
+        )
+        .unwrap());
+
+    let head = ctx.store.head().expect("head");
+    let state = ctx.store.get(head).expect("get head").state;
+
+    assert_eq!(
+        state.sample_rate, target,
+        "the session still claims {before} Hz after resampling to {target} Hz"
+    );
+
+    // The audio is one second long before and after. With a stale rate
+    // the same clip reads as two seconds, which is the form the bug
+    // takes everywhere it is felt.
+    let frames = state.tracks[0].clips.iter().map(|c| c.length).sum::<u64>();
+    let seconds = frames as f64 / state.sample_rate as f64;
+    assert!(
+        (seconds - 1.0).abs() < 0.01,
+        "expected ~1.0s of audio, got {seconds:.3}s ({frames} frames at {} Hz)",
+        state.sample_rate
+    );
+}
+
+/// An edit that does not change the rate must leave it alone.
+///
+/// The obvious fix — always assign the rate the edit reports — is wrong
+/// for a session whose tracks are not all at one rate: every edit
+/// reports the rate of the track it touched, so a plain gain change on
+/// one track would rewrite the session's declared rate to that track's.
+#[test]
+fn a_non_resampling_edit_leaves_the_sample_rate_alone() {
+    let tmp = TempDir::new().expect("tempdir");
+    let mut store = session::Store::open(tmp.path()).expect("open store");
+    let mut engine = audio_engine::Engine::new();
+    let dispatcher = ToolDispatcher::default_dispatcher();
+    let src = write_tone_wav(tmp.path());
+
+    let mut clipboard: Option<Vec<f32>> = None;
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+        user_message: "",
+        clipboard: &mut clipboard,
+    };
+
+    ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+    ok(dispatcher
+        .invoke("gain", json!({ "track": 0, "db": -3.0 }), &mut ctx)
+        .unwrap());
+
+    let head = ctx.store.head().expect("head");
+    let state = ctx.store.get(head).expect("get head").state;
+    assert_eq!(state.sample_rate, SAMPLE_RATE);
+}
