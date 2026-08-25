@@ -23,11 +23,20 @@ import { describe, expect, it } from "vitest";
 
 import { SHORTCUTS } from "../components/ShortcutsOverlay";
 
-const app = readFileSync(join(process.cwd(), "src", "App.tsx"), "utf8");
+/**
+ * Where a window-level binding is allowed to live. App.tsx holds the
+ * handler; a predicate it delegates to counts just as much, because the
+ * point is that *some* real code compares the key — not which file.
+ */
+const BINDING_SOURCES = ["src/App.tsx", "src/lib/undoRedo.ts"];
 
-if (app.trim().length === 0) {
-  throw new Error("App.tsx read as empty — this guard would be vacuous");
-}
+const app = BINDING_SOURCES.map((rel) => {
+  const text = readFileSync(join(process.cwd(), rel), "utf8");
+  if (text.trim().length === 0) {
+    throw new Error(`${rel} read as empty — this guard would be vacuous`);
+  }
+  return text;
+}).join("\n");
 
 /**
  * The key a row is really about, as it would appear in a `e.key === …`
@@ -43,8 +52,9 @@ function keyToken(keys: string): string | null {
     "Shift+← →": "ArrowLeft",
     Escape: "Escape",
     "Ctrl+K": "k",
-    "Ctrl+Z": "z",
-    "Ctrl+Y / Ctrl+Shift+Z": "y",
+    "Ctrl/Cmd + Z": "z",
+    "Ctrl/Cmd + Shift + Z": "z",
+    "Ctrl/Cmd + Y": "y",
     "+ / =": "+",
     "-": "-",
     "0": "0",
@@ -71,8 +81,9 @@ describe("the shortcuts overlay does not promise keys that do nothing", () => {
     (keys) => {
       const token = keyToken(keys);
       if (token === null) return;
-      // Matches `e.key === "k"`, `e.key === "K"`, and the
-      // `(e.key === "l" || e.key === "L")` form.
+      // Matches `e.key === "k"`, `e.key === "K"`, the
+      // `(e.key === "l" || e.key === "L")` form, and the
+      // `e.key.toLowerCase() === "z"` form the chord predicates use.
       //
       // The token is escaped because several of these keys are regex
       // metacharacters — `?`, `+` and `-` all appear in the overlay,
@@ -80,7 +91,8 @@ describe("the shortcuts overlay does not promise keys that do nothing", () => {
       // than a failing one.
       const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&");
       const pattern = new RegExp(
-        `e\\.key\\s*===\\s*"(${esc(token)}|${esc(token.toUpperCase())})"`,
+        `e\\.key(?:\\.toLowerCase\\(\\))?\\s*===\\s*` +
+          `"(${esc(token)}|${esc(token.toUpperCase())})"`,
       );
       expect(
         pattern.test(app),

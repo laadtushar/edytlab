@@ -48,7 +48,12 @@ import {
   setTrackSoloed,
 } from "./lib/tauri-bridge";
 import { save } from "@tauri-apps/plugin-dialog";
-import { applyUndo, applyRedo } from "./lib/undoRedo";
+import {
+  applyUndo,
+  applyRedo,
+  isUndoChord,
+  isRedoChord,
+} from "./lib/undoRedo";
 import { mixIsStale } from "./lib/mixState";
 
 import { ABCompareBar } from "./components/ABCompareBar";
@@ -250,16 +255,12 @@ function App() {
       const tag = target?.tagName ?? "";
       const isTyping =
         tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable;
-      if (e.ctrlKey && !e.shiftKey && e.key === "z" && !isTyping) {
+      if (isUndoChord(e) && !isTyping) {
         e.preventDefault();
         handleUndo();
         return;
       }
-      if (
-        ((e.ctrlKey && e.key === "y") ||
-          (e.ctrlKey && e.shiftKey && e.key === "z")) &&
-        !isTyping
-      ) {
+      if (isRedoChord(e) && !isTyping) {
         e.preventDefault();
         handleRedo();
         return;
