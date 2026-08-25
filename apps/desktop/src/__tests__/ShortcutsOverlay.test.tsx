@@ -14,7 +14,7 @@ describe("ShortcutsOverlay", () => {
   it("renders shortcut list when open", () => {
     render(<ShortcutsOverlay open={true} onClose={() => {}} />);
     expect(screen.getByText("Space")).toBeInTheDocument();
-    expect(screen.getByText("Ctrl+Z")).toBeInTheDocument();
+    expect(screen.getByText("Ctrl/Cmd + Z")).toBeInTheDocument();
     expect(screen.getByText("?")).toBeInTheDocument();
   });
 
