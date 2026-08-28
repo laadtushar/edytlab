@@ -55,6 +55,7 @@ import {
   isRedoChord,
 } from "./lib/undoRedo";
 import { mixIsStale } from "./lib/mixState";
+import { startTake, stopTake } from "./lib/recording";
 
 import { ABCompareBar } from "./components/ABCompareBar";
 import { Chat } from "./components/Chat";
@@ -957,26 +958,41 @@ function App() {
     }
   }, [head, selection, exporting]);
 
+  // Recording was the only pair of handlers reporting to the console
+  // (#248). Every other one routes to the error banner, which is the
+  // app's single error surface — and a packaged desktop build has no
+  // console to read, so a failed Record was indistinguishable from a
+  // dead button.
+  //
+  // The outcome logic lives in `lib/recording.ts` so it can be tested;
+  // what stays here is the mapping onto state.
   const handleStartRecording = useCallback(async () => {
-    try {
-      await startRecording();
+    setRenderError(null);
+    const outcome = await startTake(startRecording);
+    if (outcome.kind === "recording") {
       setIsRecording(true);
-    } catch (e) {
-      console.error("start_recording failed:", e);
+    } else {
+      setRenderError(outcome.message);
     }
   }, []);
 
   const handleStopRecording = useCallback(async () => {
-    try {
-      const result = await stopRecording(
-        `recording_${Date.now()}.wav`
-      );
-      setIsRecording(false);
-      applyNewHead((await batchLoad([result.path])).last_node_id);
+    setRenderError(null);
+    const outcome = await stopTake(
+      () => stopRecording(`recording_${Date.now()}.wav`),
+      batchLoad,
+    );
+
+    // The button flips back whatever happened — the recorder has
+    // stopped either way. What changed is that a lost take no longer
+    // presents exactly like a successful stop.
+    setIsRecording(false);
+
+    if (outcome.kind === "loaded") {
+      applyNewHead(outcome.nodeId);
       void listTracks().then(setTracks);
-    } catch (e) {
-      console.error("stop_recording failed:", e);
-      setIsRecording(false);
+    } else {
+      setRenderError(outcome.message);
     }
   }, [applyNewHead]);
 
