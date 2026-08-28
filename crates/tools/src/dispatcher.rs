@@ -21,6 +21,20 @@ pub struct ToolContext<'a> {
     /// `paste_region`. Held behind a mutable reference so both tools
     /// can read/write without cloning large sample buffers.
     pub clipboard: &'a mut Option<Vec<f32>>,
+    /// Tools this turn is allowed to run, or `None` for unrestricted.
+    ///
+    /// This lives on the *context* rather than the dispatcher because
+    /// the context is what reaches a tool, and meta-tools are where the
+    /// restriction used to be lost: `batch_apply`, `apply_recipe` and
+    /// `rederive` each build a fresh `default_dispatcher()`, which never
+    /// saw the whitelist. The capabilities checkbox was consequently a
+    /// suggestion — unticking `render_final` still let the model reach
+    /// it by calling the enabled-by-default `batch_apply` (#238).
+    ///
+    /// It is a required field, deliberately. A future meta-tool that
+    /// builds its own sub-context cannot silently forget to carry the
+    /// policy forward: leaving it out is a compile error, not a hole.
+    pub allowed_tools: Option<&'a std::collections::HashSet<String>>,
 }
 
 /// A single tool exposed to the model.
@@ -319,6 +333,19 @@ impl ToolDispatcher {
     /// * [`DispatchError::SchemaValidation`] if `args` does not match
     ///   the tool's `input_schema`.
     pub fn invoke(&self, name: &str, args: Value, ctx: &mut ToolContext) -> Result<ToolResult> {
+        // Before the registry lookup, so a refused tool is refused
+        // whether or not it exists.
+        //
+        // The whitelist used to be applied only when trimming the
+        // schema list sent to the model, and never here — so a model
+        // that named a filtered-out tool anyway got it executed, and any
+        // nested dispatcher bypassed the restriction entirely (#238).
+        if let Some(allowed) = ctx.allowed_tools {
+            if !allowed.contains(name) {
+                return Err(DispatchError::NotPermitted(name.to_string()));
+            }
+        }
+
         let entry = self
             .tools
             .get(name)

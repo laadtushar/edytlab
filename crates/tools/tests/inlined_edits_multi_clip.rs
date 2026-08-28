@@ -76,6 +76,7 @@ fn cut_then_maybe_eq(apply_eq: bool) -> Vec<i16> {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     ok(dispatcher

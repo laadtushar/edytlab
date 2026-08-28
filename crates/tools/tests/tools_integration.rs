@@ -91,6 +91,7 @@ fn gain_plus_6dbish_doubles_samples_after_render() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     let load = ok(dispatcher
@@ -153,6 +154,7 @@ fn normalize_brings_peak_to_target_dbfs() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     ok(dispatcher
@@ -214,6 +216,7 @@ fn normalize_render_is_byte_deterministic() {
             engine: &mut engine,
             user_message: "",
             clipboard: &mut clipboard,
+            allowed_tools: None,
         };
 
         ok(dispatcher
@@ -263,6 +266,7 @@ fn cut_range_shortens_render_by_exact_duration() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     let load = ok(dispatcher
@@ -328,6 +332,7 @@ fn interior_cut_range_keeps_both_halves_in_the_render() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     let load = ok(dispatcher
@@ -388,6 +393,7 @@ fn each_mutating_tool_creates_one_child_node() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     let h0 = ctx.store.head();
@@ -433,6 +439,7 @@ fn unknown_track_index_returns_actionable_error() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     ok(dispatcher
@@ -458,6 +465,7 @@ fn out_of_range_samples_return_actionable_error() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     let load = ok(dispatcher
@@ -498,6 +506,7 @@ fn no_session_loaded_returns_clear_error() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     let msg = err(dispatcher
@@ -521,6 +530,7 @@ fn cross_tool_sequence_load_cut_normalize_render() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     let load = ok(dispatcher
@@ -607,6 +617,7 @@ fn gain_composition_is_additive_in_db() {
                 engine: &mut e1,
                 user_message: "",
                 clipboard: &mut clipboard,
+                allowed_tools: None,
             };
             ok(d1
                 .invoke("load", json!({ "path": src1.to_string_lossy() }), &mut ctx)
@@ -628,6 +639,7 @@ fn gain_composition_is_additive_in_db() {
                 engine: &mut e2,
                 user_message: "",
                 clipboard: &mut clipboard,
+                allowed_tools: None,
             };
             ok(d2
                 .invoke("load", json!({ "path": src2.to_string_lossy() }), &mut ctx)
@@ -666,6 +678,7 @@ fn render_preview_returns_path_without_creating_node() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     let load = ok(dispatcher
@@ -719,6 +732,7 @@ fn render_final_rejects_a_bitrate_on_a_lossless_format() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     let load = ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -880,6 +894,7 @@ fn separate_stems_returns_actionable_error_when_model_missing() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     // Default model (htdemucs_ft) → looks at DEMUCS_FT_MODEL_PATH.
@@ -919,6 +934,7 @@ fn separate_stems_rejects_unknown_model_via_schema() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     // Schema enforces the enum, so this fails dispatch-time validation
@@ -953,6 +969,7 @@ fn separate_stems_rejects_missing_input_file() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     let msg = err(dispatcher
@@ -993,6 +1010,7 @@ fn time_stretch_changes_the_duration() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     let load = ok(dispatcher
@@ -1041,6 +1059,7 @@ fn time_stretch_rejects_non_positive_factor() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -1074,6 +1093,7 @@ fn pitch_shift_keeps_the_duration() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     let load = ok(dispatcher
@@ -1103,6 +1123,7 @@ fn pitch_shift_rejects_out_of_range_semitones() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -1135,6 +1156,7 @@ fn align_to_beat_changes_the_audio() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -1210,6 +1232,7 @@ fn align_to_beat_rejects_a_non_monotonic_grid() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -1245,6 +1268,7 @@ fn align_to_beat_refuses_mismatched_grids() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -1286,6 +1310,7 @@ fn load_then_load_appends_track() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     let first = ok(dispatcher
@@ -1321,6 +1346,7 @@ fn add_track_creates_empty_track() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -1350,6 +1376,7 @@ fn add_track_without_session_returns_clear_error() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     let msg = err(dispatcher.invoke("add_track", json!({}), &mut ctx).unwrap());
     assert!(msg.contains("no session loaded"), "got: {msg}");
@@ -1368,6 +1395,7 @@ fn remove_track_drops_clips_and_shifts_indices() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     ok(dispatcher
         .invoke("load", json!({ "path": a.to_string_lossy() }), &mut ctx)
@@ -1406,6 +1434,7 @@ fn remove_track_rejects_out_of_range_index() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -1432,6 +1461,7 @@ fn set_track_gain_changes_render_amplitude() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -1513,6 +1543,7 @@ fn two_loads_then_render_produces_mixdown() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     ok(dispatcher
         .invoke("load", json!({ "path": a.to_string_lossy() }), &mut ctx)
@@ -1567,6 +1598,7 @@ fn fork_node_creates_sibling_at_existing_head() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     let load = ok(dispatcher
@@ -1612,6 +1644,7 @@ fn fork_node_defaults_to_head() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     let load = ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -1630,6 +1663,7 @@ fn fork_node_without_session_returns_error() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     let msg = err(dispatcher.invoke("fork_node", json!({}), &mut ctx).unwrap());
     assert!(msg.contains("no session loaded"), "got: {msg}");
@@ -1648,6 +1682,7 @@ fn apply_diff_with_three_branches_creates_three_nodes() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     let load = ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -1729,6 +1764,7 @@ fn apply_diff_rejects_unknown_parent() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     let bogus = "0".repeat(64);
     let msg = err(dispatcher
@@ -1758,6 +1794,7 @@ fn compare_nodes_returns_serialised_diff() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     let load = ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -1792,6 +1829,7 @@ fn revert_to_moves_head_back() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     let load = ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -1825,6 +1863,7 @@ fn name_node_overwrites_existing_label() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     let load = ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -1883,6 +1922,7 @@ fn render_final_writes_a_flac_that_decodes() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     let loaded = ok(dispatcher
@@ -1934,6 +1974,7 @@ fn render_final_advertises_only_formats_it_supports() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     let load = ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -1994,6 +2035,7 @@ fn an_agent_can_create_a_bus_and_route_a_track_to_it() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     ok(dispatcher
@@ -2067,6 +2109,7 @@ fn set_send_rejects_an_unknown_bus_and_says_what_exists() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -2109,6 +2152,7 @@ fn normalize_to_lufs(amp: f32, target: f32) -> (Value, PathBuf, TempDir) {
             engine: &mut engine,
             user_message: "",
             clipboard: &mut clipboard,
+            allowed_tools: None,
         };
         ok(dispatcher
             .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -2155,6 +2199,7 @@ fn normalize_with(args: Value) -> (std::result::Result<ToolResult, String>, Temp
             engine: &mut engine,
             user_message: "",
             clipboard: &mut clipboard,
+            allowed_tools: None,
         };
         ok(dispatcher
             .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -2321,6 +2366,7 @@ fn loudness_is_measured_across_a_split_track() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -2357,6 +2403,7 @@ fn normalize_loudness_rejects_absurd_targets() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -2415,6 +2462,7 @@ fn move_clip_moves_one_clip_and_leaves_the_others() {
             engine: &mut engine,
             user_message: "",
             clipboard: &mut clipboard,
+            allowed_tools: None,
         };
         two_clip_session(&dispatcher, &mut ctx, tmp.path());
     }
@@ -2432,6 +2480,7 @@ fn move_clip_moves_one_clip_and_leaves_the_others() {
             engine: &mut engine,
             user_message: "",
             clipboard: &mut clipboard,
+            allowed_tools: None,
         };
         ok(dispatcher
             .invoke(
@@ -2468,6 +2517,7 @@ fn moving_a_clip_later_extends_the_session_length() {
             engine: &mut engine,
             user_message: "",
             clipboard: &mut clipboard,
+            allowed_tools: None,
         };
         two_clip_session(&dispatcher, &mut ctx, tmp.path());
         ok(dispatcher
@@ -2503,6 +2553,7 @@ fn a_clip_dragged_before_its_neighbour_is_reordered() {
             engine: &mut engine,
             user_message: "",
             clipboard: &mut clipboard,
+            allowed_tools: None,
         };
         two_clip_session(&dispatcher, &mut ctx, tmp.path());
         // Push clip 0 past clip 1.
@@ -2533,6 +2584,7 @@ fn move_clip_rejects_a_negative_start_and_a_bad_index() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     two_clip_session(&dispatcher, &mut ctx, tmp.path());
 
@@ -2573,6 +2625,7 @@ fn remove_clip_drops_one_clip_and_keeps_the_rest() {
             engine: &mut engine,
             user_message: "",
             clipboard: &mut clipboard,
+            allowed_tools: None,
         };
         two_clip_session(&dispatcher, &mut ctx, tmp.path());
     }
@@ -2585,6 +2638,7 @@ fn remove_clip_drops_one_clip_and_keeps_the_rest() {
             engine: &mut engine,
             user_message: "",
             clipboard: &mut clipboard,
+            allowed_tools: None,
         };
         ok(dispatcher
             .invoke(
@@ -2612,6 +2666,7 @@ fn remove_clip_rejects_a_bad_index() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     two_clip_session(&dispatcher, &mut ctx, tmp.path());
     let msg = err(dispatcher
@@ -2649,6 +2704,7 @@ fn mp3_export_round_trips_within_tolerance() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     let load = ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -2742,6 +2798,7 @@ fn mp3_bitrate_argument_reaches_the_encoder() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     let load = ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -2786,6 +2843,7 @@ fn mp3_reports_the_default_bitrate_when_none_is_given() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     let load = ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)

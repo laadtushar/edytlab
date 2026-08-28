@@ -56,6 +56,7 @@ fn convert(source_channels: u16, tool: &str) -> (u16, usize) {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)

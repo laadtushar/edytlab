@@ -66,6 +66,7 @@ fn resample_covers_every_clip_of_a_split_track() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     ok(dispatcher
@@ -145,6 +146,7 @@ fn resampling_updates_the_sessions_sample_rate() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     ok(dispatcher
@@ -206,6 +208,7 @@ fn a_non_resampling_edit_leaves_the_sample_rate_alone() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     ok(dispatcher

@@ -69,6 +69,15 @@ pub enum DispatchError {
 
     #[error("malformed tool schema for {tool}: {reason}")]
     MalformedToolSchema { tool: String, reason: String },
+
+    /// The tool exists but this turn is not allowed to run it (#238).
+    ///
+    /// Distinct from [`DispatchError::Unknown`] on purpose: the agent
+    /// loop turns this into a tool error the model can read and adapt
+    /// to, and conflating it with "no such tool" would send the model
+    /// hunting for a spelling mistake instead.
+    #[error("tool `{0}` is not enabled for this turn")]
+    NotPermitted(String),
 }
 
 pub type Result<T> = std::result::Result<T, DispatchError>;

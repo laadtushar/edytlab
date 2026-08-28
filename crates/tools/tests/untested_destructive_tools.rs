@@ -106,6 +106,7 @@ fn run(steps: &[(&str, Value)]) -> Vec<i16> {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     let loaded = ok(dispatcher

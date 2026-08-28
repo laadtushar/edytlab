@@ -93,6 +93,7 @@ fn load_both(a: &Path, b: &Path, project: &Path) {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     for p in [a, b] {
         ok(dispatcher

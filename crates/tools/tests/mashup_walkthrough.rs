@@ -241,6 +241,7 @@ fn analyze_track_returns_sensible_bpm_and_key() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     // Run analyze_track on mashup_a.
@@ -341,6 +342,7 @@ fn time_stretch_and_pitch_shift_produce_output() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     // Load the source.
@@ -446,6 +448,7 @@ fn mashup_synthesis_and_render() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     // Load the three stems. Each `load` appends a track to the session.
@@ -570,6 +573,7 @@ fn separate_stems_returns_model_missing_gracefully() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     let msg = err(dispatcher

@@ -88,6 +88,7 @@ impl Session {
             engine: &mut self.engine,
             user_message: "",
             clipboard: &mut self.clipboard,
+            allowed_tools: None,
         };
         ok(self.dispatcher.invoke(tool, args, &mut ctx).unwrap())
     }
