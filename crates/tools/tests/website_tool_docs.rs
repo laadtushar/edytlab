@@ -274,22 +274,9 @@ fn no_page_quotes_a_stale_tool_count() {
         if rel.contains("changelog") {
             continue;
         }
-        for (i, _) in src.match_indices(" tools") {
-            // Walk back over the digits immediately before " tools".
-            let head = &src[..i];
-            let digits: String = head
-                .chars()
-                .rev()
-                .take_while(char::is_ascii_digit)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .collect();
-            if digits.is_empty() {
-                continue;
-            }
-            if digits != n.to_string() {
-                wrong.push(format!("{rel}: says \"{digits} tools\""));
+        for (count, phrase) in tool_counts_claimed(&src) {
+            if count != n.to_string() {
+                wrong.push(format!("{rel}: says \"{phrase}\""));
             }
         }
     }
@@ -300,6 +287,136 @@ fn no_page_quotes_a_stale_tool_count() {
          as marketing copy that is simply false:\n  {}",
         wrong.join("\n  ")
     );
+}
+
+/// Every "N … tools" claim in `src`, as `(count, phrase as written)`.
+///
+/// The count and the word are usually separated: "All 85 audio-editing
+/// tools", "all 85 agent-callable audio tools". This walked back over
+/// *immediately preceding* digits, so both of those — the meta and
+/// OpenGraph descriptions of `/docs/tools`, which are what search
+/// results and link previews render — sat two lines above a body that
+/// said 93 while every test reported green.
+///
+/// So it now steps back over whole words. The limit of three is what
+/// separates a description of the toolbox from a number that happens to
+/// share a sentence with it, and any non-word character ends the walk,
+/// which keeps a claim from reaching across a clause boundary into an
+/// unrelated figure.
+fn tool_counts_claimed(src: &str) -> Vec<(String, String)> {
+    /// A word is what a count can be separated from "tools" by:
+    /// `agent-callable`, `audio-editing`, `built_in`.
+    fn is_word(c: char) -> bool {
+        c.is_ascii_alphanumeric() || c == '-' || c == '_'
+    }
+
+    let chars: Vec<char> = src.chars().collect();
+    let mut found = Vec::new();
+
+    for (byte_i, _) in src.match_indices(" tools") {
+        // "tools" must end the word: "toolset" is not a count.
+        let after = byte_i + " tools".len();
+        if src[after..].chars().next().is_some_and(is_word) {
+            continue;
+        }
+        // `match_indices` gives byte offsets; the walk is over chars.
+        // Start just past the space the match began with, so the first
+        // step has a separator to consume like every other step.
+        let mut i = src[..byte_i].chars().count() + 1;
+
+        // Up to three intervening words, then give up.
+        let mut words: Vec<String> = Vec::new();
+        for _ in 0..4 {
+            // The separating whitespace. Its absence means the previous
+            // token ran straight into this one.
+            let before = i;
+            while i > 0 && chars[i - 1].is_whitespace() {
+                i -= 1;
+            }
+            if i == before {
+                break;
+            }
+            let end = i;
+            while i > 0 && is_word(chars[i - 1]) {
+                i -= 1;
+            }
+            if i == end {
+                // Punctuation, a quote, a `·` — not part of the claim.
+                break;
+            }
+            let token: String = chars[i..end].iter().collect();
+            if token.chars().all(|c| c.is_ascii_digit()) {
+                // A digit run after a dot is the tail of a version or a
+                // decimal (`v0.1.0`), not a count of anything.
+                if i > 0 && chars[i - 1] == '.' {
+                    break;
+                }
+                words.insert(0, token.clone());
+                found.push((token, format!("{} tools", words.join(" "))));
+                break;
+            }
+            if token.chars().any(|c| c.is_ascii_digit()) {
+                // `M26`, `x86_64` — not a count either.
+                break;
+            }
+            words.insert(0, token);
+        }
+    }
+
+    found
+}
+
+#[cfg(test)]
+mod count_claim_tests {
+    use super::tool_counts_claimed;
+
+    /// The two forms that shipped stale in the `/docs/tools` metadata.
+    #[test]
+    fn reads_a_count_separated_from_the_word_by_other_words() {
+        assert_eq!(
+            tool_counts_claimed("All 85 audio-editing tools available to the agent"),
+            [("85".to_string(), "85 audio-editing tools".to_string())]
+        );
+        assert_eq!(
+            tool_counts_claimed("Complete reference for all 85 agent-callable audio tools."),
+            [(
+                "85".to_string(),
+                "85 agent-callable audio tools".to_string()
+            )]
+        );
+    }
+
+    #[test]
+    fn still_reads_the_plain_form() {
+        assert_eq!(
+            tool_counts_claimed("93 tools the agent can reach"),
+            [("93".to_string(), "93 tools".to_string())]
+        );
+    }
+
+    /// A number in a neighbouring clause is not a claim about the
+    /// toolbox. Stopping at punctuation is what keeps this apart.
+    #[test]
+    fn does_not_reach_across_punctuation() {
+        assert!(tool_counts_claimed("// ── 3 · The tools run ──").is_empty());
+        assert!(tool_counts_claimed("Step 4. The tools then run").is_empty());
+    }
+
+    #[test]
+    fn ignores_versions_and_unrelated_prose() {
+        assert!(tool_counts_claimed("the v0.1.0 release tools").is_empty());
+        assert!(tool_counts_claimed("the tools the agent can call").is_empty());
+    }
+
+    /// Three words is the limit; past that a number is not describing
+    /// the noun any more.
+    #[test]
+    fn gives_up_after_three_intervening_words() {
+        assert!(
+            tool_counts_claimed("85 of the very many audio tools").is_empty(),
+            "walked too far back to still be reading one claim"
+        );
+    }
 }
 
 /// The stats strip shows the count as a bare figure rather than as

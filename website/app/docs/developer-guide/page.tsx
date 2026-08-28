@@ -94,7 +94,7 @@ pnpm tauri:dev             # start dev mode`}</code>
   cli/                Headless CLI for batch operations
 crates/
   ai/                 LLM providers, agent loop, keychain
-  tools/              28 audio-editing tools
+  tools/              93 audio-editing tools
   session/            Session DAG data model and store
   audio-decoder/      File decode (symphonia)
   audio-engine/       DSP graph and render
