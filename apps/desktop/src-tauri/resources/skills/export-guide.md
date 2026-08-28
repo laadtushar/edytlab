@@ -15,7 +15,7 @@ When the user wants to export or save audio:
 3. **Multiple tracks**: `export_multiple` with all desired track_indices
 
 Before export, recommend:
-- `normalize` target_db=-1.0 for consistent peak level
+- `normalize` target_dbfs=-1.0 for consistent peak level
 - `limiter` ceiling_db=-0.3 for true peak compliance
 
 Ask the user for their target platform to give specific loudness recommendations.
