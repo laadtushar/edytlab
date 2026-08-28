@@ -13,7 +13,7 @@
 //! drift.
 
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -898,14 +898,19 @@ fn default_true() -> bool {
 
 #[tauri::command]
 pub async fn read_skill(state: State<'_, AppState>, name: String) -> CmdResult<SkillContent> {
+    // Before any join (#266). `upsert_skill` and `delete_skill` have
+    // always validated; this one did not, and the asymmetry was the
+    // defect — `Path::join` with an *absolute* argument discards the
+    // base entirely, so `name = "/etc/hosts"` resolved to
+    // `/etc/hosts.md`, well outside the skills directory.
     let dir = skills_dir(&state)?;
-    let path = dir.join(format!("{name}.md"));
+    let path = skill_path(&dir, &name)?;
     if !path.exists() {
-        return Err(CommandError::InvalidPath(format!(
-            "skill `{name}` not found at {}",
-            path.display()
-        ))
-        .into());
+        // The name, not `path.display()`: echoing the resolved absolute
+        // path back across the IPC boundary told the caller where the
+        // skills directory lives, and confirmed the existence of
+        // whatever they aimed at.
+        return Err(CommandError::InvalidPath(format!("skill `{name}` not found")).into());
     }
     let raw = std::fs::read_to_string(&path).map_err(CommandError::from)?;
     let parsed = parse_skill_file(&raw)?;
@@ -934,12 +939,11 @@ pub async fn upsert_skill(
         ))
         .into());
     }
-    validate_skill_name(&name)?;
     validate_skill_content(&content)?;
 
     let dir = skills_dir(&state)?;
     std::fs::create_dir_all(&dir).map_err(CommandError::from)?;
-    let path = dir.join(format!("{name}.md"));
+    let path = skill_path(&dir, &name)?;
     let serialised = serialise_skill_file(&content);
 
     // Atomic write — tempfile in the same dir, then persist.
@@ -958,9 +962,8 @@ pub async fn upsert_skill(
 
 #[tauri::command]
 pub async fn delete_skill(state: State<'_, AppState>, name: String) -> CmdResult<()> {
-    validate_skill_name(&name)?;
     let dir = skills_dir(&state)?;
-    let path = dir.join(format!("{name}.md"));
+    let path = skill_path(&dir, &name)?;
     if path.exists() {
         std::fs::remove_file(&path).map_err(CommandError::from)?;
     }
@@ -1004,6 +1007,21 @@ fn validate_skill_name(name: &str) -> Result<(), CommandError> {
         ));
     }
     Ok(())
+}
+
+/// Resolve `<dir>/<name>.md`, refusing any name that is not a plain
+/// filename-safe identifier.
+///
+/// The validation and the join belong together (#266). Keeping them
+/// apart meant every call site had to remember the rule, and the two
+/// read commands did not: `read_skill` and `read_agent_profile` joined
+/// straight from the IPC parameter while their write and delete
+/// siblings validated. `Path::join` with an *absolute* argument
+/// discards the base entirely, so `"/etc/hosts"` resolved to
+/// `/etc/hosts.md` rather than to anything under `dir`.
+fn skill_path(dir: &Path, name: &str) -> Result<PathBuf, CommandError> {
+    validate_skill_name(name)?;
+    Ok(dir.join(format!("{name}.md")))
 }
 
 fn validate_skill_content(content: &SkillContent) -> Result<(), CommandError> {
@@ -2622,8 +2640,10 @@ pub async fn read_agent_profile(
     state: State<'_, AppState>,
     name: String,
 ) -> CmdResult<AgentProfileContent> {
+    // Same gap as `read_skill`, same fix (#266): the write and delete
+    // siblings validate, this one did not.
     let dir = agent_profiles_dir(&state)?;
-    let path = dir.join(format!("{name}.md"));
+    let path = agent_profile_path(&dir, &name)?;
     if !path.exists() {
         return Err(CommandError::InvalidPath(format!("profile `{name}` not found")).into());
     }
@@ -2651,11 +2671,9 @@ pub async fn upsert_agent_profile(
         ))
         .into());
     }
-    validate_agent_profile_name(&name)?;
-
     let dir = agent_profiles_dir(&state)?;
     std::fs::create_dir_all(&dir).map_err(CommandError::from)?;
-    let path = dir.join(format!("{name}.md"));
+    let path = agent_profile_path(&dir, &name)?;
     let serialised = serialise_agent_profile(&content);
     let mut tmp = tempfile::NamedTempFile::new_in(&dir).map_err(CommandError::from)?;
     std::io::Write::write_all(&mut tmp, serialised.as_bytes()).map_err(CommandError::from)?;
@@ -2677,9 +2695,8 @@ pub async fn upsert_agent_profile(
 
 #[tauri::command]
 pub async fn delete_agent_profile(state: State<'_, AppState>, name: String) -> CmdResult<()> {
-    validate_agent_profile_name(&name)?;
     let dir = agent_profiles_dir(&state)?;
-    let path = dir.join(format!("{name}.md"));
+    let path = agent_profile_path(&dir, &name)?;
     if path.exists() {
         std::fs::remove_file(&path).map_err(CommandError::from)?;
     }
@@ -2757,6 +2774,12 @@ fn validate_agent_profile_name(name: &str) -> Result<(), CommandError> {
         ));
     }
     Ok(())
+}
+
+/// [`skill_path`] for agent profiles — same invariant, same reason.
+fn agent_profile_path(dir: &Path, name: &str) -> Result<PathBuf, CommandError> {
+    validate_agent_profile_name(name)?;
+    Ok(dir.join(format!("{name}.md")))
 }
 
 fn serialise_agent_profile(c: &AgentProfileContent) -> String {
@@ -4524,6 +4547,74 @@ mod tests {
         assert!(
             key.is_none(),
             "must not fall back to the active provider's key"
+        );
+    }
+
+    // ---- Path traversal at the IPC boundary (#266) ----------------
+
+    /// The names `upsert_skill` and `delete_skill` always rejected, and
+    /// `read_skill` did not until #266.
+    ///
+    /// `/etc/hosts` is the one that matters most and is the least
+    /// obvious: `Path::join` with an absolute argument *discards the
+    /// base*, so this never resolved under the skills directory at all.
+    /// `..` traversal is the familiar case; both are refused by the
+    /// same character rule, since `/` and `\\` are not in the allowed
+    /// set.
+    #[test]
+    fn skill_path_refuses_names_that_escape_the_directory() {
+        let dir = tempdir().unwrap();
+        for name in [
+            "../x",
+            "../../Documents/notes",
+            "/etc/hosts",
+            "..\\x",
+            "a/b",
+            "",
+        ] {
+            assert!(
+                skill_path(dir.path(), name).is_err(),
+                "skill_path accepted `{name}`, which does not resolve \
+                 inside the skills directory"
+            );
+        }
+    }
+
+    #[test]
+    fn agent_profile_path_refuses_names_that_escape_the_directory() {
+        let dir = tempdir().unwrap();
+        for name in ["../x", "/etc/hosts", "a/b", ""] {
+            assert!(
+                agent_profile_path(dir.path(), name).is_err(),
+                "agent_profile_path accepted `{name}`"
+            );
+        }
+    }
+
+    /// The rejection has to be the *escape*, not the join — an ordinary
+    /// name must still resolve, and resolve inside the directory.
+    #[test]
+    fn a_valid_name_resolves_inside_the_directory() {
+        let dir = tempdir().unwrap();
+        let path = skill_path(dir.path(), "my-skill_2").expect("valid name");
+        assert_eq!(path, dir.path().join("my-skill_2.md"));
+        assert!(path.starts_with(dir.path()));
+
+        let profile = agent_profile_path(dir.path(), "editor").expect("valid name");
+        assert!(profile.starts_with(dir.path()));
+    }
+
+    /// Why the helper exists rather than a convention to call the
+    /// validator first: without it, the join silently leaves the base.
+    #[test]
+    fn an_unvalidated_join_would_leave_the_directory() {
+        let dir = tempdir().unwrap();
+        let unchecked = dir.path().join(format!("{}.md", "/etc/hosts"));
+        assert!(
+            !unchecked.starts_with(dir.path()),
+            "this test encodes the reason for skill_path; if an absolute \
+             join now stays under the base, the helper's rationale has \
+             changed"
         );
     }
 }
