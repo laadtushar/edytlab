@@ -373,9 +373,15 @@ mod tests {
 }
 ```
 
-**5. Document in the API reference.**
+**5. Regenerate the tools reference.**
 
-Update [tools-reference.md](./tools-reference.md) with the new tool's schema and usage examples.
+[tools-reference.md](./tools-reference.md) is generated from the registry — do not edit it by hand:
+
+```bash
+UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc
+```
+
+Commit the result. The name, description and parameter table all come from the schema your tool returns, so whatever you write there is what a contributor reads. CI fails if the committed file does not match.
 
 ---
 
@@ -452,10 +458,10 @@ Documentation lives in:
 - `docs/architecture.md` — technical design
 - `docs/development-guide.md` — dev setup and workflow
 - `docs/api-reference.md` — Tauri commands + TypeScript bridge
-- `docs/tools-reference.md` — all audio tools
+- `docs/tools-reference.md` — all audio tools (**generated**; regenerate rather than edit)
 - `docs/contributing.md` — this file
 
-**Update the docs in the same PR as the code.** A PR that adds a new tool without updating `tools-reference.md` is incomplete.
+**Update the docs in the same PR as the code.** A PR that adds a new tool without regenerating `tools-reference.md` is incomplete — and now fails CI rather than shipping a reference that quietly omits it.
 
 When adding a new Tauri command:
 1. Document it in `api-reference.md` with signature, description, error cases, example

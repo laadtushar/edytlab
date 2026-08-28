@@ -95,7 +95,7 @@ edytlab/
     ├── ml-whisper/               # Transcription via ONNX Whisper large-v3
     ├── session/                  # DAG data model, node store, fork/diff/compare
     ├── skills/                   # User skill library with trigger evaluation
-    └── tools/                    # ~28 deterministic audio-editing tools
+    └── tools/                    # ~93 deterministic audio-editing tools
 ```
 
 ### Dependency Graph (simplified)
@@ -375,7 +375,7 @@ pub struct ToolDispatcher {
 }
 
 impl ToolDispatcher {
-    pub fn new() -> Self  // Registers all 28 built-in tools
+    pub fn new() -> Self  // Registers all 93 built-in tools
     pub fn dispatch(&mut self, name: &str, input: Value, ctx: &mut ToolContext) -> ToolResult
     pub fn tool_definitions(&self) -> Vec<Value>  // Sent to LLM on every turn
     pub fn filter(&self, whitelist: &[String]) -> Self  // For agent profiles
