@@ -149,7 +149,7 @@ impl Tool for TruncateSilenceTool {
                     find_silent_regions(samples, sr, channels, thresh, min);
                 let result = apply_truncate_silence(samples.clone(), sr, channels, thresh, min);
                 *samples = result;
-                (sr, chans)
+                Ok((sr, chans))
             },
             move |state, _| {
                 // Labels and words follow the audio out (#231). Applied
