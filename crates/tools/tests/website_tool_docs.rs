@@ -72,11 +72,18 @@ fn text_sources(dir: &str, label: &str) -> Vec<(String, String)> {
                 Some("tsx" | "ts" | "md" | "mdx")
             ) {
                 if let Ok(text) = std::fs::read_to_string(&path) {
+                    // Forward slashes on every platform. Windows builds
+                    // these with `\`, and the exemptions below match on
+                    // `superpowers/plans` — so on Windows the dated
+                    // plan and spec records were scanned and the guard
+                    // failed on history it is meant to leave alone.
                     let rel = path
                         .strip_prefix(root)
                         .unwrap_or(&path)
-                        .to_string_lossy()
-                        .to_string();
+                        .components()
+                        .map(|c| c.as_os_str().to_string_lossy())
+                        .collect::<Vec<_>>()
+                        .join("/");
                     out.push((rel, text));
                 }
             }
@@ -127,6 +134,38 @@ fn repo_doc_sources() -> Vec<(String, String)> {
                 && !rel.ends_with("HANDOVER.md")
         })
         .collect()
+}
+
+/// The exemptions have to actually exempt.
+///
+/// They match on `superpowers/plans` and `specs/`, and the walker used
+/// to build its relative paths with the platform separator — so on
+/// Windows they read `docs/superpowers\plans\…`, matched nothing, and
+/// the guard failed on fifteen counts inside dated plan records it is
+/// meant to leave alone. It passed on Linux and macOS the whole time.
+#[test]
+fn the_historical_records_are_excluded_on_every_platform() {
+    let docs = repo_doc_sources();
+    assert!(!docs.is_empty(), "no docs were walked at all");
+
+    for (rel, _) in &docs {
+        assert!(
+            !rel.contains('\\'),
+            "{rel} is not slash-separated, so the exemptions below cannot match it"
+        );
+        assert!(
+            !rel.contains("superpowers/plans") && !rel.contains("specs/"),
+            "{rel} is a dated plan or spec record and should have been exempt"
+        );
+    }
+
+    // And the walk does reach them in the first place, or the filter
+    // above would be exempting nothing.
+    let all = text_sources("docs", "docs");
+    assert!(
+        all.iter().any(|(rel, _)| rel.contains("superpowers/plans")),
+        "the walker never found the plan records; the layout moved"
+    );
 }
 
 /// Every registered tool name, from the dispatcher itself.

@@ -35,6 +35,20 @@ fn doc_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/tools-reference.md")
 }
 
+/// The committed file, with line endings normalised.
+///
+/// Git checks the file out with CRLF on Windows, and the generator
+/// emits LF — so a byte comparison told a Windows contributor their
+/// perfectly current file was out of date, and regenerating it would
+/// not have helped. The document's content is what this test is about;
+/// which newline the working tree uses is not.
+fn read_doc() -> String {
+    let path = doc_path();
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("could not read {}: {e}", path.display()))
+        .replace("\r\n", "\n")
+}
+
 /// Every registered tool as `(name, description, input_schema)`,
 /// alphabetical.
 fn tools() -> Vec<(String, String, Value)> {
@@ -216,8 +230,7 @@ fn the_tools_reference_matches_the_registry() {
         return;
     }
 
-    let committed = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("could not read {}: {e}", path.display()));
+    let committed = read_doc();
 
     if committed == generated {
         return;
@@ -267,7 +280,7 @@ fn the_generator_actually_produces_a_reference() {
 /// renderer to have read the right field.
 #[test]
 fn every_documented_parameter_is_one_the_tool_accepts() {
-    let doc = std::fs::read_to_string(doc_path()).expect("read tools-reference.md");
+    let doc = read_doc();
 
     for (name, _, schema) in tools() {
         let Some(props) = schema.get("properties").and_then(Value::as_object) else {
