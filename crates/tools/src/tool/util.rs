@@ -526,6 +526,60 @@ where
     destructive_edit_then(ctx, track_idx, edit_fn, |_, _| Default::default(), label)
 }
 
+/// Fold every clip's automation into one curve for the collapsed clip
+/// (#240).
+///
+/// `destructive_edit_then` flattens a whole track into a single buffer
+/// and replaces the track with one clip. It used to carry over
+/// `first.volume_envelope` verbatim, which was wrong three ways at once:
+///
+/// * **Clips after the first lost their curves entirely.** Reachable
+///   without anyone touching automation by hand — `duck_under_speech`
+///   writes an envelope to *every* clip of a split track, so "duck the
+///   music, then run `limiter` on it" silently dropped the ducking on
+///   everything after the first clip.
+/// * **No rebase.** Envelope times are clip-relative, so a clip starting
+///   at 5 s kept points measured from its own start while the collapsed
+///   clip starts at 0 — the curve landed on the wrong material.
+/// * **No rescale.** An edit that changes the frame count (a speed
+///   change, a resample) left the points where they were, so a fade drawn
+///   across the whole clip afterwards covered half of it.
+///
+/// Offsetting by `start_in_track` converts each clip's points to the
+/// track timeline, which is the collapsed clip's own frame domain — that
+/// is the rebase and the merge in one step. Scaling by
+/// `new_len / old_len` then follows the edit's change in length.
+///
+/// Points are not deduplicated: two clips that both carry a point at the
+/// seam are two genuine automation points at the same instant, and the
+/// renderer interpolates between consecutive points regardless.
+pub(crate) fn merge_clip_envelopes(
+    clips: &[session::Clip],
+    old_len_frames: u64,
+    new_len_frames: u64,
+) -> Vec<EnvelopePoint> {
+    let scale = if old_len_frames == 0 || new_len_frames == old_len_frames {
+        1.0
+    } else {
+        new_len_frames as f64 / old_len_frames as f64
+    };
+
+    let mut points: Vec<EnvelopePoint> = clips
+        .iter()
+        .flat_map(|c| {
+            c.volume_envelope.iter().map(move |p| EnvelopePoint {
+                time_samples: ((p.time_samples + c.start_in_track) as f64 * scale).round() as u64,
+                gain_db: p.gain_db,
+            })
+        })
+        .collect();
+
+    // Merging two clips' curves interleaves their points, and the
+    // renderer walks them in order.
+    points.sort_by_key(|p| p.time_samples);
+    points
+}
+
 /// [`destructive_edit_resample`] with a hook that sees the whole state
 /// after the edited track has been rewritten and before the node is
 /// appended.
@@ -558,6 +612,9 @@ where
     }
 
     let clips = state.tracks[track_idx].clips.clone();
+    // Before the edit: the collapsed clip's envelope is rescaled by how
+    // much the edit changed the track's length.
+    let old_length_frames = timeline_end(&clips);
     let Some(first) = clips.first().cloned() else {
         return ToolResult::Error(format!("track {track_idx} has no clips; nothing to edit"));
     };
@@ -632,6 +689,10 @@ where
     // `start_in_track` was already 0 and the other fields are carried
     // over — and for a split track it is the join.
     let new_length_frames = (window.len() / stride_out) as u64;
+    // Every clip's automation, not just the first clip's — see
+    // `merge_clip_envelopes`. `old_length_frames` is measured before the
+    // edit so a length-changing edit rescales the curve with it.
+    let volume_envelope = merge_clip_envelopes(&clips, old_length_frames, new_length_frames);
     state.tracks[track_idx].clips = vec![session::Clip {
         source_path: cas_path,
         start_in_track: 0,
@@ -641,7 +702,7 @@ where
         time_stretch_factor: first.time_stretch_factor,
         pitch_shift_semitones: first.pitch_shift_semitones,
         beat_grid: first.beat_grid.clone(),
-        volume_envelope: first.volume_envelope.clone(),
+        volume_envelope,
     }];
 
     // Anything that has to see the whole state — sync-lock moving the
