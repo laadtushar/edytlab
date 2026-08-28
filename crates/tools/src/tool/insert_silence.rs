@@ -126,7 +126,7 @@ impl Tool for InsertSilenceTool {
             track,
             move |samples, sample_rate, chans| {
                 let _ = apply_insert_silence(samples, sample_rate, channels, at, duration);
-                (sample_rate, chans)
+                Ok((sample_rate, chans))
             },
             move |state, edited| {
                 // Labels move whether or not sync-lock is on: an insert
