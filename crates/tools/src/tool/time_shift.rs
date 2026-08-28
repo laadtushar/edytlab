@@ -12,6 +12,27 @@ pub(crate) fn apply_time_shift_signed(current: u64, delta: i64) -> u64 {
     (current as i64 + delta).max(0) as u64
 }
 
+/// The largest part of `delta` the whole track can move without any clip
+/// going negative (#245).
+///
+/// Clamping each clip independently was the defect: a track split at 12000
+/// frames shifted by -2s became `[0, 0]`, because both clips hit the floor
+/// separately. The spacing was gone for good — shifting forward again gave
+/// `[96000, 96000]`, not the original gap — and the now-overlapping clips
+/// *sum* on render rather than layering, so the audio was wrong too.
+///
+/// A shift moves the track, so the clamp belongs to the track: bound the
+/// delta by the earliest clip's start and apply that same delta to all of
+/// them. Relative spacing is then preserved by construction, and the shift
+/// stays invertible up to the clamp.
+pub(crate) fn clamp_track_delta(starts: impl IntoIterator<Item = u64>, delta: i64) -> i64 {
+    let Some(min_start) = starts.into_iter().min() else {
+        return delta;
+    };
+    // Only a backward shift can hit the floor.
+    delta.max(-(min_start as i64))
+}
+
 #[derive(Debug, Deserialize)]
 struct Args {
     track: usize,
@@ -51,8 +72,13 @@ impl Tool for TimeShiftTool {
             return Ok(ToolResult::Error(e));
         }
         let sr = state.sample_rate as f64;
-        let delta = (args.offset_sec * sr) as i64;
+        let requested = (args.offset_sec * sr) as i64;
         let track = &mut state.tracks[args.track];
+
+        // One delta for the whole track, not one clamp per clip.
+        let delta = clamp_track_delta(track.clips.iter().map(|c| c.start_in_track), requested);
+        let clamped = delta != requested;
+
         for clip in &mut track.clips {
             clip.start_in_track = apply_time_shift_signed(clip.start_in_track, delta);
         }
@@ -71,9 +97,25 @@ impl Tool for TimeShiftTool {
             Ok(id) => id,
             Err(e) => return Ok(ToolResult::Error(e)),
         };
-        Ok(ToolResult::Ok(
-            json!({ "node_id": new_id.to_hex(), "summary": format!("Shifted track {} by {:+.3}s", args.track, args.offset_sec) }),
-        ))
+        // A clamped shift is not the shift that was asked for, and
+        // silence about it is how a caller ends up believing the track
+        // moved further than it did.
+        let applied_sec = delta as f64 / sr;
+        Ok(ToolResult::Ok(json!({
+            "node_id": new_id.to_hex(),
+            "requested_sec": args.offset_sec,
+            "applied_sec": applied_sec,
+            "clamped": clamped,
+            "summary": if clamped {
+                format!(
+                    "Shifted track {} by {:+.3}s (clamped from {:+.3}s — the track \
+                     cannot move earlier than its start; relative spacing kept)",
+                    args.track, applied_sec, args.offset_sec
+                )
+            } else {
+                format!("Shifted track {} by {:+.3}s", args.track, args.offset_sec)
+            },
+        })))
     }
 }
 
