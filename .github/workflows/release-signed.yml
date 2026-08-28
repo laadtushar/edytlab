@@ -276,7 +276,23 @@ jobs:
       # dies in apt has published nothing, and the tag is already cut.
       - name: Install Linux build deps
         if: matrix.platform.runner == 'ubuntu-22.04'
-        timeout-minutes: 12
+        # Budget, and why it is this number: the retry below runs
+        # `install_deps` twice, and each attempt is `timeout 150` on
+        # update plus `timeout 300` on install, with a 10 s pause
+        # between — 2 x (150 + 300) + 10 = 910 s = 15.2 min. The cap has
+        # to clear that or the second attempt is killed part-way through
+        # `apt-get install`, which throws away the retry in exactly the
+        # tail case it was added for (#237).
+        #
+        # A timed-out `update` does not abort the attempt: GitHub runs
+        # steps under `bash -e`, and `errexit` is suspended inside a
+        # function on the left of `||`, so `install` still runs and one
+        # attempt really can reach 450 s.
+        #
+        # `apt_retry_budget.rs` checks this arithmetic, so changing
+        # either `timeout N` without changing the cap fails CI rather
+        # than waiting for a slow mirror to expose it.
+        timeout-minutes: 18
         run: |
           sudo sed -i 's|https\?://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' \
             /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null || true
