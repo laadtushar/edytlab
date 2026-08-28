@@ -328,7 +328,25 @@ impl AppState {
                 std::fs::write(&sidecar, n)?;
             }
             None => {
-                let _ = std::fs::remove_file(&sidecar);
+                // Every failure but "it was not there" (#268).
+                //
+                // `let _ =` returned `Ok(())` whatever happened, so a
+                // delete blocked by a read-only directory, a Windows
+                // read-only attribute or a handle held by antivirus
+                // reported success while the sidecar survived — and the
+                // sidecar is the *sole* persistence for this selection.
+                // The next launch read it back and silently re-applied
+                // the profile, restoring a tool whitelist and a pinned
+                // model/provider the user believed they had turned off.
+                //
+                // `NotFound` is genuinely fine: clearing a selection on
+                // a fresh install has nothing to delete, and an
+                // unconditional `?` would turn that into an error.
+                match std::fs::remove_file(&sidecar) {
+                    Ok(()) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => return Err(e),
+                }
             }
         }
         Ok(())
@@ -476,5 +494,89 @@ impl AppState {
 impl Default for AppState {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod active_profile_tests {
+    //! Clearing the active agent profile has to be honest about failing
+    //! (#268).
+    //!
+    //! The `.active` sidecar is the *sole* persistence for the
+    //! selection, and `install_agent_profile_library` reads it back at
+    //! startup. A clear that reported success while the file survived
+    //! therefore re-applied the profile on the next launch — restoring
+    //! a tool whitelist and a pinned model/provider the user believed
+    //! they had turned off.
+
+    use super::*;
+
+    #[test]
+    fn clearing_with_no_sidecar_succeeds() {
+        // The fresh-install case, and the reason this cannot simply be
+        // an unconditional `?`: there is nothing to delete.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let state = AppState::new();
+        state.install_agent_profile_library(dir.path().to_path_buf());
+
+        state
+            .set_active_agent_profile(None)
+            .expect("clearing with nothing to delete is not a failure");
+        assert_eq!(state.active_agent_profile(), None);
+    }
+
+    #[test]
+    fn clearing_removes_the_sidecar() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let state = AppState::new();
+        state.install_agent_profile_library(dir.path().to_path_buf());
+        std::fs::write(dir.path().join(".active"), "editor").expect("seed sidecar");
+
+        state.set_active_agent_profile(None).expect("clear");
+
+        assert!(
+            !dir.path().join(".active").exists(),
+            "the selection must not survive on disk, or the next launch \
+             re-applies it"
+        );
+    }
+
+    /// A delete that cannot succeed must be reported, not swallowed.
+    ///
+    /// The sidecar is a *directory* here rather than a read-only file:
+    /// `remove_file` refuses a directory on every platform, and unlike
+    /// a permission trick it still fails when the tests run as root —
+    /// which they do in this project's containers.
+    #[test]
+    fn a_failing_delete_is_reported_rather_than_reported_as_success() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let state = AppState::new();
+        state.install_agent_profile_library(dir.path().to_path_buf());
+        std::fs::create_dir(dir.path().join(".active")).expect("undeletable sidecar");
+
+        let err = state
+            .set_active_agent_profile(None)
+            .expect_err("a delete that did not happen must not report Ok");
+
+        assert_ne!(
+            err.kind(),
+            std::io::ErrorKind::NotFound,
+            "NotFound is the one kind that is genuinely fine; this is not it"
+        );
+    }
+
+    /// The in-memory selection still clears even when the disk write
+    /// fails — the running session behaves as the user asked, and only
+    /// the restart was ever wrong.
+    #[test]
+    fn the_in_memory_selection_clears_even_when_the_delete_fails() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let state = AppState::new();
+        state.install_agent_profile_library(dir.path().to_path_buf());
+        std::fs::create_dir(dir.path().join(".active")).expect("undeletable sidecar");
+
+        let _ = state.set_active_agent_profile(None);
+
+        assert_eq!(state.active_agent_profile(), None);
     }
 }
