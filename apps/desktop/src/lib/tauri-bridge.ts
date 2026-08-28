@@ -512,6 +512,14 @@ export interface ToolProgress {
   refused: number;
   done?: boolean;
   cancelled?: boolean;
+  /**
+   * `select_region` reports the region it matched on this same channel
+   * (`kind: "selection"`). It is not progress — see `ToolProgressBar`'s
+   * allow-list — and these are the fields that make it useful (#252).
+   */
+  start_sec?: number;
+  end_sec?: number;
+  matched?: string;
 }
 
 export const onToolProgress = (
