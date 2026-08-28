@@ -25,6 +25,7 @@ import {
   listModelsFor,
   setApiKeyFor,
   setActiveModel,
+  getActiveModel,
   setActiveProvider,
   getBaseUrlFor,
   defaultBaseUrlFor,
@@ -202,8 +203,36 @@ export function Settings({
     }
   }, [provider]);
 
+  // What the *agent* is configured with wins over what this browser
+  // profile remembers (#249).
+  //
+  // The dropdown used to read localStorage alone, and nothing ever
+  // consulted `get_active_model` — so the two could disagree with no
+  // way to notice. They disagreed on every restart, because the model
+  // lived only in memory on the Rust side.
+  //
+  // localStorage stays the immediate value so the control is never
+  // blank while the IPC is in flight, and remains the answer when the
+  // backend has no opinion yet (nothing chosen for this provider).
   useEffect(() => {
     setModel(readStoredModel(provider));
+
+    let cancelled = false;
+    void getActiveModel(provider)
+      .then((active) => {
+        if (cancelled || !active.trim()) return;
+        setModel(active);
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem(modelStorageKey(provider), active);
+        }
+      })
+      .catch(() => {
+        // Not worth an error banner: the stored value is still a
+        // reasonable thing to show, and saving will reconcile them.
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [provider]);
 
   useEffect(() => {
@@ -274,8 +303,15 @@ export function Settings({
       if (typeof window !== "undefined") {
         window.localStorage.setItem(modelStorageKey(provider), next);
       }
-      void setActiveModel(provider, next).catch(() => {
-        /* swallow */
+      // Reported, not swallowed (#249). This call is what actually
+      // points the agent at the model; localStorage above only decides
+      // what this dropdown draws. If it fails, the two disagree — the
+      // user reads their choice on screen while the agent runs
+      // something else — and that is exactly the state worth saying out
+      // loud.
+      setSaveError(null);
+      void setActiveModel(provider, next).catch((err) => {
+        setSaveError(`could not select ${next}: ${String(err)}`);
       });
     },
     [provider],

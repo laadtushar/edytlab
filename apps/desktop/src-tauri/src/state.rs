@@ -424,7 +424,12 @@ impl AppState {
             .cloned()
     }
 
-    /// Persist the model id chosen for `provider_id`.
+    /// Cache the model id chosen for `provider_id`.
+    ///
+    /// In-memory only — the durable copy lives in the keychain and is
+    /// written by `set_active_model` (#249). This said "persist" while
+    /// doing nothing of the sort, which is a large part of why the
+    /// choice quietly vanished on restart.
     pub fn set_model_for(&self, provider_id: String, model: String) {
         self.active_model_by_provider
             .lock()

@@ -27,6 +27,10 @@ const clearApiKeyMock = vi.fn();
 const setActiveProviderMock = vi.fn();
 const listModelsForMock = vi.fn();
 const setActiveModelMock = vi.fn();
+// Settings reconciles the dropdown against the backend on mount (#249).
+// Empty means "the backend has no opinion", so the stored value stands
+// and these tests see the behaviour they were written for.
+const getActiveModelMock = vi.fn();
 const getBaseUrlForMock = vi.fn();
 const defaultBaseUrlForMock = vi.fn();
 const setBaseUrlForMock = vi.fn();
@@ -43,6 +47,7 @@ vi.mock("../lib/tauri-bridge", () => ({
   setActiveProvider: (provider: string) => setActiveProviderMock(provider),
   setActiveModel: (provider: string, model: string) =>
     setActiveModelMock(provider, model),
+  getActiveModel: (provider: string) => getActiveModelMock(provider),
   listModelsFor: (provider: string, apiKey?: string) =>
     listModelsForMock(provider, apiKey),
   clearApiKey: () => clearApiKeyMock(),
@@ -63,6 +68,7 @@ describe("Settings", () => {
     clearApiKeyMock.mockReset().mockResolvedValue(undefined);
     setActiveProviderMock.mockReset().mockResolvedValue(undefined);
     setActiveModelMock.mockReset().mockResolvedValue(undefined);
+    getActiveModelMock.mockReset().mockResolvedValue("");
     listModelsForMock.mockReset().mockResolvedValue([]);
     getBaseUrlForMock.mockReset().mockResolvedValue(null);
     defaultBaseUrlForMock
@@ -253,6 +259,57 @@ describe("Settings", () => {
     );
     expect(window.localStorage.getItem("edytlab.model.anthropic")).toBe(
       "claude-haiku-4-5",
+    );
+  });
+
+  // ---- The dropdown reflects the agent, not just this browser (#249) ----
+  //
+  // The model lived only in memory on the Rust side and nothing
+  // re-pushed it at startup, so after a restart the agent ran the
+  // provider default while this control went on displaying the user's
+  // pick from localStorage. Nothing ever read `get_active_model` back,
+  // so the disagreement was invisible.
+
+  it("shows what the agent is configured with, not the stale stored value", async () => {
+    window.localStorage.setItem("edytlab.model.anthropic", "stale-pick");
+    getActiveModelMock.mockResolvedValue("claude-opus-5");
+
+    render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("settings-model-input")).toHaveValue(
+        "claude-opus-5",
+      ),
+    );
+    // And the stored value is reconciled, so the next mount agrees
+    // before the IPC even resolves.
+    expect(window.localStorage.getItem("edytlab.model.anthropic")).toBe(
+      "claude-opus-5",
+    );
+  });
+
+  it("keeps the stored value when the backend has no opinion yet", async () => {
+    window.localStorage.setItem("edytlab.model.anthropic", "my-pick");
+    getActiveModelMock.mockResolvedValue("");
+
+    render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
+
+    await waitFor(() => expect(getActiveModelMock).toHaveBeenCalled());
+    expect(screen.getByTestId("settings-model-input")).toHaveValue("my-pick");
+  });
+
+  /// A failed selection means the dropdown and the agent disagree —
+  /// the one state worth saying out loud. It used to be swallowed.
+  it("reports a failure to select the model instead of swallowing it", async () => {
+    const user = userEvent.setup();
+    setActiveModelMock.mockRejectedValue(new Error("keychain locked"));
+
+    render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
+    await user.clear(screen.getByTestId("settings-model-input"));
+    await user.type(screen.getByTestId("settings-model-input"), "x");
+
+    await waitFor(() =>
+      expect(screen.getByText(/keychain locked/i)).toBeInTheDocument(),
     );
   });
 });
