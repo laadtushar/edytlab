@@ -30,6 +30,17 @@ import {
 } from "react";
 
 import WaveSurfer from "wavesurfer.js";
+import Spectrogram from "wavesurfer.js/dist/plugins/spectrogram.esm.js";
+
+/**
+ * The drawn height of one lane, in CSS pixels.
+ *
+ * Shared by the waveform and the spectrogram so the two occupy exactly
+ * the same box — the playhead and the selection overlay are positioned
+ * against that box, and a spectrogram of a different height would slide
+ * them off the audio they point at.
+ */
+const LANE_HEIGHT = 72;
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { sendMessage as bridgeSendMessage } from "../lib/tauri-bridge";
 import type { Marker } from "../lib/tauri-bridge";
@@ -301,6 +312,8 @@ interface LaneProps {
   /** Pixels per second zoom level. 0 = auto-fit. */
   zoom?: number;
   loop?: boolean;
+  /** Draw a spectrogram in place of the waveform. */
+  spectrogramEnabled?: boolean;
 }
 
 function TrackLane({
@@ -332,8 +345,10 @@ function TrackLane({
   onRemoveTrack,
   zoom,
   loop,
+  spectrogramEnabled,
 }: LaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const spectrogramHostRef = useRef<HTMLDivElement>(null);
   const waveformWrapperRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WaveSurfer | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -367,7 +382,7 @@ function TrackLane({
        // every lane agrees with every other and with the ruler.
       cursorColor: "transparent",
       cursorWidth: 0,
-      height: 72,
+      height: LANE_HEIGHT,
       barWidth: 2,
       barGap: 1,
       barRadius: 1,
@@ -411,6 +426,42 @@ function TrackLane({
     const factor = verticalZoom && verticalZoom > 0 ? verticalZoom : 1;
     ws.setOptions({ barHeight: factor, normalize: factor <= 1 });
   }, [verticalZoom]);
+
+  /**
+   * Draw a spectrogram instead of the waveform while "Spec" is on.
+   *
+   * The toggle used to set state that nothing read: it coloured its own
+   * button and the lanes went on drawing the same waveform, while the
+   * changelog announced the feature as shipped (#254). The plugin half
+   * was never written — the commit that added the button touched no
+   * plugin at all.
+   *
+   * Registered per lane, into a host element of the lane's own height,
+   * rather than letting the plugin append its canvas below the
+   * waveform: the playhead and selection overlays are absolutely
+   * positioned against the waveform box, and a canvas that grew the
+   * lane would slide them off the audio they point at.
+   *
+   * Guarded on `duration` for the same reason `zoom()` is — the plugin
+   * reads decoded audio, and there is none before the first decode.
+   */
+  useEffect(() => {
+    const ws = wsRef.current;
+    const host = spectrogramHostRef.current;
+    if (!ws || !host || !spectrogramEnabled || duration === 0) return;
+
+    const plugin = ws.registerPlugin(
+      Spectrogram.create({
+        container: host,
+        height: LANE_HEIGHT,
+        // The lane is 72px of a much wider strip; axis labels would
+        // take more of it than the picture.
+        labels: false,
+        fftSamples: 512,
+      }),
+    );
+    return () => plugin.destroy();
+  }, [spectrogramEnabled, duration]);
 
   // Reload when audioPath changes.
   useEffect(() => {
@@ -759,7 +810,28 @@ function TrackLane({
         <div
           ref={containerRef}
           data-testid="timeline-lane-waveform"
-          style={{ height: "100%", width: "100%", pointerEvents: "none" }}
+          style={{
+            height: "100%",
+            width: "100%",
+            pointerEvents: "none",
+            // Hidden rather than unmounted: WaveSurfer owns this
+            // element, and tearing it out from under the instance
+            // would mean rebuilding the lane on every toggle.
+            visibility: spectrogramEnabled ? "hidden" : "visible",
+          }}
+        />
+        <div
+          ref={spectrogramHostRef}
+          data-testid="timeline-lane-spectrogram"
+          style={{
+            position: "absolute",
+            top: 10,
+            left: 12,
+            right: 12,
+            height: LANE_HEIGHT,
+            pointerEvents: "none",
+            display: spectrogramEnabled ? "block" : "none",
+          }}
         />
         {playhead !== null ? (
           <div
@@ -1469,6 +1541,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
           {laneStates.map((track, idx) => (
             <div key={track.name}>
               <TrackLane
+                spectrogramEnabled={spectrogramEnabled}
                 name={track.name}
                 audioPath={track.audioPath || null}
                 muted={track.muted}
