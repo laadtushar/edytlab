@@ -5,11 +5,11 @@ import { DocShell } from "@/components/docs/doc-shell";
 export const metadata: Metadata = {
   title: "Audio Tools Reference",
   description:
-    "All 85 audio-editing tools available to the edytlab AI agent — cut, normalize, stem separate, transcribe, render, and more.",
+    "All 93 audio-editing tools available to the edytlab AI agent — cut, normalize, stem separate, transcribe, render, and more.",
   alternates: { canonical: "/docs/tools" },
   openGraph: {
     title: "Audio Tools Reference — edytlab Docs",
-    description: "Complete reference for all 85 agent-callable audio tools.",
+    description: "Complete reference for all 93 agent-callable audio tools.",
     url: `${siteConfig.url}/docs/tools`,
   },
 };
