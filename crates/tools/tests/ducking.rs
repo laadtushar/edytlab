@@ -349,3 +349,132 @@ fn level_at(env: &[(f64, f32)], t: f64) -> f32 {
     }
     env[env.len() - 1].1
 }
+
+// =============================================================================
+// Automation survives the destructive edit that follows (#240)
+// =============================================================================
+//
+// `duck_under_speech` writing a curve to every clip is only half the
+// promise. `destructive_edit_then` flattens a track into one clip, and
+// it used to carry over `clips[0].volume_envelope` alone — so the very
+// next effect silently discarded the ducking on everything after the
+// first clip.
+//
+// That is the same "fine for the first half of the episode" failure the
+// test above exists to prevent, one step further along the workflow.
+
+/// Duck a split track, then run an ordinary effect over it.
+#[test]
+fn ducking_survives_a_later_destructive_edit_on_both_clips() {
+    let mut s = Session::new();
+    s.with_transcript(&two_passages());
+
+    ok(s.call(
+        "split_clip",
+        json!({ "track": 1, "clip_index": 0, "at_sec": 8.0 }),
+    ));
+    ok(s.call("duck_under_speech", json!({ "music_track": 1 })));
+
+    // What the second clip's curve looks like on the track timeline,
+    // before anything collapses it.
+    let before: Vec<u64> = {
+        let st = s.state();
+        st.tracks[1]
+            .clips
+            .iter()
+            .flat_map(|c| {
+                c.volume_envelope
+                    .iter()
+                    .map(move |p| p.time_samples + c.start_in_track)
+            })
+            .collect()
+    };
+    assert!(
+        before.len() > 2,
+        "the fixture should duck in both clips, got {} points",
+        before.len()
+    );
+    let last_before = *before.iter().max().expect("points");
+
+    // Any destructive effect. `limiter` does not change the length, so
+    // the curve must come through unscaled.
+    ok(s.call("limiter", json!({ "track": 1, "ceiling_db": -3.0 })));
+
+    let st = s.state();
+    assert_eq!(
+        st.tracks[1].clips.len(),
+        1,
+        "the track collapsed to one clip"
+    );
+    let after: Vec<u64> = st.tracks[1].clips[0]
+        .volume_envelope
+        .iter()
+        .map(|p| p.time_samples)
+        .collect();
+
+    assert_eq!(
+        after.len(),
+        before.len(),
+        "automation was lost: {} points before the limiter, {} after — the \
+         second clip's ducking is gone",
+        before.len(),
+        after.len()
+    );
+    assert_eq!(
+        after.iter().max().copied(),
+        Some(last_before),
+        "the surviving curve should keep its position on the timeline"
+    );
+    assert!(
+        after.windows(2).all(|w| w[0] <= w[1]),
+        "merged points must stay ordered for the renderer to interpolate"
+    );
+}
+
+/// A length-changing edit has to take the curve with it.
+///
+/// `time_stretch factor 0.5` doubles the duration, so a fade that ended
+/// at the end of the clip must still end at the end of the clip — not
+/// halfway through it.
+#[test]
+fn an_edit_that_changes_length_rescales_the_curve() {
+    let mut s = Session::new();
+    s.with_transcript(&two_passages());
+
+    let total = s.state().tracks[1].clips[0].length;
+    ok(s.call(
+        "set_clip_envelope",
+        json!({
+            "track_index": 1,
+            "clip_index": 0,
+            "points": [
+                { "time_sec": 0.0, "gain_db": 0.0 },
+                { "time_sec": total as f64 / SAMPLE_RATE as f64, "gain_db": -24.0 },
+            ],
+        }),
+    ));
+
+    ok(s.call(
+        "time_stretch",
+        json!({ "track": 1, "factor": 0.5, "preserve_formants": false }),
+    ));
+
+    let st = s.state();
+    let clip = &st.tracks[1].clips[0];
+    let last = clip
+        .volume_envelope
+        .last()
+        .expect("the fade should have survived");
+
+    // The fade ended at the end of the clip; it still must.
+    let fraction = last.time_samples as f64 / clip.length as f64;
+    assert!(
+        (fraction - 1.0).abs() < 0.02,
+        "the fade should still end at the end of the clip; it ends at \
+         {:.3} of the way through ({} of {} frames) — the curve was not \
+         rescaled with the edit",
+        fraction,
+        last.time_samples,
+        clip.length
+    );
+}
