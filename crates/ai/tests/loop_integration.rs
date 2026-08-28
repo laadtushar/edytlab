@@ -384,6 +384,12 @@ async fn agent_dispatches_normalize_and_emits_node_created() {
             ai::AgentEvent::PlanRejected => {
                 panic!("no plan was requested, so none can be rejected")
             }
+            // Same reasoning: nothing asked for a plan here, so nothing
+            // can report one as unavailable. Reaching this would mean
+            // the gate is being consulted on turns that never wanted it.
+            ai::AgentEvent::PlanUnavailable { reason } => {
+                panic!("no plan was requested, but one was reported unavailable: {reason}")
+            }
         }
     }
     assert!(saw_text && saw_tool_start && saw_node && saw_tool_end_ok && saw_done);

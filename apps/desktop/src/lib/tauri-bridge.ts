@@ -422,6 +422,22 @@ export const onPlan = (
     cb(e.payload.steps),
   );
 
+/**
+ * A plan was asked for and none arrived, so the turn ran **without** the
+ * approval gate (#267).
+ *
+ * Distinct from receiving no `onPlan` at all, which means no plan was
+ * requested for this turn. Without this the two are indistinguishable
+ * from the outside, and a user who turned Plan First on would watch the
+ * agent act while assuming the model had decided no plan was needed.
+ */
+export const onPlanUnavailable = (
+  cb: (reason: string) => void,
+): Promise<UnlistenFn> =>
+  listen<{ reason: string }>("agent://plan-unavailable", (e) =>
+    cb(e.payload.reason),
+  );
+
 // ---- Marker / selection IPC ----
 
 export interface MarkerAnnotation {

@@ -22,8 +22,9 @@ use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 use tools::Range;
 
 use crate::events::{
-    DonePayload, NodeCreatedPayload, PlanPayload, TextDeltaPayload, ToolCallEndPayload,
-    ToolCallPayload, DONE, NODE_CREATED, PLAN, PLAN_REJECTED, TEXT_DELTA, TOOL_CALL, TOOL_CALL_END,
+    DonePayload, NodeCreatedPayload, PlanPayload, PlanUnavailablePayload, TextDeltaPayload,
+    ToolCallEndPayload, ToolCallPayload, DONE, NODE_CREATED, PLAN, PLAN_REJECTED, PLAN_UNAVAILABLE,
+    TEXT_DELTA, TOOL_CALL, TOOL_CALL_END,
 };
 use crate::state::AppState;
 
@@ -1693,6 +1694,11 @@ fn emit_agent_event<R: tauri::Runtime>(app: &AppHandle<R>, event: ai::AgentEvent
         ai::AgentEvent::PlanRejected => {
             if let Err(e) = app.emit(PLAN_REJECTED, ()) {
                 tracing::warn!(error = %e, "failed to emit plan rejection");
+            }
+        }
+        ai::AgentEvent::PlanUnavailable { reason } => {
+            if let Err(e) = app.emit(PLAN_UNAVAILABLE, PlanUnavailablePayload { reason }) {
+                tracing::warn!(error = %e, "failed to emit plan-unavailable");
             }
         }
     }

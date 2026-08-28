@@ -34,6 +34,7 @@ import {
   onAgentDone,
   onNodeCreated,
   onPlan,
+  onPlanUnavailable,
   onTextDelta,
   onToolCall,
   onToolCallEnd,
@@ -100,7 +101,25 @@ export interface PlanEntry {
   steps: Array<{ step: number; tool: string; description: string }>;
 }
 
-export type LogEntry = MessageEntry | ToolEntry | NodeDividerEntry | PlanEntry;
+/**
+ * Something the user needs told that is not the agent talking.
+ *
+ * Currently only the skipped plan gate (#267): the turn goes ahead
+ * without the checkpoint, and the alternative to saying so is letting it
+ * look identical to the model deciding no plan was needed.
+ */
+export interface NoticeEntry {
+  kind: "notice";
+  id: string;
+  text: string;
+}
+
+export type LogEntry =
+  | MessageEntry
+  | ToolEntry
+  | NodeDividerEntry
+  | PlanEntry
+  | NoticeEntry;
 
 export interface UseAgentStreamResult {
   /** Ordered transcript of messages, tool badges, and node dividers. */
@@ -240,6 +259,7 @@ export function useAgentStream(): UseAgentStreamResult {
     let unlistenNode: (() => void) | null = null;
     let unlistenDone: (() => void) | null = null;
     let unlistenPlan: (() => void) | null = null;
+    let unlistenPlanUnavailable: (() => void) | null = null;
     let cancelled = false;
 
     const attach = (
@@ -352,6 +372,23 @@ export function useAgentStream(): UseAgentStreamResult {
       },
     );
 
+    attach(
+      onPlanUnavailable((reason) => {
+        setEntries((prev) => [
+          ...prev,
+          {
+            kind: "notice",
+            id: crypto.randomUUID(),
+            text: `Plan step skipped — ${reason}. The agent is continuing without showing you a plan first.`,
+          },
+        ]);
+        clearAwaiting();
+      }),
+      (fn) => {
+        unlistenPlanUnavailable = fn;
+      },
+    );
+
     return () => {
       cancelled = true;
       unlistenDelta?.();
@@ -360,6 +397,7 @@ export function useAgentStream(): UseAgentStreamResult {
       unlistenNode?.();
       unlistenDone?.();
       unlistenPlan?.();
+      unlistenPlanUnavailable?.();
     };
   }, [clearAwaiting]);
 
