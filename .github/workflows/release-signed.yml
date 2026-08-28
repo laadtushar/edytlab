@@ -249,9 +249,13 @@ jobs:
       - name: Cache cargo registry & target
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: |
-            .
-            apps/desktop/src-tauri
+          # One entry, and it is the repo root. `apps/desktop/src-tauri`
+          # is a workspace *member* with no `[workspace]` table of its
+          # own, so its build output goes to the root `target/` — there
+          # has never been an `apps/desktop/src-tauri/target` to cache,
+          # and listing it made the action look for a Cargo.lock that
+          # isn't there.
+          workspaces: "."
           # Per-OS key so the legs don't trample each other's target dir.
           key: release-signed-${{ matrix.platform.name }}
 
@@ -328,20 +332,46 @@ jobs:
           args: ${{ matrix.platform.args }}
 
       # ── Sign (Windows only) BEFORE anything is uploaded ──────────
+      #
+      # The artifacts are located from `steps.build.outputs.artifactPaths`,
+      # not by walking a directory. tauri-action already reports exactly
+      # what it produced, and the upload step below reads the same
+      # output — so signing and uploading cannot disagree about which
+      # files exist.
       - name: Sign .msi and NSIS .exe with signtool
         if: matrix.platform.runner == 'windows-latest'
         shell: pwsh
         env:
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          ARTIFACT_PATHS: ${{ steps.build.outputs.artifactPaths }}
         run: |
-          $artifacts = @()
-          $artifacts += Get-ChildItem -Path apps/desktop/src-tauri/target `
-            -Recurse -Filter *.msi
-          $artifacts += Get-ChildItem -Path apps/desktop/src-tauri/target `
-            -Recurse -Filter *-setup.exe
-          if ($artifacts.Count -eq 0) {
-            Write-Error "No .msi or NSIS -setup.exe produced by tauri-action"
+          if ([string]::IsNullOrWhiteSpace($env:ARTIFACT_PATHS)) {
+            Write-Error "tauri-action reported no artifactPaths"
             exit 1
+          }
+          # A JSON array today. Accept a newline-separated list too, so a
+          # change in tauri-action surfaces as a normal failure rather
+          # than an empty signing run that still reports success.
+          try {
+            $paths = @($env:ARTIFACT_PATHS | ConvertFrom-Json)
+          } catch {
+            Write-Warning "artifactPaths was not JSON; falling back to line splitting"
+            $paths = @($env:ARTIFACT_PATHS -split "`n" |
+                       Where-Object { $_.Trim() -ne '' } |
+                       ForEach-Object { $_.Trim() })
+          }
+          $artifacts = @($paths | Where-Object {
+            $_ -match '\.msi$' -or $_ -match '-setup\.exe$'
+          })
+          if ($artifacts.Count -eq 0) {
+            Write-Error "No .msi or NSIS -setup.exe among artifactPaths: $($paths -join ', ')"
+            exit 1
+          }
+          foreach ($p in $artifacts) {
+            if (-not (Test-Path -LiteralPath $p -PathType Leaf)) {
+              Write-Error "artifactPaths named $p, which is not a file"
+              exit 1
+            }
           }
           # Resolve signtool: prefer PATH, fall back to scanning the SDK
           # dir. Hard-coding the path breaks when the runner image moves it.
@@ -358,22 +388,22 @@ jobs:
             Write-Error "signtool.exe not found on PATH or under Windows Kits"
             exit 1
           }
-          foreach ($a in $artifacts) {
-            Write-Host "Signing $($a.FullName)"
+          foreach ($p in $artifacts) {
+            Write-Host "Signing $p"
             & $signtool sign `
               /fd SHA256 `
               /tr http://timestamp.digicert.com `
               /td SHA256 `
               /f $env:CERT_PATH `
               /p $env:WINDOWS_CERTIFICATE_PASSWORD `
-              $a.FullName
+              $p
             if ($LASTEXITCODE -ne 0) {
-              Write-Error "signtool sign failed for $($a.FullName)"
+              Write-Error "signtool sign failed for $p"
               exit 1
             }
-            & $signtool verify /pa /v $a.FullName
+            & $signtool verify /pa /v $p
             if ($LASTEXITCODE -ne 0) {
-              Write-Error "signtool verify failed for $($a.FullName)"
+              Write-Error "signtool verify failed for $p"
               exit 1
             }
           }
@@ -381,11 +411,28 @@ jobs:
       # ── Verify (macOS) ──────────────────────────────────────────
       - name: Verify Gatekeeper acceptance and notarization staple
         if: matrix.platform.runner == 'macos-14'
+        env:
+          ARTIFACT_PATHS: ${{ steps.build.outputs.artifactPaths }}
         run: |
           set -euo pipefail
-          DMG=$(find apps/desktop/src-tauri/target -name "*.dmg" | head -1)
+          # Same source of truth as the signing and upload steps: what
+          # tauri-action says it built, rather than a directory walk.
+          if [ -z "${ARTIFACT_PATHS}" ]; then
+            echo "::error::tauri-action reported no artifactPaths"
+            exit 1
+          fi
+          if printf '%s' "$ARTIFACT_PATHS" | jq -e 'type == "array"' >/dev/null 2>&1; then
+            mapfile -t paths < <(printf '%s' "$ARTIFACT_PATHS" | jq -r '.[]')
+          else
+            echo "::warning::artifactPaths was not a JSON array; falling back to line splitting"
+            mapfile -t paths < <(printf '%s\n' "$ARTIFACT_PATHS" | sed '/^[[:space:]]*$/d')
+          fi
+          # `|| true`: under `pipefail` a grep that matches nothing would
+          # abort the step before the explicit check below could name
+          # what was missing.
+          DMG=$(printf '%s\n' "${paths[@]}" | grep -i '\.dmg$' | head -1 || true)
           if [ -z "$DMG" ]; then
-            echo "::error::No .dmg produced by tauri-action"
+            echo "::error::No .dmg among artifactPaths: ${paths[*]}"
             exit 1
           fi
           echo "Verifying $DMG"
@@ -399,9 +446,9 @@ jobs:
           # fails for any user who is offline on first launch. Stapling
           # is the thing that makes it work without a network round trip,
           # so verify it explicitly.
-          APP=$(find apps/desktop/src-tauri/target -name "*.app" -maxdepth 6 | head -1)
+          APP=$(printf '%s\n' "${paths[@]}" | grep -i '\.app$' | head -1 || true)
           if [ -z "$APP" ]; then
-            echo "::error::No .app produced by tauri-action"
+            echo "::error::No .app among artifactPaths: ${paths[*]}"
             exit 1
           fi
           echo "Validating notarization staple on $APP"
