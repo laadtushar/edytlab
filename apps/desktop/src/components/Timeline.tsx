@@ -860,6 +860,16 @@ function pxToSeconds(px: number, totalPx: number, durationSec: number): number {
   return clamp((px / totalPx) * durationSec, 0, durationSec);
 }
 
+/**
+ * WaveSurfer 7 rejects a load that a newer one superseded. On a rapid
+ * A/B toggle that is expected, so it must not reach the user as an
+ * error (#246).
+ */
+function isAbort(err: unknown): boolean {
+  if (err instanceof DOMException) return err.name === "AbortError";
+  return /abort/i.test(String(err));
+}
+
 function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
 }
@@ -929,6 +939,23 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
     const [transportSec, setTransportSec] = useState(0);
 
     /**
+     * A failure from the one thing that makes sound (#246).
+     *
+     * The lanes each surface their own load error; the mix player —
+     * which is the transport, and the only audible source — swallowed
+     * its rejection with a blanket `.catch`. When the mix WAV failed to
+     * load, the lanes kept drawing normally and the only signal the
+     * user got was that the app had gone mute.
+     */
+    const [mixError, setMixError] = useState<string | null>(null);
+
+    const reportPlayFailure = useCallback((result: unknown) => {
+      void Promise.resolve(result).catch((err: unknown) =>
+        setMixError(String(err)),
+      );
+    }, []);
+
+    /**
      * The one player. Hidden, because it has no waveform to show — the
      * lanes draw the picture and this makes the sound.
      */
@@ -986,12 +1013,49 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
     useEffect(() => {
       const ws = mixWsRef.current;
       if (!ws || !mixPath) return;
+
+      // Where we were, before the load takes it away (#246).
+      //
+      // WaveSurfer's `loadAudio()` pauses when playing, and `setSrc()`
+      // reassigns `media.src`, which zeroes `currentTime`. A/B compare
+      // swaps only the path, so every A→B click stopped playback and
+      // dropped the playhead to 0 — making it impossible to compare the
+      // same moment on both sides without manually re-seeking and
+      // re-pressing Space.
+      const resumeAt = ws.getCurrentTime();
+      const wasPlaying = ws.isPlaying();
+
+      setMixError(null);
+      let superseded = false;
+
       try {
-        void ws.load(convertFileSrc(mixPath)).catch(() => undefined);
-      } catch {
-        // A path the webview cannot convert is not worth crashing the
-        // timeline over; the lanes still draw.
+        void ws
+          .load(convertFileSrc(mixPath))
+          .then(() => {
+            if (superseded) return;
+            const duration = ws.getDuration() || 0;
+            if (resumeAt > 0 && duration > 0) {
+              ws.setTime(Math.min(resumeAt, duration));
+            }
+            if (wasPlaying) void ws.play().catch(() => undefined);
+          })
+          .catch((err: unknown) => {
+            // A rapid A/B toggle aborts the previous load. That is the
+            // system working, not a failure to report — and it is the
+            // likely reason the blanket `.catch` was written in the
+            // first place.
+            if (superseded || isAbort(err)) return;
+            setMixError(`Could not load the mix: ${String(err)}`);
+          });
+      } catch (err) {
+        // A path the webview cannot convert. The lanes still draw, so
+        // without this the app would simply be mute.
+        setMixError(`Could not load the mix: ${String(err)}`);
       }
+
+      return () => {
+        superseded = true;
+      };
     }, [mixPath]);
     const playheadSec = playheadSecProp ?? transportSec;
 
@@ -1144,9 +1208,18 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
           const ws = mixWsRef.current;
           if (!ws) return;
           if (ws.isPlaying()) ws.pause();
-          else void ws.play();
+          // A rejected `play()` is how "nothing is decoded" reaches the
+          // caller, and it was discarded — so pressing Space on a mix
+          // that never loaded did nothing and said nothing (#246).
+          //
+          // Wrapped in `Promise.resolve` rather than chaining directly:
+          // WaveSurfer types this as returning a promise, but a media
+          // element's `play()` can return undefined on older engines,
+          // and the transport must not throw on the way to reporting an
+          // error.
+          else reportPlayFailure(ws.play());
         },
-        play: () => void mixWsRef.current?.play(),
+        play: () => reportPlayFailure(mixWsRef.current?.play()),
         pause: () => mixWsRef.current?.pause(),
         seekTo: (sec: number) => {
           const ws = mixWsRef.current;
@@ -1184,6 +1257,23 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
           overflowY: "auto",
         }}
       >
+        {mixError ? (
+          <div
+            data-testid="timeline-mix-error"
+            role="alert"
+            style={{
+              margin: "8px 16px 0",
+              background: "rgba(239,111,114,0.12)",
+              border: "1px solid rgba(239,111,114,0.4)",
+              borderRadius: 6,
+              padding: "6px 10px",
+              fontSize: 11,
+              color: "var(--danger)",
+            }}
+          >
+            {mixError}
+          </div>
+        ) : null}
         <div
           style={{
             display: "flex",
