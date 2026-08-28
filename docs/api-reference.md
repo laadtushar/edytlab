@@ -1,7 +1,11 @@
 # edytlab — API Reference
 
-> Complete reference for all Tauri IPC commands and the TypeScript bridge.
-> Commands are invoked from the frontend via `tauri-bridge.ts`.
+> Every function `tauri-bridge.ts` exports, which is the whole IPC surface the
+> frontend can reach. Commands are invoked from the frontend via that module —
+> nothing calls `invoke` directly.
+>
+> `apiReferenceCoverage.test.ts` fails if an export here has no entry, so this
+> page cannot quietly fall behind the bridge again.
 
 ---
 
@@ -38,7 +42,12 @@ unlisten();
 - [Rendering and A/B Compare](#rendering-and-ab-compare)
 - [Agent Conversation](#agent-conversation)
 - [Selection and Markers](#selection-and-markers)
+- [Transcript](#transcript)
 - [Tracks](#tracks)
+- [Clips](#clips)
+- [Recording](#recording)
+- [Templates](#templates)
+- [Plugins](#plugins)
 - [Capabilities](#capabilities)
 - [Skills (CRUD)](#skills-crud)
 - [Agent Profiles (CRUD)](#agent-profiles-crud)
@@ -158,6 +167,43 @@ Removes the row. Does not touch the project.
 
 ---
 
+### `batchLoad(paths: string[]) → BatchLoadResult`
+
+Load several files in one call, each as its own track. One node for the whole
+batch, so it undoes as one action rather than as N.
+
+**Returns:**
+```typescript
+interface BatchLoadResult {
+  loaded: string[];      // Paths that became tracks
+  failed: string[];      // Paths that could not be decoded
+  last_node_id: string | null;
+}
+```
+
+A file that fails to decode does not fail the call — it lands in `failed` and
+the rest still load.
+
+---
+
+### `saveProjectAs(dest: string) → CopyReport`
+
+Copy the current project to `dest` and continue working in the copy.
+
+**Returns:**
+```typescript
+interface CopyReport {
+  files: number;
+  bytes: number;
+  dest: string;
+}
+```
+
+**Errors:** no session open; `dest` exists and is not empty; the copy fails
+part way (the report is not written and `dest` is left for inspection).
+
+---
+
 ## API Key Management
 
 ### `setApiKey(key: string) → void`
@@ -260,6 +306,27 @@ Switch the active provider. Rebuilds the agent with the new provider configurati
 ```typescript
 await bridge.setActiveProvider("openrouter");
 ```
+
+---
+
+### `getBaseUrlFor(provider: ProviderId) → string | null`
+
+The base URL this provider has been pointed at, or `null` when it is on its
+default.
+
+---
+
+### `defaultBaseUrlFor(provider: ProviderId) → string`
+
+The URL the provider ships with. Shown as the field's placeholder, so the user
+can see what "empty" means.
+
+---
+
+### `setBaseUrlFor(provider: ProviderId, baseUrl: string) → void`
+
+Point a provider somewhere else — a proxy, a gateway, a local server. **An
+empty string restores the default**, which is how the field is cleared.
 
 ---
 
@@ -441,6 +508,34 @@ In mashup mode, approve the agent's proposed plan to proceed with execution.
 
 ---
 
+### `rejectPlan() → void`
+
+Decline the plan the agent proposed. The turn ends; nothing is applied.
+
+Pairs with `approvePlan()`. One of the two must be called once `onPlan` has
+fired, or the turn stays suspended.
+
+---
+
+### `setPlanFirst(enabled: boolean) → void` · `getPlanFirst() → boolean`
+
+Ask for a plan before **every** turn, rather than only the ones the classifier
+calls mashups. Persisted, so it survives a restart.
+
+---
+
+### `cancelLongRunningTool() → void`
+
+Ask the running tool to stop. Cooperative: the tool checks between units of
+work — `batch_apply` between files, `timer_record` between polls — so a call
+lands at the next boundary rather than immediately, and a tool that does not
+check is unaffected.
+
+Resolves as soon as the request is recorded, not when the tool actually stops.
+Watch `onToolProgress` for that.
+
+---
+
 ## Selection and Markers
 
 ### `setSelectionContext(range?: { start_sec: number, end_sec: number }) → void`
@@ -489,6 +584,48 @@ interface Marker {
 
 ---
 
+### `updateMarker(id: string, patch: { name?, time?, start?, end? }) → NodeId`
+
+Edit an existing marker in place. Only the fields present in `patch` change.
+
+`time` moves a point marker; `start` and `end` move a region's bounds. Returns
+the new head.
+
+**Errors:** no marker with that id.
+
+---
+
+## Transcript
+
+### `getTranscript() → TranscriptWord[]`
+
+The transcript at the current head. Empty until `transcribe` has run.
+
+**Returns:**
+```typescript
+interface TranscriptWord {
+  text: string;
+  start_sec: number;
+  end_sec: number;
+  confidence: number;
+}
+```
+
+---
+
+### `cutTranscriptWords(track: number, fromWord: number, toWord: number) → NodeId`
+
+Cut the half-open word range `[fromWord, toWord)` **and the audio underneath
+it**, closing the gap. Returns the new head.
+
+Indices are into the array `getTranscript()` returned; re-read it afterwards,
+since the words after the cut renumber.
+
+**Errors:** track index out of range; no transcript at the head; the range is
+empty or runs past the end.
+
+---
+
 ## Tracks
 
 ### `listTracks() → TrackSummary[]`
@@ -505,6 +642,204 @@ interface TrackSummary {
   audio_path: string | null;  // Path to source audio (null if track is empty)
 }
 ```
+
+---
+
+### `renameTrack(track: number, name: string) → NodeId`
+
+Rename a track. Returns the new head.
+
+---
+
+### `removeTrack(track: number) → NodeId`
+
+Delete a track and everything on it. Returns the new head.
+
+Appends an ordinary session node, so it undoes like any other edit — which is
+why the UI does not confirm first.
+
+---
+
+### `duplicateTrack(track: number) → NodeId`
+
+Copy a track — clips, gain, pan, effects — as a new track at the end. Returns
+the new head.
+
+---
+
+### `setTrackGain(track: number, gainDb: number) → NodeId`
+
+Set a track's gain in dB. Absolute, not relative. Returns the new head.
+
+---
+
+### `setTrackPan(track: number, pan: number) → NodeId`
+
+Set a track's pan: `-1` hard left, `0` centre, `1` hard right. Returns the new
+head.
+
+---
+
+### `setTrackMuted(track: number, muted: boolean) → NodeId` · `setTrackSoloed(track: number, soloed: boolean) → NodeId`
+
+Mute or solo a track. Both return the new head.
+
+Solo is exclusive-by-effect rather than by state: soloing a track silences the
+others at render time without changing their `muted` flags, so un-soloing puts
+everything back as it was.
+
+---
+
+### `getSyncLock() → boolean` · `setSyncLock(enabled: boolean) → NodeId`
+
+Whether an edit that shifts time on one track shifts them all.
+
+Read separately from `listTracks()` because it belongs to the session, not to a
+track — the toggle has to show the right state the moment a project opens,
+rather than after the first edit. `setSyncLock` resolves to the new head, or to
+the unchanged one when the value did not change.
+
+---
+
+## Clips
+
+A track split by an interior cut is several clips. These address one clip at a
+time; the whole-track equivalents live under [Tracks](#tracks).
+
+### `moveClip(track: number, clip: number, startSec: number) → NodeId`
+
+Move one clip to a new start, in seconds from the top of the timeline. The
+other clips stay where they are — `time_shift` is the whole-track version.
+
+Clips are re-sorted by start afterwards, **so a clip dragged past its neighbour
+comes back at a different index**. Re-read `listTracks()` before addressing it
+again.
+
+---
+
+### `removeClip(track: number, clip: number) → NodeId`
+
+Remove one clip, leaving a silent gap where it was. The other clips do not
+move.
+
+---
+
+### `setClipEnvelope(track: number, clip: number, points: EnvelopePoint[]) → NodeId`
+
+Replace a clip's volume automation curve. An empty array clears it.
+
+```typescript
+interface EnvelopePoint {
+  time_samples: number;  // Relative to the clip's own start
+  gain_db: number;
+}
+```
+
+Points need not be sorted — the tool sorts them, so dragging one past its
+neighbour does not need the caller to reorder first.
+
+---
+
+## Recording
+
+### `startRecording() → string`
+
+Open the default input device and start capturing. Resolves to a status string.
+
+**Errors:** no input device; permission denied; the device is in use. All three
+are reachable and none of them are distinguishable from each other by the
+caller, so surface the message rather than a generic failure.
+
+---
+
+### `stopRecording(outputPath: string) → RecordingResult`
+
+Stop capturing and write the take to `outputPath`.
+
+**Returns:**
+```typescript
+interface RecordingResult {
+  path: string;
+  sample_rate: number;
+  channels: number;
+}
+```
+
+The WAV is written but **not** added to the session — call `loadFiles([path])`
+to import it. The two steps fail separately, and the distinction matters: a
+failed write means the take is gone, while a failed import means it is on disk
+at the path this returned.
+
+---
+
+### `timerRecord(outputPath: string, schedule: { startAfterSec?: number; durationSec?: number }) → { path?: string; cancelled: boolean }`
+
+Record on a timer: wait `startAfterSec`, capture for `durationSec`.
+
+Both fields are optional — omitting `startAfterSec` starts now, omitting
+`durationSec` records until stopped. `cancelled` is true when
+`cancelLongRunningTool()` ended it early, in which case `path` may be absent.
+
+Emits `tool-progress` events throughout; see `onToolProgress`.
+
+---
+
+## Templates
+
+### `listTemplates() → TemplateInfo[]`
+
+**Returns:**
+```typescript
+interface TemplateInfo {
+  name: string;
+  description: string;
+}
+```
+
+---
+
+### `applyTemplate(name: string) → NodeId`
+
+Apply a session template — a starting arrangement of tracks and settings.
+Returns the new head.
+
+**Errors:** no template by that name.
+
+---
+
+## Plugins
+
+### `installPlugin(source: string) → PluginInstallResult`
+
+Install a plugin from a path or a URL.
+
+**Returns:**
+```typescript
+interface PluginInstallResult {
+  name: string;
+  version: string;
+  skills_installed: number;
+  agents_installed: number;
+  /** Alias of `mcp_registered`, kept for older callers. */
+  mcp_keys: string[];
+  mcp_registered: string[];
+}
+```
+
+Any MCP servers a plugin declares are registered **disabled**, and stay that
+way until the user enables them.
+
+---
+
+### `installBundledSkills() → number`
+
+Copy the pre-installed skill `.md` files out of the Tauri resource bundle into
+`~/.edytlab/skills/` on first launch. Returns the number copied.
+
+Returns `0` — not an error — when the skills directory already holds `.md`
+files, so a user's edits are never overwritten, and when running in dev without
+the bundled-skills resource dir. Always safe to call, and non-fatal: the app
+calls it on startup and ignores the result.
 
 ---
 
@@ -712,6 +1047,37 @@ Emitted when a marker or region annotation is added or removed. Refresh the mark
 
 ---
 
+### `onToolProgress(cb: (p: ToolProgress) => void) → Promise<UnlistenFn>`
+
+Progress from a long-running tool.
+
+```typescript
+interface ToolProgress {
+  kind: string;        // "batch_apply", "timer_record", "selection", …
+  index?: number;      // Absent on the final event
+  total: number;
+  file?: string;
+  succeeded: number;
+  refused: number;
+  done?: boolean;
+  cancelled?: boolean;
+  // `select_region` reports its match on this same channel.
+  start_sec?: number;
+  end_sec?: number;
+  matched?: string;
+}
+```
+
+A tool call is a single round trip, so without this a twelve-file batch is an
+unexplained pause. `batch_apply` emits one event per file plus a final `done`.
+
+**Not everything on this channel is progress.** `select_region` reports the
+region it matched here too, with `kind: "selection"` — filter on `kind` against
+an allow-list rather than treating every event as something to show a progress
+bar for.
+
+---
+
 ## TypeScript Types
 
 Full type definitions are in `apps/desktop/src/lib/tauri-bridge.ts`.
@@ -851,4 +1217,6 @@ interface CapabilityDescriptor {
 
 ---
 
-*Last updated: 2026-05-17. Reflects edytlab v0.1.0-dev.*
+*Reflects edytlab v0.1.0-dev. Coverage of `tauri-bridge.ts` is enforced by
+`apps/desktop/src/__tests__/apiReferenceCoverage.test.ts` — a new export with no
+entry here fails CI.*
