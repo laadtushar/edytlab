@@ -75,6 +75,57 @@ impl Session {
     }
 
     /// The label lane as (name, start, end) in seconds.
+    /// Seed a transcript on the current head.
+    ///
+    /// The transcript is the second time-addressed record in the state
+    /// and the one no length-changing tool used to move (#231). Tests
+    /// that assert about it need one to exist first.
+    fn seed_transcript(&mut self, words: &[(&str, f32, f32)]) {
+        let mut state = {
+            let head = self.store.head().expect("head");
+            self.store.get(head).expect("node").state
+        };
+        state.transcript = Some(session::Transcript {
+            words: words
+                .iter()
+                .map(|(t, a, b)| session::TranscriptWord {
+                    text: (*t).into(),
+                    start_s: *a,
+                    end_s: *b,
+                    confidence: 0.9,
+                })
+                .collect(),
+        });
+        self.store
+            .append(session::SessionNode {
+                id: session::NodeId([0u8; 32]),
+                parent: None,
+                created_at: chrono::Utc::now(),
+                label: Some("transcript".into()),
+                reasoning: None,
+                state,
+                op: None,
+            })
+            .expect("append");
+    }
+
+    /// The transcript at the current head, as `(text, start, end)`.
+    fn words(&self) -> Vec<(String, f32, f32)> {
+        let head = self.store.head().expect("head");
+        self.store
+            .get(head)
+            .expect("node")
+            .state
+            .transcript
+            .map(|t| {
+                t.words
+                    .into_iter()
+                    .map(|w| (w.text, w.start_s, w.end_s))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     fn labels(&self) -> Vec<(String, f64, f64)> {
         let head = self.store.head().expect("head");
         let state = self.store.get(head).expect("node").state;
@@ -308,4 +359,190 @@ fn an_edit_with_no_labels_is_unaffected() {
     ));
     assert_eq!(v["dropped_labels"], json!(0));
     assert!(s.labels().is_empty());
+}
+
+// =============================================================================
+// The transcript follows the audio too (#231)
+// =============================================================================
+//
+// Labels got this treatment in #203. The transcript — the other
+// time-addressed record in the state — did not, and it is the more
+// dangerous of the two: `cut_words`, `select_region` and
+// `duck_under_speech` all turn a word's `start_s` back into a sample
+// offset and edit there. A transcript describing the timeline as it was
+// before an edit therefore makes the *next* text edit destroy audio
+// somewhere else, while reporting the word it meant to remove.
+
+/// The headline regression: a cut, then a word edit.
+///
+/// Before the fix, `cut_range` remapped the labels and left the words
+/// alone. `omega` still read 3.0–3.5s after two seconds had come out of
+/// the middle, so `cut_words` removed [3.0, 3.5) — audio a full second
+/// away from the word it named — and reported success with the summary
+/// "The remaining word timings were shifted to match."
+#[test]
+fn a_word_edit_after_a_cut_removes_the_audio_the_word_actually_occupies() {
+    let mut s = Session::new();
+    s.seed_transcript(&[("alpha", 0.0, 0.5), ("omega", 3.0, 3.5)]);
+
+    // Two seconds out of the middle: [1.0, 3.0).
+    ok(s.call(
+        "cut_range",
+        json!({
+            "track": 0,
+            "start_sample": SAMPLE_RATE as u64,
+            "end_sample": 3 * SAMPLE_RATE as u64,
+        }),
+    ));
+
+    // omega's audio is now at 1.0–1.5s, and the transcript must say so.
+    let words = s.words();
+    assert_eq!(words.len(), 2, "no word was inside the cut");
+    assert_eq!(words[1].0, "omega");
+    assert!(
+        (words[1].1 - 1.0).abs() < 1e-4,
+        "omega should have moved to 1.0s, reads {}",
+        words[1].1
+    );
+
+    // And the word edit that follows must cut where omega now lives.
+    let out = ok(s.call(
+        "cut_words",
+        json!({ "track": 0, "from_word": 1, "to_word": 2 }),
+    ));
+    assert_eq!(out["removed_text"], "omega");
+    assert!(
+        (out["start_sec"].as_f64().unwrap() - 1.0).abs() < 1e-4,
+        "cut_words removed [{}, {}) — the pre-cut position, not omega's",
+        out["start_sec"],
+        out["end_sec"],
+    );
+}
+
+#[test]
+fn a_cut_pulls_the_later_words_back_with_it() {
+    let mut s = Session::new();
+    s.seed_transcript(&[("before", 0.2, 0.8), ("after", 10.0, 10.5)]);
+    ok(s.call(
+        "cut_range",
+        json!({
+            "track": 0,
+            "start_sample": 2 * SAMPLE_RATE as u64,
+            "end_sample": 5 * SAMPLE_RATE as u64,
+        }),
+    ));
+    let words = s.words();
+    assert!(
+        (words[0].1 - 0.2).abs() < 1e-4,
+        "a word before the cut moved"
+    );
+    assert!(
+        (words[1].1 - 7.0).abs() < 1e-4,
+        "a word after a 3s cut should be 3s earlier, reads {}",
+        words[1].1
+    );
+}
+
+#[test]
+fn a_word_inside_the_cut_is_dropped() {
+    let mut s = Session::new();
+    s.seed_transcript(&[("keep", 0.0, 0.5), ("gone", 3.0, 3.5), ("keep2", 8.0, 8.5)]);
+    ok(s.call(
+        "cut_range",
+        json!({
+            "track": 0,
+            "start_sample": 2 * SAMPLE_RATE as u64,
+            "end_sample": 5 * SAMPLE_RATE as u64,
+        }),
+    ));
+    let texts: Vec<String> = s.words().into_iter().map(|w| w.0).collect();
+    assert_eq!(texts, vec!["keep", "keep2"]);
+}
+
+#[test]
+fn an_insert_pushes_the_later_words_along() {
+    let mut s = Session::new();
+    s.seed_transcript(&[("early", 0.5, 1.0), ("late", 6.0, 6.5)]);
+    ok(s.call(
+        "insert_silence",
+        json!({ "track": 0, "at": 3.0, "duration": 2.0 }),
+    ));
+    let words = s.words();
+    assert!(
+        (words[0].1 - 0.5).abs() < 1e-4,
+        "a word before the insert moved"
+    );
+    assert!(
+        (words[1].1 - 8.0).abs() < 1e-4,
+        "a word after a 2s insert should be 2s later, reads {}",
+        words[1].1
+    );
+}
+
+// -----------------------------------------------------------------------------
+// trim moved neither record
+// -----------------------------------------------------------------------------
+
+#[test]
+fn trim_rebases_labels_onto_the_kept_window() {
+    let mut s = Session::new();
+    s.mark("chapter two", 12.0);
+    ok(s.call(
+        "trim",
+        json!({
+            "track": 0,
+            "start_sample": 10 * SAMPLE_RATE as u64,
+            "end_sample": 20 * SAMPLE_RATE as u64,
+        }),
+    ));
+    // The window starts at 10s, so a mark at 12s is 2s into the result.
+    assert!(
+        (s.at("chapter two") - 2.0).abs() < 1e-4,
+        "expected 2.0 after trimming to [10, 20), got {}",
+        s.at("chapter two")
+    );
+}
+
+#[test]
+fn trim_drops_labels_outside_the_window_and_reports_them() {
+    let mut s = Session::new();
+    s.mark("kept", 12.0);
+    s.mark("before the window", 2.0);
+    s.mark("after the window", 25.0);
+    let out = ok(s.call(
+        "trim",
+        json!({
+            "track": 0,
+            "start_sample": 10 * SAMPLE_RATE as u64,
+            "end_sample": 20 * SAMPLE_RATE as u64,
+        }),
+    ));
+    let names: Vec<String> = s.labels().into_iter().map(|l| l.0).collect();
+    assert_eq!(names, vec!["kept".to_string()]);
+    assert_eq!(
+        out["dropped_labels"], 2,
+        "trim discarded two labels without saying so"
+    );
+}
+
+#[test]
+fn trim_rebases_the_transcript_onto_the_kept_window() {
+    let mut s = Session::new();
+    s.seed_transcript(&[("outside", 2.0, 2.5), ("inside", 12.0, 12.5)]);
+    ok(s.call(
+        "trim",
+        json!({
+            "track": 0,
+            "start_sample": 10 * SAMPLE_RATE as u64,
+            "end_sample": 20 * SAMPLE_RATE as u64,
+        }),
+    ));
+    let words = s.words();
+    assert_eq!(words.len(), 1, "the word outside the window survived");
+    assert_eq!(words[0].0, "inside");
+    assert!(
+        (words[0].1 - 2.0).abs() < 1e-4,
+        "expected 2.0 after trimming to [10, 20), got {}",
+        words[0].1
+    );
 }
