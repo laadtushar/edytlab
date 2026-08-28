@@ -29,6 +29,11 @@
 //! Both directions matter. A name here that no longer exists in the
 //! registry is as bad as a missing one: it promises a capability that
 //! was renamed or removed.
+//!
+//! The stale-count guard reaches past the website into `docs/` as well.
+//! It was website-only by construction — rooted at `../../website` —
+//! which is how the *marketing* copy came to be the accurate one while
+//! `docs/README.md` and `docs/architecture.md` said 28.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -42,11 +47,12 @@ fn read_website(relative: &str) -> String {
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
 }
 
-/// Every text file on the marketing site, as (relative path, contents).
+/// Walk a directory for authored text, as `(path relative to `label`,
+/// contents)`.
 ///
 /// Walked rather than listed: a claim on a page nobody thought to name
 /// is exactly the failure this file exists to prevent.
-fn website_sources() -> Vec<(String, String)> {
+fn text_sources(dir: &str, label: &str) -> Vec<(String, String)> {
     fn walk(dir: &std::path::Path, root: &std::path::Path, out: &mut Vec<(String, String)>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
             return;
@@ -66,27 +72,100 @@ fn website_sources() -> Vec<(String, String)> {
                 Some("tsx" | "ts" | "md" | "mdx")
             ) {
                 if let Ok(text) = std::fs::read_to_string(&path) {
+                    // Forward slashes on every platform. Windows builds
+                    // these with `\`, and the exemptions below match on
+                    // `superpowers/plans` — so on Windows the dated
+                    // plan and spec records were scanned and the guard
+                    // failed on history it is meant to leave alone.
                     let rel = path
                         .strip_prefix(root)
                         .unwrap_or(&path)
-                        .to_string_lossy()
-                        .to_string();
+                        .components()
+                        .map(|c| c.as_os_str().to_string_lossy())
+                        .collect::<Vec<_>>()
+                        .join("/");
                     out.push((rel, text));
                 }
             }
         }
     }
 
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../website");
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(dir);
     let mut out = Vec::new();
     walk(&root, &root, &mut out);
     assert!(
         !out.is_empty(),
-        "found no website sources under {} — the layout moved and these \
-         guards are now reading nothing",
+        "found no sources under {} — the layout moved and these guards are \
+         now reading nothing",
         root.display()
     );
-    out
+    out.into_iter()
+        .map(|(rel, text)| (format!("{label}/{rel}"), text))
+        .collect()
+}
+
+/// Every text file on the marketing site.
+fn website_sources() -> Vec<(String, String)> {
+    text_sources("website", "website")
+}
+
+/// Every authored doc in `docs/`.
+///
+/// The checked-in docs were outside every guard here — `website_sources`
+/// roots at `../../website`, so the site was covered by construction and
+/// the repo's own documentation was not. The result was that the
+/// *marketing* copy was the accurate one and `docs/` understated the
+/// toolbox by 4.5×, which is backwards.
+fn repo_doc_sources() -> Vec<(String, String)> {
+    text_sources("docs", "docs")
+        .into_iter()
+        // Dated plan and spec records describe what was intended at the
+        // time. Rewriting them to match today would be a different kind
+        // of lie, the same reason the changelog is exempt below.
+        // HANDOVER.md is the same case in a file of its own: its §4 is
+        // headed "Build phasing (recap)" and its §5 is a table of
+        // contents for the spec, so both of its counts describe
+        // documents rather than the product.
+        .filter(|(rel, _)| {
+            !rel.contains("superpowers/plans")
+                && !rel.contains("specs/")
+                && !rel.ends_with("HANDOVER.md")
+        })
+        .collect()
+}
+
+/// The exemptions have to actually exempt.
+///
+/// They match on `superpowers/plans` and `specs/`, and the walker used
+/// to build its relative paths with the platform separator — so on
+/// Windows they read `docs/superpowers\plans\…`, matched nothing, and
+/// the guard failed on fifteen counts inside dated plan records it is
+/// meant to leave alone. It passed on Linux and macOS the whole time.
+#[test]
+fn the_historical_records_are_excluded_on_every_platform() {
+    let docs = repo_doc_sources();
+    assert!(!docs.is_empty(), "no docs were walked at all");
+
+    for (rel, _) in &docs {
+        assert!(
+            !rel.contains('\\'),
+            "{rel} is not slash-separated, so the exemptions below cannot match it"
+        );
+        assert!(
+            !rel.contains("superpowers/plans") && !rel.contains("specs/"),
+            "{rel} is a dated plan or spec record and should have been exempt"
+        );
+    }
+
+    // And the walk does reach them in the first place, or the filter
+    // above would be exempting nothing.
+    let all = text_sources("docs", "docs");
+    assert!(
+        all.iter().any(|(rel, _)| rel.contains("superpowers/plans")),
+        "the walker never found the plan records; the layout moved"
+    );
 }
 
 /// Every registered tool name, from the dispatcher itself.
@@ -270,7 +349,7 @@ fn no_page_quotes_a_stale_tool_count() {
     let n = registered().len();
     let mut wrong: Vec<String> = Vec::new();
 
-    for (rel, src) in website_sources() {
+    for (rel, src) in website_sources().into_iter().chain(repo_doc_sources()) {
         if rel.contains("changelog") {
             continue;
         }
@@ -346,9 +425,13 @@ fn tool_counts_claimed(src: &str) -> Vec<(String, String)> {
             }
             let token: String = chars[i..end].iter().collect();
             if token.chars().all(|c| c.is_ascii_digit()) {
-                // A digit run after a dot is the tail of a version or a
-                // decimal (`v0.1.0`), not a count of anything.
-                if i > 0 && chars[i - 1] == '.' {
+                // A count is written after a space, a bracket or a
+                // quote. A digit run glued to anything else is part of
+                // something larger: `v0.1.0`, `SOME_VAR=1`, `tools/93`.
+                let starts_a_word = i == 0
+                    || chars[i - 1].is_whitespace()
+                    || matches!(chars[i - 1], '(' | '[' | '"' | '\'' | '“' | '~');
+                if !starts_a_word {
                     break;
                 }
                 words.insert(0, token.clone());
