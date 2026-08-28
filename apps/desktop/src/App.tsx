@@ -1029,7 +1029,13 @@ function App() {
 
   const handleCloseShortcuts = useCallback(() => setShowShortcuts(false), []);
 
-  const showBlocking = keyConfigured === false;
+  // Not while the panel is open (#250). `keyConfigured` now updates on a
+  // provider switch, and without this guard flipping it false would
+  // replace the panel the user is standing in — losing their tab and
+  // anything typed — with the blocking prompt. They are already in the
+  // right place; the panel says what happened. The prompt appears when
+  // they close it and the app is still keyless.
+  const showBlocking = keyConfigured === false && !settingsOpen;
 
   const errorAction = useMemo(() => {
     if (!renderError) return undefined;
@@ -1189,6 +1195,7 @@ function App() {
             markers={markers}
             onExportSelection={handleExportSelection}
             exporting={exporting}
+            onOpenSettings={() => setSettingsOpen(true)}
           />
         </aside>
       </div>
@@ -1211,6 +1218,7 @@ function App() {
             // hit "no agent configured").
             setRenderError(null);
           }}
+          onProviderChanged={setKeyConfigured}
         />
       ) : null}
       {!showBlocking && settingsOpen ? (
@@ -1225,6 +1233,7 @@ function App() {
             // now stale — drop it.
             setRenderError(null);
           }}
+          onProviderChanged={setKeyConfigured}
           onCleared={() => {
             setKeyConfigured(false);
             setSettingsOpen(false);
