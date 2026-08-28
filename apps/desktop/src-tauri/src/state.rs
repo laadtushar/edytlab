@@ -77,6 +77,16 @@ pub struct AppState {
     /// Set by `reject_plan` before it fires `plan_notify`, so the agent
     /// can tell a rejection from an approval on the same notifier.
     pub plan_rejected: Arc<std::sync::atomic::AtomicBool>,
+    /// True only while a turn is actually parked on the plan gate
+    /// (#251).
+    ///
+    /// `plan_notify` is a tokio `Notify`, and `notify_one` on a
+    /// waiterless one *stores a permit* — so an approve with no gate
+    /// open (a stray Run click on a card that should have gone away)
+    /// silently satisfied the **next** turn's gate, with whatever
+    /// override text came with it. This flag is what makes those calls
+    /// no-ops instead.
+    pub plan_gate_open: Arc<std::sync::atomic::AtomicBool>,
     /// Whether the user asked to see a plan before every turn. Kept on
     /// the state rather than in the agent so it survives an agent
     /// rebuild — which happens on every key, model or base-URL change.
@@ -146,6 +156,7 @@ impl AppState {
             plan_notify: Arc::new(tokio::sync::Notify::new()),
             plan_steps_override: Arc::new(Mutex::new(None)),
             plan_rejected: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            plan_gate_open: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             plan_first: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             selection: Arc::new(Mutex::new(None)),
             clipboard: Arc::new(Mutex::new(None)),

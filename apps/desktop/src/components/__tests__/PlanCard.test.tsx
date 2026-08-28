@@ -302,10 +302,43 @@ describe("PlanCard (inside Chat)", () => {
       );
     });
 
-    await user.click(screen.getByTestId("plan-discard-button"));
+    await act(async () => {
+      await user.click(screen.getByTestId("plan-discard-button"));
+      await flush();
+    });
 
     expect(rejectPlanMock).toHaveBeenCalledTimes(1);
     expect(approvePlanMock).not.toHaveBeenCalled();
+
+    // Mirrors the Run assertion above (#251). Discard called the bridge
+    // and nothing cleared `pendingPlan`, so the card stayed on screen
+    // with a live Run button: the user could not tell whether the plan
+    // had been cancelled or was still pending, and a stray Run then
+    // banked a permit that skipped the *next* turn's gate.
+    expect(screen.queryByTestId("plan-approval-card")).not.toBeInTheDocument();
+  });
+
+  /**
+   * The card must go even when the backend call fails. Whatever the
+   * reason — the gate already closed, the window went away — a card
+   * still offering Run is worse than no card.
+   */
+  it("takes the card down even if rejecting fails", async () => {
+    const user = userEvent.setup();
+    rejectPlanMock.mockRejectedValueOnce(new Error("no gate open"));
+    render(<Chat />);
+    await act(async () => {
+      cbs.plan.forEach((cb) =>
+        cb([{ step: 1, tool: "reverb", description: "add reverb" }]),
+      );
+    });
+
+    await act(async () => {
+      await user.click(screen.getByTestId("plan-discard-button"));
+      await flush();
+    });
+
+    expect(screen.queryByTestId("plan-approval-card")).not.toBeInTheDocument();
   });
 
   /**

@@ -17,7 +17,6 @@ import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo
 
 import {
   sendMessage as bridgeSendMessage,
-  rejectPlan,
   getPlanFirst,
   setPlanFirst as setPlanFirstBridge,
 } from "../lib/tauri-bridge";
@@ -125,6 +124,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
     pushUserMessage,
     pendingPlan,
     approvePlan,
+    discardPlan,
   } = useAgentStream();
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -483,7 +483,18 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
                   text-xs text-[var(--text-dim)]
                   hover:border-[var(--danger)]/50 hover:text-[var(--danger)]
                 "
-                onClick={() => void rejectPlan()}
+                onClick={() => {
+                  // The card comes down either way, but a failed reject
+                  // means the backend gate may still be parked — the
+                  // agent then looks stuck until its five-minute
+                  // timeout, which is worth saying (#251).
+                  setLocalError(null);
+                  void discardPlan().catch((err: unknown) =>
+                    setLocalError(
+                      `Discarded the plan, but the agent may still be waiting: ${String(err)}`,
+                    ),
+                  );
+                }}
               >
                 Discard
               </button>
