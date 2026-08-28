@@ -21,7 +21,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{append_state, check_track_index, load_head_state};
+use crate::tool::util::{append_state, check_track_index, clip_source_rate, load_head_state};
 use crate::{Tool, ToolContext, ToolResult};
 
 /// How much to drop the music under speech, in dB.
@@ -134,7 +134,6 @@ impl Tool for DuckUnderSpeechTool {
             ));
         }
 
-        let sr = state.sample_rate.max(1) as f64;
         let music = &mut state.tracks[args.music_track];
         if music.clips.is_empty() {
             return Ok(ToolResult::Error(format!(
@@ -155,11 +154,21 @@ impl Tool for DuckUnderSpeechTool {
         let mut ducks = 0usize;
         let mut clips_touched = 0usize;
         for clip in music.clips.iter_mut() {
+            // The clip's own rate, not the session's (#234). Its
+            // `start_in_track` and `length` are counted in source
+            // frames, and the envelope times this writes are read back
+            // in the same domain — so a 44.1 kHz bed in a 48 kHz
+            // project had its ducking placed 8.8% off the speech it was
+            // ducking under.
+            let clip_rate = match clip_source_rate(clip) {
+                Ok(r) => r as f64,
+                Err(msg) => return Ok(ToolResult::Error(msg)),
+            };
             let (points, n) = build_envelope(
                 &passages,
-                clip.start_in_track as f64 / sr,
+                clip.start_in_track as f64 / clip_rate,
                 clip.length,
-                sr,
+                clip_rate,
                 duck_db,
                 attack_s,
                 release_s,

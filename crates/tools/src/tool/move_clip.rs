@@ -8,7 +8,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{append_state, check_track_index, load_head_state};
+use crate::tool::util::{append_state, check_track_index, load_head_state, seconds_to_clip_frames};
 use crate::{Tool, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
@@ -80,7 +80,6 @@ impl Tool for MoveClipTool {
         if let Err(e) = check_track_index(&state.tracks, args.track) {
             return Ok(ToolResult::Error(e));
         }
-        let sr = state.sample_rate as f64;
         let track = &mut state.tracks[args.track];
         let clip = match track.clips.get_mut(args.clip_index) {
             Some(c) => c,
@@ -94,7 +93,16 @@ impl Tool for MoveClipTool {
                 )))
             }
         };
-        clip.start_in_track = (args.start_sec * sr).round().max(0.0) as u64;
+        // The clip's own frame domain, not the session's (#234). On a
+        // 44.1 kHz bed in a 48 kHz project the two differ by 8.8%, so
+        // "move to 30 s" using the session rate lands at 27.6 s — and
+        // `list_tracks` read the field back through the same wrong
+        // conversion, so the timeline agreed with the request while the
+        // render disagreed with both.
+        clip.start_in_track = match seconds_to_clip_frames(clip, args.start_sec) {
+            Ok(f) => f,
+            Err(msg) => return Ok(ToolResult::Error(msg)),
+        };
 
         // Clips are kept in start order. Nothing enforces it in the type,
         // but `list_tracks` renders them in vector order and
