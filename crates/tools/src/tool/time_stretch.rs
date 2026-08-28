@@ -21,8 +21,6 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::schema::{anthropic_tool, object_schema};
-use std::cell::RefCell;
-use std::rc::Rc;
 
 use crate::tool::util::{destructive_edit_then, remap_after_scale};
 use crate::{Tool, ToolContext, ToolResult};
@@ -71,59 +69,45 @@ impl Tool for TimeStretchTool {
 
         let (factor, preserve_formants, track) = (args.factor, args.preserve_formants, args.track);
 
-        // `destructive_edit_rechannel` hands the closure the channel
-        // count, which the vocoder needs to process each channel
-        // separately. The layout is unchanged, so the source count goes
-        // straight back.
-        // Shared rather than a plain local because both the edit
-        // closure and the after-hook need it: the hook must not rescale
-        // the labels for a stretch that did not happen.
-        let failure: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
-        let failure_edit = Rc::clone(&failure);
-        let failure_hook = Rc::clone(&failure);
-        let result = destructive_edit_then(
+        // The closure is handed the channel count, which the vocoder
+        // needs to process each channel separately. The layout is
+        // unchanged, so the source count goes straight back.
+        //
+        // A DSP failure returns `Err`, which aborts the edit before any
+        // node is appended (#277). It used to be recorded in a shared
+        // cell and reported after the fact, by which point the session
+        // had already gained a node whose audio matched its parent —
+        // and, on a split track, had had its clips flattened into one.
+        Ok(destructive_edit_then(
             ctx,
             track,
             move |samples, sample_rate, channels| {
-                match audio_time::time_stretch(
+                let out = audio_time::time_stretch(
                     samples,
                     sample_rate,
                     channels,
                     factor,
                     preserve_formants,
-                ) {
-                    Ok(out) => *samples = out,
-                    // The buffer is left untouched, so the edit writes the
-                    // audio back unchanged and the caller gets the reason.
-                    Err(e) => *failure_edit.borrow_mut() = Some(e.to_string()),
-                }
-                (sample_rate, channels)
+                )
+                .map_err(|e| e.to_string())?;
+                *samples = out;
+                Ok((sample_rate, channels))
             },
             move |state, _| {
                 // A stretch re-times the whole recording: output
                 // duration is input ÷ factor, so every mark and word
                 // moves by the same ratio (#231). Nothing is dropped.
                 //
-                // Skipped when the DSP failed: that path writes the
-                // buffer back unchanged, so the audio did not move and
-                // neither may the labels. The node is still appended
-                // either way — see #277.
-                if failure_hook.borrow().is_none() {
-                    remap_after_scale(state, 1.0 / factor as f64);
-                }
+                // Unconditional now: the hook only runs when the edit
+                // succeeded.
+                remap_after_scale(state, 1.0 / factor as f64);
                 Default::default()
             },
             format!(
                 "time_stretch track {track} factor {factor:.4} \
                  (preserve_formants={preserve_formants})"
             ),
-        );
-
-        let failed = failure.borrow().clone();
-        if let Some(msg) = failed {
-            return Ok(ToolResult::Error(msg));
-        }
-        Ok(result)
+        ))
     }
 }
 

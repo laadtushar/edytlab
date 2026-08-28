@@ -523,7 +523,15 @@ pub(crate) fn destructive_edit_resample<F>(
 where
     F: FnOnce(&mut Vec<f32>, u32, u16) -> (u32, u16),
 {
-    destructive_edit_then(ctx, track_idx, edit_fn, |_, _| Default::default(), label)
+    // These edits cannot fail, so they opt out of the abort path by
+    // always succeeding.
+    destructive_edit_then(
+        ctx,
+        track_idx,
+        |samples, rate, channels| Ok(edit_fn(samples, rate, channels)),
+        |_, _| Default::default(),
+        label,
+    )
 }
 
 /// Fold every clip's automation into one curve for the collapsed clip
@@ -589,6 +597,19 @@ pub(crate) fn merge_clip_envelopes(
 /// explicitly — "one undoable node, not one per track". Only tools that
 /// need it pass a hook; the rest go through the plain wrapper above and
 /// are unchanged.
+///
+/// The edit closure returns a `Result` so a failing edit can stop the
+/// whole operation (#277). `time_stretch` used to record its DSP error
+/// in a cell and return normally, which left this function to hash the
+/// unchanged buffer, write a CAS wav, rewrite the track's clips and
+/// **append a node** — before the tool checked the cell and reported an
+/// error. The user was told the stretch failed and got a node whose
+/// audio matched its parent, so the next Ctrl+Z appeared to do nothing;
+/// on a split track it was worse than a no-op, because the clips are
+/// flattened into one regardless of whether the edit did anything.
+///
+/// `Err` here returns before any of that: no CAS write, no clip
+/// rewrite, no node.
 pub(crate) fn destructive_edit_then<F, A>(
     ctx: &mut ToolContext,
     track_idx: usize,
@@ -597,7 +618,7 @@ pub(crate) fn destructive_edit_then<F, A>(
     label: impl Into<String>,
 ) -> ToolResult
 where
-    F: FnOnce(&mut Vec<f32>, u32, u16) -> (u32, u16),
+    F: FnOnce(&mut Vec<f32>, u32, u16) -> Result<(u32, u16), String>,
     A: FnOnce(&mut SessionState, usize) -> serde_json::Map<String, Value>,
 {
     let label = label.into();
@@ -630,7 +651,14 @@ where
 
     // Apply the user-provided edit. It reports the rate and channel count
     // its buffer now has, either of which may differ from the source's.
-    let (rate_out, channels_out) = edit_fn(&mut window, sample_rate, channels);
+    //
+    // A failure ends the operation here, with the session untouched. The
+    // state loaded above is a local clone and `flatten_track` only read
+    // the clips, so returning now leaves nothing behind.
+    let (rate_out, channels_out) = match edit_fn(&mut window, sample_rate, channels) {
+        Ok(out) => out,
+        Err(msg) => return ToolResult::Error(msg),
+    };
     let rate_out = rate_out.max(1);
     let channels_out = channels_out.max(1);
     let stride_out = channels_out as usize;
@@ -1161,4 +1189,156 @@ pub(crate) fn dropped_labels_field(dropped: usize) -> serde_json::Map<String, Va
         m.insert("dropped_labels".into(), Value::from(dropped));
     }
     m
+}
+
+#[cfg(test)]
+mod abort_tests {
+    //! A failing edit must leave the session exactly as it found it
+    //! (#277).
+    //!
+    //! `time_stretch` recorded its DSP error in a cell and returned
+    //! normally, so `destructive_edit_then` went on to hash the
+    //! unchanged buffer, write a CAS wav, rewrite the clips and append a
+    //! node. Only then did the tool return `ToolResult::Error`. The
+    //! result: the user is told the operation failed, the head has
+    //! advanced past a node whose audio is identical to its parent, and
+    //! the next Ctrl+Z appears to do nothing because it is undoing the
+    //! no-op.
+    //!
+    //! On a split track it was worse than a no-op — the clips are
+    //! flattened into one whether or not the edit changed anything, so
+    //! a failed stretch silently joined a split track.
+    //!
+    //! The tests run on a split track for exactly that reason.
+
+    use hound::{SampleFormat, WavSpec, WavWriter};
+    use serde_json::json;
+
+    use super::destructive_edit_then;
+    use crate::dispatcher::ToolDispatcher;
+    use crate::{ToolContext, ToolResult};
+
+    const SAMPLE_RATE: u32 = 8_000;
+    const FRAMES: usize = 8_000;
+
+    /// A session with track 0 split into two clips by an interior cut.
+    macro_rules! split_session {
+        ($tmp:ident, $store:ident, $engine:ident, $clipboard:ident, $ctx:ident) => {
+            let $tmp = tempfile::TempDir::new().expect("tempdir");
+            let src = $tmp.path().join("in.wav");
+            let spec = WavSpec {
+                channels: 1,
+                sample_rate: SAMPLE_RATE,
+                bits_per_sample: 16,
+                sample_format: SampleFormat::Int,
+            };
+            let mut w = WavWriter::create(&src, spec).expect("wav writer");
+            for n in 0..FRAMES {
+                w.write_sample((0.5 * n as f32 / FRAMES as f32 * 32_768.0) as i16)
+                    .unwrap();
+            }
+            w.finalize().unwrap();
+
+            let mut $store = session::Store::open($tmp.path()).expect("open store");
+            let mut $engine = audio_engine::Engine::new();
+            let mut $clipboard: Option<crate::Clipboard> = None;
+            let dispatcher = ToolDispatcher::default_dispatcher();
+            let mut $ctx = ToolContext {
+                store: &mut $store,
+                engine: &mut $engine,
+                user_message: "",
+                clipboard: &mut $clipboard,
+                allowed_tools: None,
+            };
+            for (name, args) in [
+                ("load", json!({ "path": src.to_string_lossy() })),
+                (
+                    "cut_range",
+                    json!({ "track": 0, "start_sample": 2_000, "end_sample": 3_000 }),
+                ),
+            ] {
+                match dispatcher.invoke(name, args, &mut $ctx).unwrap() {
+                    ToolResult::Ok(_) => {}
+                    ToolResult::Error(m) => panic!("setup `{name}` failed: {m}"),
+                }
+            }
+        };
+    }
+
+    /// `(head, clip count on track 0)` — the two things a failed edit
+    /// must not change.
+    fn session_shape(ctx: &mut ToolContext) -> (String, usize) {
+        let head = ctx.store.head().expect("a head");
+        let node = ctx.store.get(head).expect("head node");
+        (head.to_hex(), node.state.tracks[0].clips.len())
+    }
+
+    #[test]
+    fn a_failing_edit_appends_no_node_and_leaves_the_clips_split() {
+        split_session!(_tmp, store, engine, clipboard, ctx);
+        let before = session_shape(&mut ctx);
+        assert_eq!(before.1, 2, "setup did not split the track");
+
+        // `time_stretch`'s hook rescales every label and transcript
+        // word, so running it for a stretch that did not happen moves
+        // the labels off the audio.
+        let hook_ran = std::cell::Cell::new(false);
+
+        let result = destructive_edit_then(
+            &mut ctx,
+            0,
+            |_samples, _rate, _channels| Err("vocoder said no".to_string()),
+            |_, _| {
+                hook_ran.set(true);
+                Default::default()
+            },
+            "should never be recorded",
+        );
+
+        match result {
+            ToolResult::Error(msg) => assert_eq!(msg, "vocoder said no"),
+            ToolResult::Ok(v) => panic!("a failed edit reported success: {v}"),
+        }
+
+        let after = session_shape(&mut ctx);
+        assert_eq!(
+            after.0, before.0,
+            "the failed edit appended a node and advanced the head"
+        );
+        assert_eq!(
+            after.1, before.1,
+            "the failed edit flattened the split track's clips"
+        );
+        assert!(
+            !hook_ran.get(),
+            "the after-hook ran for an edit that failed"
+        );
+    }
+
+    /// The positive control. Without it, a `destructive_edit_then` that
+    /// did nothing at all would satisfy the test above.
+    #[test]
+    fn a_succeeding_edit_still_appends_its_node() {
+        split_session!(_tmp, store, engine, clipboard, ctx);
+        let (head_before, clips_before) = session_shape(&mut ctx);
+        assert_eq!(clips_before, 2);
+
+        let result = destructive_edit_then(
+            &mut ctx,
+            0,
+            |samples, rate, channels| {
+                for s in samples.iter_mut() {
+                    *s *= 0.5;
+                }
+                Ok((rate, channels))
+            },
+            |_, _| Default::default(),
+            "halve",
+        );
+        assert!(matches!(result, ToolResult::Ok(_)), "{result:?}");
+
+        let (head_after, clips_after) = session_shape(&mut ctx);
+        assert_ne!(head_before, head_after, "no node was appended");
+        assert_eq!(clips_after, 1, "a successful edit flattens the track");
+    }
 }

@@ -87,7 +87,7 @@ impl Tool for ChangeSpeedTool {
             move |samples, sr, chans| {
                 let resampled = apply_change_speed(samples, channels, factor);
                 *samples = resampled;
-                (sr, chans)
+                Ok((sr, chans))
             },
             move |state, _| {
                 // Speeding up re-times the whole recording: output
