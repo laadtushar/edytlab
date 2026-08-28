@@ -1,9 +1,30 @@
 name: Auto-release on main
 
-# Fires after CI completes on main. If CI passed, computes the next dev
-# tag (`v<version>-dev.<run_number>`), pushes it, and dispatches the
+# Fires after a CI run that was triggered by a push to main in this
+# repository. If CI passed, computes the next dev tag
+# (`v<version>-dev.<run_number>`), pushes it, and dispatches the
 # existing release-dev.yml workflow which builds unsigned mac+win
 # artifacts and attaches them to a draft GitHub Release.
+#
+# The `branches:` filter below is NOT a base-branch restriction, and
+# reading it as one is what made this workflow exploitable. GitHub
+# matches it against the *triggering run's* `head_branch`, which for a
+# `pull_request`-triggered CI run is the PR's source branch — so a fork
+# with a branch literally named `main` produced a matching run. The job
+# then tagged the fork's commit in this repo and dispatched
+# release-dev.yml at that tag, where `workflow_dispatch` executes the
+# workflow file as it exists at the ref: arbitrary code in a first-party
+# run with a writable token and repository secrets, publishing an
+# attacker-built binary under a genuine dev tag.
+#
+# The `if:` on the job is therefore the real boundary, and all three of
+# its conditions are load-bearing:
+#   - `conclusion == 'success'` — CI actually passed.
+#   - `event == 'push'`         — a push to main, not a PR run. This is
+#                                 the condition that closes the fork
+#                                 vector; `branches:` does not.
+#   - `head_repository`         — belt and braces: the run belongs to
+#                                 this repo, not a fork.
 #
 # Why a separate workflow:
 #   - release-dev.yml is kept focused on tag-push + workflow_dispatch
@@ -22,6 +43,8 @@ on:
   workflow_run:
     workflows: ["CI"]
     types: [completed]
+    # Matches the triggering run's head_branch, not its base. See the
+    # header: this narrows the trigger but does not secure it.
     branches: [main]
 
 permissions:
@@ -38,7 +61,12 @@ concurrency:
 jobs:
   tag-and-release:
     name: tag + dispatch release-dev
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    # All three conditions are a security boundary, not a filter — see
+    # the header comment before relaxing any of them.
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.event == 'push'
+      && github.event.workflow_run.head_repository.full_name == github.repository }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
