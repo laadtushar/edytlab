@@ -219,7 +219,7 @@ export function ScrollStory({ release }: { release: ReleaseAssets }) {
         {/* ── 1 ─────────────────────────────────────────────────── */}
         <Scene n={1}>
           <Badge variant="outline" className="mb-6 border-primary/30 bg-primary/10 text-primary">
-            Local-first AI audio editor · {release.version}
+            Local-first AI audio editor{release.isFallback ? "" : ` · ${release.version}`}
           </Badge>
           <h1
             data-s1-title
@@ -333,19 +333,22 @@ export function ScrollStory({ release }: { release: ReleaseAssets }) {
             data-done-cta
             className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row"
           >
+            {/* An absent installer links to the release page and says
+                so, rather than sending the user to a generic link
+                dressed as a direct download (#241). */}
             <Magnetic>
               <Button asChild size="lg" className="glow w-full sm:w-auto">
-                <Link href={release.macUrl}>
+                <Link href={release.macUrl ?? release.releaseUrl}>
                   <Apple className="size-4" />
-                  Download for Mac
+                  {release.macUrl ? "Download for Mac" : "Mac builds on GitHub"}
                 </Link>
               </Button>
             </Magnetic>
             <Magnetic>
               <Button asChild size="lg" variant="outline" className="w-full sm:w-auto">
-                <Link href={release.winUrl}>
+                <Link href={release.winUrl ?? release.releaseUrl}>
                   <Download className="size-4" />
-                  Download for Windows
+                  {release.winUrl ? "Download for Windows" : "Windows builds on GitHub"}
                 </Link>
               </Button>
             </Magnetic>

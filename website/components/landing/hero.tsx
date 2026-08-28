@@ -79,19 +79,21 @@ export function Hero({ release }: { release: ReleaseAssets }) {
             data-hero-cta
             className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row"
           >
+            {/* See scroll-story.tsx: a missing installer goes to the
+                release page under a label that says so (#241). */}
             <Magnetic>
               <Button asChild size="lg" className="glow w-full sm:w-auto">
-                <Link href={release.macUrl}>
+                <Link href={release.macUrl ?? release.releaseUrl}>
                   <Apple className="size-4" />
-                  Download for Mac
+                  {release.macUrl ? "Download for Mac" : "Mac builds on GitHub"}
                 </Link>
               </Button>
             </Magnetic>
             <Magnetic>
               <Button asChild size="lg" variant="outline" className="w-full sm:w-auto">
-                <Link href={release.winUrl}>
+                <Link href={release.winUrl ?? release.releaseUrl}>
                   <Download className="size-4" />
-                  Download for Windows
+                  {release.winUrl ? "Download for Windows" : "Windows builds on GitHub"}
                 </Link>
               </Button>
             </Magnetic>

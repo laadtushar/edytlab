@@ -5,10 +5,14 @@ export const siteConfig = {
     "Desktop audio editor where you chat with an AI to load, cut, mix, transcribe, and render. Pure-Rust DSP, local-first, BYO LLM key.",
   url: "https://edytlab.com",
   ogImage: "/og.png",
-  // Pinned canonical version for download links until release fetch is wired up.
+  // Placeholder shown only when the GitHub API is unreachable — the real
+  // version comes from `getLatestRelease()`. It matches no tag on purpose:
+  // if you see it on the live site, the fetch failed.
   version: "v0.1.0-dev",
   github: "https://github.com/laadtushar/edytlab",
-  releases: "https://github.com/laadtushar/edytlab/releases/latest",
+  // The list, not `/releases/latest`: every dev build is a prerelease, so
+  // `/latest` 404s for this repo.
+  releases: "https://github.com/laadtushar/edytlab/releases",
   designSpec:
     "https://github.com/laadtushar/edytlab/blob/main/docs/specs/2026-05-05-conversational-audio-editor-design.md",
   keywords: [
