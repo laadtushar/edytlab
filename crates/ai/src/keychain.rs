@@ -150,6 +150,53 @@ pub fn delete_base_url(provider_id: &str) -> Result<(), keyring::Error> {
     }
 }
 
+/// Account slot for a provider's chosen model.
+fn model_account_for(provider_id: &str) -> String {
+    format!("{provider_id}_model")
+}
+
+/// Read a provider's chosen model.
+///
+/// `None` means "use the provider's default", which is what every user
+/// gets until they pick something in Settings.
+///
+/// This existed only in memory before (#249): `active_model_by_provider`
+/// was written by Settings and nothing persisted it, so after a restart
+/// the agent built its config with no `with_model` call and silently ran
+/// `provider.default_model()` — while Settings went on displaying the
+/// user's pick, which it read from localStorage rather than from the
+/// backend. Different capabilities and a different price per token, with
+/// nothing on screen to say so.
+///
+/// Per provider for the same reason as the base URL: a model name that
+/// means something to Anthropic is meaningless to Ollama, and a single
+/// slot would follow you across a provider switch and fail confusingly.
+pub fn load_model(provider_id: &str) -> Option<String> {
+    let entry = Entry::new(SERVICE, &model_account_for(provider_id)).ok()?;
+    match entry.get_password() {
+        Ok(m) if !m.trim().is_empty() => Some(m),
+        _ => None,
+    }
+}
+
+/// Store a provider's chosen model.
+pub fn save_model(provider_id: &str, model: &str) -> Result<(), keyring::Error> {
+    let entry = Entry::new(SERVICE, &model_account_for(provider_id))?;
+    entry.set_password(model)
+}
+
+/// Forget a provider's choice so its default applies again.
+///
+/// A missing entry is success: the caller asked for "no override", and
+/// that is the state either way.
+pub fn delete_model(provider_id: &str) -> Result<(), keyring::Error> {
+    let entry = Entry::new(SERVICE, &model_account_for(provider_id))?;
+    match entry.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,6 +213,11 @@ mod tests {
     fn base_url_and_key_use_separate_slots() {
         assert_eq!(base_url_account_for("ollama"), "ollama_base_url");
         assert_ne!(base_url_account_for("ollama"), account_for("ollama"));
+        // The model slot joins them and must collide with neither, or
+        // saving a model would overwrite a key or a base URL.
+        assert_eq!(model_account_for("ollama"), "ollama_model");
+        assert_ne!(model_account_for("ollama"), account_for("ollama"));
+        assert_ne!(model_account_for("ollama"), base_url_account_for("ollama"));
         for p in [
             "anthropic",
             "openai",

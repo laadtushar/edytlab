@@ -662,9 +662,20 @@ pub async fn set_active_model(
     if model.is_empty() {
         return Err("model id must not be empty".into());
     }
+    // Persisted, not only cached (#249). `active_model_by_provider` is
+    // in-memory, and nothing re-pushed it at startup — so after a
+    // restart `rebuild_agent` saw no model and silently used
+    // `provider.default_model()`, while Settings went on showing the
+    // user's pick from localStorage. A different model at a different
+    // price, with nothing on screen to say so.
+    //
+    // A failed write is reported rather than swallowed: the choice
+    // still applies to this session, but the user should know it will
+    // not survive a restart.
+    let persisted = ai::keychain::save_model(&provider, &model);
     state.set_model_for(provider, model);
     rebuild_agent(&state).await?;
-    Ok(())
+    persisted.map_err(|e| format!("model selected for this session, but could not be saved: {e}"))
 }
 
 /// Read the model id currently selected for `provider`. Empty string
@@ -3317,6 +3328,22 @@ pub fn try_load_api_key_at_startup(state: &AppState) {
     if let Some(key) = ai::keychain::load_api_key(&provider_id) {
         state.set_api_key_cache(Some(key));
     }
+    restore_models(state, ai::keychain::load_model);
+}
+
+/// Repopulate the in-memory model map from `load`.
+///
+/// Split out so the restart path is testable without an OS keychain:
+/// the logic worth pinning is that *every* provider's choice comes back,
+/// not just the active one's. Switching provider must not lose a choice
+/// made earlier, and this map is what `rebuild_agent` reads after a
+/// switch.
+pub(crate) fn restore_models(state: &AppState, load: impl Fn(&str) -> Option<String>) {
+    for id in ai::SUPPORTED_PROVIDER_IDS {
+        if let Some(model) = load(id) {
+            state.set_model_for((*id).to_string(), model);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -4618,5 +4645,63 @@ mod tests {
              join now stays under the base, the helper's rationale has \
              changed"
         );
+    }
+
+    // ---- The chosen model survives a restart (#249) ---------------
+
+    /// The map lived only in memory and nothing re-read it at startup,
+    /// so after a restart `rebuild_agent` saw no model and silently
+    /// used `provider.default_model()` — while Settings went on
+    /// showing the user's pick from localStorage.
+    ///
+    /// `restore_models` is the startup path with the keychain read
+    /// injected, so this exercises the real wiring rather than a copy.
+    #[test]
+    fn a_restart_restores_the_last_selected_model() {
+        let state = AppState::default();
+
+        // Before: a fresh process knows nothing.
+        assert_eq!(state.model_for("anthropic"), None);
+
+        // What the keychain would hand back after the user picked one.
+        restore_models(&state, |id| {
+            (id == "anthropic").then(|| "claude-opus-5".to_string())
+        });
+
+        assert_eq!(
+            state.model_for("anthropic").as_deref(),
+            Some("claude-opus-5"),
+            "the selection did not survive the restart, so rebuild_agent \
+             would fall back to the provider default"
+        );
+    }
+
+    /// Every provider's choice, not just the active one's: switching
+    /// provider after a restart must not lose a model chosen earlier.
+    #[test]
+    fn a_restart_restores_every_provider_not_only_the_active_one() {
+        let state = AppState::default();
+        restore_models(&state, |id| Some(format!("{id}-chosen")));
+
+        for id in ai::SUPPORTED_PROVIDER_IDS {
+            assert_eq!(
+                state.model_for(id).as_deref(),
+                Some(format!("{id}-chosen").as_str()),
+                "provider {id} lost its model across the restart"
+            );
+        }
+    }
+
+    /// A provider the user never chose for must stay unset, so the
+    /// agent uses that provider's own default rather than inheriting
+    /// something arbitrary.
+    #[test]
+    fn a_provider_with_no_stored_choice_stays_unset() {
+        let state = AppState::default();
+        restore_models(&state, |_| None);
+
+        for id in ai::SUPPORTED_PROVIDER_IDS {
+            assert_eq!(state.model_for(id), None);
+        }
     }
 }

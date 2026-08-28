@@ -7,6 +7,7 @@ vi.mock('../lib/tauri-bridge', () => ({
   listModelsFor: vi.fn().mockResolvedValue([]),
   setApiKeyFor: vi.fn().mockResolvedValue(undefined),
   setActiveModel: vi.fn().mockResolvedValue(undefined),
+  getActiveModel: vi.fn().mockResolvedValue(""),
   setActiveProvider: vi.fn().mockResolvedValue(undefined),
   testApiKeyFor: vi.fn().mockResolvedValue(undefined),
 }));
