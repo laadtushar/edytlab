@@ -357,7 +357,7 @@ pub(crate) async fn run_turn<F>(
     dispatcher: &Arc<Mutex<ToolDispatcher>>,
     store: &Arc<Mutex<session::Store>>,
     engine: &Arc<Mutex<audio_engine::Engine>>,
-    clipboard: &Arc<Mutex<Option<Vec<f32>>>>,
+    clipboard: &Arc<Mutex<Option<tools::Clipboard>>>,
     conversation: &mut Vec<Message>,
     plan_notify: &Arc<Notify>,
     plan_steps_override: &Arc<std::sync::Mutex<Option<String>>>,
@@ -1065,7 +1065,7 @@ mod tests {
         let mut store = session::Store::open(tmp.path()).expect("open store");
         let mut engine = audio_engine::Engine::new();
         let dispatcher = ToolDispatcher::default_dispatcher();
-        let mut clipboard: Option<Vec<f32>> = None;
+        let mut clipboard: Option<tools::Clipboard> = None;
         let mut ctx = ToolContext {
             store: &mut store,
             engine: &mut engine,
@@ -1139,7 +1139,7 @@ mod tests {
         let mut store = session::Store::open(tmp.path()).expect("open store");
         let mut engine = audio_engine::Engine::new();
         let dispatcher = ToolDispatcher::default_dispatcher();
-        let mut clipboard: Option<Vec<f32>> = None;
+        let mut clipboard: Option<tools::Clipboard> = None;
         let mut ctx = ToolContext {
             store: &mut store,
             engine: &mut engine,

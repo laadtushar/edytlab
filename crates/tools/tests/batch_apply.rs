@@ -36,7 +36,7 @@ struct Session {
     store: session::Store,
     engine: audio_engine::Engine,
     dispatcher: ToolDispatcher,
-    clipboard: Option<Vec<f32>>,
+    clipboard: Option<tools::Clipboard>,
 }
 
 impl Session {

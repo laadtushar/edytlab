@@ -49,7 +49,7 @@ async fn live_round_trip() {
     let store = Arc::new(Mutex::new(session::Store::open(project.path()).unwrap()));
     let engine = Arc::new(Mutex::new(audio_engine::Engine::new()));
 
-    let clipboard = Arc::new(Mutex::new(None::<Vec<f32>>));
+    let clipboard = Arc::new(Mutex::new(None::<tools::Clipboard>));
 
     {
         let d = dispatcher.lock().unwrap();

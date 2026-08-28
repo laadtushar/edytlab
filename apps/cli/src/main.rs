@@ -94,7 +94,7 @@ async fn main() -> anyhow::Result<()> {
         cfg = cfg.with_base_url(base_url);
     }
 
-    let clipboard = Arc::new(Mutex::new(None::<Vec<f32>>));
+    let clipboard = Arc::new(Mutex::new(None::<tools::Clipboard>));
     let plan_notify = std::sync::Arc::new(tokio::sync::Notify::new());
     // The CLI is non-interactive: there is no UI to edit a proposed plan
     // before approval, so the override slot stays empty for its lifetime.

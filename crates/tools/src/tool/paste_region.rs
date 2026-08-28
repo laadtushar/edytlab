@@ -15,10 +15,17 @@ pub fn apply(
     sample_rate: u32,
     channels: usize,
     at_sec: f64,
-    clipboard: &Option<Vec<f32>>,
+    clipboard: &Option<crate::Clipboard>,
 ) -> Result<(), PasteError> {
-    let data = clipboard.as_ref().ok_or(PasteError::EmptyClipboard)?;
+    let clip = clipboard.as_ref().ok_or(PasteError::EmptyClipboard)?;
     let stride = channels.max(1);
+
+    // Conform before splicing (#239). The clipboard used to be a bare
+    // sample vector, so this function read it with the *destination's*
+    // stride: two seconds of stereo pasted into a mono track became four
+    // seconds of alternating left/right, and the tool returned Ok.
+    let data = conform(clip, sample_rate, stride)?;
+
     let total_frames = samples.len() / stride;
     // Splice on a frame boundary: an offset landing mid-frame would
     // shift every following sample by one and swap left and right for
@@ -28,10 +35,79 @@ pub fn apply(
     Ok(())
 }
 
+/// Re-interleave `clip` for a destination of `to_channels` at
+/// `to_rate`, or explain why it cannot be.
+///
+/// Channel count is convertible in the two directions that have an
+/// unambiguous answer — duplicate a mono source across the
+/// destination's channels, or average a multi-channel source down to
+/// mono. Anything else (5.1 into stereo, say) has no single right
+/// answer, so it is refused by name rather than guessed at.
+///
+/// Sample rate is refused outright. Resampling here would be a second
+/// resampler in a second place with its own latency and quality
+/// characteristics, and `resample_track` already exists to make the two
+/// tracks agree first. Splicing across rates is the failure this issue
+/// is about, so the one thing this must not do is proceed quietly.
+pub(crate) fn conform(
+    clip: &crate::Clipboard,
+    to_rate: u32,
+    to_channels: usize,
+) -> Result<std::borrow::Cow<'_, [f32]>, PasteError> {
+    if clip.sample_rate != to_rate {
+        return Err(PasteError::RateMismatch {
+            from: clip.sample_rate,
+            to: to_rate,
+        });
+    }
+
+    let from = clip.channels.max(1) as usize;
+    let to = to_channels.max(1);
+    if from == to {
+        return Ok(std::borrow::Cow::Borrowed(&clip.samples));
+    }
+
+    if from == 1 {
+        // One source sample becomes `to` identical samples: the same
+        // signal in every channel, which is what a listener expects
+        // from pasting mono into a stereo track.
+        let mut out = Vec::with_capacity(clip.samples.len() * to);
+        for s in &clip.samples {
+            out.extend(std::iter::repeat_n(*s, to));
+        }
+        return Ok(std::borrow::Cow::Owned(out));
+    }
+
+    if to == 1 {
+        // Average, not "take the left channel": dropping a channel
+        // silently loses anything panned to it.
+        let out = clip
+            .samples
+            .chunks_exact(from)
+            .map(|frame| frame.iter().sum::<f32>() / from as f32)
+            .collect();
+        return Ok(std::borrow::Cow::Owned(out));
+    }
+
+    Err(PasteError::ChannelMismatch { from, to })
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum PasteError {
     #[error("clipboard is empty; run copy_region first")]
     EmptyClipboard,
+
+    #[error(
+        "clipboard was copied at {from} Hz but track {to} Hz; run resample_track \
+         on one of them first so the two agree"
+    )]
+    RateMismatch { from: u32, to: u32 },
+
+    #[error(
+        "cannot paste {from}-channel audio into a {to}-channel track: only \
+         mono-to-many and many-to-mono have an unambiguous conversion"
+    )]
+    ChannelMismatch { from: usize, to: usize },
 }
 
 pub struct PasteRegionTool;
@@ -96,19 +172,31 @@ impl Tool for PasteRegionTool {
         // content, and write it here if the copy could not (an older
         // session, or a failed write) so the op still closes over what
         // it read.
-        let pasted = clipboard_snap.clone().unwrap_or_default();
-        let sample_rate = ctx
-            .store
-            .head()
-            .and_then(|h| ctx.store.get(h).ok())
-            .map(|n| n.state.sample_rate)
-            .unwrap_or(48_000);
+        //
+        // Hashed with the *clipboard's* own rate and channel count, not
+        // the destination's (#239). `audio_hash` mixes both into the
+        // digest, so hashing a stereo capture as if it were mono
+        // produced a second, mono-headered duplicate blob — and the op's
+        // `inputs.clipboard` then pointed at audio `copy_region` never
+        // wrote. Replaying that provenance would have reproduced the
+        // wrong sound.
+        let pasted = match clipboard_snap.as_ref() {
+            Some(c) => c,
+            // Unreachable: emptiness was rejected above. Returning
+            // rather than defaulting keeps it that way if the guard
+            // above ever moves.
+            None => {
+                return Ok(ToolResult::Error(
+                    "clipboard is empty; run copy_region first".into(),
+                ))
+            }
+        };
         let project_dir = ctx.store.project_dir().to_path_buf();
         let blob = crate::provenance::store_clipboard_blob(
             &project_dir,
-            &pasted,
-            sample_rate,
-            channels as u16,
+            &pasted.samples,
+            pasted.sample_rate,
+            pasted.channels,
         )
         .ok();
 

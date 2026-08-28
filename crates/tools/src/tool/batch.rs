@@ -274,7 +274,7 @@ fn run_one(
         .map_err(|e| format!("could not make {}: {e}", project.display()))?;
     let mut store = session::Store::open(project)
         .map_err(|e| format!("could not open a session at {}: {e}", project.display()))?;
-    let mut clipboard: Option<Vec<f32>> = None;
+    let mut clipboard: Option<crate::Clipboard> = None;
 
     let mut applied = 0usize;
     let mut rendered: Option<String> = None;

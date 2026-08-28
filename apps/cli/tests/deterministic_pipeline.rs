@@ -123,7 +123,7 @@ fn podcast_cleanup_deterministic() {
         session::Store::open(project.path()).expect("open store"),
     ));
     let engine = Arc::new(Mutex::new(audio_engine::Engine::new()));
-    let mut clipboard: Option<Vec<f32>> = None;
+    let mut clipboard: Option<tools::Clipboard> = None;
 
     // Run the pipeline. Each block reacquires the locks to mirror the
     // shape of the real agent loop, where each tool call is a separate

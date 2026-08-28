@@ -54,7 +54,7 @@ fn report_after(edits: usize) -> (TempDir, Value) {
     let mut store = session::Store::open(tmp.path()).expect("open store");
     let mut engine = audio_engine::Engine::new();
     let dispatcher = ToolDispatcher::default_dispatcher();
-    let mut clipboard: Option<Vec<f32>> = None;
+    let mut clipboard: Option<tools::Clipboard> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
@@ -113,7 +113,7 @@ fn derived_audio_is_written_inside_the_project() {
     let mut store = session::Store::open(tmp.path()).expect("open store");
     let mut engine = audio_engine::Engine::new();
     let dispatcher = ToolDispatcher::default_dispatcher();
-    let mut clipboard: Option<Vec<f32>> = None;
+    let mut clipboard: Option<tools::Clipboard> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
@@ -221,7 +221,7 @@ fn a_file_no_node_names_is_reported_unreferenced() {
     let mut store = session::Store::open(tmp.path()).expect("open store");
     let mut engine = audio_engine::Engine::new();
     let dispatcher = ToolDispatcher::default_dispatcher();
-    let mut clipboard: Option<Vec<f32>> = None;
+    let mut clipboard: Option<tools::Clipboard> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
@@ -277,7 +277,7 @@ fn the_report_deletes_nothing() {
     let mut store = session::Store::open(tmp.path()).expect("open store");
     let mut engine = audio_engine::Engine::new();
     let dispatcher = ToolDispatcher::default_dispatcher();
-    let mut clipboard: Option<Vec<f32>> = None;
+    let mut clipboard: Option<tools::Clipboard> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,

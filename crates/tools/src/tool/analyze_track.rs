@@ -143,7 +143,7 @@ mod tests {
 
         let mut store = session::Store::open(dir.path()).unwrap();
         let mut engine = audio_engine::Engine::new();
-        let mut clipboard: Option<Vec<f32>> = None;
+        let mut clipboard: Option<crate::Clipboard> = None;
         let mut ctx = ToolContext {
             store: &mut store,
             engine: &mut engine,
@@ -176,7 +176,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut store = session::Store::open(dir.path()).unwrap();
         let mut engine = audio_engine::Engine::new();
-        let mut clipboard: Option<Vec<f32>> = None;
+        let mut clipboard: Option<crate::Clipboard> = None;
         let mut ctx = ToolContext {
             store: &mut store,
             engine: &mut engine,

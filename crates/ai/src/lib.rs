@@ -282,7 +282,7 @@ pub struct Agent {
     engine: Arc<Mutex<audio_engine::Engine>>,
     /// In-memory audio clipboard for copy_region / paste_region. Shared
     /// with `AppState` so the same clipboard persists across turns.
-    pub(crate) clipboard: Arc<Mutex<Option<Vec<f32>>>>,
+    pub(crate) clipboard: Arc<Mutex<Option<tools::Clipboard>>>,
     /// Per-agent conversation history. Phase 1 keeps this in memory;
     /// persistence comes later.
     conversation: Vec<Message>,
@@ -342,7 +342,7 @@ impl Agent {
         plan_notify: Arc<tokio::sync::Notify>,
         plan_steps_override: Arc<std::sync::Mutex<Option<String>>>,
         plan_rejected: Arc<std::sync::atomic::AtomicBool>,
-        clipboard: Arc<Mutex<Option<Vec<f32>>>>,
+        clipboard: Arc<Mutex<Option<tools::Clipboard>>>,
     ) -> Self {
         Self {
             cfg,

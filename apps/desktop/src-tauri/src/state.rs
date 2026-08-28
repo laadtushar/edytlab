@@ -88,7 +88,7 @@ pub struct AppState {
     /// In-memory audio clipboard for `copy_region` / `paste_region`.
     /// Shared with the `Agent` so the clipboard persists across turns and
     /// is accessible from both the tool layer and (future) IPC commands.
-    pub clipboard: Arc<Mutex<Option<Vec<f32>>>>,
+    pub clipboard: Arc<Mutex<Option<tools::Clipboard>>>,
     /// User memory (global + project) — system-prompt fragment surface.
     /// Shares `project_dir` with `AppState` so the project file
     /// resolves correctly without a rebuild on `open_project`. Built
@@ -452,7 +452,7 @@ impl AppState {
 
     /// Clone the clipboard `Arc` handle so callers (e.g. `rebuild_agent`)
     /// can share the same clipboard instance with the `Agent`.
-    pub fn clipboard_handle(&self) -> Arc<Mutex<Option<Vec<f32>>>> {
+    pub fn clipboard_handle(&self) -> Arc<Mutex<Option<tools::Clipboard>>> {
         Arc::clone(&self.clipboard)
     }
 }

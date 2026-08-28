@@ -23,7 +23,7 @@ pub fn apply(
     sample_rate: u32,
     channels: usize,
     range: Range,
-    clipboard: &mut Option<Vec<f32>>,
+    clipboard: &mut Option<crate::Clipboard>,
 ) -> Result<(), CopyError> {
     let stride = channels.max(1);
     let total_frames = samples.len() / stride;
@@ -32,7 +32,13 @@ pub fn apply(
     if end <= start {
         return Err(CopyError::EmptyRange);
     }
-    *clipboard = Some(samples[start * stride..end * stride].to_vec());
+    // The format travels with the samples (#239). Without it the paste
+    // had only the destination track's stride to go on, and used it.
+    *clipboard = Some(crate::Clipboard {
+        samples: samples[start * stride..end * stride].to_vec(),
+        sample_rate,
+        channels: stride as u16,
+    });
     Ok(())
 }
 
@@ -134,7 +140,10 @@ impl Tool for CopyRegionTool {
         // only the target track's.
         let blob = match crate::provenance::store_clipboard_blob(
             ctx.store.project_dir(),
-            ctx.clipboard.as_deref().unwrap_or(&[]),
+            ctx.clipboard
+                .as_ref()
+                .map(|c| c.samples.as_slice())
+                .unwrap_or(&[]),
             audio.sample_rate,
             audio.channels,
         ) {

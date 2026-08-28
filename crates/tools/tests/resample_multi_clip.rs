@@ -60,7 +60,7 @@ fn resample_covers_every_clip_of_a_split_track() {
     let dispatcher = ToolDispatcher::default_dispatcher();
     let src = write_tone_wav(tmp.path());
 
-    let mut clipboard: Option<Vec<f32>> = None;
+    let mut clipboard: Option<tools::Clipboard> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
@@ -140,7 +140,7 @@ fn resampling_updates_the_sessions_sample_rate() {
     let dispatcher = ToolDispatcher::default_dispatcher();
     let src = write_tone_wav(tmp.path());
 
-    let mut clipboard: Option<Vec<f32>> = None;
+    let mut clipboard: Option<tools::Clipboard> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
@@ -202,7 +202,7 @@ fn a_non_resampling_edit_leaves_the_sample_rate_alone() {
     let dispatcher = ToolDispatcher::default_dispatcher();
     let src = write_tone_wav(tmp.path());
 
-    let mut clipboard: Option<Vec<f32>> = None;
+    let mut clipboard: Option<tools::Clipboard> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,

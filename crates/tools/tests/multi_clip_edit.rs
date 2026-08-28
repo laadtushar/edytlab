@@ -64,7 +64,7 @@ fn cut_then_maybe_invert(invert: bool) -> Vec<i16> {
     let src = write_ramp_wav(tmp.path(), "in.wav");
     let out = tmp.path().join("out.wav");
 
-    let mut clipboard: Option<Vec<f32>> = None;
+    let mut clipboard: Option<tools::Clipboard> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,

@@ -91,7 +91,7 @@ fn read_samples(path: &Path) -> Vec<i16> {
 #[test]
 fn a_second_cut_keeps_the_rest_of_a_split_track() {
     let mut f = fixture();
-    let mut clipboard: Option<Vec<f32>> = None;
+    let mut clipboard: Option<tools::Clipboard> = None;
     let mut ctx = ToolContext {
         store: &mut f.store,
         engine: &mut f.engine,
@@ -170,7 +170,7 @@ fn a_second_cut_keeps_the_rest_of_a_split_track() {
 #[test]
 fn trimming_a_split_track_keeps_the_whole_window() {
     let mut f = fixture();
-    let mut clipboard: Option<Vec<f32>> = None;
+    let mut clipboard: Option<tools::Clipboard> = None;
     let mut ctx = ToolContext {
         store: &mut f.store,
         engine: &mut f.engine,
