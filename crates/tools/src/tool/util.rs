@@ -9,7 +9,7 @@
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
-use serde_json::json;
+use serde_json::Value;
 use session::{Clip, EnvelopePoint, NodeId, SessionNode, SessionState, Track};
 
 use crate::{ToolContext, ToolResult};
@@ -523,7 +523,7 @@ pub(crate) fn destructive_edit_resample<F>(
 where
     F: FnOnce(&mut Vec<f32>, u32, u16) -> (u32, u16),
 {
-    destructive_edit_then(ctx, track_idx, edit_fn, |_, _| {}, label)
+    destructive_edit_then(ctx, track_idx, edit_fn, |_, _| Default::default(), label)
 }
 
 /// [`destructive_edit_resample`] with a hook that sees the whole state
@@ -544,7 +544,7 @@ pub(crate) fn destructive_edit_then<F, A>(
 ) -> ToolResult
 where
     F: FnOnce(&mut Vec<f32>, u32, u16) -> (u32, u16),
-    A: FnOnce(&mut SessionState, usize),
+    A: FnOnce(&mut SessionState, usize) -> serde_json::Map<String, Value>,
 {
     let label = label.into();
 
@@ -647,7 +647,7 @@ where
     // Anything that has to see the whole state — sync-lock moving the
     // other tracks — runs here, before the length is recomputed, so the
     // recompute covers what it did.
-    after(&mut state, track_idx);
+    let extras = after(&mut state, track_idx);
 
     // Recompute `length_samples` as the max of every track's max-clip
     // length. This matches the convention used elsewhere in the
@@ -665,10 +665,15 @@ where
         Err(msg) => return ToolResult::Error(msg),
     };
 
-    ToolResult::Ok(json!({
-        "node_id": new_id.to_hex(),
-        "summary": label,
-    }))
+    // The hook's fields go alongside the standard two rather than
+    // replacing them. `dropped_labels` is the reason this exists: a tool
+    // that silently discards a user's chapter mark has no way to say so
+    // otherwise, and the result JSON used to be fixed at these two keys.
+    let mut out = serde_json::Map::new();
+    out.insert("node_id".into(), Value::String(new_id.to_hex().to_string()));
+    out.insert("summary".into(), Value::String(label));
+    out.extend(extras);
+    ToolResult::Ok(Value::Object(out))
 }
 
 /// Interleave stride of the first clip on `track_idx`, read from the
@@ -999,6 +1004,58 @@ pub(crate) fn insert_transcript(
     })
 }
 
+/// Rescale annotations for an edit that re-times the whole timeline by
+/// `factor` (new length ÷ old length).
+///
+/// Speed and time-stretch do not remove a span, they re-time
+/// everything, so nothing is ever dropped and every position simply
+/// multiplies.
+pub(crate) fn scale_annotations(
+    annotations: &[session::Annotation],
+    factor: f64,
+) -> Vec<session::Annotation> {
+    use session::AnnotationKind::{Marker, Region};
+
+    annotations
+        .iter()
+        .map(|a| match a.kind {
+            Marker { time_sec } => session::Annotation {
+                kind: Marker {
+                    time_sec: time_sec * factor,
+                },
+                ..a.clone()
+            },
+            Region { start_sec, end_sec } => session::Annotation {
+                kind: Region {
+                    start_sec: start_sec * factor,
+                    end_sec: end_sec * factor,
+                },
+                ..a.clone()
+            },
+        })
+        .collect()
+}
+
+/// Rescale transcript words for a whole-timeline re-time by `factor`.
+pub(crate) fn scale_transcript(
+    transcript: &Option<session::Transcript>,
+    factor: f64,
+) -> Option<session::Transcript> {
+    let t = transcript.as_ref()?;
+    Some(session::Transcript {
+        words: t
+            .words
+            .iter()
+            .map(|w| session::TranscriptWord {
+                text: w.text.clone(),
+                start_s: (w.start_s as f64 * factor) as f32,
+                end_s: (w.end_s as f64 * factor) as f32,
+                confidence: w.confidence,
+            })
+            .collect(),
+    })
+}
+
 // =============================================================================
 // Combined remapping
 // =============================================================================
@@ -1023,4 +1080,24 @@ pub(crate) fn remap_after_cut(state: &mut SessionState, start_sec: f64, end_sec:
 pub(crate) fn remap_after_insert(state: &mut SessionState, at_sec: f64, len_sec: f64) {
     state.annotations = insert_annotations(&state.annotations, at_sec, len_sec);
     state.transcript = insert_transcript(&state.transcript, at_sec, len_sec);
+}
+
+/// Remap both records for a whole-timeline re-time by `factor`.
+///
+/// Nothing is dropped: a stretch moves every mark, it does not remove
+/// any part of the recording.
+pub(crate) fn remap_after_scale(state: &mut SessionState, factor: f64) {
+    state.annotations = scale_annotations(&state.annotations, factor);
+    state.transcript = scale_transcript(&state.transcript, factor);
+}
+
+/// Report helper: the `dropped_labels` field, for a hook that has one to
+/// report. Empty when nothing was dropped, so a tool that removed
+/// nothing does not grow a noisy zero.
+pub(crate) fn dropped_labels_field(dropped: usize) -> serde_json::Map<String, Value> {
+    let mut m = serde_json::Map::new();
+    if dropped > 0 {
+        m.insert("dropped_labels".into(), Value::from(dropped));
+    }
+    m
 }

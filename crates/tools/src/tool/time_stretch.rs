@@ -21,7 +21,10 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::schema::{anthropic_tool, object_schema};
-use crate::tool::util::destructive_edit_rechannel;
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use crate::tool::util::{destructive_edit_then, remap_after_scale};
 use crate::{Tool, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
@@ -72,11 +75,16 @@ impl Tool for TimeStretchTool {
         // count, which the vocoder needs to process each channel
         // separately. The layout is unchanged, so the source count goes
         // straight back.
-        let mut failure: Option<String> = None;
-        let result = destructive_edit_rechannel(
+        // Shared rather than a plain local because both the edit
+        // closure and the after-hook need it: the hook must not rescale
+        // the labels for a stretch that did not happen.
+        let failure: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+        let failure_edit = Rc::clone(&failure);
+        let failure_hook = Rc::clone(&failure);
+        let result = destructive_edit_then(
             ctx,
             track,
-            |samples, sample_rate, channels| {
+            move |samples, sample_rate, channels| {
                 match audio_time::time_stretch(
                     samples,
                     sample_rate,
@@ -87,9 +95,23 @@ impl Tool for TimeStretchTool {
                     Ok(out) => *samples = out,
                     // The buffer is left untouched, so the edit writes the
                     // audio back unchanged and the caller gets the reason.
-                    Err(e) => failure = Some(e.to_string()),
+                    Err(e) => *failure_edit.borrow_mut() = Some(e.to_string()),
                 }
-                channels
+                (sample_rate, channels)
+            },
+            move |state, _| {
+                // A stretch re-times the whole recording: output
+                // duration is input ÷ factor, so every mark and word
+                // moves by the same ratio (#231). Nothing is dropped.
+                //
+                // Skipped when the DSP failed: that path writes the
+                // buffer back unchanged, so the audio did not move and
+                // neither may the labels. The node is still appended
+                // either way — see #277.
+                if failure_hook.borrow().is_none() {
+                    remap_after_scale(state, 1.0 / factor as f64);
+                }
+                Default::default()
             },
             format!(
                 "time_stretch track {track} factor {factor:.4} \
@@ -97,7 +119,8 @@ impl Tool for TimeStretchTool {
             ),
         );
 
-        if let Some(msg) = failure {
+        let failed = failure.borrow().clone();
+        if let Some(msg) = failed {
             return Ok(ToolResult::Error(msg));
         }
         Ok(result)
