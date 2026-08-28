@@ -384,6 +384,38 @@ function App() {
   }, []);
 
   /**
+   * Adopt the node a command just appended (#232).
+   *
+   * Every session-mutating command returns its new head, and only the
+   * mixer commands were reading it. `agent://node-created` fires from
+   * the agent path alone (commands.rs:1403), so for a UI-driven edit
+   * the frontend head simply stopped moving.
+   *
+   * That is data loss, not staleness. `persistView` writes this value
+   * into `view.json`, and `restoreView` feeds it to `set_head_to`,
+   * which rewinds the store head *durably* on the next open — so every
+   * label typed since the last agent edit is gone from `list_markers`,
+   * while the nodes themselves sit intact and unreachable in the graph.
+   * Undo reads the same value, so Ctrl+Z after naming a label reverts
+   * the edit before it instead.
+   *
+   * Clearing the mix is part of adopting the head: `render_preview`
+   * names its output after the node id, so re-rendering a stale head
+   * hands back the same path string, React's useState bails out, the
+   * load effect never fires and nothing reloads — no change and no
+   * error either.
+   */
+  const applyNewHead = useCallback(
+    (newHead: string | null | undefined) => {
+      if (!newHead) return;
+      setHeadLocal(newHead);
+      setMixPath(null);
+      setMixNodeId(null);
+    },
+    [setHeadLocal],
+  );
+
+  /**
    * Load whatever arrived — from the picker or from a drop.
    *
    * One file keeps the single-file path so the agent gets a "load this
@@ -400,13 +432,13 @@ function App() {
       }
       setSourcePath(paths[0]);
       try {
-        await batchLoad(paths);
+        applyNewHead((await batchLoad(paths)).last_node_id);
         setTracks(await listTracks());
       } catch (err) {
         setRenderError(String(err));
       }
     },
-    [handleFileSelected],
+    [handleFileSelected, applyNewHead],
   );
 
   const handleOpenDialog = useCallback(async () => {
@@ -422,7 +454,7 @@ function App() {
       // Multiple files — call batch_load then refresh track list.
       setSourcePath(paths[0]);
       try {
-        await batchLoad(paths);
+        applyNewHead((await batchLoad(paths)).last_node_id);
         const newTracks = await listTracks();
         setTracks(newTracks);
       } catch (err) {
@@ -431,7 +463,7 @@ function App() {
     } catch (err) {
       setRenderError(String(err));
     }
-  }, [handleFileSelected]);
+  }, [handleFileSelected, applyNewHead]);
 
   useEffect(() => {
     void listTemplates().then(setTemplates).catch(console.error);
@@ -440,13 +472,13 @@ function App() {
   const handleApplyTemplate = useCallback(async (name: string) => {
     setShowTemplatePicker(false);
     try {
-      await applyTemplate(name);
+      applyNewHead(await applyTemplate(name));
       const newTracks = await listTracks();
       setTracks(newTracks);
     } catch (e) {
       setRenderError(String(e));
     }
-  }, []);
+  }, [applyNewHead]);
 
   // Mixer commits. Each command appends one session node, so the head
   // moves and the track list has to be re-read: the Timeline shows the
@@ -459,22 +491,10 @@ function App() {
     async (apply: () => Promise<string>) => {
       try {
         // Every one of these commands appends a node and returns its id.
-        // That return value used to be discarded, so `head` never moved
-        // for a UI-driven edit — `NODE_CREATED` is emitted only from the
-        // agent path (commands.rs:1403).
-        //
-        // A stale head is not cosmetic. `render_preview` names its
-        // output after the node id, so re-rendering a stale head hands
-        // back the *same path string*; setting it then hits React's
-        // useState bailout, the load effect never fires, and nothing
-        // reloads — no change, and no error either. Moving a fader and
-        // pressing render appeared to work and did nothing.
-        const newHead = await apply();
-        if (newHead) {
-          setHeadLocal(newHead);
-          setMixPath(null);
-          setMixNodeId(null);
-        }
+        // `applyNewHead` is what stops that value being discarded; see
+        // its comment for why a stale head loses data rather than just
+        // looking wrong.
+        applyNewHead(await apply());
       } catch (e) {
         setRenderError(String(e));
       }
@@ -484,7 +504,7 @@ function App() {
         setRenderError(String(e));
       }
     },
-    [setHeadLocal],
+    [applyNewHead],
   );
 
   const handleTrackGainChange = useCallback(
@@ -763,20 +783,20 @@ function App() {
     const name = window.prompt("Marker name:", `marker ${markers.length + 1}`) ?? "";
     if (!name.trim()) return;
     try {
-      await addMarker(timeSec, name.trim());
+      applyNewHead(await addMarker(timeSec, name.trim()));
       // marker-changed event fires → setMarkers
     } catch (err) {
       setRenderError(String(err));
     }
-  }, [markers.length]);
+  }, [markers.length, applyNewHead]);
 
   const handleRemoveMarker = useCallback(async (id: string) => {
     try {
-      await removeMarker(id);
+      applyNewHead(await removeMarker(id));
     } catch (err) {
       setRenderError(String(err));
     }
-  }, []);
+  }, [applyNewHead]);
 
   // The lane's three edits. Each is one call and therefore one undoable
   // node — a rename is not a delete plus an add, and a drag is not a
@@ -833,19 +853,19 @@ function App() {
 
   const handleRenameMarker = useCallback(async (id: string, name: string) => {
     try {
-      await updateMarker(id, { name });
+      applyNewHead(await updateMarker(id, { name }));
     } catch (err) {
       setRenderError(String(err));
     }
-  }, []);
+  }, [applyNewHead]);
 
   const handleMoveMarker = useCallback(async (id: string, timeSec: number) => {
     try {
-      await updateMarker(id, { time: timeSec });
+      applyNewHead(await updateMarker(id, { time: timeSec }));
     } catch (err) {
       setRenderError(String(err));
     }
-  }, []);
+  }, [applyNewHead]);
 
   const handleSeekToMarker = useCallback((timeSec: number) => {
     timelineRef.current?.seekTo(timeSec);
@@ -952,13 +972,13 @@ function App() {
         `recording_${Date.now()}.wav`
       );
       setIsRecording(false);
-      await batchLoad([result.path]);
+      applyNewHead((await batchLoad([result.path])).last_node_id);
       void listTracks().then(setTracks);
     } catch (e) {
       console.error("stop_recording failed:", e);
       setIsRecording(false);
     }
-  }, []);
+  }, [applyNewHead]);
 
   const handleRenderPreview = useCallback(async () => {
     if (!head || rendering) return;
