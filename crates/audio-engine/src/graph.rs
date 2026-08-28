@@ -208,19 +208,63 @@ fn single_track_unity(
     if track.clips.len() != 1 {
         return Ok(None);
     }
-    let clip = &track.clips[0];
-    if clip.start_in_track != 0 {
+    // Destructured exhaustively on purpose (#230).
+    //
+    // This function is a promise that the source file and the rendered
+    // output are the same audio. Every `Clip` field is a way that can
+    // stop being true, and the failure mode is silent: the export is
+    // byte-identical to the input and nothing reports that a setting was
+    // ignored. It had already happened twice at the track level (#110
+    // master chain, #111 sends) before `volume_envelope` made it three.
+    //
+    // So this does not read the fields it happens to remember. It names
+    // all of them, and adding a field to `Clip` fails to compile here
+    // until someone decides whether it disqualifies the byte copy.
+    let session::Clip {
+        source_path,
+        start_in_track,
+        source_offset,
+        length,
+        // Provenance, not signal: the same bytes whatever it holds.
+        content_hash: _,
+        time_stretch_factor,
+        pitch_shift_semitones,
+        beat_grid,
+        volume_envelope,
+    } = &track.clips[0];
+
+    if *start_in_track != 0 {
         return Ok(None);
     }
-    let (source_frames, source_rate) = peek_source_spec(&clip.source_path)?;
-    if clip.source_offset != 0 || clip.length != source_frames {
+
+    // The defect this comment exists for. A non-empty envelope is
+    // per-frame gain the streaming path applies at render.rs:620; a byte
+    // copy applies nothing. A user who drew a fade on a one-track
+    // session exported the untouched source and heard no change, while
+    // the automation lane went on drawing the curve. It also silently
+    // defeated `duck_under_speech`, whose whole output is an envelope.
+    if !volume_envelope.is_empty() {
+        return Ok(None);
+    }
+
+    // Recorded but not yet applied by the engine — the tools that own
+    // these do the work destructively instead. Disqualifying anyway is
+    // deliberate: it costs only a fast-path miss today, and means that
+    // if the engine ever learns to honour them, this function does not
+    // start silently discarding them the way it did the envelope.
+    if time_stretch_factor.is_some() || pitch_shift_semitones.is_some() || beat_grid.is_some() {
+        return Ok(None);
+    }
+
+    let (source_frames, source_rate) = peek_source_spec(source_path)?;
+    if *source_offset != 0 || *length != source_frames {
         return Ok(None);
     }
     if source_rate != state.sample_rate {
         return Ok(None);
     }
     Ok(Some(UnityPassthrough {
-        source_path: clip.source_path.clone(),
+        source_path: source_path.clone(),
     }))
 }
 
