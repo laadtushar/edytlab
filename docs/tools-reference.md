@@ -231,7 +231,7 @@ Remove clicks and pops by detecting sample spikes (via median filter) and replac
 
 ## `compact_session`
 
-Prune old history and delete the audio only it referenced, to reclaim disk. This removes undo steps permanently — the nodes are gone, not archived. Reports what it would remove and changes nothing unless `apply` is true. The head's most recent `keep_last` nodes are never pruned, so ordinary undo keeps working; what goes is the tail beyond that and any abandoned branches. For reclaiming space without losing history, the derived-audio cache is swept automatically instead.
+Prune old history and delete the audio only it referenced, to reclaim disk. This removes undo steps permanently — the nodes are gone, not archived. Reports what it would remove and changes nothing unless `apply` is true. The head's most recent `keep_last` nodes are never pruned, so ordinary undo keeps working; what goes is the tail beyond that and any abandoned branches. This is currently the only way to reclaim derived audio: nothing sweeps the cache in the background, so do not tell the user to wait for one. Run `storage_report` first to see what is actually using the space.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
@@ -1048,7 +1048,7 @@ Widen or narrow the stereo field using M/S processing. width=0 collapses to mono
 
 ## `storage_report`
 
-Report what this session is costing on disk. Every destructive edit writes a new audio file and none are ever deleted, so a long session grows without bound. Splits the derived audio three ways: files the current head needs, files only older nodes need (what undo is holding onto), and files no node references at all, plus what the bounded preview cache is holding. Reads only — it deletes nothing.
+Report what this session is costing on disk. Every destructive edit writes a new audio file and none are ever deleted, so a long session grows without bound. Splits the derived audio three ways: files the current head needs, files only older nodes need (what undo is holding onto), and files no node references at all, plus what the bounded preview cache is holding. Reads only — it deletes nothing, and nothing sweeps derived audio in the background either: `compact_session` is the only way to reclaim it, at the cost of dropping undo history permanently.
 
 Takes no parameters.
 
