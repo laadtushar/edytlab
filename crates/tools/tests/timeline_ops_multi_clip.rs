@@ -97,6 +97,7 @@ fn a_second_cut_keeps_the_rest_of_a_split_track() {
         engine: &mut f.engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     ok(f.dispatcher
@@ -175,6 +176,7 @@ fn trimming_a_split_track_keeps_the_whole_window() {
         engine: &mut f.engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     ok(f.dispatcher

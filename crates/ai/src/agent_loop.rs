@@ -473,6 +473,18 @@ where
         }
     };
 
+    // The same whitelist, as a set, for the dispatch-time check (#238).
+    //
+    // Trimming the schema list is a hint: it tells a well-behaved model
+    // what to ask for. It is not a control. A model on an
+    // OpenAI-compatible or Ollama endpoint that names a filtered-out
+    // tool anyway used to get it executed, and meta-tools that build
+    // their own dispatcher bypassed the restriction outright — so
+    // unticking `render_final` did not stop `batch_apply` from calling
+    // it with an unconstrained absolute `out_path`.
+    let allowed_tools: Option<std::collections::HashSet<String>> =
+        tool_whitelist.map(|w| w.iter().cloned().collect());
+
     let mut total_tool_calls = 0usize;
     // Track consecutive validation failures *for the same call site* so
     // the model gets exactly one retry per tool_use before we bail.
@@ -724,11 +736,39 @@ where
                     engine: &mut engine_g,
                     user_message: &user_msg_saved,
                     clipboard: &mut clipboard_g,
+                    allowed_tools: allowed_tools.as_ref(),
                 };
                 d.invoke(&name, args, &mut ctx)
             };
 
             match result {
+                Err(tools::DispatchError::NotPermitted(tool)) => {
+                    // A disabled capability, not a malformed call (#238).
+                    //
+                    // Deliberately outside the validation-retry budget:
+                    // that budget exists because a model repeating the
+                    // *same* bad arguments will not fix itself, and two
+                    // strikes ends the turn. A refusal is different —
+                    // the right response is to choose another tool, and
+                    // a model that tried two disabled ones would
+                    // otherwise have the whole turn aborted. The
+                    // per-turn call budget still bounds a model that
+                    // keeps asking.
+                    on_event(AgentEvent::ToolCallEnd {
+                        id: id.clone(),
+                        ok: false,
+                        view: None,
+                    });
+                    tool_results.push(ContentBlock::ToolResult {
+                        tool_use_id: id,
+                        content: format!(
+                            "`{tool}` is turned off for this turn. Do not try it again; \
+                             use one of the tools you were given, or say what you would \
+                             need enabled."
+                        ),
+                        is_error: Some(true),
+                    });
+                }
                 Err(dispatch_err) => {
                     // Schema validation failure or unknown tool. Surface
                     // to the model as a tool_result error and let it
@@ -1031,6 +1071,7 @@ mod tests {
             engine: &mut engine,
             user_message: "",
             clipboard: &mut clipboard,
+            allowed_tools: None,
         };
 
         let load = dispatcher
@@ -1104,6 +1145,7 @@ mod tests {
             engine: &mut engine,
             user_message: "",
             clipboard: &mut clipboard,
+            allowed_tools: None,
         };
         dispatcher
             .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)

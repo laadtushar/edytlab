@@ -81,6 +81,7 @@ fn registering_and_invoking_a_noop_tool_returns_ok() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     let out = dispatcher
@@ -105,6 +106,7 @@ fn invoking_unregistered_tool_returns_unknown_with_name() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     let err = dispatcher
@@ -135,6 +137,7 @@ fn schema_validation_rejects_malformed_args_before_invoking() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     // `path` is missing — must be rejected.

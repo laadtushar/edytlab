@@ -58,6 +58,7 @@ impl Session {
             engine: &mut self.engine,
             user_message: "",
             clipboard: &mut self.clipboard,
+            allowed_tools: None,
         };
         self.dispatcher.invoke(tool, args, &mut ctx).unwrap()
     }
@@ -293,4 +294,137 @@ fn an_empty_folder_says_so() {
         }),
     ));
     assert!(msg.contains("no audio files"), "{msg}");
+}
+
+// =============================================================================
+// The capability whitelist is enforced at dispatch, not just in the
+// schema list (#238)
+// =============================================================================
+//
+// Trimming the `tools` array sent to the model is a hint: it tells a
+// well-behaved model what to ask for. It was the *only* place the
+// whitelist was applied, so it was not a control.
+//
+// Two ways past it. A model on an OpenAI-compatible or Ollama endpoint
+// could simply name a filtered-out tool. And deterministically, without
+// any model misbehaviour at all: `batch_apply` built a fresh
+// `default_dispatcher()` that had never seen the whitelist, so
+// unticking `render_final` still let it write files through
+// `render_format` — at an unconstrained absolute `out_path`.
+
+use std::collections::HashSet;
+
+/// Run `tool` with only `allowed` permitted.
+fn call_restricted(
+    s: &mut Session,
+    tool: &str,
+    args: Value,
+    allowed: &[&str],
+) -> tools::Result<ToolResult> {
+    let allowed: HashSet<String> = allowed.iter().map(|t| (*t).to_string()).collect();
+    let mut ctx = ToolContext {
+        store: &mut s.store,
+        engine: &mut s.engine,
+        user_message: "",
+        clipboard: &mut s.clipboard,
+        allowed_tools: Some(&allowed),
+    };
+    s.dispatcher.invoke(tool, args, &mut ctx)
+}
+
+#[test]
+fn a_tool_outside_the_whitelist_is_refused_at_dispatch() {
+    let mut s = Session::new();
+    let src = write_sine(&s.dir.path().join("a.wav"), 440.0);
+
+    let refused = call_restricted(
+        &mut s,
+        "load",
+        json!({ "path": src.to_string_lossy() }),
+        &["gain"],
+    );
+    match refused {
+        Err(tools::DispatchError::NotPermitted(name)) => assert_eq!(name, "load"),
+        other => panic!("expected NotPermitted, got {other:?}"),
+    }
+}
+
+/// The refusal is distinct from "no such tool" on purpose: the agent
+/// loop hands it back to the model, and calling it unknown would send
+/// the model hunting for a spelling mistake.
+#[test]
+fn a_refusal_is_not_reported_as_an_unknown_tool() {
+    let mut s = Session::new();
+    let refused = call_restricted(&mut s, "gain", json!({ "track": 0, "db": -3.0 }), &["load"]);
+    assert!(
+        matches!(refused, Err(tools::DispatchError::NotPermitted(_))),
+        "a permitted-but-disabled tool must not be reported as unknown"
+    );
+}
+
+#[test]
+fn a_whitelisted_tool_still_runs() {
+    let mut s = Session::new();
+    let src = write_sine(&s.dir.path().join("a.wav"), 440.0);
+    let out = call_restricted(
+        &mut s,
+        "load",
+        json!({ "path": src.to_string_lossy() }),
+        &["load"],
+    )
+    .expect("dispatch");
+    assert!(
+        matches!(out, ToolResult::Ok(_)),
+        "the whitelist must permit what it lists, not merely refuse everything"
+    );
+}
+
+/// The deterministic bypass, and the reason the check lives on
+/// `ToolContext` rather than the dispatcher: `batch_apply` builds its
+/// own dispatcher, but it inherits the *context*, so the restriction
+/// follows the nested dispatch.
+#[test]
+fn batch_apply_cannot_reach_a_tool_its_caller_may_not_use() {
+    let mut s = Session::new();
+    let recipe = make_recipe(&mut s);
+
+    let input_dir = s.dir.path().join("inputs");
+    std::fs::create_dir_all(&input_dir).unwrap();
+    write_sine(&input_dir.join("one.wav"), 440.0);
+
+    // `batch_apply` is allowed; the `gain` step inside the recipe is not.
+    let out = call_restricted(
+        &mut s,
+        "batch_apply",
+        json!({
+            "input_dir": input_dir.to_string_lossy(),
+            "recipe_path": recipe.to_string_lossy(),
+        }),
+        &["batch_apply", "load"],
+    )
+    .expect("batch_apply itself dispatches");
+
+    let v = match out {
+        ToolResult::Ok(v) => v,
+        ToolResult::Error(m) => panic!("batch_apply errored outright: {m}"),
+    };
+    // Every file must be refused rather than quietly processed: the
+    // chain cannot complete without a tool the caller may not run.
+    assert_eq!(
+        v["succeeded"], 0,
+        "a step outside the whitelist was executed through batch_apply: {v}"
+    );
+    assert_eq!(
+        v["refused"], 1,
+        "the file should be refused, not skipped: {v}"
+    );
+
+    // And the reason must name the refusal, so a user who unticked a
+    // capability can tell that is why the batch did nothing — rather
+    // than reading it as an unexplained failure.
+    let reason = v["results"][0]["reason"].as_str().unwrap_or_default();
+    assert!(
+        reason.contains("gain") && reason.contains("not enabled"),
+        "the refusal reason should name the disabled tool, got: {reason}"
+    );
 }

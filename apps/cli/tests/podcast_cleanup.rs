@@ -151,6 +151,7 @@ fn ai_driven_podcast_cleanup() {
             engine: &mut engine,
             user_message: "",
             clipboard: &mut clipboard,
+            allowed_tools: None,
         };
         let res = dispatcher
             .invoke(

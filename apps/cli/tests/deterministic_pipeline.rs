@@ -138,6 +138,7 @@ fn podcast_cleanup_deterministic() {
             engine: &mut e,
             user_message: "",
             clipboard: &mut clipboard,
+            allowed_tools: None,
         };
         invoke(
             &dispatcher,
@@ -165,6 +166,7 @@ fn podcast_cleanup_deterministic() {
             engine: &mut e,
             user_message: "",
             clipboard: &mut clipboard,
+            allowed_tools: None,
         };
         invoke(
             &dispatcher,
@@ -187,6 +189,7 @@ fn podcast_cleanup_deterministic() {
             engine: &mut e,
             user_message: "",
             clipboard: &mut clipboard,
+            allowed_tools: None,
         };
         invoke(
             &dispatcher,
@@ -216,6 +219,7 @@ fn podcast_cleanup_deterministic() {
             engine: &mut e,
             user_message: "",
             clipboard: &mut clipboard,
+            allowed_tools: None,
         };
         invoke(
             &dispatcher,

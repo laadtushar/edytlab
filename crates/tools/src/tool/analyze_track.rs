@@ -149,6 +149,7 @@ mod tests {
             engine: &mut engine,
             user_message: "",
             clipboard: &mut clipboard,
+            allowed_tools: None,
         };
 
         let tool = AnalyzeTrackTool;
@@ -181,6 +182,7 @@ mod tests {
             engine: &mut engine,
             user_message: "",
             clipboard: &mut clipboard,
+            allowed_tools: None,
         };
         let tool = AnalyzeTrackTool;
         let result = tool

@@ -9,11 +9,16 @@
  * obvious to the user and stable for the implementation that lands
  * later.
  *
- * Toggling a tool off does NOT yet filter the request — wiring the
- * disabled-tools list into the agent loop is a follow-up tracked in
- * `docs/specs/agentic-chat-ui.md`. For v1 the toggles persist locally
- * in `localStorage` so the UI is testable end-to-end while the
- * filtering ships next.
+ * Toggling a tool off removes it from the schema list sent to the model
+ * *and* refuses it at dispatch (#238). The second half is what makes
+ * the checkbox a control rather than a hint: the schema list only tells
+ * a well-behaved model what to ask for, and a disabled tool was still
+ * reachable both by a model that named it anyway and — deterministically
+ * — through meta-tools like `batch_apply`, which used to build their own
+ * dispatcher that had never seen the whitelist.
+ *
+ * The toggles persist in `localStorage`, so they are per-machine and
+ * per-browser-profile rather than part of the session.
  */
 
 import { useEffect, useRef, useState } from "react";

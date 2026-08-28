@@ -60,6 +60,7 @@ fn report_after(edits: usize) -> (TempDir, Value) {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     ok(dispatcher
@@ -118,6 +119,7 @@ fn derived_audio_is_written_inside_the_project() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     ok(dispatcher
@@ -225,6 +227,7 @@ fn a_file_no_node_names_is_reported_unreferenced() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -280,6 +283,7 @@ fn the_report_deletes_nothing() {
         engine: &mut engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
     ok(dispatcher
         .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)

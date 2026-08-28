@@ -81,6 +81,7 @@ fn split_session(frames_per_third: usize) -> Session {
             engine: &mut engine,
             user_message: "",
             clipboard: &mut clipboard,
+            allowed_tools: None,
         };
         ok(dispatcher
             .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
@@ -120,6 +121,7 @@ fn normalize_measures_the_whole_track() {
         engine: &mut s.engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     let res = ok(s
@@ -163,6 +165,7 @@ fn silence_finder_reports_positions_on_the_track() {
         engine: &mut s.engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     let res = ok(s
@@ -196,6 +199,7 @@ fn plot_spectrum_windows_the_track_not_the_source_file() {
         engine: &mut s.engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     let res = ok(s
@@ -230,6 +234,7 @@ fn copy_region_reads_the_track() {
         engine: &mut s.engine,
         user_message: "",
         clipboard: &mut clipboard,
+        allowed_tools: None,
     };
 
     ok(s.dispatcher

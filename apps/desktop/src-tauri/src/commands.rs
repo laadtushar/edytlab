@@ -2146,6 +2146,7 @@ fn run_track_tool(state: &AppState, tool: &str, args: serde_json::Value) -> CmdR
             engine: &mut engine,
             user_message: "",
             clipboard: &mut clipboard,
+            allowed_tools: None,
         };
         // A tool that fails validation returns `ToolResult::Error`
         // rather than `Err` — that is the dispatcher contract, and it
@@ -3422,6 +3423,7 @@ pub async fn batch_load(
                 engine: &mut engine,
                 user_message: "",
                 clipboard: &mut clipboard,
+                allowed_tools: None,
             };
 
             dispatcher

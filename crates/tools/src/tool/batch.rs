@@ -284,6 +284,9 @@ fn run_one(
             engine: &mut *ctx.engine,
             user_message: "",
             clipboard: &mut clipboard,
+            // Inherit, never reset: this sub-context is exactly where
+            // the restriction used to be lost (#238).
+            allowed_tools: ctx.allowed_tools,
         };
 
         for (i, step) in chain.steps.iter().enumerate() {

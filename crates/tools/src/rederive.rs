@@ -70,6 +70,7 @@ pub fn ensure_present(
             engine: &mut engine,
             user_message: "",
             clipboard: &mut clipboard,
+            allowed_tools: None,
         };
         for step in &recipe.steps {
             match dispatcher.invoke(&step.tool, step.params.clone(), &mut ctx) {

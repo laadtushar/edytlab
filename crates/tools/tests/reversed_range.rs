@@ -69,6 +69,7 @@ fn a_reversed_range_is_reported_not_panicked() {
                 engine: &mut engine,
                 user_message: "",
                 clipboard: &mut clipboard,
+                allowed_tools: None,
             };
 
             dispatcher
@@ -124,6 +125,7 @@ fn negative_bounds_are_reported() {
             engine: &mut engine,
             user_message: "",
             clipboard: &mut clipboard,
+            allowed_tools: None,
         };
         dispatcher
             .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
