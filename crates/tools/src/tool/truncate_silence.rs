@@ -1,5 +1,8 @@
 use crate::schema::anthropic_tool;
-use crate::tool::util::destructive_edit;
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use crate::tool::util::{destructive_edit_then, dropped_labels_field, remap_after_cut};
 use crate::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::Value;
@@ -127,12 +130,38 @@ impl Tool for TruncateSilenceTool {
             }
         };
         let (thresh, min) = (args.threshold_db, min_ms);
-        Ok(destructive_edit(
+
+        // The spans have to escape the edit closure (#231/#276).
+        // `find_silent_regions` runs inside it, against the flattened
+        // buffer the helper produces, and the after-hook is the only
+        // place with a `SessionState` to remap — so the two share this.
+        // The closure always runs first, so the hook never reads it
+        // empty by accident.
+        let removed: Rc<RefCell<Vec<(usize, usize)>>> = Rc::new(RefCell::new(Vec::new()));
+        let removed_edit = Rc::clone(&removed);
+        let removed_hook = Rc::clone(&removed);
+
+        Ok(destructive_edit_then(
             ctx,
             args.track,
-            move |samples, sr| {
+            move |samples, sr, chans| {
+                *removed_edit.borrow_mut() =
+                    find_silent_regions(samples, sr, channels, thresh, min);
                 let result = apply_truncate_silence(samples.clone(), sr, channels, thresh, min);
                 *samples = result;
+                (sr, chans)
+            },
+            move |state, _| {
+                // Labels and words follow the audio out (#231). Applied
+                // back to front: each cut renumbers everything after it,
+                // so working forwards would leave every later span
+                // pointing at coordinates that no longer exist.
+                let rate = state.sample_rate.max(1) as f64;
+                let mut dropped = 0;
+                for (s, e) in removed_hook.borrow().iter().rev() {
+                    dropped += remap_after_cut(state, *s as f64 / rate, *e as f64 / rate);
+                }
+                dropped_labels_field(dropped)
             },
             format!(
                 "truncate_silence track {} threshold={}dB min={}ms",

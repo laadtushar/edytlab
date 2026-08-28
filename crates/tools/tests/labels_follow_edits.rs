@@ -36,6 +36,35 @@ fn write_sine(path: &Path, seconds: usize) -> PathBuf {
     path.to_path_buf()
 }
 
+/// tone / silence / tone / silence / tone, one second each.
+///
+/// `truncate_silence` needs actual silence to find; the 30s sine the
+/// other tests use has none, so those tests would pass whatever the
+/// remap did.
+fn write_tone_islands(path: &Path) -> PathBuf {
+    let spec = WavSpec {
+        channels: 1,
+        sample_rate: SAMPLE_RATE,
+        bits_per_sample: 16,
+        sample_format: SampleFormat::Int,
+    };
+    let mut w = WavWriter::create(path, spec).expect("wav writer");
+    for band in 0..5 {
+        let silent = band % 2 == 1;
+        for n in 0..SAMPLE_RATE as usize {
+            if silent {
+                w.write_sample(0i16).unwrap();
+            } else {
+                let t = n as f32 / SAMPLE_RATE as f32;
+                w.write_sample(((2.0 * std::f32::consts::PI * 440.0 * t).sin() * 8000.0) as i16)
+                    .unwrap();
+            }
+        }
+    }
+    w.finalize().unwrap();
+    path.to_path_buf()
+}
+
 struct Session {
     _dir: TempDir,
     store: session::Store,
@@ -48,6 +77,23 @@ impl Session {
     fn new() -> Self {
         let dir = TempDir::new().expect("tempdir");
         let wav = write_sine(&dir.path().join("episode.wav"), 30);
+        let store = session::Store::open(dir.path()).expect("open store");
+        let mut s = Self {
+            _dir: dir,
+            store,
+            engine: audio_engine::Engine::new(),
+            dispatcher: ToolDispatcher::default_dispatcher(),
+            clipboard: None,
+        };
+        s.call("load", json!({ "path": wav.to_string_lossy() }));
+        s
+    }
+
+    /// A session whose track has real silence in it, for
+    /// `truncate_silence`.
+    fn silent_with_tone_islands() -> Self {
+        let dir = TempDir::new().expect("tempdir");
+        let wav = write_tone_islands(&dir.path().join("islands.wav"));
         let store = session::Store::open(dir.path()).expect("open store");
         let mut s = Self {
             _dir: dir,
@@ -545,4 +591,162 @@ fn trim_rebases_the_transcript_onto_the_kept_window() {
         "expected 2.0 after trimming to [10, 20), got {}",
         words[0].1
     );
+}
+
+// =============================================================================
+// The tools that route through destructive_edit_then (#276)
+// =============================================================================
+//
+// These four could not be fixed with #275's helpers: the edit closure is
+// an opaque buffer mutation, so it cannot say what it removed, and the
+// result JSON was fixed at `node_id` + `summary`, so a dropped count had
+// nowhere to go. Both are now plumbed.
+
+/// Speeding up re-times the whole recording — output duration is input
+/// divided by the factor — so every mark moves by the same ratio.
+#[test]
+fn change_speed_rescales_labels_and_words() {
+    let mut s = Session::new();
+    s.mark("halfway", 10.0);
+    s.seed_transcript(&[("word", 10.0, 11.0)]);
+    ok(s.call("change_speed", json!({ "track": 0, "factor": 2.0 })));
+
+    assert!(
+        (s.at("halfway") - 5.0).abs() < 1e-3,
+        "at double speed a 10s mark belongs at 5s, got {}",
+        s.at("halfway")
+    );
+    let words = s.words();
+    assert!(
+        (words[0].1 - 5.0).abs() < 1e-3,
+        "at double speed a 10s word belongs at 5s, got {}",
+        words[0].1
+    );
+}
+
+#[test]
+fn slowing_down_pushes_labels_later() {
+    let mut s = Session::new();
+    s.mark("halfway", 5.0);
+    ok(s.call("change_speed", json!({ "track": 0, "factor": 0.5 })));
+    assert!(
+        (s.at("halfway") - 10.0).abs() < 1e-3,
+        "at half speed a 5s mark belongs at 10s, got {}",
+        s.at("halfway")
+    );
+}
+
+#[test]
+fn time_stretch_rescales_labels_and_words() {
+    let mut s = Session::new();
+    s.mark("halfway", 10.0);
+    s.seed_transcript(&[("word", 10.0, 11.0)]);
+    ok(s.call(
+        "time_stretch",
+        json!({ "track": 0, "factor": 2.0, "preserve_formants": false }),
+    ));
+    assert!(
+        (s.at("halfway") - 5.0).abs() < 1e-3,
+        "factor 2.0 halves the duration, so a 10s mark belongs at 5s, got {}",
+        s.at("halfway")
+    );
+    let words = s.words();
+    assert!((words[0].1 - 5.0).abs() < 1e-3, "word not rescaled");
+}
+
+/// `truncate_silence` removes many spans at once, so the remap has to
+/// run back to front — each cut renumbers everything after it.
+#[test]
+fn truncate_silence_pulls_labels_back_past_every_removed_gap() {
+    let mut s = Session::silent_with_tone_islands();
+    s.mark("after the gaps", 9.0);
+    let out = ok(s.call(
+        "truncate_silence",
+        json!({ "track": 0, "threshold_db": -40.0, "min_silence_ms": 100.0 }),
+    ));
+
+    // The fixture is tone/silence/tone/silence/tone, one second each, so
+    // two seconds of silence come out and a mark at 9s lands at 7s.
+    let moved = s.at("after the gaps");
+    assert!(
+        moved < 9.0,
+        "the mark did not move at all — {moved} is where it started"
+    );
+    assert!(
+        (moved - 7.0).abs() < 0.2,
+        "expected ~7.0 after two 1s gaps came out, got {moved}"
+    );
+    // Nothing was marked inside a gap here, so no count is reported.
+    assert!(out.get("dropped_labels").is_none());
+}
+
+#[test]
+fn truncate_silence_reports_a_label_it_removed() {
+    let mut s = Session::silent_with_tone_islands();
+    s.mark("inside the first gap", 1.5);
+    let out = ok(s.call(
+        "truncate_silence",
+        json!({ "track": 0, "threshold_db": -40.0, "min_silence_ms": 100.0 }),
+    ));
+    assert_eq!(
+        out["dropped_labels"], 1,
+        "a mark inside removed silence was discarded without saying so"
+    );
+}
+
+/// The test that actually pins the ordering.
+///
+/// A mark *past* both gaps lands at the same place whichever direction
+/// the spans are applied in, so it cannot tell a correct implementation
+/// from a broken one — the first version of this file made exactly that
+/// mistake and a forwards-iterating mutation passed it.
+///
+/// A mark inside the **second** gap does distinguish them. The spans are
+/// recorded in pre-edit coordinates: applied back to front, `[3s, 4s)`
+/// still names the second gap and the mark inside it is dropped. Applied
+/// front to back, the first cut has already pulled that mark to 2.5s, so
+/// `[3s, 4s)` no longer contains it and it survives at a position where
+/// there is no longer any audio.
+#[test]
+fn truncate_silence_applies_removed_spans_back_to_front() {
+    let mut s = Session::silent_with_tone_islands();
+    s.mark("inside the second gap", 3.5);
+    let out = ok(s.call(
+        "truncate_silence",
+        json!({ "track": 0, "threshold_db": -40.0, "min_silence_ms": 100.0 }),
+    ));
+    assert_eq!(
+        out["dropped_labels"], 1,
+        "the mark inside the second gap survived, so the spans were \
+         applied in the wrong order: the earlier cut shifted it out of \
+         the later span before that span was used"
+    );
+    assert!(
+        s.labels().is_empty(),
+        "the dropped mark is still present: {:?}",
+        s.labels()
+    );
+}
+
+/// Not every length-changing tool needs a remap, and asserting that is
+/// as much a part of the contract as the shifts above.
+///
+/// The issue listed `repeat_selection` alongside the others. It is not
+/// affected: `apply_repeat` **appends** the copies to the end of the
+/// buffer rather than splicing them at the selection, so nothing that
+/// already exists moves. Remapping here would corrupt correct data.
+#[test]
+fn repeat_selection_appends_and_so_moves_nothing() {
+    let mut s = Session::new();
+    s.mark("chapter two", 12.0);
+    s.seed_transcript(&[("word", 12.0, 12.5)]);
+    ok(s.call(
+        "repeat_selection",
+        json!({ "track": 0, "start_sec": 1.0, "end_sec": 3.0, "times": 2 }),
+    ));
+    assert!(
+        (s.at("chapter two") - 12.0).abs() < 1e-4,
+        "repeat_selection appends at the end; nothing before it may move"
+    );
+    assert!((s.words()[0].1 - 12.0).abs() < 1e-4);
 }

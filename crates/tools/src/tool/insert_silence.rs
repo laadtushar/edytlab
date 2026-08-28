@@ -138,17 +138,18 @@ impl Tool for InsertSilenceTool {
                 remap_after_insert(state, at, duration);
 
                 if !state.sync_lock {
-                    return;
+                    return Default::default();
                 }
                 let rate = state.sample_rate.max(1) as f64;
                 let at_frames = (at * rate).round().max(0.0) as u64;
                 let len_frames = (duration * rate).round().max(0.0) as u64;
                 if len_frames == 0 {
-                    return;
+                    return Default::default();
                 }
                 sync_other_tracks(state, edited, |clips| {
                     insert_gap_timeline(clips, at_frames, len_frames)
                 });
+                Default::default()
             },
             format!("insert {duration:.2}s silence at {at:.2}s on track {track}"),
         ))
