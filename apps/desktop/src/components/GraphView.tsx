@@ -437,7 +437,12 @@ interface RenameOverlayProps {
  * Tiny in-place input. Submit calls `rename_node` via the parent's
  * `onSubmit` handler; empty input clears the label.
  */
-function RenameOverlay({ nodeId, onSubmit, onClose }: RenameOverlayProps) {
+/**
+ * Exported so its behaviour is testable directly (#253). The overlay
+ * sits inside a react-flow canvas that jsdom cannot mount, and the
+ * failure this guards against is entirely in the form.
+ */
+export function RenameOverlay({ nodeId, onSubmit, onClose }: RenameOverlayProps) {
   const [value, setValue] = useState("");
   return (
     <div
@@ -451,7 +456,9 @@ function RenameOverlay({ nodeId, onSubmit, onClose }: RenameOverlayProps) {
         className="flex flex-col gap-2 rounded-md border border-neutral-700 bg-neutral-900 p-3 text-xs text-neutral-100"
         onSubmit={(e) => {
           e.preventDefault();
-          void Promise.resolve(onSubmit(value)).finally(onClose);
+          const name = value.trim();
+          if (!name) return;
+          void Promise.resolve(onSubmit(name)).finally(onClose);
         }}
       >
         <label
@@ -476,10 +483,26 @@ function RenameOverlay({ nodeId, onSubmit, onClose }: RenameOverlayProps) {
           >
             Cancel
           </button>
+          {/*
+            Gated on a non-empty name, not hard-disabled (#253).
+
+            This carried a bare `disabled` attribute and the tooltip
+            "available after M24 lands" long after M24 landed —
+            `rename_node` is registered, the bridge exports it, and this
+            component's own doc comment says the overlay is wired to it.
+
+            A disabled default submit button also suppresses implicit
+            form submission, so Enter in the input did nothing either:
+            with Cancel being `type="button"`, the form had no reachable
+            submit path at all. Someone could type a name and never
+            commit it.
+          */}
           <button
             type="submit"
-            disabled
-            title="available after M24 lands"
+            disabled={!value.trim()}
+            title={
+              value.trim() ? undefined : "enter a name first"
+            }
             className="rounded bg-blue-600 px-2 py-1 text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
             Save
