@@ -1575,7 +1575,23 @@ pub async fn send_message<R: Runtime>(
     // independent; emit failures (the receiver window has gone away)
     // are logged rather than aborting the turn.
     let app_handle = app.clone();
+    // The gate is open exactly between the Plan emission and the answer
+    // that releases it (#251). Tracked here rather than inside the loop
+    // because this is the boundary the *frontend* sees, and it is the
+    // frontend's stray Run that used to bank a permit.
+    let gate_open = Arc::clone(&state.plan_gate_open);
     let on_event = move |event: ai::AgentEvent| {
+        match &event {
+            ai::AgentEvent::Plan { .. } => {
+                gate_open.store(true, std::sync::atomic::Ordering::SeqCst)
+            }
+            // A turn that ended — normally, or by the gate's own
+            // timeout — is no longer waiting for an answer.
+            ai::AgentEvent::Done | ai::AgentEvent::PlanRejected => {
+                gate_open.store(false, std::sync::atomic::Ordering::SeqCst)
+            }
+            _ => {}
+        }
         emit_agent_event(&app_handle, event);
     };
 
@@ -1692,6 +1708,11 @@ pub async fn get_plan_first(state: State<'_, AppState>) -> CmdResult<bool> {
 /// having run no tools and appended no node.
 #[tauri::command]
 pub async fn reject_plan(state: State<'_, AppState>) -> CmdResult<()> {
+    // Nothing is waiting, so there is nothing to answer (#251). See
+    // `approve_plan` for why a no-op beats notifying anyway.
+    if !plan_gate_was_open(&state) {
+        return Ok(());
+    }
     state
         .plan_rejected
         .store(true, std::sync::atomic::Ordering::SeqCst);
@@ -1699,8 +1720,29 @@ pub async fn reject_plan(state: State<'_, AppState>) -> CmdResult<()> {
     Ok(())
 }
 
+/// Claim the open plan gate, if there is one.
+///
+/// `swap` rather than a read: the gate takes exactly one answer, so a
+/// double-click cannot notify twice and leave a permit behind.
+fn plan_gate_was_open(state: &AppState) -> bool {
+    state
+        .plan_gate_open
+        .swap(false, std::sync::atomic::Ordering::SeqCst)
+}
+
 #[tauri::command]
 pub async fn approve_plan(state: State<'_, AppState>, steps: Option<Vec<String>>) -> CmdResult<()> {
+    // A stray Run — on a card that should already have gone away — is a
+    // no-op, not a banked permit (#251).
+    //
+    // `plan_notify` is a tokio `Notify`, and `notify_one` on a
+    // waiterless one stores a permit. So this used to satisfy the
+    // *next* turn's gate immediately, carrying whatever override text
+    // came with the stray click: the following planned turn skipped its
+    // checkpoint and followed a plan the user never saw for it.
+    if !plan_gate_was_open(&state) {
+        return Ok(());
+    }
     if let Some(steps) = steps {
         if !steps.is_empty() {
             let formatted = steps

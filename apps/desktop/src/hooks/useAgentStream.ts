@@ -30,6 +30,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   approvePlan as bridgeApprovePlan,
+  rejectPlan as bridgeRejectPlan,
   onAgentDone,
   onNodeCreated,
   onPlan,
@@ -124,6 +125,13 @@ export interface UseAgentStreamResult {
    *  override is forwarded to the backend so the agent follows the revised
    *  plan rather than the original one. */
   approvePlan: (steps?: Array<{ step: number; tool: string; description: string }>) => Promise<void>;
+  /**
+   * Discard the pending plan and take the card down (#251).
+   *
+   * Chat used to call the bridge directly, leaving `pendingPlan` set —
+   * so approval was the only way to dismiss the card.
+   */
+  discardPlan: () => Promise<void>;
 }
 
 /**
@@ -382,6 +390,28 @@ export function useAgentStream(): UseAgentStreamResult {
     [],
   );
 
+  /**
+   * Discard the plan, and take the card down with it (#251).
+   *
+   * Chat called the bridge directly and nothing cleared `pendingPlan`,
+   * so approval was the *only* reachable way to dismiss the card. After
+   * a Discard the user could not tell whether the plan had been
+   * cancelled or was still pending — exactly the "gate reads as a trap"
+   * problem Discard was added to solve.
+   *
+   * Cleared even when the bridge call fails: the backend either
+   * rejected the plan or was never waiting on one, and in both cases a
+   * card offering Run is worse than no card. The error still surfaces
+   * to the caller.
+   */
+  const discardPlan = useCallback(async () => {
+    try {
+      await bridgeRejectPlan();
+    } finally {
+      setPendingPlan(null);
+    }
+  }, []);
+
   return {
     entries,
     current,
@@ -390,5 +420,6 @@ export function useAgentStream(): UseAgentStreamResult {
     reset,
     pendingPlan,
     approvePlan,
+    discardPlan,
   };
 }
