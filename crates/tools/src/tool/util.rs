@@ -901,3 +901,126 @@ pub(crate) fn insert_annotations(
         })
         .collect()
 }
+
+// =============================================================================
+// Transcript remapping
+// =============================================================================
+//
+// The transcript is the second time-addressed record in `SessionState`,
+// and it was the one nobody moved. `cut_annotations` had existed since
+// #203; the words beside them went on describing the timeline as it was
+// before the edit.
+//
+// That is worse than a stale chapter mark, because the transcript is not
+// only *read* by the user — it is read by `cut_words`, `select_region`
+// and `duck_under_speech`, which turn a word's `start_s` into a sample
+// offset and edit there. A stale transcript therefore makes a later text
+// edit delete audio somewhere else entirely, while reporting the word it
+// thought it removed.
+//
+// These mirror the annotation helpers above deliberately, including the
+// boundary rules: a word is a half-open span, so it behaves like a
+// `Region`, not like a `Marker`.
+
+/// Move transcript words to keep up with a cut of `[start_sec, end_sec)`.
+///
+/// Returns the surviving words and how many were dropped. A word is a
+/// span, so the `Region` rules apply: one that overlaps the cut is
+/// clipped to what survives, and dropped only when nothing does.
+pub(crate) fn cut_transcript(
+    transcript: &Option<session::Transcript>,
+    start_sec: f64,
+    end_sec: f64,
+) -> (Option<session::Transcript>, usize) {
+    let Some(t) = transcript else {
+        return (None, 0);
+    };
+
+    let len = (end_sec - start_sec).max(0.0);
+    let map = |x: f64| {
+        if x <= start_sec {
+            x
+        } else {
+            (x - len).max(start_sec)
+        }
+    };
+
+    let mut words = Vec::with_capacity(t.words.len());
+    let mut dropped = 0;
+
+    for w in &t.words {
+        let (ns, ne) = (map(w.start_s as f64), map(w.end_s as f64));
+        // The whole word was inside the cut: its audio is gone, and a
+        // zero-width word at the seam would be a word the listener can
+        // never hear.
+        if ne - ns <= f64::EPSILON {
+            dropped += 1;
+            continue;
+        }
+        words.push(session::TranscriptWord {
+            text: w.text.clone(),
+            start_s: ns as f32,
+            end_s: ne as f32,
+            confidence: w.confidence,
+        });
+    }
+
+    (Some(session::Transcript { words }), dropped)
+}
+
+/// Mirror of [`cut_transcript`] for `len_sec` of audio inserted at
+/// `at_sec`. Nothing is ever dropped — an insert only makes room.
+pub(crate) fn insert_transcript(
+    transcript: &Option<session::Transcript>,
+    at_sec: f64,
+    len_sec: f64,
+) -> Option<session::Transcript> {
+    let t = transcript.as_ref()?;
+
+    let shift = |x: f64| if x < at_sec { x } else { x + len_sec };
+
+    Some(session::Transcript {
+        words: t
+            .words
+            .iter()
+            .map(|w| session::TranscriptWord {
+                text: w.text.clone(),
+                start_s: shift(w.start_s as f64) as f32,
+                // A word *spanning* the insert grows to contain it; one
+                // that merely ends where the silence begins does not.
+                end_s: if (w.end_s as f64) > at_sec {
+                    (w.end_s as f64 + len_sec) as f32
+                } else {
+                    w.end_s
+                },
+                confidence: w.confidence,
+            })
+            .collect(),
+    })
+}
+
+// =============================================================================
+// Combined remapping
+// =============================================================================
+//
+// Both records have to move together or not at all. Splitting the call
+// sites is how they drifted apart in the first place: `cut_range`
+// remembered the labels and forgot the words, `trim` forgot both, and
+// `text_edit` was the only tool that did both. These three functions are
+// the single thing a length-changing tool calls.
+
+/// Remap both time-addressed records for a cut of `[start_sec, end_sec)`.
+/// Returns the number of labels dropped, which the caller reports.
+pub(crate) fn remap_after_cut(state: &mut SessionState, start_sec: f64, end_sec: f64) -> usize {
+    let (kept, dropped) = cut_annotations(&state.annotations, start_sec, end_sec);
+    state.annotations = kept;
+    let (words, _) = cut_transcript(&state.transcript, start_sec, end_sec);
+    state.transcript = words;
+    dropped
+}
+
+/// Remap both records for `len_sec` inserted at `at_sec`.
+pub(crate) fn remap_after_insert(state: &mut SessionState, at_sec: f64, len_sec: f64) {
+    state.annotations = insert_annotations(&state.annotations, at_sec, len_sec);
+    state.transcript = insert_transcript(&state.transcript, at_sec, len_sec);
+}

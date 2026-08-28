@@ -12,8 +12,8 @@ use serde_json::{json, Value};
 
 use crate::schema::{anthropic_tool, object_schema};
 use crate::tool::util::{
-    append_state, check_sample_range, check_track_index, cut_annotations, cut_timeline,
-    load_head_state, sync_other_tracks, timeline_end,
+    append_state, check_sample_range, check_track_index, cut_timeline, load_head_state,
+    remap_after_cut, sync_other_tracks, timeline_end,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -94,10 +94,13 @@ impl Tool for CutRangeTool {
         // Labels name moments in the recording, not offsets in a file
         // (#203). Leaving them put would rename every chapter after the
         // cut to something `cut_len` seconds off.
+        //
+        // The transcript is the same kind of record and was the half
+        // nobody moved (#231): `cut_words` turns a word's `start_s` into
+        // a sample offset, so a stale transcript makes the *next* text
+        // edit delete audio elsewhere while naming the right word.
         let sr = state.sample_rate.max(1) as f64;
-        let (kept, dropped) =
-            cut_annotations(&state.annotations, start as f64 / sr, end as f64 / sr);
-        state.annotations = kept;
+        let dropped = remap_after_cut(&mut state, start as f64 / sr, end as f64 / sr);
 
         state.length_samples = state
             .tracks

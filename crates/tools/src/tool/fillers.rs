@@ -39,7 +39,9 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{append_state, check_track_index, cut_timeline, load_head_state};
+use crate::tool::util::{
+    append_state, check_track_index, cut_annotations, cut_timeline, load_head_state,
+};
 use crate::{Tool, ToolContext, ToolResult};
 
 /// Hesitations. These carry no meaning and are removable wherever they
@@ -186,6 +188,7 @@ impl Tool for RemoveFillersTool {
         let sr = state.sample_rate.max(1) as f64;
         let mut words = transcript.words.clone();
         let mut total_removed_s = 0.0f32;
+        let mut dropped_labels = 0usize;
 
         for filler in found.iter().rev() {
             let cut_start = filler.start_s;
@@ -203,6 +206,15 @@ impl Tool for RemoveFillersTool {
 
             let span = cut_end - cut_start;
             total_removed_s += span;
+
+            // The labels move with the audio (#231). `words` below is
+            // shifted per iteration, so these coordinates are the
+            // *current* timeline's — and the annotations have to be cut
+            // in the same evolving space, one span at a time.
+            let (kept, dropped) =
+                cut_annotations(&state.annotations, cut_start as f64, cut_end as f64);
+            state.annotations = kept;
+            dropped_labels += dropped;
 
             words.remove(filler.index);
             for w in words.iter_mut().skip(filler.index) {
@@ -227,6 +239,9 @@ impl Tool for RemoveFillersTool {
             "found": found.len(),
             "applied": true,
             "removed_sec": total_removed_s,
+            // Silently discarding a user's chapter mark is the one
+            // outcome worth naming; `cut_range` has always reported it.
+            "dropped_labels": dropped_labels,
             "summary": format!(
                 "Removed {} filler{} ({}), {:.1}s shorter. One undoable edit, with a {:.0}ms \
                  pause left where each one was.",

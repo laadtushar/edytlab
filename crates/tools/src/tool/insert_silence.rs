@@ -2,7 +2,7 @@
 
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
-    destructive_edit_then, insert_annotations, insert_gap_timeline, sync_other_tracks,
+    destructive_edit_then, insert_gap_timeline, remap_after_insert, sync_other_tracks,
     track_channels,
 };
 use crate::{Tool, ToolContext, ToolResult};
@@ -132,7 +132,10 @@ impl Tool for InsertSilenceTool {
                 // Labels move whether or not sync-lock is on: an insert
                 // lengthens the recording, and every mark after the
                 // splice point is now that much later (#203).
-                state.annotations = insert_annotations(&state.annotations, at, duration);
+                // The transcript moves with them (#231): a word after
+                // the splice is now that much later, and `cut_words`
+                // reads these positions back as sample offsets.
+                remap_after_insert(state, at, duration);
 
                 if !state.sync_lock {
                     return;
