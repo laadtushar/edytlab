@@ -2140,7 +2140,7 @@ fn run_track_tool(state: &AppState, tool: &str, args: serde_json::Value) -> CmdR
         let mut store = lock_std(&store_arc, "store")?;
         let mut engine = lock_std(&state.engine, "engine")?;
         let dispatcher = lock_std(&state.dispatcher, "dispatcher")?;
-        let mut clipboard: Option<Vec<f32>> = None;
+        let mut clipboard: Option<tools::Clipboard> = None;
         let mut ctx = tools::ToolContext {
             store: &mut store,
             engine: &mut engine,
@@ -3417,7 +3417,7 @@ pub async fn batch_load(
 
             // The clipboard is not used by `load` but `ToolContext` requires
             // it. A local `None` suffices.
-            let mut clipboard: Option<Vec<f32>> = None;
+            let mut clipboard: Option<tools::Clipboard> = None;
             let mut ctx = tools::ToolContext {
                 store: &mut store,
                 engine: &mut engine,

@@ -87,7 +87,7 @@ fn load_both(a: &Path, b: &Path, project: &Path) {
     let mut store = session::Store::open(project).expect("open store");
     let mut engine = audio_engine::Engine::new();
     let dispatcher = ToolDispatcher::default_dispatcher();
-    let mut clipboard: Option<Vec<f32>> = None;
+    let mut clipboard: Option<tools::Clipboard> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,

@@ -61,7 +61,7 @@ pub fn ensure_present(
     let mut scratch_store = session::Store::open(scratch.path())
         .map_err(|e| format!("could not open the scratch project: {e}"))?;
     let mut engine = audio_engine::Engine::new();
-    let mut clipboard: Option<Vec<f32>> = None;
+    let mut clipboard: Option<crate::Clipboard> = None;
 
     let dispatcher = ToolDispatcher::default_dispatcher();
     {

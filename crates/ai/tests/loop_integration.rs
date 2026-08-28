@@ -300,7 +300,7 @@ async fn agent_dispatches_normalize_and_emits_node_created() {
     let engine = Arc::new(Mutex::new(audio_engine::Engine::new()));
 
     // Seed the store with a load via the dispatcher directly.
-    let clipboard = Arc::new(Mutex::new(None::<Vec<f32>>));
+    let clipboard = Arc::new(Mutex::new(None::<tools::Clipboard>));
     {
         let d = dispatcher.lock().unwrap();
         let mut s = store.lock().unwrap();
@@ -563,7 +563,7 @@ async fn agent_enforces_tool_call_cap() {
     let dispatcher = Arc::new(Mutex::new(tools::ToolDispatcher::default_dispatcher()));
     let store = Arc::new(Mutex::new(session::Store::open(project.path()).unwrap()));
     let engine = Arc::new(Mutex::new(audio_engine::Engine::new()));
-    let clipboard2 = Arc::new(Mutex::new(None::<Vec<f32>>));
+    let clipboard2 = Arc::new(Mutex::new(None::<tools::Clipboard>));
 
     {
         let d = dispatcher.lock().unwrap();

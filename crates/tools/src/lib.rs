@@ -57,6 +57,30 @@ pub enum ToolResult {
     Error(String),
 }
 
+/// Audio on the clipboard, with the format it was captured in (#239).
+///
+/// It used to be a bare `Vec<f32>` — interleaved samples with no rate or
+/// channel count attached. `paste_region` therefore had nothing to
+/// compare against and spliced the buffer using the *destination*
+/// track's stride, so copying two seconds of stereo into a mono track
+/// inserted four seconds of alternating left/right samples and returned
+/// `Ok`. `copy_region` already knew the source format at capture time;
+/// the paste simply could not see it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Clipboard {
+    /// Interleaved samples, `channels` per frame.
+    pub samples: Vec<f32>,
+    pub sample_rate: u32,
+    pub channels: u16,
+}
+
+impl Clipboard {
+    /// Frames, as opposed to samples.
+    pub fn frames(&self) -> usize {
+        self.samples.len() / (self.channels.max(1) as usize)
+    }
+}
+
 /// Errors raised by the dispatcher itself, distinct from tool-level
 /// failures (which are surfaced as [`ToolResult::Error`]).
 #[derive(Debug, thiserror::Error)]

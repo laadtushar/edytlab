@@ -63,7 +63,7 @@ fn a_reversed_range_is_reported_not_panicked() {
             let dispatcher = ToolDispatcher::default_dispatcher();
             let src = write_wav(tmp.path(), "in.wav", channels);
 
-            let mut clipboard: Option<Vec<f32>> = None;
+            let mut clipboard: Option<tools::Clipboard> = None;
             let mut ctx = ToolContext {
                 store: &mut store,
                 engine: &mut engine,
@@ -119,7 +119,7 @@ fn negative_bounds_are_reported() {
         let dispatcher = ToolDispatcher::default_dispatcher();
         let src = write_wav(tmp.path(), "in.wav", 1);
 
-        let mut clipboard: Option<Vec<f32>> = None;
+        let mut clipboard: Option<tools::Clipboard> = None;
         let mut ctx = ToolContext {
             store: &mut store,
             engine: &mut engine,

@@ -75,7 +75,7 @@ fn registering_and_invoking_a_noop_tool_returns_ok() {
     dispatcher.register(Box::new(LoadTool));
 
     let (_tmp, mut store, mut engine) = fresh_state();
-    let mut clipboard: Option<Vec<f32>> = None;
+    let mut clipboard: Option<tools::Clipboard> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
@@ -100,7 +100,7 @@ fn registering_and_invoking_a_noop_tool_returns_ok() {
 fn invoking_unregistered_tool_returns_unknown_with_name() {
     let dispatcher = ToolDispatcher::new();
     let (_tmp, mut store, mut engine) = fresh_state();
-    let mut clipboard: Option<Vec<f32>> = None;
+    let mut clipboard: Option<tools::Clipboard> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,
@@ -131,7 +131,7 @@ fn schema_validation_rejects_malformed_args_before_invoking() {
     }));
 
     let (_tmp, mut store, mut engine) = fresh_state();
-    let mut clipboard: Option<Vec<f32>> = None;
+    let mut clipboard: Option<tools::Clipboard> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,

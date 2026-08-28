@@ -20,7 +20,7 @@ pub struct ToolContext<'a> {
     /// In-memory audio clipboard shared between `copy_region` and
     /// `paste_region`. Held behind a mutable reference so both tools
     /// can read/write without cloning large sample buffers.
-    pub clipboard: &'a mut Option<Vec<f32>>,
+    pub clipboard: &'a mut Option<crate::Clipboard>,
     /// Tools this turn is allowed to run, or `None` for unrestricted.
     ///
     /// This lives on the *context* rather than the dispatcher because

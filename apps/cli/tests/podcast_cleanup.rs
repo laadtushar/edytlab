@@ -145,7 +145,7 @@ fn ai_driven_podcast_cleanup() {
         let dispatcher = tools::ToolDispatcher::default_dispatcher();
         let mut store = session::Store::open(project.path()).expect("reopen store for render");
         let mut engine = audio_engine::Engine::new();
-        let mut clipboard: Option<Vec<f32>> = None;
+        let mut clipboard: Option<tools::Clipboard> = None;
         let mut ctx = tools::ToolContext {
             store: &mut store,
             engine: &mut engine,

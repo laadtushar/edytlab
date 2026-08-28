@@ -70,7 +70,7 @@ fn cut_then_maybe_eq(apply_eq: bool) -> Vec<i16> {
     let src = write_tone_wav(tmp.path());
     let out = tmp.path().join("out.wav");
 
-    let mut clipboard: Option<Vec<f32>> = None;
+    let mut clipboard: Option<tools::Clipboard> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,

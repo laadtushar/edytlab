@@ -50,7 +50,7 @@ fn convert(source_channels: u16, tool: &str) -> (u16, usize) {
     let dispatcher = ToolDispatcher::default_dispatcher();
     let src = write_wav(tmp.path(), "in.wav", source_channels);
 
-    let mut clipboard: Option<Vec<f32>> = None;
+    let mut clipboard: Option<tools::Clipboard> = None;
     let mut ctx = ToolContext {
         store: &mut store,
         engine: &mut engine,

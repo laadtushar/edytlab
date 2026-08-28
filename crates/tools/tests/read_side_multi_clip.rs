@@ -74,7 +74,7 @@ fn split_session(frames_per_third: usize) -> Session {
     let dispatcher = ToolDispatcher::default_dispatcher();
     let src = write_quiet_then_loud(tmp.path(), frames_per_third);
 
-    let mut clipboard: Option<Vec<f32>> = None;
+    let mut clipboard: Option<tools::Clipboard> = None;
     {
         let mut ctx = ToolContext {
             store: &mut store,
@@ -115,7 +115,7 @@ fn split_session(frames_per_third: usize) -> Session {
 #[test]
 fn normalize_measures_the_whole_track() {
     let mut s = split_session(2_000);
-    let mut clipboard: Option<Vec<f32>> = None;
+    let mut clipboard: Option<tools::Clipboard> = None;
     let mut ctx = ToolContext {
         store: &mut s.store,
         engine: &mut s.engine,
@@ -159,7 +159,7 @@ fn normalize_measures_the_whole_track() {
 #[test]
 fn silence_finder_reports_positions_on_the_track() {
     let mut s = split_session(4_000);
-    let mut clipboard: Option<Vec<f32>> = None;
+    let mut clipboard: Option<tools::Clipboard> = None;
     let mut ctx = ToolContext {
         store: &mut s.store,
         engine: &mut s.engine,
@@ -193,7 +193,7 @@ fn silence_finder_reports_positions_on_the_track() {
 #[test]
 fn plot_spectrum_windows_the_track_not_the_source_file() {
     let mut s = split_session(4_000);
-    let mut clipboard: Option<Vec<f32>> = None;
+    let mut clipboard: Option<tools::Clipboard> = None;
     let mut ctx = ToolContext {
         store: &mut s.store,
         engine: &mut s.engine,
@@ -228,7 +228,7 @@ fn plot_spectrum_windows_the_track_not_the_source_file() {
 #[test]
 fn copy_region_reads_the_track() {
     let mut s = split_session(4_000);
-    let mut clipboard: Option<Vec<f32>> = None;
+    let mut clipboard: Option<tools::Clipboard> = None;
     let mut ctx = ToolContext {
         store: &mut s.store,
         engine: &mut s.engine,
@@ -246,7 +246,7 @@ fn copy_region_reads_the_track() {
         .unwrap());
 
     let copied = clipboard.expect("clipboard should hold the copied region");
-    let peak = copied.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+    let peak = copied.samples.iter().fold(0.0f32, |m, s| m.max(s.abs()));
     assert!(
         peak > 0.5,
         "that span is the loud (0.8) tail; a peak of {peak} is the silence \
