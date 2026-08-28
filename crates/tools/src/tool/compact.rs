@@ -55,8 +55,10 @@ impl Tool for CompactSessionTool {
              removes undo steps permanently — the nodes are gone, not archived. Reports what it \
              would remove and changes nothing unless `apply` is true. The head's most recent \
              `keep_last` nodes are never pruned, so ordinary undo keeps working; what goes is \
-             the tail beyond that and any abandoned branches. For reclaiming space without \
-             losing history, the derived-audio cache is swept automatically instead.",
+             the tail beyond that and any abandoned branches. This is currently the only way \
+             to reclaim derived audio: nothing sweeps the cache in the background, so do not \
+             tell the user to wait for one. Run `storage_report` first to see what is actually \
+             using the space.",
             json!({
                 "type": "object",
                 "properties": {
