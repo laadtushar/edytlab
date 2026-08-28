@@ -2135,18 +2135,36 @@ pub fn list_tracks(state: State<'_, AppState>) -> CmdResult<Vec<TrackSummary>> {
             clips: t
                 .clips
                 .iter()
-                .map(|c| ClipSummary {
-                    start_sec: c.start_in_track as f64 / sr,
-                    length_sec: c.length as f64 / sr,
-                    source_path: c.source_path.to_string_lossy().into_owned(),
-                    volume_envelope: c
-                        .volume_envelope
-                        .iter()
-                        .map(|p| EnvelopePointSummary {
-                            time_sec: p.time_samples as f64 / sr,
-                            gain_db: p.gain_db,
-                        })
-                        .collect(),
+                .map(|c| {
+                    // A clip's frames are counted in its own source's
+                    // rate, not the session's (#234). Dividing by the
+                    // session rate reported a 44.1 kHz bed in a 48 kHz
+                    // project as 8.8% earlier and shorter than it
+                    // renders — and because `move_clip` wrote the field
+                    // through the same wrong conversion, the timeline
+                    // agreed with the request while the render
+                    // disagreed with both.
+                    //
+                    // Header-only, and it falls back to the session
+                    // rate when the source cannot be read: a listing is
+                    // not the place to fail, and an unreadable source
+                    // is already visible as a lane that will not draw.
+                    let rate = tools::clip_source_rate(c).map(|r| r as f64).unwrap_or(sr);
+                    ClipSummary {
+                        start_sec: c.start_in_track as f64 / rate,
+                        length_sec: c.length as f64 / rate,
+                        source_path: c.source_path.to_string_lossy().into_owned(),
+                        volume_envelope: c
+                            .volume_envelope
+                            .iter()
+                            .map(|p| EnvelopePointSummary {
+                                // Envelope times are clip-relative, so
+                                // they share the clip's domain.
+                                time_sec: p.time_samples as f64 / rate,
+                                gain_db: p.gain_db,
+                            })
+                            .collect(),
+                    }
                 })
                 .collect(),
             id: t.id.0.to_string(),

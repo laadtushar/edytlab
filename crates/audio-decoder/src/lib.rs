@@ -70,6 +70,41 @@ pub fn decode_bytes(bytes: &[u8]) -> Result<DecodedAudio> {
     decode_with_hint(bytes.to_vec(), Hint::new())
 }
 
+/// The sample rate of a file, read from its header alone.
+///
+/// A clip's `start_in_track`, `source_offset` and `length` are counted
+/// in **its own source's** frames, not the project's (#234). Converting
+/// between seconds and those fields therefore needs the source's rate,
+/// and callers that only need the rate should not pay for a full decode
+/// to learn it — `list_tracks` runs on every UI refresh and would decode
+/// every clip on the timeline.
+///
+/// This reads the container's headers and stops. No packets are decoded.
+pub fn probe_sample_rate(path: &Path) -> Result<u32> {
+    let file = File::open(path)?;
+    let mut hint = Hint::new();
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        hint.with_extension(ext);
+    }
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+    let probed = symphonia::default::get_probe()
+        .format(
+            &hint,
+            mss,
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        )
+        .map_err(map_probe_err)?;
+
+    probed
+        .format
+        .tracks()
+        .iter()
+        .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+        .and_then(|t| t.codec_params.sample_rate)
+        .ok_or(DecodeError::NoAudioTrack)
+}
+
 fn decode_with_hint(bytes: Vec<u8>, hint: Hint) -> Result<DecodedAudio> {
     let cursor = Cursor::new(bytes);
     let mss = MediaSourceStream::new(Box::new(cursor), Default::default());

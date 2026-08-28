@@ -1191,6 +1191,40 @@ pub(crate) fn dropped_labels_field(dropped: usize) -> serde_json::Map<String, Va
     m
 }
 
+/// The sample rate a clip's own frames are counted in (#234).
+///
+/// `Clip::start_in_track`, `source_offset` and `length` are in the
+/// source's frame domain, so anything converting seconds to or from
+/// them needs *this* rate, not `SessionState::sample_rate`. Reading the
+/// session's rate instead places the clip wrong by exactly the ratio
+/// between the two — on a 44.1 kHz bed in a 48 kHz project, "move to
+/// 30 s" lands at 27.6 s.
+///
+/// Header-only, so it is cheap enough for `list_tracks` to call per
+/// clip on every refresh.
+pub fn clip_source_rate(clip: &Clip) -> Result<u32, String> {
+    audio_decoder::probe_sample_rate(&clip.source_path)
+        .map(|r| r.max(1))
+        .map_err(|e| {
+            format!(
+                "could not read the sample rate of {}: {e}",
+                clip.source_path.display()
+            )
+        })
+}
+
+/// Seconds → this clip's own frame domain.
+pub fn seconds_to_clip_frames(clip: &Clip, seconds: f64) -> Result<u64, String> {
+    let rate = clip_source_rate(clip)? as f64;
+    Ok((seconds * rate).round().max(0.0) as u64)
+}
+
+/// This clip's own frames → seconds.
+pub fn clip_frames_to_seconds(clip: &Clip, frames: u64) -> Result<f64, String> {
+    let rate = clip_source_rate(clip)? as f64;
+    Ok(frames as f64 / rate)
+}
+
 #[cfg(test)]
 mod abort_tests {
     //! A failing edit must leave the session exactly as it found it

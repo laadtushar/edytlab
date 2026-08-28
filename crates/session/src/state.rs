@@ -89,11 +89,37 @@ pub struct EnvelopePoint {
     pub gain_db: f32,
 }
 
+/// One span of a source file placed on a track's timeline.
+///
+/// # Frame domain
+///
+/// **`start_in_track`, `source_offset` and `length` are counted in the
+/// frames of `source_path`'s own sample rate — not the session's.**
+/// This is the authority; everything that reads or writes them must
+/// agree with it.
+///
+/// It has to be the source's rate, because `source_offset` and `length`
+/// index into the decoded source buffer directly and could not mean
+/// anything else. `start_in_track` shares the domain so that one clip
+/// uses one unit throughout, and the renderer converts all three the
+/// same way — `to_project_frames(f, source_rate, project_rate)` — when
+/// it lays the clip onto the project timeline.
+///
+/// Mixed-rate sessions are supported by design: the project rate is
+/// whatever the first load established, and off-rate sources are
+/// resampled at render time. So a session where source rate and project
+/// rate differ is ordinary, not a corner case, and a caller that
+/// converts seconds with `SessionState::sample_rate` places the clip
+/// wrong by exactly the ratio between the two (#234). Use
+/// `audio_decoder::probe_sample_rate` on `source_path`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Clip {
     pub source_path: PathBuf,
+    /// Timeline position, in **source** frames. See the type docs.
     pub start_in_track: u64,
+    /// Offset into the decoded source, in source frames.
     pub source_offset: u64,
+    /// Span length, in source frames.
     pub length: u64,
     // blake3 of the source file bytes; optional because Phase 1 may not yet
     // know it at construction time. Pinned at render to lock provenance.
