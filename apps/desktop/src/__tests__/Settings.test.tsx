@@ -25,6 +25,7 @@ const setApiKeyForMock = vi.fn();
 const testApiKeyForMock = vi.fn();
 const clearApiKeyMock = vi.fn();
 const setActiveProviderMock = vi.fn();
+const hasApiKeyForMock = vi.fn();
 const listModelsForMock = vi.fn();
 const setActiveModelMock = vi.fn();
 // Settings reconciles the dropdown against the backend on mount (#249).
@@ -45,6 +46,7 @@ vi.mock("../lib/tauri-bridge", () => ({
     model?: string,
   ) => testApiKeyForMock(provider, key, baseUrl, model),
   setActiveProvider: (provider: string) => setActiveProviderMock(provider),
+  hasApiKeyFor: (provider: string) => hasApiKeyForMock(provider),
   setActiveModel: (provider: string, model: string) =>
     setActiveModelMock(provider, model),
   getActiveModel: (provider: string) => getActiveModelMock(provider),
@@ -67,6 +69,7 @@ describe("Settings", () => {
       .mockResolvedValue({ model: "claude-sonnet-4-6", toolsOk: true, detail: null });
     clearApiKeyMock.mockReset().mockResolvedValue(undefined);
     setActiveProviderMock.mockReset().mockResolvedValue(undefined);
+    hasApiKeyForMock.mockReset().mockResolvedValue(true);
     setActiveModelMock.mockReset().mockResolvedValue(undefined);
     getActiveModelMock.mockReset().mockResolvedValue("");
     listModelsForMock.mockReset().mockResolvedValue([]);
@@ -311,5 +314,85 @@ describe("Settings", () => {
     await waitFor(() =>
       expect(screen.getByText(/keychain locked/i)).toBeInTheDocument(),
     );
+  });
+
+  // ---- Switching provider must not kill the agent silently (#250) ----
+  //
+  // Selecting a radio activates the provider immediately and rebuilds
+  // the agent, which sets it to None when the new provider needs a key
+  // and none is stored. Nothing said so: `has_api_key` was read once on
+  // mount, and `has_api_key_for` — written for exactly this — had no
+  // caller. The user clicked a radio to look at a model list and found
+  // out at the next chat message.
+
+  it("warns when the newly selected provider has no key stored", async () => {
+    const user = userEvent.setup();
+    hasApiKeyForMock.mockResolvedValue(false);
+    render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
+
+    await user.click(screen.getByTestId("settings-provider-groq"));
+
+    expect(hasApiKeyForMock).toHaveBeenCalledWith("groq");
+    await waitFor(() =>
+      expect(screen.getByText(/no api key stored/i)).toBeInTheDocument(),
+    );
+  });
+
+  it("tells the parent the agent is now unconfigured", async () => {
+    const user = userEvent.setup();
+    hasApiKeyForMock.mockResolvedValue(false);
+    const onProviderChanged = vi.fn();
+    render(
+      <Settings
+        mode="panel"
+        onSaved={vi.fn()}
+        onClose={vi.fn()}
+        onProviderChanged={onProviderChanged}
+      />,
+    );
+
+    await user.click(screen.getByTestId("settings-provider-groq"));
+
+    await waitFor(() => expect(onProviderChanged).toHaveBeenCalledWith(false));
+  });
+
+  it("does not warn when the provider already has a key", async () => {
+    const user = userEvent.setup();
+    hasApiKeyForMock.mockResolvedValue(true);
+    const onProviderChanged = vi.fn();
+    render(
+      <Settings
+        mode="panel"
+        onSaved={vi.fn()}
+        onClose={vi.fn()}
+        onProviderChanged={onProviderChanged}
+      />,
+    );
+
+    await user.click(screen.getByTestId("settings-provider-groq"));
+
+    await waitFor(() => expect(onProviderChanged).toHaveBeenCalledWith(true));
+    expect(screen.queryByText(/no api key stored/i)).not.toBeInTheDocument();
+  });
+
+  /// Ollama needs no key, so switching to it is never a deactivation —
+  /// warning there would train the user to ignore the warning.
+  it("does not warn for a provider that needs no key", async () => {
+    const user = userEvent.setup();
+    hasApiKeyForMock.mockResolvedValue(false);
+    const onProviderChanged = vi.fn();
+    render(
+      <Settings
+        mode="panel"
+        onSaved={vi.fn()}
+        onClose={vi.fn()}
+        onProviderChanged={onProviderChanged}
+      />,
+    );
+
+    await user.click(screen.getByTestId("settings-provider-ollama"));
+
+    await waitFor(() => expect(onProviderChanged).toHaveBeenCalledWith(true));
+    expect(screen.queryByText(/no api key stored/i)).not.toBeInTheDocument();
   });
 });

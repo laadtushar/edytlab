@@ -57,6 +57,31 @@ export interface ChatProps {
   onExportSelection?: () => void;
   /** Whether an export is currently in progress (disables the button). */
   exporting?: boolean;
+  /**
+   * Open the settings panel. Offered on the error banner when the
+   * failure is "no agent configured" (#250) — that message is
+   * unactionable from here otherwise, and the most common way to reach
+   * it is a provider switch that left the app without a key.
+   */
+  onOpenSettings?: () => void;
+}
+
+/**
+ * Whether an error is one the user fixes in Settings rather than by
+ * retrying (#250).
+ *
+ * Deliberately loose, and matching `App.tsx`'s `isApiKeyError`: the Rust
+ * side words this family several ways ("no agent configured; call
+ * set_api_key first", missing-key messages), and a Retry button alone
+ * on any of them just repeats the failure.
+ */
+function needsSettings(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes("no agent") ||
+    m.includes("set_api_key") ||
+    m.includes("api key")
+  );
 }
 
 function isMessage(e: LogEntry): e is MessageEntry {
@@ -91,6 +116,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
   markers,
   onExportSelection,
   exporting,
+  onOpenSettings,
 }: ChatProps, ref: React.Ref<ChatHandle>) {
   const {
     entries,
@@ -396,6 +422,20 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
           >
             <div className="flex items-start justify-between gap-2">
               <span>{localError}</span>
+              {onOpenSettings && needsSettings(localError) ? (
+                <button
+                  type="button"
+                  onClick={onOpenSettings}
+                  data-testid="chat-error-open-settings"
+                  className="
+                    shrink-0 rounded border border-[var(--danger)]/40
+                    px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider
+                    hover:bg-[var(--danger)]/20
+                  "
+                >
+                  Open Settings
+                </button>
+              ) : null}
               {lastSentRef.current ? (
                 <button
                   type="button"

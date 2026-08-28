@@ -25,6 +25,7 @@ import {
   listModelsFor,
   setApiKeyFor,
   setActiveModel,
+  hasApiKeyFor,
   getActiveModel,
   setActiveProvider,
   getBaseUrlFor,
@@ -156,6 +157,17 @@ export interface SettingsProps {
   onSaved: () => void;
   onClose?: () => void;
   onCleared?: () => void;
+  /**
+   * Called when the active provider changes, with whether that provider
+   * has a usable key (#250).
+   *
+   * Selecting a radio activates the provider immediately and rebuilds
+   * the agent — which sets it to `None` when the new provider needs a
+   * key and none is stored. The parent read `has_api_key` once on mount,
+   * so nothing on screen reflected that the assistant had just been
+   * turned off; the user found out at the next chat message.
+   */
+  onProviderChanged?: (hasKey: boolean) => void;
 }
 
 export function Settings({
@@ -163,6 +175,7 @@ export function Settings({
   onSaved,
   onClose,
   onCleared,
+  onProviderChanged,
 }: SettingsProps) {
   const [key, setKey] = useState("");
   const [provider, setProvider] = useState<ProviderId>(() => {
@@ -288,13 +301,34 @@ export function Settings({
       setProvider(next);
       setKey("");
       setTest({ kind: "idle" });
+      setSaveError(null);
       try {
         await setActiveProvider(next);
+
+        // Activation is immediate and deliberate — you can select a
+        // provider before you have a key for it. What was missing is
+        // that this *also* deactivates a working agent when the new
+        // provider has no key, and nothing said so (#250). The user
+        // clicked a radio to look at a model list and found out at the
+        // next chat message.
+        //
+        // `has_api_key_for` was written for exactly this and had no
+        // caller.
+        const providerNeedsKey =
+          PROVIDERS.find((p) => p.id === next)?.needsKey !== false;
+        const hasKey = await hasApiKeyFor(next);
+        onProviderChanged?.(hasKey || !providerNeedsKey);
+        if (providerNeedsKey && !hasKey) {
+          setSaveError(
+            `Switched to ${next}, which has no API key stored — the ` +
+              `assistant is inactive until you save one here.`,
+          );
+        }
       } catch (err) {
         setSaveError(String(err));
       }
     },
-    [provider],
+    [provider, onProviderChanged],
   );
 
   const handleModelChange = useCallback(
@@ -681,8 +715,9 @@ export function Settings({
               <code className="font-mono text-[var(--text)]">
                 ollama pull llama3.2
               </code>
-              . Press Save to make it active. Note that tool calling is
-              per-model, and a model without it will fail on the first edit.
+              . Selecting it above already makes it active — no key and no
+              Save needed. Note that tool calling is per-model, and a model
+              without it will fail on the first edit.
             </p>
           )}
 
