@@ -68,8 +68,29 @@ fn region_annotations_render_with_range() {
     assert!(block.contains("5.00"));
 }
 
+/// This pins the crate-root re-export, and nothing more.
+///
+/// It was called `agent_loop_accepts_session_context` and its whole
+/// body was `fn _accepts(_: ai::SessionContext) {}` — a function that
+/// was never called, in a file that never names `agent_loop`. It would
+/// have passed with the context dropped from the system prompt
+/// outright, which is the opposite of what the name promised.
+///
+/// The wiring itself is covered where it can actually be reached:
+/// `a_session_context_reaches_the_prompt_in_the_context_slot` in
+/// `agent_loop.rs`, which runs a real context through `render_block`
+/// into the assembler and checks which slot it lands in.
 #[test]
-fn agent_loop_accepts_session_context() {
-    // Compile-test: ensure the API surface exists.
-    fn _accepts(_: ai::SessionContext) {}
+fn session_context_is_re_exported_at_the_crate_root() {
+    let ctx = ai::SessionContext {
+        selection: Some(Range {
+            start_sec: 0.0,
+            end_sec: 1.0,
+        }),
+        markers: vec![],
+    };
+    // `ai::SessionContext` and `ai::session_context::SessionContext`
+    // must be the same type, or a caller importing the short path gets
+    // a value `render_block` will not take.
+    assert!(render_block(&ctx).contains("current_selection"));
 }

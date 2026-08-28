@@ -1245,13 +1245,43 @@ fn split_array_items(inner: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod render_range_tests {
+    use super::selection_frames;
+
     #[test]
-    fn sec_to_frame_conversion() {
-        let sample_rate: u32 = 44100;
-        let start_frame = (1.0_f64 * sample_rate as f64) as u64;
-        let end_frame = (2.5_f64 * sample_rate as f64) as u64;
-        assert_eq!(start_frame, 44100);
-        assert_eq!(end_frame, 110250);
+    fn converts_seconds_at_the_session_rate() {
+        let r = selection_frames(1.0, 2.5, 44_100);
+        assert_eq!(r.start_frame, 44_100);
+        assert_eq!(r.end_frame, 110_250);
+    }
+
+    /// The rate comes from the session node, not a constant. Exporting
+    /// a 48 kHz session with 44.1 kHz frame maths would cut the
+    /// selection ~8% short.
+    #[test]
+    fn follows_the_sessions_own_sample_rate() {
+        let r = selection_frames(1.0, 2.0, 48_000);
+        assert_eq!(r.start_frame, 48_000);
+        assert_eq!(r.end_frame, 96_000);
+    }
+
+    /// Sub-frame positions truncate rather than round, so the exported
+    /// region never starts before what the user selected.
+    #[test]
+    fn truncates_toward_the_start_of_the_selection() {
+        let r = selection_frames(0.999_999, 1.000_001, 44_100);
+        assert_eq!(r.start_frame, 44_099);
+        assert_eq!(r.end_frame, 44_100);
+    }
+
+    /// Nothing between the timeline and here validates the range. A
+    /// negative second must saturate to frame 0 rather than wrap to a
+    /// huge positive, which would hand `render_to_wav` a start past the
+    /// end of the audio.
+    #[test]
+    fn a_negative_position_saturates_to_zero() {
+        let r = selection_frames(-3.0, 1.0, 44_100);
+        assert_eq!(r.start_frame, 0);
+        assert_eq!(r.end_frame, 44_100);
     }
 }
 
@@ -3392,6 +3422,25 @@ pub(crate) fn restore_models(state: &AppState, load: impl Fn(&str) -> Option<Str
 // render_range
 // ---------------------------------------------------------------------------
 
+/// Seconds → the frame range `render_to_wav` takes.
+///
+/// The conversion lives here rather than inline in the command so a
+/// test can call the same code the export runs. Its predecessor was
+/// `sec_to_frame_conversion`, which recomputed `(1.0 * 44100.0) as u64`
+/// in the test body and asserted it equalled 44100 — a test of the
+/// multiplication operator that would have passed with this command
+/// deleted.
+///
+/// The `as u64` cast saturates: a negative second becomes frame 0
+/// rather than wrapping to an enormous positive, which matters because
+/// nothing on the path from the timeline down validates the range.
+fn selection_frames(start_sec: f64, end_sec: f64, sample_rate: u32) -> audio_engine::TimeRange {
+    audio_engine::TimeRange {
+        start_frame: (start_sec * sample_rate as f64) as u64,
+        end_frame: (end_sec * sample_rate as f64) as u64,
+    }
+}
+
 /// Export a user-defined selection (start_sec … end_sec) of the session node
 /// identified by `node_id` to `out_path` as a 16-bit PCM WAV.
 ///
@@ -3422,12 +3471,7 @@ pub async fn render_range(
     };
 
     let sample_rate = session_node.state.sample_rate;
-    let start_frame = (start_sec * sample_rate as f64) as u64;
-    let end_frame = (end_sec * sample_rate as f64) as u64;
-    let range = audio_engine::TimeRange {
-        start_frame,
-        end_frame,
-    };
+    let range = selection_frames(start_sec, end_sec, sample_rate);
 
     let report = {
         let engine = lock_std(&state.engine, "engine").map_err(|e| e.to_string())?;
