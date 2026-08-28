@@ -15,6 +15,6 @@ For podcast or voice recordings, apply these steps in order:
 3. **EQ**: `eq` — boost 2–4 kHz for presence, cut 200–400 Hz for clarity, cut below 80 Hz for rumble
 4. **De-esser**: `de_esser` frequency_hz=7000, threshold_db=-20 — tames harsh S sounds
 5. **Compression**: `compressor` threshold_db=-20, ratio=3.0, attack_ms=10, release_ms=60 — consistent levels
-6. **Normalize**: `normalize` target_db=-1.0 — broadcast-ready peak
+6. **Normalize**: `normalize` target_dbfs=-1.0 — broadcast-ready peak
 
 Ask the user before applying each step. Suggest using `silence_finder` first to identify long silences.
