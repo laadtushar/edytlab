@@ -1,10 +1,16 @@
 //! Smoke tests for `ml-pipeline`.
 //!
-//! Tests that build a real ORT session are gated on `ORT_DYLIB_PATH`
-//! being set (load-dynamic). When the env var is absent we print a
-//! `cargo test`-friendly notice and exit 0 so the Linux sandbox stays
-//! green. The macOS and Windows CI matrices set the env var and run
-//! the gated tests for real.
+//! Tests that build a real ORT session need two things this repo does
+//! not currently have: `ORT_DYLIB_PATH` (load-dynamic) and a fixture
+//! model at `tests/fixtures/identity.onnx`. No workflow sets the first
+//! and the second is not committed, so they are `#[ignore]`d and run
+//! with `cargo test -p ml-pipeline -- --ignored`.
+//!
+//! They used to check both at runtime and `return` early, which
+//! `cargo test` counts as **passed** — the run printed `6 passed` while
+//! two of the six had exited on their first line. `#[ignore]` says so in
+//! the output instead, and asking for them explicitly now fails on the
+//! missing prerequisite rather than passing quietly.
 //!
 //! Pure-cache tests run unconditionally — they don't touch ORT.
 
@@ -133,31 +139,36 @@ fn content_hash_hex_is_lowercase_64_chars() {
     assert_eq!(s, format!("{h}"), "Display must match to_hex");
 }
 
-/// Locate the test-fixture ONNX model, if one exists. M17 ships without
-/// one — generating a real ONNX export is M18+ territory — so this
-/// returns `None` until a fixture lands.
-fn try_find_fixture_model() -> Option<std::path::PathBuf> {
+/// The fixture ONNX model these tests load, or a panic naming what is
+/// missing.
+///
+/// M17 shipped without one — generating a real ONNX export is M18+
+/// territory — so today this always panics, which is why its callers are
+/// `#[ignore]`d. It panics rather than returning `None` because it is
+/// only reached when someone asked for these tests by name.
+fn fixture_model() -> std::path::PathBuf {
+    assert!(
+        env::var("ORT_DYLIB_PATH").is_ok(),
+        "ORT_DYLIB_PATH is not set; ml-pipeline links ORT load-dynamic, so the \
+         ignored tests need it to point at the ONNX Runtime shared library"
+    );
     // Convention: `crates/ml-pipeline/tests/fixtures/identity.onnx`.
     let p = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("fixtures")
         .join("identity.onnx");
-    p.exists().then_some(p)
+    assert!(
+        p.exists(),
+        "no fixture ONNX model at {} (not committed yet; M18+)",
+        p.display()
+    );
+    p
 }
 
 #[test]
+#[ignore = "needs ORT_DYLIB_PATH and a fixture ONNX model; run with --ignored"]
 fn model_registry_caches_arcs() {
-    if env::var("ORT_DYLIB_PATH").is_err() {
-        eprintln!("SKIP model_registry_caches_arcs: ORT_DYLIB_PATH unset (load-dynamic test gate)");
-        return;
-    }
-    let Some(model_path) = try_find_fixture_model() else {
-        eprintln!(
-            "SKIP model_registry_caches_arcs: no fixture ONNX model at \
-             tests/fixtures/identity.onnx (will be added in M18+)"
-        );
-        return;
-    };
+    let model_path = fixture_model();
 
     let registry = ModelRegistry::new();
     let a = registry
@@ -174,15 +185,9 @@ fn model_registry_caches_arcs() {
 }
 
 #[test]
+#[ignore = "needs ORT_DYLIB_PATH and a fixture ONNX model; run with --ignored"]
 fn coreml_ep_falls_back_to_cpu_on_non_mac() {
-    if env::var("ORT_DYLIB_PATH").is_err() {
-        eprintln!("SKIP coreml_ep_falls_back_to_cpu_on_non_mac: ORT_DYLIB_PATH unset");
-        return;
-    }
-    let Some(model_path) = try_find_fixture_model() else {
-        eprintln!("SKIP coreml_ep_falls_back_to_cpu_on_non_mac: no fixture ONNX model");
-        return;
-    };
+    let model_path = fixture_model();
 
     // On non-mac targets the CoreML branch warns and falls through to
     // CPU; on mac it actually loads CoreML. Both should produce a
@@ -191,5 +196,17 @@ fn coreml_ep_falls_back_to_cpu_on_non_mac() {
     let s = registry
         .load("fixture-coreml", &model_path, ExecProvider::CoreML)
         .expect("CoreML EP must not panic on any target");
-    assert!(std::sync::Arc::strong_count(&s) >= 1);
+
+    // `strong_count(&s) >= 1` was the old assertion, and it is true of
+    // any Arc the caller is holding — it would pass against a registry
+    // that stored nothing. What the fallback has to produce is a
+    // *cacheable* session, so ask the registry for it again.
+    assert_eq!(registry.len(), 1, "the fallback session was not cached");
+    let again = registry
+        .load("fixture-coreml", &model_path, ExecProvider::CoreML)
+        .expect("second load");
+    assert!(
+        std::sync::Arc::ptr_eq(&s, &again),
+        "a second load rebuilt the session instead of returning the cached Arc"
+    );
 }

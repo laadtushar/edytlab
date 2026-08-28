@@ -108,7 +108,9 @@ impl Tool for StorageReportTool {
              audio file and none are ever deleted, so a long session grows without bound. Splits \
              the derived audio three ways: files the current head needs, files only older nodes \
              need (what undo is holding onto), and files no node references at all, plus what the \
-             bounded preview cache is holding. Reads only — it deletes nothing.",
+             bounded preview cache is holding. Reads only — it deletes nothing, and nothing sweeps \
+             derived audio in the background either: `compact_session` is the only way to reclaim \
+             it, at the cost of dropping undo history permanently.",
             json!({ "type": "object", "properties": {}, "required": [] }),
         )
     }
@@ -280,8 +282,10 @@ impl Tool for StorageReportTool {
                 "{:.1} MiB of derived audio across {} node{}: {:.1} MiB the current version \
                  needs, {:.1} MiB held only by undo history ({} file{}), {:.1} MiB referenced \
                  by nothing ({} file{}). Separately, {:.1} MiB of rendered previews ({} \
-                 file{}) sit in a bounded cache that evicts itself. Nothing was deleted here — \
-                 there is no reclamation policy for derived audio yet.",
+                 file{}) sit in a bounded cache that evicts itself. Nothing was deleted here, \
+                 and nothing sweeps derived audio in the background — `compact_session` is \
+                 the only way to reclaim it, and it does so by dropping undo history \
+                 permanently.",
                 mib(total),
                 all.len(),
                 if all.len() == 1 { "" } else { "s" },

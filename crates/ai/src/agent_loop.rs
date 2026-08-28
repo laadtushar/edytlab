@@ -159,21 +159,37 @@ fn select_system_prompt(mode: Mode) -> &'static str {
     }
 }
 
+/// The per-turn fragments that go into the system prompt.
+///
+/// A struct rather than five `&str` parameters. Every fragment has the
+/// same type, so a call site that passed the memory block where the
+/// session context belongs would compile, run, and produce a prompt
+/// whose sections are silently in the wrong order — with no test able
+/// to see it, because the ordering tests call the assembler directly.
+/// Naming the fields puts the association in front of the reader at the
+/// one place it can go wrong.
+pub(crate) struct SystemPromptParts<'a> {
+    /// The mode-selected base prompt.
+    pub base: &'a str,
+    /// The active agent profile, already wrapped and defanged.
+    pub profile: &'a str,
+    /// Matched skills, alphabetical.
+    pub skills: &'a str,
+    /// Global then project memory.
+    pub memory: &'a str,
+    /// The rendered session context — selection and markers.
+    pub context: &'a str,
+}
+
 /// Concatenate the per-turn system prompt fragments in canonical
-/// order: base prompt → skills (matched, alphabetical) → memory
-/// (global, project) → session context. Empty fragments are omitted
-/// cleanly so a single section never produces a leading or trailing
-/// double newline. Extracted as a free function so the ordering
-/// invariant can be unit-tested without booting `run_turn`.
-pub(crate) fn assemble_system_prompt(
-    base: &str,
-    profile_block: &str,
-    skills_block: &str,
-    memory_block: &str,
-    ctx_block: &str,
-) -> String {
-    let mut out = base.to_string();
-    for fragment in [profile_block, skills_block, memory_block, ctx_block] {
+/// order: base prompt → profile → skills (matched, alphabetical) →
+/// memory (global, project) → session context. Empty fragments are
+/// omitted cleanly so a single section never produces a leading or
+/// trailing double newline. Extracted as a free function so the
+/// ordering invariant can be unit-tested without booting `run_turn`.
+pub(crate) fn assemble_system_prompt(parts: &SystemPromptParts<'_>) -> String {
+    let mut out = parts.base.to_string();
+    for fragment in [parts.profile, parts.skills, parts.memory, parts.context] {
         if !fragment.is_empty() {
             out.push_str("\n\n");
             out.push_str(fragment);
@@ -406,13 +422,13 @@ where
             format!("<agent-profile>\n{}\n</agent-profile>", defanged.trim_end())
         })
         .unwrap_or_default();
-    let combined_prompt = assemble_system_prompt(
-        base_prompt,
-        &profile_block,
-        &skills_block,
-        &memory_block,
-        &ctx_block,
-    );
+    let combined_prompt = assemble_system_prompt(&SystemPromptParts {
+        base: base_prompt,
+        profile: &profile_block,
+        skills: &skills_block,
+        memory: &memory_block,
+        context: &ctx_block,
+    });
     let system_prompt: &str = &combined_prompt;
 
     // Plan first when the user asked for it, or when the request
@@ -1308,14 +1324,32 @@ No other text."#;
     // System-prompt assembly order: base → memory → session context.
     // ------------------------------------------------------------------
 
+    /// `SystemPromptParts` with every fragment empty, to be filled in
+    /// by the field the test is about.
+    fn parts<'a>(base: &'a str) -> SystemPromptParts<'a> {
+        SystemPromptParts {
+            base,
+            profile: "",
+            skills: "",
+            memory: "",
+            context: "",
+        }
+    }
+
     #[test]
     fn assemble_no_extras_passes_base_through_unchanged() {
-        assert_eq!(assemble_system_prompt("BASE", "", "", "", ""), "BASE");
+        assert_eq!(assemble_system_prompt(&parts("BASE")), "BASE");
     }
 
     #[test]
     fn assemble_orders_base_profile_skills_memory_ctx() {
-        let out = assemble_system_prompt("BASE", "PRO", "SKL", "MEM", "CTX");
+        let out = assemble_system_prompt(&SystemPromptParts {
+            base: "BASE",
+            profile: "PRO",
+            skills: "SKL",
+            memory: "MEM",
+            context: "CTX",
+        });
         let base = out.find("BASE").expect("missing base");
         let pro = out.find("PRO").expect("missing profile");
         let skl = out.find("SKL").expect("missing skills");
@@ -1329,7 +1363,10 @@ No other text."#;
 
     #[test]
     fn assemble_skips_empty_blocks_cleanly() {
-        let out = assemble_system_prompt("BASE", "", "", "", "CTX");
+        let out = assemble_system_prompt(&SystemPromptParts {
+            context: "CTX",
+            ..parts("BASE")
+        });
         assert!(out.contains("BASE"));
         assert!(out.contains("CTX"));
         assert!(!out.contains("\n\n\n"), "must not double-blank-line");
@@ -1337,10 +1374,59 @@ No other text."#;
 
     #[test]
     fn assemble_separates_with_blank_line() {
-        let out = assemble_system_prompt("BASE", "", "", "MEM", "");
+        let out = assemble_system_prompt(&SystemPromptParts {
+            memory: "MEM",
+            ..parts("BASE")
+        });
         assert!(
             out.contains("BASE\n\nMEM"),
             "base + memory should be separated by a blank line; got {out:?}"
+        );
+    }
+
+    /// The wiring `session_context.rs` could not reach.
+    ///
+    /// Its `agent_loop_accepts_session_context` was a compile-test over
+    /// a re-export: it never named `agent_loop`, never called anything,
+    /// and would have passed with the context dropped from the prompt
+    /// entirely. What actually has to hold is that a `SessionContext`
+    /// reaches the assembler through `render_block`, and lands in the
+    /// context slot rather than one of the four fragments beside it.
+    #[test]
+    fn a_session_context_reaches_the_prompt_in_the_context_slot() {
+        use crate::session_context::{render_block, SessionContext};
+
+        let ctx = SessionContext {
+            selection: Some(tools::Range {
+                start_sec: 1.0,
+                end_sec: 2.5,
+            }),
+            markers: vec![],
+        };
+        let rendered = render_block(&ctx);
+        assert!(
+            rendered.contains("current_selection"),
+            "render_block produced nothing to look for: {rendered:?}"
+        );
+
+        let out = assemble_system_prompt(&SystemPromptParts {
+            base: "BASE",
+            profile: "",
+            skills: "",
+            memory: "MEM",
+            context: &rendered,
+        });
+
+        assert!(
+            out.contains("current_selection"),
+            "the session context never made it into the prompt"
+        );
+        let mem = out.find("MEM").expect("missing memory");
+        let sel = out.find("current_selection").expect("missing selection");
+        assert!(
+            mem < sel,
+            "the session context is ahead of memory — the two fragments are \
+             swapped"
         );
     }
 

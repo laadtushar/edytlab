@@ -376,7 +376,7 @@ pub struct Word { pub text: String, pub start_s: f32, pub end_s: f32, pub confid
 4. Missing-model fallback: tool returns a structured error to the model that includes the install command, instead of panicking.
 
 **Test design:**
-- Smoke test gated on `WHISPER_MODEL` env var being set. CI sets it.
+- Smoke test gated on `WHISPER_MODEL_PATH` env var being set. (Planned "CI sets it" — it never did; no workflow sets the variable, so the model-dependent tests are `#[ignore]`d and run on demand with `--ignored`.)
 - Output is intentionally fuzzy (Levenshtein) — Whisper is not byte-deterministic across ONNX Runtime versions.
 
 **Risk:** Medium. ONNX Runtime + CoreML EP on Apple Silicon has historically had quirks (operators falling back to CPU). Test on M1, M2, and Intel Mac if any developer has access. On Windows, default to CPU EP this phase — adding CUDA is out of scope.

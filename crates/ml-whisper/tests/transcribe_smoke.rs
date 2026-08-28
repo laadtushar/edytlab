@@ -6,38 +6,55 @@
 //! committed (CC0 / self-recorded) the Levenshtein-distance assertion
 //! described in M09 acceptance-criterion #1 should be re-enabled here.
 //!
-//! The test is gated on the `WHISPER_MODEL` env var: if unset, the test
-//! prints a clear skip message and exits OK (CI sets the var to the
-//! downloaded model path). This matches the M09 spec: missing model is
-//! a skip, not a failure.
+//! The model-dependent tests need a downloaded Whisper model, so they
+//! are `#[ignore]`d and run with `cargo test -p ml-whisper -- --ignored`
+//! once `WHISPER_MODEL_PATH` points at the `.onnx` file.
+//!
+//! They used to gate on the env var at runtime and `return` early, which
+//! `cargo test` counts as **passed** — so a run that never entered the
+//! test body was indistinguishable from one that did. Worse, the var
+//! they read was `WHISPER_MODEL`, while everything that actually loads a
+//! model reads `WHISPER_MODEL_PATH`: an operator following the only name
+//! the app ever mentions still got a silent skip. No CI workflow sets
+//! either name, despite what this header used to claim.
+//!
+//! `#[ignore]` states the situation honestly in the run output, and
+//! asking for these tests explicitly with `--ignored` now *fails* when
+//! the model is absent rather than passing quietly — if you asked to run
+//! them, a skip is not an answer.
 
 use std::path::PathBuf;
 
 use ml_whisper::{resample_to_16khz_mono, WhisperModel};
 
-/// Returns the path the test should use, or `None` if the test should
-/// skip. Skips when `WHISPER_MODEL` is unset OR points at a missing
-/// file (so a mistyped CI var fails loudly via the model-missing
-/// assertion below, while truly absent config skips cleanly).
-fn model_path_or_skip() -> Option<PathBuf> {
-    let var = std::env::var("WHISPER_MODEL").ok()?;
+/// The name every consumer uses: `transcribe.rs`, the structured error
+/// in `ml-whisper/src/lib.rs`, and the in-app recovery panel.
+const MODEL_PATH_VAR: &str = "WHISPER_MODEL_PATH";
+
+/// The model path, or a panic explaining what to set.
+///
+/// These tests only run when someone asks for them by name, so an
+/// unusable model is a failure rather than a skip.
+fn model_path() -> PathBuf {
+    let var = std::env::var(MODEL_PATH_VAR).unwrap_or_else(|_| {
+        panic!(
+            "{MODEL_PATH_VAR} is not set. Run `scripts/fetch-models.sh` and point \
+             it at the resulting .onnx file to run the ignored ml-whisper tests."
+        )
+    });
     let path = PathBuf::from(var);
-    if !path.exists() {
-        eprintln!(
-            "[ml-whisper smoke] WHISPER_MODEL points at missing file {}; skipping",
-            path.display()
-        );
-        return None;
-    }
-    Some(path)
+    assert!(
+        path.exists(),
+        "{MODEL_PATH_VAR} points at {}, which does not exist",
+        path.display()
+    );
+    path
 }
 
 #[test]
+#[ignore = "needs a downloaded Whisper model; set WHISPER_MODEL_PATH and run with --ignored"]
 fn transcribe_smoke_returns_vec_word() {
-    let Some(model_path) = model_path_or_skip() else {
-        eprintln!("[ml-whisper smoke] WHISPER_MODEL not set; skipping (this is OK locally)");
-        return;
-    };
+    let model_path = model_path();
 
     let model = WhisperModel::load(&model_path).expect("model load");
 
@@ -66,14 +83,23 @@ fn transcribe_smoke_returns_vec_word() {
 fn missing_model_returns_structured_error() {
     // Acceptance criterion #4: the "model missing" path is panic-free
     // and returns a structured error that includes the install hint.
-    // This test is independent of WHISPER_MODEL because it deliberately
-    // points at a path that does not exist.
+    // This test is independent of WHISPER_MODEL_PATH because it
+    // deliberately points at a path that does not exist.
     let bogus = PathBuf::from("/tmp/edytlab-nonexistent-whisper-model.onnx");
     let err = WhisperModel::load(&bogus).expect_err("expected ModelMissing");
     let msg = format!("{err}");
     assert!(
         msg.contains("fetch-models"),
         "error message should mention the install script; got: {msg}",
+    );
+    // The drift that made these tests unrunnable: they gated on
+    // `WHISPER_MODEL` while every consumer read `WHISPER_MODEL_PATH`, so
+    // an operator following the only name the app mentions still got a
+    // skip. Pin the test's name to the one the user is actually told.
+    assert!(
+        msg.contains(MODEL_PATH_VAR),
+        "the model-missing error tells the user to set a different variable \
+         than these tests read ({MODEL_PATH_VAR}); got: {msg}",
     );
 }
 
@@ -93,15 +119,13 @@ fn resampler_silence_roundtrip() {
 }
 
 #[test]
+#[ignore = "needs a downloaded Whisper model; set WHISPER_MODEL_PATH and run with --ignored"]
 fn reuses_loaded_model_across_calls() {
     // Acceptance criterion #3: model-loaded-once-and-reused. We can't
     // measure timing reliably without the real decoder, but we *can*
     // assert the API supports it: a single `&WhisperModel` handles N
     // calls without rebuild.
-    let Some(model_path) = model_path_or_skip() else {
-        eprintln!("[ml-whisper smoke] WHISPER_MODEL not set; skipping (this is OK locally)");
-        return;
-    };
+    let model_path = model_path();
     let model = WhisperModel::load(&model_path).expect("model load");
     let silence = vec![0.0f32; 16_000];
     for _ in 0..5 {
