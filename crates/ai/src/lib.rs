@@ -219,6 +219,16 @@ pub enum AgentEvent {
     /// The user declined the plan. The turn ends having run no tools and
     /// appended no node.
     PlanRejected,
+    /// A plan was asked for and none arrived, so the turn proceeded
+    /// **without** the approval gate (#267).
+    ///
+    /// Distinct from getting no `Plan` event at all, which means no plan
+    /// was requested for this turn. `reason` names the failure class —
+    /// transport, HTTP status, unparseable body, no text, or no `<plan>`
+    /// block — so a user who turned Plan First on can be told the
+    /// checkpoint was skipped rather than left to infer that the model
+    /// decided it was unnecessary.
+    PlanUnavailable { reason: String },
 }
 
 /// Outcome of a single [`Agent::turn`] call.

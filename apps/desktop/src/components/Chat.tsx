@@ -27,6 +27,7 @@ import {
   type LogEntry,
   type MessageEntry,
   type NodeDividerEntry,
+  type NoticeEntry,
   type PlanEntry,
   type ToolEntry,
 } from "../hooks/useAgentStream";
@@ -94,6 +95,9 @@ function isNode(e: LogEntry): e is NodeDividerEntry {
 }
 function isPlan(e: LogEntry): e is PlanEntry {
   return e.kind === "plan";
+}
+function isNotice(e: LogEntry): e is NoticeEntry {
+  return e.kind === "notice";
 }
 
 const CHAT_HINTS = [
@@ -395,6 +399,25 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
                     </li>
                   ))}
                 </ol>
+              </div>
+            );
+          }
+          if (isNotice(entry)) {
+            // Amber, not red: nothing failed for the user — the turn is
+            // going ahead. What they have lost is the checkpoint they
+            // asked for, and the point is that they find that out from
+            // the transcript rather than by noticing its absence (#267).
+            return (
+              <div
+                key={entry.id}
+                data-testid="chat-notice"
+                className="
+                  rounded-md border border-[var(--warning-border,var(--border-strong))]
+                  bg-[var(--warning-soft,var(--surface-elev-2))]
+                  px-3 py-2 text-xs text-[var(--text-dim)]
+                "
+              >
+                {entry.text}
               </div>
             );
           }
