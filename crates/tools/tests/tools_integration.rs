@@ -2863,3 +2863,158 @@ fn mp3_reports_the_default_bitrate_when_none_is_given() {
         .unwrap());
     assert_eq!(res["bitrate_kbps"], json!(192));
 }
+
+// =============================================================================
+// time_shift moves the track as a whole (#245)
+// =============================================================================
+//
+// `apply_time_shift_signed` clamps to zero, and it used to be applied to
+// each clip independently. On a split track a backward shift past the
+// earliest clip's start therefore stacked clips onto frame 0 — and the
+// spacing did not come back when shifting forward again, because the
+// information was gone. Overlapping clips then *sum* on render
+// (`render.rs` does `dst[i] += scratch[i]`) rather than layering, so the
+// audio was wrong as well as the arrangement.
+
+/// The round trip the acceptance asks for: +0.5s, −2.0s, +2.0s.
+#[test]
+fn an_over_shift_does_not_destroy_the_gap_between_clips() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let mut clipboard: Option<tools::Clipboard> = None;
+    {
+        let mut ctx = ToolContext {
+            store: &mut store,
+            engine: &mut engine,
+            user_message: "",
+            clipboard: &mut clipboard,
+            allowed_tools: None,
+        };
+        two_clip_session(&dispatcher, &mut ctx, tmp.path());
+    }
+
+    let gap_of = |clips: &[session::Clip]| -> u64 {
+        assert_eq!(clips.len(), 2, "the fixture should produce two clips");
+        clips[1].start_in_track - clips[0].start_in_track
+    };
+    let original_gap = gap_of(&clips_at_head(&store));
+    assert!(original_gap > 0, "the fixture should leave a real gap");
+
+    for offset in [0.5f64, -2.0, 2.0] {
+        let mut ctx = ToolContext {
+            store: &mut store,
+            engine: &mut engine,
+            user_message: "",
+            clipboard: &mut clipboard,
+            allowed_tools: None,
+        };
+        ok(dispatcher
+            .invoke(
+                "time_shift",
+                json!({ "track": 0, "offset_sec": offset }),
+                &mut ctx,
+            )
+            .unwrap());
+    }
+
+    let after = clips_at_head(&store);
+    assert_eq!(
+        gap_of(&after),
+        original_gap,
+        "the clips collapsed onto each other: {:?}",
+        after.iter().map(|c| c.start_in_track).collect::<Vec<_>>()
+    );
+}
+
+/// The floor is the track's, not each clip's: an over-shift backwards
+/// puts the *earliest* clip at 0 and moves the rest by the same amount.
+#[test]
+fn an_over_shift_backwards_lands_the_earliest_clip_at_zero() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let mut clipboard: Option<tools::Clipboard> = None;
+    {
+        let mut ctx = ToolContext {
+            store: &mut store,
+            engine: &mut engine,
+            user_message: "",
+            clipboard: &mut clipboard,
+            allowed_tools: None,
+        };
+        two_clip_session(&dispatcher, &mut ctx, tmp.path());
+        // Push the whole track out first so there is room to over-shift.
+        ok(dispatcher
+            .invoke(
+                "time_shift",
+                json!({ "track": 0, "offset_sec": 0.5 }),
+                &mut ctx,
+            )
+            .unwrap());
+    }
+    let before = clips_at_head(&store);
+    let gap = before[1].start_in_track - before[0].start_in_track;
+
+    let res = {
+        let mut ctx = ToolContext {
+            store: &mut store,
+            engine: &mut engine,
+            user_message: "",
+            clipboard: &mut clipboard,
+            allowed_tools: None,
+        };
+        ok(dispatcher
+            .invoke(
+                "time_shift",
+                json!({ "track": 0, "offset_sec": -99.0 }),
+                &mut ctx,
+            )
+            .unwrap())
+    };
+
+    let after = clips_at_head(&store);
+    assert_eq!(
+        after[0].start_in_track, 0,
+        "the earliest clip should sit at 0"
+    );
+    assert_eq!(
+        after[1].start_in_track - after[0].start_in_track,
+        gap,
+        "the gap must survive the clamp"
+    );
+
+    // And the caller has to be told, or it believes the track moved 99s.
+    assert_eq!(
+        res["clamped"],
+        json!(true),
+        "a clamped shift must say so: {res}"
+    );
+    assert!(
+        res["summary"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("clamped"),
+        "the summary should mention the clamp: {res}"
+    );
+}
+
+/// A shift that fits is reported plainly — the clamp notice must not
+/// appear on every ordinary move.
+#[test]
+fn a_shift_that_fits_is_not_reported_as_clamped() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let mut clipboard: Option<tools::Clipboard> = None;
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+        user_message: "",
+        clipboard: &mut clipboard,
+        allowed_tools: None,
+    };
+    two_clip_session(&dispatcher, &mut ctx, tmp.path());
+    let res = ok(dispatcher
+        .invoke(
+            "time_shift",
+            json!({ "track": 0, "offset_sec": 0.25 }),
+            &mut ctx,
+        )
+        .unwrap());
+    assert_eq!(res["clamped"], json!(false));
+}
