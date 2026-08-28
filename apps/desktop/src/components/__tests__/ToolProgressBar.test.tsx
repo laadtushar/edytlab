@@ -86,6 +86,19 @@ describe("the tool progress strip", () => {
    * click not having registered.
    */
   it("says it is stopping rather than looking unclicked", async () => {
+    // Deferred, because that is what a real IPC round trip is. With an
+    // instantly-resolving mock the transient state cannot be observed
+    // at all — and the strip now un-latches when the call settles
+    // (#252), so an instant resolve would race the assertion rather
+    // than test it.
+    let settle!: () => void;
+    cancel.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          settle = resolve;
+        }),
+    );
+
     render(<ToolProgressBar />);
     emit(RUNNING);
     await waitFor(() => expect(screen.getByTestId("tool-progress")).toBeTruthy());
@@ -93,5 +106,68 @@ describe("the tool progress strip", () => {
     fireEvent.click(btn);
     await waitFor(() => expect(btn.textContent).toBe("Stopping…"));
     expect(btn.disabled).toBe(true);
+
+    // And it comes back when the call finishes, rather than latching.
+    settle();
+    await waitFor(() => expect(btn.disabled).toBe(false));
+  });
+
+  // ---- Not every report on this channel is progress (#252) ----------
+  //
+  // `progress::report` is one channel and everything on it landed here.
+  // `select_region` reports the region it matched with no `total`, no
+  // `index`, no `file` and no `done` — which rendered a 0%-filled strip
+  // reading "1 of " with a blank filename, pinned above the timeline
+  // until some *unrelated* long-running tool happened to emit `done`.
+
+  it("ignores a selection report entirely", async () => {
+    render(<ToolProgressBar />);
+    // The listener registers through a promise. Emitting before it is
+    // attached makes this pass for the wrong reason — which it did on
+    // the first draft, and a mutation run caught.
+    await waitFor(() => expect(handlers.length).toBeGreaterThan(0));
+
+    emit({
+      kind: "selection",
+      start_sec: 12.5,
+      end_sec: 18.25,
+      matched: "where he talks about latency",
+    });
+
+    await new Promise((r) => setTimeout(r, 30));
+    expect(
+      screen.queryByTestId("tool-progress"),
+      "a selection report is not progress and must not pin a strip",
+    ).toBeNull();
+  });
+
+  it("does not let a selection report hide a running batch", async () => {
+    render(<ToolProgressBar />);
+    emit(RUNNING);
+    await screen.findByTestId("tool-progress");
+
+    emit({ kind: "selection", start_sec: 1, end_sec: 2 });
+
+    // Still there, still showing the batch.
+    expect(screen.getByTestId("tool-progress")).toBeInTheDocument();
+  });
+
+  /**
+   * `cancel_long_running_tool` returns `Ok(())` unconditionally, so the
+   * old `.catch` never fired. With no `done` to follow — the common
+   * case, since nothing guarantees one — the button stayed disabled on
+   * "Stopping…" with no way back.
+   */
+  it("un-latches Cancel when the call resolves", async () => {
+    render(<ToolProgressBar />);
+    emit(RUNNING);
+    await screen.findByTestId("tool-progress");
+
+    fireEvent.click(screen.getByTestId("tool-progress-cancel"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("tool-progress-cancel")).not.toBeDisabled(),
+    );
+    expect(cancel).toHaveBeenCalledTimes(1);
   });
 });

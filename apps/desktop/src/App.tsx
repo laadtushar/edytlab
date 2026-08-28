@@ -81,6 +81,7 @@ import {
   hasApiKey,
   installBundledSkills,
   onNodeCreated,
+  onToolProgress,
   renderPreview as bridgeRenderPreview,
 } from "./lib/tauri-bridge";
 import { listTemplates, applyTemplate, startRecording, stopRecording } from "./lib/tauri-bridge";
@@ -779,6 +780,37 @@ function App() {
       void setSelectionContext(range).catch(() => undefined);
     }, 250);
   }, []);
+
+  // `select_region` reports the region it matched, "for the user to
+  // check" — and nothing consumed it (#252). The whole safety argument
+  // for the tool is seeing a described region *before* pointing a
+  // destructive tool at it, so a report nobody applies delivers none of
+  // it.
+  //
+  // Routed through `handleSelectionChange` rather than `setSelection` so
+  // the backend's selection context is updated too: the next turn's
+  // "[apply to …]" prefix should agree with what is highlighted.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+
+    void onToolProgress((p) => {
+      if (p.kind !== "selection") return;
+      if (typeof p.start_sec !== "number" || typeof p.end_sec !== "number") {
+        return;
+      }
+      if (p.end_sec <= p.start_sec) return;
+      handleSelectionChange({ start: p.start_sec, end: p.end_sec });
+    }).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [handleSelectionChange]);
 
   const handleAddMarker = useCallback(async (timeSec: number) => {
     const name = window.prompt("Marker name:", `marker ${markers.length + 1}`) ?? "";
