@@ -45,7 +45,9 @@ vi.mock("wavesurfer.js", () => ({
     create: () => {
       const entry = {
         url: null as string | null,
-        play: vi.fn(),
+        // WaveSurfer 7's play() returns a Promise; the mock must too,
+        // or it hides a rejected play() rather than exercising it.
+        play: vi.fn(() => Promise.resolve()),
         pause: vi.fn(),
         setTime: vi.fn(),
         playing: false,
