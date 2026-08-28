@@ -120,15 +120,11 @@ fn an_off_rate_clip_starts_at_the_second_its_own_frames_name() {
     render_state_to_wav(&state, &out, None).expect("render");
 
     let at = first_audible_sec(&out);
-    // Measured 1.032 s, not 1.000. The 32 ms is the rubato resampler's
-    // own latency, which nothing compensates — that is #242, a separate
-    // open defect, and it applies to every off-rate track equally. The
-    // tolerance admits it deliberately rather than hiding it: the
-    // failure this test exists for is 0.532 s, half a second out, and
-    // 60 ms is nowhere near it. Tighten this to a few milliseconds once
-    // #242 lands.
+    // This tolerated 60 ms when it was written, because the render was
+    // 32 ms late on every off-rate track — the resampler's uncompensated
+    // latency. #242 fixed that, so the slack is no longer needed.
     assert!(
-        (at - 1.0).abs() < 0.06,
+        (at - 1.0).abs() < 0.01,
         "a clip placed at 1.0 s in its own frames rendered at {at:.3} s"
     );
 }

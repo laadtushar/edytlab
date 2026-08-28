@@ -325,6 +325,23 @@ struct TrackResampler {
     out_buf: Vec<Vec<f32>>,
     /// Frames per resampler call (== `RESAMPLER_CHUNK_INPUT_FRAMES`).
     chunk_in: usize,
+    /// Output frames still to be discarded from the head to cancel the
+    /// resampler's own latency (#242).
+    ///
+    /// `FftFixedInOut` reports `chunk_size_out / 2` of delay, and it was
+    /// never queried: every off-rate track came out that much late
+    /// relative to tracks already at the project rate — 11.7 ms for
+    /// 48k↔44.1k, 65 ms for 8k→44.1k — and because the output is capped
+    /// at the expected frame count, the delayed head pushed an equal
+    /// slice off the end. In a mix that is a flam against an on-rate
+    /// track; on a lone track it clips the last word.
+    ///
+    /// Discarding here rather than at the end is what also fixes the
+    /// tail: `pending_frames` counts only frames that survive the
+    /// discard, so the pump keeps feeding zero-padded input until the
+    /// track's full length has been produced, which flushes the
+    /// resampler.
+    delay_remaining: usize,
 }
 
 impl TrackStreamer {
@@ -367,6 +384,7 @@ impl TrackStreamer {
             .map_err(Error::ResamplerInit)?;
             let chunk_in = inner.input_frames_next();
             let chunk_out = inner.output_frames_max();
+            let delay_remaining = inner.output_delay();
             let in_buf: Vec<Vec<f32>> = (0..in_channels).map(|_| vec![0.0; chunk_in]).collect();
             let out_buf: Vec<Vec<f32>> = (0..in_channels).map(|_| vec![0.0; chunk_out]).collect();
             Some(TrackResampler {
@@ -374,6 +392,7 @@ impl TrackStreamer {
                 in_buf,
                 out_buf,
                 chunk_in,
+                delay_remaining,
             })
         };
 
@@ -512,16 +531,23 @@ impl TrackStreamer {
                     .process_into_buffer(&rs.in_buf, &mut rs.out_buf, None)
                     .map_err(Error::ResamplerProcess)?;
 
-                // Append output to pending. Note we append the FULL
-                // `out_written` here (not truncated to expected). The
-                // truncation happens when `next_chunk` consumes pending and
-                // hits `project_frames_total`. This matches M21, which
-                // truncated the FINAL planar output to `expected_out_frames`
-                // after running the resampler over every padded chunk.
+                // Drop the resampler's own latency off the front before
+                // anything sees it (#242). Only what survives is counted,
+                // so the pump keeps going — on zero-padded input once the
+                // source is exhausted — until the track's full length has
+                // been produced. That is what flushes the tail the delay
+                // used to push off the end.
+                let skip = rs.delay_remaining.min(out_written);
+                rs.delay_remaining -= skip;
+                let kept = out_written - skip;
+
+                // Append the FULL remainder (not truncated to expected).
+                // The truncation happens when `next_chunk` consumes
+                // pending and hits `project_frames_total`.
                 for ch in 0..self.in_channels {
-                    self.pending_planar[ch].extend_from_slice(&rs.out_buf[ch][..out_written]);
+                    self.pending_planar[ch].extend_from_slice(&rs.out_buf[ch][skip..out_written]);
                 }
-                self.pending_frames += out_written;
+                self.pending_frames += kept;
                 Ok(())
             }
         }
@@ -1044,22 +1070,47 @@ pub fn buffered_resample_track(
     let out_chunk = resampler.output_frames_max();
     let mut out_buf: Vec<Vec<f32>> = (0..channels).map(|_| vec![0.0f32; out_chunk]).collect();
 
+    let expected_out_frames =
+        ((in_frames as u128) * (out_rate as u128) / (in_rate as u128)) as usize;
+
+    // The resampler's own latency, discarded from the head below (#242).
+    // The streaming path does the same thing chunk by chunk; both have to
+    // agree or the byte-identity test in `tests/streaming.rs` is comparing
+    // a corrected render against an uncorrected one.
+    let delay = resampler.output_delay();
+
+    // Keep feeding — zero chunks once the real input runs out — until
+    // enough output exists to cover the expected length *plus* the delay
+    // that is about to be thrown away. Stopping at `pad_to`, as this used
+    // to, left the last `delay` frames of the track unrendered.
     let mut pos = 0;
-    while pos + chunk <= pad_to {
+    let target = expected_out_frames + delay;
+    while out_planes[0].len() < target {
         for ch in 0..channels {
-            in_buf[ch].copy_from_slice(&planar[ch][pos..pos + chunk]);
+            if pos + chunk <= pad_to {
+                in_buf[ch].copy_from_slice(&planar[ch][pos..pos + chunk]);
+            } else {
+                in_buf[ch].iter_mut().for_each(|v| *v = 0.0);
+            }
         }
         let (_in_used, out_written) = resampler
             .process_into_buffer(&in_buf, &mut out_buf, None)
             .map_err(Error::ResamplerProcess)?;
+        if out_written == 0 {
+            // A resampler that stops producing would otherwise spin here.
+            break;
+        }
         for ch in 0..channels {
             out_planes[ch].extend_from_slice(&out_buf[ch][..out_written]);
         }
         pos += chunk;
     }
 
-    let expected_out_frames =
-        ((in_frames as u128) * (out_rate as u128) / (in_rate as u128)) as usize;
+    for plane in &mut out_planes {
+        let skip = delay.min(plane.len());
+        plane.drain(..skip);
+    }
+
     for plane in &mut out_planes {
         if plane.len() > expected_out_frames {
             plane.truncate(expected_out_frames);
