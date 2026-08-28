@@ -430,3 +430,136 @@ fn a_short_session_has_nothing_to_compact() {
         "{v}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// The claim and the code have to agree (#256)
+// ---------------------------------------------------------------------------
+
+/// Every `.rs` file the shipping app is built from, as `(path, source)`.
+///
+/// Test files are excluded on purpose: `sweep` being exercised by this
+/// very file is the situation, not a violation of it.
+fn production_sources() -> Vec<(String, String)> {
+    fn walk(dir: &Path, out: &mut Vec<(String, String)>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, out);
+            } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+                if let Ok(text) = std::fs::read_to_string(&path) {
+                    out.push((path.to_string_lossy().to_string(), text));
+                }
+            }
+        }
+    }
+
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut out = Vec::new();
+    for rel in ["crates", "apps/desktop/src-tauri/src", "apps/cli/src"] {
+        walk(&root.join(rel), &mut out);
+    }
+    // `crates/*/tests` came along with `crates`; drop it again.
+    out.retain(|(p, _)| !p.contains("/tests/"));
+    assert!(
+        out.len() > 50,
+        "found only {} source files — the layout moved and this guard reads nothing",
+        out.len()
+    );
+    out
+}
+
+/// A tool must not tell the model the cache is swept for it while
+/// nothing sweeps it.
+///
+/// `compact_session` said *"For reclaiming space without losing
+/// history, the derived-audio cache is swept automatically instead."*
+/// while `reclaim::sweep` had no caller outside these tests — and
+/// `storage_report`, registered alongside it, said the opposite in the
+/// same session. The agent was steered away from the only tool that
+/// frees space, toward a background process that does not exist.
+///
+/// This is a two-way lock. It fails if a description starts claiming an
+/// automatic sweep while none runs, **and** it fails once someone wires
+/// `sweep` up without rewriting that copy — which is the moment the
+/// claim would become true and the descriptions would need to say so.
+#[test]
+fn no_tool_claims_an_automatic_sweep() {
+    let swept_automatically = production_sources()
+        .into_iter()
+        .any(|(p, src)| !p.contains("reclaim.rs") && src.contains("reclaim::sweep("));
+
+    let descriptions: Vec<(String, String)> = ToolDispatcher::default_dispatcher()
+        .tool_schemas()
+        .as_array()
+        .expect("tool_schemas is an array")
+        .iter()
+        .map(|s| {
+            (
+                s["name"].as_str().unwrap_or_default().to_string(),
+                s["description"].as_str().unwrap_or_default().to_string(),
+            )
+        })
+        .collect();
+
+    // "swept automatically", "swept for you", "automatically swept" —
+    // any tense of the claim.
+    let claimants: Vec<&str> = descriptions
+        .iter()
+        .filter(|(_, d)| {
+            let d = d.to_lowercase();
+            (d.contains("swept") || d.contains("sweeps")) && d.contains("automatic")
+        })
+        .map(|(n, _)| n.as_str())
+        .collect();
+
+    if swept_automatically {
+        assert!(
+            !claimants.is_empty(),
+            "`reclaim::sweep` now has a production caller, so the tool descriptions \
+             should say the cache is swept automatically — update `compact_session` \
+             and `storage_report`, which currently tell the user the opposite"
+        );
+    } else {
+        assert!(
+            claimants.is_empty(),
+            "these tools tell the model the derived-audio cache is swept \
+             automatically, but nothing calls `reclaim::sweep` outside the tests: \
+             {claimants:?}"
+        );
+    }
+}
+
+/// The two storage tools are registered together, so a session can
+/// receive both descriptions at once. They may not contradict each
+/// other about whether anything reclaims space on its own.
+#[test]
+fn the_storage_tools_describe_the_same_policy() {
+    let dispatcher = ToolDispatcher::default_dispatcher();
+    let schemas = dispatcher.tool_schemas();
+    let describe = |name: &str| -> String {
+        schemas
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["name"] == name)
+            .unwrap_or_else(|| panic!("{name} is not registered"))["description"]
+            .as_str()
+            .unwrap_or_default()
+            .to_lowercase()
+    };
+
+    let compact = describe("compact_session");
+    let report = describe("storage_report");
+
+    for (name, text) in [("compact_session", &compact), ("storage_report", &report)] {
+        assert!(
+            text.contains("nothing sweeps"),
+            "`{name}` no longer states that nothing sweeps derived audio in the \
+             background; the two storage tools have to agree, or an agent holding \
+             both gets contradictory answers"
+        );
+    }
+}

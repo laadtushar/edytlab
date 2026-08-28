@@ -137,6 +137,22 @@ pub fn rebuildable_paths(nodes: &[session::SessionNode]) -> BTreeSet<PathBuf> {
 ///
 /// Returns without touching anything when already under the cap, so
 /// calling this after every edit is cheap.
+///
+/// # Not wired up yet
+///
+/// **Nothing in the shipping app calls this.** It is exercised only by
+/// `tests/reclaim.rs`, and `compact_session` is the only reclamation a
+/// user can actually reach. `compact_session`'s description used to
+/// tell the model this cache "is swept automatically", which steered
+/// the agent away from the one tool that frees space and toward a
+/// background process that does not run (#256).
+///
+/// Wiring it up needs [`crate::rederive::ensure_present`] on the render
+/// path first — this deletes files a node still names, on the promise
+/// that they can be rebuilt, and nothing rebuilds them today. Adding a
+/// caller must also update `compact_session` and `storage_report`,
+/// which is what `no_tool_claims_an_automatic_sweep` in
+/// `tests/reclaim.rs` is there to force.
 pub fn sweep(store: &session::Store, cap_bytes: u64) -> std::io::Result<SweepReport> {
     let dir = derived_dir(store.project_dir());
     if !dir.is_dir() {
