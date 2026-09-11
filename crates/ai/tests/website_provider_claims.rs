@@ -154,6 +154,14 @@ fn the_faq_does_not_call_a_shipped_provider_unbuilt() {
 /// ask them for.
 #[test]
 fn the_keyless_claim_matches_the_provider() {
+    // Gated like the test above, and for the same reason: with Ollama
+    // removed from the registry `provider_from_id` falls back to
+    // Anthropic, so this would demand a claim the site is by then free
+    // to drop — failing over copy that had become correct. Caught in
+    // review on #316.
+    if !SUPPORTED_PROVIDER_IDS.contains(&"ollama") {
+        return;
+    }
     let ollama = ai::provider::provider_from_id("ollama");
     assert_eq!(ollama.id(), "ollama", "provider_from_id fell back");
     assert!(
