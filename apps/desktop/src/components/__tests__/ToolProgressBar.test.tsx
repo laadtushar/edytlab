@@ -20,6 +20,7 @@ vi.mock("../../lib/tauri-bridge", () => ({
   cancelLongRunningTool: () => cancel(),
 }));
 
+import { LEAVE_MS } from "../../hooks/usePresence";
 import { ToolProgressBar } from "../ToolProgressBar";
 
 function emit(p: Record<string, unknown>) {
@@ -70,6 +71,61 @@ describe("the tool progress strip", () => {
     await waitFor(() => expect(screen.getByTestId("tool-progress")).toBeTruthy());
     emit({ kind: "batch_apply", done: true, total: 3, succeeded: 3, refused: 0 });
     await waitFor(() => expect(screen.queryByTestId("tool-progress")).toBeNull());
+  });
+
+  /**
+   * The strip collapses rather than snapping away (#236).
+   *
+   * "Clears itself when the run finishes" above also passes against
+   * the old synchronous unmount — it only waits for the element to be
+   * gone eventually, which it is either way. This is the assertion
+   * that separates them: at the moment the batch ends the shell must
+   * still be mounted, carrying `strip-out`.
+   *
+   * It matters more here than on the overlays. A batch ending used to
+   * snap the timeline upward under the pointer — the same relayout
+   * `strip-in` was added to smooth, in the direction nobody animated.
+   */
+  it("collapses on leave instead of snapping the timeline up", async () => {
+    render(<ToolProgressBar />);
+    await waitFor(() => expect(handlers.length).toBeGreaterThan(0));
+    emit(RUNNING);
+    await waitFor(() => expect(screen.getByTestId("tool-progress")).toBeTruthy());
+    expect(screen.getByTestId("tool-progress-shell").className).toBe("strip-in");
+
+    emit({ kind: "batch_apply", done: true, total: 3, succeeded: 3, refused: 0 });
+
+    // Still there, and now on its way out.
+    await waitFor(() =>
+      expect(screen.getByTestId("tool-progress-shell").className).toBe("strip-out"),
+    );
+
+    // And still showing the last thing it was doing. Without the
+    // retained progress the strip would shrink around empty text,
+    // which reads as a glitch rather than as a thing finishing.
+    expect(screen.getByTestId("tool-progress-file").textContent).toBe(
+      "episode-two.wav",
+    );
+  });
+
+  /**
+   * And the collapse ends. A hold with no release would pin the strip
+   * above the timeline forever — worse than the snap it replaces.
+   */
+  it("unmounts once the collapse is over", async () => {
+    render(<ToolProgressBar />);
+    await waitFor(() => expect(handlers.length).toBeGreaterThan(0));
+    emit(RUNNING);
+    await waitFor(() => expect(screen.getByTestId("tool-progress")).toBeTruthy());
+    emit({ kind: "batch_apply", done: true, total: 3, succeeded: 3, refused: 0 });
+    await waitFor(() =>
+      expect(screen.getByTestId("tool-progress-shell").className).toBe("strip-out"),
+    );
+
+    await waitFor(
+      () => expect(screen.queryByTestId("tool-progress-shell")).toBeNull(),
+      { timeout: LEAVE_MS * 6 },
+    );
   });
 
   it("asks the backend to stop when cancelled", async () => {
