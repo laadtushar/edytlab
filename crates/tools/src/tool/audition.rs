@@ -31,6 +31,30 @@
 //! instant. They are excerpts and are deliberately kept away from the
 //! preview cache: serving one in place of a whole mix would be a hit
 //! that returns the wrong audio (#164).
+//!
+//! ## Hearing it
+//!
+//! The result is tagged `type: "audition"`, which opts it into
+//! `ai::ToolView` (not linkable from here — `ai` depends on this crate,
+//! not the other way round) and puts a player under the tool badge that
+//! produced it (#258). Before that tag existed the render happened and
+//! the excerpt's absolute path was printed into the chat as JSON — the
+//! work was done and there was no way to hear it from inside the app.
+//!
+//! ## Deferred: the parameter control
+//!
+//! #166 also asks that *"changing a parameter updates what you hear
+//! without a manual re-render"* — a slider. That is **not built**, and
+//! this note is the explicit deferral #258 asks for rather than a
+//! silent omission; the last time this criterion went unrecorded, a
+//! merge commit described the content cache as "what makes this usable
+//! on a slider" while shipping no slider.
+//!
+//! What exists is the half that makes a slider cheap when someone
+//! builds one: auditions are content-addressed, so re-auditioning a
+//! value already heard is a cache hit rather than a render. What is
+//! missing is a UI control that re-invokes the tool as it moves, which
+//! is a frontend feature and not a property of this tool.
 
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -177,6 +201,13 @@ impl Tool for AuditionEffectTool {
         };
 
         Ok(ToolResult::Ok(json!({
+            // Opts this result into `ai::ToolView`, which is what
+            // carries the excerpt to a player in the transcript (#258).
+            // Without the tag the render still happens and the path is
+            // merely recited into the chat, which is where this tool
+            // spent its first release: a full render the user could not
+            // hear without leaving the app.
+            "type": "audition",
             "path": path.to_string_lossy(),
             "cached": hit.is_cached(),
             "start_sec": start,
