@@ -370,15 +370,30 @@ export interface SpectrumPoint {
 }
 
 /**
- * The drawable projection of a tool result — mirrors `ai::ToolView`.
- * Tagged on `type`, so adding a second chart kind here means adding a
- * variant there.
+ * The presentable projection of a tool result — mirrors `ai::ToolView`.
+ * Tagged on `type`, so adding a kind here means adding a variant there.
  */
-export type ToolView = {
-  type: "spectrum";
-  points: SpectrumPoint[];
-  summary?: string | null;
-};
+export type ToolView =
+  | {
+      type: "spectrum";
+      points: SpectrumPoint[];
+      summary?: string | null;
+    }
+  | {
+      /**
+       * `audition_effect` — an excerpt WAV to play (#258).
+       *
+       * `path` is an absolute path on disk; it needs `convertFileSrc`
+       * before an `<audio>` element can load it.
+       */
+      type: "audition";
+      path: string;
+      kind: string;
+      track: number;
+      start_sec: number;
+      end_sec: number;
+      summary?: string | null;
+    };
 
 export const onToolCallEnd = (
   cb: (id: string, ok: boolean, view?: ToolView) => void,

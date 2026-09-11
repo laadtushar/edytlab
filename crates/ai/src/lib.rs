@@ -167,12 +167,13 @@ pub struct SpectrumPoint {
     pub db: f32,
 }
 
-/// The drawable projection of a tool result.
+/// The presentable projection of a tool result.
 ///
 /// Tool results are JSON aimed at the model. A couple of them also
-/// describe something worth *plotting*, and this is that part and only
-/// that part — forwarding whole results to the UI would ship transcripts
-/// and analysis dumps to a frontend with no use for them.
+/// describe something worth *showing* — a curve to plot, audio to play
+/// — and this is that part and only that part; forwarding whole results
+/// to the UI would ship transcripts and analysis dumps to a frontend
+/// with no use for them.
 ///
 /// A tool opts in by tagging its result with a `type` this enum knows.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -181,6 +182,29 @@ pub enum ToolView {
     /// `plot_spectrum` — an FFT magnitude curve, ordered by frequency.
     Spectrum {
         points: Vec<SpectrumPoint>,
+        #[serde(default)]
+        summary: Option<String>,
+    },
+    /// `audition_effect` — an excerpt WAV to play (#258).
+    ///
+    /// The tool renders the session as it *would* sound with an effect
+    /// added, and appends nothing. Before this variant existed the
+    /// render happened and then its absolute path was printed into the
+    /// chat transcript as JSON, so hearing the audition meant leaving
+    /// the app and opening the file in another player — which is the
+    /// whole workflow #166 set out to remove.
+    ///
+    /// The path travels here rather than in the model's copy of the
+    /// result for the same reason the spectrum's points do: a filesystem
+    /// path is something the UI can open and the model can only recite.
+    Audition {
+        /// Absolute path to the rendered excerpt.
+        path: String,
+        /// The effect being auditioned, and where.
+        kind: String,
+        track: usize,
+        start_sec: f64,
+        end_sec: f64,
         #[serde(default)]
         summary: Option<String>,
     },

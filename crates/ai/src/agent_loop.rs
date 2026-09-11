@@ -1025,15 +1025,22 @@ fn extract_node_id(value: &Value) -> Option<session::NodeId> {
 /// themselves into a deserialise that was always going to fail.
 fn extract_tool_view(value: &Value) -> Option<crate::ToolView> {
     match value.get("type").and_then(Value::as_str) {
-        Some("spectrum") => serde_json::from_value(value.clone()).ok(),
+        Some("spectrum") | Some("audition") => serde_json::from_value(value.clone()).ok(),
         _ => None,
     }
 }
 
-/// Fields that exist for the chart and are worthless to the model.
+/// Fields that exist for the view and are worthless to the model.
 ///
 /// Keyed by the result's `type` tag, same as [`extract_tool_view`].
-const VIEW_ONLY_FIELDS: &[(&str, &[&str])] = &[("spectrum", &["points"])];
+///
+/// `audition`'s `path` is here for a different reason than `spectrum`'s
+/// `points`: not because it is large, but because it is *misdirected*.
+/// An absolute path to an excerpt WAV is something the UI can open and
+/// the model can only read aloud into the transcript — which is exactly
+/// what #258 reports. The model keeps the summary, which tells it what
+/// was auditioned and that nothing was committed.
+const VIEW_ONLY_FIELDS: &[(&str, &[&str])] = &[("spectrum", &["points"]), ("audition", &["path"])];
 
 /// Drop the chart's payload from the copy the model reads.
 ///
@@ -1120,6 +1127,117 @@ mod tests {
     // extract_tool_view
     // ------------------------------------------------------------------
 
+    /// `audition_effect` renders an excerpt and used to return only its
+    /// path, as JSON, into the chat — a full render nobody could hear
+    /// without leaving the app (#258).
+    ///
+    /// This drives the real tool for the same reason the spectrum test
+    /// below does: the tool's result and this enum are declared in two
+    /// different crates, and a JSON literal here would keep passing
+    /// after the tool stopped emitting the tag. That is precisely how
+    /// the audition shipped unreachable in the first place.
+    #[test]
+    fn audition_result_becomes_a_playable_view() {
+        use hound::{SampleFormat, WavSpec, WavWriter};
+
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let src = tmp.path().join("tone.wav");
+        let sr = 8_000u32;
+        let spec = WavSpec {
+            channels: 1,
+            sample_rate: sr,
+            bits_per_sample: 16,
+            sample_format: SampleFormat::Int,
+        };
+        let mut w = WavWriter::create(&src, spec).expect("wav writer");
+        for n in 0..sr {
+            let t = n as f32 / sr as f32;
+            let s = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.4;
+            w.write_sample((s * 32_767.0) as i16).unwrap();
+        }
+        w.finalize().unwrap();
+
+        let mut store = session::Store::open(tmp.path()).expect("open store");
+        let mut engine = audio_engine::Engine::new();
+        let dispatcher = ToolDispatcher::default_dispatcher();
+        let mut clipboard: Option<tools::Clipboard> = None;
+        let mut ctx = ToolContext {
+            store: &mut store,
+            engine: &mut engine,
+            user_message: "",
+            clipboard: &mut clipboard,
+            allowed_tools: None,
+        };
+        let load = dispatcher
+            .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+            .expect("load dispatches");
+        assert!(matches!(load, ToolResult::Ok(_)), "load failed: {load:?}");
+
+        let result = dispatcher
+            .invoke(
+                "audition_effect",
+                json!({
+                    "track": 0,
+                    "kind": "low_pass_filter",
+                    "params": { "cutoff_hz": 1_000.0 },
+                    "start_sec": 0.0,
+                    "end_sec": 0.5,
+                }),
+                &mut ctx,
+            )
+            .expect("audition_effect dispatches");
+        let mut value = match result {
+            ToolResult::Ok(v) => v,
+            ToolResult::Error(msg) => panic!("audition_effect errored: {msg}"),
+        };
+
+        let view = extract_tool_view(&value)
+            .expect("audition_effect's result must survive the trip to the UI as a ToolView");
+        let crate::ToolView::Audition {
+            path,
+            kind,
+            track,
+            start_sec,
+            end_sec,
+            summary,
+        } = view
+        else {
+            panic!("audition_effect must project to an Audition view, got {view:?}");
+        };
+
+        // The player loads this path. A relative or empty one plays
+        // nothing, and it fails silently in a webview.
+        assert!(
+            std::path::Path::new(&path).is_absolute(),
+            "the player needs an absolute path, got {path:?}"
+        );
+        assert!(
+            std::path::Path::new(&path).exists(),
+            "the view names {path:?}, which does not exist — the excerpt was never rendered"
+        );
+        assert_eq!(kind, "low_pass_filter");
+        assert_eq!(track, 0);
+        assert_eq!(start_sec, 0.0);
+        assert_eq!(end_sec, 0.5);
+        assert!(
+            summary.is_some_and(|s| !s.is_empty()),
+            "the caption under the player comes from the tool's summary"
+        );
+
+        // And the model's copy loses the path it could only recite.
+        // This is the other half of #258: the path stopped being chat
+        // text at the same moment it became a player.
+        strip_view_only_fields(&mut value);
+        assert!(
+            value.get("path").is_none(),
+            "the model still receives the excerpt's path as text: {value}"
+        );
+        assert!(
+            value.get("summary").is_some(),
+            "the model must keep the summary — it is how it learns nothing was committed"
+        );
+    }
+
     /// The shape `plot_spectrum` emits and the shape the UI draws are
     /// declared in two different crates, and nothing used to hold them
     /// together — the chart component sat unreachable for exactly that
@@ -1177,7 +1295,9 @@ mod tests {
 
         let view = extract_tool_view(&value)
             .expect("plot_spectrum's result must survive the trip to the UI as a ToolView");
-        let crate::ToolView::Spectrum { points, summary } = view;
+        let crate::ToolView::Spectrum { points, summary } = view else {
+            panic!("plot_spectrum must project to a Spectrum view, got {view:?}");
+        };
         assert!(
             !points.is_empty(),
             "a spectrum with no points draws nothing"
@@ -1248,7 +1368,9 @@ mod tests {
 
         // The chart's half, taken first.
         let view = extract_tool_view(&value).expect("the chart must still get its curve");
-        let crate::ToolView::Spectrum { points, .. } = &view;
+        let crate::ToolView::Spectrum { points, .. } = &view else {
+            panic!("plot_spectrum must project to a Spectrum view, got {view:?}");
+        };
         assert!(
             points.len() > 100,
             "the curve was gutted: {} points",

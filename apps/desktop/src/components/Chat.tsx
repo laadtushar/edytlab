@@ -35,6 +35,7 @@ import {
 import { CapabilitiesMenu } from "./CapabilitiesMenu";
 import { COMMANDS } from "./CommandPalette";
 import { MessageBubble } from "./MessageBubble";
+import { AuditionPlayer } from "./AuditionPlayer";
 import { SpectrumChart } from "./SpectrumChart";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 import { ToolBadge } from "./ToolBadge";
@@ -344,11 +345,21 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
                   status={entry.status}
                   result={entry.result}
                 />
-                {/* A chart belongs to the call that computed it, not to
+                {/* A view belongs to the call that produced it, not to
                     whatever the assistant happened to say next. */}
                 {entry.view?.type === "spectrum" ? (
                   <SpectrumChart
                     points={entry.view.points}
+                    caption={entry.view.summary ?? undefined}
+                  />
+                ) : null}
+                {entry.view?.type === "audition" ? (
+                  <AuditionPlayer
+                    path={entry.view.path}
+                    kind={entry.view.kind}
+                    track={entry.view.track}
+                    startSec={entry.view.start_sec}
+                    endSec={entry.view.end_sec}
                     caption={entry.view.summary ?? undefined}
                   />
                 ) : null}
