@@ -37,9 +37,11 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::annotation::Annotation;
 use crate::node::{NodeId, SessionNode};
 use crate::state::{
-    Bus, BusGraph, Clip, EffectInstance, KeyMap, SessionState, TempoMap, Track, TrackId, Transcript,
+    Bus, BusGraph, Clip, EffectInstance, KeyMap, Send, SessionState, TempoMap, Track, TrackId,
+    Transcript,
 };
 use crate::store::Store;
 use crate::{Error, Result};
@@ -105,6 +107,20 @@ pub enum DiffOp {
     SampleRate { value: u32 },
     /// Replace `SessionState::length_samples`.
     LengthSamples { value: u64 },
+    /// Replace `SessionState::annotations` wholesale (#244).
+    ///
+    /// Whole-vector like the tempo map rather than per-annotation:
+    /// annotations carry their own ids but are edited as a set by
+    /// `import_labels`, and a per-item diff would need a merge story
+    /// this type does not otherwise have.
+    Annotations { value: Vec<Annotation> },
+    /// Replace `SessionState::sync_lock` (#244).
+    SyncLock { value: bool },
+    /// Replace the entire `Track::sends` vec for the named track (#244).
+    ///
+    /// Whole-vector for the same reason as `ClipsChange`: two diffs that
+    /// both touch one track's sends conflict.
+    TrackSends { track_id: TrackId, value: Vec<Send> },
 }
 
 /// Bus metadata without its effect list — effects flow through
@@ -136,6 +152,9 @@ pub enum DiffTarget {
     Transcript,
     SampleRate,
     LengthSamples,
+    Annotations,
+    SyncLock,
+    TrackSends(TrackId),
 }
 
 impl DiffOp {
@@ -157,6 +176,9 @@ impl DiffOp {
             DiffOp::Transcript { .. } => DiffTarget::Transcript,
             DiffOp::SampleRate { .. } => DiffTarget::SampleRate,
             DiffOp::LengthSamples { .. } => DiffTarget::LengthSamples,
+            DiffOp::Annotations { .. } => DiffTarget::Annotations,
+            DiffOp::SyncLock { .. } => DiffTarget::SyncLock,
+            DiffOp::TrackSends { track_id, .. } => DiffTarget::TrackSends(track_id.clone()),
         }
     }
 }
@@ -416,6 +438,23 @@ fn apply_op(state: &mut SessionState, op: &DiffOp) -> Result<()> {
             state.length_samples = *value;
             Ok(())
         }
+        DiffOp::Annotations { value } => {
+            state.annotations = value.clone();
+            Ok(())
+        }
+        DiffOp::SyncLock { value } => {
+            state.sync_lock = *value;
+            Ok(())
+        }
+        DiffOp::TrackSends { track_id, value } => {
+            // Tolerant of a missing track, like `ClipsChange` above: a
+            // diff that also removes the track can arrive in either
+            // order, and failing here would make apply order-dependent.
+            if let Some(t) = find_track_mut(state, track_id) {
+                t.sends = value.clone();
+            }
+            Ok(())
+        }
     }
 }
 
@@ -648,11 +687,48 @@ pub fn diff_states(a: &SessionState, b: &SessionState) -> SessionDiff {
         ));
     }
 
+    // These three are hashed into the node id like everything else, so
+    // two nodes differing only in them are genuinely different nodes —
+    // and `diff` used to report "nothing changed" for exactly that,
+    // breaking the documented `apply(diff(a, b), &mut a) == b`
+    // round-trip (#244). All three are agent-writable: `set_sync_lock`,
+    // `track.sends.push`, and `state.annotations.push`.
+    if a.annotations != b.annotations {
+        diff.modified.push((
+            DiffOp::Annotations {
+                value: a.annotations.clone(),
+            },
+            DiffOp::Annotations {
+                value: b.annotations.clone(),
+            },
+        ));
+    }
+    if a.sync_lock != b.sync_lock {
+        diff.modified.push((
+            DiffOp::SyncLock { value: a.sync_lock },
+            DiffOp::SyncLock { value: b.sync_lock },
+        ));
+    }
+
     sort_diff_for_determinism(&mut diff);
     diff
 }
 
 fn track_field_diff(tid: &TrackId, a: &Track, b: &Track, diff: &mut SessionDiff) {
+    // A send is a whole parallel signal path; a track that gained one
+    // is materially different and used to diff as identical (#244).
+    if a.sends != b.sends {
+        diff.modified.push((
+            DiffOp::TrackSends {
+                track_id: tid.clone(),
+                value: a.sends.clone(),
+            },
+            DiffOp::TrackSends {
+                track_id: tid.clone(),
+                value: b.sends.clone(),
+            },
+        ));
+    }
     if a.name != b.name {
         diff.modified.push((
             DiffOp::TrackName {
@@ -842,6 +918,9 @@ fn op_sort_key(op: &DiffOp) -> Vec<u8> {
         DiffOp::Transcript { .. } => 12,
         DiffOp::SampleRate { .. } => 13,
         DiffOp::LengthSamples { .. } => 14,
+        DiffOp::Annotations { .. } => 15,
+        DiffOp::SyncLock { .. } => 16,
+        DiffOp::TrackSends { .. } => 17,
     };
     key.push(disc);
     match op {
@@ -851,7 +930,8 @@ fn op_sort_key(op: &DiffOp) -> Vec<u8> {
         | DiffOp::TrackPan { track_id, .. }
         | DiffOp::TrackMuted { track_id, .. }
         | DiffOp::TrackSoloed { track_id, .. }
-        | DiffOp::ClipsChange { track_id, .. } => key.extend_from_slice(track_id.0.as_bytes()),
+        | DiffOp::ClipsChange { track_id, .. }
+        | DiffOp::TrackSends { track_id, .. } => key.extend_from_slice(track_id.0.as_bytes()),
         DiffOp::Effect { scope, index, .. } => {
             match scope {
                 EffectScope::Master => key.push(0),

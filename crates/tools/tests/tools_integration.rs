@@ -1817,6 +1817,59 @@ fn compare_nodes_returns_serialised_diff() {
     assert!(summary.contains("modified"), "summary: {summary}");
 }
 
+/// The agent asking "what changed?" about a sync-lock toggle used to be
+/// told nothing had (#244).
+///
+/// `diff_states` had no variant for `annotations`, `sync_lock` or
+/// `Track::sends`, so two nodes differing only in one of them compared
+/// as identical — a false all-clear on a branch the agent might then
+/// discard. All three are hashed into the node id, so the nodes really
+/// are different.
+///
+/// Driven through the registered tools rather than the diff API, because
+/// that is the path the report describes: `set_sync_lock` is a live
+/// tool and `compare_nodes` is what reports on it.
+#[test]
+fn compare_nodes_sees_a_sync_lock_change() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+    let mut clipboard: Option<tools::Clipboard> = None;
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+        user_message: "",
+        clipboard: &mut clipboard,
+        allowed_tools: None,
+    };
+    let load = ok(dispatcher
+        .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+        .unwrap());
+    let a = load["node_id"].as_str().unwrap().to_string();
+
+    let locked = ok(dispatcher
+        .invoke("set_sync_lock", json!({ "enabled": true }), &mut ctx)
+        .unwrap());
+    let b = locked["node_id"].as_str().unwrap().to_string();
+    assert_ne!(a, b, "set_sync_lock did not append a distinct node");
+
+    let res = ok(dispatcher
+        .invoke("compare_nodes", json!({ "a": a, "b": b }), &mut ctx)
+        .unwrap());
+    let diff = &res["diff"];
+    let changes = diff["added"].as_array().unwrap().len()
+        + diff["removed"].as_array().unwrap().len()
+        + diff["modified"].as_array().unwrap().len();
+    assert!(
+        changes > 0,
+        "two nodes with different ids compared as identical: {res}"
+    );
+    let summary = res["summary"].as_str().unwrap();
+    assert!(
+        !summary.contains("0 added, 0 removed, 0 modified"),
+        "the summary still reports no change: {summary}"
+    );
+}
+
 /// `revert_to` moves head to the target state. Content addressing
 /// makes the new node id == target id when state is byte-equal.
 #[test]

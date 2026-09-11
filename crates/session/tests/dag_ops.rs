@@ -435,3 +435,133 @@ fn session_diff_json_roundtrips() {
     let json2 = serde_json::to_string_pretty(&parsed).unwrap();
     assert_eq!(json1, json2, "SessionDiff JSON not stable across roundtrip");
 }
+
+// ---------------------------------------------------------------------------
+// The three fields the diff could not express (#244)
+// ---------------------------------------------------------------------------
+
+fn marker(name: &str, at: f64) -> session::Annotation {
+    session::Annotation {
+        id: session::AnnotationId::new(),
+        name: name.into(),
+        kind: session::AnnotationKind::Marker { time_sec: at },
+    }
+}
+
+/// `annotations`, `sync_lock` and `Track::sends` are hashed into the
+/// node id like every other field, so two nodes differing only in them
+/// are genuinely different nodes — and `diff` reported "nothing
+/// changed" for exactly that, breaking the round-trip this module
+/// documents.
+///
+/// All three are agent-writable: `set_sync_lock`, `track.sends.push`,
+/// and `state.annotations.push` via `import_labels`.
+#[test]
+fn a_diff_sees_annotations_sync_lock_and_sends() {
+    let dir = TempDir::new().unwrap();
+    let mut store = Store::open(dir.path()).unwrap();
+
+    let s_a = {
+        let mut s = empty_state();
+        s.tracks.push(track("music"));
+        s
+    };
+    let s_b = {
+        let mut s = s_a.clone();
+        s.annotations.push(marker("chorus", 42.0));
+        s.sync_lock = true;
+        s.tracks[0].sends.push(session::Send {
+            bus_id: Uuid::new_v4(),
+            level_db: -6.0,
+        });
+        s
+    };
+
+    // The premise: these really are different nodes.
+    assert_ne!(
+        NodeId::from_state(&s_a).unwrap(),
+        NodeId::from_state(&s_b).unwrap(),
+        "the two states hash the same, so this test proves nothing"
+    );
+
+    let a = append(&mut store, s_a.clone(), "a");
+    let _ = append(&mut store, s_b.clone(), "b");
+    let b_id = NodeId::from_state(&s_b).unwrap();
+
+    let diff = store.diff(a, b_id).unwrap();
+    let changes = diff.added.len() + diff.removed.len() + diff.modified.len();
+    assert!(
+        changes >= 3,
+        "expected an op for each of annotations, sync_lock and sends; got \
+         {changes}: {diff:?}"
+    );
+
+    // And the round-trip the module documents: apply(diff(a,b), a) == b.
+    let mut reconstructed = s_a;
+    diff.apply(&mut reconstructed).unwrap();
+    assert_eq!(
+        serde_json::to_value(&reconstructed).unwrap(),
+        serde_json::to_value(&s_b).unwrap(),
+        "apply(diff(a, b), a) did not reproduce b"
+    );
+}
+
+/// Each field on its own, so a single working one cannot carry the
+/// test above.
+#[test]
+fn each_of_the_three_round_trips_alone() {
+    let base = {
+        let mut s = empty_state();
+        s.tracks.push(track("music"));
+        s
+    };
+
+    let variants: Vec<(&str, SessionState)> = vec![
+        ("annotations", {
+            let mut s = base.clone();
+            s.annotations.push(marker("intro", 1.0));
+            s
+        }),
+        ("sync_lock", {
+            let mut s = base.clone();
+            s.sync_lock = true;
+            s
+        }),
+        ("sends", {
+            let mut s = base.clone();
+            s.tracks[0].sends.push(session::Send {
+                bus_id: Uuid::new_v4(),
+                level_db: -3.0,
+            });
+            s
+        }),
+    ];
+
+    for (what, target) in variants {
+        let diff = session::diff_states(&base, &target);
+        let changes = diff.added.len() + diff.removed.len() + diff.modified.len();
+        assert!(
+            changes > 0,
+            "a change to {what} alone produced an empty diff"
+        );
+
+        let mut reconstructed = base.clone();
+        diff.apply(&mut reconstructed).unwrap();
+        assert_eq!(
+            serde_json::to_value(&reconstructed).unwrap(),
+            serde_json::to_value(&target).unwrap(),
+            "apply(diff) did not reproduce a {what}-only change"
+        );
+
+        // And back the other way, since the diff is meant to be
+        // invertible.
+        let back = session::diff_states(&target, &base);
+        let mut undone = target.clone();
+        back.apply(&mut undone).unwrap();
+        assert_eq!(
+            serde_json::to_value(&undone).unwrap(),
+            serde_json::to_value(&base).unwrap(),
+            "the inverse diff did not undo a {what}-only change"
+        );
+    }
+}
