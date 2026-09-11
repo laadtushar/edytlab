@@ -89,7 +89,7 @@ Implementations live in `crates/tools/src/tool/`. A tool that is not registered 
 - [`reverse`](#reverse) — Reverse the sample order of a track, optionally within a sub-range.
 - [`revert_to`](#revert_to) — Append a new node whose state matches the target node's state, parented to the current head.
 - [`select_region`](#select_region) — Resolve a description of a region into a concrete time range, using the session's transcript and tempo map.
-- [`separate_stems`](#separate_stems) — Run Demucs stem separation on an audio file and return paths to the four output stems (vocals/drums/bass/other) as WAVs.
+- [`separate_stems`](#separate_stems) — NOT IMPLEMENTED IN THIS BUILD.
 - [`set_clip_envelope`](#set_clip_envelope) — Replace the per-clip volume automation curve.
 - [`set_effect_bypassed`](#set_effect_bypassed) — Bypass or re-enable one effect without removing it, so its settings survive an A/B.
 - [`set_effect_params`](#set_effect_params) — Change an effect's parameters in place.
@@ -107,7 +107,7 @@ Implementations live in `crates/tools/src/tool/`. A tool that is not registered 
 - [`storage_report`](#storage_report) — Report what this session is costing on disk.
 - [`time_shift`](#time_shift) — Move a track's clips forward or backward in time.
 - [`time_stretch`](#time_stretch) — Stretch or compress a track in time without changing its pitch.
-- [`transcribe`](#transcribe) — Transcribe an audio file using the local Whisper-base ONNX model.
+- [`transcribe`](#transcribe) — NOT IMPLEMENTED IN THIS BUILD.
 - [`tremolo`](#tremolo) — Apply tremolo (LFO amplitude modulation).
 - [`trim`](#trim) — Keep only the half-open sample range [start_sample, end_sample) of a track and discard the rest.
 - [`truncate_silence`](#truncate_silence) — Find and remove silent regions in a track.
@@ -894,7 +894,7 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `separate_stems`
 
-Run Demucs stem separation on an audio file and return paths to the four output stems (vocals/drums/bass/other) as WAVs. Cached by content hash of the input plus the model file, so a second call with the same input returns the same paths without re-running inference. Default model is htdemucs_ft (best quality, slowest); pass model="htdemucs" for the faster, slightly lower-quality variant. Requires DEMUCS_MODEL_PATH / DEMUCS_FT_MODEL_PATH env vars.
+NOT IMPLEMENTED IN THIS BUILD. Would run Demucs stem separation on an audio file and return paths to the four output stems (vocals/drums/bass/other) as WAVs, cached by content hash. Inference is a stub, so this always returns an error and there is no setup that changes that — do not suggest installing a model or setting DEMUCS_MODEL_PATH. Tell the user stem separation is unavailable in this build instead.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
@@ -1075,7 +1075,7 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `transcribe`
 
-Transcribe an audio file using the local Whisper-base ONNX model. Resamples internally to 16 kHz mono. Appends a new session node whose state carries the transcript; returns the produced words. Requires WHISPER_MODEL_PATH to point at the .onnx file (use scripts/fetch-models.sh).
+NOT IMPLEMENTED IN THIS BUILD. Speech-to-text would transcribe an audio file with a local Whisper ONNX model, resampling to 16 kHz mono and appending a session node carrying the transcript. The decoder is a stub, so this always returns an error and there is no setup that changes that — do not suggest installing a model or setting WHISPER_MODEL_PATH. Tell the user transcription is unavailable in this build instead. Tools that consume a transcript (cut_words, and the text-based editing flow) are unavailable for the same reason.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|

@@ -64,22 +64,27 @@ sudo apt-get install -y \
   patchelf
 ```
 
-### ML Model Files (Optional — for Whisper/Demucs)
+### ML Model Files (Whisper/Demucs) — not usable yet
 
-Whisper and Demucs models are large binary files not committed to the repo. They are downloaded on first use or can be pre-staged:
+**Nothing to set up.** Transcription and stem separation are stubs in
+this build, and there is no configuration that makes them work:
 
-```bash
-# Create the model cache directory
-mkdir -p ~/.edytlab/models
+- `WhisperModel::transcribe` returns `NotImplemented`. It used to return
+  `Ok(vec![])`, which reported success with an empty transcript (#233).
+- `DemucsModel::separate` returns `NotImplemented`.
+- `ml_pipeline::download::fetched_model_path` is a stub that always
+  errors, and has no callers. There is no automatic download.
 
-# Whisper large-v3 (~1.5 GB)
-# edytlab will attempt to download automatically on first transcription
+Earlier revisions of this guide described a `~/.edytlab/models` cache, an
+automatic first-use download, a `scripts/fetch-models.sh` installer and
+an `EDYTLAB_MODEL_DIR` override. None of those existed: the script was
+never in the repository, the download path was never wired up, and
+`EDYTLAB_MODEL_DIR` was read by no code in the tree. They are removed
+rather than corrected, because the honest instruction is "wait".
 
-# Demucs htdemucs (~80 MB)
-# edytlab will attempt to download automatically on first stem separation
-```
-
-Set `EDYTLAB_MODEL_DIR` to override the default model cache location.
+`WHISPER_MODEL_PATH` and `DEMUCS_MODEL_PATH` *are* read — they are how
+the model file will be located once the decoders land — but setting them
+today only changes which error you get.
 
 ---
 
@@ -534,7 +539,6 @@ Replaced the earlier `release-mac.yml` / `release-win.yml` pair, which raced eac
 |----------|---------|---------|
 | `RUST_LOG` | `info` | Tracing log level. Format: `level` or `crate=level` |
 | `ORT_DYLIB_PATH` | Auto-detected | Path to `libonnxruntime.{so,dylib,dll}` |
-| `EDYTLAB_MODEL_DIR` | `~/.edytlab/models` | ML model cache directory |
 | `EDYTLAB_DATA_DIR` | OS app data dir | App data root (skills, profiles, MCP config) |
 
 These are set at runtime; no `.env` file is needed for development.
