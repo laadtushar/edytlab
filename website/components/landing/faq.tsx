@@ -14,7 +14,7 @@ const faqs = [
   },
   {
     q: "Which LLM models work?",
-    a: "Anthropic (Sonnet 4.6 / Haiku 4.5), OpenAI's tool-use-capable models, Google Gemini, Groq, and any model on OpenRouter. You can switch providers — and swap per-model agent profiles — from the settings panel without reinstalling.",
+    a: "Anthropic (Sonnet 4.6 / Haiku 4.5), OpenAI's tool-use-capable models, Google Gemini, Groq, any model on OpenRouter, and local models through Ollama. You can switch providers — and swap per-model agent profiles — from the settings panel without reinstalling.",
   },
   {
     q: "What are the system requirements?",
@@ -26,7 +26,7 @@ const faqs = [
   },
   {
     q: "Can I use a local LLM?",
-    a: "Local LLMs via Ollama (Qwen, Llama 3, etc.) are planned for v1 phase 3. Tool-calling reliability on local models is weaker, so we ship a simplified tool surface in that mode.",
+    a: "Yes. Ollama is a supported provider — pick it in settings and point it at your daemon. It needs no API key, so with a local model nothing leaves your machine at all, not even the chat. Local models get the same tool surface as any other provider; whether a given one drives those tools reliably depends on the model, so prefer one trained for tool use.",
   },
   {
     q: "Is it open source?",
