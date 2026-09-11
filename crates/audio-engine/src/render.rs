@@ -261,19 +261,6 @@ struct TrackStreamer {
     /// Project-rate frames of silence still owed before the clip's audio
     /// starts, from the clip's `start_in_track`.
     lead_frames_remaining: u64,
-    /// Resolved left/right pan gains. `(1.0, 1.0)` for a centred track,
-    /// which is the overwhelmingly common case and a no-op.
-    pan: (f32, f32),
-    /// The track's effect chain, instantiated **once** for the life of
-    /// the streamer.
-    ///
-    /// This is the whole point. `render_streaming` works a chunk at a
-    /// time and calls `next_chunk` repeatedly on the same streamer, so a
-    /// processor built here keeps its state across chunk boundaries — a
-    /// reverb tail crosses the seam instead of restarting. Building them
-    /// per chunk would put an audible click at every chunk boundary,
-    /// which #102 names as the single most likely way to get this wrong.
-    effects: Vec<Box<dyn audio_dsp::Processor>>,
 }
 
 /// Per-channel gains for a pan position, `-1.0` hard left to `1.0` hard
@@ -304,6 +291,135 @@ fn pan_gains(pan: f32) -> (f32, f32) {
         0.0
     };
     ((1.0 - p).min(1.0), (1.0 + p).min(1.0))
+}
+
+/// One track's share of the mix: the streamers for its clips, its
+/// effect chain, and its pan.
+///
+/// This type exists because a render plan entry is one **clip**, not one
+/// track (#243). The chain and the pan belong to the track, and putting
+/// them here is what makes them shared across the track's clips.
+///
+/// Before #243 the chain was built inside `TrackStreamer::open`, so a
+/// track split into N clips got N independent chains, each starting from
+/// a zeroed biquad delay line. Every split seam restarted the filter and
+/// planted a click of up to ~0.37 FS — in audio that `split_clip`
+/// guarantees is unchanged, since the clips it produces concatenate to
+/// the original stream. It is the same failure the chunk-boundary docs
+/// on `next_chunk` describe, one level up: the "built once, keeps its
+/// state" guarantee held across chunks and not across clips.
+struct TrackMix {
+    /// Index into `state.tracks` — the owning track.
+    track_index: usize,
+    /// Indices into the streamer list: one per clip of this track.
+    entries: Vec<usize>,
+    /// Built once for the whole render, so state carries across both
+    /// chunk and clip boundaries.
+    effects: Vec<Box<dyn audio_dsp::Processor>>,
+    pan: (f32, f32),
+}
+
+/// Group plan entries by the track they came from, keeping
+/// first-appearance order.
+///
+/// A plan entry is one **clip**, so a track split into N clips appears N
+/// times in `plans`. Returning one group per track is what lets the
+/// render build one effect chain per track rather than one per clip
+/// (#243) — the grouping *is* the fix, so it is separated out here to be
+/// testable on its own.
+///
+/// That matters more than it looks. At a split seam an LTI filter cannot
+/// tell the two apart: filtering two adjacent clips separately and
+/// summing, with each clip's tail kept, reconstructs the continuous
+/// output exactly, by superposition. So the audio-level regression test
+/// for #243 barely moves when the grouping is removed — it is really
+/// measuring that the tails are kept. The property that one track means
+/// one chain has to be asserted here or it is not asserted at all.
+///
+/// First-appearance order is graph order is `state.tracks` insertion
+/// order, so this preserves the determinism invariant in the module
+/// docs: tracks mix in a fixed order, never a derived or hashed one.
+fn group_by_track(plans: &[TrackPlan]) -> Vec<(usize, Vec<usize>)> {
+    let mut groups: Vec<(usize, Vec<usize>)> = Vec::new();
+    for (pi, plan) in plans.iter().enumerate() {
+        match groups.iter_mut().find(|(ti, _)| *ti == plan.track_index) {
+            Some((_, entries)) => entries.push(pi),
+            None => groups.push((plan.track_index, vec![pi])),
+        }
+    }
+    groups
+}
+
+impl TrackMix {
+    /// Sum this track's clips into `acc`, then run its chain and pan.
+    ///
+    /// Two consequences of summing before processing:
+    ///
+    /// * **The chain runs over the whole window**, not just the frames
+    ///   the clips produced. A filter's tail therefore decays into the
+    ///   gap between two clips instead of being cut off at each clip's
+    ///   end, which is the behaviour the streamer's own docs promise.
+    /// * **Pan runs after the effects.** It was already last within a
+    ///   streamer and has to stay last overall, or a nonlinear effect
+    ///   would see a panned signal — the order `pan_gains` documents.
+    ///   Summing before panning is exact: pan is a per-channel scalar,
+    ///   so it distributes over the sum.
+    ///
+    /// Returns whether `acc` holds anything worth mixing.
+    fn render_chunk(
+        &mut self,
+        streamers: &mut [Option<TrackStreamer>],
+        frames: usize,
+        chans: usize,
+        scratch: &mut [f32],
+        acc: &mut [f32],
+    ) -> Result<bool, Error> {
+        let n = frames * chans;
+        for v in acc[..n].iter_mut() {
+            *v = 0.0;
+        }
+
+        let mut produced = false;
+        for &pi in &self.entries {
+            let Some(streamer) = streamers[pi].as_mut() else {
+                continue;
+            };
+            // `next_chunk` writes exactly `got * chans` samples, so only
+            // that prefix of `scratch` is summed and zeroing it is
+            // wasted work — the reasoning the master loop already used.
+            let got = streamer.next_chunk(frames, &mut scratch[..n])?;
+            if got == 0 {
+                continue;
+            }
+            produced = true;
+            for i in 0..got * chans {
+                acc[i] += scratch[i];
+            }
+        }
+
+        // A chain with state still has to be run on an exhausted track,
+        // or its tail is truncated rather than decaying. `acc` is
+        // zeroed, so this is the filter ringing out into silence.
+        if self.effects.is_empty() && !produced {
+            return Ok(false);
+        }
+        for fx in self.effects.iter_mut() {
+            fx.process(&mut acc[..n], chans);
+        }
+
+        // Only the first two channels are positioned: a mono render has
+        // nowhere to put a pan, and beyond stereo there is no agreed
+        // meaning for a single left-right number.
+        if chans >= 2 && self.pan != (1.0, 1.0) {
+            for f in 0..frames {
+                let base = f * chans;
+                acc[base] *= self.pan.0;
+                acc[base + 1] *= self.pan.1;
+            }
+        }
+
+        Ok(true)
+    }
 }
 
 /// Convert a frame count from a source's rate into the project's rate.
@@ -412,9 +528,6 @@ impl TrackStreamer {
             .map(|p| (p.time_samples, p.gain_db))
             .collect();
 
-        // Built once, here, rather than per chunk — see the field's docs.
-        let effects = crate::effect_chain::build(&plan.effects, project_rate, out_channels)?;
-
         Ok(Self {
             reader,
             in_channels,
@@ -431,8 +544,6 @@ impl TrackStreamer {
             source_eof: src_frames_remaining == 0,
             volume_envelope,
             lead_frames_remaining,
-            pan: pan_gains(plan.pan),
-            effects,
         })
     }
 
@@ -657,31 +768,9 @@ impl TrackStreamer {
             }
         }
 
-        // Effects after gain and automation, before pan. Pan stays last
-        // so its balance law operates on the finished signal, which is
-        // what `pan_gains` documents and what #102 specifies.
-        //
-        // The slice is exactly the frames just emitted: a processor must
-        // never see the stale tail of `dst` from a previous, longer
-        // chunk.
-        if !self.effects.is_empty() {
-            let end = avail * self.out_channels;
-            for fx in &mut self.effects {
-                fx.process(&mut dst[..end], self.out_channels);
-            }
-        }
-
-        // Pan last, so it scales whatever gain and automation produced.
-        // Only the first two channels are positioned: a mono render has
-        // nowhere to put a pan, and beyond stereo there is no agreed
-        // meaning for a single left-right number.
-        if self.out_channels >= 2 && self.pan != (1.0, 1.0) {
-            for f in 0..avail {
-                let base = f * self.out_channels;
-                dst[base] *= self.pan.0;
-                dst[base + 1] *= self.pan.1;
-            }
-        }
+        // Effects and pan used to run here, per streamer. They belong to
+        // the *track*, and a streamer is one *clip* — see
+        // `TrackMix::render_chunk`, which now owns both (#243).
 
         // Drain `avail` frames from the front of `pending_planar`.
         for ch in 0..self.in_channels {
@@ -848,19 +937,68 @@ fn render_streaming(
     // `chunk_frames * chans`. Preallocated once and reused across master
     // chunks AND tracks, since track streamers run sequentially.
     let mut track_chunk = vec![0.0f32; chunk_frames * chans];
+    // Where a track's clips are summed before its chain and pan run.
+    // Separate from `track_chunk` because both are live at once: clips
+    // land in the scratch and accumulate here.
+    let mut track_acc = vec![0.0f32; chunk_frames * chans];
+
+    // Plan entries are per *clip*, so several of them can name the same
+    // track. Group them into one `TrackMix` each — one effect chain per
+    // track, shared by all of that track's streamers, which is the whole
+    // of #243. First-appearance order is graph order is `state.tracks`
+    // order, so the determinism invariant is unaffected.
+    //
+    // The chains are built here, before the loop, so each keeps its
+    // state across chunks *and* across the clips of its track — the same
+    // reason the bus and master chains below are built here. Every entry
+    // in a group carries the same track's `effects` and `pan`, so the
+    // first one speaks for the group.
+    let groups = group_by_track(&graph.tracks);
+    let mut track_mixes: Vec<TrackMix> = Vec::with_capacity(groups.len());
+    for (track_index, entries) in groups {
+        // A group with no live streamer is a track that does not reach
+        // the mix — muted, un-soloed, or zero-length. Its chain must not
+        // be built, and not merely as an optimisation: `build` rejects
+        // an unknown or non-streamable effect kind, and that error fails
+        // the whole render. Before the clips were grouped, the chain was
+        // built inside `TrackStreamer::open`, which these plans never
+        // reached — so building one here would newly break a render over
+        // an effect on a track nobody can hear. Caught in review on
+        // #312.
+        if !entries.iter().any(|&pi| streamers[pi].is_some()) {
+            continue;
+        }
+        let plan = &graph.tracks[entries[0]];
+        track_mixes.push(TrackMix {
+            track_index,
+            effects: crate::effect_chain::build(&plan.effects, project_rate, chans)?,
+            pan: pan_gains(plan.pan),
+            entries,
+        });
+    }
 
     // Fast-forward all streamers past the master start frame. We do this by
     // discarding the first `start_frame` project frames track-by-track.
     // Since the spec keeps `range` defaulted to `None` for normal renders,
     // this loop is a no-op for the common case.
+    //
+    // The chains run here too, on output that is then thrown away: a
+    // range render starting at 0:10 must arrive at that frame with the
+    // filter state it would have had, or the first frames written come
+    // from a delay line that has seen nothing. That was true before
+    // #243, when the chains lived inside the streamers this loop pumps.
     if start_frame > 0 {
         let mut to_skip = start_frame;
         while to_skip > 0 {
             let step = to_skip.min(chunk_frames);
-            for streamer in streamers.iter_mut() {
-                let Some(streamer) = streamer else { continue };
-                let dst = &mut track_chunk[..step * chans];
-                streamer.next_chunk(step, dst)?;
+            for mix in track_mixes.iter_mut() {
+                mix.render_chunk(
+                    &mut streamers,
+                    step,
+                    chans,
+                    &mut track_chunk,
+                    &mut track_acc,
+                )?;
             }
             to_skip -= step;
         }
@@ -940,37 +1078,40 @@ fn render_streaming(
         // state.tracks insertion order. Per-sample summation order is fixed
         // by track index, then by interleaved sample index. See determinism
         // invariant.
-        for (pi, streamer) in streamers.iter_mut().enumerate() {
-            let Some(streamer) = streamer else { continue };
+        for mix in track_mixes.iter_mut() {
             // Secondary mute/solo gate — primary is plan.contributes resolved
             // at graph-build time; this call ensures the predicate is live
             // and exercised so dead-code elimination cannot remove it.
             // A plan entry is one *clip*, so its position no longer names a
             // track; the owning index travels on the plan.
-            let track = &state.tracks[graph.tracks[pi].track_index];
+            let track = &state.tracks[mix.track_index];
             if !should_include_track(track.muted, track.soloed, any_solo) {
                 continue;
             }
-            let scratch = &mut track_chunk[..this_chunk * chans];
-            // Don't bother zeroing scratch — `next_chunk` writes exactly
-            // `got * chans` samples, and we only sum those.
-            let got = streamer.next_chunk(this_chunk, scratch)?;
-            if got == 0 {
+            // One call per track, not per clip: the clips are summed
+            // inside, then the track's chain and pan run on the sum.
+            if !mix.render_chunk(
+                &mut streamers,
+                this_chunk,
+                chans,
+                &mut track_chunk,
+                &mut track_acc,
+            )? {
                 continue;
             }
-            let n = got * chans;
+            let n = this_chunk * chans;
             for i in 0..n {
-                dst[i] += scratch[i];
+                dst[i] += track_acc[i];
             }
 
             // Sends are parallel: the track has already gone to master
             // at full level, and this adds a scaled copy on top. The tap
-            // is post-fader because `scratch` is what the streamer
-            // produced — gain, automation and pan already applied.
-            for &(bus_index, level) in &track_sends[graph.tracks[pi].track_index] {
+            // is post-fader because `track_acc` is the finished track —
+            // gain, automation, effects and pan all applied.
+            for &(bus_index, level) in &track_sends[mix.track_index] {
                 let bus = &mut bus_chunks[bus_index];
                 for i in 0..n {
-                    bus[i] += scratch[i] * level;
+                    bus[i] += track_acc[i] * level;
                 }
             }
         }
@@ -1175,6 +1316,74 @@ pub(crate) fn should_include_track(muted: bool, soloed: bool, any_solo: bool) ->
         return soloed;
     }
     true
+}
+
+#[cfg(test)]
+mod track_grouping_tests {
+    use super::{group_by_track, TrackPlan};
+
+    /// A plan entry for a clip of `track_index`. Only that field is read
+    /// by the grouping, but the rest have to be filled to build one.
+    fn entry(track_index: usize) -> TrackPlan {
+        TrackPlan {
+            source_path: std::path::PathBuf::from("x.wav"),
+            track_index,
+            gain_db: 0.0,
+            pan: 0.0,
+            source_offset: 0,
+            start_in_track: 0,
+            length: 100,
+            contributes: true,
+            volume_envelope: Vec::new(),
+            effects: Vec::new(),
+        }
+    }
+
+    /// The #243 property: a track split into N clips is still **one**
+    /// group, so it gets one effect chain rather than N.
+    #[test]
+    fn a_split_track_is_one_group() {
+        let groups = group_by_track(&[entry(0), entry(0), entry(0)]);
+        assert_eq!(
+            groups.len(),
+            1,
+            "three clips of one track produced {} groups; each would get its own effect chain, \
+             which is #243",
+            groups.len()
+        );
+        assert_eq!(
+            groups[0],
+            (0, vec![0, 1, 2]),
+            "all three clips must be in it"
+        );
+    }
+
+    /// And the converse, so the grouping cannot pass the test above by
+    /// simply collapsing everything into one group.
+    #[test]
+    fn separate_tracks_stay_separate() {
+        let groups = group_by_track(&[entry(0), entry(1), entry(2)]);
+        assert_eq!(groups.len(), 3, "three distinct tracks must not be merged");
+    }
+
+    /// Interleaved entries still group, and groups keep first-appearance
+    /// order — which is `state.tracks` order, and therefore the mix
+    /// order the determinism invariant pins.
+    #[test]
+    fn grouping_is_order_preserving_and_not_positional() {
+        // Track 2 appears first, and track 1's clips are not adjacent.
+        let groups = group_by_track(&[entry(2), entry(1), entry(2), entry(1)]);
+        assert_eq!(
+            groups,
+            vec![(2, vec![0, 2]), (1, vec![1, 3])],
+            "groups must follow first appearance, and gather non-adjacent clips"
+        );
+    }
+
+    #[test]
+    fn no_plans_is_no_groups() {
+        assert!(group_by_track(&[]).is_empty());
+    }
 }
 
 #[cfg(test)]

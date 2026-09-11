@@ -77,11 +77,22 @@ pub struct TrackPlan {
     pub contributes: bool,
     /// Per-clip volume automation points (sorted by time_samples).
     pub volume_envelope: Vec<EnvelopePoint>,
-    /// The track's effect chain, carried through so the streamer can
-    /// instantiate it once. Cloned per plan entry because a split track
-    /// produces one entry per clip and they share the track's chain —
-    /// the *processors* are built once per streamer, which is what
-    /// actually matters for state across chunk boundaries.
+    /// The track's effect chain, carried through so the render can
+    /// instantiate it.
+    ///
+    /// Cloned onto every plan entry because a split track produces one
+    /// entry per clip, and all of them describe the same chain. The
+    /// render groups entries by `track_index` and builds the chain
+    /// **once per track**, from the first entry of each group.
+    ///
+    /// It used to say the processors were built once per streamer and
+    /// that this was "what actually matters". That was wrong, and #243
+    /// is what it cost: a streamer is one *clip*, so a split track got
+    /// one chain per clip, each with a zeroed delay line, and every
+    /// split seam restarted the filter — a click of up to ~0.37 FS in
+    /// audio that a split is supposed to leave untouched. State across
+    /// chunk boundaries was never the only thing that mattered; state
+    /// across clip boundaries matters just as much.
     pub effects: Vec<session::EffectInstance>,
 }
 
