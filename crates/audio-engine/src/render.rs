@@ -770,7 +770,7 @@ impl TrackStreamer {
 
         // Effects and pan used to run here, per streamer. They belong to
         // the *track*, and a streamer is one *clip* — see
-        // `render_track_chunk`, which now owns both (#243).
+        // `TrackMix::render_chunk`, which now owns both (#243).
 
         // Drain `avail` frames from the front of `pending_planar`.
         for ch in 0..self.in_channels {
@@ -956,6 +956,18 @@ fn render_streaming(
     let groups = group_by_track(&graph.tracks);
     let mut track_mixes: Vec<TrackMix> = Vec::with_capacity(groups.len());
     for (track_index, entries) in groups {
+        // A group with no live streamer is a track that does not reach
+        // the mix — muted, un-soloed, or zero-length. Its chain must not
+        // be built, and not merely as an optimisation: `build` rejects
+        // an unknown or non-streamable effect kind, and that error fails
+        // the whole render. Before the clips were grouped, the chain was
+        // built inside `TrackStreamer::open`, which these plans never
+        // reached — so building one here would newly break a render over
+        // an effect on a track nobody can hear. Caught in review on
+        // #312.
+        if !entries.iter().any(|&pi| streamers[pi].is_some()) {
+            continue;
+        }
         let plan = &graph.tracks[entries[0]];
         track_mixes.push(TrackMix {
             track_index,

@@ -118,17 +118,25 @@ fn clip(start_in_track: u64, source_offset: u64, length: u64) -> Clip {
     }
 }
 
-fn render(clips: Vec<Clip>, effects: Vec<EffectInstance>) -> Vec<i16> {
+fn render_range(
+    clips: Vec<Clip>,
+    effects: Vec<EffectInstance>,
+    range: Option<audio_engine::TimeRange>,
+) -> Vec<i16> {
     let tmp = TempDir::new().expect("tempdir");
     let src = write_tone(tmp.path());
     let out = tmp.path().join("out.wav");
     let st = state(&src, clips, effects);
-    render_state_to_wav(&st, &out, None).expect("render");
+    render_state_to_wav(&st, &out, range).expect("render");
     WavReader::open(&out)
         .expect("open out")
         .samples::<i16>()
         .map(|r| r.expect("sample"))
         .collect()
+}
+
+fn render(clips: Vec<Clip>, effects: Vec<EffectInstance>) -> Vec<i16> {
+    render_range(clips, effects, None)
 }
 
 /// The whole clip, and the same audio cut in two at `SPLIT_AT` — what
@@ -215,5 +223,103 @@ fn no_step_at_the_split_seam() {
         step <= typical * 4,
         "step of {step} LSB across the split seam at frame {seam}, against a typical step of \
          {typical} LSB on the same material — the filter is restarting at the clip boundary"
+    );
+}
+
+/// A ranged render must arrive at its start frame with the filter state
+/// it would have had (raised in review on #312).
+///
+/// The chains now live outside the streamers, so the skip loop that
+/// fast-forwards past `start_frame` has to run them too. If it does not,
+/// the first frame written comes out of a delay line that has seen
+/// nothing, and a range render begins with a transient that the full
+/// render does not have at that point.
+///
+/// The oracle is the full render's own slice, so this cannot pass by
+/// agreeing with a re-implementation.
+#[test]
+fn a_ranged_render_matches_the_same_slice_of_a_full_one() {
+    let start = SPLIT_AT; // mid-file, and past the clip seam
+    let end = FRAMES;
+    let ranged = render_range(
+        split(),
+        low_pass(),
+        Some(audio_engine::TimeRange {
+            start_frame: start,
+            end_frame: end,
+        }),
+    );
+    let full = render(split(), low_pass());
+
+    let slice = &full[start as usize..end as usize];
+    assert_eq!(
+        ranged.len(),
+        slice.len(),
+        "a render of frames {start}..{end} should be {} frames, got {}",
+        slice.len(),
+        ranged.len()
+    );
+
+    let (worst, at) = worst_diff(ranged.as_slice(), slice);
+    assert!(
+        worst <= 1,
+        "a render of frames {start}..{end} differs from the same slice of the full render: \
+         worst diff {worst} LSB at offset {at}. The effect chain did not advance through the \
+         skipped frames, so it starts from a zeroed delay line."
+    );
+}
+
+/// An effect on a track that cannot be heard must not fail the render
+/// (raised in review on #312).
+///
+/// Grouping clips by track moved chain construction out of
+/// `TrackStreamer::open`, and muted tracks never open a streamer. Built
+/// unconditionally, `effect_chain::build` would reject an unknown kind
+/// on a muted track and fail a render that used to succeed — a session
+/// made unrenderable by an effect nobody can hear.
+#[test]
+fn an_unusable_effect_on_a_muted_track_does_not_fail_the_render() {
+    let tmp = TempDir::new().expect("tempdir");
+    let src = write_tone(tmp.path());
+    let out = tmp.path().join("out.wav");
+
+    let mut st = state(&src, unsplit(), Vec::new());
+    // A second track, muted, carrying an effect kind the chain builder
+    // does not know.
+    let mut muted = st.tracks[0].clone();
+    muted.id = TrackId::new();
+    muted.name = "muted".into();
+    muted.muted = true;
+    muted.effects = vec![EffectInstance {
+        kind: "no_such_effect_kind".to_string(),
+        params: serde_json::json!({}),
+        bypassed: false,
+    }];
+    st.tracks.push(muted);
+
+    render_state_to_wav(&st, &out, None)
+        .expect("a muted track's unusable effect must not fail the render");
+}
+
+/// The premise of the test above: that effect kind really is one the
+/// chain builder rejects. Otherwise it passes for the wrong reason and
+/// guards nothing.
+#[test]
+fn the_unusable_effect_kind_is_genuinely_unusable() {
+    let tmp = TempDir::new().expect("tempdir");
+    let src = write_tone(tmp.path());
+    let out = tmp.path().join("out.wav");
+
+    let mut st = state(&src, unsplit(), Vec::new());
+    st.tracks[0].effects = vec![EffectInstance {
+        kind: "no_such_effect_kind".to_string(),
+        params: serde_json::json!({}),
+        bypassed: false,
+    }];
+
+    assert!(
+        render_state_to_wav(&st, &out, None).is_err(),
+        "`no_such_effect_kind` renders fine on an audible track, so the muted-track test above \
+         proves nothing"
     );
 }
