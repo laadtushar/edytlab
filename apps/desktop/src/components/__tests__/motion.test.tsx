@@ -15,11 +15,12 @@
  * symptom in anyone else's session.
  */
 
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import { LEAVE_MS } from "../../hooks/usePresence";
 import { CommandPalette } from "../CommandPalette";
 import { ShortcutsOverlay } from "../ShortcutsOverlay";
 import { TemplatePickerModal } from "../TemplatePickerModal";
@@ -134,5 +135,141 @@ describe("overlays arrive rather than flashing", () => {
       <CommandPalette open={false} onClose={() => {}} onSelect={() => {}} />,
     );
     expect(container.firstChild).toBeNull();
+  });
+});
+
+describe("overlays leave rather than blinking out", () => {
+  // The other half of #211, which shipped only the arrive side while
+  // `docs/motion-audit.md` recorded both as done (#236).
+  //
+  // Each surface renders `null` the instant its flag flips, so an exit
+  // animation is impossible from CSS alone — `animation-fill-mode:
+  // both` retains an *entry* animation's last frame and has nothing to
+  // say about an element about to stop existing. `usePresence` holds
+  // the mount open; these assert that it does, and that what is held
+  // carries the exit class rather than the entry one.
+  //
+  // As above, the assertion is on the class, not on observed motion:
+  // jsdom computes no animations, so a test claiming to watch the fade
+  // would pass against no fade at all.
+
+  it("the command palette holds its mount and swaps to the exit classes", () => {
+    const { container, rerender } = render(
+      <CommandPalette open onClose={() => {}} onSelect={() => {}} />,
+    );
+    expect(container.querySelector(".overlay-in")).not.toBeNull();
+
+    rerender(
+      <CommandPalette open={false} onClose={() => {}} onSelect={() => {}} />,
+    );
+    // Still present — this is the whole point.
+    expect(container.firstChild).not.toBeNull();
+    expect(container.querySelector(".backdrop-out")).not.toBeNull();
+    expect(container.querySelector(".overlay-out")).not.toBeNull();
+    // And not still claiming to be arriving.
+    expect(container.querySelector(".overlay-in")).toBeNull();
+  });
+
+  it("the shortcuts sheet holds its mount and swaps to the exit classes", () => {
+    const { rerender } = render(<ShortcutsOverlay open onClose={() => {}} />);
+    rerender(<ShortcutsOverlay open={false} onClose={() => {}} />);
+    const overlay = screen.getByTestId("shortcuts-overlay");
+    expect(overlay.className).toContain("backdrop-out");
+    expect(overlay.querySelector(".overlay-out")).not.toBeNull();
+  });
+
+  it("the template picker holds its mount and swaps to the exit classes", () => {
+    const props = {
+      templates: [],
+      onSelect: () => {},
+      onClose: () => {},
+    };
+    const { container, rerender } = render(
+      <TemplatePickerModal open {...props} />,
+    );
+    rerender(<TemplatePickerModal open={false} {...props} />);
+    expect(container.querySelector(".backdrop-out")).not.toBeNull();
+    expect(container.querySelector(".overlay-out")).not.toBeNull();
+  });
+
+  /**
+   * The exit has to actually end. A hold with no release is a worse
+   * bug than the blink it replaces — the overlay would sit on screen
+   * forever, trapping clicks and focus.
+   *
+   * jsdom fires no `animationend`, so this exercises the timer path
+   * specifically, which is the one that has to work when the animation
+   * does not run.
+   */
+  it("unmounts once the leave is over", async () => {
+    vi.useFakeTimers();
+    try {
+      const { container, rerender } = render(
+        <CommandPalette open onClose={() => {}} onSelect={() => {}} />,
+      );
+      rerender(
+        <CommandPalette open={false} onClose={() => {}} onSelect={() => {}} />,
+      );
+      expect(container.firstChild).not.toBeNull();
+
+      await act(async () => {
+        vi.advanceTimersByTime(LEAVE_MS * 4);
+      });
+      expect(container.firstChild).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  /**
+   * Re-opening mid-leave must cancel it. Otherwise the timer from the
+   * close fires afterwards and unmounts the overlay the user just
+   * reopened — which looks like the app ignoring the second press.
+   */
+  it("cancels a leave when reopened before it finishes", async () => {
+    vi.useFakeTimers();
+    try {
+      const { container, rerender } = render(
+        <CommandPalette open onClose={() => {}} onSelect={() => {}} />,
+      );
+      rerender(
+        <CommandPalette open={false} onClose={() => {}} onSelect={() => {}} />,
+      );
+      rerender(
+        <CommandPalette open onClose={() => {}} onSelect={() => {}} />,
+      );
+
+      await act(async () => {
+        vi.advanceTimersByTime(LEAVE_MS * 4);
+      });
+      expect(container.firstChild).not.toBeNull();
+      expect(container.querySelector(".overlay-in")).not.toBeNull();
+      expect(container.querySelector(".overlay-out")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  /**
+   * The hold is keyed to the stylesheet's own token. If `--dur-2` is
+   * retuned and `LEAVE_MS` is not, the unmount either truncates the
+   * animation or leaves a dead element on screen after it — and
+   * neither is a type error.
+   */
+  it("holds for exactly one --dur-2", () => {
+    expect(css).toContain(`--dur-2: ${LEAVE_MS}ms`);
+  });
+
+  /**
+   * Every exit class the components apply must exist in the
+   * stylesheet. A renamed keyframe would otherwise mean the hold
+   * happens with nothing drawn during it — a pause instead of a fade,
+   * which is worse than the blink.
+   */
+  it("defines every exit animation the components ask for", () => {
+    for (const name of ["overlay-out", "backdrop-out", "strip-out"]) {
+      expect(css).toContain(`@keyframes ${name}`);
+      expect(css).toContain(`.${name} {`);
+    }
   });
 });

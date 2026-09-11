@@ -13,6 +13,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { usePresence } from "../hooks/usePresence";
+
 export interface CommandPaletteProps {
   open: boolean;
   onClose: () => void;
@@ -189,6 +191,11 @@ const CATEGORY_ORDER = [
 ];
 
 export function CommandPalette({ open, onClose, onSelect }: CommandPaletteProps) {
+  // Held open for one --dur-2 on close so the exit animation can play
+  // (#236). The keyboard and focus effects below stay keyed on `open`,
+  // not `mounted`: a palette on its way out must not answer keys or
+  // take focus back.
+  const { mounted, leaving, onAnimationEnd } = usePresence(open);
   const [query, setQuery] = useState("");
   const [activeIdx, setActiveIdx] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -257,7 +264,7 @@ export function CommandPalette({ open, onClose, onSelect }: CommandPaletteProps)
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose, onSelect, flatFiltered, activeIdx]);
 
-  if (!open) return null;
+  if (!mounted) return null;
 
   const handleBackdrop = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) onClose();
@@ -267,11 +274,12 @@ export function CommandPalette({ open, onClose, onSelect }: CommandPaletteProps)
 
   return (
     <div
-      className="backdrop-in fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-[15vh]"
+      className={`${leaving ? "backdrop-out" : "backdrop-in"} fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-[15vh]`}
       onClick={handleBackdrop}
+      onAnimationEnd={onAnimationEnd}
     >
       <div
-        className="overlay-in flex w-full max-w-xl flex-col overflow-hidden rounded-xl border border-[var(--border-strong)] bg-[var(--surface-elev)] shadow-[0_24px_60px_-12px_rgba(0,0,0,0.8)]"
+        className={`${leaving ? "overlay-out" : "overlay-in"} flex w-full max-w-xl flex-col overflow-hidden rounded-xl border border-[var(--border-strong)] bg-[var(--surface-elev)] shadow-[0_24px_60px_-12px_rgba(0,0,0,0.8)]`}
         style={{ maxHeight: "60vh" }}
       >
         {/* Search input */}

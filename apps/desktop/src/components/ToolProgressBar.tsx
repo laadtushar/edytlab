@@ -11,7 +11,9 @@
  * started — never one whose history ends halfway through.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+import { usePresence } from "../hooks/usePresence";
 
 import {
   cancelLongRunningTool,
@@ -64,11 +66,21 @@ export function ToolProgressBar() {
     };
   }, []);
 
-  if (!progress) return null;
+  // The strip has to survive its own `progress` going null, or there
+  // is nothing left to animate out (#236). `last` keeps the final
+  // frame's contents on screen for the one --dur-2 the collapse takes;
+  // without it the strip would shrink around empty text, which reads
+  // as a glitch rather than as a thing finishing.
+  const { mounted, leaving, onAnimationEnd } = usePresence(progress !== null);
+  const last = useRef<ToolProgress | null>(null);
+  if (progress) last.current = progress;
 
-  const done = progress.index ?? 0;
-  const pct = progress.total > 0 ? (done / progress.total) * 100 : 0;
-  const name = progress.file?.split(/[/\\]/).pop() ?? "";
+  const shown = progress ?? last.current;
+  if (!mounted || !shown) return null;
+
+  const done = shown.index ?? 0;
+  const pct = shown.total > 0 ? (done / shown.total) * 100 : 0;
+  const name = shown.file?.split(/[/\\]/).pop() ?? "";
 
   return (
     // The strip inserts itself above the timeline, so everything below
@@ -77,7 +89,11 @@ export function ToolProgressBar() {
     // relayout to re-read — which matters here more than anywhere else,
     // because this component exists specifically to cover a wait, and a
     // thing that covers a wait should not itself arrive as a jolt.
-    <div className="strip-in" data-testid="tool-progress-shell">
+    <div
+      className={leaving ? "strip-out" : "strip-in"}
+      data-testid="tool-progress-shell"
+      onAnimationEnd={onAnimationEnd}
+    >
       <div
         data-testid="tool-progress"
         style={{
@@ -94,7 +110,7 @@ export function ToolProgressBar() {
           style={{ fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}
         >
           {/* One-based for reading: "1 of 3" while the first is running. */}
-          {done + 1} of {progress.total}
+          {done + 1} of {shown.total}
         </span>
         <span
           data-testid="tool-progress-file"
@@ -106,16 +122,16 @@ export function ToolProgressBar() {
             whiteSpace: "nowrap",
             color: "var(--text)",
           }}
-          title={progress.file}
+          title={shown.file}
         >
           {name}
         </span>
-        {progress.refused > 0 ? (
+        {shown.refused > 0 ? (
           <span
             data-testid="tool-progress-refused"
             style={{ color: "var(--warn, #e0a03a)" }}
           >
-            {progress.refused} refused
+            {shown.refused} refused
           </span>
         ) : null}
         <div
