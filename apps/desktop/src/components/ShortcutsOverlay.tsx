@@ -1,5 +1,7 @@
 ﻿import { useEffect } from "react";
 
+import { usePresence } from "../hooks/usePresence";
+
 export interface Shortcut {
   keys: string;
   description: string;
@@ -32,6 +34,10 @@ interface ShortcutsOverlayProps {
 }
 
 export function ShortcutsOverlay({ open, onClose }: ShortcutsOverlayProps) {
+  // Held open for one --dur-2 on close so the exit animation can play
+  // (#236); `mounted` is still false for an overlay never opened.
+  const { mounted, leaving, onAnimationEnd } = usePresence(open);
+
   useEffect(() => {
     if (!open) return;
     function handleKey(e: KeyboardEvent) {
@@ -44,19 +50,20 @@ export function ShortcutsOverlay({ open, onClose }: ShortcutsOverlayProps) {
     return () => window.removeEventListener("keydown", handleKey);
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!mounted) return null;
 
   return (
     <div
-      className="backdrop-in fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      className={`${leaving ? "backdrop-out" : "backdrop-in"} fixed inset-0 z-50 flex items-center justify-center bg-black/60`}
       onClick={onClose}
+      onAnimationEnd={onAnimationEnd}
       data-testid="shortcuts-overlay"
       role="dialog"
       aria-modal="true"
       aria-labelledby="shortcuts-heading"
     >
       <div
-        className="overlay-in bg-neutral-900 border border-neutral-700 rounded-xl shadow-2xl w-96 p-6"
+        className={`${leaving ? "overlay-out" : "overlay-in"} bg-neutral-900 border border-neutral-700 rounded-xl shadow-2xl w-96 p-6`}
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">

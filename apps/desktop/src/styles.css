@@ -324,6 +324,36 @@ input[type="range"]:active::-moz-range-thumb {
 }
 
 /*
+ * Overlay exit (#236).
+ *
+ * #211 shipped the arrive half and closed the ticket; closing an
+ * overlay was still the one-frame blink it set out to remove. CSS
+ * cannot do this alone — `both` retains an entry animation's final
+ * frame and says nothing about an element about to stop existing — so
+ * `usePresence` holds the mount open for one --dur-2 and applies these.
+ *
+ * `--ease-in-out` rather than `--ease-out`: something leaving should
+ * gather pace as it goes, where something arriving should settle. And
+ * it does not mirror the entry scale — 0.98 down reads as the panel
+ * receding, which is the wrong story for a thing being dismissed.
+ * Fading in place is what a dismissal looks like.
+ */
+@keyframes overlay-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.99);
+  }
+}
+
+.overlay-out {
+  animation: overlay-out var(--dur-2) var(--ease-in-out) both;
+}
+
+/*
  * The backdrop fades without scaling — scaling a full-screen scrim
  * shows its edges.
  */
@@ -338,6 +368,19 @@ input[type="range"]:active::-moz-range-thumb {
 
 .backdrop-in {
   animation: backdrop-in var(--dur-2) var(--ease-out) both;
+}
+
+@keyframes backdrop-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.backdrop-out {
+  animation: backdrop-out var(--dur-2) var(--ease-in-out) both;
 }
 
 /*
@@ -365,7 +408,30 @@ input[type="range"]:active::-moz-range-thumb {
   animation: strip-in var(--dur-2) var(--ease-out) both;
 }
 
-.strip-in > * {
+/*
+ * And the way back down (#236). The strip collapsing is the more
+ * valuable half of the pair: a batch ending used to snap the timeline
+ * upward under the pointer, which is the same relayout `strip-in` was
+ * added to smooth, only in the direction nobody animated.
+ */
+@keyframes strip-out {
+  from {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+  to {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+
+.strip-out {
+  display: grid;
+  animation: strip-out var(--dur-2) var(--ease-in-out) both;
+}
+
+.strip-in > *,
+.strip-out > * {
   overflow: hidden;
   min-height: 0;
 }

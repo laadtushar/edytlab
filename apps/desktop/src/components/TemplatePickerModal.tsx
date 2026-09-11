@@ -1,3 +1,5 @@
+import { usePresence } from "../hooks/usePresence";
+
 export interface TemplateInfo {
   name: string;
   description: string;
@@ -16,14 +18,18 @@ export function TemplatePickerModal({
   onSelect,
   onClose,
 }: TemplatePickerModalProps) {
-  if (!open) return null;
+  // Held open for one --dur-2 on close so the exit animation can play
+  // (#236); `mounted` is still false for a modal that was never open.
+  const { mounted, leaving, onAnimationEnd } = usePresence(open);
+  if (!mounted) return null;
   return (
     <div
-      className="backdrop-in fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      className={`${leaving ? "backdrop-out" : "backdrop-in"} fixed inset-0 z-50 flex items-center justify-center bg-black/60`}
       onClick={onClose}
+      onAnimationEnd={onAnimationEnd}
     >
       <div
-        className="overlay-in bg-[var(--surface-elev)] border border-[var(--border-strong)] rounded-xl shadow-2xl w-80 p-6"
+        className={`${leaving ? "overlay-out" : "overlay-in"} bg-[var(--surface-elev)] border border-[var(--border-strong)] rounded-xl shadow-2xl w-80 p-6`}
         onClick={e => e.stopPropagation()}
       >
         <h2 className="text-sm font-semibold text-[var(--text)] tracking-wide uppercase mb-4">

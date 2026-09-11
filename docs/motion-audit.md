@@ -134,6 +134,23 @@ Verdict on all 30, plus `App.tsx`.
 | 13 components with bare `transition` | Tailwind's unchosen default | 1 | Same timing, now a named token — `--dur-1` is 120 ms rather than 150 ms, the one deliberate change |
 | Everything | `prefers-reduced-motion` ignored | — | Honoured globally |
 
+> **Correction (#236).** The four rows above describe the leave
+> behaviour, and for a period they were false. #211 shipped the *arrive*
+> half only — `overlay-in`, `backdrop-in`, `strip-in` — and all four
+> surfaces still returned `null` the instant their flag flipped, so
+> closing one remained the single-frame blink #211 set out to remove.
+> This document said otherwise, in the column headed "What it does now",
+> and the ticket was closed as completed against it.
+>
+> The leave half landed in #236: `usePresence` holds the mount open for
+> one `--dur-2` while `overlay-out` / `backdrop-out` / `strip-out` play.
+> The rows are accurate as of that change.
+>
+> The note stays rather than being quietly deleted. An audit that can be
+> silently corrected is worth less than one that records when it was
+> wrong — future work is planned against this table, and "it has been
+> wrong before, here is how" is part of what it should say.
+
 ### Already correct — deliberately unchanged
 
 | Component | Why |
