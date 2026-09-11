@@ -83,7 +83,9 @@ pub struct StemBuffer {
 #[derive(Debug, thiserror::Error)]
 pub enum DemucsError {
     #[error(
-        "Demucs model not found at {path}. Install with `scripts/fetch-models.sh` and set DEMUCS_MODEL_PATH"
+        "Demucs model not found at {path}. Set DEMUCS_MODEL_PATH to an ONNX Demucs export. \
+         Note that stem separation is not implemented in this build, so supplying a model will \
+         not yet produce stems (#233)."
     )]
     ModelMissing { path: String },
 
