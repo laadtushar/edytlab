@@ -1047,6 +1047,22 @@ Emitted when a marker or region annotation is added or removed. Refresh the mark
 
 ---
 
+### `onPlanUnavailable(cb: (reason: string) => void) → Promise<UnlistenFn>`
+
+A plan was asked for and none arrived, so the turn ran **without** the approval
+gate.
+
+`reason` names the failure class — a transport error, an HTTP status, an
+unparseable body, a response with no text, or a response with no `<plan>` block.
+Only the last is the model choosing not to plan; the rest are faults.
+
+**Distinct from receiving no `onPlan` at all**, which means no plan was
+requested for this turn. Without this event the two are indistinguishable, and a
+user who turned Plan First on would watch the agent act while assuming the model
+had decided no plan was needed.
+
+---
+
 ### `onToolProgress(cb: (p: ToolProgress) => void) → Promise<UnlistenFn>`
 
 Progress from a long-running tool.

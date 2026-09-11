@@ -27,6 +27,10 @@ pub const DONE: &str = "agent://done";
 pub const PLAN: &str = "agent://plan";
 /// The user declined a plan. The turn ended having run no tools.
 pub const PLAN_REJECTED: &str = "agent://plan-rejected";
+/// A plan was asked for and none arrived, so the turn ran *without* the
+/// approval gate (#267). Distinct from receiving no `agent://plan` at
+/// all, which means no plan was requested for this turn.
+pub const PLAN_UNAVAILABLE: &str = "agent://plan-unavailable";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TextDeltaPayload {
@@ -68,4 +72,11 @@ pub struct DonePayload {}
 #[derive(Debug, Clone, Serialize)]
 pub struct PlanPayload {
     pub steps: Vec<serde_json::Value>,
+}
+
+/// Why the plan gate was skipped. Carries the failure class so the
+/// composer can say what happened rather than only that it happened.
+#[derive(Debug, Clone, Serialize)]
+pub struct PlanUnavailablePayload {
+    pub reason: String,
 }

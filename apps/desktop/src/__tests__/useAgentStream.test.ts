@@ -60,6 +60,7 @@ vi.mock("../lib/tauri-bridge", () => ({
       cbs.plan = cbs.plan.filter((c) => c !== cb);
     });
   }),
+  onPlanUnavailable: vi.fn(() => Promise.resolve(() => undefined)),
 }));
 
 import { useAgentStream } from "../hooks/useAgentStream";

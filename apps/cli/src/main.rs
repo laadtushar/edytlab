@@ -134,6 +134,12 @@ async fn main() -> anyhow::Result<()> {
                 ai::AgentEvent::PlanRejected => CliEvent::Text {
                     delta: "[plan rejected]".to_string(),
                 },
+                // Reachable wherever a plan was asked for: the turn goes
+                // ahead without the gate, and saying so beats letting it
+                // look like the model chose not to plan (#267).
+                ai::AgentEvent::PlanUnavailable { reason } => CliEvent::Text {
+                    delta: format!("[plan unavailable: {reason}]"),
+                },
             };
             // Best-effort: a stdout broken-pipe (consumer process exited)
             // shouldn't panic the agent loop. We swallow write errors and

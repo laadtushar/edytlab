@@ -264,16 +264,54 @@ pub(crate) fn parse_plan(text: &str) -> Option<Vec<Value>> {
     serde_json::from_str(inner).ok()
 }
 
+/// Why a plan could not be produced (#267).
+///
+/// Every one of these used to collapse into a bare `None`, and the
+/// caller falls through to the tool loop on `None` — so a user who
+/// explicitly turned Plan First on lost the checkpoint they asked for,
+/// and it looked exactly like the model deciding no plan was needed.
+/// Nothing was logged either, so the failure class was erased before a
+/// maintainer could see it.
+#[derive(Debug, Clone)]
+pub(crate) enum PlanUnavailable {
+    /// The request never completed — connection reset, DNS, TLS.
+    Transport(String),
+    /// The server answered, but not with success.
+    Status(u16),
+    /// A 2xx whose body would not parse as JSON.
+    BodyParse(String),
+    /// Valid JSON with no text content where the provider puts it.
+    NoResponseText,
+    /// Text that carried no well-formed `<plan>` block.
+    NoPlanBlock,
+}
+
+impl std::fmt::Display for PlanUnavailable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Transport(e) => write!(f, "the planning request failed: {e}"),
+            Self::Status(code) => write!(f, "the planning request returned HTTP {code}"),
+            Self::BodyParse(e) => write!(f, "the planning response could not be read: {e}"),
+            Self::NoResponseText => write!(f, "the planning response carried no text"),
+            Self::NoPlanBlock => write!(f, "the model did not return a plan"),
+        }
+    }
+}
+
 /// Request a plan from the model in a single non-streaming call and
 /// return the parsed steps. Includes conversation history so follow-up
-/// requests can be planned in context. Returns `None` on failure.
+/// requests can be planned in context.
+///
+/// `Err` names the failure class rather than erasing it: the caller
+/// proceeds without the gate either way — that degradation is
+/// deliberate — but it can now say so.
 async fn fetch_plan(
     cfg: &LlmConfig,
     http: &reqwest::Client,
     system_prompt: &str,
     conversation: &[Message],
     user_message: &str,
-) -> Option<Vec<Value>> {
+) -> std::result::Result<Vec<Value>, PlanUnavailable> {
     let mut messages: Vec<serde_json::Value> = conversation
         .iter()
         .map(|m| {
@@ -316,16 +354,24 @@ async fn fetch_plan(
         cfg.provider.endpoint_path()
     ));
     let req = cfg.provider.apply_auth(req, &cfg.api_key);
-    let resp = req.json(&request_body).send().await.ok()?;
+    let resp = req
+        .json(&request_body)
+        .send()
+        .await
+        .map_err(|e| PlanUnavailable::Transport(e.to_string()))?;
 
-    if !resp.status().is_success() {
-        return None;
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(PlanUnavailable::Status(status.as_u16()));
     }
 
-    let body: Value = resp.json().await.ok()?;
-    let text = extract_response_text(cfg, &body)?;
+    let body: Value = resp
+        .json()
+        .await
+        .map_err(|e| PlanUnavailable::BodyParse(e.to_string()))?;
+    let text = extract_response_text(cfg, &body).ok_or(PlanUnavailable::NoResponseText)?;
 
-    parse_plan(&text)
+    parse_plan(&text).ok_or(PlanUnavailable::NoPlanBlock)
 }
 
 /// Wait for the frontend to approve the pending plan. Uses
@@ -442,26 +488,48 @@ where
     // nothing to explain why. `plan_first` makes it a choice.
     let mut step_override: Option<String> = None;
     if plan_first || mode == Mode::Mashup {
-        if let Some(steps) = fetch_plan(cfg, http, system_prompt, conversation, &user_message).await
-        {
-            on_event(AgentEvent::Plan {
-                steps: steps.clone(),
-            });
-            // Block until the frontend answers via `approve_plan` or
-            // `reject_plan`, or time out after 5 minutes.
-            if await_plan_approval(plan_notify, plan_rejected).await? {
-                on_event(AgentEvent::PlanRejected);
-                return Ok(TurnResult::default());
+        match fetch_plan(cfg, http, system_prompt, conversation, &user_message).await {
+            Ok(steps) => {
+                on_event(AgentEvent::Plan {
+                    steps: steps.clone(),
+                });
+                // Block until the frontend answers via `approve_plan` or
+                // `reject_plan`, or time out after 5 minutes.
+                if await_plan_approval(plan_notify, plan_rejected).await? {
+                    on_event(AgentEvent::PlanRejected);
+                    return Ok(TurnResult::default());
+                }
+                // Consume any step overrides the frontend stored before
+                // firing the notifier.
+                step_override = plan_steps_override
+                    .lock()
+                    .expect("plan_steps_override mutex poisoned")
+                    .take();
             }
-            // Consume any step overrides the frontend stored before
-            // firing the notifier.
-            step_override = plan_steps_override
-                .lock()
-                .expect("plan_steps_override mutex poisoned")
-                .take();
+            // No plan: the turn proceeds without the gate. That
+            // degradation is deliberate — a planning hiccup should not
+            // block work the user asked for — but it is no longer
+            // silent, and the causes are no longer indistinguishable
+            // from each other (#267).
+            //
+            // Every class ends up here: a transport failure, a non-2xx,
+            // a body that would not parse, a response with no text, and
+            // a response with no `<plan>` block. Only the last is the
+            // model choosing not to plan; the rest are faults, and a
+            // user who turned Plan First on is losing a checkpoint they
+            // asked for either way.
+            Err(reason) => {
+                tracing::warn!(
+                    reason = %reason,
+                    plan_first,
+                    mode = mode_as_str(mode),
+                    "plan gate skipped: no plan was produced"
+                );
+                on_event(AgentEvent::PlanUnavailable {
+                    reason: reason.to_string(),
+                });
+            }
         }
-        // If fetch_plan returns None (e.g. parse failure) we continue
-        // without gating — graceful degradation.
     }
 
     // 1. Push the user turn onto the running conversation.
@@ -1381,6 +1449,63 @@ No other text."#;
         assert!(
             out.contains("BASE\n\nMEM"),
             "base + memory should be separated by a blank line; got {out:?}"
+        );
+    }
+
+    /// Every failure class has to render something a user can act on.
+    ///
+    /// Against the real `Display` impl, not a list of strings retyped
+    /// into the test — the whole defect was that these classes were
+    /// erased, so a test that asserts on its own copies of the messages
+    /// would prove nothing about what a user is shown.
+    #[test]
+    fn every_plan_failure_class_names_itself() {
+        use super::PlanUnavailable;
+
+        let cases = [
+            PlanUnavailable::Transport("connection reset by peer".into()),
+            PlanUnavailable::Status(503),
+            PlanUnavailable::BodyParse("expected value at line 1".into()),
+            PlanUnavailable::NoResponseText,
+            PlanUnavailable::NoPlanBlock,
+        ];
+
+        for case in &cases {
+            let rendered = case.to_string();
+            assert!(
+                rendered.len() > 20,
+                "{case:?} renders as {rendered:?}, too terse to tell a user \
+                 what happened"
+            );
+            // The reason is appended to "Plan step skipped — …", so it
+            // must not merely restate the event.
+            assert!(
+                !rendered.to_lowercase().contains("plan unavailable"),
+                "{rendered:?} restates the event instead of naming the cause"
+            );
+        }
+
+        // The two that carry detail must keep it: a bare "the request
+        // failed" is the silent version with extra words.
+        assert!(
+            PlanUnavailable::Status(503).to_string().contains("503"),
+            "the HTTP status was dropped"
+        );
+        assert!(
+            PlanUnavailable::Transport("connection reset by peer".into())
+                .to_string()
+                .contains("connection reset by peer"),
+            "the transport error was dropped"
+        );
+
+        // And each class has to be distinguishable from the others, or
+        // logging them separately buys nothing.
+        let rendered: std::collections::BTreeSet<String> =
+            cases.iter().map(|c| c.to_string()).collect();
+        assert_eq!(
+            rendered.len(),
+            cases.len(),
+            "two failure classes render identically: {rendered:?}"
         );
     }
 

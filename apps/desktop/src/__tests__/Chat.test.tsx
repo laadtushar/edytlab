@@ -19,6 +19,7 @@ const cbs = {
   nodeCreated: [] as ((nodeId: string) => void)[],
   done: [] as (() => void)[],
   plan: [] as ((steps: Record<string, unknown>[]) => void)[],
+  planUnavailable: [] as ((reason: string) => void)[],
 };
 
 const sendMessageMock = vi.fn();
@@ -69,6 +70,10 @@ vi.mock("../lib/tauri-bridge", () => ({
     cbs.plan.push(cb);
     return Promise.resolve(() => undefined);
   }),
+  onPlanUnavailable: vi.fn((cb: (reason: string) => void) => {
+    cbs.planUnavailable.push(cb);
+    return Promise.resolve(() => undefined);
+  }),
 }));
 
 import { Chat } from "../components/Chat";
@@ -85,6 +90,7 @@ describe("Chat", () => {
     cbs.nodeCreated = [];
     cbs.done = [];
     cbs.plan = [];
+    cbs.planUnavailable = [];
   });
 
   it("renders the input, send button, and Render Preview button", () => {

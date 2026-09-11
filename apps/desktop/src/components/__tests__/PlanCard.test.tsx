@@ -58,6 +58,7 @@ vi.mock("../../lib/tauri-bridge", () => ({
     cbs.plan.push(cb);
     return Promise.resolve(() => undefined);
   }),
+  onPlanUnavailable: vi.fn(() => Promise.resolve(() => undefined)),
 }));
 
 import { Chat } from "../Chat";
