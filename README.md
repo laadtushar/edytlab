@@ -67,7 +67,7 @@ The model picker is a combo (free-form input + curated suggestions from the live
 ┌──────────────────────────────────────────────────────────────────┐
 │  Rust core (cargo workspace)                                     │
 │   crates/ai          — LlmProvider trait, agent loop, keychain   │
-│   crates/tools       — ~20 deterministic tool impls + dispatcher │
+│   crates/tools       — 93 deterministic tool impls + dispatcher │
 │   crates/session     — DAG of session states, fork/diff/compare  │
 │   crates/audio-*     — decode, engine, I/O, time-domain ops      │
 │   crates/ml-*        — Demucs, Whisper, ONNX pipeline            │
@@ -101,7 +101,7 @@ apps/
   cli/                Headless CLI for batch audio operations and smoke tests
 crates/
   ai/                 LLM provider abstraction, agent loop, keychain, prompt cache
-  tools/              ~20 audio-editing tools (load, cut, gain, transcribe, render, …)
+  tools/              93 audio-editing tools (load, cut, gain, transcribe, render, …)
   session/            Session-graph data model, DAG storage, fork/diff/compare
   audio-decoder/      File decode (symphonia)
   audio-engine/       DSP graph + render
@@ -170,4 +170,4 @@ Out-of-scope for v1, on the post-v1 roadmap:
 
 ## License
 
-TODO — `LICENSE` not yet committed. License choice is one of the open questions in the design spec (§12); will land before public distribution.
+This project is licensed under the MIT License, see [LICENSE](./LICENSE).

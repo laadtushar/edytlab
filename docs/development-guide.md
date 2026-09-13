@@ -522,9 +522,9 @@ Fires when `ci.yml` completes successfully on `main`. Tags and dispatches `relea
 
 ### Workflow: `release-signed.yml`
 
-Manual `workflow_dispatch`. Requires signing secrets. Builds signed, notarized installers for mac, Windows and Linux in one matrix, then publishes.
+Manual `workflow_dispatch`. Requires signing secrets. Builds signed, notarized installers for macOS, Windows and Linux in one matrix, then publishes.
 
-Replaced the earlier `release-mac.yml` / `release-win.yml` pair, which raced each other for the same tag and — on the Windows side — uploaded the artifacts *before* signing them.
+Replaced the earlier separate release workflows,which suffered from race-condition tagging problems and uploaded Windows artifacts prior to code-signing.
 
 ---
 
