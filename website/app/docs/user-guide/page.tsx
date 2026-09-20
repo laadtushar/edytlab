@@ -200,31 +200,31 @@ export default function UserGuidePage() {
 
       <h2>Stem Separation</h2>
       <p>
-        edytlab integrates Demucs to separate a mixed track into individual
-        stems — vocals, drums, bass, and other instruments — running entirely
-        on your device.
+        <strong>Not available in this build.</strong> Stem separation is
+        designed to split a mixed track into vocals, drums, bass, and other
+        instruments with Demucs, running entirely on your device — but
+        inference ships as a stub, so asking the agent to{" "}
+        <code>separate the stems on track 1</code> returns an error.
       </p>
       <p>
-        Ask the agent: <code>separate the stems on track 1</code>. The model
-        downloads automatically on first use (~80 MB). Processing takes roughly
-        45 seconds per minute of audio on a modern CPU. Apple Neural Engine and
-        NVIDIA CUDA acceleration reduce this significantly.
-      </p>
-      <p>
-        The four stems appear as new tracks in your session. You can then edit
-        each independently.
+        There is no model download or environment variable that changes this.
+        The decoder is what is missing, not the model file: supplying a valid
+        Demucs export loads it and then still fails.
       </p>
 
       <h2>Transcription</h2>
       <p>
-        edytlab uses Whisper large-v3 to transcribe spoken audio to text with
-        word-level timestamps. The model runs on-device (~1.5 GB, downloaded on
-        first use).
+        <strong>Not available in this build.</strong> Transcription is designed
+        to run on-device with an ONNX Whisper export, producing word-level
+        timestamps stored in the session — but the decoder ships as a stub, so
+        asking the agent to <code>transcribe track 1</code> returns an error.
+        There is no model download or environment variable that changes this
+        yet.
       </p>
       <p>
-        Ask the agent: <code>transcribe track 1</code>. A 60-minute file
-        transcribes in approximately 4–8 minutes on CPU. The transcript is
-        stored in the session and can be referenced by the agent.
+        Text-based editing works from a transcript, so it is unavailable for
+        the same reason. Everything else in the editor — the timeline, effects,
+        mixing, export — is unaffected.
       </p>
 
       <h2>Export</h2>

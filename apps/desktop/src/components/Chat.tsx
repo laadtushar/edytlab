@@ -1029,34 +1029,41 @@ function isWhisperError(text: string): boolean {
   const t = text.toLowerCase();
   return (
     t.includes("whisper_model_path") ||
-    t.includes("fetch-models.sh") ||
+    t.includes("speech-to-text is not implemented") ||
     t.includes("whisper model not found")
   );
 }
 
+/**
+ * What to say when transcription fails (#233).
+ *
+ * This used to be a three-step setup recipe whose first step was to
+ * run a fetch-models shell script — a file that has never existed in
+ * the repository. Someone who went looking for it found nothing; someone
+ * who found a Whisper model and set `WHISPER_MODEL_PATH` themselves got
+ * an empty transcript reported as success, because the ONNX decoder is
+ * a stub.
+ *
+ * So the card no longer offers steps. There are none that work, and
+ * inventing a task for someone to fail at is worse than telling them
+ * the feature is not here yet.
+ */
 function WhisperSetupCard() {
   return (
-    <div className="rounded-md border border-amber-500/30 bg-amber-500/8 px-3 py-2.5 text-xs">
+    <div
+      className="rounded-md border border-amber-500/30 bg-amber-500/8 px-3 py-2.5 text-xs"
+      data-testid="whisper-unavailable-card"
+    >
       <p className="mb-1.5 font-medium text-amber-400">
-        Whisper model not installed
+        Transcription isn&apos;t available in this build
       </p>
-      <ol className="list-decimal space-y-1 pl-4 text-[var(--text-dim)]">
-        <li>
-          Run{" "}
-          <code className="rounded bg-[var(--surface-elev-2)] px-1 font-mono">
-            scripts/fetch-models.sh
-          </code>{" "}
-          in the repo root to download the model
-        </li>
-        <li>
-          Set{" "}
-          <code className="rounded bg-[var(--surface-elev-2)] px-1 font-mono">
-            WHISPER_MODEL_PATH
-          </code>{" "}
-          to the downloaded <code className="font-mono">.onnx</code> path
-        </li>
-        <li>Restart edytlab, then try transcribing again</li>
-      </ol>
+      <p className="text-[var(--text-dim)]">
+        Speech-to-text ships as a stub — the ONNX Whisper decoder is not
+        wired up, so there is no model or setting that will produce a
+        transcript yet. Text-based editing, which works from a
+        transcript, is unavailable for the same reason. Everything else
+        in the editor is unaffected.
+      </p>
     </div>
   );
 }

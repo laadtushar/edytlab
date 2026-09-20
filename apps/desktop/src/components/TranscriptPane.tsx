@@ -123,14 +123,23 @@ export function TranscriptPane({
   }
 
   if (words.length === 0) {
-    // An ordinary state, not a fault: say what to do rather than
-    // showing an empty box that looks broken.
+    // An ordinary state, not a fault — but it used to say "Ask the
+    // agent to `transcribe` a track and the words will appear here",
+    // which is the #233 dead end: there is no decoder in this build,
+    // so following that instruction produces an error and never a
+    // transcript. Found by driving the real app, after #317 had
+    // corrected the errors, schemas and chat card but not this tab.
+    //
+    // Saying the feature is unavailable is worth more than inventing a
+    // task for someone to fail at.
     return (
       <Empty>
         <p data-testid="transcript-empty" style={{ maxWidth: 420, lineHeight: 1.6 }}>
-          No transcript for this session yet. Ask the agent to{" "}
-          <code style={{ color: "var(--accent)" }}>transcribe</code> a track and the
-          words will appear here — then you can cut the audio by deleting text.
+          Transcription isn&apos;t available in this build. Speech-to-text ships
+          as a stub, so there is no model or setting that will produce a
+          transcript yet — and text-based editing, which works from one, is
+          unavailable for the same reason. Everything else in the editor is
+          unaffected.
         </p>
       </Empty>
     );

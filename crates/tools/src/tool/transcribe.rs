@@ -1,15 +1,25 @@
 //! `transcribe` tool — decode an audio file, resample to 16 kHz mono,
-//! run the Whisper-base ONNX model, and append a session node carrying
+//! hand it to the Whisper wrapper, and append a session node carrying
 //! the resulting transcript.
 //!
-//! Side effect: on success the new session head's `state.transcript`
-//! field is set to the produced words. The result JSON also returns the
-//! word list for the model's convenience.
+//! **Not available in this build.** `ml-whisper` has no decoder, so
+//! every invocation ends in a `ToolResult::Error` and no session node
+//! is ever appended. The steps above describe the shape the tool will
+//! have, not what it does today (#233).
 //!
-//! Missing-model path: `WHISPER_MODEL_PATH` env var is consulted at
-//! invocation time. If unset, or the file does not exist, the tool
-//! returns a structured `ToolResult::Error` with the install hint
-//! instead of panicking. This satisfies M09 acceptance criterion #4.
+//! The two failure paths differ only in wording:
+//!
+//! - no model configured — `WHISPER_MODEL_PATH` unset or naming a file
+//!   that is not there;
+//! - a model configured and loaded — [`WhisperError::NotImplemented`].
+//!
+//! Neither is a setup problem, and neither message suggests one. The
+//! first used to be called an "install hint" and to name a fetch-models
+//! script that has never existed in this repository.
+//!
+//! Side effect, once a decoder lands: the new session head's
+//! `state.transcript` is set to the produced words, and the result JSON
+//! also returns the word list for the model's convenience.
 //!
 //! Model-reuse: the [`WhisperModel`] is cached process-wide behind a
 //! [`OnceLock`] keyed by the model path, so 10 invocations against the
@@ -29,7 +39,20 @@ use crate::schema::{anthropic_tool, object_schema};
 use crate::tool::util::{append_state, load_head_state};
 use crate::{Tool, ToolContext, ToolResult};
 
-const INSTALL_HINT: &str = "install Whisper model: run `scripts/fetch-models.sh` and set WHISPER_MODEL_PATH to the resulting .onnx path";
+/// What to tell a user who cannot transcribe.
+///
+/// It used to name a fetch-models shell script, which has never existed
+/// in this repository — so the error, the tool schema the model reads,
+/// and the in-app card all sent people to run a file that is not there
+/// (#233). Worse, following it perfectly would not have helped: the
+/// ONNX decoder is a stub, so no model file produces a transcript.
+///
+/// The hint now says that, because "you are missing a step" and "this
+/// does not work yet" call for completely different responses from
+/// both the user and the agent.
+const INSTALL_HINT: &str = "speech-to-text is not implemented in this build: the ONNX Whisper \
+     decoder is a stub, so no WHISPER_MODEL_PATH setting will produce a transcript. There is no \
+     setup that makes this work today; it is tracked post-v1 (#233)";
 
 /// Process-wide cache of `(model_path, WhisperModel)`. Phase 1 only ever
 /// holds a single entry; the `RwLock` is a forward-compat hedge against
@@ -82,7 +105,13 @@ impl Tool for TranscribeTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "transcribe",
-            "Transcribe an audio file using the local Whisper-base ONNX model. Resamples internally to 16 kHz mono. Appends a new session node whose state carries the transcript; returns the produced words. Requires WHISPER_MODEL_PATH to point at the .onnx file (use scripts/fetch-models.sh).",
+            "NOT IMPLEMENTED IN THIS BUILD. Speech-to-text would transcribe an audio file with \
+             a local Whisper ONNX model, resampling to 16 kHz mono and appending a session node \
+             carrying the transcript. The decoder is a stub, so this always returns an error and \
+             there is no setup that changes that — do not suggest installing a model or setting \
+             WHISPER_MODEL_PATH. Tell the user transcription is unavailable in this build \
+             instead. Tools that consume a transcript (cut_words, and the text-based editing \
+             flow) are unavailable for the same reason.",
             object_schema(&[("path", "string", true)]),
         )
     }
