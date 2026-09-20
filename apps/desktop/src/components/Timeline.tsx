@@ -195,6 +195,17 @@ export interface TimelineProps {
     startSec: number,
   ) => void;
   onRemoveClip?: (trackIndex: number, clipIndex: number) => void;
+  /**
+   * Raised when the head lane's audio fails to decode, and again with
+   * `null` once a later load succeeds.
+   *
+   * The failure used to live only in this component, so the status bar
+   * — which derives its state from "is there a path" — reported
+   * `ready` next to the filename of a file that had 404'd, directly
+   * under the error box saying so. One of the two had to be wrong, and
+   * it was the one the user reads first.
+   */
+  onLoadErrorChange?: (error: string | null) => void;
 }
 
 // -----------------------------------------------------------------------------
@@ -266,6 +277,8 @@ interface LaneProps {
   onSelectionChange?: (sel: Selection | null) => void;
   /** Called when the wavesurfer reports the audio duration. */
   onDurationChange?: (d: number) => void;
+  /** Reports this lane's decode failure, and `null` once one succeeds. */
+  onLoadErrorChange?: (error: string | null) => void;
   /**
    * Length of the *session*, which is the axis the ruler, the clip
    * strip and every range-taking tool use.
@@ -335,6 +348,7 @@ function TrackLane({
   selection,
   onSelectionChange,
   onDurationChange,
+  onLoadErrorChange,
   sessionDuration,
   snapToZero,
   verticalZoom,
@@ -477,6 +491,13 @@ function isAbort(err: unknown): boolean {
   }
   return /abort/i.test(String(err));
 }
+
+  // Report the lane's load state to the parent, which is what the
+  // status bar reads. Mirrors `onDurationChange` — lane 0 is the one
+  // the parent listens to.
+  useEffect(() => {
+    onLoadErrorChange?.(loadError);
+  }, [loadError, onLoadErrorChange]);
 
   // Reload when audioPath changes.
   //
@@ -1023,6 +1044,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
       onClipEnvelopeChange,
       onMoveClip,
       onRemoveClip,
+      onLoadErrorChange,
     },
     ref,
   ) {
@@ -1634,6 +1656,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
                 selection={idx === 0 ? selection : null}
                 onSelectionChange={idx === 0 ? onSelectionChange : undefined}
                 onDurationChange={idx === 0 ? setHeadLaneDuration : undefined}
+                onLoadErrorChange={idx === 0 ? onLoadErrorChange : undefined}
                 sessionDuration={timelineDuration}
                 playheadSec={playheadSec}
                 snapToZero={snapToZero}
