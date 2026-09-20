@@ -24,6 +24,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const setApiKeyForMock = vi.fn();
 const testApiKeyForMock = vi.fn();
 const clearApiKeyMock = vi.fn();
+const clearApiKeyForMock = vi.fn();
 const setActiveProviderMock = vi.fn();
 const hasApiKeyForMock = vi.fn();
 const listModelsForMock = vi.fn();
@@ -53,6 +54,7 @@ vi.mock("../lib/tauri-bridge", () => ({
   listModelsFor: (provider: string, apiKey?: string) =>
     listModelsForMock(provider, apiKey),
   clearApiKey: () => clearApiKeyMock(),
+  clearApiKeyFor: (provider: string) => clearApiKeyForMock(provider),
   getBaseUrlFor: (provider: string) => getBaseUrlForMock(provider),
   defaultBaseUrlFor: (provider: string) => defaultBaseUrlForMock(provider),
   setBaseUrlFor: (provider: string, baseUrl: string) =>
@@ -68,6 +70,7 @@ describe("Settings", () => {
       .mockReset()
       .mockResolvedValue({ model: "claude-sonnet-4-6", toolsOk: true, detail: null });
     clearApiKeyMock.mockReset().mockResolvedValue(undefined);
+    clearApiKeyForMock.mockReset().mockResolvedValue(undefined);
     setActiveProviderMock.mockReset().mockResolvedValue(undefined);
     hasApiKeyForMock.mockReset().mockResolvedValue(true);
     setActiveModelMock.mockReset().mockResolvedValue(undefined);
@@ -245,7 +248,15 @@ describe("Settings", () => {
     );
     await user.click(screen.getByTestId("settings-clear-button"));
 
-    expect(clearApiKeyMock).toHaveBeenCalledTimes(1);
+    // Clears the provider on screen, by name. It used to call the
+    // argument-less `clearApiKey`, which resolves the slot from the
+    // *backend's* active provider — so deleting a credential depended
+    // on the UI and the backend agreeing which provider is current,
+    // and #225 §3 is open because they have two sources of truth for
+    // that.
+    expect(clearApiKeyForMock).toHaveBeenCalledTimes(1);
+    expect(clearApiKeyForMock).toHaveBeenCalledWith("anthropic");
+    expect(clearApiKeyMock).not.toHaveBeenCalled();
     expect(onCleared).toHaveBeenCalledTimes(1);
   });
 
