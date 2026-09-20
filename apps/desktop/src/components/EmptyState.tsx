@@ -274,9 +274,17 @@ function Shortcut({ keys, label }: ShortcutProps) {
 
 const WAVE_BARS = [0, 90, 180, 60, 240, 30, 150, 210, 75, 195];
 
-const ASSISTANT_EXAMPLES = [
+/**
+ * Four things worth trying first.
+ *
+ * "transcribe the audio" used to be the fourth, and it is the one
+ * example here that cannot work — the decoder is a stub (#233). The
+ * first thing the app suggests should not be the thing that fails, so
+ * it is replaced with another edit that does something audible.
+ */
+export const ASSISTANT_EXAMPLES = [
   "make this 6 dB louder",
   "fade out the last 3 seconds",
   "remove background noise",
-  "transcribe the audio",
+  "normalize to -1 dBFS",
 ];

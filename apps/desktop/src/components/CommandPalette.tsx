@@ -25,6 +25,20 @@ export interface Command {
   prompt: string;
   description: string;
   tags?: string[];
+  /**
+   * Set when the feature exists as a tool but cannot run in this build,
+   * so the palette says so instead of offering it (#233).
+   *
+   * The entry stays searchable on purpose. Dropping it would leave
+   * someone typing "transcribe" with no result and no explanation,
+   * which answers a different question than the one they asked; the
+   * useful answer is "it's here, it doesn't work yet".
+   *
+   * An unavailable command does not fill the chat input — running it
+   * only produces an error, and the palette's job is to say that
+   * rather than to demonstrate it.
+   */
+  unavailable?: string;
 }
 
 export const COMMANDS: Command[] = [
@@ -127,8 +141,8 @@ export const COMMANDS: Command[] = [
   // Analysis
   // Analysis
   { category: "Analysis", label: "Analyze audio", prompt: "analyze this audio — give me the BPM, key, loudness, and sections", description: "BPM, key, LUFS, beat grid, sections", tags: ["analyze", "bpm", "key", "loudness", "lufs"] },
-  { category: "Analysis", label: "Transcribe speech", prompt: "transcribe this audio", description: "Speech to text via local Whisper model", tags: ["transcribe", "speech", "text", "whisper"] },
-  { category: "Analysis", label: "Separate stems", prompt: "separate this into vocals, drums, bass, and other stems", description: "Demucs stem separation", tags: ["stems", "demucs", "vocals", "drums", "bass", "separate"] },
+  { category: "Analysis", label: "Transcribe speech", prompt: "transcribe this audio", description: "Speech to text — not implemented in this build", tags: ["transcribe", "speech", "text", "whisper"], unavailable: "The Whisper decoder ships as a stub; no model or setting produces a transcript yet." },
+  { category: "Analysis", label: "Separate stems", prompt: "separate this into vocals, drums, bass, and other stems", description: "Stem separation — not implemented in this build", tags: ["stems", "demucs", "vocals", "drums", "bass", "separate"], unavailable: "Demucs inference ships as a stub; supplying a model loads it and separation still fails." },
 
   // Tracks
   // Tracks
@@ -249,6 +263,9 @@ export function CommandPalette({ open, onClose, onSelect }: CommandPaletteProps)
       }
       if (e.key === "Enter" && flatFiltered[activeIdx]) {
         e.preventDefault();
+        // Same guard as the click path: Enter on an unavailable
+        // command would fill the chat with a prompt that only errors.
+        if (flatFiltered[activeIdx].unavailable) return;
         onSelect(flatFiltered[activeIdx].prompt);
         onClose();
       }
@@ -326,7 +343,13 @@ export function CommandPalette({ open, onClose, onSelect }: CommandPaletteProps)
                     <button
                       key={cmd.label}
                       type="button"
-                      onClick={() => { onSelect(cmd.prompt); onClose(); }}
+                      onClick={() => {
+                        if (cmd.unavailable) return;
+                        onSelect(cmd.prompt);
+                        onClose();
+                      }}
+                      aria-disabled={cmd.unavailable ? true : undefined}
+                      data-unavailable={cmd.unavailable ? "true" : undefined}
                       onMouseEnter={() => setActiveIdx(thisIdx)}
                       className={[
                         "flex w-full items-center gap-3 rounded-md px-3 py-2 text-left transition",
@@ -342,8 +365,17 @@ export function CommandPalette({ open, onClose, onSelect }: CommandPaletteProps)
                         <span className="block text-[11px] leading-snug text-[var(--text-faint)]">
                           {cmd.description}
                         </span>
+                        {cmd.unavailable ? (
+                          <span className="mt-0.5 block text-[11px] leading-snug text-[var(--warn,#d0913a)]">
+                            {cmd.unavailable}
+                          </span>
+                        ) : null}
                       </span>
-                      {isActive ? (
+                      {cmd.unavailable ? (
+                        <span className="shrink-0 font-mono text-[9px] uppercase tracking-[0.18em] text-[var(--text-faint)]">
+                          Unavailable
+                        </span>
+                      ) : isActive ? (
                         <span className="shrink-0 font-mono text-[10px] text-[var(--accent)]">
                           Enter
                         </span>

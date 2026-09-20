@@ -47,9 +47,15 @@ describe("the transcript pane", () => {
   });
 
   /** An ordinary state, not a fault — so it says what to do. */
-  it("says how to get a transcript when there is none", () => {
+  it("says the feature is unavailable when there is no transcript", () => {
+    // This used to assert the pane told you how to *get* a transcript
+    // ("Ask the agent to `transcribe` a track"). There is no way to
+    // get one — the decoder is a stub (#233) — so the old copy sent
+    // the user to the dead end and this test held it there.
     setup({ words: [] });
-    expect(screen.getByTestId("transcript-empty").textContent).toMatch(/transcribe/i);
+    const text = screen.getByTestId("transcript-empty").textContent ?? "";
+    expect(text).toMatch(/isn['’]t available in this build/i);
+    expect(text).not.toMatch(/ask the agent to/i);
     expect(screen.queryAllByTestId("transcript-word")).toHaveLength(0);
   });
 
