@@ -58,3 +58,9 @@ tests/fixtures/*.ogg
 assets/demos/*.mp4
 assets/demos/*.mov
 .vercel
+
+# Output of a manual end-to-end run: screenshots of the built app, the
+# WAV fixtures fed to it, and the write-up. Regenerated per session and
+# several MB of PNGs, so it stays local — what a run *found* belongs in
+# a commit message or an issue, not in a binary nobody diffs.
+.e2e/
