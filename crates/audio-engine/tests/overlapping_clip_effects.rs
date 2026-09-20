@@ -30,13 +30,18 @@ use tempfile::TempDir;
 const SAMPLE_RATE: u32 = 44_100;
 const FRAMES: u64 = SAMPLE_RATE as u64; // one second
 
-/// Each clip's amplitude. Two of them overlapping sum to ~1.0 FS,
-/// which is comfortably over the ceiling below while each one alone is
-/// comfortably under it — that gap is what separates the two orders.
-const CLIP_AMP: f32 = 0.5;
+/// Each clip's amplitude. Two of them overlapping sum to 0.6 FS, over
+/// the ceiling below; one alone is 0.3 FS, well under it.
+///
+/// The gap is deliberately wide. At 0.5 each, a single clip peaks at
+/// 16383 LSB against a 16422 LSB ceiling — 39 apart — so a render that
+/// had silently dropped one clip would sit just under the ceiling and
+/// pass every check here. Raised in review on #318. At 0.3 the two
+/// outcomes are 9830 and 16422, which nothing can confuse.
+const CLIP_AMP: f32 = 0.3;
 
-/// −6 dB. Above `CLIP_AMP` so a single clip is untouched, well below
-/// their sum so the overlap must be caught.
+/// −6 dB. Well above `CLIP_AMP` so a single clip is untouched, well
+/// below their sum so the overlap must be caught.
 const CEILING_DB: f32 = -6.0;
 
 fn ceiling_linear() -> f32 {
@@ -47,6 +52,10 @@ fn ceiling_linear() -> f32 {
 fn ceiling_lsb() -> i32 {
     (ceiling_linear() * 32_767.0).ceil() as i32 + 2
 }
+
+/// How close to the ceiling a clipped signal is expected to land.
+/// Quantisation only, so a handful of LSB.
+const CEILING_TOLERANCE_LSB: i32 = 4;
 
 fn write_tone(dir: &Path) -> PathBuf {
     let path = dir.join("tone.wav");
@@ -182,21 +191,42 @@ fn a_limiter_holds_its_ceiling_across_overlapping_clips() {
     );
 }
 
-/// And it did not get there by silencing the track.
+/// And it reached the ceiling, rather than getting under it by losing
+/// something.
 ///
-/// Clamping everything to zero would satisfy the ceiling test above
-/// perfectly, so the output has to be shown to be real audio that has
-/// been limited rather than removed.
+/// Two ways to satisfy the test above without the fix working:
+/// silencing the track, and dropping one of the two clips. Both leave
+/// a peak below the ceiling, so "under the ceiling" alone proves very
+/// little.
+///
+/// A clipped sine spends most of its period pinned at the ceiling, so
+/// the correct output peaks *at* it. One clip alone cannot — it peaks
+/// at `CLIP_AMP`, roughly 9830 LSB against a 16422 LSB ceiling — and
+/// silence obviously cannot. So pinning the peak to the ceiling is a
+/// single assertion covering both.
+///
+/// My first version used `peak > ceiling / 2`, which one clip alone
+/// clears comfortably. Raised in review on #318.
 #[test]
-fn the_limiter_does_not_simply_mute_the_track() {
+fn the_limited_mix_sits_at_the_ceiling() {
     let limited = render(2, limiter());
     let p = peak(&limited);
-    // A clipped sine spends most of its time at the ceiling, so the
-    // peak should be right at it rather than merely under it.
+    let exact = (ceiling_linear() * 32_767.0) as i32;
+
     assert!(
-        p > ceiling_lsb() / 2,
-        "the limited mix peaks at only {p} LSB, far below the {} LSB ceiling — the audio was \
-         removed rather than limited",
-        ceiling_lsb()
+        (p - exact).abs() <= CEILING_TOLERANCE_LSB,
+        "the limited mix peaks at {p} LSB, not the {exact} LSB ceiling. Below it means a \
+         contribution went missing — one clip alone would peak near {}, and silence at 0 — \
+         rather than that the limiter did its job.",
+        (CLIP_AMP * 32_767.0) as i32
+    );
+
+    // And the single-clip peak really is far enough away for the
+    // assertion above to tell them apart.
+    let one = peak(&render(1, limiter()));
+    assert!(
+        exact - one > CEILING_TOLERANCE_LSB * 10,
+        "one clip peaks at {one} LSB against a {exact} LSB ceiling — too close for the check \
+         above to distinguish a dropped clip from a limited sum"
     );
 }
