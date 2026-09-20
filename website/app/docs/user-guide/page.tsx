@@ -200,19 +200,16 @@ export default function UserGuidePage() {
 
       <h2>Stem Separation</h2>
       <p>
-        edytlab integrates Demucs to separate a mixed track into individual
-        stems — vocals, drums, bass, and other instruments — running entirely
-        on your device.
+        <strong>Not available in this build.</strong> Stem separation is
+        designed to split a mixed track into vocals, drums, bass, and other
+        instruments with Demucs, running entirely on your device — but
+        inference ships as a stub, so asking the agent to{" "}
+        <code>separate the stems on track 1</code> returns an error.
       </p>
       <p>
-        Ask the agent: <code>separate the stems on track 1</code>. The model
-        downloads automatically on first use (~80 MB). Processing takes roughly
-        45 seconds per minute of audio on a modern CPU. Apple Neural Engine and
-        NVIDIA CUDA acceleration reduce this significantly.
-      </p>
-      <p>
-        The four stems appear as new tracks in your session. You can then edit
-        each independently.
+        There is no model download or environment variable that changes this.
+        The decoder is what is missing, not the model file: supplying a valid
+        Demucs export loads it and then still fails.
       </p>
 
       <h2>Transcription</h2>

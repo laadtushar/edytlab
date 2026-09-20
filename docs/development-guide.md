@@ -75,16 +75,21 @@ this build, and there is no configuration that makes them work:
 - `ml_pipeline::download::fetched_model_path` is a stub that always
   errors, and has no callers. There is no automatic download.
 
+<!-- historical:begin -->
 Earlier revisions of this guide described a `~/.edytlab/models` cache, an
 automatic first-use download, a `scripts/fetch-models.sh` installer and
 an `EDYTLAB_MODEL_DIR` override. None of those existed: the script was
 never in the repository, the download path was never wired up, and
 `EDYTLAB_MODEL_DIR` was read by no code in the tree. They are removed
 rather than corrected, because the honest instruction is "wait".
+<!-- historical:end -->
 
-`WHISPER_MODEL_PATH` and `DEMUCS_MODEL_PATH` *are* read — they are how
-the model file will be located once the decoders land — but setting them
-today only changes which error you get.
+`WHISPER_MODEL_PATH`, `DEMUCS_FT_MODEL_PATH` and `DEMUCS_MODEL_PATH`
+*are* read — they are how the model file will be located once the
+decoders land — but setting them today only changes which error you get.
+Which Demucs variable applies depends on the model id: `htdemucs_ft`,
+the default, reads `DEMUCS_FT_MODEL_PATH`, and `htdemucs` reads
+`DEMUCS_MODEL_PATH`.
 
 ---
 

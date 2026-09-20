@@ -71,17 +71,72 @@ fn sources(dir: &Path, exts: &[&str]) -> Vec<(String, String)> {
     out
 }
 
-/// Historical records, which are allowed to describe what was believed
-/// at the time. Everything else is a live instruction.
+/// Whole files that are historical records, allowed to describe what
+/// was believed at the time. Everything else is a live instruction.
+///
+/// The development guide used to be listed here, which exempted the
+/// *entire* document — so a future reintroduction of
+/// `scripts/fetch-models.sh` or `EDYTLAB_MODEL_DIR` anywhere in a live
+/// setup guide would have passed. Raised in review on #317. It now
+/// marks its retrospective paragraph instead, and the rest of the file
+/// is scanned like any other.
 fn is_historical(path: &str) -> bool {
     path.contains("superpowers/plans")
         || path.contains("/specs/")
         || path.ends_with("HANDOVER.md")
         || path.ends_with("CHANGELOG.md")
-        // The guide's own account of what it used to say wrongly.
-        || path.ends_with("docs/development-guide.md")
-        // This file, which has to quote the string to forbid it.
+        // This file, which has to quote the strings to forbid them.
         || path.ends_with("ml_setup_is_real.rs")
+}
+
+/// Rust source with `//`-style comments (doc comments included)
+/// removed, so a guard reads what the code does rather than what the
+/// prose says about it.
+///
+/// Line comments only: every case here is a `//!` header or a `///`
+/// doc comment quoting the old behaviour. Block comments are left
+/// alone rather than half-handled, which would be worse than not
+/// trying.
+fn strip_rust_comments(src: &str) -> String {
+    src.lines()
+        .map(|l| match l.find("//") {
+            Some(i) => &l[..i],
+            None => l,
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Regions a live document marks as an account of what it used to say.
+///
+/// A file explaining its own past mistake has to quote the mistake.
+/// Bounding that quotation keeps the rest of the file under the guard,
+/// which exempting the whole file did not.
+///
+/// Unbalanced markers fail closed: an unterminated `begin` would
+/// otherwise silence everything after it, so the region runs to the
+/// marker or not at all.
+fn strip_historical_regions(text: &str) -> String {
+    const BEGIN: &str = "<!-- historical:begin -->";
+    const END: &str = "<!-- historical:end -->";
+
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find(BEGIN) {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + BEGIN.len()..];
+        match after.find(END) {
+            Some(stop) => rest = &after[stop + END.len()..],
+            // No closing marker: keep the remainder rather than
+            // dropping it, so a typo cannot blind the guard.
+            None => {
+                out.push_str(after);
+                return out;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Nothing tells anyone to run a script that is not in the repository.
@@ -108,6 +163,10 @@ fn no_one_is_told_to_run_a_script_that_does_not_exist() {
     let live: Vec<_> = files
         .into_iter()
         .filter(|(p, _)| !is_historical(p))
+        .map(|(p, t)| {
+            let stripped = strip_historical_regions(&t);
+            (p, stripped)
+        })
         .collect();
     assert!(
         live.len() > 100,
@@ -128,7 +187,10 @@ fn no_one_is_told_to_run_a_script_that_does_not_exist() {
             if !script.ends_with(".sh") {
                 continue;
             }
-            if !root.join(script).exists() {
+            // `is_file`, not `exists`: a *directory* called
+            // `scripts/foo.sh` would satisfy `exists` while there is
+            // still nothing to run. Raised in review on #317.
+            if !root.join(script).is_file() {
                 dangling.push(format!(
                     "{path} names `{script}`, which is not in the repository"
                 ));
@@ -154,14 +216,29 @@ fn no_env_var_is_documented_that_nothing_reads() {
     let root = repo_root();
     const VAR: &str = "EDYTLAB_MODEL_DIR";
 
+    // A *read*, not a mention. `t.contains(VAR)` was satisfied by a
+    // comment, a schema description or an error string naming the
+    // variable, so documenting a dead setting stayed legal as long as
+    // something talked about it. Raised in review on #317, and the
+    // same class of bug as the one found in the frontend guard (#319).
+    let reads_var = |t: &str| {
+        [
+            format!("var(\"{VAR}\")"),
+            format!("var_os(\"{VAR}\")"),
+            format!("env!(\"{VAR}\")"),
+            format!("option_env!(\"{VAR}\")"),
+        ]
+        .iter()
+        .any(|form| t.contains(form.as_str()))
+    };
     let code = sources(&root.join("crates"), &["rs"])
         .into_iter()
         .chain(sources(&root.join("apps"), &["rs", "ts", "tsx"]))
-        .any(|(p, t)| !is_historical(&p) && t.contains(VAR));
+        .any(|(p, t)| !is_historical(&p) && reads_var(&t));
 
     let documented: Vec<_> = sources(&root.join("docs"), &["md"])
         .into_iter()
-        .filter(|(p, t)| !is_historical(p) && t.contains(VAR))
+        .filter(|(p, t)| !is_historical(p) && strip_historical_regions(t).contains(VAR))
         .map(|(p, _)| p)
         .collect();
 
@@ -189,14 +266,42 @@ fn transcribe_does_not_report_success_with_an_empty_transcript() {
          model would fix it; got: {msg}"
     );
 
-    // And the decoder itself, if one were loadable, must not answer
-    // with an empty success. Asserted through the error type rather
-    // than by loading a model, which CI has none of.
     let unimplemented = ml_whisper::WhisperError::NotImplemented.to_string();
     assert!(
         unimplemented.contains("not implemented in this build"),
         "NotImplemented must say so plainly; got: {unimplemented}"
     );
+
+    // And the decoder itself must not answer with an empty success.
+    //
+    // This half used to be the assertion above and nothing more, which
+    // had no teeth at all: a regression restoring `Ok(Vec::new())`
+    // inside `transcribe` leaves the enum variant and its message
+    // exactly as they are, so the test stayed green through the very
+    // bug it was named for. Raised in review on #317.
+    //
+    // CI has no model, so `transcribe` cannot be called here. The
+    // check is therefore on the source — crude, and honest about being
+    // crude, in the same spirit as the rest of this file. It targets
+    // the one regression that matters rather than proving a property.
+    // Comments are stripped first. Both files that explain this fix
+    // have to *quote* the old return value to explain it, and a guard
+    // that cannot tell a warning from the thing it warns about fires on
+    // its own documentation — which is exactly the failure this whole
+    // test file was written to catch elsewhere.
+    let body = strip_rust_comments(
+        &std::fs::read_to_string(repo_root().join("crates/ml-whisper/src/lib.rs"))
+            .expect("ml-whisper lib.rs is readable"),
+    );
+    for empty in ["Ok(Vec::new())", "Ok(vec![])"] {
+        assert!(
+            !body.contains(empty),
+            "`ml-whisper` returns `{empty}` again. An empty transcript reported as success is \
+             indistinguishable from \"this recording has no speech\", which is the #233 bug: the \
+             caller who did everything right gets the most misleading answer available. Return \
+             WhisperError::NotImplemented instead."
+        );
+    }
 }
 
 /// The tool schemas the *model* reads must say the feature is
@@ -226,6 +331,20 @@ fn the_schemas_tell_the_agent_the_features_are_unavailable() {
             desc.contains("not implemented"),
             "`{name}`'s schema does not tell the agent the feature is unimplemented, so it will \
              offer it as though it works: {desc}"
+        );
+        // "Not implemented" alone is not enough. A description reading
+        // "not implemented; install the model with ..." passes that
+        // check and sends the agent straight back to the dead end, so
+        // the two properties the fix actually relies on are asserted
+        // separately. Raised in review on #317.
+        assert!(
+            desc.contains("no setup that changes that"),
+            "`{name}`'s schema does not say the state is unfixable, so the agent may still \
+             invent a setup step: {desc}"
+        );
+        assert!(
+            desc.contains("do not suggest installing"),
+            "`{name}`'s schema does not tell the agent to stop recommending an install: {desc}"
         );
     }
 }

@@ -12,14 +12,22 @@
 //!   (encoder-decoder vs single-model, beam-search etc.). Shipping a
 //!   correct production-grade decode loop is out of scope for the first
 //!   milestone; what we ship here is the **API shape**, the model-loading
-//!   path, the resampler glue, and a missing-model fallback.
+//!   path, the resampler glue, and an explicit unavailable error.
 //!
-//! - When the ONNX file is present but the export shape is one we don't
-//!   yet have a decoder for, [`WhisperModel::transcribe`] returns
-//!   `Ok(Vec::new())` (empty transcript) rather than panicking. This
-//!   keeps the smoke test green on a silence fixture and lets the rest
-//!   of the pipeline (tool dispatch, session-state mutation) be
-//!   exercised end-to-end.
+//! - **There is no decoder in this build.** Once the input passes
+//!   validation, [`WhisperModel::transcribe`] returns
+//!   [`WhisperError::NotImplemented`] whatever model is loaded. No model
+//!   file, environment variable or setup step changes that.
+//!
+//!   It used to return `Ok(Vec::new())` instead — success carrying an
+//!   empty transcript, which a caller cannot distinguish from "this
+//!   recording contains no speech" (#233). That kept a smoke test green
+//!   on a silence fixture at the cost of lying to every real caller,
+//!   which is the wrong trade.
+//!
+//! - Validation still runs *before* the stub, so a caller who forgot the
+//!   resampler hears about the mistake they can fix rather than about
+//!   the missing decoder.
 //!
 //! - Real speech support is gated on (a) committing to a specific Whisper
 //!   ONNX export and (b) wiring a decode loop. That is a manual gate,

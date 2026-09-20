@@ -894,7 +894,7 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `separate_stems`
 
-NOT IMPLEMENTED IN THIS BUILD. Would run Demucs stem separation on an audio file and return paths to the four output stems (vocals/drums/bass/other) as WAVs, cached by content hash. Inference is a stub, so this always returns an error and there is no setup that changes that — do not suggest installing a model or setting DEMUCS_MODEL_PATH. Tell the user stem separation is unavailable in this build instead.
+NOT IMPLEMENTED IN THIS BUILD. Would run Demucs stem separation on an audio file and return paths to the four output stems (vocals/drums/bass/other) as WAVs, cached by content hash. Inference is a stub, so this always returns an error and there is no setup that changes that — do not suggest installing a model or setting DEMUCS_MODEL_PATH or DEMUCS_FT_MODEL_PATH. Tell the user stem separation is unavailable in this build instead.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|

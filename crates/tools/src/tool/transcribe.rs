@@ -1,15 +1,25 @@
 //! `transcribe` tool — decode an audio file, resample to 16 kHz mono,
-//! run the Whisper-base ONNX model, and append a session node carrying
+//! hand it to the Whisper wrapper, and append a session node carrying
 //! the resulting transcript.
 //!
-//! Side effect: on success the new session head's `state.transcript`
-//! field is set to the produced words. The result JSON also returns the
-//! word list for the model's convenience.
+//! **Not available in this build.** `ml-whisper` has no decoder, so
+//! every invocation ends in a `ToolResult::Error` and no session node
+//! is ever appended. The steps above describe the shape the tool will
+//! have, not what it does today (#233).
 //!
-//! Missing-model path: `WHISPER_MODEL_PATH` env var is consulted at
-//! invocation time. If unset, or the file does not exist, the tool
-//! returns a structured `ToolResult::Error` with the install hint
-//! instead of panicking. This satisfies M09 acceptance criterion #4.
+//! The two failure paths differ only in wording:
+//!
+//! - no model configured — `WHISPER_MODEL_PATH` unset or naming a file
+//!   that is not there;
+//! - a model configured and loaded — [`WhisperError::NotImplemented`].
+//!
+//! Neither is a setup problem, and neither message suggests one. The
+//! first used to be called an "install hint" and to name a fetch-models
+//! script that has never existed in this repository.
+//!
+//! Side effect, once a decoder lands: the new session head's
+//! `state.transcript` is set to the produced words, and the result JSON
+//! also returns the word list for the model's convenience.
 //!
 //! Model-reuse: the [`WhisperModel`] is cached process-wide behind a
 //! [`OnceLock`] keyed by the model path, so 10 invocations against the

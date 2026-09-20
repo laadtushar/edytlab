@@ -77,11 +77,18 @@ fn transcribe_smoke_returns_vec_word() {
         }
         Err(e) => panic!("transcribe failed: {e}"),
     };
-    assert!(
-        !words.is_empty(),
-        "a real decoder returned no words at all for this input; if that is correct for \
-         silence, give this test speech instead — an empty result checks nothing below"
-    );
+    // Deliberately *not* asserting `!words.is_empty()`. The fixture is
+    // one second of silence, and zero words is the correct answer for
+    // silence — so a real decoder would fail that assertion. Raised in
+    // review on #317.
+    //
+    // The cost is that the contract below is vacuous on this fixture.
+    // That is a gap in what this test proves, and the honest fix is a
+    // committed speech fixture, not an assertion that would make a
+    // correct decoder look broken.
+    if words.is_empty() {
+        eprintln!("decoder returned no words for silence, which is allowed; contract unchecked");
+    }
 
     // Acceptance criterion #2: monotonic non-decreasing timestamps and
     // start_s < end_s.
@@ -156,6 +163,15 @@ fn reuses_loaded_model_across_calls() {
     let model = WhisperModel::load(&model_path).expect("model load");
     let silence = vec![0.0f32; 16_000];
     for _ in 0..5 {
-        let _ = model.transcribe(&silence).expect("transcribe");
+        // `NotImplemented` is the expected answer until the decoder
+        // lands; `expect` here panicked against the stub, so the
+        // documented `--ignored` run died on this test. Raised in
+        // review on #317. What is being checked is that one
+        // `&WhisperModel` serves N calls without rebuilding, which
+        // holds either way.
+        match model.transcribe(&silence) {
+            Ok(_) | Err(ml_whisper::WhisperError::NotImplemented) => {}
+            Err(e) => panic!("transcribe failed: {e}"),
+        }
     }
 }

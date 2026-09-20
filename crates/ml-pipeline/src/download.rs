@@ -7,14 +7,19 @@
 //! downloader once it lands.
 //!
 //! This used to say models were pre-fetched by a fetch-models shell
-//! script. No such script has ever been in the repository (#233). Nor would it have helped: the Whisper decoder and
-//! Demucs inference are both stubs, so there is no model file that
-//! produces output. The env vars above are the *intended* mechanism,
-//! not a working one.
+//! script. No such script has ever been in the repository (#233). Nor
+//! would it have helped: the Whisper decoder and Demucs inference are
+//! both stubs, so there is no model file that produces output. The env
+//! vars above are the *intended* mechanism, not a working one.
 //!
-//! Currently always returns [`Error::MissingRuntime`] — callers should
-//! treat this as "model not pre-fetched yet" and fall back to their
-//! own env-var lookup with an install-script hint.
+//! Currently always returns [`Error::MissingRuntime`], and has no
+//! callers. Callers should read that as "this feature is unavailable",
+//! not as "the model has not been fetched yet" — there is nothing to
+//! fetch it with, and a fetched model would change nothing.
+//!
+//! In particular, do not fall back to an install hint. That is the
+//! advice this module used to give, and it is what sent people looking
+//! for a script that does not exist.
 
 use std::path::PathBuf;
 

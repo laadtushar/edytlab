@@ -92,7 +92,7 @@ edytlab/
     ├── memory/                   # Global/project markdown memory fragments
     ├── ml-demucs/                # Stem separation via ONNX Demucs
     ├── ml-pipeline/              # Shared ONNX runtime + model cache
-    ├── ml-whisper/               # Transcription via ONNX Whisper large-v3
+    ├── ml-whisper/               # Transcription via ONNX Whisper-base (decoder is a stub)
     ├── session/                  # DAG data model, node store, fork/diff/compare
     ├── skills/                   # User skill library with trigger evaluation
     └── tools/                    # ~93 deterministic audio-editing tools
@@ -623,11 +623,15 @@ Input: WAV (any sample rate)
     │
     ▼  log-mel spectrogram (80 bins, 30-second window)
     │
-    ▼  Whisper encoder + decoder (ONNX large-v3)
+    ▼  Whisper encoder + decoder (ONNX Whisper-base) — NOT IMPLEMENTED
     │
     ▼  word-level timestamps via DTW alignment
     │
 Output: Vec<WordTimestamp> stored in SessionState.transcript
+
+NOT IMPLEMENTED IN THIS BUILD. `WhisperModel::transcribe` returns
+`NotImplemented` once the input passes validation, whatever model is
+loaded. The diagram is the intended design, not current behaviour.
 ```
 
 Runs entirely on-device. A 60-minute file transcribes in ~4–8 minutes on a modern laptop (CPU-only). Apple Neural Engine (CoreML) and CUDA acceleration reduce this significantly.
@@ -646,9 +650,18 @@ Output: 4 stems (vocals / drums / bass / other)
         each written as a separate file, added as new tracks
 ```
 
-Model variants available:
-- `htdemucs` (default) — best quality/speed ratio
-- `htdemucs_6s` — 6 stems (adds guitar + piano), ~2× slower
+NOT IMPLEMENTED IN THIS BUILD. `DemucsModel::separate` returns
+`NotImplemented`; a valid model loads and separation still fails,
+because the ORT decode loop is what is missing. The diagram is the
+intended design, not current behaviour.
+
+Model variants available (`SUPPORTED_MODEL_IDS`):
+- `htdemucs_ft` (default) — fine-tuned, best quality
+- `htdemucs` — the OOM fallback
+
+`htdemucs_6s`, with guitar and piano stems, is **not** supported: the
+tool rejects any id outside the two above. This section used to list it
+(#233).
 
 ---
 
