@@ -17,7 +17,7 @@
  * switching provider preserves each side's choice.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   clearApiKeyFor,
@@ -27,6 +27,7 @@ import {
   setActiveModel,
   hasApiKeyFor,
   getActiveModel,
+  getActiveProvider,
   setActiveProvider,
   getBaseUrlFor,
   defaultBaseUrlFor,
@@ -178,6 +179,13 @@ export function Settings({
   onProviderChanged,
 }: SettingsProps) {
   const [key, setKey] = useState("");
+  /**
+   * Whether the user has picked a provider since mount.
+   *
+   * A ref rather than state: nothing renders from it, and it has to be
+   * readable by a promise callback that closed over its own render.
+   */
+  const pickedRef = useRef(false);
   const [provider, setProvider] = useState<ProviderId>(() => {
     if (typeof window === "undefined") return DEFAULT_PROVIDER;
     const stored = window.localStorage.getItem(PROVIDER_STORAGE_KEY);
@@ -215,6 +223,59 @@ export function Settings({
       window.localStorage.setItem(PROVIDER_STORAGE_KEY, provider);
     }
   }, [provider]);
+
+  /**
+   * The *agent's* provider wins over what this browser profile
+   * remembers (#225 §3).
+   *
+   * Exactly the problem #249 fixed for the model, left unfixed for the
+   * provider one line above it: the radio group read `localStorage`
+   * alone, nothing ever called `get_active_provider`, and the two had
+   * no way to notice they disagreed. When they did, Settings showed
+   * one provider while the agent answered on another — and every
+   * keyed-off-provider action in this panel (the model list, the base
+   * URL, Test, Clear) operated on the one on screen.
+   *
+   * They diverge for real reasons, not just theory: a `set_active_provider`
+   * that rejects leaves the UI advanced and the backend behind, and a
+   * profile whose localStorage is cleared falls back to the default
+   * while the keychain still holds another choice.
+   *
+   * localStorage stays the immediate value so the control is never
+   * blank while the IPC is in flight — same trade as the model, for
+   * the same reason.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    void getActiveProvider()
+      .then((active) => {
+        if (cancelled) return;
+        // The user got there first. `cancelled` only covers unmount,
+        // so without this a click landing while the read is in flight
+        // is undone by it: `handleProviderChange` has already advanced
+        // the UI and told the backend, and this would snap the radio
+        // back to the value that read before either happened. Raised
+        // in review on #324.
+        //
+        // Hydration is a starting point, not a correction. Once there
+        // is a selection to correct, it has missed its moment.
+        if (pickedRef.current) return;
+        // An id this build does not offer is not selectable, and
+        // showing it would leave the radio group with nothing lit.
+        if (!PROVIDERS.some((p) => p.id === active)) return;
+        setProvider(active);
+      })
+      .catch(() => {
+        // The stored value is still a reasonable thing to show, and
+        // picking any provider reconciles both sides.
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Mount only. After this, the radio group is the authority and it
+    // writes through `setActiveProvider`; re-running on every change
+    // would fight the user's own selection.
+  }, []);
 
   // What the *agent* is configured with wins over what this browser
   // profile remembers (#249).
@@ -298,6 +359,9 @@ export function Settings({
   const handleProviderChange = useCallback(
     async (next: ProviderId) => {
       if (next === provider) return;
+      // Before any await: the in-flight hydration must see this even
+      // if it resolves during the calls below.
+      pickedRef.current = true;
       setProvider(next);
       setKey("");
       setTest({ kind: "idle" });

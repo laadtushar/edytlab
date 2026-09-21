@@ -33,6 +33,10 @@ const setActiveModelMock = vi.fn();
 // Empty means "the backend has no opinion", so the stored value stands
 // and these tests see the behaviour they were written for.
 const getActiveModelMock = vi.fn();
+// Same reconciliation, for the provider (#225 §3). Empty means "the
+// backend has no opinion", so the stored value stands and the existing
+// tests below see the behaviour they were written for.
+const getActiveProviderMock = vi.fn();
 const getBaseUrlForMock = vi.fn();
 const defaultBaseUrlForMock = vi.fn();
 const setBaseUrlForMock = vi.fn();
@@ -51,6 +55,7 @@ vi.mock("../lib/tauri-bridge", () => ({
   setActiveModel: (provider: string, model: string) =>
     setActiveModelMock(provider, model),
   getActiveModel: (provider: string) => getActiveModelMock(provider),
+  getActiveProvider: () => getActiveProviderMock(),
   listModelsFor: (provider: string, apiKey?: string) =>
     listModelsForMock(provider, apiKey),
   clearApiKey: () => clearApiKeyMock(),
@@ -61,7 +66,7 @@ vi.mock("../lib/tauri-bridge", () => ({
     setBaseUrlForMock(provider, baseUrl),
 }));
 
-import { Settings } from "../components/Settings";
+import { PROVIDER_STORAGE_KEY, Settings } from "../components/Settings";
 
 describe("Settings", () => {
   beforeEach(() => {
@@ -75,6 +80,7 @@ describe("Settings", () => {
     hasApiKeyForMock.mockReset().mockResolvedValue(true);
     setActiveModelMock.mockReset().mockResolvedValue(undefined);
     getActiveModelMock.mockReset().mockResolvedValue("");
+    getActiveProviderMock.mockReset().mockResolvedValue("");
     listModelsForMock.mockReset().mockResolvedValue([]);
     getBaseUrlForMock.mockReset().mockResolvedValue(null);
     defaultBaseUrlForMock
@@ -310,6 +316,92 @@ describe("Settings", () => {
 
     await waitFor(() => expect(getActiveModelMock).toHaveBeenCalled());
     expect(screen.getByTestId("settings-model-input")).toHaveValue("my-pick");
+  });
+
+  // The same disagreement, one line above the model's (#225 §3). The
+  // radio group read localStorage alone and nothing ever called
+  // `get_active_provider`, so Settings could show one provider while
+  // the agent answered on another — and the model list, base URL,
+  // Test and Clear in this panel all key off the one on screen.
+
+  it("selects the agent's provider, not the stale stored one", async () => {
+    window.localStorage.setItem(PROVIDER_STORAGE_KEY, "anthropic");
+    getActiveProviderMock.mockResolvedValue("openai");
+
+    render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
+
+    // The OpenAI placeholder is only rendered while OpenAI is selected.
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText("sk-...")).toBeInTheDocument(),
+    );
+    // And the stored value is reconciled, so the next mount agrees
+    // before the IPC even resolves.
+    expect(window.localStorage.getItem(PROVIDER_STORAGE_KEY)).toBe("openai");
+  });
+
+  it("keeps the stored provider when the backend has no opinion", async () => {
+    window.localStorage.setItem(PROVIDER_STORAGE_KEY, "groq");
+    getActiveProviderMock.mockResolvedValue("");
+
+    render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
+
+    await waitFor(() => expect(getActiveProviderMock).toHaveBeenCalled());
+    expect(screen.getByPlaceholderText("gsk_...")).toBeInTheDocument();
+  });
+
+  it("ignores a provider id this build does not offer", async () => {
+    // Leaving it selected would light no radio at all, and every
+    // keyed-off-provider control would address a provider with no row.
+    window.localStorage.setItem(PROVIDER_STORAGE_KEY, "groq");
+    getActiveProviderMock.mockResolvedValue("mistral");
+
+    render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
+
+    await waitFor(() => expect(getActiveProviderMock).toHaveBeenCalled());
+    expect(screen.getByPlaceholderText("gsk_...")).toBeInTheDocument();
+  });
+
+  it("does not undo a selection made while the read is in flight", async () => {
+    // The race Copilot raised on #324. `cancelled` only covers
+    // unmount, so a click landing before the hydration resolves was
+    // snapped back to the value that read before it happened —
+    // discarding a selection the backend had already been told about.
+    const user = userEvent.setup();
+    window.localStorage.setItem(PROVIDER_STORAGE_KEY, "anthropic");
+
+    let resolveRead: (v: string) => void = () => undefined;
+    getActiveProviderMock.mockReturnValue(
+      new Promise<string>((r) => {
+        resolveRead = r;
+      }),
+    );
+
+    render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
+    await waitFor(() => expect(getActiveProviderMock).toHaveBeenCalled());
+
+    // The user picks Groq while the read is still pending.
+    await user.click(screen.getByTestId("settings-provider-groq"));
+    await waitFor(() =>
+      expect(setActiveProviderMock).toHaveBeenCalledWith("groq"),
+    );
+
+    // The read now lands, carrying what was true before the click.
+    resolveRead("anthropic");
+    await waitFor(() => expect(getActiveProviderMock).toHaveBeenCalled());
+
+    // Groq stays selected: its key field is the one on screen.
+    expect(screen.getByPlaceholderText("gsk_...")).toBeInTheDocument();
+    expect(window.localStorage.getItem(PROVIDER_STORAGE_KEY)).toBe("groq");
+  });
+
+  it("falls back to the stored provider when the backend call fails", async () => {
+    window.localStorage.setItem(PROVIDER_STORAGE_KEY, "groq");
+    getActiveProviderMock.mockRejectedValue(new Error("ipc down"));
+
+    render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
+
+    await waitFor(() => expect(getActiveProviderMock).toHaveBeenCalled());
+    expect(screen.getByPlaceholderText("gsk_...")).toBeInTheDocument();
   });
 
   /// A failed selection means the dropdown and the agent disagree —
