@@ -64,15 +64,11 @@ const KNOWN_UNREACHABLE: Record<string, string> = {
     "superseded by the agent://node-created subscription in useSession, which keeps the head " +
     "pointer current without a round-trip after each turn",
 
-  // Real gaps (#225). Deleting a line here is the fix.
+  // Not a gap, but not a plain duplicate either.
   listProviders:
     "returns nothing but SUPPORTED_PROVIDER_IDS, so calling it at runtime would buy async " +
     "complexity and a fail-open branch for what the build already knows; Settings' hardcoded " +
     "list is pinned to that constant by crates/ai/tests/settings_provider_list.rs instead",
-  getProjectMeta:
-    "#225 §5 — title/artist/album feed the export tag writers but are agent-only",
-  setProjectMeta:
-    "#225 §5 — project metadata can only be written by asking the agent in a sentence",
 };
 
 /** Every name the bridge exports as a callable. */

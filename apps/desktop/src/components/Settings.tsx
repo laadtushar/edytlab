@@ -39,12 +39,20 @@ import {
 import { AgentProfilesEditor } from "./AgentProfilesEditor";
 import { McpServersEditor } from "./McpServersEditor";
 import { MemoryEditor } from "./MemoryEditor";
+import { ProjectEditor } from "./ProjectEditor";
 import { SkillsEditor } from "./SkillsEditor";
 
 /** Settings panel tabs. The blocking onboarding flow is locked to
  *  "account"; the panel mode lets the user switch. Phases 1-5 ship
  *  "account", "memory", "skills", "agents", "mcp", "plugins". */
-type SettingsTab = "account" | "memory" | "skills" | "agents" | "mcp" | "plugins";
+type SettingsTab =
+  | "account"
+  | "project"
+  | "memory"
+  | "skills"
+  | "agents"
+  | "mcp"
+  | "plugins";
 
 export const LEGACY_MODEL_STORAGE_KEY = "edytlab.model";
 export const MODEL_STORAGE_KEY_PREFIX = "edytlab.model.";
@@ -622,6 +630,12 @@ export function Settings({
               onClick={() => setTab("account")}
             />
             <SettingsTabButton
+              id="project"
+              label="Project"
+              active={tab === "project"}
+              onClick={() => setTab("project")}
+            />
+            <SettingsTabButton
               id="memory"
               label="Memory"
               active={tab === "memory"}
@@ -655,6 +669,7 @@ export function Settings({
         ) : null}
 
         <div className="px-5 py-4">
+          {tab === "project" && mode === "panel" ? <ProjectEditor /> : null}
           {tab === "memory" && mode === "panel" ? <MemoryEditor /> : null}
           {tab === "skills" && mode === "panel" ? <SkillsEditor /> : null}
           {tab === "agents" && mode === "panel" ? (
