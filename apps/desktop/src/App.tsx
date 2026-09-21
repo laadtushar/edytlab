@@ -55,7 +55,7 @@ import {
   isRedoChord,
 } from "./lib/undoRedo";
 import { mixIsStale } from "./lib/mixState";
-import { startTake, stopTake } from "./lib/recording";
+import { scheduledTake, startTake, stopTake } from "./lib/recording";
 
 import { ABCompareBar } from "./components/ABCompareBar";
 import { Chat } from "./components/Chat";
@@ -84,7 +84,7 @@ import {
   onToolProgress,
   renderPreview as bridgeRenderPreview,
 } from "./lib/tauri-bridge";
-import { listTemplates, applyTemplate, startRecording, stopRecording } from "./lib/tauri-bridge";
+import { listTemplates, applyTemplate, startRecording, stopRecording, timerRecord } from "./lib/tauri-bridge";
 import type { TemplateInfo } from "./components/TemplatePickerModal";
 import {
   listenToFileDrops,
@@ -1032,6 +1032,39 @@ function App() {
     }
   }, [applyNewHead]);
 
+  /**
+   * Arm an unattended take (#225 §4).
+   *
+   * `timer_record` resolves only when the take is done — minutes
+   * later, by design — so this is deliberately not awaited into a
+   * spinner. The countdown and Cancel are the progress strip's, on the
+   * channel the backend already reports to.
+   *
+   * `isRecording` is held for the whole schedule, countdown included.
+   * The recorder refuses a second take while one is armed, and a Stop
+   * button that does nothing is worse than one that is not offered.
+   */
+  const handleTimerRecord = useCallback(
+    (schedule: { startAfterSec?: number; durationSec?: number }) => {
+      setRenderError(null);
+      setIsRecording(true);
+      void scheduledTake(
+        () => timerRecord(`recording_${Date.now()}.wav`, schedule),
+        batchLoad,
+      ).then((outcome) => {
+        setIsRecording(false);
+        if (outcome.kind === "loaded") {
+          applyNewHead(outcome.nodeId);
+          void listTracks().then(setTracks);
+        } else if (outcome.kind !== "cancelled") {
+          // Cancelling is the user's own doing and needs no banner.
+          setRenderError(outcome.message);
+        }
+      });
+    },
+    [applyNewHead],
+  );
+
   const handleRenderPreview = useCallback(async () => {
     if (!head || rendering) return;
     setRendering(true);
@@ -1110,6 +1143,7 @@ function App() {
         onSettings={() => setSettingsOpen(true)}
         isRecording={isRecording}
         onRecord={isRecording ? handleStopRecording : handleStartRecording}
+        onTimerRecord={handleTimerRecord}
         onSaveAs={handleSaveProjectAs}
         hasProject={Boolean(head)}
         onNewProject={handleNewProject}

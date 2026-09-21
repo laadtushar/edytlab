@@ -69,8 +69,6 @@ const KNOWN_UNREACHABLE: Record<string, string> = {
     "#225 §3 — Settings persists the provider to localStorage instead of reading the backend",
   listProviders:
     "#225 §3 — Settings hardcodes a PROVIDERS array",
-  timerRecord:
-    "#225 §4 — scheduled recording has no UI, which is the one thing it is for",
   getProjectMeta:
     "#225 §5 — title/artist/album feed the export tag writers but are agent-only",
   setProjectMeta:

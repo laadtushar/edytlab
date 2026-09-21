@@ -20,6 +20,7 @@ import {
   onToolProgress,
   type ToolProgress,
 } from "../lib/tauri-bridge";
+import { timerLabel } from "../lib/recording";
 
 /**
  * The kinds that are actually progress (#252).
@@ -78,9 +79,18 @@ export function ToolProgressBar() {
   const shown = progress ?? last.current;
   if (!mounted || !shown) return null;
 
+  // Two shapes share this channel. `batch_apply` counts files;
+  // `timer_record` counts down seconds and sends no `total`, `index` or
+  // `file` at all (#225 §4) — rendering it as a file count produced
+  // "1 of undefined" over a blank name and an empty bar, which is the
+  // #252 failure in a kind that had been allow-listed for it in
+  // advance and never taught to the strip.
+  const isTimer = shown.kind === "timer_record";
   const done = shown.index ?? 0;
-  const pct = shown.total > 0 ? (done / shown.total) * 100 : 0;
+  const total = shown.total ?? 0;
+  const pct = isTimer ? 0 : total > 0 ? (done / total) * 100 : 0;
   const name = shown.file?.split(/[/\\]/).pop() ?? "";
+  const refused = shown.refused ?? 0;
 
   return (
     // The strip inserts itself above the timeline, so everything below
@@ -107,10 +117,11 @@ export function ToolProgressBar() {
         }}
       >
         <span
+          data-testid="tool-progress-count"
           style={{ fontFamily: "var(--font-mono)", color: "var(--text-dim)" }}
         >
           {/* One-based for reading: "1 of 3" while the first is running. */}
-          {done + 1} of {shown.total}
+          {isTimer ? timerLabel(shown) : `${done + 1} of ${total}`}
         </span>
         <span
           data-testid="tool-progress-file"
@@ -126,12 +137,12 @@ export function ToolProgressBar() {
         >
           {name}
         </span>
-        {shown.refused > 0 ? (
+        {refused > 0 ? (
           <span
             data-testid="tool-progress-refused"
             style={{ color: "var(--warn, #e0a03a)" }}
           >
-            {shown.refused} refused
+            {refused} refused
           </span>
         ) : null}
         <div
