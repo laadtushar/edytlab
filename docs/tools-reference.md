@@ -795,7 +795,7 @@ Render a session node to a final audio file at the user's chosen path. format="w
 | `bitrate_kbps` | integer | no | MP3 CBR target; snapped to the nearest valid Layer III rate. Ignored for wav and flac. |
 | `format` | one of `wav`, `flac`, `mp3` | yes |  |
 | `markers_as_chapters` | boolean | no | Write the session's markers as chapters. Off by default — a marker is a working annotation, and not every one is a chapter worth shipping. |
-| `metadata` | object | no | Tags for the exported file. FLAC gets Vorbis comments, MP3 gets ID3v2. WAV has no standard tag container worth using and ignores this. |
+| `metadata` | object | no | Tags for the exported file. FLAC gets Vorbis comments, MP3 gets ID3v2. WAV has no standard tag container worth using and ignores this. Title, artist, album and year default to the project's own settings when not given here, so do not ask the user for them again if they have already set them on the project — pass a field only to override it for this one export. |
 | `node_id` | string | yes |  |
 | `out_path` | string | yes |  |
 

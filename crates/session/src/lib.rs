@@ -8,6 +8,7 @@
 
 pub mod annotation;
 pub mod diff;
+pub mod meta;
 pub mod node;
 pub mod relocate;
 pub mod state;
