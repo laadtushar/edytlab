@@ -65,10 +65,10 @@ const KNOWN_UNREACHABLE: Record<string, string> = {
     "pointer current without a round-trip after each turn",
 
   // Real gaps (#225). Deleting a line here is the fix.
-  getActiveProvider:
-    "#225 §3 — Settings persists the provider to localStorage instead of reading the backend",
   listProviders:
-    "#225 §3 — Settings hardcodes a PROVIDERS array",
+    "returns nothing but SUPPORTED_PROVIDER_IDS, so calling it at runtime would buy async " +
+    "complexity and a fail-open branch for what the build already knows; Settings' hardcoded " +
+    "list is pinned to that constant by crates/ai/tests/settings_provider_list.rs instead",
   getProjectMeta:
     "#225 §5 — title/artist/album feed the export tag writers but are agent-only",
   setProjectMeta:

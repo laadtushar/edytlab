@@ -27,6 +27,7 @@ vi.mock("../lib/tauri-bridge", () => ({
   listModelsFor: vi.fn(() => Promise.resolve([])),
   setActiveModel: vi.fn(() => Promise.resolve()),
   getActiveModel: vi.fn(() => Promise.resolve("")),
+  getActiveProvider: vi.fn(() => Promise.resolve("")),
   hasApiKeyFor: vi.fn(() => Promise.resolve(false)),
   testApiKeyFor: vi.fn(() => Promise.resolve({ toolsOk: true })),
   installPlugin: vi.fn(() => Promise.resolve({ summary: "" })),
