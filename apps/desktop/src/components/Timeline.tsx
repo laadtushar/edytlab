@@ -195,6 +195,17 @@ export interface TimelineProps {
     startSec: number,
   ) => void;
   onRemoveClip?: (trackIndex: number, clipIndex: number) => void;
+  /**
+   * Raised when the head lane's audio fails to decode, and again with
+   * `null` once a later load succeeds.
+   *
+   * The failure used to live only in this component, so the status bar
+   * — which derives its state from "is there a path" — reported
+   * `ready` next to the filename of a file that had 404'd, directly
+   * under the error box saying so. One of the two had to be wrong, and
+   * it was the one the user reads first.
+   */
+  onLoadErrorChange?: (error: string | null) => void;
 }
 
 // -----------------------------------------------------------------------------
@@ -266,6 +277,8 @@ interface LaneProps {
   onSelectionChange?: (sel: Selection | null) => void;
   /** Called when the wavesurfer reports the audio duration. */
   onDurationChange?: (d: number) => void;
+  /** Reports this lane's decode failure, and `null` once one succeeds. */
+  onLoadErrorChange?: (error: string | null) => void;
   /**
    * Length of the *session*, which is the axis the ruler, the clip
    * strip and every range-taking tool use.
@@ -335,6 +348,7 @@ function TrackLane({
   selection,
   onSelectionChange,
   onDurationChange,
+  onLoadErrorChange,
   sessionDuration,
   snapToZero,
   verticalZoom,
@@ -463,17 +477,60 @@ function TrackLane({
     return () => plugin.destroy();
   }, [spectrogramEnabled, duration]);
 
+/**
+ * Whether a rejection is "we cancelled this", not "this failed".
+ *
+ * WaveSurfer aborts an in-flight fetch when a new `load()` supersedes
+ * it or the element goes away. That surfaces as a `DOMException` named
+ * `AbortError` in some paths and as a bare string in others, so both
+ * shapes are checked rather than trusting one.
+ */
+function isAbort(err: unknown): boolean {
+  if (err && typeof err === "object" && "name" in err) {
+    if ((err as { name?: unknown }).name === "AbortError") return true;
+  }
+  return /abort/i.test(String(err));
+}
+
+  // Report the lane's load state to the parent, which is what the
+  // status bar reads. Mirrors `onDurationChange` — lane 0 is the one
+  // the parent listens to.
+  useEffect(() => {
+    onLoadErrorChange?.(loadError);
+  }, [loadError, onLoadErrorChange]);
+
   // Reload when audioPath changes.
+  //
+  // The rejection has to be tied to the load that produced it. Nothing
+  // marked a load as superseded, so aborting one — by switching tabs,
+  // or by opening a second file — landed its `AbortError` *after* the
+  // next load had already cleared the error, and the stale failure
+  // won. The result was a permanent red box reading "AbortError: Fetch
+  // is aborted" sitting under a waveform that had decoded perfectly,
+  // with no way to dismiss it. Found by opening a file, switching
+  // Timeline → Transcript → Graph → Timeline, and opening it again.
+  //
+  // An abort is also not a user-facing condition in the first place:
+  // it means *we* replaced this load, which is exactly when the error
+  // must not be shown.
   useEffect(() => {
     const ws = wsRef.current;
     if (!ws || !audioPath) return;
+    let current = true;
     setLoadError(null);
     try {
       const url = convertFileSrc(audioPath);
-      ws.load(url).catch((err: unknown) => setLoadError(String(err)));
+      ws.load(url).catch((err: unknown) => {
+        if (!current) return;
+        if (isAbort(err)) return;
+        setLoadError(String(err));
+      });
     } catch (err) {
       setLoadError(String(err));
     }
+    return () => {
+      current = false;
+    };
   }, [audioPath]);
 
   // A lane makes no sound, so its volume is not a preview of anything
@@ -987,6 +1044,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
       onClipEnvelopeChange,
       onMoveClip,
       onRemoveClip,
+      onLoadErrorChange,
     },
     ref,
   ) {
@@ -1235,6 +1293,32 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
     }, []);
 
     /**
+     * The zoom level the ± buttons should step from.
+     *
+     * `zoom` is 0 while the view is auto-fitted, and 0 is not a
+     * pixels-per-second the user is looking at — it means "whatever
+     * fills the pane". Stepping from a literal 50 made the first
+     * presses land *below* the fitted density on short audio, so the
+     * waveform stayed exactly as wide as the pane and the button
+     * looked dead for four clicks before anything moved.
+     *
+     * Reading the real density makes the first press visible, whatever
+     * the file length. Falls back to 50 only when there is nothing to
+     * measure.
+     */
+    const effectivePxPerSec = useCallback(() => {
+      if (zoom) return zoom;
+      const w = paneWidth();
+      // `timelineDuration`, not the mix player's duration: with no
+      // edits yet there is no rendered mix, so `mixWsRef` reports 0
+      // and this fell straight back to the literal that caused the
+      // problem. The timeline's own span is what the pane is fitted
+      // to, and it is right from the first decode.
+      if (w > 0 && timelineDuration > 0) return w / timelineDuration;
+      return 50;
+    }, [zoom, paneWidth, timelineDuration]);
+
+    /**
      * Fill the pane with the selection. Along with fit-to-window these
      * are the two most-used zoom verbs on any timeline, and until now
      * getting to a selected region meant zooming with ± and then
@@ -1375,7 +1459,9 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
               type="button"
               data-testid="zoom-out-btn"
               onClick={() =>
-                onZoomChange?.(Math.max(10, Math.round((zoom ?? 50) / 1.5)))
+                onZoomChange?.(
+                  Math.max(10, Math.round(effectivePxPerSec() / 1.5)),
+                )
               }
               className="text-xs px-1.5 py-1 rounded border border-neutral-600 text-neutral-400 hover:border-neutral-400 transition-colors"
               title="Zoom out (Ctrl+scroll)"
@@ -1386,7 +1472,17 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
               type="button"
               data-testid="zoom-in-btn"
               onClick={() =>
-                onZoomChange?.(Math.min(500, Math.round((zoom ?? 50) * 1.5)))
+                // This read `zoom ?? 50`, and `??` only falls back on
+                // null/undefined — so the auto-fit `0` was kept and
+                // `0 * 1.5` is `0`. Zoom-in mapped the default state
+                // to itself: the button did nothing at all, forever,
+                // unless you first pressed zoom-out (which escapes via
+                // `Math.max(10, …)`). Found by clicking `+` in the
+                // running app and diffing the waveform — three
+                // presses, zero pixels changed.
+                onZoomChange?.(
+                  Math.min(500, Math.round(effectivePxPerSec() * 1.5)),
+                )
               }
               className="text-xs px-1.5 py-1 rounded border border-neutral-600 text-neutral-400 hover:border-neutral-400 transition-colors"
               title="Zoom in (Ctrl+scroll)"
@@ -1560,6 +1656,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
                 selection={idx === 0 ? selection : null}
                 onSelectionChange={idx === 0 ? onSelectionChange : undefined}
                 onDurationChange={idx === 0 ? setHeadLaneDuration : undefined}
+                onLoadErrorChange={idx === 0 ? onLoadErrorChange : undefined}
                 sessionDuration={timelineDuration}
                 playheadSec={playheadSec}
                 snapToZero={snapToZero}

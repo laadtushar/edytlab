@@ -160,6 +160,10 @@ function App() {
   const [tracks, setTracks] = useState<TrackSummary[]>([]);
   const selectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [zoomPxPerSec, setZoomPxPerSec] = useState(0);
+  // Whether the head lane's audio actually decoded. The status bar
+  // used to infer "ready" from `sourcePath` alone — from a path having
+  // been *chosen* — so it reported ready for a file that 404'd.
+  const [audioLoadError, setAudioLoadError] = useState<string | null>(null);
   const [redoStack, setRedoStack] = useState<string[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const chatRef = useRef<ChatHandle>(null);
@@ -1179,6 +1183,7 @@ function App() {
                   onSeekToMarker={handleSeekToMarker}
                   zoom={zoomPxPerSec}
                   onZoomChange={setZoomPxPerSec}
+                  onLoadErrorChange={setAudioLoadError}
                   mixPath={mixPath}
                   snapToZero={snapToZero}
                   onSnapToZeroChange={setSnapToZero}
@@ -1254,6 +1259,7 @@ function App() {
         rendering={rendering}
         selection={selection}
         mixStale={mixIsStale({ mixPath, mixNodeId }, head)}
+        loadError={audioLoadError}
       />
 
       {showBlocking ? (
@@ -1312,6 +1318,16 @@ interface StatusBarProps {
    * it came from, so a stale one is indistinguishable from a current one.
    */
   mixStale?: boolean;
+  /**
+   * Set when the chosen audio failed to decode.
+   *
+   * Without it this bar reports state from `audioPath` alone, which
+   * only says a path was picked. A file that 404s left `ready` and the
+   * filename sitting directly under the timeline's own error box —
+   * two claims about the same file, and the one the user reads first
+   * was the wrong one.
+   */
+  loadError?: string | null;
 }
 
 export function StatusBar({
@@ -1320,7 +1336,9 @@ export function StatusBar({
   rendering,
   selection,
   mixStale,
+  loadError,
 }: StatusBarProps) {
+  const failed = Boolean(audioPath) && Boolean(loadError);
   const fileLabel = audioPath ? trimPath(audioPath) : "no file loaded";
   const headLabel = head ? `head ${head.slice(0, 7)}` : "no head";
   return (
@@ -1341,12 +1359,20 @@ export function StatusBar({
             "h-1.5 w-1.5 rounded-full " +
             (rendering
               ? "bg-[var(--warning)] animate-pulse"
-              : audioPath
-                ? "bg-[var(--success)]"
-                : "bg-[var(--text-faint)]")
+              : failed
+                ? "bg-[var(--danger)]"
+                : audioPath
+                  ? "bg-[var(--success)]"
+                  : "bg-[var(--text-faint)]")
           }
         />
-        {rendering ? "rendering…" : audioPath ? "ready" : "idle"}
+        {rendering
+          ? "rendering…"
+          : failed
+            ? "load failed"
+            : audioPath
+              ? "ready"
+              : "idle"}
       </span>
       {mixStale ? (
         <>

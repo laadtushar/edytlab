@@ -20,7 +20,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import {
-  clearApiKey,
+  clearApiKeyFor,
   installPlugin,
   listModelsFor,
   setApiKeyFor,
@@ -352,9 +352,6 @@ export function Settings({
   );
 
   const handleSave = useCallback(async () => {
-    // A keyless provider saves an empty string — that is how the UI
-    // says "make this one active". Requiring a key here is what kept a
-    // local daemon unselectable.
     if ((needsKey && !key.trim()) || saving) return;
     setSaving(true);
     setSaveError(null);
@@ -363,7 +360,27 @@ export function Settings({
       // rebuild reads this. The other order builds an agent pointing at
       // the old endpoint until something else triggers another rebuild.
       await setBaseUrlFor(provider, baseUrl);
-      await setApiKeyFor(provider, key);
+      // A keyless provider is activated, not written.
+      //
+      // This used to call `setApiKeyFor(provider, "")` for every
+      // provider, on the reasoning that an empty string is how the UI
+      // says "make this one active". The keychain does not accept an
+      // empty secret — it answers `Attribute secret is invalid: cannot
+      // be empty` — so with Ollama selected, Save failed.
+      //
+      // It hid behind the first-run path. Clicking the Ollama radio
+      // calls `setActiveProvider` and reports the provider usable, and
+      // that is what dismisses the blocking modal, so a *new* user
+      // never noticed Save had also errored. A returning user opens
+      // the app with Ollama already restored from storage, the radio
+      // handler never fires because the selection has not changed, and
+      // the only button on a modal with no Close is one that cannot
+      // succeed. Found on the second launch of the real app.
+      if (needsKey) {
+        await setApiKeyFor(provider, key);
+      } else {
+        await setActiveProvider(provider);
+      }
       if (model.trim()) {
         try {
           await setActiveModel(provider, model);
@@ -405,16 +422,38 @@ export function Settings({
     }
   }, [key, needsKey, provider, baseUrl, model]);
 
+  /**
+   * Remove the key for the provider that is on screen.
+   *
+   * Saving is explicit — `setApiKeyFor(provider, key)` — but clearing
+   * went through `clearApiKey()`, which takes no argument and resolves
+   * the slot from the *backend's* active provider. The two agree in
+   * the normal flow, because picking a provider awaits
+   * `setActiveProvider` before anything else can happen, so this was
+   * not the silent wrong-credential delete it looks like.
+   *
+   * It is still the wrong call. It makes deleting a secret depend on
+   * the UI and the backend agreeing about which provider is current,
+   * and #225 §3 is open precisely because they have two sources of
+   * truth for that. The one path where they diverge is real: if
+   * `setActiveProvider` rejects, `provider` has already advanced to
+   * the new selection while the backend still holds the old one, and
+   * Clear then removes a key the user is not looking at.
+   *
+   * `clearApiKeyFor` says which provider it means, so it cannot drift.
+   * Named the same way as its save counterpart, for a destructive
+   * action on a credential, where being explicit is worth more.
+   */
   const handleClear = useCallback(async () => {
     try {
-      await clearApiKey();
+      await clearApiKeyFor(provider);
       setKey("");
       setTest({ kind: "idle" });
       onCleared?.();
     } catch (err) {
       setSaveError(String(err));
     }
-  }, [onCleared]);
+  }, [onCleared, provider]);
 
   const handleInstallPlugin = useCallback(async () => {
     if (!pluginSource.trim()) return;
