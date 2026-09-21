@@ -361,6 +361,39 @@ describe("Settings", () => {
     expect(screen.getByPlaceholderText("gsk_...")).toBeInTheDocument();
   });
 
+  it("does not undo a selection made while the read is in flight", async () => {
+    // The race Copilot raised on #324. `cancelled` only covers
+    // unmount, so a click landing before the hydration resolves was
+    // snapped back to the value that read before it happened —
+    // discarding a selection the backend had already been told about.
+    const user = userEvent.setup();
+    window.localStorage.setItem(PROVIDER_STORAGE_KEY, "anthropic");
+
+    let resolveRead: (v: string) => void = () => undefined;
+    getActiveProviderMock.mockReturnValue(
+      new Promise<string>((r) => {
+        resolveRead = r;
+      }),
+    );
+
+    render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
+    await waitFor(() => expect(getActiveProviderMock).toHaveBeenCalled());
+
+    // The user picks Groq while the read is still pending.
+    await user.click(screen.getByTestId("settings-provider-groq"));
+    await waitFor(() =>
+      expect(setActiveProviderMock).toHaveBeenCalledWith("groq"),
+    );
+
+    // The read now lands, carrying what was true before the click.
+    resolveRead("anthropic");
+    await waitFor(() => expect(getActiveProviderMock).toHaveBeenCalled());
+
+    // Groq stays selected: its key field is the one on screen.
+    expect(screen.getByPlaceholderText("gsk_...")).toBeInTheDocument();
+    expect(window.localStorage.getItem(PROVIDER_STORAGE_KEY)).toBe("groq");
+  });
+
   it("falls back to the stored provider when the backend call fails", async () => {
     window.localStorage.setItem(PROVIDER_STORAGE_KEY, "groq");
     getActiveProviderMock.mockRejectedValue(new Error("ipc down"));

@@ -73,6 +73,27 @@ fn settings_offers_exactly_the_registry_providers() {
         found.len()
     );
 
+    // Inclusion in both directions is not an exact list. A second
+    // `id: "anthropic"` leaves `missing` and `extra` both empty, so the
+    // checks below would pass while the radio group renders the
+    // provider twice — two rows and two React keys for one thing.
+    // Raised in review on #324.
+    let mut seen = std::collections::BTreeSet::new();
+    let dupes: Vec<_> = found.iter().filter(|id| !seen.insert(*id)).collect();
+    assert!(
+        dupes.is_empty(),
+        "Settings lists these provider ids more than once, so the radio group renders \
+         duplicate rows and duplicate React keys for them: {dupes:?}"
+    );
+    assert_eq!(
+        found.len(),
+        SUPPORTED_PROVIDER_IDS.len(),
+        "Settings lists {} provider ids and the registry has {}; the two lists have the same \
+         members but not the same length, which only a repeat can do",
+        found.len(),
+        SUPPORTED_PROVIDER_IDS.len()
+    );
+
     let missing: Vec<_> = SUPPORTED_PROVIDER_IDS
         .iter()
         .filter(|id| !found.iter().any(|f| f == *id))

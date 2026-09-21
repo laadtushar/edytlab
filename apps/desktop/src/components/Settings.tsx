@@ -17,7 +17,7 @@
  * switching provider preserves each side's choice.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   clearApiKeyFor,
@@ -179,6 +179,13 @@ export function Settings({
   onProviderChanged,
 }: SettingsProps) {
   const [key, setKey] = useState("");
+  /**
+   * Whether the user has picked a provider since mount.
+   *
+   * A ref rather than state: nothing renders from it, and it has to be
+   * readable by a promise callback that closed over its own render.
+   */
+  const pickedRef = useRef(false);
   const [provider, setProvider] = useState<ProviderId>(() => {
     if (typeof window === "undefined") return DEFAULT_PROVIDER;
     const stored = window.localStorage.getItem(PROVIDER_STORAGE_KEY);
@@ -243,6 +250,16 @@ export function Settings({
     void getActiveProvider()
       .then((active) => {
         if (cancelled) return;
+        // The user got there first. `cancelled` only covers unmount,
+        // so without this a click landing while the read is in flight
+        // is undone by it: `handleProviderChange` has already advanced
+        // the UI and told the backend, and this would snap the radio
+        // back to the value that read before either happened. Raised
+        // in review on #324.
+        //
+        // Hydration is a starting point, not a correction. Once there
+        // is a selection to correct, it has missed its moment.
+        if (pickedRef.current) return;
         // An id this build does not offer is not selectable, and
         // showing it would leave the radio group with nothing lit.
         if (!PROVIDERS.some((p) => p.id === active)) return;
@@ -342,6 +359,9 @@ export function Settings({
   const handleProviderChange = useCallback(
     async (next: ProviderId) => {
       if (next === provider) return;
+      // Before any await: the in-flight hydration must see this even
+      // if it resolves during the calls below.
+      pickedRef.current = true;
       setProvider(next);
       setKey("");
       setTest({ kind: "idle" });
