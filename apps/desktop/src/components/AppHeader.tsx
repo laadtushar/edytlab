@@ -10,6 +10,7 @@
  */
 
 import type { LeftView } from "../lib/views";
+import { TimerRecord } from "./TimerRecord";
 
 export interface AppHeaderProps {
   leftView: LeftView;
@@ -18,6 +19,14 @@ export interface AppHeaderProps {
   onSettings: () => void;
   isRecording: boolean;
   onRecord: () => void;
+  /**
+   * Arm an unattended take (#225 §4). Omitting it hides the control,
+   * which is what every existing caller and test gets.
+   */
+  onTimerRecord?: (schedule: {
+    startAfterSec?: number;
+    durationSec?: number;
+  }) => void;
   /**
    * Copy the project elsewhere and carry on there. Omitted — or with no
    * project open — the button is not drawn: there is nothing to copy.
@@ -43,6 +52,7 @@ export function AppHeader({
   onSettings,
   isRecording,
   onRecord,
+  onTimerRecord,
   onSaveAs,
   hasProject,
   onNewProject,
@@ -187,6 +197,10 @@ export function AppHeader({
         >
           {isRecording ? "⏹ Stop" : "⏺ Record"}
         </button>
+
+        {onTimerRecord ? (
+          <TimerRecord busy={isRecording} onArm={onTimerRecord} />
+        ) : null}
 
         <button
           type="button"

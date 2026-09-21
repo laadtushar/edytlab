@@ -537,10 +537,11 @@ export interface ToolProgress {
   kind: string;
   /** Absent on the final event. */
   index?: number;
-  total: number;
+  /** Absent on reports that are not a file count, such as `timer_record`. */
+  total?: number;
   file?: string;
-  succeeded: number;
-  refused: number;
+  succeeded?: number;
+  refused?: number;
   done?: boolean;
   cancelled?: boolean;
   /**
@@ -551,6 +552,17 @@ export interface ToolProgress {
   start_sec?: number;
   end_sec?: number;
   matched?: string;
+  /**
+   * `timer_record` reports a countdown on this channel, not a file
+   * count (#225 §4). `recording` is false while it is still waiting to
+   * start and true once capturing; `remaining_sec` counts down to
+   * whichever comes next.
+   *
+   * `total` is absent on these, which is why the strip has to branch on
+   * `kind` rather than render every allow-listed report the same way.
+   */
+  recording?: boolean;
+  remaining_sec?: number;
 }
 
 export const onToolProgress = (
