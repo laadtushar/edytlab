@@ -56,13 +56,15 @@ const KNOWN_UNREACHABLE: Record<string, string> = {
     "superseded by setApiKeyFor; kept for the legacy unsuffixed keychain slot",
   testApiKey:
     "superseded by testApiKeyFor; kept for the legacy unsuffixed keychain slot",
+  clearApiKey:
+    "superseded by clearApiKeyFor, which Settings now calls; this one takes no " +
+    "argument and resolves the slot from the backend's active provider, so a " +
+    "destructive action depended on the UI and the backend agreeing (#320)",
   getSessionHead:
     "superseded by the agent://node-created subscription in useSession, which keeps the head " +
     "pointer current without a round-trip after each turn",
 
   // Real gaps (#225). Deleting a line here is the fix.
-  clearApiKeyFor:
-    "#225 §1 — a key can be stored from Settings but only removed via Keychain Access",
   getActiveProvider:
     "#225 §3 — Settings persists the provider to localStorage instead of reading the backend",
   listProviders:
