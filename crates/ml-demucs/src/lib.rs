@@ -17,14 +17,21 @@
 //!    [`StemPaths`], [`DemucsError`]).
 //! 2. The cache-key / on-disk-layout helpers that the `separate_stems`
 //!    tool wires up around the model. These are real and exhaustively
-//!    unit-tested — the cache contract has to be stable so the tool can
-//!    flip from "model missing" to "real inference" by dropping the
-//!    `.onnx` into place.
+//!    unit-tested — the cache contract has to be stable so that the
+//!    decode loop, when it lands, drops into a shape that already
+//!    works.
 //! 3. A clearly-documented stub for the actual ORT call. When
 //!    [`DemucsModel::separate`] is invoked the crate returns
-//!    [`DemucsError::NotImplemented`] so the tool layer surfaces an
-//!    actionable error instead of panicking. This mirrors how
-//!    `ml-whisper` left its decode loop as an empty-result stub in M09.
+//!    [`DemucsError::NotImplemented`] instead of panicking.
+//!
+//! **Supplying a model does not enable separation.** What is missing is
+//! the decoder, not the file: a valid `.onnx` loads and then `separate`
+//! still returns `NotImplemented`. The crate says so rather than naming
+//! a path to drop it into, because the path was a dead end (#233).
+//!
+//! `ml-whisper` is in the same state, and now reports it the same way.
+//! It used to return `Ok(Vec::new())` — an empty transcript reported as
+//! success — which was worse, and is gone.
 //!
 //! ## Cache layout
 //!
@@ -83,7 +90,9 @@ pub struct StemBuffer {
 #[derive(Debug, thiserror::Error)]
 pub enum DemucsError {
     #[error(
-        "Demucs model not found at {path}. Install with `scripts/fetch-models.sh` and set DEMUCS_MODEL_PATH"
+        "Demucs model not found at {path}. Set DEMUCS_MODEL_PATH to an ONNX Demucs export. \
+         Note that stem separation is not implemented in this build, so supplying a model will \
+         not yet produce stems (#233)."
     )]
     ModelMissing { path: String },
 
@@ -102,11 +111,17 @@ pub enum DemucsError {
     #[error("WAV writer error: {0}")]
     Wav(String),
 
-    /// Real inference is gated on M28 sourcing the ONNX export plus a
-    /// license-clean reference clip. The tool layer surfaces this as
-    /// an actionable `ToolResult::Error`.
+    /// Real inference is gated on M28 wiring the ORT decode loop. The
+    /// tool layer surfaces this as a `ToolResult::Error`.
+    ///
+    /// The message deliberately offers no setup step. It used to say
+    /// "source assets/models/{model_id}.onnx and re-run", which reads
+    /// as something the user can act on — and there is nothing they can
+    /// do, because no model makes this build separate stems (#233).
     #[error(
-        "Demucs inference is not yet implemented in this build; source assets/models/{model_id}.onnx and re-run (M28)"
+        "Demucs stem separation is not implemented in this build (model `{model_id}` loaded \
+         successfully). This is a missing decoder, not a missing file: no model, environment \
+         variable or setup step enables it."
     )]
     NotImplemented { model_id: String },
 }

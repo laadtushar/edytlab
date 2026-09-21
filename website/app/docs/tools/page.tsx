@@ -521,9 +521,9 @@ const groups = [
       {
         name: "separate_stems",
         prompt: 'separate the stems on track 1',
-        what: "Run Demucs stem separation on-device. Produces 4 tracks: vocals, drums, bass, other. Model: htdemucs (~80 MB). Processing: ~45 sec/min audio on CPU.",
+        what: "Not implemented in this build. Would run Demucs stem separation on-device, producing 4 tracks: vocals, drums, bass, other.",
         output: "node_id, stem track IDs",
-        note: "First use downloads the model automatically. htdemucs_6s adds guitar and piano stems at ~2× the processing time.",
+        note: "Inference ships as a stub, so this currently returns an error whatever you configure — there is no model download or environment variable that changes that. Only htdemucs and htdemucs_ft are recognised model ids.",
       },
       {
         name: "split_by_speaker",
@@ -535,9 +535,9 @@ const groups = [
       {
         name: "transcribe",
         prompt: 'transcribe track 1',
-        what: "Transcribe spoken audio using Whisper large-v3 on-device. Stores word-level timestamps in the session. Model: ~1.5 GB. Processing: ~4–8 min per 60 min on CPU.",
+        what: "Not implemented in this build. Would transcribe spoken audio on-device with an ONNX Whisper-base export, storing word-level timestamps in the session.",
         output: "node_id, word_count, language",
-        note: "First use downloads the model automatically. CoreML (macOS) and CUDA significantly reduce processing time.",
+        note: "The decoder ships as a stub, so this currently returns an error whatever you configure. Text-based editing (cut_words) depends on a transcript and is unavailable for the same reason.",
       },
     ],
   },

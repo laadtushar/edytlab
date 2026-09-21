@@ -38,8 +38,9 @@ const MODEL_PATH_VAR: &str = "WHISPER_MODEL_PATH";
 fn model_path() -> PathBuf {
     let var = std::env::var(MODEL_PATH_VAR).unwrap_or_else(|_| {
         panic!(
-            "{MODEL_PATH_VAR} is not set. Run `scripts/fetch-models.sh` and point \
-             it at the resulting .onnx file to run the ignored ml-whisper tests."
+            "{MODEL_PATH_VAR} is not set. Point it at an ONNX Whisper export to run the \
+             ignored ml-whisper tests. Note that the decoder itself is a stub (#233), so \
+             `transcribe` will return NotImplemented even with a valid model."
         )
     });
     let path = PathBuf::from(var);
@@ -61,11 +62,36 @@ fn transcribe_smoke_returns_vec_word() {
     // 1 second of silence at 16 kHz mono — enough to exercise the
     // pipeline without depending on a committed speech fixture.
     let silence = vec![0.0f32; 16_000];
-    let words = model.transcribe(&silence).expect("transcribe");
+    let words = match model.transcribe(&silence) {
+        Ok(w) => w,
+        // Expected until the decoder lands (#233). `transcribe` used to
+        // return `Ok(vec![])` here, which made this test pass while
+        // proving nothing: the timestamp contract below is vacuous on
+        // an empty Vec, so a green run meant only that the stub was
+        // still a stub. Naming that outcome explicitly keeps the
+        // contract checks below meaningful for the real decoder, and
+        // makes this test start doing work the moment one exists.
+        Err(ml_whisper::WhisperError::NotImplemented) => {
+            eprintln!("decoder is still a stub; nothing to check yet (#233)");
+            return;
+        }
+        Err(e) => panic!("transcribe failed: {e}"),
+    };
+    // Deliberately *not* asserting `!words.is_empty()`. The fixture is
+    // one second of silence, and zero words is the correct answer for
+    // silence — so a real decoder would fail that assertion. Raised in
+    // review on #317.
+    //
+    // The cost is that the contract below is vacuous on this fixture.
+    // That is a gap in what this test proves, and the honest fix is a
+    // committed speech fixture, not an assertion that would make a
+    // correct decoder look broken.
+    if words.is_empty() {
+        eprintln!("decoder returned no words for silence, which is allowed; contract unchecked");
+    }
 
     // Acceptance criterion #2: monotonic non-decreasing timestamps and
-    // start_s < end_s. Vacuously true for an empty Vec, real for the
-    // future decoder.
+    // start_s < end_s.
     let mut last_end = 0.0f32;
     for w in &words {
         assert!(w.start_s < w.end_s, "word {w:?} has start_s >= end_s",);
@@ -88,9 +114,17 @@ fn missing_model_returns_structured_error() {
     let bogus = PathBuf::from("/tmp/edytlab-nonexistent-whisper-model.onnx");
     let err = WhisperModel::load(&bogus).expect_err("expected ModelMissing");
     let msg = format!("{err}");
+    // It used to require the message name a fetch-models shell script.
+    // That file has never existed in this repository, so the test was
+    // pinning a dangling instruction in place — and following it would
+    // not have helped, because the decoder is a stub (#233). What the
+    // message has to say now is that the feature is unavailable, since
+    // "you are missing a step" and "this does not work yet" are
+    // different problems.
     assert!(
-        msg.contains("fetch-models"),
-        "error message should mention the install script; got: {msg}",
+        msg.contains("not implemented in this build"),
+        "error message should say transcription is unavailable, not name a setup step that \
+         cannot work; got: {msg}",
     );
     // The drift that made these tests unrunnable: they gated on
     // `WHISPER_MODEL` while every consumer read `WHISPER_MODEL_PATH`, so
@@ -129,6 +163,15 @@ fn reuses_loaded_model_across_calls() {
     let model = WhisperModel::load(&model_path).expect("model load");
     let silence = vec![0.0f32; 16_000];
     for _ in 0..5 {
-        let _ = model.transcribe(&silence).expect("transcribe");
+        // `NotImplemented` is the expected answer until the decoder
+        // lands; `expect` here panicked against the stub, so the
+        // documented `--ignored` run died on this test. Raised in
+        // review on #317. What is being checked is that one
+        // `&WhisperModel` serves N calls without rebuilding, which
+        // holds either way.
+        match model.transcribe(&silence) {
+            Ok(_) | Err(ml_whisper::WhisperError::NotImplemented) => {}
+            Err(e) => panic!("transcribe failed: {e}"),
+        }
     }
 }

@@ -12,14 +12,22 @@
 //!   (encoder-decoder vs single-model, beam-search etc.). Shipping a
 //!   correct production-grade decode loop is out of scope for the first
 //!   milestone; what we ship here is the **API shape**, the model-loading
-//!   path, the resampler glue, and a missing-model fallback.
+//!   path, the resampler glue, and an explicit unavailable error.
 //!
-//! - When the ONNX file is present but the export shape is one we don't
-//!   yet have a decoder for, [`WhisperModel::transcribe`] returns
-//!   `Ok(Vec::new())` (empty transcript) rather than panicking. This
-//!   keeps the smoke test green on a silence fixture and lets the rest
-//!   of the pipeline (tool dispatch, session-state mutation) be
-//!   exercised end-to-end.
+//! - **There is no decoder in this build.** Once the input passes
+//!   validation, [`WhisperModel::transcribe`] returns
+//!   [`WhisperError::NotImplemented`] whatever model is loaded. No model
+//!   file, environment variable or setup step changes that.
+//!
+//!   It used to return `Ok(Vec::new())` instead — success carrying an
+//!   empty transcript, which a caller cannot distinguish from "this
+//!   recording contains no speech" (#233). That kept a smoke test green
+//!   on a silence fixture at the cost of lying to every real caller,
+//!   which is the wrong trade.
+//!
+//! - Validation still runs *before* the stub, so a caller who forgot the
+//!   resampler hears about the mistake they can fix rather than about
+//!   the missing decoder.
 //!
 //! - Real speech support is gated on (a) committing to a specific Whisper
 //!   ONNX export and (b) wiring a decode loop. That is a manual gate,
@@ -54,7 +62,9 @@ pub struct Word {
 #[derive(Debug, thiserror::Error)]
 pub enum WhisperError {
     #[error(
-        "Whisper model not found at {path}. Install with `scripts/fetch-models.sh` and set WHISPER_MODEL_PATH"
+        "Whisper model not found at {path}. Set WHISPER_MODEL_PATH to an ONNX Whisper export. \
+         Note that speech-to-text is not implemented in this build, so supplying a model will \
+         not yet produce a transcript (#233)."
     )]
     ModelMissing { path: String },
 
@@ -69,6 +79,20 @@ pub enum WhisperError {
 
     #[error("invalid audio: {0}")]
     InvalidAudio(String),
+
+    /// The decoder is a stub in this build (#233).
+    ///
+    /// Returned instead of an empty transcript. `Ok(vec![])` is a
+    /// *success* carrying zero words, and every caller reads it as
+    /// "this audio contains no speech" — so a correctly configured
+    /// model produced a silently wrong answer rather than a failure
+    /// anyone could act on. Mirrors [`ml_demucs::DemucsError::NotImplemented`].
+    #[error(
+        "speech-to-text is not implemented in this build — the ONNX Whisper decoder is a stub, \
+         so no model file will produce a transcript. Tracked post-v1; there is no configuration \
+         that makes this work today."
+    )]
+    NotImplemented,
 }
 
 pub type Result<T> = std::result::Result<T, WhisperError>;
@@ -116,10 +140,20 @@ impl WhisperModel {
     /// The buffer must already be 16 kHz mono — see
     /// [`resample_to_16khz_mono`] for the canonical pre-processor.
     ///
-    /// Phase-1 stub: returns an empty transcript. The acceptance-criteria
-    /// contract (monotonic non-decreasing timestamps, `start_s < end_s`)
-    /// is upheld vacuously by an empty `Vec`; once the real decoder
-    /// lands, the smoke test in `tests/transcribe_smoke.rs` enforces it.
+    /// Phase-1 stub: returns [`WhisperError::NotImplemented`].
+    ///
+    /// It used to return `Ok(Vec::new())`, on the reasoning that the
+    /// acceptance contract (monotonic non-decreasing timestamps,
+    /// `start_s < end_s`) is upheld vacuously by an empty `Vec`. It is
+    /// — and that was the problem (#233). An empty `Ok` is a success
+    /// carrying zero words, and a caller cannot tell it apart from
+    /// "this recording has no speech in it". So a user who did
+    /// everything right, including supplying a real model file, got a
+    /// blank transcript and no indication anything was missing.
+    ///
+    /// The input validation below still runs first: a caller who forgot
+    /// the resampler should hear about *that*, which is a mistake they
+    /// can fix, rather than about the stub.
     pub fn transcribe(&self, audio_16khz_mono: &[f32]) -> Result<Vec<Word>> {
         // Sanity-check the input shape so downstream callers get a
         // clear error if they forget the resampler.
@@ -130,7 +164,7 @@ impl WhisperModel {
         }
         // See the module doc for why this is currently a stub. The full
         // decoder will replace this body without changing the signature.
-        Ok(Vec::new())
+        Err(WhisperError::NotImplemented)
     }
 }
 

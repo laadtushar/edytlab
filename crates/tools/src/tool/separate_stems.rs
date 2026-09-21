@@ -11,12 +11,21 @@
 //!
 //! ## Phase-2 sandbox behaviour
 //!
-//! Sourcing a license-clean Demucs ONNX export is an M28 deliverable.
-//! Until it lands, [`DemucsModel::load`] returns `ModelMissing` and
-//! the tool surfaces an actionable
-//! `ToolResult::Error("…model not yet sourced…")`. The caching path
-//! and tool dispatch are fully wired so M28 only has to drop the
-//! `.onnx` into place.
+//! **Not available in this build.** Every invocation ends in a
+//! `ToolResult::Error`, by one of two routes:
+//!
+//! - no model configured — [`DemucsModel::load`] returns
+//!   `ModelMissing`;
+//! - a model configured and loaded — [`DemucsModel::separate`] returns
+//!   `NotImplemented`.
+//!
+//! The second is the one that matters: **dropping an `.onnx` into place
+//! does not enable separation.** What is missing is the ORT decode
+//! loop, an M28 deliverable, not the file. This module used to say the
+//! opposite, and the error called itself actionable (#233).
+//!
+//! The caching path and tool dispatch are fully wired, so the decoder
+//! lands into a shape that already works.
 //!
 //! ## OOM fallback (acceptance criterion #4)
 //!
@@ -38,7 +47,15 @@ use serde_json::{json, Value};
 use crate::schema::anthropic_tool;
 use crate::{Tool, ToolContext, ToolResult};
 
-const INSTALL_HINT: &str = "install Demucs model: run `scripts/fetch-models.sh` and set DEMUCS_MODEL_PATH (or DEMUCS_FT_MODEL_PATH for htdemucs_ft) to the resulting .onnx path";
+/// What to tell a user who cannot separate stems.
+///
+/// Named a fetch-models shell script until #233; that script has never
+/// been in the repository, and following it would not have helped
+/// anyway — `DemucsModel::separate` is a stub that always returns
+/// `NotImplemented`, so no model file produces stems.
+const INSTALL_HINT: &str = "stem separation is not implemented in this build: Demucs inference is \
+     a stub, so no DEMUCS_MODEL_PATH or DEMUCS_FT_MODEL_PATH setting will produce stems. There is \
+     no setup that makes this work today; it is tracked post-v1 (#233)";
 
 /// Process-wide cache of `(model_path, &'static DemucsModel)`. One
 /// entry per loaded model id; we hold up to two at a time
@@ -109,7 +126,12 @@ impl Tool for SeparateStemsTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "separate_stems",
-            "Run Demucs stem separation on an audio file and return paths to the four output stems (vocals/drums/bass/other) as WAVs. Cached by content hash of the input plus the model file, so a second call with the same input returns the same paths without re-running inference. Default model is htdemucs_ft (best quality, slowest); pass model=\"htdemucs\" for the faster, slightly lower-quality variant. Requires DEMUCS_MODEL_PATH / DEMUCS_FT_MODEL_PATH env vars.",
+            "NOT IMPLEMENTED IN THIS BUILD. Would run Demucs stem separation on an audio file \
+             and return paths to the four output stems (vocals/drums/bass/other) as WAVs, cached \
+             by content hash. Inference is a stub, so this always returns an error and there is \
+             no setup that changes that — do not suggest installing a model or setting \
+             DEMUCS_MODEL_PATH or DEMUCS_FT_MODEL_PATH. Tell the user stem separation is \
+             unavailable in this build instead.",
             json!({
                 "type": "object",
                 "properties": {

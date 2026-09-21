@@ -138,6 +138,66 @@ describe("Chat", () => {
   });
 
   /**
+   * The unavailable card is the whole user-facing half of #233, and it
+   * is reached by *matching the backend's error text*. That coupling is
+   * invisible to the compiler: change the wording on the Rust side and
+   * the card silently stops appearing, leaving the user with a raw
+   * error and no explanation. Raised in review on #317.
+   *
+   * Each string below is one of the three the real backend produces.
+   * They are asserted separately so a failure names which one drifted
+   * rather than just reporting that the card is gone.
+   */
+  describe("the transcription-unavailable card", () => {
+    const BACKEND_ERRORS = {
+      "the stub error from ml-whisper":
+        "Could not complete request: speech-to-text is not implemented in this build",
+      "the missing-model error": "Whisper model not found at /models/x.onnx",
+      "a message naming the env var":
+        "set WHISPER_MODEL_PATH to an ONNX Whisper export",
+    };
+
+    for (const [label, text] of Object.entries(BACKEND_ERRORS)) {
+      it(`appears for ${label}`, async () => {
+        render(<Chat />);
+        await act(async () => {
+          await flush();
+        });
+        await act(async () => {
+          cbs.textDelta[0](text);
+          // The in-flight bubble renders outside the entry list, so
+          // the card appears once the turn commits rather than
+          // flickering mid-stream. `done` is what commits it.
+          cbs.done.forEach((cb) => cb());
+        });
+
+        const card = screen.getByTestId("whisper-unavailable-card");
+        expect(card).toBeInTheDocument();
+        expect(card.textContent).toContain("isn't available in this build");
+        // The card exists to say no setup helps. If it ever tells the
+        // user to install something, it has become the dead end it
+        // replaced.
+        expect(card.textContent).not.toMatch(/fetch-models|install/i);
+      });
+    }
+
+    it("stays away for an ordinary assistant message", async () => {
+      render(<Chat />);
+      await act(async () => {
+        await flush();
+      });
+      await act(async () => {
+        cbs.textDelta[0]("normalized track 1 to -1 dBFS");
+        cbs.done.forEach((cb) => cb());
+      });
+
+      expect(
+        screen.queryByTestId("whisper-unavailable-card"),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  /**
    * `plot_spectrum` computed a curve, the backend threw it away, and the
    * chart component sat in the tree with no call site — the whole
    * feature was unreachable from the app. This drives the same event the

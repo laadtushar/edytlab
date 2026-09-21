@@ -906,7 +906,7 @@ fn separate_stems_returns_actionable_error_when_model_missing() {
         )
         .unwrap());
     assert!(
-        msg.contains("DEMUCS_FT_MODEL_PATH") && msg.contains("scripts/fetch-models.sh"),
+        msg.contains("DEMUCS_FT_MODEL_PATH") && msg.contains("not implemented in this build"),
         "expected DEMUCS_FT_MODEL_PATH install hint, got: {msg}"
     );
 
@@ -919,7 +919,7 @@ fn separate_stems_returns_actionable_error_when_model_missing() {
         )
         .unwrap());
     assert!(
-        msg.contains("DEMUCS_MODEL_PATH") && msg.contains("scripts/fetch-models.sh"),
+        msg.contains("DEMUCS_MODEL_PATH") && msg.contains("not implemented in this build"),
         "expected DEMUCS_MODEL_PATH install hint, got: {msg}"
     );
 }
