@@ -69,8 +69,6 @@ const KNOWN_UNREACHABLE: Record<string, string> = {
     "returns nothing but SUPPORTED_PROVIDER_IDS, so calling it at runtime would buy async " +
     "complexity and a fail-open branch for what the build already knows; Settings' hardcoded " +
     "list is pinned to that constant by crates/ai/tests/settings_provider_list.rs instead",
-  timerRecord:
-    "#225 §4 — scheduled recording has no UI, which is the one thing it is for",
   getProjectMeta:
     "#225 §5 — title/artist/album feed the export tag writers but are agent-only",
   setProjectMeta:

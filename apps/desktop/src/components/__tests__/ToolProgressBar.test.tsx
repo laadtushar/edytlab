@@ -227,3 +227,59 @@ describe("the tool progress strip", () => {
     expect(cancel).toHaveBeenCalledTimes(1);
   });
 });
+
+/**
+ * `timer_record` was allow-listed in #252 and never taught to the
+ * strip, which renders a file count. Its reports carry no `total`,
+ * `index` or `file` at all — a countdown is not a count of files — so
+ * arming a take would have shown "1 of undefined" over a blank name
+ * and an empty bar: the very failure the allow-list was added to stop,
+ * latent in a kind that was on it.
+ *
+ * It stayed latent because nothing could arm a take (#225 §4).
+ */
+describe("a scheduled take on the same channel", () => {
+  const COUNTING_DOWN = {
+    kind: "timer_record",
+    recording: false,
+    remaining_sec: 42,
+  };
+
+  it("shows the countdown, not a file count", async () => {
+    render(<ToolProgressBar />);
+    await waitFor(() => expect(handlers.length).toBeGreaterThan(0));
+    emit(COUNTING_DOWN);
+
+    const count = await screen.findByTestId("tool-progress-count");
+    expect(count.textContent).toMatch(/starts in/i);
+    expect(count.textContent).not.toMatch(/undefined/);
+    expect(count.textContent).not.toMatch(/\bof\b/);
+  });
+
+  it("says plainly when it is capturing", async () => {
+    render(<ToolProgressBar />);
+    await waitFor(() => expect(handlers.length).toBeGreaterThan(0));
+    emit({ kind: "timer_record", recording: true, remaining_sec: 12 });
+
+    const count = await screen.findByTestId("tool-progress-count");
+    expect(count.textContent).toMatch(/recording/i);
+  });
+
+  it("leaves no filename where a timer has none", async () => {
+    render(<ToolProgressBar />);
+    await waitFor(() => expect(handlers.length).toBeGreaterThan(0));
+    emit(COUNTING_DOWN);
+
+    await screen.findByTestId("tool-progress-count");
+    expect(screen.getByTestId("tool-progress-file").textContent).toBe("");
+  });
+
+  it("still counts files for a batch", async () => {
+    render(<ToolProgressBar />);
+    await waitFor(() => expect(handlers.length).toBeGreaterThan(0));
+    emit(RUNNING);
+
+    const count = await screen.findByTestId("tool-progress-count");
+    expect(count.textContent).toBe("2 of 3");
+  });
+});
