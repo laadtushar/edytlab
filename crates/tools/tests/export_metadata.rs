@@ -241,3 +241,113 @@ fn an_untagged_export_is_untouched() {
     let bytes = std::fs::read(&out).expect("the export");
     assert_ne!(&bytes[0..3], b"ID3", "an untagged mp3 has no tag on it");
 }
+
+// ---------------------------------------------------------------------------
+// Tags the project already answered for (#225 §5)
+// ---------------------------------------------------------------------------
+//
+// Every tag was a per-export argument, so the same answers had to be
+// given on every render — and only by asking the agent in a sentence,
+// because nothing in the UI could set them. An episode's artist does
+// not change between exports, so it belongs to the project.
+//
+// These assert on the bytes that come back out of the finished file,
+// for the same reason the tests above do: that the tool accepted an
+// argument proves nothing about what was written.
+
+fn set_project_tags(dir: &Path, name: &str, artist: &str, album: &str, year: &str) {
+    let mut meta = session::meta::ProjectMeta::from_dir(dir);
+    meta.name = name.to_string();
+    meta.artist = artist.to_string();
+    meta.album = album.to_string();
+    meta.year = year.to_string();
+    session::meta::write_meta(dir, &meta).expect("write project.json");
+}
+
+fn flac_tag(out: &Path, key: &str) -> Option<String> {
+    audio_engine::read_flac_tags(out)
+        .expect("read the tags back")
+        .into_iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(key))
+        .map(|(_, v)| v)
+}
+
+#[test]
+fn an_export_inherits_the_project_tags_without_being_told() {
+    let mut s = Session::new();
+    set_project_tags(s.dir.path(), "Episode 12", "A Podcast", "Season 2", "2026");
+    let out = s.dir.path().join("ep.flac");
+    let node = s.head();
+
+    // No `metadata` argument at all — the case that used to produce an
+    // untagged file.
+    let v = ok(s.call(
+        "render_final",
+        json!({
+            "node_id": node,
+            "format": "flac",
+            "out_path": out.to_string_lossy(),
+        }),
+    ));
+    assert_eq!(v["tagged"], json!(true), "{v}");
+
+    // Title comes from the project *name*: there is no second field
+    // holding the same thing to disagree with it.
+    assert_eq!(flac_tag(&out, "TITLE").as_deref(), Some("Episode 12"));
+    assert_eq!(flac_tag(&out, "ARTIST").as_deref(), Some("A Podcast"));
+    assert_eq!(flac_tag(&out, "ALBUM").as_deref(), Some("Season 2"));
+    assert_eq!(
+        flac_tag(&out, "DATE").or(flac_tag(&out, "YEAR")).as_deref(),
+        Some("2026")
+    );
+}
+
+#[test]
+fn an_explicit_tag_overrides_the_project() {
+    let mut s = Session::new();
+    set_project_tags(s.dir.path(), "Episode 12", "A Podcast", "Season 2", "2026");
+    let out = s.dir.path().join("special.flac");
+    let node = s.head();
+
+    ok(s.call(
+        "render_final",
+        json!({
+            "node_id": node,
+            "format": "flac",
+            "out_path": out.to_string_lossy(),
+            "metadata": { "title": "Live at the Apollo", "artist": "Someone Else" },
+        }),
+    ));
+
+    // The two that were given win; the two that were not still fall
+    // back. Filling what was not asked for is the whole contract —
+    // overriding what was would be a different and much worse feature.
+    assert_eq!(
+        flac_tag(&out, "TITLE").as_deref(),
+        Some("Live at the Apollo")
+    );
+    assert_eq!(flac_tag(&out, "ARTIST").as_deref(), Some("Someone Else"));
+    assert_eq!(flac_tag(&out, "ALBUM").as_deref(), Some("Season 2"));
+}
+
+#[test]
+fn a_project_with_no_tags_set_behaves_as_it_did_before() {
+    // `ProjectMeta::from_dir` names a project after its folder, so
+    // `name` is never empty and TITLE always has something to fall
+    // back to. What must not appear is an artist or album nobody set.
+    let mut s = Session::new();
+    let out = s.dir.path().join("plain.flac");
+    let node = s.head();
+
+    ok(s.call(
+        "render_final",
+        json!({
+            "node_id": node,
+            "format": "flac",
+            "out_path": out.to_string_lossy(),
+        }),
+    ));
+
+    assert_eq!(flac_tag(&out, "ARTIST"), None, "invented an artist");
+    assert_eq!(flac_tag(&out, "ALBUM"), None, "invented an album");
+}

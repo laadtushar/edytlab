@@ -79,7 +79,7 @@ impl Tool for RenderFinalTool {
                     "out_path": { "type": "string" },
                     "metadata": {
                         "type": "object",
-                        "description": "Tags for the exported file. FLAC gets Vorbis comments, MP3 gets ID3v2. WAV has no standard tag container worth using and ignores this.",
+                        "description": "Tags for the exported file. FLAC gets Vorbis comments, MP3 gets ID3v2. WAV has no standard tag container worth using and ignores this. Title, artist, album and year default to the project's own settings when not given here, so do not ask the user for them again if they have already set them on the project — pass a field only to override it for this one export.",
                         "properties": {
                             "title": { "type": "string" },
                             "artist": { "type": "string" },
@@ -171,13 +171,59 @@ impl Tool for RenderFinalTool {
             .map(|t| t.path().to_path_buf())
             .unwrap_or_else(|| out_path.clone());
 
+        // Tags the project already answered for (#225 §5).
+        //
+        // Every one of these used to be a per-export argument, so the
+        // same answers had to be given again on every render — and
+        // only by asking the agent in a sentence, since nothing in the
+        // UI could set them. An episode's artist does not change
+        // between exports, so it belongs to the project.
+        //
+        // An explicit argument still wins: this fills what was not
+        // asked for, and overrides nothing. A project that has never
+        // been given any of them leaves this path behaving exactly as
+        // it did before it existed.
+        // , not : the latter names an
+        // unwritten project after its folder, and a directory called
+        // `take3` is not a title anybody chose. An export nobody
+        // configured stays exactly as untouched as it always was.
+        let project = session::meta::read_meta_if_present(ctx.store.project_dir());
+        let default_if_set = |v: &str| {
+            if v.is_empty() {
+                None
+            } else {
+                Some(v.to_string())
+            }
+        };
+
         // Built before the render so a bad chapter list is refused
         // before the expensive part rather than after it.
         let mut tags = audio_engine::Tags {
-            title: args.metadata.as_ref().and_then(|m| m.title.clone()),
-            artist: args.metadata.as_ref().and_then(|m| m.artist.clone()),
-            album: args.metadata.as_ref().and_then(|m| m.album.clone()),
-            year: args.metadata.as_ref().and_then(|m| m.year.clone()),
+            // `title` falls back to the project *name* rather than to a
+            // `title` field, because the project has no second one to
+            // hold the same thing and disagree with.
+            title: args
+                .metadata
+                .as_ref()
+                .and_then(|m| m.title.clone())
+                .or_else(|| project.as_ref().and_then(|p| default_if_set(&p.name))),
+            artist: args
+                .metadata
+                .as_ref()
+                .and_then(|m| m.artist.clone())
+                .or_else(|| project.as_ref().and_then(|p| default_if_set(&p.artist))),
+            album: args
+                .metadata
+                .as_ref()
+                .and_then(|m| m.album.clone())
+                .or_else(|| project.as_ref().and_then(|p| default_if_set(&p.album))),
+            year: args
+                .metadata
+                .as_ref()
+                .and_then(|m| m.year.clone())
+                .or_else(|| project.as_ref().and_then(|p| default_if_set(&p.year))),
+            // `comment` is per-export by nature — a note about *this*
+            // render, not about the project — so it has no default.
             comment: args.metadata.as_ref().and_then(|m| m.comment.clone()),
             chapters: Vec::new(),
         };

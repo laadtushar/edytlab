@@ -28,43 +28,20 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-/// Metadata file name, beside `.audiograph/`.
-pub const PROJECT_FILE: &str = "project.json";
-/// View state, inside `.audiograph/`.
+/// View state, inside `.audiograph/`. Stays here: it is the app's own
+/// idea of where you were looking, and nothing below the app reads it.
 pub const VIEW_FILE: &str = "view.json";
 /// How many recent projects to remember. Ten is about a screen.
 pub const MAX_RECENTS: usize = 10;
 
-/// What a project is, as opposed to where it is.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ProjectMeta {
-    /// Human name. Defaults to the folder's name, which is a decent
-    /// first guess and a terrible permanent answer.
-    pub name: String,
-    /// ISO 8601. Absent in files written before this existed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub created_at: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_opened_at: Option<String>,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub notes: String,
-}
-
-impl ProjectMeta {
-    /// A project that has never been named takes its folder's name.
-    pub fn from_dir(dir: &Path) -> Self {
-        Self {
-            name: dir
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("Untitled")
-                .to_string(),
-            created_at: None,
-            last_opened_at: None,
-            notes: String::new(),
-        }
-    }
-}
+/// `ProjectMeta` and its file now live in `session`, because `tools`
+/// needs to read them and cannot depend on this crate — see that
+/// module for why the type moved rather than being duplicated.
+///
+/// Re-exported here so every existing caller, and this module's own
+/// view/recents code, keep referring to `project::ProjectMeta` as
+/// before.
+pub use session::meta::{meta_path, read_meta, write_meta, ProjectMeta, PROJECT_FILE};
 
 /// Where the user was, so reopening is a resumption and not a restart.
 ///
@@ -93,29 +70,8 @@ pub struct RecentProject {
     pub last_opened_at: Option<String>,
 }
 
-fn meta_path(project_dir: &Path) -> PathBuf {
-    project_dir.join(PROJECT_FILE)
-}
-
 fn view_path(project_dir: &Path) -> PathBuf {
     project_dir.join(session::STORE_DIR).join(VIEW_FILE)
-}
-
-/// Read `project.json`, falling back to a folder-named default.
-///
-/// A missing file is the normal case for a project created before this
-/// existed. A corrupt one is treated the same way: the name is not
-/// worth refusing to open a session over.
-pub fn read_meta(project_dir: &Path) -> ProjectMeta {
-    std::fs::read_to_string(meta_path(project_dir))
-        .ok()
-        .and_then(|t| serde_json::from_str::<ProjectMeta>(&t).ok())
-        .unwrap_or_else(|| ProjectMeta::from_dir(project_dir))
-}
-
-pub fn write_meta(project_dir: &Path, meta: &ProjectMeta) -> std::io::Result<()> {
-    let text = serde_json::to_string_pretty(meta)?;
-    std::fs::write(meta_path(project_dir), text)
 }
 
 /// Record that the project was opened now, creating `project.json` if

@@ -182,6 +182,9 @@ pub fn set_project_meta(
     state: State<'_, AppState>,
     name: String,
     notes: Option<String>,
+    artist: Option<String>,
+    album: Option<String>,
+    year: Option<String>,
 ) -> CmdResult<crate::project::ProjectMeta> {
     let dir = current_project_dir(&state)?;
     if name.trim().is_empty() {
@@ -189,8 +192,20 @@ pub fn set_project_meta(
     }
     let mut meta = crate::project::read_meta(&dir);
     meta.name = name.trim().to_string();
+    // Each `None` means "leave this one alone", which is what `notes`
+    // has always meant here — a caller editing the name should not
+    // have to resend the tag defaults to avoid clearing them.
     if let Some(n) = notes {
         meta.notes = n;
+    }
+    if let Some(v) = artist {
+        meta.artist = v.trim().to_string();
+    }
+    if let Some(v) = album {
+        meta.album = v.trim().to_string();
+    }
+    if let Some(v) = year {
+        meta.year = v.trim().to_string();
     }
     crate::project::write_meta(&dir, &meta).map_err(CommandError::from)?;
     // Keep the recents row in step, or the list shows the old name

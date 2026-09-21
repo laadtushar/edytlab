@@ -675,6 +675,17 @@ export interface ProjectMeta {
   created_at?: string | null;
   last_opened_at?: string | null;
   notes?: string;
+  /**
+   * Tag defaults for exports (#225 §5). `render_final` fills whatever
+   * a call did not ask for from these, so they only have to be
+   * answered once per project rather than once per export.
+   *
+   * No `title`: the project's `name` is the title, and a second field
+   * holding the same thing is a pair that can disagree.
+   */
+  artist?: string;
+  album?: string;
+  year?: string;
 }
 
 /** Where the user was, so reopening resumes instead of restarting. */
@@ -695,11 +706,25 @@ export interface RecentProject {
 export const getProjectMeta = (): Promise<ProjectMeta> =>
   invoke<ProjectMeta>("get_project_meta");
 
+/**
+ * Each optional argument left out means "leave that one alone", which
+ * is what `notes` has always meant here — renaming a project must not
+ * clear the tags it exports with.
+ */
 export const setProjectMeta = (
   name: string,
   notes?: string,
+  artist?: string,
+  album?: string,
+  year?: string,
 ): Promise<ProjectMeta> =>
-  invoke<ProjectMeta>("set_project_meta", { name, notes: notes ?? null });
+  invoke<ProjectMeta>("set_project_meta", {
+    name,
+    notes: notes ?? null,
+    artist: artist ?? null,
+    album: album ?? null,
+    year: year ?? null,
+  });
 
 export const getViewState = (): Promise<ViewState> =>
   invoke<ViewState>("get_view_state");
