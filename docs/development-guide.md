@@ -452,7 +452,11 @@ Dev builds are created automatically by `auto-release.yml` on every push to `mai
 2. `auto-release.yml` triggers, tags `v<version>-dev.<ci_run_number>`
 3. Dispatches `release-dev.yml`
 4. `release-dev.yml` builds unsigned bundles for macOS (universal) + Windows
-5. Attaches to a draft GitHub Release (not auto-published)
+5. Attaches the bundles to a GitHub Release, created as a draft
+6. The `publish` job flips it out of draft once the whole matrix is green, so
+   the prerelease is public without a manual step. It is marked `prerelease`
+   with `make_latest=false`, so it never becomes the Latest release. A draft
+   is what a *failed* matrix leaves behind.
 
 ### Signed Mac Build
 

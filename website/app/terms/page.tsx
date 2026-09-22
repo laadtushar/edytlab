@@ -18,10 +18,10 @@ export default function TermsPage() {
 
       <h2>Licence</h2>
       <p>
-        edytlab is currently distributed in source form under an MIT-shaped
-        permissive licence (a formal LICENSE file in the repository is the
-        authoritative version once published). You may use, copy, and modify
-        the source for any purpose, subject to retaining the copyright notice.
+        edytlab is released under the MIT licence; the{" "}
+        <code>LICENSE</code> file in the repository is the authoritative
+        version. You may use, copy, and modify the source for any purpose,
+        subject to retaining the copyright notice.
       </p>
 
       <h2>Third-party services</h2>
