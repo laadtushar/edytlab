@@ -376,12 +376,20 @@ function TrackLane({
   } | null>(null);
   const loopRef = useRef(loop);
   const selectionRef = useRef(selection);
+  // Read by the load-failure handler below. A ref rather than a
+  // dependency because the load effect keys on `audioPath` alone:
+  // adding a prop whose identity changes each render would reload the
+  // audio on every render.
+  const onDurationChangeRef = useRef(onDurationChange);
   useEffect(() => {
     loopRef.current = loop;
   }, [loop]);
   useEffect(() => {
     selectionRef.current = selection;
   }, [selection]);
+  useEffect(() => {
+    onDurationChangeRef.current = onDurationChange;
+  }, [onDurationChange]);
 
   // Mount wavesurfer once.
   useEffect(() => {
@@ -513,23 +521,53 @@ function isAbort(err: unknown): boolean {
   // An abort is also not a user-facing condition in the first place:
   // it means *we* replaced this load, which is exactly when the error
   // must not be shown.
+  // A file that is not audio never reaches either `catch` below.
+  //
+  // `loadAudio` sets the media source and then awaits a promise that
+  // only ever resolves from `loadedmetadata`. An undecodable file makes
+  // the media element fire `error` instead, so that promise is never
+  // settled: `load()` neither resolves nor rejects, and a `.catch` —
+  // or any check written to run *after* the load resolves — is dead
+  // code on exactly the input it was meant to catch.
+  //
+  // WaveSurfer does report it, on a channel this lane never opened:
+  // `initPlayerEvents` forwards the media element's `error` to its own
+  // `error` event. That event is the only signal for this case, so it
+  // is what the lane listens to. Both `catch`es stay — a fetch failure
+  // rejects *and* emits, and setting the same message twice is a no-op.
+  //
+  // Subscribed inside this effect rather than at mount so the same
+  // `current` flag covers it: an abort emits `error` too (`load()`
+  // re-emits what it throws), and an abort belonging to a superseded
+  // load must not surface under the load that replaced it.
   useEffect(() => {
     const ws = wsRef.current;
     if (!ws || !audioPath) return;
     let current = true;
     setLoadError(null);
+
+    const fail = (err: unknown) => {
+      if (!current || isAbort(err)) return;
+      setLoadError(String(err));
+      // The ruler, the clip strip and the selection are all drawn on
+      // the duration this lane reports. Leaving the previous file's
+      // duration standing is what put a 2.5-second scale under a file
+      // that never decoded — the picture and the scale both have to
+      // stop describing audio that is not there.
+      setDuration(0);
+      onDurationChangeRef.current?.(0);
+    };
+
+    ws.on("error", fail);
     try {
       const url = convertFileSrc(audioPath);
-      ws.load(url).catch((err: unknown) => {
-        if (!current) return;
-        if (isAbort(err)) return;
-        setLoadError(String(err));
-      });
+      ws.load(url).catch(fail);
     } catch (err) {
-      setLoadError(String(err));
+      fail(err);
     }
     return () => {
       current = false;
+      ws.un("error", fail);
     };
   }, [audioPath]);
 
@@ -874,7 +912,17 @@ function isAbort(err: unknown): boolean {
             // Hidden rather than unmounted: WaveSurfer owns this
             // element, and tearing it out from under the instance
             // would mean rebuilding the lane on every toggle.
-            visibility: spectrogramEnabled ? "hidden" : "visible",
+            //
+            // A failed load hides it for a second reason. WaveSurfer
+            // keeps the last decoded waveform drawn, so the lane went
+            // on showing the previous file under the new file's name.
+            // `empty()` would clear it properly, but `empty()` is
+            // `load('', [[0]], 0.001)` — re-entering `load` from the
+            // error handler that `load` just called, which can emit
+            // `error` again. Not drawing a picture we know to be of
+            // the wrong file is the honest half of that trade.
+            visibility:
+              spectrogramEnabled || loadError ? "hidden" : "visible",
           }}
         />
         <div
