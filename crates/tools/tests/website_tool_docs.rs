@@ -111,6 +111,21 @@ fn website_sources() -> Vec<(String, String)> {
     text_sources("website", "website")
 }
 
+/// The repository's front page.
+///
+/// A file of its own because a guard rooted at a directory covers a
+/// directory: `repo_doc_sources` reaches `docs/`, and `README.md` sits
+/// one level above it. That is precisely how the front page went on
+/// saying "~20 … tools" after `docs/` had been brought inside the
+/// guard and corrected — the file every new contributor reads first
+/// was the last one left outside it.
+fn readme_source() -> Vec<(String, String)> {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../README.md");
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+    vec![("README.md".to_string(), text)]
+}
+
 /// Every authored doc in `docs/`.
 ///
 /// The checked-in docs were outside every guard here — `website_sources`
@@ -349,7 +364,11 @@ fn no_page_quotes_a_stale_tool_count() {
     let n = registered().len();
     let mut wrong: Vec<String> = Vec::new();
 
-    for (rel, src) in website_sources().into_iter().chain(repo_doc_sources()) {
+    for (rel, src) in website_sources()
+        .into_iter()
+        .chain(repo_doc_sources())
+        .chain(readme_source())
+    {
         if rel.contains("changelog") {
             continue;
         }

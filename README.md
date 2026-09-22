@@ -67,7 +67,7 @@ The model picker is a combo (free-form input + curated suggestions from the live
 ┌──────────────────────────────────────────────────────────────────┐
 │  Rust core (cargo workspace)                                     │
 │   crates/ai          — LlmProvider trait, agent loop, keychain   │
-│   crates/tools       — ~20 deterministic tool impls + dispatcher │
+│   crates/tools       — 93 deterministic tools + dispatcher       │
 │   crates/session     — DAG of session states, fork/diff/compare  │
 │   crates/audio-*     — decode, engine, I/O, time-domain ops      │
 │   crates/ml-*        — Demucs, Whisper, ONNX pipeline            │
@@ -101,7 +101,7 @@ apps/
   cli/                Headless CLI for batch audio operations and smoke tests
 crates/
   ai/                 LLM provider abstraction, agent loop, keychain, prompt cache
-  tools/              ~20 audio-editing tools (load, cut, gain, transcribe, render, …)
+  tools/              93 audio-editing tools (load, cut, gain, transcribe, render, …)
   session/            Session-graph data model, DAG storage, fork/diff/compare
   audio-decoder/      File decode (symphonia)
   audio-engine/       DSP graph + render
@@ -141,7 +141,7 @@ The Tauri bundle build is intentionally **not** in CI (too slow); release workfl
 
 ## Releases
 
-- **Auto dev releases.** `auto-release.yml` listens to `ci.yml`'s `workflow_run` on `main`. On green, it tags `v<version>-dev.<run_number>` and dispatches `release-dev.yml`, which builds **unsigned** mac + win bundles and attaches them to a draft GitHub Release. The workflow does not auto-publish.
+- **Auto dev releases.** `auto-release.yml` listens to `ci.yml`'s `workflow_run` on `main`. On green, it tags `v<version>-dev.<run_number>` and dispatches `release-dev.yml`, which builds **unsigned** mac + win bundles and attaches them to a GitHub Release. On a green matrix the `publish` job flips that release out of draft, so every green push to `main` publishes a dev prerelease; it is marked `prerelease` with `make_latest=false`, so it never takes the Latest badge from a real release. A draft is what a *failed* matrix leaves behind.
 - **Signed releases.** `release-signed.yml` builds all three platforms in one matrix — Apple notarization on mac, Authenticode + DigiCert timestamp on Windows, unsigned `.deb`/AppImage on Linux. **Manual** `workflow_dispatch`, gated on signing secrets being provisioned. It builds first and uploads only after signing, so the published assets are always the signed bytes. See [`docs/packaging-windows.md`](docs/packaging-windows.md) for the Windows side, including the SmartScreen reputation note.
 - Bundle targets are pinned in `tauri.conf.json` to `["app", "dmg", "msi", "nsis", "deb", "appimage"]` — don't revert to `"all"`.
 
@@ -170,4 +170,4 @@ Out-of-scope for v1, on the post-v1 roadmap:
 
 ## License
 
-TODO — `LICENSE` not yet committed. License choice is one of the open questions in the design spec (§12); will land before public distribution.
+MIT — see [`LICENSE`](LICENSE).
