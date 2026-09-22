@@ -279,6 +279,8 @@ interface LaneProps {
   onDurationChange?: (d: number) => void;
   /** Reports this lane's decode failure, and `null` once one succeeds. */
   onLoadErrorChange?: (error: string | null) => void;
+  /** The slice of audio on screen, or null when all of it is (#323). */
+  onViewChange?: (view: { start: number; end: number } | null) => void;
   /**
    * Length of the *session*, which is the axis the ruler, the clip
    * strip and every range-taking tool use.
@@ -349,6 +351,7 @@ function TrackLane({
   onSelectionChange,
   onDurationChange,
   onLoadErrorChange,
+  onViewChange,
   sessionDuration,
   snapToZero,
   verticalZoom,
@@ -376,6 +379,13 @@ function TrackLane({
   } | null>(null);
   const loopRef = useRef(loop);
   const selectionRef = useRef(selection);
+  // Read by the viewport reporter below. A ref rather than a
+  // dependency so a parent that re-creates the callback each render
+  // cannot re-subscribe — and, worse, miss a redraw in the gap.
+  const onViewChangeRef = useRef(onViewChange);
+  useEffect(() => {
+    onViewChangeRef.current = onViewChange;
+  }, [onViewChange]);
   // Read by the load-failure handler below. A ref rather than a
   // dependency because the load effect keys on `audioPath` alone:
   // adding a prop whose identity changes each render would reload the
@@ -587,6 +597,65 @@ function isAbort(err: unknown): boolean {
     if (!wsRef.current || duration === 0) return;
     wsRef.current.zoom(zoom ?? 0);
   }, [zoom, duration]);
+
+  /**
+   * Tell the parent which slice of audio is actually on screen, so the
+   * ruler can label that slice instead of the whole file (#323).
+   *
+   * Measured from WaveSurfer rather than from this lane's own
+   * elements. WaveSurfer renders into a `.scroll` container of its own
+   * inside a shadow root, and that — not the wrapper this component
+   * owns — is what scrolls. `getScroll`, `getWidth` and `getWrapper`
+   * are the public way to ask it, and reaching into the shadow DOM to
+   * find out is not.
+   *
+   * The density is taken as `wrapperWidth / duration` rather than from
+   * the `zoom` prop. It is the width actually drawn, so it is already
+   * right at auto-fit, where `zoom` is 0 and means "whatever fills the
+   * pane" rather than a density at all.
+   *
+   * Both events are needed and neither is enough. `scroll` fires only
+   * from the container's own scroll event, so zooming without panning
+   * — the whole of the reported bug — emits nothing; `redraw` fires
+   * after every draw, which covers zoom, decode and resize, but not
+   * panning.
+   */
+  useEffect(() => {
+    const ws = wsRef.current;
+    if (!ws) return;
+    const measure = (): { start: number; end: number } | null => {
+      // Never throws. This runs inside WaveSurfer's own `emit`, which
+      // is a bare `forEach` over its listeners, so an exception here
+      // would abort every listener after it *and* the draw that
+      // called them — a label strip must not be able to break the
+      // waveform. Unmeasurable reports null, and the ruler goes back
+      // to spanning the session, which is what it did before it could
+      // follow a zoom at all.
+      try {
+        const d = ws.getDuration();
+        const total = ws.getWrapper()?.scrollWidth ?? 0;
+        const visible = ws.getWidth();
+        // `visible >= total` is the whole file on screen, which is
+        // what auto-fit shows.
+        if (!(d > 0) || !(total > 0) || !(visible > 0) || visible >= total) {
+          return null;
+        }
+        const pxPerSec = total / d;
+        const start = ws.getScroll() / pxPerSec;
+        return { start, end: Math.min(d, start + visible / pxPerSec) };
+      } catch {
+        return null;
+      }
+    };
+    const read = () => onViewChangeRef.current?.(measure());
+    read();
+    ws.on("redraw", read);
+    ws.on("scroll", read);
+    return () => {
+      ws.un("redraw", read);
+      ws.un("scroll", read);
+    };
+  }, []);
 
   const handleDrop = useCallback(
     async (e: React.DragEvent<HTMLDivElement>) => {
@@ -1104,6 +1173,12 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
      * #171 was.
      */
     const [headLaneDuration, setHeadLaneDuration] = useState(0);
+    // The window lane 0 is showing, so the ruler can label it.
+    // Null means the whole file is on screen — the auto-fit case.
+    const [rulerView, setRulerView] = useState<{
+      start: number;
+      end: number;
+    } | null>(null);
 
     /**
      * Playhead position in session seconds, published to every lane.
@@ -1672,7 +1747,11 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
           style={{ position: "absolute", width: 0, height: 0, overflow: "hidden" }}
         />
 
-        <Ruler duration={timelineDuration} onAddMarker={onAddMarker} />
+        <Ruler
+          duration={timelineDuration}
+          view={rulerView}
+          onAddMarker={onAddMarker}
+        />
 
         <div
           style={{
@@ -1705,6 +1784,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
                 onSelectionChange={idx === 0 ? onSelectionChange : undefined}
                 onDurationChange={idx === 0 ? setHeadLaneDuration : undefined}
                 onLoadErrorChange={idx === 0 ? onLoadErrorChange : undefined}
+                onViewChange={idx === 0 ? setRulerView : undefined}
                 sessionDuration={timelineDuration}
                 playheadSec={playheadSec}
                 snapToZero={snapToZero}
