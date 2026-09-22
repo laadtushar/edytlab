@@ -143,7 +143,7 @@ describe("windows the ruler should not believe", () => {
   });
 
   it("keeps the empty strip exactly as it was at duration 0", () => {
-    // Not this ticket'''s to change: the row of 0:00s is what an empty
+    // Not this ticket's to change: the row of 0:00s is what an empty
     // timeline looks like, and Ruler.test.tsx pins the count against a
     // past key collision.
     render(<Ruler duration={0} />);
