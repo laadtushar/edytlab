@@ -18,6 +18,15 @@ window.__TAURI_INTERNALS__ = {
   invoke: vi.fn().mockResolvedValue(undefined),
   transformCallback: vi.fn(),
   ipc: vi.fn(),
+  // Missing until #322. `convertFileSrc` reads this entry directly, so
+  // without it every call threw `window.__TAURI_INTERNALS__.
+  // convertFileSrc is not a function` — which meant the waveform
+  // lane's load path threw synchronously in *every* test that mounted
+  // it, and no test had ever exercised a load that got as far as
+  // starting. It went unnoticed because the only consequence was a
+  // load error nothing asserted on.
+  convertFileSrc: (path: string, protocol = "asset") =>
+    `${protocol}://localhost/${encodeURIComponent(path)}`,
 };
 
 // jsdom does not implement HTMLMediaElement playback methods used by
