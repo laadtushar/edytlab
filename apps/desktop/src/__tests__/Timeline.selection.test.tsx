@@ -29,7 +29,10 @@ vi.mock("wavesurfer.js", () => ({
         if (event === "decode") cb();
       }),
       un: vi.fn(),
-      load: vi.fn(),
+      // Returns a promise because the real one does. Returning
+      // undefined made `load(url).catch(...)` throw synchronously on
+      // every mount, which the lane now treats as a failed load.
+      load: vi.fn(() => Promise.resolve()),
       zoom: vi.fn(),
       play: vi.fn(),
       pause: vi.fn(),
