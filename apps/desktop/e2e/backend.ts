@@ -3,12 +3,23 @@
  *
  * Each answer is taken from the command's own source rather than from
  * what looks plausible. A default that the real backend never returns
- * makes a test pass against an app that does not exist; where the
- * answer depends on a real default, the comment says where it lives.
+ * makes a test pass against an app that does not exist; each comment
+ * says where the answer comes from. Two did not, in the first draft of
+ * this file, and a review caught both: `get_transcript` was made to
+ * fail with `NoSession`, which it never does, and a track carried an
+ * `audio_path` with no clips, a shape `list_tracks` never produces.
+ *
+ * Where the real answer comes from files the release bundles —
+ * templates, skills — it is computed from those same files, so adding a
+ * template changes the answer here too.
  *
  * Shapes follow `src/lib/tauri-bridge.ts`, which is the frontend's own
  * statement of what each command returns.
  */
+
+import { readdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import type { TrackSummary } from "../src/lib/tauri-bridge";
 
@@ -17,38 +28,44 @@ export type Answer = { ok: unknown } | { reject: string };
 
 export type Backend = Record<string, Answer>;
 
+export const ok = (value: unknown): Answer => ({ ok: value });
+export const reject = (message: string): Answer => ({ reject: message });
+
 /**
- * `CommandError::NoSession`'s `Display`, from `commands.rs`. Commands
- * that read the session return it when no project is open, and every
+ * `CommandError::NoSession`'s `Display`, from `commands.rs`. Every
  * command's `CmdResult<T>` is `Result<T, String>`, so the frontend
  * receives exactly this string.
  */
 export const NO_SESSION = "no session loaded; call open_project first";
 
-export const ok = (value: unknown): Answer => ({ ok: value });
-export const reject = (message: string): Answer => ({ reject: message });
+/** `src-tauri/resources`, which `tauri.conf.json` bundles. */
+const RESOURCES = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "../src-tauri/resources",
+);
 
 /**
- * The commands the app calls on every boot, found by booting it with
- * no answers at all and recording what it asked for.
+ * `list_templates`: every `resources/templates/*.json`, reduced to its
+ * `name` and `description`. The real order is `read_dir`'s, which no
+ * platform promises, so this sorts by file name to stay deterministic.
  */
-function bootCommands({ hasKey }: { hasKey: boolean }): Backend {
-  return {
-    ...providerCommands(),
-    // `AppState::plan_first` starts as `AtomicBool::new(false)`.
-    get_plan_first: ok(false),
-    // `get_sync_lock` returns `Ok(false)` rather than failing when no
-    // session is open, so the window can still draw.
-    get_sync_lock: ok(false),
-    // Without a key, the app opens Settings as onboarding — which is
-    // what calls `providerCommands`.
-    has_api_key: ok(hasKey),
-    // The count of skills newly installed. Nothing the app renders
-    // reads it.
-    install_bundled_skills: ok(0),
-    list_recent_projects: ok([]),
-    list_templates: ok([]),
-  };
+function bundledTemplates(): { name: string; description: string }[] {
+  const dir = join(RESOURCES, "templates");
+  return readdirSync(dir)
+    .filter((f) => f.endsWith(".json"))
+    .sort()
+    .map((f) => {
+      const t = JSON.parse(readFileSync(join(dir, f), "utf8"));
+      return { name: t.name ?? "", description: t.description ?? "" };
+    });
+}
+
+/**
+ * `install_bundled_skills` on a first launch: it copies every bundled
+ * `.md` into `~/.edytlab/skills` and returns how many.
+ */
+function bundledSkillCount(): number {
+  return readdirSync(join(RESOURCES, "skills")).filter((f) => f.endsWith(".md")).length;
 }
 
 /**
@@ -92,19 +109,40 @@ function providerCommands(): Backend {
 }
 
 /**
+ * The commands the app calls on every boot, found by booting it with
+ * no answers at all and recording what it asked for.
+ */
+function bootCommands({ hasKey }: { hasKey: boolean }): Backend {
+  return {
+    ...providerCommands(),
+    // `AppState::plan_first` starts as `AtomicBool::new(false)`.
+    get_plan_first: ok(false),
+    // `get_sync_lock` returns `Ok(false)` rather than failing when no
+    // session is open, so the window can still draw.
+    get_sync_lock: ok(false),
+    // Without a key, the app opens Settings as onboarding — which is
+    // what calls `providerCommands`.
+    has_api_key: ok(hasKey),
+    install_bundled_skills: ok(bundledSkillCount()),
+    list_recent_projects: ok([]),
+    list_templates: ok(bundledTemplates()),
+  };
+}
+
+/**
  * A project with no history yet.
  *
  * `lib.rs` opens a default project store at every launch, so a project
  * is always open — but `Store::open` on a fresh directory has no
- * `HEAD`, and the session-reading commands turn `store.head() == None`
- * into `NoSession`. So they fail on a first launch even though nothing
- * is wrong, exactly as here.
+ * `HEAD`. `list_tracks` and `list_markers` turn that into `NoSession`;
+ * `get_transcript` answers an empty list, because "not transcribed yet"
+ * is an ordinary state and not a fault.
  */
 function emptyProject(): Backend {
   return {
     list_tracks: reject(NO_SESSION),
     list_markers: reject(NO_SESSION),
-    get_transcript: reject(NO_SESSION),
+    get_transcript: ok([]),
   };
 }
 
@@ -118,29 +156,15 @@ export function readyToLoad(): Backend {
   return { ...bootCommands({ hasKey: true }), ...emptyProject() };
 }
 
-/** A track as `list_tracks` reports it: one source file, unity gain. */
-export function trackFor(audioPath: string, name = "Track 1"): TrackSummary {
-  return {
-    id: `track-${name.replace(/\s+/g, "-").toLowerCase()}`,
-    name,
-    muted: false,
-    gain_db: 0,
-    pan: 0,
-    soloed: false,
-    audio_path: audioPath,
-    clips: [],
-  };
-}
-
 /**
- * The session-reading commands once the project has a history — after
- * the first load, or when `Store::open` found a `HEAD` on disk.
+ * The session-reading commands once the project has a history, holding
+ * these tracks.
  *
  * All of them move together. A backend that lists tracks while still
- * refusing the transcript with `NoSession` is not one the app can ever
- * talk to, and a test written against it proves nothing.
+ * refusing markers with `NoSession` is not one the app can ever talk
+ * to, and a test written against it proves nothing.
  */
-export function session(tracks: TrackSummary[]): Backend {
+export function sessionWith(tracks: TrackSummary[]): Backend {
   return {
     list_tracks: ok(tracks),
     list_markers: ok([]),
@@ -152,12 +176,29 @@ export function session(tracks: TrackSummary[]): Backend {
 }
 
 /**
- * A project that already holds these tracks when the app starts.
+ * A track holding one file, as `list_tracks` reports it.
  *
- * This is a returning user: `Store::open` restores `HEAD` from disk, so
- * whatever they had loaded last time is there at boot. They have set a
- * key, so onboarding stays out of the way.
+ * One clip, because that is what `audio_path` requires: `list_tracks`
+ * sets it to the clip's `source_path` for exactly one clip, to a
+ * flattened WAV for several, and to `None` for none. The id is a UUID
+ * because `TrackId` is one.
  */
-export function projectWith(tracks: TrackSummary[]): Backend {
-  return { ...bootCommands({ hasKey: true }), ...session(tracks) };
+export function trackFor(audioPath: string, seconds: number): TrackSummary {
+  return {
+    id: "3f2b8c1e-7d4a-4e9b-9c6f-1a2b3c4d5e6f",
+    name: "Track 1",
+    muted: false,
+    gain_db: 0,
+    pan: 0,
+    soloed: false,
+    audio_path: audioPath,
+    clips: [
+      { start_sec: 0, length_sec: seconds, source_path: audioPath, volume_envelope: [] },
+    ],
+  };
+}
+
+/** A node id as the backend formats one: 32 bytes, as 64 hex digits. */
+export function nodeId(n: number): string {
+  return n.toString(16).padStart(64, "0");
 }

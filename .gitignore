@@ -31,6 +31,7 @@ pnpm-debug.log*
 
 # Playwright (apps/desktop/e2e): generated audio fixtures and run output
 apps/desktop/e2e/.generated/
+apps/desktop/e2e/.dist/
 apps/desktop/test-results/
 apps/desktop/playwright-report/
 

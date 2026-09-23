@@ -57,8 +57,6 @@ export function toneWav({ seconds, hz, amplitude }: ToneSpec): Buffer {
 export const FIXTURES = {
   /** Three seconds: wider than the pane once zoomed past ~260 px/s. */
   tone3s: { file: "tone-3s.wav", spec: { seconds: 3, hz: 440, amplitude: 0.5 } },
-  /** Text with an audio extension, for the undecodable-file path (#322). */
-  notAudio: { file: "not-audio.wav", text: "this is not audio at all" },
 } as const;
 
 export type FixtureName = keyof typeof FIXTURES;
@@ -68,10 +66,14 @@ export function fixturePath(name: FixtureName): string {
   return join(FIXTURE_DIR, FIXTURES[name].file);
 }
 
+/** Length of a fixture in seconds, from the spec it was written with. */
+export function fixtureSeconds(name: FixtureName): number {
+  return FIXTURES[name].spec.seconds;
+}
+
 export function writeFixtures(): void {
   mkdirSync(FIXTURE_DIR, { recursive: true });
-  for (const fixture of Object.values(FIXTURES)) {
-    const body = "spec" in fixture ? toneWav(fixture.spec) : fixture.text;
-    writeFileSync(join(FIXTURE_DIR, fixture.file), body);
+  for (const { file, spec } of Object.values(FIXTURES)) {
+    writeFileSync(join(FIXTURE_DIR, file), toneWav(spec));
   }
 }

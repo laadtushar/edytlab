@@ -7,11 +7,12 @@
  * its own shadow root, and a component that sets `scrollLeft` on the
  * wrong element passes every jsdom test there is.
  *
- * So this page mounts the unmodified `src/main.tsx` in Chromium and
- * replaces exactly one thing: the IPC boundary to the backend, using
- * Tauri's own `@tauri-apps/api/mocks` rather than a hand-rolled
- * stand-in. Everything above that boundary — React, WaveSurfer,
- * decoding, layout, scrolling — is the code that ships.
+ * So this page mounts the unmodified `src/main.tsx` in Chromium, from a
+ * production build (see `vite.config.ts`), and replaces exactly one
+ * thing: the IPC boundary to the backend, using Tauri's own
+ * `@tauri-apps/api/mocks` rather than a hand-rolled stand-in.
+ * Everything above that boundary — React, WaveSurfer, decoding, layout,
+ * scrolling — is the code that ships.
  *
  * A test supplies the backend's answers before the page loads, as
  * `window.__E2E__.backend`, keyed by command name (see `backend.ts`).
@@ -23,27 +24,14 @@
 import { emit } from "@tauri-apps/api/event";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 
-/**
- * One command's answer. Wrapped rather than bare so that a real result
- * which happens to be an object with a `reject` key cannot be mistaken
- * for a failure.
- */
-type Answer = { ok: unknown } | { reject: string };
-
-interface E2EConfig {
-  /** The backend's answer to each command, by name. */
-  backend: Record<string, Answer>;
-}
-
-interface IpcCall {
-  cmd: string;
-  args: unknown;
-}
+import type { Backend } from "./backend";
+import { FILE_ROUTE } from "./routes";
 
 declare global {
   interface Window {
-    __E2E__?: E2EConfig;
-    __E2E_CALLS__: IpcCall[];
+    __E2E__?: { backend: Backend };
+    /** The name of every command the app called, in order. */
+    __E2E_CALLS__: string[];
     __E2E_UNHANDLED__: string[];
     /** Raise a backend event, as the Rust side would. */
     __E2E_EMIT__: (event: string, payload?: unknown) => Promise<void>;
@@ -51,14 +39,14 @@ declare global {
   }
 }
 
-const config: E2EConfig = window.__E2E__ ?? { backend: {} };
+const config = window.__E2E__ ?? { backend: {} };
 window.__E2E_CALLS__ = [];
 window.__E2E_UNHANDLED__ = [];
 
 mockWindows("main");
 mockIPC(
-  (cmd, args) => {
-    window.__E2E_CALLS__.push({ cmd, args });
+  (cmd) => {
+    window.__E2E_CALLS__.push(cmd);
     if (Object.prototype.hasOwnProperty.call(config.backend, cmd)) {
       const answer = config.backend[cmd];
       // A string, not an `Error`. Every command returns
@@ -77,16 +65,16 @@ mockIPC(
   { shouldMockEvents: true },
 );
 
-// Tauri's asset protocol, served by Vite instead. The backend hands the
-// app an absolute path exactly as it would in production, and `/@fs/`
-// is Vite's way of serving an absolute path from inside the workspace.
+// Tauri's asset protocol, served by `vite preview` instead. The backend
+// hands the app an absolute path exactly as it would in production, and
+// it is encoded the way Tauri's own `convertFileSrc` encodes it.
 // `mockConvertFileSrc` is not used because it produces an
 // `asset://localhost/` URL, which no browser outside Tauri can fetch.
 (
   window as unknown as {
     __TAURI_INTERNALS__: { convertFileSrc: (path: string) => string };
   }
-).__TAURI_INTERNALS__.convertFileSrc = (path: string) => `/@fs${path}`;
+).__TAURI_INTERNALS__.convertFileSrc = (path) => FILE_ROUTE + encodeURIComponent(path);
 
 window.__E2E_EMIT__ = (event, payload) => emit(event, payload);
 
