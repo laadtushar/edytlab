@@ -77,4 +77,5 @@ Before merging anything:
 - `cargo clippy --workspace --all-targets -- -D warnings` clean
 - `cargo test --workspace` passes
 - `pnpm --filter @edytlab/desktop test` passes
-- `pnpm --filter @edytlab/desktop exec tsc --noEmit` clean
+- `pnpm --filter @edytlab/desktop exec tsc --noEmit` clean — the app program, which has no Node types: app code runs in a webview (#336)
+- `pnpm --filter @edytlab/desktop typecheck:test` clean — the tests' own program, with Node types

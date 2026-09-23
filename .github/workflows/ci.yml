@@ -167,6 +167,13 @@ jobs:
       - name: pnpm test (frontend)
         run: pnpm --filter @edytlab/desktop test
 
+      # The tests are type-checked by a program of their own, because
+      # they run in Node and the app does not (#336). `pnpm build` runs
+      # `tsc` for the app program only, so without this step the test
+      # files would be type-checked by nothing.
+      - name: typecheck tests (frontend)
+        run: pnpm --filter @edytlab/desktop typecheck:test
+
       - name: pnpm build (frontend)
         run: pnpm --filter @edytlab/desktop build
 

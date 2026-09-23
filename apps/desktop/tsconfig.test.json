@@ -1,0 +1,15 @@
+{
+  // The tests, which run in Node under vitest and read source with
+  // `node:fs`, so they get Node's types. App code does not: see the
+  // `types` note in tsconfig.json (#336). Tests import app modules, so
+  // those are checked here too — the app program is what enforces that
+  // they stay free of Node.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["src"],
+  // The guard asserts that Node is *absent*, which is true of the app
+  // program and deliberately false of this one.
+  "exclude": ["src/lib/no-node-globals.ts"]
+}
