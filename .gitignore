@@ -38,8 +38,14 @@ apps/desktop/playwright-report/
 .DS_Store
 Thumbs.db
 
-# Claude Code agent runtime state (isolated worktrees etc.)
-.claude/
+# Claude Code agent runtime state (isolated worktrees etc.) stays local.
+# `settings.json` is the exception: it is the shared project config —
+# which plugins the repo enables, and the marketplace they come from —
+# and Claude Code's own convention is to commit it, while
+# `settings.local.json` stays personal. `.claude/*` rather than `.claude/`
+# because git cannot re-include a file inside a directory it ignores.
+.claude/*
+!.claude/settings.json
 
 # Graphify tool output (local-only knowledge-graph cache)
 .graphify_python
