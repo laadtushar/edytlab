@@ -45,7 +45,7 @@ This repo lives at `C:\Users\tusha\Work\Playground\Edytlab\edytlab` on Windows 1
 
 ## CI / release
 
-- `ci.yml` runs on push to main + PRs: fmt, clippy, cargo test, frontend build, vitest. Tauri bundle is intentionally NOT in CI (too slow); release workflows cover that.
+- `ci.yml` runs on push to main + PRs: fmt, clippy, cargo test, frontend build (whose `tsc -b` type-checks the app, its tests and `vite.config.ts`), vitest. Tauri bundle is intentionally NOT in CI (too slow); release workflows cover that.
 - `auto-release.yml` fires off CI's `workflow_run` on main: tags `v0.1.0-dev.<run_number>` and dispatches `release-dev.yml`.
 - `release-dev.yml` uses a `create-release` job + matrix to avoid the parallel-job race that produced duplicate releases for the same tag.
 - `release-dev.yml` has a `channel` dispatch input: `dev` (default — prerelease, not Latest, "unsigned dev build") and `release` (a real versioned release, not a prerelease, marked Latest). Tag pushes are always `dev`; a bare `vX.Y.Z` tag deliberately does not trigger it, so `release-signed.yml` owns those tags once certs exist. Both channels emit the same install warnings, because those describe the artifact rather than the channel.
@@ -77,5 +77,4 @@ Before merging anything:
 - `cargo clippy --workspace --all-targets -- -D warnings` clean
 - `cargo test --workspace` passes
 - `pnpm --filter @edytlab/desktop test` passes
-- `pnpm --filter @edytlab/desktop exec tsc --noEmit` clean — the app program, which has no Node types: app code runs in a webview (#336)
-- `pnpm --filter @edytlab/desktop typecheck:test` clean — the tests' own program, with Node types
+- `pnpm --filter @edytlab/desktop typecheck` clean — `tsc -b` over three programs: the app (no Node types, because it runs in a webview — #336), its tests (Node types, because vitest runs them in Node) and `vite.config.ts`. **Not** bare `tsc --noEmit`: the root `tsconfig.json` is a solution file with no inputs of its own, so that checks nothing and exits 0.

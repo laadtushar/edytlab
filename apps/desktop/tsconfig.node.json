@@ -1,10 +1,15 @@
 {
+  // `vite.config.ts`, which Vite runs in Node. Check-only: this was
+  // `composite` with no `noEmit`, which was harmless while nothing built
+  // it — and under `tsc -b` wrote `vite.config.js` and `vite.config.d.ts`
+  // straight into the source tree.
   "compilerOptions": {
-    "composite": true,
     "skipLibCheck": true,
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "allowSyntheticDefaultImports": true
+    "allowSyntheticDefaultImports": true,
+    "noEmit": true,
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo"
   },
   "include": ["vite.config.ts"]
 }

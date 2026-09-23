@@ -1,33 +1,17 @@
 {
-  "compilerOptions": {
-    "target": "ES2020",
-    "useDefineForClassFields": true,
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
-    "module": "ESNext",
-    "skipLibCheck": true,
-
-    /* Bundler mode */
-    "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "noEmit": true,
-    "jsx": "react-jsx",
-
-    /* Linting */
-    "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true,
-
-    /* No implicit type libraries. App code runs in a webview, which has
-       no Node; without an explicit list TypeScript included every
-       installed @types package, `@types/node` among them, so `process`
-       type-checked here and threw at runtime (#336). Tests are Node
-       code and are checked separately, by tsconfig.test.json. */
-    "types": []
-  },
-  "include": ["src"],
-  "exclude": ["src/**/__tests__/**"],
-  "references": [{ "path": "./tsconfig.node.json" }]
+  // A solution file: no files of its own. Each file belongs to whichever
+  // referenced project includes it, which is how an editor gives app
+  // code, its tests and the Vite config each the types they really run
+  // with (#336).
+  //
+  // Type-check with `pnpm typecheck` (`tsc -b`), which builds all three.
+  // Plain `tsc --noEmit` against this file checks NOTHING and exits 0 —
+  // verified with a type error in app code — because a solution file has
+  // no inputs of its own.
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.test.json" },
+    { "path": "./tsconfig.node.json" }
+  ]
 }
