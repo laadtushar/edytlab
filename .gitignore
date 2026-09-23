@@ -29,6 +29,11 @@ pnpm-debug.log*
 *.sln
 *.sw?
 
+# Playwright (apps/desktop/e2e): generated audio fixtures and run output
+apps/desktop/e2e/.generated/
+apps/desktop/test-results/
+apps/desktop/playwright-report/
+
 # OS
 .DS_Store
 Thumbs.db

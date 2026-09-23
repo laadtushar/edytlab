@@ -1,0 +1,13 @@
+{
+  // The e2e code needs Node (fixtures are written with `node:fs`) and the
+  // DOM (the harness runs in the page). Kept out of the app's own
+  // tsconfig so Node globals never become visible to app code, where
+  // using one would type-check and then fail in the webview.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "target": "ES2022",
+    "types": ["node"]
+  },
+  "include": ["./**/*.ts", "../playwright.config.ts"]
+}
