@@ -9,7 +9,9 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "typecheck:e2e": "tsc --noEmit -p e2e"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4",
@@ -23,6 +25,7 @@
     "wavesurfer.js": "^7"
   },
   "devDependencies": {
+    "@playwright/test": "1.56.1",
     "@tauri-apps/cli": "^2",
     "@testing-library/jest-dom": "^6",
     "@testing-library/react": "^16",

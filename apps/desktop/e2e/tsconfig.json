@@ -1,0 +1,18 @@
+{
+  // `e2e/` sits outside the app tsconfig's `include`, so without this
+  // file it would be the one TypeScript in the repo nobody checks. It
+  // needs the DOM (the harness runs in the page) and Node (fixtures are
+  // written with `node:fs`).
+  //
+  // This is not what keeps Node globals out of app code — nothing does.
+  // The app tsconfig has no `types` field, so `@types/node` is picked up
+  // implicitly there too, and `process.cwd()` type-checks in `src/`.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "target": "ES2022",
+    "types": ["node"]
+  },
+  "include": ["./**/*.ts", "../playwright.config.ts"],
+  "exclude": ["./.dist", "./.generated"]
+}

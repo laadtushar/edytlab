@@ -3,7 +3,12 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
-// @ts-expect-error process is a nodejs global
+// No `@ts-expect-error` here any more. It claimed `process` was
+// untyped, but `@types/node` is installed and picked up implicitly, so
+// the directive itself was the error: `tsc -p tsconfig.node.json`
+// failed with "Unused '@ts-expect-error' directive" and nobody saw,
+// because nothing type-checked this file. The e2e harness imports it,
+// and `tsc -p e2e` is what found it.
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
