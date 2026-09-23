@@ -83,6 +83,24 @@ function reset() {
   state.duration = 3;
 }
 
+/**
+ * Waits on the state under test, never on "some labels exist".
+ *
+ * The empty ruler already draws seven `0:00` ticks, so a precondition of
+ * `times().length > 1` holds before anything has decoded. The tests here
+ * used to wait on exactly that and then assert once, on whatever had
+ * rendered by then. On a slow runner that was still the empty strip, and
+ * the auto-fit test failed on Windows CI with `expected +0 to be close to
+ * 3`. Delaying the decode by 150 ms reproduces that every time.
+ *
+ * So each assertion now sits inside the wait, and every wait requires a
+ * label past zero, which the empty strip never has. A slow runner then
+ * costs time instead of a verdict.
+ */
+function latest(): number {
+  return Math.max(...times());
+}
+
 describe("the ruler follows the lane's viewport", () => {
   it("labels only the visible window once the waveform is zoomed", async () => {
     reset();
@@ -91,8 +109,10 @@ describe("the ruler follows the lane's viewport", () => {
     emit("redraw");
 
     // 1500px over 3s is 500 px/s, so a 775px pane shows ~1.55s.
-    await waitFor(() => expect(times().length).toBeGreaterThan(1));
-    expect(Math.max(...times())).toBeLessThanOrEqual(1.56);
+    await waitFor(() => {
+      expect(latest()).toBeGreaterThan(0);
+      expect(latest()).toBeLessThanOrEqual(1.56);
+    });
   });
 
   it("moves the labels when the pane is scrolled", async () => {
@@ -100,14 +120,16 @@ describe("the ruler follows the lane's viewport", () => {
     render(<Timeline audioPath="/tmp/a.wav" zoom={500} />);
     emit("decode", 3);
     emit("redraw");
-    await waitFor(() => expect(times().length).toBeGreaterThan(1));
+    await waitFor(() => expect(latest()).toBeGreaterThan(0));
 
     // Scroll 500px — one second in at 500 px/s.
     state.scroll = 500;
     emit("scroll", 1, 2.55, 500, 1275);
 
-    await waitFor(() => expect(Math.min(...times())).toBeGreaterThanOrEqual(1));
-    expect(Math.max(...times())).toBeLessThanOrEqual(2.56);
+    await waitFor(() => {
+      expect(Math.min(...times())).toBeGreaterThanOrEqual(1);
+      expect(latest()).toBeLessThanOrEqual(2.56);
+    });
   });
 
   it("spans the whole file when all of it fits, which is auto-fit", async () => {
@@ -118,8 +140,7 @@ describe("the ruler follows the lane's viewport", () => {
     emit("decode", 3);
     emit("redraw");
 
-    await waitFor(() => expect(times().length).toBeGreaterThan(1));
-    expect(Math.max(...times())).toBeCloseTo(3, 5);
+    await waitFor(() => expect(latest()).toBeCloseTo(3, 5));
   });
 
   it("reports on redraw, because a zoom alone emits no scroll", async () => {
@@ -130,12 +151,20 @@ describe("the ruler follows the lane's viewport", () => {
     reset();
     render(<Timeline audioPath="/tmp/a.wav" zoom={500} />);
     emit("decode", 3);
-    const beforeZoom = times();
+    emit("redraw");
+    // The 500 px/s window, rendered, before the zoom changes it. Reading
+    // `times()` straight after the emit captured the empty strip instead.
+    await waitFor(() => {
+      expect(latest()).toBeGreaterThan(0.4);
+      expect(latest()).toBeLessThanOrEqual(1.56);
+    });
 
     state.total = 6000; // zoomed to 2000 px/s
     emit("redraw");
 
-    await waitFor(() => expect(times()).not.toEqual(beforeZoom));
-    expect(Math.max(...times())).toBeLessThanOrEqual(0.4);
+    await waitFor(() => {
+      expect(latest()).toBeGreaterThan(0);
+      expect(latest()).toBeLessThanOrEqual(0.4);
+    });
   });
 });
