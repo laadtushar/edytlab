@@ -23,13 +23,18 @@ import { fileURLToPath } from "node:url";
 
 import type { TrackSummary } from "../src/lib/tauri-bridge";
 
-/** One command's answer: its result, or the string it fails with. */
-export type Answer = { ok: unknown } | { reject: string };
+/**
+ * One command's answer: its result, the string it fails with, or — for
+ * testing an ordering — a result the test releases when it chooses (see
+ * `App.release`).
+ */
+export type Answer = { ok: unknown } | { reject: string } | { deferred: string };
 
 export type Backend = Record<string, Answer>;
 
 export const ok = (value: unknown): Answer => ({ ok: value });
 export const reject = (message: string): Answer => ({ reject: message });
+export const deferred = (name: string): Answer => ({ deferred: name });
 
 /**
  * `CommandError::NoSession`'s `Display`, from `commands.rs`. Every
@@ -143,6 +148,8 @@ function emptyProject(): Backend {
     list_tracks: reject(NO_SESSION),
     list_markers: reject(NO_SESSION),
     get_transcript: ok([]),
+    // `get_session_head`: `store.head().ok_or(CommandError::NoSession)`.
+    get_session_head: reject(NO_SESSION),
   };
 }
 
@@ -172,6 +179,24 @@ export function sessionWith(tracks: TrackSummary[]): Backend {
     // `save_view_state` returns `CmdResult<()>`, which serialises as
     // `null`. The app calls it, debounced, once there is a head.
     save_view_state: ok(null),
+  };
+}
+
+/**
+ * A project that already holds these tracks when the app starts: a
+ * returning user.
+ *
+ * `lib.rs` reopens the default project at every launch and
+ * `Store::open` restores `HEAD` from disk, so whatever they loaded last
+ * time is there at boot. `get_session_head` answers with that head —
+ * `commands.rs` returns `head.to_hex()` whenever the store has one.
+ * They have set a key, so onboarding stays out of the way.
+ */
+export function projectWith(tracks: TrackSummary[], head: string): Backend {
+  return {
+    ...bootCommands({ hasKey: true }),
+    ...sessionWith(tracks),
+    get_session_head: ok(head),
   };
 }
 

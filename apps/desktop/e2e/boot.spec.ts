@@ -11,7 +11,16 @@
 import type { Page } from "@playwright/test";
 
 import { fixturePath, fixtureSeconds } from "./audio-fixtures";
-import { firstRun, nodeId, readyToLoad, sessionWith, trackFor } from "./backend";
+import {
+  deferred,
+  firstRun,
+  nodeId,
+  ok,
+  projectWith,
+  readyToLoad,
+  sessionWith,
+  trackFor,
+} from "./backend";
 import { expect, test } from "./fixtures";
 
 /**
@@ -78,5 +87,109 @@ test.describe("once the agent loads a file", () => {
     await expect(page.getByTestId("ruler")).toContainText("0:03");
     await expect.poll(() => waveformHasInk(page), { message: "the waveform was drawn" }).toBe(true);
     await expect(page.getByTestId("timeline-lane-error")).toHaveCount(0);
+  });
+});
+
+/**
+ * #332. The backend reopens the project and restores its head at every
+ * launch, so a returning user's track is there before the first render —
+ * and the app showed "Drop a file or pick one to begin" over it, because
+ * nothing at boot turned the tracks it listed into a timeline.
+ */
+test.describe("a returning user", () => {
+  test("boots into their project, with the track decoded", async ({ app }) => {
+    await app.boot(
+      projectWith([trackFor(fixturePath("tone3s"), fixtureSeconds("tone3s"))], nodeId(1)),
+    );
+    const page = app.page;
+
+    await expect(page.getByTestId("empty-state")).toHaveCount(0);
+    await expect(page.getByTestId("ruler")).toContainText("0:03");
+    await expect.poll(() => waveformHasInk(page), { message: "the waveform was drawn" }).toBe(true);
+  });
+
+  /**
+   * The head the backend restored is the one a preview must render. It
+   * never reached the frontend: `useSession` learned the head only from
+   * `node-created` events, and none fires for a head that was already
+   * there — so "preview" did nothing at all, with no error.
+   */
+  test("can preview the mix of the state they left", async ({ app }) => {
+    const head = nodeId(7);
+    await app.boot({
+      ...projectWith([trackFor(fixturePath("tone3s"), fixtureSeconds("tone3s"))], head),
+      // `render_preview` answers with the rendered file's path.
+      render_preview: ok(fixturePath("tone3s")),
+    });
+    const page = app.page;
+    await expect(page.getByTestId("ruler")).toContainText("0:03");
+
+    await page.getByTestId("render-preview-button").click();
+
+    await expect
+      .poll(() => app.requestsFor("render_preview"), { message: "a render of the restored head" })
+      .toEqual([{ node: head }]);
+  });
+
+  /**
+   * The restored head is read once at boot, and an agent edit can land
+   * before that read comes back. The edit's head is the newer one, so the
+   * read must only fill a head that is still unknown — otherwise the app
+   * quietly goes back to the state before the edit and previews that.
+   */
+  test("keeps an edit's head when it lands before the restored one arrives", async ({ app }) => {
+    const restored = nodeId(1);
+    const edited = nodeId(2);
+    const tracks = [trackFor(fixturePath("tone3s"), fixtureSeconds("tone3s"))];
+    await app.boot({
+      ...projectWith(tracks, restored),
+      get_session_head: deferred("restored head"),
+      render_preview: ok(fixturePath("tone3s")),
+    });
+    const page = app.page;
+
+    await app.emit("agent://node-created", { node_id: edited });
+    await app.release("restored head", restored);
+    await expect(page.getByTestId("ruler")).toContainText("0:03");
+
+    await page.getByTestId("render-preview-button").click();
+
+    await expect
+      .poll(() => app.requestsFor("render_preview"), { message: "a render of the newer head" })
+      .toEqual([{ node: edited }]);
+  });
+});
+
+/**
+ * #332, the same bug by another door. "Open project…", "New project…"
+ * and a row in the recents list all go through one handler, which lists
+ * the opened project's tracks and never turns them into a timeline.
+ */
+test.describe("opening a project that already has a track", () => {
+  test("from the recents list, shows its timeline", async ({ app }) => {
+    const project = "/home/user/Music/interview";
+    await app.boot({
+      ...readyToLoad(),
+      list_recent_projects: ok([
+        { path: project, name: "interview", last_opened_at: "2026-09-20T10:00:00Z" },
+      ]),
+    });
+    const page = app.page;
+    await expect(page.getByTestId("empty-state")).toBeVisible();
+
+    // What the backend answers once it has that folder open:
+    // `open_project` returns `ProjectInfo { path, head }`, and a project
+    // that never saved a view reads `ViewState::default()`, which
+    // serialises as `{}` because every field is skipped when `None`.
+    await app.become({
+      open_project: ok({ path: project, head: nodeId(3) }),
+      get_view_state: ok({}),
+      ...sessionWith([trackFor(fixturePath("tone3s"), fixtureSeconds("tone3s"))]),
+    });
+    await page.getByTestId(`recent-open-${project}`).click();
+
+    await expect(page.getByTestId("empty-state")).toHaveCount(0);
+    await expect(page.getByTestId("ruler")).toContainText("0:03");
+    await expect.poll(() => waveformHasInk(page), { message: "the waveform was drawn" }).toBe(true);
   });
 });

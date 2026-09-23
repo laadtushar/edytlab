@@ -591,6 +591,34 @@ function App() {
   );
 
   /**
+   * A session's tracks have arrived: show them.
+   *
+   * Three paths deliver a session's tracks — boot, an agent edit
+   * (`agent://node-created`), and opening a project — and only the edit
+   * path used to derive `sourcePath` from them. The timeline is gated on
+   * `sourcePath`, so the other two listed the tracks and went on showing
+   * "Drop a file or pick one to begin" over them: a returning user's
+   * project looked empty, and so did every project opened from the
+   * recents list, "Open project…" or "New project…" (#332).
+   *
+   * One function, so the next path that delivers a session cannot list
+   * its tracks and forget the timeline.
+   *
+   * The refreshes after a mixer or clip edit still call `setTracks`
+   * directly. The timeline is already showing by then, and each lane
+   * draws its own track's `audio_path`, so `sourcePath` only names the
+   * session in the status bar there.
+   */
+  const receiveTracks = useCallback((next: TrackSummary[]) => {
+    setTracks(next);
+    // A track's own audio, for the lane and the status bar. It is NOT
+    // the mix, so it must not touch `mixPath` — doing so is what made
+    // every edit fall back to unmixed audio.
+    const firstPath = next[0]?.audio_path;
+    if (firstPath) setSourcePath(firstPath);
+  }, []);
+
+  /**
    * Put the user back where they were.
    *
    * Each field is restored only if the file actually had it — an absent
@@ -632,13 +660,13 @@ function App() {
       try {
         const info = await openProject(path);
         await restoreView(info.head ?? null);
-        setTracks(await listTracks());
+        receiveTracks(await listTracks());
         setRecents(await listRecentProjects());
       } catch (e) {
         setRenderError(String(e));
       }
     },
-    [restoreView],
+    [restoreView, receiveTracks],
   );
 
   /**
@@ -950,13 +978,7 @@ function App() {
     onNodeCreated(async (_nodeId: string) => {
       setRedoStack([]); // new branch clears forward history
       setGraphRefresh((n) => n + 1);
-      const newTracks = await listTracks();
-      setTracks(newTracks);
-      // A track's own audio, for the lane and the status bar. It is
-      // NOT the mix, so it must not touch `mixPath` — doing so is what
-      // made every edit fall back to unmixed audio.
-      const firstPath = newTracks[0]?.audio_path;
-      if (firstPath) setSourcePath(firstPath);
+      receiveTracks(await listTracks());
       // The session moved, so any previously rendered mix is stale.
       setMixPath(null);
       setMixNodeId(null);
@@ -967,13 +989,13 @@ function App() {
     // Initial fetch — covers the case where the project already had
     // tracks at startup (auto-init creates a single empty track).
     void listTracks()
-      .then(setTracks)
+      .then(receiveTracks)
       .catch(() => setTracks([]));
     return () => {
       cancelled = true;
       unlisten?.();
     };
-  }, []);
+  }, [receiveTracks]);
 
   const handleExportSelection = useCallback(async () => {
     if (!head || !selection || exporting) return;

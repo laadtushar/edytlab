@@ -60,9 +60,6 @@ const KNOWN_UNREACHABLE: Record<string, string> = {
     "superseded by clearApiKeyFor, which Settings now calls; this one takes no " +
     "argument and resolves the slot from the backend's active provider, so a " +
     "destructive action depended on the UI and the backend agreeing (#320)",
-  getSessionHead:
-    "superseded by the agent://node-created subscription in useSession, which keeps the head " +
-    "pointer current without a round-trip after each turn",
 
   // Not a gap, but not a plain duplicate either.
   listProviders:

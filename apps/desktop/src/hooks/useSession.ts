@@ -5,7 +5,8 @@
  *  - holds the currently opened {@link ProjectInfo} (path + head node).
  *  - subscribes to `agent://node-created` so the head pointer follows
  *    every agent-produced edit without an explicit `getSessionHead`
- *    round-trip after each turn.
+ *    round-trip after each turn — and reads `getSessionHead` once at
+ *    mount, for the head that was already there before any event.
  *  - exposes a `renderPreview` helper that resolves the latest node id
  *    to a temp WAV path via the bridge.
  *
@@ -19,6 +20,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import {
+  getSessionHead,
   onNodeCreated,
   openProject as bridgeOpenProject,
   renderPreview as bridgeRenderPreview,
@@ -56,6 +58,18 @@ export function useSession(): UseSessionResult {
 
   // Subscribe to node-created so the head pointer follows the agent's
   // edits. Cleanup detaches the listener — important under StrictMode.
+  //
+  // And read the head once, at mount. The subscription only reports
+  // *changes*; a head that was already there when the app started —
+  // every returning user's, since the backend reopens the project and
+  // restores `HEAD` from disk — never arrives as an event. So a returning
+  // user had no head at all, and "preview" silently did nothing (#332).
+  //
+  // The event wins a race: if an edit lands before this read resolves,
+  // its head is newer than the one read, so the read only fills a head
+  // that is still unknown. A rejection leaves it unknown, which is what a
+  // fresh project's `NoSession` means and what the boot `listTracks`
+  // does with a failure too.
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     let cancelled = false;
@@ -68,6 +82,11 @@ export function useSession(): UseSessionResult {
         unlisten = fn;
       }
     });
+    getSessionHead()
+      .then((restored) => {
+        if (!cancelled) setHead((current) => current ?? restored);
+      })
+      .catch(() => undefined);
     return () => {
       cancelled = true;
       unlisten?.();
