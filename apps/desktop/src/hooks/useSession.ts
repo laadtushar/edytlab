@@ -30,8 +30,8 @@ import {
 
 export interface UseSessionResult {
   project: ProjectInfo | null;
-  /** Latest known head node id. Mirrors `project.head` but updated
-   * eagerly off the event stream. */
+  /** Latest known head node id: read once at mount (a returning user's
+   * restored head), then kept current off the event stream. */
   head: NodeId | null;
   openProject: (path: string) => Promise<void>;
   /** Render the latest head node to a temp WAV. Throws if no head. */

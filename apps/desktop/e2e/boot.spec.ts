@@ -13,6 +13,7 @@ import type { Page } from "@playwright/test";
 import { fixturePath, fixtureSeconds } from "./audio-fixtures";
 import {
   deferred,
+  emptyTrack,
   firstRun,
   nodeId,
   ok,
@@ -191,5 +192,137 @@ test.describe("opening a project that already has a track", () => {
     await expect(page.getByTestId("empty-state")).toHaveCount(0);
     await expect(page.getByTestId("ruler")).toContainText("0:03");
     await expect.poll(() => waveformHasInk(page), { message: "the waveform was drawn" }).toBe(true);
+  });
+});
+
+/**
+ * Found in review of the first #332 fix, which derived the timeline in a
+ * helper that three call sites remembered to use. Every test here is a
+ * path that did not, or a track list the helper read wrongly.
+ */
+test.describe("whatever brings a session's audio in, the timeline follows", () => {
+  test("recording from a fresh start shows the take", async ({ app }) => {
+    const take = fixturePath("tone3s");
+    await app.boot({
+      ...readyToLoad(),
+      start_recording: ok("recording started"),
+      // `stop_recording` answers `{ path, sample_rate, channels }`.
+      stop_recording: ok({ path: take, sample_rate: 44_100, channels: 1 }),
+      // `batch_load` answers `BatchLoadResult`.
+      batch_load: ok({ tracks_loaded: 1, last_node_id: nodeId(5) }),
+    });
+    const page = app.page;
+    await expect(page.getByTestId("empty-state")).toBeVisible();
+
+    await page.getByTestId("record-btn").click();
+    // Once the take is loaded, the backend lists it as a track.
+    await app.become(sessionWith([trackFor(take, fixtureSeconds("tone3s"))]));
+    await page.getByTestId("record-btn").click();
+
+    await expect(page.getByTestId("empty-state")).toHaveCount(0);
+    await expect(page.getByTestId("ruler")).toContainText("0:03");
+    await expect.poll(() => waveformHasInk(page), { message: "the waveform was drawn" }).toBe(true);
+  });
+
+  test("a first track with no audio does not hide a second that has some", async ({ app }) => {
+    await app.boot(
+      projectWith(
+        [
+          emptyTrack("Host", "0b9f6c2a-1d3e-4f5a-8b7c-9d0e1f2a3b4c"),
+          trackFor(fixturePath("tone3s"), fixtureSeconds("tone3s"), {
+            name: "Guest",
+            id: "5c6d7e8f-9a0b-4c1d-8e2f-3a4b5c6d7e8f",
+          }),
+        ],
+        nodeId(4),
+      ),
+    );
+    const page = app.page;
+
+    await expect(page.getByTestId("empty-state")).toHaveCount(0);
+    await expect(page.getByTestId("ruler")).toContainText("0:03");
+  });
+
+  test("opening a project with no audio does not keep a file picked in the last one", async ({ app }) => {
+    // A picked file is shown before the agent has loaded it — and until
+    // something clears it, it outlives a project change. (Audio that came
+    // from a session's tracks cannot: the timeline derives that.)
+    const picked = fixturePath("tone3s");
+    await app.boot({
+      ...readyToLoad(),
+      // "Open Audio…" asks for several files, so the picker answers with
+      // a list; one file is then handed to the agent as a chat message.
+      "plugin:dialog|open": ok([picked]),
+      // `send_message` returns `CmdResult<()>`, serialised as `null`.
+      send_message: ok(null),
+    });
+    const page = app.page;
+    await page.getByTestId("empty-state-open-button").click();
+    await expect(page.getByTestId("ruler")).toContainText("0:03");
+
+    const other = "/home/user/Music/untitled";
+    await app.become({
+      // The folder picker, answered with the chosen folder.
+      "plugin:dialog|open": ok(other),
+      open_project: ok({ path: other, head: nodeId(9) }),
+      ...sessionWith([emptyTrack("Track 1", "7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d")]),
+    });
+    await page.getByTestId("open-project-button").click();
+
+    await expect(page.getByTestId("empty-state")).toBeVisible();
+  });
+});
+
+/**
+ * Also from review. The first fix gave a returning user a head, and a
+ * head is what lets the app save the view — 500 ms after boot, with
+ * nothing yet restored, so it wrote zoom 0, no selection and playhead 0
+ * over the view they left. On `main` that file survived until the first
+ * edit; with the head fix it did not survive the launch.
+ */
+test.describe("a returning user's view", () => {
+  test("is not written before it has been read", async ({ app }) => {
+    // The head arrives at boot and would arm a save 500 ms later. If
+    // reading the saved view takes longer than that, the save must
+    // wait for it rather than write the defaults.
+    const head = nodeId(8);
+    const saved = { head, zoom_px_per_sec: 200, selection: [0.5, 1.5], playhead_sec: 1 };
+    await app.boot({
+      ...projectWith([trackFor(fixturePath("tone3s"), fixtureSeconds("tone3s"))], head),
+      get_view_state: deferred("saved view"),
+      set_head_to: ok(head),
+    });
+
+    await app.settle();
+    expect(await app.requestsFor("save_view_state"), "a save before the view was read").toEqual([]);
+
+    await app.release("saved view", saved);
+    await expect(app.page.getByTestId("timeline-selection-overlay")).toBeVisible();
+  });
+
+  test("is restored, not written over with defaults", async ({ app }) => {
+    const head = nodeId(8);
+    await app.boot({
+      ...projectWith([trackFor(fixturePath("tone3s"), fixtureSeconds("tone3s"))], head),
+      get_view_state: ok({ head, zoom_px_per_sec: 200, selection: [0.5, 1.5], playhead_sec: 1 }),
+      // `set_head_to` answers with the head it moved to.
+      set_head_to: ok(head),
+    });
+    const page = app.page;
+
+    await expect(page.getByTestId("timeline-selection-overlay")).toBeVisible();
+    await expect
+      .poll(async () => (await app.requestsFor("save_view_state")).length, {
+        message: "the view was saved at least once",
+      })
+      .toBeGreaterThan(0);
+    // Including the playhead. It lives in the mix player, which holds
+    // nothing until a preview is rendered and so answers 0; writing that
+    // back would move the user to the start of the file.
+    for (const saved of await app.requestsFor("save_view_state")) {
+      expect(saved, "every save carries the view that was restored").toMatchObject({
+        view: { head, zoom_px_per_sec: 200, selection: [0.5, 1.5], playhead_sec: 1 },
+      });
+    }
   });
 });

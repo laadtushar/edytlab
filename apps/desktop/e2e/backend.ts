@@ -129,6 +129,12 @@ function bootCommands({ hasKey }: { hasKey: boolean }): Backend {
     // what calls `providerCommands`.
     has_api_key: ok(hasKey),
     install_bundled_skills: ok(bundledSkillCount()),
+    // Read at every launch, to put the user back where they were.
+    // `get_view_state` needs a project directory, not a head, and the
+    // default project always has one; with no `view.json` it reads
+    // `ViewState::default()`, which serialises as `{}`. A test that needs
+    // a saved view overrides this.
+    get_view_state: ok({}),
     list_recent_projects: ok([]),
     list_templates: ok(bundledTemplates()),
   };
@@ -208,10 +214,14 @@ export function projectWith(tracks: TrackSummary[], head: string): Backend {
  * flattened WAV for several, and to `None` for none. The id is a UUID
  * because `TrackId` is one.
  */
-export function trackFor(audioPath: string, seconds: number): TrackSummary {
+export function trackFor(
+  audioPath: string,
+  seconds: number,
+  { name = "Track 1", id = "3f2b8c1e-7d4a-4e9b-9c6f-1a2b3c4d5e6f" } = {},
+): TrackSummary {
   return {
-    id: "3f2b8c1e-7d4a-4e9b-9c6f-1a2b3c4d5e6f",
-    name: "Track 1",
+    id,
+    name,
     muted: false,
     gain_db: 0,
     pan: 0,
@@ -220,6 +230,24 @@ export function trackFor(audioPath: string, seconds: number): TrackSummary {
     clips: [
       { start_sec: 0, length_sec: seconds, source_path: audioPath, volume_envelope: [] },
     ],
+  };
+}
+
+/**
+ * A track with nothing on it yet: a template's track, or one that just
+ * had its only clip removed. No clips, so `list_tracks` gives it no
+ * `audio_path` at all.
+ */
+export function emptyTrack(name: string, id: string): TrackSummary {
+  return {
+    id,
+    name,
+    muted: false,
+    gain_db: 0,
+    pan: 0,
+    soloed: false,
+    audio_path: null,
+    clips: [],
   };
 }
 

@@ -61,6 +61,11 @@ mockIPC(
       // Held until the test releases it, so a test can decide which of
       // two things the app hears first without sleeping and hoping.
       if ("deferred" in answer) {
+        // One call per name: a second would replace the first resolver
+        // and leave the first call hanging forever, unnoticed.
+        if (answer.deferred in window.__E2E_DEFERRED__) {
+          throw new Error(`deferred answer "${answer.deferred}" was called twice`);
+        }
         return new Promise((resolve) => {
           window.__E2E_DEFERRED__[answer.deferred] = resolve;
         });

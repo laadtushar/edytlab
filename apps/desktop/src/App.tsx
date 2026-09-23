@@ -158,6 +158,24 @@ function App() {
   const timelineRef = useRef<TimelineHandle>(null);
   const [markers, setMarkers] = useState<Marker[]>([]);
   const [tracks, setTracks] = useState<TrackSummary[]>([]);
+  /**
+   * What the timeline draws and the status bar names: the session's own
+   * audio, whichever track holds it, and otherwise a file the user has
+   * just picked whose tracks have not arrived yet.
+   *
+   * Derived on every render rather than copied at each place tracks
+   * arrive. A copy has to be remembered, and it was forgotten: boot and
+   * opening a project listed their tracks and left "Drop a file or pick
+   * one to begin" over them (#332), and so did recording into a fresh
+   * project, because a helper that three call sites used was bypassed
+   * by the rest. It also read only track 0, so a project whose first
+   * track is empty hid the audio on its second. A value computed from
+   * `tracks` cannot be skipped by any path that sets them.
+   */
+  const timelineSource = useMemo(
+    () => tracks.find((t) => t.audio_path)?.audio_path ?? sourcePath,
+    [tracks, sourcePath],
+  );
   const selectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [zoomPxPerSec, setZoomPxPerSec] = useState(0);
   // Whether the head lane's audio actually decoded. The status bar
@@ -188,6 +206,16 @@ function App() {
   // with nothing under it.
   const [recents, setRecents] = useState<RecentProject[]>([]);
   const viewSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // False until the saved view has been read at boot. Nothing may write
+  // the view before that: once a returning user has a head, the save
+  // fired 500 ms after launch and wrote zoom 0, no selection and
+  // playhead 0 over the view they left, before anything had read it.
+  const viewRestoredRef = useRef(false);
+  // The playhead as last read from, or written to, `view.json`. The live
+  // playhead belongs to the mix player, which holds nothing until a
+  // preview is rendered, so `getCurrentTime()` answers 0 there. Saving
+  // that would write a position nobody chose over one somebody did.
+  const lastPlayheadRef = useRef(0);
 
   const handleUndo = useCallback(async () => {
     if (!head) return;
@@ -591,34 +619,6 @@ function App() {
   );
 
   /**
-   * A session's tracks have arrived: show them.
-   *
-   * Three paths deliver a session's tracks — boot, an agent edit
-   * (`agent://node-created`), and opening a project — and only the edit
-   * path used to derive `sourcePath` from them. The timeline is gated on
-   * `sourcePath`, so the other two listed the tracks and went on showing
-   * "Drop a file or pick one to begin" over them: a returning user's
-   * project looked empty, and so did every project opened from the
-   * recents list, "Open project…" or "New project…" (#332).
-   *
-   * One function, so the next path that delivers a session cannot list
-   * its tracks and forget the timeline.
-   *
-   * The refreshes after a mixer or clip edit still call `setTracks`
-   * directly. The timeline is already showing by then, and each lane
-   * draws its own track's `audio_path`, so `sourcePath` only names the
-   * session in the status bar there.
-   */
-  const receiveTracks = useCallback((next: TrackSummary[]) => {
-    setTracks(next);
-    // A track's own audio, for the lane and the status bar. It is NOT
-    // the mix, so it must not touch `mixPath` — doing so is what made
-    // every edit fall back to unmixed audio.
-    const firstPath = next[0]?.audio_path;
-    if (firstPath) setSourcePath(firstPath);
-  }, []);
-
-  /**
    * Put the user back where they were.
    *
    * Each field is restored only if the file actually had it — an absent
@@ -634,6 +634,7 @@ function App() {
       if (view.zoomPxPerSec !== undefined) setZoomPxPerSec(view.zoomPxPerSec);
       if (view.selection !== undefined) setSelection(view.selection);
       if (view.playheadSec !== undefined) {
+        lastPlayheadRef.current = view.playheadSec;
         timelineRef.current?.seekTo(view.playheadSec);
       }
       if (view.head) {
@@ -659,14 +660,21 @@ function App() {
     async (path: string) => {
       try {
         const info = await openProject(path);
+        // Whatever the last project had on screen is not this one's. A
+        // picked file and a rendered mix both outlive a project change
+        // otherwise, and the timeline went on drawing the old audio over
+        // a project that has none.
+        setSourcePath(null);
+        setMixPath(null);
+        setMixNodeId(null);
         await restoreView(info.head ?? null);
-        receiveTracks(await listTracks());
+        setTracks(await listTracks());
         setRecents(await listRecentProjects());
       } catch (e) {
         setRenderError(String(e));
       }
     },
-    [restoreView, receiveTracks],
+    [restoreView],
   );
 
   /**
@@ -678,18 +686,20 @@ function App() {
    * loss worth defending against.
    */
   const persistView = useCallback(() => {
-    if (!head) return;
+    if (!head || !viewRestoredRef.current) return;
     // The playhead is read at save time rather than mirrored into
     // state: it changes on every audioprocess tick, and a React state
     // update per tick to feed a debounced disk write would be a lot of
-    // machinery to end up in the same place.
+    // machinery to end up in the same place. With no mix loaded there is
+    // no playhead to read, so the last known one is kept instead.
+    const timeline = timelineRef.current;
+    const playheadSec =
+      timeline && timeline.getDuration() > 0
+        ? timeline.getCurrentTime()
+        : lastPlayheadRef.current;
+    lastPlayheadRef.current = playheadSec;
     void saveViewState(
-      viewToSave({
-        head,
-        zoomPxPerSec,
-        selection,
-        playheadSec: timelineRef.current?.getCurrentTime() ?? 0,
-      }),
+      viewToSave({ head, zoomPxPerSec, selection, playheadSec }),
     ).catch(() => undefined);
   }, [head, zoomPxPerSec, selection]);
 
@@ -978,7 +988,7 @@ function App() {
     onNodeCreated(async (_nodeId: string) => {
       setRedoStack([]); // new branch clears forward history
       setGraphRefresh((n) => n + 1);
-      receiveTracks(await listTracks());
+      setTracks(await listTracks());
       // The session moved, so any previously rendered mix is stale.
       setMixPath(null);
       setMixNodeId(null);
@@ -986,16 +996,23 @@ function App() {
       if (cancelled) fn();
       else unlisten = fn;
     });
-    // Initial fetch — covers the case where the project already had
-    // tracks at startup (auto-init creates a single empty track).
+    // Initial fetch. The backend reopens the default project at every
+    // launch and restores its `HEAD`, so a returning user's tracks are
+    // already there; a fresh project has no head yet and answers
+    // `NoSession`, which leaves the list empty.
     void listTracks()
-      .then(receiveTracks)
+      .then(setTracks)
       .catch(() => setTracks([]));
+    // Then the view they left. Saving stays off until this has been
+    // read, whether or not there was anything to read.
+    void restoreView(null).finally(() => {
+      viewRestoredRef.current = true;
+    });
     return () => {
       cancelled = true;
       unlisten?.();
     };
-  }, [receiveTracks]);
+  }, [restoreView]);
 
   const handleExportSelection = useCallback(async () => {
     if (!head || !selection || exporting) return;
@@ -1199,11 +1216,11 @@ function App() {
 
           <div className="flex-1 min-h-0 overflow-hidden">
             {leftView === "timeline" ? (
-              sourcePath ? (
+              timelineSource ? (
                 <>
                 <Timeline
                   ref={timelineRef}
-                  audioPath={sourcePath}
+                  audioPath={timelineSource}
                   tracks={tracks
                     // `index` is captured before the filter: a track
                     // with no audio is not drawn but still occupies a
@@ -1310,7 +1327,7 @@ function App() {
       </div>
 
       <StatusBar
-        audioPath={sourcePath}
+        audioPath={timelineSource}
         head={head}
         rendering={rendering}
         selection={selection}

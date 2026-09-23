@@ -49,6 +49,12 @@ export interface App {
    */
   release(name: string, value: unknown): Promise<void>;
   /**
+   * Wait until the app has stopped calling the backend (see `QUIET_MS`).
+   * For asserting that something did *not* happen: a debounced call
+   * that was going to be made has been made by then.
+   */
+  settle(): Promise<void>;
+  /**
    * Change what the backend answers from now on — the state after an
    * edit, say. The mock reads its answers live, so the next call sees
    * these.
@@ -87,6 +93,9 @@ export const test = base.extend<{ app: App }>({
     const pageErrors: string[] = [];
     page.on("pageerror", (err) => pageErrors.push(err.message));
     let booted = false;
+    // A deferred answer the test never releases leaves a call pending
+    // for good, and the test passes anyway. Checked at teardown.
+    const released = new Set<string>();
 
     const app: App = {
       page,
@@ -103,9 +112,11 @@ export const test = base.extend<{ app: App }>({
           (c) => window.__E2E_CALLS__.filter((call) => call.cmd === c).map((call) => call.args),
           cmd,
         ),
+      settle: () => settle(page),
       async release(name, value) {
         await page.waitForFunction((n) => n in window.__E2E_DEFERRED__, name);
         await page.evaluate(([n, v]) => window.__E2E_DEFERRED__[n](v), [name, value] as const);
+        released.add(name);
       },
       emit: (event, payload) =>
         page.evaluate(([e, p]) => window.__E2E_EMIT__(e, p), [event, payload] as const),
@@ -124,6 +135,10 @@ export const test = base.extend<{ app: App }>({
     if (booted) await settle(page);
     expect(pageErrors, "uncaught exceptions in the page").toEqual([]);
     if (booted) {
+      const pending = (await page.evaluate(() => Object.keys(window.__E2E_DEFERRED__))).filter(
+        (name) => !released.has(name),
+      );
+      expect(pending, "deferred answers the test never released").toEqual([]);
       const unhandled = await page.evaluate(() => [...new Set(window.__E2E_UNHANDLED__)]);
       expect(unhandled, "commands the app called that the backend was not told how to answer").toEqual([]);
     }
