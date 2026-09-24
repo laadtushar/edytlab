@@ -17,7 +17,7 @@
  * Anthropic as the default selection.
  */
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -67,6 +67,29 @@ vi.mock("../lib/tauri-bridge", () => ({
 }));
 
 import { PROVIDER_STORAGE_KEY, Settings } from "../components/Settings";
+
+/**
+ * Hold a backend read's answer until the test releases it.
+ *
+ * For tests that assert an answer was *ignored*, "the read was called"
+ * is not enough to wait on: the answer arrives after that, and React
+ * draws what it does with it later still. Asserting in between passes
+ * whether or not the component ignored anything — and under a slow
+ * scheduler it always is in between. Releasing inside `act` makes React
+ * finish with the answer before `act` returns.
+ */
+function holdAnswer(mock: ReturnType<typeof vi.fn>, value: string): () => Promise<void> {
+  let release!: () => void;
+  const answer = new Promise<string>((resolve) => {
+    release = () => resolve(value);
+  });
+  mock.mockReturnValue(answer);
+  return () =>
+    act(async () => {
+      release();
+      await answer;
+    });
+}
 
 describe("Settings", () => {
   beforeEach(() => {
@@ -145,10 +168,13 @@ describe("Settings", () => {
     await user.click(screen.getByTestId("settings-save-button"));
 
     expect(setApiKeyForMock).toHaveBeenCalledWith("anthropic", "sk-ant-good");
-    expect(onSaved).toHaveBeenCalledTimes(1);
     // Input should be wiped after a successful save so the key does not
-    // linger in component state.
-    expect(screen.getByTestId("settings-key-input")).toHaveValue("");
+    // linger in component state. The save is awaited inside the click
+    // handler, so the wipe is drawn some time after the click resolves.
+    await waitFor(() =>
+      expect(screen.getByTestId("settings-key-input")).toHaveValue(""),
+    );
+    expect(onSaved).toHaveBeenCalledTimes(1);
   });
 
   it("shows the verbatim error from testApiKey on a failed Test", async () => {
@@ -310,11 +336,12 @@ describe("Settings", () => {
 
   it("keeps the stored value when the backend has no opinion yet", async () => {
     window.localStorage.setItem("edytlab.model.anthropic", "my-pick");
-    getActiveModelMock.mockResolvedValue("");
+    const answer = holdAnswer(getActiveModelMock, "");
 
     render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
 
     await waitFor(() => expect(getActiveModelMock).toHaveBeenCalled());
+    await answer();
     expect(screen.getByTestId("settings-model-input")).toHaveValue("my-pick");
   });
 
@@ -331,21 +358,25 @@ describe("Settings", () => {
     render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
 
     // The OpenAI placeholder is only rendered while OpenAI is selected.
-    await waitFor(() =>
-      expect(screen.getByPlaceholderText("sk-...")).toBeInTheDocument(),
-    );
     // And the stored value is reconciled, so the next mount agrees
-    // before the IPC even resolves.
-    expect(window.localStorage.getItem(PROVIDER_STORAGE_KEY)).toBe("openai");
+    // before the IPC even resolves. Both inside the wait: the value is
+    // written by an effect, which React runs after the draw — asserting
+    // it once the placeholder showed failed on Windows CI whenever the
+    // effect had not run yet.
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("sk-...")).toBeInTheDocument();
+      expect(window.localStorage.getItem(PROVIDER_STORAGE_KEY)).toBe("openai");
+    });
   });
 
   it("keeps the stored provider when the backend has no opinion", async () => {
     window.localStorage.setItem(PROVIDER_STORAGE_KEY, "groq");
-    getActiveProviderMock.mockResolvedValue("");
+    const answer = holdAnswer(getActiveProviderMock, "");
 
     render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
 
     await waitFor(() => expect(getActiveProviderMock).toHaveBeenCalled());
+    await answer();
     expect(screen.getByPlaceholderText("gsk_...")).toBeInTheDocument();
   });
 
@@ -353,11 +384,12 @@ describe("Settings", () => {
     // Leaving it selected would light no radio at all, and every
     // keyed-off-provider control would address a provider with no row.
     window.localStorage.setItem(PROVIDER_STORAGE_KEY, "groq");
-    getActiveProviderMock.mockResolvedValue("mistral");
+    const answer = holdAnswer(getActiveProviderMock, "mistral");
 
     render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
 
     await waitFor(() => expect(getActiveProviderMock).toHaveBeenCalled());
+    await answer();
     expect(screen.getByPlaceholderText("gsk_...")).toBeInTheDocument();
   });
 
