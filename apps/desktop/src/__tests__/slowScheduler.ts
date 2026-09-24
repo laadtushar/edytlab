@@ -16,12 +16,34 @@
  * import order is the only thing that runs before that.
  */
 
+import { afterAll } from "vitest";
+
 if (import.meta.env.MODE === "slow-scheduler") {
+  // Captured now: a test that installs fake timers must not capture these.
   const later = globalThis.setTimeout;
+  const cancel = globalThis.clearTimeout;
+  const pending = new Set<ReturnType<typeof setTimeout>>();
+
   (globalThis as unknown as { setImmediate: unknown }).setImmediate = (
     fn: (...args: unknown[]) => void,
     ...args: unknown[]
-  ) => later(fn, 40, ...args);
-}
+  ) => {
+    const handle = later(() => {
+      pending.delete(handle);
+      fn(...args);
+    }, 40);
+    pending.add(handle);
+    return handle;
+  };
 
-export {};
+  // Work still queued when a file's tests are done is dropped, not run.
+  // Run late, it landed after vitest had torn the file's jsdom down and
+  // failed the whole job on `window is not defined` from inside react-dom
+  // — with every test passing (#354's first CI runs). RTL's cleanup has
+  // unmounted every tree by then, so the work belongs to nothing; and
+  // `afterAll` runs before the environment goes away.
+  afterAll(() => {
+    for (const handle of pending) cancel(handle);
+    pending.clear();
+  });
+}

@@ -23,6 +23,8 @@ import { fileURLToPath } from "node:url";
 
 import type { TrackSummary } from "../src/lib/tauri-bridge";
 
+import { fixturePath, fixtureSeconds } from "./audio-fixtures";
+
 /**
  * One command's answer: its result, the string it fails with, or — for
  * testing an ordering — a result the test releases when it chooses (see
@@ -260,6 +262,11 @@ export function emptyTrack(name: string, id: string): TrackSummary {
  */
 export function selecting(): Backend {
   return { set_selection_context: ok(null) };
+}
+
+/** Track 1, holding the three-second tone. */
+export function toneTrack(): TrackSummary {
+  return trackFor(fixturePath("tone3s"), fixtureSeconds("tone3s"));
 }
 
 /** A node id as the backend formats one: 32 bytes, as 64 hex digits. */
