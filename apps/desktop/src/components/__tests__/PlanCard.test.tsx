@@ -62,6 +62,7 @@ vi.mock("../../lib/tauri-bridge", () => ({
 }));
 
 import { Chat } from "../Chat";
+import { held } from "../../__tests__/held";
 
 const flush = () => new Promise<void>((r) => setTimeout(r, 0));
 
@@ -377,11 +378,8 @@ describe("PlanCard (inside Chat)", () => {
     // Held, so both halves can be seen: the optimistic flip while the
     // save is in flight, then the revert once it fails. Rejecting at
     // once let the revert land before the click resolved, on some runs.
-    let refuse!: () => void;
-    const save = new Promise<void>((_, reject) => {
-      refuse = () => reject(new Error("keychain locked"));
-    });
-    setPlanFirstMock.mockReturnValue(save);
+    const save = held<void>();
+    setPlanFirstMock.mockReturnValue(save.promise);
     const user = userEvent.setup();
     render(<Chat />);
     const toggle = await screen.findByTestId("plan-first-toggle");
@@ -391,11 +389,8 @@ describe("PlanCard (inside Chat)", () => {
     expect(toggle).toHaveAttribute("aria-pressed", "true");
     expect(setPlanFirstMock).toHaveBeenCalledWith(true);
 
-    await act(async () => {
-      refuse();
-      await save.catch(() => undefined);
-    });
-    await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "false"));
+    await save.reject(new Error("keychain locked"));
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
   });
 
 });

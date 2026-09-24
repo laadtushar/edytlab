@@ -199,11 +199,13 @@ describe("Settings provider picker", () => {
     await waitFor(() =>
       expect(setApiKeyForMock).toHaveBeenCalledWith("anthropic", "sk-ant-test"),
     );
-    await waitFor(() => expect(onSaved).toHaveBeenCalled());
-
-    expect(
-      (screen.getByTestId("settings-key-input") as HTMLInputElement).value,
-    ).toBe("");
+    // The wipe is drawn after the save resolves, not with it.
+    await waitFor(() => {
+      expect(onSaved).toHaveBeenCalled();
+      expect(
+        (screen.getByTestId("settings-key-input") as HTMLInputElement).value,
+      ).toBe("");
+    });
   });
 });
 

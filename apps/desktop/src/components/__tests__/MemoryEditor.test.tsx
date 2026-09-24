@@ -46,8 +46,12 @@ describe("MemoryEditor", () => {
     const projectTa = screen.getByTestId(
       "memory-textarea-project",
     ) as HTMLTextAreaElement;
-    await waitFor(() => expect(globalTa.value).toBe("global-text"));
-    expect(projectTa.value).toBe("project-text");
+    // Two reads, drawn independently: one pane arriving says nothing
+    // about the other.
+    await waitFor(() => {
+      expect(globalTa.value).toBe("global-text");
+      expect(projectTa.value).toBe("project-text");
+    });
   });
 
   it("disables Save until the textarea diverges, then writes on click", async () => {
