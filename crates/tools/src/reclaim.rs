@@ -63,6 +63,10 @@ pub struct SweepReport {
     /// Files that were over the cap but could not be touched, because
     /// the head names them or nothing records how to rebuild them.
     pub kept_unrebuildable: usize,
+    /// Files whose history says they can be rebuilt, kept because a
+    /// replay did not actually rebuild them (#356). Anything counted here
+    /// is a gap between what provenance records and what replay does.
+    pub kept_unverified: usize,
 }
 
 fn key(path: &Path) -> PathBuf {
@@ -138,6 +142,11 @@ pub fn rebuildable_paths(nodes: &[session::SessionNode]) -> BTreeSet<PathBuf> {
 /// Returns without touching anything when already under the cap, so
 /// calling this after every edit is cheap.
 ///
+/// A file that older history names is deleted only once a replay has
+/// rebuilt it (the `Verifier` below). Provenance alone said five kinds of
+/// history could be rebuilt when they could not (#356); a sweep that
+/// trusted it deleted audio for good.
+///
 /// # Not wired up yet
 ///
 /// **Nothing in the shipping app calls this.** It is exercised only by
@@ -163,6 +172,20 @@ pub fn sweep(store: &session::Store, cap_bytes: u64) -> std::io::Result<SweepRep
     let protected = head_refs(store);
     let referenced = all_refs(&nodes);
     let rebuildable = rebuildable_paths(&nodes);
+    // Which nodes name each file, to replay one when the file's turn
+    // comes.
+    let mut naming: HashMap<PathBuf, Vec<session::NodeId>> = HashMap::new();
+    for node in &nodes {
+        for track in &node.state.tracks {
+            for clip in &track.clips {
+                naming
+                    .entry(key(&clip.source_path))
+                    .or_default()
+                    .push(node.id);
+            }
+        }
+    }
+    let mut verifier = Verifier::new(&dir);
 
     // (path, bytes, mtime) for everything in the directory.
     let mut files: Vec<(PathBuf, u64, std::time::SystemTime)> = Vec::new();
@@ -213,6 +236,13 @@ pub fn sweep(store: &session::Store, cap_bytes: u64) -> std::io::Result<SweepRep
             report.kept_unrebuildable += 1;
             continue;
         }
+        if !orphan && !verifier.rebuilds(store, &k, naming.get(&k).map(Vec::as_slice)) {
+            // The record says it can come back; a replay says otherwise.
+            // The replay is what `ensure_present` will run, so it is the
+            // one to believe (#356).
+            report.kept_unverified += 1;
+            continue;
+        }
         if std::fs::remove_file(path).is_ok() {
             report.removed_files += 1;
             if orphan {
@@ -225,6 +255,60 @@ pub fn sweep(store: &session::Store, cap_bytes: u64) -> std::io::Result<SweepRep
 
     report.remaining_bytes = remaining;
     Ok(report)
+}
+
+/// Proof, before a delete, that a file can be put back (#356).
+///
+/// Provenance says a chain can be replayed; five kinds of history proved
+/// that claim wrong — after compaction, after a paste, with a range taken
+/// from the chat message, after `apply_diff`, and once the original source
+/// has moved. Each looked rebuildable and was not. Rather than chase every
+/// such gap in the record, the sweep asks the replay itself: it runs the
+/// chain in a scratch project, as `ensure_present` would, and a file is
+/// verified only if the replay wrote a file of the same name — the same
+/// bytes, since names are content hashes.
+///
+/// One replay verifies every file it writes, and each node is replayed at
+/// most once, so a sweep replays each distinct chain once at most. It is
+/// still work proportional to history, which is why this runs only when
+/// the directory is over its cap.
+struct Verifier {
+    dir: PathBuf,
+    verified: BTreeSet<PathBuf>,
+    replayed: HashSet<session::NodeId>,
+}
+
+impl Verifier {
+    fn new(dir: &Path) -> Self {
+        Self {
+            dir: dir.to_path_buf(),
+            verified: BTreeSet::new(),
+            replayed: HashSet::new(),
+        }
+    }
+
+    /// Whether a replay of one of `nodes` rebuilds the file at `k`.
+    fn rebuilds(
+        &mut self,
+        store: &session::Store,
+        k: &Path,
+        nodes: Option<&[session::NodeId]>,
+    ) -> bool {
+        for &id in nodes.unwrap_or_default() {
+            if self.verified.contains(k) {
+                break;
+            }
+            if !self.replayed.insert(id) {
+                continue;
+            }
+            if let Ok(replay) = crate::rederive::replay(store, id) {
+                for name in replay.produced() {
+                    self.verified.insert(key(&self.dir.join(name)));
+                }
+            }
+        }
+        self.verified.contains(k)
+    }
 }
 
 /// Remove every file in `derived/` that no node names — and nothing else.
