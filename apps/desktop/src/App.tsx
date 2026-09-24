@@ -1260,7 +1260,6 @@ function App() {
           <div className="flex-1 min-h-0 overflow-hidden">
             {leftView === "timeline" ? (
               timelineSource ? (
-                <>
                 <Timeline
                   ref={timelineRef}
                   audioPath={timelineSource}
@@ -1311,17 +1310,21 @@ function App() {
                   onLoopChange={setLoopActive}
                   spectrogramEnabled={spectrogramEnabled}
                   onSpectrogramChange={setSpectrogramEnabled}
+                  // Inside the timeline, on its axis: zoomed, a label
+                  // has to stay over the audio it names.
+                  belowLanes={(view) => (
+                    <LabelLane
+                      labels={markers}
+                      duration={sessionDuration}
+                      view={view}
+                      onAdd={handleAddMarker}
+                      onRename={handleRenameMarker}
+                      onMove={handleMoveMarker}
+                      onRemove={handleRemoveMarker}
+                      onSeek={handleSeekToMarker}
+                    />
+                  )}
                 />
-                  <LabelLane
-                    labels={markers}
-                    duration={sessionDuration}
-                    onAdd={handleAddMarker}
-                    onRename={handleRenameMarker}
-                    onMove={handleMoveMarker}
-                    onRemove={handleRemoveMarker}
-                    onSeek={handleSeekToMarker}
-                  />
-                </>
               ) : (
                 <EmptyState
                   onOpen={handleOpenDialog}

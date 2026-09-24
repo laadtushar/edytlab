@@ -2,10 +2,11 @@
  * The snap toggle, and the case where snapping must not happen (#161).
  *
  * The interesting half is the second one. Selection is measured on the
- * session axis (#171), so this lane's samples are only the audio under
- * the cursor when the lane runs the length of the session. Snapping
- * against the wrong buffer would move the boundary to a crossing that
- * is not where the user is cutting — and it would do it invisibly.
+ * session axis (#171), and a lane's audio starts at session zero
+ * (#348), so its samples are the audio under the cursor only for as long
+ * as they run. Snapping against a buffer that does not hold the
+ * selection would move the boundary to a crossing that is not where the
+ * user is cutting — and it would do it invisibly.
  */
 
 import { fireEvent, render, screen } from "@testing-library/react";
@@ -45,6 +46,11 @@ vi.mock("wavesurfer.js", () => ({
       destroy: vi.fn(),
       getDuration: () => LANE_SECONDS,
       getCurrentTime: () => 0,
+      // The lane draws at the timeline's density and scrolls to its
+      // window through these (#344).
+      getWrapper: () => document.createElement("div"),
+      setScroll: vi.fn(),
+      getScroll: () => 0,
       getDecodedData: () => ({
         sampleRate: SR,
         getChannelData: () => CHANNEL,
@@ -176,11 +182,11 @@ describe("snap to zero crossings", () => {
   });
 
   /**
-   * The lane's audio is not the audio at that session time, so the
-   * crossing it would find belongs to a different waveform. Leaving the
-   * selection alone is the only honest option.
+   * Past the end of the lane's audio there are no samples to snap to.
+   * The crossing it would find belongs to no audio at that time, so
+   * leaving the selection alone is the only honest option.
    */
-  it("does not snap when the lane is not the session axis", () => {
+  it("does not snap a selection that runs past the lane's audio", () => {
     pinWidth();
     const onSelectionChange = vi.fn();
     render(
@@ -195,9 +201,37 @@ describe("snap to zero crossings", () => {
     dragAcross(101.3, 503.7);
     const sel = lastSelection(onSelectionChange);
     expect(sel).toBeTruthy();
-    // Sixty seconds across 1000 px: the dragged seconds are six times
-    // the matched case, and untouched by snapping.
+    // Sixty seconds across 1000 px: the drag runs to about 30 s, well
+    // past the lane's 10, and is untouched by snapping.
+    expect(sel.end).toBeGreaterThan(LANE_SECONDS);
     expect(sel.start).toBeCloseTo((101.3 / PANE_WIDTH) * LANE_SECONDS * 6, 4);
+  });
+
+  /**
+   * A lane's audio starts at session zero (#348), so a selection inside
+   * it is over the lane's own samples, however long the session is.
+   * This used to be refused whenever the lane was shorter than the
+   * session, because a lane's audio was not then on the session's axis.
+   */
+  it("snaps a selection inside the lane's audio in a longer session", () => {
+    pinWidth();
+    const onSelectionChange = vi.fn();
+    render(
+      <Timeline
+        tracks={MISMATCHED}
+        selection={null}
+        snapToZero
+        onSelectionChange={onSelectionChange}
+      />,
+    );
+
+    // 60 s across 1000 px: 1.2 s to 8.4 s, inside the lane's 10.
+    dragAcross(20.3, 140.3);
+    const sel = lastSelection(onSelectionChange);
+    expect(sel).toBeTruthy();
+    expect(sel.end).toBeLessThan(LANE_SECONDS);
+    expect(offsetFromCrossing(sel.start)).toBe(0);
+    expect(offsetFromCrossing(sel.end)).toBe(0);
   });
 
   it("reports its state on the toggle button", () => {
