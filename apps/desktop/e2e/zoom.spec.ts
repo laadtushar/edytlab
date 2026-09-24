@@ -101,15 +101,22 @@ test.describe("zoom to selection", () => {
 
     // And the ruler, which follows the pane (#323), says so: every label
     // it draws is inside the selection.
-    const labels = (await page.getByTestId("ruler").locator("span").allTextContents()).map((l) => {
-      const [mm, ss] = l.split(":");
-      return Number(mm) * 60 + Number(ss);
-    });
-    expect(labels.length, "the ruler labels the framed window").toBeGreaterThan(1);
-    for (const t of labels) {
-      expect(t).toBeGreaterThanOrEqual(sel.start - SLACK);
-      expect(t).toBeLessThanOrEqual(sel.end + SLACK);
-    }
+    // Retried, not read once: the ruler redraws from the pane's scroll
+    // event, a React render after the scroll itself, so a single read can
+    // still see the labels from before the zoom.
+    await expect(async () => {
+      const labels = (await page.getByTestId("ruler").locator("span").allTextContents()).map(
+        (l) => {
+          const [mm, ss] = l.split(":");
+          return Number(mm) * 60 + Number(ss);
+        },
+      );
+      expect(labels.length, "the ruler labels the framed window").toBeGreaterThan(1);
+      for (const t of labels) {
+        expect(t).toBeGreaterThanOrEqual(sel.start - SLACK);
+        expect(t).toBeLessThanOrEqual(sel.end + SLACK);
+      }
+    }).toPass();
   });
 
   test("Ctrl+E does the same as the button", async ({ app }) => {
