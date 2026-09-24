@@ -71,7 +71,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout the commit CI passed on
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # Pin to the exact SHA CI ran against — protects against
           # racing with another merge that landed between CI completion

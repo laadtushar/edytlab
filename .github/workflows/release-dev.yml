@@ -113,7 +113,7 @@ jobs:
 
       - name: Find or create draft release
         id: create
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           TAG: ${{ steps.tag.outputs.tag }}
           CHANNEL: ${{ steps.tag.outputs.channel }}
@@ -291,7 +291,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # The commit this run was dispatched for, not the branch tip.
           #
@@ -411,10 +411,10 @@ jobs:
           key: release-dev-${{ matrix.platform.name }}
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Install Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: pnpm
