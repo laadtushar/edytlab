@@ -10,6 +10,8 @@
 
 import type { Page } from "@playwright/test";
 
+import type { TrackSummary } from "../src/lib/tauri-bridge";
+
 import { fixturePath, fixtureSeconds } from "./audio-fixtures";
 import {
   deferred,
@@ -51,6 +53,11 @@ function waveformHasInk(page: Page): Promise<boolean> {
     );
 }
 
+/** Track 1, holding the three-second tone. */
+function toneTrack(): TrackSummary {
+  return trackFor(fixturePath("tone3s"), fixtureSeconds("tone3s"));
+}
+
 test.describe("a first launch, with no project history and no key", () => {
   test("asks for a key over the empty state", async ({ app }) => {
     await app.boot(firstRun());
@@ -82,7 +89,7 @@ test.describe("once the agent loads a file", () => {
 
     // The agent's `load` tool wrote a session node; the backend now has
     // a track, and says so with the event it emits for every new node.
-    await app.become(sessionWith([trackFor(fixturePath("tone3s"), fixtureSeconds("tone3s"))]));
+    await app.become(sessionWith([toneTrack()]));
     await app.emit("agent://node-created", { node_id: nodeId(1) });
 
     await expect(page.getByTestId("ruler")).toContainText("0:03");
@@ -100,7 +107,7 @@ test.describe("once the agent loads a file", () => {
 test.describe("a returning user", () => {
   test("boots into their project, with the track decoded", async ({ app }) => {
     await app.boot(
-      projectWith([trackFor(fixturePath("tone3s"), fixtureSeconds("tone3s"))], nodeId(1)),
+      projectWith([toneTrack()], nodeId(1)),
     );
     const page = app.page;
 
@@ -118,7 +125,7 @@ test.describe("a returning user", () => {
   test("can preview the mix of the state they left", async ({ app }) => {
     const head = nodeId(7);
     await app.boot({
-      ...projectWith([trackFor(fixturePath("tone3s"), fixtureSeconds("tone3s"))], head),
+      ...projectWith([toneTrack()], head),
       // `render_preview` answers with the rendered file's path.
       render_preview: ok(fixturePath("tone3s")),
     });
@@ -141,7 +148,7 @@ test.describe("a returning user", () => {
   test("keeps an edit's head when it lands before the restored one arrives", async ({ app }) => {
     const restored = nodeId(1);
     const edited = nodeId(2);
-    const tracks = [trackFor(fixturePath("tone3s"), fixtureSeconds("tone3s"))];
+    const tracks = [toneTrack()];
     await app.boot({
       ...projectWith(tracks, restored),
       get_session_head: deferred("restored head"),
@@ -185,7 +192,7 @@ test.describe("opening a project that already has a track", () => {
     await app.become({
       open_project: ok({ path: project, head: nodeId(3) }),
       get_view_state: ok({}),
-      ...sessionWith([trackFor(fixturePath("tone3s"), fixtureSeconds("tone3s"))]),
+      ...sessionWith([toneTrack()]),
     });
     await page.getByTestId(`recent-open-${project}`).click();
 
@@ -288,9 +295,8 @@ test.describe("a returning user's view", () => {
     const head = nodeId(8);
     const saved = { head, zoom_px_per_sec: 200, selection: [0.5, 1.5], playhead_sec: 1 };
     await app.boot({
-      ...projectWith([trackFor(fixturePath("tone3s"), fixtureSeconds("tone3s"))], head),
+      ...projectWith([toneTrack()], head),
       get_view_state: deferred("saved view"),
-      set_head_to: ok(head),
     });
 
     await app.settle();
@@ -303,10 +309,8 @@ test.describe("a returning user's view", () => {
   test("is restored, not written over with defaults", async ({ app }) => {
     const head = nodeId(8);
     await app.boot({
-      ...projectWith([trackFor(fixturePath("tone3s"), fixtureSeconds("tone3s"))], head),
+      ...projectWith([toneTrack()], head),
       get_view_state: ok({ head, zoom_px_per_sec: 200, selection: [0.5, 1.5], playhead_sec: 1 }),
-      // `set_head_to` answers with the head it moved to.
-      set_head_to: ok(head),
     });
     const page = app.page;
 
@@ -324,5 +328,90 @@ test.describe("a returning user's view", () => {
         view: { head, zoom_px_per_sec: 200, selection: [0.5, 1.5], playhead_sec: 1 },
       });
     }
+  });
+
+  /**
+   * From the second review. `view.json` is written 500 ms after the view
+   * stops changing, so an edit made in the last half-second before quitting
+   * leaves it naming the head *before* that edit. The backend restores the
+   * real `HEAD` at launch; if boot then obeyed the saved view's head, it
+   * moved `HEAD` back on disk and the edit was gone from the timeline. An
+   * edit landing during boot, before the view was read, did the same.
+   */
+  test("never moves the head the backend restored back to the one it names", async ({ app }) => {
+    const before = nodeId(1);
+    const latest = nodeId(2);
+    await app.boot({
+      ...projectWith([toneTrack()], latest),
+      get_view_state: ok({ head: before, zoom_px_per_sec: 200 }),
+      // What the real command would do if asked: move there and say so.
+      set_head_to: ok(before),
+      render_preview: ok(fixturePath("tone3s")),
+    });
+    const page = app.page;
+    await expect(page.getByTestId("ruler")).toContainText("0:03");
+    await app.settle();
+
+    expect(await app.requestsFor("set_head_to"), "boot moved the head").toEqual([]);
+    await page.getByTestId("render-preview-button").click();
+    await expect
+      .poll(() => app.requestsFor("render_preview"), { message: "a render of the head the backend restored" })
+      .toEqual([{ node: latest }]);
+  });
+
+  /**
+   * The other side of the rule below. Opening a project switches the whole
+   * view, so what the last project had on screen must not survive just
+   * because it differs from the defaults.
+   */
+  test("of another project replaces the one on screen when that project is opened", async ({ app }) => {
+    const other = "/home/user/Music/interview";
+    await app.boot({
+      ...projectWith([toneTrack()], nodeId(8)),
+      get_view_state: ok({ selection: [0.5, 1.5] }),
+    });
+    const page = app.page;
+    await expect(page.getByTestId("timeline-selection-overlay")).toBeVisible();
+
+    await app.become({
+      // The folder picker, answered with the chosen folder.
+      "plugin:dialog|open": ok(other),
+      open_project: ok({ path: other, head: nodeId(9) }),
+      get_view_state: ok({ selection: [2, 2.5] }),
+    });
+    await page.getByTestId("open-project-button").click();
+
+    await expect
+      .poll(async () => (await app.requestsFor("save_view_state")).at(-1), {
+        message: "the view saved after opening",
+      })
+      .toMatchObject({ view: { head: nodeId(9), selection: [2, 2.5] } });
+  });
+
+  /**
+   * Also from the second review. The saved view is read while the timeline
+   * is already usable, so a zoom made in that gap was replaced by the one
+   * on disk when the read came back — the user's own action, undone.
+   */
+  test("does not undo a zoom made before it was read", async ({ app }) => {
+    const head = nodeId(8);
+    await app.boot({
+      ...projectWith([toneTrack()], head),
+      get_view_state: deferred("saved view"),
+    });
+    const page = app.page;
+    await expect(page.getByTestId("ruler")).toContainText("0:03");
+
+    // `=` zooms in 40 px/s from auto-fit.
+    await page.keyboard.press("=");
+    await app.release("saved view", { head, zoom_px_per_sec: 200, selection: [0.5, 1.5] });
+
+    // The selection was never touched, so it is still restored.
+    await expect(page.getByTestId("timeline-selection-overlay")).toBeVisible();
+    await expect
+      .poll(async () => (await app.requestsFor("save_view_state")).at(-1), {
+        message: "the view saved after the read",
+      })
+      .toMatchObject({ view: { zoom_px_per_sec: 40, selection: [0.5, 1.5] } });
   });
 });

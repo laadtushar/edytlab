@@ -102,7 +102,7 @@ import {
   saveViewState,
   type RecentProject,
 } from "./lib/tauri-bridge";
-import { viewToApply, viewToSave } from "./lib/viewState";
+import { type ViewToApply, viewToApply, viewToSave } from "./lib/viewState";
 
 import type { LeftView } from "./lib/views";
 
@@ -619,11 +619,40 @@ function App() {
   );
 
   /**
-   * Put the user back where they were.
+   * Zoom, selection and playhead from a saved view.
    *
    * Each field is restored only if the file actually had it — an absent
-   * zoom must not reset the timeline while claiming to restore it. The
-   * head is a *request*: `view.json` can name a node that no longer
+   * zoom must not reset the timeline while claiming to restore it.
+   *
+   * `fill` sets only what is still at its default: auto-fit zoom and no
+   * selection. At launch the view is read while the timeline is already
+   * usable, and replacing whatever is on screen when the read comes back
+   * undid a zoom the user had just made. Opening a project `replace`s:
+   * there the whole view is being switched, and nothing on screen
+   * belongs to the project being opened.
+   */
+  const applyView = useCallback(
+    (view: ViewToApply, mode: "fill" | "replace") => {
+      const zoom = view.zoomPxPerSec;
+      if (zoom !== undefined) {
+        setZoomPxPerSec((cur) => (mode === "fill" && cur !== 0 ? cur : zoom));
+      }
+      const sel = view.selection;
+      if (sel !== undefined) {
+        setSelection((cur) => (mode === "fill" && cur !== null ? cur : sel));
+      }
+      if (view.playheadSec !== undefined) {
+        lastPlayheadRef.current = view.playheadSec;
+        timelineRef.current?.seekTo(view.playheadSec);
+      }
+    },
+    [],
+  );
+
+  /**
+   * Put the user back where they were in a project they just opened.
+   *
+   * The head is a *request*: `view.json` can name a node that no longer
    * exists (a folder copied without `.audiograph/`, a rebuilt store),
    * so a failure there leaves the head the store reported and is not an
    * error worth showing.
@@ -631,12 +660,7 @@ function App() {
   const restoreView = useCallback(
     async (fallbackHead: string | null) => {
       const view = viewToApply(await getViewState().catch(() => null));
-      if (view.zoomPxPerSec !== undefined) setZoomPxPerSec(view.zoomPxPerSec);
-      if (view.selection !== undefined) setSelection(view.selection);
-      if (view.playheadSec !== undefined) {
-        lastPlayheadRef.current = view.playheadSec;
-        timelineRef.current?.seekTo(view.playheadSec);
-      }
+      applyView(view, "replace");
       if (view.head) {
         try {
           await setHeadTo(view.head);
@@ -648,7 +672,7 @@ function App() {
       }
       if (fallbackHead) setHeadLocal(fallbackHead);
     },
-    [setHeadLocal],
+    [applyView, setHeadLocal],
   );
 
   /**
@@ -1005,14 +1029,25 @@ function App() {
       .catch(() => setTracks([]));
     // Then the view they left. Saving stays off until this has been
     // read, whether or not there was anything to read.
-    void restoreView(null).finally(() => {
-      viewRestoredRef.current = true;
-    });
+    //
+    // Everything but its head. The backend has already restored `HEAD`,
+    // and `useSession` reads it; the saved view's head can only be as new
+    // or older. It is written 500 ms after the view settles, so an edit
+    // in the last half-second before quitting leaves it one behind — and
+    // obeying it moved `HEAD` back on disk, taking that edit off the
+    // timeline. An edit landing while this read was in flight went the
+    // same way.
+    void getViewState()
+      .catch(() => null)
+      .then((saved) => applyView(viewToApply(saved), "fill"))
+      .finally(() => {
+        viewRestoredRef.current = true;
+      });
     return () => {
       cancelled = true;
       unlisten?.();
     };
-  }, [restoreView]);
+  }, [applyView]);
 
   const handleExportSelection = useCallback(async () => {
     if (!head || !selection || exporting) return;
