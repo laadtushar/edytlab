@@ -10,7 +10,6 @@
 
 import type { Page } from "@playwright/test";
 
-import type { TrackSummary } from "../src/lib/tauri-bridge";
 
 import { fixturePath, fixtureSeconds } from "./audio-fixtures";
 import {
@@ -22,6 +21,7 @@ import {
   projectWith,
   readyToLoad,
   sessionWith,
+  toneTrack,
   trackFor,
 } from "./backend";
 import { expect, test } from "./fixtures";
@@ -51,11 +51,6 @@ function waveformHasInk(page: Page): Promise<boolean> {
         return false;
       }),
     );
-}
-
-/** Track 1, holding the three-second tone. */
-function toneTrack(): TrackSummary {
-  return trackFor(fixturePath("tone3s"), fixtureSeconds("tone3s"));
 }
 
 test.describe("a first launch, with no project history and no key", () => {
@@ -250,20 +245,20 @@ test.describe("whatever brings a session's audio in, the timeline follows", () =
     await expect(page.getByTestId("ruler")).toContainText("0:03");
   });
 
-  test("opening a project with no audio does not keep a file picked in the last one", async ({ app }) => {
-    // A picked file is shown before the agent has loaded it — and until
-    // something clears it, it outlives a project change. (Audio that came
-    // from a session's tracks cannot: the timeline derives that.)
-    const picked = fixturePath("tone3s");
+  test("opening a project with no audio does not keep the last project's file", async ({ app }) => {
+    // A file opened in one project must not stay on screen over the next.
+    // Opening loads it into that project's session (#321), so it is a
+    // track like any other and the timeline follows the tracks.
+    const opened = fixturePath("tone3s");
     await app.boot({
       ...readyToLoad(),
-      // "Open Audio…" asks for several files, so the picker answers with
-      // a list; one file is then handed to the agent as a chat message.
-      "plugin:dialog|open": ok([picked]),
-      // `send_message` returns `CmdResult<()>`, serialised as `null`.
-      send_message: ok(null),
+      // "Open Audio…" asks for several files, so the picker answers a list.
+      "plugin:dialog|open": ok([opened]),
+      // `batch_load` answers `BatchLoadResult`.
+      batch_load: ok({ tracks_loaded: 1, last_node_id: nodeId(5) }),
     });
     const page = app.page;
+    await app.become(sessionWith([toneTrack()]));
     await page.getByTestId("empty-state-open-button").click();
     await expect(page.getByTestId("ruler")).toContainText("0:03");
 

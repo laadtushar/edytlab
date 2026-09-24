@@ -42,7 +42,6 @@ import Spectrogram from "wavesurfer.js/dist/plugins/spectrogram.esm.js";
  */
 const LANE_HEIGHT = 72;
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { sendMessage as bridgeSendMessage } from "../lib/tauri-bridge";
 import type { Marker } from "../lib/tauri-bridge";
 import { snapRange } from "../lib/zeroCrossing";
 import { AutomationLane } from "./AutomationLane";
@@ -658,7 +657,7 @@ function isAbort(err: unknown): boolean {
   }, []);
 
   const handleDrop = useCallback(
-    async (e: React.DragEvent<HTMLDivElement>) => {
+    (e: React.DragEvent<HTMLDivElement>) => {
       e.preventDefault();
       setIsDragging(false);
       const file = e.dataTransfer.files?.[0];
@@ -668,12 +667,10 @@ function isAbort(err: unknown): boolean {
         setLoadError("Could not resolve absolute path for the dropped file.");
         return;
       }
+      // Loaded by the app, straight into the session — not sent to the
+      // agent as a sentence, which needs a working model to mean
+      // anything (#321).
       onFileDropped?.(path);
-      try {
-        await bridgeSendMessage(`load this file: ${path}`);
-      } catch (err) {
-        setLoadError(String(err));
-      }
     },
     [onFileDropped],
   );

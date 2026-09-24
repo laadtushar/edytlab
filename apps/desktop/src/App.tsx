@@ -88,7 +88,6 @@ import { listTemplates, applyTemplate, startRecording, stopRecording, timerRecor
 import type { TemplateInfo } from "./components/TemplatePickerModal";
 import {
   listenToFileDrops,
-  loadAudio,
   pickAudioFiles,
   pickProjectDirectory,
 } from "./lib/file-open";
@@ -132,9 +131,9 @@ function App() {
   // Two different things used to share one variable, and the collision
   // is why the mixer is inaudible (#155).
   //
-  // `sourcePath` is a *source* file — what the user opened, or a track's
-  // own flattened WAV. It has no mixer state applied and is only ever
-  // right for drawing a lane or naming the session in the status bar.
+  // A *source* file — a track's own audio (`timelineSource`, below) — has
+  // no mixer state applied and is only ever right for drawing a lane or
+  // naming the session in the status bar.
   //
   // `mixPath` is the output of `render_preview` for a specific node: the
   // mix, with gain, pan, mute, solo, chains, sends and the master chain
@@ -143,7 +142,6 @@ function App() {
   // Merged, `onNodeCreated` overwrote the mix with a raw track path after
   // every agent turn, so the mix was correct for about one render and
   // then quietly was not.
-  const [sourcePath, setSourcePath] = useState<string | null>(null);
   const [mixPath, setMixPath] = useState<string | null>(null);
   const [mixNodeId, setMixNodeId] = useState<string | null>(null);
   const [rendering, setRendering] = useState(false);
@@ -160,8 +158,12 @@ function App() {
   const [tracks, setTracks] = useState<TrackSummary[]>([]);
   /**
    * What the timeline draws and the status bar names: the session's own
-   * audio, whichever track holds it, and otherwise a file the user has
-   * just picked whose tracks have not arrived yet.
+   * audio, whichever track holds it.
+   *
+   * Only ever the session's. It also used to fall back to a file the user
+   * had just picked, drawn before anything had loaded it — so with no
+   * working model the waveform and "ready" showed over an empty session
+   * (#321). Opening a file now loads it before anything is drawn.
    *
    * Derived on every render rather than copied at each place tracks
    * arrive. A copy has to be remembered, and it was forgotten: boot and
@@ -173,14 +175,14 @@ function App() {
    * `tracks` cannot be skipped by any path that sets them.
    */
   const timelineSource = useMemo(
-    () => tracks.find((t) => t.audio_path)?.audio_path ?? sourcePath,
-    [tracks, sourcePath],
+    () => tracks.find((t) => t.audio_path)?.audio_path ?? null,
+    [tracks],
   );
   const selectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [zoomPxPerSec, setZoomPxPerSec] = useState(0);
   // Whether the head lane's audio actually decoded. The status bar
-  // used to infer "ready" from `sourcePath` alone — from a path having
-  // been *chosen* — so it reported ready for a file that 404'd.
+  // used to infer "ready" from a path alone — from a path having been
+  // *chosen* — so it reported ready for a file that 404'd.
   const [audioLoadError, setAudioLoadError] = useState<string | null>(null);
   const [redoStack, setRedoStack] = useState<string[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -410,12 +412,6 @@ function App() {
     return () => { unlisten?.(); };
   }, []);
 
-  // Common entry point for "user just supplied a file" — used by the
-  // toolbar Open button, the native File > Open menu, and OS-level
-  // drag-and-drop.
-  const handleFileSelected = useCallback((path: string) => {
-    void loadAudio(path, setSourcePath, (err) => setRenderError(err));
-  }, []);
 
   /**
    * Adopt the node a command just appended (#232).
@@ -450,54 +446,45 @@ function App() {
   );
 
   /**
-   * Load whatever arrived — from the picker or from a drop.
+   * Load whatever arrived — from the picker, the menu or a drop — one
+   * file or several, each as its own track.
    *
-   * One file keeps the single-file path so the agent gets a "load this
-   * file: …" message and the waveform updates the way it always has.
-   * Several go through `batch_load`, which adds each as its own track
-   * rather than replacing the session.
+   * Straight into the session, through `batch_load`: the same `load`
+   * tool the agent uses, with no model involved (#321). A single file
+   * used to be sent to the agent as "load this file: …" and drawn at
+   * once, so with no working model — offline, no key yet, a model that
+   * cannot call tools — the waveform and "ready" showed over a session
+   * that stayed empty, and every edit after failed with nothing on
+   * screen saying why. Loading a file has one correct outcome; it is not
+   * a judgement for a model to make.
+   *
+   * Nothing is drawn until the load succeeds: the timeline follows the
+   * tracks, and a failure names the file. The agent still learns of it —
+   * its next turn reads the session, where the load is a node like any
+   * other.
    */
-  const handleFilesSelected = useCallback(
+  const loadFiles = useCallback(
     async (paths: string[]) => {
       if (paths.length === 0) return;
-      if (paths.length === 1) {
-        handleFileSelected(paths[0]);
-        return;
-      }
-      setSourcePath(paths[0]);
       try {
         applyNewHead((await batchLoad(paths)).last_node_id);
         setTracks(await listTracks());
       } catch (err) {
-        setRenderError(String(err));
+        const what = paths.length === 1 ? trimPath(paths[0]) : `${paths.length} files`;
+        setRenderError(`Could not load ${what}: ${String(err)}`);
       }
     },
-    [handleFileSelected, applyNewHead],
+    [applyNewHead],
   );
 
   const handleOpenDialog = useCallback(async () => {
     try {
       const paths = await pickAudioFiles(true);
-      if (!paths || paths.length === 0) return;
-      if (paths.length === 1) {
-        // Single file — use the existing single-file path so the agent
-        // receives a "load this file: …" message and waveform updates normally.
-        handleFileSelected(paths[0]);
-        return;
-      }
-      // Multiple files — call batch_load then refresh track list.
-      setSourcePath(paths[0]);
-      try {
-        applyNewHead((await batchLoad(paths)).last_node_id);
-        const newTracks = await listTracks();
-        setTracks(newTracks);
-      } catch (err) {
-        setRenderError(String(err));
-      }
+      if (paths) await loadFiles(paths);
     } catch (err) {
       setRenderError(String(err));
     }
-  }, [handleFileSelected, applyNewHead]);
+  }, [loadFiles]);
 
   useEffect(() => {
     void listTemplates().then(setTemplates).catch(console.error);
@@ -685,10 +672,7 @@ function App() {
       try {
         const info = await openProject(path);
         // Whatever the last project had on screen is not this one's. A
-        // picked file and a rendered mix both outlive a project change
-        // otherwise, and the timeline went on drawing the old audio over
-        // a project that has none.
-        setSourcePath(null);
+        // rendered mix outlives a project change otherwise.
         setMixPath(null);
         setMixNodeId(null);
         await restoreView(info.head ?? null);
@@ -994,7 +978,7 @@ function App() {
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     let cancelled = false;
-    listenToFileDrops((paths) => void handleFilesSelected(paths))
+    listenToFileDrops((paths) => void loadFiles(paths))
       .then((fn) => {
         if (cancelled) fn();
         else unlisten = fn;
@@ -1004,7 +988,7 @@ function App() {
       cancelled = true;
       unlisten?.();
     };
-  }, [handleFilesSelected]);
+  }, [loadFiles]);
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;
@@ -1282,7 +1266,7 @@ function App() {
                   onClipEnvelopeChange={handleClipEnvelopeChange}
                   onMoveClip={handleMoveClip}
                   onRemoveClip={handleRemoveClip}
-                  onFileDropped={() => undefined}
+                  onFileDropped={(path) => void loadFiles([path])}
                   selection={selection}
                   onSelectionChange={handleSelectionChange}
                   markers={markers}
