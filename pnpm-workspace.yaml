@@ -2,4 +2,7 @@ packages:
   - "apps/*"
   # Note: `website/` is intentionally excluded from the workspace so Vercel
   # can build it as a standalone Next.js project (no monorepo gymnastics).
+  # It therefore carries its own lockfile, install and tests: run
+  # `pnpm install --ignore-workspace` and `pnpm test` inside `website/`,
+  # as ci.yml's `website` job does (#303).
 
