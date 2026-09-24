@@ -130,18 +130,28 @@ test.describe("zoom to selection", () => {
   });
 
   /**
-   * From review. The request is a one-off, but it lived on in the
+   * From review. The request used to be a one-off that lived on in the
    * timeline's state, and a lane that mounted later — a track added, or
-   * renamed, since lanes are keyed by name — had never applied it, so it
-   * did. The new lane jumped to a selection framed long before, wherever
-   * the user had panned since.
+   * renamed, since lanes are keyed by name — applied it then. The new
+   * lane jumped to a selection framed long before, wherever the user
+   * had panned since.
+   *
+   * There is one scroll for the whole timeline now (#344), so a new lane
+   * shows what every other lane shows: where the user is, not where they
+   * once zoomed.
    */
-  test("is not replayed on a track added afterwards", async ({ app }) => {
+  test("a track added afterwards shows where the user is, not an old framing", async ({ app }) => {
     await loadTone(app);
     const page = app.page;
     const sel = await dragSelect(page, 0.6, 0.8);
     await page.getByTestId("zoom-to-selection-btn").click();
     await expectFramed(page, sel);
+
+    // Pan back to the start, away from the selection.
+    await page.getByTestId("timeline-hscroll").evaluate((el) => {
+      el.scrollLeft = 0;
+    });
+    await expect.poll(async () => (await visibleWindow(page)).start).toBe(0);
 
     const first = trackFor(fixturePath("tone3s"), SECONDS);
     const second = { ...first, id: "9c1d2e3f-4a5b-4c6d-8e7f-0a1b2c3d4e5f", name: "Track 2" };
@@ -149,13 +159,13 @@ test.describe("zoom to selection", () => {
     await app.emit("agent://node-created", { node_id: nodeId(2) });
     await expect(page.getByTestId("timeline-lane-waveform")).toHaveCount(2);
 
-    // Drawn at the current zoom, from the start, like any lane that has
-    // not been scrolled. Given time to decode and draw before reading.
+    // Drawn at the zoom, at the start with lane 0 — not at the selection.
+    // Given time to decode and draw before reading.
     await expect
       .poll(async () => {
         const v = await visibleWindow(page, 1);
         return v.end - v.start < 1 ? v.start : null;
-      }, { message: "the new lane, drawn at the zoom" })
+      }, { message: "the new lane, drawn at the zoom where lane 0 is" })
       .toBe(0);
   });
 

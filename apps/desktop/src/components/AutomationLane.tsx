@@ -29,6 +29,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ClipSummary, EnvelopePoint } from "../lib/tauri-bridge";
+import { pctOf, type TimeSpan } from "../lib/timelineViewport";
 
 /** Vertical range of the lane. Matches the backend's accepted range. */
 export const MIN_DB = -60;
@@ -41,6 +42,12 @@ export interface AutomationLaneProps {
   clips: ClipSummary[];
   /** Total timeline duration in seconds; 0 while the audio is loading. */
   duration: number;
+  /**
+   * The stretch of the session on screen, from the timeline's one axis
+   * (#344). Absent or null is the whole session, which is what fit
+   * shows.
+   */
+  view?: TimeSpan | null;
   /**
    * Commit a clip's whole curve. Called once per finished gesture with
    * points relative to that clip's start.
@@ -108,6 +115,7 @@ export function clipPolyline(clip: ClipSummary): EnvelopePoint[] {
 export function AutomationLane({
   clips,
   duration,
+  view,
   onCommit,
   trackName,
 }: AutomationLaneProps) {
@@ -121,14 +129,20 @@ export function AutomationLane({
     setDraft(clips);
   }, [clips]);
 
+  // Drawn on the lanes' axis: at fit, the whole session; zoomed, only
+  // what is on screen.
+  const shownStart = view?.start ?? 0;
+  const shownEnd = view?.end ?? duration;
+  const shownSec = shownEnd - shownStart;
+
   const toSeconds = useCallback(
     (clientX: number): number => {
       const rect = surfaceRef.current?.getBoundingClientRect();
-      if (!rect || rect.width === 0 || duration <= 0) return 0;
-      const t = ((clientX - rect.left) / rect.width) * duration;
+      if (!rect || rect.width === 0 || duration <= 0 || shownSec <= 0) return 0;
+      const t = shownStart + ((clientX - rect.left) / rect.width) * shownSec;
       return Math.max(0, Math.min(duration, t));
     },
-    [duration],
+    [duration, shownStart, shownSec],
   );
 
   const toDb = useCallback((clientY: number): number => {
@@ -137,7 +151,8 @@ export function AutomationLane({
     return yToDb(clientY - rect.top, rect.height);
   }, []);
 
-  const xOf = (sec: number) => (duration > 0 ? (sec / duration) * 100 : 0);
+  const xOf = (sec: number) => pctOf(sec, { start: shownStart, end: shownEnd });
+  const widthOf = (sec: number) => (shownSec > 0 ? (sec / shownSec) * 100 : 0);
 
   /** Commit `clipIndex`'s current draft curve. */
   const commit = useCallback(
@@ -328,9 +343,12 @@ export function AutomationLane({
         aria-label={`${trackName} volume automation`}
         style={{
           flex: 1,
+          minWidth: 0,
           position: "relative",
           height: LANE_HEIGHT,
           cursor: "crosshair",
+          // Zoomed in, a clip's band and its points can lie off screen.
+          overflow: "hidden",
         }}
       >
         <svg
@@ -375,7 +393,7 @@ export function AutomationLane({
               style={{
                 position: "absolute",
                 left: `${xOf(clip.start_sec)}%`,
-                width: `${xOf(clip.length_sec)}%`,
+                width: `${widthOf(clip.length_sec)}%`,
                 top: 0,
                 height: LANE_HEIGHT,
               }}
