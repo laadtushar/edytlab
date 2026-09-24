@@ -30,9 +30,11 @@ import { FILE_ROUTE } from "./routes";
 declare global {
   interface Window {
     __E2E__?: { backend: Backend };
-    /** The name of every command the app called, in order. */
-    __E2E_CALLS__: string[];
+    /** Every command the app called, with its arguments, in order. */
+    __E2E_CALLS__: { cmd: string; args: unknown }[];
     __E2E_UNHANDLED__: string[];
+    /** Resolvers for `deferred` answers, by name, once they are called. */
+    __E2E_DEFERRED__: Record<string, (value: unknown) => void>;
     /** Raise a backend event, as the Rust side would. */
     __E2E_EMIT__: (event: string, payload?: unknown) => Promise<void>;
     __E2E_READY__: boolean;
@@ -42,11 +44,12 @@ declare global {
 const config = window.__E2E__ ?? { backend: {} };
 window.__E2E_CALLS__ = [];
 window.__E2E_UNHANDLED__ = [];
+window.__E2E_DEFERRED__ = {};
 
 mockWindows("main");
 mockIPC(
-  (cmd) => {
-    window.__E2E_CALLS__.push(cmd);
+  (cmd, args) => {
+    window.__E2E_CALLS__.push({ cmd, args });
     if (Object.prototype.hasOwnProperty.call(config.backend, cmd)) {
       const answer = config.backend[cmd];
       // A string, not an `Error`. Every command returns
@@ -55,6 +58,18 @@ mockIPC(
       // against an `Error` object is tested against a shape production
       // never produces.
       if ("reject" in answer) return Promise.reject(answer.reject);
+      // Held until the test releases it, so a test can decide which of
+      // two things the app hears first without sleeping and hoping.
+      if ("deferred" in answer) {
+        // One call per name: a second would replace the first resolver
+        // and leave the first call hanging forever, unnoticed.
+        if (answer.deferred in window.__E2E_DEFERRED__) {
+          throw new Error(`deferred answer "${answer.deferred}" was called twice`);
+        }
+        return new Promise((resolve) => {
+          window.__E2E_DEFERRED__[answer.deferred] = resolve;
+        });
+      }
       // A copy, so a component that mutates what it was given cannot
       // change the answer the next caller gets.
       return structuredClone(answer.ok);

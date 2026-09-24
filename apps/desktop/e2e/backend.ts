@@ -23,13 +23,18 @@ import { fileURLToPath } from "node:url";
 
 import type { TrackSummary } from "../src/lib/tauri-bridge";
 
-/** One command's answer: its result, or the string it fails with. */
-export type Answer = { ok: unknown } | { reject: string };
+/**
+ * One command's answer: its result, the string it fails with, or — for
+ * testing an ordering — a result the test releases when it chooses (see
+ * `App.release`).
+ */
+export type Answer = { ok: unknown } | { reject: string } | { deferred: string };
 
 export type Backend = Record<string, Answer>;
 
 export const ok = (value: unknown): Answer => ({ ok: value });
 export const reject = (message: string): Answer => ({ reject: message });
+export const deferred = (name: string): Answer => ({ deferred: name });
 
 /**
  * `CommandError::NoSession`'s `Display`, from `commands.rs`. Every
@@ -124,6 +129,12 @@ function bootCommands({ hasKey }: { hasKey: boolean }): Backend {
     // what calls `providerCommands`.
     has_api_key: ok(hasKey),
     install_bundled_skills: ok(bundledSkillCount()),
+    // Read at every launch, to put the user back where they were.
+    // `get_view_state` needs a project directory, not a head, and the
+    // default project always has one; with no `view.json` it reads
+    // `ViewState::default()`, which serialises as `{}`. A test that needs
+    // a saved view overrides this.
+    get_view_state: ok({}),
     list_recent_projects: ok([]),
     list_templates: ok(bundledTemplates()),
   };
@@ -143,6 +154,8 @@ function emptyProject(): Backend {
     list_tracks: reject(NO_SESSION),
     list_markers: reject(NO_SESSION),
     get_transcript: ok([]),
+    // `get_session_head`: `store.head().ok_or(CommandError::NoSession)`.
+    get_session_head: reject(NO_SESSION),
   };
 }
 
@@ -176,6 +189,24 @@ export function sessionWith(tracks: TrackSummary[]): Backend {
 }
 
 /**
+ * A project that already holds these tracks when the app starts: a
+ * returning user.
+ *
+ * `lib.rs` reopens the default project at every launch and
+ * `Store::open` restores `HEAD` from disk, so whatever they loaded last
+ * time is there at boot. `get_session_head` answers with that head —
+ * `commands.rs` returns `head.to_hex()` whenever the store has one.
+ * They have set a key, so onboarding stays out of the way.
+ */
+export function projectWith(tracks: TrackSummary[], head: string): Backend {
+  return {
+    ...bootCommands({ hasKey: true }),
+    ...sessionWith(tracks),
+    get_session_head: ok(head),
+  };
+}
+
+/**
  * A track holding one file, as `list_tracks` reports it.
  *
  * One clip, because that is what `audio_path` requires: `list_tracks`
@@ -183,10 +214,14 @@ export function sessionWith(tracks: TrackSummary[]): Backend {
  * flattened WAV for several, and to `None` for none. The id is a UUID
  * because `TrackId` is one.
  */
-export function trackFor(audioPath: string, seconds: number): TrackSummary {
+export function trackFor(
+  audioPath: string,
+  seconds: number,
+  { name = "Track 1", id = "3f2b8c1e-7d4a-4e9b-9c6f-1a2b3c4d5e6f" } = {},
+): TrackSummary {
   return {
-    id: "3f2b8c1e-7d4a-4e9b-9c6f-1a2b3c4d5e6f",
-    name: "Track 1",
+    id,
+    name,
     muted: false,
     gain_db: 0,
     pan: 0,
@@ -195,6 +230,24 @@ export function trackFor(audioPath: string, seconds: number): TrackSummary {
     clips: [
       { start_sec: 0, length_sec: seconds, source_path: audioPath, volume_envelope: [] },
     ],
+  };
+}
+
+/**
+ * A track with nothing on it yet: a template's track, or one that just
+ * had its only clip removed. No clips, so `list_tracks` gives it no
+ * `audio_path` at all.
+ */
+export function emptyTrack(name: string, id: string): TrackSummary {
+  return {
+    id,
+    name,
+    muted: false,
+    gain_db: 0,
+    pan: 0,
+    soloed: false,
+    audio_path: null,
+    clips: [],
   };
 }
 
