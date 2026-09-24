@@ -311,7 +311,7 @@ describe("Chat", () => {
       await flush();
     });
 
-    const err = screen.getByTestId("chat-error");
+    const err = await screen.findByTestId("chat-error");
     expect(err.textContent).toContain("source is silent");
   });
 

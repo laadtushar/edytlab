@@ -51,12 +51,14 @@ describe("SkillsEditor", () => {
       expect(listSkillsMock).toHaveBeenCalled();
     });
     await user.click(await screen.findByTestId("skills-row-mix"));
+    // On the form, not on the read: the read resolving says nothing about
+    // whether React has drawn what it returned yet.
     await waitFor(() => {
-      expect(readSkillMock).toHaveBeenCalledWith("mix");
+      expect(
+        (screen.getByTestId("skills-name") as HTMLInputElement).value,
+      ).toBe("mix");
     });
-    expect(
-      (screen.getByTestId("skills-name") as HTMLInputElement).value,
-    ).toBe("mix");
+    expect(readSkillMock).toHaveBeenCalledWith("mix");
   });
 
   it("creates a new skill via the New button + Save", async () => {
@@ -86,10 +88,10 @@ describe("SkillsEditor", () => {
     await waitFor(() => expect(listSkillsMock).toHaveBeenCalled());
 
     await user.click(await screen.findByTestId("skills-row-mix"));
-    await waitFor(() => expect(readSkillMock).toHaveBeenCalled());
+    const del = await screen.findByTestId("skills-delete");
 
     await act(async () => {
-      await user.click(screen.getByTestId("skills-delete"));
+      await user.click(del);
     });
 
     await waitFor(() => {

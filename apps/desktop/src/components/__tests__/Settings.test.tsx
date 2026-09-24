@@ -199,11 +199,13 @@ describe("Settings provider picker", () => {
     await waitFor(() =>
       expect(setApiKeyForMock).toHaveBeenCalledWith("anthropic", "sk-ant-test"),
     );
-    await waitFor(() => expect(onSaved).toHaveBeenCalled());
-
-    expect(
-      (screen.getByTestId("settings-key-input") as HTMLInputElement).value,
-    ).toBe("");
+    // The wipe is drawn after the save resolves, not with it.
+    await waitFor(() => {
+      expect(onSaved).toHaveBeenCalled();
+      expect(
+        (screen.getByTestId("settings-key-input") as HTMLInputElement).value,
+      ).toBe("");
+    });
   });
 });
 
@@ -216,11 +218,14 @@ describe("Settings model combo", () => {
     );
 
     const datalist = await screen.findByTestId("settings-model-datalist");
-    // The datalist should contain one <option> per curated entry.
-    const opts = datalist.querySelectorAll("option");
-    expect(opts.length).toBe(ANTHROPIC_CATALOGUE.length);
-    // The first option's value matches the first catalogue id.
-    expect(opts[0].getAttribute("value")).toBe("claude-sonnet-4-6");
+    // The datalist is drawn before the catalogue arrives, so wait for its
+    // options, not for it: one <option> per curated entry, the first
+    // matching the first catalogue id.
+    await waitFor(() => {
+      const opts = datalist.querySelectorAll("option");
+      expect(opts.length).toBe(ANTHROPIC_CATALOGUE.length);
+      expect(opts[0].getAttribute("value")).toBe("claude-sonnet-4-6");
+    });
   });
 
   it("accepts free-form model ids not in the suggestion list", async () => {
