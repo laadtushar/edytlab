@@ -138,6 +138,25 @@ fn lock_std<'a, T>(
 // open_project
 // ---------------------------------------------------------------------------
 
+/// Remove derived audio no node names, as a project opens (#98).
+///
+/// Run on the store before it is shared, so no edit can be half-way
+/// through writing a file that its node does not name yet. Only orphans:
+/// audio that older history still names stays, because a replay cannot
+/// yet be trusted to rebuild it. A failure costs disk, not work, so it is
+/// logged.
+pub(crate) fn sweep_orphaned_audio(store: &Store) {
+    match tools::reclaim::sweep_orphans(store) {
+        Ok(r) if r.removed_files > 0 => tracing::info!(
+            removed = r.removed_files,
+            freed_bytes = r.freed_bytes,
+            "removed derived audio no node names"
+        ),
+        Ok(_) => {}
+        Err(e) => tracing::warn!(error = %e, "orphaned-audio sweep failed"),
+    }
+}
+
 #[tauri::command]
 pub async fn open_project(state: State<'_, AppState>, path: String) -> CmdResult<ProjectInfo> {
     let project_path = PathBuf::from(&path);
@@ -314,6 +333,7 @@ fn open_project_inner(state: &AppState, path: PathBuf) -> Result<ProjectInfo, Co
         )));
     }
     let store = Store::open(&path)?;
+    sweep_orphaned_audio(&store);
     let head_hex = store.head().map(|id| id.to_hex());
     let path_str = path
         .to_str()

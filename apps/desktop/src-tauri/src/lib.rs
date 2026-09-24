@@ -117,6 +117,7 @@ pub fn run() {
                 } else {
                     match session::Store::open(&project_dir) {
                         Ok(store) => {
+                            crate::commands::sweep_orphaned_audio(&store);
                             app_state.set_store(Some(Arc::new(Mutex::new(store))));
                             app_state.set_project_dir(Some(project_dir.clone()));
                             // If a key was already loaded above, kick a

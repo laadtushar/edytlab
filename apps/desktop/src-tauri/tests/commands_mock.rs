@@ -83,6 +83,37 @@ fn open_project_via_ipc_returns_project_info() {
     );
 }
 
+/// Opening a project removes derived audio no node names (#98) — here, a
+/// leftover in a project with no history — through the real command.
+#[test]
+fn opening_a_project_removes_audio_no_node_names() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let project_path = tmp.path().to_str().expect("utf-8 path").to_string();
+    let derived = tmp.path().join(".audiograph").join("derived");
+    std::fs::create_dir_all(&derived).expect("derived dir");
+    let leftover = derived.join("left-by-a-failed-edit.wav");
+    std::fs::write(&leftover, b"RIFF").expect("leftover");
+
+    let app = mock_builder()
+        .manage(AppState::new())
+        .invoke_handler(tauri::generate_handler![commands::open_project])
+        .build(mock_context(noop_assets()))
+        .expect("mock app");
+    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .expect("webview");
+
+    assert_ipc_response(
+        &webview,
+        make_request("open_project", json!({ "path": project_path })),
+        Ok(json!({ "path": project_path, "head": null })),
+    );
+    assert!(
+        !leftover.exists(),
+        "the orphan is gone once the project is open"
+    );
+}
+
 #[test]
 fn get_session_head_returns_error_when_no_project_open() {
     let app = mock_builder()
