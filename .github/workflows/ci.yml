@@ -167,6 +167,15 @@ jobs:
       - name: pnpm test (frontend)
         run: pnpm --filter @edytlab/desktop test
 
+      # The same suite with React's scheduler running 40 ms late (#349).
+      # A test that asserts on async React state without waiting for it
+      # fails here every time, instead of on whichever runner happens to
+      # be slow — which is how #343 went red on a test it never touched.
+      # One leg: timing is what it varies, not the OS.
+      - name: pnpm test (frontend, slow scheduler)
+        if: matrix.platform.name == 'linux-x86_64'
+        run: pnpm --filter @edytlab/desktop test:slow-scheduler
+
       # `build` runs `tsc -b`, which type-checks the app, its tests and
       # vite.config.ts as three programs: the app has no Node types
       # because it runs in a webview, the tests do because they run in
@@ -232,3 +241,40 @@ jobs:
             apps/desktop/playwright-report
             apps/desktop/test-results
           retention-days: 7
+
+  # The website is outside the pnpm workspace so Vercel can build it
+  # standalone, which also put its logic outside every test run: #241's
+  # release picker 404'd for ~186 dev builds with nothing able to catch
+  # it (#303). Its own install, its own lockfile, Node only — seconds,
+  # not the Rust matrix's minutes.
+  website:
+    name: website (test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Install Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: website/pnpm-lock.yaml
+
+      # `--ignore-workspace`: without it pnpm walks up to the root
+      # workspace, which excludes this directory, and installs nothing.
+      - name: pnpm install
+        run: pnpm install --frozen-lockfile --ignore-workspace
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Typecheck
+        run: pnpm typecheck

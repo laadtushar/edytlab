@@ -253,6 +253,17 @@ export function emptyTrack(name: string, id: string): TrackSummary {
   };
 }
 
+/**
+ * What the app calls once the user has selected something.
+ *
+ * `set_selection_context` stores the range for the agent's next turn and
+ * returns `Ok(())`, session or not: it touches only `AppState`. The app
+ * pushes it 250 ms after every selection change.
+ */
+export function selecting(): Backend {
+  return { set_selection_context: ok(null) };
+}
+
 /** Track 1, holding the three-second tone. */
 export function toneTrack(): TrackSummary {
   return trackFor(fixturePath("tone3s"), fixtureSeconds("tone3s"));
