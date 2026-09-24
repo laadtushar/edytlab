@@ -77,6 +77,7 @@ Before merging anything:
 - `cargo clippy --workspace --all-targets -- -D warnings` clean
 - `cargo test --workspace` passes
 - `pnpm --filter @edytlab/desktop test` passes
+- `pnpm --filter @edytlab/desktop test:slow-scheduler` passes — the same suite with React's scheduler 40 ms late (#349). A failure here that `test` does not show is a test asserting on async React state without waiting for it: wait on the state under test, or hold the backend's answer with `src/__tests__/held.ts`.
 - `pnpm --filter @edytlab/desktop typecheck` clean — `tsc -b` over three programs: the app (no Node types, because it runs in a webview — #336), its tests (Node types, because vitest runs them in Node) and `vite.config.ts`. **Not** bare `tsc --noEmit`: the root `tsconfig.json` is a solution file with no inputs of its own, so that checks nothing and exits 0.
 - `pnpm --filter @edytlab/desktop typecheck:e2e` clean
 - `pnpm --filter @edytlab/desktop test:e2e` passes — for anything that changes what mounts, draws, scrolls or decodes. jsdom cannot see those; `apps/desktop/e2e/` runs the real frontend in Chromium with only the IPC boundary replaced. Its fake backend answers from the Rust source (`e2e/backend.ts`), so a new command the app calls needs an answer there, taken from the command's own body.

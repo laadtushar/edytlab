@@ -167,6 +167,15 @@ jobs:
       - name: pnpm test (frontend)
         run: pnpm --filter @edytlab/desktop test
 
+      # The same suite with React's scheduler running 40 ms late (#349).
+      # A test that asserts on async React state without waiting for it
+      # fails here every time, instead of on whichever runner happens to
+      # be slow — which is how #343 went red on a test it never touched.
+      # One leg: timing is what it varies, not the OS.
+      - name: pnpm test (frontend, slow scheduler)
+        if: matrix.platform.name == 'linux-x86_64'
+        run: pnpm --filter @edytlab/desktop test:slow-scheduler
+
       # `build` runs `tsc -b`, which type-checks the app, its tests and
       # vite.config.ts as three programs: the app has no Node types
       # because it runs in a webview, the tests do because they run in
