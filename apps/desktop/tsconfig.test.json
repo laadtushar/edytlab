@@ -1,0 +1,16 @@
+{
+  // The tests, which run in Node under vitest and read source with
+  // `node:fs`, so they get Node's types; app code does not (see the
+  // `types` note in tsconfig.app.json, #336). It inherits `include:
+  // ["src"]`, because tests import app modules; the app program is what
+  // enforces that those stay free of Node.
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.test.tsbuildinfo",
+    "types": ["node"]
+  },
+  // Replaces the app's exclude, so the tests are in. The guard asserts
+  // that Node is *absent*, which is true of the app program and
+  // deliberately false of this one.
+  "exclude": ["src/lib/no-node-globals.ts"]
+}
