@@ -83,8 +83,13 @@ function reset() {
   state.duration = 3;
 }
 
-/**
- * Waits on the state under test, never on "some labels exist".
+/** The furthest time the ruler labels; -Infinity when it labels none. */
+function latest(): number {
+  return Math.max(...times());
+}
+
+/*
+ * Every test waits on the state under test, never on "some labels exist".
  *
  * The empty ruler already draws seven `0:00` ticks, so a precondition of
  * `times().length > 1` holds before anything has decoded. The tests here
@@ -93,14 +98,10 @@ function reset() {
  * the auto-fit test failed on Windows CI with `expected +0 to be close to
  * 3`. Delaying the decode by 150 ms reproduces that every time.
  *
- * So each assertion now sits inside the wait, and every wait requires a
+ * So each assertion sits inside the wait, and every wait requires a
  * label past zero, which the empty strip never has. A slow runner then
  * costs time instead of a verdict.
  */
-function latest(): number {
-  return Math.max(...times());
-}
-
 describe("the ruler follows the lane's viewport", () => {
   it("labels only the visible window once the waveform is zoomed", async () => {
     reset();
@@ -127,6 +128,9 @@ describe("the ruler follows the lane's viewport", () => {
     emit("scroll", 1, 2.55, 500, 1275);
 
     await waitFor(() => {
+      // Not implied by the bounds below: over no labels at all, `min` is
+      // Infinity and `max` -Infinity, and both bounds hold.
+      expect(latest()).toBeGreaterThan(0);
       expect(Math.min(...times())).toBeGreaterThanOrEqual(1);
       expect(latest()).toBeLessThanOrEqual(2.56);
     });
