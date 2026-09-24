@@ -75,17 +75,20 @@ describe("McpServersEditor", () => {
     await waitFor(() => expect(listMcpServersMock).toHaveBeenCalled());
 
     await user.click(await screen.findByTestId("mcp-row-github"));
-    await waitFor(() => expect(readMcpServerMock).toHaveBeenCalledWith("github"));
-
-    expect((screen.getByTestId("mcp-command") as HTMLInputElement).value).toBe(
-      "npx",
-    );
-    expect((screen.getByTestId("mcp-args") as HTMLTextAreaElement).value).toBe(
-      "-y\n@modelcontextprotocol/server-github",
-    );
-    expect((screen.getByTestId("mcp-env") as HTMLTextAreaElement).value).toBe(
-      "GITHUB_TOKEN=<keychain:gh>",
-    );
+    // On the form, not on the read: the read resolving says nothing
+    // about whether React has drawn what it returned yet.
+    await waitFor(() => {
+      expect((screen.getByTestId("mcp-command") as HTMLInputElement).value).toBe(
+        "npx",
+      );
+      expect((screen.getByTestId("mcp-args") as HTMLTextAreaElement).value).toBe(
+        "-y\n@modelcontextprotocol/server-github",
+      );
+      expect((screen.getByTestId("mcp-env") as HTMLTextAreaElement).value).toBe(
+        "GITHUB_TOKEN=<keychain:gh>",
+      );
+    });
+    expect(readMcpServerMock).toHaveBeenCalledWith("github");
   });
 
   /**
@@ -216,9 +219,7 @@ describe("McpServersEditor", () => {
     await waitFor(() => expect(listMcpServersMock).toHaveBeenCalled());
 
     await user.click(await screen.findByTestId("mcp-row-github"));
-    await waitFor(() => expect(readMcpServerMock).toHaveBeenCalled());
-
-    await user.click(screen.getByTestId("mcp-delete"));
+    await user.click(await screen.findByTestId("mcp-delete"));
     await waitFor(() =>
       expect(deleteMcpServerMock).toHaveBeenCalledWith("github"),
     );

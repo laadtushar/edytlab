@@ -67,6 +67,7 @@ vi.mock("../lib/tauri-bridge", () => ({
 }));
 
 import { PROVIDER_STORAGE_KEY, Settings } from "../components/Settings";
+import { held } from "./held";
 
 describe("Settings", () => {
   beforeEach(() => {
@@ -145,10 +146,13 @@ describe("Settings", () => {
     await user.click(screen.getByTestId("settings-save-button"));
 
     expect(setApiKeyForMock).toHaveBeenCalledWith("anthropic", "sk-ant-good");
-    expect(onSaved).toHaveBeenCalledTimes(1);
     // Input should be wiped after a successful save so the key does not
-    // linger in component state.
-    expect(screen.getByTestId("settings-key-input")).toHaveValue("");
+    // linger in component state. The save is awaited inside the click
+    // handler, so the wipe is drawn some time after the click resolves.
+    await waitFor(() =>
+      expect(screen.getByTestId("settings-key-input")).toHaveValue(""),
+    );
+    expect(onSaved).toHaveBeenCalledTimes(1);
   });
 
   it("shows the verbatim error from testApiKey on a failed Test", async () => {
@@ -310,11 +314,13 @@ describe("Settings", () => {
 
   it("keeps the stored value when the backend has no opinion yet", async () => {
     window.localStorage.setItem("edytlab.model.anthropic", "my-pick");
-    getActiveModelMock.mockResolvedValue("");
+    const read = held<string>();
+    getActiveModelMock.mockReturnValue(read.promise);
 
     render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
 
     await waitFor(() => expect(getActiveModelMock).toHaveBeenCalled());
+    await read.resolve("");
     expect(screen.getByTestId("settings-model-input")).toHaveValue("my-pick");
   });
 
@@ -331,21 +337,26 @@ describe("Settings", () => {
     render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
 
     // The OpenAI placeholder is only rendered while OpenAI is selected.
-    await waitFor(() =>
-      expect(screen.getByPlaceholderText("sk-...")).toBeInTheDocument(),
-    );
     // And the stored value is reconciled, so the next mount agrees
-    // before the IPC even resolves.
-    expect(window.localStorage.getItem(PROVIDER_STORAGE_KEY)).toBe("openai");
+    // before the IPC even resolves. Both inside the wait: the value is
+    // written by an effect, which React runs after the draw — asserting
+    // it once the placeholder showed failed on Windows CI whenever the
+    // effect had not run yet.
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("sk-...")).toBeInTheDocument();
+      expect(window.localStorage.getItem(PROVIDER_STORAGE_KEY)).toBe("openai");
+    });
   });
 
   it("keeps the stored provider when the backend has no opinion", async () => {
     window.localStorage.setItem(PROVIDER_STORAGE_KEY, "groq");
-    getActiveProviderMock.mockResolvedValue("");
+    const read = held<string>();
+    getActiveProviderMock.mockReturnValue(read.promise);
 
     render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
 
     await waitFor(() => expect(getActiveProviderMock).toHaveBeenCalled());
+    await read.resolve("");
     expect(screen.getByPlaceholderText("gsk_...")).toBeInTheDocument();
   });
 
@@ -353,11 +364,13 @@ describe("Settings", () => {
     // Leaving it selected would light no radio at all, and every
     // keyed-off-provider control would address a provider with no row.
     window.localStorage.setItem(PROVIDER_STORAGE_KEY, "groq");
-    getActiveProviderMock.mockResolvedValue("mistral");
+    const read = held<string>();
+    getActiveProviderMock.mockReturnValue(read.promise);
 
     render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
 
     await waitFor(() => expect(getActiveProviderMock).toHaveBeenCalled());
+    await read.resolve("mistral");
     expect(screen.getByPlaceholderText("gsk_...")).toBeInTheDocument();
   });
 
@@ -369,12 +382,8 @@ describe("Settings", () => {
     const user = userEvent.setup();
     window.localStorage.setItem(PROVIDER_STORAGE_KEY, "anthropic");
 
-    let resolveRead: (v: string) => void = () => undefined;
-    getActiveProviderMock.mockReturnValue(
-      new Promise<string>((r) => {
-        resolveRead = r;
-      }),
-    );
+    const read = held<string>();
+    getActiveProviderMock.mockReturnValue(read.promise);
 
     render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
     await waitFor(() => expect(getActiveProviderMock).toHaveBeenCalled());
@@ -386,8 +395,7 @@ describe("Settings", () => {
     );
 
     // The read now lands, carrying what was true before the click.
-    resolveRead("anthropic");
-    await waitFor(() => expect(getActiveProviderMock).toHaveBeenCalled());
+    await read.resolve("anthropic");
 
     // Groq stays selected: its key field is the one on screen.
     expect(screen.getByPlaceholderText("gsk_...")).toBeInTheDocument();
@@ -396,11 +404,13 @@ describe("Settings", () => {
 
   it("falls back to the stored provider when the backend call fails", async () => {
     window.localStorage.setItem(PROVIDER_STORAGE_KEY, "groq");
-    getActiveProviderMock.mockRejectedValue(new Error("ipc down"));
+    const read = held<string>();
+    getActiveProviderMock.mockReturnValue(read.promise);
 
     render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
 
     await waitFor(() => expect(getActiveProviderMock).toHaveBeenCalled());
+    await read.reject(new Error("ipc down"));
     expect(screen.getByPlaceholderText("gsk_...")).toBeInTheDocument();
   });
 
@@ -461,7 +471,8 @@ describe("Settings", () => {
 
   it("does not warn when the provider already has a key", async () => {
     const user = userEvent.setup();
-    hasApiKeyForMock.mockResolvedValue(true);
+    const hasKey = held<boolean>();
+    hasApiKeyForMock.mockReturnValue(hasKey.promise);
     const onProviderChanged = vi.fn();
     render(
       <Settings
@@ -473,8 +484,12 @@ describe("Settings", () => {
     );
 
     await user.click(screen.getByTestId("settings-provider-groq"));
+    await waitFor(() => expect(hasApiKeyForMock).toHaveBeenCalledWith("groq"));
+    // Answered inside `act`, so the warning — if there were one — is
+    // drawn before the check below, not after it.
+    await hasKey.resolve(true);
 
-    await waitFor(() => expect(onProviderChanged).toHaveBeenCalledWith(true));
+    expect(onProviderChanged).toHaveBeenCalledWith(true);
     expect(screen.queryByText(/no api key stored/i)).not.toBeInTheDocument();
   });
 
@@ -482,7 +497,8 @@ describe("Settings", () => {
   /// warning there would train the user to ignore the warning.
   it("does not warn for a provider that needs no key", async () => {
     const user = userEvent.setup();
-    hasApiKeyForMock.mockResolvedValue(false);
+    const hasKey = held<boolean>();
+    hasApiKeyForMock.mockReturnValue(hasKey.promise);
     const onProviderChanged = vi.fn();
     render(
       <Settings
@@ -494,8 +510,10 @@ describe("Settings", () => {
     );
 
     await user.click(screen.getByTestId("settings-provider-ollama"));
+    await waitFor(() => expect(hasApiKeyForMock).toHaveBeenCalledWith("ollama"));
+    await hasKey.resolve(false);
 
-    await waitFor(() => expect(onProviderChanged).toHaveBeenCalledWith(true));
+    expect(onProviderChanged).toHaveBeenCalledWith(true);
     expect(screen.queryByText(/no api key stored/i)).not.toBeInTheDocument();
   });
 });

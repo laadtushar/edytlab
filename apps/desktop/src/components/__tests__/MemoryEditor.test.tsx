@@ -46,8 +46,12 @@ describe("MemoryEditor", () => {
     const projectTa = screen.getByTestId(
       "memory-textarea-project",
     ) as HTMLTextAreaElement;
-    await waitFor(() => expect(globalTa.value).toBe("global-text"));
-    expect(projectTa.value).toBe("project-text");
+    // Two reads, drawn independently: one pane arriving says nothing
+    // about the other.
+    await waitFor(() => {
+      expect(globalTa.value).toBe("global-text");
+      expect(projectTa.value).toBe("project-text");
+    });
   });
 
   it("disables Save until the textarea diverges, then writes on click", async () => {
@@ -66,14 +70,16 @@ describe("MemoryEditor", () => {
     expect(save).not.toBeDisabled();
     await user.click(save);
 
-    await waitFor(() => {
-      expect(writeMemoryMock).toHaveBeenCalledWith("global", "hello");
-    });
     // After save, the baseline updates so Save goes back to disabled.
-    expect(save).toBeDisabled();
-    expect(screen.getByTestId("memory-status-global").textContent).toContain(
-      "Saved",
-    );
+    // Waited on, not asserted once the write is seen: the write resolving
+    // and React drawing its result are two different moments.
+    await waitFor(() => {
+      expect(save).toBeDisabled();
+      expect(screen.getByTestId("memory-status-global").textContent).toContain(
+        "Saved",
+      );
+    });
+    expect(writeMemoryMock).toHaveBeenCalledWith("global", "hello");
   });
 
   it("disables the project pane when no project is open", async () => {
