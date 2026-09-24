@@ -15,6 +15,11 @@
  * appears in its handler. It cannot prove the binding *works*, but it
  * catches the failure that actually happened: a row in the help table
  * with no corresponding branch in the handler at all.
+ *
+ * What a key *does* is tested in the running app under `e2e/` (Ctrl+E
+ * in `zoom.spec.ts`, for one). This stays because it covers every row
+ * of the table at once, which no behavioural test can do generically:
+ * each key does something different (#273).
  */
 
 import { readFileSync } from "node:fs";
