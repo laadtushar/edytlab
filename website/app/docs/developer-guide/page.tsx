@@ -117,7 +117,7 @@ website/              Next.js marketing site (this site)`}</code>
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace -- --test-threads=1
 pnpm --filter @edytlab/desktop test
-pnpm --filter @edytlab/desktop exec tsc --noEmit`}</code>
+pnpm --filter @edytlab/desktop typecheck`}</code>
       </pre>
       <p>Targeted runs:</p>
       <pre>

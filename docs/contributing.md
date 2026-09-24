@@ -471,7 +471,7 @@ When changing an existing command's signature:
 1. Update the Rust type
 2. Update the TypeScript type in `tauri-bridge.ts`
 3. Update `api-reference.md`
-4. Run `tsc --noEmit` to catch any downstream type errors
+4. Run `pnpm --filter @edytlab/desktop typecheck` to catch any downstream type errors
 
 ---
 
