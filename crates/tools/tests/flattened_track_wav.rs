@@ -157,3 +157,40 @@ fn an_empty_track_is_an_error_not_an_empty_file() {
     let tmp = TempDir::new().unwrap();
     assert!(flattened_track_wav(tmp.path(), &[]).is_err());
 }
+
+/// Only a whole file is ever left under the name.
+///
+/// The name is trusted on sight — a repeat call returns it without
+/// looking inside — so a write that fails part-way must leave nothing
+/// behind, or every later listing would draw the truncated file. The
+/// second clip's source is missing, so the write fails once its
+/// temporary file already exists.
+#[test]
+fn a_failed_write_leaves_nothing_under_the_name() {
+    let tmp = TempDir::new().unwrap();
+    let src = write_ramp_wav(tmp.path());
+    let missing = tmp.path().join("gone.wav");
+    let clips = vec![clip(&src, 0, 0, 200), clip(&missing, 200, 0, 200)];
+
+    assert!(flattened_track_wav(tmp.path(), &clips).is_err());
+
+    let derived = tools::provenance::derived_dir(tmp.path());
+    let left: Vec<_> = std::fs::read_dir(&derived)
+        .map(|d| d.map(|e| e.unwrap().file_name()).collect())
+        .unwrap_or_default();
+    assert!(left.is_empty(), "left behind: {left:?}");
+}
+
+/// A successful write leaves exactly the one file.
+#[test]
+fn a_successful_write_leaves_no_temporary_file() {
+    let tmp = TempDir::new().unwrap();
+    let src = write_ramp_wav(tmp.path());
+    let path = flattened_track_wav(tmp.path(), &[clip(&src, 100, 0, 200)]).unwrap();
+
+    let left: Vec<_> = std::fs::read_dir(path.parent().unwrap())
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
+    assert_eq!(left, vec![path]);
+}
