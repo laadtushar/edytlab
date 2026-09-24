@@ -29,6 +29,8 @@
 //! `crates/tools/tests/untested_destructive_tools.rs` pins both halves:
 //! a no-op edit is byte-identical to no edit, and ten of them still are.
 
+use std::fs::File;
+use std::io::BufWriter;
 use std::path::Path;
 
 use hound::{SampleFormat, WavSpec, WavWriter};
@@ -55,18 +57,50 @@ fn quantise(s: f32) -> i16 {
 /// multiple of `channels` (the caller is responsible — this function
 /// writes whatever it's given and lets `hound` flag spec violations).
 pub fn write_wav(samples: &[f32], sample_rate: u32, channels: u16, out: &Path) -> Result<()> {
-    let spec = WavSpec {
-        channels,
-        sample_rate,
-        bits_per_sample: 16,
-        sample_format: SampleFormat::Int,
-    };
-    let mut writer = WavWriter::create(out, spec).map_err(Error::from)?;
-    for &s in samples {
-        writer.write_sample(quantise(s)).map_err(Error::from)?;
+    let file = File::create(out).map_err(|e| Error::from(hound::Error::IoError(e)))?;
+    let mut writer = WavChunkWriter::new(file, sample_rate, channels)?;
+    writer.write(samples)?;
+    writer.finalize()
+}
+
+/// A 16-bit PCM WAV written a chunk at a time.
+///
+/// For output too long to hold in memory at once. It quantises exactly
+/// as [`write_wav`] does — `write_wav` is this writer given one chunk —
+/// so the same samples make the same file whichever way they arrive.
+///
+/// Takes an open [`File`] rather than a path so a caller can write into
+/// a temporary file and rename it into place once it is complete.
+pub struct WavChunkWriter {
+    inner: WavWriter<BufWriter<File>>,
+}
+
+impl WavChunkWriter {
+    pub fn new(file: File, sample_rate: u32, channels: u16) -> Result<Self> {
+        let spec = WavSpec {
+            channels,
+            sample_rate,
+            bits_per_sample: 16,
+            sample_format: SampleFormat::Int,
+        };
+        let inner = WavWriter::new(BufWriter::new(file), spec).map_err(Error::from)?;
+        Ok(Self { inner })
     }
-    writer.finalize().map_err(Error::from)?;
-    Ok(())
+
+    /// Append interleaved samples. A chunk need not end on a frame
+    /// boundary, though every caller's does.
+    pub fn write(&mut self, samples: &[f32]) -> Result<()> {
+        for &s in samples {
+            self.inner.write_sample(quantise(s)).map_err(Error::from)?;
+        }
+        Ok(())
+    }
+
+    /// Write the header's final lengths and flush. Dropping the writer
+    /// without this leaves a header that claims no audio.
+    pub fn finalize(self) -> Result<()> {
+        self.inner.finalize().map_err(Error::from)
+    }
 }
 
 /// Write interleaved `samples` to a 16-bit FLAC at `out`.
