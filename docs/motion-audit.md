@@ -183,21 +183,30 @@ prevents the next person from "fixing" it:
 | `Timeline` / `ClipStrip` | 1 — the biggest one in the app | A cut or a move is *the* change that needs explaining. **Done in the follow-up**, and it needed no FLIP: the chips are already absolutely positioned by percentage, so the browser interpolates them directly |
 | `GraphView` | 1 | Branching is the product's core idea and was silent. **Done in the follow-up** — node entry and an eased head ring |
 | `ABCompareBar` | 1 | **Done in the follow-up**, for the visible switch. See the note below on what was *not* done |
-| `AutomationLane` | 1 | Still open. A curve drawing itself would explain what `duck_under_speech` did |
+| `AutomationLane` | 1 | **Done in #269** — a curve a tool writes draws itself on; see below |
 
-### The one genuinely left: `AutomationLane`
+### `AutomationLane`: done in #269, and how
 
-Worth being specific rather than leaving it as "later", because the
-reason is not effort.
+The deferral said drawing on was ordinary and *when* was the hard part:
+on a curve a tool has just written, never while a control point is being
+dragged, never on first paint. Two things turned out differently.
 
-The curve is an SVG `polyline`, so drawing it on means animating
-`stroke-dashoffset` against the path's measured length — a ref and a
-measurement per clip. That part is ordinary. The part that is not is
-*when* it should run: on a curve that a tool has just written, and never
-while the user is dragging a control point. That is the same suppression
-the clip strip needed, against a component whose coordinate space is
-shared with the timeline. Doing it before the timeline work settles
-means building the suppression twice.
+- **When is one rule.** A curve draws on only if it arrives different
+  from the one on screen. The first paint has nothing to differ from, a
+  drag is already showing the dragged curve, and the refresh after the
+  user's own edit brings back what they drew — so all three suppressions
+  fall out of the one comparison, with nothing shared with the clip
+  strip to build twice. "Different" allows for storage: the backend
+  keeps times in samples and gains as `f32`, so an exact comparison
+  would have animated every edit the user made.
+- **Not `stroke-dashoffset`.** The lane draws with
+  `vector-effect: non-scaling-stroke`, which puts dashes in screen space
+  while the path's measured length is in user space. It reveals with a
+  `clip-path` sweep instead, as a CSS animation (`--dur-3`,
+  `--ease-out`), so the global reduced-motion block applies to it.
+
+`e2e/automation.spec.ts` covers the four cases, including the one an
+exact comparison gets wrong.
 
 ### A note on the A/B "crossfade"
 

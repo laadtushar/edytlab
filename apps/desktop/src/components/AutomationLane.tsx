@@ -112,6 +112,25 @@ export function clipPolyline(clip: ClipSummary): EnvelopePoint[] {
   return [...head, ...pts, ...tail];
 }
 
+/**
+ * Whether two clips carry the same volume curve, point for point.
+ *
+ * Within what storage can change, not bit for bit: the backend keeps a
+ * point's time in samples and its gain as an `f32`, so the curve the
+ * user drew comes back from the refresh after their edit *nearly* the
+ * same. Compared exactly, every edit would look like a tool had written
+ * a new curve. A millisecond and a hundredth of a dB are far below
+ * anything the lane can show.
+ */
+function sameEnvelope(a: ClipSummary, b: ClipSummary | undefined): boolean {
+  if (!b || a.volume_envelope.length !== b.volume_envelope.length) return false;
+  return a.volume_envelope.every(
+    (p, i) =>
+      Math.abs(p.time_sec - b.volume_envelope[i].time_sec) < 1e-3 &&
+      Math.abs(p.gain_db - b.volume_envelope[i].gain_db) < 1e-2,
+  );
+}
+
 export function AutomationLane({
   clips,
   duration,
@@ -125,8 +144,36 @@ export function AutomationLane({
   const [draft, setDraft] = useState<ClipSummary[]>(clips);
   const [drag, setDrag] = useState<DragState | null>(null);
 
+  /**
+   * How many times each clip's curve has been drawn on (#269).
+   *
+   * A curve that appears fully formed is the teleport the clip strip
+   * used to have: nothing says what changed. It matters most for
+   * `duck_under_speech`, whose whole visible output is the curve.
+   *
+   * Only a curve that arrives *different from the one on screen* draws
+   * on. That one rule gives all three suppressions: the first paint has
+   * nothing to differ from, a drag is already showing the curve being
+   * dragged, and the refresh after the user's own edit brings back
+   * exactly what they drew. What is left is a curve a tool wrote.
+   */
+  const [drawOns, setDrawOns] = useState<number[]>([]);
+  const shownRef = useRef(draft);
+  const dragRef = useRef(drag);
   useEffect(() => {
+    shownRef.current = draft;
+    dragRef.current = drag;
+  }, [draft, drag]);
+
+  useEffect(() => {
+    const shown = shownRef.current;
+    const changed = dragRef.current
+      ? clips.map(() => false)
+      : clips.map((c, i) => !sameEnvelope(c, shown[i]));
     setDraft(clips);
+    if (changed.some(Boolean)) {
+      setDrawOns((prev) => clips.map((_, i) => (prev[i] ?? 0) + (changed[i] ? 1 : 0)));
+    }
   }, [clips]);
 
   // Drawn on the lanes' axis: at fit, the whole session; zoomed, only
@@ -370,8 +417,12 @@ export function AutomationLane({
           />
           {draft.map((clip, clipIndex) => (
             <polyline
-              key={clipIndex}
+              // A new key per draw-on remounts the line, which is what
+              // restarts a CSS animation.
+              key={`${clipIndex}:${drawOns[clipIndex] ?? 0}`}
               data-testid={`automation-curve-${clipIndex}`}
+              className={(drawOns[clipIndex] ?? 0) > 0 ? "automation-draw-on" : undefined}
+              data-motion={(drawOns[clipIndex] ?? 0) > 0 ? "draw-on" : "none"}
               points={clipPolyline(clip)
                 .map((p) => `${xOf(p.time_sec)},${dbToY(p.gain_db)}`)
                 .join(" ")}

@@ -115,6 +115,24 @@
  * waiting for an event that will never arrive, which is how a
  * reduced-motion setting turns into a hang.
  */
+/*
+ * An automation curve a tool has just written draws itself left to
+ * right (#269). A CSS animation, not a scripted one, so the reduced-
+ * motion block below applies to it like everything else.
+ */
+@keyframes automation-draw-on {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+.automation-draw-on {
+  animation: automation-draw-on var(--dur-3) var(--ease-out);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
