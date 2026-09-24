@@ -623,16 +623,21 @@ function isAbort(err: unknown): boolean {
    *
    * Declared after the zoom effect on purpose. Effects run in order, and
    * `zoom()` redraws synchronously, so when a zoom and a scroll arrive in
-   * the same render the scroll is measured on the new width. Held until
-   * there is audio, like `zoom()`, and applied once per request so a
-   * later decode does not yank the pane back.
+   * the same render the scroll is measured on the new width.
+   *
+   * A request is for the lanes on screen when it was made, and each takes
+   * it once. A lane with no audio at that moment takes it without
+   * scrolling, and a lane mounted afterwards takes it on mount, before it
+   * has any. Holding it for them instead replayed it later: a track added
+   * after the press — or renamed, since lanes are keyed by name — jumped
+   * to a selection framed long before, wherever the user had panned since.
    */
-  const appliedScrollRef = useRef<number | null>(null);
+  const takenScrollRef = useRef<number | null>(null);
   useEffect(() => {
+    if (!scrollTo || takenScrollRef.current === scrollTo.id) return;
+    takenScrollRef.current = scrollTo.id;
     const ws = wsRef.current;
-    if (!ws || duration === 0 || !scrollTo) return;
-    if (appliedScrollRef.current === scrollTo.id) return;
-    appliedScrollRef.current = scrollTo.id;
+    if (!ws || duration === 0) return;
     ws.setScrollTime(scrollTo.sec);
   }, [scrollTo, duration]);
 
@@ -1479,14 +1484,15 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
       return 50;
     }, [zoom, paneWidth, timelineDuration]);
 
+    /** The last zoom-to-selection, for every lane to scroll to once. */
+    const [scrollRequest, setScrollRequest] = useState<ScrollRequest | null>(null);
+
     /**
      * Fill the pane with the selection. Along with fit-to-window these
      * are the two most-used zoom verbs on any timeline, and until now
      * getting to a selected region meant zooming with ± and then
      * scrolling to find it by hand.
      */
-    const [scrollRequest, setScrollRequest] = useState<ScrollRequest | null>(null);
-
     const zoomToSelection = useCallback(() => {
       if (!selection || !onZoomChange) return;
       const span = selection.end - selection.start;

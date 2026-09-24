@@ -55,11 +55,11 @@ async function dragSelect(page: Page, from: number, to: number): Promise<{ start
   };
 }
 
-/** The span of audio lane 0's pane is showing, in seconds. */
-function visibleWindow(page: Page): Promise<{ start: number; end: number }> {
+/** The span of audio a lane's pane is showing, in seconds. */
+function visibleWindow(page: Page, lane = 0): Promise<{ start: number; end: number }> {
   return page
     .getByTestId("timeline-lane-waveform")
-    .first()
+    .nth(lane)
     .locator(".scroll")
     .evaluate((el, seconds) => {
       const pxPerSec = el.scrollWidth / seconds;
@@ -77,6 +77,16 @@ function visibleWindow(page: Page): Promise<{ start: number; end: number }> {
  */
 const SLACK = 0.02;
 
+/** Wait until lane 0's pane shows exactly the selection. */
+async function expectFramed(page: Page, sel: { start: number; end: number }): Promise<void> {
+  await expect
+    .poll(async () => {
+      const v = await visibleWindow(page);
+      return Math.abs(v.start - sel.start) <= SLACK && Math.abs(v.end - sel.end) <= SLACK;
+    }, { message: "the pane frames the selection" })
+    .toBe(true);
+}
+
 test.describe("zoom to selection", () => {
   test("fills the pane with the selection, not the start of the file", async ({ app }) => {
     await loadTone(app);
@@ -87,12 +97,7 @@ test.describe("zoom to selection", () => {
 
     await page.getByTestId("zoom-to-selection-btn").click();
 
-    await expect
-      .poll(async () => {
-        const v = await visibleWindow(page);
-        return Math.abs(v.start - sel.start) <= SLACK && Math.abs(v.end - sel.end) <= SLACK;
-      }, { message: "the pane frames the selection" })
-      .toBe(true);
+    await expectFramed(page, sel);
 
     // And the ruler, which follows the pane (#323), says so: every label
     // it draws is inside the selection.
@@ -114,12 +119,37 @@ test.describe("zoom to selection", () => {
 
     await page.keyboard.press("Control+e");
 
+    await expectFramed(page, sel);
+  });
+
+  /**
+   * From review. The request is a one-off, but it lived on in the
+   * timeline's state, and a lane that mounted later — a track added, or
+   * renamed, since lanes are keyed by name — had never applied it, so it
+   * did. The new lane jumped to a selection framed long before, wherever
+   * the user had panned since.
+   */
+  test("is not replayed on a track added afterwards", async ({ app }) => {
+    await loadTone(app);
+    const page = app.page;
+    const sel = await dragSelect(page, 0.6, 0.8);
+    await page.getByTestId("zoom-to-selection-btn").click();
+    await expectFramed(page, sel);
+
+    const first = trackFor(fixturePath("tone3s"), SECONDS);
+    const second = { ...first, id: "9c1d2e3f-4a5b-4c6d-8e7f-0a1b2c3d4e5f", name: "Track 2" };
+    await app.become(sessionWith([first, second]));
+    await app.emit("agent://node-created", { node_id: nodeId(2) });
+    await expect(page.getByTestId("timeline-lane-waveform")).toHaveCount(2);
+
+    // Drawn at the current zoom, from the start, like any lane that has
+    // not been scrolled. Given time to decode and draw before reading.
     await expect
       .poll(async () => {
-        const v = await visibleWindow(page);
-        return Math.abs(v.start - sel.start) <= SLACK && Math.abs(v.end - sel.end) <= SLACK;
-      }, { message: "the pane frames the selection" })
-      .toBe(true);
+        const v = await visibleWindow(page, 1);
+        return v.end - v.start < 1 ? v.start : null;
+      }, { message: "the new lane, drawn at the zoom" })
+      .toBe(0);
   });
 
   test("keeps a selection too short to fill the pane in the middle of it", async ({ app }) => {
