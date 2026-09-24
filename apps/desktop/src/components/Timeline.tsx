@@ -326,9 +326,21 @@ interface LaneProps {
   onRemoveTrack?: (trackIndex: number) => void;
   /** Pixels per second zoom level. 0 = auto-fit. */
   zoom?: number;
+  /**
+   * Scroll the pane so this time is at its left edge. Applied once per
+   * `id`, after the zoom in the same render, so a request made together
+   * with a zoom lands on the zoomed waveform.
+   */
+  scrollTo?: ScrollRequest | null;
   loop?: boolean;
   /** Draw a spectrogram in place of the waveform. */
   spectrogramEnabled?: boolean;
+}
+
+/** A one-off request to scroll every lane to `sec`. */
+interface ScrollRequest {
+  sec: number;
+  id: number;
 }
 
 function TrackLane({
@@ -361,6 +373,7 @@ function TrackLane({
   onDuplicateTrack,
   onRemoveTrack,
   zoom,
+  scrollTo,
   loop,
   spectrogramEnabled,
 }: LaneProps) {
@@ -597,6 +610,31 @@ function isAbort(err: unknown): boolean {
     if (!wsRef.current || duration === 0) return;
     wsRef.current.zoom(zoom ?? 0);
   }, [zoom, duration]);
+
+  /**
+   * Scroll to where the parent asked.
+   *
+   * Through WaveSurfer, because WaveSurfer is what scrolls: it draws into
+   * a `.scroll` container of its own, inside a shadow root. Zoom to
+   * selection used to set `scrollLeft` on this lane's wrapper instead,
+   * which only ever holds a pane-wide box and so never scrolls — the
+   * waveform zoomed in on its first half-second wherever the selection
+   * was.
+   *
+   * Declared after the zoom effect on purpose. Effects run in order, and
+   * `zoom()` redraws synchronously, so when a zoom and a scroll arrive in
+   * the same render the scroll is measured on the new width. Held until
+   * there is audio, like `zoom()`, and applied once per request so a
+   * later decode does not yank the pane back.
+   */
+  const appliedScrollRef = useRef<number | null>(null);
+  useEffect(() => {
+    const ws = wsRef.current;
+    if (!ws || duration === 0 || !scrollTo) return;
+    if (appliedScrollRef.current === scrollTo.id) return;
+    appliedScrollRef.current = scrollTo.id;
+    ws.setScrollTime(scrollTo.sec);
+  }, [scrollTo, duration]);
 
   /**
    * Tell the parent which slice of audio is actually on screen, so the
@@ -1447,6 +1485,8 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
      * getting to a selected region meant zooming with ± and then
      * scrolling to find it by hand.
      */
+    const [scrollRequest, setScrollRequest] = useState<ScrollRequest | null>(null);
+
     const zoomToSelection = useCallback(() => {
       if (!selection || !onZoomChange) return;
       const span = selection.end - selection.start;
@@ -1456,28 +1496,23 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
       const pxPerSec = clamp(width / span, MIN_ZOOM_PX_PER_SEC, MAX_ZOOM_PX_PER_SEC);
       onZoomChange(pxPerSec);
 
-      // Scroll after the zoom has been applied — the scrollable width
-      // does not exist until wavesurfer has redrawn at the new scale.
-      requestAnimationFrame(() => {
-        const surfaces = rootRef.current?.querySelectorAll<HTMLElement>(
-          "[data-testid='timeline-lane-waveform']",
-        );
-        surfaces?.forEach((el) => {
-          const scroller = el.parentElement;
-          if (scroller) scroller.scrollLeft = selection.start * pxPerSec;
-        });
-      });
+      // Centred, which is the same as starting at the selection whenever
+      // the selection fills the pane. It differs only when the zoom hit
+      // its limit: a selection too short to fill the pane at 2000 px/s
+      // would otherwise sit against the left edge.
+      const visibleSec = width / pxPerSec;
+      const sec = Math.max(0, selection.start + span / 2 - visibleSec / 2);
+      setScrollRequest((prev) => ({ sec, id: (prev?.id ?? 0) + 1 }));
     }, [selection, onZoomChange, paneWidth]);
 
-    /** Zero means auto-fit, which is what the lanes already do. */
+    /**
+     * Zero means auto-fit, which is what the lanes already do. Nothing to
+     * scroll: at auto-fit the waveform is no wider than the pane, and
+     * WaveSurfer returns its own scroll to zero when a redraw makes it
+     * unscrollable.
+     */
     const fitToWindow = useCallback(() => {
       onZoomChange?.(0);
-      const surfaces = rootRef.current?.querySelectorAll<HTMLElement>(
-        "[data-testid='timeline-lane-waveform']",
-      );
-      surfaces?.forEach((el) => {
-        if (el.parentElement) el.parentElement.scrollLeft = 0;
-      });
     }, [onZoomChange]);
 
     useImperativeHandle(
@@ -1794,6 +1829,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
                 onDuplicateTrack={onDuplicateTrack}
                 onRemoveTrack={onRemoveTrack}
                 zoom={zoom}
+                scrollTo={scrollRequest}
                 loop={idx === 0 ? loop : undefined}
               />
               {onMoveClip && (track.clips?.length ?? 0) > 0 && (

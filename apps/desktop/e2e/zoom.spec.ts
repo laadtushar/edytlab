@@ -1,0 +1,175 @@
+/**
+ * The zoom verbs frame what they say they frame.
+ *
+ * Zoom-to-selection used to set the zoom and then scroll the lane's own
+ * wrapper to the selection. The wrapper never scrolls: WaveSurfer draws
+ * into a `.scroll` container of its own, inside a shadow root, and the
+ * wrapper only ever holds a pane-wide box. So the waveform zoomed in on
+ * its first half-second, wherever the selection was, and the user was
+ * left to scroll and hunt for it — the exact chore the verb exists to
+ * remove. Found by selecting 1.8–2.4 s of a 3-second file and pressing
+ * the button: the pane read 0:00.0 → 0:00.5.
+ *
+ * Measured on WaveSurfer's scroll container, which is what the user
+ * sees move. jsdom has no layout, so none of this is visible to vitest.
+ */
+
+import type { Page } from "@playwright/test";
+
+import { fixturePath, fixtureSeconds } from "./audio-fixtures";
+import { nodeId, readyToLoad, selecting, sessionWith, trackFor } from "./backend";
+import { expect, test, type App } from "./fixtures";
+
+const SECONDS = fixtureSeconds("tone3s");
+
+/** Load the 3-second tone the way the agent's `load` tool does. */
+async function loadTone(app: App): Promise<void> {
+  await app.boot({ ...readyToLoad(), ...selecting() });
+  await app.become(sessionWith([trackFor(fixturePath("tone3s"), SECONDS)]));
+  await app.emit("agent://node-created", { node_id: nodeId(1) });
+  await expect(app.page.getByTestId("ruler")).toContainText("0:03");
+}
+
+/**
+ * Drag across the lane from one fraction of its width to another, as a
+ * user selects. Returns the selection the app committed, read back from
+ * the status bar rather than computed here, so the test checks the
+ * framing of whatever the app actually selected.
+ */
+async function dragSelect(page: Page, from: number, to: number): Promise<{ start: number; end: number }> {
+  const lane = page.getByTestId("timeline-lane-waveform");
+  const box = await lane.boundingBox();
+  if (!box) throw new Error("the lane has no box");
+  const y = box.y + box.height / 2;
+  await page.mouse.move(box.x + box.width * from, y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * to, y, { steps: 5 });
+  await page.mouse.up();
+
+  const text = await page.getByTestId("status-bar-selection").textContent();
+  const m = /sel (\d+):(\d+\.\d+) → (\d+):(\d+\.\d+)/.exec(text ?? "");
+  if (!m) throw new Error(`no selection in the status bar: ${text}`);
+  return {
+    start: Number(m[1]) * 60 + Number(m[2]),
+    end: Number(m[3]) * 60 + Number(m[4]),
+  };
+}
+
+/** The span of audio lane 0's pane is showing, in seconds. */
+function visibleWindow(page: Page): Promise<{ start: number; end: number }> {
+  return page
+    .getByTestId("timeline-lane-waveform")
+    .first()
+    .locator(".scroll")
+    .evaluate((el, seconds) => {
+      const pxPerSec = el.scrollWidth / seconds;
+      return {
+        start: el.scrollLeft / pxPerSec,
+        end: (el.scrollLeft + el.clientWidth) / pxPerSec,
+      };
+    }, SECONDS);
+}
+
+/**
+ * The status bar prints two decimals, and the pane is a whole number of
+ * pixels wide. Framing within one hundredth either way is exact to what
+ * the user can read.
+ */
+const SLACK = 0.02;
+
+test.describe("zoom to selection", () => {
+  test("fills the pane with the selection, not the start of the file", async ({ app }) => {
+    await loadTone(app);
+    const page = app.page;
+    const sel = await dragSelect(page, 0.6, 0.8);
+    // Well clear of the start, so a pane left at 0 cannot pass.
+    expect(sel.start).toBeGreaterThan(1);
+
+    await page.getByTestId("zoom-to-selection-btn").click();
+
+    await expect
+      .poll(async () => {
+        const v = await visibleWindow(page);
+        return Math.abs(v.start - sel.start) <= SLACK && Math.abs(v.end - sel.end) <= SLACK;
+      }, { message: "the pane frames the selection" })
+      .toBe(true);
+
+    // And the ruler, which follows the pane (#323), says so: every label
+    // it draws is inside the selection.
+    const labels = (await page.getByTestId("ruler").locator("span").allTextContents()).map((l) => {
+      const [mm, ss] = l.split(":");
+      return Number(mm) * 60 + Number(ss);
+    });
+    expect(labels.length, "the ruler labels the framed window").toBeGreaterThan(1);
+    for (const t of labels) {
+      expect(t).toBeGreaterThanOrEqual(sel.start - SLACK);
+      expect(t).toBeLessThanOrEqual(sel.end + SLACK);
+    }
+  });
+
+  test("Ctrl+E does the same as the button", async ({ app }) => {
+    await loadTone(app);
+    const page = app.page;
+    const sel = await dragSelect(page, 0.6, 0.8);
+
+    await page.keyboard.press("Control+e");
+
+    await expect
+      .poll(async () => {
+        const v = await visibleWindow(page);
+        return Math.abs(v.start - sel.start) <= SLACK && Math.abs(v.end - sel.end) <= SLACK;
+      }, { message: "the pane frames the selection" })
+      .toBe(true);
+  });
+
+  test("keeps a selection too short to fill the pane in the middle of it", async ({ app }) => {
+    // Zoom stops at 2000 px/s, so a selection narrower than the pane at
+    // that density cannot fill it. Scrolling to its start would park it
+    // against the left edge; centring it is what "frame" means when
+    // filling is impossible.
+    await loadTone(app);
+    const page = app.page;
+    const sel = await dragSelect(page, 0.7, 0.73);
+    const lanePx = (await page.getByTestId("timeline-lane-waveform").boundingBox())!.width;
+    expect(sel.end - sel.start).toBeLessThan(lanePx / 2000);
+
+    await page.getByTestId("zoom-to-selection-btn").click();
+
+    await expect
+      .poll(async () => {
+        const v = await visibleWindow(page);
+        const mid = (v.start + v.end) / 2;
+        return (
+          v.start <= sel.start &&
+          v.end >= sel.end &&
+          Math.abs(mid - (sel.start + sel.end) / 2) <= SLACK
+        );
+      }, { message: "the selection sits in the middle of the pane" })
+      .toBe(true);
+  });
+});
+
+test.describe("fit to window", () => {
+  test("shows the whole file again after zooming in", async ({ app }) => {
+    await loadTone(app);
+    const page = app.page;
+    await dragSelect(page, 0.6, 0.8);
+    await page.getByTestId("zoom-to-selection-btn").click();
+    await expect
+      .poll(async () => {
+        const v = await visibleWindow(page);
+        return v.end - v.start;
+      })
+      .toBeLessThan(1);
+
+    await page.getByTestId("fit-to-window-btn").click();
+
+    await expect
+      .poll(async () => {
+        const v = await visibleWindow(page);
+        return v.start === 0 && Math.abs(v.end - SECONDS) <= SLACK;
+      }, { message: "the whole file is on screen" })
+      .toBe(true);
+    await expect(page.getByTestId("ruler")).toContainText("0:03");
+  });
+});
