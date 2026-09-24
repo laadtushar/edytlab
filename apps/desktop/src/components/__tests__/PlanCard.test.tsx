@@ -5,7 +5,7 @@
  * on the approval card rendering + the Run/Edit button behaviour.
  */
 
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -62,6 +62,7 @@ vi.mock("../../lib/tauri-bridge", () => ({
 }));
 
 import { Chat } from "../Chat";
+import { held } from "../../__tests__/held";
 
 const flush = () => new Promise<void>((r) => setTimeout(r, 0));
 
@@ -351,8 +352,9 @@ describe("PlanCard (inside Chat)", () => {
     getPlanFirstMock.mockResolvedValue(true);
     render(<Chat />);
     const toggle = await screen.findByTestId("plan-first-toggle");
-    await act(async () => {});
-    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    // The toggle is drawn before the stored preference arrives, so this
+    // waits for the preference rather than asserting on the first draw.
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "true"));
   });
 
   it("clicking the toggle persists the new state", async () => {
@@ -373,15 +375,21 @@ describe("PlanCard (inside Chat)", () => {
    * lying about what the next turn will do.
    */
   it("a failed save puts the toggle back rather than lying", async () => {
-    setPlanFirstMock.mockRejectedValue(new Error("keychain locked"));
+    // Held, so both halves can be seen: the optimistic flip while the
+    // save is in flight, then the revert once it fails. Rejecting at
+    // once let the revert land before the click resolved, on some runs.
+    const save = held<void>();
+    setPlanFirstMock.mockReturnValue(save.promise);
     const user = userEvent.setup();
     render(<Chat />);
     const toggle = await screen.findByTestId("plan-first-toggle");
     await act(async () => {});
 
     await user.click(toggle);
-    await act(async () => {});
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    expect(setPlanFirstMock).toHaveBeenCalledWith(true);
 
+    await save.reject(new Error("keychain locked"));
     expect(toggle).toHaveAttribute("aria-pressed", "false");
   });
 
