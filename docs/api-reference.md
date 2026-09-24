@@ -643,6 +643,18 @@ interface TrackSummary {
 }
 ```
 
+A project with no history yet answers `NoSession`. That is not a fault — the
+project simply has no tracks — so the app treats it as an empty list (#341);
+see `isNoSession` below.
+
+---
+
+### `isNoSession(err: unknown) → boolean`
+
+Whether a command failed with `CommandError::NoSession` — the project has no
+history yet. Matches the error's `Display` text, which is what a
+`CmdResult` carries to the frontend.
+
 ---
 
 ### `renameTrack(track: number, name: string) → NodeId`
