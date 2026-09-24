@@ -22,11 +22,28 @@ use serde_json::{json, Value};
 
 use crate::config::{McpError, Result, SecretRef};
 
-/// How long a single JSON-RPC request waits for its matching response
-/// before giving up. The MCP spec has no mandated value; 10 s is long
-/// enough for a cold `npx` server to answer `initialize` and short
-/// enough that a wedged server doesn't look like a hang to the user.
+/// How long a request to a running server waits for its matching
+/// response before giving up. The MCP spec has no mandated value; 10 s
+/// is short enough that a wedged server doesn't look like a hang to the
+/// user.
 pub(crate) const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// How long the `initialize` handshake may take, counted from the moment
+/// the request is written — which for a stdio server is right after the
+/// process was spawned, so this budget includes the server starting up.
+///
+/// Separate from [`REQUEST_TIMEOUT`] because a server's first answer
+/// carries its whole cold start, and that is a different quantity from
+/// how long a running server takes to answer. `npx -y pkg` and `uvx pkg`
+/// download and install the package on first use; a Windows runner under
+/// load took more than 10 s just to start Git-Bash's `sh` (#340). Holding
+/// the handshake to the request budget failed working servers on the
+/// first start and on nothing else.
+///
+/// Waiting longer costs nothing elsewhere: `McpRegistry::start` handshakes
+/// before it takes the registry lock, so a slow start holds up only the
+/// server being started.
+pub(crate) const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Number of trailing stderr lines retained per server for diagnostics.
 const STDERR_TAIL_LINES: usize = 20;
@@ -68,6 +85,10 @@ pub struct StdioClient {
     /// wait-for-event rather than sleeping a fixed period.
     stderr_done: Receiver<()>,
     next_id: u64,
+    /// Budget for `initialize`; see [`HANDSHAKE_TIMEOUT`].
+    handshake_timeout: Duration,
+    /// Budget for every request after it; see [`REQUEST_TIMEOUT`].
+    request_timeout: Duration,
 }
 
 #[derive(Debug, Deserialize)]
@@ -194,7 +215,20 @@ impl StdioClient {
             stderr_tail,
             stderr_done,
             next_id: 1,
+            handshake_timeout: HANDSHAKE_TIMEOUT,
+            request_timeout: REQUEST_TIMEOUT,
         })
+    }
+
+    /// Replace the handshake and per-request budgets.
+    ///
+    /// The defaults are what every server gets. This exists so a test can
+    /// prove each budget bounds what it should, and which one applies,
+    /// without waiting out the real values.
+    pub fn with_timeouts(mut self, handshake: Duration, request: Duration) -> Self {
+        self.handshake_timeout = handshake;
+        self.request_timeout = request;
+        self
     }
 
     /// Trailing stderr rendered for inclusion in an error message, or
@@ -243,7 +277,9 @@ impl StdioClient {
     /// MCP handshake: send `initialize`, wait for response. Returns
     /// the server's `serverInfo.name` when present.
     pub fn initialize(&mut self) -> Result<Option<String>> {
+        let budget = self.handshake_timeout;
         let resp = self.request(
+            budget,
             "initialize",
             json!({
                 "protocolVersion": "2024-11-05",
@@ -269,16 +305,22 @@ impl StdioClient {
     /// shape to the agent as either a `ToolResult::Ok` or
     /// `ToolResult::Error`.
     pub fn call_tool(&mut self, name: &str, args: Value) -> Result<Value> {
-        self.request("tools/call", json!({ "name": name, "arguments": args }))
+        let budget = self.request_timeout;
+        self.request(
+            budget,
+            "tools/call",
+            json!({ "name": name, "arguments": args }),
+        )
     }
 
     /// Call `tools/list`. Returns the parsed tool descriptors.
     pub fn list_tools(&mut self) -> Result<Vec<ToolDescriptor>> {
-        let resp = self.request("tools/list", json!({}))?;
+        let budget = self.request_timeout;
+        let resp = self.request(budget, "tools/list", json!({}))?;
         parse_tool_descriptors(&resp)
     }
 
-    fn request(&mut self, method: &str, params: Value) -> Result<Value> {
+    fn request(&mut self, budget: Duration, method: &str, params: Value) -> Result<Value> {
         let id = self.next_id;
         self.next_id += 1;
         let frame = json!({
@@ -292,9 +334,9 @@ impl StdioClient {
         // One deadline for the whole exchange, not per read: a server
         // that streams unrelated notifications must not extend the
         // budget indefinitely.
-        let deadline = Instant::now() + REQUEST_TIMEOUT;
+        let deadline = Instant::now() + budget;
         loop {
-            let frame = self.read_frame_until(deadline)?;
+            let frame = self.read_frame_until(deadline, budget)?;
             // Skip notifications + responses that don't match our id.
             if frame.get("id").and_then(|v| v.as_u64()) != Some(id) {
                 continue;
@@ -350,7 +392,7 @@ impl StdioClient {
     /// The reader thread does the blocking work; here we only wait on
     /// the channel, so an unresponsive server costs at most the
     /// remaining budget rather than hanging forever.
-    fn read_frame_until(&mut self, deadline: Instant) -> Result<Value> {
+    fn read_frame_until(&mut self, deadline: Instant, budget: Duration) -> Result<Value> {
         let remaining = deadline.saturating_duration_since(Instant::now());
         let line = match self.stdout_rx.recv_timeout(remaining) {
             Ok(line) => line,
@@ -359,8 +401,7 @@ impl StdioClient {
                 // budget to write anything it wanted to; no grace
                 // period needed.
                 return Err(McpError::InvalidConfig(format!(
-                    "server did not respond within {}s{}",
-                    REQUEST_TIMEOUT.as_secs(),
+                    "server did not respond within {budget:?}{}",
                     self.stderr_context(Duration::ZERO)
                 )));
             }

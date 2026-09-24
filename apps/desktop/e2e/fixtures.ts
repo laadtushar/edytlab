@@ -37,6 +37,24 @@ export interface App {
   /** Raise a backend event, as the Rust side would. */
   emit(event: string, payload?: unknown): Promise<void>;
   /**
+   * The arguments of every call the app made to `cmd`, in order. What
+   * the app asks of the backend is its half of the IPC contract, and the
+   * backend is the one boundary these tests fake.
+   */
+  requestsFor(cmd: string): Promise<unknown[]>;
+  /**
+   * Answer a call that was given a `deferred` answer, once the app has
+   * made it. This is how a test fixes the order of two events instead of
+   * racing them.
+   */
+  release(name: string, value: unknown): Promise<void>;
+  /**
+   * Wait until the app has stopped calling the backend (see `QUIET_MS`).
+   * For asserting that something did *not* happen: a debounced call
+   * that was going to be made has been made by then.
+   */
+  settle(): Promise<void>;
+  /**
    * Change what the backend answers from now on — the state after an
    * edit, say. The mock reads its answers live, so the next call sees
    * these.
@@ -75,6 +93,9 @@ export const test = base.extend<{ app: App }>({
     const pageErrors: string[] = [];
     page.on("pageerror", (err) => pageErrors.push(err.message));
     let booted = false;
+    // A deferred answer the test never releases leaves a call pending
+    // for good, and the test passes anyway. Checked at teardown.
+    const released = new Set<string>();
 
     const app: App = {
       page,
@@ -85,6 +106,17 @@ export const test = base.extend<{ app: App }>({
         await page.goto("/e2e/harness.html");
         await page.waitForFunction(() => window.__E2E_READY__ === true);
         booted = true;
+      },
+      requestsFor: (cmd) =>
+        page.evaluate(
+          (c) => window.__E2E_CALLS__.filter((call) => call.cmd === c).map((call) => call.args),
+          cmd,
+        ),
+      settle: () => settle(page),
+      async release(name, value) {
+        await page.waitForFunction((n) => n in window.__E2E_DEFERRED__, name);
+        await page.evaluate(([n, v]) => window.__E2E_DEFERRED__[n](v), [name, value] as const);
+        released.add(name);
       },
       emit: (event, payload) =>
         page.evaluate(([e, p]) => window.__E2E_EMIT__(e, p), [event, payload] as const),
@@ -103,6 +135,10 @@ export const test = base.extend<{ app: App }>({
     if (booted) await settle(page);
     expect(pageErrors, "uncaught exceptions in the page").toEqual([]);
     if (booted) {
+      const pending = (await page.evaluate(() => Object.keys(window.__E2E_DEFERRED__))).filter(
+        (name) => !released.has(name),
+      );
+      expect(pending, "deferred answers the test never released").toEqual([]);
       const unhandled = await page.evaluate(() => [...new Set(window.__E2E_UNHANDLED__)]);
       expect(unhandled, "commands the app called that the backend was not told how to answer").toEqual([]);
     }
