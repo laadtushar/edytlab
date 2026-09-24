@@ -167,6 +167,11 @@ jobs:
       - name: pnpm test (frontend)
         run: pnpm --filter @edytlab/desktop test
 
+      # `build` runs `tsc -b`, which type-checks the app, its tests and
+      # vite.config.ts as three programs: the app has no Node types
+      # because it runs in a webview, the tests do because they run in
+      # Node (#336). `tsc -b` rather than `tsc`, because the root
+      # tsconfig.json is a solution file and plain `tsc` checks nothing.
       - name: pnpm build (frontend)
         run: pnpm --filter @edytlab/desktop build
 

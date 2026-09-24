@@ -1,13 +1,15 @@
 {
-  // `e2e/` sits outside the app tsconfig's `include`, so without this
-  // file it would be the one TypeScript in the repo nobody checks. It
-  // needs the DOM (the harness runs in the page) and Node (fixtures are
-  // written with `node:fs`).
+  // `e2e/` sits outside the app program's `include`, so without this file
+  // it would be the one TypeScript in the repo nobody checks. It needs
+  // the DOM (the harness runs in the page) and Node (fixtures are written
+  // with `node:fs`).
   //
-  // This is not what keeps Node globals out of app code — nothing does.
-  // The app tsconfig has no `types` field, so `@types/node` is picked up
-  // implicitly there too, and `process.cwd()` type-checks in `src/`.
-  "extends": "../tsconfig.json",
+  // Extends the app program, not `../tsconfig.json`: that is a solution
+  // file with no compiler options of its own, and extending it left this
+  // program with no `module` or `moduleResolution` at all. The app
+  // program has no Node types (#336); this one adds them back, because
+  // the e2e code runs in Node.
+  "extends": "../tsconfig.app.json",
   "compilerOptions": {
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "target": "ES2022",
