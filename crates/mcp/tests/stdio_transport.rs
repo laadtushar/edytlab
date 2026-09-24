@@ -7,7 +7,7 @@
 //! that dies during the handshake) only reproduce with a real pipe.
 
 use std::collections::HashMap;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use mcp::StdioClient;
 
@@ -53,10 +53,15 @@ fn initialize_and_list_tools_round_trip() {
 /// blocking forever. Before the reader-thread change, `read_line`
 /// blocked with no timeout — one wedged server held the registry mutex
 /// and, transitively, the dispatcher and the whole agent loop.
+///
+/// Run with a short handshake budget so the test does not wait out the
+/// real 60 s; what it proves is that the budget is honoured at all.
 #[test]
 fn unresponsive_server_times_out_instead_of_hanging() {
     // Reads stdin so the pipe stays open, but never writes a reply.
-    let mut client = spawn_script("while IFS= read -r line; do :; done").expect("spawn");
+    let mut client = spawn_script("while IFS= read -r line; do :; done")
+        .expect("spawn")
+        .with_timeouts(Duration::from_secs(2), Duration::from_secs(1));
 
     let started = Instant::now();
     let err = client
@@ -66,14 +71,60 @@ fn unresponsive_server_times_out_instead_of_hanging() {
 
     let msg = err.to_string();
     assert!(
-        msg.contains("did not respond"),
-        "expected a timeout error, got: {msg}"
+        msg.contains("did not respond within 2s"),
+        "expected a timeout on the handshake budget, got: {msg}"
     );
-    // The budget is 10s; allow generous slack for a loaded CI box while
-    // still failing loudly if the deadline is ignored entirely.
+    // Generous slack for a loaded CI box, while still failing loudly if
+    // the deadline is ignored entirely.
     assert!(
-        elapsed.as_secs() < 30,
+        elapsed >= Duration::from_secs(2) && elapsed < Duration::from_secs(20),
         "timeout took {elapsed:?} — deadline is not being honoured"
+    );
+}
+
+/// #340. The handshake has its own budget, longer than a request's,
+/// because the first answer carries the server's whole cold start. Held
+/// to the request budget, a server that simply took a while to start —
+/// `npx` fetching its package, or Git-Bash's `sh` on a loaded Windows
+/// runner — failed its first handshake and nothing else.
+///
+/// Here the server needs 2 s to start, the handshake may take 6 s and a
+/// request 1 s: the handshake must succeed, and a request afterwards must
+/// still be held to the shorter budget.
+#[test]
+fn a_slow_start_gets_the_handshake_budget_not_the_request_budget() {
+    let mut client = spawn_script(
+        r#"
+sleep 2
+while IFS= read -r line; do
+  case "$line" in
+    *'"initialize"'*)
+      printf '{"jsonrpc":"2.0","id":1,"result":{"serverInfo":{"name":"slow-start"}}}\n' ;;
+  esac
+done
+"#,
+    )
+    .expect("spawn")
+    .with_timeouts(Duration::from_secs(6), Duration::from_secs(1));
+
+    let name = client
+        .initialize()
+        .expect("a 2 s start is inside the 6 s handshake budget");
+    assert_eq!(name.as_deref(), Some("slow-start"));
+
+    // This server never answers `tools/list`.
+    let started = Instant::now();
+    let err = client
+        .list_tools()
+        .expect_err("tools/list is never answered");
+    let elapsed = started.elapsed();
+    assert!(
+        err.to_string().contains("did not respond within 1s"),
+        "expected a timeout on the request budget, got: {err}"
+    );
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "tools/list took {elapsed:?}: it must use the request budget, not the handshake's"
     );
 }
 
