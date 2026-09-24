@@ -88,9 +88,15 @@ fn unresponsive_server_times_out_instead_of_hanging() {
 /// `npx` fetching its package, or Git-Bash's `sh` on a loaded Windows
 /// runner — failed its first handshake and nothing else.
 ///
-/// Here the server needs 2 s to start, the handshake may take 6 s and a
+/// Here the server needs 2 s to start, the handshake may take 30 s and a
 /// request 1 s: the handshake must succeed, and a request afterwards must
 /// still be held to the shorter budget.
+///
+/// 30 s rather than something tighter, because this is the first test in
+/// the file to spawn `sh`, and on Windows that is Git-Bash's, whose cold
+/// start alone took the handshake past 6 s on CI — the very effect this
+/// test is about. What the test needs is only that the 2 s start falls
+/// between the two budgets, with room for the machine it runs on.
 #[test]
 fn a_slow_start_gets_the_handshake_budget_not_the_request_budget() {
     let mut client = spawn_script(
@@ -105,11 +111,11 @@ done
 "#,
     )
     .expect("spawn")
-    .with_timeouts(Duration::from_secs(6), Duration::from_secs(1));
+    .with_timeouts(Duration::from_secs(30), Duration::from_secs(1));
 
     let name = client
         .initialize()
-        .expect("a 2 s start is inside the 6 s handshake budget");
+        .expect("a 2 s start is inside the 30 s handshake budget");
     assert_eq!(name.as_deref(), Some("slow-start"));
 
     // This server never answers `tools/list`.

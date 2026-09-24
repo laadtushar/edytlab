@@ -2,17 +2,15 @@
  * file-open — small helpers around the Tauri 2 file-picker dialog and
  * native drag-and-drop event.
  *
- * Centralised here so the toolbar button, the native `File > Open
- * Audio…` menu entry, and OS-level drag-and-drop all funnel through a
- * single "open this audio file" code path: `loadAudio(path)` →
- * setAudioPath + bridgeSendMessage("load this file: …"). That mirrors
- * the backend's expectation that loading a file is just another chat
- * message the agent picks up.
+ * The toolbar button, the native `File > Open Audio…` menu entry and
+ * OS-level drag-and-drop all hand their paths to one place, App's
+ * `loadFiles`, which loads them straight into the session through
+ * `batch_load` (#321). Loading used to be a chat message the agent was
+ * expected to act on, which needed a working model to do anything.
  */
 
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { sendMessage as bridgeSendMessage } from "./tauri-bridge";
 
 const AUDIO_FILTERS = [
   {
@@ -20,28 +18,6 @@ const AUDIO_FILTERS = [
     extensions: ["wav", "mp3", "flac", "ogg", "m4a", "aac"],
   },
 ];
-
-/**
- * Common load path: tell the agent the user just supplied a file at
- * `path`, then surface it to React state via `onLoaded`.
- *
- * Failures from `bridgeSendMessage` are passed back to the caller via
- * `onError`; the caller decides whether to show a toast / inline
- * error. We don't throw — the menu, button, and drag-drop callers are
- * fire-and-forget.
- */
-export async function loadAudio(
-  path: string,
-  onLoaded: (path: string) => void,
-  onError?: (err: string) => void,
-): Promise<void> {
-  onLoaded(path);
-  try {
-    await bridgeSendMessage(`load this file: ${path}`);
-  } catch (err) {
-    onError?.(String(err));
-  }
-}
 
 /**
  * Show the OS file picker. Returns the absolute path the user chose,

@@ -15,6 +15,8 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { createRef } from "react";
 import { describe, expect, it, vi } from "vitest";
 
+const { setScrollTime } = vi.hoisted(() => ({ setScrollTime: vi.fn() }));
+
 vi.mock("wavesurfer.js", () => ({
   default: {
     create: () => ({
@@ -22,7 +24,10 @@ vi.mock("wavesurfer.js", () => ({
         if (event === "decode") cb();
       }),
       un: vi.fn(),
-      load: vi.fn(),
+      // A promise, as the real one returns: `undefined` here made the
+      // lane's `.catch` throw, so every lane recorded a failed load and
+      // never had audio to scroll.
+      load: vi.fn(() => Promise.resolve()),
       zoom: vi.fn(),
       play: vi.fn(),
       pause: vi.fn(),
@@ -34,6 +39,7 @@ vi.mock("wavesurfer.js", () => ({
       destroy: vi.fn(),
       getDuration: () => 60,
       getCurrentTime: () => 0,
+      setScrollTime,
     }),
   },
 }));
@@ -70,6 +76,11 @@ describe("Timeline zoom verbs", () => {
     // A 5-second selection across a 600 px pane is 120 px/sec. Anything
     // else frames a different region.
     expect(onZoomChange).toHaveBeenCalledWith(120);
+    // And the lane is taken to it. The scale alone frames the first five
+    // seconds of the file, which is what this verb did until the scroll
+    // went to WaveSurfer — the element that actually scrolls — instead
+    // of the lane's wrapper. e2e/zoom.spec.ts shows it on screen.
+    expect(setScrollTime).toHaveBeenLastCalledWith(10);
   });
 
   it("does nothing without a selection, and says so by being disabled", () => {

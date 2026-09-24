@@ -42,7 +42,6 @@ import Spectrogram from "wavesurfer.js/dist/plugins/spectrogram.esm.js";
  */
 const LANE_HEIGHT = 72;
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { sendMessage as bridgeSendMessage } from "../lib/tauri-bridge";
 import type { Marker } from "../lib/tauri-bridge";
 import { snapRange } from "../lib/zeroCrossing";
 import { AutomationLane } from "./AutomationLane";
@@ -326,9 +325,21 @@ interface LaneProps {
   onRemoveTrack?: (trackIndex: number) => void;
   /** Pixels per second zoom level. 0 = auto-fit. */
   zoom?: number;
+  /**
+   * Scroll the pane so this time is at its left edge. Applied once per
+   * `id`, after the zoom in the same render, so a request made together
+   * with a zoom lands on the zoomed waveform.
+   */
+  scrollTo?: ScrollRequest | null;
   loop?: boolean;
   /** Draw a spectrogram in place of the waveform. */
   spectrogramEnabled?: boolean;
+}
+
+/** A one-off request to scroll every lane to `sec`. */
+interface ScrollRequest {
+  sec: number;
+  id: number;
 }
 
 function TrackLane({
@@ -361,6 +372,7 @@ function TrackLane({
   onDuplicateTrack,
   onRemoveTrack,
   zoom,
+  scrollTo,
   loop,
   spectrogramEnabled,
 }: LaneProps) {
@@ -599,6 +611,36 @@ function isAbort(err: unknown): boolean {
   }, [zoom, duration]);
 
   /**
+   * Scroll to where the parent asked.
+   *
+   * Through WaveSurfer, because WaveSurfer is what scrolls: it draws into
+   * a `.scroll` container of its own, inside a shadow root. Zoom to
+   * selection used to set `scrollLeft` on this lane's wrapper instead,
+   * which only ever holds a pane-wide box and so never scrolls — the
+   * waveform zoomed in on its first half-second wherever the selection
+   * was.
+   *
+   * Declared after the zoom effect on purpose. Effects run in order, and
+   * `zoom()` redraws synchronously, so when a zoom and a scroll arrive in
+   * the same render the scroll is measured on the new width.
+   *
+   * A request is for the lanes on screen when it was made, and each takes
+   * it once. A lane with no audio at that moment takes it without
+   * scrolling, and a lane mounted afterwards takes it on mount, before it
+   * has any. Holding it for them instead replayed it later: a track added
+   * after the press — or renamed, since lanes are keyed by name — jumped
+   * to a selection framed long before, wherever the user had panned since.
+   */
+  const takenScrollRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!scrollTo || takenScrollRef.current === scrollTo.id) return;
+    takenScrollRef.current = scrollTo.id;
+    const ws = wsRef.current;
+    if (!ws || duration === 0) return;
+    ws.setScrollTime(scrollTo.sec);
+  }, [scrollTo, duration]);
+
+  /**
    * Tell the parent which slice of audio is actually on screen, so the
    * ruler can label that slice instead of the whole file (#323).
    *
@@ -658,7 +700,7 @@ function isAbort(err: unknown): boolean {
   }, []);
 
   const handleDrop = useCallback(
-    async (e: React.DragEvent<HTMLDivElement>) => {
+    (e: React.DragEvent<HTMLDivElement>) => {
       e.preventDefault();
       setIsDragging(false);
       const file = e.dataTransfer.files?.[0];
@@ -668,12 +710,10 @@ function isAbort(err: unknown): boolean {
         setLoadError("Could not resolve absolute path for the dropped file.");
         return;
       }
+      // Loaded by the app, straight into the session — not sent to the
+      // agent as a sentence, which needs a working model to mean
+      // anything (#321).
       onFileDropped?.(path);
-      try {
-        await bridgeSendMessage(`load this file: ${path}`);
-      } catch (err) {
-        setLoadError(String(err));
-      }
     },
     [onFileDropped],
   );
@@ -1441,6 +1481,9 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
       return 50;
     }, [zoom, paneWidth, timelineDuration]);
 
+    /** The last zoom-to-selection, for every lane to scroll to once. */
+    const [scrollRequest, setScrollRequest] = useState<ScrollRequest | null>(null);
+
     /**
      * Fill the pane with the selection. Along with fit-to-window these
      * are the two most-used zoom verbs on any timeline, and until now
@@ -1456,28 +1499,23 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
       const pxPerSec = clamp(width / span, MIN_ZOOM_PX_PER_SEC, MAX_ZOOM_PX_PER_SEC);
       onZoomChange(pxPerSec);
 
-      // Scroll after the zoom has been applied — the scrollable width
-      // does not exist until wavesurfer has redrawn at the new scale.
-      requestAnimationFrame(() => {
-        const surfaces = rootRef.current?.querySelectorAll<HTMLElement>(
-          "[data-testid='timeline-lane-waveform']",
-        );
-        surfaces?.forEach((el) => {
-          const scroller = el.parentElement;
-          if (scroller) scroller.scrollLeft = selection.start * pxPerSec;
-        });
-      });
+      // Centred, which is the same as starting at the selection whenever
+      // the selection fills the pane. It differs only when the zoom hit
+      // its limit: a selection too short to fill the pane at 2000 px/s
+      // would otherwise sit against the left edge.
+      const visibleSec = width / pxPerSec;
+      const sec = Math.max(0, selection.start + span / 2 - visibleSec / 2);
+      setScrollRequest((prev) => ({ sec, id: (prev?.id ?? 0) + 1 }));
     }, [selection, onZoomChange, paneWidth]);
 
-    /** Zero means auto-fit, which is what the lanes already do. */
+    /**
+     * Zero means auto-fit, which is what the lanes already do. Nothing to
+     * scroll: at auto-fit the waveform is no wider than the pane, and
+     * WaveSurfer returns its own scroll to zero when a redraw makes it
+     * unscrollable.
+     */
     const fitToWindow = useCallback(() => {
       onZoomChange?.(0);
-      const surfaces = rootRef.current?.querySelectorAll<HTMLElement>(
-        "[data-testid='timeline-lane-waveform']",
-      );
-      surfaces?.forEach((el) => {
-        if (el.parentElement) el.parentElement.scrollLeft = 0;
-      });
     }, [onZoomChange]);
 
     useImperativeHandle(
@@ -1794,6 +1832,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
                 onDuplicateTrack={onDuplicateTrack}
                 onRemoveTrack={onRemoveTrack}
                 zoom={zoom}
+                scrollTo={scrollRequest}
                 loop={idx === 0 ? loop : undefined}
               />
               {onMoveClip && (track.clips?.length ?? 0) > 0 && (

@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@import url("https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap");
 
 /*
  * Studio Onyx — design tokens.
@@ -28,8 +27,10 @@
   --color-warning: #f5b941;
   --color-danger: #ef6f72;
 
-  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "Geist Mono", ui-monospace, "JetBrains Mono", monospace;
+  /* Faces bundled from @fontsource (see main.tsx); the variable builds
+     register under these names. */
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, "JetBrains Mono", monospace;
   --font-serif: "Instrument Serif", "Iowan Old Style", "Apple Garamond", serif;
 
   /*

@@ -12,7 +12,7 @@
  * `vite preview`.
  */
 
-import { createReadStream, statSync } from "node:fs";
+import { createReadStream, readFileSync, statSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { defineConfig, mergeConfig, type Plugin, type UserConfig } from "vite";
 
@@ -62,11 +62,44 @@ function serveFixtures(): Plugin {
   };
 }
 
+/**
+ * The Content Security Policy the app ships (`tauri.conf.json`), as the
+ * one header string Tauri sends with it (#334).
+ *
+ * Put on the harness page so every e2e test runs the frontend under the
+ * policy the release enforces: a change that needs something the policy
+ * forbids — an inline script, a remote fetch, a new worker source — fails
+ * here, in CI, rather than as a silent break in a signed build. Tauri's
+ * `asset:`/`ipc:` sources are inert in Chromium; the harness serves audio
+ * and IPC from its own origin, which `'self'` covers.
+ */
+export function shippedCsp(): string {
+  const conf = JSON.parse(
+    readFileSync(new URL("../src-tauri/tauri.conf.json", import.meta.url), "utf8"),
+  ) as { app: { security: { csp: Record<string, string> | null } } };
+  const csp = conf.app.security.csp;
+  if (!csp) throw new Error("tauri.conf.json ships no CSP");
+  return Object.entries(csp)
+    .map(([directive, sources]) => `${directive} ${sources}`)
+    .join("; ");
+}
+
+function withShippedCsp(): Plugin {
+  return {
+    name: "e2e-shipped-csp",
+    transformIndexHtml: (html) =>
+      html.replace(
+        "<head>",
+        `<head>\n    <meta http-equiv="Content-Security-Policy" content="${shippedCsp()}" />`,
+      ),
+  };
+}
+
 export default defineConfig(async (env) => {
   const base: UserConfig =
     typeof appConfig === "function" ? await appConfig(env) : await appConfig;
   return mergeConfig(base, {
-    plugins: [serveFixtures()],
+    plugins: [serveFixtures(), withShippedCsp()],
     build: {
       outDir: "e2e/.dist",
       emptyOutDir: true,

@@ -92,6 +92,15 @@ export const test = base.extend<{ app: App }>({
   app: async ({ page }, use) => {
     const pageErrors: string[] = [];
     page.on("pageerror", (err) => pageErrors.push(err.message));
+    // The harness page carries the CSP the app ships (#334). Recorded from
+    // before any page script runs, so a violation during boot counts.
+    await page.addInitScript(() => {
+      const seen: string[] = [];
+      (window as unknown as { __E2E_CSP__: string[] }).__E2E_CSP__ = seen;
+      document.addEventListener("securitypolicyviolation", (e) => {
+        seen.push(`${e.violatedDirective} ${e.blockedURI}`);
+      });
+    });
     let booted = false;
     // A deferred answer the test never releases leaves a call pending
     // for good, and the test passes anyway. Checked at teardown.
@@ -134,6 +143,12 @@ export const test = base.extend<{ app: App }>({
     // test body ended.
     if (booted) await settle(page);
     expect(pageErrors, "uncaught exceptions in the page").toEqual([]);
+    if (booted) {
+      const violations = await page.evaluate(
+        () => (window as unknown as { __E2E_CSP__?: string[] }).__E2E_CSP__ ?? [],
+      );
+      expect(violations, "what the shipped Content Security Policy refused").toEqual([]);
+    }
     if (booted) {
       const pending = (await page.evaluate(() => Object.keys(window.__E2E_DEFERRED__))).filter(
         (name) => !released.has(name),

@@ -10,6 +10,8 @@
  * so an unrelated import does not blow up.
  */
 
+// First, before anything that loads React — see the module.
+import "./slowScheduler";
 import "@testing-library/jest-dom/vitest";
 import { vi } from "vitest";
 
