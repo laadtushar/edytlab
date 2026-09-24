@@ -251,6 +251,17 @@ export function emptyTrack(name: string, id: string): TrackSummary {
   };
 }
 
+/**
+ * What the app calls once the user has selected something.
+ *
+ * `set_selection_context` stores the range for the agent's next turn and
+ * returns `Ok(())`, session or not: it touches only `AppState`. The app
+ * pushes it 250 ms after every selection change.
+ */
+export function selecting(): Backend {
+  return { set_selection_context: ok(null) };
+}
+
 /** A node id as the backend formats one: 32 bytes, as 64 hex digits. */
 export function nodeId(n: number): string {
   return n.toString(16).padStart(64, "0");

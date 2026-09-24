@@ -7,10 +7,10 @@
  *
  * Measured from WaveSurfer, not from the lane's own elements —
  * WaveSurfer renders into a `.scroll` container inside a shadow root,
- * and that is what scrolls, not the wrapper this component owns. The
- * existing zoom-to-selection code sets `el.parentElement.scrollLeft`,
- * which is the wrapper, and so scrolls nothing; `getScroll`,
- * `getWidth` and `getWrapper` are the public way to ask.
+ * and that is what scrolls, not the wrapper this component owns.
+ * Zoom-to-selection once set the wrapper's `scrollLeft` and so scrolled
+ * nothing; `getScroll`, `getWidth` and `getWrapper` are the public way
+ * to ask.
  *
  * Both events are covered because neither is enough on its own.
  * `scroll` comes from the container's own scroll event, so zooming
