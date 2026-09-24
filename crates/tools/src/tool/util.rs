@@ -92,19 +92,6 @@ pub(crate) fn slice_envelope(
     out
 }
 
-/// Materialise a track's timeline as one WAV and return its path.
-///
-/// A track with a single clip already *is* a file on disk, and callers
-/// that only need something to draw can use `source_path` directly. A
-/// track split by a cut is not any single file, which is why the desktop
-/// app's `list_tracks` reported no audio path for one at all and the
-/// timeline lane came back blank.
-///
-/// The CAS name is hashed from the **clip descriptors**, not the audio.
-/// That is what keeps this cheap enough to call from a listing: the same
-/// clip list always yields the same audio, so a repeat call finds the
-/// file already there and never touches the sources. Only a genuine miss
-/// pays for a decode.
 /// Where [`flattened_track_wav`] keeps the flattened audio for `clips`,
 /// without writing it.
 ///
@@ -127,6 +114,24 @@ pub fn flattened_track_path(project_dir: &Path, clips: &[Clip]) -> PathBuf {
     crate::provenance::derived_dir(project_dir).join(format!("track-{hash_hex}.wav"))
 }
 
+/// Materialise a track's timeline as one WAV and return its path.
+///
+/// A track with a single clip already *is* a file on disk, and callers
+/// that only need something to draw can use `source_path` directly. A
+/// track split by a cut is not any single file, which is why the desktop
+/// app's `list_tracks` reported no audio path for one at all and the
+/// timeline lane came back blank.
+///
+/// The CAS name is hashed from the **clip descriptors**, not the audio.
+/// That is what keeps this cheap enough to call from a listing: the same
+/// clip list always yields the same audio, so a repeat call finds the
+/// file already there and never touches the sources. Only a genuine miss
+/// pays for a decode.
+///
+/// A miss streams: it reads each clip's source a chunk at a time and
+/// writes the file as it goes, so memory does not grow with the track.
+/// It used to decode every source whole first — for a one-hour stereo
+/// recording, over a gigabyte of samples held at once to draw a lane.
 pub fn flattened_track_wav(project_dir: &Path, clips: &[Clip]) -> Result<PathBuf, String> {
     if clips.is_empty() {
         return Err("track has no clips".to_string());
@@ -138,21 +143,147 @@ pub fn flattened_track_wav(project_dir: &Path, clips: &[Clip]) -> Result<PathBuf
         return Ok(cas_path);
     }
 
-    let audio = flatten_track(clips)?;
     std::fs::create_dir_all(&derived_dir).map_err(|e| {
         format!(
             "failed to create derived dir {}: {e}",
             derived_dir.display()
         )
     })?;
-    audio_engine::write_wav(
-        &audio.window,
-        audio.sample_rate,
-        audio.channels.max(1),
-        &cas_path,
-    )
-    .map_err(|e| format!("failed to write {}: {e}", cas_path.display()))?;
+    // Written under a temporary name and renamed into place once whole.
+    // The name is trusted on sight above, so a write cut short — a crash,
+    // a full disk — must never be left under it: every later listing
+    // would hand the timeline a truncated file and never write it again.
+    let tmp = tempfile::Builder::new()
+        .prefix(".track-")
+        .suffix(".wav.part")
+        .tempfile_in(&derived_dir)
+        .map_err(|e| format!("failed to create a file in {}: {e}", derived_dir.display()))?;
+    let (file, tmp_path) = tmp.into_parts();
+    write_track_timeline(clips, file, TIMELINE_CHUNK_FRAMES)
+        .map_err(|e| format!("failed to write {}: {e}", cas_path.display()))?;
+    tmp_path
+        .persist(&cas_path)
+        .map_err(|e| format!("failed to write {}: {e}", cas_path.display()))?;
     Ok(cas_path)
+}
+
+/// Frames per chunk when streaming a track's timeline: 64 Ki frames is
+/// half a mebibyte of stereo samples per buffer, and a few hundred
+/// chunks for an hour of audio.
+const TIMELINE_CHUNK_FRAMES: usize = 1 << 16;
+
+/// Write a track's timeline — every clip at its place, silence before
+/// and between — to `out` as 16-bit PCM, `chunk_frames` at a time.
+///
+/// The same audio [`flatten_track`] lays out, sample for sample:
+/// overlapping clips sum in clip order, and a source shorter than its
+/// clip claims runs out into silence. Only the memory differs — two
+/// chunk buffers, and a reader open only for the clips under the chunk
+/// being written, so a track cut into a thousand clips does not hold a
+/// thousand files open.
+///
+/// Clip sources are WAVs the streaming reader can open, which `load`
+/// guarantees and the render engine already requires.
+pub(crate) fn write_track_timeline(
+    clips: &[Clip],
+    out: std::fs::File,
+    chunk_frames: usize,
+) -> Result<(), String> {
+    use audio_decoder::WavStreamReader;
+
+    let open = |clip: &Clip| {
+        WavStreamReader::open(&clip.source_path)
+            .map_err(|e| format!("failed to read {}: {e}", clip.source_path.display()))
+    };
+
+    // Every header first: a disagreement is reported before anything is
+    // written, exactly as `flatten_track` reports it.
+    let mut format: Option<(u32, u16)> = None;
+    for clip in clips {
+        let reader = open(clip)?;
+        let (rate, channels) = (reader.sample_rate(), reader.channels());
+        if channels == 0 {
+            return Err(format!(
+                "source {} has zero channels",
+                clip.source_path.display()
+            ));
+        }
+        match format {
+            None => format = Some((rate, channels)),
+            Some((r, c)) if (r, c) != (rate, channels) => {
+                return Err(format!(
+                    "track mixes formats across clips ({r} Hz / {c} ch vs \
+                     {rate} Hz / {channels} ch in {}); split the edit per clip or render the track first",
+                    clip.source_path.display()
+                ));
+            }
+            Some(_) => {}
+        }
+    }
+    let Some((sample_rate, channels)) = format else {
+        return Err("track has no clips".to_string());
+    };
+
+    let stride = channels as usize;
+    let chunk_frames = chunk_frames.max(1);
+    let total = clips
+        .iter()
+        .map(|c| c.start_in_track.saturating_add(c.length))
+        .max()
+        .unwrap_or(0);
+
+    let mut writer =
+        audio_engine::WavChunkWriter::new(out, sample_rate, channels).map_err(|e| e.to_string())?;
+    let mut mix = vec![0.0f32; chunk_frames * stride];
+    let mut scratch = vec![0.0f32; chunk_frames * stride];
+    // One slot per clip: opened at the first chunk it reaches, dropped
+    // after the last.
+    let mut readers: Vec<Option<WavStreamReader>> = clips.iter().map(|_| None).collect();
+
+    let mut t = 0u64;
+    while t < total {
+        let n = (total - t).min(chunk_frames as u64);
+        let chunk_end = t + n;
+        let mix = &mut mix[..n as usize * stride];
+        mix.fill(0.0);
+
+        for (clip, slot) in clips.iter().zip(readers.iter_mut()) {
+            let clip_end = clip.start_in_track.saturating_add(clip.length);
+            let from = t.max(clip.start_in_track);
+            let to = chunk_end.min(clip_end);
+            if from >= to {
+                continue;
+            }
+            if slot.is_none() {
+                let mut reader = open(clip)?;
+                reader
+                    .skip_frames(clip.source_offset)
+                    .map_err(|e| format!("failed to read {}: {e}", clip.source_path.display()))?;
+                *slot = Some(reader);
+            }
+            let Some(reader) = slot.as_mut() else {
+                continue;
+            };
+            // Chunks advance in order and a clip's frames are contiguous,
+            // so the reader is always at `from`: nothing to seek.
+            let want = (to - from) as usize * stride;
+            let got = reader
+                .read_frames(&mut scratch[..want])
+                .map_err(|e| format!("failed to read {}: {e}", clip.source_path.display()))?
+                * stride;
+            let at = (from - t) as usize * stride;
+            for (d, s) in mix[at..at + got].iter_mut().zip(&scratch[..got]) {
+                *d += *s;
+            }
+            if to == clip_end {
+                *slot = None;
+            }
+        }
+
+        writer.write(mix).map_err(|e| e.to_string())?;
+        t = chunk_end;
+    }
+    writer.finalize().map_err(|e| e.to_string())
 }
 
 /// Where a track's timeline ends: the furthest point any clip reaches.
@@ -1384,5 +1515,140 @@ mod abort_tests {
         let (head_after, clips_after) = session_shape(&mut ctx);
         assert_ne!(head_before, head_after, "no node was appended");
         assert_eq!(clips_after, 1, "a successful edit flattens the track");
+    }
+}
+
+#[cfg(test)]
+mod timeline_stream_tests {
+    //! The streamed timeline is the buffered one, sample for sample.
+    //!
+    //! `flatten_track` is what every read-only tool analyses and what the
+    //! lane drew before the write streamed. Chunk sizes here are tiny and
+    //! odd on purpose, so clips start, end and overlap across chunk
+    //! boundaries, which is where a streaming writer goes wrong.
+
+    use std::path::{Path, PathBuf};
+
+    use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
+    use session::Clip;
+    use tempfile::TempDir;
+
+    use super::{flatten_track, write_track_timeline};
+
+    const RATE: u32 = 8_000;
+
+    /// A stereo source whose every sample is distinct, so a frame read
+    /// from the wrong place cannot pass for the right one.
+    fn source(dir: &Path, name: &str, frames: usize, seed: i16) -> PathBuf {
+        let path = dir.join(name);
+        let spec = WavSpec {
+            channels: 2,
+            sample_rate: RATE,
+            bits_per_sample: 16,
+            sample_format: SampleFormat::Int,
+        };
+        let mut w = WavWriter::create(&path, spec).unwrap();
+        for n in 0..frames as i16 {
+            w.write_sample(seed.wrapping_add(n.wrapping_mul(7)))
+                .unwrap();
+            w.write_sample(seed.wrapping_sub(n.wrapping_mul(5)))
+                .unwrap();
+        }
+        w.finalize().unwrap();
+        path
+    }
+
+    fn clip(source: &Path, start_in_track: u64, source_offset: u64, length: u64) -> Clip {
+        Clip {
+            source_path: source.to_path_buf(),
+            start_in_track,
+            source_offset,
+            length,
+            content_hash: None,
+            time_stretch_factor: None,
+            pitch_shift_semitones: None,
+            beat_grid: None,
+            volume_envelope: Vec::new(),
+        }
+    }
+
+    fn streamed(dir: &Path, clips: &[Clip], chunk: usize) -> Vec<i16> {
+        let out = dir.join(format!("streamed-{chunk}.wav"));
+        write_track_timeline(clips, std::fs::File::create(&out).unwrap(), chunk).unwrap();
+        let mut r = WavReader::open(&out).unwrap();
+        assert_eq!(r.spec().sample_rate, RATE);
+        assert_eq!(r.spec().channels, 2);
+        r.samples::<i16>().map(|s| s.unwrap()).collect()
+    }
+
+    fn buffered(dir: &Path, clips: &[Clip]) -> Vec<i16> {
+        let audio = flatten_track(clips).unwrap();
+        let out = dir.join("buffered.wav");
+        audio_engine::write_wav(&audio.window, audio.sample_rate, audio.channels, &out).unwrap();
+        WavReader::open(&out)
+            .unwrap()
+            .samples::<i16>()
+            .map(|s| s.unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn matches_the_buffered_timeline_at_any_chunk_size() {
+        let tmp = TempDir::new().unwrap();
+        let a = source(tmp.path(), "a.wav", 300, 11);
+        let b = source(tmp.path(), "b.wav", 120, -900);
+        let clips = vec![
+            // A lead-in of silence, then a clip read from the middle.
+            clip(&a, 17, 40, 90),
+            // Overlaps the first: the two must sum, in this order.
+            clip(&b, 60, 0, 120),
+            // A gap, then a clip claiming more than its source holds —
+            // it runs out into silence.
+            clip(&b, 230, 100, 50),
+            // Past the end of its source entirely.
+            clip(&a, 290, 400, 10),
+        ];
+        let want = buffered(tmp.path(), &clips);
+        assert_eq!(
+            want.len(),
+            300 * 2,
+            "the timeline runs to the last clip's end"
+        );
+        for chunk in [1, 3, 7, 64, 1 << 16] {
+            assert_eq!(
+                streamed(tmp.path(), &clips, chunk),
+                want,
+                "chunk of {chunk} frames"
+            );
+        }
+    }
+
+    #[test]
+    fn a_format_mismatch_is_reported_before_anything_is_written() {
+        let tmp = TempDir::new().unwrap();
+        let stereo = source(tmp.path(), "stereo.wav", 50, 1);
+        let mono = tmp.path().join("mono.wav");
+        let mut w = WavWriter::create(
+            &mono,
+            WavSpec {
+                channels: 1,
+                sample_rate: RATE,
+                bits_per_sample: 16,
+                sample_format: SampleFormat::Int,
+            },
+        )
+        .unwrap();
+        w.write_sample(0i16).unwrap();
+        w.finalize().unwrap();
+
+        let out = tmp.path().join("out.wav");
+        let err = write_track_timeline(
+            &[clip(&stereo, 0, 0, 50), clip(&mono, 50, 0, 1)],
+            std::fs::File::create(&out).unwrap(),
+            16,
+        )
+        .unwrap_err();
+        assert!(err.contains("mixes formats"), "{err}");
+        assert_eq!(std::fs::metadata(&out).unwrap().len(), 0, "nothing written");
     }
 }
