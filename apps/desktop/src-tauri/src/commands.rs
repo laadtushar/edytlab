@@ -138,10 +138,36 @@ fn lock_std<'a, T>(
 // open_project
 // ---------------------------------------------------------------------------
 
+/// Let the webview read a project's audio over the asset protocol (#334).
+///
+/// The asset scope used to be `**` — any file the user can read, which
+/// is what an injection in the webview would have been able to read too.
+/// It is now the app's own data directory (the default project lives
+/// there) plus what the app grants as it goes: each project as it opens,
+/// the files `list_tracks` hands the timeline, and compare renders.
+/// A failed grant shows as audio that will not load, so it is logged.
+pub(crate) fn allow_assets_in_dir<R: Runtime>(app: &AppHandle<R>, dir: &std::path::Path) {
+    if let Err(e) = app.asset_protocol_scope().allow_directory(dir, true) {
+        tracing::warn!(dir = %dir.display(), error = %e, "could not allow a project in the asset scope");
+    }
+}
+
+/// One file the webview is about to load; see [`allow_assets_in_dir`].
+pub(crate) fn allow_asset_file<R: Runtime>(app: &AppHandle<R>, file: &std::path::Path) {
+    if let Err(e) = app.asset_protocol_scope().allow_file(file) {
+        tracing::warn!(file = %file.display(), error = %e, "could not allow a file in the asset scope");
+    }
+}
+
 #[tauri::command]
-pub async fn open_project(state: State<'_, AppState>, path: String) -> CmdResult<ProjectInfo> {
+pub async fn open_project<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+    path: String,
+) -> CmdResult<ProjectInfo> {
     let project_path = PathBuf::from(&path);
-    let info = open_project_inner(&state, project_path)?;
+    let info = open_project_inner(&state, project_path.clone())?;
+    allow_assets_in_dir(&app, &project_path);
     // After the store is replaced we may now be able to construct the
     // agent (if an API key was already cached). Rebuild it eagerly.
     rebuild_agent(&state).await?;
@@ -248,7 +274,8 @@ pub fn save_view_state(
 /// (#156) — before the storage layout moved, a copy would have been a
 /// history pointing at files somewhere else.
 #[tauri::command]
-pub async fn save_project_as(
+pub async fn save_project_as<R: Runtime>(
+    app: AppHandle<R>,
     state: State<'_, AppState>,
     dest: String,
 ) -> CmdResult<crate::project::CopyReport> {
@@ -270,7 +297,8 @@ pub async fn save_project_as(
     // Continue in the copy. Leaving the original open would make Save As
     // a backup button, which is a different feature with a different
     // name.
-    open_project_inner(&state, dest_path)?;
+    open_project_inner(&state, dest_path.clone())?;
+    allow_assets_in_dir(&app, &dest_path);
     Ok(report)
 }
 
@@ -1473,7 +1501,7 @@ pub async fn render_preview(state: State<'_, AppState>, node: String) -> CmdResu
 pub async fn prepare_compare<R: Runtime>(
     a: String,
     b: String,
-    _app: AppHandle<R>,
+    app: AppHandle<R>,
     state: State<'_, AppState>,
 ) -> CmdResult<serde_json::Value> {
     let store_handle = state.store_handle().ok_or(CommandError::NoSession)?;
@@ -1511,6 +1539,11 @@ pub async fn prepare_compare<R: Runtime>(
         .to_str()
         .map(str::to_owned)
         .ok_or_else(|| CommandError::InvalidPath("compare_b path is not valid UTF-8".into()))?;
+
+    // Rendered to the OS temp directory, which is outside the asset
+    // scope: grant exactly these two, not the whole temp directory.
+    allow_asset_file(&app, &a_path);
+    allow_asset_file(&app, &b_path);
 
     Ok(serde_json::json!({
         "a_path": a_path_str,
@@ -2138,7 +2171,10 @@ pub struct EnvelopePointSummary {
 /// the frontend Timeline to render per-lane waveforms — without this
 /// every lane fell back to the same mix path.
 #[tauri::command]
-pub fn list_tracks(state: State<'_, AppState>) -> CmdResult<Vec<TrackSummary>> {
+pub fn list_tracks<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+) -> CmdResult<Vec<TrackSummary>> {
     let store_arc = state.store_handle().ok_or(CommandError::NoSession)?;
     let store = lock_std(&*store_arc, "store")?;
     let head = store.head().ok_or(CommandError::NoSession)?;
@@ -2148,7 +2184,7 @@ pub fn list_tracks(state: State<'_, AppState>) -> CmdResult<Vec<TrackSummary>> {
     let project_dir_for_flatten = store.project_dir().to_path_buf();
     drop(store);
     let sr = node.state.sample_rate.max(1) as f64;
-    Ok(node
+    let tracks: Vec<TrackSummary> = node
         .state
         .tracks
         .into_iter()
@@ -2217,7 +2253,14 @@ pub fn list_tracks(state: State<'_, AppState>) -> CmdResult<Vec<TrackSummary>> {
                     .map(|p| p.to_string_lossy().into_owned()),
             },
         })
-        .collect())
+        .collect();
+    // The timeline loads each track's audio straight from these paths,
+    // and a track's source can be anywhere on disk: grant each one as it
+    // is handed over (#334).
+    for path in tracks.iter().filter_map(|t| t.audio_path.as_deref()) {
+        allow_asset_file(&app, std::path::Path::new(path));
+    }
+    Ok(tracks)
 }
 
 // ---------------------------------------------------------------------------
