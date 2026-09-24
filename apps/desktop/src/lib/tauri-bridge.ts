@@ -629,6 +629,18 @@ export interface TrackSummary {
 export const listTracks = (): Promise<TrackSummary[]> =>
   invoke<TrackSummary[]>("list_tracks");
 
+/**
+ * What a command fails with when the project has no history yet —
+ * `CommandError::NoSession`'s `Display` (`commands.rs`), which is the
+ * string the frontend receives. For `list_tracks` it is not a fault: a
+ * new project simply has no tracks (#341).
+ */
+const NO_SESSION_MESSAGE = "no session loaded; call open_project first";
+
+export function isNoSession(err: unknown): boolean {
+  return String(err).includes(NO_SESSION_MESSAGE);
+}
+
 // Mixer controls. Each appends one undoable session node and resolves
 // to the new head, so the caller refreshes with `listTracks` after.
 // The backend validates ranges too — these are not the only guard.

@@ -27,6 +27,7 @@ import {
   listMarkers,
   getTranscript,
   cutTranscriptWords,
+  isNoSession,
   listTracks,
   getSyncLock,
   setSyncLock,
@@ -157,6 +158,34 @@ function App() {
   const [markers, setMarkers] = useState<Marker[]>([]);
   const [tracks, setTracks] = useState<TrackSummary[]>([]);
   /**
+   * The one way the track list is refreshed (#341, #342).
+   *
+   * - **The latest request wins.** Boot lists the tracks, and so does
+   *   every edit; nothing ordered the replies, so a boot reply arriving
+   *   after an edit's replaced the newer list with the older one. Each
+   *   request is numbered, and only the newest one's reply is applied.
+   * - **`NoSession` is an empty list**, not an error: it is what a new
+   *   project with no history answers. "New project…" on an empty folder
+   *   showed it as a failure.
+   *
+   * Any other failure is thrown to the caller, which reports it — unless
+   * a newer request has been made since, in which case it is moot.
+   */
+  const trackRequestRef = useRef(0);
+  const refreshTracks = useCallback(async (): Promise<void> => {
+    const request = ++trackRequestRef.current;
+    let next: TrackSummary[];
+    try {
+      next = await listTracks();
+    } catch (err) {
+      if (request !== trackRequestRef.current) return;
+      if (!isNoSession(err)) throw err;
+      next = [];
+    }
+    if (request !== trackRequestRef.current) return;
+    setTracks(next);
+  }, []);
+  /**
    * What the timeline draws and the status bar names: the session's own
    * audio, whichever track holds it.
    *
@@ -228,8 +257,7 @@ function App() {
       await setHeadTo(result.head);
       setHeadLocal(result.head);
       setRedoStack(result.redoStack);
-      const newTracks = await listTracks();
-      setTracks(newTracks);
+      await refreshTracks();
     } catch (err) {
       setRenderError(String(err));
     }
@@ -274,8 +302,7 @@ function App() {
       await setHeadTo(result.head);
       setHeadLocal(result.head);
       setRedoStack(result.redoStack);
-      const newTracks = await listTracks();
-      setTracks(newTracks);
+      await refreshTracks();
     } catch (err) {
       setRenderError(String(err));
     }
@@ -468,7 +495,7 @@ function App() {
       if (paths.length === 0) return;
       try {
         applyNewHead((await batchLoad(paths)).last_node_id);
-        setTracks(await listTracks());
+        await refreshTracks();
       } catch (err) {
         const what = paths.length === 1 ? trimPath(paths[0]) : `${paths.length} files`;
         setRenderError(`Could not load ${what}: ${String(err)}`);
@@ -494,8 +521,7 @@ function App() {
     setShowTemplatePicker(false);
     try {
       applyNewHead(await applyTemplate(name));
-      const newTracks = await listTracks();
-      setTracks(newTracks);
+      await refreshTracks();
     } catch (e) {
       setRenderError(String(e));
     }
@@ -520,7 +546,7 @@ function App() {
         setRenderError(String(e));
       }
       try {
-        setTracks(await listTracks());
+        await refreshTracks();
       } catch (e) {
         setRenderError(String(e));
       }
@@ -575,7 +601,7 @@ function App() {
   // itself rather than a value on a track.
   const afterTrackListChange = useCallback(async () => {
     try {
-      setTracks(await listTracks());
+      await refreshTracks();
     } catch (e) {
       setRenderError(String(e));
     }
@@ -676,7 +702,7 @@ function App() {
         setMixPath(null);
         setMixNodeId(null);
         await restoreView(info.head ?? null);
-        setTracks(await listTracks());
+        await refreshTracks();
         setRecents(await listRecentProjects());
       } catch (e) {
         setRenderError(String(e));
@@ -780,7 +806,7 @@ function App() {
       persistView();
       const report = await saveProjectAs(dir);
       setRecents(await listRecentProjects());
-      setTracks(await listTracks());
+      await refreshTracks();
       // Not an error, so it does not go through the error banner — but
       // the numbers are worth seeing, since a copy that skipped the
       // cache is smaller than the folder it came from and that would
@@ -925,7 +951,7 @@ function App() {
         // case this ships for; per-track transcripts are #168.
         const newHead = await cutTranscriptWords(0, from, to);
         setHeadLocal(newHead);
-        setTracks(await listTracks());
+        await refreshTracks();
         setSelection(null);
       } catch (err) {
         setRenderError(String(err));
@@ -996,7 +1022,7 @@ function App() {
     onNodeCreated(async (_nodeId: string) => {
       setRedoStack([]); // new branch clears forward history
       setGraphRefresh((n) => n + 1);
-      setTracks(await listTracks());
+      await refreshTracks();
       // The session moved, so any previously rendered mix is stale.
       setMixPath(null);
       setMixNodeId(null);
@@ -1008,9 +1034,7 @@ function App() {
     // launch and restores its `HEAD`, so a returning user's tracks are
     // already there; a fresh project has no head yet and answers
     // `NoSession`, which leaves the list empty.
-    void listTracks()
-      .then(setTracks)
-      .catch(() => setTracks([]));
+    void refreshTracks().catch(() => setTracks([]));
     // Then the view they left. Saving stays off until this has been
     // read, whether or not there was anything to read.
     //
@@ -1084,7 +1108,7 @@ function App() {
 
     if (outcome.kind === "loaded") {
       applyNewHead(outcome.nodeId);
-      void listTracks().then(setTracks);
+      void refreshTracks().catch((err) => setRenderError(String(err)));
     } else {
       setRenderError(outcome.message);
     }
@@ -1113,7 +1137,7 @@ function App() {
         setIsRecording(false);
         if (outcome.kind === "loaded") {
           applyNewHead(outcome.nodeId);
-          void listTracks().then(setTracks);
+          void refreshTracks().catch((err) => setRenderError(String(err)));
         } else if (outcome.kind !== "cancelled") {
           // Cancelling is the user's own doing and needs no banner.
           setRenderError(outcome.message);
