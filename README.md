@@ -125,7 +125,7 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 pnpm --filter @edytlab/desktop test
-pnpm --filter @edytlab/desktop exec tsc --noEmit
+pnpm --filter @edytlab/desktop typecheck      # tsc -b: app, tests and vite.config.ts
 ```
 
 Common one-shots:

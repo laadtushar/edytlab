@@ -183,7 +183,7 @@ Allowed prefixes: `feat`, `fix`, `ci`, `chore`, `docs`, `test`, `refactor`.
 
 1. Edit files under `apps/desktop/src/`
 2. Vite HMR reloads the WebView automatically — no restart needed for UI changes
-3. Run `pnpm --filter @edytlab/desktop exec tsc --noEmit` to typecheck
+3. Run `pnpm --filter @edytlab/desktop typecheck` to typecheck (`tsc -b` over the app, its tests and `vite.config.ts` — bare `tsc --noEmit` checks nothing, because the root `tsconfig.json` is a solution file with no inputs of its own)
 
 ### Making a Rust Change
 
@@ -294,7 +294,7 @@ cargo test --workspace -- --test-threads=1
 
 # Frontend
 pnpm --filter @edytlab/desktop test
-pnpm --filter @edytlab/desktop exec tsc --noEmit
+pnpm --filter @edytlab/desktop typecheck
 ```
 
 > **Why `--test-threads=1`?** Some tests in `crates/ai` use a shared model cache that is not safe for concurrent test runs. The `--test-threads=1` flag serializes them.
@@ -317,7 +317,7 @@ pnpm --filter @edytlab/desktop test
 pnpm --filter @edytlab/desktop test:watch
 
 # TypeScript only
-pnpm --filter @edytlab/desktop exec tsc --noEmit
+pnpm --filter @edytlab/desktop typecheck
 ```
 
 ### Test Organization
@@ -621,8 +621,8 @@ cargo test --workspace -- --test-threads=1
 # 4. Frontend tests
 pnpm --filter @edytlab/desktop test
 
-# 5. TypeScript check (no emit)
-pnpm --filter @edytlab/desktop exec tsc --noEmit
+# 5. TypeScript check (tsc -b: app, tests, vite.config.ts)
+pnpm --filter @edytlab/desktop typecheck
 ```
 
 All five must pass. CI blocks merge on any failure.
