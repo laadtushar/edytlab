@@ -492,6 +492,6 @@ Each phase PR must, before merge:
 - `cargo test --workspace` passes; new tests for the loader, the
   prompt-assembly order, and the IPC command happy paths
 - `pnpm --filter @edytlab/desktop test` passes; new editor UI tests
-- `pnpm --filter @edytlab/desktop exec tsc --noEmit` clean
+- `pnpm --filter @edytlab/desktop typecheck` clean
 - The PR description names the slot of system-prompt assembly the
   change touches, so reviewers can verify prompt-order invariants
