@@ -15,6 +15,9 @@
     "typecheck:e2e": "tsc --noEmit -p e2e"
   },
   "dependencies": {
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/geist-mono": "^5.3.0",
+    "@fontsource/instrument-serif": "^5.3.0",
     "@tailwindcss/vite": "^4",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2",
