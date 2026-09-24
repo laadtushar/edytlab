@@ -269,6 +269,25 @@ export function toneTrack(): TrackSummary {
   return trackFor(fixturePath("tone3s"), fixtureSeconds("tone3s"));
 }
 
+/**
+ * `get_node`'s answer: a whole serialised `SessionNode`.
+ *
+ * Read from `crates/session/tests/snapshots/sample_node.json`, which the
+ * Rust test `snapshot_roundtrips_byte_equal` holds byte-equal to what
+ * `serde_json` writes for a `SessionNode` — so the shape here is the
+ * backend's, not a guess at it. Only `id` and `parent` are set, to place
+ * the node in the history a test builds; the app reads nothing else.
+ */
+export function sessionNode(id: string, parent: string | null): unknown {
+  const snapshot = JSON.parse(
+    readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "../../../crates/session/tests/snapshots/sample_node.json"),
+      "utf8",
+    ),
+  ) as Record<string, unknown>;
+  return { ...snapshot, id, parent };
+}
+
 /** A node id as the backend formats one: 32 bytes, as 64 hex digits. */
 export function nodeId(n: number): string {
   return n.toString(16).padStart(64, "0");
