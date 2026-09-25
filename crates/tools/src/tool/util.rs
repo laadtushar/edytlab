@@ -92,6 +92,28 @@ pub(crate) fn slice_envelope(
     out
 }
 
+/// Where [`flattened_track_wav`] keeps the flattened audio for `clips`,
+/// without writing it.
+///
+/// No node names these files — they are a cache keyed by the clip list —
+/// so the derived-audio sweep has to be told which ones the timeline is
+/// showing, or it would take them for orphans (#98).
+pub fn flattened_track_path(project_dir: &Path, clips: &[Clip]) -> PathBuf {
+    let mut hasher = blake3::Hasher::new();
+    for c in clips {
+        hasher.update(c.source_path.to_string_lossy().as_bytes());
+        hasher.update(&c.start_in_track.to_le_bytes());
+        hasher.update(&c.source_offset.to_le_bytes());
+        hasher.update(&c.length.to_le_bytes());
+    }
+    let hash_hex = hasher.finalize().to_hex().to_string();
+
+    // Inside the project (#156), not beside whichever source happened to
+    // be first: a project has to contain the audio it points at, or it
+    // is not a thing anyone can copy or move.
+    crate::provenance::derived_dir(project_dir).join(format!("track-{hash_hex}.wav"))
+}
+
 /// Materialise a track's timeline as one WAV and return its path.
 ///
 /// A track with a single clip already *is* a file on disk, and callers
@@ -115,20 +137,8 @@ pub fn flattened_track_wav(project_dir: &Path, clips: &[Clip]) -> Result<PathBuf
         return Err("track has no clips".to_string());
     }
 
-    let mut hasher = blake3::Hasher::new();
-    for c in clips {
-        hasher.update(c.source_path.to_string_lossy().as_bytes());
-        hasher.update(&c.start_in_track.to_le_bytes());
-        hasher.update(&c.source_offset.to_le_bytes());
-        hasher.update(&c.length.to_le_bytes());
-    }
-    let hash_hex = hasher.finalize().to_hex().to_string();
-
-    // Inside the project (#156), not beside whichever source happened to
-    // be first: a project has to contain the audio it points at, or it
-    // is not a thing anyone can copy or move.
-    let derived_dir: PathBuf = crate::provenance::derived_dir(project_dir);
-    let cas_path = derived_dir.join(format!("track-{hash_hex}.wav"));
+    let cas_path = flattened_track_path(project_dir, clips);
+    let derived_dir = crate::provenance::derived_dir(project_dir);
     if cas_path.exists() {
         return Ok(cas_path);
     }

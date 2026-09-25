@@ -117,6 +117,7 @@ pub fn run() {
                 } else {
                     match session::Store::open(&project_dir) {
                         Ok(store) => {
+                            crate::commands::sweep_orphaned_audio(&store);
                             crate::commands::allow_assets_in_dir(app.handle(), &project_dir);
                             app_state.set_store(Some(Arc::new(Mutex::new(store))));
                             app_state.set_project_dir(Some(project_dir.clone()));
