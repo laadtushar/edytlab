@@ -444,3 +444,31 @@ fn exporting_a_range_of_a_swept_node_puts_its_audio_back() {
     p.assert_back(node);
     assert!(out.is_file(), "and the selection was written");
 }
+
+/// #98's acceptance, end to end: undo into a swept region and the audio
+/// is what it was — the render of the node after the sweep is the render
+/// from before it, byte for byte.
+#[test]
+fn undoing_into_a_swept_region_renders_what_it_did_before() {
+    let p = SweptProject::open();
+    let parent = p.nodes[2];
+    let render = |name: &str| -> Vec<u8> {
+        let out = p.dir.path().join(name);
+        p.call(
+            "render_range",
+            json!({ "nodeId": parent.to_hex(), "startSec": 0.0, "endSec": 2.0, "outPath": out }),
+        )
+        .expect("render_range");
+        std::fs::read(out).expect("rendered")
+    };
+    let before = render("before.wav");
+    p.sweep_away(parent);
+
+    p.call("set_head_to", json!({ "nodeId": parent.to_hex() }))
+        .expect("undo");
+
+    assert!(
+        render("after.wav") == before,
+        "the swept region renders differently"
+    );
+}
