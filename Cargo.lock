@@ -21,7 +21,7 @@ dependencies = [
 
 [[package]]
 name = "agent_profiles"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "tempfile",
  "thiserror 2.0.18",
@@ -52,7 +52,7 @@ dependencies = [
 
 [[package]]
 name = "ai"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "agent_profiles",
  "audio-decoder",
@@ -254,7 +254,7 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
 name = "audio-analysis"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "audio-decoder",
  "ebur128",
@@ -267,7 +267,7 @@ dependencies = [
 
 [[package]]
 name = "audio-decoder"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hound",
  "proptest",
@@ -279,11 +279,11 @@ dependencies = [
 
 [[package]]
 name = "audio-dsp"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "audio-engine"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "audio-decoder",
  "audio-dsp",
@@ -303,7 +303,7 @@ dependencies = [
 
 [[package]]
 name = "audio-io"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cpal",
  "ringbuf",
@@ -314,7 +314,7 @@ dependencies = [
 
 [[package]]
 name = "audio-time"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "realfft",
  "thiserror 2.0.18",
@@ -1275,7 +1275,7 @@ dependencies = [
 
 [[package]]
 name = "edytlab-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ai",
  "anyhow",
@@ -1294,7 +1294,7 @@ dependencies = [
 
 [[package]]
 name = "edytlab-desktop"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "agent_profiles",
  "ai",
@@ -2691,7 +2691,7 @@ dependencies = [
 
 [[package]]
 name = "mcp"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "blake3",
  "reqwest 0.12.28",
@@ -2725,7 +2725,7 @@ dependencies = [
 
 [[package]]
 name = "memory"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "tempfile",
  "thiserror 2.0.18",
@@ -2766,7 +2766,7 @@ dependencies = [
 
 [[package]]
 name = "ml-demucs"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "audio-decoder",
  "blake3",
@@ -2783,7 +2783,7 @@ dependencies = [
 
 [[package]]
 name = "ml-pipeline"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "blake3",
  "ort",
@@ -2796,7 +2796,7 @@ dependencies = [
 
 [[package]]
 name = "ml-whisper"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "audio-decoder",
  "hound",
@@ -3841,7 +3841,7 @@ dependencies = [
 
 [[package]]
 name = "recorder"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cpal",
  "hound",
@@ -4465,7 +4465,7 @@ dependencies = [
 
 [[package]]
 name = "session"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "assert_cmd",
  "blake3",
@@ -4532,7 +4532,7 @@ checksum = "8ee5873ec9cce0195efcb7a4e9507a04cd49aec9c83d0389df45b1ef7ba2e649"
 
 [[package]]
 name = "skills"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "regex",
  "serde",
@@ -5496,7 +5496,7 @@ checksum = "756daf9b1013ebe47a8776667b466417e2d4c5679d441c26230efd9ef78692db"
 
 [[package]]
 name = "tools"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "audio-analysis",
  "audio-decoder",
