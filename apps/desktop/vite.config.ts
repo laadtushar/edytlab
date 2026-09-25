@@ -1,4 +1,6 @@
 /// <reference types="vitest" />
+import { readFileSync } from "node:fs";
+
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -11,9 +13,22 @@ import tailwindcss from "@tailwindcss/vite";
 // and `tsc -p e2e` is what found it.
 const host = process.env.TAURI_DEV_HOST;
 
+/**
+ * The app's version, read from the one place it is set. `tauri.conf.json`
+ * is canonical (see CLAUDE.md); the status bar used to print a literal
+ * `v0.1.0` of its own, which nothing would have updated on a release.
+ */
+const appVersion: string = JSON.parse(
+  readFileSync(new URL("./src-tauri/tauri.conf.json", import.meta.url), "utf8"),
+).version;
+
 // https://vite.dev/config/
 export default defineConfig(async () => ({
   plugins: [react(), tailwindcss()],
+
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion),
+  },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

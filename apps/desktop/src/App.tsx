@@ -1523,7 +1523,9 @@ export function StatusBar({
           </span>
         </>
       ) : null}
-      <span className="ml-auto text-[var(--text-faint)]">v0.1.0</span>
+      <span data-testid="status-bar-version" className="ml-auto text-[var(--text-faint)]">
+        v{__APP_VERSION__}
+      </span>
     </footer>
   );
 }
