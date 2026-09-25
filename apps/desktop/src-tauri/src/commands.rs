@@ -138,6 +138,25 @@ fn lock_std<'a, T>(
 // open_project
 // ---------------------------------------------------------------------------
 
+/// Remove derived audio no node names, as a project opens (#98).
+///
+/// Run on the store before it is shared, so no edit can be half-way
+/// through writing a file that its node does not name yet. Only orphans:
+/// audio that older history still names stays, because a replay cannot
+/// yet be trusted to rebuild it. A failure costs disk, not work, so it is
+/// logged.
+pub(crate) fn sweep_orphaned_audio(store: &Store) {
+    match tools::reclaim::sweep_orphans(store) {
+        Ok(r) if r.removed_files > 0 => tracing::info!(
+            removed = r.removed_files,
+            freed_bytes = r.freed_bytes,
+            "removed derived audio no node names"
+        ),
+        Ok(_) => {}
+        Err(e) => tracing::warn!(error = %e, "orphaned-audio sweep failed"),
+    }
+}
+
 /// Let the webview read a project's audio over the asset protocol (#334).
 ///
 /// The asset scope used to be `**` — any file the user can read, which
@@ -342,6 +361,7 @@ fn open_project_inner(state: &AppState, path: PathBuf) -> Result<ProjectInfo, Co
         )));
     }
     let store = Store::open(&path)?;
+    sweep_orphaned_audio(&store);
     let head_hex = store.head().map(|id| id.to_hex());
     let path_str = path
         .to_str()
@@ -2124,10 +2144,12 @@ pub fn rename_node(state: State<'_, AppState>, node_id: String, label: String) -
     Ok(())
 }
 
-/// One track at the current session head. `audio_path` is the source
-/// path of the track's single clip when there is exactly one; `None`
-/// when the track has zero or multiple clips (the multi-clip mix is
-/// not previewable until the M22+ realtime engine lands).
+/// One track at the current session head.
+///
+/// `audio_path` is the track's audio on the session's time axis, for the
+/// timeline lane to draw: the clip's source when a single clip is its
+/// whole source at zero, a flattened WAV otherwise, and `None` for a
+/// track with no clips (see [`tools::lane_audio_path`]).
 #[derive(Debug, Clone, Serialize)]
 pub struct TrackSummary {
     pub id: String,
@@ -2230,28 +2252,22 @@ pub fn list_tracks<R: Runtime>(
             gain_db: t.gain_db,
             pan: t.pan,
             soloed: t.soloed,
-            // One clip already *is* a file, so hand its path over
-            // untouched — the overwhelmingly common case, and free.
+            // Every lane draws on the session's time axis (#348), so the
+            // file handed over has to start at session zero. A clip that
+            // is its whole source, at zero, is handed over untouched —
+            // the common case, and free. Anything else — a track split by
+            // a cut, a clip moved along the timeline or trimmed at the
+            // head — is flattened into one content-addressed WAV with
+            // silence where no clip plays. Handing over the source for
+            // those drew audio from some other time under the ruler.
             //
-            // A track split by an interior cut is not any single file on
-            // disk, and returning `None` for it left the timeline lane
-            // blank: the audio was there, the render was correct, and the
-            // UI simply showed nothing. Flattening the clips into one
-            // content-addressed WAV gives the lane something true to
-            // draw. The CAS name is keyed on the clip list rather than
-            // the audio, so this listing pays for a decode once per
-            // distinct arrangement and finds the file already written
-            // every time after.
-            //
-            // A failure here is not worth failing the listing over — the
-            // lane falls back to blank, exactly as before.
-            audio_path: match t.clips.len() {
-                0 => None,
-                1 => Some(t.clips[0].source_path.to_string_lossy().into_owned()),
-                _ => tools::flattened_track_wav(&project_dir_for_flatten, &t.clips)
-                    .ok()
-                    .map(|p| p.to_string_lossy().into_owned()),
-            },
+            // The CAS name is keyed on the clip list rather than the
+            // audio, so this listing pays for a flatten once per distinct
+            // arrangement and finds the file already written every time
+            // after. A failure is not worth failing the listing over: the
+            // lane falls back to blank.
+            audio_path: tools::lane_audio_path(&project_dir_for_flatten, &t.clips)
+                .map(|p| p.to_string_lossy().into_owned()),
         })
         .collect();
     // The timeline loads each track's audio straight from these paths,

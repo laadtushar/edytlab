@@ -9,10 +9,17 @@
  */
 
 import type { Marker } from "../lib/tauri-bridge";
+import { pctOf, type TimeSpan } from "../lib/timelineViewport";
 
 interface MarkerLayerProps {
   markers: Marker[];
   duration: number;
+  /**
+   * The stretch of the session on screen, from the timeline's one axis
+   * (#344). Absent or null is the whole session, which is what fit
+   * shows.
+   */
+  view?: TimeSpan | null;
   /** Offset in px matching the track sidebar width. */
   sidebarWidth?: number;
   onSeek: (timeSec: number) => void;
@@ -22,6 +29,7 @@ interface MarkerLayerProps {
 export function MarkerLayer({
   markers,
   duration,
+  view,
   sidebarWidth = 132,
   onSeek,
   onRemove,
@@ -41,11 +49,14 @@ export function MarkerLayer({
         inset: 0,
         left: sidebarWidth,
         pointerEvents: "none",
+        // Zoomed in, a flag can lie off screen.
+        overflow: "hidden",
       }}
     >
       {markers.map((m) => {
         const t = getTimeSec(m);
-        const pct = (t / duration) * 100;
+        const pct = pctOf(t, view ?? { start: 0, end: duration });
+        if (pct < 0 || pct > 100) return null;
         return (
           <div
             key={m.id}

@@ -83,6 +83,37 @@ fn open_project_via_ipc_returns_project_info() {
     );
 }
 
+/// Opening a project removes derived audio no node names (#98) — here, a
+/// leftover in a project with no history — through the real command.
+#[test]
+fn opening_a_project_removes_audio_no_node_names() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let project_path = tmp.path().to_str().expect("utf-8 path").to_string();
+    let derived = tmp.path().join(".audiograph").join("derived");
+    std::fs::create_dir_all(&derived).expect("derived dir");
+    let leftover = derived.join("left-by-a-failed-edit.wav");
+    std::fs::write(&leftover, b"RIFF").expect("leftover");
+
+    let app = mock_builder()
+        .manage(AppState::new())
+        .invoke_handler(tauri::generate_handler![commands::open_project])
+        .build(mock_context(noop_assets()))
+        .expect("mock app");
+    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .expect("webview");
+
+    assert_ipc_response(
+        &webview,
+        make_request("open_project", json!({ "path": project_path })),
+        Ok(json!({ "path": project_path, "head": null })),
+    );
+    assert!(
+        !leftover.exists(),
+        "the orphan is gone once the project is open"
+    );
+}
+
 #[test]
 fn get_session_head_returns_error_when_no_project_open() {
     let app = mock_builder()
@@ -112,5 +143,101 @@ fn get_session_head_returns_error_when_no_project_open() {
     assert!(
         err_str.contains("no session loaded"),
         "unexpected error string: {err_str}"
+    );
+}
+
+/// A mono 16-bit WAV of `frames` frames at 8 kHz, every sample 1000.
+fn write_wav(path: &std::path::Path, frames: u32) {
+    let data_len = frames * 2;
+    let mut bytes = Vec::with_capacity(44 + data_len as usize);
+    bytes.extend_from_slice(b"RIFF");
+    bytes.extend_from_slice(&(36 + data_len).to_le_bytes());
+    bytes.extend_from_slice(b"WAVEfmt ");
+    bytes.extend_from_slice(&16u32.to_le_bytes());
+    bytes.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    bytes.extend_from_slice(&1u16.to_le_bytes()); // mono
+    bytes.extend_from_slice(&8_000u32.to_le_bytes());
+    bytes.extend_from_slice(&16_000u32.to_le_bytes()); // byte rate
+    bytes.extend_from_slice(&2u16.to_le_bytes()); // block align
+    bytes.extend_from_slice(&16u16.to_le_bytes());
+    bytes.extend_from_slice(b"data");
+    bytes.extend_from_slice(&data_len.to_le_bytes());
+    for _ in 0..frames {
+        bytes.extend_from_slice(&1_000i16.to_le_bytes());
+    }
+    std::fs::write(path, bytes).expect("write wav");
+}
+
+/// `list_tracks` hands the lane its audio on the session's axis (#348).
+///
+/// Straight after a load the clip is its whole source at zero, and the
+/// source is the file. Once the clip is moved, the source would draw its
+/// first second under the ruler's first second — so the lane gets a
+/// file that is silent until the clip starts instead.
+#[test]
+fn list_tracks_hands_the_lane_audio_on_the_session_axis() {
+    let project = tempfile::tempdir().expect("tempdir");
+    let media = tempfile::tempdir().expect("tempdir");
+    let take = media.path().join("take.wav");
+    write_wav(&take, 8_000);
+
+    let app = mock_builder()
+        .manage(AppState::new())
+        .invoke_handler(tauri::generate_handler![
+            commands::open_project,
+            commands::batch_load,
+            commands::move_clip,
+            commands::list_tracks,
+        ])
+        .build(mock_context(noop_assets()))
+        .expect("mock app");
+    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .expect("webview");
+    let call = |cmd: &str, body: serde_json::Value| {
+        tauri::test::get_ipc_response(&webview, make_request(cmd, body))
+            .unwrap_or_else(|e| panic!("{cmd} failed: {e:?}"))
+            .deserialize::<serde_json::Value>()
+            .expect("json")
+    };
+    let lane_path = |tracks: serde_json::Value| -> std::path::PathBuf {
+        tracks[0]["audio_path"]
+            .as_str()
+            .expect("the track has audio")
+            .into()
+    };
+
+    call("open_project", json!({ "path": project.path() }));
+    call("batch_load", json!({ "paths": [take] }));
+    assert_eq!(
+        lane_path(call("list_tracks", json!({}))),
+        take,
+        "a file just loaded is its own lane"
+    );
+
+    call(
+        "move_clip",
+        json!({ "track": 0, "clip": 0, "startSec": 0.5 }),
+    );
+    let moved = lane_path(call("list_tracks", json!({})));
+    assert_ne!(moved, take, "the source would start at 0:00, not 0:00.5");
+
+    let bytes = std::fs::read(&moved).expect("the lane's file exists");
+    let samples: Vec<i16> = bytes[44..]
+        .chunks_exact(2)
+        .map(|b| i16::from_le_bytes([b[0], b[1]]))
+        .collect();
+    assert_eq!(
+        samples.len(),
+        12_000,
+        "half a second of lead-in, then the take"
+    );
+    assert!(
+        samples[..4_000].iter().all(|&s| s == 0),
+        "silent until 0.5 s"
+    );
+    assert!(
+        samples[4_000..].iter().all(|&s| s == 1_000),
+        "then the take"
     );
 }

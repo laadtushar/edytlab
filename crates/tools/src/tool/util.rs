@@ -92,6 +92,28 @@ pub(crate) fn slice_envelope(
     out
 }
 
+/// Where [`flattened_track_wav`] keeps the flattened audio for `clips`,
+/// without writing it.
+///
+/// No node names these files — they are a cache keyed by the clip list —
+/// so the derived-audio sweep has to be told which ones the timeline is
+/// showing, or it would take them for orphans (#98).
+pub fn flattened_track_path(project_dir: &Path, clips: &[Clip]) -> PathBuf {
+    let mut hasher = blake3::Hasher::new();
+    for c in clips {
+        hasher.update(c.source_path.to_string_lossy().as_bytes());
+        hasher.update(&c.start_in_track.to_le_bytes());
+        hasher.update(&c.source_offset.to_le_bytes());
+        hasher.update(&c.length.to_le_bytes());
+    }
+    let hash_hex = hasher.finalize().to_hex().to_string();
+
+    // Inside the project (#156), not beside whichever source happened to
+    // be first: a project has to contain the audio it points at, or it
+    // is not a thing anyone can copy or move.
+    crate::provenance::derived_dir(project_dir).join(format!("track-{hash_hex}.wav"))
+}
+
 /// Materialise a track's timeline as one WAV and return its path.
 ///
 /// A track with a single clip already *is* a file on disk, and callers
@@ -115,20 +137,8 @@ pub fn flattened_track_wav(project_dir: &Path, clips: &[Clip]) -> Result<PathBuf
         return Err("track has no clips".to_string());
     }
 
-    let mut hasher = blake3::Hasher::new();
-    for c in clips {
-        hasher.update(c.source_path.to_string_lossy().as_bytes());
-        hasher.update(&c.start_in_track.to_le_bytes());
-        hasher.update(&c.source_offset.to_le_bytes());
-        hasher.update(&c.length.to_le_bytes());
-    }
-    let hash_hex = hasher.finalize().to_hex().to_string();
-
-    // Inside the project (#156), not beside whichever source happened to
-    // be first: a project has to contain the audio it points at, or it
-    // is not a thing anyone can copy or move.
-    let derived_dir: PathBuf = crate::provenance::derived_dir(project_dir);
-    let cas_path = derived_dir.join(format!("track-{hash_hex}.wav"));
+    let cas_path = flattened_track_path(project_dir, clips);
+    let derived_dir = crate::provenance::derived_dir(project_dir);
     if cas_path.exists() {
         return Ok(cas_path);
     }
@@ -155,6 +165,37 @@ pub fn flattened_track_wav(project_dir: &Path, clips: &[Clip]) -> Result<PathBuf
         .persist(&cas_path)
         .map_err(|e| format!("failed to write {}: {e}", cas_path.display()))?;
     Ok(cas_path)
+}
+
+/// The file a timeline lane draws for a track: its audio on the
+/// *session's* time axis, so that second *t* of the file is second *t*
+/// of the session (#348).
+///
+/// A single clip hands its source over untouched only when the source
+/// *is* the clip at that place: placed at zero, read from the start, and
+/// running to the source's end. That is the overwhelmingly common case —
+/// a file just loaded — and it costs one header read. Anything else is
+/// flattened. A clip moved to 0:30, or trimmed at the head, used to hand
+/// over its whole source as well, and the lane drew 0:00 of the source
+/// under 0:00 of the ruler — audio from some other time.
+///
+/// A source whose header cannot be read is handed over as it is, so the
+/// lane reports the failure against the file, which says more than a
+/// blank lane does. A flatten that fails leaves the lane blank, as a
+/// multi-clip track always has.
+pub fn lane_audio_path(project_dir: &Path, clips: &[Clip]) -> Option<PathBuf> {
+    match clips {
+        [] => None,
+        [clip] if clip.start_in_track == 0 && clip.source_offset == 0 => {
+            match audio_decoder::WavStreamReader::open(&clip.source_path) {
+                Ok(reader) if reader.total_frames() != clip.length => {
+                    flattened_track_wav(project_dir, clips).ok()
+                }
+                _ => Some(clip.source_path.clone()),
+            }
+        }
+        _ => flattened_track_wav(project_dir, clips).ok(),
+    }
 }
 
 /// Frames per chunk when streaming a track's timeline: 64 Ki frames is

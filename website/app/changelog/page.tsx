@@ -18,6 +18,29 @@ interface Entry {
 // GitHub Releases — link below.
 const entries: Entry[] = [
   {
+    version: "v0.2.0",
+    date: "2026-09",
+    bullets: [
+      "Edit audio by editing its transcript. The transcript pane shows the words with their times; cut a word from the text and the audio goes with it.",
+      "Split an interview into one track per speaker. Each voice gets its own gain, EQ and noise treatment, and because every speaker's clips point at the same source file, playing them together is sample-identical to the original.",
+      "Describe a region instead of dragging it: \"select where he talks about latency\", \"the last thirty seconds of speech\", \"bars 9 to 16\". The selection appears for you to check before anything acts on it, and a description that cannot be resolved says so rather than guessing.",
+      "Timer record starts and stops a recording unattended, and punch-in replaces a selected region with a new take while leaving the rest untouched.",
+      "Every row of the timeline shares one time axis. A shorter track, or a clip moved along the timeline, now sits under the ruler where it plays — each lane used to stretch its own audio across the pane. Zoomed in, the selection, the playhead and a drag follow what is on screen, and one scrollbar (or a horizontal swipe) pans every track, the clips, the automation and the labels together.",
+      "A label lane you type into. Chapter marks are added, renamed, moved and deleted next to the audio, survive edits that shift time, and round-trip through label export.",
+      "Opening a file loads it straight into the session. It used to be sent to the agent as a sentence, so with no model set up yet the waveform appeared and every edit afterwards failed.",
+      "A returning user opens into their project where they left it — zoom, selection and playhead — instead of the empty state, and an edit made in the last moment before quitting is no longer undone by the saved view.",
+      "Undo and redo work on macOS, and redo works at all. Labels, template applications and batch loads now move the session head they create, so undo undoes them rather than the edit before.",
+      "Destructive edits keep every clip's volume automation, labels and the transcript move with cuts, silences, speed changes and stretches, and a whole track shifts together instead of clamping clip by clip.",
+      "Audio fixes: the resampler's latency is compensated, the leveler applies its gain continuously rather than per block, a clip's frames are read at its own sample rate, and the effect chain is built per track so it no longer restarts at every clip.",
+      "A drawn track made of several clips is written by streaming its sources a chunk at a time, instead of decoding a whole recording into memory — over a gigabyte for an hour of stereo audio.",
+      "Derived audio that no version of the project refers to any more is removed when the project opens. Audio that undo history still needs is kept.",
+      "Security: the app ships a Content Security Policy, the webview can read only the project's own audio rather than any file on disk, and the capability whitelist is enforced when a tool runs, not only in the list the model sees.",
+      "The typefaces are bundled with the app, so it no longer contacts Google Fonts on launch.",
+      "Auditions play instead of printing a file path, the spectrogram toggle draws a spectrogram, an undecodable file says so, and A/B comparison keeps the playhead when you switch sides.",
+      "Project metadata — title, artist, album and more — carries through to the tags on exported MP3 and FLAC files.",
+    ],
+  },
+  {
     version: "v0.1.0",
     date: "2026-08",
     bullets: [
