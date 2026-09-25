@@ -62,6 +62,11 @@ impl Tool for ForkNodeTool {
             },
         };
 
+        // Its audio may have been swept from history; put it back first.
+        if let Err(e) = crate::rederive::materialize(ctx.store, target) {
+            return Ok(ToolResult::Error(e));
+        }
+
         let id = match ctx.store.fork(target) {
             Ok(id) => id,
             Err(e) => return Ok(ToolResult::Error(format!("fork failed: {e}"))),

@@ -156,12 +156,13 @@ pub fn rebuildable_paths(nodes: &[session::SessionNode]) -> BTreeSet<PathBuf> {
 /// the agent away from the one tool that frees space and toward a
 /// background process that does not run (#256).
 ///
-/// Wiring it up needs [`crate::rederive::ensure_present`] on the render
-/// path first — this deletes files a node still names, on the promise
-/// that they can be rebuilt, and nothing rebuilds them today. Adding a
-/// caller must also update `compact_session` and `storage_report`,
-/// which is what `no_tool_claims_an_automatic_sweep` in
-/// `tests/reclaim.rs` is there to force.
+/// Every path that reads a node's audio or moves the head to it now
+/// rebuilds what this removed first ([`crate::rederive::materialize`]),
+/// so a swept node still plays, renders and exports. What a caller still
+/// needs is a place to run it and a cap to run it at. Adding one must
+/// also update `compact_session` and `storage_report`, which is what
+/// `no_tool_claims_an_automatic_sweep` in `tests/reclaim.rs` is there to
+/// force.
 pub fn sweep(store: &session::Store, cap_bytes: u64) -> std::io::Result<SweepReport> {
     let dir = derived_dir(store.project_dir());
     if !dir.is_dir() {
@@ -325,10 +326,11 @@ impl Verifier {
 /// taken for an orphan, including the one the timeline is showing.
 ///
 /// Not the history sweep. [`sweep`] also removes audio only older nodes
-/// name, on the promise that a replay rebuilds it; review of #98 proved
-/// that promise false for five kinds of history (after `compact_session`,
-/// after a paste, a range taken from the chat message, `apply_diff`, and
-/// a moved source file), so nothing calls it until replay is sound.
+/// name, once a replay has rebuilt it; review of #98 proved that record
+/// alone was not enough for five kinds of history (after
+/// `compact_session`, after a paste, a range taken from the chat message,
+/// `apply_diff`, and a moved source file), which is why [`sweep`] now
+/// verifies each file by replaying it before deleting it.
 pub fn sweep_orphans(store: &session::Store) -> std::io::Result<SweepReport> {
     let dir = derived_dir(store.project_dir());
     if !dir.is_dir() {

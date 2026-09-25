@@ -468,8 +468,15 @@ fn production_sources() -> Vec<(String, String)> {
     for rel in ["crates", "apps/desktop/src-tauri/src", "apps/cli/src"] {
         walk(&root.join(rel), &mut out);
     }
-    // `crates/*/tests` came along with `crates`; drop it again.
-    out.retain(|(p, _)| !p.contains("/tests/"));
+    // `crates/*/tests` came along with `crates`; drop it again. By path
+    // component, not by "/tests/": Windows separates with `\`, and a
+    // string match let every test file through there as production code.
+    out.retain(|(p, _)| !Path::new(p).components().any(|c| c.as_os_str() == "tests"));
+    assert!(
+        out.iter()
+            .all(|(p, _)| !p.replace('\\', "/").contains("/tests/")),
+        "a test file is being read as production code"
+    );
     assert!(
         out.len() > 50,
         "found only {} source files — the layout moved and this guard reads nothing",
@@ -494,9 +501,10 @@ fn production_sources() -> Vec<(String, String)> {
 /// claim would become true and the descriptions would need to say so.
 #[test]
 fn no_tool_claims_an_automatic_sweep() {
-    let swept_automatically = production_sources()
-        .into_iter()
-        .any(|(p, src)| !p.contains("reclaim.rs") && src.contains("reclaim::sweep("));
+    let swept_automatically = production_sources().into_iter().any(|(p, src)| {
+        !Path::new(&p).ends_with(Path::new("src").join("reclaim.rs"))
+            && src.contains("reclaim::sweep(")
+    });
 
     let descriptions: Vec<(String, String)> = ToolDispatcher::default_dispatcher()
         .tool_schemas()

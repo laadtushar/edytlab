@@ -241,3 +241,234 @@ fn list_tracks_hands_the_lane_audio_on_the_session_axis() {
         "then the take"
     );
 }
+
+/// A project whose history holds destructive edits, opened through IPC.
+///
+/// The edits go through the tools crate as the agent's do; the app then
+/// opens the project the way it does at launch. Returns the node ids,
+/// oldest first — the load, then each edit.
+struct SweptProject {
+    dir: tempfile::TempDir,
+    nodes: Vec<session::NodeId>,
+    webview: tauri::WebviewWindow<tauri::test::MockRuntime>,
+    _app: tauri::App<tauri::test::MockRuntime>,
+}
+
+impl SweptProject {
+    fn open() -> Self {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let take = dir.path().join("take.wav");
+        write_wav(&take, 16_000);
+        let nodes = {
+            let mut store = session::Store::open(dir.path()).expect("store");
+            let mut engine = audio_engine::Engine::new();
+            let mut clipboard = None;
+            let dispatcher = tools::ToolDispatcher::default_dispatcher();
+            let mut ctx = tools::ToolContext {
+                store: &mut store,
+                engine: &mut engine,
+                user_message: "",
+                clipboard: &mut clipboard,
+                allowed_tools: None,
+            };
+            let mut nodes = Vec::new();
+            let mut run = |tool: &str, args: serde_json::Value, ctx: &mut tools::ToolContext| {
+                match dispatcher.invoke(tool, args, ctx).expect("invoke") {
+                    tools::ToolResult::Ok(_) => nodes.push(ctx.store.head().expect("head")),
+                    tools::ToolResult::Error(m) => panic!("{tool} failed: {m}"),
+                }
+            };
+            run("load", json!({ "path": take }), &mut ctx);
+            for start in [0.0, 0.5, 1.0] {
+                run(
+                    "silence_region",
+                    json!({ "track": 0, "start_sec": start, "end_sec": start + 0.2 }),
+                    &mut ctx,
+                );
+            }
+            nodes
+        };
+
+        let app = mock_builder()
+            .manage(AppState::new())
+            .invoke_handler(tauri::generate_handler![
+                commands::open_project,
+                commands::get_session_head,
+                commands::set_head_to,
+                commands::accept_b,
+                commands::render_preview,
+                commands::prepare_compare,
+                commands::render_range,
+            ])
+            .build(mock_context(noop_assets()))
+            .expect("mock app");
+        let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .expect("webview");
+        let project = Self {
+            dir,
+            nodes,
+            webview,
+            _app: app,
+        };
+        project
+            .call("open_project", json!({ "path": project.dir.path() }))
+            .expect("open_project");
+        project
+    }
+
+    fn call(&self, cmd: &str, body: serde_json::Value) -> Result<serde_json::Value, String> {
+        tauri::test::get_ipc_response(&self.webview, make_request(cmd, body))
+            .map(|r| r.deserialize::<serde_json::Value>().expect("json"))
+            .map_err(|e| e.as_str().unwrap_or_default().to_string())
+    }
+
+    /// Run the history sweep at cap 0, as a full disk would, and check it
+    /// took `node`'s audio — otherwise the test that follows checks
+    /// nothing.
+    fn sweep_away(&self, node: session::NodeId) {
+        let store = session::Store::open(self.dir.path()).expect("store");
+        tools::reclaim::sweep(&store, 0).expect("sweep");
+        assert!(
+            !tools::rederive::missing_paths(&store, node).is_empty(),
+            "the sweep removed the node's audio"
+        );
+    }
+
+    fn assert_back(&self, node: session::NodeId) {
+        let store = session::Store::open(self.dir.path()).expect("store");
+        assert_eq!(
+            tools::rederive::missing_paths(&store, node),
+            Vec::<std::path::PathBuf>::new(),
+            "the node's audio is back on disk"
+        );
+    }
+
+    fn head(&self) -> String {
+        self.call("get_session_head", json!({}))
+            .expect("head")
+            .as_str()
+            .expect("hex")
+            .to_string()
+    }
+}
+
+/// Undo, redo and the history view all move the head with `set_head_to`.
+/// The head's audio is always on disk, so moving to a node whose audio
+/// was swept puts it back first (#98).
+#[test]
+fn moving_the_head_to_a_swept_node_puts_its_audio_back() {
+    let p = SweptProject::open();
+    let parent = p.nodes[2];
+    p.sweep_away(parent);
+
+    assert_eq!(
+        p.call("set_head_to", json!({ "nodeId": parent.to_hex() })),
+        Ok(json!(parent.to_hex()))
+    );
+    p.assert_back(parent);
+}
+
+/// And when it cannot, the head stays where it was: a head whose audio
+/// is gone cannot play.
+#[test]
+fn a_head_move_that_cannot_rebuild_is_refused() {
+    let p = SweptProject::open();
+    let parent = p.nodes[2];
+    let head = p.head();
+    p.sweep_away(parent);
+    std::fs::remove_file(p.dir.path().join("take.wav")).expect("remove the take");
+
+    let err = p
+        .call("set_head_to", json!({ "nodeId": parent.to_hex() }))
+        .expect_err("refused");
+    assert!(err.contains("rebuild"), "says why: {err}");
+    assert_eq!(p.head(), head, "the head did not move");
+}
+
+#[test]
+fn accepting_a_swept_b_puts_its_audio_back() {
+    let p = SweptProject::open();
+    let b = p.nodes[2];
+    p.sweep_away(b);
+
+    assert_eq!(
+        p.call("accept_b", json!({ "b": b.to_hex() })),
+        Ok(json!(b.to_hex()))
+    );
+    p.assert_back(b);
+}
+
+#[test]
+fn previewing_a_swept_node_puts_its_audio_back() {
+    let p = SweptProject::open();
+    let node = p.nodes[2];
+    p.sweep_away(node);
+
+    p.call("render_preview", json!({ "node": node.to_hex() }))
+        .expect("render_preview");
+    p.assert_back(node);
+}
+
+#[test]
+fn comparing_against_a_swept_node_puts_its_audio_back() {
+    let p = SweptProject::open();
+    // Two older takes on the same edit, both swept: either side can be
+    // one the sweep reached.
+    let a = p.nodes[1];
+    let b = p.nodes[2];
+    p.sweep_away(a);
+    p.sweep_away(b);
+
+    p.call(
+        "prepare_compare",
+        json!({ "a": a.to_hex(), "b": b.to_hex() }),
+    )
+    .expect("prepare_compare");
+    p.assert_back(a);
+    p.assert_back(b);
+}
+
+#[test]
+fn exporting_a_range_of_a_swept_node_puts_its_audio_back() {
+    let p = SweptProject::open();
+    let node = p.nodes[2];
+    p.sweep_away(node);
+    let out = p.dir.path().join("selection.wav");
+
+    p.call(
+        "render_range",
+        json!({ "nodeId": node.to_hex(), "startSec": 0.1, "endSec": 0.9, "outPath": out }),
+    )
+    .expect("render_range");
+    p.assert_back(node);
+    assert!(out.is_file(), "and the selection was written");
+}
+
+/// #98's acceptance, end to end: undo into a swept region and the audio
+/// is what it was — the render of the node after the sweep is the render
+/// from before it, byte for byte.
+#[test]
+fn undoing_into_a_swept_region_renders_what_it_did_before() {
+    let p = SweptProject::open();
+    let parent = p.nodes[2];
+    let render = |name: &str| -> Vec<u8> {
+        let out = p.dir.path().join(name);
+        p.call(
+            "render_range",
+            json!({ "nodeId": parent.to_hex(), "startSec": 0.0, "endSec": 2.0, "outPath": out }),
+        )
+        .expect("render_range");
+        std::fs::read(out).expect("rendered")
+    };
+    let before = render("before.wav");
+    p.sweep_away(parent);
+
+    p.call("set_head_to", json!({ "nodeId": parent.to_hex() }))
+        .expect("undo");
+
+    assert!(
+        render("after.wav") == before,
+        "the swept region renders differently"
+    );
+}
