@@ -211,10 +211,11 @@ export function projectWith(tracks: TrackSummary[], head: string): Backend {
 /**
  * A track holding one file, as `list_tracks` reports it.
  *
- * One clip, because that is what `audio_path` requires: `list_tracks`
- * sets it to the clip's `source_path` for exactly one clip, to a
- * flattened WAV for several, and to `None` for none. The id is a UUID
- * because `TrackId` is one.
+ * One clip, the whole file, at zero — a file just loaded — because that
+ * is what this `audio_path` requires: `list_tracks` hands over the
+ * clip's `source_path` only for such a clip, a flattened WAV for
+ * anything else (see `placedTrack`), and `None` for no clips. The id is
+ * a UUID because `TrackId` is one.
  */
 export function trackFor(
   audioPath: string,
@@ -231,6 +232,44 @@ export function trackFor(
     audio_path: audioPath,
     clips: [
       { start_sec: 0, length_sec: seconds, source_path: audioPath, volume_envelope: [] },
+    ],
+  };
+}
+
+/**
+ * A track holding one clip placed `startSec` into the session.
+ *
+ * `list_tracks` hands a single clip's source over only when the clip is
+ * its whole source at zero (`tools::lane_audio_path`). A placed clip is
+ * not, so `audio_path` is the flattened lane file instead: silence to
+ * `startSec`, then the clip. `lanePath` is a fixture holding exactly
+ * that, since this backend cannot flatten anything itself.
+ */
+export function placedTrack({
+  source,
+  startSec,
+  lengthSec,
+  lanePath,
+  name,
+  id,
+}: {
+  source: string;
+  startSec: number;
+  lengthSec: number;
+  lanePath: string;
+  name: string;
+  id: string;
+}): TrackSummary {
+  return {
+    id,
+    name,
+    muted: false,
+    gain_db: 0,
+    pan: 0,
+    soloed: false,
+    audio_path: lanePath,
+    clips: [
+      { start_sec: startSec, length_sec: lengthSec, source_path: source, volume_envelope: [] },
     ],
   };
 }

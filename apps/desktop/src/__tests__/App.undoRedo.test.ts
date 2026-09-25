@@ -76,6 +76,12 @@ describe("undo/redo chords", () => {
  * branch deleted outright. App.tsx mounts a Tauri surface that a unit
  * test cannot render, so this asserts the delegation instead: the
  * handler must call the same predicate these tests exercise.
+ *
+ * The app itself can now be driven under `e2e/` (#273). Undo is not
+ * yet: its `get_node` answer is a whole serialised `SessionNode`, and
+ * a fake that invents one would test an app talking to a backend that
+ * does not exist. Until that answer can be taken from Rust, this
+ * delegation check is the guard.
  */
 describe("App.tsx delegates to the tested predicates", () => {
   const app = readFileSync(join(process.cwd(), "src", "App.tsx"), "utf8");

@@ -167,6 +167,37 @@ pub fn flattened_track_wav(project_dir: &Path, clips: &[Clip]) -> Result<PathBuf
     Ok(cas_path)
 }
 
+/// The file a timeline lane draws for a track: its audio on the
+/// *session's* time axis, so that second *t* of the file is second *t*
+/// of the session (#348).
+///
+/// A single clip hands its source over untouched only when the source
+/// *is* the clip at that place: placed at zero, read from the start, and
+/// running to the source's end. That is the overwhelmingly common case —
+/// a file just loaded — and it costs one header read. Anything else is
+/// flattened. A clip moved to 0:30, or trimmed at the head, used to hand
+/// over its whole source as well, and the lane drew 0:00 of the source
+/// under 0:00 of the ruler — audio from some other time.
+///
+/// A source whose header cannot be read is handed over as it is, so the
+/// lane reports the failure against the file, which says more than a
+/// blank lane does. A flatten that fails leaves the lane blank, as a
+/// multi-clip track always has.
+pub fn lane_audio_path(project_dir: &Path, clips: &[Clip]) -> Option<PathBuf> {
+    match clips {
+        [] => None,
+        [clip] if clip.start_in_track == 0 && clip.source_offset == 0 => {
+            match audio_decoder::WavStreamReader::open(&clip.source_path) {
+                Ok(reader) if reader.total_frames() != clip.length => {
+                    flattened_track_wav(project_dir, clips).ok()
+                }
+                _ => Some(clip.source_path.clone()),
+            }
+        }
+        _ => flattened_track_wav(project_dir, clips).ok(),
+    }
+}
+
 /// Frames per chunk when streaming a track's timeline: 64 Ki frames is
 /// half a mebibyte of stereo samples per buffer, and a few hundred
 /// chunks for an hour of audio.

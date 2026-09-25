@@ -13,9 +13,13 @@
  * overlay; clicking outside the overlay (without dragging) clears.
  *
  * Per-track waveforms: when the caller supplies a `tracks` prop, each
- * lane renders the audio at its own `audioPath`. Multi-clip tracks
- * (no single source path) are filtered out upstream until M22+
- * realtime mixdown lands.
+ * lane renders the audio at its own `audioPath`, which starts at
+ * session zero (`list_tracks` flattens any track that is not a whole
+ * file at zero).
+ *
+ * One axis: every row — ruler, lanes, clip strips, automation, markers,
+ * labels — maps time to pixels through one viewport
+ * (`lib/timelineViewport.ts`) and pans with one scrollbar (#344, #348).
  */
 
 import {
@@ -50,6 +54,16 @@ import { ClipStrip } from "./ClipStrip";
 import type { ClipSummary, EnvelopePoint } from "../lib/tauri-bridge";
 import { Ruler } from "./Ruler";
 import { MarkerLayer } from "./MarkerLayer";
+import {
+  clampScrollSec,
+  maxScrollSec,
+  pxPerSecFor,
+  pxToSec,
+  secToPx,
+  visibleSpan,
+  type TimeSpan,
+  type Viewport,
+} from "../lib/timelineViewport";
 
 // -----------------------------------------------------------------------------
 // Types
@@ -205,6 +219,17 @@ export interface TimelineProps {
    * it was the one the user reads first.
    */
   onLoadErrorChange?: (error: string | null) => void;
+  /**
+   * A row drawn under the lanes, on the timeline's axis: given the
+   * stretch of the session on screen (null until it can be measured),
+   * it returns the row. The label lane lives here.
+   *
+   * A slot rather than a sibling of the timeline because a row outside
+   * the timeline's scroll box does not share its width: a vertical
+   * scrollbar on the lanes narrows them and not it, and the two axes
+   * drift apart by the scrollbar's width.
+   */
+  belowLanes?: (span: TimeSpan | null) => React.ReactNode;
 }
 
 // -----------------------------------------------------------------------------
@@ -278,21 +303,26 @@ interface LaneProps {
   onDurationChange?: (d: number) => void;
   /** Reports this lane's decode failure, and `null` once one succeeds. */
   onLoadErrorChange?: (error: string | null) => void;
-  /** The slice of audio on screen, or null when all of it is (#323). */
-  onViewChange?: (view: { start: number; end: number } | null) => void;
   /**
-   * Length of the *session*, which is the axis the ruler, the clip
-   * strip and every range-taking tool use.
+   * The timeline's one axis (#344, #348): the session's length, the
+   * density, and the time at the surface's left edge. The lane draws its
+   * audio, its selection, its playhead and the time under the pointer on
+   * this, and on nothing of its own.
    *
-   * Selection used to be measured against this lane's own decoded
-   * duration and then handed to `render_range` as session-absolute
-   * seconds (#171). On a 60 s session whose first track is a 10 s clip,
-   * dragging across half the lane exported 0–5 s of the session — a
-   * different span of different audio. The two agree only when the
-   * lane happens to be as long as the session, which is why a
-   * single-file session never showed it.
+   * Every lane used to be its own axis. It stretched its own file across
+   * its own pane and scrolled on its own, so it agreed with the ruler
+   * only when its audio started at zero and ran the whole session.
+   * Selection was measured against the lane's decoded length and handed
+   * to `render_range` as session seconds (#171). Once zoomed, the
+   * overlay, the playhead and a drag still mapped pixels as if the pane
+   * held the whole session.
+   *
+   * The lane's audio starts at session zero — `list_tracks` hands over a
+   * file on the session's axis — so second *t* of it is session second
+   * *t*, and a lane only has to be drawn at the timeline's density and
+   * scrolled to its left edge.
    */
-  sessionDuration?: number;
+  viewport: Viewport;
   /**
    * Snap selection edges to the nearest zero crossing before committing
    * them. Off by default, because off is the behaviour that existed.
@@ -323,23 +353,9 @@ interface LaneProps {
   onRenameTrack?: (trackIndex: number, name: string) => void;
   onDuplicateTrack?: (trackIndex: number) => void;
   onRemoveTrack?: (trackIndex: number) => void;
-  /** Pixels per second zoom level. 0 = auto-fit. */
-  zoom?: number;
-  /**
-   * Scroll the pane so this time is at its left edge. Applied once per
-   * `id`, after the zoom in the same render, so a request made together
-   * with a zoom lands on the zoomed waveform.
-   */
-  scrollTo?: ScrollRequest | null;
   loop?: boolean;
   /** Draw a spectrogram in place of the waveform. */
   spectrogramEnabled?: boolean;
-}
-
-/** A one-off request to scroll every lane to `sec`. */
-interface ScrollRequest {
-  sec: number;
-  id: number;
 }
 
 function TrackLane({
@@ -362,8 +378,7 @@ function TrackLane({
   onSelectionChange,
   onDurationChange,
   onLoadErrorChange,
-  onViewChange,
-  sessionDuration,
+  viewport,
   snapToZero,
   verticalZoom,
   playheadSec,
@@ -371,8 +386,6 @@ function TrackLane({
   onRenameTrack,
   onDuplicateTrack,
   onRemoveTrack,
-  zoom,
-  scrollTo,
   loop,
   spectrogramEnabled,
 }: LaneProps) {
@@ -384,20 +397,16 @@ function TrackLane({
   const [isDragging, setIsDragging] = useState(false);
   const [duration, setDuration] = useState(0);
   const [draftSelection, setDraftSelection] = useState<Selection | null>(null);
+  // Where a drag started, as a session time: the time under the pointer
+  // at the press, not a pixel, so the drag means the same thing however
+  // the view moves under it.
   const dragStateRef = useRef<{
-    originPx: number;
+    originSec: number;
     rectLeft: number;
     rectWidth: number;
   } | null>(null);
   const loopRef = useRef(loop);
   const selectionRef = useRef(selection);
-  // Read by the viewport reporter below. A ref rather than a
-  // dependency so a parent that re-creates the callback each render
-  // cannot re-subscribe — and, worse, miss a redraw in the gap.
-  const onViewChangeRef = useRef(onViewChange);
-  useEffect(() => {
-    onViewChangeRef.current = onViewChange;
-  }, [onViewChange]);
   // Read by the load-failure handler below. A ref rather than a
   // dependency because the load effect keys on `audioPath` alone:
   // adding a prop whose identity changes each render would reload the
@@ -431,6 +440,14 @@ function TrackLane({
       barGap: 1,
       barRadius: 1,
       normalize: true,
+      // Drawn at the timeline's density, never stretched to this pane:
+      // filling the pane is what put a 1-second track across the same
+      // width as a 3-second one (#348).
+      fillParent: false,
+      // Scrolled by the timeline, never on its own. The timeline has
+      // the one scrollbar.
+      hideScrollbar: true,
+      autoScroll: false,
     });
     wsRef.current = ws;
     onWavesurfer?.(ws);
@@ -605,97 +622,60 @@ function isAbort(err: unknown): boolean {
     wsRef.current?.setVolume(0);
   }, []);
 
-  useEffect(() => {
-    if (!wsRef.current || duration === 0) return;
-    wsRef.current.zoom(zoom ?? 0);
-  }, [zoom, duration]);
-
   /**
-   * Scroll to where the parent asked.
+   * Draw at the timeline's density and show its window.
    *
-   * Through WaveSurfer, because WaveSurfer is what scrolls: it draws into
-   * a `.scroll` container of its own, inside a shadow root. Zoom to
-   * selection used to set `scrollLeft` on this lane's wrapper instead,
-   * which only ever holds a pane-wide box and so never scrolls — the
-   * waveform zoomed in on its first half-second wherever the selection
-   * was.
+   * Through WaveSurfer, because WaveSurfer is what draws and what
+   * scrolls: it renders into a `.scroll` container of its own, inside a
+   * shadow root. The wrapper it draws into is widened to the whole
+   * session, so a lane whose audio ends early can still scroll to a time
+   * after it — and shows nothing there, which is the truth.
    *
-   * Declared after the zoom effect on purpose. Effects run in order, and
-   * `zoom()` redraws synchronously, so when a zoom and a scroll arrive in
-   * the same render the scroll is measured on the new width.
-   *
-   * A request is for the lanes on screen when it was made, and each takes
-   * it once. A lane with no audio at that moment takes it without
-   * scrolling, and a lane mounted afterwards takes it on mount, before it
-   * has any. Holding it for them instead replayed it later: a track added
-   * after the press — or renamed, since lanes are keyed by name — jumped
-   * to a selection framed long before, wherever the user had panned since.
+   * One effect, in this order, because each step is measured on the one
+   * before: `zoom()` redraws synchronously at the new width, the minimum
+   * width lets the container scroll that far, and only then does the
+   * scroll land where it should.
    */
-  const takenScrollRef = useRef<number | null>(null);
+  const pxPerSec = viewport.pxPerSec;
+  const sessionPx = Math.ceil(viewport.durationSec * pxPerSec);
+  const scrollPx = Math.round(viewport.scrollSec * pxPerSec);
+  const scrollPxRef = useRef(scrollPx);
+  const zoomedToRef = useRef(0);
   useEffect(() => {
-    if (!scrollTo || takenScrollRef.current === scrollTo.id) return;
-    takenScrollRef.current = scrollTo.id;
+    scrollPxRef.current = scrollPx;
     const ws = wsRef.current;
-    if (!ws || duration === 0) return;
-    ws.setScrollTime(scrollTo.sec);
-  }, [scrollTo, duration]);
+    if (!ws || duration === 0 || !(pxPerSec > 0)) return;
+    if (zoomedToRef.current !== pxPerSec) {
+      ws.zoom(pxPerSec);
+      zoomedToRef.current = pxPerSec;
+    }
+    ws.getWrapper().style.minWidth = `${sessionPx}px`;
+    ws.setScroll(scrollPx);
+  }, [pxPerSec, sessionPx, scrollPx, duration]);
 
   /**
-   * Tell the parent which slice of audio is actually on screen, so the
-   * ruler can label that slice instead of the whole file (#323).
+   * Keep the window where the timeline put it.
    *
-   * Measured from WaveSurfer rather than from this lane's own
-   * elements. WaveSurfer renders into a `.scroll` container of its own
-   * inside a shadow root, and that — not the wrapper this component
-   * owns — is what scrolls. `getScroll`, `getWidth` and `getWrapper`
-   * are the public way to ask it, and reaching into the shadow DOM to
-   * find out is not.
-   *
-   * The density is taken as `wrapperWidth / duration` rather than from
-   * the `zoom` prop. It is the width actually drawn, so it is already
-   * right at auto-fit, where `zoom` is 0 and means "whatever fills the
-   * pane" rather than a density at all.
-   *
-   * Both events are needed and neither is enough. `scroll` fires only
-   * from the container's own scroll event, so zooming without panning
-   * — the whole of the reported bug — emits nothing; `redraw` fires
-   * after every draw, which covers zoom, decode and resize, but not
-   * panning.
+   * WaveSurfer moves its own scroll after every redraw: back to zero when
+   * its audio fits the pane, and by however far the waveform grew
+   * otherwise. Either is right for a lone waveform and wrong for a lane
+   * on a shared axis, so after each redraw, and each scroll it makes,
+   * the lane goes back to the timeline's window. Setting the same value
+   * again emits nothing, so this settles at once.
    */
   useEffect(() => {
     const ws = wsRef.current;
     if (!ws) return;
-    const measure = (): { start: number; end: number } | null => {
-      // Never throws. This runs inside WaveSurfer's own `emit`, which
-      // is a bare `forEach` over its listeners, so an exception here
-      // would abort every listener after it *and* the draw that
-      // called them — a label strip must not be able to break the
-      // waveform. Unmeasurable reports null, and the ruler goes back
-      // to spanning the session, which is what it did before it could
-      // follow a zoom at all.
-      try {
-        const d = ws.getDuration();
-        const total = ws.getWrapper()?.scrollWidth ?? 0;
-        const visible = ws.getWidth();
-        // `visible >= total` is the whole file on screen, which is
-        // what auto-fit shows.
-        if (!(d > 0) || !(total > 0) || !(visible > 0) || visible >= total) {
-          return null;
-        }
-        const pxPerSec = total / d;
-        const start = ws.getScroll() / pxPerSec;
-        return { start, end: Math.min(d, start + visible / pxPerSec) };
-      } catch {
-        return null;
+    const hold = () => {
+      if (Math.abs(ws.getScroll() - scrollPxRef.current) > 1) {
+        ws.setScroll(scrollPxRef.current);
       }
     };
-    const read = () => onViewChangeRef.current?.(measure());
-    read();
-    ws.on("redraw", read);
-    ws.on("scroll", read);
+    ws.on("redrawcomplete", hold);
+    ws.on("scroll", hold);
     return () => {
-      ws.un("redraw", read);
-      ws.un("scroll", read);
+      ws.un("redrawcomplete", hold);
+      ws.un("scroll", hold);
     };
   }, []);
 
@@ -718,29 +698,21 @@ function isAbort(err: unknown): boolean {
     [onFileDropped],
   );
 
-  // What a pixel means. The session axis when we know it; this lane's
-  // own audio only as a fallback for a lane with no session context,
-  // which is the single-file case where the two are equal anyway.
-  const axis = sessionDuration && sessionDuration > 0 ? sessionDuration : duration;
-
   const beginSelection = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      if (!onSelectionChange || !axis || !waveformWrapperRef.current) return;
+      if (!onSelectionChange || !(viewport.pxPerSec > 0) || !waveformWrapperRef.current) return;
       // Only left-click; Shift is reserved for multi-select later.
       if (e.button !== 0) return;
       const rect = waveformWrapperRef.current.getBoundingClientRect();
-      const originPx = e.clientX - rect.left;
+      const originSec = pxToSec(e.clientX - rect.left, viewport);
       dragStateRef.current = {
-        originPx,
+        originSec,
         rectLeft: rect.left,
         rectWidth: rect.width,
       };
-      setDraftSelection({
-        start: pxToSeconds(originPx, rect.width, axis),
-        end: pxToSeconds(originPx, rect.width, axis),
-      });
+      setDraftSelection({ start: originSec, end: originSec });
     },
-    [axis, onSelectionChange],
+    [viewport, onSelectionChange],
   );
 
   /**
@@ -748,20 +720,20 @@ function isAbort(err: unknown): boolean {
    * when it is this lane's audio the selection is over.
    *
    * That second condition is not fussiness. Selection is measured on
-   * the session axis (#171), and this lane's samples are only the audio
-   * at that time when the lane runs the length of the session. Snapping
-   * against the wrong buffer would move the boundary to a crossing that
-   * is not where the user is cutting — worse than not snapping, and
-   * invisible. So when the axes disagree we leave the selection alone,
-   * which is the behaviour that existed before the toggle.
+   * the session axis (#171). This lane's audio starts at session zero,
+   * so its samples are the session's for as long as it runs — and past
+   * its end there are none. Snapping against a buffer that does not
+   * hold the selection would move the boundary to a crossing that is
+   * not where the user is cutting — worse than not snapping, and
+   * invisible. So a selection that runs past this lane's audio is left
+   * alone, which is the behaviour that existed before the toggle.
    */
   const maybeSnap = useCallback(
     (range: Selection): Selection => {
       if (!snapToZero) return range;
       const ws = wsRef.current;
       if (!ws) return range;
-      const laneIsTheAxis = duration > 0 && Math.abs(axis - duration) < 0.01;
-      if (!laneIsTheAxis) return range;
+      if (!(duration > 0) || range.end > duration + 1e-6) return range;
 
       const decoded = ws.getDecodedData?.();
       if (!decoded) return range;
@@ -770,7 +742,7 @@ function isAbort(err: unknown): boolean {
 
       return snapRange(channel, decoded.sampleRate, range);
     },
-    [snapToZero, axis, duration],
+    [snapToZero, duration],
   );
 
   useEffect(() => {
@@ -779,11 +751,10 @@ function isAbort(err: unknown): boolean {
       const drag = dragStateRef.current;
       if (!drag) return;
       const px = clamp(e.clientX - drag.rectLeft, 0, drag.rectWidth);
-      const tEnd = pxToSeconds(px, drag.rectWidth, axis);
-      const tOrigin = pxToSeconds(drag.originPx, drag.rectWidth, axis);
+      const tEnd = pxToSec(px, viewport);
       setDraftSelection({
-        start: Math.min(tOrigin, tEnd),
-        end: Math.max(tOrigin, tEnd),
+        start: Math.min(drag.originSec, tEnd),
+        end: Math.max(drag.originSec, tEnd),
       });
     };
     const onUp = () => {
@@ -805,53 +776,35 @@ function isAbort(err: unknown): boolean {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [draftSelection, axis, onSelectionChange, maybeSnap]);
+  }, [draftSelection, viewport, onSelectionChange, maybeSnap]);
 
   /**
-   * The drawing surface's width, in pixels.
+   * Where the playhead sits on this lane, in pixels from the surface's
+   * left edge, or null when it is off screen or there is nothing to draw.
    *
-   * Measured into state rather than read from the ref inside a memo:
-   * the ref is null on the first render, so a memo that closed over it
-   * would compute `null` once and never re-run — the playhead would
-   * simply never appear. It also has to follow the window, since the
-   * pane is a flex child of a resizable layout.
-   */
-  const [paneWidth, setPaneWidth] = useState(0);
-  useLayoutEffect(() => {
-    const measure = () =>
-      setPaneWidth(waveformWrapperRef.current?.clientWidth ?? 0);
-    measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-  }, []);
-
-  /**
-   * Where the playhead sits on this lane, in pixels, or null when there
-   * is nothing to draw.
-   *
-   * Measured on the same axis as the ruler and the selection, so a
-   * seek moves every lane's playhead to the same place — including
-   * lanes whose own audio is shorter than the session, which is exactly
-   * where WaveSurfer's clamped cursor gave the wrong answer.
+   * On the timeline's axis, so a seek moves every lane's playhead to the
+   * same place — including lanes whose own audio is shorter than the
+   * session, which is exactly where WaveSurfer's clamped cursor gave
+   * the wrong answer — and a zoomed lane puts it on the audio playing.
    */
   const playhead = useMemo(() => {
-    if (playheadSec === undefined || !axis || paneWidth <= 0) return null;
-    return (clamp(playheadSec, 0, axis) / axis) * paneWidth;
-  }, [playheadSec, axis, paneWidth]);
+    if (playheadSec === undefined || !(viewport.pxPerSec > 0)) return null;
+    const x = secToPx(clamp(playheadSec, 0, viewport.durationSec), viewport);
+    return x >= 0 && x <= viewport.widthPx ? x : null;
+  }, [playheadSec, viewport]);
 
+  /**
+   * The selection on screen: clipped to the surface, and null when none
+   * of it is in view.
+   */
   const overlay = useMemo(() => {
     const range = draftSelection ?? selection ?? null;
-    if (!range || !axis || paneWidth <= 0) return null;
-    const width = paneWidth;
-    // Same axis the ruler above is drawn on, so the overlay lines up
-    // with the ticks rather than merely looking plausible.
-    const startPx = (range.start / axis) * width;
-    const endPx = (range.end / axis) * width;
-    return {
-      left: Math.min(startPx, endPx),
-      width: Math.abs(endPx - startPx),
-    };
-  }, [draftSelection, selection, axis, paneWidth]);
+    if (!range || !(viewport.pxPerSec > 0)) return null;
+    const left = Math.max(0, secToPx(range.start, viewport));
+    const right = Math.min(viewport.widthPx, secToPx(range.end, viewport));
+    if (right <= left) return null;
+    return { left, width: right - left };
+  }, [draftSelection, selection, viewport]);
 
   return (
     <div
@@ -999,16 +952,22 @@ function isAbort(err: unknown): boolean {
       {/* Waveform region */}
       <div
         ref={waveformWrapperRef}
+        data-testid="timeline-lane-surface"
         onMouseDown={beginSelection}
         style={{
           flex: 1,
+          minWidth: 0,
           position: "relative",
-          overflowX: "auto",
+          // The lane's time surface: the same left edge and width as
+          // every other row's, so one axis maps them all. No horizontal
+          // padding, which the ruler and the clip rows never had, and
+          // nothing drawn past its edges.
+          overflow: "hidden",
           background: isDragging ? "var(--accent-soft)" : "var(--surface-elev)",
-          padding: "10px 12px",
+          padding: "10px 0",
           boxShadow: isDragging ? "inset 0 0 0 1px var(--accent)" : "none",
           transition: "background 160ms ease, box-shadow 160ms ease",
-          cursor: axis > 0 ? "crosshair" : "default",
+          cursor: viewport.durationSec > 0 ? "crosshair" : "default",
         }}
       >
         <div
@@ -1040,8 +999,8 @@ function isAbort(err: unknown): boolean {
           style={{
             position: "absolute",
             top: 10,
-            left: 12,
-            right: 12,
+            left: 0,
+            right: 0,
             height: LANE_HEIGHT,
             pointerEvents: "none",
             display: spectrogramEnabled ? "block" : "none",
@@ -1055,9 +1014,7 @@ function isAbort(err: unknown): boolean {
               position: "absolute",
               top: 4,
               bottom: 4,
-              // +12 matches the wrapper's horizontal padding, the same
-              // offset the selection overlay uses.
-              left: playhead + 12,
+              left: playhead,
               width: 1,
               background: "rgba(255, 138, 61, 0.85)",
               pointerEvents: "none",
@@ -1071,7 +1028,7 @@ function isAbort(err: unknown): boolean {
               position: "absolute",
               top: 4,
               bottom: 4,
-              left: overlay.left + 12,
+              left: overlay.left,
               width: overlay.width,
               background: "rgba(255, 138, 61, 0.18)",
               borderLeft: "1.5px solid var(--accent)",
@@ -1141,11 +1098,6 @@ const MAX_ZOOM_PX_PER_SEC = 2000;
 const MIN_VERTICAL_ZOOM = 1;
 const MAX_VERTICAL_ZOOM = 64;
 
-function pxToSeconds(px: number, totalPx: number, durationSec: number): number {
-  if (totalPx <= 0) return 0;
-  return clamp((px / totalPx) * durationSec, 0, durationSec);
-}
-
 /**
  * WaveSurfer 7 rejects a load that a newer one superseded. On a rapid
  * A/B toggle that is expected, so it must not reach the user as an
@@ -1202,6 +1154,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
       onMoveClip,
       onRemoveClip,
       onLoadErrorChange,
+      belowLanes,
     },
     ref,
   ) {
@@ -1213,12 +1166,6 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
      * #171 was.
      */
     const [headLaneDuration, setHeadLaneDuration] = useState(0);
-    // The window lane 0 is showing, so the ruler can label it.
-    // Null means the whole file is on screen — the auto-fit case.
-    const [rulerView, setRulerView] = useState<{
-      start: number;
-      end: number;
-    } | null>(null);
 
     /**
      * Playhead position in session seconds, published to every lane.
@@ -1429,31 +1376,84 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
 
     const rootRef = useRef<HTMLDivElement>(null);
 
+    /**
+     * Width of a row's time surface, in pixels: every row's, since they
+     * all share one left edge and one width. Measured on the scrollbar
+     * row, which is always drawn, and followed as the window and the
+     * panel layout change.
+     */
+    const surfaceRef = useRef<HTMLDivElement>(null);
+    const [surfaceWidth, setSurfaceWidth] = useState(0);
+    useLayoutEffect(() => {
+      const el = surfaceRef.current;
+      if (!el) return;
+      const measure = () => setSurfaceWidth(el.clientWidth);
+      measure();
+      if (typeof ResizeObserver === "function") {
+        const observer = new ResizeObserver(measure);
+        observer.observe(el);
+        return () => observer.disconnect();
+      }
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }, []);
+
+    /**
+     * The session time at the surfaces' left edge, as the user last set
+     * it. Kept as a time, not pixels, so a zoom keeps the same moment at
+     * the left edge. Clamped where it is read, since what is reachable
+     * depends on the zoom and the width.
+     */
+    const [scrollSecWanted, setScrollSecWanted] = useState(0);
+
+    const viewport = useMemo<Viewport>(() => {
+      const pxPerSec = pxPerSecFor(zoom ?? 0, surfaceWidth, timelineDuration);
+      const base = { durationSec: timelineDuration, widthPx: surfaceWidth, pxPerSec };
+      return { ...base, scrollSec: clampScrollSec(scrollSecWanted, base) };
+    }, [zoom, surfaceWidth, timelineDuration, scrollSecWanted]);
+    const span = useMemo(() => visibleSpan(viewport), [viewport]);
+
+    /**
+     * Pan by `px` pixels. Returns whether there was anywhere to go, so a
+     * wheel that cannot pan is left to scroll the page.
+     */
+    const panBy = useCallback(
+      (px: number): boolean => {
+        if (!(viewport.pxPerSec > 0) || maxScrollSec(viewport) <= 0) return false;
+        setScrollSecWanted(clampScrollSec(viewport.scrollSec + px / viewport.pxPerSec, viewport));
+        return true;
+      },
+      [viewport],
+    );
+
     useEffect(() => {
       const el = rootRef.current;
       if (!el) return;
       const handler = (e: WheelEvent) => {
-        if (!e.ctrlKey) return;
-        e.preventDefault();
-        const delta = e.deltaY > 0 ? -20 : 20;
-        onZoomChange?.(Math.max(0, (zoom ?? 0) + delta));
+        if (e.ctrlKey) {
+          e.preventDefault();
+          const delta = e.deltaY > 0 ? -20 : 20;
+          onZoomChange?.(Math.max(0, (zoom ?? 0) + delta));
+          return;
+        }
+        // A horizontal gesture, or Shift with a vertical wheel, pans the
+        // whole timeline. Lanes cannot scroll themselves — they are
+        // drawn under the pointer, not scrolled by it — so this is the
+        // only way a trackpad reaches the timeline's one scroll.
+        const horizontal = Math.abs(e.deltaX) > Math.abs(e.deltaY);
+        if (!horizontal && !e.shiftKey) return;
+        const raw = horizontal ? e.deltaX : e.deltaY;
+        const unit =
+          e.deltaMode === WheelEvent.DOM_DELTA_LINE
+            ? 16
+            : e.deltaMode === WheelEvent.DOM_DELTA_PAGE
+              ? viewport.widthPx
+              : 1;
+        if (panBy(raw * unit)) e.preventDefault();
       };
       el.addEventListener("wheel", handler, { passive: false });
       return () => el.removeEventListener("wheel", handler);
-    }, [zoom, onZoomChange]);
-
-    /**
-     * Width of the drawing surface, in pixels — the lane minus its head.
-     * Read from the DOM rather than tracked in state: it changes with
-     * the window and with the panel layout, and a stale number here
-     * would frame the wrong region.
-     */
-    const paneWidth = useCallback(() => {
-      const el = rootRef.current?.querySelector<HTMLElement>(
-        "[data-testid='timeline-lane-waveform']",
-      );
-      return el?.clientWidth ?? 0;
-    }, []);
+    }, [zoom, onZoomChange, panBy, viewport.widthPx]);
 
     /**
      * The zoom level the ± buttons should step from.
@@ -1469,20 +1469,10 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
      * the file length. Falls back to 50 only when there is nothing to
      * measure.
      */
-    const effectivePxPerSec = useCallback(() => {
-      if (zoom) return zoom;
-      const w = paneWidth();
-      // `timelineDuration`, not the mix player's duration: with no
-      // edits yet there is no rendered mix, so `mixWsRef` reports 0
-      // and this fell straight back to the literal that caused the
-      // problem. The timeline's own span is what the pane is fitted
-      // to, and it is right from the first decode.
-      if (w > 0 && timelineDuration > 0) return w / timelineDuration;
-      return 50;
-    }, [zoom, paneWidth, timelineDuration]);
-
-    /** The last zoom-to-selection, for every lane to scroll to once. */
-    const [scrollRequest, setScrollRequest] = useState<ScrollRequest | null>(null);
+    const effectivePxPerSec = useCallback(
+      () => (viewport.pxPerSec > 0 ? viewport.pxPerSec : 50),
+      [viewport.pxPerSec],
+    );
 
     /**
      * Fill the pane with the selection. Along with fit-to-window these
@@ -1493,7 +1483,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
     const zoomToSelection = useCallback(() => {
       if (!selection || !onZoomChange) return;
       const span = selection.end - selection.start;
-      const width = paneWidth();
+      const width = surfaceWidth;
       if (span <= 0 || width <= 0) return;
 
       const pxPerSec = clamp(width / span, MIN_ZOOM_PX_PER_SEC, MAX_ZOOM_PX_PER_SEC);
@@ -1503,20 +1493,39 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
       // the selection fills the pane. It differs only when the zoom hit
       // its limit: a selection too short to fill the pane at 2000 px/s
       // would otherwise sit against the left edge.
+      //
+      // One scroll for the whole timeline, so every lane — including one
+      // added afterwards — shows this window until the user moves it.
       const visibleSec = width / pxPerSec;
-      const sec = Math.max(0, selection.start + span / 2 - visibleSec / 2);
-      setScrollRequest((prev) => ({ sec, id: (prev?.id ?? 0) + 1 }));
-    }, [selection, onZoomChange, paneWidth]);
+      setScrollSecWanted(Math.max(0, selection.start + span / 2 - visibleSec / 2));
+    }, [selection, onZoomChange, surfaceWidth]);
 
-    /**
-     * Zero means auto-fit, which is what the lanes already do. Nothing to
-     * scroll: at auto-fit the waveform is no wider than the pane, and
-     * WaveSurfer returns its own scroll to zero when a redraw makes it
-     * unscrollable.
-     */
+    /** Zero means auto-fit: the whole session across the pane. */
     const fitToWindow = useCallback(() => {
       onZoomChange?.(0);
+      setScrollSecWanted(0);
     }, [onZoomChange]);
+
+    /**
+     * The timeline's scrollbar, kept on the viewport. It is also how a
+     * user drags the view, so a scroll it reports that the viewport does
+     * not already hold is a pan. Setting it to the viewport's own value
+     * reports that value back, which changes nothing.
+     */
+    const hscrollRef = useRef<HTMLDivElement>(null);
+    const scrollPx = viewport.scrollSec * viewport.pxPerSec;
+    useLayoutEffect(() => {
+      const el = hscrollRef.current;
+      if (el && Math.abs(el.scrollLeft - scrollPx) > 0.5) el.scrollLeft = scrollPx;
+    }, [scrollPx, viewport.pxPerSec, timelineDuration]);
+    const onScrollbar = useCallback(
+      (e: React.UIEvent<HTMLDivElement>) => {
+        const left = e.currentTarget.scrollLeft;
+        if (!(viewport.pxPerSec > 0) || Math.abs(left - scrollPx) <= 0.5) return;
+        setScrollSecWanted(left / viewport.pxPerSec);
+      },
+      [viewport.pxPerSec, scrollPx],
+    );
 
     useImperativeHandle(
       ref,
@@ -1571,7 +1580,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
           height: "100%",
           width: "100%",
           background: "var(--surface)",
-          overflowY: "auto",
+          overflow: "hidden",
         }}
       >
         {mixError ? (
@@ -1785,100 +1794,146 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
           style={{ position: "absolute", width: 0, height: 0, overflow: "hidden" }}
         />
 
-        <Ruler
-          duration={timelineDuration}
-          view={rulerView}
-          onAddMarker={onAddMarker}
-        />
-
+        {/*
+          Every row below shares one time surface: the same left edge,
+          after the 132px head, and the same width. So they sit in one
+          vertical scroll box — a scrollbar that narrowed the lanes and
+          not the ruler would put them on different axes — with the
+          ruler and the timeline's scrollbar held at its top and bottom.
+        */}
         <div
+          data-testid="timeline-body"
           style={{
             flex: 1,
-            position: "relative",
-            overflow: "hidden",
+            minHeight: 0,
+            display: "flex",
+            flexDirection: "column",
+            overflowX: "hidden",
             overflowY: "auto",
           }}
         >
-          {laneStates.map((track, idx) => (
-            <div key={track.name}>
-              <TrackLane
-                spectrogramEnabled={spectrogramEnabled}
-                name={track.name}
-                audioPath={track.audioPath || null}
-                muted={track.muted}
-                onToggleMute={() => handleToggleMute(idx)}
-                gainDb={track.gainDb ?? 0}
-                pan={track.pan ?? 0}
-                soloed={track.soloed ?? false}
-                onGainInput={(v) => patchLane(idx, { gainDb: v })}
-                onPanInput={(v) => patchLane(idx, { pan: v })}
-                onGainCommit={(v) => onTrackGainChange?.(trackIndex(idx), v)}
-                onPanCommit={(v) => onTrackPanChange?.(trackIndex(idx), v)}
-                onToggleSolo={() => handleToggleSolo(idx)}
-                onFileDropped={idx === 0 ? onFileDropped : undefined}
-                showDropHint={idx === 0 && !audioPath}
+          <div style={{ position: "sticky", top: 0, zIndex: 2, flexShrink: 0 }}>
+            <Ruler duration={timelineDuration} view={span} onAddMarker={onAddMarker} />
+          </div>
 
-                selection={idx === 0 ? selection : null}
-                onSelectionChange={idx === 0 ? onSelectionChange : undefined}
-                onDurationChange={idx === 0 ? setHeadLaneDuration : undefined}
-                onLoadErrorChange={idx === 0 ? onLoadErrorChange : undefined}
-                onViewChange={idx === 0 ? setRulerView : undefined}
-                sessionDuration={timelineDuration}
-                playheadSec={playheadSec}
-                snapToZero={snapToZero}
-                verticalZoom={verticalZoom}
-                trackIndex={trackIndex(idx)}
-                onRenameTrack={onRenameTrack}
-                onDuplicateTrack={onDuplicateTrack}
-                onRemoveTrack={onRemoveTrack}
-                zoom={zoom}
-                scrollTo={scrollRequest}
-                loop={idx === 0 ? loop : undefined}
+          <div style={{ position: "relative", flex: 1 }}>
+            {laneStates.map((track, idx) => (
+              <div key={track.name}>
+                <TrackLane
+                  spectrogramEnabled={spectrogramEnabled}
+                  name={track.name}
+                  audioPath={track.audioPath || null}
+                  muted={track.muted}
+                  onToggleMute={() => handleToggleMute(idx)}
+                  gainDb={track.gainDb ?? 0}
+                  pan={track.pan ?? 0}
+                  soloed={track.soloed ?? false}
+                  onGainInput={(v) => patchLane(idx, { gainDb: v })}
+                  onPanInput={(v) => patchLane(idx, { pan: v })}
+                  onGainCommit={(v) => onTrackGainChange?.(trackIndex(idx), v)}
+                  onPanCommit={(v) => onTrackPanChange?.(trackIndex(idx), v)}
+                  onToggleSolo={() => handleToggleSolo(idx)}
+                  onFileDropped={idx === 0 ? onFileDropped : undefined}
+                  showDropHint={idx === 0 && !audioPath}
+                  selection={idx === 0 ? selection : null}
+                  onSelectionChange={idx === 0 ? onSelectionChange : undefined}
+                  onDurationChange={idx === 0 ? setHeadLaneDuration : undefined}
+                  onLoadErrorChange={idx === 0 ? onLoadErrorChange : undefined}
+                  viewport={viewport}
+                  playheadSec={playheadSec}
+                  snapToZero={snapToZero}
+                  verticalZoom={verticalZoom}
+                  trackIndex={trackIndex(idx)}
+                  onRenameTrack={onRenameTrack}
+                  onDuplicateTrack={onDuplicateTrack}
+                  onRemoveTrack={onRemoveTrack}
+                  loop={idx === 0 ? loop : undefined}
+                />
+                {onMoveClip && (track.clips?.length ?? 0) > 0 && (
+                  <ClipStrip
+                    trackName={track.name}
+                    clips={track.clips ?? []}
+                    duration={timelineDuration}
+                    view={span}
+                    selectedClip={
+                      selectedClip?.startsWith(`${idx}:`)
+                        ? Number(selectedClip.split(":")[1])
+                        : null
+                    }
+                    onSelectClip={(clipIndex) =>
+                      setSelectedClip(
+                        clipIndex === null ? null : `${idx}:${clipIndex}`,
+                      )
+                    }
+                    onMoveClip={(clipIndex, startSec) =>
+                      onMoveClip(trackIndex(idx), clipIndex, startSec)
+                    }
+                    onRemoveClip={(clipIndex) => {
+                      setSelectedClip(null);
+                      onRemoveClip?.(trackIndex(idx), clipIndex);
+                    }}
+                  />
+                )}
+                {onClipEnvelopeChange && (track.clips?.length ?? 0) > 0 && (
+                  <AutomationLane
+                    trackName={track.name}
+                    clips={track.clips ?? []}
+                    duration={timelineDuration}
+                    view={span}
+                    onCommit={(clipIndex, points) =>
+                      onClipEnvelopeChange(trackIndex(idx), clipIndex, points)
+                    }
+                  />
+                )}
+              </div>
+            ))}
+            {markers && markers.length > 0 && timelineDuration > 0 && (
+              <MarkerLayer
+                markers={markers}
+                duration={timelineDuration}
+                view={span}
+                onSeek={(t) => onSeekToMarker?.(t)}
+                onRemove={(id) => onRemoveMarker?.(id)}
               />
-              {onMoveClip && (track.clips?.length ?? 0) > 0 && (
-                <ClipStrip
-                  trackName={track.name}
-                  clips={track.clips ?? []}
-                  duration={timelineDuration}
-                  selectedClip={
-                    selectedClip?.startsWith(`${idx}:`)
-                      ? Number(selectedClip.split(":")[1])
-                      : null
-                  }
-                  onSelectClip={(clipIndex) =>
-                    setSelectedClip(
-                      clipIndex === null ? null : `${idx}:${clipIndex}`,
-                    )
-                  }
-                  onMoveClip={(clipIndex, startSec) =>
-                    onMoveClip(trackIndex(idx), clipIndex, startSec)
-                  }
-                  onRemoveClip={(clipIndex) => {
-                    setSelectedClip(null);
-                    onRemoveClip?.(trackIndex(idx), clipIndex);
+            )}
+          </div>
+
+          {belowLanes?.(span)}
+
+          {/*
+            The timeline's one horizontal scrollbar. Its content is the
+            session at the current density, so its range is exactly the
+            viewport's; every lane, the ruler and the clip rows follow it.
+          */}
+          <div
+            style={{
+              position: "sticky",
+              bottom: 0,
+              zIndex: 2,
+              display: "flex",
+              flexShrink: 0,
+              background: "var(--surface-elev)",
+              borderTop: "1px solid var(--border)",
+            }}
+          >
+            <div style={{ width: 132, flexShrink: 0, borderRight: "1px solid var(--border)" }} />
+            <div ref={surfaceRef} style={{ flex: 1, minWidth: 0 }}>
+              <div
+                ref={hscrollRef}
+                data-testid="timeline-hscroll"
+                aria-label="Scroll the timeline"
+                onScroll={onScrollbar}
+                style={{ overflowX: "auto", overflowY: "hidden", height: 12 }}
+              >
+                <div
+                  style={{
+                    width: Math.ceil(timelineDuration * viewport.pxPerSec),
+                    height: 1,
                   }}
                 />
-              )}
-              {onClipEnvelopeChange && (track.clips?.length ?? 0) > 0 && (
-                <AutomationLane
-                  trackName={track.name}
-                  clips={track.clips ?? []}
-                  duration={timelineDuration}
-                  onCommit={(clipIndex, points) =>
-                    onClipEnvelopeChange(trackIndex(idx), clipIndex, points)
-                  }
-                />
-              )}
+              </div>
             </div>
-          ))}
-          {markers && markers.length > 0 && timelineDuration > 0 && (
-            <MarkerLayer
-              markers={markers}
-              duration={timelineDuration}
-              onSeek={(t) => onSeekToMarker?.(t)}
-              onRemove={(id) => onRemoveMarker?.(id)}
-            />
-          )}
+          </div>
         </div>
       </div>
     );

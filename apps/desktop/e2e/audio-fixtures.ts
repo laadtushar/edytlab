@@ -21,18 +21,22 @@ export const FIXTURE_DIR = join(
 export const SAMPLE_RATE = 44_100;
 
 export interface ToneSpec {
+  /** Length of the tone itself, after any lead-in. */
   seconds: number;
   hz: number;
   /** Peak amplitude as a fraction of full scale. */
   amplitude: number;
+  /** Seconds of digital silence before the tone starts. */
+  leadIn?: number;
 }
 
 /** A mono 16-bit PCM WAV holding a single sine tone. */
-export function toneWav({ seconds, hz, amplitude }: ToneSpec): Buffer {
-  const frames = Math.round(seconds * SAMPLE_RATE);
+export function toneWav({ seconds, hz, amplitude, leadIn = 0 }: ToneSpec): Buffer {
+  const silent = Math.round(leadIn * SAMPLE_RATE);
+  const frames = silent + Math.round(seconds * SAMPLE_RATE);
   const data = Buffer.alloc(frames * 2);
-  for (let i = 0; i < frames; i++) {
-    const v = Math.sin((2 * Math.PI * hz * i) / SAMPLE_RATE) * amplitude;
+  for (let i = silent; i < frames; i++) {
+    const v = Math.sin((2 * Math.PI * hz * (i - silent)) / SAMPLE_RATE) * amplitude;
     data.writeInt16LE(Math.round(v * 32_767), i * 2);
   }
 
@@ -57,6 +61,17 @@ export function toneWav({ seconds, hz, amplitude }: ToneSpec): Buffer {
 export const FIXTURES = {
   /** Three seconds: wider than the pane once zoomed past ~260 px/s. */
   tone3s: { file: "tone-3s.wav", spec: { seconds: 3, hz: 440, amplitude: 0.5 } },
+  /** One second: a track that ends before the session does. */
+  tone1s: { file: "tone-1s.wav", spec: { seconds: 1, hz: 330, amplitude: 0.5 } },
+  /**
+   * What `list_tracks` hands the lane for `tone1s` placed at 1 s: the
+   * file `flattened_track_wav` writes for that clip, silent until the
+   * clip starts (#348).
+   */
+  tone1sAt1s: {
+    file: "tone-1s-at-1s.wav",
+    spec: { seconds: 1, hz: 330, amplitude: 0.5, leadIn: 1 },
+  },
 } as const;
 
 export type FixtureName = keyof typeof FIXTURES;
@@ -66,9 +81,10 @@ export function fixturePath(name: FixtureName): string {
   return join(FIXTURE_DIR, FIXTURES[name].file);
 }
 
-/** Length of a fixture in seconds, from the spec it was written with. */
+/** Length of a fixture in seconds, lead-in included, from its spec. */
 export function fixtureSeconds(name: FixtureName): number {
-  return FIXTURES[name].spec.seconds;
+  const spec: ToneSpec = FIXTURES[name].spec;
+  return (spec.leadIn ?? 0) + spec.seconds;
 }
 
 export function writeFixtures(): void {

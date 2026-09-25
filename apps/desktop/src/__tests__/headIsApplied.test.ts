@@ -13,17 +13,18 @@
  * `list_markers` on the next open, and Ctrl+Z reverts the edit before
  * them instead of the label itself.
  *
- * ## Why this is a source check
+ * ## Why this is still a source check
  *
- * App.tsx mounts a Tauri surface a unit test cannot render — there is
- * no seam to drive `handleAddMarker` through and observe `head`. What
- * can be checked is the property that actually regressed: a call to a
- * head-returning command whose result goes nowhere. That is exactly
- * the shape of the bug, and it is what a future handler is most likely
- * to reintroduce.
+ * The behaviour is tested for real in `e2e/labels.spec.ts` (#273): the
+ * whole app in a browser, a label added through the lane, the head it
+ * returns used by the next render and saved into `view.json`, and the
+ * label still there when the project is opened again.
  *
- * It cannot prove the head is applied *correctly*; it can prove the
- * return value is not thrown away.
+ * This stays as the cheap layer under it. It covers every
+ * head-returning command at once, including the ones no e2e test
+ * drives yet, and it catches the shape the bug actually had: a call
+ * whose result goes nowhere. It cannot prove the head is applied
+ * *correctly*; it can prove the return value is not thrown away.
  */
 
 import { readFileSync } from "node:fs";
