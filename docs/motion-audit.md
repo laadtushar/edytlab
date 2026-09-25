@@ -215,9 +215,12 @@ as a comparison. That reads as one thing and is two:
 
 - **The visible switch** — the A and B buttons changing state instantly,
   so the toggle did not read as a toggle. Done.
-- **An audio crossfade between the two sides.** Not done, and not a
-  motion change at all — it is work in the playback engine, and it
-  should not be claimed under this ticket.
+- **An audio crossfade between the two sides.** Not a motion change at
+  all — it is playback work, and it was not claimed under this ticket.
+  Done in #269 §2: the mix plays through two players, and a switch
+  loads the new side on the idle one and crosses them over 60 ms
+  (equal power) from the same moment. `e2e/ab-crossfade.spec.ts` reads
+  it from the two `<audio>` elements in real playback.
 
 ## Phase 2 — micro-interactions
 

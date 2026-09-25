@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -81,7 +81,7 @@ describe("Timeline loop toggle", () => {
    * 0, which is not the thing making sound any more — a loop that only
    * wrapped a silent lane would be a loop nobody could hear.
    */
-  it("wraps to selection.start when the mix plays past selection.end", () => {
+  it("wraps to selection.start when the mix plays past selection.end", async () => {
     instances.length = 0;
     mockSetTime.mockClear();
     render(
@@ -94,10 +94,12 @@ describe("Timeline loop toggle", () => {
       />,
     );
 
-    // The mix player is created by the parent, after the lanes.
-    const mix = instances[instances.length - 1];
+    // The mix players are created by the parent, after the lanes. The
+    // mix loads onto one, which takes the transport once loaded; only
+    // the player that holds the transport loops.
+    await act(async () => {});
     // getCurrentTime returns 6, which is past end = 5.
-    mix.handlers["audioprocess"]?.();
+    for (const mix of instances.slice(-2)) mix.handlers["audioprocess"]?.();
 
     expect(mockSetTime).toHaveBeenCalledWith(2);
   });

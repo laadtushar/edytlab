@@ -17,7 +17,7 @@
  * the lanes went on drawing normally.
  */
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { createRef } from "react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -93,64 +93,70 @@ const TRACKS = [
   { index: 0, name: "voice", audioPath: "/tmp/voice.wav", muted: false },
 ];
 
-function mount(mixPath: string | null = "/tmp/a.wav") {
+/**
+ * The mix plays on one of two players (#269 §2): a switch loads the new
+ * side onto the idle one and hands the transport over. So these name
+ * players by what they hold, not by when they were created.
+ */
+const holding = (path: string) => instances.find((i) => i.url === `asset://${path}`);
+
+async function mount(mixPath = "/tmp/a.wav") {
   instances.length = 0;
   const ref = createRef<TimelineHandle>();
   const view = render(<Timeline ref={ref} tracks={TRACKS} mixPath={mixPath} />);
-  // The parent's effect runs after its children's, so the mix player is
-  // the last one created.
-  const mix = () => instances[instances.length - 1];
-  return { ref, view, mix };
+  await waitFor(() => expect(holding(mixPath)).toBeDefined());
+  const current = holding(mixPath)!;
+  // The other mix player — the parent creates both after the lanes — is
+  // where the next switch loads.
+  const idle = instances.slice(-2).find((i) => i !== current)!;
+  return { ref, view, current, idle };
 }
 
 describe("switching the mix path", () => {
   it("restores the playhead after the new side loads", async () => {
-    const { view, mix } = mount("/tmp/a.wav");
+    const { view, current } = await mount("/tmp/a.wav");
 
     // Ten seconds into side A.
-    mix().currentTime = 10;
+    current.currentTime = 10;
 
     view.rerender(<Timeline tracks={TRACKS} mixPath="/tmp/b.wav" />);
 
     await waitFor(() =>
-      expect(mix().url).toBe("asset:///tmp/b.wav"),
-    );
-    await waitFor(() =>
       expect(
-        mix().currentTime,
+        holding("/tmp/b.wav")?.currentTime,
         "the A/B switch dropped the playhead to 0",
       ).toBe(10),
     );
   });
 
   it("resumes playing if it was playing before the switch", async () => {
-    const { view, mix } = mount("/tmp/a.wav");
+    const { view, current } = await mount("/tmp/a.wav");
 
-    mix().currentTime = 4;
-    mix().playing = true;
+    current.currentTime = 4;
+    current.playing = true;
 
     view.rerender(<Timeline tracks={TRACKS} mixPath="/tmp/b.wav" />);
 
     await waitFor(() =>
       expect(
-        mix().play,
+        holding("/tmp/b.wav")?.play,
         "playback stopped on the switch and never came back",
       ).toHaveBeenCalled(),
     );
   });
 
   it("does not start playing if it was paused before the switch", async () => {
-    const { view, mix } = mount("/tmp/a.wav");
+    const { view, current } = await mount("/tmp/a.wav");
 
-    mix().currentTime = 4;
-    mix().playing = false;
-    mix().play.mockClear();
+    current.currentTime = 4;
+    current.playing = false;
 
     view.rerender(<Timeline tracks={TRACKS} mixPath="/tmp/b.wav" />);
 
-    await waitFor(() => expect(mix().url).toBe("asset:///tmp/b.wav"));
+    await waitFor(() => expect(holding("/tmp/b.wav")).toBeDefined());
+    await act(async () => {});
     expect(
-      mix().play,
+      holding("/tmp/b.wav")!.play,
       "a switch while paused must not start playback",
     ).not.toHaveBeenCalled();
   });
@@ -158,9 +164,9 @@ describe("switching the mix path", () => {
 
 describe("when the mix cannot load", () => {
   it("says so instead of going silently mute", async () => {
-    const { view, mix } = mount("/tmp/a.wav");
+    const { view, idle } = await mount("/tmp/a.wav");
 
-    mix().loadResult = () => Promise.reject(new Error("ENOENT"));
+    idle.loadResult = () => Promise.reject(new Error("ENOENT"));
     view.rerender(<Timeline tracks={TRACKS} mixPath="/tmp/gone.wav" />);
 
     const alert = await screen.findByTestId("timeline-mix-error");
@@ -174,13 +180,14 @@ describe("when the mix cannot load", () => {
    * blanket `.catch` existed.
    */
   it("stays quiet when a load is superseded", async () => {
-    const { view, mix } = mount("/tmp/a.wav");
+    const { view, idle } = await mount("/tmp/a.wav");
 
     const abort = new DOMException("aborted", "AbortError");
-    mix().loadResult = () => Promise.reject(abort);
+    idle.loadResult = () => Promise.reject(abort);
     view.rerender(<Timeline tracks={TRACKS} mixPath="/tmp/b.wav" />);
 
-    await waitFor(() => expect(mix().url).toBe("asset:///tmp/b.wav"));
+    await waitFor(() => expect(holding("/tmp/b.wav")).toBeDefined());
+    await act(async () => {});
     expect(screen.queryByTestId("timeline-mix-error")).not.toBeInTheDocument();
   });
 });
