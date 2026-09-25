@@ -44,6 +44,11 @@ vi.mock("wavesurfer.js", () => ({
       destroy: vi.fn(),
       getDuration: () => 10,
       getCurrentTime: () => 0,
+      // The lane draws at the timeline's density and scrolls to its
+      // window through these (#344).
+      getWrapper: () => document.createElement("div"),
+      setScroll: vi.fn(),
+      getScroll: () => 0,
     }),
   },
 }));

@@ -27,11 +27,18 @@
 import { useEffect, useRef, useState } from "react";
 
 import type { Marker } from "../lib/tauri-bridge";
+import { pctOf, type TimeSpan } from "../lib/timelineViewport";
 
 export interface LabelLaneProps {
   labels: Marker[];
-  /** Session length in seconds; the lane spans it exactly. */
+  /** Session length in seconds. */
   duration: number;
+  /**
+   * The stretch of the session on screen, from the timeline's one axis
+   * (#344). Absent or null is the whole session, which is what fit
+   * shows.
+   */
+  view?: TimeSpan | null;
   /** Left offset matching the track sidebar, so 0s lines up. */
   sidebarWidth?: number;
   onAdd: (timeSec: number) => void;
@@ -49,6 +56,7 @@ function startOf(m: Marker): number {
 export function LabelLane({
   labels,
   duration,
+  view,
   sidebarWidth = 132,
   onAdd,
   onRename,
@@ -69,13 +77,18 @@ export function LabelLane({
     if (editing) inputRef.current?.select();
   }, [editing]);
 
+  // Drawn on the lanes' axis: at fit, the whole session; zoomed, only
+  // what is on screen.
+  const shown: TimeSpan = view ?? { start: 0, end: duration };
+
   /** Pointer x → seconds on the session axis. */
   function secondsAt(clientX: number): number {
     const el = laneRef.current;
     if (!el || duration <= 0) return 0;
     const r = el.getBoundingClientRect();
     const frac = (clientX - r.left) / Math.max(1, r.width);
-    return Math.min(duration, Math.max(0, frac * duration));
+    const t = shown.start + frac * (shown.end - shown.start);
+    return Math.min(duration, Math.max(0, t));
   }
 
   // Drag is tracked on `window`, not on the chip: releasing the button
@@ -101,7 +114,7 @@ export function LabelLane({
       window.removeEventListener("mouseup", up);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dragging, duration, labels]);
+  }, [dragging, duration, labels, shown.start, shown.end]);
 
   function commitRename(id: string) {
     const name = draft.trim();
@@ -156,7 +169,7 @@ export function LabelLane({
         {duration > 0 &&
           labels.map((m) => {
             const t = dragging === m.id && dragSec !== null ? dragSec : startOf(m);
-            const pct = (t / duration) * 100;
+            const pct = pctOf(t, shown);
             const isEditing = editing === m.id;
             return (
               <div

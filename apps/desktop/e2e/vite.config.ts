@@ -55,8 +55,36 @@ function serveFixtures(): Plugin {
           res.end("no such fixture");
           return;
         }
-        res.setHeader("Content-Length", size);
-        createReadStream(requested).pipe(res);
+        // What Tauri's asset protocol answers (`tauri/src/protocol/
+        // asset.rs`). The type matters more than it looks: WaveSurfer
+        // plays from a blob only when the browser can play the blob's
+        // type, and falls back to the bare URL otherwise. Sent without
+        // one, the harness pushed every player onto the URL, where a
+        // seek needs byte ranges, and a paused seek snapped back to 0 —
+        // a failure the app, which gets `audio/x-wav` from `infer`'s
+        // magic-byte sniffing, never has. Every fixture is a WAV.
+        res.setHeader("Content-Type", "audio/x-wav");
+        const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? "");
+        if (!req.headers.range) {
+          res.setHeader("Content-Length", size);
+          createReadStream(requested).pipe(res);
+          return;
+        }
+        // One range, as Tauri serves, capped at its 1000 KiB per reply.
+        res.setHeader("Accept-Ranges", "bytes");
+        const start = range?.[1] ? Number(range[1]) : range?.[2] ? size - Number(range[2]) : 0;
+        const asked = range?.[1] && range[2] ? Number(range[2]) : size - 1;
+        if (!range || start >= size || asked < start) {
+          res.statusCode = 416;
+          res.setHeader("Content-Range", `bytes */${size}`);
+          res.end();
+          return;
+        }
+        const end = Math.min(asked, size - 1, start + 1000 * 1024 - 1);
+        res.statusCode = 206;
+        res.setHeader("Content-Range", `bytes ${start}-${end}/${size}`);
+        res.setHeader("Content-Length", end + 1 - start);
+        createReadStream(requested, { start, end }).pipe(res);
       });
     },
   };

@@ -639,7 +639,7 @@ interface TrackSummary {
   name: string;
   muted: boolean;
   gain_db: number;
-  audio_path: string | null;  // Path to source audio (null if track is empty)
+  audio_path: string | null;  // The track's audio from session 0 (null if track is empty)
 }
 ```
 

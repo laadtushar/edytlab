@@ -37,6 +37,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ClipSummary } from "../lib/tauri-bridge";
+import { pctOf, type TimeSpan } from "../lib/timelineViewport";
 
 /** Pointer travel, in px, before a press counts as a drag. */
 const DRAG_SLOP = 3;
@@ -75,6 +76,12 @@ export interface ClipStripProps {
   clips: ClipSummary[];
   /** Timeline duration in seconds; 0 while audio is still loading. */
   duration: number;
+  /**
+   * The stretch of the session on screen, from the timeline's one axis
+   * (#344). Absent or null is the whole session, which is what fit
+   * shows.
+   */
+  view?: TimeSpan | null;
   selectedClip: number | null;
   onSelectClip: (clipIndex: number | null) => void;
   /** Commit a move. Called once per gesture, on release. */
@@ -101,6 +108,7 @@ export function clipLabel(clip: ClipSummary, index: number): string {
 export function ClipStrip({
   clips,
   duration,
+  view,
   selectedClip,
   onSelectClip,
   onMoveClip,
@@ -129,16 +137,35 @@ export function ClipStrip({
     setDraft(clips);
   }, [clips]);
 
+  // The chips are drawn on the lanes' axis: at fit, the whole session;
+  // zoomed, only what is on screen.
+  const shown: TimeSpan = view ?? { start: 0, end: duration };
+  const shownSec = shown.end - shown.start;
+
+  /** A pointer travel of `px`, in seconds on the axis shown. */
   const pxToSec = useCallback(
     (px: number): number => {
       const width = stripRef.current?.getBoundingClientRect().width ?? 0;
-      if (width === 0 || duration <= 0) return 0;
-      return (px / width) * duration;
+      if (width === 0 || shownSec <= 0) return 0;
+      return (px / width) * shownSec;
     },
-    [duration],
+    [shownSec],
   );
 
-  const xOf = (sec: number) => (duration > 0 ? (sec / duration) * 100 : 0);
+  const xOf = (sec: number) => pctOf(sec, shown);
+  const widthOf = (sec: number) => (shownSec > 0 ? (sec / shownSec) * 100 : 0);
+
+  // Whether this render moves the view rather than the clips. A zoom or
+  // a pan moves every chip, and a chip that eased there would trail the
+  // waveform it labels by the length of the motion. Only an edit
+  // travels; the view moves the chips the way it moves the audio, at
+  // once.
+  const viewKey = `${shown.start}:${shown.end}`;
+  const lastViewKey = useRef(viewKey);
+  const viewMoved = lastViewKey.current !== viewKey;
+  useEffect(() => {
+    lastViewKey.current = viewKey;
+  }, [viewKey]);
 
   useEffect(() => {
     if (!drag) return;
@@ -222,7 +249,8 @@ export function ClipStrip({
         ref={stripRef}
         role="group"
         aria-label={`${trackName} clips`}
-        style={{ flex: 1, position: "relative", height: STRIP_HEIGHT }}
+        // Clipped: zoomed in, a chip can run past either edge.
+        style={{ flex: 1, minWidth: 0, position: "relative", height: STRIP_HEIGHT, overflow: "hidden" }}
       >
         {draft.map((clip, i) => {
           const selected = selectedClip === i;
@@ -233,6 +261,7 @@ export function ClipStrip({
           // release — the exact feel this whole change exists to avoid.
           // Only the chips being *rearranged by an edit* travel.
           const dragging = drag?.clipIndex === i;
+          const still = dragging || !painted.current || viewMoved;
           return (
             <button
               type="button"
@@ -256,7 +285,7 @@ export function ClipStrip({
               style={{
                 position: "absolute",
                 left: `${xOf(clip.start_sec)}%`,
-                width: `${xOf(clip.length_sec)}%`,
+                width: `${widthOf(clip.length_sec)}%`,
                 top: 2,
                 height: STRIP_HEIGHT - 4,
                 // A one-sample clip must still be grabbable.
@@ -282,12 +311,9 @@ export function ClipStrip({
                 // holding something looked identical to hovering over
                 // it (#211 phase 2).
                 cursor: dragging ? "grabbing" : "grab",
-                transition:
-                  dragging || !painted.current ? undefined : CLIP_MOTION,
+                transition: still ? undefined : CLIP_MOTION,
               }}
-              data-motion={
-                dragging || !painted.current ? "none" : "clip-travel"
-              }
+              data-motion={still ? "none" : "clip-travel"}
             >
               {clipLabel(clip, i)}
             </button>

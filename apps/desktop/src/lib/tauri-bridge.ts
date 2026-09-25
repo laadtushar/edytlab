@@ -621,7 +621,13 @@ export interface TrackSummary {
   /** -1 hard left, 0 centre, 1 hard right. */
   pan: number;
   soloed: boolean;
-  /** `null` when the track has zero or multiple clips. */
+  /**
+   * The track's audio on the session's time axis, starting at session
+   * zero: second *t* of this file is second *t* of the session (#348).
+   * The clip's own source when one clip is its whole source at zero, a
+   * flattened WAV otherwise. `null` when the track has no clips, or its
+   * clips could not be flattened.
+   */
   audio_path: string | null;
   clips: ClipSummary[];
 }

@@ -34,6 +34,11 @@ vi.mock("wavesurfer.js", () => ({
       destroy: vi.fn(),
       getDuration: () => 10,
       getCurrentTime: () => 0,
+      // The lane draws at the timeline's density and scrolls to its
+      // window through these (#344).
+      getWrapper: () => document.createElement("div"),
+      setScroll: vi.fn(),
+      getScroll: () => 0,
     }),
   },
 }));
@@ -41,8 +46,6 @@ vi.mock("wavesurfer.js", () => ({
 import { Timeline } from "../components/Timeline";
 
 const PANE_WIDTH = 600;
-/** The wrapper's horizontal padding, which the overlay also offsets by. */
-const PAD = 12;
 
 function pinWidth() {
   Object.defineProperty(HTMLElement.prototype, "clientWidth", {
@@ -94,7 +97,7 @@ describe("playhead", () => {
     // is a sixth of the session and would otherwise draw t=0 at the
     // same pixel as t=0 but t=5 six times too far along.
     expect(heads[0].style.left).toBe(heads[1].style.left);
-    expect(heads[0].style.left).toBe(`${PAD}px`);
+    expect(heads[0].style.left).toBe("0px");
   });
 
   /**
@@ -114,7 +117,7 @@ describe("playhead", () => {
     );
     expect(heads).toHaveLength(2);
     for (const h of heads) {
-      expect(h.style.left).toBe(`${PANE_WIDTH / 2 + PAD}px`);
+      expect(h.style.left).toBe(`${PANE_WIDTH / 2}px`);
     }
   });
 
@@ -126,7 +129,7 @@ describe("playhead", () => {
     const head = container.querySelector<HTMLElement>(
       "[data-testid='timeline-playhead']",
     );
-    expect(head?.style.left).toBe(`${PANE_WIDTH + PAD}px`);
+    expect(head?.style.left).toBe(`${PANE_WIDTH}px`);
   });
 });
 
