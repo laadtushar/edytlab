@@ -44,8 +44,8 @@ pub use util::range_resolver::{resolve as resolve_range, Range, RangeError};
 /// outside this crate that need something to draw. Re-exported rather
 /// than made module-public so the rest of `tool::util` stays internal.
 pub use tool::util::{
-    clip_frames_to_seconds, clip_source_rate, flattened_track_wav, lane_audio_path,
-    seconds_to_clip_frames,
+    clip_frames_to_seconds, clip_source_rate, flattened_track_path, flattened_track_wav,
+    lane_audio_path, seconds_to_clip_frames,
 };
 
 /// Result returned by an individual tool invocation.

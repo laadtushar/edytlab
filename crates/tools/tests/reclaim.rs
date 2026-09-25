@@ -563,3 +563,78 @@ fn the_storage_tools_describe_the_same_policy() {
         );
     }
 }
+
+// =============================================================================
+// Orphans (#98): the one reclamation that needs no replay, run as a project
+// opens.
+// =============================================================================
+
+/// A file no node names goes; everything any node names — the head's
+/// audio and history's alike — stays, with no cap involved.
+#[test]
+fn opening_a_project_removes_only_audio_no_node_names() {
+    let mut s = Session::new();
+    s.make_history();
+    let named_before: Vec<PathBuf> = s.derived_files();
+
+    let orphan = s.derived().join("0123abcd-left-by-a-failed-edit.wav");
+    std::fs::write(&orphan, vec![0u8; 4096]).expect("write orphan");
+
+    let report = tools::reclaim::sweep_orphans(&s.store).expect("sweep");
+
+    assert!(!orphan.is_file(), "the orphan is removed");
+    assert_eq!(report.removed_files, 1, "{report:?}");
+    assert_eq!(report.removed_orphans, 1);
+    assert_eq!(report.freed_bytes, 4096);
+    for path in named_before {
+        assert!(path.is_file(), "named audio stays: {}", path.display());
+    }
+}
+
+/// Flattened copies are named by no node, only by clip lists. Every
+/// node's clip lists count — the head's, which the timeline is showing,
+/// and history's, so an undo does not have to re-flatten — and a copy
+/// for a clip list no node has is an orphan.
+#[test]
+fn flattened_copies_of_any_nodes_tracks_are_kept() {
+    let mut s = Session::new();
+    s.make_history();
+    let head = s.store.head().expect("head");
+    let head_clips = s.store.get(head).expect("node").state.tracks[0]
+        .clips
+        .clone();
+    let parent = s.store.get(head).expect("node").parent.expect("parent");
+    let older_clips = s.store.get(parent).expect("node").state.tracks[0]
+        .clips
+        .clone();
+
+    let shown = tools::flattened_track_wav(s.dir.path(), &head_clips).expect("flatten head");
+    let history = tools::flattened_track_wav(s.dir.path(), &older_clips).expect("flatten older");
+    let mut nobodys = head_clips.clone();
+    nobodys[0].length /= 2;
+    let stale = tools::flattened_track_wav(s.dir.path(), &nobodys).expect("flatten stale");
+
+    tools::reclaim::sweep_orphans(&s.store).expect("sweep");
+
+    assert!(shown.is_file(), "the head's flattened track stays");
+    assert!(history.is_file(), "history's flattened track stays");
+    assert!(
+        !stale.is_file(),
+        "a copy for a clip list no node has is removed"
+    );
+}
+
+/// A project with no history yet names nothing, so a leftover from a load
+/// that failed is an orphan like any other.
+#[test]
+fn a_project_with_no_history_keeps_nothing_in_derived() {
+    let dir = TempDir::new().expect("tempdir");
+    let store = session::Store::open(dir.path()).expect("open");
+    let derived = dir.path().join(".audiograph").join("derived");
+    std::fs::create_dir_all(&derived).unwrap();
+    std::fs::write(derived.join("leftover.wav"), b"RIFF").unwrap();
+
+    let report = tools::reclaim::sweep_orphans(&store).expect("sweep");
+    assert_eq!(report.removed_files, 1);
+    assert!(!derived.join("leftover.wav").exists());
+}

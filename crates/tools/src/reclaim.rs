@@ -227,6 +227,72 @@ pub fn sweep(store: &session::Store, cap_bytes: u64) -> std::io::Result<SweepRep
     Ok(report)
 }
 
+/// Remove every file in `derived/` that no node names — and nothing else.
+///
+/// The one reclamation that is safe without a replay: node states are
+/// immutable and content-addressed, so a file no node names now can never
+/// come to be named later. They come from edits that failed after writing
+/// their output, from compaction, and from flattened track copies of clip
+/// lists that no node has any more.
+///
+/// Flattened copies (`track-<hash>.wav`) are named by no node directly —
+/// they are a cache keyed by a track's clip list — so every node's clip
+/// lists count as naming theirs. Otherwise every flattened copy would be
+/// taken for an orphan, including the one the timeline is showing.
+///
+/// Not the history sweep. [`sweep`] also removes audio only older nodes
+/// name, on the promise that a replay rebuilds it; review of #98 proved
+/// that promise false for five kinds of history (after `compact_session`,
+/// after a paste, a range taken from the chat message, `apply_diff`, and
+/// a moved source file), so nothing calls it until replay is sound.
+pub fn sweep_orphans(store: &session::Store) -> std::io::Result<SweepReport> {
+    let dir = derived_dir(store.project_dir());
+    if !dir.is_dir() {
+        return Ok(SweepReport::default());
+    }
+
+    let nodes = store.list_nodes().unwrap_or_default();
+    let mut named = all_refs(&nodes);
+    for node in &nodes {
+        for track in &node.state.tracks {
+            if !track.clips.is_empty() {
+                named.insert(key(&crate::flattened_track_path(
+                    store.project_dir(),
+                    &track.clips,
+                )));
+            }
+        }
+    }
+    // A store whose nodes could not be read names nothing, and sweeping it
+    // would empty the directory. Only a store that really has no history
+    // may have everything in `derived/` counted as unnamed.
+    if nodes.is_empty() && store.head().is_some() {
+        return Ok(SweepReport::default());
+    }
+
+    let mut report = SweepReport::default();
+    for entry in std::fs::read_dir(&dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let bytes = entry.metadata()?.len();
+        if named.contains(&key(&path)) {
+            report.remaining_bytes += bytes;
+            continue;
+        }
+        if std::fs::remove_file(&path).is_ok() {
+            report.removed_files += 1;
+            report.removed_orphans += 1;
+            report.freed_bytes += bytes;
+        } else {
+            report.remaining_bytes += bytes;
+        }
+    }
+    Ok(report)
+}
+
 // =============================================================================
 // Compaction — trading history for disk, deliberately (#98 option b)
 // =============================================================================
