@@ -14,7 +14,15 @@
  */
 
 import { fixturePath } from "./audio-fixtures";
-import { nodeId, ok, projectWith, selecting, sessionWith, toneTrack } from "./backend";
+import {
+  nodeId,
+  ok,
+  projectWith,
+  selecting,
+  sessionNode,
+  sessionWith,
+  toneTrack,
+} from "./backend";
 import { expect, test, type App } from "./fixtures";
 
 const BEFORE = nodeId(1);
@@ -118,5 +126,38 @@ test.describe("a label added in the lane", () => {
     await expect
       .poll(() => app.requestsFor("render_preview"))
       .toEqual([{ node: LABELLED }]);
+  });
+
+  /**
+   * Ctrl+Z after a label undoes the label, not the edit before it — the
+   * other half of #232. With the label's head dropped, undo asked for the
+   * parent of the head *before* the label and stepped back one edit too
+   * far. Redo then comes back to the label.
+   */
+  test("is what undo takes back, and redo restores", async ({ app }) => {
+    await openProject(app);
+    const time = await addLabel(app, "verse");
+    await expect(app.page.getByTestId("label-chip")).toHaveAttribute("data-label-name", "verse");
+
+    // `get_node` answers the labelled node, whose parent is the head the
+    // project opened on; `set_head_to` answers the id it moved to.
+    await app.become({
+      get_node: ok(sessionNode(LABELLED, BEFORE)),
+      set_head_to: ok(BEFORE),
+      list_markers: ok([]),
+    });
+    await app.page.keyboard.press("Control+z");
+    await expect.poll(() => app.requestsFor("set_head_to")).toEqual([{ nodeId: BEFORE }]);
+    expect(await app.requestsFor("get_node")).toEqual([{ id: LABELLED }]);
+
+    await app.become({ set_head_to: ok(LABELLED), list_markers: ok([verse(time)]) });
+    await app.page.keyboard.press("Control+Shift+z");
+    await expect
+      .poll(() => app.requestsFor("set_head_to"))
+      .toEqual([{ nodeId: BEFORE }, { nodeId: LABELLED }]);
+
+    // And the head the app works from is the label's again.
+    await app.page.getByTestId("render-preview-button").click();
+    await expect.poll(() => app.requestsFor("render_preview")).toEqual([{ node: LABELLED }]);
   });
 });

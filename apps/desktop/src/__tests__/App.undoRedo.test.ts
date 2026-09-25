@@ -77,11 +77,10 @@ describe("undo/redo chords", () => {
  * test cannot render, so this asserts the delegation instead: the
  * handler must call the same predicate these tests exercise.
  *
- * The app itself can now be driven under `e2e/` (#273). Undo is not
- * yet: its `get_node` answer is a whole serialised `SessionNode`, and
- * a fake that invents one would test an app talking to a backend that
- * does not exist. Until that answer can be taken from Rust, this
- * delegation check is the guard.
+ * Undo and redo are also driven for real in `e2e/labels.spec.ts`,
+ * through the keys, against a `get_node` answer taken from the Rust
+ * snapshot of a serialised `SessionNode`. This stays as the cheap layer
+ * that names the predicates the tests above exercise.
  */
 describe("App.tsx delegates to the tested predicates", () => {
   const app = readFileSync(join(process.cwd(), "src", "App.tsx"), "utf8");
