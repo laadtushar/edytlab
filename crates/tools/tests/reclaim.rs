@@ -57,10 +57,17 @@ impl Session {
     }
 
     fn call(&mut self, tool: &str, args: Value) -> ToolResult {
+        self.call_saying(tool, args, "")
+    }
+
+    /// A call made from a chat message, which some tools read their
+    /// range from (`[apply to 0:01-0:02]`, as the app adds for a
+    /// selection).
+    fn call_saying(&mut self, tool: &str, args: Value, message: &str) -> ToolResult {
         let mut ctx = ToolContext {
             store: &mut self.store,
             engine: &mut self.engine,
-            user_message: "",
+            user_message: message,
             clipboard: &mut self.clipboard,
             allowed_tools: None,
         };
@@ -637,4 +644,167 @@ fn a_project_with_no_history_keeps_nothing_in_derived() {
     let report = tools::reclaim::sweep_orphans(&store).expect("sweep");
     assert_eq!(report.removed_files, 1);
     assert!(!derived.join("leftover.wav").exists());
+}
+
+// ---------------------------------------------------------------------
+// The five kinds of history replay cannot rebuild (#356)
+// ---------------------------------------------------------------------
+//
+// Each builds real history through the dispatcher, sweeps with a cap of
+// zero — delete everything the policy allows — and then asks every node
+// for its audio back. A sweep may only delete what a replay really puts
+// back, so every node must come back whole: a file is either still
+// there, or rebuilt byte-identical (its content-addressed name is the
+// check).
+
+/// Every node's derived audio is on disk, or comes back from a replay.
+///
+/// Only `derived/` is the sweep's to delete. A source outside it — the
+/// file `load` read — going missing is the user's doing, not a loss this
+/// is checking for.
+fn nothing_is_lost(s: &Session) {
+    let derived = std::fs::canonicalize(s.derived()).unwrap_or_else(|_| s.derived());
+    for node in s.store.list_nodes().expect("nodes") {
+        for path in tools::rederive::missing_paths(&s.store, node.id) {
+            let in_derived = path
+                .parent()
+                .map(|p| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf()) == derived)
+                .unwrap_or(false);
+            if !in_derived {
+                continue;
+            }
+            if let Err(e) = tools::rederive::ensure_present(&s.store, node.id, &path) {
+                panic!(
+                    "the sweep deleted {} and it cannot come back: {e}",
+                    path.file_name().unwrap_or_default().to_string_lossy()
+                );
+            }
+            assert!(path.is_file(), "{} was not put back", path.display());
+        }
+    }
+}
+
+/// Two more edits, so everything before them is named only by history.
+fn move_on(s: &mut Session) {
+    for start in [0.4, 1.4] {
+        ok(s.call(
+            "silence_region",
+            json!({ "track": 0, "start_sec": start, "end_sec": start + 0.1 }),
+        ));
+    }
+}
+
+fn sweep_everything(s: &Session) -> tools::reclaim::SweepReport {
+    tools::reclaim::sweep(&s.store, 0).expect("sweep")
+}
+
+/// Row 1: compaction cuts the kept chain's first node off from its
+/// parent but keeps its op, so the chain "starts" at an edit with no
+/// `load` to replay from.
+#[test]
+fn history_kept_by_compaction_is_not_lost() {
+    let mut s = Session::new();
+    s.make_history();
+    ok(s.call("compact_session", json!({ "keep_last": 2, "apply": true })));
+    move_on(&mut s);
+    sweep_everything(&s);
+    nothing_is_lost(&s);
+}
+
+/// Row 2: a paste replays with an empty clipboard.
+#[test]
+fn history_after_a_paste_is_not_lost() {
+    let mut s = Session::new();
+    ok(s.call(
+        "copy_region",
+        json!({ "track": 0, "range": { "start_sec": 0.5, "end_sec": 1.0 } }),
+    ));
+    ok(s.call("paste_region", json!({ "track": 0, "at": 2.0 })));
+    move_on(&mut s);
+    sweep_everything(&s);
+    nothing_is_lost(&s);
+}
+
+/// Row 3: a fade whose range came from the chat message replays with
+/// an empty message, and has no range.
+#[test]
+fn history_from_a_range_in_the_message_is_not_lost() {
+    let mut s = Session::new();
+    ok(s.call_saying(
+        "fade",
+        json!({ "track": 0, "kind": "out" }),
+        "[apply to 0:01-0:02] fade this out",
+    ));
+    move_on(&mut s);
+    sweep_everything(&s);
+    nothing_is_lost(&s);
+}
+
+/// Row 4: `apply_diff` names a node of this project, which a replay in
+/// a scratch project does not have.
+#[test]
+fn history_after_apply_diff_is_not_lost() {
+    let mut s = Session::new();
+    s.make_history();
+    let head = s.store.head().expect("head");
+    let track_id = s.store.get(head).expect("head node").state.tracks[0]
+        .id
+        .clone();
+    // One real change, built from the types so its shape is the
+    // backend's: the track's gain, 0 dB to -3 dB.
+    let ops = serde_json::to_value(session::SessionDiff {
+        modified: vec![(
+            session::DiffOp::TrackGain {
+                track_id: track_id.clone(),
+                value: 0.0,
+            },
+            session::DiffOp::TrackGain {
+                track_id,
+                value: -3.0,
+            },
+        )],
+        ..Default::default()
+    })
+    .expect("diff");
+    let out = ok(s.call(
+        "apply_diff",
+        json!({ "from_node": head.to_hex(), "branches": [{ "ops": ops }] }),
+    ));
+    let branch = out["branches"][0].as_str().expect("branch id").to_string();
+    s.store
+        .set_head(session::NodeId::from_hex(&branch).expect("id"))
+        .expect("move to the branch");
+    move_on(&mut s);
+    sweep_everything(&s);
+    nothing_is_lost(&s);
+}
+
+/// Row 5: every chain starts with `load`, which reads the original
+/// file. Once that has moved, nothing can be replayed.
+#[test]
+fn history_whose_source_has_moved_is_not_lost() {
+    let mut s = Session::new();
+    s.make_history();
+    move_on(&mut s);
+    std::fs::rename(
+        s.dir.path().join("take.wav"),
+        s.dir.path().join("moved.wav"),
+    )
+    .expect("move the source");
+    sweep_everything(&s);
+    nothing_is_lost(&s);
+}
+
+/// And the sweep still frees what really can be rebuilt: an ordinary
+/// history of destructive edits over a source that is still there.
+#[test]
+fn verified_history_is_still_swept() {
+    let mut s = Session::new();
+    s.make_history();
+    move_on(&mut s);
+    let before = s.derived_bytes();
+    let report = sweep_everything(&s);
+    assert!(report.removed_files > 0, "nothing was swept: {report:?}");
+    assert!(s.derived_bytes() < before);
+    nothing_is_lost(&s);
 }
