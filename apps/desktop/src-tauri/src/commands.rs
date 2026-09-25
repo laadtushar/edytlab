@@ -115,6 +115,11 @@ pub enum CommandError {
 
     #[error("invalid mcp server: {0}")]
     InvalidMcpServer(String),
+
+    /// A node names derived audio that is gone and could not be rebuilt.
+    /// The message already says which file and why.
+    #[error("{0}")]
+    MissingAudio(String),
 }
 
 impl From<CommandError> for String {
@@ -124,6 +129,17 @@ impl From<CommandError> for String {
 }
 
 type CmdResult<T> = std::result::Result<T, String>;
+
+/// Put back any of `node`'s audio the history sweep removed, before a
+/// command renders the node or moves the head to it (#98).
+///
+/// A no-op when everything is on disk, which is every node until
+/// something sweeps. See `tools::rederive::materialize`.
+fn materialize(store: &session::Store, node: NodeId) -> Result<(), CommandError> {
+    tools::rederive::materialize(store, node)
+        .map(|_| ())
+        .map_err(CommandError::MissingAudio)
+}
 
 /// Convenience: lock a `std::sync::Mutex` and turn poisoning into a
 /// `CommandError` so we never `unwrap()` outside test code.
@@ -1491,6 +1507,11 @@ pub async fn render_preview(state: State<'_, AppState>, node: String) -> CmdResu
     let cache = tools::PreviewCache::new(&project_dir);
 
     let (out_path, _hit) = cache.get_or_render::<_, CommandError>(node_id, |path| {
+        // A cached render needs none of the node's audio; a new one does.
+        {
+            let store = lock_std(&store_handle, "store")?;
+            materialize(&store, node_id)?;
+        }
         let engine = lock_std(&state.engine, "engine")?;
         engine
             .render_to_wav(&session_node.state, path, None)
@@ -1533,6 +1554,8 @@ pub async fn prepare_compare<R: Runtime>(
         let store = lock_std(&store_handle, "store")?;
         let a_node = store.get(a_id).map_err(CommandError::from)?;
         let b_node = store.get(b_id).map_err(CommandError::from)?;
+        materialize(&store, a_id)?;
+        materialize(&store, b_id)?;
         (a_node.state, b_node.state)
     };
 
@@ -1589,6 +1612,7 @@ pub async fn accept_b<R: Runtime>(
     let b_id = NodeId::from_hex(&b).map_err(|_| CommandError::InvalidNodeId(b.clone()))?;
     {
         let mut store = lock_std(&store_handle, "store")?;
+        materialize(&store, b_id)?;
         store.set_head(b_id).map_err(CommandError::from)?;
     }
     Ok(b_id.to_hex())
@@ -2116,14 +2140,22 @@ pub fn list_markers(state: State<'_, AppState>) -> CmdResult<Vec<serde_json::Val
         .collect())
 }
 
-/// Move the session head pointer to `node_id`. Used by the graph
-/// view's context menu ("Set as head"). Returns the new head as
-/// hex on success.
-#[tauri::command]
+/// Move the session head pointer to `node_id`. Used by undo and redo
+/// and by the graph view's context menu ("Set as head"). Returns the new
+/// head as hex on success.
+///
+/// Off the main thread (`async`): moving to a node whose audio was swept
+/// replays the edits that made it, which can take seconds, and a sync
+/// command would hold the window still for all of it.
+#[tauri::command(async)]
 pub fn set_head_to(state: State<'_, AppState>, node_id: String) -> CmdResult<String> {
     let id = session::NodeId::from_hex(&node_id).map_err(CommandError::from)?;
     let store_arc = state.store_handle().ok_or(CommandError::NoSession)?;
     let mut store = lock_std(&*store_arc, "store")?;
+    // Undo and the history view land on older nodes, whose audio a sweep
+    // may have removed. The head's audio is always on disk; this keeps it
+    // so, and refuses the move if it cannot.
+    materialize(&store, id)?;
     store.set_head(id).map_err(CommandError::from)?;
     Ok(id.to_hex())
 }
@@ -3563,9 +3595,11 @@ pub async fn render_range(
 
     let session_node = {
         let store = lock_std(&store_handle, "store").map_err(|e| e.to_string())?;
-        store
+        let node = store
             .get(id)
-            .map_err(|e| CommandError::Session(e).to_string())?
+            .map_err(|e| CommandError::Session(e).to_string())?;
+        materialize(&store, id)?;
+        node
     };
 
     let sample_rate = session_node.state.sample_rate;
