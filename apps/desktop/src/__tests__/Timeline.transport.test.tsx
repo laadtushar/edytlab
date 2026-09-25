@@ -17,7 +17,7 @@
  * called".
  */
 
-import { render } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 import { createRef } from "react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -87,20 +87,26 @@ const TRACKS = [
   { index: 1, name: "music", audioPath: "/tmp/music.wav", muted: false },
 ];
 
-function setup(mixPath: string | null = "/tmp/mix.wav") {
+/**
+ * The parent's effect runs after its children's, so the two mix players
+ * are the last two created; the lanes come before them. The mix loads
+ * onto one of the two, which takes the transport once the load settles
+ * — so a test drives the transport after that, as the app does.
+ */
+async function setup(mixPath: string | null = "/tmp/mix.wav") {
   instances.length = 0;
   const ref = createRef<TimelineHandle>();
   render(<Timeline ref={ref} tracks={TRACKS} mixPath={mixPath} />);
-  // The parent's effect runs after its children's, so the mix player is
-  // the last one created.
-  const mix = instances[instances.length - 1];
-  const lanes = instances.slice(0, -1);
-  return { ref, mix, lanes };
+  await act(async () => {});
+  const players = instances.slice(-2);
+  const lanes = instances.slice(0, -2);
+  const mix = players.find((p) => p.url !== null) ?? players[0];
+  return { ref, mix, players, lanes };
 }
 
 describe("the transport", () => {
-  it("plays the mix, and never a lane", () => {
-    const { ref, mix, lanes } = setup();
+  it("plays the mix, and never a lane", async () => {
+    const { ref, mix, lanes } = await setup();
 
     ref.current?.play();
 
@@ -114,13 +120,13 @@ describe("the transport", () => {
     }
   });
 
-  it("loads the rendered mix, not a track's own file", () => {
-    const { mix } = setup();
+  it("loads the rendered mix, not a track's own file", async () => {
+    const { mix } = await setup();
     expect(mix.url).toContain("mix.wav");
   });
 
-  it("seeks the mix", () => {
-    const { ref, mix, lanes } = setup();
+  it("seeks the mix", async () => {
+    const { ref, mix, lanes } = await setup();
     ref.current?.seekTo(12.5);
     expect(mix.setTime).toHaveBeenCalledWith(12.5);
     for (const lane of lanes) {
@@ -128,8 +134,8 @@ describe("the transport", () => {
     }
   });
 
-  it("reports time and duration from the mix", () => {
-    const { ref } = setup();
+  it("reports time and duration from the mix", async () => {
+    const { ref } = await setup();
     expect(ref.current?.getDuration()).toBe(60);
     expect(ref.current?.getCurrentTime()).toBe(0);
   });
@@ -139,8 +145,8 @@ describe("the transport", () => {
    * has to be a no-op rather than a crash — the fifth blocker on #155's
    * revised plan.
    */
-  it("does nothing, quietly, when there is no mix", () => {
-    const { ref, mix, lanes } = setup(null);
+  it("does nothing, quietly, when there is no mix", async () => {
+    const { ref, players, lanes } = await setup(null);
     expect(() => {
       ref.current?.play();
       ref.current?.togglePlay();
@@ -149,11 +155,13 @@ describe("the transport", () => {
       ref.current?.pause();
     }).not.toThrow();
 
-    // The player exists but was never given anything to load, so it
-    // has no duration — and a seek against no duration must not move
-    // it.
-    expect(mix.url).toBeNull();
-    expect(mix.setTime).not.toHaveBeenCalled();
+    // The players exist but were never given anything to load, so they
+    // have no duration — and a seek against no duration must not move
+    // them.
+    for (const player of players) {
+      expect(player.url).toBeNull();
+      expect(player.setTime).not.toHaveBeenCalled();
+    }
     for (const lane of lanes) {
       expect(lane.play).not.toHaveBeenCalled();
     }

@@ -1108,6 +1108,50 @@ function isAbort(err: unknown): boolean {
   return /abort/i.test(String(err));
 }
 
+/**
+ * How long an A/B switch crossfades, in milliseconds. Long enough that
+ * the cut makes no click; short enough that the ear hears the new side
+ * at once, which is what makes it a comparison.
+ */
+const CROSSFADE_MS = 60;
+
+interface Crossfade {
+  /** Jump to the end: the incoming side at full level, the other stopped. */
+  finish: () => void;
+}
+
+/**
+ * Cross `from` out and `to` in over `ms`, then stop `from`.
+ *
+ * Equal-power (cos/sin), so the pair holds its loudness through the
+ * middle of the fade instead of dipping, as a linear fade would. Stepped
+ * on a short timer rather than animation frames: a frame is 16 ms, four
+ * steps in a 60 ms fade, and a step that coarse is itself audible.
+ */
+function crossfade(from: WaveSurfer, to: WaveSurfer, ms: number): Crossfade {
+  const start = performance.now();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    clearTimeout(timer);
+    to.setVolume(1);
+    from.pause();
+    // Back to full level, ready for when it is the incoming side.
+    from.setVolume(1);
+  };
+  const step = () => {
+    const p = Math.min(1, (performance.now() - start) / ms);
+    from.setVolume(Math.cos((p * Math.PI) / 2));
+    to.setVolume(Math.sin((p * Math.PI) / 2));
+    if (p >= 1) finish();
+    else timer = setTimeout(step, 4);
+  };
+  step();
+  return { finish };
+}
+
 function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
 }
@@ -1196,10 +1240,26 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
     }, []);
 
     /**
-     * The one player. Hidden, because it has no waveform to show — the
-     * lanes draw the picture and this makes the sound.
+     * The players. Hidden, because they have no waveform to show — the
+     * lanes draw the picture and these make the sound.
+     *
+     * Two, so switching the mix can crossfade (#269 §2). An A/B switch
+     * used to reload the one player in place: the old side stopped, the
+     * new one loaded, and playback resumed with a gap and a hard cut —
+     * the click the comparison plan promised would not be there. Now the
+     * incoming side loads on the idle player while the outgoing one plays
+     * on, starts at the same moment at silence, and the two cross over
+     * `CROSSFADE_MS` before the old one stops.
+     *
+     * Only the active player drives the transport; the other is either
+     * silent or on its way out.
      */
-    const mixWsRef = useRef<WaveSurfer | null>(null);
+    const mixPlayersRef = useRef<WaveSurfer[]>([]);
+    const activeMixRef = useRef(0);
+    const activeMix = useCallback(
+      (): WaveSurfer | null => mixPlayersRef.current[activeMixRef.current] ?? null,
+      [],
+    );
     const mixHostRef = useRef<HTMLDivElement>(null);
     const loopRef = useRef(loop);
     const selectionRef = useRef(selection);
@@ -1211,73 +1271,99 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
     }, [selection]);
 
     useEffect(() => {
-      if (!mixHostRef.current) return;
-      const ws = WaveSurfer.create({
-        container: mixHostRef.current,
-        height: 1,
-        cursorWidth: 0,
-        // Never drawn, so nothing here is a visual decision.
-        waveColor: "transparent",
-        progressColor: "transparent",
+      const host = mixHostRef.current;
+      if (!host) return;
+      const unsubscribe: (() => void)[] = [];
+      const players = [0, 1].map((side) => {
+        // An element of our own, in the page, rather than one WaveSurfer
+        // keeps detached: the same audio either way, and something a
+        // test in a real browser can find and read.
+        const media = document.createElement("audio");
+        media.dataset.mixSide = String(side);
+        host.appendChild(media);
+        const ws = WaveSurfer.create({
+          container: host,
+          media,
+          height: 1,
+          cursorWidth: 0,
+          // Never drawn, so nothing here is a visual decision.
+          waveColor: "transparent",
+          progressColor: "transparent",
+        });
+
+        const isActive = () => mixPlayersRef.current[activeMixRef.current] === ws;
+        const publish = () => {
+          if (isActive()) setTransportSec(ws.getCurrentTime());
+        };
+        // Looping belongs to whatever is actually playing. It used to
+        // live on lane 0, which is no longer the thing making sound.
+        const onProcess = () => {
+          if (!isActive() || !loopRef.current || !selectionRef.current) return;
+          if (ws.getCurrentTime() >= selectionRef.current.end) {
+            ws.setTime(selectionRef.current.start);
+          }
+        };
+        ws.on("audioprocess", publish);
+        ws.on("seeking", publish);
+        ws.on("timeupdate", publish);
+        ws.on("audioprocess", onProcess);
+        unsubscribe.push(() => {
+          ws.un("audioprocess", publish);
+          ws.un("seeking", publish);
+          ws.un("timeupdate", publish);
+          ws.un("audioprocess", onProcess);
+          ws.destroy();
+          media.remove();
+        });
+        return ws;
       });
-      mixWsRef.current = ws;
-
-      const publish = () => setTransportSec(ws.getCurrentTime());
-      ws.on("audioprocess", publish);
-      ws.on("seeking", publish);
-      ws.on("timeupdate", publish);
-
-      // Looping belongs to whatever is actually playing. It used to
-      // live on lane 0, which is no longer the thing making sound.
-      const onProcess = () => {
-        if (!loopRef.current || !selectionRef.current) return;
-        if (ws.getCurrentTime() >= selectionRef.current.end) {
-          ws.setTime(selectionRef.current.start);
-        }
-      };
-      ws.on("audioprocess", onProcess);
+      mixPlayersRef.current = players;
+      activeMixRef.current = 0;
 
       return () => {
-        ws.un("audioprocess", publish);
-        ws.un("seeking", publish);
-        ws.un("timeupdate", publish);
-        ws.un("audioprocess", onProcess);
-        ws.destroy();
-        mixWsRef.current = null;
+        for (const u of unsubscribe) u();
+        mixPlayersRef.current = [];
       };
     }, []);
 
-    // Load the mix when it changes. A null path means there is nothing
-    // to play yet — a cold start with no head — and the transport
-    // simply does nothing rather than throwing.
+    // Load the mix when it changes, onto the idle player, and hand the
+    // transport over once it is ready. A null path means there is nothing
+    // to play yet — a cold start with no head — and the transport simply
+    // does nothing rather than throwing.
     useEffect(() => {
-      const ws = mixWsRef.current;
-      if (!ws || !mixPath) return;
-
-      // Where we were, before the load takes it away (#246).
-      //
-      // WaveSurfer's `loadAudio()` pauses when playing, and `setSrc()`
-      // reassigns `media.src`, which zeroes `currentTime`. A/B compare
-      // swaps only the path, so every A→B click stopped playback and
-      // dropped the playhead to 0 — making it impossible to compare the
-      // same moment on both sides without manually re-seeking and
-      // re-pressing Space.
-      const resumeAt = ws.getCurrentTime();
-      const wasPlaying = ws.isPlaying();
+      const players = mixPlayersRef.current;
+      if (players.length < 2 || !mixPath) return;
+      const fromIndex = activeMixRef.current;
+      const toIndex = 1 - fromIndex;
+      const from = players[fromIndex];
+      const to = players[toIndex];
 
       setMixError(null);
       let superseded = false;
+      let fade: Crossfade | null = null;
 
       try {
-        void ws
+        void to
           .load(convertFileSrc(mixPath))
           .then(() => {
             if (superseded) return;
-            const duration = ws.getDuration() || 0;
-            if (resumeAt > 0 && duration > 0) {
-              ws.setTime(Math.min(resumeAt, duration));
+            // Where the outgoing side is *now*, not where it was when the
+            // switch began: it kept playing while this side loaded, and
+            // the point of an A/B switch is to hear the same moment on
+            // both (#246).
+            const at = from.getCurrentTime();
+            const duration = to.getDuration() || 0;
+            if (at > 0 && duration > 0) to.setTime(Math.min(at, duration));
+
+            activeMixRef.current = toIndex;
+            setTransportSec(to.getCurrentTime());
+            if (!from.isPlaying()) {
+              to.setVolume(1);
+              return;
             }
-            if (wasPlaying) void ws.play().catch(() => undefined);
+            to.setVolume(0);
+            void to.play().catch(() => undefined);
+            fade = crossfade(from, to, CROSSFADE_MS);
           })
           .catch((err: unknown) => {
             // A rapid A/B toggle aborts the previous load. That is the
@@ -1295,6 +1381,9 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
 
       return () => {
         superseded = true;
+        // A switch that arrives mid-fade finishes this one at once, so
+        // the next starts from one player playing at full level.
+        fade?.finish();
       };
     }, [mixPath]);
     const playheadSec = playheadSecProp ?? transportSec;
@@ -1531,7 +1620,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
       ref,
       () => ({
         togglePlay: () => {
-          const ws = mixWsRef.current;
+          const ws = activeMix();
           if (!ws) return;
           if (ws.isPlaying()) ws.pause();
           // A rejected `play()` is how "nothing is decoded" reaches the
@@ -1545,28 +1634,28 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
           // error.
           else reportPlayFailure(ws.play());
         },
-        play: () => reportPlayFailure(mixWsRef.current?.play()),
-        pause: () => mixWsRef.current?.pause(),
+        play: () => reportPlayFailure(activeMix()?.play()),
+        pause: () => activeMix()?.pause(),
         seekTo: (sec: number) => {
-          const ws = mixWsRef.current;
+          const ws = activeMix();
           if (!ws) return;
           const d = ws.getDuration() || 0;
           if (d <= 0) return;
           ws.setTime(clamp(sec, 0, d));
         },
         seekBy: (delta: number) => {
-          const ws = mixWsRef.current;
+          const ws = activeMix();
           if (!ws) return;
           const d = ws.getDuration() || 0;
           if (d <= 0) return;
           ws.setTime(clamp(ws.getCurrentTime() + delta, 0, d));
         },
-        getCurrentTime: () => mixWsRef.current?.getCurrentTime() ?? 0,
-        getDuration: () => mixWsRef.current?.getDuration() ?? 0,
+        getCurrentTime: () => activeMix()?.getCurrentTime() ?? 0,
+        getDuration: () => activeMix()?.getDuration() ?? 0,
         zoomToSelection,
         fitToWindow,
       }),
-      [zoomToSelection, fitToWindow],
+      [zoomToSelection, fitToWindow, activeMix, reportPlayFailure],
     );
 
     return (

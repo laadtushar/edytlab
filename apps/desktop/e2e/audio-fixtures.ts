@@ -61,6 +61,8 @@ export function toneWav({ seconds, hz, amplitude, leadIn = 0 }: ToneSpec): Buffe
 export const FIXTURES = {
   /** Three seconds: wider than the pane once zoomed past ~260 px/s. */
   tone3s: { file: "tone-3s.wav", spec: { seconds: 3, hz: 440, amplitude: 0.5 } },
+  /** Three seconds at another pitch: the B side of an A/B comparison. */
+  tone3sB: { file: "tone-3s-b.wav", spec: { seconds: 3, hz: 220, amplitude: 0.5 } },
   /** One second: a track that ends before the session does. */
   tone1s: { file: "tone-1s.wav", spec: { seconds: 1, hz: 330, amplitude: 0.5 } },
   /**
