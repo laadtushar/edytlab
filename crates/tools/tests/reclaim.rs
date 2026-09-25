@@ -808,3 +808,97 @@ fn verified_history_is_still_swept() {
     assert!(s.derived_bytes() < before);
     nothing_is_lost(&s);
 }
+
+/// A node file that cannot be read, where `list_nodes` will find it.
+fn corrupt_a_node(project: &Path) {
+    let shard = project.join(".audiograph").join("nodes").join("zz");
+    std::fs::create_dir_all(&shard).expect("shard");
+    std::fs::write(shard.join("unreadable.json"), b"{ not a node").expect("write");
+}
+
+/// What names what is the whole basis for deleting anything. A store
+/// whose nodes cannot all be read names nothing, and a sweep that went
+/// ahead would take every file but the head's for an orphan.
+#[test]
+fn a_store_whose_nodes_cannot_be_read_is_not_swept() {
+    let mut s = Session::new();
+    s.make_history();
+    move_on(&mut s);
+    let before = s.derived_files().len();
+    corrupt_a_node(s.dir.path());
+
+    let report = tools::reclaim::sweep(&s.store, 0).expect("sweep");
+
+    assert_eq!(report.removed_files, 0, "{report:?}");
+    assert_eq!(s.derived_files().len(), before);
+}
+
+/// The same for the sweep that runs as a project opens, in a store with
+/// no head to give the failure away.
+#[test]
+fn opening_a_store_whose_nodes_cannot_be_read_removes_nothing() {
+    let dir = TempDir::new().expect("tempdir");
+    let derived = dir.path().join(".audiograph").join("derived");
+    std::fs::create_dir_all(&derived).expect("derived");
+    let audio = derived.join("0123abcd.wav");
+    std::fs::write(&audio, b"RIFF").expect("audio");
+    corrupt_a_node(dir.path());
+    let store = session::Store::open(dir.path()).expect("store");
+    assert!(store.head().is_none());
+
+    let report = tools::reclaim::sweep_orphans(&store).expect("sweep");
+
+    assert_eq!(report.removed_files, 0, "{report:?}");
+    assert!(audio.is_file());
+}
+
+/// The timeline shows the head's tracks from flattened lane copies
+/// (`track-<hash>.wav`), which no node names. They are the head's audio
+/// as much as its clips' sources are.
+#[test]
+fn the_lane_copies_the_timeline_shows_survive_any_sweep() {
+    let mut s = Session::new();
+    s.make_history();
+    let head = s.store.head().expect("head");
+    let clips = s.store.get(head).expect("node").state.tracks[0]
+        .clips
+        .clone();
+    let lane = tools::flattened_track_wav(s.dir.path(), &clips).expect("lane copy");
+
+    let report = tools::reclaim::sweep(&s.store, 0).expect("sweep");
+
+    assert!(lane.is_file(), "the lane on screen was swept: {report:?}");
+}
+
+/// A lane copy of a clip list only history holds is a cache, not an
+/// orphan: it goes before any audio that needs a replay to come back,
+/// and `flattened_track_wav` writes the same file again on demand.
+#[test]
+fn lane_copies_of_history_go_first_and_come_back() {
+    let mut s = Session::new();
+    s.make_history();
+    let head = s.store.head().expect("head");
+    let parent = s.store.get(head).expect("head").parent.expect("parent");
+    let clips = s.store.get(parent).expect("node").state.tracks[0]
+        .clips
+        .clone();
+    let lane = tools::flattened_track_wav(s.dir.path(), &clips).expect("lane copy");
+    let lane_bytes = std::fs::read(&lane).expect("read");
+    let history = s.derived_files();
+
+    // Room for everything but the lane copy.
+    let cap = s.derived_bytes() - lane_bytes.len() as u64;
+    let report = tools::reclaim::sweep(&s.store, cap).expect("sweep");
+
+    assert_eq!(report.removed_lane_copies, 1, "{report:?}");
+    assert_eq!(report.removed_orphans, 0, "a lane copy is not an orphan");
+    assert_eq!(report.removed_files, 1, "and nothing else went: {report:?}");
+    assert!(!lane.is_file());
+    for f in history.iter().filter(|f| **f != lane) {
+        assert!(f.is_file(), "{} went before the lane copy", f.display());
+    }
+
+    let again = tools::flattened_track_wav(s.dir.path(), &clips).expect("rebuilt");
+    assert_eq!(again, lane);
+    assert!(std::fs::read(&again).expect("read") == lane_bytes);
+}

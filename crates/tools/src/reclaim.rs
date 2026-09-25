@@ -67,24 +67,49 @@ pub struct SweepReport {
     /// replay did not actually rebuild them (#356). Anything counted here
     /// is a gap between what provenance records and what replay does.
     pub kept_unverified: usize,
+    /// Flattened lane copies (`track-<hash>.wav`) of clip lists only
+    /// history holds. A cache: `list_tracks` writes one again from its
+    /// clips' sources whenever the timeline shows that clip list.
+    pub removed_lane_copies: usize,
 }
 
 fn key(path: &Path) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
-/// Paths named by the current head — never swept, under any policy.
-fn head_refs(store: &session::Store) -> BTreeSet<PathBuf> {
+/// Paths the current head needs — never swept, under any policy: the
+/// audio its clips name, and the flattened lane copies the timeline is
+/// showing for its tracks.
+///
+/// `None` when there is a head that cannot be read. Then nothing is
+/// known to be safe, and the caller must not sweep at all.
+fn head_refs(store: &session::Store) -> Option<BTreeSet<PathBuf>> {
     let mut out = BTreeSet::new();
     let Some(head) = store.head() else {
-        return out;
+        return Some(out);
     };
-    let Ok(node) = store.get(head) else {
-        return out;
-    };
-    for track in &node.state.tracks {
-        for clip in &track.clips {
-            out.insert(key(&clip.source_path));
+    let node = store.get(head).ok()?;
+    out.extend(all_refs(std::slice::from_ref(&node)));
+    out.extend(lane_copies(
+        store.project_dir(),
+        std::slice::from_ref(&node),
+    ));
+    Some(out)
+}
+
+/// The flattened lane copy (`track-<hash>.wav`) of every non-empty clip
+/// list these nodes hold.
+///
+/// No node names these files — they are a cache keyed by a track's clip
+/// list — so a sweep that asked only which files nodes name would take
+/// every one for an orphan, including the one the timeline is showing.
+fn lane_copies(project_dir: &Path, nodes: &[session::SessionNode]) -> BTreeSet<PathBuf> {
+    let mut out = BTreeSet::new();
+    for node in nodes {
+        for track in &node.state.tracks {
+            if !track.clips.is_empty() {
+                out.insert(key(&crate::flattened_track_path(project_dir, &track.clips)));
+            }
         }
     }
     out
@@ -168,9 +193,17 @@ pub fn sweep(store: &session::Store, cap_bytes: u64) -> std::io::Result<SweepRep
         return Ok(SweepReport::default());
     }
 
-    let nodes = store.list_nodes().unwrap_or_default();
-    let protected = head_refs(store);
+    // What names what is the whole basis for deleting anything. A store
+    // whose nodes cannot all be read names nothing, and sweeping it would
+    // take every file for an orphan — so it is left alone.
+    let Ok(nodes) = store.list_nodes() else {
+        return Ok(SweepReport::default());
+    };
+    let Some(protected) = head_refs(store) else {
+        return Ok(SweepReport::default());
+    };
     let referenced = all_refs(&nodes);
+    let lanes = lane_copies(store.project_dir(), &nodes);
     let rebuildable = rebuildable_paths(&nodes);
     // Which nodes name each file, to replay one when the file's turn
     // comes.
@@ -209,11 +242,20 @@ pub fn sweep(store: &session::Store, cap_bytes: u64) -> std::io::Result<SweepRep
         });
     }
 
-    // Orphans first, then oldest. Sorting by (is-not-orphan, mtime)
-    // puts pure garbage at the front of the queue, so a sweep frees the
-    // bytes nobody can ever want before it touches a cache entry
-    // somebody might.
-    files.sort_by_key(|(path, _, mtime)| (referenced.contains(&key(path)), *mtime));
+    // Orphans first, then lane copies of history's clip lists, then
+    // history's audio; oldest first within each. Pure garbage goes before
+    // anything somebody might want, and a lane copy — rebuilt from its
+    // sources in one pass — before audio that takes a replay to rebuild.
+    let rank = |k: &PathBuf| {
+        if referenced.contains(k) {
+            2
+        } else if lanes.contains(k) {
+            1
+        } else {
+            0
+        }
+    };
+    files.sort_by_key(|(path, _, mtime)| (rank(&key(path)), *mtime));
 
     let mut report = SweepReport::default();
     let mut remaining = total;
@@ -226,7 +268,17 @@ pub fn sweep(store: &session::Store, cap_bytes: u64) -> std::io::Result<SweepRep
         if protected.contains(&k) {
             continue;
         }
-        let orphan = !referenced.contains(&k);
+        let lane_copy = !referenced.contains(&k) && lanes.contains(&k);
+        let orphan = !referenced.contains(&k) && !lane_copy;
+        if lane_copy {
+            if std::fs::remove_file(path).is_ok() {
+                report.removed_files += 1;
+                report.removed_lane_copies += 1;
+                report.freed_bytes += bytes;
+                remaining -= bytes;
+            }
+            continue;
+        }
         if !orphan && !rebuildable.contains(&k) {
             // A node names it but nothing records how to make it again.
             // Deleting this is the one thing that would lose work, so
@@ -335,24 +387,18 @@ pub fn sweep_orphans(store: &session::Store) -> std::io::Result<SweepReport> {
         return Ok(SweepReport::default());
     }
 
-    let nodes = store.list_nodes().unwrap_or_default();
-    let mut named = all_refs(&nodes);
-    for node in &nodes {
-        for track in &node.state.tracks {
-            if !track.clips.is_empty() {
-                named.insert(key(&crate::flattened_track_path(
-                    store.project_dir(),
-                    &track.clips,
-                )));
-            }
-        }
-    }
     // A store whose nodes could not be read names nothing, and sweeping it
     // would empty the directory. Only a store that really has no history
-    // may have everything in `derived/` counted as unnamed.
+    // may have everything in `derived/` counted as unnamed — and a head
+    // with no nodes behind it is not that.
+    let Ok(nodes) = store.list_nodes() else {
+        return Ok(SweepReport::default());
+    };
     if nodes.is_empty() && store.head().is_some() {
         return Ok(SweepReport::default());
     }
+    let mut named = all_refs(&nodes);
+    named.extend(lane_copies(store.project_dir(), &nodes));
 
     let mut report = SweepReport::default();
     for entry in std::fs::read_dir(&dir)? {
