@@ -105,13 +105,15 @@ impl Tool for StorageReportTool {
         anthropic_tool(
             "storage_report",
             "Report what this session is costing on disk. Every destructive edit writes a new \
-             audio file and none are ever deleted, so a long session grows without bound. Splits \
-             the derived audio three ways: files the current head needs, files only older nodes \
-             need (what undo is holding onto), and files no node references at all, plus what the \
-             bounded preview cache is holding. Reads only — it deletes nothing. Audio no node \
-             references is removed when the project is opened, but nothing sweeps the audio undo \
-             history holds in the background: `compact_session` is the only way to reclaim that, \
-             at the cost of dropping undo history permanently.",
+             audio file. Splits the derived audio three ways: files the current head needs, files \
+             only older nodes need (what undo is holding onto), and files no node references at \
+             all, plus what the bounded preview cache is holding. Reads only — it deletes nothing. \
+             Audio no node references is removed when the project is opened, and once a \
+             project's derived audio passes 2 GiB, audio only undo history holds is swept \
+             automatically in the background, oldest first — but only files that replaying their \
+             edits rebuilds, and undoing back to one rebuilds it. Audio nothing can rebuild is \
+             never swept: `compact_session` reclaims that, at the cost of dropping undo history \
+             permanently.",
             json!({ "type": "object", "properties": {}, "required": [] }),
         )
     }
@@ -271,6 +273,7 @@ impl Tool for StorageReportTool {
                 "rebuildable_bytes": rebuildable_bytes,
             },
             "unreferenced": { "files": unref_n, "bytes": unref_bytes },
+            "derived_cap_bytes": crate::reclaim::DEFAULT_DERIVED_CAP_BYTES,
             "preview_cache": {
                 "files": preview_files,
                 "bytes": preview_bytes,
@@ -284,9 +287,11 @@ impl Tool for StorageReportTool {
                  needs, {:.1} MiB held only by undo history ({} file{}), {:.1} MiB referenced \
                  by nothing ({} file{}). Separately, {:.1} MiB of rendered previews ({} \
                  file{}) sit in a bounded cache that evicts itself. Nothing was deleted here. \
-                 Audio referenced by nothing is removed when the project is next opened; \
-                 nothing sweeps what undo history holds — `compact_session` is the only way \
-                 to reclaim it, and it does so by dropping undo history permanently.",
+                 Audio referenced by nothing is removed when the project is next opened. Past \
+                 {:.0} MiB of derived audio, what undo history holds is swept automatically, \
+                 oldest first — only files a replay of their edits rebuilds, and undoing back \
+                 to one rebuilds it. What cannot be rebuilt is kept; `compact_session` \
+                 reclaims it by dropping undo history permanently.",
                 mib(total),
                 all.len(),
                 if all.len() == 1 { "" } else { "s" },
@@ -300,6 +305,7 @@ impl Tool for StorageReportTool {
                 mib(preview_bytes),
                 preview_files,
                 if preview_files == 1 { "" } else { "s" },
+                mib(crate::reclaim::DEFAULT_DERIVED_CAP_BYTES),
             ),
         })))
     }

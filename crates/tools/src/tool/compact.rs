@@ -55,11 +55,13 @@ impl Tool for CompactSessionTool {
              removes undo steps permanently — the nodes are gone, not archived. Reports what it \
              would remove and changes nothing unless `apply` is true. The head's most recent \
              `keep_last` nodes are never pruned, so ordinary undo keeps working; what goes is \
-             the tail beyond that and any abandoned branches. This is currently the only way \
-             to reclaim audio that undo history holds: nothing sweeps it in the background, so \
-             do not tell the user to wait for one (only audio no node references at all is \
-             removed, when the project is opened). Run `storage_report` first to see what is actually \
-             using the space.",
+             the tail beyond that and any abandoned branches. Disk usually needs no action: \
+             audio no node references is removed when the project is opened, and once a \
+             project's derived audio passes 2 GiB, audio only undo history holds is swept \
+             automatically in the background, oldest first — but only files that replaying their \
+             edits rebuilds, and undoing back to one rebuilds it, so undo keeps working. Use this \
+             for the audio that cannot be swept that way, or to drop history on purpose. Run \
+             `storage_report` first to see what is actually using the space.",
             json!({
                 "type": "object",
                 "properties": {

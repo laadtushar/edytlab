@@ -49,6 +49,11 @@ use std::path::{Path, PathBuf};
 
 use crate::provenance::derived_dir;
 
+/// How much derived audio a project keeps before the history sweep runs:
+/// 2 GiB, about 36 five-minute stereo edits of undo history kept on disk,
+/// with anything older rebuilt when the user goes back to it (#98).
+pub const DEFAULT_DERIVED_CAP_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+
 /// What a sweep did, in the terms the caller has to be able to report.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SweepReport {
@@ -162,46 +167,91 @@ pub fn rebuildable_paths(nodes: &[session::SessionNode]) -> BTreeSet<PathBuf> {
 }
 
 /// Bring `derived/` under `cap_bytes`, deleting only what can be put
-/// back.
+/// back: [`plan_sweep`], then [`apply_sweep`] on the same store.
 ///
 /// Returns without touching anything when already under the cap, so
-/// calling this after every edit is cheap.
+/// calling this often is cheap.
 ///
 /// A file that older history names is deleted only once a replay has
 /// rebuilt it (the `Verifier` below). Provenance alone said five kinds of
 /// history could be rebuilt when they could not (#356); a sweep that
-/// trusted it deleted audio for good.
-///
-/// # Not wired up yet
-///
-/// **Nothing in the shipping app calls this.** It is exercised only by
-/// `tests/reclaim.rs`, and `compact_session` is the only reclamation a
-/// user can actually reach. `compact_session`'s description used to
-/// tell the model this cache "is swept automatically", which steered
-/// the agent away from the one tool that frees space and toward a
-/// background process that does not run (#256).
-///
-/// Every path that reads a node's audio or moves the head to it now
-/// rebuilds what this removed first ([`crate::rederive::materialize`]),
-/// so a swept node still plays, renders and exports. What a caller still
-/// needs is a place to run it and a cap to run it at. Adding one must
-/// also update `compact_session` and `storage_report`, which is what
-/// `no_tool_claims_an_automatic_sweep` in `tests/reclaim.rs` is there to
-/// force.
+/// trusted it deleted audio for good. Every path that reads a node's
+/// audio or moves the head to it rebuilds what this removed first
+/// ([`crate::rederive::materialize`]), so a swept node still plays,
+/// renders and exports.
 pub fn sweep(store: &session::Store, cap_bytes: u64) -> std::io::Result<SweepReport> {
+    let plan = plan_sweep(store, cap_bytes)?;
+    apply_sweep(store, &plan)
+}
+
+/// What a sweep would delete, decided without deleting anything.
+///
+/// Deciding is the slow half — verifying history takes replays — and it
+/// only reads. Deleting is quick, and is the half that has to agree with
+/// the store as it is at that moment. Split, an app can plan on a store
+/// handle of its own while edits go on, and apply under the lock its
+/// edits take ([`apply_sweep`]), so no edit waits on a replay.
+#[derive(Debug, Clone, Default)]
+pub struct SweepPlan {
+    project_dir: PathBuf,
+    cap_bytes: u64,
+    /// In the order to delete them.
+    candidates: Vec<(PathBuf, Kind)>,
+    kept_unrebuildable: usize,
+    kept_unverified: usize,
+}
+
+impl SweepPlan {
+    /// Nothing to delete: under the cap, or nothing over it may go.
+    pub fn is_empty(&self) -> bool {
+        self.candidates.is_empty()
+    }
+
+    /// The project this plan was made for.
+    pub fn project_dir(&self) -> &Path {
+        &self.project_dir
+    }
+}
+
+/// Why a file may go, which decides what must still hold when it does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    /// Named by no node, and no lane copy of any clip list.
+    Orphan,
+    /// A lane copy of a clip list only history holds.
+    LaneCopy,
+    /// Named only by history, and a replay has rebuilt it.
+    History,
+}
+
+/// Decide what to delete to bring `derived/` under `cap_bytes`, deleting
+/// nothing. Orphans first, then lane copies of history's clip lists, then
+/// history's audio a replay has rebuilt; oldest first within each.
+pub fn plan_sweep(store: &session::Store, cap_bytes: u64) -> std::io::Result<SweepPlan> {
+    let mut plan = SweepPlan {
+        project_dir: store.project_dir().to_path_buf(),
+        cap_bytes,
+        ..Default::default()
+    };
     let dir = derived_dir(store.project_dir());
     if !dir.is_dir() {
-        return Ok(SweepReport::default());
+        return Ok(plan);
+    }
+    // Under the cap costs one directory listing, and nothing else: this
+    // runs every minute an app is open.
+    let (mut files, total) = list_files(&dir)?;
+    if total <= cap_bytes {
+        return Ok(plan);
     }
 
     // What names what is the whole basis for deleting anything. A store
     // whose nodes cannot all be read names nothing, and sweeping it would
     // take every file for an orphan — so it is left alone.
     let Ok(nodes) = store.list_nodes() else {
-        return Ok(SweepReport::default());
+        return Ok(plan);
     };
     let Some(protected) = head_refs(store) else {
-        return Ok(SweepReport::default());
+        return Ok(plan);
     };
     let referenced = all_refs(&nodes);
     let lanes = lane_copies(store.project_dir(), &nodes);
@@ -221,10 +271,136 @@ pub fn sweep(store: &session::Store, cap_bytes: u64) -> std::io::Result<SweepRep
     }
     let mut verifier = Verifier::new(&dir);
 
-    // (path, bytes, mtime) for everything in the directory.
-    let mut files: Vec<(PathBuf, u64, std::time::SystemTime)> = Vec::new();
+    // Pure garbage goes before anything somebody might want, and a lane
+    // copy — rebuilt from its sources in one pass — before audio that
+    // takes a replay to rebuild.
+    let kind_of = |k: &PathBuf| {
+        if referenced.contains(k) {
+            Kind::History
+        } else if lanes.contains(k) {
+            Kind::LaneCopy
+        } else {
+            Kind::Orphan
+        }
+    };
+    let rank = |kind: Kind| match kind {
+        Kind::Orphan => 0,
+        Kind::LaneCopy => 1,
+        Kind::History => 2,
+    };
+    files.sort_by_key(|(path, _, mtime)| (rank(kind_of(&key(path))), *mtime));
+
+    let mut remaining = total;
+    for (path, bytes, _) in files {
+        if remaining <= cap_bytes {
+            break;
+        }
+        let k = key(&path);
+        if protected.contains(&k) {
+            continue;
+        }
+        let kind = kind_of(&k);
+        if kind == Kind::History {
+            if !rebuildable.contains(&k) {
+                // A node names it but nothing records how to make it
+                // again. Deleting this is the one thing that would lose
+                // work, so it stays however far over the cap the
+                // directory is — and it is counted, because a sweep that
+                // cannot reach its target should say why rather than
+                // look ineffective.
+                plan.kept_unrebuildable += 1;
+                continue;
+            }
+            if !verifier.rebuilds(store, &k, naming.get(&k).map(Vec::as_slice)) {
+                // The record says it can come back; a replay says
+                // otherwise. The replay is what `materialize` will run,
+                // so it is the one to believe (#356).
+                plan.kept_unverified += 1;
+                continue;
+            }
+        }
+        plan.candidates.push((path, kind));
+        remaining -= bytes;
+    }
+    Ok(plan)
+}
+
+/// Delete what `plan` chose, as far as the store still agrees.
+///
+/// Run under the lock the store's edits take, so nothing changes while it
+/// runs. Between planning and now the store may have: moved its head onto
+/// a planned file, or come to name a file that was an orphan (an edit
+/// whose output matched one byte for byte). Each file is checked against
+/// the store as it is now, and one the head needs, or that has stopped
+/// being what the plan took it for, stays. A plan for another project
+/// deletes nothing.
+pub fn apply_sweep(store: &session::Store, plan: &SweepPlan) -> std::io::Result<SweepReport> {
+    let mut report = SweepReport {
+        kept_unrebuildable: plan.kept_unrebuildable,
+        kept_unverified: plan.kept_unverified,
+        ..Default::default()
+    };
+    let dir = derived_dir(store.project_dir());
+    if key(store.project_dir()) != key(&plan.project_dir) || !dir.is_dir() {
+        return Ok(report);
+    }
+    let (_, total) = list_files(&dir)?;
+    report.remaining_bytes = total;
+    if plan.candidates.is_empty() || total <= plan.cap_bytes {
+        return Ok(report);
+    }
+
+    let Ok(nodes) = store.list_nodes() else {
+        return Ok(report);
+    };
+    let Some(protected) = head_refs(store) else {
+        return Ok(report);
+    };
+    let referenced = all_refs(&nodes);
+    let lanes = lane_copies(store.project_dir(), &nodes);
+
+    for (path, kind) in &plan.candidates {
+        if report.remaining_bytes <= plan.cap_bytes {
+            break;
+        }
+        let k = key(path);
+        if protected.contains(&k) {
+            continue;
+        }
+        let still = match kind {
+            Kind::Orphan => !referenced.contains(&k) && !lanes.contains(&k),
+            // A clip naming it now would make it audio a replay has not
+            // verified.
+            Kind::LaneCopy => !referenced.contains(&k),
+            // Verified by a replay; what names it since cannot change that.
+            Kind::History => true,
+        };
+        if !still {
+            continue;
+        }
+        let Ok(meta) = std::fs::metadata(path) else {
+            continue;
+        };
+        if std::fs::remove_file(path).is_ok() {
+            report.removed_files += 1;
+            match kind {
+                Kind::Orphan => report.removed_orphans += 1,
+                Kind::LaneCopy => report.removed_lane_copies += 1,
+                Kind::History => {}
+            }
+            report.freed_bytes += meta.len();
+            report.remaining_bytes = report.remaining_bytes.saturating_sub(meta.len());
+        }
+    }
+    Ok(report)
+}
+
+/// `(path, bytes, mtime)` for every file in `dir`, and their total size.
+#[allow(clippy::type_complexity)]
+fn list_files(dir: &Path) -> std::io::Result<(Vec<(PathBuf, u64, std::time::SystemTime)>, u64)> {
+    let mut files = Vec::new();
     let mut total = 0u64;
-    for entry in std::fs::read_dir(&dir)? {
+    for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
         if !path.is_file() {
@@ -235,79 +411,7 @@ pub fn sweep(store: &session::Store, cap_bytes: u64) -> std::io::Result<SweepRep
         total += meta.len();
         files.push((path, meta.len(), mtime));
     }
-
-    if total <= cap_bytes {
-        return Ok(SweepReport {
-            remaining_bytes: total,
-            ..Default::default()
-        });
-    }
-
-    // Orphans first, then lane copies of history's clip lists, then
-    // history's audio; oldest first within each. Pure garbage goes before
-    // anything somebody might want, and a lane copy — rebuilt from its
-    // sources in one pass — before audio that takes a replay to rebuild.
-    let rank = |k: &PathBuf| {
-        if referenced.contains(k) {
-            2
-        } else if lanes.contains(k) {
-            1
-        } else {
-            0
-        }
-    };
-    files.sort_by_key(|(path, _, mtime)| (rank(&key(path)), *mtime));
-
-    let mut report = SweepReport::default();
-    let mut remaining = total;
-
-    for (path, bytes, _) in &files {
-        if remaining <= cap_bytes {
-            break;
-        }
-        let k = key(path);
-        if protected.contains(&k) {
-            continue;
-        }
-        let lane_copy = !referenced.contains(&k) && lanes.contains(&k);
-        let orphan = !referenced.contains(&k) && !lane_copy;
-        if lane_copy {
-            if std::fs::remove_file(path).is_ok() {
-                report.removed_files += 1;
-                report.removed_lane_copies += 1;
-                report.freed_bytes += bytes;
-                remaining -= bytes;
-            }
-            continue;
-        }
-        if !orphan && !rebuildable.contains(&k) {
-            // A node names it but nothing records how to make it again.
-            // Deleting this is the one thing that would lose work, so
-            // it stays however far over the cap the directory is — and
-            // it is counted, because a sweep that cannot reach its
-            // target should say why rather than look ineffective.
-            report.kept_unrebuildable += 1;
-            continue;
-        }
-        if !orphan && !verifier.rebuilds(store, &k, naming.get(&k).map(Vec::as_slice)) {
-            // The record says it can come back; a replay says otherwise.
-            // The replay is what `ensure_present` will run, so it is the
-            // one to believe (#356).
-            report.kept_unverified += 1;
-            continue;
-        }
-        if std::fs::remove_file(path).is_ok() {
-            report.removed_files += 1;
-            if orphan {
-                report.removed_orphans += 1;
-            }
-            report.freed_bytes += bytes;
-            remaining -= bytes;
-        }
-    }
-
-    report.remaining_bytes = remaining;
-    Ok(report)
+    Ok((files, total))
 }
 
 /// Proof, before a delete, that a file can be put back (#356).
