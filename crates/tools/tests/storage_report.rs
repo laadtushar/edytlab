@@ -321,3 +321,150 @@ fn the_report_deletes_nothing() {
     assert_eq!(before.len(), after.len(), "the report removed a file");
     assert!(orphan.exists(), "the report deleted the orphan");
 }
+
+// =============================================================================
+// Timeline lane copies (#374): the flattened `track-<hash>.wav` files the
+// timeline shows are named by no clip. They are the head's audio, or a
+// cache of an older version's — never "referenced by nothing".
+// =============================================================================
+
+struct Project {
+    tmp: TempDir,
+    store: session::Store,
+    engine: audio_engine::Engine,
+    dispatcher: ToolDispatcher,
+    clipboard: Option<tools::Clipboard>,
+}
+
+impl Project {
+    /// A loaded file and `edits` destructive edits to it.
+    fn with_edits(edits: usize) -> Self {
+        let tmp = TempDir::new().expect("tempdir");
+        let src = write_sine(tmp.path(), "in.wav");
+        let store = session::Store::open(tmp.path()).expect("open store");
+        let mut p = Self {
+            tmp,
+            store,
+            engine: audio_engine::Engine::new(),
+            dispatcher: ToolDispatcher::default_dispatcher(),
+            clipboard: None,
+        };
+        p.call("load", json!({ "path": src.to_string_lossy() }));
+        for i in 0..edits {
+            let end = 0.1 * (i as f64 + 1.0);
+            p.call(
+                "silence_region",
+                json!({ "track": 0, "start_sec": 0.0, "end_sec": end }),
+            );
+        }
+        p
+    }
+
+    fn call(&mut self, tool: &str, args: Value) -> Value {
+        let mut ctx = ToolContext {
+            store: &mut self.store,
+            engine: &mut self.engine,
+            user_message: "",
+            clipboard: &mut self.clipboard,
+            allowed_tools: None,
+        };
+        ok(self.dispatcher.invoke(tool, args, &mut ctx).unwrap())
+    }
+
+    fn report(&mut self) -> Value {
+        self.call("storage_report", json!({}))
+    }
+
+    /// The lane copy the timeline would show for `node`'s first track.
+    fn lane_copy_of(&self, node: session::NodeId) -> std::path::PathBuf {
+        let clips = self.store.get(node).expect("node").state.tracks[0]
+            .clips
+            .clone();
+        tools::flattened_track_wav(self.tmp.path(), &clips).expect("lane copy")
+    }
+
+    fn head(&self) -> session::NodeId {
+        self.store.head().expect("head")
+    }
+
+    fn parent(&self) -> session::NodeId {
+        self.store
+            .get(self.head())
+            .expect("head")
+            .parent
+            .expect("parent")
+    }
+
+    fn orphan(&self) -> u64 {
+        let path = self
+            .tmp
+            .path()
+            .join(".audiograph")
+            .join("derived")
+            .join("left-by-a-failed-edit.wav");
+        std::fs::write(&path, vec![0u8; 4096]).expect("orphan");
+        4096
+    }
+}
+
+#[test]
+fn the_lane_copy_on_screen_is_live() {
+    let mut p = Project::with_edits(2);
+    let live_before = u(&p.report(), &["live", "files"]);
+    p.lane_copy_of(p.head());
+
+    let v = p.report();
+    assert_eq!(u(&v, &["live", "files"]), live_before + 1, "{v}");
+    assert_eq!(u(&v, &["unreferenced", "files"]), 0, "{v}");
+}
+
+#[test]
+fn a_lane_copy_of_an_older_version_is_its_own_category() {
+    let mut p = Project::with_edits(2);
+    let lane = p.lane_copy_of(p.parent());
+    let bytes = std::fs::metadata(&lane).expect("lane").len();
+
+    let v = p.report();
+    assert_eq!(u(&v, &["lane_copies", "files"]), 1, "{v}");
+    assert_eq!(u(&v, &["lane_copies", "bytes"]), bytes);
+    assert_eq!(u(&v, &["unreferenced", "files"]), 0, "{v}");
+    assert!(
+        v["summary"].as_str().unwrap().contains("timeline copies"),
+        "the summary says what they are: {}",
+        v["summary"]
+    );
+}
+
+/// What the report calls unreferenced is exactly what opening the
+/// project removes: the report's own summary says so.
+#[test]
+fn unreferenced_is_exactly_what_opening_the_project_removes() {
+    let mut p = Project::with_edits(3);
+    p.lane_copy_of(p.head());
+    p.lane_copy_of(p.parent());
+    let orphan_bytes = p.orphan();
+
+    let v = p.report();
+    assert_eq!(u(&v, &["unreferenced", "bytes"]), orphan_bytes, "{v}");
+
+    let swept = tools::reclaim::sweep_orphans(&p.store).expect("sweep");
+    assert_eq!(
+        swept.removed_files as u64,
+        u(&v, &["unreferenced", "files"])
+    );
+    assert_eq!(swept.freed_bytes, u(&v, &["unreferenced", "bytes"]));
+}
+
+/// A project whose clips all point outside `derived/` — a file just
+/// loaded — still has a `derived/` holding lane copies and leftovers,
+/// and the report has to look there.
+#[test]
+fn the_projects_own_derived_directory_is_always_counted() {
+    let mut p = Project::with_edits(0);
+    p.lane_copy_of(p.head());
+    let orphan_bytes = p.orphan();
+
+    let v = p.report();
+    assert_eq!(u(&v, &["live", "files"]), 1, "the lane copy on screen: {v}");
+    assert_eq!(u(&v, &["unreferenced", "bytes"]), orphan_bytes, "{v}");
+}

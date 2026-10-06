@@ -136,8 +136,19 @@ impl Tool for StorageReportTool {
             Err(e) => return Ok(ToolResult::Error(format!("failed to read head node: {e}"))),
         };
 
-        let live = collect_refs(std::iter::once(&head_node));
+        // The head's lane copies — the flattened `track-<hash>.wav` files
+        // the timeline is showing — are the head's audio as much as its
+        // clips' sources are. No clip names them, so without this they
+        // were counted as referenced by nothing (#374). The set is the
+        // sweep's own, so the report and the sweep cannot disagree.
+        let project_dir = ctx.store.project_dir().to_path_buf();
+        let mut live = collect_refs(std::iter::once(&head_node));
+        live.extend(crate::reclaim::lane_copies(
+            &project_dir,
+            std::slice::from_ref(&head_node),
+        ));
         let any = collect_refs(all.iter());
+        let lanes = crate::reclaim::lane_copies(&project_dir, &all);
 
         // Which history files could be rebuilt rather than kept.
         //
@@ -178,13 +189,24 @@ impl Tool for StorageReportTool {
         let mut history_bytes = 0u64;
         let mut unref_bytes = 0u64;
         let (mut live_n, mut history_n, mut unref_n) = (0usize, 0usize, 0usize);
+        // Lane copies of clip lists only older nodes hold: a cache the
+        // timeline writes again from its sources when it shows that
+        // version, and the first thing the sweep removes over its cap.
+        let (mut lane_n, mut lane_bytes) = (0usize, 0u64);
         // A subset of `history`: the part a sweep could reclaim and put
         // back, rather than merely delete.
         let mut rebuildable_bytes = 0u64;
         let mut rebuildable_n = 0usize;
         let mut unreferenced: Vec<(PathBuf, u64)> = Vec::new();
 
-        for dir in derived_dirs(&all) {
+        // The project's own `derived/` always, even when no clip names a
+        // file in it: lane copies and orphans live there too, and a report
+        // that only looked where clips point would miss them.
+        // By canonical path, so one directory spelled two ways (a
+        // symlinked temp dir) is not counted twice.
+        let mut dirs: BTreeSet<PathBuf> = derived_dirs(&all).iter().map(|d| key(d)).collect();
+        dirs.insert(key(&crate::provenance::derived_dir(&project_dir)));
+        for dir in dirs {
             let entries = match std::fs::read_dir(&dir) {
                 Ok(e) => e,
                 // A directory the graph names but that is no longer
@@ -208,6 +230,9 @@ impl Tool for StorageReportTool {
                         rebuildable_bytes += bytes;
                         rebuildable_n += 1;
                     }
+                } else if lanes.contains(&k) {
+                    lane_bytes += bytes;
+                    lane_n += 1;
                 } else {
                     unref_bytes += bytes;
                     unref_n += 1;
@@ -255,10 +280,11 @@ impl Tool for StorageReportTool {
             }
         };
 
-        let total = live_bytes + history_bytes + unref_bytes;
+        let total = live_bytes + history_bytes + lane_bytes + unref_bytes;
         let mut by_category = BTreeMap::new();
         by_category.insert("live", (live_n, live_bytes));
         by_category.insert("history", (history_n, history_bytes));
+        by_category.insert("lane_copies", (lane_n, lane_bytes));
         by_category.insert("unreferenced", (unref_n, unref_bytes));
 
         Ok(ToolResult::Ok(json!({
@@ -272,6 +298,7 @@ impl Tool for StorageReportTool {
                 "rebuildable_files": rebuildable_n,
                 "rebuildable_bytes": rebuildable_bytes,
             },
+            "lane_copies": { "files": lane_n, "bytes": lane_bytes },
             "unreferenced": { "files": unref_n, "bytes": unref_bytes },
             "derived_cap_bytes": crate::reclaim::DEFAULT_DERIVED_CAP_BYTES,
             "preview_cache": {
@@ -284,8 +311,9 @@ impl Tool for StorageReportTool {
             "largest_unreferenced": sample,
             "summary": format!(
                 "{:.1} MiB of derived audio across {} node{}: {:.1} MiB the current version \
-                 needs, {:.1} MiB held only by undo history ({} file{}), {:.1} MiB referenced \
-                 by nothing ({} file{}). Separately, {:.1} MiB of rendered previews ({} \
+                 needs, {:.1} MiB held only by undo history ({} file{}), {:.1} MiB of timeline \
+                 copies of older versions ({} file{}, rewritten from their sources when shown), \
+                 {:.1} MiB referenced by nothing ({} file{}). Separately, {:.1} MiB of rendered previews ({} \
                  file{}) sit in a bounded cache that evicts itself. Nothing was deleted here. \
                  Audio referenced by nothing is removed when the project is next opened. Past \
                  {:.0} MiB of derived audio, what undo history holds is swept automatically, \
@@ -299,6 +327,9 @@ impl Tool for StorageReportTool {
                 mib(history_bytes),
                 history_n,
                 if history_n == 1 { "" } else { "s" },
+                mib(lane_bytes),
+                lane_n,
+                if lane_n == 1 { "" } else { "s" },
                 mib(unref_bytes),
                 unref_n,
                 if unref_n == 1 { "" } else { "s" },

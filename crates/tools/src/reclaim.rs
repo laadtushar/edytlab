@@ -108,7 +108,7 @@ fn head_refs(store: &session::Store) -> Option<BTreeSet<PathBuf>> {
 /// No node names these files — they are a cache keyed by a track's clip
 /// list — so a sweep that asked only which files nodes name would take
 /// every one for an orphan, including the one the timeline is showing.
-fn lane_copies(project_dir: &Path, nodes: &[session::SessionNode]) -> BTreeSet<PathBuf> {
+pub(crate) fn lane_copies(project_dir: &Path, nodes: &[session::SessionNode]) -> BTreeSet<PathBuf> {
     let mut out = BTreeSet::new();
     for node in nodes {
         for track in &node.state.tracks {
