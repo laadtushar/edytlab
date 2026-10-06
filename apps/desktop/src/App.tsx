@@ -105,6 +105,7 @@ import {
 import { type ViewToApply, viewToApply, viewToSave } from "./lib/viewState";
 
 import type { LeftView } from "./lib/views";
+import { useHeadMove } from "./hooks/useHeadMove";
 
 interface CompareMode {
   a: string;
@@ -248,20 +249,27 @@ function App() {
   // that would write a position nobody chose over one somebody did.
   const lastPlayheadRef = useRef(0);
 
+  // One undo or redo at a time: moving onto history whose audio was
+  // swept rebuilds it first, which can take seconds (#373).
+  const headMove = useHeadMove();
+  const runHeadMove = headMove.run;
+
   const handleUndo = useCallback(async () => {
     if (!head) return;
-    try {
-      const node = await getNode(head);
-      const result = applyUndo(head, node.parent ?? null, redoStack);
-      if (!result) return;
-      await setHeadTo(result.head);
-      setHeadLocal(result.head);
-      setRedoStack(result.redoStack);
-      await refreshTracks();
-    } catch (err) {
-      setRenderError(String(err));
-    }
-  }, [head, redoStack, setHeadLocal]);
+    await runHeadMove(async () => {
+      try {
+        const node = await getNode(head);
+        const result = applyUndo(head, node.parent ?? null, redoStack);
+        if (!result) return;
+        await setHeadTo(result.head);
+        setHeadLocal(result.head);
+        setRedoStack(result.redoStack);
+        await refreshTracks();
+      } catch (err) {
+        setRenderError(String(err));
+      }
+    });
+  }, [head, redoStack, setHeadLocal, runHeadMove]);
 
   // Whenever the head moves — an edit, an undo, a project opening — the
   // toggle re-reads the session rather than trusting what it last set.
@@ -296,17 +304,19 @@ function App() {
 
   const handleRedo = useCallback(async () => {
     if (!head) return;
-    try {
-      const result = applyRedo(redoStack);
-      if (!result) return;
-      await setHeadTo(result.head);
-      setHeadLocal(result.head);
-      setRedoStack(result.redoStack);
-      await refreshTracks();
-    } catch (err) {
-      setRenderError(String(err));
-    }
-  }, [head, redoStack, setHeadLocal]);
+    await runHeadMove(async () => {
+      try {
+        const result = applyRedo(redoStack);
+        if (!result) return;
+        await setHeadTo(result.head);
+        setHeadLocal(result.head);
+        setRedoStack(result.redoStack);
+        await refreshTracks();
+      } catch (err) {
+        setRenderError(String(err));
+      }
+    });
+  }, [head, redoStack, setHeadLocal, runHeadMove]);
 
   // Window-level keyboard transport. Active whenever the user isn't
   // typing into a chat input / settings field. Space toggles
@@ -1379,6 +1389,7 @@ function App() {
         selection={selection}
         mixStale={mixIsStale({ mixPath, mixNodeId }, head)}
         loadError={audioLoadError}
+        restoringHistory={headMove.pending}
       />
 
       {showBlocking ? (
@@ -1447,6 +1458,13 @@ interface StatusBarProps {
    * was the wrong one.
    */
   loadError?: string | null;
+  /**
+   * An undo or redo has been moving the head for a while — rebuilding
+   * history's audio that was swept to keep the project under its cap
+   * (#373). Shown in place of the state word, which would otherwise say
+   * `ready` while the key looks like it did nothing.
+   */
+  restoringHistory?: boolean;
 }
 
 export function StatusBar({
@@ -1456,6 +1474,7 @@ export function StatusBar({
   selection,
   mixStale,
   loadError,
+  restoringHistory = false,
 }: StatusBarProps) {
   const failed = Boolean(audioPath) && Boolean(loadError);
   const fileLabel = audioPath ? trimPath(audioPath) : "no file loaded";
@@ -1471,12 +1490,17 @@ export function StatusBar({
         font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-faint)]
       "
     >
-      <span className="flex items-center gap-1.5">
+      <span
+        className="flex items-center gap-1.5"
+        data-testid="status-bar-state"
+        role="status"
+        aria-live="polite"
+      >
         <span
           aria-hidden="true"
           className={
             "h-1.5 w-1.5 rounded-full " +
-            (rendering
+            (rendering || restoringHistory
               ? "bg-[var(--warning)] animate-pulse"
               : failed
                 ? "bg-[var(--danger)]"
@@ -1485,7 +1509,9 @@ export function StatusBar({
                   : "bg-[var(--text-faint)]")
           }
         />
-        {rendering
+        {restoringHistory
+          ? "restoring history…"
+          : rendering
           ? "rendering…"
           : failed
             ? "load failed"
