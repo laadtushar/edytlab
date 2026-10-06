@@ -34,7 +34,7 @@
 //! Reporting them apart is the point. Collapsing them into one "reclaim
 //! me" number is exactly the mistake that would make a sweep look safe.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
@@ -150,35 +150,9 @@ impl Tool for StorageReportTool {
         let any = collect_refs(all.iter());
         let lanes = crate::reclaim::lane_copies(&project_dir, &all);
 
-        // Which history files could be rebuilt rather than kept.
-        //
-        // A node's audio is rebuildable when the node records the
-        // operation that produced it *and* every node between it and a
-        // root does too — replay starts from a state that still exists,
-        // so one missing link upstream strands everything below it.
-        // Nodes written before provenance existed have no record, which
-        // reads as "not known to be rebuildable": the safe direction.
-        let by_id: HashMap<_, _> = all.iter().map(|n| (n.id, n)).collect();
-        let mut rebuildable_paths: BTreeSet<PathBuf> = BTreeSet::new();
-        for node in &all {
-            let mut cur = Some(node);
-            let chain_is_replayable = loop {
-                let Some(n) = cur else { break true }; // reached a root
-                match &n.op {
-                    Some(op) if op.reproducible => {
-                        cur = n.parent.and_then(|p| by_id.get(&p).copied())
-                    }
-                    _ => break false,
-                }
-            };
-            if chain_is_replayable {
-                for track in &node.state.tracks {
-                    for clip in &track.clips {
-                        rebuildable_paths.insert(key(&clip.source_path));
-                    }
-                }
-            }
-        }
+        // Which history files could be rebuilt rather than kept: the
+        // sweep's own pre-filter, so the report and the sweep agree.
+        let rebuildable_paths = crate::reclaim::rebuildable_paths(&all);
 
         // Walk every `derived/` directory the graph knows about and
         // classify what is actually there. Files are the unit rather

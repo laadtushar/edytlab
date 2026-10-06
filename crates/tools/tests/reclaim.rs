@@ -1116,3 +1116,73 @@ fn history_whose_source_has_moved_is_reclaimed() {
 
     swept_and_rebuilt(&s, older, &before);
 }
+
+/// An edit made after a step nothing can replay — an ML model's, whose
+/// weights a recipe cannot carry — rebuilds from that step's audio, which
+/// is kept. So it is reclaimed too, and the step's own audio stays.
+#[test]
+fn history_after_an_unreplayable_step_is_reclaimed() {
+    let mut s = Session::new();
+    s.make_history();
+    let head = s.store.head().expect("head");
+    let mut state = s.store.get(head).expect("head").state;
+    let model_output = s.derived().join("model-output.wav");
+    std::fs::copy(&state.tracks[0].clips[0].source_path, &model_output).expect("copy");
+    state.tracks[0].clips[0].source_path = model_output.clone();
+    s.store
+        .append(session::SessionNode {
+            id: session::NodeId([0u8; 32]),
+            parent: None,
+            created_at: chrono::Utc::now(),
+            label: Some("separated by a model".into()),
+            reasoning: None,
+            state,
+            op: None,
+        })
+        .expect("append");
+    move_on(&mut s);
+    let after_the_model = parent_of(&s, s.store.head().expect("head"));
+    let before = derived_audio_of(&s, after_the_model);
+
+    swept_and_rebuilt(&s, after_the_model, &before);
+    assert!(
+        model_output.is_file(),
+        "the model's own audio has no way back, so it stays"
+    );
+}
+
+/// A node that only passes its parent's file along — a gain change —
+/// does not make that file rebuildable: replaying it writes no audio.
+#[test]
+fn a_step_that_writes_no_audio_vouches_for_none() {
+    let mut s = Session::new();
+    s.make_history();
+    let head = s.store.head().expect("head");
+    let file = s.store.get(head).expect("head").state.tracks[0].clips[0]
+        .source_path
+        .clone();
+    let mut state = s.store.get(head).expect("head").state;
+    let unrecorded = s.derived().join("unrecorded.wav");
+    std::fs::copy(&file, &unrecorded).expect("copy");
+    state.tracks[0].clips[0].source_path = unrecorded.clone();
+    s.store
+        .append(session::SessionNode {
+            id: session::NodeId([0u8; 32]),
+            parent: None,
+            created_at: chrono::Utc::now(),
+            label: Some("no op recorded".into()),
+            reasoning: None,
+            state,
+            op: None,
+        })
+        .expect("append");
+    ok(s.call("set_track_gain", json!({ "track": 0, "db": -3.0 })));
+
+    let nodes = s.store.list_nodes().expect("nodes");
+    let rebuildable = tools::reclaim::rebuildable_paths(&nodes);
+    let k = std::fs::canonicalize(&unrecorded).expect("canonical");
+    assert!(
+        !rebuildable.contains(&k),
+        "the gain change names the file but did not write it"
+    );
+}
