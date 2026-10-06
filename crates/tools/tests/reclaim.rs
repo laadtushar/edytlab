@@ -499,11 +499,14 @@ fn production_sources() -> Vec<(String, String)> {
 /// automatic sweep while none runs, **and** it fails once someone wires
 /// `sweep` up without rewriting that copy — which is the moment the
 /// claim would become true and the descriptions would need to say so.
+///
+/// What runs it is the app's background thread, started in `lib.rs`'s
+/// setup by `reclaimer::spawn`; remove that and the claim is false again.
 #[test]
 fn no_tool_claims_an_automatic_sweep() {
     let swept_automatically = production_sources().into_iter().any(|(p, src)| {
         !Path::new(&p).ends_with(Path::new("src").join("reclaim.rs"))
-            && src.contains("reclaim::sweep(")
+            && (src.contains("reclaim::sweep(") || src.contains("reclaimer::spawn("))
     });
 
     let descriptions: Vec<(String, String)> = ToolDispatcher::default_dispatcher()
@@ -569,12 +572,17 @@ fn the_storage_tools_describe_the_same_policy() {
     let compact = describe("compact_session");
     let report = describe("storage_report");
 
+    // The cap is stated as a number, so it is the cap the app runs at.
+    let cap = format!(
+        "{} gib",
+        tools::reclaim::DEFAULT_DERIVED_CAP_BYTES / (1024 * 1024 * 1024)
+    );
     for (name, text) in [("compact_session", &compact), ("storage_report", &report)] {
         assert!(
-            text.contains("nothing sweeps"),
-            "`{name}` no longer states that nothing sweeps derived audio in the \
-             background; the two storage tools have to agree, or an agent holding \
-             both gets contradictory answers"
+            text.contains("swept") && text.contains("automatically") && text.contains(&cap),
+            "`{name}` no longer states that undo history's audio is swept \
+             automatically past {cap}; the two storage tools have to agree with each \
+             other and with the app, or an agent holding both gets contradictory answers"
         );
     }
 }
@@ -909,4 +917,90 @@ fn lane_copies_of_history_go_first_and_come_back() {
     let again = tools::flattened_track_wav(s.dir.path(), &clips).expect("rebuilt");
     assert_eq!(again, lane);
     assert!(std::fs::read(&again).expect("read") == lane_bytes);
+}
+
+// =============================================================================
+// Planning and applying apart (#98): the app plans on a handle of its own,
+// off the lock edits take, and applies under it. Whatever changed between
+// the two must not cost work.
+// =============================================================================
+
+/// Undo between planning and applying: the head moved onto audio the
+/// plan chose, and the head's audio is never deleted.
+#[test]
+fn audio_the_head_comes_to_need_after_planning_is_kept() {
+    let mut s = Session::new();
+    s.make_history();
+    let head = s.store.head().expect("head");
+    let parent = s.store.get(head).expect("head").parent.expect("parent");
+    let heads = s.head_paths();
+    let parents: Vec<PathBuf> = s
+        .store
+        .get(parent)
+        .expect("parent")
+        .state
+        .tracks
+        .iter()
+        .flat_map(|t| t.clips.iter().map(|c| c.source_path.clone()))
+        .filter(|p| !heads.contains(p) && p.starts_with(s.derived()))
+        .collect();
+    assert!(!parents.is_empty(), "the parent has audio of its own");
+
+    let plan = tools::reclaim::plan_sweep(&s.store, 0).expect("plan");
+    assert!(!plan.is_empty());
+    s.store.set_head(parent).expect("undo");
+    tools::reclaim::apply_sweep(&s.store, &plan).expect("apply");
+
+    for p in parents {
+        assert!(p.is_file(), "the new head's {} was deleted", p.display());
+    }
+}
+
+/// An edit between planning and applying whose output matched an orphan
+/// byte for byte names it — content addressing reuses the file. Named
+/// only by a node that records no way back, it is now audio nothing can
+/// rebuild.
+#[test]
+fn an_orphan_a_node_comes_to_name_after_planning_is_kept() {
+    let mut s = Session::new();
+    s.make_history();
+    let orphan = write_tone(&s.derived().join("0badcafe.wav"), 0.5);
+
+    let plan = tools::reclaim::plan_sweep(&s.store, 0).expect("plan");
+    let head = s.store.head().expect("head");
+    let mut state = s.store.get(head).expect("node").state;
+    state.tracks[0].clips[0].source_path = orphan.clone();
+    s.store
+        .append(session::SessionNode {
+            id: session::NodeId([0u8; 32]),
+            parent: None,
+            created_at: chrono::Utc::now(),
+            label: Some("wrote the same bytes".into()),
+            reasoning: None,
+            state,
+            op: None,
+        })
+        .expect("append");
+    s.store.set_head(head).expect("back to the head");
+    tools::reclaim::apply_sweep(&s.store, &plan).expect("apply");
+
+    assert!(orphan.is_file(), "a file a node names now was deleted");
+}
+
+/// A project switch between planning and applying: the plan is for a
+/// project that is no longer the one open.
+#[test]
+fn a_plan_for_another_project_deletes_nothing() {
+    let mut planned = Session::new();
+    planned.make_history();
+    let mut open = Session::new();
+    open.make_history();
+    let before = (planned.derived_files(), open.derived_files());
+
+    let plan = tools::reclaim::plan_sweep(&planned.store, 0).expect("plan");
+    assert!(!plan.is_empty());
+    let report = tools::reclaim::apply_sweep(&open.store, &plan).expect("apply");
+
+    assert_eq!(report.removed_files, 0, "{report:?}");
+    assert_eq!((planned.derived_files(), open.derived_files()), before);
 }

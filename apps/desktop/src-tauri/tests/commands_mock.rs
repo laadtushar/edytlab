@@ -251,7 +251,7 @@ struct SweptProject {
     dir: tempfile::TempDir,
     nodes: Vec<session::NodeId>,
     webview: tauri::WebviewWindow<tauri::test::MockRuntime>,
-    _app: tauri::App<tauri::test::MockRuntime>,
+    app: tauri::App<tauri::test::MockRuntime>,
 }
 
 impl SweptProject {
@@ -309,7 +309,7 @@ impl SweptProject {
             dir,
             nodes,
             webview,
-            _app: app,
+            app,
         };
         project
             .call("open_project", json!({ "path": project.dir.path() }))
@@ -471,4 +471,66 @@ fn undoing_into_a_swept_region_renders_what_it_did_before() {
         render("after.wav") == before,
         "the swept region renders differently"
     );
+}
+
+/// The background sweep, one pass: past the cap, history's audio goes and
+/// the head's stays — and undo still reaches the swept history (#98).
+#[test]
+fn the_background_sweep_frees_history_and_undo_still_reaches_it() {
+    use tauri::Manager;
+    let p = SweptProject::open();
+    let head = p.nodes[3];
+    let older = p.nodes[1];
+    let derived = p.dir.path().join(".audiograph").join("derived");
+    let bytes = || -> u64 {
+        std::fs::read_dir(&derived)
+            .expect("derived")
+            .flatten()
+            .map(|e| e.metadata().expect("meta").len())
+            .sum()
+    };
+    let before = bytes();
+
+    let report = edytlab_desktop_lib::reclaimer::reclaim_once(&p.app.state::<AppState>(), 0)
+        .expect("over the cap, something went");
+
+    assert!(report.removed_files > 0, "{report:?}");
+    assert_eq!(before - bytes(), report.freed_bytes, "the report is honest");
+    p.assert_back(head);
+    assert!(
+        !tools::rederive::missing_paths(&session::Store::open(p.dir.path()).unwrap(), older)
+            .is_empty(),
+        "older history was swept"
+    );
+    assert_eq!(
+        p.call("set_head_to", json!({ "nodeId": older.to_hex() })),
+        Ok(json!(older.to_hex()))
+    );
+    p.assert_back(older);
+}
+
+/// Under the cap a pass is a directory listing and nothing else.
+#[test]
+fn under_the_cap_the_background_sweep_does_nothing() {
+    use tauri::Manager;
+    let p = SweptProject::open();
+    let derived = p.dir.path().join(".audiograph").join("derived");
+    let files = || -> Vec<std::path::PathBuf> {
+        let mut v: Vec<_> = std::fs::read_dir(&derived)
+            .expect("derived")
+            .flatten()
+            .map(|e| e.path())
+            .collect();
+        v.sort();
+        v
+    };
+    let before = files();
+
+    let report = edytlab_desktop_lib::reclaimer::reclaim_once(
+        &p.app.state::<AppState>(),
+        tools::reclaim::DEFAULT_DERIVED_CAP_BYTES,
+    );
+
+    assert_eq!(report, None);
+    assert_eq!(files(), before);
 }

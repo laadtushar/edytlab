@@ -9,6 +9,7 @@ pub mod commands;
 pub mod events;
 pub mod mcp_tool;
 pub mod project;
+pub mod reclaimer;
 pub mod state;
 
 use crate::commands::{
@@ -150,6 +151,12 @@ pub fn run() {
                     "could not resolve app data dir; agent will require manual open_project"
                 );
             }
+
+            // Keep the open project's derived audio under its cap (#98):
+            // orphans went as the store opened; past the cap, the oldest
+            // audio only undo history holds goes too, once a replay has
+            // rebuilt it. Its own thread, because verifying takes replays.
+            crate::reclaimer::spawn(app_state.clone());
 
             // Native menu: File > Open Audio… / Quit. Frontend listens
             // for `menu://open-file` and runs the dialog open + load

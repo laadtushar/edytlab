@@ -504,12 +504,12 @@ const groups = [
         prompt: "this project is huge — reclaim some disk",
         what: "Prune old history and delete the audio only it referenced. Reports what it would remove and changes nothing unless asked twice, because this removes undo steps permanently — the nodes are gone, not archived. The most recent nodes on the current chain are never pruned, so ordinary undo keeps working; what goes is the tail beyond them and any branches forked away from and never returned to.",
         output: "prunable_nodes, reclaimable_bytes; removed_nodes and freed_bytes when applied",
-        note: "For space without losing history, the derived-audio cache sweeps itself: a file whose whole chain records a reproducible op regenerates byte-identically, so removing it costs a re-render on undo and nothing else.",
+        note: "For space without losing history, nothing is needed: once a project's derived audio passes 2 GiB, the oldest audio only undo history holds is swept in the background — but only files a replay of their edits has just rebuilt, byte for byte, so undoing back to one rebuilds it. This tool is for what cannot be rebuilt that way, or for dropping history on purpose.",
       },
       {
         name: "storage_report",
         prompt: "how much disk is this session using?",
-        what: "Report what the session costs on disk, split by category: audio the current version needs, audio only the undo history needs (and how much of that is rebuildable from recorded operations), audio nothing references at all, the bounded preview cache, and clipboard blobs. Every destructive edit writes a new file and none are deleted, so a long session grows without bound. Reads only — it deletes nothing.",
+        what: "Report what the session costs on disk, split by category: audio the current version needs, audio only the undo history needs (and how much of that is rebuildable from recorded operations), audio nothing references at all, the bounded preview cache, and clipboard blobs. Every destructive edit writes a new file; audio nothing references goes when the project opens, and past 2 GiB the oldest audio only undo history holds is swept, once a replay has rebuilt it. Reads only — it deletes nothing.",
         output: "total_bytes, live, history, unreferenced, preview_cache, clipboard_blobs",
         note: "Pair it with compact_session, which does the reclaiming — this is the before-and-after measurement.",
       }
