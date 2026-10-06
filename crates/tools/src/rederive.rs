@@ -1,9 +1,10 @@
 //! Putting a swept derived file back (#98).
 //!
-//! The sweep in [`crate::reclaim`] only deletes files whose whole
-//! ancestor chain records a reproducible op. This is the other half of
-//! that promise: given a node whose audio is gone, replay the chain
-//! that produced it and get the same bytes back.
+//! The sweep in [`crate::reclaim`] only deletes files a replay has
+//! already rebuilt. This is the other half of that promise: given a node
+//! whose audio is gone, replay the chain that produced it and get the
+//! same bytes back — which [`materialize`] does for every path that
+//! reads a node's audio or moves the head to it.
 //!
 //! ## Why the bytes are the same
 //!
@@ -179,15 +180,90 @@ pub fn ensure_present(
             format!("nothing records how to rebuild {}", name.to_string_lossy())
         }));
     };
-
-    if let Some(parent) = missing.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("could not create {}: {e}", parent.display()))?;
-    }
-    std::fs::copy(&rebuilt, missing)
-        .map_err(|e| format!("could not put {} back: {e}", missing.display()))?;
-
+    put_back(&rebuilt, missing)?;
     Ok(true)
+}
+
+/// Put back every derived file `node` names that is not on disk, before
+/// anything reads the node's audio or moves the head to it (#98, #356).
+///
+/// The history sweep deletes audio that only older nodes name, once a
+/// replay has proved it can come back. This is the other half: every
+/// path that renders a node, or makes one the head — undo, the history
+/// view, an A/B accept, `revert_to`, `fork_node`, `apply_diff`, a render
+/// or export of any node — calls this first, so a swept file is rebuilt
+/// before anything opens it. The head's audio is never swept, so the
+/// head's own reads need nothing.
+///
+/// Only files in the project's `derived/` are rebuilt. Those are the
+/// only files the app ever deletes, and the only ones a replay can
+/// write; a missing file anywhere else is the user's own source, moved
+/// or deleted, and is left for the read to report as it always has.
+///
+/// Returns the files it rebuilt. `Err` names the first file it could not
+/// rebuild and why, and the caller refuses rather than go on to render
+/// silence or move the head to a state that cannot play.
+pub fn materialize(store: &session::Store, node: session::NodeId) -> Result<Vec<PathBuf>, String> {
+    let derived = key(&derived_dir(store.project_dir()));
+    let mut missing: Vec<PathBuf> = Vec::new();
+    for path in missing_paths(store, node) {
+        let in_derived = path.parent().is_some_and(|p| key(p) == derived);
+        if in_derived && !missing.contains(&path) {
+            missing.push(path);
+        }
+    }
+    if missing.is_empty() {
+        return Ok(missing);
+    }
+
+    // One replay of the node's chain writes every file along it, so it
+    // puts back every missing file at once rather than one replay each.
+    if let Ok(r) = replay(store, node) {
+        for path in &missing {
+            if let Some(rebuilt) = path.file_name().and_then(|name| r.path(name)) {
+                put_back(&rebuilt, path)?;
+            }
+        }
+    }
+    // What that replay did not write, another chain that names the file
+    // may (see `ensure_present`), and if none does, this says why.
+    for path in &missing {
+        ensure_present(store, node, path)?;
+    }
+    Ok(missing)
+}
+
+/// Copy a rebuilt file into place under its name, atomically.
+///
+/// The name is the content's hash and presence is all a reader checks, so
+/// a copy cut short under the final name would be wrong audio that every
+/// later check calls present. The copy goes to a temporary file beside it
+/// and is renamed into place only once it is whole.
+fn put_back(rebuilt: &Path, missing: &Path) -> Result<(), String> {
+    let could_not =
+        |e: &dyn std::fmt::Display| format!("could not put {} back: {e}", missing.display());
+    let parent = missing
+        .parent()
+        .ok_or_else(|| could_not(&"it has no parent directory"))?;
+    std::fs::create_dir_all(parent)
+        .map_err(|e| format!("could not create {}: {e}", parent.display()))?;
+    let mut part = tempfile::Builder::new()
+        .prefix(".rebuilt-")
+        .suffix(".wav.part")
+        .tempfile_in(parent)
+        .map_err(|e| could_not(&e))?;
+    let mut src = std::fs::File::open(rebuilt).map_err(|e| could_not(&e))?;
+    std::io::copy(&mut src, part.as_file_mut()).map_err(|e| could_not(&e))?;
+    part.as_file().sync_all().map_err(|e| could_not(&e))?;
+    part.persist(missing)
+        .map(|_| ())
+        .map_err(|e| could_not(&e.error))
+}
+
+/// A path as the file system names it, so a clip path written through a
+/// different spelling of the project directory still compares equal.
+fn key(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 /// Every clip path on `node` that is missing from disk.

@@ -47,6 +47,11 @@ impl Tool for RevertToTool {
             Err(e) => return Ok(ToolResult::Error(format!("invalid node id: {e}"))),
         };
 
+        // Its audio may have been swept from history; put it back first.
+        if let Err(e) = crate::rederive::materialize(ctx.store, target) {
+            return Ok(ToolResult::Error(e));
+        }
+
         let new_id = match ctx.store.revert_to(target) {
             Ok(id) => id,
             Err(e) => return Ok(ToolResult::Error(format!("revert failed: {e}"))),
