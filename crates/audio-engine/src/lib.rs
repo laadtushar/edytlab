@@ -22,7 +22,9 @@ pub mod metadata;
 pub mod mixer;
 pub mod render;
 
-pub use encode::{write_flac, write_mp3, write_wav, WavChunkWriter, MP3_DEFAULT_KBPS};
+pub use encode::{
+    write_flac, write_mp3, write_wav, write_wav_f32, WavChunkWriter, MP3_DEFAULT_KBPS,
+};
 pub use metadata::{read_flac_tags, tag_flac, tag_mp3, Chapter, Tags};
 
 use std::path::Path;

@@ -83,6 +83,14 @@ pub fn replay(store: &session::Store, node: session::NodeId) -> Result<Replay, S
             allowed_tools: None,
         };
         for step in &recipe.steps {
+            // A paste records the clipboard it spliced as a blob in the
+            // real project; the scratch one starts empty (#377).
+            if let Some(hash) = step.inputs.get("clipboard").and_then(|v| v.as_str()) {
+                *ctx.clipboard = Some(crate::provenance::load_clipboard_blob(
+                    store.project_dir(),
+                    hash,
+                )?);
+            }
             match dispatcher.invoke(&step.tool, step.params.clone(), &mut ctx) {
                 Ok(crate::ToolResult::Ok(_)) => {}
                 Ok(crate::ToolResult::Error(msg)) => {
