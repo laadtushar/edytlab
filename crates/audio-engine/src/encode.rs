@@ -63,6 +63,29 @@ pub fn write_wav(samples: &[f32], sample_rate: u32, channels: u16, out: &Path) -
     writer.finalize()
 }
 
+/// Write interleaved `samples` to a 32-bit float WAV at `out`, exactly.
+///
+/// For audio that must read back as the same samples it was written
+/// from — a clipboard blob, which a replayed paste splices in and whose
+/// name is the hash of those samples. [`write_wav`] quantises to 16 bits,
+/// which is lossless only for audio that came from 16-bit samples; a copy
+/// of a float or 24-bit source, or of audio after a gain change, would
+/// read back different, and the paste would replay to different audio.
+pub fn write_wav_f32(samples: &[f32], sample_rate: u32, channels: u16, out: &Path) -> Result<()> {
+    let spec = WavSpec {
+        channels,
+        sample_rate,
+        bits_per_sample: 32,
+        sample_format: SampleFormat::Float,
+    };
+    let file = File::create(out).map_err(|e| Error::from(hound::Error::IoError(e)))?;
+    let mut writer = WavWriter::new(BufWriter::new(file), spec).map_err(Error::from)?;
+    for &s in samples {
+        writer.write_sample(s).map_err(Error::from)?;
+    }
+    writer.finalize().map_err(Error::from)
+}
+
 /// A 16-bit PCM WAV written a chunk at a time.
 ///
 /// For output too long to hold in memory at once. It quantises exactly
