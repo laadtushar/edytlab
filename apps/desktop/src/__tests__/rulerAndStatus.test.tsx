@@ -129,4 +129,24 @@ describe("the status bar", () => {
     );
     expect(screen.getByTestId("status-bar").textContent).toMatch(/rendering/i);
   });
+
+  /**
+   * An undo onto swept history rebuilds its audio first (#373). The
+   * state word says so rather than `ready` while the key looks dead.
+   */
+  it("says history is being restored while a slow undo runs", () => {
+    render(
+      <StatusBar
+        audioPath="/tmp/a.wav"
+        head={null}
+        rendering={false}
+        selection={null}
+        loadError={null}
+        restoringHistory
+      />,
+    );
+    const state = screen.getByRole("status");
+    expect(state).toHaveTextContent(/restoring history/i);
+    expect(state).not.toHaveTextContent(/ready/i);
+  });
 });
