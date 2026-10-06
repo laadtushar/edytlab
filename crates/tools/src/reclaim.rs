@@ -421,14 +421,14 @@ fn list_files(dir: &Path) -> std::io::Result<(Vec<(PathBuf, u64, std::time::Syst
 /// from the chat message, after `apply_diff`, and once the original source
 /// has moved. Each looked rebuildable and was not. Rather than chase every
 /// such gap in the record, the sweep asks the replay itself: it runs the
-/// chain in a scratch project, as `ensure_present` would, and a file is
-/// verified only if the replay wrote a file of the same name — the same
-/// bytes, since names are content hashes.
+/// node's own step on its parent's audio in a scratch project — exactly
+/// the step a rebuild runs (`rederive`) — and a file is verified only if
+/// the replay wrote a file of the same name: the same bytes, since names
+/// are content hashes.
 ///
-/// One replay verifies every file it writes, and each node is replayed at
-/// most once, so a sweep replays each distinct chain once at most. It is
-/// still work proportional to history, which is why this runs only when
-/// the directory is over its cap.
+/// Each node is replayed at most once, and each replay is one step, so a
+/// sweep costs about one edit's work per file it verifies. That is why
+/// this runs only when the directory is over its cap.
 struct Verifier {
     dir: PathBuf,
     verified: BTreeSet<PathBuf>,

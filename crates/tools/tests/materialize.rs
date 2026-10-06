@@ -121,6 +121,25 @@ impl Session {
         );
     }
 
+    /// Leave nothing a replay could start from: no take to load, and no
+    /// older audio to start after. A replay starts from the nearest
+    /// ancestor whose audio is on disk, so removing only the take no
+    /// longer strands anything.
+    fn strand(&self) {
+        std::fs::remove_file(self.dir.path().join("take.wav")).expect("remove the take");
+        let head: Vec<PathBuf> = self
+            .audio_of(self.head())
+            .into_iter()
+            .map(|(p, _)| p)
+            .collect();
+        let derived = self.dir.path().join(".audiograph").join("derived");
+        for entry in std::fs::read_dir(derived).expect("derived").flatten() {
+            if !head.contains(&entry.path()) {
+                std::fs::remove_file(entry.path()).expect("remove history's audio");
+            }
+        }
+    }
+
     fn assert_back(&self, before: &[(PathBuf, Vec<u8>)]) {
         for (path, bytes) in before {
             let now = std::fs::read(path)
@@ -202,8 +221,7 @@ fn a_file_nothing_can_rebuild_is_refused_by_name() {
         .find(|(p, _)| p.starts_with(s.dir.path().join(".audiograph")))
         .expect("derived audio");
     std::fs::remove_file(&victim).expect("remove");
-    // Every chain starts by loading the take; without it nothing replays.
-    std::fs::remove_file(s.dir.path().join("take.wav")).expect("remove the take");
+    s.strand();
 
     let err = tools::rederive::materialize(&s.store, parent).expect_err("cannot rebuild");
     let name = victim.file_name().unwrap().to_string_lossy().to_string();
@@ -305,7 +323,7 @@ fn a_revert_that_cannot_rebuild_leaves_the_head_where_it_was() {
     let parent = s.parent();
     let head = s.head();
     s.sweep_away(parent);
-    std::fs::remove_file(s.dir.path().join("take.wav")).expect("remove the take");
+    s.strand();
 
     match s.call("revert_to", json!({ "target": parent.to_hex() })) {
         ToolResult::Error(msg) => assert!(msg.contains("rebuild"), "says why: {msg}"),

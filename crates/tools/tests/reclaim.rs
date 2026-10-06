@@ -1004,3 +1004,115 @@ fn a_plan_for_another_project_deletes_nothing() {
     assert_eq!(report.removed_files, 0, "{report:?}");
     assert_eq!((planned.derived_files(), open.derived_files()), before);
 }
+
+// =============================================================================
+// Replay from the nearest audio on disk (#377): the probes above check
+// nothing is lost; these check the same history is now reclaimed — swept,
+// and rebuilt byte for byte — rather than merely kept.
+// =============================================================================
+
+/// `node`'s derived audio, with its bytes as they are now.
+fn derived_audio_of(s: &Session, node: session::NodeId) -> Vec<(PathBuf, Vec<u8>)> {
+    let mut out: Vec<(PathBuf, Vec<u8>)> = Vec::new();
+    for track in &s.store.get(node).expect("node").state.tracks {
+        for clip in &track.clips {
+            let p = clip.source_path.clone();
+            if p.starts_with(s.derived()) && !out.iter().any(|(q, _)| *q == p) {
+                let bytes = std::fs::read(&p).expect("audio before the sweep");
+                out.push((p, bytes));
+            }
+        }
+    }
+    assert!(!out.is_empty(), "the node has derived audio of its own");
+    out
+}
+
+/// Sweep everything, then check `before` went and comes back exactly.
+fn swept_and_rebuilt(s: &Session, node: session::NodeId, before: &[(PathBuf, Vec<u8>)]) {
+    let report = sweep_everything(s);
+    for (p, _) in before {
+        assert!(!p.is_file(), "{} was kept: {report:?}", p.display());
+    }
+    tools::rederive::materialize(&s.store, node).expect("rebuilt");
+    for (p, bytes) in before {
+        assert!(
+            std::fs::read(p).expect("back") == *bytes,
+            "{} came back different",
+            p.display()
+        );
+    }
+}
+
+fn parent_of(s: &Session, node: session::NodeId) -> session::NodeId {
+    s.store.get(node).expect("node").parent.expect("parent")
+}
+
+/// Row 1: compaction cut the kept history off from its `load`. An edit
+/// after the cut replays from the audio just before it.
+#[test]
+fn history_kept_by_compaction_is_reclaimed() {
+    let mut s = Session::new();
+    s.make_history();
+    ok(s.call("compact_session", json!({ "keep_last": 2, "apply": true })));
+    move_on(&mut s);
+    let after_the_cut = parent_of(&s, s.store.head().expect("head"));
+    let before = derived_audio_of(&s, after_the_cut);
+
+    swept_and_rebuilt(&s, after_the_cut, &before);
+}
+
+/// Row 4: an edit made on an `apply_diff` branch replays from the
+/// branch's audio, so the branch's node and track ids never come up.
+#[test]
+fn history_after_apply_diff_is_reclaimed() {
+    let mut s = Session::new();
+    s.make_history();
+    let head = s.store.head().expect("head");
+    let track_id = s.store.get(head).expect("head node").state.tracks[0]
+        .id
+        .clone();
+    let ops = serde_json::to_value(session::SessionDiff {
+        modified: vec![(
+            session::DiffOp::TrackGain {
+                track_id: track_id.clone(),
+                value: 0.0,
+            },
+            session::DiffOp::TrackGain {
+                track_id,
+                value: -3.0,
+            },
+        )],
+        ..Default::default()
+    })
+    .expect("diff");
+    let out = ok(s.call(
+        "apply_diff",
+        json!({ "from_node": head.to_hex(), "branches": [{ "ops": ops }] }),
+    ));
+    let branch =
+        session::NodeId::from_hex(out["branches"][0].as_str().expect("branch")).expect("id");
+    s.store.set_head(branch).expect("move to the branch");
+    move_on(&mut s);
+    let on_the_branch = parent_of(&s, s.store.head().expect("head"));
+    let before = derived_audio_of(&s, on_the_branch);
+
+    swept_and_rebuilt(&s, on_the_branch, &before);
+}
+
+/// Row 5: the take moved, so nothing can `load` it again — and nothing
+/// needs to, while the audio before an edit is still on disk.
+#[test]
+fn history_whose_source_has_moved_is_reclaimed() {
+    let mut s = Session::new();
+    s.make_history();
+    move_on(&mut s);
+    std::fs::rename(
+        s.dir.path().join("take.wav"),
+        s.dir.path().join("moved.wav"),
+    )
+    .expect("move the source");
+    let older = parent_of(&s, s.store.head().expect("head"));
+    let before = derived_audio_of(&s, older);
+
+    swept_and_rebuilt(&s, older, &before);
+}

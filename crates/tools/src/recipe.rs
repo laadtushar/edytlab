@@ -130,12 +130,17 @@ pub fn export(store: &session::Store, head: session::NodeId) -> Result<Recipe, S
     }
 
     steps.reverse();
-    Ok(Recipe {
+    Ok(export_steps(steps))
+}
+
+/// A recipe of these steps, in this order.
+pub(crate) fn export_steps(steps: Vec<RecipeStep>) -> Recipe {
+    Recipe {
         format_version: RECIPE_FORMAT_VERSION,
         engine_version: env!("CARGO_PKG_VERSION").to_string(),
         name: None,
         steps,
-    })
+    }
 }
 
 /// What happened when a recipe ran.
