@@ -41,13 +41,7 @@ pub fn resolve(
         validate_order(&r)?;
         return Ok(Some(r));
     }
-    if let Some(caps) = prefix_re().captures(message) {
-        let start = caps[1].parse::<f64>().unwrap() * 60.0 + caps[2].parse::<f64>().unwrap();
-        let end = caps[3].parse::<f64>().unwrap() * 60.0 + caps[4].parse::<f64>().unwrap();
-        let r = Range {
-            start_sec: start,
-            end_sec: end,
-        };
+    if let Some(r) = from_message(message) {
         validate_order(&r)?;
         return Ok(Some(r));
     }
@@ -55,6 +49,21 @@ pub fn resolve(
         return Err(RangeError::MissingRange);
     }
     Ok(None)
+}
+
+/// The range an `[apply to …]` prefix in `message` names, if it has one.
+///
+/// What [`resolve`] falls back to when a call names no range — and so
+/// what the dispatcher records as the range such a call used, since a
+/// replay has no message to read it from (#377).
+pub fn from_message(message: &str) -> Option<Range> {
+    let caps = prefix_re().captures(message)?;
+    let start = caps[1].parse::<f64>().unwrap() * 60.0 + caps[2].parse::<f64>().unwrap();
+    let end = caps[3].parse::<f64>().unwrap() * 60.0 + caps[4].parse::<f64>().unwrap();
+    Some(Range {
+        start_sec: start,
+        end_sec: end,
+    })
 }
 
 fn validate_order(r: &Range) -> Result<(), RangeError> {

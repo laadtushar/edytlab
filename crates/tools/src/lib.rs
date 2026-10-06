@@ -34,7 +34,9 @@ pub mod schema;
 pub mod tool;
 pub mod util;
 
-pub use dispatcher::{Tool, ToolContext, ToolDispatcher, READS_OUTSIDE_THE_SESSION};
+pub use dispatcher::{
+    Tool, ToolContext, ToolDispatcher, READS_OUTSIDE_THE_SESSION, READS_RANGE_FROM_MESSAGE,
+};
 pub use preview_cache::{Hit as PreviewHit, PreviewCache};
 pub use provenance::{derived_dir, verify_chain, Problem};
 pub use recipe::{Recipe, RecipeStep};
