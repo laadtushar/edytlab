@@ -102,11 +102,58 @@ pub fn store_clipboard_blob(
     std::fs::create_dir_all(&dir)
         .map_err(|e| format!("failed to create clipboard dir {}: {e}", dir.display()))?;
     let path = dir.join(format!("{hash}.wav"));
-    if !path.exists() {
-        audio_engine::write_wav(samples, sample_rate, channels.max(1), &path)
+    // Written as float so it reads back as exactly these samples: a paste
+    // replayed from a lossy blob would splice in different audio, and its
+    // output would never match the file it is meant to rebuild. A blob
+    // already there is kept only if it does read back exactly — one
+    // written as 16-bit before this was float is replaced.
+    if load_clipboard_blob(project_dir, &hash).is_err() {
+        audio_engine::write_wav_f32(samples, sample_rate, channels.max(1), &path)
             .map_err(|e| format!("failed to write clipboard blob {}: {e}", path.display()))?;
     }
     Ok(hash)
+}
+
+/// Read back the clipboard a paste used, checked against its name.
+///
+/// A replayed paste starts with an empty clipboard; this is what it
+/// splices instead (#377). The name is the hash of the samples, so a blob
+/// whose samples hash to anything else — missing, damaged, or written
+/// lossily before blobs were float — is refused rather than pasted: the
+/// replay would produce audio that is not what the node describes.
+pub fn load_clipboard_blob(project_dir: &Path, hash: &str) -> Result<crate::Clipboard, String> {
+    let path = clipboard_blob_path(project_dir, hash);
+    let mut reader = hound::WavReader::open(&path)
+        .map_err(|e| format!("cannot read clipboard blob {}: {e}", path.display()))?;
+    let spec = reader.spec();
+    let samples: Vec<f32> = match (spec.sample_format, spec.bits_per_sample) {
+        (hound::SampleFormat::Float, 32) => reader
+            .samples::<f32>()
+            .collect::<Result<_, _>>()
+            .map_err(|e| format!("cannot read clipboard blob {}: {e}", path.display()))?,
+        (hound::SampleFormat::Int, 16) => reader
+            .samples::<i16>()
+            .map(|s| s.map(|v| f32::from(v) / 32_768.0))
+            .collect::<Result<_, _>>()
+            .map_err(|e| format!("cannot read clipboard blob {}: {e}", path.display()))?,
+        (format, bits) => {
+            return Err(format!(
+                "clipboard blob {} is {bits}-bit {format:?}, which no clipboard is written as",
+                path.display()
+            ))
+        }
+    };
+    if audio_hash(&samples, spec.sample_rate, spec.channels) != hash {
+        return Err(format!(
+            "clipboard blob {} does not hold the audio it is named for",
+            path.display()
+        ));
+    }
+    Ok(crate::Clipboard {
+        samples,
+        sample_rate: spec.sample_rate,
+        channels: spec.channels,
+    })
 }
 
 /// Whether a clipboard blob for `hash` is on disk.

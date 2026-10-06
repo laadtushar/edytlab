@@ -397,9 +397,23 @@ impl ToolDispatcher {
                     return Ok(result);
                 }
 
+                // A range the call took from the chat message is part of
+                // what it did: a replay has no message, so record it as
+                // the range the call used (#377). Typed ranges win in
+                // `range_resolver::resolve`, so the replay reads exactly
+                // these seconds back.
+                let mut params = args;
+                if READS_RANGE_FROM_MESSAGE.contains(&name)
+                    && params.get("range").is_none_or(Value::is_null)
+                {
+                    if let Some(range) = crate::util::range_resolver::from_message(ctx.user_message)
+                    {
+                        params["range"] = serde_json::json!(range);
+                    }
+                }
                 let op = session::NodeOp {
                     tool: name.to_string(),
-                    params: args,
+                    params,
                     engine_version: env!("CARGO_PKG_VERSION").to_string(),
                     reproducible: !READS_OUTSIDE_THE_SESSION.contains(&name),
                     inputs: serde_json::Value::Null,
@@ -446,6 +460,15 @@ impl ToolDispatcher {
 /// it has to produce — a misclassification here cannot corrupt audio, it
 /// can only waste a rebuild attempt. `tool_provenance.rs` pins these
 /// names against the registry so a rename cannot quietly drop one.
+/// Tools that, when a call names no `range`, take it from the
+/// `[apply to …]` prefix the app puts on a chat message for a selection.
+///
+/// The dispatcher records that range in the op, so the call replays.
+/// Only these: a tool that ignores the message would replay a range it
+/// never used. `tool_provenance.rs` checks that every tool reading the
+/// message is listed.
+pub const READS_RANGE_FROM_MESSAGE: &[&str] = &["copy_region", "fade", "reverse"];
+
 pub const READS_OUTSIDE_THE_SESSION: &[&str] =
     &["load", "paste_region", "transcribe", "separate_stems"];
 

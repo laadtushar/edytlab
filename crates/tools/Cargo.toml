@@ -17,6 +17,8 @@ audio-dsp = { path = "../audio-dsp" }
 audio-analysis = { path = "../audio-analysis" }
 audio-time = { path = "../audio-time" }
 blake3 = "1"
+# Reads clipboard blobs back exactly, float or 16-bit (provenance.rs).
+hound = "3.5"
 realfft = "3"
 rustfft = "6"
 ml-demucs = { path = "../ml-demucs" }
@@ -34,5 +36,4 @@ tracing = "0.1"
 uuid = { version = "1", features = ["serde", "v4"] }
 
 [dev-dependencies]
-hound = "3.5"
 tempfile = "3"
