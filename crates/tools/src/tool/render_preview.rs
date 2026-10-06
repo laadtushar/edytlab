@@ -125,6 +125,11 @@ impl Tool for RenderPreviewTool {
             Err(e) => return Ok(ToolResult::Error(format!("invalid node_id: {e}"))),
         };
 
+        // Its audio may have been swept from history; put it back first.
+        if let Err(e) = crate::rederive::materialize(ctx.store, node_id) {
+            return Ok(ToolResult::Error(e));
+        }
+
         let node = match ctx.store.get(node_id) {
             Ok(n) => n,
             Err(e) => return Ok(ToolResult::Error(format!("node lookup failed: {e}"))),

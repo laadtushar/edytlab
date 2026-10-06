@@ -73,6 +73,11 @@ impl Tool for ApplyDiffTool {
             Err(e) => return Ok(ToolResult::Error(format!("invalid node id: {e}"))),
         };
 
+        // Its audio may have been swept from history; put it back first.
+        if let Err(e) = crate::rederive::materialize(ctx.store, parent) {
+            return Ok(ToolResult::Error(e));
+        }
+
         let parent_state = match ctx.store.get(parent) {
             Ok(n) => n.state,
             Err(e) => return Ok(ToolResult::Error(format!("parent not found: {e}"))),
