@@ -181,9 +181,23 @@ pub(crate) fn sweep_orphaned_audio(store: &Store) {
 /// there) plus what the app grants as it goes: each project as it opens,
 /// the files `list_tracks` hands the timeline, and compare renders.
 /// A failed grant shows as audio that will not load, so it is logged.
+///
+/// `allow_directory(dir, true)` is not enough on Linux and macOS: Tauri
+/// matches the asset scope with `require_literal_leading_dot` there, so
+/// `dir/**` does not reach through `.audiograph`, and the previews the
+/// transport plays and the auditions the chat plays live under it (#402).
+/// Those two caches are therefore granted by name, which a literal `.`
+/// satisfies; the rest of `.audiograph` stays out of reach.
 pub(crate) fn allow_assets_in_dir<R: Runtime>(app: &AppHandle<R>, dir: &std::path::Path) {
-    if let Err(e) = app.asset_protocol_scope().allow_directory(dir, true) {
-        tracing::warn!(dir = %dir.display(), error = %e, "could not allow a project in the asset scope");
+    let scope = app.asset_protocol_scope();
+    let caches = [
+        tools::PreviewCache::new(dir),
+        tools::PreviewCache::in_dir(dir, tools::tool::audition::AUDITION_DIR),
+    ];
+    for allowed in std::iter::once(dir).chain(caches.iter().map(|c| c.dir())) {
+        if let Err(e) = scope.allow_directory(allowed, true) {
+            tracing::warn!(dir = %allowed.display(), error = %e, "could not allow a project in the asset scope");
+        }
     }
 }
 
