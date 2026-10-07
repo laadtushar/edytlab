@@ -62,6 +62,19 @@ function callSites(name: string): string[] {
   return app.split("\n").filter((line) => call.test(line));
 }
 
+/**
+ * Whether the head a call returns is adopted: either on the call's own
+ * line, or — when the result is bound first because the caller also
+ * needs the rest of it (`batchLoad` reports failures too) — by passing
+ * a field of that variable to `applyNewHead(`. A bound result nobody
+ * adopts still fails.
+ */
+function adopted(name: string, line: string): boolean {
+  if (line.includes("applyNewHead")) return true;
+  const bound = line.match(new RegExp(`\\b(?:const|let)\\s+(\\w+)\\s*=\\s*await\\s+${name}\\(`));
+  return bound !== null && new RegExp(`applyNewHead\\(\\s*${bound[1]}\\.`).test(app);
+}
+
 describe("every head-returning command has its head adopted", () => {
   it.each(HEAD_RETURNING)("%s", (name) => {
     const sites = callSites(name);
@@ -74,7 +87,7 @@ describe("every head-returning command has its head adopted", () => {
         `or removed, and this guard is no longer checking anything`,
     ).toBeGreaterThan(0);
 
-    const unadopted = sites.filter((line) => !line.includes("applyNewHead"));
+    const unadopted = sites.filter((line) => !adopted(name, line));
     expect(
       unadopted,
       `${name}() returns the new session head, and these call sites ` +

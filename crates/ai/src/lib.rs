@@ -54,8 +54,8 @@ use anthropic::Message;
 pub use models::{list_models_for, list_models_for_at, ModelInfo};
 pub use prompt::{DEFAULT_BASE_URL, DEFAULT_MODEL, MAX_TOOL_CALLS_PER_TURN};
 pub use provider::{
-    AnthropicProvider, LlmProvider, OpenAIProvider, OpenRouterProvider, ANTHROPIC_ID, OPENAI_ID,
-    OPENROUTER_ID, SUPPORTED_PROVIDER_IDS,
+    AnthropicProvider, LlmProvider, OpenAIProvider, OpenRouterProvider, WireFormat, ANTHROPIC_ID,
+    OPENAI_ID, OPENROUTER_ID, SUPPORTED_PROVIDER_IDS,
 };
 
 /// Classifier model used for cheap mode detection (M27).

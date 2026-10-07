@@ -138,27 +138,36 @@ fn all_refs(nodes: &[session::SessionNode]) -> BTreeSet<PathBuf> {
 
 /// Paths a replay could put back.
 ///
-/// A node's audio is rebuildable when the node records a reproducible
-/// op *and* every node between it and a root does too — replay starts
-/// from a state that still exists, so one missing link upstream strands
-/// everything below it.
+/// A rebuild replays one step on its parent's audio (`rederive`), so a
+/// file is rebuildable when the node that *introduced* it — named it while
+/// its parent did not — records a reproducible step. What came before that
+/// step does not matter: its parent's audio is on disk, or was removed
+/// only once it could come back the same way, or it records no way back
+/// and is never removed. So an edit made after an ML step, whose weights a
+/// replay cannot carry, rebuilds from that step's audio (#377).
+///
+/// A node that merely passes its parent's file along — a gain change, a
+/// rename — vouches for nothing: replaying it writes no audio.
+///
+/// This is the sweep's pre-filter. The proof is the replay in `Verifier`.
 pub fn rebuildable_paths(nodes: &[session::SessionNode]) -> BTreeSet<PathBuf> {
     let by_id: HashMap<_, _> = nodes.iter().map(|n| (n.id, n)).collect();
     let mut out = BTreeSet::new();
 
     for node in nodes {
-        let mut cur = Some(node);
-        let replayable = loop {
-            let Some(n) = cur else { break true }; // reached a root
-            match &n.op {
-                Some(op) if op.reproducible => cur = n.parent.and_then(|p| by_id.get(&p).copied()),
-                _ => break false,
-            }
-        };
-        if replayable {
-            for track in &node.state.tracks {
-                for clip in &track.clips {
-                    out.insert(key(&clip.source_path));
+        if !node.op.as_ref().is_some_and(|op| op.reproducible) {
+            continue;
+        }
+        let inherited = node
+            .parent
+            .and_then(|p| by_id.get(&p))
+            .map(|parent| all_refs(std::slice::from_ref(*parent)))
+            .unwrap_or_default();
+        for track in &node.state.tracks {
+            for clip in &track.clips {
+                let k = key(&clip.source_path);
+                if !inherited.contains(&k) {
+                    out.insert(k);
                 }
             }
         }
