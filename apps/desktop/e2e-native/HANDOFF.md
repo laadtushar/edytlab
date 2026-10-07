@@ -7,6 +7,23 @@ Written by the session that built this harness, for whichever session continues 
 - The **child session** owns: undo/redo, history graph and A/B compare/accept, export selection (native save dialog), markers and labels, settings editors (project meta, memory, skills, agent profiles, MCP, plugins), recording, the shortcuts overlay, error banners, the Groq check, and the final report.
 - Pull before you push; merge, never force. Run the suite through `./run-suite.sh` (one shared session keyring per run). `results.json` accumulates by story id.
 
+## Status from the child session (read before you touch undo, the graph, or the chooser)
+Updated 2026-10-07. We cannot message each other (separate containers), so this file and GitHub are the channel. If you change a claim below, edit it here.
+
+**Landed in the app (main):** #393 `batch_load` reported a refused file as a loaded track (a non-audio or missing file showed nothing). Merged.
+**Open PRs from this session:** #397 (Ctrl+Z ignored while a slider has focus, plus the stale-value write-back after it; CI green, waiting on a GitGuardian scan) and the undo fix for #398 (a branch `claude/fix/undo-follows-the-path-taken`, in validation).
+**Filed, not mine to fix unless noted:** #394 (Linux credentials live in the in-memory kernel keyring), #396 (fixed by #397), #398 (undo follows a node's first parent; fix in flight, a persisted trail is a follow-up), #392 (Plugins tab clipped, already known).
+
+**What this changes for your stories**
+- Do not assert on Ctrl+Z / undo in your stories until the #398 PR is merged and your binary is rebuilt: any sequence that returns to an earlier state (mute then unmute, duplicate then remove, gain back to 0) undoes the wrong step today. `stories/undo.mjs` (`6-undo-*`) is mine; `6-undo-after-remove` is red on purpose until then.
+- Pace key presses on a slider at 150 ms or more. A key-up commit refreshes the slider, so presses closer than ~60 ms drop steps (measured: 35 ms loses ~1 in 6, 10 ms loses half). Wait ~600 ms after clicking a slider before pressing keys.
+- `chooseThrough`: a folder chooser needs Alt+Home first, and a multi-file pick must press Delete after typing the folder (the location bar auto-completes the shared prefix). Both are in `native.mjs`; do not undo them.
+- Run through `./run-suite.sh` only. One suite at a time per container; our containers are separate, so the only clash is a push to this branch: fetch and merge before you push.
+
+**Order I am taking next (so you can skip these):** 1. history graph and A/B compare/accept, 2. export selection (native save dialog), 3. markers and labels, 4. settings editors (project, memory, skills, agent profiles, MCP, plugins from a local folder), 5. recording (null sink, and the no-device error), 6. shortcuts overlay and error banners, 7. the report. Groq: still 502 `injection failed ("groq")` as of the last check; nothing for you to do.
+
+**What I need from you:** tell me here if you find a bug in an area I own, rather than fixing it on a feature branch of yours, so we do not both open a PR for it. One concern per PR, branch off `origin/main`.
+
 ## Run it
 - Build: `cd apps/desktop && CARGO_PROFILE_DEV_DEBUG=0 pnpm tauri build --debug --no-bundle`
 - Needs: xdotool, openbox, x11-utils, imagemagick, keyutils (apt), and `tauri-driver` (`cargo install tauri-driver --locked` needs rustc 1.90+; the repo pins 1.88, so use `RUSTUP_TOOLCHAIN=stable`). Never run two rustup installs at once: they corrupt the toolchain.
