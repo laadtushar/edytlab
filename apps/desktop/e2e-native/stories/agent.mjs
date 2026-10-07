@@ -4,7 +4,7 @@
 import { assert, K, head, onboard, openAudio, renderPreview, sleep, waitForNewHead } from "./helpers.mjs";
 
 /** Type into the chat box and send it, as a person does. */
-async function say(ctx, text) {
+export async function say(ctx, text) {
   const { d } = ctx;
   await d.type("[data-testid='chat-form'] textarea", text);
   await sleep(300);
@@ -15,7 +15,7 @@ async function say(ctx, text) {
  * cursor, a reply shown, and its text unchanged for two seconds. The
  * thinking indicator goes away at the *first* token, so it alone says
  * nothing about the reply being complete. */
-async function waitForReply(ctx, { timeout = 480000 } = {}) {
+export async function waitForReply(ctx, { timeout = 480000 } = {}) {
   const { d } = ctx;
   const replyText = () =>
     d.exec(() => {
@@ -38,7 +38,7 @@ async function waitForReply(ctx, { timeout = 480000 } = {}) {
   }
 }
 
-async function toolBadges(ctx) {
+export async function toolBadges(ctx) {
   return ctx.d.exec(() =>
     [...document.querySelectorAll("[data-testid='tool-badge']")].map((e) => ({
       status: e.getAttribute("data-status"),
