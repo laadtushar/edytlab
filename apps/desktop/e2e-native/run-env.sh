@@ -55,10 +55,15 @@ if [ "${KEEP_KEYRING:-0}" != 1 ]; then
 fi
 # tauri-driver cannot bind :4444 while the previous run's socket is still
 # in TIME_WAIT, and exits when it cannot. Start it until it is answering.
+#
+# It also drives WebKitWebDriver on a second port (4445 by default); one
+# still winding down from the last session made the *next* session's
+# creation crash the driver — every other story failed with "fetch
+# failed" — so each start takes a fresh native port.
 started=0
 for attempt in $(seq 1 30); do
   HOME="$E2E_HOME" DISPLAY=:99 XDG_DATA_HOME="$E2E_HOME/.local/share" XDG_CONFIG_HOME="$E2E_HOME/.config" \
-    WEBKIT_DISABLE_COMPOSITING_MODE=1 tauri-driver >"$OUT/tauri-driver.log" 2>&1 &
+    WEBKIT_DISABLE_COMPOSITING_MODE=1 tauri-driver --native-port "$((4500 + RANDOM % 4000))" >"$OUT/tauri-driver.log" 2>&1 &
   echo $! >"$OUT/tauri-driver.pid"
   for _ in $(seq 1 12); do
     sleep 0.25
