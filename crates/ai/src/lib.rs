@@ -276,10 +276,14 @@ pub enum Error {
     #[error("http error: {0}")]
     Http(reqwest::Error),
 
-    #[error("anthropic api error ({status}): {message}")]
+    // Not "anthropic ...": this is the error for every provider, and a
+    // person on Ollama reads that as the app talking to the wrong service
+    // (#405). Which provider is in use is on the Settings screen; what
+    // failed is the status and the server's own message.
+    #[error("the model provider returned an error ({status}): {message}")]
     Api { status: u16, message: String },
 
-    #[error("anthropic stream error: {0}")]
+    #[error("the model provider's stream failed: {0}")]
     ApiStream(String),
 
     #[error("sse parse error: {0}")]
