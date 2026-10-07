@@ -15,6 +15,8 @@ export const K = {
   home: "\uE011",
   left: "\uE012",
   right: "\uE014",
+  up: "\uE013",
+  down: "\uE015",
   backspace: "\uE003",
   del: "\uE017",
 };
