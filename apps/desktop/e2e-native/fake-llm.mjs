@@ -6,6 +6,7 @@
 //                    queued streaming replies, one per request, in order;
 //                    or { stream: [...], oneShot: [{ text }] } to also
 //                    script the non-streaming calls (classify, plan)
+//                    a stream turn { status: 500, error: "…" } answers with that HTTP error
 //   GET  /__requests the chat requests received, newest last
 //   GET  /v1/models  one model, so Settings lists it
 //   POST /v1/chat/completions  streams the next queued reply as SSE
@@ -90,6 +91,13 @@ createServer(async (req, res) => {
       return;
     }
     const turn = queue.shift() ?? { text: "Done." };
+    // { status, error }: answer this turn with an HTTP error instead.
+    if (turn.status) {
+      res
+        .writeHead(turn.status, { "content-type": "application/json" })
+        .end(JSON.stringify({ error: { message: turn.error ?? "scripted failure", type: "server_error" } }));
+      return;
+    }
     const chunks = [chunk({ role: "assistant" })];
     if (turn.text) chunks.push(chunk({ content: turn.text }));
     (turn.tool_calls ?? []).forEach((call, i) => {

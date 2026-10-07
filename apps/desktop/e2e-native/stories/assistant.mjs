@@ -135,4 +135,39 @@ export default [
       await ctx.shot("Switched back on: offered again");
     },
   },
+  {
+    id: "5-model-error-retry",
+    area: "Assistant",
+    title: "When the model fails, the chat says so, nothing is edited, and Retry sends it again",
+    async run(ctx) {
+      const { d } = ctx;
+      await onboard(ctx);
+      await openAudio(ctx, ctx.fixtures.tone);
+      await ctx.script({
+        stream: [{ status: 500, error: "the model fell over" }, { text: "Back now." }],
+        oneShot: [{ text: "edit" }, { text: "edit" }],
+      });
+      const before = await head(ctx);
+      await say(ctx, "Make it louder.");
+      await d.waitFor("[data-testid='chat-error']", { timeout: 60000 }).catch(async () => {
+        await ctx.shot("BUG: no error shown after the model failed");
+        throw new Error("the chat showed no error after the model answered HTTP 500");
+      });
+      const shown = await d.text("[data-testid='chat-error']");
+      await ctx.shot(`The failure, in words: ${shown.slice(0, 80)}`);
+      assert(/500|fell over|error|fail/i.test(shown), `the error says something useful (${JSON.stringify(shown.slice(0, 120))})`);
+      assert((await head(ctx)) === before, "nothing was edited");
+      await sleep(4000);
+      const stuck = await d.count("[data-testid='thinking-indicator']");
+      if (stuck) await ctx.shot("BUG: still 'Thinking' four seconds after the model failed");
+      assert(stuck === 0, "it is not stuck thinking four seconds after the failure");
+
+      await d.click("[data-testid='chat-error'] button");
+      await waitForReply(ctx, { timeout: 60000 });
+      await ctx.shot("After Retry: the reply arrived");
+      assert((await d.count("[data-testid='chat-error']")) === 0, "the error went away");
+      const sent = (await ctx.llmRequests()).filter((r) => r.stream);
+      assert(sent.length === 2, `the message was sent twice (${sent.length})`);
+    },
+  },
 ];
