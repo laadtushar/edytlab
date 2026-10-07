@@ -69,7 +69,7 @@ export async function chooseThrough(d, selector, answer, { shotDialog } = {}) {
   // The click returns when the dialog closes, so it is not awaited yet.
   const clicked = d.click(selector).catch((e) => e);
   const title = /open|select|save|choose/i;
-  await waitForWindow(title);
+  const dialog = await waitForWindow(title);
   await sleep(700);
   if (shotDialog) await shotDialog();
   if (answer.cancel) {
@@ -87,6 +87,14 @@ export async function chooseThrough(d, selector, answer, { shotDialog } = {}) {
     await sleep(300);
     x("key", "Return");
   } else {
+    // A folder chooser opens on "Recent", which cannot be chosen: Return
+    // on a typed path only walks into the folder and Open stays greyed
+    // out. Going to the home folder first (GTK's Alt+Home) puts it on a
+    // real location, where Return on the typed path selects the folder.
+    if (/folder/i.test(dialog.name)) {
+      x("key", "alt+Home");
+      await sleep(600);
+    }
     x("key", "ctrl+l");
     await sleep(300);
     x("type", "--delay", "15", answer.path);

@@ -4,15 +4,16 @@ Written by the session that built this harness, for whichever session continues 
 
 ## Run it
 - Build: `cd apps/desktop && CARGO_PROFILE_DEV_DEBUG=0 pnpm tauri build --debug --no-bundle`
-- Needs: xdotool, openbox, x11-utils, imagemagick, keyutils (apt).
-- Run ONE suite at a time, in the background, output to a file: `OUT=/tmp/edytlab-native node suite.mjs <story-id-substring...> > /tmp/edytlab-native/suite-run.log 2>&1`.
+- Needs: xdotool, openbox, x11-utils, imagemagick, keyutils (apt), and `tauri-driver` (`cargo install tauri-driver --locked` needs rustc 1.90+; the repo pins 1.88, so use `RUSTUP_TOOLCHAIN=stable`). Never run two rustup installs at once: they corrupt the toolchain.
+- Run ONE suite at a time, in the background, output to a file, through the wrapper: `OUT=/tmp/edytlab-native ./run-suite.sh <story-id-substring...> > /tmp/edytlab-native/suite-run.log 2>&1`. The wrapper provides one kernel session keyring for the whole run; without it a restart cannot find the app's saved provider (see below).
 - Never `pkill -f`/`pgrep -f` with a pattern that appears in your own command line: it kills your shell (exit 144).
 
-## Last clean run (scripted model), 6 of 9
-- PASS: 1-first-launch, 1-settings-panel, 1-provider-without-key, 2-open-several, 2-cancel-dialog, 3-template.
-- FAIL 2-open-audio: the assertion `/^[0-9a-f]{7}$/` got `F9FAF82`. Cause: WebDriver returns rendered text and the status bar uppercases it with CSS. Test bug; `head()` now lower-cases.
-- FAIL 2-not-audio: no `render-error` appeared after choosing `notes.wav` (not audio). Not yet diagnosed: could be a real app bug (a refused file should be named in an error, see the story's assertion) or a test timing/selector problem. Reproduce by hand, look at the failure screenshot, then decide; file an issue only if the app is at fault.
-- FAIL 3-new-project: "native window did not close" on the directory chooser. Hypothesis, unverified: Return in a GTK folder chooser navigates into the folder instead of selecting it. Try the chooser's Select/Open button, or Ctrl+L, the path, then Alt+O.
+## Last run (scripted model): 9 of 9 once #393 is in the build
+- The three earlier failures, and what each was:
+  - 2-open-audio: test bug. WebDriver returns rendered text and the status bar uppercases the head with CSS. `head()` lower-cases it.
+  - 2-not-audio: a real app bug. `batch_load` counted a refused file as a loaded track, so nothing was shown. Fixed in PR #393 (needs a binary built with it).
+  - 3-new-project: harness. (1) A GTK folder chooser opens on "Recent", where Return on a typed path only walks into the folder and Open stays disabled; `chooseThrough` now sends Alt+Home first. (2) The app's saved provider is in the kernel keyring, and a bare container has no session keyring, so a restarted app found nothing; `run-suite.sh` supplies one, and `run-env.sh` now clears both the persistent and the session keyring between stories (clearing the persistent one through `@u` is "Permission denied", and the old `|| true` hid it).
+- Real-app finding to file or fix separately: on Linux the app's credentials live only in the kernel keyring (`keyring` with `linux-native`), which is memory-only. They are lost on reboot, and the persistent keyring expires after 3 days (`persistent_keyring_expiry`, default 259200 s). A first-launch Welcome then reappears. Startup also swallows the read error (`load_active_provider` uses `.ok()?`).
 
 ## Groq (researched; sources: code.claude.com/docs/en/cloud-environments, and live tests)
 - Symptom: a Groq call from the sandbox answers HTTP 502, body `injection failed ("groq")`, even with an Authorization header supplied. That text is the sandbox egress proxy's.
@@ -22,6 +23,8 @@ Written by the session that built this harness, for whichever session continues 
 - Verified here: the native app reaches remote providers through this proxy (Settings > OpenAI > Test against api.openai.com returns OpenAI's real 401 JSON), so TLS and proxy settings are fine. Once the credential works, enter ANY placeholder key in the app's Groq settings; the proxy supplies the real one.
 - Plan once keyless curl gives 200: Settings > Groq, a tool-calling model (e.g. llama-3.3-70b-versatile), Test button, then the agent stories. Never print or screenshot a real key.
 - If keyless curl still gives 502 `injection failed`: stop and tell the user exactly what the proxy said and that the credential in Edit environment needs deleting and re-adding as above; carry on with the scripted-model stories.
+- Re-checked in a later session (keyless `curl`, nothing printed but the status): still HTTP 502 `injection failed ("groq")`; both sessions use the same default environment. A plain `GROQ_API_KEY` environment variable is also set there, and is not a way around the proxy.
+
 
 ## Still to build
 Timeline, track controls, clips and automation, markers/labels, undo/redo, graph and A/B, export selection (native save dialog), chat/agent stories (tool cards, plan approve/edit/reject, slash commands, palette, capabilities), settings editors, recording (PulseAudio null sink, plus the no-device error), shortcuts overlay, error banners. Then an HTML report with the screenshots; one GitHub issue per real bug (search first). Known: #392 (Settings Plugins tab clipped).

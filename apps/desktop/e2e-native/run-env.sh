@@ -57,12 +57,24 @@ if [ "${LLM:-fake}" != real ]; then
   echo $! >"$OUT/fake-llm.pid"
 fi
 # The app keeps its provider, keys and base URLs through the `keyring`
-# crate, which on Linux uses the user's *persistent* kernel keyring: it
-# outlives sessions, so neither a fresh HOME nor a session keyring
-# isolates a run. Clear it for a first launch; a restart within a story
-# passes KEEP_KEYRING=1 to find its settings again.
+# crate, which on Linux is the kernel keyring: an entry lives in the
+# *session* keyring and is linked into the user's *persistent* one, so a
+# run is isolated by neither a fresh HOME nor a fresh process. A first
+# launch clears both; a restart within a story passes KEEP_KEYRING=1 to
+# find its settings again.
+#
+# Both need a session keyring that every process of the run shares, which
+# a desktop login provides (pam_keyinit) and a bare container does not:
+# without one each lookup starts from nothing and a restart "forgets"
+# everything. `run-suite.sh` supplies it; say so when it is missing.
+if ! keyctl rdescribe @s >/dev/null 2>&1; then
+  echo "run-env.sh: no session keyring; start the suite through run-suite.sh" >&2
+fi
 if [ "${KEEP_KEYRING:-0}" != 1 ]; then
-  keyctl clear "$(keyctl get_persistent @u)" >/dev/null 2>&1 || true
+  # The persistent keyring must be linked into the session keyring to be
+  # possessed: clearing it through @u is "Permission denied".
+  keyctl clear "$(keyctl get_persistent @s)" >/dev/null || echo "run-env.sh: could not clear the persistent keyring" >&2
+  keyctl clear @s >/dev/null || echo "run-env.sh: could not clear the session keyring" >&2
 fi
 # tauri-driver cannot bind :4444 while the previous run's socket is still
 # in TIME_WAIT, and exits when it cannot. Start it until it is answering.
