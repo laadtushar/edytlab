@@ -45,6 +45,45 @@ export function isRedoChord(e: Chord): boolean {
   return e.shiftKey && e.key.toLowerCase() === "z";
 }
 
+/** What a keyboard event's target reads as, for `isTextEntry`. */
+export interface KeyTarget {
+  tagName?: string;
+  type?: string;
+  isContentEditable?: boolean;
+}
+
+/** `<input>` types that take no text, so have no text undo of their own. */
+const NON_TEXT_INPUT_TYPES = new Set([
+  "range",
+  "checkbox",
+  "radio",
+  "button",
+  "submit",
+  "reset",
+  "image",
+  "color",
+  "file",
+]);
+
+/**
+ * Whether the focused element is somewhere text is typed, where Ctrl+Z
+ * belongs to the field's own undo and not to the session's.
+ *
+ * Undo used to be skipped for every `INPUT`, which includes a range
+ * slider. A fader is the control a person nudges and then wants to take
+ * back, and with it focused Ctrl+Z did nothing until they clicked
+ * somewhere else. Only inputs known to take no text are let through;
+ * an unknown or missing `type` is text, so a new kind of field keeps
+ * the field's own undo rather than losing it.
+ */
+export function isTextEntry(target: KeyTarget | null | undefined): boolean {
+  if (!target) return false;
+  if (target.isContentEditable) return true;
+  if (target.tagName === "TEXTAREA") return true;
+  if (target.tagName !== "INPUT") return false;
+  return !NON_TEXT_INPUT_TYPES.has((target.type ?? "text").toLowerCase());
+}
+
 export function applyUndo(
   head: string,
   parent: string | null,
