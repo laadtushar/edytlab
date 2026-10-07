@@ -3,7 +3,9 @@
 // with only the model's replies scripted.
 //
 //   POST /__script   [{ text?, tool_calls?: [{ name, arguments }] }, ...]
-//                    queued replies, one per chat request, in order
+//                    queued streaming replies, one per request, in order;
+//                    or { stream: [...], oneShot: [{ text }] } to also
+//                    script the non-streaming calls (classify, plan)
 //   GET  /__requests the chat requests received, newest last
 //   GET  /v1/models  one model, so Settings lists it
 //   POST /v1/chat/completions  streams the next queued reply as SSE
@@ -11,6 +13,9 @@ import { createServer } from "node:http";
 
 const port = Number(process.env.FAKE_LLM_PORT ?? 11434);
 let queue = [];
+// Replies for non-streaming calls (classify, plan), queued separately so
+// they never take a turn meant for the streaming tool loop.
+let nonStream = [];
 const requests = [];
 
 function readBody(req) {
@@ -39,7 +44,9 @@ function chunk(delta, finish = null) {
 createServer(async (req, res) => {
   const body = await readBody(req);
   if (req.method === "POST" && req.url === "/__script") {
-    queue = JSON.parse(body);
+    const parsed = JSON.parse(body);
+    queue = Array.isArray(parsed) ? parsed : parsed.stream ?? [];
+    nonStream = Array.isArray(parsed) ? [] : parsed.oneShot ?? [];
     res.writeHead(200).end("ok");
     return;
   }
@@ -56,15 +63,27 @@ createServer(async (req, res) => {
   if (req.method === "POST" && req.url === "/v1/chat/completions") {
     const parsed = JSON.parse(body || "{}");
     requests.push(parsed);
-    const turn = queue.shift() ?? { text: "Done." };
     if (!parsed.stream) {
+      const turn = nonStream.shift() ?? {};
       // Non-streaming callers (a classifier, a connection test).
-      const message = { role: "assistant", content: turn.text ?? "ok" };
-      res
-        .writeHead(200, { "content-type": "application/json" })
-        .end(JSON.stringify({ id: "fake-1", model: "fake-editor", choices: [{ index: 0, message, finish_reason: "stop" }] }));
+      // The app reads non-streaming replies in OpenAI's shape for the
+      // OpenAI provider and in Anthropic's for every other, Ollama
+      // included, so answer in both.
+      const text = turn.text ?? "edit";
+      const message = { role: "assistant", content: text };
+      res.writeHead(200, { "content-type": "application/json" }).end(
+        JSON.stringify({
+          id: "fake-1",
+          model: "fake-editor",
+          choices: [{ index: 0, message, finish_reason: "stop" }],
+          type: "message",
+          role: "assistant",
+          content: [{ type: "text", text }],
+        }),
+      );
       return;
     }
+    const turn = queue.shift() ?? { text: "Done." };
     const chunks = [chunk({ role: "assistant" })];
     if (turn.text) chunks.push(chunk({ content: turn.text }));
     (turn.tool_calls ?? []).forEach((call, i) => {
