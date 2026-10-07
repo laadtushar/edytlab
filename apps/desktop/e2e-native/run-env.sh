@@ -8,10 +8,8 @@ set -euo pipefail
 OUT=${OUT:-/tmp/edytlab-native}
 mkdir -p "$OUT"
 # Stop what a previous run started. By exact process name (`-x`), not by
-# command line: `keyctl session` wraps tauri-driver, so killing its PID
-# leaves the driver alive holding port 4444 and an old session, and
-# `pkill -f` would match this shell too.
-for name in edytlab-desktop WebKitWebDriver tauri-driver keyctl openbox Xvfb; do
+# command line: `pkill -f` would match this shell too.
+for name in edytlab-desktop WebKitWebDriver tauri-driver openbox Xvfb; do
   pkill -x "$name" 2>/dev/null || true
 done
 pkill -f "fake-llm.mjs" 2>/dev/null || true
@@ -22,7 +20,7 @@ for _ in $(seq 1 40); do
   pgrep -x "Xvfb|openbox|tauri-driver|WebKitWebDriver|edytlab-desktop" >/dev/null 2>&1 || pgrep -x Xvfb >/dev/null 2>&1 || break
   sleep 0.25
 done
-for name in Xvfb openbox tauri-driver WebKitWebDriver edytlab-desktop keyctl; do
+for name in Xvfb openbox tauri-driver WebKitWebDriver edytlab-desktop; do
   pkill -9 -x "$name" 2>/dev/null || true
 done
 sleep 0.5
@@ -47,12 +45,16 @@ echo $! >"$OUT/openbox.pid"
 sleep 1
 node "$(dirname "$0")/fake-llm.mjs" >"$OUT/fake-llm.log" 2>&1 &
 echo $! >"$OUT/fake-llm.pid"
-# A named session keyring per story: the app keeps its provider, keys and
-# base URLs in the kernel keyring, which a fresh HOME does not reset. A
-# restart within a story passes the same E2E_KEYRING to see them again.
-E2E_KEYRING=${E2E_KEYRING:-e2e-$RANDOM$RANDOM}
+# The app keeps its provider, keys and base URLs through the `keyring`
+# crate, which on Linux uses the user's *persistent* kernel keyring: it
+# outlives sessions, so neither a fresh HOME nor a session keyring
+# isolates a run. Clear it for a first launch; a restart within a story
+# passes KEEP_KEYRING=1 to find its settings again.
+if [ "${KEEP_KEYRING:-0}" != 1 ]; then
+  keyctl clear "$(keyctl get_persistent @u)" >/dev/null 2>&1 || true
+fi
 HOME="$E2E_HOME" DISPLAY=:99 XDG_DATA_HOME="$E2E_HOME/.local/share" XDG_CONFIG_HOME="$E2E_HOME/.config" \
-  WEBKIT_DISABLE_COMPOSITING_MODE=1 keyctl session "$E2E_KEYRING" tauri-driver >"$OUT/tauri-driver.log" 2>&1 &
+  WEBKIT_DISABLE_COMPOSITING_MODE=1 tauri-driver >"$OUT/tauri-driver.log" 2>&1 &
 echo $! >"$OUT/tauri-driver.pid"
 sleep 2
-echo "$E2E_HOME $E2E_KEYRING"
+echo "$E2E_HOME"

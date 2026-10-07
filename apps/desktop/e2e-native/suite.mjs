@@ -20,19 +20,16 @@ const only = process.argv.slice(2);
 mkdirSync(join(OUT, "shots"), { recursive: true });
 const fixtures = writeFixtures(join(OUT, "fixtures"));
 
-function freshEnv(home, keyring) {
+function freshEnv(home, keepKeyring) {
   const env = { ...process.env, OUT };
   if (home) env.E2E_HOME = home;
-  if (keyring) env.E2E_KEYRING = keyring;
-  const [usedHome, usedKeyring] = execFileSync(new URL("./run-env.sh", import.meta.url).pathname, { env })
-    .toString()
-    .trim()
-    .split(/\s+/);
-  return { home: usedHome, keyring: usedKeyring };
+  if (keepKeyring) env.KEEP_KEYRING = "1";
+  const usedHome = execFileSync(new URL("./run-env.sh", import.meta.url).pathname, { env }).toString().trim();
+  return { home: usedHome };
 }
 
-async function boot(home, keyring) {
-  const used = freshEnv(home, keyring);
+async function boot(home, keepKeyring) {
+  const used = freshEnv(home, keepKeyring);
   const d = await Driver.start({ application: APP });
   await d.waitFor("[data-testid='status-bar']", { timeout: 30000 });
   return { d, ...used };
@@ -69,7 +66,7 @@ for (const story of stories) {
        * real restart does; HOME is kept unless another is given. */
       boot: async (home, { keepKeyring = true } = {}) => {
         await session.d.quit();
-        session = await boot(home ?? session.home, keepKeyring ? session.keyring : undefined);
+        session = await boot(home ?? session.home, keepKeyring);
         ctx.d = session.d;
         return session.d;
       },
