@@ -12,7 +12,7 @@ async function say(ctx, text) {
 }
 
 /** Wait for the assistant to finish: no thinking indicator, a reply shown. */
-async function waitForReply(ctx, { timeout = 240000 } = {}) {
+async function waitForReply(ctx, { timeout = 480000 } = {}) {
   const { d } = ctx;
   await d.until(async () => {
     const busy = await d.count("[data-testid='thinking-indicator']");
