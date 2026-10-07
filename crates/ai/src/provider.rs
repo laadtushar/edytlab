@@ -86,6 +86,21 @@ pub enum ProviderError {
     Parse(String),
 }
 
+/// How a provider's one-shot (non-streaming) requests are shaped and its
+/// replies read. Streaming has its own per-provider hooks
+/// ([`LlmProvider::serialize_request`], [`LlmProvider::parse_stream_chunk`]);
+/// this is the other half, used by the classifier and the plan request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WireFormat {
+    /// Anthropic's Messages API (also OpenRouter's passthrough): a
+    /// top-level `system`, replies in `content[].text`.
+    AnthropicMessages,
+    /// OpenAI's chat-completions API, which Groq, Gemini and Ollama
+    /// also speak: the system prompt is the first message, replies in
+    /// `choices[0].message.content`.
+    ChatCompletions,
+}
+
 /// Per-provider knobs the agent loop and validator need.
 pub trait LlmProvider: Send + Sync + Debug {
     /// Stable identifier (`"anthropic"`, `"openrouter"`, `"openai"`).
@@ -111,6 +126,14 @@ pub trait LlmProvider: Send + Sync + Debug {
     /// `/v1/messages`; OpenAI overrides to `/v1/chat/completions`.
     fn endpoint_path(&self) -> &str {
         "/v1/messages"
+    }
+
+    /// The shape of this provider's one-shot requests and replies.
+    /// Anthropic's, unless a provider speaks chat-completions — which
+    /// every provider that does must say, or its classifier and plan
+    /// requests go out in a shape its server ignores (#399).
+    fn wire_format(&self) -> WireFormat {
+        WireFormat::AnthropicMessages
     }
 
     /// Whether this provider needs an API key to be usable.
@@ -293,6 +316,9 @@ impl Clone for OpenAIProvider {
 }
 
 impl LlmProvider for OpenAIProvider {
+    fn wire_format(&self) -> WireFormat {
+        WireFormat::ChatCompletions
+    }
     fn id(&self) -> &'static str {
         OPENAI_ID
     }
@@ -722,6 +748,9 @@ impl Clone for GroqProvider {
 }
 
 impl LlmProvider for GroqProvider {
+    fn wire_format(&self) -> WireFormat {
+        WireFormat::ChatCompletions
+    }
     fn id(&self) -> &'static str {
         GROQ_ID
     }
@@ -778,6 +807,9 @@ impl Clone for GeminiProvider {
 }
 
 impl LlmProvider for GeminiProvider {
+    fn wire_format(&self) -> WireFormat {
+        WireFormat::ChatCompletions
+    }
     fn id(&self) -> &'static str {
         GEMINI_ID
     }
@@ -847,6 +879,9 @@ impl Clone for OllamaProvider {
 }
 
 impl LlmProvider for OllamaProvider {
+    fn wire_format(&self) -> WireFormat {
+        WireFormat::ChatCompletions
+    }
     fn id(&self) -> &'static str {
         OLLAMA_ID
     }
