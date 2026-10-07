@@ -49,8 +49,10 @@ export function waveformHasInk() {
   return false;
 }
 
+/** The head shown in the status bar, lower-cased: WebDriver returns the
+ * rendered text, and the bar uppercases it with CSS. */
 export async function head(ctx) {
-  return (await ctx.d.text("[data-testid='status-bar-head']")).replace(/^head\s*/i, "").trim();
+  return (await ctx.d.text("[data-testid='status-bar-head']")).replace(/^head\s*/i, "").trim().toLowerCase();
 }
 
 export async function waitForNewHead(ctx, before) {
