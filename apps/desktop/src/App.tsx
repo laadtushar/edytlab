@@ -55,6 +55,7 @@ import {
   isUndoChord,
   isRedoChord,
 } from "./lib/undoRedo";
+import { undoTarget } from "./lib/headTrail";
 import { mixIsStale } from "./lib/mixState";
 import { scheduledTake, startTake, stopTake } from "./lib/recording";
 
@@ -130,7 +131,7 @@ function isApiKeyError(message: string): boolean {
 }
 
 function App() {
-  const { renderHead, head, setHeadLocal } = useSession();
+  const { renderHead, head, setHeadLocal, trail, stepBack, stepForward } = useSession();
   // Two different things used to share one variable, and the collision
   // is why the mixer is inaudible (#155).
   //
@@ -259,18 +260,25 @@ function App() {
     if (!head) return;
     await runHeadMove(async () => {
       try {
-        const node = await getNode(head);
-        const result = applyUndo(head, node.parent ?? null, redoStack);
+        // Where the user came from. The node's stored parent is only
+        // right while no edit has returned to an earlier state, so it is
+        // asked for only when the trail has nothing left (#398).
+        let target = undoTarget(trail, head, null);
+        if (target === null) {
+          const node = await getNode(head);
+          target = node.parent ?? null;
+        }
+        const result = applyUndo(head, target, redoStack);
         if (!result) return;
         await setHeadTo(result.head);
-        setHeadLocal(result.head);
+        stepBack(result.head);
         setRedoStack(result.redoStack);
         await refreshTracks();
       } catch (err) {
         setRenderError(String(err));
       }
     });
-  }, [head, redoStack, setHeadLocal, runHeadMove]);
+  }, [head, trail, redoStack, stepBack, runHeadMove]);
 
   // Whenever the head moves — an edit, an undo, a project opening — the
   // toggle re-reads the session rather than trusting what it last set.
@@ -310,14 +318,14 @@ function App() {
         const result = applyRedo(redoStack);
         if (!result) return;
         await setHeadTo(result.head);
-        setHeadLocal(result.head);
+        stepForward(result.head);
         setRedoStack(result.redoStack);
         await refreshTracks();
       } catch (err) {
         setRenderError(String(err));
       }
     });
-  }, [head, redoStack, setHeadLocal, runHeadMove]);
+  }, [head, redoStack, stepForward, runHeadMove]);
 
   // Window-level keyboard transport. Active whenever the user isn't
   // typing into a chat input / settings field. Space toggles

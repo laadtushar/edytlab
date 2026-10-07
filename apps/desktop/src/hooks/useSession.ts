@@ -17,7 +17,9 @@
  * would otherwise happen under StrictMode's double-mount.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useReducer, useState } from "react";
+
+import { headTrailReducer, initialHeadTrail } from "../lib/headTrail";
 
 import {
   getSessionHead,
@@ -47,13 +49,24 @@ export interface UseSessionResult {
    * action (which would persist) is gated on M24.
    */
   setHeadLocal: (nodeId: NodeId) => void;
+  /**
+   * The heads the user has been on this session, oldest first, not
+   * including `head`. Undo goes to its last entry: the node's stored
+   * parent is the wrong answer once an edit has returned to a state
+   * reached before (see `lib/headTrail.ts`).
+   */
+  trail: readonly NodeId[];
+  /** Undo arrived at `nodeId`: pop the trail instead of extending it. */
+  stepBack: (nodeId: NodeId) => void;
+  /** Redo arrived at `nodeId`: the head it left goes on the trail. */
+  stepForward: (nodeId: NodeId) => void;
   /** Last error to bubble up from a session command, for surface in UI. */
   error: string | null;
 }
 
 export function useSession(): UseSessionResult {
   const [project, setProject] = useState<ProjectInfo | null>(null);
-  const [head, setHead] = useState<NodeId | null>(null);
+  const [{ head, trail }, dispatchHead] = useReducer(headTrailReducer, initialHeadTrail);
   const [error, setError] = useState<string | null>(null);
 
   // Subscribe to node-created so the head pointer follows the agent's
@@ -74,7 +87,7 @@ export function useSession(): UseSessionResult {
     let unlisten: (() => void) | null = null;
     let cancelled = false;
     onNodeCreated((nodeId) => {
-      setHead(nodeId);
+      dispatchHead({ type: "advance", head: nodeId });
     }).then((fn) => {
       if (cancelled) {
         fn();
@@ -84,7 +97,7 @@ export function useSession(): UseSessionResult {
     });
     getSessionHead()
       .then((restored) => {
-        if (!cancelled) setHead((current) => current ?? restored);
+        if (!cancelled) dispatchHead({ type: "fill", head: restored });
       })
       .catch(() => undefined);
     return () => {
@@ -97,7 +110,7 @@ export function useSession(): UseSessionResult {
     try {
       const info = await bridgeOpenProject(path);
       setProject(info);
-      setHead(info.head);
+      dispatchHead({ type: "reset", head: info.head });
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -113,8 +126,24 @@ export function useSession(): UseSessionResult {
   }, [head]);
 
   const setHeadLocal = useCallback((nodeId: NodeId) => {
-    setHead(nodeId);
+    dispatchHead({ type: "advance", head: nodeId });
+  }, []);
+  const stepBack = useCallback((nodeId: NodeId) => {
+    dispatchHead({ type: "stepBack", head: nodeId });
+  }, []);
+  const stepForward = useCallback((nodeId: NodeId) => {
+    dispatchHead({ type: "stepForward", head: nodeId });
   }, []);
 
-  return { project, head, openProject, renderHead, setHeadLocal, error };
+  return {
+    project,
+    head,
+    openProject,
+    renderHead,
+    setHeadLocal,
+    trail,
+    stepBack,
+    stepForward,
+    error,
+  };
 }
