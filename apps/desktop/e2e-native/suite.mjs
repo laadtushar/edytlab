@@ -35,10 +35,15 @@ async function boot(home, keepKeyring) {
   return { d, ...used };
 }
 
+// LLM=real runs against a real model on :11434, which cannot be scripted:
+// scripting is a no-op there and the request log is empty.
+const REAL_LLM = process.env.LLM === "real";
 async function script(turns) {
+  if (REAL_LLM) return;
   await fetch(`${LLM}/__script`, { method: "POST", body: JSON.stringify(turns) });
 }
 async function llmRequests() {
+  if (REAL_LLM) return [];
   return (await fetch(`${LLM}/__requests`)).json();
 }
 

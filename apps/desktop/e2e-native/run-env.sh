@@ -12,7 +12,14 @@ mkdir -p "$OUT"
 for name in edytlab-desktop WebKitWebDriver tauri-driver openbox Xvfb; do
   pkill -x "$name" 2>/dev/null || true
 done
-pkill -f "fake-llm.mjs" 2>/dev/null || true
+# The scripted model is a node process; find it by its own command line
+# rather than `pkill -f`, which would match any shell that merely mentions
+# the name.
+for pid in $(pgrep -x node); do
+  case "$(tr '\0' ' ' </proc/"$pid"/cmdline 2>/dev/null)" in
+    *fake-llm.mjs*) kill "$pid" 2>/dev/null || true ;;
+  esac
+done
 # Wait for them to be gone, not just signalled: a new Xvfb started while
 # the old one is still shutting down finds display :99 taken, exits, and
 # then the old one takes the display with it.
@@ -43,8 +50,12 @@ DISPLAY=:99 xdotool getdisplaygeometry >/dev/null 2>&1 || { echo "Xvfb did not s
 DISPLAY=:99 openbox >"$OUT/openbox.log" 2>&1 &
 echo $! >"$OUT/openbox.pid"
 sleep 1
-node "$(dirname "$0")/fake-llm.mjs" >"$OUT/fake-llm.log" 2>&1 &
-echo $! >"$OUT/fake-llm.pid"
+# The scripted model, unless a real one already answers on :11434
+# (LLM=real: llama-server with a local model, started separately).
+if [ "${LLM:-fake}" != real ]; then
+  node "$(dirname "$0")/fake-llm.mjs" >"$OUT/fake-llm.log" 2>&1 &
+  echo $! >"$OUT/fake-llm.pid"
+fi
 # The app keeps its provider, keys and base URLs through the `keyring`
 # crate, which on Linux uses the user's *persistent* kernel keyring: it
 # outlives sessions, so neither a fresh HOME nor a session keyring
