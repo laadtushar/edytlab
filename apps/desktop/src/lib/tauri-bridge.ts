@@ -859,8 +859,12 @@ export const listCapabilities = (): Promise<Capabilities> =>
 // -----------------------------------------------------------------------------
 
 export interface BatchLoadResult {
+  /** Files that became tracks. */
   tracks_loaded: number;
+  /** The session head after the last file; `null` with no session yet. */
   last_node_id: string | null;
+  /** Files the `load` tool refused, with its reason. The rest still load. */
+  failures: { path: string; error: string }[];
 }
 
 export const batchLoad = (paths: string[]): Promise<BatchLoadResult> =>
