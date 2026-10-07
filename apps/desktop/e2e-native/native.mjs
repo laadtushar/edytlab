@@ -81,6 +81,11 @@ export async function chooseThrough(d, selector, answer, { shotDialog } = {}) {
     await sleep(300);
     x("type", "--delay", "15", `${dir}/`);
     await sleep(500);
+    // The location bar completes the common prefix of what the folder
+    // holds ("t" for tone and take2) as selected text; Return would then
+    // accept "<dir>/t". Deleting the selection leaves the folder itself.
+    x("key", "Delete");
+    await sleep(200);
     x("key", "Return");
     await sleep(800);
     x("key", "ctrl+a");
