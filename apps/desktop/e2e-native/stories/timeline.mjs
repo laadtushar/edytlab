@@ -1,7 +1,7 @@
 // The timeline and its track controls, as a person uses them. Every
 // outcome is checked twice: on screen, and against what the backend
 // reports (`list_tracks`), so a control that draws but does nothing fails.
-import { assert, head, K, onboard, openAudio, sleep, waitForNewHead } from "./helpers.mjs";
+import { assert, head, K, onboard, openAudio, sleep, waitForNewHead, waitForWaveform } from "./helpers.mjs";
 
 const lane = (n = 0) => `[data-testid='timeline-lane']:nth-of-type(${n + 1})`;
 
@@ -38,9 +38,14 @@ export default [
       before = await head(ctx);
       for (let i = 0; i < 4; i++) await d.type("[data-testid='timeline-lane-gain']", K.right);
       await waitForNewHead(ctx, before);
-      const gain = (await tracks(ctx))[0].gain_db;
-      assert(Math.abs(gain - 2) < 0.01, `gain is +2 dB after four 0.5 dB steps (got ${gain})`);
-      assert(/\+2\.0/.test(await d.text("[data-testid='timeline-lane-gain-readout']")), "the readout says +2.0");
+      // Each nudge is its own edit, committed one after another: wait for
+      // the last, not the first.
+      await d.until(async () => Math.abs((await tracks(ctx))[0].gain_db - 2) < 0.01, {
+        label: "gain to reach +2 dB after four 0.5 dB steps",
+      });
+      await d.until(async () => /\+2\.0/.test(await d.text("[data-testid='timeline-lane-gain-readout']")), {
+        label: "the readout to say +2.0",
+      });
       await ctx.shot("Gain nudged up four steps: +2.0 dB");
 
       before = await head(ctx);
@@ -74,8 +79,15 @@ export default [
       await d.type("[data-testid='track-rename-input-0']", "Lead guitar");
       await d.keys(K.enter);
       await d.until(async () => (await tracks(ctx))[0].name === "Lead guitar", { label: "the rename" });
-      assert(/lead guitar/i.test(await d.text("[data-testid='timeline-lane-name']")), "the lane shows the new name");
+      await d.until(async () => /lead guitar/i.test(await d.text("[data-testid='timeline-lane-name']")), {
+        label: "the lane to show the new name",
+      });
       await ctx.shot("Renamed to Lead guitar");
+      // A rename must not cost the track its waveform.
+      await waitForWaveform(ctx).catch(async () => {
+        await ctx.shot("BUG: the waveform did not come back after the rename");
+        throw new Error("the waveform did not come back after renaming the track");
+      });
 
       await d.click("[data-testid='track-menu-btn-0']");
       await d.click("[data-testid='track-duplicate-0']");
