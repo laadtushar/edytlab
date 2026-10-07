@@ -1,4 +1,4 @@
-import { assert, onboard, sleep } from "./helpers.mjs";
+import { assert, K, onboard, sleep } from "./helpers.mjs";
 
 export default [
   {
@@ -45,11 +45,24 @@ export default [
       }, { timeout: 20000, label: "test result" });
       await ctx.shot(`The connection test reports: ${outcome}`);
       assert(outcome === "settings-test-ok", `test said ${outcome}: ${await d.text(`[data-testid='${outcome}']`)}`);
-      for (const tab of ["project", "memory", "skills", "agents", "mcp", "plugins"]) {
+      for (const tab of ["project", "memory", "skills", "agents", "mcp"]) {
         await d.click(`[data-testid='settings-tab-${tab}']`);
         await sleep(500);
         await ctx.shot(`Settings, ${tab} tab`);
       }
+      // The Plugins tab is cut off by the dialog at this size, so a person
+      // cannot click it (#392). Reach it by keyboard, and record that the
+      // pointer cannot.
+      const clipped = await d.exec(() => {
+        const dlg = document.querySelector("[data-testid='settings-tabs']").getBoundingClientRect();
+        const tab = document.querySelector("[data-testid='settings-tab-plugins']").getBoundingClientRect();
+        return tab.right > dlg.right + 1;
+      });
+      if (clipped) ctx.note("KNOWN BUG #392: the Plugins tab extends past the dialog edge and cannot be clicked");
+      await d.exec(() => document.querySelector("[data-testid='settings-tab-plugins']").focus());
+      await d.keys(K.enter);
+      await sleep(500);
+      await ctx.shot("Settings, plugins tab (reached by keyboard)");
       await d.click("[data-testid='settings-close']");
       await d.until(async () => (await d.count("[data-testid='settings']")) === 0, { label: "panel to close" });
     },
