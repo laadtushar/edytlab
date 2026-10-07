@@ -49,7 +49,7 @@ use crate::anthropic::{
 };
 use crate::prompt::{DEFAULT_MAX_TOKENS, MAX_TOOL_CALLS_PER_TURN};
 use crate::session_context::{render_block, SessionContext};
-use crate::{AgentEvent, Error, LlmConfig, Result, TurnResult};
+use crate::{AgentEvent, Error, LlmConfig, Result, TurnResult, WireFormat};
 
 // ---------------------------------------------------------------------------
 // Mode detection (M27)
@@ -62,6 +62,64 @@ pub(crate) enum Mode {
     Mix,
     Voice,
     General,
+}
+
+/// A non-streaming request in the shape `cfg.provider` speaks, so the
+/// provider reads its system prompt and its reply can be read back by
+/// [`extract_response_text`].
+///
+/// This used to branch on the provider being OpenAI itself. Groq, Gemini
+/// and Ollama speak the same chat-completions API but got Anthropic's
+/// body — a top-level `system` their servers ignore, so neither the
+/// classifier nor the plan request carried its instructions — and their
+/// replies were read as Anthropic's, so every plan came back "carried no
+/// text" and every request classified as general (#399).
+fn one_shot_body(
+    cfg: &LlmConfig,
+    model: String,
+    max_tokens: u32,
+    system: &[&str],
+    messages: Vec<serde_json::Value>,
+) -> serde_json::Value {
+    match cfg.provider.wire_format() {
+        WireFormat::ChatCompletions => {
+            // OpenAI's newer models reject `max_tokens`; the compatible
+            // servers know only that name.
+            let limit_key = if cfg.provider.id() == crate::OPENAI_ID {
+                "max_completion_tokens"
+            } else {
+                "max_tokens"
+            };
+            serde_json::json!({
+                "model": model,
+                limit_key: max_tokens,
+                "messages": std::iter::once(serde_json::json!({
+                        "role": "system",
+                        "content": system.join("\n\n"),
+                    }))
+                    .chain(messages)
+                    .collect::<Vec<_>>(),
+                "stream": false
+            })
+        }
+        WireFormat::AnthropicMessages => {
+            let system = match system {
+                [one] => serde_json::json!(one),
+                many => serde_json::Value::Array(
+                    many.iter()
+                        .map(|t| serde_json::json!({ "type": "text", "text": t }))
+                        .collect(),
+                ),
+            };
+            serde_json::json!({
+                "model": model,
+                "max_tokens": max_tokens,
+                "system": system,
+                "messages": messages,
+                "stream": false
+            })
+        }
+    }
 }
 
 /// Classify the user's request using a cheap single-turn call to
@@ -93,27 +151,13 @@ pub(crate) async fn classify_mode(
         .collect();
     messages.push(serde_json::json!({ "role": "user", "content": user_message }));
 
-    // Build a provider-shaped non-streaming body. OpenAI's chat-completions
-    // returns `choices[0].message.content`; Anthropic returns
-    // `content[0].text`; we handle both shapes after we get the response.
-    let request_body = if cfg.provider.id() == crate::OPENAI_ID {
-        serde_json::json!({
-            "model": cfg.wire_classifier_model(),
-            "max_completion_tokens": 10,
-            "messages": std::iter::once(serde_json::json!({"role":"system","content":system_text}))
-                .chain(messages.iter().cloned())
-                .collect::<Vec<_>>(),
-            "stream": false
-        })
-    } else {
-        serde_json::json!({
-            "model": cfg.wire_classifier_model(),
-            "max_tokens": 10,
-            "system": system_text,
-            "messages": messages,
-            "stream": false
-        })
-    };
+    let request_body = one_shot_body(
+        cfg,
+        cfg.wire_classifier_model(),
+        10,
+        &[system_text],
+        messages,
+    );
 
     let req = http.post(format!(
         "{}{}",
@@ -325,28 +369,13 @@ async fn fetch_plan(
 
     let plan_instruction =
         "Output only a <plan>...</plan> XML block listing the steps as JSON. No other text.";
-    let request_body = if cfg.provider.id() == crate::OPENAI_ID {
-        let combined_system = format!("{system_prompt}\n\n{plan_instruction}");
-        serde_json::json!({
-            "model": cfg.wire_model(),
-            "max_completion_tokens": 1024,
-            "messages": std::iter::once(serde_json::json!({"role":"system","content":combined_system}))
-                .chain(messages.iter().cloned())
-                .collect::<Vec<_>>(),
-            "stream": false
-        })
-    } else {
-        serde_json::json!({
-            "model": cfg.wire_model(),
-            "max_tokens": 1024,
-            "system": [
-                { "type": "text", "text": system_prompt },
-                { "type": "text", "text": plan_instruction }
-            ],
-            "messages": messages,
-            "stream": false
-        })
-    };
+    let request_body = one_shot_body(
+        cfg,
+        cfg.wire_model(),
+        1024,
+        &[system_prompt, plan_instruction],
+        messages,
+    );
 
     let req = http.post(format!(
         "{}{}",
@@ -977,7 +1006,7 @@ fn error_message(err: &ApiError) -> String {
 /// body, handling both Anthropic-shape (`content[0].text`) and
 /// OpenAI-shape (`choices[0].message.content`).
 fn extract_response_text(cfg: &LlmConfig, body: &Value) -> Option<String> {
-    if cfg.provider.id() == crate::OPENAI_ID {
+    if cfg.provider.wire_format() == WireFormat::ChatCompletions {
         body.get("choices")
             .and_then(|c| c.as_array())
             .and_then(|a| a.first())
@@ -1121,6 +1150,148 @@ mod tests {
     #[test]
     fn parse_plan_returns_none_when_no_block() {
         assert!(parse_plan("some text without plan tags").is_none());
+    }
+
+    // ------------------------------------------------------------------
+    // One-shot requests: the classifier and the plan (#399)
+    // ------------------------------------------------------------------
+
+    /// Whether a provider's server speaks chat-completions, judged by the
+    /// endpoint it is called on — independent of `wire_format`, which is
+    /// what is under test. A provider that posts to `/chat/completions`
+    /// and does not say so is the fault this guards.
+    fn speaks_chat_completions(provider_id: &str) -> bool {
+        crate::provider::provider_from_id(provider_id)
+            .endpoint_path()
+            .ends_with("/chat/completions")
+    }
+
+    /// What a server of `provider_id` answers a one-shot call with: the
+    /// text, in the shape that server's API uses.
+    fn reply_in_providers_shape(provider_id: &str, text: &str) -> Value {
+        if speaks_chat_completions(provider_id) {
+            json!({ "choices": [{ "message": { "role": "assistant", "content": text } }] })
+        } else {
+            json!({ "content": [{ "type": "text", "text": text }] })
+        }
+    }
+
+    #[test]
+    fn a_provider_on_chat_completions_declares_it() {
+        for id in crate::SUPPORTED_PROVIDER_IDS {
+            let declared = crate::provider::provider_from_id(id).wire_format();
+            let expected = if speaks_chat_completions(id) {
+                WireFormat::ChatCompletions
+            } else {
+                WireFormat::AnthropicMessages
+            };
+            assert_eq!(
+                declared, expected,
+                "{id}: its endpoint and its wire_format disagree"
+            );
+        }
+    }
+
+    /// Run `call` against a mock that answers `text` in the shape of
+    /// `provider_id`, and return what the server was sent.
+    async fn serve_one_shot<F, Fut, T>(provider_id: &str, text: &str, call: F) -> (T, Value)
+    where
+        F: FnOnce(LlmConfig, reqwest::Client) -> Fut,
+        Fut: std::future::Future<Output = T>,
+    {
+        use wiremock::matchers::method;
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(reply_in_providers_shape(provider_id, text)),
+            )
+            .mount(&server)
+            .await;
+        let cfg = LlmConfig::new(crate::provider::provider_from_id(provider_id), "key")
+            .with_base_url(server.uri());
+        let out = call(cfg, reqwest::Client::new()).await;
+        let sent = server.received_requests().await.expect("recorded");
+        assert_eq!(sent.len(), 1, "{provider_id}: exactly one request");
+        let body: Value = serde_json::from_slice(&sent[0].body).expect("a JSON body");
+        (out, body)
+    }
+
+    /// Every provider, so a new one is covered the day it is added: its
+    /// plan request carries the plan instruction where its server reads
+    /// instructions, and a plan in its own reply shape is read back.
+    #[tokio::test]
+    async fn a_plan_round_trips_for_every_provider() {
+        let plan = r#"<plan>[{"step":1,"tool":"set_track_gain","description":"Louder"}]</plan>"#;
+        for id in crate::SUPPORTED_PROVIDER_IDS {
+            let (steps, body) = serve_one_shot(id, plan, |cfg, http| async move {
+                fetch_plan(&cfg, &http, "SYSTEM-PROMPT", &[], "make it louder").await
+            })
+            .await;
+
+            let steps = steps.unwrap_or_else(|e| panic!("{id}: no plan read back: {e:?}"));
+            assert_eq!(steps.len(), 1, "{id}");
+            let everything = body.to_string();
+            assert!(
+                everything.contains("SYSTEM-PROMPT"),
+                "{id}: the system prompt was not sent"
+            );
+            assert!(
+                everything.contains("<plan>"),
+                "{id}: the plan instruction was not sent"
+            );
+            match crate::provider::provider_from_id(id).wire_format() {
+                WireFormat::ChatCompletions => {
+                    assert!(
+                        body.get("system").is_none(),
+                        "{id}: a top-level `system` is ignored by this API"
+                    );
+                    assert_eq!(body["messages"][0]["role"], "system", "{id}");
+                    assert_eq!(body["messages"][1]["content"], "make it louder", "{id}");
+                }
+                WireFormat::AnthropicMessages => {
+                    assert_eq!(body["system"].as_array().map(Vec::len), Some(2), "{id}");
+                    assert_eq!(body["messages"][0]["role"], "user", "{id}");
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn the_classifier_reads_its_answer_for_every_provider() {
+        for id in crate::SUPPORTED_PROVIDER_IDS {
+            let (mode, body) = serve_one_shot(id, "mashup", |cfg, http| async move {
+                classify_mode(&cfg, &http, "mash these two songs up", &[]).await
+            })
+            .await;
+
+            assert_eq!(mode, Mode::Mashup, "{id}: the answer was not read");
+            assert!(
+                body.to_string().contains("Classify the user's request"),
+                "{id}: the classifier instruction was not sent"
+            );
+        }
+    }
+
+    /// OpenAI's own models reject `max_tokens`; the compatible servers
+    /// know only that name.
+    #[test]
+    fn the_token_limit_is_named_as_each_api_expects() {
+        let body_for = |id: &str| {
+            let cfg = LlmConfig::new(crate::provider::provider_from_id(id), "k");
+            one_shot_body(&cfg, "m".into(), 7, &["s"], vec![])
+        };
+        assert_eq!(body_for(crate::OPENAI_ID)["max_completion_tokens"], 7);
+        for id in [
+            crate::provider::OLLAMA_ID,
+            crate::provider::GROQ_ID,
+            crate::provider::GEMINI_ID,
+        ] {
+            assert_eq!(body_for(id)["max_tokens"], 7, "{id}");
+            assert!(body_for(id).get("max_completion_tokens").is_none(), "{id}");
+        }
     }
 
     // ------------------------------------------------------------------
