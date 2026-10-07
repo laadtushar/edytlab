@@ -6,7 +6,7 @@
 // Each story group starts the app fresh (a new HOME, so a first launch),
 // except where a story is about what survives a restart.
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Driver } from "./webdriver.mjs";
 import { chooseThrough, screenshotRoot } from "./native.mjs";
@@ -109,6 +109,14 @@ for (const story of stories) {
   console.log(`${result.status === "pass" ? "PASS" : "FAIL"} ${story.id} (${result.ms} ms)${result.error ? `\n  ${result.error.split("\n")[0]}` : ""}`);
 }
 
-writeFileSync(join(OUT, "results.json"), JSON.stringify(results, null, 2));
+// Accumulate across runs, keyed by story id: a run of a few stories updates
+// those and keeps the rest, so the report covers everything run so far.
+let previous = [];
+try {
+  previous = JSON.parse(readFileSync(join(OUT, "results.json"), "utf8"));
+} catch {}
+const ran = new Set(results.map((r) => r.id));
+const merged = [...previous.filter((r) => !ran.has(r.id)), ...results];
+writeFileSync(join(OUT, "results.json"), JSON.stringify(merged, null, 2));
 const passed = results.filter((r) => r.status === "pass").length;
-console.log(`\n${passed}/${results.length} stories passed`);
+console.log(`\n${passed}/${results.length} stories passed this run (${merged.length} recorded)`);
