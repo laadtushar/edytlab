@@ -19,6 +19,11 @@ export const K = {
   del: "\uE017",
 };
 
+// Every request closes its connection. Node's fetch pools keep-alive
+// sockets per origin, and a story's driver lives on the same port as the
+// last story's dead one: the first request of the next story reused the
+// dead socket and failed with "fetch failed" — which made every other
+// story fail, with the new driver up and its log empty.
 export class Driver {
   constructor(base, id) {
     this.base = base;
@@ -28,7 +33,7 @@ export class Driver {
   static async start({ application, args = [], base = "http://127.0.0.1:4444" }) {
     const res = await fetch(`${base}/session`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", connection: "close" },
       body: JSON.stringify({
         capabilities: {
           alwaysMatch: { "tauri:options": { application, args } },
@@ -43,7 +48,7 @@ export class Driver {
   async cmd(method, path, payload) {
     const res = await fetch(`${this.base}/session/${this.id}${path}`, {
       method,
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", connection: "close" },
       body: payload === undefined ? undefined : JSON.stringify(payload),
     });
     const body = await res.json().catch(() => ({}));
@@ -54,7 +59,7 @@ export class Driver {
   }
 
   async quit() {
-    await fetch(`${this.base}/session/${this.id}`, { method: "DELETE" }).catch(() => {});
+    await fetch(`${this.base}/session/${this.id}`, { method: "DELETE", headers: { connection: "close" } }).catch(() => {});
   }
 
   /** Run `fn` in the page; it receives `args` and may return a promise. */

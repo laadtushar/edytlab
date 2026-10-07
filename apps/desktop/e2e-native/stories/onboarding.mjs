@@ -34,7 +34,8 @@ export default [
       await d.waitFor("[data-testid='settings-model-hint']", { pred: (t) => /1 model/i.test(t) });
       await sleep(400);
       await ctx.shot("Settings as a panel: Ollama selected, one model listed from the local server");
-      await ctx.script({ stream: [{ text: "", tool_calls: [{ name: "get_audio_info", arguments: {} }] }] });
+      // The connection test is one non-streaming call that offers a tool.
+      await ctx.script({ oneShot: [{ text: "", tool_calls: [{ name: "probe", arguments: {} }] }] });
       await d.click("[data-testid='settings-test-button']");
       const outcome = await d.until(async () => {
         for (const id of ["settings-test-ok", "settings-test-no-tools", "settings-test-error"]) {

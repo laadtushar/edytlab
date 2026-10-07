@@ -70,15 +70,27 @@ createServer(async (req, res) => {
       // OpenAI provider and in Anthropic's for every other, Ollama
       // included, so answer in both.
       const text = turn.text ?? "edit";
+      const calls = turn.tool_calls ?? [];
       const message = { role: "assistant", content: text };
+      if (calls.length) {
+        message.tool_calls = calls.map((c, i) => ({
+          id: `call_${requests.length}_${i}`,
+          type: "function",
+          function: { name: c.name, arguments: JSON.stringify(c.arguments ?? {}) },
+        }));
+      }
       res.writeHead(200, { "content-type": "application/json" }).end(
         JSON.stringify({
           id: "fake-1",
           model: "fake-editor",
-          choices: [{ index: 0, message, finish_reason: "stop" }],
+          choices: [{ index: 0, message, finish_reason: calls.length ? "tool_calls" : "stop" }],
           type: "message",
           role: "assistant",
-          content: [{ type: "text", text }],
+          content: [
+            { type: "text", text },
+            ...calls.map((c, i) => ({ type: "tool_use", id: `call_${requests.length}_${i}`, name: c.name, input: c.arguments ?? {} })),
+          ],
+          stop_reason: calls.length ? "tool_use" : "end_turn",
         }),
       );
       return;
