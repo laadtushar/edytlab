@@ -20,11 +20,9 @@ export default [
         });
       // Focus the page, not a control that would swallow Space.
       await d.click("[data-testid='timeline-lane-surface']");
-      // Playback is of the rendered mix. Before one exists, Space does
-      // nothing; this is what a person sees when they try.
-      await d.keys(" ");
-      await sleep(1500);
-      await ctx.shot("Space before any preview is rendered: nothing plays");
+      // Playback is of the rendered mix, so render it first. (A Space
+      // pressed before then is remembered and plays the moment the mix
+      // loads, which would leave the playhead already moving here.)
       await renderPreview(ctx);
       await ctx.shot("After Preview: the mix is rendered");
       await d.click("[data-testid='timeline-lane-surface']");
