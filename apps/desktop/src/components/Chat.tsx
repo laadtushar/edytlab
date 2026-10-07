@@ -126,6 +126,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
     entries,
     current,
     awaiting,
+    stopAwaiting,
     pushUserMessage,
     pendingPlan,
     approvePlan,
@@ -258,6 +259,8 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
       }
       await bridgeSendMessage(wireText, disabledTools);
     } catch (err) {
+      // The request failed before any agent event could clear "thinking".
+      stopAwaiting();
       setLocalError(friendlyError(err));
     } finally {
       setBusy(false);
