@@ -2,6 +2,11 @@
 
 Written by the session that built this harness, for whichever session continues it. No secrets are in this file or should ever be.
 
+## Who is doing what (two sessions share this branch)
+- The **parent session** (the one that wrote this harness) owns: the assistant/agent stories in `stories/agent.mjs`, and the **local real model**. A llama.cpp `llama-server` with Qwen2.5-3B (Q4_K_M, `--jinja` for tool calls) serves `localhost:11434` in the parent's sandbox; it returned a correct tool call in ~4.6 s at ~8.6 tok/s on 4 CPUs. Run those with `LLM=real` (the runner then does not start the scripted model). Not available in other sessions' sandboxes unless rebuilt: llama.cpp comes from the sdist of `llama-cpp-python` on PyPI (GitHub releases for other repos are blocked), the model from Hugging Face.
+- The **child session** owns: the non-agent stories (timeline, tracks, clips, markers, undo/redo, graph, export, settings editors, recording, shortcuts), the Groq check, and the final report.
+- Pull before you push; merge, never force. Run the suite through `./run-suite.sh` (one shared session keyring per run).
+
 ## Run it
 - Build: `cd apps/desktop && CARGO_PROFILE_DEV_DEBUG=0 pnpm tauri build --debug --no-bundle`
 - Needs: xdotool, openbox, x11-utils, imagemagick, keyutils (apt), and `tauri-driver` (`cargo install tauri-driver --locked` needs rustc 1.90+; the repo pins 1.88, so use `RUSTUP_TOOLCHAIN=stable`). Never run two rustup installs at once: they corrupt the toolchain.
