@@ -1,5 +1,7 @@
 import onboarding from "./onboarding.mjs";
 import projects from "./projects.mjs";
-import tracks from "./tracks.mjs";
+import timeline from "./timeline.mjs";
+import agent from "./agent.mjs";
+import undo from "./undo.mjs";
 
-export const stories = [...onboarding, ...projects, ...tracks];
+export const stories = [...onboarding, ...projects, ...timeline, ...agent, ...undo];
