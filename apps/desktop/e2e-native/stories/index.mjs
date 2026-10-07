@@ -6,5 +6,6 @@ import plan from "./plan.mjs";
 import undo from "./undo.mjs";
 import assistant from "./assistant.mjs";
 import playback from "./playback.mjs";
+import clips from "./clips.mjs";
 
-export const stories = [...onboarding, ...projects, ...timeline, ...agent, ...plan, ...undo, ...assistant, ...playback];
+export const stories = [...onboarding, ...projects, ...timeline, ...agent, ...plan, ...undo, ...assistant, ...playback, ...clips];

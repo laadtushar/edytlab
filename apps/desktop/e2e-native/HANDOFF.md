@@ -31,6 +31,7 @@ Updated 2026-10-07. We cannot message each other (separate containers), so this 
 | timeline, track controls (`4-*`) | parent (done) | pass; the other session's track stories were merged into `timeline.mjs`, no duplicate ids |
 | plan-first (`stories/plan.mjs`, `5-plan-*`) | parent (done) | 3/3 pass on a build with #400 (merged; fixed #399) |
 | assistant stories (`assistant.mjs`: selection edit, slash commands, capabilities) | parent (done) | 4/4 pass, scripted model (adds `5-model-error-retry`, which found #404 and #405, both fixed). `5-agent-gain`, `5-agent-question` pass with `LLM=real`; error handling and more real-model runs still to do |
+| clips (`clips.mjs`, `4-clips-move-remove`) | parent (done) | drag, arrow nudge, Delete and undo, each read back from `list_tracks`. Passed 6 of 7 runs; the one failure was the whole WebDriver session dying right after the nudge, with no panic or stack in `tauri-driver.log`, and did not reproduce in five more runs. Not filed |
 | playback (`playback.mjs`, `4-playback-keys`) | parent (done) | passes on a build with #403 (merged; fixed #402: previews were 403 Forbidden on Linux/macOS). Space before any preview does nothing and says nothing; a Space pressed then plays the moment the mix loads |
 | undo/redo | child | PR #397 (slider undo), #398 (undo to the wrong node) |
 | graph/A-B, export selection, markers, settings editors, recording, shortcuts, error banners, Groq, final report | child | not started on the branch |
