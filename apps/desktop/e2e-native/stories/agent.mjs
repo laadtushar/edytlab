@@ -11,17 +11,31 @@ async function say(ctx, text) {
   await d.keys(K.enter);
 }
 
-/** Wait for the assistant to finish: no thinking indicator, a reply shown. */
+/** Wait for the assistant to finish: no thinking indicator, no streaming
+ * cursor, a reply shown, and its text unchanged for two seconds. The
+ * thinking indicator goes away at the *first* token, so it alone says
+ * nothing about the reply being complete. */
 async function waitForReply(ctx, { timeout = 480000 } = {}) {
   const { d } = ctx;
+  const replyText = () =>
+    d.exec(() => {
+      const b = [...document.querySelectorAll("[data-testid='message-bubble'][data-role='assistant']")];
+      return b.map((e) => e.textContent).join("\n");
+    });
   await d.until(async () => {
-    const busy = await d.count("[data-testid='thinking-indicator']");
-    const replies = await d.count("[data-testid='message-bubble'][data-role='assistant']");
-    const error = await d.count("[data-testid='chat-error']");
-    if (error) throw new Error(`the chat showed an error: ${await d.text("[data-testid='chat-error']")}`);
-    return !busy && replies >= 1;
-  }, { timeout, label: "the assistant to finish" });
-  await sleep(600);
+    if (await d.count("[data-testid='chat-error']")) {
+      throw new Error(`the chat showed an error: ${await d.text("[data-testid='chat-error']")}`);
+    }
+    const streaming = (await d.count("[data-testid='thinking-indicator']")) + (await d.count("[data-testid='caret']"));
+    return streaming === 0 && (await d.count("[data-testid='message-bubble'][data-role='assistant']")) >= 1;
+  }, { timeout, label: "the assistant to finish streaming" });
+  let last = await replyText();
+  for (let i = 0; i < 10; i++) {
+    await sleep(2000);
+    const now = await replyText();
+    if (now === last && (await d.count("[data-testid='caret']")) === 0) return;
+    last = now;
+  }
 }
 
 async function toolBadges(ctx) {
