@@ -5,6 +5,12 @@ import { assert, head, K, onboard, openAudio, sleep, waitForNewHead, waitForWave
 
 const lane = (n = 0) => `[data-testid='timeline-lane']:nth-of-type(${n + 1})`;
 
+// WebKitWebDriver answers "" for the lane name's text because the span is
+// ellipsised; the DOM text is what the screen shows.
+async function laneName(ctx) {
+  return ctx.d.exec(() => document.querySelector("[data-testid='timeline-lane-name']")?.textContent ?? "");
+}
+
 async function tracks(ctx) {
   return ctx.d.invoke("list_tracks");
 }
@@ -36,7 +42,13 @@ export default [
       await d.click("[data-testid='timeline-lane-solo']");
 
       before = await head(ctx);
-      for (let i = 0; i < 4; i++) await d.type("[data-testid='timeline-lane-gain']", K.right);
+      // One press at a time, as a person taps an arrow key. Four presses
+      // with no pause between them sometimes land fewer steps (seen once; the
+      // other session saw the same through WebDriver, unproven at human key-repeat).
+      for (let i = 0; i < 4; i++) {
+        await d.type("[data-testid='timeline-lane-gain']", K.right);
+        await sleep(400);
+      }
       await waitForNewHead(ctx, before);
       // Each nudge is its own edit, committed one after another: wait for
       // the last, not the first.
@@ -79,7 +91,7 @@ export default [
       await d.type("[data-testid='track-rename-input-0']", "Lead guitar");
       await d.keys(K.enter);
       await d.until(async () => (await tracks(ctx))[0].name === "Lead guitar", { label: "the rename" });
-      await d.until(async () => /lead guitar/i.test(await d.text("[data-testid='timeline-lane-name']")), {
+      await d.until(async () => /lead guitar/i.test(await laneName(ctx)), {
         label: "the lane to show the new name",
       });
       await ctx.shot("Renamed to Lead guitar");
