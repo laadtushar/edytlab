@@ -211,7 +211,7 @@ test.describe("whatever brings a session's audio in, the timeline follows", () =
       // `stop_recording` answers `{ path, sample_rate, channels }`.
       stop_recording: ok({ path: take, sample_rate: 44_100, channels: 1 }),
       // `batch_load` answers `BatchLoadResult`.
-      batch_load: ok({ tracks_loaded: 1, last_node_id: nodeId(5) }),
+      batch_load: ok({ tracks_loaded: 1, last_node_id: nodeId(5), failures: [] }),
     });
     const page = app.page;
     await expect(page.getByTestId("empty-state")).toBeVisible();
@@ -255,7 +255,7 @@ test.describe("whatever brings a session's audio in, the timeline follows", () =
       // "Open Audio…" asks for several files, so the picker answers a list.
       "plugin:dialog|open": ok([opened]),
       // `batch_load` answers `BatchLoadResult`.
-      batch_load: ok({ tracks_loaded: 1, last_node_id: nodeId(5) }),
+      batch_load: ok({ tracks_loaded: 1, last_node_id: nodeId(5), failures: [] }),
     });
     const page = app.page;
     await app.become(sessionWith([toneTrack()]));

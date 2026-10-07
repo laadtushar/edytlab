@@ -92,6 +92,7 @@ import {
   pickAudioFiles,
   pickProjectDirectory,
 } from "./lib/file-open";
+import { describeLoadFailures } from "./lib/load-failures";
 import { batchLoad } from "./lib/tauri-bridge";
 import {
   forgetRecentProject,
@@ -504,8 +505,14 @@ function App() {
     async (paths: string[]) => {
       if (paths.length === 0) return;
       try {
-        applyNewHead((await batchLoad(paths)).last_node_id);
-        await refreshTracks();
+        const result = await batchLoad(paths);
+        // A refused file leaves no node, so with nothing loaded the head
+        // has not moved and there is nothing to redraw.
+        if (result.tracks_loaded > 0) {
+          applyNewHead(result.last_node_id);
+          await refreshTracks();
+        }
+        setRenderError(describeLoadFailures(result.failures));
       } catch (err) {
         const what = paths.length === 1 ? trimPath(paths[0]) : `${paths.length} files`;
         setRenderError(`Could not load ${what}: ${String(err)}`);

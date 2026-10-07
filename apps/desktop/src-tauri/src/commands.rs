@@ -3629,33 +3629,61 @@ pub async fn render_range(
 // batch_load — import multiple files into a multi-track session in one call.
 // ---------------------------------------------------------------------------
 
+/// A file `batch_load` could not add to the session, and why.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct BatchLoadFailure {
+    pub path: String,
+    pub error: String,
+}
+
+/// What `batch_load` did: how many files became tracks, the head after
+/// the last of them, and every file that did not.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct BatchLoadResult {
+    pub tracks_loaded: usize,
+    pub last_node_id: Option<String>,
+    pub failures: Vec<BatchLoadFailure>,
+}
+
 /// Load multiple audio files into the session in sequence, creating one track
 /// per file. Each file goes through the same `"load"` tool the agent uses,
 /// so the session DAG gets a node per file with the same invariants as
 /// single-file loads.
 ///
-/// Returns `{ tracks_loaded, last_node_id }` so the frontend can refresh the
-/// track list and waveform display without a second round trip.
+/// A file the tool refuses (not audio, missing, unreadable) is reported in
+/// `failures` and does not stop the others: someone who drops five files
+/// expects the four good ones to load. The tool refuses before it writes
+/// anything, so a failed file leaves no node behind. This used to treat
+/// every `Ok` from the dispatcher as a load, but a refusal is
+/// `Ok(ToolResult::Error(..))` — so a file that does not exist was counted
+/// as a track and the UI showed neither the file nor an error.
+///
+/// Returns the outcome so the frontend can refresh the track list and
+/// waveform without a second round trip, and name what failed.
 #[tauri::command]
 pub async fn batch_load(
     state: tauri::State<'_, AppState>,
     paths: Vec<String>,
-) -> CmdResult<serde_json::Value> {
+) -> CmdResult<BatchLoadResult> {
+    batch_load_inner(&state, &paths)
+}
+
+pub(crate) fn batch_load_inner(state: &AppState, paths: &[String]) -> CmdResult<BatchLoadResult> {
     if paths.is_empty() {
         return Err("no files provided".into());
     }
 
     let store_handle = state.store_handle().ok_or(CommandError::NoSession)?;
     let mut loaded = 0usize;
-    let mut last_node_id: Option<String> = None;
+    let mut failures = Vec::new();
 
-    for path in &paths {
+    for path in paths {
         let args = serde_json::json!({ "path": path });
 
         // Acquire store, engine, and dispatcher in separate scopes so we
         // don't hold all three locks simultaneously (avoids double-borrow
         // panics and keeps the lock windows narrow).
-        let node_id_hex = {
+        let outcome = {
             let mut store = lock_std(&store_handle, "store")?;
             let mut engine = lock_std(&state.engine, "engine")?;
             let dispatcher = lock_std(&state.dispatcher, "dispatcher")?;
@@ -3673,21 +3701,30 @@ pub async fn batch_load(
 
             dispatcher
                 .invoke("load", args, &mut ctx)
-                .map_err(|e| format!("load tool error: {e}"))?;
-
-            // The load tool records the new head in the store. Read it now
-            // while we still hold the store lock.
-            store.head().map(|id| id.to_hex())
+                .map_err(|e| format!("load tool error: {e}"))?
         };
 
-        loaded += 1;
-        last_node_id = node_id_hex;
+        match outcome {
+            tools::ToolResult::Ok(_) => loaded += 1,
+            tools::ToolResult::Error(error) => failures.push(BatchLoadFailure {
+                path: path.clone(),
+                error,
+            }),
+        }
     }
 
-    Ok(serde_json::json!({
-        "tracks_loaded": loaded,
-        "last_node_id": last_node_id,
-    }))
+    // The head is read once, after the last file, so it is the session's
+    // real head whatever mix of files loaded — `None` only when nothing
+    // ever has.
+    let last_node_id = lock_std(&store_handle, "store")?
+        .head()
+        .map(|id| id.to_hex());
+
+    Ok(BatchLoadResult {
+        tracks_loaded: loaded,
+        last_node_id,
+        failures,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -4199,15 +4236,117 @@ fn register_plugin_mcp_servers(
 
 #[cfg(test)]
 mod batch_load_tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    /// A mono 16-bit PCM WAV of `frames` silent samples, written by hand
+    /// so the test needs no audio dependency.
+    fn write_wav(path: &std::path::Path, frames: u32) {
+        let data_len = frames * 2;
+        let mut b = Vec::new();
+        b.extend_from_slice(b"RIFF");
+        b.extend_from_slice(&(36 + data_len).to_le_bytes());
+        b.extend_from_slice(b"WAVEfmt ");
+        b.extend_from_slice(&16u32.to_le_bytes());
+        b.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        b.extend_from_slice(&1u16.to_le_bytes()); // mono
+        b.extend_from_slice(&48_000u32.to_le_bytes());
+        b.extend_from_slice(&96_000u32.to_le_bytes());
+        b.extend_from_slice(&2u16.to_le_bytes());
+        b.extend_from_slice(&16u16.to_le_bytes());
+        b.extend_from_slice(b"data");
+        b.extend_from_slice(&data_len.to_le_bytes());
+        b.resize(b.len() + data_len as usize, 0);
+        std::fs::write(path, b).unwrap();
+    }
+
+    fn node_count(state: &AppState) -> usize {
+        let handle = state.store_handle().unwrap();
+        let store = handle.lock().unwrap();
+        store.list_nodes().unwrap().len()
+    }
+
+    fn project() -> (tempfile::TempDir, AppState) {
+        let tmp = tempdir().unwrap();
+        let state = AppState::new();
+        open_project_for_test(&state, tmp.path()).unwrap();
+        (tmp, state)
+    }
+
     #[test]
     fn empty_paths_is_err() {
-        let paths: Vec<String> = vec![];
-        let result: Result<(), &str> = if paths.is_empty() {
-            Err("no files provided")
-        } else {
-            Ok(())
-        };
-        assert!(result.is_err());
+        let (_tmp, state) = project();
+        assert!(batch_load_inner(&state, &[]).is_err());
+    }
+
+    #[test]
+    fn a_file_that_does_not_exist_is_a_failure_not_a_track() {
+        let (tmp, state) = project();
+        let missing = tmp.path().join("nope.wav").to_string_lossy().into_owned();
+
+        let out = batch_load_inner(&state, std::slice::from_ref(&missing)).unwrap();
+
+        assert_eq!(out.tracks_loaded, 0);
+        assert_eq!(out.last_node_id, None);
+        assert_eq!(out.failures.len(), 1);
+        assert_eq!(out.failures[0].path, missing);
+        assert!(!out.failures[0].error.is_empty());
+        assert_eq!(node_count(&state), 0, "a refused load wrote a node");
+    }
+
+    #[test]
+    fn a_file_that_is_not_audio_is_a_failure_not_a_track() {
+        let (tmp, state) = project();
+        let bad = tmp.path().join("notes.wav");
+        std::fs::write(&bad, "this is not a wav file\n").unwrap();
+        let bad = bad.to_string_lossy().into_owned();
+
+        let out = batch_load_inner(&state, std::slice::from_ref(&bad)).unwrap();
+
+        assert_eq!(out.tracks_loaded, 0);
+        assert_eq!(out.failures.len(), 1);
+        assert_eq!(out.failures[0].path, bad);
+        assert_eq!(node_count(&state), 0);
+    }
+
+    #[test]
+    fn one_bad_file_does_not_stop_the_good_ones() {
+        let (tmp, state) = project();
+        let a = tmp.path().join("a.wav");
+        let b = tmp.path().join("b.wav");
+        let bad = tmp.path().join("bad.wav");
+        write_wav(&a, 4_800);
+        write_wav(&b, 4_800);
+        std::fs::write(&bad, "nope").unwrap();
+        let paths: Vec<String> = [&a, &bad, &b]
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+
+        let out = batch_load_inner(&state, &paths).unwrap();
+
+        assert_eq!(out.tracks_loaded, 2);
+        assert_eq!(out.failures.len(), 1);
+        assert_eq!(out.failures[0].path, paths[1]);
+        assert!(out.last_node_id.is_some());
+        assert_eq!(
+            node_count(&state),
+            2,
+            "one node per loaded file, none for the refusal"
+        );
+    }
+
+    #[test]
+    fn a_good_file_loads_with_no_failures() {
+        let (tmp, state) = project();
+        let a = tmp.path().join("a.wav");
+        write_wav(&a, 4_800);
+
+        let out = batch_load_inner(&state, &[a.to_string_lossy().into_owned()]).unwrap();
+
+        assert_eq!(out.tracks_loaded, 1);
+        assert!(out.failures.is_empty());
+        assert!(out.last_node_id.is_some());
     }
 }
 
