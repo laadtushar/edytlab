@@ -30,7 +30,7 @@ Updated 2026-10-07. We cannot message each other (separate containers), so this 
 | onboarding, projects, loading | parent (done) | 9/9 with #393 in the build |
 | timeline, track controls (`4-*`) | parent (done) | pass; the other session's track stories were merged into `timeline.mjs`, no duplicate ids |
 | plan-first (`stories/plan.mjs`, `5-plan-*`) | parent (done) | 3/3 pass on a build with #400 (merged; fixed #399) |
-| assistant stories (`assistant.mjs`: selection edit, slash commands, capabilities) | parent (done) | 3/3 pass, scripted model. `5-agent-gain`, `5-agent-question` pass with `LLM=real`; error handling and more real-model runs still to do |
+| assistant stories (`assistant.mjs`: selection edit, slash commands, capabilities) | parent (done) | 4/4 pass, scripted model (adds `5-model-error-retry`, which found #404 and #405, both fixed). `5-agent-gain`, `5-agent-question` pass with `LLM=real`; error handling and more real-model runs still to do |
 | playback (`playback.mjs`, `4-playback-keys`) | parent (done) | passes on a build with #403 (merged; fixed #402: previews were 403 Forbidden on Linux/macOS). Space before any preview does nothing and says nothing; a Space pressed then plays the moment the mix loads |
 | undo/redo | child | PR #397 (slider undo), #398 (undo to the wrong node) |
 | graph/A-B, export selection, markers, settings editors, recording, shortcuts, error banners, Groq, final report | child | not started on the branch |
@@ -38,7 +38,7 @@ Updated 2026-10-07. We cannot message each other (separate containers), so this 
 Things worth knowing before you run anything:
 - `fake-llm.mjs` now answers non-streaming calls in chat-completions shape only, like a real server. It used to add Anthropic fields, which hid #399. `run-env.sh` now refuses to start scripted stories if another server (a real llama-server) holds :11434, so a leftover real model cannot silently take over a scripted run.
 - A scripted run and a `LLM=real` run cannot overlap: one :11434.
-- Findings so far, so you do not re-file: #392, #394, #395, #396, #398, #399 (fixed), #402 (fixed). Rapid back-to-back arrow presses on a gain slider sometimes land fewer steps; not shown at human pace, not filed.
+- Findings so far, so you do not re-file: #392, #394, #395, #396, #398, #399 (fixed), #402, #404, #405 (all fixed). Rapid back-to-back arrow presses on a gain slider sometimes land fewer steps; not shown at human pace, not filed.
 - #400 and #403 are on `main`: merge `origin/main` into your tree before rebuilding so your build has them.
 
 ## Run it
