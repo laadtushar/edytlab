@@ -132,6 +132,9 @@ export interface UseAgentStreamResult {
    * pulse.
    */
   awaiting: boolean;
+  /** Stop showing "thinking" without touching the log: for a send that
+   * failed, which no agent event will ever answer (#404). */
+  stopAwaiting: () => void;
   /** Append a user message locally (the caller is responsible for
    * forwarding it through the bridge via `sendMessage`). */
   pushUserMessage: (text: string) => void;
@@ -454,6 +457,7 @@ export function useAgentStream(): UseAgentStreamResult {
     entries,
     current,
     awaiting,
+    stopAwaiting: clearAwaiting,
     pushUserMessage,
     reset,
     pendingPlan,

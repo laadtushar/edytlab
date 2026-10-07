@@ -315,6 +315,51 @@ describe("Chat", () => {
     expect(err.textContent).toContain("source is silent");
   });
 
+  // A request that fails before the model streams anything produces no
+  // agent event to clear "awaiting" (#404), so the pill used to sit beside
+  // the error for good.
+  it("stops showing the thinking indicator when the send fails", async () => {
+    sendMessageMock.mockRejectedValueOnce("the model fell over");
+    const user = userEvent.setup();
+    render(<Chat />);
+    await act(async () => {
+      await flush();
+    });
+
+    await user.type(screen.getByLabelText("Message"), "make it louder");
+    await user.click(screen.getByRole("button", { name: /send/i }));
+    await act(async () => {
+      await flush();
+    });
+
+    expect(await screen.findByTestId("chat-error")).toBeInTheDocument();
+    expect(screen.queryByTestId("thinking-indicator")).not.toBeInTheDocument();
+  });
+
+  it("shows the thinking indicator again when a failed send is retried", async () => {
+    sendMessageMock.mockRejectedValueOnce("the model fell over");
+    const user = userEvent.setup();
+    render(<Chat />);
+    await act(async () => {
+      await flush();
+    });
+    await user.type(screen.getByLabelText("Message"), "make it louder");
+    await user.click(screen.getByRole("button", { name: /send/i }));
+    await act(async () => {
+      await flush();
+    });
+    await screen.findByTestId("chat-error");
+
+    sendMessageMock.mockReturnValueOnce(new Promise(() => undefined));
+    await user.click(screen.getByRole("button", { name: /retry/i }));
+    await act(async () => {
+      await flush();
+    });
+
+    expect(screen.getByTestId("thinking-indicator")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-error")).not.toBeInTheDocument();
+  });
+
   it("invokes onRequestRenderPreview when the button is clicked", async () => {
     const onClick = vi.fn();
     const user = userEvent.setup();
