@@ -6,6 +6,7 @@ import {
   applyRedo,
   isUndoChord,
   isRedoChord,
+  isTextEntry,
   type Chord,
 } from "../lib/undoRedo";
 
@@ -127,5 +128,42 @@ describe("undo/redo logic", () => {
     // When onNodeCreated fires, App.tsx calls setRedoStack([])
     // Verify that after that reset, applyRedo finds nothing
     expect(applyRedo([])).toBeNull();
+  });
+});
+
+describe("isTextEntry", () => {
+  it("is text entry inside a textarea or a contenteditable element", () => {
+    expect(isTextEntry({ tagName: "TEXTAREA" })).toBe(true);
+    expect(isTextEntry({ tagName: "DIV", isContentEditable: true })).toBe(true);
+  });
+
+  it.each(["text", "search", "url", "tel", "email", "password", "number", "date"])(
+    "is text entry in an <input type=%s>",
+    (type) => {
+      expect(isTextEntry({ tagName: "INPUT", type })).toBe(true);
+    },
+  );
+
+  it("treats an input with no type, or one it does not know, as text", () => {
+    expect(isTextEntry({ tagName: "INPUT" })).toBe(true);
+    expect(isTextEntry({ tagName: "INPUT", type: "some-future-type" })).toBe(true);
+  });
+
+  it.each(["range", "checkbox", "radio", "button", "submit", "reset", "image", "color", "file"])(
+    "is not text entry in an <input type=%s>, so session undo still runs",
+    (type) => {
+      expect(isTextEntry({ tagName: "INPUT", type })).toBe(false);
+    },
+  );
+
+  it("matches the type case-insensitively", () => {
+    expect(isTextEntry({ tagName: "INPUT", type: "RANGE" })).toBe(false);
+  });
+
+  it("is not text entry on a button, the body, or nothing", () => {
+    expect(isTextEntry({ tagName: "BUTTON" })).toBe(false);
+    expect(isTextEntry({ tagName: "BODY" })).toBe(false);
+    expect(isTextEntry(null)).toBe(false);
+    expect(isTextEntry(undefined)).toBe(false);
   });
 });

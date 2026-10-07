@@ -54,6 +54,7 @@ import {
   applyRedo,
   isUndoChord,
   isRedoChord,
+  isTextEntry,
 } from "./lib/undoRedo";
 import { mixIsStale } from "./lib/mixState";
 import { scheduledTake, startTake, stopTake } from "./lib/recording";
@@ -92,6 +93,7 @@ import {
   pickAudioFiles,
   pickProjectDirectory,
 } from "./lib/file-open";
+import { isSessionValue } from "./lib/controlValue";
 import { describeLoadFailures } from "./lib/load-failures";
 import { batchLoad } from "./lib/tauri-bridge";
 import {
@@ -159,6 +161,12 @@ function App() {
   const timelineRef = useRef<TimelineHandle>(null);
   const [markers, setMarkers] = useState<Marker[]>([]);
   const [tracks, setTracks] = useState<TrackSummary[]>([]);
+  // The latest list, for handlers that must compare against what the
+  // session holds now rather than what they closed over.
+  const tracksRef = useRef<TrackSummary[]>(tracks);
+  useEffect(() => {
+    tracksRef.current = tracks;
+  }, [tracks]);
   /**
    * The one way the track list is refreshed (#341, #342).
    *
@@ -329,12 +337,17 @@ function App() {
       const tag = target?.tagName ?? "";
       const isTyping =
         tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable;
-      if (isUndoChord(e) && !isTyping) {
+      // Undo and redo ask a narrower question than the keys below: a
+      // focused slider is not text entry, so Ctrl+Z still undoes the
+      // fader edit that put focus there. Space, Home, End and the
+      // arrows stay with `isTyping`, because on a slider they move it.
+      const inTextField = isTextEntry(target);
+      if (isUndoChord(e) && !inTextField) {
         e.preventDefault();
         handleUndo();
         return;
       }
-      if (isRedoChord(e) && !isTyping) {
+      if (isRedoChord(e) && !inTextField) {
         e.preventDefault();
         handleRedo();
         return;
@@ -571,14 +584,20 @@ function App() {
     [applyNewHead],
   );
 
+  // Release, key-up and blur all commit a slider, and most carry the value
+  // the session already holds: see `isSessionValue` for the undo it broke.
   const handleTrackGainChange = useCallback(
-    (index: number, gainDb: number) =>
-      void commitTrackChange(() => setTrackGain(index, gainDb)),
+    (index: number, gainDb: number) => {
+      if (isSessionValue(tracksRef.current[index]?.gain_db, gainDb)) return;
+      void commitTrackChange(() => setTrackGain(index, gainDb));
+    },
     [commitTrackChange],
   );
   const handleTrackPanChange = useCallback(
-    (index: number, pan: number) =>
-      void commitTrackChange(() => setTrackPan(index, pan)),
+    (index: number, pan: number) => {
+      if (isSessionValue(tracksRef.current[index]?.pan, pan)) return;
+      void commitTrackChange(() => setTrackPan(index, pan));
+    },
     [commitTrackChange],
   );
   const handleTrackMuteChange = useCallback(
