@@ -9,6 +9,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Driver } from "./webdriver.mjs";
+import { chooseThrough, screenshotRoot } from "./native.mjs";
 import { writeFixtures } from "./fixtures.mjs";
 import { stories } from "./stories/index.mjs";
 
@@ -37,26 +38,6 @@ async function boot(home, keyring) {
   return { d, ...used };
 }
 
-/** Make the next native dialog return `value` (a path, an array, or null). */
-async function answerDialogs(d, ...values) {
-  await d.exec((vals) => {
-    const w = window;
-    w.__e2eDialogs = vals;
-    w.__e2eDialogCalls = w.__e2eDialogCalls ?? [];
-    if (!w.__e2eWrapped) {
-      const real = w.__TAURI_INTERNALS__.invoke.bind(w.__TAURI_INTERNALS__);
-      w.__TAURI_INTERNALS__.invoke = (cmd, args, opts) => {
-        if (cmd === "plugin:dialog|open" || cmd === "plugin:dialog|save") {
-          w.__e2eDialogCalls.push({ cmd, args });
-          return Promise.resolve(w.__e2eDialogs.length ? w.__e2eDialogs.shift() : null);
-        }
-        return real(cmd, args, opts);
-      };
-      w.__e2eWrapped = true;
-    }
-  }, values);
-}
-
 async function script(turns) {
   await fetch(`${LLM}/__script`, { method: "POST", body: JSON.stringify(turns) });
 }
@@ -77,7 +58,11 @@ for (const story of stories) {
       home: session.home,
       fixtures,
       out: OUT,
-      answerDialogs: (...v) => answerDialogs(session.d, ...v),
+      /** Click `selector`, then answer the native chooser it opens. */
+      chooseThrough: (selector, answer, opts) =>
+        chooseThrough(ctx.d, selector, answer, {
+          shotDialog: opts?.shot === false ? undefined : () => ctx.shotNative(opts?.caption ?? "The native file chooser"),
+        }),
       script,
       llmRequests,
       /** Quit and start again. `keepKeyring` keeps the keychain, as a
@@ -92,6 +77,13 @@ for (const story of stories) {
         const n = String(result.steps.length + 1).padStart(2, "0");
         const file = `shots/${story.id}-${n}.png`;
         await ctx.d.screenshot(join(OUT, file));
+        result.steps.push({ caption, file });
+      },
+      /** A screenshot of the whole screen, for native windows. */
+      async shotNative(caption) {
+        const n = String(result.steps.length + 1).padStart(2, "0");
+        const file = `shots/${story.id}-${n}.png`;
+        screenshotRoot(join(OUT, file));
         result.steps.push({ caption, file });
       },
       note(text) {

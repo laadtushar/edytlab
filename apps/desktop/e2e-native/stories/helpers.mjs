@@ -14,10 +14,10 @@ export async function onboard(ctx) {
   await d.until(async () => (await d.count("[data-testid='settings']")) === 0, { label: "welcome to close" });
 }
 
-/** Open Audio, answering the OS file dialog with `paths`. */
+/** Open Audio through the real file chooser, selecting `paths`. */
 export async function openAudio(ctx, ...paths) {
-  await ctx.answerDialogs(paths);
-  await ctx.d.click("[data-testid='open-audio-button']");
+  const answer = paths.length === 1 ? { path: paths[0] } : { paths };
+  await ctx.chooseThrough("[data-testid='open-audio-button']", answer);
   await ctx.d.until(async () => (await ctx.d.count("[data-testid='timeline-lane']")) >= paths.length, {
     timeout: 30000,
     label: `${paths.length} lane(s)`,
@@ -25,20 +25,28 @@ export async function openAudio(ctx, ...paths) {
   await waitForWaveform(ctx);
 }
 
-/** Wait until a lane's waveform canvas has ink on it. */
+/** Wait until a lane's waveform has ink on it. WaveSurfer draws into
+ * shadow roots, so canvases are found through them. */
 export async function waitForWaveform(ctx) {
-  await ctx.d.until(
-    () =>
-      ctx.d.exec(() => {
-        const c = document.querySelector("[data-testid='timeline-lane'] canvas");
-        if (!c || !c.width) return false;
-        const g = c.getContext("2d");
-        const px = g.getImageData(0, 0, c.width, c.height).data;
-        for (let i = 3; i < px.length; i += 4 * 97) if (px[i] > 0) return true;
-        return false;
-      }),
-    { timeout: 20000, label: "waveform ink" },
-  );
+  await ctx.d.until(() => ctx.d.exec(waveformHasInk), { timeout: 20000, label: "waveform ink" });
+}
+
+/** Runs in the page. */
+export function waveformHasInk() {
+  const lane = document.querySelector("[data-testid='timeline-lane']");
+  if (!lane) return false;
+  const canvases = [];
+  const walk = (root) => {
+    root.querySelectorAll("canvas").forEach((c) => canvases.push(c));
+    root.querySelectorAll("*").forEach((e) => e.shadowRoot && walk(e.shadowRoot));
+  };
+  walk(lane);
+  for (const c of canvases) {
+    if (!c.width || !c.height) continue;
+    const px = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+    for (let i = 3; i < px.length; i += 4 * 61) if (px[i] > 0) return true;
+  }
+  return false;
 }
 
 export async function head(ctx) {

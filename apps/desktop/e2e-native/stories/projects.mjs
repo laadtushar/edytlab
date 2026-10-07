@@ -39,8 +39,7 @@ export default [
     async run(ctx) {
       const { d } = ctx;
       await onboard(ctx);
-      await ctx.answerDialogs([ctx.fixtures.notAudio]);
-      await d.click("[data-testid='open-audio-button']");
+      await ctx.chooseThrough("[data-testid='open-audio-button']", { path: ctx.fixtures.notAudio });
       await d.waitFor("[data-testid='render-error']", { timeout: 20000 });
       const msg = await d.text("[data-testid='render-error']");
       await ctx.shot("The error names the file that could not be loaded");
@@ -55,8 +54,7 @@ export default [
     async run(ctx) {
       const { d } = ctx;
       await onboard(ctx);
-      await ctx.answerDialogs(null);
-      await d.click("[data-testid='open-audio-button']");
+      await ctx.chooseThrough("[data-testid='open-audio-button']", { cancel: true });
       await sleep(1500);
       assert((await d.count("[data-testid='render-error']")) === 0, "no error");
       assert((await d.count("[data-testid='empty-state']")) === 1, "still empty");
@@ -71,8 +69,7 @@ export default [
       let { d } = ctx;
       await onboard(ctx);
       const dir = mkdtempSync("/tmp/edytlab-project-");
-      await ctx.answerDialogs(dir);
-      await d.click("[data-testid='new-project-button']");
+      await ctx.chooseThrough("[data-testid='new-project-button']", { path: dir });
       await d.until(async () => (await d.invoke("list_recent_projects")).some((p) => (p.path ?? p) === dir), { label: "project in recents" });
       await ctx.shot("A new, empty project");
       await openAudio(ctx, ctx.fixtures.tone);
