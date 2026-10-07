@@ -53,8 +53,19 @@ echo $! >"$OUT/fake-llm.pid"
 if [ "${KEEP_KEYRING:-0}" != 1 ]; then
   keyctl clear "$(keyctl get_persistent @u)" >/dev/null 2>&1 || true
 fi
-HOME="$E2E_HOME" DISPLAY=:99 XDG_DATA_HOME="$E2E_HOME/.local/share" XDG_CONFIG_HOME="$E2E_HOME/.config" \
-  WEBKIT_DISABLE_COMPOSITING_MODE=1 tauri-driver >"$OUT/tauri-driver.log" 2>&1 &
-echo $! >"$OUT/tauri-driver.pid"
-sleep 2
+# tauri-driver cannot bind :4444 while the previous run's socket is still
+# in TIME_WAIT, and exits when it cannot. Start it until it is answering.
+started=0
+for attempt in $(seq 1 30); do
+  HOME="$E2E_HOME" DISPLAY=:99 XDG_DATA_HOME="$E2E_HOME/.local/share" XDG_CONFIG_HOME="$E2E_HOME/.config" \
+    WEBKIT_DISABLE_COMPOSITING_MODE=1 tauri-driver >"$OUT/tauri-driver.log" 2>&1 &
+  echo $! >"$OUT/tauri-driver.pid"
+  for _ in $(seq 1 12); do
+    sleep 0.25
+    kill -0 "$(cat "$OUT/tauri-driver.pid")" 2>/dev/null || break
+    if curl -fsS -o /dev/null http://127.0.0.1:4444/status 2>/dev/null; then started=1; break 2; fi
+  done
+  sleep 1
+done
+[ "$started" = 1 ] || { echo "tauri-driver did not start" >&2; tail -5 "$OUT/tauri-driver.log" >&2; exit 1; }
 echo "$E2E_HOME"
