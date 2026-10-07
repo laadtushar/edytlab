@@ -55,6 +55,17 @@ sleep 1
 if [ "${LLM:-fake}" != real ]; then
   node "$(dirname "$0")/fake-llm.mjs" >"$OUT/fake-llm.log" 2>&1 &
   echo $! >"$OUT/fake-llm.pid"
+  # Something else already on :11434 (a real llama-server left running)
+  # would answer in the fake's place and every scripted story would run
+  # against it. The fake is up when its request log answers.
+  for _ in $(seq 1 40); do
+    curl -sf http://127.0.0.1:11434/__requests >/dev/null 2>&1 && break
+    sleep 0.25
+  done
+  curl -sf http://127.0.0.1:11434/__requests >/dev/null 2>&1 || {
+    echo "the fake model is not what answers on :11434 - stop the other server (or run with LLM=real)" >&2
+    exit 1
+  }
 fi
 # The app keeps its provider, keys and base URLs through the `keyring`
 # crate, which on Linux is the kernel keyring: an entry lives in the

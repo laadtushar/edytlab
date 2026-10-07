@@ -65,10 +65,11 @@ createServer(async (req, res) => {
     requests.push(parsed);
     if (!parsed.stream) {
       const turn = nonStream.shift() ?? {};
-      // Non-streaming callers (a classifier, a connection test).
-      // The app reads non-streaming replies in OpenAI's shape for the
-      // OpenAI provider and in Anthropic's for every other, Ollama
-      // included, so answer in both.
+      // Non-streaming callers (a classifier, a plan, a connection test).
+      // Answered in chat-completions shape only, as a real OpenAI-
+      // compatible server (llama.cpp, Ollama, Groq) does: an answer that
+      // also carried Anthropic's `content` blocks hid a bug where the
+      // app read Ollama's and Groq's plan replies in Anthropic's shape.
       const text = turn.text ?? "edit";
       const calls = turn.tool_calls ?? [];
       const message = { role: "assistant", content: text };
@@ -84,13 +85,6 @@ createServer(async (req, res) => {
           id: "fake-1",
           model: "fake-editor",
           choices: [{ index: 0, message, finish_reason: calls.length ? "tool_calls" : "stop" }],
-          type: "message",
-          role: "assistant",
-          content: [
-            { type: "text", text },
-            ...calls.map((c, i) => ({ type: "tool_use", id: `call_${requests.length}_${i}`, name: c.name, input: c.arguments ?? {} })),
-          ],
-          stop_reason: calls.length ? "tool_use" : "end_turn",
         }),
       );
       return;
