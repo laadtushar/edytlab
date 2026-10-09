@@ -15,7 +15,7 @@ const TURN = 240000;
 /** First launch: choose Anthropic and enter the key, as a person does.
  * The key field is a password field, and no screenshot is taken while
  * the dialog is open. */
-export async function onboardClaude(ctx, { key = KEY, model } = {}) {
+export async function onboardClaude(ctx, { key = KEY, model, effort } = {}) {
   const { d } = ctx;
   await d.waitFor("[data-testid='settings']");
   await sleep(600);
@@ -25,6 +25,26 @@ export async function onboardClaude(ctx, { key = KEY, model } = {}) {
   if (model) {
     await d.type("[data-testid='settings-model-input']", `${K.ctrl}a`);
     await d.type("[data-testid='settings-model-input']", model);
+  }
+  // Reasoning effort (low … max), where the build has the setting. An
+  // older build without it fails loudly rather than recording at the
+  // model's default effort while claiming another.
+  if (effort) {
+    const sel = "[data-testid='settings-effort-select']";
+    assert((await d.count(sel)) > 0, `this build has no reasoning-effort setting (wanted ${effort})`);
+    const ok = await d.exec(
+      (s, v) => {
+        const el = document.querySelector(s);
+        if (![...el.options].some((o) => o.value === v)) return false;
+        const set = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set;
+        set.call(el, v);
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+        return el.value === v;
+      },
+      sel,
+      effort,
+    );
+    assert(ok, `reasoning effort ${effort} is not an option`);
   }
   await d.click("[data-testid='settings-save-button']");
 }
