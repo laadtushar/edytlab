@@ -5,18 +5,21 @@ import { LegalShell } from "@/components/landing/legal-shell";
 export const metadata: Metadata = {
   title: "Privacy",
   description:
-    "How edytlab handles your data. Audio stays local, LLM keys live in the OS keychain, no telemetry.",
+    "How edytlab handles your data. Audio stays local, LLM keys live in the OS keychain, the desktop app sends no telemetry, and this website uses anonymous Vercel analytics.",
   alternates: { canonical: "/privacy" },
 };
 
 export default function PrivacyPage() {
   return (
-    <LegalShell title="Privacy" updated="2026-05-08">
+    <LegalShell title="Privacy" updated="2026-10-09">
       <p>
         edytlab is a local-first desktop application. This page describes what
-        data the app handles and how it handles it. It is intentionally short
-        because the app is intentionally simple: we do not operate servers, we
-        do not collect telemetry, and we do not handle your audio.
+        data the app handles and how it handles it, and what the website you
+        are reading records about its visitors. The app is intentionally
+        simple: it has no server of ours behind it, it sends no telemetry, and
+        we do not handle your audio. The website is separate from the app and
+        does use analytics, described under &ldquo;Telemetry and
+        analytics&rdquo; below.
       </p>
 
       <h2>Audio files</h2>
@@ -50,10 +53,62 @@ export default function PrivacyPage() {
 
       <h2>Telemetry and analytics</h2>
       <p>
-        There is none. The desktop app does not send usage analytics. The
-        marketing website you are reading does not run Google Analytics,
-        Plausible, Mixpanel, Segment, or any other analytics or tracking
-        provider, and sets no analytics cookies.
+        <strong>The desktop app</strong> does not send telemetry or usage
+        analytics.
+      </p>
+      <p>
+        <strong>This website</strong> uses two Vercel products, which are
+        loaded by the website only and are not part of the desktop app:
+      </p>
+      <ul>
+        <li>
+          <a href="https://vercel.com/docs/analytics/privacy-policy">
+            Vercel Web Analytics
+          </a>{" "}
+          records page views. Each data point can include the time, the page
+          URL, the referrer, query parameters (filtered), geolocation, the
+          device&apos;s operating system and version, the browser and version,
+          and the device type (mobile, tablet or desktop). It does not use
+          cookies. Instead of a cookie, a visitor is identified by a hash
+          created from the incoming request. Per Vercel, that hash is valid
+          for a single day, after which it is automatically reset, so visitors
+          can&apos;t be tracked between different days or different websites.
+        </li>
+        <li>
+          <a href="https://vercel.com/docs/speed-insights/privacy-policy">
+            Vercel Speed Insights
+          </a>{" "}
+          records page performance based on the Core Web Vitals. Each data
+          point can include the route and URL, network speed, browser, device
+          type, device operating system, country, the web vital measured and
+          the page element it is attributed to.
+        </li>
+      </ul>
+      <p>
+        Vercel states that Web Analytics does not collect personal identifiers
+        that track and cross-check end users&apos; data across different
+        applications or websites, and does not collect or store information
+        that would enable reconstructing an end user&apos;s browsing session
+        across different applications or websites or personally identifying an
+        end user. It states that Speed Insights does not collect or store
+        information that would enable reconstructing a browsing session across
+        pages or identifying a user. We see the results only as aggregated
+        statistics in the Vercel dashboard for this website. We do not run
+        Google Analytics, Plausible, Mixpanel, Segment, or any other analytics
+        provider.
+      </p>
+      <p>
+        See Vercel&apos;s{" "}
+        <a href="https://vercel.com/docs/analytics/privacy-policy">
+          Web Analytics privacy and compliance
+        </a>{" "}
+        and{" "}
+        <a href="https://vercel.com/docs/speed-insights/privacy-policy">
+          Speed Insights privacy and compliance
+        </a>{" "}
+        pages, and its{" "}
+        <a href="https://vercel.com/legal/privacy-policy">Privacy Notice</a>,
+        for the details.
       </p>
 
       <h2>Crash reports</h2>
