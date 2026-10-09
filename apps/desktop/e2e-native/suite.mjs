@@ -5,8 +5,8 @@
 //
 // Each story group starts the app fresh (a new HOME, so a first launch),
 // except where a story is about what survives a restart.
-import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Driver } from "./webdriver.mjs";
 import { chooseThrough, screenshotRoot } from "./native.mjs";
@@ -47,12 +47,26 @@ async function llmRequests() {
   return (await fetch(`${LLM}/__requests`)).json();
 }
 
+// RECORD=1: a story may call ctx.record() to film the screen from that
+// point on (after onboarding, so no key field is ever on film). ffmpeg
+// grabs the virtual display; the file lands in $OUT/videos.
+function screenSize() {
+  try {
+    const out = execFileSync("xdpyinfo", ["-display", ":99"]).toString();
+    return /dimensions:\s+(\d+x\d+)/.exec(out)?.[1] ?? "1440x900";
+  } catch {
+    return "1440x900";
+  }
+}
+
 const results = [];
 for (const story of stories) {
   if (only.length && !only.some((o) => story.id.includes(o))) continue;
   const result = { id: story.id, area: story.area, title: story.title, steps: [], status: "pass" };
   const started = Date.now();
   let session;
+  let recorder = null;
+  let recordedFrom = 0;
   try {
     session = await boot(story.home);
     const ctx = {
@@ -67,6 +81,25 @@ for (const story of stories) {
         }),
       script,
       llmRequests,
+      /** Film the screen from now until the story ends (RECORD=1 only). */
+      record() {
+        if (!process.env.RECORD || recorder) return;
+        mkdirSync(join(OUT, "videos"), { recursive: true });
+        const file = `videos/${story.id}.mp4`;
+        recorder = spawn(
+          "ffmpeg",
+          ["-y", "-loglevel", "error", "-f", "x11grab", "-video_size", screenSize(), "-framerate", "15", "-i", ":99",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "28", "-pix_fmt", "yuv420p", join(OUT, file)],
+          { stdio: ["pipe", "ignore", "ignore"] },
+        );
+        result.video = file;
+        result.captions = [];
+        recordedFrom = Date.now();
+      },
+      /** A step caption for the recording, at the current moment. */
+      caption(text) {
+        if (recorder) result.captions.push({ t: (Date.now() - recordedFrom) / 1000, text });
+      },
       /** Quit and start again. `keepKeyring` keeps the keychain, as a
        * real restart does; HOME is kept unless another is given. */
       boot: async (home, { keepKeyring = true } = {}) => {
@@ -102,9 +135,25 @@ for (const story of stories) {
       result.steps.push({ caption: "at failure", file });
     } catch {}
   } finally {
+    if (recorder) {
+      // A moment of the end state, then let ffmpeg finish the file.
+      await new Promise((r) => setTimeout(r, 1500));
+      const done = new Promise((r) => recorder.on("exit", r));
+      recorder.stdin.write("q");
+      recorder.stdin.end();
+      await Promise.race([done, new Promise((r) => setTimeout(r, 10000))]);
+    }
     await session?.d.quit();
   }
   result.ms = Date.now() - started;
+  // A passing recording is kept aside with its captions: a later failing
+  // run of the same story rewrites videos/<id>.mp4, and a demo that
+  // worked must not be lost to one that did not.
+  if (result.status === "pass" && result.video && existsSync(join(OUT, result.video))) {
+    mkdirSync(join(OUT, "videos", "passed"), { recursive: true });
+    copyFileSync(join(OUT, result.video), join(OUT, "videos", "passed", `${story.id}.mp4`));
+    writeFileSync(join(OUT, "videos", "passed", `${story.id}.json`), JSON.stringify(result, null, 2));
+  }
   results.push(result);
   console.log(`${result.status === "pass" ? "PASS" : "FAIL"} ${story.id} (${result.ms} ms)${result.error ? `\n  ${result.error.split("\n")[0]}` : ""}`);
 }

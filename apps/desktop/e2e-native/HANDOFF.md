@@ -11,7 +11,7 @@ Written by the session that built this harness, for whichever session continues 
 Updated 2026-10-07. We cannot message each other (separate containers), so this file and GitHub are the channel. If you change a claim below, edit it here.
 
 **Landed in the app (main):** #393 `batch_load` reported a refused file as a loaded track (a non-audio or missing file showed nothing). Merged.
-**Open PRs from this session:** #397 (Ctrl+Z ignored while a slider has focus, plus the stale-value write-back after it; CI green, waiting on a GitGuardian scan) and the undo fix for #398 (a branch `claude/fix/undo-follows-the-path-taken`, in validation).
+**Open PRs from this session:** #401, the undo fix for #398 (branch `claude/fix/undo-follows-the-path-taken`). As of 2026-10-08 its CI is red on `labels.spec.ts:137` and it needs a merge of `main`; see the comment on #401. (#397, Ctrl+Z with a slider focused, merged 2026-10-07.)
 **Filed, not mine to fix unless noted:** #394 (Linux credentials live in the in-memory kernel keyring), #396 (fixed by #397), #398 (undo follows a node's first parent; fix in flight, a persisted trail is a follow-up), #392 (Plugins tab clipped, already known).
 
 **What this changes for your stories**
@@ -24,23 +24,24 @@ Updated 2026-10-07. We cannot message each other (separate containers), so this 
 
 **What I need from you:** tell me here if you find a bug in an area I own, rather than fixing it on a feature branch of yours, so we do not both open a PR for it. One concern per PR, branch off `origin/main`.
 
-## Status board (parent session, updated 2026-10-07 16:50 UTC; check `git log` for anything newer)
-| Area | Owner | State |
-| --- | --- | --- |
-| onboarding, projects, loading | parent (done) | 9/9 with #393 in the build |
-| timeline, track controls (`4-*`) | parent (done) | pass; the other session's track stories were merged into `timeline.mjs`, no duplicate ids |
-| plan-first (`stories/plan.mjs`, `5-plan-*`) | parent (done) | 3/3 pass on a build with #400 (merged; fixed #399) |
-| assistant stories (`assistant.mjs`: selection edit, slash commands, capabilities) | parent (done) | 4/4 pass, scripted model (adds `5-model-error-retry`, which found #404 and #405, both fixed). `5-agent-gain`, `5-agent-question` pass with `LLM=real`; error handling and more real-model runs still to do |
-| clips (`clips.mjs`, `4-clips-move-remove`) | parent (done) | drag, arrow nudge, Delete and undo, each read back from `list_tracks`. Passed 6 of 7 runs; the one failure was the whole WebDriver session dying right after the nudge, with no panic or stack in `tauri-driver.log`, and did not reproduce in five more runs. Not filed |
-| playback (`playback.mjs`, `4-playback-keys`) | parent (done) | passes on a build with #403 (merged; fixed #402: previews were 403 Forbidden on Linux/macOS). Space before any preview does nothing and says nothing; a Space pressed then plays the moment the mix loads |
-| undo/redo | child | PR #397 (slider undo), #398 (undo to the wrong node) |
-| graph/A-B, export selection, markers, settings editors, recording, shortcuts, error banners, Groq, final report | child | not started on the branch |
+## Status board (parent session, updated 2026-10-09 12:30 UTC; check `git log` for anything newer)
+| Area | State |
+| --- | --- |
+| scripted-model stories (onboarding, loading, projects, timeline, tracks, clips, playback, plan-first, assistant) | 22 of 23 pass on `main`; the one failure is `6-undo-after-remove`, which waits on #401 |
+| real Claude (`stories/claude.mjs`, `7-claude-*`, needs `ANTHROPIC_E2E_KEY` and `claude-proxy.mjs`) | 16 stories plus a five-turn DJ transition. They found #408, #409, #410, #414, #415, #416, #418 and #421; all but #415 (a product decision) and step 2 of #421 are fixed and merged, or in PR #423 |
+| demo recordings (`stories/demos.mjs`, `8-demo-*`, `make-demo-videos.mjs`) | the beatmatch-and-blend demo passed with Opus 5.5 and is in PR #417. The extended-intro and mini-mix demos are written; their runs were cut off by the key's usage limit |
+
+Running the real-Claude stories (no key is in this repo, and none may be added):
+- Start the budget proxy first: `BUDGET_USD=<n> PORT=8788 OUT=/tmp/edytlab-native node claude-proxy.mjs &`. It counts tokens per request (never headers or bodies) into `$OUT/claude-usage.jsonl`, keeps the count across restarts, and refuses requests past the budget. Its cost is an upper bound.
+- `ANTHROPIC_E2E_KEY=… [RECORD=1] [DEMO_MODEL=claude-opus-5-5] OUT=… ./run-suite.sh 7-claude 8-demo`. The app is pointed at the proxy through Settings' base URL; the key is typed into a password field and no screenshot is taken with the dialog open.
+- Run recordings on an idle machine. A parallel `cargo` build on 4 cores made waveforms miss their timeout and dropped WebDriver sessions mid-run.
+- `RECORD=1` films from `ctx.record()` (after onboarding) with ffmpeg x11grab; a passing story's video and captions are copied to `$OUT/videos/passed/`, which `make-demo-videos.mjs` prefers, so a later failing run cannot overwrite a demo that worked.
 
 Things worth knowing before you run anything:
-- `fake-llm.mjs` now answers non-streaming calls in chat-completions shape only, like a real server. It used to add Anthropic fields, which hid #399. `run-env.sh` now refuses to start scripted stories if another server (a real llama-server) holds :11434, so a leftover real model cannot silently take over a scripted run.
-- A scripted run and a `LLM=real` run cannot overlap: one :11434.
-- Findings so far, so you do not re-file: #392, #394, #395, #396, #398, #399 (fixed), #402, #404, #405 (all fixed). Rapid back-to-back arrow presses on a gain slider sometimes land fewer steps; not shown at human pace, not filed.
-- #400 and #403 are on `main`: merge `origin/main` into your tree before rebuilding so your build has them.
+- `fake-llm.mjs` answers non-streaming calls in chat-completions shape only, like a real server, and a stream turn `{ status, error }` answers with that HTTP error. `run-env.sh` refuses scripted stories if another server holds :11434.
+- Picked together in the chooser, files load in name order: find tracks by name, not by the order you listed them.
+- WebKitWebDriver answers "" for text in an ellipsised element; read `textContent` through `exec` instead.
+- Findings so far, so you do not re-file: #392, #394, #395, #398, #415, #421 (open); #396, #399, #402, #404, #405, #408, #409, #410, #414, #416, #418 (fixed). Not filed: rapid back-to-back arrow presses on a slider can drop a step; one silent loss of a WebDriver session during a clip nudge that did not reproduce.
 
 ## Run it
 - Build: `cd apps/desktop && CARGO_PROFILE_DEV_DEBUG=0 pnpm tauri build --debug --no-bundle`
@@ -67,4 +68,4 @@ Things worth knowing before you run anything:
 
 
 ## Still to build
-Timeline, track controls, clips and automation, markers/labels, undo/redo, graph and A/B, export selection (native save dialog), chat/agent stories (tool cards, plan approve/edit/reject, slash commands, palette, capabilities), settings editors, recording (PulseAudio null sink, plus the no-device error), shortcuts overlay, error banners. Then an HTML report with the screenshots; one GitHub issue per real bug (search first). Known: #392 (Settings Plugins tab clipped).
+History graph and A/B compare, export selection (native save dialog), markers and labels, the settings editors, recording (PulseAudio null sink, plus the no-device error), the shortcuts overlay and error banners. The two remaining demos once API access is back. Delete this file before #391 merges.

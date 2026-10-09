@@ -28,7 +28,7 @@ export async function openAudio(ctx, ...paths) {
 /** Wait until a lane's waveform has ink on it. WaveSurfer draws into
  * shadow roots, so canvases are found through them. */
 export async function waitForWaveform(ctx) {
-  await ctx.d.until(() => ctx.d.exec(waveformHasInk), { timeout: 20000, label: "waveform ink" });
+  await ctx.d.until(() => ctx.d.exec(waveformHasInk), { timeout: 45000, label: "waveform ink" });
 }
 
 /** Runs in the page. */

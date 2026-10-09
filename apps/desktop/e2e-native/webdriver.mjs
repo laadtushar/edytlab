@@ -48,11 +48,19 @@ export class Driver {
   }
 
   async cmd(method, path, payload) {
-    const res = await fetch(`${this.base}/session/${this.id}${path}`, {
-      method,
-      headers: { "content-type": "application/json", connection: "close" },
-      body: payload === undefined ? undefined : JSON.stringify(payload),
-    });
+    let res;
+    try {
+      res = await fetch(`${this.base}/session/${this.id}${path}`, {
+        method,
+        headers: { "content-type": "application/json", connection: "close" },
+        body: payload === undefined ? undefined : JSON.stringify(payload),
+      });
+    } catch (e) {
+      // "fetch failed" alone says nothing; the cause says whether the
+      // driver refused, reset, or timed out.
+      const cause = e.cause ? `${e.cause.code ?? ""} ${e.cause.message ?? ""}`.trim() : "";
+      throw new Error(`${method} ${path}: fetch failed${cause ? ` (${cause})` : ""}`);
+    }
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
       throw new Error(`${method} ${path}: ${JSON.stringify(body.value ?? body).slice(0, 400)}`);

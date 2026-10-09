@@ -7,5 +7,7 @@ import undo from "./undo.mjs";
 import assistant from "./assistant.mjs";
 import playback from "./playback.mjs";
 import clips from "./clips.mjs";
+import claude from "./claude.mjs";
+import demos from "./demos.mjs";
 
-export const stories = [...onboarding, ...projects, ...timeline, ...agent, ...plan, ...undo, ...assistant, ...playback, ...clips];
+export const stories = [...onboarding, ...projects, ...timeline, ...agent, ...plan, ...undo, ...assistant, ...playback, ...clips, ...claude, ...demos];
