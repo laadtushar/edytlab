@@ -5,7 +5,8 @@
  *
  *  - `agent://text-delta`     → appends to `current` (the in-flight bubble)
  *  - `agent://tool-call`      → appends a running ToolBadge entry to the log
- *  - `agent://tool-call-end`  → resolves that badge to ok / error by id
+ *  - `agent://tool-call-end`  → resolves that badge to ok, error or not run
+ *                                by id (not run: announced, never dispatched)
  *  - `agent://node-created`   → appends a NodeDivider entry
  *  - `agent://done`           → commits `current` into the log, derives
  *                                chips for the just-finished assistant
@@ -53,7 +54,12 @@ export type { ToolView, SpectrumPoint } from "../lib/tauri-bridge";
 
 export type ChatRole = "user" | "assistant";
 
-export type ToolStatus = "running" | "ok" | "error";
+/**
+ * `not_run`: the call was announced but never dispatched (declined,
+ * reworded, unanswered, or over the tool budget). It is not an `error`;
+ * nothing ran.
+ */
+export type ToolStatus = "running" | "ok" | "error" | "not_run";
 
 /**
  * A one-click action attached to an assistant message. The user can
@@ -314,14 +320,18 @@ export function useAgentStream(): UseAgentStreamResult {
     );
 
     attach(
-      onToolCallEnd((id, ok, view) => {
+      onToolCallEnd((id, ok, view, notRun) => {
         // Resolve the badge with the matching id. We look up by id
         // (not "most recent running") so concurrent tool calls — or
         // tools that don't produce a node — still resolve correctly.
         setEntries((prev) =>
           prev.map((e) =>
             e.kind === "tool" && e.id === id
-              ? { ...e, status: ok ? "ok" : "error", view }
+              ? {
+                  ...e,
+                  status: notRun ? "not_run" : ok ? "ok" : "error",
+                  view,
+                }
               : e,
           ),
         );
@@ -473,8 +483,11 @@ export function useAgentStream(): UseAgentStreamResult {
   const approvePlan = useCallback(
     async (steps?: Array<{ step: number; tool: string; description: string }>) => {
       const answeredId = pendingPlanRef.current?.id;
-      const descriptions = steps?.map((s) => s.description);
-      await bridgeApprovePlan(descriptions);
+      // The tool goes with each description: edited text alone ("track: 1")
+      // leaves the model to guess what to run it with.
+      await bridgeApprovePlan(
+        steps?.map(({ tool, description }) => ({ tool, description })),
+      );
       takeDownCard(answeredId);
     },
     [takeDownCard],

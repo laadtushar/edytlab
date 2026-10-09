@@ -28,7 +28,7 @@ tracing = "0.1"
 
 [dev-dependencies]
 wiremock = "0.6"
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync", "time"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync", "time", "test-util"] }
 tempfile = "3"
 hound = "3.5"
 audio-decoder = { path = "../audio-decoder" }
