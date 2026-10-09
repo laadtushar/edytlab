@@ -87,8 +87,7 @@ edytlab/
     ├── audio-analysis/           # BPM, key, beat-grid, transient detection
     ├── audio-decoder/            # symphonia-based file decode (WAV, MP3, FLAC, Ogg Vorbis)
     ├── audio-dsp/                # Sample-level DSP shared by tools and renderer (no deps)
-    ├── audio-engine/             # DSP graph + offline render (its cpal `play_state` has no caller, #388)
-    ├── audio-io/                 # cpal output stream — unused by the app; playback is in the webview (#388)
+    ├── audio-engine/             # DSP graph + offline render
     ├── audio-time/               # Pitch-shift / time-stretch primitives (Phase 2)
     ├── mcp/                      # MCP server lifecycle + JSON-RPC dispatch
     ├── memory/                   # Global/project markdown memory fragments
@@ -109,11 +108,11 @@ apps/desktop/src-tauri
     │   ├── crates/session
     │   └── crates/tools
     │       ├── crates/audio-engine
-    │       │   ├── crates/audio-decoder
-    │       │   └── crates/audio-io
+    │       │   └── crates/audio-decoder
     │       ├── crates/ml-demucs
     │       │   └── crates/ml-pipeline
     │       └── crates/ml-whisper     (uses `ort` directly, not ml-pipeline)
+    ├── crates/recorder           (cpal input)
     ├── crates/memory
     ├── crates/skills
     ├── crates/agent_profiles
@@ -652,15 +651,9 @@ pub struct RenderReport {
     pub channels:       u16,
     pub peak_dbfs:      f32,
 }
-
-pub fn play_state<'a>(
-    state: &SessionState,
-    output: &'a mut dyn OutputStream,
-    range: Option<TimeRange>,
-) -> Result<PlayHandle<'a>>
 ```
 
-`play_state` and the `audio-io` crate it drives (cpal output) have no caller outside `audio-engine`. All playback happens in the webview — WaveSurfer and `<audio>` elements reading rendered files over the asset protocol, including the A/B crossfade. Whether to remove the native path or keep it behind a feature is [#388](https://github.com/laadtushar/edytlab/issues/388).
+There is no native playback path. All playback happens in the webview — WaveSurfer and `<audio>` elements reading rendered files over the asset protocol, including the A/B crossfade — so the engine never opens an output device. The only native audio I/O in the workspace is microphone capture in `crates/recorder` (cpal input). A cpal output crate (`audio-io`) and a `play_state` entry point existed until [#388](https://github.com/laadtushar/edytlab/issues/388) removed them: nothing called them, and `play_state` pushed a whole mix into a ~250 ms ring buffer that dropped whatever did not fit.
 
 ### What the Render Processes
 
@@ -668,7 +661,7 @@ Every track and every clip, with per-clip volume automation, per-track effect ch
 
 ### Fast Path
 
-Single-track sessions with a single clip skip the intermediate temp-file step and stream decoded audio directly to the output WAV. Multi-track sessions render through the full mixer.
+A whole-session render that reduces to one track playing one source untouched is written by copying the source file's bytes instead of decoding and mixing. The conditions (one unsoloed track with one clip covering the whole source from frame 0, unity gain and pan, no track effects or sends, no active master-chain effect, no volume envelope or stretch/pitch/beat-grid metadata, source rate equal to session rate, no render range) live in `single_track_unity` (`graph.rs`) and `is_unity_passthrough` (`render.rs`). Everything else goes through the mixer.
 
 ---
 

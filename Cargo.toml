@@ -8,7 +8,6 @@ members = [
     "crates/audio-decoder",
     "crates/audio-dsp",
     "crates/audio-engine",
-    "crates/audio-io",
     "crates/audio-time",
     "crates/agent_profiles",
     "crates/mcp",

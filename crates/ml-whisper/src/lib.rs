@@ -213,10 +213,9 @@ pub fn resample_to_16khz_mono(samples: &[f32], sr: u32, channels: u16) -> Result
         return Ok(mono);
     }
 
-    // 1024-frame chunk mirrors the audio-io boundary — small enough for
-    // tens-of-ms latency, large enough to amortize FFT cost. We're
-    // running off the audio thread here so the chunk size is
-    // throughput-bound, not latency-bound.
+    // 1024-frame chunk — small enough for tens-of-ms latency, large enough
+    // to amortize FFT cost. We're running off the audio thread here so the
+    // chunk size is throughput-bound, not latency-bound.
     let mut resampler = FftFixedInOut::<f32>::new(sr as usize, 16_000, 1024, 1)?;
     let chunk_in = resampler.input_frames_max();
     let mut in_buf = vec![vec![0.0f32; chunk_in]; 1];
