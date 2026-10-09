@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 import { MicroInteractions, ScrollProgress } from "@/components/motion";
 import { siteConfig } from "@/lib/site";
@@ -75,6 +77,8 @@ export default function RootLayout({
         <ScrollProgress />
         <MicroInteractions />
         {children}
+        <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );

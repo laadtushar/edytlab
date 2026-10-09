@@ -15,6 +15,7 @@ Project-level instructions for Claude Code sessions in this repository. These pe
 
 - Feature branches: `claude/feature/<short-kebab-summary>`
 - Fix branches: `claude/fix/<short-kebab-summary>`
+- Docs and chores: `claude/docs/<…>`, `claude/chore/<…>` (a release bump is `claude/chore/release-<version>`).
 - Always branch off latest `origin/main`, not whatever the working tree happens to be on.
 
 ### Commits
@@ -34,25 +35,30 @@ This repo lives at `C:\Users\tusha\Work\Playground\Edytlab\edytlab` on Windows 1
 - In PowerShell, prefix every command with `cd "C:\Users\tusha\Work\Playground\Edytlab\edytlab";` or chain with `;`.
 - The Bash tool works fine for read-only file operations (`find`, `ls`, path inspection) using `/c/Users/tusha/...` Unix-style paths, but **not for git or pnpm**.
 - `pnpm` is not on the Bash PATH — always invoke it via PowerShell.
+- In a Linux cloud session (claude.ai/code) none of this applies: the checkout is a normal Linux path and Bash runs git, pnpm and cargo directly.
 
 ## Repo specifics
 
 - Tauri 2 desktop app under `apps/desktop/`. Frontend in `apps/desktop/src/`, Rust backend in `apps/desktop/src-tauri/`.
-- Workspace crates under `crates/`: `ai` (LLM provider abstraction), `tools` (audio editing primitives), others.
-- Multi-provider LLM support: Anthropic, OpenRouter, OpenAI. The `LlmProvider` trait in `crates/ai/src/provider.rs` is the extension point — request serialization + SSE parsing are per-provider.
-- Per-provider keychain slots: `<provider_id>_api_key` plus an `active_provider` slot. Legacy unsuffixed `anthropic_api_key` is still read for back-compat.
-- App version is canonical in `apps/desktop/src-tauri/tauri.conf.json` — `package.json` files mirror it.
+- Workspace crates under `crates/`: `ai` (LLM provider abstraction and agent loop), `tools` (the agent's audio editing tools — `docs/tools-reference.md` is generated from them), `audio-engine` (render), `audio-time` (phase vocoder), `session` (the node graph), others.
+- Multi-provider LLM support: Anthropic, OpenRouter, OpenAI, Groq, Gemini and Ollama (local, no key). The `LlmProvider` trait in `crates/ai/src/provider.rs` is the extension point — request serialization + SSE parsing are per-provider.
+- Per-provider keychain slots: `<provider_id>_api_key`, `<provider_id>_model`, `<provider_id>_base_url`, plus an `active_provider` slot. Anthropic's slot is `anthropic_api_key`, the name builds before multi-provider used, so old keys are found with no migration. On Linux the keychain is the kernel keyring, which does not survive a reboot (#394).
+- App version is canonical in `apps/desktop/src-tauri/tauri.conf.json` — the `package.json` files and Cargo's `[workspace.package] version` mirror it, and `appVersion.test.ts` fails if they drift.
+- Demucs and Whisper (`crates/ml-*`) are wired in as tools but their inference is not shipped (#383–#385). Don't describe stem separation or transcription as working in docs or site copy.
 
 ## CI / release
 
-- `ci.yml` runs on push to main + PRs: fmt, clippy, cargo test, frontend build (whose `tsc -b` type-checks the app, its tests and `vite.config.ts`), vitest, and a separate `e2e (chromium)` job — Playwright against a production build of the frontend, Linux only. Tauri bundle is intentionally NOT in CI (too slow); release workflows cover that.
-- `auto-release.yml` fires off CI's `workflow_run` on main: tags `v0.1.0-dev.<run_number>` and dispatches `release-dev.yml`.
+- `ci.yml` runs on push to main + PRs: fmt, clippy, cargo test, frontend build (whose `tsc -b` type-checks the app, its tests and `vite.config.ts`), vitest, and a separate `e2e (chromium)` job — Playwright against a production build of the frontend, Linux only — and a `website (test)` job (the site's vitest suite). Tauri bundle is intentionally NOT in CI (too slow); release workflows cover that.
+- `auto-release.yml` fires off CI's `workflow_run` on main: tags `v<version>-dev.<run_number>` (e.g. `v0.3.0-dev.N`) and dispatches `release-dev.yml`.
+- To cut a versioned release: bump the version in a `chore(release)` PR (all manifests, `Cargo.lock`, a changelog entry in `website/app/changelog/page.tsx`), merge it, then dispatch `release-dev.yml` with `tag=vX.Y.Z`, `channel=release` and the notes. Check the release is Latest, not a prerelease, and carries all six installers.
 - `release-dev.yml` uses a `create-release` job + matrix to avoid the parallel-job race that produced duplicate releases for the same tag.
 - `release-dev.yml` has a `channel` dispatch input: `dev` (default — prerelease, not Latest, "unsigned dev build") and `release` (a real versioned release, not a prerelease, marked Latest). Tag pushes are always `dev`; a bare `vX.Y.Z` tag deliberately does not trigger it, so `release-signed.yml` owns those tags once certs exist. Both channels emit the same install warnings, because those describe the artifact rather than the channel.
 - Signed releases (`release-signed.yml`) are manual `workflow_dispatch` and require Apple/Windows signing secrets. Same `create-release` + matrix + `publish` shape as `release-dev.yml`. tauri-action is given neither `tagName` nor `releaseId` there — it only builds, and upload happens after signing, so unsigned artifacts can never reach the release.
 - Bundle targets are explicit in `tauri.conf.json`: `["app", "dmg", "msi", "nsis", "deb", "appimage"]`. Don't revert to `"all"` — it silently dropped installer formats under some build conditions.
 
 ## Audio engine / WaveSurfer quirks
+
+- Playback runs in the webview: WaveSurfer plays the rendered preview mix through an HTML media element (WebKitGTK's GStreamer on Linux). `crates/audio-io` (cpal) has no caller in the app (#388).
 
 - `wsRef.current.zoom()` throws "No audio loaded" when WaveSurfer has no decoded data — always guard with `if (!wsRef.current || duration === 0) return` and include `duration` in the useEffect dep array.
 - React's `onWheel` is passive in Chromium/Tauri — Ctrl+scroll requires `el.addEventListener("wheel", handler, { passive: false })` via useEffect, not the `onWheel` JSX prop.
@@ -66,9 +72,10 @@ This repo lives at `C:\Users\tusha\Work\Playground\Edytlab\edytlab` on Windows 1
 
 ## Website (`website/`)
 
-- Separate Next.js 16 app; build with `pnpm --filter @edytlab/website build`.
-- `framer-motion` v11 already installed — import from `"framer-motion"` (not `"motion/react"`).
-- All components using framer-motion hooks need `"use client"` directive.
+- Separate Next.js 16 app, deliberately **outside** the pnpm workspace (so Vercel builds it standalone), with its own lockfile. The package is `edytlab-website`, so `pnpm --filter` does not reach it: `cd website && pnpm install --ignore-workspace`, then `pnpm test`, `pnpm typecheck`, `pnpm build`. `pnpm lint` calls `next lint`, which Next 16 removed — use `npx eslint .`.
+- Animation is GSAP (`gsap`, `@gsap/react`); framer-motion is not installed. Components that animate need the `"use client"` directive, must respect `prefers-reduced-motion`, and must render their content visible without JavaScript.
+- Demo videos: `website/lib/demos.ts` lists them, the files live in `website/public/demos/` (`<slug>.mp4` + `<slug>.jpg`), and `lib/demos.test.ts` fails if the list and the folder drift.
+- `crates/tools/tests/website_tool_docs.rs` checks tool names and counts in the site copy, so a tool rename or a new tool needs the site updated in the same PR.
 
 ## Acceptance gates
 
@@ -80,4 +87,5 @@ Before merging anything:
 - `pnpm --filter @edytlab/desktop test:slow-scheduler` passes — the same suite with React's scheduler 40 ms late (#349). A failure here that `test` does not show is a test asserting on async React state without waiting for it: wait on the state under test, or hold the backend's answer with `src/__tests__/held.ts`.
 - `pnpm --filter @edytlab/desktop typecheck` clean — `tsc -b` over three programs: the app (no Node types, because it runs in a webview — #336), its tests (Node types, because vitest runs them in Node) and `vite.config.ts`. **Not** bare `tsc --noEmit`: the root `tsconfig.json` is a solution file with no inputs of its own, so that checks nothing and exits 0.
 - `pnpm --filter @edytlab/desktop typecheck:e2e` clean
+- Website changes: `pnpm test`, `pnpm typecheck` and `pnpm build` inside `website/` (see above).
 - `pnpm --filter @edytlab/desktop test:e2e` passes — for anything that changes what mounts, draws, scrolls or decodes. jsdom cannot see those; `apps/desktop/e2e/` runs the real frontend in Chromium with only the IPC boundary replaced. Its fake backend answers from the Rust source (`e2e/backend.ts`), so a new command the app calls needs an answer there, taken from the command's own body.
