@@ -23,13 +23,20 @@ pub const TOOL_CALL_END: &str = "agent://tool-call-end";
 pub const NODE_CREATED: &str = "agent://node-created";
 /// `agent://done` — the turn finished (success).
 pub const DONE: &str = "agent://done";
-/// `agent://plan` — mashup mode plan awaiting frontend approval.
+/// `agent://plan` — a plan, or the held first edit, awaiting frontend
+/// approval. The held edit (#415) is the first step that would change the
+/// session when Plan first is on and the model wrote no plan; its steps
+/// are that step's concrete tool calls.
 pub const PLAN: &str = "agent://plan";
-/// The user declined a plan. The turn ended having run no tools.
+/// The user declined a plan or a held edit. The turn ended having run
+/// nothing that changes the session. For a held edit, the calls had
+/// already been announced, so their `agent://tool-call-end` (`ok: false`)
+/// comes first and there is no `agent://done`.
 pub const PLAN_REJECTED: &str = "agent://plan-rejected";
-/// A plan was asked for and none arrived, so the turn ran *without* the
-/// approval gate (#267). Distinct from receiving no `agent://plan` at
-/// all, which means no plan was requested for this turn.
+/// A plan was asked for and none arrived (#267). Distinct from receiving
+/// no `agent://plan` at all, which means no plan was requested for this
+/// turn. `first_edit_held` says whether the turn will now hold its first
+/// edit for approval (#415) or proceed without a gate.
 pub const PLAN_UNAVAILABLE: &str = "agent://plan-unavailable";
 
 #[derive(Debug, Clone, Serialize)]
@@ -66,17 +73,47 @@ pub struct NodeCreatedPayload {
 #[derive(Debug, Clone, Serialize)]
 pub struct DonePayload {}
 
-/// `agent://plan` — emitted in mashup mode before tool execution.
-/// The frontend renders an approval card and calls `approve_plan` to
-/// unblock the agent loop.
+/// `agent://plan` — emitted before tool execution when a plan, or the
+/// first edit, needs approval. The frontend renders an approval card and
+/// calls `approve_plan` or `reject_plan` to unblock the agent loop.
 #[derive(Debug, Clone, Serialize)]
 pub struct PlanPayload {
     pub steps: Vec<serde_json::Value>,
 }
 
-/// Why the plan gate was skipped. Carries the failure class so the
-/// composer can say what happened rather than only that it happened.
+/// Why no plan arrived. Carries the failure class so the composer can say
+/// what happened rather than only that it happened, and whether the first
+/// edit will be held for approval instead.
 #[derive(Debug, Clone, Serialize)]
 pub struct PlanUnavailablePayload {
     pub reason: String,
+    /// True when Plan first is on and the turn will hold its first edit
+    /// for approval; false when it proceeds without a gate.
+    pub first_edit_held: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The frontend reads `first_edit_held` to choose between "the first
+    /// edit will be shown for your approval" and "continuing without",
+    /// so the field name on the wire is part of the contract (#415).
+    #[test]
+    fn plan_unavailable_carries_whether_the_first_edit_is_held() {
+        let held = serde_json::to_value(PlanUnavailablePayload {
+            reason: "the model did not return a plan".to_string(),
+            first_edit_held: true,
+        })
+        .expect("serialises");
+        assert_eq!(held["first_edit_held"], serde_json::json!(true));
+        assert_eq!(held["reason"], "the model did not return a plan");
+
+        let free = serde_json::to_value(PlanUnavailablePayload {
+            reason: "x".to_string(),
+            first_edit_held: false,
+        })
+        .expect("serialises");
+        assert_eq!(free["first_edit_held"], serde_json::json!(false));
+    }
 }

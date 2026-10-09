@@ -6,13 +6,17 @@
 //!
 //! * Mode detection: a cheap Haiku call classifies each user message as
 //!   `mashup`, `mix`, `voice`, or `general`.
-//! * Plan gate (mashup mode only): the loop emits a `Plan` event and
-//!   suspends until the frontend approves by calling `Agent::approve_plan`.
+//! * Plan gate (mashup mode, or whenever Plan first is on): the loop emits
+//!   a `Plan` event and suspends until the frontend approves by calling
+//!   `Agent::approve_plan`.
 //!
 //! Per [`crate::Agent::turn`] we:
 //! 1. Classify the user message.
-//! 2. If mashup mode, request a `<plan>` from the model and gate on
-//!    frontend approval before proceeding.
+//! 2. If mashup mode or Plan first, request a `<plan>` from the model and
+//!    gate on frontend approval before proceeding. If no plan comes back
+//!    and Plan first is on, the gate moves to the first model step that
+//!    would change the session (see 7), so that with Plan first on no
+//!    edit runs without approval (#415).
 //! 3. Append the user's message to the conversation.
 //! 4. Open a streaming Anthropic call (system prompt + tools cached).
 //! 5. Forward `text` deltas to the caller's `on_event` sink in order.
@@ -21,7 +25,13 @@
 //!    and append a `tool_result` block to the conversation.
 //! 7. If at least one tool was used, loop. The hard cap of
 //!    [`crate::prompt::MAX_TOOL_CALLS_PER_TURN`] applies across all
-//!    iterations of the same turn.
+//!    iterations of the same turn. Where the gate is still waiting for
+//!    its first mutating step, that step is held *before* any of its
+//!    calls dispatch and shown as the plan card; approving runs it and
+//!    opens the gate for the rest of the turn, declining ends the turn
+//!    having run nothing, and revising it runs nothing and goes back to
+//!    the model with the user's words. Steps that only read are never
+//!    held.
 //! 8. If the model emits a malformed `tool_use` (e.g. unparseable JSON
 //!    args, or args that fail schema validation), we send back a
 //!    `tool_result` with `is_error: true` and let the model retry once;
@@ -34,7 +44,6 @@
 //! work is.
 
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use tokio::sync::Notify;
 
@@ -47,6 +56,7 @@ use crate::anthropic::{
     ApiError, CacheControl, ContentBlock, ContentBlockDelta, ContentBlockStart, Message,
     MessagesRequest, Role, StreamEvent, SystemBlock, ToolChoice,
 };
+use crate::approval::{self, Approval};
 use crate::prompt::{DEFAULT_MAX_TOKENS, MAX_TOOL_CALLS_PER_TURN};
 use crate::session_context::{render_block, SessionContext};
 use crate::{AgentEvent, Error, LlmConfig, Result, TurnResult, WireFormat};
@@ -364,6 +374,9 @@ pub(crate) enum PlanUnavailable {
     NoResponseText,
     /// Text that carried no well-formed `<plan>` block.
     NoPlanBlock,
+    /// A well-formed `<plan>` block listing no steps. Approving it would
+    /// approve nothing, so it is no plan at all.
+    EmptyPlan,
 }
 
 impl std::fmt::Display for PlanUnavailable {
@@ -374,6 +387,7 @@ impl std::fmt::Display for PlanUnavailable {
             Self::BodyParse(e) => write!(f, "the planning response could not be read: {e}"),
             Self::NoResponseText => write!(f, "the planning response carried no text"),
             Self::NoPlanBlock => write!(f, "the model did not return a plan"),
+            Self::EmptyPlan => write!(f, "the model returned a plan with no steps"),
         }
     }
 }
@@ -382,9 +396,9 @@ impl std::fmt::Display for PlanUnavailable {
 /// return the parsed steps. Includes conversation history so follow-up
 /// requests can be planned in context.
 ///
-/// `Err` names the failure class rather than erasing it: the caller
-/// proceeds without the gate either way — that degradation is
-/// deliberate — but it can now say so.
+/// `Err` names the failure class rather than erasing it. Whatever the
+/// class, the caller proceeds without a plan; with Plan first on it then
+/// holds the first edit for approval instead (#415).
 async fn fetch_plan(
     cfg: &LlmConfig,
     http: &reqwest::Client,
@@ -427,31 +441,13 @@ async fn fetch_plan(
         .map_err(|e| PlanUnavailable::BodyParse(e.to_string()))?;
     let text = extract_response_text(cfg, &body).ok_or(PlanUnavailable::NoResponseText)?;
 
-    parse_plan(&text).ok_or(PlanUnavailable::NoPlanBlock)
-}
-
-/// Wait for the frontend to approve the pending plan. Uses
-/// `tokio::sync::Notify` so the loop wakes immediately when the user
-/// clicks "Run" with zero polling overhead. Times out after 5 minutes.
-///
-/// The notifier is stored in `AppState` (not behind the agent Mutex),
-/// so the `approve_plan` Tauri command can fire it without holding any
-/// lock that `send_message` also holds, eliminating the deadlock.
-/// Block until the frontend answers the plan gate.
-///
-/// There used to be exactly two ways out: approve, or wait five minutes.
-/// A user who disliked the plan had no way to say so, which made the
-/// gate feel like a trap rather than a checkpoint. `rejected` is set by
-/// the `reject_plan` command before it fires the same notifier, so a
-/// rejection is a normal answer rather than a timeout.
-async fn await_plan_approval(
-    notify: &Arc<Notify>,
-    rejected: &Arc<std::sync::atomic::AtomicBool>,
-) -> Result<bool> {
-    tokio::time::timeout(Duration::from_secs(300), notify.notified())
-        .await
-        .map_err(|_| Error::PlanTimeout)?;
-    Ok(rejected.swap(false, std::sync::atomic::Ordering::SeqCst))
+    let steps = parse_plan(&text).ok_or(PlanUnavailable::NoPlanBlock)?;
+    // `<plan>[]</plan>` used to reach the user as a card with no steps,
+    // whose Run approved nothing and then let every edit through.
+    if steps.is_empty() {
+        return Err(PlanUnavailable::EmptyPlan);
+    }
+    Ok(steps)
 }
 
 /// Hard upper bound on the number of content blocks we'll allocate for
@@ -460,6 +456,17 @@ async fn await_plan_approval(
 /// hand us `u64::MAX` and force a massive `Vec` allocation. Anthropic's
 /// real tool-use messages have well under 10 blocks, so 100 is generous.
 const MAX_CONTENT_BLOCKS: usize = 100;
+
+/// Where a turn stands on approving edits (#415).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Gate {
+    /// Nothing is waiting to be approved: no gate was asked for, the
+    /// approved plan covers the turn, or the held step has been approved.
+    Open,
+    /// Plan first is on and the model wrote no plan. The first step with a
+    /// call that would change the session is held for approval.
+    HoldFirstEdit,
+}
 
 /// Run a single agent turn. See [`crate::Agent::turn`] for behaviour.
 ///
@@ -543,47 +550,58 @@ where
     // the same phrasing sometimes planned and sometimes just acted, with
     // nothing to explain why. `plan_first` makes it a choice.
     let mut step_override: Option<String> = None;
+    let mut gate = Gate::Open;
     if plan_first || mode == Mode::Mashup {
         match fetch_plan(cfg, http, system_prompt, conversation, &user_message).await {
             Ok(steps) => {
-                on_event(AgentEvent::Plan {
-                    steps: steps.clone(),
-                });
                 // Block until the frontend answers via `approve_plan` or
                 // `reject_plan`, or time out after 5 minutes.
-                if await_plan_approval(plan_notify, plan_rejected).await? {
-                    on_event(AgentEvent::PlanRejected);
-                    return Ok(TurnResult::default());
+                match approval::ask(
+                    &mut on_event,
+                    steps,
+                    plan_notify,
+                    plan_rejected,
+                    plan_steps_override,
+                )
+                .await?
+                {
+                    Approval::Rejected => {
+                        on_event(AgentEvent::PlanRejected);
+                        return Ok(TurnResult::default());
+                    }
+                    Approval::Approved => {}
+                    Approval::Revised(text) => step_override = Some(text),
                 }
-                // Consume any step overrides the frontend stored before
-                // firing the notifier.
-                step_override = plan_steps_override
-                    .lock()
-                    .expect("plan_steps_override mutex poisoned")
-                    .take();
             }
-            // No plan: the turn proceeds without the gate. That
-            // degradation is deliberate — a planning hiccup should not
-            // block work the user asked for — but it is no longer
-            // silent, and the causes are no longer indistinguishable
-            // from each other (#267).
+            // No plan, for any reason. With Plan first on, the user asked
+            // for no edit to run unapproved, so the gate moves to the
+            // first step that would change the session and shows its
+            // concrete tool calls instead (#415). A mashup request with
+            // Plan first off keeps the notice and no gate: that guarantee
+            // is tied to the user's explicit choice.
             //
-            // Every class ends up here: a transport failure, a non-2xx,
-            // a body that would not parse, a response with no text, and
-            // a response with no `<plan>` block. Only the last is the
-            // model choosing not to plan; the rest are faults, and a
-            // user who turned Plan First on is losing a checkpoint they
-            // asked for either way.
+            // Every class lands here: a transport failure, a non-2xx, a
+            // body that would not parse, a response with no text, a
+            // response with no `<plan>` block, and a plan with no steps.
+            // Only the last two are the model choosing not to plan; the
+            // rest are faults. Either way the checkpoint the user asked
+            // for is kept, and neither is silent (#267).
             Err(reason) => {
+                let first_edit_held = plan_first;
                 tracing::warn!(
                     reason = %reason,
                     plan_first,
+                    first_edit_held,
                     mode = mode_as_str(mode),
-                    "plan gate skipped: no plan was produced"
+                    "no plan was produced"
                 );
                 on_event(AgentEvent::PlanUnavailable {
                     reason: reason.to_string(),
+                    first_edit_held,
                 });
+                if first_edit_held {
+                    gate = Gate::HoldFirstEdit;
+                }
             }
         }
     }
@@ -599,10 +617,10 @@ where
     } else {
         user_message
     };
-    conversation.push(Message {
-        role: Role::User,
-        content: vec![ContentBlock::Text { text: user_text }],
-    });
+    // Joins a trailing user message rather than following it: after a
+    // declined step the conversation ends in the `tool_result`s that
+    // answered it, and a second user message in a row is rejected.
+    approval::push_user_text(conversation, user_text);
 
     let tool_schemas = {
         let d = dispatcher.lock().expect("dispatcher mutex poisoned");
@@ -835,6 +853,77 @@ where
         if total_tool_calls + tool_uses.len() > MAX_TOOL_CALLS_PER_TURN {
             return Err(Error::ToolBudgetExceeded(MAX_TOOL_CALLS_PER_TURN));
         }
+
+        // With Plan first on and no plan, the first step with a call that
+        // would change the session is held here: after the budget check,
+        // before anything in it dispatches, with the assistant message
+        // already recorded so the `tool_result`s below can pair with it.
+        // The calls were announced as they streamed, so their badges
+        // already exist; every path out answers each one.
+        if gate == Gate::HoldFirstEdit {
+            // Decided under the dispatcher lock, which is dropped before
+            // the await that waits for the user.
+            let held = {
+                let d = dispatcher.lock().expect("dispatcher mutex poisoned");
+                approval::held_step(&d, &tool_uses, allowed_tools.as_ref(), &user_msg_saved)
+            };
+            if let Some(steps) = held {
+                match approval::ask(
+                    &mut on_event,
+                    steps,
+                    plan_notify,
+                    plan_rejected,
+                    plan_steps_override,
+                )
+                .await
+                {
+                    // This step runs, and so does the rest of the turn,
+                    // as after an approved plan.
+                    Ok(Approval::Approved) => gate = Gate::Open,
+                    Ok(Approval::Rejected) => {
+                        approval::not_run(
+                            &mut on_event,
+                            conversation,
+                            &tool_uses,
+                            approval::DECLINED,
+                            None,
+                        );
+                        on_event(AgentEvent::PlanRejected);
+                        return Ok(TurnResult {
+                            text: accumulated_text,
+                            stop_reason,
+                            node_ids: node_ids_emitted,
+                        });
+                    }
+                    // The user rewrote the step. Running the held calls
+                    // would apply the very thing they just changed, so
+                    // nothing runs: the model gets their words and
+                    // proposes again, and that proposal is held in turn.
+                    // Every edit that runs is one the user saw as shown.
+                    Ok(Approval::Revised(guidance)) => {
+                        approval::not_run(
+                            &mut on_event,
+                            conversation,
+                            &tool_uses,
+                            approval::REVISED,
+                            Some(guidance),
+                        );
+                        continue;
+                    }
+                    Err(e) => {
+                        approval::not_run(
+                            &mut on_event,
+                            conversation,
+                            &tool_uses,
+                            approval::TIMED_OUT,
+                            None,
+                        );
+                        return Err(e);
+                    }
+                }
+            }
+        }
+
         let mut tool_results: Vec<ContentBlock> = Vec::with_capacity(tool_uses.len());
         for (id, name, args_json) in tool_uses {
             total_tool_calls += 1;
@@ -986,7 +1075,7 @@ where
 /// malformed JSON. Parsing it as JSON failed with "EOF while parsing", the
 /// call was reported as malformed, and a second such call ended the whole
 /// turn with an error (#409).
-fn parse_tool_args(args_json: &str) -> serde_json::Result<Value> {
+pub(crate) fn parse_tool_args(args_json: &str) -> serde_json::Result<Value> {
     if args_json.trim().is_empty() {
         return Ok(Value::Object(serde_json::Map::new()));
     }
@@ -1297,6 +1386,23 @@ mod tests {
                     assert_eq!(body["messages"][0]["role"], "user", "{id}");
                 }
             }
+        }
+    }
+
+    /// `<plan>[]</plan>` is no plan: approving it approves nothing, and
+    /// the card it made had no steps and a Run button that let every edit
+    /// through (#415).
+    #[tokio::test]
+    async fn an_empty_plan_block_is_no_plan() {
+        for id in crate::SUPPORTED_PROVIDER_IDS {
+            let (result, _) = serve_one_shot(id, "<plan>[]</plan>", |cfg, http| async move {
+                fetch_plan(&cfg, &http, "SYSTEM-PROMPT", &[], "make it louder").await
+            })
+            .await;
+            assert!(
+                matches!(result, Err(PlanUnavailable::EmptyPlan)),
+                "{id}: an empty plan was accepted: {result:?}"
+            );
         }
     }
 
@@ -1916,6 +2022,7 @@ No other text."#;
             PlanUnavailable::BodyParse("expected value at line 1".into()),
             PlanUnavailable::NoResponseText,
             PlanUnavailable::NoPlanBlock,
+            PlanUnavailable::EmptyPlan,
         ];
 
         for case in &cases {
