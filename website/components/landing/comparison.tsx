@@ -1,8 +1,12 @@
 "use client";
 
+import { useRef } from "react";
 import { Check, Minus, X } from "lucide-react";
 
+import { AgentLoop } from "@/components/landing/agent-loop";
 import { Reveal, Stagger } from "@/components/motion";
+import { SectionHeading } from "@/components/motion/section-heading";
+import { gsap, useGSAP, motionOk, NO_PREFERENCE, DRAWABLE } from "@/lib/gsap";
 
 type CellValue = "yes" | "no" | "partial" | string;
 
@@ -31,7 +35,10 @@ function Cell({ value, highlight }: { value: CellValue; highlight?: boolean }) {
   if (value === "yes")
     return (
       <div className={`${base} ${hl}`}>
-        <Check className={`size-4 ${highlight ? "text-primary" : "text-muted-foreground/70"}`} />
+        <Check
+          data-tick={highlight ? "" : undefined}
+          className={`size-4 ${highlight ? "text-primary" : "text-muted-foreground/70"}`}
+        />
       </div>
     );
   if (value === "no")
@@ -50,25 +57,63 @@ function Cell({ value, highlight }: { value: CellValue; highlight?: boolean }) {
   return <div className={`${base} ${hl}`}>{value}</div>;
 }
 
+/**
+ * The gap edytlab sits in, and the evidence for it, in one section.
+ *
+ * This was two: a "Problem" band that said DAWs are hard and AI tools
+ * are shallow, and then this table, which says the same thing again
+ * row by row. The claim now heads the table it is a summary of, with
+ * the agent loop drawn between them — "the agent layer in between" as
+ * a picture.
+ *
+ * The rows arrive one by one; once they have, edytlab's ticks are
+ * written in down the column (DrawSVG), so the eye runs down the one
+ * column that matters.
+ */
 export function Comparison() {
+  const table = useRef<HTMLDivElement>(null);
+
+  useGSAP(
+    () => {
+      const mm = motionOk();
+      mm.add(NO_PREFERENCE, () => {
+        const ticks = table.current?.querySelectorAll(`[data-tick] :is(${DRAWABLE})`);
+        if (!ticks?.length) return;
+        gsap.fromTo(
+          ticks,
+          { drawSVG: "0%" },
+          {
+            drawSVG: "100%",
+            duration: 0.35,
+            stagger: 0.09,
+            delay: 0.45,
+            ease: "power2.out",
+            clearProps: "strokeDasharray,strokeDashoffset",
+            scrollTrigger: { trigger: table.current, start: "top 75%", once: true },
+          },
+        );
+      });
+      return () => mm.revert();
+    },
+    { scope: table },
+  );
+
   return (
-    <section className="py-20 md:py-28">
+    <section id="compare" className="border-y border-border/50 bg-secondary/20 py-20 md:py-28">
       <div className="container">
-        <Reveal className="mx-auto mb-12 max-w-2xl text-center">
-          <p className="text-sm font-semibold uppercase tracking-wider text-primary">
-            How it stacks up
-          </p>
-          <h2 className="mt-3 text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
-            Pro quality. Zero friction.
-          </h2>
-          <p className="mt-3 text-muted-foreground">
-            The column that matters is the one with nearly every row filled —
-            stem separation is the one still on its way.
-          </p>
-        </Reveal>
+        <SectionHeading
+          eyebrow="The gap"
+          title="Pro DAWs are powerful but slow to learn. AI tools are easy but shallow."
+          lead="edytlab is the agent layer in between: it plans, executes and iterates over a real audio engine, in a session you can trust and steer."
+        />
+
+        <AgentLoop />
 
         <Reveal>
-          <div className="mx-auto max-w-4xl overflow-x-auto rounded-xl border border-border/60">
+          <div
+            ref={table}
+            className="mx-auto max-w-4xl overflow-x-auto rounded-xl border border-border/60"
+          >
             <table className="w-full min-w-[480px] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-border/60">
@@ -98,7 +143,7 @@ export function Comparison() {
                 {rows.map((row, i) => (
                   <tr
                     key={row.label}
-                    className={`border-b border-border/40 last:border-0 ${i % 2 === 0 ? "" : "bg-secondary/10"}`}
+                    className={`border-b border-border/40 transition-colors last:border-0 hover:bg-primary/5 ${i % 2 === 0 ? "" : "bg-secondary/10"}`}
                   >
                     <td className="py-1 pl-6 pr-4 text-sm font-medium text-foreground/80">
                       {row.label}

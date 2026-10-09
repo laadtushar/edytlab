@@ -62,12 +62,13 @@ export default function DocsPage() {
       title="Documentation"
       description="Everything you need to use edytlab and build on top of it."
     >
-      <div className="not-prose mt-8 grid gap-4 sm:grid-cols-2">
+      <div className="not-prose mt-8 grid gap-4 sm:grid-cols-2" data-cascade-items>
         {cards.map((card) => (
           <Link
             key={card.href}
             href={card.href}
-            className="group flex flex-col gap-3 rounded-xl border border-border/60 bg-card/40 p-5 transition-colors hover:border-primary/40 hover:bg-card"
+            data-lift
+            className="ring-hover group flex flex-col gap-3 rounded-xl border border-border/60 bg-card/40 p-5 hover:bg-card"
           >
             <div className="flex items-center justify-between">
               <div className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">

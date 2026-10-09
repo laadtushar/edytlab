@@ -2,7 +2,7 @@
 
 import { useRef, type ReactNode } from "react";
 
-import { gsap, useGSAP, motionOk, NO_PREFERENCE } from "@/lib/gsap";
+import { gsap, useGSAP, motionOk, HOVER_MOTION } from "@/lib/gsap";
 
 interface MagneticProps {
   children: ReactNode;
@@ -19,9 +19,8 @@ interface MagneticProps {
  * of overlapping animations for one gesture. `quickTo` reuses a single
  * tween and just retargets it, which is both smoother and cheaper.
  *
- * Bound to a fine pointer. On a touchscreen there is no hover to lead
- * with — the first "move" arrives with the tap, and the button would
- * slide out from under the finger pressing it.
+ * Bound to a fine pointer (`HOVER_MOTION`): on a touchscreen the button
+ * would slide out from under the finger pressing it.
  */
 export function Magnetic({ children, className, strength = 0.28 }: MagneticProps) {
   const ref = useRef<HTMLDivElement>(null);
@@ -32,7 +31,7 @@ export function Magnetic({ children, className, strength = 0.28 }: MagneticProps
       if (!el) return;
 
       const mm = motionOk();
-      mm.add(`${NO_PREFERENCE} and (hover: hover) and (pointer: fine)`, () => {
+      mm.add(HOVER_MOTION, () => {
         const xTo = gsap.quickTo(el, "x", { duration: 0.5, ease: "power3.out" });
         const yTo = gsap.quickTo(el, "y", { duration: 0.5, ease: "power3.out" });
 

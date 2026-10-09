@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Fragment } from "react";
 import { siteConfig } from "@/lib/site";
 import { DocShell } from "@/components/docs/doc-shell";
 
@@ -692,10 +693,13 @@ export default function ToolsPage() {
         </li>
       </ul>
 
+      {/* Flat — heading, cards, heading, cards — and the card list
+          marked as items, so the page's cascade brings each tool in as
+          it scrolls up rather than a whole group at once. */}
       {groups.map((group) => (
-        <div key={group.title}>
+        <Fragment key={group.title}>
           <h2>{group.title}</h2>
-          <div className="not-prose space-y-4">
+          <div className="not-prose space-y-4" data-cascade-items>
             {group.tools.map((tool) => (
               <div
                 key={tool.name}
@@ -727,7 +731,7 @@ export default function ToolsPage() {
               </div>
             ))}
           </div>
-        </div>
+        </Fragment>
       ))}
     </DocShell>
   );
