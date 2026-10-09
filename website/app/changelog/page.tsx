@@ -27,6 +27,7 @@ const entries: Entry[] = [
       "Plan first works with Ollama, Groq and Gemini, and after the first edit of a conversation. Their plan requests were sent in the wrong format, and any turn after one that used a tool sent an empty message the provider rejected, so the plan was skipped and the edit ran unapproved.",
       "A request that fails stops showing \"Thinking\", errors name the provider that failed rather than Anthropic, and a rejected API key offers Open Settings with a plain explanation instead of raw JSON.",
       "A tool call with no arguments no longer ends the turn with an error.",
+      "The window stays responsive while the assistant runs a long edit. Reading the track list, editing a marker and renaming a version waited for the edit on the app's main thread, so the whole window froze until the edit finished.",
       "Edited audio is named after its track. After an edit, the clip and the status bar showed a 64-character file hash.",
       "History stays under 2 GiB. Audio that only older versions use is removed once the app has proved it can rebuild it, and it is rebuilt on demand when you undo to it, preview it or export it.",
       "Switching between A and B crossfades from the same moment instead of cutting, and a volume curve the assistant writes draws itself on.",
