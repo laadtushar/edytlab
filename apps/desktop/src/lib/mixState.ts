@@ -35,6 +35,30 @@ export function mixIsStale(mix: MixState, head: string | null): boolean {
 }
 
 /**
+ * True when the mix is a render of the session as it is now: one exists,
+ * and it was made from the head.
+ *
+ * Playing anything else plays something other than what the lanes show —
+ * nothing at all when no mix exists, the previous edit's audio when the
+ * mix is stale — so a press of Play renders first unless this holds
+ * (#431). Neither "absent" nor "stale" is current, which is the one
+ * thing they have in common and the reason this is its own question
+ * rather than `!mixIsStale`.
+ */
+export function mixIsCurrent(mix: MixState, head: string | null): boolean {
+  return mix.mixPath !== null && head !== null && mix.mixNodeId === head;
+}
+
+/**
+ * True when nothing has been rendered for the session yet — the case
+ * `mixIsStale` is false for, and the one a user needs telling about:
+ * with audio loaded and no mix, nothing will play until one is made.
+ */
+export function mixIsMissing(mix: MixState): boolean {
+  return mix.mixPath === null;
+}
+
+/**
  * The mix state after an edit that advanced the session.
  *
  * Clearing rather than keeping: a mix of the previous node is not a

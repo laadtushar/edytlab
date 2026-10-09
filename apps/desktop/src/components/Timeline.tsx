@@ -148,6 +148,26 @@ export interface TimelineProps {
    * every other track not at all — the bug this closes.
    */
   mixPath?: string | null;
+  /**
+   * Whether `mixPath` is a render of the session as it is now (#431).
+   * False when there is no mix, or when the one there was made from an
+   * earlier node: playing it would play something other than what the
+   * lanes show. Omitted means true, so a caller that cannot render has
+   * the transport it always had.
+   */
+  mixCurrent?: boolean;
+  /** A render of the head is under way, whoever asked for it. */
+  rendering?: boolean;
+  /**
+   * Render the head's preview. With it, Play on a session whose mix is
+   * not current asks for this and then plays once that mix has loaded,
+   * from the playhead, instead of doing nothing until the user finds
+   * Preview (#431). Without it, Play can only play a mix that exists.
+   *
+   * A render is not cancellable here. Pressing Play again while it runs
+   * cancels the *play*: the mix still finishes and loads, silent.
+   */
+  onRequestRender?: () => void;
   /** Snap selection edges to zero crossings. Off is today's behaviour. */
   snapToZero?: boolean;
   onSnapToZeroChange?: (enabled: boolean) => void;
@@ -1204,6 +1224,9 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
       zoom,
       onZoomChange,
       mixPath,
+      mixCurrent = true,
+      rendering = false,
+      onRequestRender,
       snapToZero,
       onSnapToZeroChange,
       syncLock,
@@ -1285,6 +1308,38 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
         setMixError(String(err)),
       );
     }, []);
+
+    /**
+     * Play was pressed with no current mix, so the head's preview is
+     * being rendered and the transport starts once it has loaded (#431).
+     *
+     * Playback plays the rendered mix, and the only thing that rendered
+     * one was the Preview button — so after opening a file or any edit,
+     * Space and the play button did nothing until the user found it.
+     *
+     * Kept in a ref as well as state: the ref is what a second press
+     * reads, so two presses before React has redrawn cancel the play
+     * rather than asking for two renders.
+     */
+    const [pendingPlay, setPendingPlayState] = useState(false);
+    const pendingPlayRef = useRef(false);
+    const setPendingPlay = useCallback((pending: boolean) => {
+      pendingPlayRef.current = pending;
+      setPendingPlayState(pending);
+    }, []);
+    /** True from the moment the pending play calls `play()` until it settles. */
+    const startingPlayRef = useRef(false);
+
+    /**
+     * The path of the mix the transport holds, which is `mixPath` only
+     * once that mix has loaded.
+     *
+     * Needed because a render of a node already rendered returns the very
+     * same path (the file is named after the node), so `mixPath` does not
+     * change, nothing reloads, and "the new mix has loaded" cannot be
+     * read off a change in `mixPath`.
+     */
+    const [loadedMixPath, setLoadedMixPath] = useState<string | null>(null);
 
     /**
      * The players. Hidden, because they have no waveform to show — the
@@ -1419,6 +1474,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
             activeMixRef.current = toIndex;
             setTransportSec(to.getCurrentTime());
             setTransportDuration(duration);
+            setLoadedMixPath(mixPath);
             if (!from.isPlaying()) {
               to.setVolume(1);
               return;
@@ -1434,11 +1490,14 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
             // first place.
             if (superseded || isAbort(err)) return;
             setMixError(`Could not load the mix: ${String(err)}`);
+            // Nothing will load, so there is nothing to start when it has.
+            setPendingPlay(false);
           });
       } catch (err) {
         // A path the webview cannot convert. The lanes still draw, so
         // without this the app would simply be mute.
         setMixError(`Could not load the mix: ${String(err)}`);
+        setPendingPlay(false);
       }
 
       return () => {
@@ -1679,13 +1738,110 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
     );
 
     /**
+     * Whether there is anything to play: a track holding audio. This is
+     * what the play button's being enabled follows when no mix has loaded
+     * — the session has sound in it, whether or not it has been rendered.
+     */
+    const hasAudio = defaultTracks.some((t) => Boolean(t.audioPath));
+
+    /**
+     * Play, pressed now, must render first: it can render, and what is
+     * loaded (if anything) is not the session as it is (#431).
+     */
+    const needsRender = Boolean(onRequestRender) && !mixCurrent;
+
+    /**
+     * A press has somewhere to go: a mix is loaded, or there is audio to
+     * render one from. Zero duration used to be the whole test, which
+     * made "no preview yet" and "nothing to play" the same state.
+     */
+    const canPlay = transportDuration > 0 || (needsRender && hasAudio);
+
+    const playTitle = pendingPlay
+      ? "Rendering the preview — press again to cancel"
+      : !canPlay
+        ? hasAudio
+          ? "Nothing to play yet — render a preview first"
+          : "Nothing to play — open an audio file first"
+        : transportPlaying
+          ? "Pause (Space)"
+          : needsRender
+            ? "Play (Space) — renders the preview first"
+            : "Play (Space)";
+
+    /**
+     * The other half of a play that waited for a render (#431): start
+     * the transport once there is a mix for this head and it has loaded,
+     * or let the play go when there will not be one.
+     *
+     * - Still rendering: wait.
+     * - Rendering is over and there is no current mix: the render failed
+     *   (App shows why), or the head moved on while it ran. Starting
+     *   would play the wrong thing, or nothing, so the play is dropped.
+     * - A mix is current but not the one the transport holds yet: its
+     *   load is in flight, and `loadedMixPath` changing runs this again.
+     * - Otherwise play, from wherever the playhead is — the load carried
+     *   it over from the mix it replaced.
+     *
+     * Held until `play()` settles rather than cleared at once, so the
+     * button goes from "rendering" straight to "pause" with no frame of
+     * "play" between.
+     */
+    useEffect(() => {
+      if (!pendingPlay || rendering || startingPlayRef.current) return;
+      if (!mixCurrent || !mixPath) {
+        setPendingPlay(false);
+        return;
+      }
+      if (loadedMixPath !== mixPath) return;
+      const ws = activeMix();
+      if (!ws || ws.isPlaying()) {
+        setPendingPlay(false);
+        return;
+      }
+      startingPlayRef.current = true;
+      void Promise.resolve(ws.play())
+        .catch((err: unknown) => setMixError(String(err)))
+        .finally(() => {
+          startingPlayRef.current = false;
+          setPendingPlay(false);
+        });
+    }, [
+      pendingPlay,
+      rendering,
+      mixCurrent,
+      mixPath,
+      loadedMixPath,
+      activeMix,
+      setPendingPlay,
+    ]);
+
+    /**
      * Space and the play button: one toggle, so the two cannot disagree
      * about what the transport is doing.
      */
     const togglePlay = useCallback(() => {
+      // A press while the render for an earlier one is running takes
+      // that play back. The render itself cannot be stopped; the mix
+      // loads and waits.
+      if (pendingPlayRef.current) {
+        setPendingPlay(false);
+        return;
+      }
       const ws = activeMix();
+      if (ws?.isPlaying()) {
+        ws.pause();
+        return;
+      }
+      if (needsRender) {
+        if (!hasAudio) return;
+        setPendingPlay(true);
+        // Joined, not repeated, when a render is already under way —
+        // Preview was pressed, or an earlier play was cancelled.
+        if (!rendering) onRequestRender?.();
+        return;
+      }
       if (!ws) return;
-      if (ws.isPlaying()) ws.pause();
       // A rejected `play()` is how "nothing is decoded" reaches the
       // caller, and it was discarded — so pressing Space on a mix
       // that never loaded did nothing and said nothing (#246).
@@ -1695,8 +1851,16 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
       // element's `play()` can return undefined on older engines,
       // and the transport must not throw on the way to reporting an
       // error.
-      else reportPlayFailure(ws.play());
-    }, [activeMix, reportPlayFailure]);
+      reportPlayFailure(ws.play());
+    }, [
+      activeMix,
+      reportPlayFailure,
+      needsRender,
+      hasAudio,
+      rendering,
+      onRequestRender,
+      setPendingPlay,
+    ]);
 
     /**
      * Every seek — Home/End, a marker or label, a click on a lane —
@@ -1718,7 +1882,11 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
       ref,
       () => ({
         togglePlay,
-        play: () => reportPlayFailure(activeMix()?.play()),
+        // The same start as the toggle's, so it renders first when it
+        // has to; a no-op when the transport is playing or about to.
+        play: () => {
+          if (!pendingPlayRef.current && !activeMix()?.isPlaying()) togglePlay();
+        },
         pause: () => activeMix()?.pause(),
         seekTo,
         seekBy: (delta: number) => {
@@ -1733,7 +1901,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
         zoomToSelection,
         fitToWindow,
       }),
-      [togglePlay, seekTo, zoomToSelection, fitToWindow, activeMix, reportPlayFailure],
+      [togglePlay, seekTo, zoomToSelection, fitToWindow, activeMix],
     );
 
     return (
@@ -1796,44 +1964,61 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
               Play/pause on screen (#425): the transport was reachable
               only from the keyboard. The same toggle Space calls, and it
               shows what the transport is doing however it was started.
-              Disabled until a mix has loaded — the lanes are pictures,
-              and there is nothing to play before a preview is rendered.
+
+              Enabled whenever the session has audio (#431). With no mix
+              rendered, pressing it renders the preview and plays when
+              that has loaded; "Rendering…" is that wait, and a second
+              press during it cancels the play. It stays disabled only
+              when there is nothing to play at all.
             */}
             <button
               type="button"
               data-testid="play-pause-button"
               onClick={togglePlay}
-              disabled={transportDuration === 0}
-              aria-label={transportPlaying ? "Pause" : "Play"}
+              disabled={!canPlay && !pendingPlay}
+              aria-busy={pendingPlay}
+              aria-label={pendingPlay ? "Rendering…" : transportPlaying ? "Pause" : "Play"}
               className={`text-xs px-2 py-1 rounded border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                transportPlaying
+                transportPlaying || pendingPlay
                   ? "border-amber-400 text-amber-400 bg-amber-400/10"
                   : "border-neutral-600 text-neutral-400 hover:border-neutral-400"
               }`}
-              title={
-                transportDuration === 0
-                  ? "Nothing to play yet — render a preview first"
-                  : transportPlaying
-                    ? "Pause (Space)"
-                    : "Play (Space)"
-              }
+              title={playTitle}
             >
-              {/* Drawn rather than typed, because ▶ and ⏸ can fall back
-                  to colour emoji. The triangle is the preview button's. */}
-              <svg
-                width="10"
-                height="10"
-                viewBox="0 0 10 10"
-                fill="currentColor"
-                aria-hidden="true"
-                className="inline-block"
-              >
-                {transportPlaying ? (
-                  <path d="M2 1.5h2v7H2zM6 1.5h2v7H6z" />
-                ) : (
-                  <path d="M2 1.5v7l6-3.5z" />
-                )}
-              </svg>
+              {pendingPlay ? (
+                // Turning; the reduced-motion rule in styles.css stops it.
+                <svg
+                  width="10"
+                  height="10"
+                  viewBox="0 0 10 10"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  aria-hidden="true"
+                  className="inline-block animate-spin"
+                  data-testid="play-pause-spinner"
+                >
+                  <circle cx="5" cy="5" r="3.5" strokeOpacity="0.3" />
+                  <path d="M5 1.5a3.5 3.5 0 0 1 3.5 3.5" strokeLinecap="round" />
+                </svg>
+              ) : (
+                /* Drawn rather than typed, because ▶ and ⏸ can fall back
+                   to colour emoji. The triangle is the preview button's. */
+                <svg
+                  width="10"
+                  height="10"
+                  viewBox="0 0 10 10"
+                  fill="currentColor"
+                  aria-hidden="true"
+                  className="inline-block"
+                >
+                  {transportPlaying ? (
+                    <path d="M2 1.5h2v7H2zM6 1.5h2v7H6z" />
+                  ) : (
+                    <path d="M2 1.5v7l6-3.5z" />
+                  )}
+                </svg>
+              )}
             </button>
             <button
               type="button"
