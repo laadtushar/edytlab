@@ -4,6 +4,7 @@ import Link from "next/link";
 import { DemoCard } from "@/components/landing/real-demos";
 import { PageLinks, PageShell, Prose } from "@/components/landing/page-shell";
 import { demos } from "@/lib/demos";
+import { DEFAULT_OG_IMAGE, pageAlternates } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 
 const title = "AI audio editor for DJs";
@@ -14,20 +15,20 @@ const url = `${siteConfig.url}/use-cases/dj`;
 export const metadata: Metadata = {
   title,
   description,
-  alternates: { canonical: url },
+  alternates: pageAlternates("/use-cases/dj"),
   openGraph: {
     type: "website",
     url,
     title: `${title} · edytlab`,
     description,
     siteName: siteConfig.name,
-    images: [{ url: "/opengraph-image", width: 1200, height: 630, alt: "edytlab" }],
+    images: [DEFAULT_OG_IMAGE],
   },
   twitter: {
     card: "summary_large_image",
     title: `${title} · edytlab`,
     description,
-    images: ["/opengraph-image"],
+    images: [DEFAULT_OG_IMAGE.url],
   },
 };
 

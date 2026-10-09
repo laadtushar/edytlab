@@ -18,7 +18,10 @@ const pages: { path: string; priority: number; changeFrequency: Entry["changeFre
   { path: "/docs/tools", priority: 0.8, changeFrequency: "monthly" },
   { path: "/docs/developer-guide", priority: 0.7, changeFrequency: "monthly" },
   { path: "/docs/api-reference", priority: 0.7, changeFrequency: "monthly" },
+  { path: "/use-cases/dj", priority: 0.8, changeFrequency: "monthly" },
+  { path: "/use-cases/local-ai-audio-editor", priority: 0.8, changeFrequency: "monthly" },
   { path: "/changelog", priority: 0.6, changeFrequency: "weekly" },
+  { path: "/press", priority: 0.5, changeFrequency: "monthly" },
   { path: "/privacy", priority: 0.3, changeFrequency: "yearly" },
   { path: "/terms", priority: 0.3, changeFrequency: "yearly" },
 ];
