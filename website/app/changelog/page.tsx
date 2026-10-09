@@ -30,6 +30,9 @@ const entries: Entry[] = [
       "With Plan first on, nothing changes before you approve it. A request the model answered with an edit and no plan used to run straight away; the first step that would change the session is now held and shown as the plan.",
       "Undo retraces the steps you took. A version is named after its content, so an edit that returns to an earlier state, such as mute then unmute, lands on the old version, and undo used to go to that version's first parent: after loading a track, muting and unmuting, undo made the track vanish. Undo and redo now follow the path you actually took, a new edit after an undo clears redo, and opening another project starts its history fresh.",
       "A reasoning-effort setting for Anthropic models, from low to max, in Settings. Higher effort gives the model more room to think before it edits. Only Anthropic receives it, and leaving it unset sends exactly what was sent before.",
+      "The window no longer freezes after the assistant's edits on Linux. Every timeline lane carried an audio player that it never plays, and on Linux each one streamed through its own media pipeline; an edit swapped them all at once, and tearing them down could deadlock the window. Lanes now draw their waveform without loading a player.",
+      "A request the assistant took for a mashup is carried out. It used to print a plan as raw text in the chat and stop without making the edit.",
+      "Changing the zoom while an edited track is still loading no longer breaks the timeline.",
     ],
   },
   {
