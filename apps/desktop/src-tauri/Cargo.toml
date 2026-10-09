@@ -24,7 +24,8 @@ serde_json = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync"] }
 tracing = "0.1"
-keyring = { version = "3", default-features = false, features = ["linux-native", "apple-native", "windows-native"] }
+# Linux: the Secret Service (persistent), with keyutils kept for the session-only fallback and the migration; see crates/ai/src/keychain.rs.
+keyring = { version = "3", default-features = false, features = ["linux-native", "sync-secret-service", "crypto-rust", "apple-native", "windows-native"] }
 
 uuid = { version = "1", features = ["v4"] }
 chrono = "0.4"

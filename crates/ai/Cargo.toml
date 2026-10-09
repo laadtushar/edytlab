@@ -23,7 +23,8 @@ serde_json = "1"
 eventsource-stream = "0.2"
 futures-util = "0.3"
 thiserror = "2"
-keyring = { version = "3", default-features = false, features = ["linux-native", "apple-native", "windows-native"] }
+# Linux: the Secret Service (persistent), with keyutils kept for the session-only fallback and the migration; see crates/ai/src/keychain.rs.
+keyring = { version = "3", default-features = false, features = ["linux-native", "sync-secret-service", "crypto-rust", "apple-native", "windows-native"] }
 tracing = "0.1"
 
 [dev-dependencies]

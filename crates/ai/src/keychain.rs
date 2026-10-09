@@ -1,11 +1,31 @@
 //! OS keychain wrapper for LLM provider API keys.
 //!
-//! On macOS this resolves to the user's login keychain via Security.framework;
-//! on Windows it lands in the Credential Manager. On Linux it is the
-//! kernel keyring (`keyutils`, the `keyring` crate's `linux-native`
-//! feature), which lives in memory and does not survive a reboot
-//! (#394). Keys are never written to disk by edytlab itself and never
-//! logged.
+//! On macOS this resolves to the user's login keychain via
+//! Security.framework; on Windows it lands in the Credential Manager.
+//! Both are unchanged.
+//!
+//! On Linux, values live in the Secret Service (GNOME Keyring, KWallet
+//! from Plasma 5.97 / 6, or KeePassXC), reached over D-Bus with an
+//! encrypted session (the `keyring` crate's `sync-secret-service` and
+//! `crypto-rust` features). So they survive a reboot (#394).
+//!
+//! When no Secret Service answers (no session bus, or nothing owns
+//! `org.freedesktop.secrets`), values fall back to the kernel keyring
+//! (`keyutils`) and last only until the next reboot. [`persistence`]
+//! reports which of the two applies, and the app shows it.
+//!
+//! Values that earlier builds left in the kernel keyring are moved into
+//! the Secret Service on first read, if they are still there (same
+//! boot, and within the three-day expiry of the persistent keyring).
+//!
+//! A locked or refused store is an error, never a silent "nothing
+//! stored": the `try_` readers return it, and the `Option` readers log
+//! it. All I/O is serialized behind one lock, because the Secret Service
+//! mishandles concurrent D-Bus access.
+//!
+//! Keys are never written to disk by edytlab itself. Never log a value,
+//! and never `{:?}` a [`keyring::Error`]: its `Debug` output can carry
+//! the secret bytes (`BadEncoding`), where its `Display` does not.
 //!
 //! # Per-provider slots
 //!
@@ -31,6 +51,8 @@
 //! `"anthropic_api_key"`, which still matches the new naming scheme — no
 //! migration is required. [`load_api_key("anthropic")`] continues to
 //! return the legacy entry on first launch.
+
+use std::sync::{Mutex, MutexGuard};
 
 use keyring::Entry;
 
