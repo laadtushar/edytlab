@@ -53,7 +53,7 @@ fn ceiling_lsb() -> i32 {
     (ceiling_linear() * 32_767.0).ceil() as i32 + 2
 }
 
-/// How close to the ceiling a clipped signal is expected to land.
+/// How close to the ceiling a limited signal is expected to land.
 /// Quantisation only, so a handful of LSB.
 const CEILING_TOLERANCE_LSB: i32 = 4;
 
@@ -199,8 +199,11 @@ fn a_limiter_holds_its_ceiling_across_overlapping_clips() {
 /// a peak below the ceiling, so "under the ceiling" alone proves very
 /// little.
 ///
-/// A clipped sine spends most of its period pinned at the ceiling, so
-/// the correct output peaks *at* it. One clip alone cannot — it peaks
+/// The limiter's attack is instant, so the sample that first crosses
+/// the ceiling is brought to it exactly and the correct output peaks
+/// *at* it (the gain then eases back, so the rest of the cycle sits a
+/// little under it; a hard clip, which this used to be, held the whole
+/// crest there). One clip alone cannot — it peaks
 /// at `CLIP_AMP`, roughly 9830 LSB against a 16422 LSB ceiling — and
 /// silence obviously cannot. So pinning the peak to the ceiling is a
 /// single assertion covering both.

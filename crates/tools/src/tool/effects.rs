@@ -75,7 +75,7 @@ impl Tool for AddEffectTool {
                     },
                     "params": {
                         "type": "object",
-                        "description": "Effect parameters, e.g. { \"cutoff_hz\": 800 }. Defaults are used for anything omitted."
+                        "description": "Effect parameters, e.g. { \"cutoff_hz\": 800 }, or { \"ceiling_db\": -1, \"release_ms\": 80 } for a limiter. Defaults are used for anything omitted."
                     },
                     "position": {
                         "type": "integer",
