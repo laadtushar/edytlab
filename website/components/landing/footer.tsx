@@ -52,6 +52,12 @@ export function Footer() {
               Changelog
             </Link>
             <Link
+              href="/press"
+              className="text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Press
+            </Link>
+            <Link
               href="/privacy"
               className="text-muted-foreground transition-colors hover:text-foreground"
             >
@@ -69,6 +75,24 @@ export function Footer() {
             */}
           </div>
         </Reveal>
+        <nav
+          aria-label="Use cases"
+          className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm"
+        >
+          <span className="font-medium">Use cases</span>
+          <Link
+            href="/use-cases/dj"
+            className="text-muted-foreground transition-colors hover:text-foreground"
+          >
+            AI audio editor for DJs
+          </Link>
+          <Link
+            href="/use-cases/local-ai-audio-editor"
+            className="text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Local AI audio editor
+          </Link>
+        </nav>
         <Separator className="my-8" />
         <p className="text-xs text-muted-foreground" suppressHydrationWarning>
           © {new Date().getFullYear()} edytlab. Audio stays on your machine.

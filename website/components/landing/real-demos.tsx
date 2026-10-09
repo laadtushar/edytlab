@@ -14,7 +14,7 @@
 import { Reveal, Stagger } from "@/components/motion";
 import { DEMO_FRAME, type Demo, demoPosterSrc, demoVideoSrc, demos } from "@/lib/demos";
 
-function DemoCard({ demo, index }: { demo: Demo; index: number }) {
+export function DemoCard({ demo, index }: { demo: Demo; index: number }) {
   const titleId = `demo-${demo.slug}-title`;
   const captionId = `demo-${demo.slug}-caption`;
   const src = demoVideoSrc(demo.slug);
