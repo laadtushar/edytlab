@@ -217,7 +217,6 @@ src/
 ├── components/
 │   ├── ABCompareBar.tsx       # A/B compare mode controls
 │   ├── AgentProfilesEditor.tsx
-│   ├── Canvas.tsx             # Waveform canvas rendering
 │   ├── CapabilitiesMenu.tsx   # + button for capabilities
 │   ├── Chat.tsx               # Chat panel, message streaming
 │   ├── EmptyState.tsx         # No-audio-loaded state
