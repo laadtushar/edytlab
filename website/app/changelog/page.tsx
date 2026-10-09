@@ -19,6 +19,20 @@ interface Entry {
 // GitHub Releases — link below.
 const entries: Entry[] = [
   {
+    version: "v0.4.0",
+    date: "2026-10",
+    bullets: [
+      "Play straight after opening a file or making an edit. Playback plays a rendered preview of the mix, and only the Preview button made one, so Space did nothing and the Play button stayed disabled until you found it. Play now renders the preview when there is none and starts as soon as it has loaded. After an edit it plays the new version; it used to play the one before.",
+      "Play, pause and place the playhead with the mouse. The toolbar has a Play button, and a click on the ruler or a lane moves the playhead there. Playback used to be keyboard-only.",
+      "The assistant's replies are formatted. Lists, bold, headings, code and tables render as such instead of showing their asterisks, dashes and backticks. HTML in a reply stays text, and a link shows its address beside it rather than opening in the app window.",
+      "A request with many steps finishes. A request was capped at 10 tool calls without the model being told, and one mastering pass takes seven to ten, so an ordinary request could end in an error after its edits had already been made. The cap is now 20, the model knows it, and a request that reaches it ends with the assistant saying what it did and what is left.",
+      "The limiter limits instead of clipping. It turned every sample over the ceiling into the ceiling, which on a sine 6 dB over a −6 dBFS ceiling is 23% distortion. It now turns the gain down at once and lets it recover over a release time you can set (80 ms by default): 0.19% on the same 1 kHz sine. It works on sample peaks, with no look-ahead.",
+      "With Plan first on, nothing changes before you approve it. A request the model answered with an edit and no plan used to run straight away; the first step that would change the session is now held and shown as the plan.",
+      "Undo retraces the steps you took. A version is named after its content, so an edit that returns to an earlier state, such as mute then unmute, lands on the old version, and undo used to go to that version's first parent: after loading a track, muting and unmuting, undo made the track vanish. Undo and redo now follow the path you actually took, a new edit after an undo clears redo, and opening another project starts its history fresh.",
+      "A reasoning-effort setting for Anthropic models, from low to max, in Settings. Higher effort gives the model more room to think before it edits. Only Anthropic receives it, and leaving it unset sends exactly what was sent before.",
+    ],
+  },
+  {
     version: "v0.3.0",
     date: "2026-10",
     bullets: [
