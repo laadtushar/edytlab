@@ -21,6 +21,7 @@ import {
   setPlanFirst as setPlanFirstBridge,
 } from "../lib/tauri-bridge";
 import type { Marker } from "../lib/tauri-bridge";
+import { describeChatError, needsSettings } from "../lib/chat-errors";
 
 import {
   useAgentStream,
@@ -62,27 +63,10 @@ export interface ChatProps {
    * Open the settings panel. Offered on the error banner when the
    * failure is "no agent configured" (#250) — that message is
    * unactionable from here otherwise, and the most common way to reach
-   * it is a provider switch that left the app without a key.
+   * it is a provider switch that left the app without a key — and when
+   * the provider refused the key (#414). See `lib/chat-errors`.
    */
   onOpenSettings?: () => void;
-}
-
-/**
- * Whether an error is one the user fixes in Settings rather than by
- * retrying (#250).
- *
- * Deliberately loose, and matching `App.tsx`'s `isApiKeyError`: the Rust
- * side words this family several ways ("no agent configured; call
- * set_api_key first", missing-key messages), and a Retry button alone
- * on any of them just repeats the failure.
- */
-function needsSettings(message: string): boolean {
-  const m = message.toLowerCase();
-  return (
-    m.includes("no agent") ||
-    m.includes("set_api_key") ||
-    m.includes("api key")
-  );
 }
 
 function isMessage(e: LogEntry): e is MessageEntry {
@@ -261,7 +245,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
     } catch (err) {
       // The request failed before any agent event could clear "thinking".
       stopAwaiting();
-      setLocalError(friendlyError(err));
+      setLocalError(describeChatError(err));
     } finally {
       setBusy(false);
     }
@@ -1077,13 +1061,6 @@ function WhisperSetupCard() {
       </p>
     </div>
   );
-}
-
-function friendlyError(err: unknown): string {
-  const raw = String(
-    err instanceof Error ? err.message : (err ?? "unknown error"),
-  );
-  return `Could not complete request: ${raw}`;
 }
 
 function fmtTime(sec: number): string {
