@@ -19,8 +19,8 @@ Local-first, multi-provider, pure-Rust DSP. Builds for macOS (universal), Window
 
 ## Key features
 
-- **Conversational multi-track production.** Say *"mashup A's vocals over B's drums, key-match, give me 3 takes on the drop"* and the agent plans, executes, and renders. Branches per take, A/B in the canvas.
-- **Pure-Rust DSP.** Decode (`symphonia`), resampling (`rubato`), I/O (`cpal`), and effects written in-house in `crates/audio-dsp` — a crate with deliberately zero dependencies. DSP quality is non-negotiable and there is no Python in the hot path.
+- **Conversational multi-track production.** Say *"match Neon Rush to Midnight Drive's tempo, start it 8 bars before Midnight Drive ends, crossfade with a low-pass on the outgoing track, then master to −14 LUFS and export a WAV"* and the agent plans, executes, and renders. Every edit is a node you can branch from and A/B in the canvas.
+- **Pure-Rust DSP.** Decode (`symphonia`), resampling (`rubato`), and effects written in-house in `crates/audio-dsp` — a crate with deliberately zero dependencies. DSP quality is non-negotiable and there is no Python in the hot path.
 - **Local-first.** Audio never leaves your machine unless you export. The agent talks to the LLM you pick — a hosted one, or a local model through Ollama; the audio engine runs entirely in-process.
 - **Multi-provider LLMs out of the box.** Anthropic, OpenRouter, OpenAI, Groq, Gemini and Ollama — each hosted provider with its own key in the OS keychain (Ollama needs none), switchable from the Settings panel without reinstall. Adding another is a single `LlmProvider` impl.
 - **Branchable session graph.** Every state is a node in a DAG. Fork, name, compare, revert — A/B is first-class, not an undo stack. The Graph view draws the DAG next to the timeline.
@@ -101,7 +101,7 @@ For the long version, read [`docs/specs/2026-05-05-conversational-audio-editor-d
 
 - **Shell:** Tauri 2, Rust workspace (edition 2021, toolchain 1.88), `cargo` profile-release with `lto = true`
 - **Frontend:** React 19, Vite 7, Tailwind 4, `@xyflow/react` for the graph view, `wavesurfer.js` for waveforms
-- **Audio:** `cpal` (I/O), `symphonia` (decode), `rubato` (resampling), `realfft` (spectral), `hound` (WAV), `flac-codec` and `rusty_mp3` (export), plus in-house effects in `crates/audio-dsp`
+- **Audio:** `cpal` (microphone capture), `symphonia` (decode), `rubato` (resampling), `realfft` (spectral), `hound` (WAV), `flac-codec` and `rusty_mp3` (export), plus in-house effects in `crates/audio-dsp`
 - **ML:** `ort` (ONNX Runtime, `load-dynamic`) for Demucs / Whisper — the runtime library and models are not shipped and both decoders are stubs ([#383](https://github.com/laadtushar/edytlab/issues/383))
 - **LLM:** `reqwest` + `eventsource-stream` for SSE; `keyring` for OS-keychain credential storage
 - **Test:** `cargo test` (unit + integration), `vitest` (frontend), Playwright (`apps/desktop/e2e/`, the frontend in Chromium with the IPC boundary faked), `wiremock` for HTTP fakes
