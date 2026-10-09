@@ -22,6 +22,16 @@ Local-first, multi-provider, pure-Rust DSP. Mac and Windows in v1.
 - **ML primitives where they matter.** Demucs (stem separation) and Whisper (transcription) integrated as ONNX-driven tools the agent can call.
 - **Time and pitch without a C dependency.** Time-stretch, pitch-shift, formant preservation and beat-grid warping run on a phase vocoder written here, on `realfft`. Rubber Band was the original plan and was dropped: it needs a different native package on each of the three CI targets, and a native dependency is the kind of thing that breaks every build at once. See the module docs in `crates/audio-time/src/vocoder.rs` for the trade that buys and what it costs.
 
+## Demo videos
+
+Screen recordings of the desktop app with Claude as the agent, each one a DJ job that ends in an exported file. They also play on the website: <https://edytlab.com/#demos>.
+
+- [**Beatmatch and blend two tracks**](website/public/demos/dj-beatmatched-transition.mp4) — the DJ asks for both tempos; the incoming track is time-stretched to match and overlapped, crossfaded with a low-pass filter sweep on the outgoing track, and the mix is normalized to −14 LUFS and exported as a WAV.
+- [**Build an extended intro for mixing**](website/public/demos/dj-extended-club-intro.mp4) — one track's intro extended by repeating its opening bars, a filter that opens up into the drop, a fade-in, then export.
+- [**A three-track mini-mix, tempo- and loudness-matched**](website/public/demos/dj-mini-mix.mp4) — three tracks at different tempos matched to one tempo, sequenced with overlaps, loudness-matched and limited, then exported.
+
+The list lives in [`website/lib/demos.ts`](website/lib/demos.ts); its test fails if a listed video or poster is missing from `website/public/demos/`.
+
 ## Quick start
 
 Prerequisites:
