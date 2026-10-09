@@ -111,7 +111,7 @@ getting caught.
       committed to the repo.
 - [ ] When PR #432 (the extended-intro demo with sound) lands, add its link to
       the X thread, LinkedIn post and press kit. Those spots are marked
-      `[EXTENDED-INTRO DEMO LINK]`.
+      `https://edytlab.com/demos/dj-extended-club-intro.mp4`.
 - [ ] Once the blog and SEO PR lands, add `/press` and the two `/use-cases/*`
       pages to the sitemap.
 - [ ] Decide how you will answer "was this written by AI?". The commit history

@@ -84,7 +84,7 @@ Paths are relative to the repo root; URLs resolve once these files are on
 | App icon set | `apps/desktop/src-tauri/icons/` | <https://github.com/laadtushar/edytlab/tree/main/apps/desktop/src-tauri/icons> |
 | Demo video: beatmatch and blend two tracks (MP4, 2:58, shown at 1.6x speed) | `website/public/demos/dj-beatmatched-transition.mp4` | <https://edytlab.com/demos/dj-beatmatched-transition.mp4> |
 | Demo video poster (JPG, 1280x776) | `website/public/demos/dj-beatmatched-transition.jpg` | <https://edytlab.com/demos/dj-beatmatched-transition.jpg> |
-| Demo video: extended intro, with sound | `[EXTENDED-INTRO DEMO LINK]` | Add once PR #432 is merged |
+| Demo video: extended intro, with sound | `https://edytlab.com/demos/dj-extended-club-intro.mp4` | Add once PR #432 is merged |
 
 Screenshots of the interface are not in the repository. Take your own from the
 release build, or ask via an issue.

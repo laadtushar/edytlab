@@ -40,6 +40,6 @@ Source (MIT): https://github.com/laadtushar/edytlab
 ## Optional second post, once PR #432 is live
 
 Same format, built around the extended-intro demo with sound.
-`[EXTENDED-INTRO DEMO LINK]`. Describe only what the recording shows; read the
+`https://edytlab.com/demos/dj-extended-club-intro.mp4`. Describe only what the recording shows; read the
 caption in `website/lib/demos.ts` after #432 lands and quote it, rather than
 writing from memory.
