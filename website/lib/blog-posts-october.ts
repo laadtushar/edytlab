@@ -440,7 +440,7 @@ export const octoberPosts: BlogPost[] = [
       },
       {
         type: "p",
-        text: "Two related tools are worth knowing. `revert_to` appends a new node whose state matches an earlier one, an “undo to checkpoint” that keeps the history in between. `apply_diff` writes several alternative takes as sibling nodes from one parent in a single step, when you want to hear a few variations side by side.",
+        text: "Two related tools are worth knowing. `revert_to` moves the head back to an earlier node, an “undo to checkpoint” that keeps every node after it, so you can come back. `apply_diff` writes several alternative takes as sibling nodes from one parent in a single step, when you want to hear a few variations side by side.",
       },
       { type: "h2", text: "A/B compare" },
       {

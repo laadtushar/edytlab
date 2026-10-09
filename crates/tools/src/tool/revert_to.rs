@@ -1,6 +1,7 @@
-//! `revert_to` — append a node whose state matches `target`'s, parented
-//! to the current head (M24). Preserves the full history; only head
-//! moves.
+//! `revert_to` — move the head back to `target` (M24). Node ids hash the
+//! state, so this lands on `target` itself rather than adding a node:
+//! nothing is created, every node after it is kept, and only the head
+//! moves (see `Store::revert_to`).
 
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -24,7 +25,7 @@ impl Tool for RevertToTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "revert_to",
-            "Append a new node whose state matches the target node's state, parented to the current head. Useful for an 'undo to checkpoint' UX without losing the intermediate history.",
+            "Move the head back to an earlier node, such as a checkpoint before an edit the user wants to undo. Nothing is deleted: every node after it is kept, so the user can come back to any of them.",
             json!({
                 "type": "object",
                 "properties": {
@@ -61,7 +62,7 @@ impl Tool for RevertToTool {
             "node_id": new_id.to_hex(),
             "reverted_to": target.to_hex(),
             "summary": format!(
-                "Reverted to {}; new head {}",
+                "Reverted to {}; head is now {}",
                 target.to_hex(),
                 new_id.to_hex()
             ),

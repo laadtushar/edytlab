@@ -91,7 +91,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`resample_track`](#resample_track) — Resample a track to a different sample rate using linear interpolation.
 - [`reverb`](#reverb) — Apply Freeverb algorithmic reverb.
 - [`reverse`](#reverse) — Reverse the sample order of a track, optionally within a sub-range.
-- [`revert_to`](#revert_to) — Append a new node whose state matches the target node's state, parented to the current head.
+- [`revert_to`](#revert_to) — Move the head back to an earlier node, such as a checkpoint before an edit the user wants to undo.
 - [`select_region`](#select_region) — Resolve a description of a region into a concrete time range, using the session's transcript and tempo map.
 - [`separate_stems`](#separate_stems) — NOT IMPLEMENTED IN THIS BUILD.
 - [`set_clip_envelope`](#set_clip_envelope) — Replace the per-clip volume automation curve.
@@ -883,7 +883,7 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `revert_to`
 
-Append a new node whose state matches the target node's state, parented to the current head. Useful for an 'undo to checkpoint' UX without losing the intermediate history.
+Move the head back to an earlier node, such as a checkpoint before an edit the user wants to undo. Nothing is deleted: every node after it is kept, so the user can come back to any of them.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
