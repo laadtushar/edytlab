@@ -12,6 +12,11 @@
  * `onSelectionChange`. Selection is rendered as a translucent amber
  * overlay; clicking outside the overlay (without dragging) clears.
  *
+ * Mouse transport (#425): a click on any lane — a press with no drag —
+ * puts the playhead under the pointer, through the same seek the
+ * keyboard uses, and the toolbar's play button toggles the same
+ * transport Space does.
+ *
  * Per-track waveforms: when the caller supplies a `tracks` prop, each
  * lane renders the audio at its own `audioPath`, which starts at
  * session zero (`list_tracks` flattens any track that is not a whole
@@ -299,6 +304,12 @@ interface LaneProps {
   onWavesurfer?: (ws: WaveSurfer | null) => void;
   selection?: Selection | null;
   onSelectionChange?: (sel: Selection | null) => void;
+  /**
+   * A click on the lane — a press that did not become a selection —
+   * with the session time under the pointer. Every lane has one, so a
+   * click anywhere places the one playhead; only the head lane selects.
+   */
+  onSeek?: (sec: number) => void;
   /** Called when the wavesurfer reports the audio duration. */
   onDurationChange?: (d: number) => void;
   /** Reports this lane's decode failure, and `null` once one succeeds. */
@@ -376,6 +387,7 @@ function TrackLane({
   onWavesurfer,
   selection,
   onSelectionChange,
+  onSeek,
   onDurationChange,
   onLoadErrorChange,
   viewport,
@@ -698,9 +710,17 @@ function isAbort(err: unknown): boolean {
     [onFileDropped],
   );
 
+  /**
+   * A press on the surface: the start of a drag, which selects, or of a
+   * click, which places the playhead (#425). Which one it was is only
+   * known at the release, so both start here. A lane that cannot select
+   * still follows the press, to tell a click from a drag, but draws no
+   * draft of a selection it will never make.
+   */
   const beginSelection = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      if (!onSelectionChange || !(viewport.pxPerSec > 0) || !waveformWrapperRef.current) return;
+      if (!onSelectionChange && !onSeek) return;
+      if (!(viewport.pxPerSec > 0) || !waveformWrapperRef.current) return;
       // Only left-click; Shift is reserved for multi-select later.
       if (e.button !== 0) return;
       const rect = waveformWrapperRef.current.getBoundingClientRect();
@@ -712,7 +732,7 @@ function isAbort(err: unknown): boolean {
       };
       setDraftSelection({ start: originSec, end: originSec });
     },
-    [viewport, onSelectionChange],
+    [viewport, onSelectionChange, onSeek],
   );
 
   /**
@@ -759,13 +779,18 @@ function isAbort(err: unknown): boolean {
     };
     const onUp = () => {
       const final = draftSelection;
+      const pressedAt = dragStateRef.current?.originSec;
       dragStateRef.current = null;
       setDraftSelection(null);
       if (!final) return;
       // Treat a sub-50 ms drag as a click — clear selection rather
-      // than create a degenerate range.
+      // than create a degenerate range — and put the playhead where
+      // the button went down, as every editor does (#425). Seeking is
+      // all a click does to the transport: playing, it plays on from
+      // there, as ←/→ do.
       if (final.end - final.start < 0.05) {
         onSelectionChange?.(null);
+        onSeek?.(pressedAt ?? final.start);
       } else {
         onSelectionChange?.(maybeSnap(final));
       }
@@ -776,7 +801,7 @@ function isAbort(err: unknown): boolean {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [draftSelection, viewport, onSelectionChange, maybeSnap]);
+  }, [draftSelection, viewport, onSelectionChange, onSeek, maybeSnap]);
 
   /**
    * Where the playhead sits on this lane, in pixels from the surface's
@@ -798,13 +823,16 @@ function isAbort(err: unknown): boolean {
    * of it is in view.
    */
   const overlay = useMemo(() => {
-    const range = draftSelection ?? selection ?? null;
+    // A lane that only seeks still tracks a press as a draft; it is not
+    // a selection and is never drawn as one.
+    const draft = onSelectionChange ? draftSelection : null;
+    const range = draft ?? selection ?? null;
     if (!range || !(viewport.pxPerSec > 0)) return null;
     const left = Math.max(0, secToPx(range.start, viewport));
     const right = Math.min(viewport.widthPx, secToPx(range.end, viewport));
     if (right <= left) return null;
     return { left, width: right - left };
-  }, [draftSelection, selection, viewport]);
+  }, [draftSelection, selection, viewport, onSelectionChange]);
 
   return (
     <div
@@ -1223,6 +1251,25 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
     const [transportSec, setTransportSec] = useState(0);
 
     /**
+     * Whether the transport is playing, for the play button to show.
+     *
+     * Read from the player that is playing, on its own events, rather
+     * than set by the button: Space, the end of the mix and an A/B
+     * switch all change it without going near the button.
+     */
+    const [transportPlaying, setTransportPlaying] = useState(false);
+
+    /**
+     * How long the mix the transport holds is; 0 until one has loaded.
+     *
+     * Zero is "nothing to play": `play()` on a player with no source
+     * rejects, and `seekTo` refuses a player with no duration. The play
+     * button is disabled on it rather than offering a press that can
+     * only fail.
+     */
+    const [transportDuration, setTransportDuration] = useState(0);
+
+    /**
      * A failure from the one thing that makes sound (#246).
      *
      * The lanes each surface their own load error; the mix player —
@@ -1295,6 +1342,14 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
         const publish = () => {
           if (isActive()) setTransportSec(ws.getCurrentTime());
         };
+        // Either side's play, pause or end re-reads the *active* side.
+        // Mid-crossfade the outgoing side pauses while the incoming one
+        // plays on, and that pause must not read as the transport
+        // stopping.
+        const publishPlaying = () => {
+          const active = mixPlayersRef.current[activeMixRef.current];
+          setTransportPlaying(active?.isPlaying() ?? false);
+        };
         // Looping belongs to whatever is actually playing. It used to
         // live on lane 0, which is no longer the thing making sound.
         const onProcess = () => {
@@ -1307,11 +1362,17 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
         ws.on("seeking", publish);
         ws.on("timeupdate", publish);
         ws.on("audioprocess", onProcess);
+        ws.on("play", publishPlaying);
+        ws.on("pause", publishPlaying);
+        ws.on("finish", publishPlaying);
         unsubscribe.push(() => {
           ws.un("audioprocess", publish);
           ws.un("seeking", publish);
           ws.un("timeupdate", publish);
           ws.un("audioprocess", onProcess);
+          ws.un("play", publishPlaying);
+          ws.un("pause", publishPlaying);
+          ws.un("finish", publishPlaying);
           ws.destroy();
           media.remove();
         });
@@ -1357,6 +1418,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
 
             activeMixRef.current = toIndex;
             setTransportSec(to.getCurrentTime());
+            setTransportDuration(duration);
             if (!from.isPlaying()) {
               to.setVolume(1);
               return;
@@ -1616,33 +1678,49 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
       [viewport.pxPerSec, scrollPx],
     );
 
+    /**
+     * Space and the play button: one toggle, so the two cannot disagree
+     * about what the transport is doing.
+     */
+    const togglePlay = useCallback(() => {
+      const ws = activeMix();
+      if (!ws) return;
+      if (ws.isPlaying()) ws.pause();
+      // A rejected `play()` is how "nothing is decoded" reaches the
+      // caller, and it was discarded — so pressing Space on a mix
+      // that never loaded did nothing and said nothing (#246).
+      //
+      // Wrapped in `Promise.resolve` rather than chaining directly:
+      // WaveSurfer types this as returning a promise, but a media
+      // element's `play()` can return undefined on older engines,
+      // and the transport must not throw on the way to reporting an
+      // error.
+      else reportPlayFailure(ws.play());
+    }, [activeMix, reportPlayFailure]);
+
+    /**
+     * Every seek — Home/End, a marker or label, a click on a lane —
+     * lands on the mix player, whose time every lane draws its playhead
+     * from, so they all move together.
+     */
+    const seekTo = useCallback(
+      (sec: number) => {
+        const ws = activeMix();
+        if (!ws) return;
+        const d = ws.getDuration() || 0;
+        if (d <= 0) return;
+        ws.setTime(clamp(sec, 0, d));
+      },
+      [activeMix],
+    );
+
     useImperativeHandle(
       ref,
       () => ({
-        togglePlay: () => {
-          const ws = activeMix();
-          if (!ws) return;
-          if (ws.isPlaying()) ws.pause();
-          // A rejected `play()` is how "nothing is decoded" reaches the
-          // caller, and it was discarded — so pressing Space on a mix
-          // that never loaded did nothing and said nothing (#246).
-          //
-          // Wrapped in `Promise.resolve` rather than chaining directly:
-          // WaveSurfer types this as returning a promise, but a media
-          // element's `play()` can return undefined on older engines,
-          // and the transport must not throw on the way to reporting an
-          // error.
-          else reportPlayFailure(ws.play());
-        },
+        togglePlay,
         play: () => reportPlayFailure(activeMix()?.play()),
         pause: () => activeMix()?.pause(),
-        seekTo: (sec: number) => {
-          const ws = activeMix();
-          if (!ws) return;
-          const d = ws.getDuration() || 0;
-          if (d <= 0) return;
-          ws.setTime(clamp(sec, 0, d));
-        },
+        seekTo,
         seekBy: (delta: number) => {
           const ws = activeMix();
           if (!ws) return;
@@ -1655,7 +1733,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
         zoomToSelection,
         fitToWindow,
       }),
-      [zoomToSelection, fitToWindow, activeMix, reportPlayFailure],
+      [togglePlay, seekTo, zoomToSelection, fitToWindow, activeMix, reportPlayFailure],
     );
 
     return (
@@ -1714,6 +1792,49 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
             Timeline
           </h2>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {/*
+              Play/pause on screen (#425): the transport was reachable
+              only from the keyboard. The same toggle Space calls, and it
+              shows what the transport is doing however it was started.
+              Disabled until a mix has loaded — the lanes are pictures,
+              and there is nothing to play before a preview is rendered.
+            */}
+            <button
+              type="button"
+              data-testid="play-pause-button"
+              onClick={togglePlay}
+              disabled={transportDuration === 0}
+              aria-label={transportPlaying ? "Pause" : "Play"}
+              className={`text-xs px-2 py-1 rounded border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                transportPlaying
+                  ? "border-amber-400 text-amber-400 bg-amber-400/10"
+                  : "border-neutral-600 text-neutral-400 hover:border-neutral-400"
+              }`}
+              title={
+                transportDuration === 0
+                  ? "Nothing to play yet — render a preview first"
+                  : transportPlaying
+                    ? "Pause (Space)"
+                    : "Play (Space)"
+              }
+            >
+              {/* Drawn rather than typed, because ▶ and ⏸ can fall back
+                  to colour emoji. The triangle is the preview button's. */}
+              <svg
+                width="10"
+                height="10"
+                viewBox="0 0 10 10"
+                fill="currentColor"
+                aria-hidden="true"
+                className="inline-block"
+              >
+                {transportPlaying ? (
+                  <path d="M2 1.5h2v7H2zM6 1.5h2v7H6z" />
+                ) : (
+                  <path d="M2 1.5v7l6-3.5z" />
+                )}
+              </svg>
+            </button>
             <button
               type="button"
               data-testid="zoom-out-btn"
@@ -1926,6 +2047,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
                   showDropHint={idx === 0 && !audioPath}
                   selection={idx === 0 ? selection : null}
                   onSelectionChange={idx === 0 ? onSelectionChange : undefined}
+                  onSeek={seekTo}
                   onDurationChange={idx === 0 ? setHeadLaneDuration : undefined}
                   onLoadErrorChange={idx === 0 ? onLoadErrorChange : undefined}
                   viewport={viewport}
