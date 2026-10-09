@@ -6,6 +6,7 @@ import { LegalShell } from "@/components/landing/legal-shell";
 export const metadata: Metadata = {
   title: "Changelog",
   description: "Recent updates to edytlab.",
+  alternates: { canonical: "/changelog" },
 };
 
 interface Entry {

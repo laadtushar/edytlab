@@ -6,6 +6,7 @@ export const metadata: Metadata = {
   title: "Privacy",
   description:
     "How edytlab handles your data. Audio stays local, LLM keys live in the OS keychain, no telemetry.",
+  alternates: { canonical: "/privacy" },
 };
 
 export default function PrivacyPage() {

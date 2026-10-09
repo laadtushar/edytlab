@@ -3,6 +3,7 @@ import Link from "next/link";
 import { BookOpen, Code2, Wrench, Zap, Terminal, FileCode2 } from "lucide-react";
 
 import { siteConfig } from "@/lib/site";
+import { DEFAULT_OG_IMAGE } from "@/lib/seo-core";
 import { DocShell } from "@/components/docs/doc-shell";
 
 export const metadata: Metadata = {
@@ -14,6 +15,7 @@ export const metadata: Metadata = {
     description:
       "Complete documentation for edytlab — installation, user guide, tools reference, and developer API.",
     url: `${siteConfig.url}/docs`,
+    images: [DEFAULT_OG_IMAGE],
   },
   alternates: { canonical: "/docs" },
 };

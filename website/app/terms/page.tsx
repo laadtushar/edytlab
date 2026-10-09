@@ -5,6 +5,7 @@ import { LegalShell } from "@/components/landing/legal-shell";
 export const metadata: Metadata = {
   title: "Terms",
   description: "Terms of use for edytlab.",
+  alternates: { canonical: "/terms" },
 };
 
 export default function TermsPage() {
