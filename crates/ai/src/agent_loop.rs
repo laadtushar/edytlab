@@ -1819,7 +1819,7 @@ No other text."#;
                 start_sec: 1.0,
                 end_sec: 2.5,
             }),
-            markers: vec![],
+            ..Default::default()
         };
         let rendered = render_block(&ctx);
         assert!(

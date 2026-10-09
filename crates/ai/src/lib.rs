@@ -45,7 +45,7 @@ pub mod provider;
 pub mod session_context;
 pub mod validate;
 
-pub use session_context::{render_block as render_session_block, SessionContext};
+pub use session_context::{render_block as render_session_block, SessionContext, TrackBrief};
 
 use std::sync::{Arc, Mutex};
 

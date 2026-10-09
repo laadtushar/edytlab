@@ -1680,25 +1680,36 @@ pub async fn send_message<R: Runtime>(
     text: String,
     disabled_tools: Vec<String>,
 ) -> CmdResult<()> {
-    // Build the per-turn SessionContext from the current selection and
-    // the annotations on the store head. We snapshot these before
-    // acquiring the agent lock to minimise the lock hold time.
+    // Build the per-turn SessionContext from the current selection, the
+    // annotations on the store head, and the head's tracks (#408). We
+    // snapshot these before acquiring the agent lock to minimise the lock
+    // hold time.
     let selection = state.selection_snapshot();
-    let markers = match state.store_handle() {
-        None => vec![],
+    let (head, markers, tracks) = match state.store_handle() {
+        None => (None, vec![], vec![]),
         Some(store_arc) => {
             let store = lock_std(&*store_arc, "store")?;
             match store.head() {
-                None => vec![],
-                Some(head) => store.annotations_for(head).unwrap_or_default(),
+                None => (None, vec![], vec![]),
+                Some(head) => {
+                    let markers = store.annotations_for(head).unwrap_or_default();
+                    // A head that cannot be read still gets its selection
+                    // and markers; the turn is not the place to fail.
+                    let tracks = store
+                        .get(head)
+                        .map(|node| ai::TrackBrief::from_state(&node.state))
+                        .unwrap_or_default();
+                    (Some(head.to_hex()), markers, tracks)
+                }
             }
         }
     };
-    let session_ctx = if selection.is_some() || !markers.is_empty() {
-        Some(ai::SessionContext { selection, markers })
-    } else {
-        None
-    };
+    let session_ctx = Some(ai::SessionContext {
+        selection,
+        markers,
+        head,
+        tracks,
+    });
 
     // Hold the agent lock for the duration of the turn. Phase 1 has a
     // single chat thread, so serialised turns are correct (the user
