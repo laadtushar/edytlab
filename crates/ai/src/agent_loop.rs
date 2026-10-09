@@ -839,7 +839,7 @@ where
         for (id, name, args_json) in tool_uses {
             total_tool_calls += 1;
 
-            let args: Value = match serde_json::from_str(&args_json) {
+            let args: Value = match parse_tool_args(&args_json) {
                 Ok(v) => v,
                 Err(e) => {
                     consecutive_validation_errors += 1;
@@ -977,6 +977,20 @@ where
         // Iterate: the next round-trip lets the model react to the
         // tool results.
     }
+}
+
+/// A tool call's arguments, from the JSON the stream delivered.
+///
+/// A call with no arguments arrives with no `input_json_delta` at all, or
+/// with an empty one, so the accumulated text is empty. That is `{}`, not
+/// malformed JSON. Parsing it as JSON failed with "EOF while parsing", the
+/// call was reported as malformed, and a second such call ended the whole
+/// turn with an error (#409).
+fn parse_tool_args(args_json: &str) -> serde_json::Result<Value> {
+    if args_json.trim().is_empty() {
+        return Ok(Value::Object(serde_json::Map::new()));
+    }
+    serde_json::from_str(args_json)
 }
 
 /// Build the outgoing request. Keeps the system prompt + tool schemas
@@ -1410,6 +1424,29 @@ mod tests {
         assert_eq!(messages.len(), 7, "six of history and the new message");
         assert_eq!(messages.last().unwrap()["content"], "the new one");
         assert_eq!(messages[0]["content"], "request 2");
+    }
+
+    // ------------------------------------------------------------------
+    // parse_tool_args (#409)
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn a_call_with_no_arguments_is_an_empty_object() {
+        assert_eq!(parse_tool_args("").unwrap(), json!({}));
+        assert_eq!(parse_tool_args("  \n").unwrap(), json!({}));
+    }
+
+    #[test]
+    fn arguments_are_parsed_as_json() {
+        assert_eq!(
+            parse_tool_args(r#"{"track":0}"#).unwrap(),
+            json!({"track": 0})
+        );
+    }
+
+    #[test]
+    fn truncated_arguments_are_still_malformed() {
+        assert!(parse_tool_args(r#"{"track":"#).is_err());
     }
 
     // ------------------------------------------------------------------
@@ -1937,7 +1974,7 @@ No other text."#;
                 start_sec: 1.0,
                 end_sec: 2.5,
             }),
-            markers: vec![],
+            ..Default::default()
         };
         let rendered = render_block(&ctx);
         assert!(
