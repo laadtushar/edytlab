@@ -49,6 +49,12 @@ impl Tool for AnalyzeTrackTool {
         )
     }
 
+    // Read-only: it decodes and analyses. `lane_audio_path` may write the
+    // content-addressed flattened-track cache, which `Tool::mutates` allows.
+    fn mutates(&self) -> bool {
+        false
+    }
+
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
         let args: Args = match serde_json::from_value(args) {
             Ok(a) => a,

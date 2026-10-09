@@ -38,6 +38,7 @@
 
 pub mod agent_loop;
 pub mod anthropic;
+mod approval;
 pub mod keychain;
 pub mod models;
 pub mod prompt;
@@ -235,24 +236,44 @@ pub enum AgentEvent {
     NodeCreated(session::NodeId),
     /// Final event of a turn. Always emitted on success.
     Done,
-    /// Emitted before tool execution when a plan was requested — either
-    /// because the user turned plan mode on, or because the request
-    /// classified as a mashup. Contains the serialised plan steps. The
-    /// loop suspends until `approve_plan` or `reject_plan` is called.
+    /// Emitted before tool execution when something needs the user's
+    /// approval. The loop suspends until `approve_plan` or `reject_plan`
+    /// is called.
+    ///
+    /// Two things produce it. A plan the model wrote, when the user
+    /// turned plan mode on or the request classified as a mashup; the
+    /// steps are the model's own. Or, with Plan first on and no plan from
+    /// the model (see [`AgentEvent::PlanUnavailable`]), the first step
+    /// that would change the session (#415); the steps are then that
+    /// step's concrete tool calls, one `{step, tool, description}` per
+    /// call, `description` being the arguments it will run with.
     Plan { steps: Vec<serde_json::Value> },
-    /// The user declined the plan. The turn ends having run no tools and
-    /// appended no node.
+    /// The user declined. The turn ends having run nothing that changes
+    /// the session and appended no node.
+    ///
+    /// For a declined held step (#415) the tool calls had already been
+    /// announced, so each one's [`AgentEvent::ToolCallEnd`] (`ok: false`)
+    /// comes first, and the model was given a tool result saying the user
+    /// declined. There is no [`AgentEvent::Done`] after this.
     PlanRejected,
-    /// A plan was asked for and none arrived, so the turn proceeded
-    /// **without** the approval gate (#267).
+    /// A plan was asked for and none arrived (#267).
     ///
     /// Distinct from getting no `Plan` event at all, which means no plan
     /// was requested for this turn. `reason` names the failure class —
-    /// transport, HTTP status, unparseable body, no text, or no `<plan>`
-    /// block — so a user who turned Plan First on can be told the
-    /// checkpoint was skipped rather than left to infer that the model
-    /// decided it was unnecessary.
-    PlanUnavailable { reason: String },
+    /// transport, HTTP status, unparseable body, no text, no `<plan>`
+    /// block, or a plan with no steps — so a user who turned Plan First
+    /// on can be told what happened rather than left to infer that the
+    /// model decided a plan was unnecessary.
+    ///
+    /// `first_edit_held` says what happens next. `true`: Plan first is on,
+    /// and the turn will hold its first step that would change the
+    /// session for approval, as an [`AgentEvent::Plan`] (#415). `false`:
+    /// a request classified as a mashup with Plan first **off** proceeds
+    /// without a gate.
+    PlanUnavailable {
+        reason: String,
+        first_edit_held: bool,
+    },
 }
 
 /// Outcome of a single [`Agent::turn`] call.
@@ -303,7 +324,7 @@ pub enum Error {
     #[error("tool argument validation failed twice: {0}")]
     ToolValidation(String),
 
-    #[error("plan approval timed out (5 minutes); the mashup run was aborted")]
+    #[error("plan approval timed out after 5 minutes; nothing was run")]
     PlanTimeout,
 }
 
@@ -358,14 +379,20 @@ pub struct Agent {
 }
 
 impl Agent {
-    /// Build a new agent. `dispatcher`, `store`, `engine`, and `clipboard`
-    /// are reference-counted so the caller can keep using them concurrently
     /// Ask for a plan before every turn, rather than only when the
     /// request classifies as a mashup.
+    ///
+    /// With this on, **no edit runs without approval**. If the model
+    /// writes a plan, the user approves the plan. If it does not (it
+    /// chose not to, or planning failed for any reason), the first step
+    /// that would change the session is shown for approval before it runs
+    /// (#415). Tools that only read the session never wait for one.
     pub fn set_plan_first(&mut self, on: bool) {
         self.plan_first = on;
     }
 
+    /// Build a new agent. `dispatcher`, `store`, `engine`, and `clipboard`
+    /// are reference-counted so the caller can keep using them concurrently
     /// (under their respective mutexes).
     // Eight handles, all of which the agent genuinely needs for the life
     // of the session. `run_turn` carries the same allow for the same

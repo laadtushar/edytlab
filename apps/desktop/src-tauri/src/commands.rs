@@ -1755,6 +1755,15 @@ pub async fn send_message<R: Runtime>(
         .turn_with_context(text, session_ctx.as_ref(), on_event)
         .await;
 
+    // However the turn ended, it is no longer waiting for an answer. Only
+    // `Done` and `PlanRejected` clear the flag from inside the turn, so a
+    // turn that timed out at the gate, or failed while holding it, left it
+    // open and a stray Run click could bank a permit for the next turn
+    // (#251).
+    state
+        .plan_gate_open
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+
     // Restore the original whitelist regardless of turn success/failure.
     // Restore happens before the `?` propagation so it is guaranteed even
     // on Err. Panics inside an async Tokio task surface as task failures
@@ -1813,8 +1822,15 @@ fn emit_agent_event<R: tauri::Runtime>(app: &AppHandle<R>, event: ai::AgentEvent
                 tracing::warn!(error = %e, "failed to emit plan rejection");
             }
         }
-        ai::AgentEvent::PlanUnavailable { reason } => {
-            if let Err(e) = app.emit(PLAN_UNAVAILABLE, PlanUnavailablePayload { reason }) {
+        ai::AgentEvent::PlanUnavailable {
+            reason,
+            first_edit_held,
+        } => {
+            let payload = PlanUnavailablePayload {
+                reason,
+                first_edit_held,
+            };
+            if let Err(e) = app.emit(PLAN_UNAVAILABLE, payload) {
                 tracing::warn!(error = %e, "failed to emit plan-unavailable");
             }
         }
@@ -1825,19 +1841,11 @@ fn emit_agent_event<R: tauri::Runtime>(app: &AppHandle<R>, event: ai::AgentEvent
 // approve_plan
 // ---------------------------------------------------------------------------
 
-/// Called by the frontend "Approve plan" button. Fires the plan-approval
-/// notifier in `AppState`, unblocking the mashup-mode turn loop.
-///
-/// Deliberately does NOT acquire the agent mutex — `send_message` holds
-/// it across its `.await` points, so touching the agent here would
-/// deadlock.  The notifier lives independently on `AppState`.
-///
-/// When `steps` is non-empty the edited step descriptions are stored in
-/// `plan_steps_override` before the notifier fires.  The agent loop reads
-/// and clears this slot immediately after it wakes, then appends the
-/// override text to the conversation so the model executes the user's
-/// modified plan rather than the original one.
 /// Turn "plan before acting" on or off.
+///
+/// With it on, no edit runs without approval: the model's plan is shown
+/// first, and when it writes none the first step that would change the
+/// session is shown instead (#415).
 ///
 /// Held on `AppState` rather than the agent because the agent is rebuilt
 /// on every key, model or base-URL change, and a preference that
@@ -1883,6 +1891,20 @@ fn plan_gate_was_open(state: &AppState) -> bool {
         .swap(false, std::sync::atomic::Ordering::SeqCst)
 }
 
+/// Called by the frontend "Run" button. Fires the plan-approval notifier
+/// in `AppState`, unblocking the turn loop. What is approved is whatever
+/// the card showed: a plan, or the held first edit (#415).
+///
+/// Deliberately does NOT acquire the agent mutex — `send_message` holds
+/// it across its `.await` points, so touching the agent here would
+/// deadlock.  The notifier lives independently on `AppState`.
+///
+/// When `steps` is non-empty the edited step descriptions are stored in
+/// `plan_steps_override` before the notifier fires.  The agent loop reads
+/// and clears this slot immediately after it wakes. For a plan it appends
+/// the override text to the conversation so the model executes the user's
+/// modified plan rather than the original one. For a held edit nothing
+/// runs: the model is given the revision and proposes again.
 #[tauri::command]
 pub async fn approve_plan(state: State<'_, AppState>, steps: Option<Vec<String>>) -> CmdResult<()> {
     // A stray Run — on a card that should already have gone away — is a

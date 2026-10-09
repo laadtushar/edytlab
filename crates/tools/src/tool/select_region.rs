@@ -107,6 +107,13 @@ impl Tool for SelectRegionTool {
         )
     }
 
+    // Read-only: it resolves a range and reports it. That moves the UI
+    // highlight, not the session; showing a region before an edit is its
+    // whole purpose.
+    fn mutates(&self) -> bool {
+        false
+    }
+
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
         let args: Args = match serde_json::from_value(args) {
             Ok(a) => a,

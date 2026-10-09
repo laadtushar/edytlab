@@ -387,7 +387,7 @@ async fn agent_dispatches_normalize_and_emits_node_created() {
             // Same reasoning: nothing asked for a plan here, so nothing
             // can report one as unavailable. Reaching this would mean
             // the gate is being consulted on turns that never wanted it.
-            ai::AgentEvent::PlanUnavailable { reason } => {
+            ai::AgentEvent::PlanUnavailable { reason, .. } => {
                 panic!("no plan was requested, but one was reported unavailable: {reason}")
             }
         }

@@ -73,6 +73,11 @@ impl Tool for SilenceFinderTool {
         )
     }
 
+    // Read-only: flattens the track in memory and scans it.
+    fn mutates(&self) -> bool {
+        false
+    }
+
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
         let args: Args = match serde_json::from_value(args) {
             Ok(a) => a,

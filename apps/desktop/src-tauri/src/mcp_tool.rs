@@ -72,6 +72,17 @@ impl Tool for RemoteMcpTool {
         self.descriptor.clone()
     }
 
+    // `mutates` is left at the trait's default, `true`: a remote tool is
+    // held for approval under Plan first like any edit (#415).
+    //
+    // The MCP `readOnlyHint` annotation is deliberately NOT honoured. The
+    // MCP specification calls tool annotations untrusted hints that a
+    // client must not base tool-use decisions on, because they come from
+    // the same server whose tool is being judged. `RemoteToolDescriptor`
+    // does not even parse them. A server that really is read-only costs
+    // its user one click per turn; a server that lies about it would cost
+    // them an edit they never saw.
+
     fn invoke(&self, args: Value, _ctx: &mut ToolContext) -> tools::Result<ToolResult> {
         match self
             .registry
@@ -172,5 +183,30 @@ pub fn refresh_dispatcher_all(dispatcher: &mut ToolDispatcher, registry: Arc<Mcp
             &desc,
             Arc::clone(&registry),
         )));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A tool an MCP server advertises is gated like any edit: nothing in
+    /// the descriptor can mark it read-only, so a server cannot exempt its
+    /// own tools from Plan first approval (#415).
+    #[test]
+    fn a_remote_tool_is_held_like_any_edit() {
+        let desc = RemoteToolDescriptor {
+            wire_name: "files__read_file".to_string(),
+            display_name: "files: read_file".to_string(),
+            server: "files".to_string(),
+            tool: "read_file".to_string(),
+            description: "Read a file.".to_string(),
+            schema: json!({ "type": "object", "properties": {} }),
+        };
+        let tool = RemoteMcpTool::from_descriptor(&desc, Arc::new(McpRegistry::new()));
+        assert!(
+            tool.mutates(),
+            "a remote tool must default to needing approval"
+        );
     }
 }
