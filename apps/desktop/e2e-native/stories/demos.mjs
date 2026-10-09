@@ -186,6 +186,49 @@ function exported(file, { about, tolerance = 1 }) {
   return seconds;
 }
 
+/** Seconds into a WAV file before its first non-silent sample (above
+ * -80 dBFS on any channel: padding is written as digital zeros, while a
+ * fade-in starting from silence crosses this within milliseconds), or 0
+ * for a file this cannot read. A track
+ * can come in late two ways: its clip moved along the timeline, or its
+ * audio padded with silence in front. Both sound the same, so a check
+ * of where a track comes in has to hear the silence, not just read the
+ * clip's start. */
+function wavOnset(path) {
+  if (!/\.wav$/i.test(path) || !existsSync(path)) return 0;
+  const b = readFileSync(path);
+  const format = b.readUInt16LE(20);
+  const channels = b.readUInt16LE(22);
+  const rate = b.readUInt32LE(24);
+  const bits = b.readUInt16LE(34);
+  let at = 12;
+  while (at < b.length - 8) {
+    const id = b.subarray(at, at + 4).toString();
+    const size = b.readUInt32LE(at + 4);
+    if (id === "data") {
+      const bytes = bits / 8;
+      const frame = bytes * channels;
+      const end = Math.min(b.length, at + 8 + size);
+      const read = (o) =>
+        format === 3 && bits === 32
+          ? b.readFloatLE(o)
+          : bits === 16
+            ? b.readInt16LE(o) / 32768
+            : bits === 24
+              ? b.readIntLE(o, 3) / 8388608
+              : bits === 32
+                ? b.readInt32LE(o) / 2147483648
+                : 1;
+      for (let o = at + 8, i = 0; o + frame <= end; o += frame, i++) {
+        for (let c = 0; c < channels; c++) if (Math.abs(read(o + c * bytes)) > 1e-4) return i / rate;
+      }
+      return 0;
+    }
+    at += 8 + size + (size % 2);
+  }
+  return 0;
+}
+
 const mmss = (s) => {
   const whole = Math.round(s);
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
@@ -322,7 +365,18 @@ const demos = [
       );
       const bar = 4 * (60 / 124);
       const endOf = (t) => t.clips.reduce((a, c) => Math.max(a, c.start_sec + c.length_sec), 0);
-      const startOf = (t) => Math.min(...t.clips.map((c) => c.start_sec));
+      // Where the track is first heard: its clip's start plus any silence
+      // in front of the audio (a clip reads its file from the start).
+      const startOf = (t) => Math.min(...t.clips.map((c) => c.start_sec + wavOnset(c.source_path)));
+      // On the bar grid of the track before it, within a bar of the 4-bar
+      // mark. A track that is not a whole number of bars long (Solar Flare
+      // is 16½) puts the exact 4-bar mark between downbeats, and a DJ
+      // brings the next track in on the downbeat: either is right.
+      const lands = (start, want, gridFrom) => {
+        if (Math.abs(start - want) < 0.3) return true;
+        const bars = (start - gridFrom) / bar;
+        return Math.abs(start - want) <= bar + 0.05 && Math.abs(bars - Math.round(bars)) * bar < 0.06;
+      };
       const readMix = async () => {
         const all = await tracks(ctx);
         return [named(all, "midnight"), named(all, "solar"), named(all, "neon")];
@@ -341,8 +395,8 @@ const demos = [
         (t) => {
           const want = targets(t);
           const fixes = [];
-          if (Math.abs(startOf(t[1]) - want.solar) >= 0.3) fixes.push(`Solar Flare at ${want.solar.toFixed(2)} s`);
-          if (Math.abs(startOf(t[2]) - want.neon) >= 0.3) fixes.push(`Neon Rush at ${want.neon.toFixed(2)} s`);
+          if (!lands(startOf(t[1]), want.solar, startOf(t[0]))) fixes.push(`Solar Flare at ${want.solar.toFixed(2)} s`);
+          if (!lands(startOf(t[2]), want.neon, startOf(t[1]))) fixes.push(`Neon Rush at ${want.neon.toFixed(2)} s`);
           return fixes.length
             ? `The overlaps are off. Each track should come in 4 bars (${(4 * bar).toFixed(2)} s) before the previous one ends, so start ${fixes.join(" and ")}, and keep the crossfades.`
             : null;
