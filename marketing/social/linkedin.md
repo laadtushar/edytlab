@@ -12,7 +12,7 @@ comment, which you post right after publishing.
 ```
 I've released edytlab 0.3.0, a free, open-source desktop audio editor you drive by describing what you want.
 
-The demo is a DJ transition. The request: get both tracks' tempos, time-stretch the incoming track to match, start it 8 bars before the outgoing one ends, crossfade, put a low-pass on the outgoing track, compress and limit the mix, bring it to -14 LUFS, export a WAV. An AI agent turns that into calls to audio tools, step by step. (The recording is 2:58, shown at 1.6x. In it the agent also points out a spot where the bars land a beat apart.)
+The demo is a DJ transition. The request: get both tracks' tempos, time-stretch the incoming track to match, start it 8 bars before the outgoing one ends, crossfade, put a low-pass on the outgoing track, compress and limit the mix, bring it to -14 LUFS, export a WAV. An AI agent turns that into calls to audio tools, step by step. (The recording is 3:08, with sound; the waits for the agent are sped up. In it the agent also points out a spot where the bars land a beat apart.)
 
 Three design choices I'd like feedback on:
 

@@ -31,8 +31,11 @@ Local-first, multi-provider, pure-Rust DSP. Builds for macOS (universal), Window
 
 Screen recordings of the desktop app with Claude as the agent, each one a DJ job that ends in an exported file. They also play on the website: <https://edytlab.com/#demos>.
 
-- [**Beatmatch and blend two tracks**](website/public/demos/dj-beatmatched-transition.mp4) (2:58, shown at 1.6× speed): the DJ asks for both tempos; the incoming track is time-stretched to match, started 8 bars before the outgoing one ends and crossfaded, with a low-pass filter on the outgoing track; the mix is compressed, limited, brought to −14 LUFS and exported as a WAV.
-- [**Extend an intro for mixing**](website/public/demos/dj-extended-club-intro.mp4) (2:26, with sound; waits for Claude are sped up, every playback is in real time): the DJ asks for Solar Flare's tempo and bar length; the drums-only first 8 bars are repeated so the intro runs 16 bars; a high-pass filter goes on the new intro, the first 4 bars fade in, and the track is exported as a WAV. You hear the original intro, then the new one, then the drop at 0:31.
+All three are recorded with sound: waits for Claude are sped up, and every playback is in real time.
+
+- [**Beatmatch and blend two tracks**](website/public/demos/dj-beatmatched-transition.mp4) (3:08): the DJ asks for both tempos and keys; Neon Rush is time-stretched to Midnight Drive's 120 BPM and started under its last 8 bars, and Claude points out that Neon Rush's first downbeat sits half a second in. Midnight Drive fades out under a 2 kHz low-pass while Neon Rush fades in; the mix is mastered for streaming and exported as a WAV at −14 LUFS, peaking at −1 dBFS.
+- [**Extend an intro for mixing**](website/public/demos/dj-extended-club-intro.mp4) (1:56): the DJ asks for Solar Flare's tempo and bar length; the drums-only first 8 bars are copied from the first downbeat and spliced in, so the intro runs 16 bars; a 150 Hz high-pass holds the low end back until the drop, the first 4 bars fade in, and the track is exported as a WAV. You hear the new intro, then the drop at 0:31.
+- [**A three-track mini-mix**](website/public/demos/dj-mini-mix.mp4) (2:18): three tracks are brought to 124 BPM, sequenced with 4-bar overlaps and crossfades, matched to about −14 LUFS and limited at −1 dBFS, then exported as an 80-second WAV. Claude flags that the last entry lands half a bar off the beat grid, because Solar Flare is 16½ bars long.
 
 The list lives in [`website/lib/demos.ts`](website/lib/demos.ts); its test fails if a listed video or poster is missing from `website/public/demos/`.
 
