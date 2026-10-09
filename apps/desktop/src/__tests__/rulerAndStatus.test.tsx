@@ -131,6 +131,71 @@ describe("the status bar", () => {
   });
 
   /**
+   * #416. After a destructive edit the track reads its audio from
+   * `.audiograph/derived/<hash>.wav`, and the bar named the session after
+   * that file: `703E2A7B…A370E.WAV`. It names the track instead.
+   */
+  describe("after a destructive edit", () => {
+    const HASH = "703e2a7b07919f079abdfbd8c3556c274c8d519c40ef72fe75586ba5bada370e";
+
+    function fileLabel(audioPath: string, trackName?: string): HTMLElement {
+      render(
+        <StatusBar
+          audioPath={audioPath}
+          trackName={trackName}
+          head={null}
+          rendering={false}
+          selection={null}
+        />,
+      );
+      return screen.getByTestId("status-bar-file");
+    }
+
+    it("names the track rather than the derived file", () => {
+      const label = fileLabel(
+        `/home/me/Music/song/.audiograph/derived/${HASH}.wav`,
+        "music-8s-stereo",
+      );
+      expect(label).toHaveTextContent("music-8s-stereo");
+      expect(label.textContent).not.toMatch(/[0-9a-f]{12}/i);
+      // Nor in the tooltip, which used to hold the whole path.
+      expect(label.getAttribute("title") ?? "").not.toMatch(/[0-9a-f]{12}/i);
+    });
+
+    it("does the same on Windows", () => {
+      const label = fileLabel(
+        `C:\\Users\\tusha\\Music\\song\\.audiograph\\derived\\${HASH}.wav`,
+        "Lead guitar",
+      );
+      expect(label).toHaveTextContent("Lead guitar");
+      expect(label.textContent).not.toMatch(/[0-9a-f]{12}/i);
+    });
+
+    /** A track cut into clips is drawn from a flattened file there too. */
+    it("names the track for a flattened lane file", () => {
+      const label = fileLabel(
+        `/home/me/Music/song/.audiograph/derived/track-${HASH}.wav`,
+        "Lead guitar",
+      );
+      expect(label).toHaveTextContent("Lead guitar");
+      expect(label.textContent).not.toMatch(/[0-9a-f]{12}/i);
+    });
+
+    it("never falls back to the hash when the track has no name", () => {
+      const label = fileLabel(`/home/me/Music/song/.audiograph/derived/${HASH}.wav`);
+      expect(label.textContent).not.toMatch(/[0-9a-f]{12}/i);
+      expect(label.textContent).not.toBe("");
+    });
+
+    /** What it has always shown for a file the user loaded. */
+    it("still names a file the user loaded by its file name", () => {
+      const label = fileLabel("/home/me/Music/music.wav", "music");
+      expect(label).toHaveTextContent("music.wav");
+      expect(label).toHaveAttribute("title", "/home/me/Music/music.wav");
+    });
+  });
+
+  /**
    * An undo onto swept history rebuilds its audio first (#373). The
    * state word says so rather than `ready` while the key looks dead.
    */

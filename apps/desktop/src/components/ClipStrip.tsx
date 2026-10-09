@@ -36,6 +36,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { isDerivedAudioPath } from "../lib/derivedAudio";
 import type { ClipSummary } from "../lib/tauri-bridge";
 import { pctOf, type TimeSpan } from "../lib/timelineViewport";
 
@@ -99,10 +100,46 @@ interface DragState {
   moved: boolean;
 }
 
-/** Last path segment, for the chip label. */
-export function clipLabel(clip: ClipSummary, index: number): string {
-  const stem = clip.source_path.split(/[\\/]/).pop() ?? "";
-  return stem || `clip ${index + 1}`;
+/** The track a chip's clip is on, as far as its label needs it. */
+export interface ClipTrack {
+  name: string;
+  /** How many clips the track holds. */
+  clipCount: number;
+}
+
+/**
+ * What a chip says.
+ *
+ * A clip read straight from a file the user brought is labelled with
+ * that file's name, as it always has been (`ClipSummary`'s docs in
+ * `commands.rs` say why the chip labels by source).
+ *
+ * A clip read from derived audio — the output of a destructive edit —
+ * is labelled with its track's name instead, the name the lane header
+ * shows (#416). Its file name is a content hash, and showing it turned
+ * `music.wav` into 64 hex digits the moment it was reversed. The
+ * original file's name is not something the frontend can recover from
+ * that path. When the track holds several clips the chip adds its
+ * position, so `Lead guitar · 1` and `Lead guitar · 2` stay distinct
+ * where both halves of a cut share one derived file.
+ *
+ * The position is the clip's place in the track, the same number the
+ * `clip N` fallback has always used, so a clip keeps its number until an
+ * edit rearranges the track.
+ */
+export function clipLabel(
+  clip: ClipSummary,
+  index: number,
+  track: ClipTrack,
+): string {
+  const position = `clip ${index + 1}`;
+  if (isDerivedAudioPath(clip.source_path)) {
+    const name = track.name.trim();
+    if (!name) return position;
+    return track.clipCount > 1 ? `${name} · ${index + 1}` : name;
+  }
+  const file = clip.source_path.split(/[\\/]/).pop() ?? "";
+  return file || position;
 }
 
 export function ClipStrip({
@@ -262,6 +299,10 @@ export function ClipStrip({
           // Only the chips being *rearranged by an edit* travel.
           const dragging = drag?.clipIndex === i;
           const still = dragging || !painted.current || viewMoved;
+          const label = clipLabel(clip, i, {
+            name: trackName,
+            clipCount: draft.length,
+          });
           return (
             <button
               type="button"
@@ -269,7 +310,7 @@ export function ClipStrip({
               data-testid={`clip-chip-${i}`}
               data-selected={selected}
               aria-pressed={selected}
-              aria-label={`${clipLabel(clip, i)}, ${clip.start_sec.toFixed(
+              aria-label={`${label}, ${clip.start_sec.toFixed(
                 2,
               )} to ${(clip.start_sec + clip.length_sec).toFixed(2)} seconds`}
               onPointerDown={(e) => {
@@ -315,7 +356,7 @@ export function ClipStrip({
               }}
               data-motion={still ? "none" : "clip-travel"}
             >
-              {clipLabel(clip, i)}
+              {label}
             </button>
           );
         })}
