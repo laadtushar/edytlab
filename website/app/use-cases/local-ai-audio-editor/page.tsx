@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { PageLinks, PageShell, Prose } from "@/components/landing/page-shell";
+import { DEFAULT_OG_IMAGE, pageAlternates } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 
 const title = "Local-first AI audio editor";
@@ -12,20 +13,20 @@ const url = `${siteConfig.url}/use-cases/local-ai-audio-editor`;
 export const metadata: Metadata = {
   title,
   description,
-  alternates: { canonical: url },
+  alternates: pageAlternates("/use-cases/local-ai-audio-editor"),
   openGraph: {
     type: "website",
     url,
     title: `${title} · edytlab`,
     description,
     siteName: siteConfig.name,
-    images: [{ url: "/opengraph-image", width: 1200, height: 630, alt: "edytlab" }],
+    images: [DEFAULT_OG_IMAGE],
   },
   twitter: {
     card: "summary_large_image",
     title: `${title} · edytlab`,
     description,
-    images: ["/opengraph-image"],
+    images: [DEFAULT_OG_IMAGE.url],
   },
 };
 
