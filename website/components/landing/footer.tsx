@@ -1,75 +1,65 @@
 import Link from "next/link";
 import { Github } from "lucide-react";
 
-import { Separator } from "@/components/ui/separator";
-import { Reveal } from "@/components/motion";
+import { LineDraw, Reveal, Stagger } from "@/components/motion";
+import { Logo } from "@/components/motion/logo";
 import { siteConfig } from "@/lib/site";
 
+const links = [
+  { href: siteConfig.github, label: "GitHub", external: true, icon: true },
+  { href: siteConfig.designSpec, label: "Design spec", external: true },
+  { href: "/blog", label: "Blog" },
+  { href: "/docs", label: "Docs" },
+  { href: "/changelog", label: "Changelog" },
+  { href: "/privacy", label: "Privacy" },
+  { href: "/terms", label: "Terms" },
+  // Social handles intentionally omitted until accounts exist.
+];
+
+/**
+ * The foot of every page. The mark builds itself as it scrolls into
+ * view, the links arrive left to right, the rule draws out from the
+ * middle, and each link underlines with a sweep on hover.
+ */
 export function Footer() {
   return (
     <footer className="border-t border-border/50 bg-secondary/20">
       <div className="container py-12">
-        <Reveal className="flex flex-col items-start justify-between gap-6 md:flex-row md:items-center" distance={16}>
-          <div>
-            <div className="text-lg font-semibold">edytlab</div>
+        <div className="flex flex-col items-start justify-between gap-6 md:flex-row md:items-center">
+          <Reveal distance={16}>
+            <div className="flex items-center gap-2 text-lg font-semibold">
+              <Logo className="size-6" play="scroll" />
+              edytlab
+            </div>
             <p className="mt-1 text-sm text-muted-foreground">
               Describe it. Get pro-grade audio edits.
             </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-6 text-sm">
-            <Link
-              href={siteConfig.github}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <Github className="size-4" /> GitHub
-            </Link>
-            <Link
-              href={siteConfig.designSpec}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-muted-foreground transition-colors hover:text-foreground"
-            >
-              Design spec
-            </Link>
-            <Link
-              href="/blog"
-              className="text-muted-foreground transition-colors hover:text-foreground"
-            >
-              Blog
-            </Link>
-            <Link
-              href="/docs"
-              className="text-muted-foreground transition-colors hover:text-foreground"
-            >
-              Docs
-            </Link>
-            <Link
-              href="/changelog"
-              className="text-muted-foreground transition-colors hover:text-foreground"
-            >
-              Changelog
-            </Link>
-            <Link
-              href="/privacy"
-              className="text-muted-foreground transition-colors hover:text-foreground"
-            >
-              Privacy
-            </Link>
-            <Link
-              href="/terms"
-              className="text-muted-foreground transition-colors hover:text-foreground"
-            >
-              Terms
-            </Link>
-            {/* Social handles intentionally omitted until accounts exist:
-            <Link href="https://twitter.com/edytlab">Twitter</Link>
-            <Link href="https://www.linkedin.com/company/edytlab">LinkedIn</Link>
-            */}
-          </div>
-        </Reveal>
-        <Separator className="my-8" />
+          </Reveal>
+          <LineDraw>
+            <Stagger className="flex flex-wrap items-center gap-6 text-sm" each={0.05} distance={10}>
+              {links.map((l) => (
+                <Link
+                  key={l.href}
+                  href={l.href}
+                  data-sweep
+                  {...(l.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                  className="inline-flex items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  {l.icon ? <Github className="size-4" /> : null}
+                  {l.label}
+                </Link>
+              ))}
+            </Stagger>
+          </LineDraw>
+        </div>
+        {/* The rule draws out from the middle: `scaleX` from 0, which is
+            a transform — the footer's height never changes. */}
+        <Reveal
+          from={{ scaleX: 0 }}
+          duration={0.9}
+          className="my-8 h-px w-full bg-border"
+        />
+
         <p className="text-xs text-muted-foreground" suppressHydrationWarning>
           © {new Date().getFullYear()} edytlab. Audio stays on your machine.
         </p>

@@ -4,7 +4,6 @@ export const siteConfig = {
   description:
     "Desktop audio editor where you chat with an AI to load, cut, mix, and render. Pure-Rust DSP, local-first, BYO LLM key.",
   url: "https://edytlab.com",
-  ogImage: "/og.png",
   // Placeholder shown only when the GitHub API is unreachable — the real
   // version comes from `getLatestRelease()`. It matches no tag on purpose:
   // if you see it on the live site, the fetch failed.
@@ -42,5 +41,3 @@ export const siteConfig = {
     "Rust DSP",
   ],
 } as const;
-
-export type SiteConfig = typeof siteConfig;

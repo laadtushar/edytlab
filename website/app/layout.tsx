@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 
-import { ScrollProgress } from "@/components/motion";
+import { MicroInteractions, ScrollProgress } from "@/components/motion";
 import { siteConfig } from "@/lib/site";
 
 import "./globals.css";
@@ -73,6 +73,7 @@ export default function RootLayout({
     <html lang="en" className={`dark ${inter.variable}`} suppressHydrationWarning>
       <body className="grain min-h-screen bg-background font-sans antialiased">
         <ScrollProgress />
+        <MicroInteractions />
         {children}
       </body>
     </html>
