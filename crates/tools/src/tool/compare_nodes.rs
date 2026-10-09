@@ -37,6 +37,11 @@ impl Tool for CompareNodesTool {
         )
     }
 
+    // Read-only: `store.diff` only. No head update, no new nodes.
+    fn mutates(&self) -> bool {
+        false
+    }
+
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
         let args: Args = match serde_json::from_value(args) {
             Ok(a) => a,

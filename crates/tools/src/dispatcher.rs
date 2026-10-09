@@ -1,6 +1,6 @@
 //! Dispatcher: trait, registry, and per-call context.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use jsonschema::JSONSchema;
 use serde_json::Value;
@@ -49,6 +49,29 @@ pub trait Tool: Send + Sync {
     /// Returns the tool descriptor in the Anthropic tool-use format:
     /// `{ "name": ..., "description": ..., "input_schema": { ... } }`.
     fn schema(&self) -> Value;
+
+    /// Whether a call to this tool can change anything the user owns.
+    ///
+    /// A call "mutates" if it can append a session node, move the head,
+    /// label or rename a version, overwrite the clipboard, or write or
+    /// delete any file other than the app's own content-addressed,
+    /// rebuildable caches (the `derived/track-<hash>.wav` that the app's
+    /// `list_tracks` command also writes).
+    ///
+    /// Plan first relies on this flag (#415): with it on and no plan from
+    /// the model, the first step that includes a mutating call is shown
+    /// to the user for approval before anything in it runs.
+    ///
+    /// The default is `true`, deliberately. A new tool, and every tool
+    /// an MCP server adds, is held for approval unless someone marks it
+    /// read-only on purpose; `tests/read_only_tools.rs` pins that list,
+    /// so widening it is a reviewed decision rather than an oversight.
+    ///
+    /// Per tool, not per call: the one place arguments change the answer
+    /// is `apply_recipe`'s dry run, and that is held conservatively.
+    fn mutates(&self) -> bool {
+        true
+    }
 
     /// Invoked with `args` already validated against `input_schema`.
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> Result<ToolResult>;
@@ -321,18 +344,19 @@ impl ToolDispatcher {
         self.tools.keys().cloned().collect()
     }
 
-    /// Validate `args` against the tool's precompiled `input_schema`
-    /// and dispatch.
+    /// Everything that must hold before a call may run: the tool is
+    /// permitted this turn, it exists, its own schema compiled, and `args`
+    /// satisfy that schema. Checked in that order, with those errors.
     ///
-    /// Errors:
-    /// * [`DispatchError::Unknown`] if `name` is not registered.
-    /// * [`DispatchError::MalformedToolSchema`] if the tool's own
-    ///   `input_schema` was missing, non-object, or invalid at register
-    ///   time. This is a tool-author bug and is distinct from
-    ///   `SchemaValidation`, which signals a bad caller payload.
-    /// * [`DispatchError::SchemaValidation`] if `args` does not match
-    ///   the tool's `input_schema`.
-    pub fn invoke(&self, name: &str, args: Value, ctx: &mut ToolContext) -> Result<ToolResult> {
+    /// This is the single pre-dispatch path. [`Self::invoke`] runs it, and
+    /// [`Self::would_mutate`] asks it, so the approval gate and the
+    /// dispatch cannot disagree about which calls would be refused.
+    fn admit(
+        &self,
+        name: &str,
+        args: &Value,
+        allowed: Option<&HashSet<String>>,
+    ) -> Result<&Registered> {
         // Before the registry lookup, so a refused tool is refused
         // whether or not it exists.
         //
@@ -340,7 +364,7 @@ impl ToolDispatcher {
         // schema list sent to the model, and never here — so a model
         // that named a filtered-out tool anyway got it executed, and any
         // nested dispatcher bypassed the restriction entirely (#238).
-        if let Some(allowed) = ctx.allowed_tools {
+        if let Some(allowed) = allowed {
             if !allowed.contains(name) {
                 return Err(DispatchError::NotPermitted(name.to_string()));
             }
@@ -358,13 +382,49 @@ impl ToolDispatcher {
             }
         })?;
 
-        if let Err(errors) = compiled.validate(&args) {
+        if let Err(errors) = compiled.validate(args) {
             let joined = errors
                 .map(|e| format!("{} at {}", e, e.instance_path))
                 .collect::<Vec<_>>()
                 .join("; ");
             return Err(DispatchError::SchemaValidation(joined));
         }
+
+        Ok(entry)
+    }
+
+    /// Whether dispatching `name` with `args` would change the session
+    /// (see [`Tool::mutates`]).
+    ///
+    /// A call that would be refused before it ran — not permitted, an
+    /// unknown tool, arguments that fail the schema — runs nothing, so it
+    /// needs no approval and answers `false`. Sharing [`Self::admit`] with
+    /// `invoke` is what keeps this from drifting from what dispatch does.
+    pub fn would_mutate(
+        &self,
+        name: &str,
+        args: &Value,
+        allowed: Option<&HashSet<String>>,
+    ) -> bool {
+        // `name` here is the model's, never `Tool::name()`: that leaks a
+        // `String` per call for an MCP tool.
+        self.admit(name, args, allowed)
+            .is_ok_and(|entry| entry.tool.mutates())
+    }
+
+    /// Validate `args` against the tool's precompiled `input_schema`
+    /// and dispatch.
+    ///
+    /// Errors:
+    /// * [`DispatchError::Unknown`] if `name` is not registered.
+    /// * [`DispatchError::MalformedToolSchema`] if the tool's own
+    ///   `input_schema` was missing, non-object, or invalid at register
+    ///   time. This is a tool-author bug and is distinct from
+    ///   `SchemaValidation`, which signals a bad caller payload.
+    /// * [`DispatchError::SchemaValidation`] if `args` does not match
+    ///   the tool's `input_schema`.
+    pub fn invoke(&self, name: &str, args: Value, ctx: &mut ToolContext) -> Result<ToolResult> {
+        let entry = self.admit(name, &args, ctx.allowed_tools)?;
 
         // Provenance is recorded here rather than in each tool, and that
         // is the whole reason it is feasible: this is the one place every
