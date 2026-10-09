@@ -17,7 +17,13 @@
  * switching provider preserves each side's choice.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import {
   clearApiKeyFor,
@@ -156,6 +162,13 @@ const EFFORT_OPTIONS: ReadonlyArray<{
   { value: "max", label: "Max" },
 ];
 
+/**
+ * How far from either end of the tab strip a tab has to sit to count as
+ * in view: the width of the edge fade, so a tab that was scrolled into
+ * reach is never left half dimmed under it (#392).
+ */
+const TAB_FADE_PX = 24;
+
 function asEffort(value: string | null | undefined): ReasoningEffort | "" {
   return EFFORT_OPTIONS.some((o) => o.value === value && o.value !== "")
     ? (value as ReasoningEffort)
@@ -258,6 +271,88 @@ export function Settings({
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [tab, setTab] = useState<SettingsTab>("account");
+
+  // The tab strip scrolls by itself (#392).
+  //
+  // Seven tabs only just fit in the 30rem card, and a narrower window or
+  // a wider font tips them over. The card is `overflow-hidden` for its
+  // rounded corners, which made *it* the nearest scroll container: focus
+  // on a clipped tab (or anything calling `scrollIntoView`) slid the
+  // whole dialog sideways and left Plugins half off it. So the strip is
+  // the scroller, and `revealTab` moves only the strip, by hand, never
+  // with `scrollIntoView`.
+  //
+  // The fade over each end that has tabs past it and the reveal share
+  // `TAB_FADE_PX`: a tab brought into view is brought clear of the fade.
+  //
+  // A mouse press reveals on click, not on focus. In Chromium mousedown
+  // focuses the button before mouseup, so a focus that scrolled the strip
+  // would move a tab pressed inside the fade out from under the pointer.
+  // The mouseup would land on the padding or the next tab, the click
+  // would go to their common ancestor, and the tab would be focused but
+  // not selected. Keyboard focus still reveals on focus.
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const [tabEdges, setTabEdges] = useState({ start: false, end: false });
+
+  const measureTabs = useCallback(() => {
+    const strip = tabsRef.current;
+    if (!strip) return;
+    const max = strip.scrollWidth - strip.clientWidth;
+    const start = strip.scrollLeft > 1;
+    const end = strip.scrollLeft < max - 1;
+    // Same answer, same object: scrolling must not re-render all of
+    // Settings on every event.
+    setTabEdges((prev) =>
+      prev.start === start && prev.end === end ? prev : { start, end },
+    );
+  }, []);
+
+  // A tab's width changes when the web font swaps in, so the strip and
+  // each tab are watched, not just the window.
+  useLayoutEffect(() => {
+    const strip = tabsRef.current;
+    if (mode !== "panel" || !strip) return;
+    measureTabs();
+    if (typeof ResizeObserver === "function") {
+      const observer = new ResizeObserver(measureTabs);
+      observer.observe(strip);
+      strip
+        .querySelectorAll('[role="tab"]')
+        .forEach((el) => observer.observe(el));
+      return () => observer.disconnect();
+    }
+    window.addEventListener("resize", measureTabs);
+    return () => window.removeEventListener("resize", measureTabs);
+  }, [mode, measureTabs]);
+
+  const revealTab = useCallback(
+    (tabEl: HTMLElement) => {
+      const strip = tabsRef.current;
+      if (!strip) return;
+      const max = strip.scrollWidth - strip.clientWidth;
+      // Everything fits: nothing to do.
+      if (max <= 0) return;
+      const s = strip.getBoundingClientRect();
+      const t = tabEl.getBoundingClientRect();
+      const delta =
+        t.left < s.left + TAB_FADE_PX
+          ? t.left - (s.left + TAB_FADE_PX)
+          : t.right > s.right - TAB_FADE_PX
+            ? t.right - (s.right - TAB_FADE_PX)
+            : 0;
+      if (delta === 0) return;
+      // Clamped here: a browser clamps the assignment itself, but jsdom's
+      // stub does not, and the flags are computed from the result.
+      strip.scrollLeft = Math.min(max, Math.max(0, strip.scrollLeft + delta));
+      measureTabs();
+    },
+    [measureTabs],
+  );
+
+  const tabsMask =
+    tabEdges.start || tabEdges.end
+      ? `linear-gradient(to right, ${tabEdges.start ? "transparent" : "#000"}, #000 ${TAB_FADE_PX}px, #000 calc(100% - ${TAB_FADE_PX}px), ${tabEdges.end ? "transparent" : "#000"})`
+      : null;
 
   const [pluginSource, setPluginSource] = useState('');
   const [pluginInstalling, setPluginInstalling] = useState(false);
@@ -649,6 +744,7 @@ export function Settings({
       className={containerClass}
     >
       <div
+        data-testid="settings-card"
         className="
           relative w-[30rem] max-w-[90vw] overflow-hidden
           rounded-xl border border-[var(--border-strong)]
@@ -690,53 +786,76 @@ export function Settings({
         </div>
 
         {mode === "panel" ? (
-          <div
-            data-testid="settings-tabs"
-            role="tablist"
-            className="flex items-center gap-1 border-b border-[var(--border)] px-5 pt-3"
-          >
-            <SettingsTabButton
-              id="account"
-              label="Account"
-              active={tab === "account"}
-              onClick={() => setTab("account")}
-            />
-            <SettingsTabButton
-              id="project"
-              label="Project"
-              active={tab === "project"}
-              onClick={() => setTab("project")}
-            />
-            <SettingsTabButton
-              id="memory"
-              label="Memory"
-              active={tab === "memory"}
-              onClick={() => setTab("memory")}
-            />
-            <SettingsTabButton
-              id="skills"
-              label="Skills"
-              active={tab === "skills"}
-              onClick={() => setTab("skills")}
-            />
-            <SettingsTabButton
-              id="agents"
-              label="Agents"
-              active={tab === "agents"}
-              onClick={() => setTab("agents")}
-            />
-            <SettingsTabButton
-              id="mcp"
-              label="MCP"
-              active={tab === "mcp"}
-              onClick={() => setTab("mcp")}
-            />
-            <SettingsTabButton
-              id="plugins"
-              label="Plugins"
-              active={tab === "plugins"}
-              onClick={() => setTab("plugins")}
-            />
+          // The divider is on this wrapper, not on the strip: the fade is a
+          // mask on the strip, and would fade the divider line with it.
+          <div className="border-b border-[var(--border)]">
+            <div
+              ref={tabsRef}
+              data-testid="settings-tabs"
+              role="tablist"
+              data-overflow-start={tabEdges.start}
+              data-overflow-end={tabEdges.end}
+              onScroll={measureTabs}
+              style={
+                tabsMask
+                  ? { maskImage: tabsMask, WebkitMaskImage: tabsMask }
+                  : undefined
+              }
+              // `hidden`, not a zero height: styles.css sizes every
+              // `::-webkit-scrollbar` outside the cascade layers, which
+              // beats a utility on height but sets no `display`.
+              className="flex items-center overflow-x-auto overflow-y-hidden px-3 pt-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            >
+              <SettingsTabButton
+                id="account"
+                label="Account"
+                active={tab === "account"}
+                onClick={() => setTab("account")}
+                onReveal={revealTab}
+              />
+              <SettingsTabButton
+                id="project"
+                label="Project"
+                active={tab === "project"}
+                onClick={() => setTab("project")}
+                onReveal={revealTab}
+              />
+              <SettingsTabButton
+                id="memory"
+                label="Memory"
+                active={tab === "memory"}
+                onClick={() => setTab("memory")}
+                onReveal={revealTab}
+              />
+              <SettingsTabButton
+                id="skills"
+                label="Skills"
+                active={tab === "skills"}
+                onClick={() => setTab("skills")}
+                onReveal={revealTab}
+              />
+              <SettingsTabButton
+                id="agents"
+                label="Agents"
+                active={tab === "agents"}
+                onClick={() => setTab("agents")}
+                onReveal={revealTab}
+              />
+              <SettingsTabButton
+                id="mcp"
+                label="MCP"
+                active={tab === "mcp"}
+                onClick={() => setTab("mcp")}
+                onReveal={revealTab}
+              />
+              <SettingsTabButton
+                id="plugins"
+                label="Plugins"
+                active={tab === "plugins"}
+                onClick={() => setTab("plugins")}
+                onReveal={revealTab}
+              />
+            </div>
           </div>
         ) : null}
 
@@ -1162,6 +1281,8 @@ interface SettingsTabButtonProps {
   label: string;
   active: boolean;
   onClick: () => void;
+  /** Bring this tab clear of the strip's edge fade (#392). */
+  onReveal: (tabEl: HTMLElement) => void;
 }
 
 function SettingsTabButton({
@@ -1169,16 +1290,33 @@ function SettingsTabButton({
   label,
   active,
   onClick,
+  onReveal,
 }: SettingsTabButtonProps) {
+  // Whether a pointer press is in progress on this tab. A press reveals
+  // on click rather than on focus; see the note on the tab strip (#392).
+  const pressed = useRef(false);
   return (
     <button
       type="button"
       role="tab"
       aria-selected={active}
       data-testid={`settings-tab-${id}`}
-      onClick={onClick}
+      onPointerDown={() => {
+        pressed.current = true;
+      }}
+      onFocus={(e) => {
+        if (!pressed.current) onReveal(e.currentTarget);
+      }}
+      onBlur={() => {
+        pressed.current = false;
+      }}
+      onClick={(e) => {
+        pressed.current = false;
+        onReveal(e.currentTarget);
+        onClick();
+      }}
       className={
-        "rounded-t-md border-b-2 px-3 py-1.5 text-sm transition " +
+        "shrink-0 whitespace-nowrap rounded-t-md border-b-2 px-2 py-1.5 text-sm transition " +
         (active
           ? "border-[var(--accent)] text-[var(--text)]"
           : "border-transparent text-[var(--text-dim)] hover:text-[var(--text)]")
