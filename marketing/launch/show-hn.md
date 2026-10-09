@@ -76,7 +76,7 @@ telemetry and the website has no analytics.
   hosting.
 - Rough edges I know about: Play does nothing after an edit until you press
   Preview (#431); on Linux your API key does not survive a reboot (#394); the
-  limiter is a plain hard-clip, not a look-ahead true-peak one; with a local
+  limiter has instant attack and no look-ahead, and is not a true-peak one; with a local
   model the first request is large (about 15k tokens in my one measurement,
   #395), so you need a generous context window.
 

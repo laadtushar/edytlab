@@ -45,6 +45,7 @@ This repo lives at `C:\Users\tusha\Work\Playground\Edytlab\edytlab` on Windows 1
 - Per-provider keychain slots: `<provider_id>_api_key`, `<provider_id>_model`, `<provider_id>_base_url`, plus an `active_provider` slot. Anthropic's slot is `anthropic_api_key`, the name builds before multi-provider used, so old keys are found with no migration. On Linux the keychain is the kernel keyring, which does not survive a reboot (#394).
 - App version is canonical in `apps/desktop/src-tauri/tauri.conf.json` — the `package.json` files and Cargo's `[workspace.package] version` mirror it, and `appVersion.test.ts` fails if they drift.
 - Demucs and Whisper (`crates/ml-*`) are wired in as tools but their inference is not shipped (#383–#385). Don't describe stem separation or transcription as working in docs or site copy.
+- Undo/redo follow the path the user took (`apps/desktop/src/lib/headTrail.ts`, held by `useSession`), never `node.parent` alone. Node ids hash state only, so a revisited state keeps its first parent (#398). Every frontend head move must go through `setHeadLocal` (edits, agent, graph) or `resetHead` (opening a project).
 
 ## CI / release
 

@@ -176,6 +176,44 @@ fn a_limiter_bounds_the_peak() {
     );
 }
 
+/// The limiter in the render path is a limiter, not the hard clip it
+/// used to be (#441).
+///
+/// Boost the 440 Hz tone 12 dB, then limit it to -6 dBFS: the peaks are
+/// about four times the ceiling. A hard clip pins roughly 85% of the
+/// samples at the ceiling, a flat top on every cycle; a limiter turns
+/// the gain down and leaves a sine, with only the crest near the
+/// ceiling. Counting samples that sit at it tells them apart without
+/// needing a spectrum, and survives the 16-bit quantisation.
+#[test]
+fn a_limiter_in_the_master_chain_turns_the_gain_down_rather_than_flattening_peaks() {
+    let (limited, _) = render(vec![
+        effect("gain", serde_json::json!({ "db": 12.0 })),
+        effect("limiter", serde_json::json!({ "ceiling_db": -6.0 })),
+    ]);
+    let ceiling = 10.0f32.powf(-6.0 / 20.0) * 32_767.0;
+    let peak = limited.iter().fold(0i16, |m, v| m.max(v.abs())) as f32;
+    assert!(
+        peak <= ceiling + 2.0,
+        "peak {peak} exceeds the -6 dBFS ceiling {ceiling}"
+    );
+    assert!(
+        peak >= ceiling - 4.0,
+        "peak {peak} is well under the ceiling {ceiling}; the limiter has over-reduced"
+    );
+
+    let flat = limited
+        .iter()
+        .filter(|v| (v.abs() as f32) > ceiling * 0.995)
+        .count() as f32
+        / limited.len() as f32;
+    assert!(
+        flat < 0.15,
+        "{:.0}% of samples sit at the ceiling: the peaks are being flattened, not limited",
+        flat * 100.0
+    );
+}
+
 /// A filter carries state across chunk boundaries. The renderer works a
 /// second at a time and this signal is exactly one second, so a chain
 /// rebuilt per chunk would still pass — what this guards is that a

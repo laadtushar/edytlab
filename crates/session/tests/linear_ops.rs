@@ -70,6 +70,36 @@ fn parent_chain_is_linear() {
     assert_eq!(store.head(), Some(c));
 }
 
+/// A state reached again is the same node, and it keeps the parent it had
+/// the first time (#398).
+///
+/// This is the fact undo cannot lean on: after "load, load, mute, unmute"
+/// the head is the second load's node, whose stored parent is the first
+/// load, not the mute the user just came from. So the app does not undo
+/// by `parent`: it keeps the path the user took
+/// (`apps/desktop/src/lib/headTrail.ts`), and asks the node for its parent
+/// only once that path is spent. The e2e backend's `get_node` answers
+/// (`apps/desktop/e2e/undo-path.spec.ts`) mirror what is pinned here, and
+/// the content-addressing is deliberate: it is not what changes.
+#[test]
+fn a_state_reached_again_keeps_its_first_parent() {
+    let dir = TempDir::new().unwrap();
+    let mut store = Store::open(dir.path()).unwrap();
+    let loaded = store.append(make_node(1_000)).unwrap();
+    let second = store.append(make_node(2_000)).unwrap();
+    let muted = store.append(make_node(3_000)).unwrap();
+    // Unmute: the state the project was in before the mute.
+    let again = store.append(make_node(2_000)).unwrap();
+
+    assert_eq!(again, second, "the same state is the same node");
+    assert_eq!(store.head(), Some(second));
+    assert_eq!(
+        store.get(second).unwrap().parent,
+        Some(loaded),
+        "first writer wins: the parent is not the mute the user came from ({muted:?})"
+    );
+}
+
 #[test]
 fn set_head_to_known_node() {
     let dir = TempDir::new().unwrap();

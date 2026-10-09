@@ -1,6 +1,7 @@
 use crate::schema::anthropic_tool;
-use crate::tool::util::{check_optional_seconds_order, destructive_edit};
+use crate::tool::util::{check_optional_seconds_order, destructive_edit_rechannel};
 use crate::{Tool, ToolContext, ToolResult};
+use audio_dsp::dynamics::{DEFAULT_RELEASE_MS, MAX_RELEASE_MS, MIN_RELEASE_MS};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -10,6 +11,9 @@ pub(crate) use audio_dsp::effects::limiter::apply_limiter;
 struct Args {
     track: usize,
     ceiling_db: f32,
+    /// Omitted means [`DEFAULT_RELEASE_MS`]. Optional so that calls
+    /// written before the parameter existed keep working.
+    release_ms: Option<f32>,
     start_sec: Option<f64>,
     end_sec: Option<f64>,
 }
@@ -24,12 +28,13 @@ impl Tool for LimiterTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "limiter",
-            "Brick-wall limiter: hard-clip any samples exceeding ceiling_db. Prevents digital clipping. Appends a new session node.",
+            "Peak limiter: turns the gain down just enough that no sample exceeds ceiling_db, then lets it recover smoothly over release_ms. Transients are tamed without the harmonic distortion of hard clipping, and all channels share one gain so the stereo image holds. Zero latency; the ceiling is a sample-peak ceiling, not an inter-sample true-peak one. Prevents digital clipping. Appends a new session node.",
             serde_json::json!({
                 "type": "object",
                 "properties": {
                     "track": { "type": "integer" },
                     "ceiling_db": { "type": "number", "description": "Maximum peak level in dBFS (e.g. -1.0)" },
+                    "release_ms": { "type": "number", "minimum": MIN_RELEASE_MS, "maximum": MAX_RELEASE_MS, "description": format!("How long the gain takes to recover after a peak, in milliseconds. Default {DEFAULT_RELEASE_MS}. Shorter keeps the level up but distorts bass more; longer is smoother but holds the level down for longer after each peak.") },
                     "start_sec": { "type": "number" },
                     "end_sec": { "type": "number" }
                 },
@@ -52,33 +57,27 @@ impl Tool for LimiterTool {
         if args.ceiling_db > 0.0 {
             return Ok(ToolResult::Error("ceiling_db must be <= 0.0".into()));
         }
-        let channels = {
-            let state = match crate::tool::util::load_head_state(ctx) {
-                Ok(s) => s,
-                Err(e) => return Ok(ToolResult::Error(e)),
-            };
-            if let Err(e) = crate::tool::util::check_track_index(&state.tracks, args.track) {
-                return Ok(ToolResult::Error(e));
-            }
-            let clip = state.tracks[args.track].clips.first().cloned();
-            if let Some(c) = clip {
-                audio_decoder::decode_file(&c.source_path)
-                    .map(|d| d.channels as usize)
-                    .unwrap_or(1)
-            } else {
-                return Ok(ToolResult::Error(format!(
-                    "track {} has no clips",
-                    args.track
-                )));
-            }
-        };
+        // Rejected rather than clamped: a release of 0 asks for a hard
+        // clip, and quietly substituting 1 ms would hide that the
+        // request was not what the limiter does.
+        let release_ms = args.release_ms.unwrap_or(DEFAULT_RELEASE_MS);
+        if !release_ms.is_finite() || !(MIN_RELEASE_MS..=MAX_RELEASE_MS).contains(&release_ms) {
+            return Ok(ToolResult::Error(format!(
+                "release_ms must be between {MIN_RELEASE_MS} and {MAX_RELEASE_MS} (got {release_ms})"
+            )));
+        }
+
         let (ceiling, s, e) = (args.ceiling_db, args.start_sec, args.end_sec);
-        Ok(destructive_edit(
+        // The channel count comes from the flattened track itself, not
+        // from decoding the first clip's source: the gain is shared
+        // across a frame's channels, so it has to be the count of the
+        // buffer actually being limited.
+        Ok(destructive_edit_rechannel(
             ctx,
             args.track,
-            move |samples, sr| {
-                let ch = channels;
-                let len_frames = samples.len() / ch.max(1);
+            move |samples, sr, channels| {
+                let ch = (channels as usize).max(1);
+                let len_frames = samples.len() / ch;
                 let start = s
                     .map(|sec| ((sec * sr as f64) as usize).min(len_frames))
                     .unwrap_or(0);
@@ -86,13 +85,18 @@ impl Tool for LimiterTool {
                     .map(|sec| ((sec * sr as f64) as usize).min(len_frames))
                     .unwrap_or(len_frames);
                 apply_limiter(
-                    &mut samples[start * ch.max(1)..end * ch.max(1)],
+                    &mut samples[start * ch..end * ch],
                     sr,
                     ch,
                     ceiling,
+                    release_ms,
                 );
+                channels
             },
-            format!("limiter track {} ceiling={}dBFS", args.track, ceiling),
+            format!(
+                "limiter track {} ceiling={}dBFS release={}ms",
+                args.track, ceiling, release_ms
+            ),
         ))
     }
 }
