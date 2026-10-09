@@ -228,7 +228,7 @@ export default function UserGuidePage() {
       </p>
 
       <h2>Export</h2>
-      <p>Export the session to a WAV file:</p>
+      <p>Export the session to a WAV, FLAC or MP3 file:</p>
       <ul>
         <li>
           <strong>Full session:</strong>{" "}
@@ -265,8 +265,9 @@ export default function UserGuidePage() {
         </li>
       </ul>
       <p>
-        Access memory from Settings → Memory. The agent can also write to memory
-        directly: <code>remember that the BPM is 128</code>.
+        Edit memory from Settings → Memory. The agent reads it on every turn
+        but cannot write to it — no tool does — so a note like{" "}
+        <code>the BPM is 128</code> goes in there by hand.
       </p>
 
       <h2>Skills</h2>
@@ -303,7 +304,7 @@ export default function UserGuidePage() {
           all tools; injects mastering instructions into the system prompt.
         </li>
       </ul>
-      <p>Set the active profile from Settings → Agent Profiles.</p>
+      <p>Set the active profile from Settings → Agents.</p>
 
       <h2>Tips and Keyboard Shortcuts</h2>
       <ul>
@@ -327,7 +328,7 @@ export default function UserGuidePage() {
 
       <h2>LLM Provider and Model</h2>
       <p>
-        Switch providers or models at any time from Settings → Provider. No
+        Switch providers or models at any time from Settings → Account. No
         restart needed. Your conversation history carries over.
       </p>
       <ul>
@@ -346,6 +347,14 @@ export default function UserGuidePage() {
         <li>
           <strong>OpenAI GPT-4o</strong> — reliable tool use; good general
           performance.
+        </li>
+        <li>
+          <strong>Google Gemini</strong> and <strong>Groq</strong> — hosted
+          alternatives, each with its own key.
+        </li>
+        <li>
+          <strong>Ollama</strong> — a local model on your own machine; no key,
+          and not even the chat leaves the computer.
         </li>
       </ul>
     </DocShell>

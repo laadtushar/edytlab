@@ -56,7 +56,7 @@ export const posts: BlogPost[] = [
       },
       {
         type: "callout",
-        text: "edytlab uses a pure-Rust audio graph (cpal · symphonia · rubato · realfft). Every cut, gain adjustment, pitch shift, and stem separation call runs on-device. Only the chat conversation hits the network — and you choose which LLM provider that goes to.",
+        text: "edytlab uses a pure-Rust audio graph (cpal · symphonia · rubato · realfft). Every cut, gain adjustment and pitch shift runs on-device, and stem separation is built to run there too once its model ships. Only the chat conversation hits the network — and you choose which LLM provider that goes to.",
       },
       {
         type: "h2",
@@ -80,7 +80,7 @@ export const posts: BlogPost[] = [
       },
       {
         type: "p",
-        text: "Local-first audio processing does not mean you cannot use AI language models. edytlab connects to Anthropic, OpenAI, or OpenRouter using API keys you store in your own OS keychain. The conversation that translates your plain-English instructions into tool calls runs through your chosen provider — you own the API contract, you see the usage, you can switch models without reinstalling anything.",
+        text: "Local-first audio processing does not mean you cannot use AI language models. edytlab connects to Anthropic, OpenAI, Google Gemini, Groq or OpenRouter using API keys you store in your own OS keychain — or to a local model through Ollama, with no key at all. The conversation that translates your plain-English instructions into tool calls runs through your chosen provider — you own the API contract, you see the usage, you can switch models without reinstalling anything.",
       },
       {
         type: "h2",
@@ -170,11 +170,11 @@ export const posts: BlogPost[] = [
       },
       {
         type: "p",
-        text: "Cloud-based stem separation tools (Lalal.ai, LALAL.AI, Moises) all upload your audio. For unreleased material — demos, client work, sync licensing tracks — this is a non-starter. edytlab integrates Demucs as a local tool call: the model runs on your machine, the stems are written to your local session, and nothing is uploaded.",
+        text: "Cloud-based stem separation tools (Lalal.ai, LALAL.AI, Moises) all upload your audio. For unreleased material — demos, client work, sync licensing tracks — this is a non-starter. edytlab is built to run Demucs as a local tool call: the model runs on your machine, the stems are written to your local session, and nothing is uploaded. That inference has not shipped yet — today the separate_stems tool returns an error.",
       },
       {
         type: "callout",
-        text: 'In edytlab, just type: "separate the vocals from track 1". The agent calls the stem separation tool, Demucs runs on-device, and the separated stems appear as new tracks in your session timeline.',
+        text: 'Once it ships, the workflow in edytlab is one sentence: "separate the vocals from track 1". The agent calls the stem separation tool, Demucs runs on-device, and the separated stems appear as new tracks in your session timeline.',
       },
       {
         type: "h2",
@@ -248,11 +248,11 @@ export const posts: BlogPost[] = [
       },
       {
         type: "p",
-        text: 'Type "transcribe track 1". The agent calls Whisper locally — no upload, no API key for transcription needed — and returns a word-level transcript with timestamps. You can now see exactly where filler words, long silences, and retakes are without scrubbing the waveform.',
+        text: 'Type "transcribe track 1". The agent calls Whisper locally — no upload, no API key for transcription needed — and returns a word-level transcript with timestamps. You can now see exactly where filler words, long silences, and retakes are without scrubbing the waveform. (This step is not available yet: the on-device Whisper decoder has not shipped, so today the transcribe tool returns an error — and ducking the music under the speech in step 4, which is keyed on the transcript, waits on it too.)',
       },
       {
         type: "callout",
-        text: "Whisper large-v3 runs entirely on-device in edytlab. A 60-minute audio file transcribes in approximately 4–8 minutes on a modern laptop, depending on hardware. The transcript is word-level timestamped and stored in the session.",
+        text: "In edytlab, Whisper is designed to run entirely on-device, with the word-level transcript stored in the session. The decoder has not shipped yet, so there is no transcription speed to quote.",
       },
       {
         type: "h3",
@@ -292,7 +292,7 @@ export const posts: BlogPost[] = [
       },
       {
         type: "p",
-        text: "For interviews with multiple speakers, load each recording as a separate track. edytlab's stem separation can help when you only have a mixed recording — separate the louder and quieter voices, normalize each independently, then re-mix. This is not a perfect substitute for separate track recording, but it is production-viable for remote interviews recorded on a single channel.",
+        text: "For interviews with multiple speakers, load each recording as a separate track. When you only have a mixed recording, split_by_speaker splits it into one track per speaker from speaker segments you give it, so each voice can be normalized and treated on its own, then re-mixed. This is not a perfect substitute for separate track recording, but it is production-viable for remote interviews recorded on a single channel.",
       },
     ],
   },
@@ -323,7 +323,7 @@ export const posts: BlogPost[] = [
       },
       {
         type: "callout",
-        text: 'edytlab exposes tools like load_audio, cut_region, set_gain, normalize, stem_separate, transcribe, render_range. The LLM plan for "remove the silence at the beginning and boost the bass" might be: cut_region(track=1, start=0, end=1.2) → set_gain(track=1, region=bass_frequency_band, db=+4).',
+        text: 'edytlab exposes tools like load, cut_range, gain, eq, normalize_loudness, time_stretch and render_final. The LLM plan for "remove the silence at the beginning and boost the bass" might be: cut_range on track 0 over the first 1.2 s → eq on track 0 with a +4 dB peak around 100 Hz.',
       },
       {
         type: "h2",

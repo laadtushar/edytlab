@@ -20,7 +20,7 @@ const rows: Row[] = [
   { label: "Natural language input",  daw: "no",          aiTool: "partial",   edytlab: "yes"     },
   { label: "Session branching",       daw: "no",          aiTool: "no",        edytlab: "yes"     },
   { label: "BYO LLM key",            daw: "no",          aiTool: "no",        edytlab: "yes"     },
-  { label: "Stem separation",         daw: "partial",     aiTool: "partial",   edytlab: "yes"     },
+  { label: "Stem separation",         daw: "partial",     aiTool: "partial",   edytlab: "Not yet" },
   { label: "MCP extensibility",       daw: "no",          aiTool: "no",        edytlab: "yes"     },
 ];
 
@@ -62,7 +62,8 @@ export function Comparison() {
             Pro quality. Zero friction.
           </h2>
           <p className="mt-3 text-muted-foreground">
-            The column that matters is the one with every row filled.
+            The column that matters is the one with nearly every row filled —
+            stem separation is the one still on its way.
           </p>
         </Reveal>
 

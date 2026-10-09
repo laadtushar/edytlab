@@ -15,9 +15,9 @@ export function Problem() {
           <p className="mt-6 text-pretty text-lg text-muted-foreground">
             Nobody offers conversational, multi-track production at professional
             DSP quality. edytlab is the agent layer that plans, executes, and
-            iterates over a real audio engine — stem separation, transcription,
-            time and pitch, a full effect chain — in a session you can actually
-            trust and steer.
+            iterates over a real audio engine — time and pitch, a full effect
+            chain, mixing and loudness, with stem separation and transcription
+            on the way — in a session you can actually trust and steer.
           </p>
         </Reveal>
       </div>

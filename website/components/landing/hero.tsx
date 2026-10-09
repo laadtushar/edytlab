@@ -72,7 +72,7 @@ export function Hero({ release }: { release: ReleaseAssets }) {
             className="mx-auto mt-6 max-w-2xl text-pretty text-lg text-muted-foreground md:text-xl"
           >
             Desktop audio editor where you chat with an AI to load, cut, mix,
-            transcribe, and render. Pure-Rust DSP, local-first, BYO LLM key.
+            and render. Pure-Rust DSP, local-first, BYO LLM key.
           </p>
 
           <div

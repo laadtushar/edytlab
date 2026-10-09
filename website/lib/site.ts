@@ -2,7 +2,7 @@ export const siteConfig = {
   name: "edytlab",
   title: "edytlab — Describe it. Get pro-grade audio edits.",
   description:
-    "Desktop audio editor where you chat with an AI to load, cut, mix, transcribe, and render. Pure-Rust DSP, local-first, BYO LLM key.",
+    "Desktop audio editor where you chat with an AI to load, cut, mix, and render. Pure-Rust DSP, local-first, BYO LLM key.",
   url: "https://edytlab.com",
   ogImage: "/og.png",
   // Placeholder shown only when the GitHub API is unreachable — the real
@@ -10,8 +10,9 @@ export const siteConfig = {
   // if you see it on the live site, the fetch failed.
   version: "v0.1.0-dev",
   github: "https://github.com/laadtushar/edytlab",
-  // The list, not `/releases/latest`: every dev build is a prerelease, so
-  // `/latest` 404s for this repo.
+  // The list, not `/releases/latest`: every dev build is a prerelease, and
+  // `/latest` skips prereleases, so it would hide every dev build newer
+  // than the last versioned release (v0.2.0).
   releases: "https://github.com/laadtushar/edytlab/releases",
   designSpec:
     "https://github.com/laadtushar/edytlab/blob/main/docs/specs/2026-05-05-conversational-audio-editor-design.md",

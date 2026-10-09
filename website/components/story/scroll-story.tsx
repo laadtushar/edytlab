@@ -313,7 +313,8 @@ export function ScrollStory({ release }: { release: ReleaseAssets }) {
           <p data-duck-note className="mx-auto mt-6 max-w-xl text-sm text-muted-foreground">
             Keyed on the transcript, not on level — so a breath does not
             trigger it and a quiet line does not escape it. The result is an
-            ordinary automation curve you can drag.
+            ordinary automation curve you can drag. (It needs a transcript, and
+            on-device transcription has not shipped yet.)
           </p>
         </Scene>
 

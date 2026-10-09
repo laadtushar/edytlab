@@ -26,7 +26,7 @@ const features = [
   {
     icon: FileText,
     title: "Edit the words, not the waveform",
-    body: "Transcribe a take and the transcript becomes the editor. Select a sentence to select the audio; delete it and the audio is cut and the gap closed. The remaining word timings shift to match, so the transcript keeps lining up with what you can hear. It is an ordinary edit underneath — undoable, branchable, and recorded like any other.",
+    body: "Give a take a transcript and the transcript becomes the editor. Select a sentence to select the audio; delete it and the audio is cut and the gap closed. The remaining word timings shift to match, so the transcript keeps lining up with what you can hear. It is an ordinary edit underneath — undoable, branchable, and recorded like any other. The editing is built; the on-device transcription that produces the transcript has not shipped yet.",
   },
   {
     icon: MessageSquare,
@@ -36,7 +36,7 @@ const features = [
   {
     icon: Waves,
     title: "Pro-grade DSP",
-    body: "Pure Rust audio graph (cpal · symphonia · rubato · realfft) with Demucs stem separation and Whisper transcription. Time-stretch, pitch-shift and formant preservation run on a phase vocoder written for this project — no C dependency in the audio path.",
+    body: "Pure Rust audio graph (cpal · symphonia · rubato · realfft). Time-stretch, pitch-shift and formant preservation run on a phase vocoder written for this project — no C dependency in the audio path. Demucs stem separation and Whisper transcription are wired in as tools; their model inference has not shipped yet.",
   },
   {
     icon: ShieldCheck,

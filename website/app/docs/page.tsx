@@ -37,7 +37,7 @@ const cards = [
     href: "/docs/tools",
     icon: Wrench,
     title: "Audio Tools Reference",
-    desc: "All 93 tools the agent can call — cut, normalize, stem separate, transcribe, render, and more.",
+    desc: "All 93 tools the agent can call — cut, normalize, time-stretch, render, and more.",
     audience: "User",
   },
   {
@@ -51,7 +51,7 @@ const cards = [
     href: "/docs/api-reference",
     icon: FileCode2,
     title: "API Reference",
-    desc: "Every Tauri command, TypeScript bridge type, and SSE event — complete with signatures and examples.",
+    desc: "Every Tauri command, TypeScript bridge type, and event — complete with signatures and examples.",
     audience: "Developer",
   },
 ];
@@ -92,17 +92,18 @@ export default function DocsPage() {
       <h2>About edytlab</h2>
       <p>
         edytlab is a local-first, open-source desktop audio editor where you
-        chat with an AI agent to load, cut, mix, transcribe, and render audio.
+        chat with an AI agent to load, cut, mix, and render audio.
         The DSP engine runs entirely on your machine — your audio never leaves
         your device. The only network traffic is the text tokens you send to
         your chosen LLM provider.
       </p>
       <p>
-        edytlab supports five LLM providers out of the box:{" "}
+        edytlab supports six LLM providers out of the box:{" "}
         <strong>Anthropic</strong>, <strong>OpenAI</strong>,{" "}
-        <strong>Google Gemini</strong>, <strong>Groq</strong>, and{" "}
-        <strong>OpenRouter</strong>. You bring your own API key, stored in your
-        OS keychain. You can switch providers at any time from Settings without
+        <strong>Google Gemini</strong>, <strong>Groq</strong>,{" "}
+        <strong>OpenRouter</strong>, and <strong>Ollama</strong> for a local
+        model. You bring your own API key, stored in your OS keychain — Ollama
+        needs none. You can switch providers at any time from Settings without
         reinstalling.
       </p>
 

@@ -35,17 +35,17 @@
 │  │  (WaveSurfer)│  │  (streaming)  │  │  (@xyflow)   │  │   (all CRUD)  │ │
 │  └──────────────┘  └───────────────┘  └──────────────┘  └───────────────┘ │
 └─────────────────────────────────┬───────────────────────────────────────────┘
-                                  │  tauri::command (IPC) + Tauri Events (SSE)
+                                  │  tauri::command (IPC) + Tauri events
 ┌─────────────────────────────────▼───────────────────────────────────────────┐
 │  APPLICATION LAYER  (apps/desktop/src-tauri — Rust)                        │
 │                                                                             │
-│  commands.rs (~50 commands)  ·  lib.rs (AppState, event plumbing)          │
+│  commands.rs (~86 commands)  ·  state.rs (AppState)  ·  events.rs          │
 └───────────┬──────────┬────────────────────┬──────────────┬──────────────────┘
             │          │                    │              │
      ┌──────▼──┐  ┌────▼────┐  ┌──────────▼───┐  ┌──────▼──────┐
      │  crates/│  │ crates/ │  │    crates/   │  │   crates/   │
      │  ai     │  │ tools   │  │    session   │  │   audio-*   │
-     │  agent  │  │ ~28 ops │  │    DAG store │  │   ml-*      │
+     │  agent  │  │ 93 tools│  │    DAG store │  │   ml-*      │
      └──────┬──┘  └────┬────┘  └──────────┬───┘  └──────┬──────┘
             │          │                  │              │
      ┌──────▼──────────▼──────────────────▼──────────────▼──────┐
@@ -55,7 +55,8 @@
                                │
      ┌─────────────────────────▼──────────────────────────┐
      │  EXTERNAL SERVICES (network only for LLM tokens)   │
-     │  Anthropic API · OpenRouter API · OpenAI API        │
+     │  Anthropic · OpenRouter · OpenAI · Groq · Gemini   │
+     │  Ollama — a local daemon by default, no key        │
      └────────────────────────────────────────────────────┘
 ```
 
@@ -79,23 +80,25 @@ edytlab/
 ├── rust-toolchain.toml           # Pinned toolchain: 1.88 + rustfmt + clippy
 ├── apps/
 │   ├── desktop/src-tauri/        # Tauri 2 shell
-│   └── cli/                      # Headless batch CLI (smoke tests + scripting)
+│   └── cli/                      # edytlab-cli: one headless agent turn (E2E tests, smoke runs)
 └── crates/
     ├── ai/                       # LLM abstraction, agent loop, keychain
     ├── agent_profiles/           # Per-session model + tool-whitelist profiles
     ├── audio-analysis/           # BPM, key, beat-grid, transient detection
-    ├── audio-decoder/            # symphonia-based file decode (MP3 WAV FLAC)
-    ├── audio-engine/             # DSP graph render + cpal playback
-    ├── audio-io/                 # cpal device enumeration + capture
+    ├── audio-decoder/            # symphonia-based file decode (WAV, MP3, FLAC, Ogg Vorbis)
+    ├── audio-dsp/                # Sample-level DSP shared by tools and renderer (no deps)
+    ├── audio-engine/             # DSP graph + offline render (its cpal `play_state` has no caller, #388)
+    ├── audio-io/                 # cpal output stream — unused by the app; playback is in the webview (#388)
     ├── audio-time/               # Pitch-shift / time-stretch primitives (Phase 2)
     ├── mcp/                      # MCP server lifecycle + JSON-RPC dispatch
     ├── memory/                   # Global/project markdown memory fragments
-    ├── ml-demucs/                # Stem separation via ONNX Demucs
-    ├── ml-pipeline/              # Shared ONNX runtime + model cache
-    ├── ml-whisper/               # Transcription via ONNX Whisper-base (decoder is a stub)
+    ├── ml-demucs/                # Stem separation via ONNX Demucs (inference is a stub, #385)
+    ├── ml-pipeline/              # Shared ONNX runtime + model cache (model download is a stub, #383)
+    ├── ml-whisper/               # Transcription via ONNX Whisper-base (decoder is a stub, #384)
+    ├── recorder/                 # Microphone capture to WAV (cpal)
     ├── session/                  # DAG data model, node store, fork/diff/compare
     ├── skills/                   # User skill library with trigger evaluation
-    └── tools/                    # ~93 deterministic audio-editing tools
+    └── tools/                    # 93 deterministic audio-editing tools
 ```
 
 ### Dependency Graph (simplified)
@@ -110,8 +113,7 @@ apps/desktop/src-tauri
     │       │   └── crates/audio-io
     │       ├── crates/ml-demucs
     │       │   └── crates/ml-pipeline
-    │       └── crates/ml-whisper
-    │           └── crates/ml-pipeline
+    │       └── crates/ml-whisper     (uses `ort` directly, not ml-pipeline)
     ├── crates/memory
     ├── crates/skills
     ├── crates/agent_profiles
@@ -130,11 +132,11 @@ apps/desktop/src-tauri
 |-------|-----------|
 | Runtime | Tauri 2 (Rust + WRY WebView) |
 | UI framework | React 19 with concurrent features |
-| Build tool | Vite 7 + Turbopack |
+| Build tool | Vite 7 |
 | Styling | Tailwind CSS 4 |
 | Waveform | WaveSurfer.js 7 |
 | Graph view | @xyflow/react 12 |
-| Animations | Framer Motion 11 |
+| Animations | CSS transitions on shared tokens (no animation library — see [motion-audit.md](./motion-audit.md)) |
 
 ### Component Tree
 
@@ -145,12 +147,12 @@ App.tsx
 │   ├── PlaybackControls (transport)
 │   └── SettingsGear → Settings modal
 ├── MainContent (split pane)
-│   ├── LeftPane
+│   ├── LeftPane (one view at a time — `LeftView` in src/lib/views.ts)
 │   │   ├── Timeline (wavesurfer, tracks, markers, playhead)
 │   │   │   ├── Ruler
 │   │   │   └── MarkerLayer
+│   │   ├── TranscriptPane
 │   │   └── GraphView (xyflow DAG visualization)
-│   │       └── Canvas (node thumbnails)
 │   └── RightPane
 │       └── Chat
 │           ├── MessageBubble[]
@@ -163,14 +165,16 @@ App.tsx
 └── ErrorBanner (API key / render errors)
 ```
 
+The tree is conceptual: `PlaybackControls`, `MainContent`, `LeftPane`/`RightPane` and `ChatInput` are regions of `App.tsx`, `AppHeader.tsx` and `Chat.tsx`, not components of their own.
+
 ### State Management
 
 All session state lives in Rust (`AppState`). The frontend is intentionally thin — it:
 1. Sends commands via `tauri-bridge.ts`
-2. Receives SSE events (text delta, tool call, node created, done)
+2. Receives Tauri events (`agent://text-delta`, `agent://tool-call`, `agent://node-created`, `agent://done`, …)
 3. Derives local UI state from the command responses
 
-Local React state (not persisted): `head`, `audioPath`, `rendering`, `leftView`, `compareMode`, `markers`, `tracks`, `showShortcuts`, `selection`.
+Local React state: `head`, `audioPath`, `rendering`, `leftView`, `compareMode`, `markers`, `tracks`, `showShortcuts`, `selection`. Most of it is not persisted; where you were — head, zoom, selection and playhead — is saved to `<project>/.audiograph/view.json` and restored on open (`src/lib/viewState.ts`, `src-tauri/src/project.rs`).
 
 ### Tauri Bridge (`src/lib/tauri-bridge.ts`)
 
@@ -217,10 +221,12 @@ pub struct LlmConfig {
 pub enum AgentEvent {
     TextDelta(String),
     ToolCallStart { name: String, id: String },
-    ToolCallEnd   { id: String, ok: bool },
+    ToolCallEnd   { id: String, ok: bool, view: Option<ToolView> },
     NodeCreated(NodeId),
     Done,
     Plan { steps: Vec<serde_json::Value> },
+    PlanRejected,
+    PlanUnavailable { reason: String },
 }
 
 pub struct Agent {
@@ -286,6 +292,9 @@ pub trait LlmProvider: Send + Sync + Debug {
     fn translate_model(&self, model: &str) -> String;
     fn apply_auth(&self, req: RequestBuilder, api_key: &str) -> RequestBuilder;
     fn endpoint_path(&self) -> &str { "/v1/messages" }
+    fn wire_format(&self) -> WireFormat { WireFormat::AnthropicMessages }
+    fn requires_api_key(&self) -> bool { true }
+    fn list_models_path(&self) -> &str { "/v1/models" }
     fn serialize_request(&self, req: &MessagesRequest) -> Value;
     fn parse_stream_chunk(&self, raw: &str) -> Result<Vec<StreamEvent>, ProviderError>;
     fn label(&self) -> &str { self.id() }
@@ -299,6 +308,11 @@ pub trait LlmProvider: Send + Sync + Debug {
 | `anthropic` | `https://api.anthropic.com` | `x-api-key` header | `claude-sonnet-4-6` | Native Anthropic format |
 | `openrouter` | `https://openrouter.ai/api` | `Authorization: Bearer` | `claude-sonnet-4-6` | Anthropic-compatible API; prepends `"anthropic/"` to unqualified model ids |
 | `openai` | `https://api.openai.com` | `Authorization: Bearer` | `gpt-4o-mini` | Full translation: Anthropic shape → chat-completions → back |
+| `groq` | `https://api.groq.com/openai` | `Authorization: Bearer` | `llama-3.3-70b-versatile` | Chat-completions; reuses `OpenAIProvider`'s translation |
+| `gemini` | `https://generativelanguage.googleapis.com/v1beta/openai` | `Authorization: Bearer` | `gemini-2.0-flash` | Gemini's OpenAI-compatible endpoint; reuses the same translation |
+| `ollama` | `http://localhost:11434/v1` | none (`requires_api_key() == false`) | `llama3.2` | Local daemon, OpenAI-compatible; reuses the same translation |
+
+Every provider's base URL can be overridden per provider from Settings (`<provider>_base_url` in the keychain).
 
 ### OpenAI Translation Layer
 
@@ -317,24 +331,28 @@ OpenAI uses a different request/response format. `OpenAIProvider` translates bid
 ### Keychain Integration
 
 ```rust
-// crates/ai/src/keychain.rs
-pub fn set_key(service: &str, key: &str) -> Result<()>
-pub fn get_key(service: &str) -> Result<Option<String>>
-pub fn delete_key(service: &str) -> Result<()>
+// crates/ai/src/keychain.rs — every entry lives under the service "app.edytlab.desktop"
+pub fn load_api_key(provider_id: &str) -> Option<String>
+pub fn save_api_key(provider_id: &str, key: &str) -> Result<(), keyring::Error>
+pub fn delete_api_key(provider_id: &str) -> Result<(), keyring::Error>
+pub fn load_active_provider() -> Option<String>
+pub fn save_active_provider(provider_id: &str) -> Result<(), keyring::Error>
+// plus load_/save_/delete_ for `base_url` and `model`, keyed the same way
 ```
 
-Keychain slots:
-- `anthropic_api_key`
-- `openrouter_api_key`
-- `openai_api_key`
+Keychain slots (accounts):
+- `<provider>_api_key` — one per hosted provider (`anthropic_api_key`, `openrouter_api_key`, …)
 - `active_provider` (stores provider id string)
-- `active_model_<provider>` (per-provider model override)
+- `<provider>_model` (per-provider model choice)
+- `<provider>_base_url` (per-provider endpoint override)
 
-Legacy `anthropic_api_key` (without provider prefix) is read on first run and migrated.
+Builds from before multi-provider support stored the Anthropic key as `anthropic_api_key`, which is already the new name for that slot, so it is read as-is — there is no migration step.
+
+On Linux the `keyring` crate is built with only its `linux-native` feature, which is the kernel's in-memory `keyutils` store: entries do not survive a reboot.
 
 ### Model Catalogue
 
-`crates/ai/src/models.rs` fetches available models from each provider's `/v1/models` endpoint with a 10-minute TTL cache. The combo picker in Settings surfaces these alongside free-form input so new model ids work immediately.
+`crates/ai/src/models.rs` returns a static curated list for Anthropic and fetches the live list for the other five (OpenRouter's `GET /api/v1/models`; OpenAI, Groq, Gemini and Ollama from their OpenAI-style models endpoint under the configured base URL), with a 10-minute TTL cache. The combo picker in Settings surfaces these alongside free-form input so new model ids work immediately.
 
 ### Constants
 
@@ -351,69 +369,39 @@ pub const MAX_TOOL_CALLS_PER_TURN: usize = 10;
 ### Tool Trait
 
 ```rust
-// crates/tools/src/lib.rs
+// crates/tools/src/dispatcher.rs
 
 pub trait Tool: Send + Sync {
     fn name(&self) -> &'static str;
-    fn description(&self) -> &'static str;
-    fn input_schema(&self) -> Value;  // Anthropic-shaped JSON Schema
-    fn call(
-        &self,
-        input: Value,
-        ctx: &mut ToolContext,
-    ) -> Result<ToolResult, ToolError>;
+    /// `{ "name", "description", "input_schema" }` — the Anthropic tool shape.
+    fn schema(&self) -> Value;
+    /// Called with `args` already validated against `input_schema`.
+    fn invoke(&self, args: Value, ctx: &mut ToolContext) -> Result<ToolResult>;
 }
 
 pub struct ToolContext<'a> {
-    pub store:     &'a mut Store,
-    pub engine:    &'a mut Engine,
-    pub clipboard: &'a mut Option<Vec<f32>>,
-}
-
-pub struct ToolDispatcher {
-    tools: HashMap<String, Box<dyn Tool>>,
+    pub store:         &'a mut session::Store,
+    pub engine:        &'a mut audio_engine::Engine,
+    pub user_message:  &'a str,
+    pub clipboard:     &'a mut Option<crate::Clipboard>,
+    pub allowed_tools: Option<&'a HashSet<String>>,  // the turn's whitelist, None = all
 }
 
 impl ToolDispatcher {
-    pub fn new() -> Self  // Registers all 93 built-in tools
-    pub fn dispatch(&mut self, name: &str, input: Value, ctx: &mut ToolContext) -> ToolResult
-    pub fn tool_definitions(&self) -> Vec<Value>  // Sent to LLM on every turn
-    pub fn filter(&self, whitelist: &[String]) -> Self  // For agent profiles
+    pub fn new() -> Self                    // empty
+    pub fn default_dispatcher() -> Self     // registers all 93 built-in tools
+    pub fn register(&mut self, tool: Box<dyn Tool>)
+    pub fn unregister_prefix(&mut self, prefix: &str) -> usize  // MCP `<server>__` tools
+    pub fn tool_schemas(&self) -> Value     // sent to the LLM
+    pub fn invoke(&self, name: &str, args: Value, ctx: &mut ToolContext) -> Result<ToolResult>
 }
 ```
 
-### All 28 Tools
+### The Tools
 
-| Tool | File | What it does |
-|------|------|-------------|
-| `load` | `load.rs` | Decode audio file + create session node |
-| `cut_range` | `cut_range.rs` | Remove a time range from a track |
-| `copy_region` | `copy_region.rs` | Copy region to clipboard |
-| `paste_region` | `paste_region.rs` | Paste clipboard at position |
-| `fade` | `fade.rs` | Apply fade-in / fade-out envelope |
-| `gain` | `gain.rs` | Apply static dB gain to region |
-| `set_track_gain` | `set_track_gain.rs` | Set per-track gain level |
-| `normalize` | `normalize.rs` | Normalize to LUFS or peak target |
-| `reverse` | `reverse.rs` | Reverse audio region |
-| `trim` | `trim.rs` | Trim silence from start/end |
-| `insert_silence` | `insert_silence.rs` | Insert silence at position |
-| `time_stretch` | `time_stretch.rs` | Adjust duration without pitch change |
-| `pitch_shift` | `pitch_shift.rs` | Shift pitch without duration change |
-| `add_track` | `add_track.rs` | Add a new empty track to the session |
-| `remove_track` | `remove_track.rs` | Remove a track by id |
-| `separate_stems` | `separate_stems.rs` | Run Demucs; output 4 stem tracks |
-| `transcribe` | `transcribe.rs` | Run Whisper; store word-level transcript |
-| `analyze_track` | `analyze_track.rs` | BPM, key, loudness analysis |
-| `align_to_beat` | `align_to_beat.rs` | Align track start to nearest beat |
-| `apply_diff` | `apply_diff.rs` | Apply a computed session diff |
-| `compare_nodes` | `compare_nodes.rs` | Generate diff between two DAG nodes |
-| `fork_node` | `fork_node.rs` | Fork current DAG node → new branch |
-| `revert_to` | `revert_to.rs` | Jump to earlier node in the DAG |
-| `name_node` | `name_node.rs` | Set a human label on a node |
-| `label` | `label.rs` | Add annotation/marker to the timeline |
-| `render_final` | `render_final.rs` | Offline render full session to WAV |
-| `render_preview` | `render_preview.rs` | Render preview (temp file) for playback |
-| `util` | `util.rs` | Shared helpers (range validation, etc.) |
+There are 93, registered in `ToolDispatcher::default_dispatcher()` with their implementations under `crates/tools/src/tool/`. The full list, with every parameter, is [tools-reference.md](./tools-reference.md) — generated from the registry, so it cannot drift from what the agent can call.
+
+Two of them are stubs: `separate_stems` (Demucs, [#385](https://github.com/laadtushar/edytlab/issues/385)) and `transcribe` (Whisper, [#384](https://github.com/laadtushar/edytlab/issues/384)) return an error in this build. `cut_words`, `remove_fillers`, `duck_under_speech` and the phrase/speech modes of `select_region` need a transcript, which only `transcribe` produces, so they cannot run yet either.
 
 ### Tool Input/Output Contract
 
@@ -438,18 +426,21 @@ pub struct SessionNode {
     pub label:      Option<String>,  // Human-readable (from name_node tool)
     pub reasoning:  Option<String>,  // Agent-provided justification
     pub state:      SessionState,
+    pub op:         Option<NodeOp>,  // tool + parameters that made it, when known
 }
 
 // crates/session/src/state.rs
 pub struct SessionState {
-    pub tracks:        Vec<Track>,
-    pub bus_routing:   BusGraph,
-    pub master_chain:  Vec<EffectInstance>,  // Forward-compat, Phase 2
-    pub tempo_map:     TempoMap,
-    pub key_map:       Option<KeyMap>,
-    pub transcript:    Option<Transcript>,
-    pub sample_rate:   u32,
+    pub tracks:         Vec<Track>,
+    pub bus_routing:    BusGraph,
+    pub master_chain:   Vec<EffectInstance>,
+    pub tempo_map:      TempoMap,
+    pub key_map:        Option<KeyMap>,
+    pub transcript:     Option<Transcript>,
+    pub sample_rate:    u32,
     pub length_samples: u64,
+    pub annotations:    Vec<Annotation>,
+    pub sync_lock:      bool,
 }
 
 pub struct Track {
@@ -457,13 +448,23 @@ pub struct Track {
     pub name:     String,
     pub clips:    Vec<Clip>,
     pub gain_db:  f32,
+    pub pan:      f32,
     pub muted:    bool,
+    pub soloed:   bool,
+    pub effects:  Vec<EffectInstance>,
+    pub sends:    Vec<Send>,
 }
 
 pub struct Clip {
-    pub source_path:  String,   // Absolute path — never modified
-    pub start_sec:    f64,
-    pub duration_sec: f64,
+    pub source_path:           PathBuf,   // never modified
+    pub start_in_track:        u64,       // frames, at the source's own rate
+    pub source_offset:         u64,       // frames
+    pub length:                u64,       // frames
+    pub content_hash:          Option<[u8; 32]>,
+    pub time_stretch_factor:   Option<f32>,
+    pub pitch_shift_semitones: Option<f32>,
+    pub beat_grid:             Option<Vec<f32>>,
+    pub volume_envelope:       Vec<EnvelopePoint>,
 }
 ```
 
@@ -472,21 +473,18 @@ pub struct Clip {
 ```rust
 // crates/session/src/store.rs
 impl Store {
-    pub fn open(path: &Path) -> Result<Store>        // Creates if absent
+    pub fn open(project_dir: &Path) -> Result<Self>  // Creates <project_dir>/.audiograph/ if absent
     pub fn head(&self) -> Option<NodeId>             // Current node pointer
     pub fn set_head(&mut self, id: NodeId) -> Result<()>
     pub fn get(&self, id: NodeId) -> Result<SessionNode>
-    pub fn append(                                   // Append new node → child of head
-        &mut self,
-        parent: Option<NodeId>,
-        label: Option<String>,
-        state: SessionState,
-    ) -> Result<NodeId>
+    pub fn append(&mut self, node: SessionNode) -> Result<NodeId>  // parent := head, id := hash(state)
     pub fn list_nodes(&self) -> Result<Vec<SessionNode>>
-    pub fn annotations_for(&self, node: NodeId) -> Result<Vec<Annotation>>
-    pub fn diff(a: &SessionState, b: &SessionState) -> SessionDiff
-    pub fn fork(base: &SessionState, branch: &SessionState) -> Result<SessionState>
-    pub fn merge(a: &SessionState, b: &SessionState) -> Result<SessionState>
+    pub fn annotations_for(&self, head: NodeId) -> Result<Vec<Annotation>>
+    pub fn diff(&self, a: NodeId, b: NodeId) -> Result<SessionDiff>
+    pub fn fork(&mut self, parent: NodeId) -> Result<NodeId>
+    pub fn merge(&mut self, a: NodeId, b: NodeId) -> Result<NodeId>
+    pub fn revert_to(&mut self, target: NodeId) -> Result<NodeId>  // appends; history is kept
+    pub fn set_label(&mut self, id: NodeId, label: Option<String>) -> Result<()>
 }
 ```
 
@@ -509,16 +507,21 @@ A/B Compare:
 
 ### Storage Format
 
-Nodes are stored as content-addressed JSON files under `<project-dir>/.edytlab/nodes/`:
+Nodes are stored as content-addressed JSON files under `<project-dir>/.audiograph/` (`session::STORE_DIR`; layout documented in `crates/session/src/store.rs`):
 ```
-.edytlab/
-  nodes/
-    <blake3-hash-1>.json
-    <blake3-hash-2>.json
-    ...
-  head           # plain text: current NodeId
-  annotations/   # per-node annotation files
+<project-dir>/
+  project.json     # project metadata (name, notes, export tags), beside the store
+  .audiograph/
+    nodes/
+      <hex[0..2]>/<blake3-hex>.json   # sharded by the first two hex chars
+    head           # plain text: current NodeId
+    view.json      # where you were: head, zoom, selection, playhead
+    derived/       # audio written by destructive edits, named by content hash
+    clipboard/     # copy_region blobs
+    previews/      # cached preview renders, keyed by node id
 ```
+
+Annotations (markers, regions, labels) are part of `SessionState`, so they live inside each node's JSON rather than in a directory of their own.
 
 ---
 
@@ -586,14 +589,11 @@ pub fn play_state<'a>(
 ) -> Result<PlayHandle<'a>>
 ```
 
-### Phase 1 Scope
+`play_state` and the `audio-io` crate it drives (cpal output) have no caller outside `audio-engine`. All playback happens in the webview — WaveSurfer and `<audio>` elements reading rendered files over the asset protocol, including the A/B crossfade. Whether to remove the native path or keep it behind a feature is [#388](https://github.com/laadtushar/edytlab/issues/388).
 
-Phase 1 implements single-track, single-clip playback and render with optional gain. The following fields exist in `SessionState` for forward compatibility but are **not processed** in Phase 1:
-- `bus_routing`
-- `master_chain`
-- `tempo_map`
+### What the Render Processes
 
-Multi-track render: each track decoded and mixed in the render pipeline.
+Every track and every clip, with per-clip volume automation, per-track effect chains, sends into buses with their own chains, and the master chain (`crates/audio-engine/src/render.rs`, `effect_chain.rs`). `tempo_map` is read by tools — `select_region`'s beat ranges, for one — not by the renderer.
 
 ### Fast Path
 
@@ -612,7 +612,7 @@ Single-track sessions with a single clip skip the intermediate temp-file step an
 // Model files: loaded from disk, cached by blake3 hash
 ```
 
-Runtime is loaded dynamically from `ORT_DYLIB_PATH` at startup. This avoids linking ONNX into the binary (reduces binary size; allows model updates without recompilation).
+The runtime is loaded dynamically from `ORT_DYLIB_PATH` (or a `libonnxruntime` next to the binary). This avoids linking ONNX into the binary (reduces binary size; allows model updates without recompilation). Nothing ships that library or sets that variable yet, and `ml_pipeline::download::fetched_model_path` always errors, so no model can load in a user's install — shipping the runtime and fetching models is [#383](https://github.com/laadtushar/edytlab/issues/383).
 
 ### Whisper (Transcription)
 
@@ -634,7 +634,7 @@ NOT IMPLEMENTED IN THIS BUILD. `WhisperModel::transcribe` returns
 loaded. The diagram is the intended design, not current behaviour.
 ```
 
-Runs entirely on-device. A 60-minute file transcribes in ~4–8 minutes on a modern laptop (CPU-only). Apple Neural Engine (CoreML) and CUDA acceleration reduce this significantly.
+Designed to run entirely on-device. There is no transcription speed to quote until the decoder exists ([#384](https://github.com/laadtushar/edytlab/issues/384)).
 
 ### Demucs (Stem Separation)
 
@@ -687,7 +687,7 @@ Memory fragments are injected into the system prompt on every turn:
 </edytlab-memory>
 ```
 
-The agent can read/write memory directly using tools — letting it persist BPM, speaker names, style preferences, or any session context across turns.
+The agent sees memory on every turn but has no tool to write it: none of the 93 registered tools touches memory. You edit it in Settings → Memory (the `read_memory` / `write_memory` commands), which is how BPM, speaker names or style preferences carry across turns and sessions.
 
 ### Skills System
 
@@ -731,7 +731,7 @@ tools: [load, cut_range, normalize, trim, transcribe, render_final]
 Focus on efficient spoken-word editing. Keep operations minimal.
 ```
 
-Active profile is selected from Settings and persisted in the keychain.
+Active profile is selected from Settings and persisted as a `.active` sidecar file in the profiles directory (`AppState::set_active_agent_profile`).
 
 ### MCP Servers (Phase 5)
 
@@ -741,17 +741,16 @@ edytlab supports the Model Context Protocol for extending the agent with externa
 {
   "servers": {
     "my-server": {
-      "transport": "stdio",
       "command": "/usr/local/bin/my-mcp-server",
       "args": ["--config", "/path/to/config.json"],
-      "env": { "MY_SECRET": "${MY_SECRET_FROM_KEYCHAIN}" },
+      "env": { "MY_SECRET": "<keychain:my_secret>" },
       "enabled": true
     }
   }
 }
 ```
 
-Transport types: `stdio` (JSON-RPC over stdin/stdout), `sse` (HTTP Server-Sent Events).
+Transport types: `stdio` (JSON-RPC over stdin/stdout; `command`/`args`/`env`, as above) and `sse` (HTTP Server-Sent Events; `url` and `headers` instead). The transport is inferred from which fields are present (`McpServerConfig` in `crates/mcp/src/config.rs` is untagged). A `<keychain:slot>` value in `env` is replaced with that keychain secret when the server launches.
 
 The MCP layer starts registered servers at app launch, discovers available tools via `tools/list`, and injects them into the agent's tool list alongside built-in tools.
 
@@ -770,19 +769,22 @@ const head = await invoke<NodeId>("get_session_head");
 
 Errors propagate as Promise rejections. The `tauri-bridge.ts` layer wraps these into typed async functions.
 
-### Events (Streaming SSE)
+### Events
 
-The agent turn emits events via Tauri's event system. The frontend subscribes with `listen()`.
+The agent turn emits events via Tauri's event system (names in `apps/desktop/src-tauri/src/events.rs`). The frontend subscribes with `listen()`, wrapped by `tauri-bridge.ts`. These are Tauri events, not SSE — SSE is only the wire format between `crates/ai` and the LLM provider.
 
 | Event name | Payload | When emitted |
 |-----------|---------|-------------|
-| `agent:text-delta` | `{ text: string }` | Each SSE text chunk from the LLM |
-| `agent:tool-call` | `{ name: string, id: string }` | Tool execution starts |
-| `agent:tool-call-end` | `{ id: string, ok: boolean }` | Tool execution completes |
-| `agent:node-created` | `{ node_id: string }` | DAG node appended after tool |
-| `agent:done` | `{}` | Turn complete (no more tool calls) |
-| `agent:plan` | `{ steps: object[] }` | Multi-step plan emitted (mashup mode) |
-| `marker:changed` | `{}` | Marker/annotation added or removed |
+| `agent://text-delta` | `{ text: string }` | Each text chunk streamed from the LLM |
+| `agent://tool-call` | `{ name: string, id: string }` | Tool execution starts |
+| `agent://tool-call-end` | `{ id: string, ok: boolean, view?: ToolView }` | Tool execution completes |
+| `agent://node-created` | `{ node_id: string }` | DAG node appended after tool |
+| `agent://done` | `{}` | Turn complete (no more tool calls) |
+| `agent://plan` | `{ steps: object[] }` | Multi-step plan emitted (mashup mode) |
+| `agent://plan-rejected` | none | The user rejected the proposed plan |
+| `agent://plan-unavailable` | `{ reason: string }` | A plan was asked for and none arrived; the turn ran without the approval gate |
+| `tool-progress` | `ToolProgress` | Progress from a long-running tool (and `select_region`'s match) |
+| `marker-changed` | none | Marker/annotation added or removed |
 
 ### Lock Ordering (Deadlock Prevention)
 
@@ -809,7 +811,7 @@ let engine = lock_std(&app_state.engine, "engine")?;  // DEADLOCK RISK
 
 ### API Key Storage
 
-- Keys are stored in the **OS-native keychain** (macOS Keychain, Windows Credential Manager)
+- Keys are stored in the **OS-native keychain** (macOS Keychain, Windows Credential Manager; on Linux the kernel `keyutils` store, which does not persist across reboots — see [Keychain Integration](#keychain-integration))
 - edytlab never transmits keys to its own servers
 - Keys are read at runtime, signed into HTTP requests in-process, and sent directly to provider endpoints
 - Keys are never logged or written to disk outside the OS keychain
@@ -817,15 +819,14 @@ let engine = lock_std(&app_state.engine, "engine")?;  // DEADLOCK RISK
 ### Audio Privacy
 
 - Audio processing runs 100% in-process
-- ONNX models (Demucs, Whisper) run locally; audio bytes never leave the machine
+- ONNX models (Demucs, Whisper) are designed to run locally; neither runs yet (#383–#385), and audio bytes never leave the machine
 - The only network traffic is LLM API calls (text tokens only)
 
 ### Tauri Permissions
 
-Tauri's security model requires explicit capability declarations. `apps/desktop/src-tauri/tauri.conf.json` declares only the capabilities the app needs:
-- File system: read (source audio), write (renders to user-specified paths)
-- Dialog: open/save file pickers
-- Protocol-asset: loads bundled web assets
+Tauri's security model requires explicit capability declarations. `apps/desktop/src-tauri/capabilities/default.json` grants only `core:default` and the dialog plugin (`dialog:default`, `dialog:allow-open`) for the file pickers. There is no filesystem plugin: reading source audio and writing renders happen in Rust commands.
+
+The asset protocol (`tauri.conf.json` → `app.security.assetProtocol`) starts scoped to `$APPDATA/**`; the app adds each project's folder as it opens (`allow_assets_in_dir` in `commands.rs`) and each individual file it hands the timeline or a compare render (`allow_asset_file`), rather than everything the user can read.
 
 macOS hardened runtime entitlement allows outbound HTTPS to LLM provider endpoints.
 
@@ -844,7 +845,7 @@ Full end-to-end trace from user input to UI update:
     │
     ▼ React → tauri-bridge.sendMessage(text)
     │
-    ▼ invoke("send_message", { text }) → Rust commands.rs
+    ▼ invoke("send_message", { text, disabledTools }) → Rust commands.rs
     │
     ▼ acquire Agent lock → agent.turn(text, on_event)
     │
@@ -861,17 +862,17 @@ Full end-to-end trace from user input to UI update:
     ┌─────────────────────────────────────────────────┐
     │  FOR EACH SSE CHUNK:                            │
     │    parse_stream_chunk() → StreamEvents          │
-    │    TextDelta → emit agent:text-delta to WebView │
-    │    ToolUseStart → emit agent:tool-call          │
+    │    TextDelta → emit agent://text-delta          │
+    │    ToolUseStart → emit agent://tool-call        │
     │                → dispatch to ToolDispatcher     │
     │                → tool mutates Store/Engine      │
     │                → Store appends new NodeId       │
-    │                → emit agent:node-created        │
-    │                → emit agent:tool-call-end       │
+    │                → emit agent://node-created      │
+    │                → emit agent://tool-call-end     │
     │    If more tool_calls → loop back               │
     └─────────────────────────────────────────────────┘
     │
-    ▼ emit agent:done → React updates UI
+    ▼ emit agent://done → React updates UI
     │
     ▼ [User] sees text streamed into Chat,
          tool badges in MessageBubble,
@@ -886,17 +887,20 @@ Full end-to-end trace from user input to UI update:
 ### Adding a New LLM Provider
 
 1. Add a struct implementing `LlmProvider` in `crates/ai/src/provider.rs`
-2. Add it to `SUPPORTED_PROVIDER_IDS` and the `from_id()` factory
-3. Handle request serialization (`serialize_request`) and stream parsing (`parse_stream_chunk`)
-4. Add a keychain slot in `commands.rs` (`set_api_key_for` / `has_api_key_for`)
-5. Update the `ProviderId` TypeScript union in `tauri-bridge.ts`
+2. Add it to `SUPPORTED_PROVIDER_IDS` and the `provider_from_id()` factory
+3. Handle request serialization (`serialize_request`) and stream parsing (`parse_stream_chunk`) — an OpenAI-compatible API can delegate both to `OpenAIProvider`, as Groq, Gemini and Ollama do
+4. Give it an arm in `list_models_for_at()` in `crates/ai/src/models.rs`, or picking it shows "unsupported provider id" where the model list belongs
+5. Update the `ProviderId` TypeScript union in `tauri-bridge.ts` and the `PROVIDERS` list in `components/Settings.tsx`
+
+No per-provider keychain code is needed: the slots are keyed by provider id (`<id>_api_key`, `<id>_model`, `<id>_base_url`), and the commands in `commands.rs` check ids against `SUPPORTED_PROVIDER_IDS`. A keyless provider overrides `requires_api_key()`.
 
 ### Adding a New Tool
 
-1. Create `crates/tools/src/tool/<name>.rs` implementing `Tool` trait
-2. Add the JSON schema for the input (`input_schema()`)
-3. Register in `ToolDispatcher::new()` in `crates/tools/src/lib.rs`
+1. Create `crates/tools/src/tool/<name>.rs` implementing the `Tool` trait, and export it from `crates/tools/src/tool/mod.rs`
+2. Return the tool descriptor, including the JSON schema for the input, from `schema()`
+3. Register it in `ToolDispatcher::default_dispatcher()` in `crates/tools/src/dispatcher.rs`
 4. Tests: cover happy path, invalid input, edge cases (empty session, out-of-range times)
+5. Regenerate [tools-reference.md](./tools-reference.md) (`UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc`) and add the tool to `website/app/docs/tools/page.tsx` — both are checked by tests
 
 ### Adding a Skill
 
@@ -908,7 +912,7 @@ Drop a `.md` file with YAML frontmatter into `~/.edytlab/agents/`. No recompile 
 
 ### Adding an MCP Server
 
-Edit `~/.edytlab/mcp.json` via Settings → MCP Servers, or directly. Tools from the server become available to the agent on next restart.
+Edit `~/.edytlab/mcp.json` via Settings → MCP, or directly. Tools from the server become available to the agent on next restart.
 
 ---
 
