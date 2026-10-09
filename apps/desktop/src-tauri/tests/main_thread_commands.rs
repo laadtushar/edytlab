@@ -21,7 +21,10 @@ fn commands() -> Vec<(String, String, String, bool, String)> {
         if path.extension().and_then(|e| e.to_str()) != Some("rs") {
             continue;
         }
-        let src = std::fs::read_to_string(&path).expect("read");
+        // Windows checkouts have CRLF line endings; the scan splits on "\n".
+        let src = std::fs::read_to_string(&path)
+            .expect("read")
+            .replace("\r\n", "\n");
         let mut rest = src.as_str();
         while let Some(at) = rest.find("#[tauri::command") {
             let after = &rest[at..];
