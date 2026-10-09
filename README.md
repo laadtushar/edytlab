@@ -86,7 +86,7 @@ The model picker is a combo (free-form input + curated suggestions from the live
 │   crates/ai          — LlmProvider trait, agent loop, keychain   │
 │   crates/tools       — 93 deterministic tools + dispatcher       │
 │   crates/session     — DAG of session states, fork/diff/compare  │
-│   crates/audio-*     — decode, engine, I/O, time-domain ops      │
+│   crates/audio-*     — decode, DSP, engine, time-domain ops      │
 │   crates/ml-*        — Demucs, Whisper (inference not shipped)   │
 └──────────────────────────────────────────────────────────────────┘
                        │
@@ -123,7 +123,6 @@ crates/
   audio-decoder/      File decode (symphonia)
   audio-dsp/          Sample-level DSP shared by the tools and the renderer (no dependencies)
   audio-engine/       DSP graph + render
-  audio-io/           cpal output stream — no caller in the app; playback runs in the webview (#388)
   audio-time/         Time-stretch and pitch-shift primitives
   audio-analysis/     BPM, key, beat-grid, transients
   recorder/           Microphone capture to WAV (cpal)

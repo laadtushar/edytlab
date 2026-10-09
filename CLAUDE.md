@@ -59,7 +59,7 @@ This repo lives at `C:\Users\tusha\Work\Playground\Edytlab\edytlab` on Windows 1
 
 ## Audio engine / WaveSurfer quirks
 
-- Playback runs in the webview: WaveSurfer plays the rendered preview mix through an HTML media element (WebKitGTK's GStreamer on Linux). `crates/audio-io` (cpal) has no caller in the app (#388).
+- Playback runs in the webview: WaveSurfer plays the rendered preview mix through an HTML media element (WebKitGTK's GStreamer on Linux). There is no native playback path — #388 removed the unused `audio-io` crate and `play_state`; the only native audio I/O is microphone capture in `crates/recorder` (cpal input).
 
 - `wsRef.current.zoom()` throws "No audio loaded" when WaveSurfer has no decoded data — always guard with `if (!wsRef.current || duration === 0) return` and include `duration` in the useEffect dep array.
 - React's `onWheel` is passive in Chromium/Tauri — Ctrl+scroll requires `el.addEventListener("wheel", handler, { passive: false })` via useEffect, not the `onWheel` JSX prop.

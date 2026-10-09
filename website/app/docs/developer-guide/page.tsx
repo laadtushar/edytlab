@@ -101,7 +101,6 @@ crates/
   audio-decoder/      File decode (symphonia)
   audio-dsp/          Sample-level DSP shared by tools and render
   audio-engine/       DSP graph and render
-  audio-io/           cpal output (unused; playback is in the webview)
   audio-time/         Time-stretch and pitch-shift
   audio-analysis/     BPM, key, beat grid
   recorder/           Microphone capture to WAV
