@@ -9,6 +9,7 @@ import {
   NO_PREFERENCE,
   HOVER_MOTION,
   REVEAL_START,
+  undash,
 } from "@/lib/gsap";
 
 interface LogoProps {
@@ -62,7 +63,7 @@ export function Logo({ className, play = "load" }: LogoProps) {
               duration: 0.6,
               stagger: 0.1,
               ease: "power2.inOut",
-              clearProps: "strokeDasharray,strokeDashoffset",
+              onComplete: undash(svg.querySelectorAll("[data-logo-line]")),
             },
             "-=0.25",
           );

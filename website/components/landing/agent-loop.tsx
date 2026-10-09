@@ -24,7 +24,15 @@
 
 import { useRef } from "react";
 
-import { gsap, useGSAP, motionOk, NO_PREFERENCE, REVEAL_START, whileVisible } from "@/lib/gsap";
+import {
+  gsap,
+  useGSAP,
+  motionOk,
+  NO_PREFERENCE,
+  REVEAL_START,
+  undash,
+  whileVisible,
+} from "@/lib/gsap";
 import "@/lib/gsap-svg";
 import { cn } from "@/lib/utils";
 
@@ -244,7 +252,13 @@ function useLoopMotion(query: string) {
           .fromTo(
             q("[data-edge]"),
             { drawSVG: "0%" },
-            { drawSVG: "100%", duration: 0.6, stagger: 0.15, ease: "power2.inOut" },
+            {
+              drawSVG: "100%",
+              duration: 0.6,
+              stagger: 0.15,
+              ease: "power2.inOut",
+              onComplete: undash(q("[data-edge]")),
+            },
             "-=0.6",
           )
           .from(q("[data-edge-label]"), { opacity: 0, duration: 0.4, stagger: 0.08 }, "-=0.4");

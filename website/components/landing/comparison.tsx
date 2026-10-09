@@ -6,7 +6,7 @@ import { Check, Minus, X } from "lucide-react";
 import { AgentLoop } from "@/components/landing/agent-loop";
 import { Reveal, Stagger } from "@/components/motion";
 import { SectionHeading } from "@/components/motion/section-heading";
-import { gsap, useGSAP, motionOk, NO_PREFERENCE, DRAWABLE } from "@/lib/gsap";
+import { gsap, useGSAP, motionOk, NO_PREFERENCE, DRAWABLE, undash } from "@/lib/gsap";
 
 type CellValue = "yes" | "no" | "partial" | string;
 
@@ -88,7 +88,7 @@ export function Comparison() {
             stagger: 0.09,
             delay: 0.45,
             ease: "power2.out",
-            clearProps: "strokeDasharray,strokeDashoffset",
+            onComplete: undash(ticks),
             scrollTrigger: { trigger: table.current, start: "top 75%", once: true },
           },
         );

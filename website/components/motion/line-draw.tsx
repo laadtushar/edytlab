@@ -10,6 +10,7 @@ import {
   REVEAL_START,
   ScrollTrigger,
   DRAWABLE,
+  undash,
 } from "@/lib/gsap";
 
 interface LineDrawProps {
@@ -66,7 +67,7 @@ export function LineDraw({
               duration: 0.8,
               ease: "power2.inOut",
               stagger: 0.06,
-              clearProps: "strokeDasharray,strokeDashoffset",
+              onComplete: undash(strokes),
             },
           );
           if (dots.length) {

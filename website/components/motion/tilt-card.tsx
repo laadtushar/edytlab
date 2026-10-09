@@ -32,8 +32,11 @@ export function TiltCard({ children, className = "" }: TiltCardProps) {
 
       const mm = motionOk();
       mm.add(HOVER_MOTION, () => {
-        const rx = gsap.quickTo(el, "rotateX", { duration: 0.5, ease: "power3.out" });
-        const ry = gsap.quickTo(el, "rotateY", { duration: 0.5, ease: "power3.out" });
+        // GSAP's own names, not the `rotateX` aliases: `quickTo` looks its
+        // property up by name, finds the tween stored under `rotationX`,
+        // and warns "not eligible for reset" on every hover otherwise.
+        const rx = gsap.quickTo(el, "rotationX", { duration: 0.5, ease: "power3.out" });
+        const ry = gsap.quickTo(el, "rotationY", { duration: 0.5, ease: "power3.out" });
         const gx = gsap.quickSetter(el, "--gx", "%");
         const gy = gsap.quickSetter(el, "--gy", "%");
 

@@ -98,4 +98,19 @@ export function whileVisible(anim: gsap.core.Animation, trigger: Element | null)
 /** The parts of an SVG icon DrawSVG can draw. Circles cannot be. */
 export const DRAWABLE = "path, line, polyline, polygon, rect, ellipse";
 
+/**
+ * An `onComplete` that takes DrawSVG's dash styles off once a stroke has
+ * finished drawing, so a drawn icon is exactly the stylesheet's icon.
+ *
+ * A callback rather than `clearProps` in the tween itself: DrawSVG
+ * renders after CSSPlugin's clear on the final frame, and writes the
+ * dash straight back.
+ */
+export function undash(targets: gsap.TweenTarget) {
+  return () => {
+    const list = gsap.utils.toArray(targets);
+    if (list.length) gsap.set(list, { clearProps: "strokeDasharray,strokeDashoffset" });
+  };
+}
+
 export { gsap, ScrollTrigger, DrawSVGPlugin, useGSAP };

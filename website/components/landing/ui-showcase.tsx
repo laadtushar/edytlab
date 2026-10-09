@@ -18,7 +18,7 @@ import { useRef } from "react";
 
 import { Stagger, TiltCard } from "@/components/motion";
 import { SectionHeading } from "@/components/motion/section-heading";
-import { gsap, useGSAP, motionOk, NO_PREFERENCE, whileVisible } from "@/lib/gsap";
+import { gsap, useGSAP, motionOk, NO_PREFERENCE, undash, whileVisible } from "@/lib/gsap";
 
 /**
  * Each panel renders its **finished** state and GSAP animates *from* the
@@ -400,7 +400,12 @@ function GraphPanel() {
           tl.fromTo(
             `[data-gedge='${i}']`,
             { drawSVG: "0%" },
-            { drawSVG: "100%", duration: 0.35, ease: "power1.inOut" },
+            {
+              drawSVG: "100%",
+              duration: 0.35,
+              ease: "power1.inOut",
+              onComplete: undash(ref.current?.querySelectorAll(`[data-gedge='${i}']`) ?? []),
+            },
             i === 4 ? "-=0.9" : "-=0.05",
           ).from(
             `[data-gnode='${to}']`,
@@ -523,12 +528,17 @@ export function UiShowcase() {
         {/* Each panel animates the interaction it describes, and tilts
             toward the cursor once it has landed. */}
         <Stagger className="mx-auto grid max-w-5xl gap-5 md:grid-cols-2" each={0.1} distance={28}>
+          {/* The stagger moves the wrapper and the tilt moves the card
+              inside it — two tweens on one element would fight over its
+              transform. */}
           {PANELS.map((p) => (
-            <TiltCard key={p.title} className="h-full">
-              <Panel title={p.title} caption={p.caption}>
-                {p.render}
-              </Panel>
-            </TiltCard>
+            <div key={p.title}>
+              <TiltCard className="h-full">
+                <Panel title={p.title} caption={p.caption}>
+                  {p.render}
+                </Panel>
+              </TiltCard>
+            </div>
           ))}
         </Stagger>
       </div>

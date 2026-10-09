@@ -33,7 +33,7 @@ import { useRef } from "react";
 import { Badge } from "@/components/ui/badge";
 import { BUILD_NOTE, DownloadButtons } from "@/components/landing/download-buttons";
 import { Words } from "@/components/motion/words";
-import { gsap, useGSAP, motionOk, NO_PREFERENCE, REVEAL_START } from "@/lib/gsap";
+import { gsap, useGSAP, motionOk, NO_PREFERENCE, REVEAL_START, undash } from "@/lib/gsap";
 import "@/lib/gsap-svg";
 import type { ReleaseAssets } from "@/lib/releases";
 import { WAVE_H, WAVE_W, duckPath, flatPath, wavePath, waveClosedPath } from "./waveform";
@@ -115,7 +115,9 @@ export function ScrollStory({ release }: { release: ReleaseAssets }) {
               drawSVG: "100%",
               duration: 0.7,
               ease: "power1.inOut",
-              clearProps: "strokeDasharray,strokeDashoffset",
+              // The dash was measured on the flat line; it has to go
+              // before the line becomes a longer waveform.
+              onComplete: undash("[data-voice]"),
             },
             "-=0.4",
           )
@@ -271,6 +273,7 @@ export function ScrollStory({ release }: { release: ReleaseAssets }) {
             duration: 1.4,
             delay: 0.3,
             ease: "power1.inOut",
+            onComplete: undash("[data-duck]"),
             scrollTrigger: { trigger: "[data-scene='4']", start: "top 65%", once: true },
           },
         );

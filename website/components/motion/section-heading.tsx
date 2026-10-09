@@ -8,6 +8,7 @@ import {
   motionOk,
   NO_PREFERENCE,
   REVEAL_START,
+  undash,
 } from "@/lib/gsap";
 import "@/lib/gsap-text";
 import { cn } from "@/lib/utils";
@@ -65,7 +66,12 @@ export function SectionHeading({ eyebrow, title, lead, className }: SectionHeadi
           .fromTo(
             "[data-accent]",
             { drawSVG: "50% 50%" },
-            { drawSVG: "0% 100%", duration: 0.7, ease: "power2.inOut" },
+            {
+              drawSVG: "0% 100%",
+              duration: 0.7,
+              ease: "power2.inOut",
+              onComplete: undash(ref.current?.querySelectorAll("[data-accent]") ?? []),
+            },
             "-=0.35",
           );
         if (lead) tl.from("[data-lead]", { opacity: 0, y: 12, duration: 0.55 }, "-=0.55");
