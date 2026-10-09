@@ -40,6 +40,8 @@ const getActiveProviderMock = vi.fn();
 const getBaseUrlForMock = vi.fn();
 const defaultBaseUrlForMock = vi.fn();
 const setBaseUrlForMock = vi.fn();
+const getEffortForMock = vi.fn();
+const setEffortForMock = vi.fn();
 
 vi.mock("../lib/tauri-bridge", () => ({
   setApiKeyFor: (provider: string, key: string) =>
@@ -64,6 +66,9 @@ vi.mock("../lib/tauri-bridge", () => ({
   defaultBaseUrlFor: (provider: string) => defaultBaseUrlForMock(provider),
   setBaseUrlFor: (provider: string, baseUrl: string) =>
     setBaseUrlForMock(provider, baseUrl),
+  getEffortFor: (provider: string) => getEffortForMock(provider),
+  setEffortFor: (provider: string, effort: string | null) =>
+    setEffortForMock(provider, effort),
 }));
 
 import { PROVIDER_STORAGE_KEY, Settings } from "../components/Settings";
@@ -88,6 +93,8 @@ describe("Settings", () => {
       .mockReset()
       .mockResolvedValue("https://api.anthropic.com");
     setBaseUrlForMock.mockReset().mockResolvedValue(undefined);
+    getEffortForMock.mockReset().mockResolvedValue(null);
+    setEffortForMock.mockReset().mockResolvedValue(undefined);
     window.localStorage.clear();
   });
 
@@ -515,5 +522,141 @@ describe("Settings", () => {
 
     expect(onProviderChanged).toHaveBeenCalledWith(true);
     expect(screen.queryByText(/no api key stored/i)).not.toBeInTheDocument();
+  });
+
+  // ---- Reasoning effort (#442) -------------------------------------
+
+  it("offers a reasoning effort for Anthropic, from the model's default up to max", async () => {
+    render(<Settings mode="blocking" onSaved={vi.fn()} />);
+
+    const select = await screen.findByTestId("settings-effort-select");
+    expect(select).toHaveValue("");
+    const options = Array.from(select.querySelectorAll("option")).map((o) => [
+      o.getAttribute("value"),
+      o.textContent,
+    ]);
+    expect(options).toEqual([
+      ["", "Default (model's own)"],
+      ["low", "Low"],
+      ["medium", "Medium"],
+      ["high", "High"],
+      ["xhigh", "Extra high"],
+      ["max", "Max"],
+    ]);
+    // The cost of turning it up is said where the choice is made.
+    expect(screen.getByTestId("settings-effort-hint").textContent).toMatch(
+      /slower.*more tokens/i,
+    );
+  });
+
+  it("offers no reasoning effort for any other provider", async () => {
+    const user = userEvent.setup();
+    render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
+    expect(await screen.findByTestId("settings-effort-select")).toBeInTheDocument();
+
+    for (const id of ["openrouter", "openai", "groq", "gemini", "ollama"]) {
+      await user.click(screen.getByTestId(`settings-provider-${id}`));
+      await waitFor(() =>
+        expect(setActiveProviderMock).toHaveBeenCalledWith(id),
+      );
+      expect(
+        screen.queryByTestId("settings-effort-select"),
+        `${id} must not show the setting`,
+      ).toBeNull();
+    }
+    // And back again: it returns for Anthropic.
+    await user.click(screen.getByTestId("settings-provider-anthropic"));
+    expect(await screen.findByTestId("settings-effort-select")).toBeInTheDocument();
+    // Only Anthropic's stored level was ever read.
+    expect(getEffortForMock.mock.calls.every(([p]) => p === "anthropic")).toBe(true);
+  });
+
+  it("shows the level that was already saved", async () => {
+    getEffortForMock.mockResolvedValue("xhigh");
+    render(<Settings mode="blocking" onSaved={vi.fn()} />);
+
+    const select = await screen.findByTestId("settings-effort-select");
+    await waitFor(() => expect(select).toHaveValue("xhigh"));
+    expect(getEffortForMock).toHaveBeenCalledWith("anthropic");
+  });
+
+  it("saves the chosen level with the other settings, before the key so the rebuilt agent uses it", async () => {
+    const user = userEvent.setup();
+    const onSaved = vi.fn();
+    render(<Settings mode="blocking" onSaved={onSaved} />);
+
+    await user.selectOptions(
+      await screen.findByTestId("settings-effort-select"),
+      "high",
+    );
+    await user.type(screen.getByTestId("settings-key-input"), "sk-ant-good");
+    await user.click(screen.getByTestId("settings-save-button"));
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(setEffortForMock).toHaveBeenCalledWith("anthropic", "high");
+    expect(setEffortForMock.mock.invocationCallOrder[0]).toBeLessThan(
+      setApiKeyForMock.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("clears a saved level when Default is picked", async () => {
+    getEffortForMock.mockResolvedValue("max");
+    const user = userEvent.setup();
+    const onSaved = vi.fn();
+    render(<Settings mode="blocking" onSaved={onSaved} />);
+
+    const select = await screen.findByTestId("settings-effort-select");
+    await waitFor(() => expect(select).toHaveValue("max"));
+    await user.selectOptions(select, "");
+    expect(select).toHaveValue("");
+
+    await user.type(screen.getByTestId("settings-key-input"), "sk-ant-good");
+    await user.click(screen.getByTestId("settings-save-button"));
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    // null is what the backend reads as "delete the slot".
+    expect(setEffortForMock).toHaveBeenCalledWith("anthropic", null);
+  });
+
+  it("does not touch the effort setting when saving another provider", async () => {
+    const user = userEvent.setup();
+    const onSaved = vi.fn();
+    render(<Settings mode="panel" onSaved={onSaved} onClose={vi.fn()} />);
+
+    await user.click(screen.getByTestId("settings-provider-groq"));
+    await waitFor(() => expect(setActiveProviderMock).toHaveBeenCalledWith("groq"));
+    await user.type(screen.getByTestId("settings-key-input"), "gsk_good");
+    await user.click(screen.getByTestId("settings-save-button"));
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(setEffortForMock).not.toHaveBeenCalled();
+  });
+
+  it("still opens, on Default, when the stored level cannot be read", async () => {
+    getEffortForMock.mockRejectedValue(new Error("ipc down"));
+    render(<Settings mode="blocking" onSaved={vi.fn()} />);
+
+    const select = await screen.findByTestId("settings-effort-select");
+    await waitFor(() => expect(getEffortForMock).toHaveBeenCalled());
+    expect(select).toHaveValue("");
+  });
+
+  it("reports a failure to save the level instead of swallowing it", async () => {
+    setEffortForMock.mockRejectedValue("unknown reasoning effort `x`");
+    const user = userEvent.setup();
+    const onSaved = vi.fn();
+    render(<Settings mode="blocking" onSaved={onSaved} />);
+
+    await user.selectOptions(
+      await screen.findByTestId("settings-effort-select"),
+      "low",
+    );
+    await user.type(screen.getByTestId("settings-key-input"), "sk-ant-good");
+    await user.click(screen.getByTestId("settings-save-button"));
+
+    expect((await screen.findByTestId("settings-save-error")).textContent).toContain(
+      "unknown reasoning effort",
+    );
+    expect(onSaved).not.toHaveBeenCalled();
   });
 });

@@ -148,6 +148,20 @@ pub trait LlmProvider: Send + Sync + Debug {
         true
     }
 
+    /// Whether the endpoint accepts `output_config.effort`, and so
+    /// whether the reasoning-effort setting applies.
+    ///
+    /// Anthropic's own API does. OpenRouter carries the same wire shape
+    /// but is a gateway to models that may not know the field, and the
+    /// chat-completions servers would reject it as an unknown one, so
+    /// the default is `false` and a provider has to opt in. The same
+    /// answer governs whether the model's `thinking` blocks are kept in
+    /// the history: they come with effort and carry a signature only
+    /// the server that issued them will take back.
+    fn supports_effort(&self) -> bool {
+        false
+    }
+
     /// Path used to probe the key via a GET models list (OpenAI-compatible
     /// providers). Defaults to `/v1/models`; Gemini overrides to `/models`
     /// because its compat base URL already includes the version segment.
@@ -205,6 +219,9 @@ impl LlmProvider for AnthropicProvider {
     }
     fn translate_model(&self, model: &str) -> String {
         model.to_string()
+    }
+    fn supports_effort(&self) -> bool {
+        true
     }
     fn apply_auth(&self, req: reqwest::RequestBuilder, api_key: &str) -> reqwest::RequestBuilder {
         req.header("x-api-key", api_key)
@@ -630,6 +647,9 @@ fn translate_messages(req: &MessagesRequest<'_>) -> Vec<Value> {
                         // should never see what looks like its own
                         // tool_use originating from the user.
                         ContentBlock::ToolUse { .. } => {}
+                        // Thinking is the assistant's, and OpenAI has
+                        // nowhere to put it.
+                        ContentBlock::Thinking { .. } | ContentBlock::RedactedThinking { .. } => {}
                     }
                 }
 
@@ -679,6 +699,10 @@ fn translate_messages(req: &MessagesRequest<'_>) -> Vec<Value> {
                         ContentBlock::ToolResult { .. } => {
                             // Out of place on an assistant turn; skip.
                         }
+                        // Chat completions has no thinking block, and a
+                        // signature only Anthropic can verify is of no
+                        // use to it.
+                        ContentBlock::Thinking { .. } | ContentBlock::RedactedThinking { .. } => {}
                     }
                 }
 
@@ -1125,6 +1149,7 @@ mod tests {
             tools: None,
             tool_choice: None,
             stream: true,
+            output_config: None,
         };
         let body = AnthropicProvider.serialize_request(&req);
         assert_eq!(body["model"], "claude-sonnet-4-6");
@@ -1180,6 +1205,7 @@ mod tests {
             }])),
             tool_choice: None,
             stream: true,
+            output_config: None,
         };
 
         let p = OpenAIProvider::default();
@@ -1260,6 +1286,7 @@ mod tests {
             }])),
             tool_choice: Some(ToolChoice::NONE),
             stream: true,
+            output_config: None,
         };
 
         let anthropic = AnthropicProvider.serialize_request(&req);
@@ -1410,5 +1437,287 @@ mod tests {
             "synthesised id should start with call_, got {id}"
         );
         assert!(id.contains("chatcmpl-z"), "id should embed message id");
+    }
+
+    // ------------------------------------------------------------------
+    // Reasoning effort
+    // ------------------------------------------------------------------
+
+    fn effort_request<'a>(
+        msgs: &'a [Message],
+        output_config: Option<crate::anthropic::OutputConfig>,
+    ) -> MessagesRequest<'a> {
+        MessagesRequest {
+            model: "claude-sonnet-4-6",
+            max_tokens: 16,
+            system: vec![SystemBlock {
+                kind: "text",
+                text: "be helpful",
+                cache_control: None,
+            }],
+            messages: msgs,
+            tools: None,
+            tool_choice: None,
+            stream: true,
+            output_config,
+        }
+    }
+
+    fn one_user_message() -> Vec<Message> {
+        vec![Message {
+            role: Role::User,
+            content: vec![ContentBlock::Text { text: "hi".into() }],
+        }]
+    }
+
+    #[test]
+    fn anthropic_sends_effort_as_output_config_with_the_exact_shape() {
+        use crate::anthropic::{Effort, OutputConfig};
+        let msgs = one_user_message();
+        for effort in Effort::ALL {
+            let req = effort_request(&msgs, Some(OutputConfig::effort(effort)));
+            let body = AnthropicProvider.serialize_request(&req);
+            assert_eq!(
+                body["output_config"],
+                json!({ "effort": effort.as_str() }),
+                "{effort:?}"
+            );
+            assert!(body.get("effort").is_none(), "no top-level effort");
+        }
+    }
+
+    #[test]
+    fn anthropic_body_with_no_effort_has_no_output_config() {
+        let msgs = one_user_message();
+        let body = AnthropicProvider.serialize_request(&effort_request(&msgs, None));
+        assert!(body.get("output_config").is_none());
+        assert_eq!(
+            body,
+            json!({
+                "model": "claude-sonnet-4-6",
+                "max_tokens": 16,
+                "system": [{ "type": "text", "text": "be helpful" }],
+                "messages": [{ "role": "user", "content": [{ "type": "text", "text": "hi" }] }],
+                "stream": true
+            })
+        );
+    }
+
+    /// Only Anthropic's own endpoint takes the field. OpenRouter shares
+    /// the wire shape but fronts models that may not, and the
+    /// chat-completions servers reject an unknown field outright.
+    #[test]
+    fn only_anthropic_supports_effort() {
+        for id in SUPPORTED_PROVIDER_IDS {
+            assert_eq!(
+                provider_from_id(id).supports_effort(),
+                *id == ANTHROPIC_ID,
+                "{id}"
+            );
+        }
+    }
+
+    /// The chat-completions providers build their bodies from scratch,
+    /// so even a request that somehow carried an effort cannot put one
+    /// on their wire.
+    #[test]
+    fn chat_completions_bodies_never_carry_an_effort() {
+        use crate::anthropic::{Effort, OutputConfig};
+        let msgs = one_user_message();
+        let req = effort_request(&msgs, Some(OutputConfig::effort(Effort::Max)));
+        for id in [OPENAI_ID, GROQ_ID, GEMINI_ID, OLLAMA_ID] {
+            let text = provider_from_id(id).serialize_request(&req).to_string();
+            assert!(!text.contains("output_config"), "{id}: {text}");
+            assert!(!text.contains("effort"), "{id}: {text}");
+        }
+    }
+
+    /// `LlmConfig::effective_effort` is what every builder reads, so a
+    /// level chosen under Anthropic and left behind after a switch
+    /// cannot follow the user to a server that would reject it.
+    #[test]
+    fn effective_effort_is_dropped_for_every_provider_but_anthropic() {
+        use crate::anthropic::Effort;
+        for id in SUPPORTED_PROVIDER_IDS {
+            let cfg = crate::LlmConfig::new(provider_from_id(id), "k").with_effort(Effort::High);
+            let expected = (*id == ANTHROPIC_ID).then_some(Effort::High);
+            assert_eq!(cfg.effective_effort(), expected, "{id}");
+        }
+        let unset = crate::LlmConfig::new_anthropic("k");
+        assert_eq!(unset.effective_effort(), None);
+    }
+
+    // ------------------------------------------------------------------
+    // Stream parsing: what a higher effort streams
+    // ------------------------------------------------------------------
+
+    fn parse_all(p: &dyn LlmProvider, chunks: &[&str]) -> Vec<StreamEvent> {
+        chunks
+            .iter()
+            .flat_map(|c| {
+                p.parse_stream_chunk(c)
+                    .unwrap_or_else(|e| panic!("chunk must parse: {c}: {e}"))
+            })
+            .collect()
+    }
+
+    /// The stream from a real `max`-effort tool-use exchange, reduced:
+    /// a `thinking` block with its deltas, then text, then a tool call
+    /// carrying the `caller` field the parser has no use for.
+    #[test]
+    fn thinking_blocks_and_their_deltas_parse() {
+        let events = parse_all(
+            &AnthropicProvider,
+            &[
+                r#"{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}}"#,
+                r#"{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"let me see"}}"#,
+                r#"{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"EqQB"}}"#,
+                r#"{"type":"content_block_stop","index":0}"#,
+                r#"{"type":"content_block_start","index":1,"content_block":{"type":"redacted_thinking","data":"OPAQUE"}}"#,
+                r#"{"type":"content_block_start","index":2,"content_block":{"type":"tool_use","id":"toolu_1","name":"get_bpm","input":{},"caller":{"type":"direct"}}}"#,
+            ],
+        );
+        assert!(matches!(
+            &events[0],
+            StreamEvent::ContentBlockStart {
+                content_block: ContentBlockStart::Thinking { thinking, signature },
+                ..
+            } if thinking.is_empty() && signature.is_empty()
+        ));
+        assert!(matches!(
+            &events[1],
+            StreamEvent::ContentBlockDelta {
+                delta: ContentBlockDelta::ThinkingDelta { thinking },
+                ..
+            } if thinking == "let me see"
+        ));
+        assert!(matches!(
+            &events[2],
+            StreamEvent::ContentBlockDelta {
+                delta: ContentBlockDelta::SignatureDelta { signature },
+                ..
+            } if signature == "EqQB"
+        ));
+        assert!(matches!(
+            &events[4],
+            StreamEvent::ContentBlockStart {
+                content_block: ContentBlockStart::RedactedThinking { data },
+                ..
+            } if data == "OPAQUE"
+        ));
+        assert!(matches!(
+            &events[5],
+            StreamEvent::ContentBlockStart {
+                content_block: ContentBlockStart::ToolUse { name, .. },
+                ..
+            } if name == "get_bpm"
+        ));
+    }
+
+    /// A block type, delta type or event type this client has never
+    /// heard of is skipped, not an error: an error here ends the whole
+    /// turn.
+    #[test]
+    fn unknown_block_delta_and_event_types_are_skipped_not_errors() {
+        let events = parse_all(
+            &AnthropicProvider,
+            &[
+                r#"{"type":"content_block_start","index":0,"content_block":{"type":"server_tool_use","id":"srv_1","name":"web_search","input":{}}}"#,
+                r#"{"type":"content_block_start","index":1,"content_block":{"type":"web_search_tool_result","tool_use_id":"srv_1","content":[{"type":"web_search_result","url":"https://example.com"}]}}"#,
+                r#"{"type":"content_block_start","index":2,"content_block":{"type":"some_future_block","anything":[1,2,3]}}"#,
+                r#"{"type":"content_block_delta","index":2,"delta":{"type":"citations_delta","citation":{"cited_text":"x"}}}"#,
+                r#"{"type":"content_block_delta","index":2,"delta":{"type":"some_future_delta","payload":{"a":1}}}"#,
+                r#"{"type":"some_future_event","index":2}"#,
+                r#"{"type":"ping"}"#,
+            ],
+        );
+        assert!(matches!(
+            &events[0],
+            StreamEvent::ContentBlockStart {
+                content_block: ContentBlockStart::Other,
+                ..
+            }
+        ));
+        assert!(matches!(
+            &events[1],
+            StreamEvent::ContentBlockStart {
+                content_block: ContentBlockStart::Other,
+                ..
+            }
+        ));
+        assert!(matches!(
+            &events[2],
+            StreamEvent::ContentBlockStart {
+                content_block: ContentBlockStart::Other,
+                ..
+            }
+        ));
+        assert!(matches!(
+            &events[3],
+            StreamEvent::ContentBlockDelta {
+                delta: ContentBlockDelta::Other,
+                ..
+            }
+        ));
+        assert!(matches!(
+            &events[4],
+            StreamEvent::ContentBlockDelta {
+                delta: ContentBlockDelta::Other,
+                ..
+            }
+        ));
+        assert!(matches!(&events[5], StreamEvent::Other));
+        assert!(matches!(&events[6], StreamEvent::Ping));
+    }
+
+    /// A thinking block missing a field the server usually sends still
+    /// parses; every one defaults.
+    #[test]
+    fn a_thinking_block_missing_fields_still_parses() {
+        let events = parse_all(
+            &AnthropicProvider,
+            &[
+                r#"{"type":"content_block_start","index":0,"content_block":{"type":"thinking"}}"#,
+                r#"{"type":"content_block_start","index":1,"content_block":{"type":"redacted_thinking"}}"#,
+                r#"{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta"}}"#,
+                r#"{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta"}}"#,
+            ],
+        );
+        assert_eq!(events.len(), 4);
+    }
+
+    /// History holding thinking (from an Anthropic turn) must not break
+    /// a chat-completions request: those servers have nowhere to put it.
+    #[test]
+    fn chat_completions_translation_skips_thinking_blocks() {
+        let msgs = vec![
+            Message {
+                role: Role::User,
+                content: vec![ContentBlock::Text { text: "hi".into() }],
+            },
+            Message {
+                role: Role::Assistant,
+                content: vec![
+                    ContentBlock::Thinking {
+                        thinking: "private".into(),
+                        signature: "SIG".into(),
+                    },
+                    ContentBlock::RedactedThinking {
+                        data: "DATA".into(),
+                    },
+                    ContentBlock::Text {
+                        text: "hello".into(),
+                    },
+                ],
+            },
+        ];
+        let req = effort_request(&msgs, None);
+        let text = OpenAIProvider::default()
+            .serialize_request(&req)
+            .to_string();
+        assert!(text.contains("hello"));
+        assert!(!text.contains("private"), "{text}");
+        assert!(!text.contains("SIG"), "{text}");
+        assert!(!text.contains("DATA"), "{text}");
     }
 }

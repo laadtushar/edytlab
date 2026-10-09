@@ -330,6 +330,32 @@ empty string restores the default**, which is how the field is cleared.
 
 ---
 
+### `getEffortFor(provider: ProviderId) → ReasoningEffort | null`
+
+The reasoning effort saved for this provider, or `null` when the model's own
+default applies. Only Anthropic has the setting, so any other provider answers
+`null`.
+
+---
+
+### `setEffortFor(provider: ProviderId, effort: ReasoningEffort | null) → void`
+
+Set how hard the model works on a response: sent to the Anthropic API as
+`output_config.effort`. Higher effort is slower and uses more tokens, and the
+model may think before it answers. **`null` (or an empty value) restores the
+model's default**, which is how the setting is cleared. Rebuilds the agent.
+
+Rejects a level that is not one of the five in `ReasoningEffort`, and rejects
+any level for a provider other than Anthropic (OpenRouter and the
+chat-completions providers have no such field, so none is ever sent to them).
+
+```typescript
+await bridge.setEffortFor("anthropic", "xhigh");
+await bridge.setEffortFor("anthropic", null); // back to the model's default
+```
+
+---
+
 ## Model Selection
 
 ### `listModelsFor(provider: ProviderId, apiKey?: string) → ModelInfo[]`
@@ -1159,6 +1185,7 @@ Full type definitions are in `apps/desktop/src/lib/tauri-bridge.ts`.
 ```typescript
 type NodeId = string;
 type ProviderId = "anthropic" | "openrouter" | "openai" | "groq" | "gemini" | "ollama";
+type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
 interface ProjectInfo {
   path: string;

@@ -507,6 +507,66 @@ pub async fn set_base_url_for(
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Reasoning effort
+// ---------------------------------------------------------------------------
+
+/// Read a provider's reasoning effort as its wire string (`"low"`,
+/// `"medium"`, `"high"`, `"xhigh"` or `"max"`), or `None` for the
+/// model's own default.
+#[tauri::command]
+pub async fn get_effort_for(provider: String) -> CmdResult<Option<String>> {
+    Ok(ai::keychain::load_effort(&provider).map(|e| e.as_str().to_string()))
+}
+
+/// Validate a requested effort for `provider`. `None` (or blank) means
+/// "the model's default" and is always valid; a level is valid only for
+/// a provider whose endpoint takes one and only if it is exactly one of
+/// the five the API accepts. The API answers anything else with a 400 on
+/// every request, so a typo saved now would break chat later with no
+/// hint that a setting caused it.
+fn parse_effort_setting(
+    provider: &str,
+    effort: Option<&str>,
+) -> Result<Option<ai::Effort>, String> {
+    let Some(raw) = effort.map(str::trim).filter(|e| !e.is_empty()) else {
+        return Ok(None);
+    };
+    if !ai::validate::provider_for(provider).supports_effort() {
+        return Err(format!(
+            "{provider} has no reasoning effort setting; it applies to Anthropic only"
+        ));
+    }
+    ai::Effort::parse(raw).map(Some).ok_or_else(|| {
+        let levels: Vec<&str> = ai::Effort::ALL.iter().map(|e| e.as_str()).collect();
+        format!(
+            "unknown reasoning effort `{raw}` (expected one of: {})",
+            levels.join(", ")
+        )
+    })
+}
+
+/// Set a provider's reasoning effort, or clear it with `None` (or a
+/// blank string) so the model's default applies again, which is what the
+/// UI sends for "Default".
+#[tauri::command]
+pub async fn set_effort_for(
+    state: State<'_, AppState>,
+    provider: String,
+    effort: Option<String>,
+) -> CmdResult<()> {
+    match parse_effort_setting(&provider, effort.as_deref())? {
+        Some(level) => {
+            ai::keychain::save_effort(&provider, level).map_err(CommandError::from)?;
+        }
+        None => ai::keychain::delete_effort(&provider).map_err(CommandError::from)?,
+    }
+    // The agent holds its config for its lifetime, so a saved level
+    // that never reaches it looks like the setting was ignored.
+    rebuild_agent(state.inner()).await?;
+    Ok(())
+}
+
 async fn set_api_key_for_inner(state: &AppState, provider_id: &str, key: &str) -> CmdResult<()> {
     // Selecting a keyless provider is a save with an empty key — that is
     // how the UI says "make this one active" — so it must be allowed
@@ -3243,6 +3303,11 @@ async fn rebuild_agent(state: &AppState) -> Result<(), CommandError> {
             if let Some(base) = ai::keychain::load_base_url(&effective_provider_id) {
                 cfg = cfg.with_base_url(base);
             }
+            // Absent, the model's own default applies. A provider that
+            // cannot take one drops it in `effective_effort`.
+            if let Some(effort) = ai::keychain::load_effort(&effective_provider_id) {
+                cfg = cfg.with_effort(effort);
+            }
             let plan_first = state.plan_first.load(std::sync::atomic::Ordering::SeqCst);
             let mut agent = ai::Agent::new(
                 cfg,
@@ -5122,6 +5187,54 @@ mod tests {
 
         for id in ai::SUPPORTED_PROVIDER_IDS {
             assert_eq!(state.model_for(id), None);
+        }
+    }
+
+    // ---- Reasoning effort setting -------------------------------------
+
+    #[test]
+    fn every_level_is_accepted_for_anthropic() {
+        for level in ai::Effort::ALL {
+            assert_eq!(
+                parse_effort_setting("anthropic", Some(level.as_str())),
+                Ok(Some(level))
+            );
+        }
+        // Stray whitespace around a real level is the level.
+        assert_eq!(
+            parse_effort_setting("anthropic", Some("  xhigh ")),
+            Ok(Some(ai::Effort::XHigh))
+        );
+    }
+
+    /// "Default" in the UI: no value, or a blank one, clears the slot.
+    /// Valid for every provider, so a stale slot can always be cleared.
+    #[test]
+    fn no_value_or_a_blank_one_means_the_models_default() {
+        for id in ai::SUPPORTED_PROVIDER_IDS {
+            assert_eq!(parse_effort_setting(id, None), Ok(None), "{id}");
+            assert_eq!(parse_effort_setting(id, Some("")), Ok(None), "{id}");
+            assert_eq!(parse_effort_setting(id, Some("  ")), Ok(None), "{id}");
+        }
+    }
+
+    #[test]
+    fn a_level_the_api_would_reject_is_refused_at_save_time() {
+        for bad in ["extra high", "XHigh", "ultra", "0", "low;"] {
+            let err = parse_effort_setting("anthropic", Some(bad)).unwrap_err();
+            assert!(err.contains("unknown reasoning effort"), "{bad}: {err}");
+            assert!(err.contains("xhigh"), "the error lists the levels: {err}");
+        }
+    }
+
+    #[test]
+    fn a_provider_with_no_such_setting_refuses_a_level() {
+        for id in ai::SUPPORTED_PROVIDER_IDS
+            .iter()
+            .filter(|id| **id != "anthropic")
+        {
+            let err = parse_effort_setting(id, Some("high")).unwrap_err();
+            assert!(err.contains("Anthropic only"), "{id}: {err}");
         }
     }
 }

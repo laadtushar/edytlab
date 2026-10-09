@@ -216,6 +216,7 @@ pub struct LlmConfig {
     pub api_key: String,
     pub model: String,
     pub base_url_override: Option<String>,
+    pub effort: Option<Effort>, // reasoning effort; read via effective_effort()
 }
 
 pub enum AgentEvent {
@@ -340,6 +341,7 @@ pub trait LlmProvider: Send + Sync + Debug {
     fn endpoint_path(&self) -> &str { "/v1/messages" }
     fn wire_format(&self) -> WireFormat { WireFormat::AnthropicMessages }
     fn requires_api_key(&self) -> bool { true }
+    fn supports_effort(&self) -> bool { false } // true for Anthropic only
     fn list_models_path(&self) -> &str { "/v1/models" }
     fn serialize_request(&self, req: &MessagesRequest) -> Value;
     fn parse_stream_chunk(&self, raw: &str) -> Result<Vec<StreamEvent>, ProviderError>;
@@ -359,6 +361,14 @@ pub trait LlmProvider: Send + Sync + Debug {
 | `ollama` | `http://localhost:11434/v1` | none (`requires_api_key() == false`) | `llama3.2` | Local daemon, OpenAI-compatible; reuses the same translation |
 
 Every provider's base URL can be overridden per provider from Settings (`<provider>_base_url` in the keychain).
+
+### Reasoning Effort
+
+Anthropic's Messages API takes `output_config: {"effort": "low" | "medium" | "high" | "xhigh" | "max"}`; Settings exposes it for Anthropic only (`<provider>_effort` in the keychain, `get_effort_for` / `set_effort_for`). `LlmConfig::effective_effort()` drops it for any provider whose `supports_effort()` is false, so OpenRouter and the chat-completions providers never receive the field. Three consequences are handled in `agent_loop.rs`:
+
+- The classifier request never carries it: its cheap model answers `effort` with a 400, and `classify_mode` swallows errors.
+- A set effort raises `max_tokens` (`Effort::min_max_tokens`), because thinking counts against it; the one-shot reply reader takes the first `text` block, not `content[0]`.
+- `thinking` / `redacted_thinking` blocks are kept in the assistant history and replayed first, signature intact; block and delta types the client does not model are skipped.
 
 ### OpenAI Translation Layer
 
@@ -383,7 +393,7 @@ pub fn save_api_key(provider_id: &str, key: &str) -> Result<(), keyring::Error>
 pub fn delete_api_key(provider_id: &str) -> Result<(), keyring::Error>
 pub fn load_active_provider() -> Option<String>
 pub fn save_active_provider(provider_id: &str) -> Result<(), keyring::Error>
-// plus load_/save_/delete_ for `base_url` and `model`, keyed the same way
+// plus load_/save_/delete_ for `base_url`, `model` and `effort`, keyed the same way
 ```
 
 Keychain slots (accounts):
@@ -391,6 +401,7 @@ Keychain slots (accounts):
 - `active_provider` (stores provider id string)
 - `<provider>_model` (per-provider model choice)
 - `<provider>_base_url` (per-provider endpoint override)
+- `<provider>_effort` (per-provider reasoning effort; absent means the model's default)
 
 Builds from before multi-provider support stored the Anthropic key as `anthropic_api_key`, which is already the new name for that slot, so it is read as-is — there is no migration step.
 

@@ -249,6 +249,7 @@ async fn tool_probe(
         // Non-streaming: we want the whole reply in one JSON body, and
         // the probe has no UI to stream into.
         stream: false,
+        output_config: None,
     };
     let body = provider.serialize_request(&req);
 
