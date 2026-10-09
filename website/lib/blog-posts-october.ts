@@ -33,7 +33,7 @@ export const octoberPosts: BlogPost[] = [
       "Two waveforms on a shared beat grid, the second starting near the end of the first, with crossing fade ramps over the overlap",
     excerpt:
       "A DJ transition is a short list of exact operations. Here is the one in the demo video, step by step, with the sentence to type for each and the tool that runs it.",
-    readTime: 5,
+    readTime: 6,
     tags: ["DJ transition", "beatmatching", "time stretch", "tutorial"],
     body: [
       {
