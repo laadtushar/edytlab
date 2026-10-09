@@ -482,7 +482,7 @@ async fn agent_dispatches_normalize_and_emits_node_created() {
 }
 
 // ---------------------------------------------------------------------
-// Bonus: the tool-call cap is enforced.
+// Bonus: the tool-call cap is enforced, and is not an error (#439).
 // ---------------------------------------------------------------------
 
 /// Build an SSE stream that requests N tool calls in a single message.
@@ -551,14 +551,15 @@ fn loop_response_sse(n: usize) -> String {
 #[tokio::test]
 async fn agent_enforces_tool_call_cap() {
     let server = MockServer::start().await;
-    // Always respond with 11 tool calls in one message — exceeds the
-    // hard cap of 10.
+    // Always respond with one more tool call than the cap in one message,
+    // including to the last request, which turns tools off: the worst a
+    // provider that ignores that can do.
     Mock::given(method("POST"))
         .and(path("/v1/messages"))
         .respond_with(
             ResponseTemplate::new(200)
                 .insert_header("content-type", "text/event-stream")
-                .set_body_string(loop_response_sse(11)),
+                .set_body_string(loop_response_sse(ai::MAX_TOOL_CALLS_PER_TURN + 1)),
         )
         .mount(&server)
         .await;
@@ -605,12 +606,32 @@ async fn agent_enforces_tool_call_cap() {
         clipboard2,
     );
 
-    let err = agent
-        .turn("loop please".to_string(), |_| {})
+    let mut events = Vec::new();
+    let result = agent
+        .turn("loop please".to_string(), |e| events.push(e))
         .await
-        .expect_err("should hit cap");
-    match err {
-        ai::Error::ToolBudgetExceeded(n) => assert_eq!(n, ai::MAX_TOOL_CALLS_PER_TURN),
-        other => panic!("expected ToolBudgetExceeded, got: {other}"),
-    }
+        .expect("reaching the cap ends the turn, it is not an error");
+
+    // None of the over-cap calls ran: no node was made and no badge
+    // ended ok. The user is told why, and the turn is done.
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, ai::AgentEvent::NodeCreated(_))),
+        "a call past the cap ran"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, ai::AgentEvent::ToolCallEnd { ok: true, .. })),
+        "a call past the cap ran"
+    );
+    assert!(
+        result
+            .text
+            .contains(&ai::MAX_TOOL_CALLS_PER_TURN.to_string()),
+        "the user is told the limit: {:?}",
+        result.text
+    );
+    assert!(matches!(events.last(), Some(ai::AgentEvent::Done)));
 }
