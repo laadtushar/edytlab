@@ -1,10 +1,13 @@
 /**
  * Which release the download buttons point at (#241, #303).
  *
- * `getLatestRelease` used `/releases/latest`, which answers only
- * non-draft, non-prerelease releases — and every dev build is a
- * prerelease — so for ~186 builds both buttons served the placeholder
- * and nothing could have caught it: the website had no test runner.
+ * Before v0.2.0 there was no versioned release: `/releases/latest`
+ * answered 404 for ~186 dev builds and both buttons served the
+ * placeholder. Once versioned releases existed, the opposite went wrong:
+ * the newest release of all is nearly always a dev build (one per merge
+ * to main), so the page showed `0.4.0-dev.316` the day v0.4.0 shipped.
+ * So the versioned release is asked for first, and the dev builds are
+ * the fallback.
  *
  * Fixtures follow the shape of GitHub's list endpoint, newest first,
  * including the drafts that sit ahead of every published release.
@@ -85,23 +88,38 @@ describe("getLatestRelease", () => {
     vi.restoreAllMocks();
   });
 
-  function answer(status: number, body: unknown) {
+  const stable = {
+    tag_name: "v0.4.0",
+    html_url: "https://github.com/laadtushar/edytlab/releases/tag/v0.4.0",
+    draft: false,
+    prerelease: false,
+    assets: [asset("edytlab_0.4.0_universal.dmg"), asset("edytlab_0.4.0_x64-setup.exe")],
+  };
+
+  /** Answer `/releases/latest` and the list endpoint separately. */
+  function answer(latest: [number, unknown], list: [number, unknown]) {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => new Response(JSON.stringify(body), { status })),
+      vi.fn(async (url: string) => {
+        const [status, body] = String(url).includes("/releases/latest") ? latest : list;
+        return new Response(JSON.stringify(body), { status });
+      }),
     );
   }
 
-  it("asks the list endpoint, never /releases/latest", async () => {
-    answer(200, [published]);
-    await getLatestRelease();
-    const url = String(vi.mocked(fetch).mock.calls[0][0]);
-    expect(url).toContain("/releases?");
-    expect(url).not.toContain("/releases/latest");
+  it("serves the newest versioned release, not a newer dev build", async () => {
+    answer([200, stable], [200, [published]]);
+    await expect(getLatestRelease()).resolves.toEqual({
+      version: "v0.4.0",
+      macUrl: asset("edytlab_0.4.0_universal.dmg").browser_download_url,
+      winUrl: asset("edytlab_0.4.0_x64-setup.exe").browser_download_url,
+      releaseUrl: stable.html_url,
+      isFallback: false,
+    });
   });
 
-  it("serves the newest downloadable release", async () => {
-    answer(200, [{ ...published, draft: true, tag_name: "v0.1.0-dev.413" }, published]);
+  it("falls back to the newest downloadable dev build when there is no versioned release", async () => {
+    answer([404, { message: "Not Found" }], [200, [{ ...published, draft: true, tag_name: "v0.1.0-dev.413" }, published]]);
     await expect(getLatestRelease()).resolves.toEqual({
       version: "v0.1.0-dev.412",
       macUrl: asset("edytlab_0.1.0_aarch64.dmg").browser_download_url,
@@ -111,9 +129,16 @@ describe("getLatestRelease", () => {
     });
   });
 
+  it("falls back to the dev builds, and says so, when the versioned lookup errors", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    answer([500, { message: "Server Error" }], [200, [published]]);
+    expect((await getLatestRelease()).version).toBe("v0.1.0-dev.412");
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("500"));
+  });
+
   it("serves the placeholder, and says so, when GitHub errors", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    answer(404, { message: "Not Found" });
+    answer([404, { message: "Not Found" }], [404, { message: "Not Found" }]);
     const got = await getLatestRelease();
     expect(got.isFallback).toBe(true);
     expect(got.releaseUrl).toBe(siteConfig.releases);
@@ -128,9 +153,10 @@ describe("getLatestRelease", () => {
 
   it("still serves a release that lacks an installer, and logs it", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    answer(200, [{ ...published, assets: [asset("edytlab_0.1.0_aarch64.dmg")] }]);
+    answer([200, { ...stable, assets: [asset("edytlab_0.4.0_universal.dmg")] }], [200, [published]]);
     const got = await getLatestRelease();
     expect(got.isFallback).toBe(false);
+    expect(got.version).toBe("v0.4.0");
     expect(got.winUrl).toBeNull();
     expect(log).toHaveBeenCalledWith(expect.stringContaining("missing installers"));
   });
