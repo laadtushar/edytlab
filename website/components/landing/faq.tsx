@@ -11,13 +11,18 @@ import { SectionHeading } from "@/components/motion/section-heading";
 /**
  * Questions the rest of the page does not already answer.
  *
- * "Which LLM models work?" and "Can I use a local LLM?" listed the
- * provider cards a second time, directly above them; that detail now
- * lives in the provider section. This is also the long answer to the
- * stats strip's "0 bytes uploaded", which is why the local-first feature
- * card could go.
+ * "Can I use a local LLM?" listed the provider cards a second time,
+ * directly above them; that detail now lives in the provider section.
+ * "Which LLM models work?" stays as the one-line answer people search
+ * for, and `crates/ai/tests/website_provider_claims.rs` holds it to the
+ * provider registry. This is also the long answer to the stats strip's
+ * "0 bytes uploaded", which is why the local-first feature card could go.
  */
 const faqs = [
+  {
+    q: "Which LLM models work?",
+    a: "Six providers: Anthropic, OpenAI, OpenRouter, Groq, Gemini and Ollama. Hosted providers use your own key, stored in the OS keychain; Ollama runs models on your machine and needs no API key. Switch provider and model in Settings at any time.",
+  },
   {
     q: "Does my audio leave my machine?",
     a: "No. The DSP engine runs entirely on your device — decode, editing, mixing, and rendering all happen locally, and stem separation and transcription are built to run locally too once their models ship. The only network traffic is your chat with the LLM provider you've configured. Your raw audio is never uploaded.",
