@@ -2,7 +2,7 @@
 //!
 //! This crate is the seam between the session-level tools
 //! (`time_stretch`, `pitch_shift`, `align_to_beat` in `crates/tools`)
-//! and the eventual Rubber Band backend that will land in M28.
+//! and the phase vocoder that does the work.
 //!
 //! ## Backend
 //!
@@ -17,8 +17,10 @@
 //! The vocoder is worse than Rubber Band and available everywhere.
 //! Onsets are detected by spectral flux and the synthesis phase is reset
 //! on them, so attacks survive a stretch rather than smearing across the
-//! window. There is still no phase locking across bins, so dense
-//! material keeps some "phasiness", and large factors make that worse.
+//! window. Bins are phase-locked to their spectral peaks (identity
+//! phase locking), which takes the "phasiness" out of steady partials;
+//! peaks are not tracked from frame to frame, so a fast glissando can
+//! still waver, and large factors make that worse.
 //! `preserve_formants` is honoured by `pitch_shift` (see `formant.rs`)
 //! and is a no-op for `time_stretch`, which moves no frequency and so
 //! has no formants to hold in place. The remaining limits are
