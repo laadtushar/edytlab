@@ -63,8 +63,9 @@ impl CacheControl {
     pub const EPHEMERAL: Self = Self { kind: "ephemeral" };
 }
 
-/// `tool_choice` parameter. Phase 1 always uses `auto`.
-#[derive(Debug, Serialize, Clone, Copy)]
+/// `tool_choice` parameter. A turn uses `auto`, except for the one last
+/// request after the tool budget is spent, which uses `none`.
+#[derive(Debug, Serialize, Clone, Copy, PartialEq, Eq)]
 pub struct ToolChoice {
     #[serde(rename = "type")]
     pub kind: &'static str,
@@ -72,6 +73,10 @@ pub struct ToolChoice {
 
 impl ToolChoice {
     pub const AUTO: Self = Self { kind: "auto" };
+    /// The model may not call a tool. The `tools` array stays in the
+    /// request: Anthropic rejects a conversation holding `tool_use` or
+    /// `tool_result` blocks when no tools are defined.
+    pub const NONE: Self = Self { kind: "none" };
 }
 
 /// One conversation message. Mirrors Anthropic's `messages` array entry.
