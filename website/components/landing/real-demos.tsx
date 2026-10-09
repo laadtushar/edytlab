@@ -24,7 +24,6 @@ export function DemoCard({ demo, index }: { demo: Demo; index: number }) {
       <div className="bg-black">
         <video
           controls
-          muted
           playsInline
           preload="none"
           poster={demoPosterSrc(demo.slug)}

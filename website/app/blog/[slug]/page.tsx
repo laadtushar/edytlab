@@ -8,6 +8,7 @@ import { getPost, getAllSlugs, type Block } from "@/lib/blog";
 import { SiteHeader } from "@/components/landing/site-header";
 import { Footer } from "@/components/landing/footer";
 import { Badge } from "@/components/ui/badge";
+import { Cascade, LineDraw, Reveal, SplitHeading, Stagger } from "@/components/motion";
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -137,50 +138,61 @@ export default async function BlogPostPage({ params }: Props) {
         <article className="py-12 md:py-16">
           <div className="container">
             <div className="mx-auto max-w-2xl">
-              <Link
-                href="/blog"
-                className="mb-8 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-              >
-                <ArrowLeft className="size-3.5" />
-                All posts
-              </Link>
-
-              <div className="flex flex-wrap gap-2 mb-4">
-                {post.tags.slice(0, 4).map((tag) => (
-                  <Badge
-                    key={tag}
-                    variant="outline"
-                    className="border-primary/30 bg-primary/5 text-primary text-xs"
+              {/* The header settles piece by piece (the title rising
+                  a word at a time instead of fading), its icons draw,
+                  and the body cascades in block by block below. */}
+              <LineDraw>
+                <Stagger each={0.07} distance={14} selector=":scope > :not(h1)">
+                  <Link
+                    href="/blog"
+                    data-nudge="-3"
+                    className="mb-8 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
                   >
-                    {tag}
-                  </Badge>
-                ))}
-              </div>
+                    <ArrowLeft className="size-3.5" />
+                    All posts
+                  </Link>
 
-              <h1 className="text-3xl font-bold tracking-tight leading-snug sm:text-4xl">
-                {post.title}
-              </h1>
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {post.tags.slice(0, 4).map((tag) => (
+                      <Badge
+                        key={tag}
+                        variant="outline"
+                        className="border-primary/30 bg-primary/5 text-primary text-xs"
+                      >
+                        {tag}
+                      </Badge>
+                    ))}
+                  </div>
 
-              <div className="mt-4 flex items-center gap-5 text-sm text-muted-foreground">
-                <span className="flex items-center gap-1.5">
-                  <Calendar className="size-3.5" />
-                  {formatDate(post.date)}
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <Clock className="size-3.5" />
-                  {post.readTime} min read
-                </span>
-              </div>
+                  <SplitHeading
+                    as="h1"
+                    text={post.title}
+                    delay={0.1}
+                    className="text-3xl font-bold tracking-tight leading-snug sm:text-4xl"
+                  />
 
-              <p className="mt-6 text-lg leading-relaxed text-muted-foreground border-l-2 border-primary/40 pl-4">
-                {post.excerpt}
-              </p>
+                  <div className="mt-4 flex items-center gap-5 text-sm text-muted-foreground">
+                    <span className="flex items-center gap-1.5">
+                      <Calendar className="size-3.5" />
+                      {formatDate(post.date)}
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <Clock className="size-3.5" />
+                      {post.readTime} min read
+                    </span>
+                  </div>
 
-              <div className="mt-8 border-t border-border/40 pt-8">
+                  <p className="mt-6 text-lg leading-relaxed text-muted-foreground border-l-2 border-primary/40 pl-4">
+                    {post.excerpt}
+                  </p>
+                </Stagger>
+              </LineDraw>
+
+              <Cascade prose className="mt-8 border-t border-border/40 pt-8">
                 {post.body.map((block, i) => renderBlock(block, i))}
-              </div>
+              </Cascade>
 
-              <div className="mt-14 border-t border-border/40 pt-8">
+              <Reveal className="mt-14 border-t border-border/40 pt-8" distance={12}>
                 <p className="text-sm text-muted-foreground">
                   edytlab is an open-source, local-first AI audio editor.{" "}
                   <Link
@@ -202,7 +214,7 @@ export default async function BlogPostPage({ params }: Props) {
                   </Link>
                   .
                 </p>
-              </div>
+              </Reveal>
             </div>
           </div>
         </article>

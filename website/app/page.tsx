@@ -1,13 +1,11 @@
 import { Comparison } from "@/components/landing/comparison";
 import { CTA } from "@/components/landing/cta";
-import { DemoFrame } from "@/components/landing/demo-frame";
 import { FAQ } from "@/components/landing/faq";
 import { FeatureGrid } from "@/components/landing/feature-grid";
 import { Footer } from "@/components/landing/footer";
 import { ScrollStory } from "@/components/story/scroll-story";
-import { HowItWorks } from "@/components/landing/how-it-works";
-import { Problem } from "@/components/landing/problem";
 import { ProviderCards } from "@/components/landing/provider-cards";
+import { Parallax } from "@/components/motion";
 import { RealDemos } from "@/components/landing/real-demos";
 import { SiteHeader } from "@/components/landing/site-header";
 import { StatsStrip } from "@/components/landing/stats-strip";
@@ -48,22 +46,36 @@ export default async function Home() {
       />
       <SiteHeader />
       <main className="relative">
-        {/* One slow colour wash behind the top of the page, so the fold
-            is not a flat sheet of near-black. */}
-        <div aria-hidden className="aurora" />
+        {/* One section per idea, in the order a reader asks:
+            what is it (the story), how much (the numbers), is it real
+            (recordings of the app), why not a DAW or another AI tool
+            (the gap), what does it do (features, then the tools by
+            name), can I do it by hand (the interface), which model
+            (providers), and the leftovers (FAQ) — then the download.
+
+            Cut as repeats: a scripted chat mock that told the story
+            the hero already tells, while the real recordings show it
+            for real; a "problem" band that the comparison table says
+            row by row; and a three-step "how it works" that was the
+            hero's story again, down to the feature grid's own example
+            prompt. */}
         <ScrollStory release={release} />
         <StatsStrip />
-        <Problem />
-        <Comparison />
-        <DemoFrame />
         <RealDemos />
+        <Comparison />
         <FeatureGrid />
-        <UiShowcase />
         <ToolCatalogue />
-        <HowItWorks />
+        <UiShowcase />
         <ProviderCards />
         <FAQ />
-        <CTA />
+        <CTA release={release} />
+        {/* One slow colour wash behind the page, so the fold is not a
+            flat sheet of near-black. It drifts against the scroll — a
+            little slower than the content, which reads as depth. Last
+            in the markup (it is absolutely placed, so order is not
+            layout) so its scroll range is measured after the story's
+            pin has added its height. */}
+        <Parallax className="aurora" distance={-160} />
       </main>
       <Footer />
     </>

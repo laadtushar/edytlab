@@ -54,7 +54,9 @@ describe("footer and marketing pages", () => {
     const footer = read(join(WEBSITE, "components/landing/footer.tsx"));
     expect(footer).toContain('href="/use-cases/dj"');
     expect(footer).toContain('href="/use-cases/local-ai-audio-editor"');
-    expect(footer).toContain('href="/press"');
+    // The footer's main row is a `links` array (`href: "/press"`); the
+    // use-case group is JSX (`href="/use-cases/…"`). Either spelling counts.
+    expect(footer).toMatch(/href(=|: )"\/press"/);
   });
 
   it("serves every asset the press page offers for download", () => {

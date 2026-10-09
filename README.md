@@ -32,6 +32,7 @@ Local-first, multi-provider, pure-Rust DSP. Builds for macOS (universal), Window
 Screen recordings of the desktop app with Claude as the agent, each one a DJ job that ends in an exported file. They also play on the website: <https://edytlab.com/#demos>.
 
 - [**Beatmatch and blend two tracks**](website/public/demos/dj-beatmatched-transition.mp4) (2:58, shown at 1.6× speed): the DJ asks for both tempos; the incoming track is time-stretched to match, started 8 bars before the outgoing one ends and crossfaded, with a low-pass filter on the outgoing track; the mix is compressed, limited, brought to −14 LUFS and exported as a WAV.
+- [**Extend an intro for mixing**](website/public/demos/dj-extended-club-intro.mp4) (2:26, with sound; waits for Claude are sped up, every playback is in real time): the DJ asks for Solar Flare's tempo and bar length; the drums-only first 8 bars are repeated so the intro runs 16 bars; a high-pass filter goes on the new intro, the first 4 bars fade in, and the track is exported as a WAV. You hear the original intro, then the new one, then the drop at 0:31.
 
 The list lives in [`website/lib/demos.ts`](website/lib/demos.ts); its test fails if a listed video or poster is missing from `website/public/demos/`.
 
