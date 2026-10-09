@@ -389,6 +389,13 @@ export default function UserGuidePage() {
           and not even the chat leaves the computer.
         </li>
       </ul>
+      <p>
+        With Anthropic selected, Settings → Account also has a{" "}
+        <strong>Reasoning effort</strong> setting: Default, Low, Medium, High,
+        Extra high or Max. Higher effort makes Claude think longer before it
+        answers, which is slower and uses more tokens; Default leaves it to the
+        model. Other providers do not have the setting.
+      </p>
     </DocShell>
   );
 }

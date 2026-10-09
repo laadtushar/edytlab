@@ -159,6 +159,29 @@ export const setBaseUrlFor = (
   baseUrl: string,
 ): Promise<void> => invoke<void>("set_base_url_for", { provider, baseUrl });
 
+/**
+ * How hard the model works on a response — Anthropic's
+ * `output_config.effort`. Higher is slower and spends more tokens.
+ * Leaving it unset (`null`) uses the model's own default.
+ */
+export type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
+
+/** A provider's reasoning effort, or null for the model's default. */
+export const getEffortFor = (
+  provider: ProviderId,
+): Promise<ReasoningEffort | null> =>
+  invoke<ReasoningEffort | null>("get_effort_for", { provider });
+
+/**
+ * Set a provider's reasoning effort. `null` restores the model's
+ * default. Only Anthropic has the setting; the backend refuses a level
+ * for any other provider.
+ */
+export const setEffortFor = (
+  provider: ProviderId,
+  effort: ReasoningEffort | null,
+): Promise<void> => invoke<void>("set_effort_for", { provider, effort });
+
 export const getSessionHead = (): Promise<NodeId> =>
   invoke<NodeId>("get_session_head");
 

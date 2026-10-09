@@ -53,13 +53,13 @@ use serde_json::Value;
 use tools::{ToolContext, ToolDispatcher, ToolResult};
 
 use crate::anthropic::{
-    ApiError, CacheControl, ContentBlock, ContentBlockDelta, ContentBlockStart, Message,
-    MessagesRequest, Role, StreamEvent, SystemBlock, ToolChoice,
+    max_tokens_for, ApiError, CacheControl, ContentBlock, ContentBlockDelta, ContentBlockStart,
+    Message, MessagesRequest, OutputConfig, Role, StreamEvent, SystemBlock, ToolChoice,
 };
 use crate::approval::{self, Approval};
 use crate::prompt::{DEFAULT_MAX_TOKENS, MAX_TOOL_CALLS_PER_TURN};
 use crate::session_context::{render_block, SessionContext};
-use crate::{AgentEvent, Error, LlmConfig, Result, TurnResult, WireFormat};
+use crate::{AgentEvent, Effort, Error, LlmConfig, Result, TurnResult, WireFormat};
 
 // ---------------------------------------------------------------------------
 // Mode detection (M27)
@@ -132,12 +132,23 @@ fn one_shot_messages(
 /// classifier nor the plan request carried its instructions — and their
 /// replies were read as Anthropic's, so every plan came back "carried no
 /// text" and every request classified as general (#399).
+///
+/// `effort` is the reasoning effort for the request, and only the
+/// Anthropic wire format has a place for it: chat-completions bodies are
+/// built without it whatever is passed. The caller decides whether the
+/// request wants it. The plan does, being the main model's own work. The
+/// classifier does not: it runs on the cheap model, which answers any
+/// `output_config.effort` with a 400 ("This model does not support the
+/// effort parameter"), and `classify_mode` swallows errors, so sending it
+/// there would quietly turn mode detection off. A set effort also raises
+/// `max_tokens` to what that effort needs (see [`Effort::min_max_tokens`]).
 fn one_shot_body(
     cfg: &LlmConfig,
     model: String,
     max_tokens: u32,
     system: &[&str],
     messages: Vec<serde_json::Value>,
+    effort: Option<Effort>,
 ) -> serde_json::Value {
     match cfg.provider.wire_format() {
         WireFormat::ChatCompletions => {
@@ -169,13 +180,17 @@ fn one_shot_body(
                         .collect(),
                 ),
             };
-            serde_json::json!({
+            let mut body = serde_json::json!({
                 "model": model,
-                "max_tokens": max_tokens,
+                "max_tokens": max_tokens_for(max_tokens, effort),
                 "system": system,
                 "messages": messages,
                 "stream": false
-            })
+            });
+            if let Some(effort) = effort {
+                body["output_config"] = serde_json::json!(OutputConfig::effort(effort));
+            }
+            body
         }
     }
 }
@@ -197,12 +212,14 @@ pub(crate) async fn classify_mode(
     // message so the classifier sees the full intent.
     let messages = one_shot_messages(conversation, Some(6), user_message);
 
+    // No effort: see `one_shot_body`.
     let request_body = one_shot_body(
         cfg,
         cfg.wire_classifier_model(),
         10,
         &[system_text],
         messages,
+        None,
     );
 
     let req = http.post(format!(
@@ -416,6 +433,7 @@ async fn fetch_plan(
         1024,
         &[system_prompt, plan_instruction],
         messages,
+        cfg.effective_effort(),
     );
 
     let req = http.post(format!(
@@ -658,7 +676,13 @@ where
     loop {
         // 2. Build and send the streaming request.
         let wire_model = cfg.wire_model();
-        let request_struct = build_request(&wire_model, system_prompt, &tool_schemas, conversation);
+        let request_struct = build_request(
+            &wire_model,
+            system_prompt,
+            &tool_schemas,
+            conversation,
+            cfg.effective_effort(),
+        );
         // Provider-specific wire serialisation. Anthropic + OpenRouter
         // pass `MessagesRequest` through verbatim; OpenAI translates to
         // chat-completions JSON.
@@ -739,6 +763,18 @@ where
                                     args_json: String::new(),
                                 };
                             }
+                            ContentBlockStart::Thinking {
+                                thinking,
+                                signature,
+                            } => {
+                                blocks[index as usize] = PartialBlock::Thinking {
+                                    thinking,
+                                    signature,
+                                };
+                            }
+                            ContentBlockStart::RedactedThinking { data } => {
+                                blocks[index as usize] = PartialBlock::RedactedThinking(data);
+                            }
                             ContentBlockStart::Other => {
                                 blocks[index as usize] = PartialBlock::Ignored;
                             }
@@ -760,6 +796,14 @@ where
                             ) => {
                                 args_json.push_str(&partial_json);
                             }
+                            (
+                                PartialBlock::Thinking { thinking, .. },
+                                ContentBlockDelta::ThinkingDelta { thinking: more },
+                            ) => thinking.push_str(&more),
+                            (
+                                PartialBlock::Thinking { signature, .. },
+                                ContentBlockDelta::SignatureDelta { signature: more },
+                            ) => signature.push_str(&more),
                             // Mismatched delta kind for the block — ignore;
                             // the server occasionally emits unrelated deltas
                             // we don't model yet.
@@ -791,11 +835,30 @@ where
 
         // 4. Append the assistant turn (with all its blocks) to history
         //    so the next API call sees it.
+        //
+        //    The model's thinking goes in with them, first where it
+        //    came first, because a request that replays a tool call
+        //    without the thinking that led to it loses that reasoning
+        //    — and the API asks for the blocks back unmodified. Only
+        //    for a provider whose server issued them, and only a
+        //    thinking block that has a signature: without one the
+        //    server cannot verify it.
+        let keep_thinking = cfg.provider.supports_effort();
         let assistant_blocks: Vec<ContentBlock> = blocks
             .iter()
             .filter_map(|b| match b {
                 PartialBlock::Text(t) if !t.is_empty() => {
                     Some(ContentBlock::Text { text: t.clone() })
+                }
+                PartialBlock::Thinking {
+                    thinking,
+                    signature,
+                } if keep_thinking && !signature.is_empty() => Some(ContentBlock::Thinking {
+                    thinking: thinking.clone(),
+                    signature: signature.clone(),
+                }),
+                PartialBlock::RedactedThinking(data) if keep_thinking && !data.is_empty() => {
+                    Some(ContentBlock::RedactedThinking { data: data.clone() })
                 }
                 PartialBlock::ToolUse {
                     id,
@@ -813,7 +876,16 @@ where
                 _ => None,
             })
             .collect();
-        if !assistant_blocks.is_empty() {
+        // A message that is nothing but thinking (a reply cut off at
+        // `max_tokens` before it said anything) is not an assistant turn
+        // worth replaying: it has no content for the next request to
+        // follow.
+        if assistant_blocks.iter().any(|b| {
+            !matches!(
+                b,
+                ContentBlock::Thinking { .. } | ContentBlock::RedactedThinking { .. }
+            )
+        }) {
             conversation.push(Message {
                 role: Role::Assistant,
                 content: assistant_blocks,
@@ -1094,10 +1166,11 @@ fn build_request<'a>(
     system_prompt: &'a str,
     tool_schemas: &Value,
     conversation: &'a [Message],
+    effort: Option<Effort>,
 ) -> MessagesRequest<'a> {
     MessagesRequest {
         model: wire_model,
-        max_tokens: DEFAULT_MAX_TOKENS,
+        max_tokens: max_tokens_for(DEFAULT_MAX_TOKENS, effort),
         system: vec![SystemBlock {
             kind: "text",
             text: system_prompt,
@@ -1107,6 +1180,7 @@ fn build_request<'a>(
         tools: Some(attach_cache_control_to_tools(tool_schemas.clone())),
         tool_choice: Some(ToolChoice::AUTO),
         stream: true,
+        output_config: effort.map(OutputConfig::effort),
     }
 }
 
@@ -1145,10 +1219,12 @@ fn extract_response_text(cfg: &LlmConfig, body: &Value) -> Option<String> {
             .and_then(|t| t.as_str())
             .map(|s| s.to_string())
     } else {
+        // The first block carrying text, not the first block: a reply to
+        // a request with a reasoning effort leads with a `thinking`
+        // block, which has no `text`.
         body.get("content")
             .and_then(|c| c.as_array())
-            .and_then(|arr| arr.first())
-            .and_then(|b| b.get("text"))
+            .and_then(|arr| arr.iter().find_map(|b| b.get("text")))
             .and_then(|t| t.as_str())
             .map(|s| s.to_string())
     }
@@ -1244,6 +1320,13 @@ enum PartialBlock {
         name: String,
         args_json: String,
     },
+    /// Streamed as `thinking_delta`s and one `signature_delta`. Kept for
+    /// the history, never shown.
+    Thinking {
+        thinking: String,
+        signature: String,
+    },
+    RedactedThinking(String),
 }
 
 // ---------------------------------------------------------------------------
@@ -1428,7 +1511,7 @@ mod tests {
     fn the_token_limit_is_named_as_each_api_expects() {
         let body_for = |id: &str| {
             let cfg = LlmConfig::new(crate::provider::provider_from_id(id), "k");
-            one_shot_body(&cfg, "m".into(), 7, &["s"], vec![])
+            one_shot_body(&cfg, "m".into(), 7, &["s"], vec![], None)
         };
         assert_eq!(body_for(crate::OPENAI_ID)["max_completion_tokens"], 7);
         for id in [
@@ -1439,6 +1522,166 @@ mod tests {
             assert_eq!(body_for(id)["max_tokens"], 7, "{id}");
             assert!(body_for(id).get("max_completion_tokens").is_none(), "{id}");
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Reasoning effort
+    // ------------------------------------------------------------------
+
+    /// What the effort setting puts on each request, per provider.
+    fn config_with_effort(id: &str, effort: Effort) -> LlmConfig {
+        LlmConfig::new(crate::provider::provider_from_id(id), "k").with_effort(effort)
+    }
+
+    #[test]
+    fn a_one_shot_body_carries_the_effort_in_the_anthropic_shape_only() {
+        for id in crate::SUPPORTED_PROVIDER_IDS {
+            let cfg = config_with_effort(id, Effort::XHigh);
+            let body = one_shot_body(&cfg, "m".into(), 1024, &["s"], vec![], Some(Effort::XHigh));
+            match cfg.provider.wire_format() {
+                WireFormat::AnthropicMessages => {
+                    assert_eq!(body["output_config"], json!({ "effort": "xhigh" }), "{id}");
+                    assert!(body.get("effort").is_none(), "{id}");
+                    // 1024 is not enough room to think in at this level.
+                    assert_eq!(body["max_tokens"], 16384, "{id}");
+                }
+                WireFormat::ChatCompletions => {
+                    let text = body.to_string();
+                    assert!(!text.contains("output_config"), "{id}: {text}");
+                    assert!(!text.contains("effort"), "{id}: {text}");
+                    // And the cap is the caller's own.
+                    let cap = body
+                        .get("max_tokens")
+                        .or_else(|| body.get("max_completion_tokens"));
+                    assert_eq!(cap, Some(&json!(1024)), "{id}");
+                }
+            }
+        }
+    }
+
+    /// Unset is the body this function always built.
+    #[test]
+    fn a_one_shot_body_with_no_effort_is_unchanged() {
+        let cfg = LlmConfig::new_anthropic("k");
+        let body = one_shot_body(&cfg, "m".into(), 1024, &["s"], vec![], None);
+        assert_eq!(
+            body,
+            json!({
+                "model": "m",
+                "max_tokens": 1024,
+                "system": "s",
+                "messages": [],
+                "stream": false
+            })
+        );
+    }
+
+    /// The streaming turn's request, per provider, as the loop builds it:
+    /// `output_config` for Anthropic when set, nowhere else, and not at
+    /// all when unset.
+    #[test]
+    fn the_streaming_request_carries_the_effort_for_anthropic_only() {
+        let conversation = [Message {
+            role: Role::User,
+            content: vec![ContentBlock::Text { text: "hi".into() }],
+        }];
+        let tools = json!([{ "name": "t", "description": "d", "input_schema": {"type":"object"} }]);
+        for id in crate::SUPPORTED_PROVIDER_IDS {
+            let cfg = config_with_effort(id, Effort::High);
+            let req = build_request("m", "sys", &tools, &conversation, cfg.effective_effort());
+            let body = cfg.provider.serialize_request(&req);
+            let text = body.to_string();
+            if *id == crate::ANTHROPIC_ID {
+                assert_eq!(body["output_config"], json!({ "effort": "high" }));
+                assert_eq!(body["max_tokens"], 8192);
+            } else {
+                assert!(!text.contains("output_config"), "{id}: {text}");
+                assert!(!text.contains("\"effort\""), "{id}: {text}");
+            }
+
+            let unset = LlmConfig::new(crate::provider::provider_from_id(id), "k");
+            let req = build_request("m", "sys", &tools, &conversation, unset.effective_effort());
+            let text = unset.provider.serialize_request(&req).to_string();
+            assert!(!text.contains("output_config"), "{id}: {text}");
+        }
+        // Unset also keeps the token cap it always had.
+        let req = build_request("m", "sys", &tools, &conversation, None);
+        assert_eq!(req.max_tokens, DEFAULT_MAX_TOKENS);
+    }
+
+    /// The cheap classifier model rejects `effort` with a 400 and
+    /// `classify_mode` swallows errors, so it must never be sent: it
+    /// would turn mode detection off without a word.
+    #[tokio::test]
+    async fn the_classifier_request_never_carries_an_effort() {
+        for id in crate::SUPPORTED_PROVIDER_IDS {
+            let (mode, body) = serve_one_shot(id, "mashup", |cfg, http| async move {
+                let cfg = cfg.with_effort(Effort::Max);
+                classify_mode(&cfg, &http, "mash these two songs up", &[]).await
+            })
+            .await;
+            assert_eq!(mode, Mode::Mashup, "{id}");
+            let text = body.to_string();
+            assert!(!text.contains("output_config"), "{id}: {text}");
+            assert!(!text.contains("effort"), "{id}: {text}");
+        }
+    }
+
+    /// The plan is the main model's own work, so it carries the effort:
+    /// on Anthropic, with room to think; nowhere else.
+    #[tokio::test]
+    async fn the_plan_request_carries_the_effort_on_anthropic_only() {
+        let plan = r#"<plan>[{"step":1,"tool":"set_track_gain","description":"Louder"}]</plan>"#;
+        for id in crate::SUPPORTED_PROVIDER_IDS {
+            let (steps, body) = serve_one_shot(id, plan, |cfg, http| async move {
+                let cfg = cfg.with_effort(Effort::XHigh);
+                fetch_plan(&cfg, &http, "SYSTEM-PROMPT", &[], "make it louder").await
+            })
+            .await;
+            assert!(steps.is_ok(), "{id}: {steps:?}");
+            if *id == crate::ANTHROPIC_ID {
+                assert_eq!(body["output_config"], json!({ "effort": "xhigh" }));
+                assert_eq!(body["max_tokens"], 16384);
+            } else {
+                let text = body.to_string();
+                assert!(!text.contains("output_config"), "{id}: {text}");
+                assert!(!text.contains("\"effort\""), "{id}: {text}");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn the_plan_request_with_no_effort_is_what_it_was() {
+        let plan = r#"<plan>[{"step":1,"tool":"set_track_gain","description":"Louder"}]</plan>"#;
+        let (steps, body) = serve_one_shot(crate::ANTHROPIC_ID, plan, |cfg, http| async move {
+            fetch_plan(&cfg, &http, "SYSTEM-PROMPT", &[], "make it louder").await
+        })
+        .await;
+        assert!(steps.is_ok());
+        assert!(body.get("output_config").is_none());
+        assert_eq!(body["max_tokens"], 1024);
+    }
+
+    /// A reply to a request with an effort can lead with a `thinking`
+    /// block, which has no text. Reading `content[0]` found nothing and
+    /// reported the plan unavailable.
+    #[test]
+    fn the_reply_text_is_found_past_a_leading_thinking_block() {
+        let cfg = LlmConfig::new_anthropic("k");
+        let body = json!({
+            "content": [
+                { "type": "thinking", "thinking": "", "signature": "SIG" },
+                { "type": "text", "text": "<plan>[]</plan>" }
+            ]
+        });
+        assert_eq!(
+            extract_response_text(&cfg, &body).as_deref(),
+            Some("<plan>[]</plan>")
+        );
+        // Thinking and nothing after it (cut off at max_tokens) is no text.
+        let cut_off =
+            json!({ "content": [{ "type": "thinking", "thinking": "", "signature": "S" }] });
+        assert_eq!(extract_response_text(&cfg, &cut_off), None);
     }
 
     // ------------------------------------------------------------------

@@ -89,6 +89,9 @@ function providerCommands(): Backend {
     get_base_url_for: ok(null),
     // `ANTHROPIC_DEFAULT_BASE_URL` in `crates/ai/src/provider.rs`.
     default_base_url_for: ok("https://api.anthropic.com"),
+    // `ai::keychain::load_effort(..).map(|e| e.as_str().to_string())`:
+    // no slot stored, so `None` (the model's own default).
+    get_effort_for: ok(null),
     // `anthropic_models()` in `crates/ai/src/models.rs` — a static
     // catalogue, so it answers without a key or a network. Serialised
     // through `ModelInfoDto`.

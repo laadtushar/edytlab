@@ -32,9 +32,12 @@ import {
   getBaseUrlFor,
   defaultBaseUrlFor,
   setBaseUrlFor,
+  getEffortFor,
+  setEffortFor,
   testApiKeyFor,
   type ModelInfo,
   type ProviderId,
+  type ReasoningEffort,
 } from "../lib/tauri-bridge";
 import { AgentProfilesEditor } from "./AgentProfilesEditor";
 import { McpServersEditor } from "./McpServersEditor";
@@ -87,12 +90,20 @@ const PROVIDERS: ReadonlyArray<{
    * construction.
    */
   needsKey?: boolean;
+  /**
+   * Providers with a reasoning-effort setting. Mirrors
+   * `LlmProvider::supports_effort` on the Rust side: only Anthropic's
+   * own API takes `output_config.effort`, and the backend refuses to
+   * save a level for any other provider.
+   */
+  supportsEffort?: boolean;
 }> = [
   {
     id: "anthropic",
     label: "Anthropic",
     keyPlaceholder: "sk-ant-...",
     keysUrl: ANTHROPIC_KEYS_URL,
+    supportsEffort: true,
   },
   {
     id: "openrouter",
@@ -128,6 +139,28 @@ const PROVIDERS: ReadonlyArray<{
 ];
 
 const DEFAULT_PROVIDER: ProviderId = "anthropic";
+
+/**
+ * The reasoning-effort choices, in the order the API ranks them. The
+ * empty value is "Default": nothing is sent and the model uses its own.
+ */
+const EFFORT_OPTIONS: ReadonlyArray<{
+  value: ReasoningEffort | "";
+  label: string;
+}> = [
+  { value: "", label: "Default (model's own)" },
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+  { value: "xhigh", label: "Extra high" },
+  { value: "max", label: "Max" },
+];
+
+function asEffort(value: string | null | undefined): ReasoningEffort | "" {
+  return EFFORT_OPTIONS.some((o) => o.value === value && o.value !== "")
+    ? (value as ReasoningEffort)
+    : "";
+}
 
 function modelStorageKey(provider: ProviderId): string {
   return `${MODEL_STORAGE_KEY_PREFIX}${provider}`;
@@ -209,12 +242,16 @@ export function Settings({
    * what the form asks for.
    */
   const needsKey = PROVIDERS.find((p) => p.id === provider)?.needsKey !== false;
+  const supportsEffort =
+    PROVIDERS.find((p) => p.id === provider)?.supportsEffort === true;
 
   const [model, setModel] = useState<string>(() => readStoredModel(provider));
   // Empty means "use the provider's own endpoint". Kept per provider, so
   // switching to Anthropic does not inherit a local server's URL.
   const [baseUrl, setBaseUrl] = useState("");
   const [defaultBaseUrl, setDefaultBaseUrl] = useState("");
+  // Empty means "Default": the model's own effort, nothing sent.
+  const [effort, setEffort] = useState<ReasoningEffort | "">("");
   const [test, setTest] = useState<TestState>({ kind: "idle" });
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -338,6 +375,26 @@ export function Settings({
     };
   }, [provider]);
 
+  // The stored reasoning effort, for a provider that has one. Cleared
+  // first so a level read for Anthropic is not left on screen if the
+  // user switches away and back before the read answers.
+  useEffect(() => {
+    setEffort("");
+    if (!supportsEffort) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const stored = await getEffortFor(provider);
+        if (!cancelled) setEffort(asEffort(stored));
+      } catch {
+        // Optional setting: the panel opens on "Default" without it.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [provider, supportsEffort]);
+
   const fetchCatalogue = useCallback(
     async (p: ProviderId, k: string | undefined) => {
       try {
@@ -432,6 +489,11 @@ export function Settings({
       // rebuild reads this. The other order builds an agent pointing at
       // the old endpoint until something else triggers another rebuild.
       await setBaseUrlFor(provider, baseUrl);
+      // Same reason, same place: the rebuild reads the stored effort.
+      // "Default" is sent as null, which clears the slot.
+      if (supportsEffort) {
+        await setEffortFor(provider, effort === "" ? null : effort);
+      }
       // A keyless provider is activated, not written.
       //
       // This used to call `setApiKeyFor(provider, "")` for every
@@ -468,7 +530,17 @@ export function Settings({
     } finally {
       setSaving(false);
     }
-  }, [key, needsKey, provider, model, baseUrl, saving, onSaved]);
+  }, [
+    key,
+    needsKey,
+    provider,
+    model,
+    baseUrl,
+    effort,
+    supportsEffort,
+    saving,
+    onSaved,
+  ]);
 
   const handleTest = useCallback(async () => {
     // Testing a keyless provider is a reachability check, so an empty
@@ -989,6 +1061,46 @@ export function Settings({
           ) : (
             <div className="mb-4" />
           )}
+
+          {supportsEffort ? (
+            <>
+              <label
+                htmlFor="settings-effort-select"
+                className="mb-1.5 block font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-faint)]"
+              >
+                Reasoning effort
+              </label>
+              <select
+                id="settings-effort-select"
+                value={effort}
+                onChange={(e) => setEffort(asEffort(e.target.value))}
+                data-testid="settings-effort-select"
+                aria-label="Reasoning effort"
+                className="
+                  mb-1 w-full
+                  rounded-md border border-[var(--border-strong)]
+                  bg-[var(--surface)]
+                  px-3 py-2 text-sm text-[var(--text)]
+                  outline-none
+                  transition
+                  focus:border-[var(--accent)]/55
+                  focus:shadow-[0_0_0_3px_var(--accent-soft)]
+                "
+              >
+                {EFFORT_OPTIONS.map((o) => (
+                  <option key={o.value || "default"} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              <p
+                data-testid="settings-effort-hint"
+                className="mb-4 text-xs text-[var(--text-faint)]"
+              >
+                Higher effort is slower and uses more tokens.
+              </p>
+            </>
+          ) : null}
 
           {saveError ? (
             <p

@@ -83,6 +83,7 @@ fn round_trip_system_user_assistant_tool_result() {
         }])),
         tool_choice: None,
         stream: true,
+        output_config: None,
     };
 
     let p = OpenAIProvider::default();
@@ -167,6 +168,7 @@ fn round_trip_user_with_tool_result_emits_tool_role_message() {
         tools: None,
         tool_choice: None,
         stream: false,
+        output_config: None,
     };
     let p = OpenAIProvider::default();
     let body = p.serialize_request(&req);

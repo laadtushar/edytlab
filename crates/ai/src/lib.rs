@@ -52,6 +52,7 @@ use std::sync::{Arc, Mutex};
 
 use anthropic::Message;
 
+pub use anthropic::Effort;
 pub use models::{list_models_for, list_models_for_at, ModelInfo};
 pub use prompt::{DEFAULT_BASE_URL, DEFAULT_MODEL, MAX_TOOL_CALLS_PER_TURN};
 pub use provider::{
@@ -87,6 +88,10 @@ pub struct LlmConfig {
     /// provider's [`LlmProvider::base_url`] is used. Tests set this to
     /// the `wiremock` server URI.
     pub base_url_override: Option<String>,
+    /// Reasoning effort the user picked, or `None` for the model's own
+    /// default. Read through [`LlmConfig::effective_effort`], which
+    /// drops it for a provider that cannot take it.
+    pub effort: Option<Effort>,
 }
 
 impl LlmConfig {
@@ -99,6 +104,7 @@ impl LlmConfig {
             api_key: api_key.into(),
             model,
             base_url_override: None,
+            effort: None,
         }
     }
 
@@ -112,6 +118,24 @@ impl LlmConfig {
     pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
         self.base_url_override = Some(base_url.into());
         self
+    }
+
+    /// Set the reasoning effort. Only a provider that
+    /// [`supports it`](LlmProvider::supports_effort) ever sends it.
+    pub fn with_effort(mut self, effort: Effort) -> Self {
+        self.effort = Some(effort);
+        self
+    }
+
+    /// The effort a request should carry: the chosen one, if this
+    /// provider's endpoint accepts it, else `None`.
+    ///
+    /// Every request builder reads this and not the field, so a value
+    /// stored against Anthropic and left behind after a switch to
+    /// OpenAI (or an OpenRouter gateway that never heard of
+    /// `output_config`) cannot reach a server that would reject it.
+    pub fn effective_effort(&self) -> Option<Effort> {
+        self.effort.filter(|_| self.provider.supports_effort())
     }
 
     /// Resolve the base URL: override if set, else the provider default.
