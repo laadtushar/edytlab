@@ -360,6 +360,97 @@ describe("Chat", () => {
     expect(screen.queryByTestId("chat-error")).not.toBeInTheDocument();
   });
 
+  /**
+   * A mistyped key got the provider's raw JSON and a Retry that repeats
+   * the 401: the way to Settings was offered only for "no agent" (#414,
+   * found by a native run against Anthropic with a wrong key). Which
+   * messages count is tabled in chatErrors.test.ts; this is the banner.
+   */
+  describe("the Open Settings button on a failed send", () => {
+    const api = (status: number, body: string) =>
+      `ai error: the model provider returned an error (${status}): ${body}`;
+    const ANTHROPIC_WRONG_KEY = api(
+      401,
+      '{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}',
+    );
+
+    async function sendAndFail(error: unknown) {
+      const onOpenSettings = vi.fn();
+      sendMessageMock.mockRejectedValueOnce(error);
+      const user = userEvent.setup();
+      render(<Chat onOpenSettings={onOpenSettings} />);
+      await act(async () => {
+        await flush();
+      });
+      await user.type(screen.getByLabelText("Message"), "make it louder");
+      await user.click(screen.getByRole("button", { name: /send/i }));
+      const banner = await screen.findByTestId("chat-error");
+      return { user, banner, onOpenSettings };
+    }
+
+    it("appears when Anthropic rejects the key, says so, and opens Settings", async () => {
+      const { user, banner, onOpenSettings } =
+        await sendAndFail(ANTHROPIC_WRONG_KEY);
+
+      await user.click(screen.getByTestId("chat-error-open-settings"));
+      expect(onOpenSettings).toHaveBeenCalledTimes(1);
+
+      expect(banner).toHaveTextContent(/^The provider rejected the API key\./);
+      // The detail stays: the status and the provider's own words.
+      expect(banner).toHaveTextContent("(401)");
+      expect(banner).toHaveTextContent("invalid x-api-key");
+    });
+
+    it("appears when an OpenAI-compatible provider rejects the key", async () => {
+      await sendAndFail(
+        api(
+          401,
+          '{"error":{"message":"Incorrect API key provided: sk-abc***xyz.","type":"invalid_request_error","code":"invalid_api_key"}}',
+        ),
+      );
+      expect(
+        screen.getByTestId("chat-error-open-settings"),
+      ).toBeInTheDocument();
+    });
+
+    it("still appears when no agent is configured (#250)", async () => {
+      const { banner } = await sendAndFail(
+        "no agent configured; call set_api_key first",
+      );
+      // No key was sent, so none was rejected.
+      expect(banner).toHaveTextContent(/^Could not complete request:/);
+      expect(
+        screen.getByTestId("chat-error-open-settings"),
+      ).toBeInTheDocument();
+    });
+
+    it("stays away for a server error, which Retry is for", async () => {
+      const { banner } = await sendAndFail(
+        api(
+          500,
+          '{"type":"error","error":{"type":"api_error","message":"Internal server error"}}',
+        ),
+      );
+      expect(banner).toHaveTextContent(/^Could not complete request:/);
+      expect(
+        screen.queryByTestId("chat-error-open-settings"),
+      ).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
+    });
+
+    it("stays away for a rate limit, even one that names the key", async () => {
+      await sendAndFail(
+        api(
+          429,
+          '{"error":{"message":"Rate limit reached for this API key. Please try again in 20s.","code":"rate_limit_exceeded"}}',
+        ),
+      );
+      expect(
+        screen.queryByTestId("chat-error-open-settings"),
+      ).not.toBeInTheDocument();
+    });
+  });
+
   it("invokes onRequestRenderPreview when the button is clicked", async () => {
     const onClick = vi.fn();
     const user = userEvent.setup();
