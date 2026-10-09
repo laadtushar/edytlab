@@ -173,13 +173,13 @@ function TypingDots() {
 // ─── Sequence ─────────────────────────────────────────────────────────────────
 
 const SEQUENCE: Array<{ delay: number; msg?: Message; waveChange?: boolean; typing?: boolean; stopTyping?: boolean }> = [
-  { delay: 800,  msg: { role: "user", text: "Isolate vocals from track 1, boost gain +3 dB, render" } },
+  { delay: 800,  msg: { role: "user", text: "Take the hiss off the vocals, boost them +3 dB, render" } },
   { delay: 900,  typing: true },
-  { delay: 1800, msg: { role: "tool", tool: "stem_separate(track=1)", text: "" }, waveChange: true },
-  { delay: 1600, msg: { role: "tool", tool: "gain_adjust(+3dB)", text: "" } },
-  { delay: 1400, msg: { role: "tool", tool: "render_final(branch=a3f1)", text: "" }, waveChange: false },
+  { delay: 1800, msg: { role: "tool", tool: "noise_reduction(track=0)", text: "" }, waveChange: true },
+  { delay: 1600, msg: { role: "tool", tool: "gain(track=0, db=3)", text: "" } },
+  { delay: 1400, msg: { role: "tool", tool: "render_final(node_id=a3f1)", text: "" }, waveChange: false },
   { delay: 900,  stopTyping: true },
-  { delay: 400,  msg: { role: "agent", text: "Done. Vocals isolated, +3 dB applied. Branch a3f1 rendered. Press Ctrl+Z to A/B compare." } },
+  { delay: 400,  msg: { role: "agent", text: "Done. Hiss reduced, +3 dB on the vocals. Branch a3f1 rendered — compare it with the original from the graph." } },
 ];
 
 // ─── Main component ───────────────────────────────────────────────────────────

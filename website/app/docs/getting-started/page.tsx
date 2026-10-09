@@ -29,7 +29,7 @@ export default function GettingStartedPage() {
         .
       </p>
       <blockquote>
-        <strong>These are unsigned developer previews.</strong> Code-signing
+        <strong>These builds are unsigned.</strong> Code-signing
         certificates aren&rsquo;t provisioned yet, so macOS and Windows will
         both object on first launch. Neither download is broken — the steps
         below get you past it.
@@ -156,6 +156,17 @@ export default function GettingStartedPage() {
             </td>
             <td>No — pay-as-you-go</td>
           </tr>
+          <tr>
+            <td>Ollama (local)</td>
+            <td>
+              No key. Install{" "}
+              <a href="https://ollama.com" target="_blank" rel="noopener noreferrer">
+                Ollama
+              </a>
+              , pull a model, and edytlab talks to it on your machine.
+            </td>
+            <td>Free — runs on your hardware</td>
+          </tr>
         </tbody>
       </table>
       <blockquote>
@@ -170,14 +181,15 @@ export default function GettingStartedPage() {
         <li>Launch edytlab.</li>
         <li>Click the gear icon (⚙) in the top-right corner.</li>
         <li>
-          Select your provider (Anthropic, OpenAI, Gemini, Groq or OpenRouter) from the
-          dropdown.
+          Pick your provider (Anthropic, OpenRouter, OpenAI, Groq, Google
+          Gemini or Ollama).
         </li>
-        <li>Paste your API key into the field and press Save.</li>
+        <li>Paste your API key into the field (Ollama needs none).</li>
         <li>
-          edytlab validates the key immediately with a 1-token test request. A
-          green checkmark means you are ready.
+          Optionally press <strong>Test</strong>: edytlab sends a minimal
+          request to check the key and that the chosen model can call tools.
         </li>
+        <li>Press <strong>Save &amp; Continue</strong>.</li>
       </ol>
       <p>
         Keys are stored using your OS native keychain (macOS Keychain,
@@ -221,10 +233,10 @@ export default function GettingStartedPage() {
           <code>Normalize to -14 LUFS</code>
         </li>
         <li>
-          <code>Separate the stems</code>
+          <code>Take the background hiss out</code>
         </li>
         <li>
-          <code>Transcribe this audio</code>
+          <code>Find the silences longer than a second</code>
         </li>
         <li>
           <code>Export to /Users/me/Desktop/output.wav</code>

@@ -21,9 +21,9 @@ const entries: Entry[] = [
     version: "v0.2.0",
     date: "2026-09",
     bullets: [
-      "Edit audio by editing its transcript. The transcript pane shows the words with their times; cut a word from the text and the audio goes with it.",
+      "Edit audio by editing its transcript. The transcript pane shows the words with their times; cut a word from the text and the audio goes with it. It needs a transcript, and the on-device transcription that makes one has not shipped yet — in this release the transcript pane stays empty.",
       "Split an interview into one track per speaker. Each voice gets its own gain, EQ and noise treatment, and because every speaker's clips point at the same source file, playing them together is sample-identical to the original.",
-      "Describe a region instead of dragging it: \"select where he talks about latency\", \"the last thirty seconds of speech\", \"bars 9 to 16\". The selection appears for you to check before anything acts on it, and a description that cannot be resolved says so rather than guessing.",
+      "Describe a region instead of dragging it: \"select where he talks about latency\", \"the last thirty seconds of speech\", \"bars 9 to 16\". The selection appears for you to check before anything acts on it, and a description that cannot be resolved says so rather than guessing. Phrases and speech need a transcript, so for now only bar ranges resolve.",
       "Timer record starts and stops a recording unattended, and punch-in replaces a selected region with a new take while leaving the rest untouched.",
       "Every row of the timeline shares one time axis. A shorter track, or a clip moved along the timeline, now sits under the ruler where it plays — each lane used to stretch its own audio across the pane. Zoomed in, the selection, the playhead and a drag follow what is on screen, and one scrollbar (or a horizontal swipe) pans every track, the clips, the automation and the labels together.",
       "A label lane you type into. Chapter marks are added, renamed, moved and deleted next to the audio, survive edits that shift time, and round-trip through label export.",

@@ -1,7 +1,8 @@
 # Demo recordings
 
-This directory holds the screen-capture demos linked from the top-level
-`README.md`.
+This directory is set aside for the screen-capture demo described below.
+It has not been recorded yet, so nothing here is linked from the
+top-level `README.md`.
 
 ## `phase1-podcast-cleanup.mp4` (M16 acceptance)
 

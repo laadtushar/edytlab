@@ -288,11 +288,11 @@ throwing: the key is fine, the model is not.
 
 ### `listProviders() → ProviderId[]`
 
-Returns all configured provider IDs.
+Returns every provider ID the app supports (`SUPPORTED_PROVIDER_IDS`), whether or not a key is stored for it.
 
 ```typescript
 const providers = await bridge.listProviders();
-// ["anthropic", "openrouter", "openai"]
+// ["anthropic", "openrouter", "openai", "groq", "gemini", "ollama"]
 ```
 
 ### `getActiveProvider() → ProviderId`
@@ -362,7 +362,7 @@ Returns the model ID currently selected for the provider.
 
 ### `setActiveModel(provider: ProviderId, model: string) → void`
 
-Set the active model for a provider. Persisted in keychain as `active_model_<provider>`.
+Set the active model for a provider. Persisted in the keychain as `<provider>_model` (e.g. `anthropic_model`).
 
 ```typescript
 await bridge.setActiveModel("anthropic", "claude-opus-4-7");
@@ -494,7 +494,7 @@ const newHead = await bridge.acceptB(nodeBId);
 
 Send a user message to the agent. The agent turn runs asynchronously and emits events back to the frontend.
 
-**Side effects:** Emits `agent:text-delta`, `agent:tool-call`, `agent:tool-call-end`, `agent:node-created`, and `agent:done` events during processing.
+**Side effects:** Emits `agent://text-delta`, `agent://tool-call`, `agent://tool-call-end`, `agent://node-created`, and `agent://done` events during processing (plus `agent://plan*` when a plan is requested).
 
 **Throws:** If no API key is configured or no project is open.
 
@@ -1037,9 +1037,9 @@ const unlisten = await bridge.onTextDelta((chunk) => {
 
 Emitted when the agent starts executing a tool. Use to show tool badge in the UI.
 
-### `onToolCallEnd(cb: (id: string, ok: boolean) => void) → Promise<UnlistenFn>`
+### `onToolCallEnd(cb: (id: string, ok: boolean, view?: ToolView) => void) → Promise<UnlistenFn>`
 
-Emitted when tool execution completes. `ok = false` if the tool returned an error.
+Emitted when tool execution completes. `ok = false` if the tool returned an error. `view` is set for the few tools that return something to draw, such as `plot_spectrum`'s chart.
 
 ### `onNodeCreated(cb: (nodeId: string) => void) → Promise<UnlistenFn>`
 
@@ -1112,7 +1112,7 @@ Full type definitions are in `apps/desktop/src/lib/tauri-bridge.ts`.
 
 ```typescript
 type NodeId = string;
-type ProviderId = "anthropic" | "openrouter" | "openai";
+type ProviderId = "anthropic" | "openrouter" | "openai" | "groq" | "gemini" | "ollama";
 
 interface ProjectInfo {
   path: string;

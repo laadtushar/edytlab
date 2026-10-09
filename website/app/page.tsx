@@ -22,7 +22,7 @@ const jsonLd = {
   name: siteConfig.name,
   description: siteConfig.description,
   applicationCategory: "MultimediaApplication",
-  operatingSystem: "macOS, Windows",
+  operatingSystem: "macOS, Windows, Linux",
   url: siteConfig.url,
   downloadUrl: siteConfig.releases,
   offers: {

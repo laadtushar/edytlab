@@ -71,7 +71,7 @@ export default function DeveloperGuidePage() {
       <pre>
         <code>{`sudo apt-get install -y \\
   libgtk-3-dev libwebkit2gtk-4.1-dev \\
-  libappindicator3-dev librsvg2-dev \\
+  libayatana-appindicator3-dev librsvg2-dev \\
   libssl-dev libasound2-dev patchelf`}</code>
       </pre>
 
@@ -91,16 +91,20 @@ pnpm tauri:dev             # start dev mode`}</code>
       <pre>
         <code>{`apps/
   desktop/            Tauri shell — React frontend + Rust bridge
-  cli/                Headless CLI for batch operations
+  cli/                Headless one-turn agent driver (E2E tests)
 crates/
   ai/                 LLM providers, agent loop, keychain
   tools/              93 audio-editing tools
   session/            Session DAG data model and store
   audio-decoder/      File decode (symphonia)
+  audio-dsp/          Sample-level DSP shared by tools and render
   audio-engine/       DSP graph and render
-  audio-io/           cpal playback
-  ml-demucs/          Stem separation (ONNX Demucs)
-  ml-whisper/         Transcription (ONNX Whisper)
+  audio-io/           cpal output (unused; playback is in the webview)
+  audio-time/         Time-stretch and pitch-shift
+  audio-analysis/     BPM, key, beat grid
+  recorder/           Microphone capture to WAV
+  ml-demucs/          Stem separation (ONNX Demucs; inference not shipped)
+  ml-whisper/         Transcription (ONNX Whisper; decoder not shipped)
   ml-pipeline/        Shared ONNX runtime + model cache
   memory/             Global/project markdown memory
   skills/             User skill library
@@ -117,7 +121,10 @@ website/              Next.js marketing site (this site)`}</code>
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace -- --test-threads=1
 pnpm --filter @edytlab/desktop test
-pnpm --filter @edytlab/desktop typecheck`}</code>
+pnpm --filter @edytlab/desktop test:slow-scheduler
+pnpm --filter @edytlab/desktop typecheck
+pnpm --filter @edytlab/desktop typecheck:e2e
+pnpm --filter @edytlab/desktop test:e2e    # Playwright, Chromium`}</code>
       </pre>
       <p>Targeted runs:</p>
       <pre>
@@ -127,7 +134,7 @@ pnpm --filter @edytlab/desktop test:watch # vitest watch mode`}</code>
       </pre>
       <blockquote>
         <code>--test-threads=1</code> is required because some AI crate tests
-        share a model cache that is not safe for concurrent access.
+        share a model-catalogue cache that is not safe for concurrent access.
       </blockquote>
 
       <h2>Architecture overview</h2>
@@ -138,7 +145,7 @@ pnpm --filter @edytlab/desktop test:watch # vitest watch mode`}</code>
           WebView. Thin UI layer; all state lives in Rust.
         </li>
         <li>
-          <strong>Rust application layer</strong> — ~50 Tauri commands in{" "}
+          <strong>Rust application layer</strong> — about 86 Tauri commands in{" "}
           <code>commands.rs</code>. Manages <code>AppState</code>: Store,
           Engine, Agent, Clipboard.
         </li>
@@ -164,18 +171,20 @@ pnpm --filter @edytlab/desktop test:watch # vitest watch mode`}</code>
       <ol>
         <li>
           Create <code>crates/tools/src/tool/my_tool.rs</code> implementing the{" "}
-          <code>Tool</code> trait (name, description, input_schema, call).
+          <code>Tool</code> trait (<code>name</code>, <code>schema</code>,{" "}
+          <code>invoke</code>).
         </li>
         <li>
-          Register it in <code>ToolDispatcher::new()</code> in{" "}
-          <code>crates/tools/src/lib.rs</code>.
+          Register it in <code>ToolDispatcher::default_dispatcher()</code> in{" "}
+          <code>crates/tools/src/dispatcher.rs</code>.
         </li>
         <li>
           Write tests covering valid input, invalid input, and edge cases.
         </li>
         <li>
-          Document the tool in the{" "}
-          <a href="/docs/tools">Audio Tools Reference</a>.
+          Regenerate <code>docs/tools-reference.md</code> and document the tool
+          in the <a href="/docs/tools">Audio Tools Reference</a> — tests fail
+          until both list it.
         </li>
       </ol>
       <p>
@@ -198,13 +207,16 @@ pnpm --filter @edytlab/desktop test:watch # vitest watch mode`}</code>
         </li>
         <li>
           Add it to <code>SUPPORTED_PROVIDER_IDS</code> and the{" "}
-          <code>from_id()</code> factory.
+          <code>provider_from_id()</code> factory.
         </li>
         <li>
-          Add keychain slot handling in <code>commands.rs</code>.
+          Give it an arm in <code>crates/ai/src/models.rs</code> so its model
+          list loads.
         </li>
         <li>
-          Update <code>ProviderId</code> in <code>tauri-bridge.ts</code>.
+          Update <code>ProviderId</code> in <code>tauri-bridge.ts</code> and the
+          provider list in <code>Settings.tsx</code>. Keychain slots need no
+          code — they are keyed by provider id.
         </li>
       </ol>
       <p>
@@ -247,14 +259,18 @@ pnpm --filter @edytlab/desktop test:watch # vitest watch mode`}</code>
 
       <h2>CI / release pipeline</h2>
       <p>
-        <code>ci.yml</code> runs on every push and PR: fmt → clippy → cargo
-        test → frontend build. Matrix: macOS 14 · Windows latest · Ubuntu 22.04.
+        <code>ci.yml</code> runs on every push to main and every PR: fmt →
+        clippy → cargo test → frontend tests → frontend build, on a matrix of
+        macOS 14 · Windows latest · Ubuntu 22.04, plus a Playwright job
+        (Chromium) and the website&rsquo;s own tests.
       </p>
       <p>
         On a green main push, <code>auto-release.yml</code> tags{" "}
         <code>v&lt;version&gt;-dev.&lt;run&gt;</code> and dispatches{" "}
-        <code>release-dev.yml</code>, which builds unsigned installers. Signed
-        production releases are manual workflow dispatches.
+        <code>release-dev.yml</code>, which builds unsigned installers for
+        macOS, Windows and Linux. Signed production releases are manual
+        workflow dispatches, waiting on signing certificates — every release so
+        far is unsigned.
       </p>
 
       <h2>Documentation</h2>

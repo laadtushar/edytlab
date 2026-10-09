@@ -2,21 +2,26 @@
 
 Time-stretch and pitch-shift primitives for the edytlab audio pipeline.
 
-## Phase 2 status: stub
+## Status
 
-The plan for M20 calls for `rubberband-sys` (FFI to the Rubber Band C++
-library) as the backend. Building it requires the system Rubber Band
-library plus a working C++ toolchain on every target — `librubberband-dev`
-on Linux, `vcpkg` on Windows, `brew` or `vcpkg` on macOS. M20's risk
-register flags this FFI layer as Medium risk; to keep the M20 PR scoped
-to API + caching + tool integration, the actual DSP is deferred to M28.
+Implemented, on a pure-Rust phase vocoder (`src/vocoder.rs`, built on
+`realfft`):
 
-Until M28 lands, the public functions in this crate (`time_stretch`,
-`pitch_shift`) validate their arguments and return
-`Error::NotImplemented`. The session-level tools in `crates/tools`
-(`time_stretch`, `pitch_shift`, `align_to_beat`) record the requested
-parameters on the targeted clip; the audio engine will apply them at
-render time once M22+ teaches it about per-clip time/pitch transforms.
+- `time_stretch` — duration without pitch
+- `pitch_shift` — pitch without duration, with optional formant
+  preservation (`src/formant.rs`)
+- `warp_to_grid` — moves beats onto a target grid in a single vocoder
+  pass, so there is no seam at the beats (`src/warp.rs`)
+
+The session-level tools in `crates/tools` (`time_stretch`, `pitch_shift`,
+`align_to_beat`) call these directly.
+
+The original plan (M20, with the DSP deferred to M28) was an FFI to the
+Rubber Band C++ library. It was dropped: it needs a different native
+package and a C++ toolchain on each of the three CI targets. The vocoder
+resets phase on spectral-flux onsets and uses identity phase locking;
+its remaining limits are documented in `src/vocoder.rs` and on the
+functions themselves.
 
 ## Tests
 
@@ -25,6 +30,6 @@ cargo test -p audio-time
 ```
 
 The integration tests in `tests/integration.rs` cover argument
-validation and the `NotImplemented` contract. The plan's quantitative
-acceptance criteria (round-trip RMS ≤ -40 dBFS, formant preservation
-within 5%, frequency tolerance ±2 Hz) gate the M28 PR, not this one.
+validation, formant preservation (the resonances hold while the pitch
+moves), and beat warping (a click track lands on the target grid, with
+no discontinuity at segment boundaries and stereo kept frame-aligned).

@@ -10,7 +10,7 @@ import { Reveal } from "@/components/motion";
 const faqs = [
   {
     q: "Does my audio leave my machine?",
-    a: "No. The DSP engine runs entirely on your device — decode, stem separation, transcription, mixing, and rendering all happen locally. The only network traffic is your chat with the LLM provider you've configured. Your raw audio is never uploaded.",
+    a: "No. The DSP engine runs entirely on your device — decode, editing, mixing, and rendering all happen locally, and stem separation and transcription are built to run locally too once their models ship. The only network traffic is your chat with the LLM provider you've configured. Your raw audio is never uploaded.",
   },
   {
     q: "Which LLM models work?",
@@ -18,7 +18,7 @@ const faqs = [
   },
   {
     q: "What are the system requirements?",
-    a: "macOS 11 Big Sur or later — the .dmg is a universal binary, so Apple Silicon and Intel both run it — Windows 10/11, or Linux (.deb / AppImage). 8 GB RAM minimum, 16 GB recommended for stem separation. A GPU helps but isn't required — Metal on Mac and CUDA on Windows accelerate ML when available.",
+    a: "macOS 11 Big Sur or later — the .dmg is a universal binary, so Apple Silicon and Intel both run it — Windows 10/11, or Linux (.deb / AppImage, x86_64). No GPU is needed: the current build runs no ML models, because stem separation and transcription have not shipped yet.",
   },
   {
     q: "Is it free?",

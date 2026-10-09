@@ -5,7 +5,7 @@ import { DocShell } from "@/components/docs/doc-shell";
 export const metadata: Metadata = {
   title: "API Reference",
   description:
-    "Complete API reference for edytlab — all Tauri commands, TypeScript bridge types, and SSE events.",
+    "Complete API reference for edytlab — all Tauri commands, TypeScript bridge types, and events.",
   alternates: { canonical: "/docs/api-reference" },
   openGraph: {
     title: "API Reference — edytlab Docs",
@@ -106,7 +106,7 @@ const commands = [
       {
         name: "listProviders()",
         returns: 'ProviderId[]',
-        desc: 'Returns ["anthropic", "openrouter", "openai"].',
+        desc: 'Returns ["anthropic", "openrouter", "openai", "groq", "gemini", "ollama"].',
       },
       {
         name: "getActiveProvider()",
@@ -415,7 +415,7 @@ const events = [
   },
   {
     name: "onToolCallEnd(cb)",
-    payload: "{ id, ok: boolean }",
+    payload: "{ id, ok: boolean, view? }",
     desc: "Tool execution completed. ok = false if the tool returned an error.",
   },
   {
@@ -444,7 +444,7 @@ export default function ApiReferencePage() {
   return (
     <DocShell
       title="API Reference"
-      description="All Tauri commands, TypeScript bridge types, and SSE events."
+      description="All Tauri commands, TypeScript bridge types, and events."
     >
       <blockquote>
         This page covers the public API consumed by the edytlab frontend. For
@@ -548,7 +548,7 @@ return () => { unlisten(); };`}</code>
       <h2>Key types</h2>
       <pre>
         <code>{`type NodeId = string;
-type ProviderId = "anthropic" | "openrouter" | "openai";
+type ProviderId = "anthropic" | "openrouter" | "openai" | "groq" | "gemini" | "ollama";
 
 interface ProjectInfo  { path: string; head: NodeId | null }
 interface SessionNode  { id: NodeId; parent: NodeId | null; label: string | null; state: SessionState }

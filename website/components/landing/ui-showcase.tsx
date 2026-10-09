@@ -3,8 +3,8 @@
 /**
  * Animated renders of the editor's own surfaces.
  *
- * These are drawn, not screenshotted — the app is unsigned and
- * Apple-Silicon-only today, so a static screenshot would age badly and
+ * These are drawn, not screenshotted — the app is unsigned and still at
+ * 0.x on all three platforms, so a static screenshot would age badly and
  * says nothing about how the thing behaves. Each panel animates the
  * interaction it is describing: the fader moves, the curve draws itself,
  * the clip slides.

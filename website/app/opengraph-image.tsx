@@ -74,7 +74,7 @@ export default function OpengraphImage() {
           }}
         >
           Desktop audio editor where you chat with an AI to load, cut, mix,
-          transcribe, and render. Pure-Rust DSP, local-first, BYO LLM key.
+          and render. Pure-Rust DSP, local-first, BYO LLM key.
         </div>
         <div
           style={{

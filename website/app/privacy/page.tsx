@@ -21,18 +21,20 @@ export default function PrivacyPage() {
       <h2>Audio files</h2>
       <p>
         Every audio file you load is decoded, processed, and rendered on your
-        machine. Stem separation, transcription, mixing, and rendering all run
-        locally in the desktop app. We do not upload, copy, mirror, or
+        machine. Editing, mixing, and rendering all run locally in the desktop
+        app, and stem separation and transcription are built to run locally
+        too once they ship. We do not upload, copy, mirror, or
         otherwise transmit your audio. There are no &ldquo;cloud projects&rdquo;
         and there is no server-side processing.
       </p>
 
       <h2>LLM API keys</h2>
       <p>
-        edytlab supports multiple LLM providers (Anthropic, OpenAI, Google Gemini, Groq, and OpenRouter).
+        edytlab supports multiple LLM providers (Anthropic, OpenAI, Google Gemini, Groq, and OpenRouter,
+        plus Ollama for a local model, which needs no key).
         When you add an API key, it is stored in your operating system&apos;s
-        secure credential store: macOS Keychain on Mac and Credential Manager on
-        Windows. Keys are never written to plain-text files and never sent
+        secure credential store: macOS Keychain on Mac, Credential Manager on
+        Windows, and the kernel keyring on Linux. Keys are never written to plain-text files and never sent
         anywhere except directly to the provider whose key it is.
       </p>
 
