@@ -51,7 +51,7 @@ import {
 import { save } from "@tauri-apps/plugin-dialog";
 import { isUndoChord, isRedoChord, isTextEntry } from "./lib/undoRedo";
 import { isDerivedAudioPath } from "./lib/derivedAudio";
-import { mixIsStale } from "./lib/mixState";
+import { mixIsCurrent, mixIsMissing, mixIsStale } from "./lib/mixState";
 import { scheduledTake, startTake, stopTake } from "./lib/recording";
 
 import { ABCompareBar } from "./components/ABCompareBar";
@@ -392,7 +392,10 @@ function App() {
       if (!t) return;
       if (e.key === " " && !isTyping) {
         e.preventDefault();
-        t.togglePlay();
+        // A held key repeats, and each repeat is a toggle: it would start
+        // a play, cancel it, and start a render again. One press, one
+        // toggle (#431).
+        if (!e.repeat) t.togglePlay();
       } else if (e.key === "Home" && !isTyping) {
         e.preventDefault();
         t.seekTo(0);
@@ -1255,6 +1258,12 @@ function App() {
   // they close it and the app is still keyless.
   const showBlocking = keyConfigured === false && !settingsOpen;
 
+  // Whether Play can start what is loaded as it is. A/B compare puts its
+  // own renders in `mixPath` — they belong to no head — and Play there
+  // plays the side that is chosen, never a render of the head.
+  const mixMatchesHead =
+    compareMode !== null || mixIsCurrent({ mixPath, mixNodeId }, head);
+
   const errorAction = useMemo(() => {
     if (!renderError) return undefined;
     if (!isApiKeyError(renderError)) return undefined;
@@ -1351,6 +1360,12 @@ function App() {
                   onZoomChange={setZoomPxPerSec}
                   onLoadErrorChange={setAudioLoadError}
                   mixPath={mixPath}
+                  // Play renders the head's preview when this is false,
+                  // then plays it (#431). A/B compare supplies its own
+                  // mixes, which belong to no head, so it never asks.
+                  mixCurrent={mixMatchesHead}
+                  rendering={rendering}
+                  onRequestRender={handleRenderPreview}
                   snapToZero={snapToZero}
                   onSnapToZeroChange={setSnapToZero}
                   syncLock={syncLock}
@@ -1431,6 +1446,7 @@ function App() {
         rendering={rendering}
         selection={selection}
         mixStale={mixIsStale({ mixPath, mixNodeId }, head)}
+        mixMissing={compareMode === null && mixIsMissing({ mixPath, mixNodeId })}
         loadError={audioLoadError}
         restoringHistory={headMove.pending}
       />
@@ -1497,6 +1513,18 @@ interface StatusBarProps {
    */
   mixStale?: boolean;
   /**
+   * True when no mix has been rendered at all — after opening a file or
+   * any edit. `mixStale` is false then (there is nothing to be out of
+   * date), so without this the bar said "ready" over a session that
+   * would play nothing, and nothing said why (#431). It tells the user
+   * how to hear it; Play renders first.
+   *
+   * Not shown while a render is under way — one is already doing what
+   * the hint asks for, and a hint flashing up between a click and its
+   * result reads as the click having failed.
+   */
+  mixMissing?: boolean;
+  /**
    * Set when the chosen audio failed to decode.
    *
    * Without it this bar reports state from `audioPath` alone, which
@@ -1522,10 +1550,15 @@ export function StatusBar({
   rendering,
   selection,
   mixStale,
+  mixMissing = false,
   loadError,
   restoringHistory = false,
 }: StatusBarProps) {
   const failed = Boolean(audioPath) && Boolean(loadError);
+  // Only over audio that loaded: a file that failed to decode has bigger
+  // news, and with no file there is nothing to render.
+  const showMixMissing =
+    mixMissing && Boolean(audioPath) && !failed && !rendering && !restoringHistory;
   // A file the user loaded is named by its file name, with the whole path
   // on hover. After a destructive edit the track reads a derived file
   // named by its hash, so the bar names the track instead — the name the
@@ -1587,6 +1620,18 @@ export function StatusBar({
             title="The session has changed since the last preview render"
           >
             preview out of date
+          </span>
+        </>
+      ) : null}
+      {showMixMissing ? (
+        <>
+          <span className="text-[var(--text-faint)]/80">·</span>
+          <span
+            data-testid="status-bar-mix-missing"
+            className="text-[var(--warning)]"
+            title="Nothing has been rendered for this session yet, so there is nothing to hear. Play renders it first."
+          >
+            preview not rendered — press Play or Preview
           </span>
         </>
       ) : null}

@@ -171,7 +171,12 @@ export default function UserGuidePage() {
       <h2>Playback</h2>
       <ul>
         <li>
-          <strong>Space</strong> — play / pause from the current position.
+          <strong>Space</strong> — play / pause from the current position. The
+          Play button at the top of the timeline does the same. Right after you
+          open a file or make an edit there is no preview of the new version
+          yet, so Play renders it first and starts as soon as it is ready; press
+          it again while it renders to cancel. <strong>Preview</strong> in the
+          chat panel renders the preview without playing it.
         </li>
         <li>
           <strong>L</strong> — toggle loop mode. When active, playback loops
