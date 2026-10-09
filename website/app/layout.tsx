@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 import { ScrollProgress } from "@/components/motion";
 import { siteConfig } from "@/lib/site";
@@ -74,6 +75,7 @@ export default function RootLayout({
       <body className="grain min-h-screen bg-background font-sans antialiased">
         <ScrollProgress />
         {children}
+        <SpeedInsights />
       </body>
     </html>
   );
