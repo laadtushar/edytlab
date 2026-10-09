@@ -53,11 +53,19 @@ fn commands() -> Vec<(String, String, String, bool, String)> {
 #[test]
 fn no_main_thread_command_takes_the_store_lock() {
     let all = commands();
-    assert!(all.len() > 50, "found only {} commands; the scan is broken", all.len());
+    assert!(
+        all.len() > 50,
+        "found only {} commands; the scan is broken",
+        all.len()
+    );
     let offenders: Vec<String> = all
         .iter()
         .filter(|(_, _, attr, is_async, _)| !is_async && !attr.contains("async"))
-        .filter(|(_, _, _, _, body)| body.contains("store_handle()") || body.contains("lock_std(&*store") || body.contains("lock_std(&store"))
+        .filter(|(_, _, _, _, body)| {
+            body.contains("store_handle()")
+                || body.contains("lock_std(&*store")
+                || body.contains("lock_std(&store")
+        })
         .map(|(file, name, ..)| format!("{file}: {name}"))
         .collect();
     assert!(
