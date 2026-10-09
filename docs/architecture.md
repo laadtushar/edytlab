@@ -226,7 +226,7 @@ pub enum AgentEvent {
     Done,
     Plan { steps: Vec<serde_json::Value> },
     PlanRejected,
-    PlanUnavailable { reason: String },
+    PlanUnavailable { reason: String, first_edit_held: bool },
 }
 
 pub struct Agent {
@@ -278,6 +278,30 @@ User text
     │  (text deltas + tool events)   │
     └────────────────────────────────┘
 ```
+
+### Plan first
+
+With **Plan first** on, no edit runs without approval. The approval is a
+`Plan` event, answered by `approve_plan` / `reject_plan`, and which one is shown
+depends on whether the model wrote a plan:
+
+| Situation | What happens |
+|-----------|--------------|
+| The model writes a plan | The plan card is shown; the turn waits. Approving lets every edit run, as before. |
+| No plan, with Plan first on (the model did not write one, or planning failed in any way) | `PlanUnavailable { first_edit_held: true }`, then the turn goes on. The first model step with a call that would change the session is **held before any of it dispatches**, and its concrete tool calls are shown on the same card. Approve: that step runs and the rest of the turn is ungated. Decline: nothing runs, the model is told the user declined, and the turn ends with `PlanRejected`. Edit the descriptions: nothing runs, and the model is given the revision and proposes again, which is held in turn. |
+| No plan, mashup request, Plan first off | `PlanUnavailable { first_edit_held: false }` and the turn proceeds with no gate. |
+| A turn whose calls only read the session | Never held. |
+
+"Would change the session" is `Tool::mutates()`, which defaults to `true`: a new
+tool, and every MCP tool, is held unless it is deliberately marked read-only.
+`crates/tools/tests/read_only_tools.rs` pins the read-only list by name, so
+widening it is a reviewed change. `ToolDispatcher::would_mutate` answers for a
+specific call and shares its pre-dispatch checks with `invoke`, so a call that
+would be refused (turned off, unknown, invalid arguments) is not held.
+
+The shared approval path (arming the gate, the five-minute timeout, the card's
+steps, the bookkeeping for a step that does not run) is
+`crates/ai/src/approval.rs`.
 
 ### LlmProvider Trait
 
@@ -375,6 +399,9 @@ pub trait Tool: Send + Sync {
     fn name(&self) -> &'static str;
     /// `{ "name", "description", "input_schema" }` — the Anthropic tool shape.
     fn schema(&self) -> Value;
+    /// Can a call change anything the user owns? Defaults to `true`, so a new
+    /// tool is held for approval under Plan first until marked read-only.
+    fn mutates(&self) -> bool { true }
     /// Called with `args` already validated against `input_schema`.
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> Result<ToolResult>;
 }
@@ -393,6 +420,7 @@ impl ToolDispatcher {
     pub fn register(&mut self, tool: Box<dyn Tool>)
     pub fn unregister_prefix(&mut self, prefix: &str) -> usize  // MCP `<server>__` tools
     pub fn tool_schemas(&self) -> Value     // sent to the LLM
+    pub fn would_mutate(&self, name: &str, args: &Value, allowed: Option<&HashSet<String>>) -> bool
     pub fn invoke(&self, name: &str, args: Value, ctx: &mut ToolContext) -> Result<ToolResult>
 }
 ```
@@ -780,9 +808,9 @@ The agent turn emits events via Tauri's event system (names in `apps/desktop/src
 | `agent://tool-call-end` | `{ id: string, ok: boolean, view?: ToolView }` | Tool execution completes |
 | `agent://node-created` | `{ node_id: string }` | DAG node appended after tool |
 | `agent://done` | `{}` | Turn complete (no more tool calls) |
-| `agent://plan` | `{ steps: object[] }` | Multi-step plan emitted (mashup mode) |
-| `agent://plan-rejected` | none | The user rejected the proposed plan |
-| `agent://plan-unavailable` | `{ reason: string }` | A plan was asked for and none arrived; the turn ran without the approval gate |
+| `agent://plan` | `{ steps: object[] }` | A plan, or the held first edit, awaits approval; the turn is suspended (see [Plan first](#plan-first)) |
+| `agent://plan-rejected` | none | The user declined the plan or the held edit; the turn ended with no `done` |
+| `agent://plan-unavailable` | `{ reason: string, first_edit_held: boolean }` | A plan was asked for and none arrived; `first_edit_held` says whether the first edit will be held for approval or the turn proceeds with no gate |
 | `tool-progress` | `ToolProgress` | Progress from a long-running tool (and `select_region`'s match) |
 | `marker-changed` | none | Marker/annotation added or removed |
 

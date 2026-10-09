@@ -136,6 +136,36 @@ export default function UserGuidePage() {
         </li>
       </ul>
 
+      <h3>Plan first</h3>
+      <p>
+        Turn on the <strong>Plan</strong> toggle beside the chat box when you
+        want to see what the agent will do before it does it. With it on,{" "}
+        <strong>no edit runs until you approve it</strong>.
+      </p>
+      <ul>
+        <li>
+          The agent shows a plan card. <strong>Run</strong> approves it,{" "}
+          <strong>Discard</strong> ends the turn without applying anything, and{" "}
+          <strong>Edit</strong> lets you reword a step before you run it.
+        </li>
+        <li>
+          If the agent answers without a plan, the first edit it is about to
+          make is shown on the same card, with its exact tool and settings (for
+          example <code>reverse</code>, <code>track: 0</code>), before anything
+          changes. Approve it to carry on; once you have, the rest of that turn
+          runs without asking again. Discard it and nothing runs, and the agent
+          is told you declined.
+        </li>
+        <li>
+          If you reword a step on that card instead, nothing runs: the agent
+          gets your wording and proposes again, and you approve that.
+        </li>
+        <li>
+          Questions that only read the session, like the tempo, the loudness
+          or the spectrum of a track, run without asking.
+        </li>
+      </ul>
+
       <h2>Playback</h2>
       <ul>
         <li>

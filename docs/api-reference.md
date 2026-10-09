@@ -494,7 +494,7 @@ const newHead = await bridge.acceptB(nodeBId);
 
 Send a user message to the agent. The agent turn runs asynchronously and emits events back to the frontend.
 
-**Side effects:** Emits `agent://text-delta`, `agent://tool-call`, `agent://tool-call-end`, `agent://node-created`, and `agent://done` events during processing (plus `agent://plan*` when a plan is requested).
+**Side effects:** Emits `agent://text-delta`, `agent://tool-call`, `agent://tool-call-end`, `agent://node-created`, and `agent://done` events during processing (plus `agent://plan*` when a plan, or the first edit, needs approval: see `setPlanFirst`). The promise settles when the turn does, so it stays pending while the turn waits on a plan card.
 
 **Throws:** If no API key is configured or no project is open.
 
@@ -502,15 +502,26 @@ Send a user message to the agent. The agent turn runs asynchronously and emits e
 await bridge.sendMessage("cut the silence at the start and normalize to -14 LUFS");
 ```
 
-### `approvePlan() → void`
+### `approvePlan(steps?: string[]) → void`
 
-In mashup mode, approve the agent's proposed plan to proceed with execution.
+Approve what `onPlan` showed, so the suspended turn runs it: the agent's
+proposed plan, or, when there was no plan, the first edit it is about to make.
+
+Pass `steps` (the step descriptions, edited) to change it instead of approving it
+as shown. For a plan, the agent follows the revised steps. For a held edit,
+**nothing runs**: the agent is told what you changed and proposes again, and that
+proposal is held in turn, so every edit that runs is one you saw as shown.
+
+A call while no card is waiting is ignored.
 
 ---
 
 ### `rejectPlan() → void`
 
-Decline the plan the agent proposed. The turn ends; nothing is applied.
+Decline what `onPlan` showed. The turn ends; nothing is applied.
+
+For a held edit, the agent is told you declined it, nothing it proposed runs,
+and `onPlanRejected` fires with no `onAgentDone` after it.
 
 Pairs with `approvePlan()`. One of the two must be called once `onPlan` has
 fired, or the turn stays suspended.
@@ -521,6 +532,15 @@ fired, or the turn stays suspended.
 
 Ask for a plan before **every** turn, rather than only the ones the classifier
 calls mashups. Persisted, so it survives a restart.
+
+**With it on, no edit runs without your approval.** If the model writes a plan,
+you approve the plan. If it does not (it chose not to, or planning failed for any
+reason), the first step that would change the session is shown for approval
+before it runs, as the exact tool calls and arguments. A turn whose tool calls
+only read the session (tempo, loudness, spectrum, listing) is never held.
+
+With it off, only a request the classifier calls a mashup is planned, and if no
+plan arrives that turn proceeds with a notice and no gate.
 
 ---
 
@@ -1051,7 +1071,16 @@ Emitted when the agent turn is fully complete (no more tool calls, no more text)
 
 ### `onPlan(cb: (steps: object[]) => void) → Promise<UnlistenFn>`
 
-Emitted in mashup mode when the agent proposes a multi-step plan before execution.
+Emitted when something needs approval before it runs, and the turn is suspended
+until `approvePlan()` or `rejectPlan()`. Each step is
+`{ step: number, tool: string, description: string }`.
+
+Either the agent's own multi-step plan (mashup mode, or Plan first on), or, with
+Plan first on and no plan from the agent, the first step that would change the
+session. For that held edit the steps are the step's concrete tool calls, in
+order, and `description` is the arguments each will run with
+(`track: 0, db: 3`), not a paraphrase. Read-only calls in the same step are listed
+too: approving runs all of them.
 
 ### `onMarkerChanged(cb: () => void) → Promise<UnlistenFn>`
 
@@ -1059,19 +1088,36 @@ Emitted when a marker or region annotation is added or removed. Refresh the mark
 
 ---
 
-### `onPlanUnavailable(cb: (reason: string) => void) → Promise<UnlistenFn>`
+### `onPlanUnavailable(cb: (reason: string, firstEditHeld: boolean) => void) → Promise<UnlistenFn>`
 
-A plan was asked for and none arrived, so the turn ran **without** the approval
-gate.
+A plan was asked for and none arrived.
 
 `reason` names the failure class — a transport error, an HTTP status, an
-unparseable body, a response with no text, or a response with no `<plan>` block.
-Only the last is the model choosing not to plan; the rest are faults.
+unparseable body, a response with no text, a response with no `<plan>` block, or
+a plan with no steps. The last two are the model choosing not to plan; the rest
+are faults.
+
+`firstEditHeld` says what happens next. `true`: Plan first is on, and the turn
+will show its first edit through `onPlan` and wait for you before running it.
+`false`: a request classified as a mashup with Plan first **off** proceeds
+without a gate.
 
 **Distinct from receiving no `onPlan` at all**, which means no plan was
 requested for this turn. Without this event the two are indistinguishable, and a
 user who turned Plan First on would watch the agent act while assuming the model
 had decided no plan was needed.
+
+---
+
+### `onPlanRejected(cb: () => void) → Promise<UnlistenFn>`
+
+The user declined a plan or a held edit (`rejectPlan()`), and the turn has ended
+with no `onAgentDone`.
+
+For a held edit, the agent's sentence has already streamed and its tool calls
+already announced; each call's `onToolCallEnd` (`ok = false`) comes first. This
+is the event that tells a transcript to settle the half-streamed message rather
+than leave it pending.
 
 ---
 
