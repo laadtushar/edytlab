@@ -287,7 +287,6 @@ version = "0.4.0"
 dependencies = [
  "audio-decoder",
  "audio-dsp",
- "audio-io",
  "flac-codec",
  "hound",
  "rayon",
@@ -299,17 +298,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "uuid",
-]
-
-[[package]]
-name = "audio-io"
-version = "0.4.0"
-dependencies = [
- "cpal",
- "ringbuf",
- "rubato",
- "thiserror 2.0.18",
- "tracing",
 ]
 
 [[package]]
@@ -4031,17 +4019,6 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "ringbuf"
-version = "0.4.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe47b720588c8702e34b5979cb3271a8b1842c7cb6f57408efa70c779363488c"
-dependencies = [
- "crossbeam-utils",
- "portable-atomic",
- "portable-atomic-util",
 ]
 
 [[package]]
