@@ -28,7 +28,7 @@ use serde_json::{json, Value};
 
 use crate::anthropic::{
     ApiError, ContentBlock, ContentBlockDelta, ContentBlockStart, MessageMeta, MessagesRequest,
-    Role, StreamEvent,
+    Role, StreamEvent, ToolChoice,
 };
 
 /// Stable id for the Anthropic provider.
@@ -370,10 +370,17 @@ impl LlmProvider for OpenAIProvider {
             );
             if let Some(t) = tools {
                 obj.insert("tools".to_string(), t);
-                // `tool_choice: "auto"` is OpenAI's shape. We only set
-                // it when tools are actually present (OpenAI rejects
+                // `tool_choice: "auto"` is OpenAI's shape, and so is
+                // `"none"`, which the loop asks for on the one request
+                // after the tool budget is spent. We only set it when
+                // tools are actually present (OpenAI rejects
                 // `tool_choice` without a `tools` array).
-                obj.insert("tool_choice".to_string(), Value::from("auto"));
+                let choice = if req.tool_choice == Some(ToolChoice::NONE) {
+                    "none"
+                } else {
+                    "auto"
+                };
+                obj.insert("tool_choice".to_string(), Value::from(choice));
             }
         }
 
@@ -1223,6 +1230,45 @@ mod tests {
         assert_eq!(body["tools"][0]["type"], "function");
         assert_eq!(body["tools"][0]["function"]["name"], "load_audio");
         assert_eq!(body["tool_choice"], "auto");
+    }
+
+    /// The last request of a turn that spent its tool budget asks the
+    /// model not to call a tool, in each wire format (#439). The tools
+    /// stay in the request: the conversation holds tool calls, and
+    /// Anthropic rejects that without tool definitions.
+    #[test]
+    fn a_tool_less_request_says_so_in_both_wire_formats() {
+        let msgs = vec![Message {
+            role: Role::User,
+            content: vec![ContentBlock::Text {
+                text: "hello".into(),
+            }],
+        }];
+        let req = MessagesRequest {
+            model: "m",
+            max_tokens: 16,
+            system: vec![SystemBlock {
+                kind: "text",
+                text: "s",
+                cache_control: None,
+            }],
+            messages: &msgs,
+            tools: Some(json!([{
+                "name": "gain",
+                "description": "Gain",
+                "input_schema": {"type": "object", "properties": {}}
+            }])),
+            tool_choice: Some(ToolChoice::NONE),
+            stream: true,
+        };
+
+        let anthropic = AnthropicProvider.serialize_request(&req);
+        assert_eq!(anthropic["tool_choice"], json!({ "type": "none" }));
+        assert_eq!(anthropic["tools"][0]["name"], "gain");
+
+        let openai = OpenAIProvider::default().serialize_request(&req);
+        assert_eq!(openai["tool_choice"], "none");
+        assert_eq!(openai["tools"][0]["function"]["name"], "gain");
     }
 
     #[test]

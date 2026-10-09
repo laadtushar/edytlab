@@ -95,8 +95,11 @@ const NOT_A_KEY_PROBLEM: Record<string, string> = {
     "ai error: the model provider's stream failed: upstream timed out after 14013 ms (request 4401)",
   "the stream failing on overload": `ai error: the model provider's stream failed: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`,
   "a silent source": "source is silent",
-  "the per-turn tool budget":
-    "ai error: model exceeded the per-turn tool budget of 40; the run was aborted to protect the user",
+  // Reaching the tool budget used to be an error here (#439); now the turn
+  // ends with the model's summary. This is a failure of the same kind that
+  // still is one.
+  "a plan approval timing out":
+    "ai error: plan approval timed out after 5 minutes; nothing was run",
   "a musical key": "detected key: A minor (confidence 0.82)",
 };
 

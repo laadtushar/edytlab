@@ -7,6 +7,11 @@
  * than a form. Streaming bubbles reuse this with `pending` so the
  * caret is visible while text is still arriving.
  *
+ * Text: the assistant's reply is markdown and is rendered as such
+ * (`ChatMarkdown`, #440). The user's message is shown exactly as typed,
+ * pre-wrapped — they did not ask for formatting, and a stray `*` or `-`
+ * in a prompt should stay a stray `*` or `-`.
+ *
  * Action chips: assistant bubbles can carry a row of one-tap buttons
  * below the text. Each chip resubmits its `prompt` through the
  * agent — see `useAgentStream.deriveChips` for how they're populated
@@ -14,6 +19,7 @@
  */
 
 import type { ChatRole, Chip, ChipIcon } from "../hooks/useAgentStream";
+import { CARET_CLASS, ChatMarkdown } from "./ChatMarkdown";
 
 export interface MessageBubbleProps {
   role: ChatRole;
@@ -33,13 +39,14 @@ export function MessageBubble({
   onChipClick,
 }: MessageBubbleProps) {
   const isUser = role === "user";
-  // The bubble is `whitespace-pre-wrap`, which is right for the middle of
-  // a message and wrong at its edges. Models routinely open a reply with
-  // newlines — more so once a thinking block has been stripped out — and
-  // every one of them was rendered, so a bubble grew tall and blank with
-  // the caret stranded at the bottom. Trimming the ends is purely
-  // presentational: nobody means to begin a sentence with three blank
-  // lines, and interior formatting is untouched.
+  // Pre-wrapped text is right for the middle of a message and wrong at
+  // its edges. Models routinely open a reply with newlines — more so once
+  // a thinking block has been stripped out — and every one of them was
+  // rendered, so a bubble grew tall and blank with the caret stranded at
+  // the bottom. Trimming the ends is purely presentational: nobody means
+  // to begin a sentence with three blank lines, and interior formatting
+  // is untouched. (Markdown ignores them anyway; the user's bubble does
+  // not, and "has any text arrived" is asked of the trimmed string.)
   const body = text.replace(/^\s+/, "").replace(/\s+$/, "");
   const showChips =
     !isUser && !pending && chips && chips.length > 0 && !!onChipClick;
@@ -54,23 +61,30 @@ export function MessageBubble({
     >
       <div
         className={
-          "max-w-[85%] whitespace-pre-wrap break-words text-sm leading-relaxed " +
+          "max-w-[85%] break-words text-sm leading-relaxed " +
           // An in-flight bubble with nothing in it yet should be the size
           // of the caret, not the size of a paragraph.
           (body.length === 0 && pending ? "inline-flex items-center " : "") +
           (isUser
-            ? "rounded-2xl rounded-br-sm bg-[var(--accent-soft)] border border-[var(--accent)]/25 px-3.5 py-2 text-[var(--text)]"
-            : "rounded-2xl rounded-bl-sm bg-[var(--surface-elev)] px-3.5 py-2 text-[var(--text)]")
+            ? "whitespace-pre-wrap rounded-2xl rounded-br-sm bg-[var(--accent-soft)] border border-[var(--accent)]/25 px-3.5 py-2 text-[var(--text)]"
+            : "chat-md rounded-2xl rounded-bl-sm bg-[var(--surface-elev)] px-3.5 py-2 text-[var(--text)]")
         }
       >
-        {body}
-        {pending ? (
-          <span
-            data-testid="caret"
-            aria-hidden="true"
-            className="ml-0.5 inline-block h-[1.05em] w-[2px] translate-y-[0.18em] animate-pulse rounded-[1px] bg-[var(--accent)] align-baseline"
-          />
-        ) : null}
+        {isUser ? (
+          <>
+            {body}
+            {pending ? (
+              <span
+                data-testid="caret"
+                aria-hidden="true"
+                className={CARET_CLASS}
+              />
+            ) : null}
+          </>
+        ) : (
+          // The caret is drawn by ChatMarkdown, at the end of the last line.
+          <ChatMarkdown text={body} pending={pending} />
+        )}
       </div>
       {showChips ? (
         <div

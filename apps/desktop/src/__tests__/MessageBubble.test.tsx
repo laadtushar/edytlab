@@ -31,9 +31,22 @@ describe("MessageBubble", () => {
   });
 
   it("keeps blank lines *inside* a message, which are real formatting", () => {
+    // What the user typed is shown as typed, blank lines and all.
+    const text = "Would you like to:\n\n- Speed it up?\n- Slow it down?";
+    render(<MessageBubble role="user" text={text} />);
+    expect(screen.getByTestId("message-bubble").textContent).toBe(text);
+  });
+
+  it("keeps the paragraph break inside an assistant message as a break", () => {
+    // The assistant's is markdown: the blank line separates a paragraph
+    // from the list, and the dashes become bullets rather than text.
     const text = "Would you like to:\n\n- Speed it up?\n- Slow it down?";
     render(<MessageBubble role="assistant" text={text} />);
-    expect(screen.getByTestId("message-bubble").textContent).toBe(text);
+    const bubble = screen.getByTestId("message-bubble");
+    expect(bubble.querySelector("p")?.textContent).toBe("Would you like to:");
+    expect(
+      Array.from(bubble.querySelectorAll("li")).map((li) => li.textContent),
+    ).toEqual(["Speed it up?", "Slow it down?"]);
   });
 
   /**
