@@ -33,19 +33,8 @@ export const demos: readonly Demo[] = [
     slug: "dj-beatmatched-transition",
     title: "Beatmatch and blend two tracks",
     caption:
-      "A DJ asks for both tracks' tempos, and the incoming track is time-stretched to match. It is overlapped with the outgoing track and the two are crossfaded, with a low-pass filter sweep on the outgoing track. The mix is normalized to −14 LUFS and exported as a WAV.",
-  },
-  {
-    slug: "dj-extended-club-intro",
-    title: "Build an extended intro for mixing",
-    caption:
-      "A DJ takes one track and extends its intro by repeating the opening bars. A filter is added that opens up into the drop, the track is faded in, and the result is exported.",
-  },
-  {
-    slug: "dj-mini-mix",
-    title: "A three-track mini-mix, tempo- and loudness-matched",
-    caption:
-      "Three tracks at different tempos are matched to one tempo and sequenced with overlaps. They are loudness-matched and limited, and the mix is exported.",
+      "A DJ asks for both tracks' tempos, and the incoming track is time-stretched to match. It is started 8 bars before the outgoing track ends, the two are crossfaded, and a low-pass filter is put on the outgoing track over the overlap. The mix is compressed, limited at −1 dB, brought to −14 LUFS and exported as a WAV. Along the way Claude points out what it would change: at the 16 s start the bars land a beat apart. Shown at 1.6× speed.",
+    duration: "2:58",
   },
 ];
 
@@ -57,9 +46,9 @@ export const demoPosterSrc = (slug: string) => `${DEMOS_PATH}/${slug}.jpg`;
 
 /**
  * The frame every demo is laid out at, before the video has loaded a
- * byte. The recordings are 16:10 captures of the app window; reserving
- * that box up front is what stops the page jumping when a poster
- * arrives. A recording at another ratio is letterboxed inside the box
- * rather than resizing it.
+ * byte. The recordings are captures of the app's content area at
+ * 1280×776; reserving that box up front is what stops the page jumping
+ * when a poster arrives. A recording at another ratio is letterboxed
+ * inside the box rather than resizing it.
  */
-export const DEMO_FRAME = { width: 1280, height: 800 } as const;
+export const DEMO_FRAME = { width: 1280, height: 776 } as const;
