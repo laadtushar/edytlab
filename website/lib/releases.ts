@@ -27,7 +27,8 @@ interface GitHubRelease {
 }
 
 /**
- * The newest release a visitor could actually download.
+ * The newest release a visitor could actually download, from the list
+ * endpoint: the fallback when there is no versioned release yet.
  *
  * Exported for the sake of being testable in isolation — the choice of
  * *which* release is the part that was wrong, and it does not need a
@@ -59,41 +60,75 @@ export function pickAssets(release: GitHubRelease): {
   };
 }
 
+const API = "https://api.github.com/repos/laadtushar/edytlab";
+const LIST_ENDPOINT = `${API}/releases?per_page=10`;
+const LATEST_ENDPOINT = `${API}/releases/latest`;
+
+/** What the page needs from one release, logging a missing installer. */
+function toAssets(release: GitHubRelease): ReleaseAssets {
+  const { macUrl, winUrl } = pickAssets(release);
+  if (!macUrl || !winUrl) {
+    // Not fatal — the release page still works — but it means a build
+    // leg failed to upload, which is worth seeing in the logs.
+    console.error(
+      `[releases] ${release.tag_name} is missing installers (mac: ${macUrl ? "ok" : "none"}, windows: ${winUrl ? "ok" : "none"})`,
+    );
+  }
+  return {
+    version: release.tag_name ?? siteConfig.version,
+    macUrl,
+    winUrl,
+    releaseUrl: release.html_url ?? siteConfig.releases,
+    isFallback: false,
+  };
+}
+
+const ask = (url: string) =>
+  fetch(url, {
+    headers: { Accept: "application/vnd.github+json" },
+    next: { revalidate: 3600 }, // ISR: refresh every hour
+  });
+
 /**
- * The latest downloadable release, for the version badge and the
- * download CTAs.
+ * The release a visitor should download, for the version badge and the
+ * download CTAs: the newest **versioned** release when there is one,
+ * otherwise the newest downloadable dev build.
  *
- * ## Why not `/releases/latest`
+ * ## Versioned first
  *
- * That endpoint returns the newest **non-draft, non-prerelease**
- * release. `release-dev.yml` publishes every dev build with
- * `prerelease: true` — deliberately, so a dev drop never steals the
- * Latest badge — so the endpoint has 404'd for this repo across roughly
- * 186 dev builds.
+ * Every merge to main publishes a dev build as a prerelease
+ * (`auto-release.yml`), so the newest release of all is nearly always a
+ * dev build. Serving that put `0.4.0-dev.316` on the badge and handed
+ * visitors an unsigned preview the day v0.4.0 shipped. `/releases/latest`
+ * answers exactly the newest non-draft, non-prerelease release, so it is
+ * asked first.
  *
- * Both failure arms returned the same placeholder with no logging, so
- * the page rendered `v0.1.0-dev` (a tag that does not exist) and pointed
- * both download buttons at the generic releases page, which was itself
- * the 404'ing URL. Nothing distinguished "GitHub says the version is
- * v0.1.0-dev" from "the fetch failed", which is why it went unnoticed.
+ * ## Dev builds as the fallback
  *
- * The list endpoint returns everything, newest first, so the fix is to
- * ask it and skip drafts.
+ * Before v0.2.0 there was no versioned release and `/releases/latest`
+ * 404'd for roughly 186 dev builds, while the page silently served a
+ * placeholder (#241, #303). So a 404 there falls back to the list
+ * endpoint, newest first, skipping drafts (whose assets 404 for
+ * visitors). Both lookups log when they fail, because a silent
+ * placeholder is indistinguishable from a real answer.
  */
 export async function getLatestRelease(): Promise<ReleaseAssets> {
-  const endpoint =
-    "https://api.github.com/repos/laadtushar/edytlab/releases?per_page=10";
   try {
-    const res = await fetch(endpoint, {
-      headers: { Accept: "application/vnd.github+json" },
-      next: { revalidate: 3600 }, // ISR: refresh every hour
-    });
-    if (!res.ok) {
-      // Server-side, so it lands in the deployment logs. A silent
-      // fallback is indistinguishable from a real answer, and that is
-      // what hid this bug.
+    const stable = await ask(LATEST_ENDPOINT);
+    if (stable.ok) {
+      const release = (await stable.json()) as GitHubRelease;
+      if (release && release.tag_name && release.draft !== true) return toAssets(release);
+    } else if (stable.status !== 404) {
+      // 404 just means no versioned release yet; anything else is worth seeing.
       console.error(
-        `[releases] GitHub returned ${res.status} ${res.statusText} for ${endpoint}; serving the placeholder`,
+        `[releases] GitHub returned ${stable.status} ${stable.statusText} for ${LATEST_ENDPOINT}; trying the dev builds`,
+      );
+    }
+
+    const res = await ask(LIST_ENDPOINT);
+    if (!res.ok) {
+      console.error(
+        `[releases] GitHub returned ${res.status} ${res.statusText} for ${LIST_ENDPOINT}; serving the placeholder`,
       );
       return FALLBACK;
     }
@@ -101,29 +136,13 @@ export async function getLatestRelease(): Promise<ReleaseAssets> {
     const release = pickLatestRelease(await res.json());
     if (!release) {
       console.error(
-        `[releases] no non-draft release in the first page from ${endpoint}; serving the placeholder`,
+        `[releases] no non-draft release in the first page from ${LIST_ENDPOINT}; serving the placeholder`,
       );
       return FALLBACK;
     }
-
-    const { macUrl, winUrl } = pickAssets(release);
-    if (!macUrl || !winUrl) {
-      // Not fatal — the release page still works — but it means a build
-      // leg failed to upload, which is worth seeing in the logs.
-      console.error(
-        `[releases] ${release.tag_name} is missing installers (mac: ${macUrl ? "ok" : "none"}, windows: ${winUrl ? "ok" : "none"})`,
-      );
-    }
-
-    return {
-      version: release.tag_name ?? siteConfig.version,
-      macUrl,
-      winUrl,
-      releaseUrl: release.html_url ?? siteConfig.releases,
-      isFallback: false,
-    };
+    return toAssets(release);
   } catch (e) {
-    console.error(`[releases] fetching ${endpoint} threw; serving the placeholder`, e);
+    console.error(`[releases] fetching the latest release threw; serving the placeholder`, e);
     return FALLBACK;
   }
 }
