@@ -59,6 +59,7 @@ vi.mock("../../lib/tauri-bridge", () => ({
     return Promise.resolve(() => undefined);
   }),
   onPlanUnavailable: vi.fn(() => Promise.resolve(() => undefined)),
+  onPlanRejected: vi.fn(() => Promise.resolve(() => undefined)),
 }));
 
 import { Chat } from "../Chat";
@@ -110,6 +111,30 @@ describe("PlanCard (inside Chat)", () => {
     expect(card).toBeInTheDocument();
     // Header mentions step count
     expect(card.textContent).toContain("5 steps");
+  });
+
+  /**
+   * With Plan first on and no plan from the model, the card shows the
+   * one edit the agent is about to make, as its tool and its arguments
+   * (#415). It is neither a mashup nor several steps.
+   */
+  it("renders a held one-step edit with its tool and arguments", async () => {
+    render(<Chat />);
+    await act(async () => {
+      await flush();
+    });
+
+    await act(async () => {
+      cbs.plan[0]([{ step: 1, tool: "reverse", description: "track: 0" }]);
+    });
+
+    const card = screen.getByTestId("plan-approval-card");
+    expect(card.textContent).toContain("reverse");
+    expect(card.textContent).toContain("track: 0");
+    expect(card.textContent).toContain("1 step");
+    expect(card.textContent).not.toContain("1 steps");
+    expect(card.textContent).toContain("Plan");
+    expect(card.textContent).not.toContain("Mashup");
   });
 
   it("renders all plan steps in the approval card", async () => {

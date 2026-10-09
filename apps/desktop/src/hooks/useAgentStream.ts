@@ -10,7 +10,13 @@
  *  - `agent://done`           → commits `current` into the log, derives
  *                                chips for the just-finished assistant
  *                                turn, and clears the streaming buffer
- *  - `agent://plan`           → records a pending plan-approval card
+ *  - `agent://plan`           → records a pending plan-approval card:
+ *                                a plan, or, with Plan first on and no
+ *                                plan from the model, the first edit held
+ *                                for approval (#415)
+ *  - `agent://plan-rejected`  → the user declined it; the turn ends with
+ *                                no `done`, so the streamed text is
+ *                                committed here instead
  *
  * `awaiting` is the public flag a UI uses to show a "Thinking…" pill
  * between the user's submit and the first downstream event. The hook
@@ -34,6 +40,7 @@ import {
   onAgentDone,
   onNodeCreated,
   onPlan,
+  onPlanRejected,
   onPlanUnavailable,
   onTextDelta,
   onToolCall,
@@ -104,9 +111,11 @@ export interface PlanEntry {
 /**
  * Something the user needs told that is not the agent talking.
  *
- * Currently only the skipped plan gate (#267): the turn goes ahead
- * without the checkpoint, and the alternative to saying so is letting it
- * look identical to the model deciding no plan was needed.
+ * Currently only a plan that did not arrive (#267): the alternative to
+ * saying so is letting it look identical to the model deciding no plan
+ * was needed. With Plan first on the notice also says the first edit will
+ * be shown for approval (#415); with it off the turn goes ahead without
+ * the checkpoint, and says that.
  */
 export interface NoticeEntry {
   kind: "notice";
@@ -140,7 +149,8 @@ export interface UseAgentStreamResult {
   pushUserMessage: (text: string) => void;
   /** Reset the transcript, e.g. when switching projects. */
   reset: () => void;
-  /** Non-null while the agent is awaiting plan approval (mashup mode). */
+  /** Non-null while the agent is awaiting approval: of its plan, or of
+   *  the first edit it is about to make (#415). */
   pendingPlan: PlanEntry | null;
   /** Approve the pending plan. Clears `pendingPlan` and unblocks the loop.
    *  Pass `steps` when the user edited one or more step descriptions; the
@@ -263,6 +273,7 @@ export function useAgentStream(): UseAgentStreamResult {
     let unlistenDone: (() => void) | null = null;
     let unlistenPlan: (() => void) | null = null;
     let unlistenPlanUnavailable: (() => void) | null = null;
+    let unlistenPlanRejected: (() => void) | null = null;
     let cancelled = false;
 
     const attach = (
@@ -332,28 +343,41 @@ export function useAgentStream(): UseAgentStreamResult {
       },
     );
 
+    // Commit the streamed text as a message and clear the buffer. A turn
+    // ends this way when it finishes, and also when the user declines the
+    // held edit (#415): the text was already streaming before the card
+    // appeared, and no `done` follows a decline.
+    const commitCurrent = () => {
+      const text = currentRef.current;
+      if (text.length > 0) {
+        const chips = deriveChips(text);
+        setEntries((prev) => [
+          ...prev,
+          {
+            kind: "message",
+            id: nextId(),
+            role: "assistant",
+            text,
+            chips: chips.length > 0 ? chips : undefined,
+          },
+        ]);
+      }
+      currentRef.current = "";
+      setCurrent("");
+      clearAwaiting();
+    };
+
+    attach(onAgentDone(commitCurrent), (fn) => {
+      unlistenDone = fn;
+    });
+
     attach(
-      onAgentDone(() => {
-        const text = currentRef.current;
-        if (text.length > 0) {
-          const chips = deriveChips(text);
-          setEntries((prev) => [
-            ...prev,
-            {
-              kind: "message",
-              id: nextId(),
-              role: "assistant",
-              text,
-              chips: chips.length > 0 ? chips : undefined,
-            },
-          ]);
-        }
-        currentRef.current = "";
-        setCurrent("");
-        clearAwaiting();
+      onPlanRejected(() => {
+        commitCurrent();
+        setPendingPlan(null);
       }),
       (fn) => {
-        unlistenDone = fn;
+        unlistenPlanRejected = fn;
       },
     );
 
@@ -376,14 +400,16 @@ export function useAgentStream(): UseAgentStreamResult {
     );
 
     attach(
-      onPlanUnavailable((reason) => {
+      onPlanUnavailable((reason, firstEditHeld) => {
+        // With Plan first on the checkpoint is not lost, it moves: the
+        // first edit is shown for approval instead of a plan (#415). Only
+        // a turn with no gate at all says it is continuing without one.
+        const text = firstEditHeld
+          ? `Plan step skipped — ${reason}. Nothing will change without your approval: the agent's first edit will be shown for you to approve before it runs.`
+          : `Plan step skipped — ${reason}. The agent is continuing without showing you a plan first.`;
         setEntries((prev) => [
           ...prev,
-          {
-            kind: "notice",
-            id: crypto.randomUUID(),
-            text: `Plan step skipped — ${reason}. The agent is continuing without showing you a plan first.`,
-          },
+          { kind: "notice", id: crypto.randomUUID(), text },
         ]);
         clearAwaiting();
       }),
@@ -401,6 +427,7 @@ export function useAgentStream(): UseAgentStreamResult {
       unlistenDone?.();
       unlistenPlan?.();
       unlistenPlanUnavailable?.();
+      unlistenPlanRejected?.();
     };
   }, [clearAwaiting]);
 
@@ -422,13 +449,35 @@ export function useAgentStream(): UseAgentStreamResult {
     setAwaiting(false);
   }, []);
 
+  // The card currently on offer, readable from callbacks that outlive the
+  // render they were made in. See `takeDownCard`.
+  const pendingPlanRef = useRef<PlanEntry | null>(null);
+  useEffect(() => {
+    pendingPlanRef.current = pendingPlan;
+  }, [pendingPlan]);
+
+  /**
+   * Take down the card that was answered, and only that one.
+   *
+   * Answering is async: the card stays up until the backend has the
+   * answer. A revised held edit (#415) is answered with a new card for
+   * the model's next proposal, and that card can arrive while the
+   * previous answer is still in flight. Clearing "whatever is pending"
+   * on resolve would take the new, unanswered card down with it, leaving
+   * a turn parked on a gate nobody can see.
+   */
+  const takeDownCard = useCallback((answeredId: string | undefined) => {
+    setPendingPlan((current) => (current?.id === answeredId ? null : current));
+  }, []);
+
   const approvePlan = useCallback(
     async (steps?: Array<{ step: number; tool: string; description: string }>) => {
+      const answeredId = pendingPlanRef.current?.id;
       const descriptions = steps?.map((s) => s.description);
       await bridgeApprovePlan(descriptions);
-      setPendingPlan(null);
+      takeDownCard(answeredId);
     },
-    [],
+    [takeDownCard],
   );
 
   /**
@@ -446,12 +495,13 @@ export function useAgentStream(): UseAgentStreamResult {
    * to the caller.
    */
   const discardPlan = useCallback(async () => {
+    const answeredId = pendingPlanRef.current?.id;
     try {
       await bridgeRejectPlan();
     } finally {
-      setPendingPlan(null);
+      takeDownCard(answeredId);
     }
-  }, []);
+  }, [takeDownCard]);
 
   return {
     entries,
