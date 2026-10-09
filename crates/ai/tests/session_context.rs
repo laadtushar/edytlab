@@ -18,6 +18,7 @@ fn block_includes_selection_when_present() {
             end_sec: 2.5,
         }),
         markers: vec![],
+        ..Default::default()
     };
     let block = render_block(&ctx);
     assert!(block.contains("current_selection"));
@@ -30,6 +31,7 @@ fn block_includes_markers_sorted_by_time() {
     let ctx = SessionContext {
         selection: None,
         markers: vec![ann("drop", 78.5), ann("chorus", 42.0)],
+        ..Default::default()
     };
     let block = render_block(&ctx);
     let chorus_pos = block.find("chorus").unwrap();
@@ -45,6 +47,7 @@ fn empty_context_renders_empty_string() {
     let ctx = SessionContext {
         selection: None,
         markers: vec![],
+        ..Default::default()
     };
     assert_eq!(render_block(&ctx), "");
 }
@@ -61,6 +64,7 @@ fn region_annotations_render_with_range() {
                 end_sec: 5.0,
             },
         }],
+        ..Default::default()
     };
     let block = render_block(&ctx);
     assert!(block.contains("verse"));
@@ -88,6 +92,7 @@ fn session_context_is_re_exported_at_the_crate_root() {
             end_sec: 1.0,
         }),
         markers: vec![],
+        ..Default::default()
     };
     // `ai::SessionContext` and `ai::session_context::SessionContext`
     // must be the same type, or a caller importing the short path gets
