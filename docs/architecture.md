@@ -572,6 +572,8 @@ A node's id is the hash of its state alone, so an edit that returns to an earlie
 
 The frontend keeps the path instead: `apps/desktop/src/lib/headTrail.ts`, held by `useSession`, is one reducer for the head, the undo trail and the redo list. Every head move in the frontend goes through it (`setHeadLocal` for a head that moved on, `resetHead` for a different project); a new head clears redo. Undo goes to the last head on the trail and asks the node for its `parent` only once the trail is spent. The History graph draws the path over the parent edges.
 
+The History graph's "Set as head" is one of those moves. `GraphView` hands the choice to App (`onSetHead`), which calls `set_head_to` and then records the step with `setHeadLocal`, so undo returns from the jump (#453). `set_head_to` emits no event of its own, so the views of session state do not wait to be told: the track list is refreshed by the move itself, and the label lane (`useMarkers`), the transcript and the sync-lock toggle re-read when `head` changes.
+
 The path lives for the session. After a restart the trail is empty and undo steps back through each node's `parent`, which is right unless the history revisited a state.
 
 ### Storage Format

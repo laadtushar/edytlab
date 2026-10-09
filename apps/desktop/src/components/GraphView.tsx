@@ -10,10 +10,12 @@
  *  - Click a node → call the parent's `onSelectNode(id)` so the canvas
  *    pane re-renders that node's audio.
  *  - Right-click a node → context menu with Set-as-head / Compare /
- *    Rename / Delete. Set-as-head and Rename are wired to the M24 IPC
- *    commands `set_head_to` / `rename_node`. Compare is enabled when
- *    the parent provides `onCompareNodes`. Delete is disabled — the
- *    content-addressed DAG has no safe delete semantics yet.
+ *    Rename / Delete. Set-as-head is handed to the parent's
+ *    `onSetHead`, because moving the head is the parent's to do and to
+ *    record on the undo path (#453); only Rename calls the bridge
+ *    (`rename_node`). Compare is enabled when the parent provides
+ *    `onCompareNodes`. Delete is disabled — the content-addressed DAG
+ *    has no safe delete semantics yet.
  *
  * The component doesn't own any session-level state — that lives in
  * the parent's `useSession` hook. We expose only what the parent
@@ -61,7 +63,6 @@ import {
 import {
   getGraph as bridgeGetGraph,
   renameNode as bridgeRenameNode,
-  setHeadTo as bridgeSetHeadTo,
   type GraphNode,
   type GraphSummary,
   type NodeId,
@@ -79,6 +80,14 @@ export interface GraphViewProps {
    * right-clicked `nodeId` as B.
    */
   onCompareNodes?: (nodeId: NodeId) => void;
+  /**
+   * The user chose "Set as head". The parent moves the session head
+   * (`set_head_to`) and records the step on the path, so undo comes back
+   * from it. GraphView does not move the head, because a move made here
+   * is one undo does not know about (#453). A rejection is shown in the
+   * graph's error banner.
+   */
+  onSetHead: (id: NodeId) => Promise<void>;
   /** Bumping this number forces a refetch of `get_graph`. The parent
    *  bumps it on `node-created` events so the graph stays in sync
    *  with the agent's edits. */
@@ -165,6 +174,7 @@ export function GraphView({
   head,
   onSelectNode,
   onCompareNodes,
+  onSetHead,
   refreshKey = 0,
   path,
 }: GraphViewProps) {
@@ -200,13 +210,13 @@ export function GraphView({
   const handleSetHead = useCallback(
     async (nodeId: string) => {
       try {
-        await bridgeSetHeadTo(nodeId);
+        await onSetHead(nodeId);
         refetch();
       } catch (e) {
         setError(String(e));
       }
     },
-    [refetch],
+    [onSetHead, refetch],
   );
 
   const handleRename = useCallback(
@@ -413,12 +423,12 @@ interface ContextMenuProps {
 }
 
 /**
- * Right-click menu. Set-as-head and Rename are wired to the M24 IPC
- * commands `set_head_to` and `rename_node`. Compare is enabled when
- * the parent provides `onCompare`. Delete remains disabled — the
- * content-addressed DAG has no clean delete semantics (a node may
- * be a parent of others), so honouring "delete" without orphaning
- * descendants would need a follow-up GC pass.
+ * Right-click menu. Set-as-head is handed to the parent (`onSetHead`,
+ * #453) and Rename is wired to the M24 IPC command `rename_node`.
+ * Compare is enabled when the parent provides `onCompare`. Delete
+ * remains disabled — the content-addressed DAG has no clean delete
+ * semantics (a node may be a parent of others), so honouring "delete"
+ * without orphaning descendants would need a follow-up GC pass.
  */
 function ContextMenu({ x, y, onClose, onSetHead, onRename, onCompare }: ContextMenuProps) {
   const item = (
