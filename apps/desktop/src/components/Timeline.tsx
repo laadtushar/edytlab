@@ -428,6 +428,9 @@ function TrackLane({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [duration, setDuration] = useState(0);
+  // Bumped on every decode, so the zoom below runs once the new audio is
+  // in even when it is as long as the old (same duration, no new render).
+  const [decodes, setDecodes] = useState(0);
   const [draftSelection, setDraftSelection] = useState<Selection | null>(null);
   // Where a drag started, as a session time: the time under the pointer
   // at the press, not a pixel, so the drag means the same thing however
@@ -486,6 +489,7 @@ function TrackLane({
     const onReady = () => {
       const d = ws.getDuration();
       setDuration(d);
+      setDecodes((n) => n + 1);
       onDurationChange?.(d);
     };
     ws.on("ready", onReady);
@@ -677,13 +681,17 @@ function isAbort(err: unknown): boolean {
     scrollPxRef.current = scrollPx;
     const ws = wsRef.current;
     if (!ws || duration === 0 || !(pxPerSec > 0)) return;
-    if (zoomedToRef.current !== pxPerSec) {
+    // `duration` is the last file's until the new one decodes, and while
+    // WaveSurfer loads it holds no audio and `zoom()` throws "No audio
+    // loaded" — out of an effect, which takes the timeline down with it.
+    // So the zoom waits for the decode; `decodes` brings it back here.
+    if (zoomedToRef.current !== pxPerSec && ws.getDecodedData?.()) {
       ws.zoom(pxPerSec);
       zoomedToRef.current = pxPerSec;
     }
     ws.getWrapper().style.minWidth = `${sessionPx}px`;
     ws.setScroll(scrollPx);
-  }, [pxPerSec, sessionPx, scrollPx, duration]);
+  }, [pxPerSec, sessionPx, scrollPx, duration, decodes]);
 
   /**
    * Keep the window where the timeline put it.
