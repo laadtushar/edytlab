@@ -22,7 +22,7 @@ Implementations live in `crates/tools/src/tool/`. A tool that is not registered 
 - [`add_effect`](#add_effect) — Add a non-destructive effect to a track's chain.
 - [`add_track`](#add_track) — Append a new empty track to the current session.
 - [`align_to_beat`](#align_to_beat) — Warp a track in time so the beats at source_beats land on beat_grid, without changing its pitch.
-- [`analyze_track`](#analyze_track) — Analyse a music file and return BPM, key, beat grid, downbeats, sections, an RMS curve (one bin per ~100 ms), and EBU R128 integrated loudness in LUFS.
+- [`analyze_track`](#analyze_track) — Analyse a track in the session, or an audio file, and return BPM, key, beat grid, downbeats, sections, an RMS curve (one bin per ~100 ms), and EBU R128 integrated loudness in LUFS.
 - [`apply_diff`](#apply_diff) — Apply one or more SessionDiff specs to a parent node, producing one new sibling node per spec.
 - [`apply_recipe`](#apply_recipe) — Replay an exported edit chain.
 - [`audition_effect`](#audition_effect) — Hear what an effect would sound like on a track without applying it.
@@ -150,11 +150,12 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `analyze_track`
 
-Analyse a music file and return BPM, key, beat grid, downbeats, sections, an RMS curve (one bin per ~100 ms), and EBU R128 integrated loudness in LUFS. Pure-Rust analysis: no model weights or env vars required. The audio is downmixed to mono internally for the music-feature passes; LUFS is measured on the original interleaved signal.
+Analyse a track in the session, or an audio file, and return BPM, key, beat grid, downbeats, sections, an RMS curve (one bin per ~100 ms), and EBU R128 integrated loudness in LUFS. Give `track` (its index in the session) to analyse a track as it sits on the timeline, before its gain and effects; give `path` only for a file that is not in the session. Pure-Rust analysis: no model weights or env vars required. The audio is downmixed to mono internally for the music-feature passes; LUFS is measured on the original interleaved signal.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
-| `path` | string | yes |  |
+| `path` | string | no | An audio file that is not in the session. |
+| `track` | integer | no | Index of a track in the session. |
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 
