@@ -18,6 +18,24 @@ interface Entry {
 // GitHub Releases — link below.
 const entries: Entry[] = [
   {
+    version: "v0.3.0",
+    date: "2026-10",
+    bullets: [
+      "Playback works on Linux and macOS. The rendered mix and the chat's auditions live in a hidden folder that the narrowed file scope in 0.2.0 could not reach through, so pressing Space played nothing and showed \"403 Forbidden\". Windows was not affected.",
+      "The assistant knows the session it is editing: every track's name, where its audio sits on the timeline, its level, pan and effects, and the current version. \"Fade out the last two seconds\" now fades, and \"export the current mix\" exports, where before the assistant had nothing to place them with.",
+      "Ask for a track's tempo, key or loudness by name. The analysis tool took only a file path, so the assistant asked you for one.",
+      "Plan first works with Ollama, Groq and Gemini, and after the first edit of a conversation. Their plan requests were sent in the wrong format, and any turn after one that used a tool sent an empty message the provider rejected, so the plan was skipped and the edit ran unapproved.",
+      "A request that fails stops showing \"Thinking\", errors name the provider that failed rather than Anthropic, and a rejected API key offers Open Settings with a plain explanation instead of raw JSON.",
+      "A tool call with no arguments no longer ends the turn with an error.",
+      "The window stays responsive while the assistant runs a long edit. Reading the track list, editing a marker and renaming a version waited for the edit on the app's main thread, so the whole window froze until the edit finished.",
+      "Edited audio is named after its track. After an edit, the clip and the status bar showed a 64-character file hash.",
+      "History stays under 2 GiB. Audio that only older versions use is removed once the app has proved it can rebuild it, and it is rebuilt on demand when you undo to it, preview it or export it.",
+      "Switching between A and B crossfades from the same moment instead of cutting, and a volume curve the assistant writes draws itself on.",
+      "Undo works with a gain or pan slider focused, and no longer writes the slider's old value back after undoing.",
+      "Opening a file the app cannot read says which file and why, instead of adding an empty track.",
+    ],
+  },
+  {
     version: "v0.2.0",
     date: "2026-09",
     bullets: [
