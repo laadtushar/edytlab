@@ -69,7 +69,7 @@ export const reply = (ctx) =>
 
 /** Send, then wait for the whole turn: the box is disabled until the
  * turn ends, plan approval included. A plan is approved as it appears. */
-export async function askThrough(ctx, text, label, { send = say } = {}) {
+export async function askThrough(ctx, text, label, { send = say, press = (c, sel) => c.d.click(sel) } = {}) {
   const { d } = ctx;
   await send(ctx, text);
   await d.until(async () => d.exec(() => document.querySelector("[data-testid='chat-form'] textarea").disabled), {
@@ -82,7 +82,7 @@ export async function askThrough(ctx, text, label, { send = say } = {}) {
       const steps = await d.exec(() => document.querySelector("[data-testid='plan-approval-card'] ol")?.innerText ?? "");
       ctx.note(`${label}: Claude proposed a plan: ${steps.replace(/\s+/g, " ").slice(0, 400)}`);
       await ctx.shot(`${label}: Claude's plan`);
-      await d.click("[data-testid='plan-run-button']");
+      await press(ctx, "[data-testid='plan-run-button']");
     }
     const busy = await d.exec(() => document.querySelector("[data-testid='chat-form'] textarea").disabled);
     if (!busy && !(await d.count("[data-testid='plan-approval-card']"))) break;

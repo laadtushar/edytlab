@@ -7,7 +7,7 @@
 // except where a story is about what survives a restart.
 import { execFileSync, spawn } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { Driver } from "./webdriver.mjs";
 import { chooseThrough, screenshotRoot } from "./native.mjs";
 import { writeFixtures } from "./fixtures.mjs";
@@ -81,24 +81,41 @@ for (const story of stories) {
         }),
       script,
       llmRequests,
-      /** Film the screen from now until the story ends (RECORD=1 only). */
+      /** Film the screen from now until the story ends (RECORD=1 only).
+       *
+       * RECORD_AUDIO names a PulseAudio source (the monitor of the sink
+       * the app plays into, such as `demo.monitor`) to record with it.
+       * Both inputs then keep their wall-clock timestamps (`-copyts`):
+       * ffmpeg otherwise starts each input at zero on its own, which put
+       * the sound a second and a half ahead of the picture.
+       * make-demo-videos.mjs lines them up. */
       record() {
         if (!process.env.RECORD || recorder) return;
         mkdirSync(join(OUT, "videos"), { recursive: true });
-        const file = `videos/${story.id}.mp4`;
-        recorder = spawn(
-          "ffmpeg",
-          ["-y", "-loglevel", "error", "-f", "x11grab", "-video_size", screenSize(), "-framerate", "15", "-i", ":99",
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "28", "-pix_fmt", "yuv420p", join(OUT, file)],
-          { stdio: ["pipe", "ignore", "ignore"] },
-        );
+        const audio = process.env.RECORD_AUDIO;
+        const file = `videos/${story.id}.${audio ? "mkv" : "mp4"}`;
+        const args = ["-y", "-loglevel", "error"];
+        if (audio) args.push("-copyts");
+        args.push("-thread_queue_size", "1024", "-f", "x11grab", "-video_size", screenSize(), "-framerate", "15", "-i", ":99");
+        if (audio) args.push("-thread_queue_size", "1024", "-f", "pulse", "-fragment_size", "3840", "-i", audio);
+        args.push("-c:v", "libx264", "-preset", "veryfast", "-crf", audio ? "20" : "28", "-pix_fmt", "yuv420p");
+        if (audio) args.push("-c:a", "pcm_s16le");
+        args.push(join(OUT, file));
+        recorder = spawn("ffmpeg", args, { stdio: ["pipe", "ignore", "ignore"] });
         result.video = file;
         result.captions = [];
+        result.paces = [];
         recordedFrom = Date.now();
       },
-      /** A step caption for the recording, at the current moment. */
+      /** A step caption for the recording, at the current moment. `at` is
+       * the wall clock, which a recording with audio is aligned on. */
       caption(text) {
-        if (recorder) result.captions.push({ t: (Date.now() - recordedFrom) / 1000, text });
+        if (recorder) result.captions.push({ t: (Date.now() - recordedFrom) / 1000, at: Date.now(), text });
+      },
+      /** From now on, play the recording back at `speed`: 1 while there is
+       * something to hear, faster while waiting on the model. */
+      pace(speed) {
+        if (recorder) result.paces.push({ t: (Date.now() - recordedFrom) / 1000, at: Date.now(), speed });
       },
       /** Quit and start again. `keepKeyring` keeps the keychain, as a
        * real restart does; HOME is kept unless another is given. */
@@ -151,7 +168,7 @@ for (const story of stories) {
   // worked must not be lost to one that did not.
   if (result.status === "pass" && result.video && existsSync(join(OUT, result.video))) {
     mkdirSync(join(OUT, "videos", "passed"), { recursive: true });
-    copyFileSync(join(OUT, result.video), join(OUT, "videos", "passed", `${story.id}.mp4`));
+    copyFileSync(join(OUT, result.video), join(OUT, "videos", "passed", basename(result.video)));
     writeFileSync(join(OUT, "videos", "passed", `${story.id}.json`), JSON.stringify(result, null, 2));
   }
   results.push(result);

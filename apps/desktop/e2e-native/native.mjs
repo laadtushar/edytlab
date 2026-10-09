@@ -61,8 +61,11 @@ export function screenshotRoot(file) {
  * Click `selector` (which opens the GTK chooser) and answer it:
  *  - `{ path }`   type one path into the location bar (Ctrl+L) and accept
  *  - `{ paths }`  several files: they are copied alone into a new folder,
- *                 which is opened and everything in it selected (Ctrl+A)
+ *                 which is opened and everything in it selected (Ctrl+A).
+ *                 With `dir`, the files already are alone in that folder,
+ *                 and it is opened as it is (a demo shows a real folder).
  *  - `{ cancel }` press Escape
+ * `typeDelay` is the milliseconds between typed characters.
  * `shotDialog(caption)` is called while the chooser is on screen.
  */
 export async function chooseThrough(d, selector, answer, { shotDialog } = {}) {
@@ -70,16 +73,20 @@ export async function chooseThrough(d, selector, answer, { shotDialog } = {}) {
   const clicked = d.click(selector).catch((e) => e);
   const title = /open|select|save|choose/i;
   const dialog = await waitForWindow(title);
+  const delay = String(answer.typeDelay ?? 15);
   await sleep(700);
   if (shotDialog) await shotDialog();
   if (answer.cancel) {
     x("key", "Escape");
   } else if (answer.paths) {
-    const dir = mkdtempSync("/tmp/edytlab-pick-");
-    for (const p of answer.paths) copyFileSync(p, join(dir, basename(p)));
+    let dir = answer.dir;
+    if (!dir) {
+      dir = mkdtempSync("/tmp/edytlab-pick-");
+      for (const p of answer.paths) copyFileSync(p, join(dir, basename(p)));
+    }
     x("key", "ctrl+l");
     await sleep(300);
-    x("type", "--delay", "15", `${dir}/`);
+    x("type", "--delay", delay, `${dir}/`);
     await sleep(500);
     // The location bar completes the common prefix of what the folder
     // holds ("t" for tone and take2) as selected text; Return would then
@@ -102,7 +109,7 @@ export async function chooseThrough(d, selector, answer, { shotDialog } = {}) {
     }
     x("key", "ctrl+l");
     await sleep(300);
-    x("type", "--delay", "15", answer.path);
+    x("type", "--delay", delay, answer.path);
     await sleep(400);
     x("key", "Return");
   }
