@@ -533,7 +533,7 @@ impl Store {
     pub fn diff(&self, a: NodeId, b: NodeId) -> Result<SessionDiff>
     pub fn fork(&mut self, parent: NodeId) -> Result<NodeId>
     pub fn merge(&mut self, a: NodeId, b: NodeId) -> Result<NodeId>
-    pub fn revert_to(&mut self, target: NodeId) -> Result<NodeId>  // appends; history is kept
+    pub fn revert_to(&mut self, target: NodeId) -> Result<NodeId>  // lands on target itself (ids hash state); history is kept
     pub fn set_label(&mut self, id: NodeId, label: Option<String>) -> Result<()>
 }
 ```
@@ -554,6 +554,14 @@ A/B Compare:
   prepare_compare(A, B) renders both to temp WAVs
   accept_b(B) moves head to B
 ```
+
+### Undo and redo
+
+A node's id is the hash of its state alone, so an edit that returns to an earlier state (mute, then unmute) lands on a node that already exists, and that node keeps the parent it had the first time it was reached (`Store::append` skips the write; pinned by `a_state_reached_again_keeps_its_first_parent`). The graph does not record the route the user took, so undo cannot follow `parent` (#398).
+
+The frontend keeps the path instead: `apps/desktop/src/lib/headTrail.ts`, held by `useSession`, is one reducer for the head, the undo trail and the redo list. Every head move in the frontend goes through it (`setHeadLocal` for a head that moved on, `resetHead` for a different project); a new head clears redo. Undo goes to the last head on the trail and asks the node for its `parent` only once the trail is spent. The History graph draws the path over the parent edges.
+
+The path lives for the session. After a restart the trail is empty and undo steps back through each node's `parent`, which is right unless the history revisited a state.
 
 ### Storage Format
 

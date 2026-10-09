@@ -19,7 +19,6 @@ import {
   ok,
   projectWith,
   selecting,
-  sessionNode,
   sessionWith,
   toneTrack,
 } from "./backend";
@@ -130,25 +129,30 @@ test.describe("a label added in the lane", () => {
 
   /**
    * Ctrl+Z after a label undoes the label, not the edit before it — the
-   * other half of #232. With the label's head dropped, undo asked for the
+   * other half of #232. With the label's head dropped, undo went to the
    * parent of the head *before* the label and stepped back one edit too
    * far. Redo then comes back to the label.
+   *
+   * Undo returns along the path taken (#398): the head the project
+   * opened on, then the label's node, are the steps the user took, so
+   * undo needs nothing from the graph and asks no node for its parent.
+   * This test used to assert that `get_node` call. It pinned how undo
+   * found its target rather than where it went, and with the path taken
+   * the call is no longer made — what the user sees is the `set_head_to`
+   * sequence below and the head the next render works from.
    */
   test("is what undo takes back, and redo restores", async ({ app }) => {
     await openProject(app);
     const time = await addLabel(app, "verse");
     await expect(app.page.getByTestId("label-chip")).toHaveAttribute("data-label-name", "verse");
 
-    // `get_node` answers the labelled node, whose parent is the head the
-    // project opened on; `set_head_to` answers the id it moved to.
+    // `set_head_to` answers the id it moved to.
     await app.become({
-      get_node: ok(sessionNode(LABELLED, BEFORE)),
       set_head_to: ok(BEFORE),
       list_markers: ok([]),
     });
     await app.page.keyboard.press("Control+z");
     await expect.poll(() => app.requestsFor("set_head_to")).toEqual([{ nodeId: BEFORE }]);
-    expect(await app.requestsFor("get_node")).toEqual([{ id: LABELLED }]);
 
     await app.become({ set_head_to: ok(LABELLED), list_markers: ok([verse(time)]) });
     await app.page.keyboard.press("Control+Shift+z");

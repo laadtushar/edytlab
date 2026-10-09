@@ -19,6 +19,13 @@
  * the parent's `useSession` hook. We expose only what the parent
  * needs to wire up: a `head` for highlighting and an `onSelectNode`
  * for click handling.
+ *
+ * The graph is content-addressed, so it records which states exist, not
+ * the order the user visited them. The parent can pass that order as
+ * `path`: edges the user walked are drawn in the head ring's blue, and a
+ * step the parent edges do not contain (an edit that returned to an
+ * earlier state) is drawn as a dashed extra edge (#398). The layout
+ * stays parent-only, so the path never moves a node.
  */
 
 import {
@@ -49,6 +56,7 @@ import {
   formatRelative,
   layoutDagre,
   nodeLabel,
+  pathSteps,
 } from "../lib/graph";
 import {
   getGraph as bridgeGetGraph,
@@ -75,7 +83,15 @@ export interface GraphViewProps {
    *  bumps it on `node-created` events so the graph stays in sync
    *  with the agent's edits. */
   refreshKey?: number;
+  /**
+   * The heads the user has been on, oldest first, ending at `head`: the
+   * path taken. Drawn over the edges; absent or short, nothing is drawn.
+   */
+  path?: readonly NodeId[];
 }
+
+/** The head ring's blue-500, so the path and the head read as one thing. */
+const PATH_STROKE = "#3b82f6";
 
 interface NodeData extends Record<string, unknown> {
   bubble: GraphNode;
@@ -145,7 +161,13 @@ interface ContextMenuState {
   nodeId: string;
 }
 
-export function GraphView({ head, onSelectNode, onCompareNodes, refreshKey = 0 }: GraphViewProps) {
+export function GraphView({
+  head,
+  onSelectNode,
+  onCompareNodes,
+  refreshKey = 0,
+  path,
+}: GraphViewProps) {
   const [graph, setGraph] = useState<GraphSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
@@ -241,18 +263,36 @@ export function GraphView({ head, onSelectNode, onCompareNodes, refreshKey = 0 }
     });
 
     const ids = new Set(summary.nodes.map((n) => n.id));
+    const steps = path ? pathSteps(summary.nodes, path) : [];
+    const walked = new Set(
+      steps.filter((s) => s.onTree).map((s) => `${s.source}->${s.target}`),
+    );
+    const markerEnd = { type: MarkerType.ArrowClosed, width: 14, height: 14 };
     const rfEdges: Edge[] = summary.nodes
       .filter((n) => n.parent && ids.has(n.parent))
-      .map((n) => ({
-        id: `${n.parent}->${n.id}`,
-        source: n.parent as string,
-        target: n.id,
-        markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14 },
-        style: { stroke: "#52525b" },
-      }));
+      .map((n) => {
+        const id = `${n.parent}->${n.id}`;
+        const edge = { id, source: n.parent as string, target: n.id, markerEnd };
+        return walked.has(id)
+          ? { ...edge, className: "graph-path-step", style: { stroke: PATH_STROKE } }
+          : { ...edge, style: { stroke: "#52525b" } };
+      });
+    // A step the parent edges do not hold: an edit that came back to a
+    // state reached before.
+    for (const step of steps) {
+      if (step.onTree) continue;
+      rfEdges.push({
+        id: step.id,
+        source: step.source,
+        target: step.target,
+        markerEnd,
+        className: "graph-path-step",
+        style: { stroke: PATH_STROKE, strokeDasharray: "4 3" },
+      });
+    }
 
     return { nodes: rfNodes, edges: rfEdges };
-  }, [graph, head, handleContextMenu]);
+  }, [graph, head, handleContextMenu, path]);
 
   const handleNodeClick = useCallback<NodeMouseHandler>(
     (_e, node) => {
