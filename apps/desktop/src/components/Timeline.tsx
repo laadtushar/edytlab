@@ -50,6 +50,10 @@ import Spectrogram from "wavesurfer.js/dist/plugins/spectrogram.esm.js";
  * them off the audio they point at.
  */
 const LANE_HEIGHT = 72;
+
+/** Releases WaveSurfer's wait for media metadata in a lane that never
+ * loads its element (see the lane's `load`). Not a duration anyone reads. */
+const LANE_DURATION_HINT = 1;
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Marker } from "../lib/tauri-bridge";
 import { snapRange } from "../lib/zeroCrossing";
@@ -460,8 +464,19 @@ function TrackLane({
   // Mount wavesurfer once.
   useEffect(() => {
     if (!containerRef.current) return;
+    // A lane is a picture and is never played (the mix player plays).
+    // WaveSurfer still gives it an <audio> element, and in WebKitGTK each
+    // one with a source is a GStreamer pipeline that starts streaming at
+    // once. An edit swaps every lane's source together, and tearing those
+    // pipelines down mid-stream deadlocked the webview: the window froze
+    // after the assistant's edits, on Linux. With `preload="none"` the
+    // element never loads, so no pipeline runs; the waveform comes from
+    // WaveSurfer's own fetch and decode, not from the element.
+    const media = document.createElement("audio");
+    media.preload = "none";
     const ws = WaveSurfer.create({
       container: containerRef.current,
+      media,
       waveColor: "rgba(236, 237, 242, 0.35)",
       progressColor: "var(--accent)",
       // No cursor of its own: it is drawn on this lane's duration,
@@ -636,7 +651,11 @@ function isAbort(err: unknown): boolean {
     ws.on("error", fail);
     try {
       const url = convertFileSrc(audioPath);
-      ws.load(url).catch(fail);
+      // WaveSurfer waits for the element's `loadedmetadata` before it
+      // decodes, unless it is given a duration, and an element that never
+      // loads never sends one. This figure only releases that wait: the
+      // lane's duration is read from the decoded audio.
+      ws.load(url, undefined, LANE_DURATION_HINT).catch(fail);
     } catch (err) {
       fail(err);
     }
