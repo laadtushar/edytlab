@@ -15,6 +15,7 @@ import type { GraphSummary } from "../../lib/tauri-bridge";
 
 const getGraphMock = vi.fn();
 const renderPreviewMock = vi.fn();
+const setHeadToMock = vi.fn();
 
 vi.mock("../../lib/tauri-bridge", async () => {
   const actual = await vi.importActual<
@@ -24,6 +25,7 @@ vi.mock("../../lib/tauri-bridge", async () => {
     ...actual,
     getGraph: () => getGraphMock(),
     renderPreview: (id: string) => renderPreviewMock(id),
+    setHeadTo: (id: string) => setHeadToMock(id),
   };
 });
 
@@ -64,6 +66,7 @@ beforeEach(() => {
   }
   getGraphMock.mockReset();
   renderPreviewMock.mockReset();
+  setHeadToMock.mockReset();
 });
 
 import { GraphView } from "../GraphView";
@@ -102,7 +105,12 @@ describe("GraphView", () => {
   it("shows an empty-state message when the store has no nodes", async () => {
     getGraphMock.mockResolvedValue({ nodes: [], head: null });
     render(
-      <GraphView head={null} onSelectNode={vi.fn()} refreshKey={0} />,
+      <GraphView
+        head={null}
+        onSelectNode={vi.fn()}
+        onSetHead={vi.fn(async () => undefined)}
+        refreshKey={0}
+      />,
     );
     await act(async () => {
       await flush();
@@ -114,7 +122,12 @@ describe("GraphView", () => {
     const summary = makeGraph(8);
     getGraphMock.mockResolvedValue(summary);
     render(
-      <GraphView head={summary.head} onSelectNode={vi.fn()} refreshKey={0} />,
+      <GraphView
+        head={summary.head}
+        onSelectNode={vi.fn()}
+        onSetHead={vi.fn(async () => undefined)}
+        refreshKey={0}
+      />,
     );
     await act(async () => {
       await flush();
@@ -144,7 +157,12 @@ describe("GraphView", () => {
     const summary = makeGraph(4);
     getGraphMock.mockResolvedValue(summary);
     render(
-      <GraphView head={summary.head} onSelectNode={vi.fn()} refreshKey={0} />,
+      <GraphView
+        head={summary.head}
+        onSelectNode={vi.fn()}
+        onSetHead={vi.fn(async () => undefined)}
+        refreshKey={0}
+      />,
     );
     await act(async () => {
       await flush();
@@ -162,7 +180,12 @@ describe("GraphView", () => {
     getGraphMock.mockResolvedValue(summary);
     const onSelect = vi.fn();
     render(
-      <GraphView head={summary.head} onSelectNode={onSelect} refreshKey={0} />,
+      <GraphView
+        head={summary.head}
+        onSelectNode={onSelect}
+        onSetHead={vi.fn(async () => undefined)}
+        refreshKey={0}
+      />,
     );
     await act(async () => {
       await flush();
@@ -186,7 +209,12 @@ describe("GraphView", () => {
     const summary = makeGraph(3);
     getGraphMock.mockResolvedValue(summary);
     render(
-      <GraphView head={summary.head} onSelectNode={vi.fn()} refreshKey={0} />,
+      <GraphView
+        head={summary.head}
+        onSelectNode={vi.fn()}
+        onSetHead={vi.fn(async () => undefined)}
+        refreshKey={0}
+      />,
     );
     await act(async () => {
       await flush();
@@ -202,6 +230,67 @@ describe("GraphView", () => {
     expect(items[1]).toBeDisabled();
     expect(items[2]).not.toBeDisabled();
     expect(items[3]).toBeDisabled();
+  });
+
+  it("Set as head hands the move to the parent and never calls set_head_to itself (#453)", async () => {
+    // A head moved here is one the parent's undo path does not know of:
+    // undo then went to where the head had been before the jump, not
+    // back from it. GraphView only reports the choice; the parent moves
+    // the head and records the step.
+    const summary = makeGraph(3);
+    getGraphMock.mockResolvedValue(summary);
+    const onSetHead = vi.fn().mockResolvedValue(undefined);
+    render(
+      <GraphView
+        head={summary.head}
+        onSelectNode={vi.fn()}
+        onSetHead={onSetHead}
+        refreshKey={0}
+      />,
+    );
+    await act(async () => {
+      await flush();
+    });
+    const bubbles = screen.getAllByTestId("graph-bubble");
+    fireEvent.contextMenu(bubbles[1]);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Set as head" }));
+    await act(async () => {
+      await flush();
+    });
+
+    expect(onSetHead).toHaveBeenCalledTimes(1);
+    expect(onSetHead).toHaveBeenCalledWith(bubbles[1].dataset.nodeId);
+    expect(setHeadToMock).not.toHaveBeenCalled();
+    // The graph is read again once the parent has moved the head.
+    expect(getGraphMock).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId("graph-context-menu")).not.toBeInTheDocument();
+  });
+
+  it("a refused Set as head is shown in the graph", async () => {
+    const summary = makeGraph(3);
+    getGraphMock.mockResolvedValue(summary);
+    const onSetHead = vi.fn().mockRejectedValue(new Error("node not found"));
+    render(
+      <GraphView
+        head={summary.head}
+        onSelectNode={vi.fn()}
+        onSetHead={onSetHead}
+        refreshKey={0}
+      />,
+    );
+    await act(async () => {
+      await flush();
+    });
+    const bubbles = screen.getAllByTestId("graph-bubble");
+    fireEvent.contextMenu(bubbles[1]);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Set as head" }));
+
+    expect(await screen.findByTestId("graph-error")).toHaveTextContent(
+      "node not found",
+    );
+    expect(setHeadToMock).not.toHaveBeenCalled();
+    // A refusal moved nothing, so the graph is not read again.
+    expect(getGraphMock).toHaveBeenCalledTimes(1);
   });
 
   it("computes layout + colours for a 200-node graph in under 500ms", async () => {
@@ -261,7 +350,12 @@ describe("GraphView", () => {
     // memoisation and re-rendered every node N^2 times still fails.
     getGraphMock.mockResolvedValue(summary);
     render(
-      <GraphView head={summary.head} onSelectNode={vi.fn()} refreshKey={0} />,
+      <GraphView
+        head={summary.head}
+        onSelectNode={vi.fn()}
+        onSetHead={vi.fn(async () => undefined)}
+        refreshKey={0}
+      />,
     );
     await act(async () => {
       await flush();

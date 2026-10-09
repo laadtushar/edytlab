@@ -15,7 +15,9 @@
  * Also here: what the path has to do besides undo. Redo is part of it
  * (a new edit after an undo starts a new branch, so there is nothing to
  * redo), opening another project starts a new path, and the history graph
- * draws the path the user took.
+ * draws the path the user took. "Set as head" in the graph is a step on
+ * that path too (#453): it goes through the app, so undo comes back from
+ * it.
  */
 
 import { fixturePath, fixtureSeconds } from "./audio-fixtures";
@@ -271,4 +273,70 @@ test("the history graph draws the path taken", async ({ app }) => {
   await expect(page.getByTestId(`rf__edge-${BEFORE_LOAD}->${START}`)).not.toHaveClass(
     /graph-path-step/,
   );
+});
+
+test("Set as head in the graph is a step: undo comes back from it, redo goes again (#453)", async ({
+  app,
+}) => {
+  // The graph used to call `set_head_to` itself. The app never learned of
+  // the jump, so Ctrl+Z from there went to where the head was before it
+  // (START), not back to the node the user jumped from (MUTED).
+  await app.boot({
+    ...projectWith([toneTrack()], START),
+    render_preview: ok(fixturePath("tone3s")),
+    set_track_muted: ok(MUTED),
+    // The store's answer for the node undo leaves, for a build that asks.
+    get_node: ok(sessionNode(START, BEFORE_LOAD)),
+  });
+  const page = app.page;
+  await expect(page.getByTestId("ruler")).toContainText("0:03");
+
+  // The head is MUTED and the path so far is [START].
+  await page.getByTestId("timeline-lane-mute").click();
+  await expect.poll(() => app.requestsFor("set_track_muted")).toHaveLength(1);
+  await app.settle();
+
+  const at = (n: number) => `2026-10-09T00:0${n}:00Z`;
+  await app.become({
+    get_graph: ok({
+      nodes: [
+        { id: BEFORE_LOAD, parent: null, label: "load", tool: "load", created_at: at(0) },
+        { id: START, parent: BEFORE_LOAD, label: "load", tool: "load", created_at: at(1) },
+        { id: MUTED, parent: START, label: "mute", tool: "set_track_muted", created_at: at(2) },
+      ],
+      head: MUTED,
+    }),
+    set_head_to: ok(BEFORE_LOAD),
+  });
+  await page.getByTestId("tab-graph").click();
+  await expect(page.getByTestId("graph-bubble")).toHaveCount(3);
+
+  // Jump to the oldest node from its context menu.
+  const oldest = page.locator(`[data-testid="graph-bubble"][data-node-id="${BEFORE_LOAD}"]`);
+  await oldest.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Set as head" }).click();
+  await expect.poll(() => app.requestsFor("set_head_to")).toEqual([{ nodeId: BEFORE_LOAD }]);
+
+  // The head ring moved, and the jump is on the path: a step MUTED ->
+  // BEFORE_LOAD that the parent edges do not contain.
+  await expect(oldest).toHaveAttribute("data-is-head", "true");
+  await expect(page.getByTestId(`rf__edge-path:${MUTED}->${BEFORE_LOAD}`)).toHaveCount(1);
+  await app.settle();
+
+  // Undo comes back from the jump: to MUTED, which the path holds, and
+  // not to START, where the head was before it. No parent lookup either.
+  await app.become({ set_head_to: ok(MUTED) });
+  await page.keyboard.press("Control+z");
+  await expect
+    .poll(() => app.requestsFor("set_head_to"))
+    .toEqual([{ nodeId: BEFORE_LOAD }, { nodeId: MUTED }]);
+  expect(await app.requestsFor("get_node")).toEqual([]);
+  await app.settle();
+
+  // And redo goes to the jump again.
+  await app.become({ set_head_to: ok(BEFORE_LOAD) });
+  await page.keyboard.press("Control+y");
+  await expect
+    .poll(() => app.requestsFor("set_head_to"))
+    .toEqual([{ nodeId: BEFORE_LOAD }, { nodeId: MUTED }, { nodeId: BEFORE_LOAD }]);
 });

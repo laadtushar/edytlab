@@ -1231,6 +1231,29 @@ function App() {
     [setHeadLocal],
   );
 
+  /**
+   * "Set as head" in the history graph (#453): a head move like undo's —
+   * one at a time, the backend first, then the step on the path, so the
+   * next undo comes back from it. Errors propagate to GraphView's
+   * banner, as before.
+   *
+   * `setHeadLocal` runs only once `setHeadTo` has resolved, so a refused
+   * move is not recorded. It is a no-op when the head already is
+   * `nodeId` (a preview click on the same node), which is right. The mix
+   * needs no clearing: `mixIsCurrent` / `mixIsStale` compare `mixNodeId`
+   * with `head`.
+   */
+  const handleGraphSetHead = useCallback(
+    async (nodeId: string): Promise<void> => {
+      await runHeadMove(async () => {
+        await setHeadTo(nodeId);
+        setHeadLocal(nodeId);
+        await refreshTracks();
+      });
+    },
+    [runHeadMove, setHeadLocal, refreshTracks],
+  );
+
   const handleCompareNodes = useCallback(
     (bNodeId: string) => {
       if (!head) return;
@@ -1415,6 +1438,7 @@ function App() {
                 head={head}
                 onSelectNode={handleSelectGraphNode}
                 onCompareNodes={handleCompareNodes}
+                onSetHead={handleGraphSetHead}
                 refreshKey={graphRefresh}
                 path={historyPath}
               />
