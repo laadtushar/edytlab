@@ -49,23 +49,41 @@ fn read_doc() -> String {
         .replace("\r\n", "\n")
 }
 
-/// Every registered tool as `(name, description, input_schema)`,
-/// alphabetical.
-fn tools() -> Vec<(String, String, Value)> {
-    let schemas = ToolDispatcher::default_dispatcher().tool_schemas();
-    let mut out: Vec<(String, String, Value)> = schemas
+/// One registered tool, as the reference sees it.
+struct Entry {
+    name: String,
+    description: String,
+    input_schema: Value,
+    /// `Tool::mutates` — false means Plan first never holds it.
+    mutates: bool,
+}
+
+/// Every registered tool, alphabetical.
+fn tools() -> Vec<Entry> {
+    let dispatcher = ToolDispatcher::default_dispatcher();
+    let schemas = dispatcher.tool_schemas();
+    let mut out: Vec<Entry> = schemas
         .as_array()
         .expect("tool_schemas returns an array")
         .iter()
         .map(|s| {
             let name = s["name"].as_str().unwrap_or_default().to_string();
-            let desc = s["description"].as_str().unwrap_or_default().to_string();
-            (name, desc, s["input_schema"].clone())
+            let mutates = dispatcher.get(&name).map(|t| t.mutates()).unwrap_or(true);
+            Entry {
+                description: s["description"].as_str().unwrap_or_default().to_string(),
+                input_schema: s["input_schema"].clone(),
+                mutates,
+                name,
+            }
         })
         .collect();
-    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out.sort_by(|a, b| a.name.cmp(&b.name));
     out
 }
+
+/// The line under a read-only tool's description. One constant, so the
+/// generator and the test that checks it cannot drift apart.
+const READ_ONLY_LINE: &str = "_Read-only — never held for approval._";
 
 /// Collapse to one line and escape what a table cell cannot hold.
 ///
@@ -153,22 +171,39 @@ fn render() -> String {
          this page is for knowing what exists and what it takes.\n\n\
          Implementations live in `crates/tools/src/tool/`. A tool that is not \
          registered in `crates/tools/src/dispatcher.rs` is not on this page and the \
-         agent cannot call it.\n\n",
+         agent cannot call it.\n\n\
+         ### Approval with Plan first\n\n\
+         With Plan first on and no plan from the model, the first step that would \
+         change something is shown for your approval before it runs. Tools marked \
+         read-only below never need it. Every other tool, and every tool an MCP \
+         server adds, counts as changing something.\n\n",
     );
 
     out.push_str("## Index\n\n");
-    for (name, desc, _) in &tools {
+    for Entry {
+        name, description, ..
+    } in &tools
+    {
         out.push_str(&format!(
             "- [`{name}`](#{name}) — {}\n",
-            first_sentence(desc)
+            first_sentence(description)
         ));
     }
     out.push('\n');
     out.push_str("---\n\n");
 
-    for (name, desc, schema) in &tools {
+    for Entry {
+        name,
+        description,
+        input_schema: schema,
+        mutates,
+    } in &tools
+    {
         out.push_str(&format!("## `{name}`\n\n"));
-        out.push_str(&format!("{}\n\n", cell(desc)));
+        out.push_str(&format!("{}\n\n", cell(description)));
+        if !mutates {
+            out.push_str(&format!("{READ_ONLY_LINE}\n\n"));
+        }
 
         let required: Vec<&str> = schema
             .get("required")
@@ -219,6 +254,18 @@ fn render() -> String {
     out
 }
 
+/// The text of `name`'s section in the committed reference.
+fn section_of<'a>(doc: &'a str, name: &str) -> &'a str {
+    let Some(start) = doc.find(&format!("## `{name}`\n")) else {
+        panic!("`{name}` has no section in docs/tools-reference.md");
+    };
+    let section = &doc[start..];
+    match section[1..].find("\n## ") {
+        Some(end) => &section[..end + 1],
+        None => section,
+    }
+}
+
 #[test]
 fn the_tools_reference_matches_the_registry() {
     let generated = render();
@@ -267,7 +314,7 @@ fn the_generator_actually_produces_a_reference() {
     );
 
     let out = render();
-    for (name, _, _) in &tools {
+    for Entry { name, .. } in &tools {
         assert!(
             out.contains(&format!("## `{name}`\n")),
             "`{name}` is registered but has no section in the generated reference"
@@ -282,18 +329,16 @@ fn the_generator_actually_produces_a_reference() {
 fn every_documented_parameter_is_one_the_tool_accepts() {
     let doc = read_doc();
 
-    for (name, _, schema) in tools() {
+    for Entry {
+        name,
+        input_schema: schema,
+        ..
+    } in tools()
+    {
         let Some(props) = schema.get("properties").and_then(Value::as_object) else {
             continue;
         };
-        let Some(start) = doc.find(&format!("## `{name}`\n")) else {
-            panic!("`{name}` has no section in docs/tools-reference.md");
-        };
-        let section = &doc[start..];
-        let section = match section[1..].find("\n## ") {
-            Some(end) => &section[..end + 1],
-            None => section,
-        };
+        let section = section_of(&doc, &name);
 
         for row in section.lines().filter(|l| l.starts_with("| `")) {
             let param = row
@@ -315,4 +360,25 @@ fn every_documented_parameter_is_one_the_tool_accepts() {
             );
         }
     }
+}
+
+/// The reader is told which tools are never held, and only those.
+#[test]
+fn only_read_only_tools_carry_the_read_only_line() {
+    let doc = read_doc();
+    let mut read_only = 0;
+    for Entry { name, mutates, .. } in tools() {
+        let section = section_of(&doc, &name);
+        assert_eq!(
+            section.contains(READ_ONLY_LINE),
+            !mutates,
+            "`{name}`: the reference and `Tool::mutates` disagree about whether \
+             Plan first holds it"
+        );
+        read_only += usize::from(!mutates);
+    }
+    assert!(
+        read_only > 0,
+        "no read-only tool was found; the check is empty"
+    );
 }

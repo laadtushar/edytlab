@@ -85,6 +85,14 @@ function isNotice(e: LogEntry): e is NoticeEntry {
   return e.kind === "notice";
 }
 
+/**
+ * "1 step", "2 steps". A held edit (#415) is usually a single call, and
+ * "1 steps" reads as a bug.
+ */
+function stepCount(n: number): string {
+  return `${n} step${n === 1 ? "" : "s"}`;
+}
+
 const CHAT_HINTS = [
   "make this 6 dB louder",
   "fade out the last 3 seconds",
@@ -387,11 +395,9 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
                   px-3 py-2 text-xs text-[var(--text-dim)]
                 "
               >
-                <span className="font-medium text-[var(--text)]">
-                  Mashup Plan
-                </span>
+                <span className="font-medium text-[var(--text)]">Plan</span>
                 <span className="ml-1.5 font-mono text-[10px] text-[var(--text-faint)]">
-                  ({entry.steps.length} steps)
+                  ({stepCount(entry.steps.length)})
                 </span>
                 <ol className="mt-1.5 space-y-0.5 pl-4 list-decimal">
                   {entry.steps.map((s) => (
@@ -409,10 +415,12 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
             );
           }
           if (isNotice(entry)) {
-            // Amber, not red: nothing failed for the user — the turn is
-            // going ahead. What they have lost is the checkpoint they
-            // asked for, and the point is that they find that out from
-            // the transcript rather than by noticing its absence (#267).
+            // Amber, not red: nothing failed for the user. No plan
+            // arrived, and the point is that they find that out from the
+            // transcript rather than by noticing its absence (#267). With
+            // Plan first on the notice goes on to say the first edit will
+            // be shown for approval (#415); otherwise it says the turn is
+            // continuing without a checkpoint.
             return (
               <div
                 key={entry.id}
@@ -496,10 +504,10 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
             <div className="flex items-center gap-2">
               <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)] shadow-[0_0_8px_var(--accent-glow)]" />
               <span className="font-medium text-sm text-[var(--text)]">
-                Mashup Plan
+                Plan
               </span>
               <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-dim)]">
-                {pendingPlan.steps.length} steps
+                {stepCount(pendingPlan.steps.length)}
               </span>
             </div>
             <div className="flex gap-1.5">

@@ -36,6 +36,7 @@ vi.mock("../../lib/tauri-bridge", () => ({
   onAgentDone: vi.fn(unlisten),
   onPlan: vi.fn(unlisten),
   onPlanUnavailable: vi.fn(unlisten),
+  onPlanRejected: vi.fn(unlisten),
 }));
 
 import { Chat } from "../Chat";

@@ -199,9 +199,19 @@ const commands = [
         desc: "Send a user message. Agent runs async; emits events during processing.",
       },
       {
-        name: "approvePlan()",
+        name: "approvePlan(steps?)",
         returns: "void",
-        desc: "In mashup mode: approve the agent's proposed plan to proceed.",
+        desc: "Approve what onPlan showed (the agent's plan, or its first edit when Plan first is on and it wrote no plan). Pass edited step descriptions to change it instead: a plan follows the revision, a held edit is not run and the agent proposes again.",
+      },
+      {
+        name: "rejectPlan()",
+        returns: "void",
+        desc: "Decline what onPlan showed. The turn ends and nothing is applied; for a held edit, the agent is told you declined.",
+      },
+      {
+        name: "setPlanFirst(enabled)",
+        returns: "void",
+        desc: "With Plan first on, no edit runs without your approval: the plan is shown, or, with no plan, the first step that would change the session. Calls that only read the session are never held.",
       },
     ],
   },
@@ -430,8 +440,18 @@ const events = [
   },
   {
     name: "onPlan(cb)",
-    payload: "steps: object[]",
-    desc: "Mashup mode: agent proposed a multi-step plan before execution.",
+    payload: "steps: { step, tool, description }[]",
+    desc: "Something needs approval before it runs: the agent's plan, or with Plan first on and no plan, its first edit shown as the exact tool calls and arguments. The turn waits for approvePlan() or rejectPlan().",
+  },
+  {
+    name: "onPlanUnavailable(cb)",
+    payload: "reason: string, firstEditHeld: boolean",
+    desc: "A plan was asked for and none arrived. firstEditHeld says whether the first edit will be held for approval (Plan first on) or the turn proceeds with no gate.",
+  },
+  {
+    name: "onPlanRejected(cb)",
+    payload: "none",
+    desc: "The user declined a plan or a held edit. The turn ends with no onAgentDone.",
   },
   {
     name: "onMarkerChanged(cb)",

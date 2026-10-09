@@ -42,6 +42,11 @@ impl Tool for ExportLabelsTool {
         )
     }
 
+    // Read-only: it returns the label text and writes no file, despite the name.
+    fn mutates(&self) -> bool {
+        false
+    }
+
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
         let _args: Args = match serde_json::from_value(args) {
             Ok(a) => a,
