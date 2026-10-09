@@ -49,14 +49,7 @@ import {
   setTrackSoloed,
 } from "./lib/tauri-bridge";
 import { save } from "@tauri-apps/plugin-dialog";
-import {
-  applyUndo,
-  applyRedo,
-  isUndoChord,
-  isRedoChord,
-  isTextEntry,
-} from "./lib/undoRedo";
-import { undoTarget } from "./lib/headTrail";
+import { isUndoChord, isRedoChord, isTextEntry } from "./lib/undoRedo";
 import { isDerivedAudioPath } from "./lib/derivedAudio";
 import { mixIsStale } from "./lib/mixState";
 import { scheduledTake, startTake, stopTake } from "./lib/recording";
@@ -134,7 +127,17 @@ function isApiKeyError(message: string): boolean {
 }
 
 function App() {
-  const { renderHead, head, setHeadLocal, trail, stepBack, stepForward } = useSession();
+  const {
+    renderHead,
+    head,
+    setHeadLocal,
+    resetHead,
+    trail,
+    peekUndo,
+    peekRedo,
+    stepBack,
+    stepForward,
+  } = useSession();
   // Two different things used to share one variable, and the collision
   // is why the mixer is inaudible (#155).
   //
@@ -228,7 +231,6 @@ function App() {
   // used to infer "ready" from a path alone — from a path having been
   // *chosen* — so it reported ready for a file that 404'd.
   const [audioLoadError, setAudioLoadError] = useState<string | null>(null);
-  const [redoStack, setRedoStack] = useState<string[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const chatRef = useRef<ChatHandle>(null);
   const [exporting, setExporting] = useState(false);
@@ -269,28 +271,26 @@ function App() {
   const runHeadMove = headMove.run;
 
   const handleUndo = useCallback(async () => {
-    if (!head) return;
     await runHeadMove(async () => {
       try {
-        // Where the user came from. The node's stored parent is only
-        // right while no edit has returned to an earlier state, so it is
-        // asked for only when the trail has nothing left (#398).
-        let target = undoTarget(trail, head, null);
-        if (target === null) {
-          const node = await getNode(head);
-          target = node.parent ?? null;
-        }
-        const result = applyUndo(head, target, redoStack);
-        if (!result) return;
-        await setHeadTo(result.head);
-        stepBack(result.head);
-        setRedoStack(result.redoStack);
+        // Where the user came from, read from the latest state and not
+        // from this render: a key pressed right after an edit must not
+        // undo to where the render before it was (#398).
+        const step = peekUndo();
+        if (!step) return;
+        // The node's stored parent is right only while no edit has
+        // returned to an earlier state, so it is asked for only when the
+        // trail has nothing left.
+        const to = step.to ?? (await getNode(step.from)).parent;
+        if (!to) return;
+        await setHeadTo(to);
+        stepBack(step.from, to);
         await refreshTracks();
       } catch (err) {
         setRenderError(String(err));
       }
     });
-  }, [head, trail, redoStack, stepBack, runHeadMove]);
+  }, [peekUndo, stepBack, runHeadMove]);
 
   // Whenever the head moves — an edit, an undo, a project opening — the
   // toggle re-reads the session rather than trusting what it last set.
@@ -324,20 +324,18 @@ function App() {
   );
 
   const handleRedo = useCallback(async () => {
-    if (!head) return;
     await runHeadMove(async () => {
       try {
-        const result = applyRedo(redoStack);
-        if (!result) return;
-        await setHeadTo(result.head);
-        stepForward(result.head);
-        setRedoStack(result.redoStack);
+        const step = peekRedo();
+        if (!step) return;
+        await setHeadTo(step.to);
+        stepForward(step.from, step.to);
         await refreshTracks();
       } catch (err) {
         setRenderError(String(err));
       }
     });
-  }, [head, redoStack, stepForward, runHeadMove]);
+  }, [peekRedo, stepForward, runHeadMove]);
 
   // Window-level keyboard transport. Active whenever the user isn't
   // typing into a chat input / settings field. Space toggles
@@ -725,15 +723,18 @@ function App() {
       if (view.head) {
         try {
           await setHeadTo(view.head);
-          setHeadLocal(view.head);
+          resetHead(view.head);
           return;
         } catch {
           // Stale head: fall through to whatever the store reported.
         }
       }
-      if (fallbackHead) setHeadLocal(fallbackHead);
+      // Always, including `null`: the project just opened has its own
+      // head and its own history, and neither the old project's head nor
+      // the path taken through it may carry over (#398).
+      resetHead(fallbackHead);
     },
-    [applyView, setHeadLocal],
+    [applyView, resetHead],
   );
 
   /**
@@ -1068,7 +1069,6 @@ function App() {
     let unlisten: (() => void) | null = null;
     let cancelled = false;
     onNodeCreated(async (_nodeId: string) => {
-      setRedoStack([]); // new branch clears forward history
       setGraphRefresh((n) => n + 1);
       await refreshTracks();
       // The session moved, so any previously rendered mix is stale.
@@ -1242,6 +1242,9 @@ function App() {
     setCompareMode(null);
   }, [compareMode, setHeadLocal]);
 
+  // The path taken, for the history graph to draw (#398).
+  const historyPath = useMemo(() => (head ? [...trail, head] : trail), [trail, head]);
+
   const handleCloseShortcuts = useCallback(() => setShowShortcuts(false), []);
 
   // Not while the panel is open (#250). `keyConfigured` now updates on a
@@ -1398,6 +1401,7 @@ function App() {
                 onSelectNode={handleSelectGraphNode}
                 onCompareNodes={handleCompareNodes}
                 refreshKey={graphRefresh}
+                path={historyPath}
               />
             )}
           </div>
