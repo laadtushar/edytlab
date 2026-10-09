@@ -8,18 +8,34 @@
 // x-api-key. Nothing here reads, stores or logs a header or a body: only
 // token counts, the model and the status are kept, in $OUT/claude-usage.jsonl.
 //
-// Cost is an upper bound. Every input token is priced as fresh input, at
-// the highest rate of the models the app uses, so the real bill is lower.
+// Cost is an upper bound. Every input token, cached or not, is priced as
+// fresh input at the rate of the model the request named, and a model not
+// in the table at the highest rate in it, so the real bill is lower.
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { createServer } from "node:http";
 
 const PORT = Number(process.env.PORT ?? 8788);
 const BUDGET = Number(process.env.BUDGET_USD ?? 12);
 const OUT = process.env.OUT ?? "/tmp/edytlab-native";
-const IN_PER_M = 5;
-const OUT_PER_M = 25;
+// $ per million tokens, input and output, by model id. A flat rate priced
+// Fable at half its cost, which let a Fable run spend twice its budget.
+const RATES = [
+  [/^claude-(fable|mythos)-5/, 10, 50],
+  [/^claude-opus-5-5/, 4, 20],
+  [/^claude-opus-[45]/, 5, 25],
+  [/^claude-sonnet-5/, 2, 10],
+  [/^claude-sonnet-4/, 3, 15],
+  [/^claude-haiku-5/, 0.1, 0.5],
+  [/^claude-haiku-4/, 1, 5],
+];
+const HIGHEST = [10, 50];
+const rateOf = (model) => RATES.find(([re]) => re.test(model ?? ""))?.slice(1) ?? HIGHEST;
+const costOf = (e) => {
+  const [inRate, outRate] = rateOf(e.model);
+  return ((e.input + e.cache_read + e.cache_create) * inRate + e.output * outRate) / 1e6;
+};
 
-const totals = { requests: 0, input: 0, output: 0, cache_read: 0, cache_create: 0, refused: 0 };
+const totals = { requests: 0, input: 0, output: 0, cache_read: 0, cache_create: 0, refused: 0, usd: 0 };
 // The budget is for the whole run, across restarts of this proxy: start
 // from what earlier processes recorded.
 if (existsSync(`${OUT}/claude-usage.jsonl`)) {
@@ -31,9 +47,10 @@ if (existsSync(`${OUT}/claude-usage.jsonl`)) {
     totals.output += e.output;
     totals.cache_read += e.cache_read;
     totals.cache_create += e.cache_create;
+    totals.usd += costOf(e);
   }
 }
-const cost = () => (totals.input + totals.cache_read + totals.cache_create) * (IN_PER_M / 1e6) + totals.output * (OUT_PER_M / 1e6);
+const cost = () => totals.usd;
 
 function record(entry) {
   appendFileSync(`${OUT}/claude-usage.jsonl`, `${JSON.stringify(entry)}\n`);
@@ -129,6 +146,7 @@ const server = createServer(async (req, res) => {
   totals.output += used.output;
   totals.cache_read += used.cache_read;
   totals.cache_create += used.cache_create;
+  totals.usd += costOf({ model, ...used });
   record({ t: new Date().toISOString(), path: req.url, model, stream, status, ...used });
 });
 // The app keeps connections in a pool and reuses them after a model turn
