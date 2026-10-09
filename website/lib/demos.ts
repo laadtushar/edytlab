@@ -34,15 +34,22 @@ export const demos: readonly Demo[] = [
     slug: "dj-beatmatched-transition",
     title: "Beatmatch and blend two tracks",
     caption:
-      "A DJ asks for both tracks' tempos, and the incoming track is time-stretched to match. It is started 8 bars before the outgoing track ends, the two are crossfaded, and a low-pass filter is put on the outgoing track over the overlap. The mix is compressed, limited at −1 dB, brought to −14 LUFS and exported as a WAV. Along the way Claude points out what it would change: at the 16 s start the bars land a beat apart. Shown at 1.6× speed.",
-    duration: "2:58",
+      "A DJ asks what they are working with: both tracks are in F major, at 120 and 128 BPM. Neon Rush is time-stretched to Midnight Drive's 120 BPM and started at 16 s, under Midnight Drive's last 8 bars, and Claude points out that its first downbeat sits half a second into the file and offers to nudge it. Midnight Drive fades out under a 2 kHz low-pass while Neon Rush fades in, then the mix is mastered for streaming and exported as a 50-second WAV at −14 LUFS, peaking at −1 dBFS. Waits for Claude are sped up; every playback is in real time, with sound.",
+    duration: "3:08",
   },
   {
     slug: "dj-extended-club-intro",
     title: "Extend an intro for mixing",
     caption:
-      "A DJ asks for Solar Flare's tempo and bar length, then has the drums-only first 8 bars repeated so the intro runs 16 bars, long enough to mix in over. A high-pass filter goes on the new intro, the first 4 bars fade in, and the track is exported as a WAV. You hear the original intro first, then the new one, then the drop at 0:31. Waits for Claude are sped up; every playback is in real time, with sound.",
-    duration: "2:26",
+      "A DJ asks for Solar Flare's tempo and bar length without changing anything: 124 BPM, a 1.935-second bar, the first downbeat at 0.476 s. The drums-only first 8 bars are copied from that downbeat and spliced in after themselves, so the intro runs 16 bars. A 150 Hz high-pass holds the low end back until the drop on bar 17, the first 4 bars fade in, and the track is exported as a WAV; Claude flags that it peaks at 0 dBFS with no headroom. You hear the new intro, then the drop at 0:31. Waits for Claude are sped up; every playback is in real time, with sound.",
+    duration: "1:56",
+  },
+  {
+    slug: "dj-mini-mix",
+    title: "A three-track mini-mix",
+    caption:
+      "A DJ builds a warm-up mix at 124 BPM. Midnight Drive and Neon Rush are time-stretched to 124, keeping their pitch. Claude analyses all three and sequences them so each comes in 4 bars before the one before it ends, with a crossfade over each overlap, and flags that Solar Flare's 16½ bars put the last entry half a bar off its beat grid. Each track is brought to about −14 LUFS, then Claude renders the three into a Master track with a limiter at −1 dBFS and mutes the originals. You hear both transitions, then the mix is exported as an 80-second WAV. Waits for Claude are sped up; every playback is in real time, with sound.",
+    duration: "2:18",
   },
 ];
 

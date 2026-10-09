@@ -82,9 +82,10 @@ Paths are relative to the repo root; URLs resolve once these files are on
 | Icon 512x512 | `website/public/icon-512.png` | <https://edytlab.com/icon-512.png> |
 | Icon 192x192 | `website/public/icon-192.png` | <https://edytlab.com/icon-192.png> |
 | App icon set | `apps/desktop/src-tauri/icons/` | <https://github.com/laadtushar/edytlab/tree/main/apps/desktop/src-tauri/icons> |
-| Demo video: beatmatch and blend two tracks (MP4, 2:58, shown at 1.6x speed) | `website/public/demos/dj-beatmatched-transition.mp4` | <https://edytlab.com/demos/dj-beatmatched-transition.mp4> |
+| Demo video: beatmatch and blend two tracks (MP4, 3:08, with sound) | `website/public/demos/dj-beatmatched-transition.mp4` | <https://edytlab.com/demos/dj-beatmatched-transition.mp4> |
 | Demo video poster (JPG, 1280x776) | `website/public/demos/dj-beatmatched-transition.jpg` | <https://edytlab.com/demos/dj-beatmatched-transition.jpg> |
-| Demo video: extended intro, with sound | `https://edytlab.com/demos/dj-extended-club-intro.mp4` | Add once PR #432 is merged |
+| Demo video: extend an intro for mixing (MP4, 1:56, with sound) | `website/public/demos/dj-extended-club-intro.mp4` | <https://edytlab.com/demos/dj-extended-club-intro.mp4> |
+| Demo video: a three-track mini-mix (MP4, 2:18, with sound) | `website/public/demos/dj-mini-mix.mp4` | <https://edytlab.com/demos/dj-mini-mix.mp4> |
 
 Screenshots of the interface are not in the repository. Take your own from the
 release build, or ask via an issue.
@@ -97,12 +98,14 @@ background, and write the name in lowercase: edytlab.
 Quote only these. They are the captions the website shows next to the
 recording.
 
-> A DJ asks for both tracks' tempos, and the incoming track is time-stretched to
-> match. It is started 8 bars before the outgoing track ends, the two are
-> crossfaded, and a low-pass filter is put on the outgoing track over the
-> overlap. The mix is compressed, limited at -1 dB, brought to -14 LUFS and
-> exported as a WAV. Along the way Claude points out what it would change: at the
-> 16 s start the bars land a beat apart. Shown at 1.6x speed.
+> A DJ asks what they are working with: both tracks are in F major, at 120 and
+> 128 BPM. Neon Rush is time-stretched to Midnight Drive's 120 BPM and started at
+> 16 s, under Midnight Drive's last 8 bars, and Claude points out that its first
+> downbeat sits half a second into the file and offers to nudge it. Midnight
+> Drive fades out under a 2 kHz low-pass while Neon Rush fades in, then the mix
+> is mastered for streaming and exported as a 50-second WAV at -14 LUFS, peaking
+> at -1 dBFS. Waits for Claude are sped up; every playback is in real time, with
+> sound.
 
 ## Short bios by length
 

@@ -38,7 +38,7 @@ export const octoberPosts: BlogPost[] = [
     body: [
       {
         type: "p",
-        text: "A smooth transition between two tracks sounds like one gesture, but it is a short list of exact operations: find both tempos, make them agree, line the beats up, overlap the ends, take something away from the outgoing track, and master the result. Each of those is a tool edytlab already has, so you can ask for them in plain sentences. This post follows the [beatmatch demo](/#demos) on the home page (2:58, shown at 1.6× speed) and gives you the sentence to type at every step.",
+        text: "A smooth transition between two tracks sounds like one gesture, but it is a short list of exact operations: find both tempos, make them agree, line the beats up, overlap the ends, take something away from the outgoing track, and master the result. Each of those is a tool edytlab already has, so you can ask for them in plain sentences. This post follows the [beatmatch demo](/#demos) on the home page (3:08, with sound, waits sped up) and gives you the sentence to type at every step.",
       },
       {
         type: "callout",
@@ -189,7 +189,7 @@ export const octoberPosts: BlogPost[] = [
     body: [
       {
         type: "p",
-        text: "DJs like long, sparse intros. They give the previous track time to leave, and they make the start of a track easy to beat-match. Plenty of tracks already open with a few bars of drums and nothing else, but not many open with enough of them. If yours does, you can build a longer intro out of its own first bars, and in edytlab that is a short conversation. The [extended-intro demo](/#demos) on the home page (2:26, with sound) shows the whole thing on one track; this post goes through it a step at a time and takes it a little further.",
+        text: "DJs like long, sparse intros. They give the previous track time to leave, and they make the start of a track easy to beat-match. Plenty of tracks already open with a few bars of drums and nothing else, but not many open with enough of them. If yours does, you can build a longer intro out of its own first bars, and in edytlab that is a short conversation. The [extended-intro demo](/#demos) on the home page (1:56, with sound) shows the whole thing on one track; this post goes through it a step at a time and takes it a little further.",
       },
       {
         type: "callout",

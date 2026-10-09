@@ -81,7 +81,7 @@ nobody thinks this runs live.
 > Disclosure: I'm the developer. It's free and open source.
 >
 > This is for prep, not for playing live. You load two tracks and describe the
-> transition. In the recording on the site (3 minutes, shown at 1.6x), the
+> transition. In the recording on the site (3 minutes, with sound), the
 > request is: get both tracks' tempos, time-stretch the incoming track to match,
 > start it 8 bars before the outgoing track ends, crossfade, put a low-pass on
 > the outgoing track over the overlap, compress and limit the mix, bring it to
