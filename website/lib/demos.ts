@@ -5,7 +5,8 @@
  *
  * Each entry names two files by its slug, both in `public/demos/`:
  *
- * - `<slug>.mp4` — H.264, so it plays wherever `<video>` does;
+ * - `<slug>.mp4` — H.264 video with AAC sound, so it plays wherever
+ *   `<video>` does;
  * - `<slug>.jpg` — the poster, shown until the reader presses play.
  *   With `preload="none"` it is the only part of the demo a visitor
  *   downloads unasked.
@@ -35,6 +36,13 @@ export const demos: readonly Demo[] = [
     caption:
       "A DJ asks for both tracks' tempos, and the incoming track is time-stretched to match. It is started 8 bars before the outgoing track ends, the two are crossfaded, and a low-pass filter is put on the outgoing track over the overlap. The mix is compressed, limited at −1 dB, brought to −14 LUFS and exported as a WAV. Along the way Claude points out what it would change: at the 16 s start the bars land a beat apart. Shown at 1.6× speed.",
     duration: "2:58",
+  },
+  {
+    slug: "dj-extended-club-intro",
+    title: "Extend an intro for mixing",
+    caption:
+      "A DJ asks for Solar Flare's tempo and bar length, then has the drums-only first 8 bars repeated so the intro runs 16 bars, long enough to mix in over. A high-pass filter goes on the new intro, the first 4 bars fade in, and the track is exported as a WAV. You hear the original intro first, then the new one, then the drop at 0:31. Waits for Claude are sped up; every playback is in real time, with sound.",
+    duration: "2:26",
   },
 ];
 
