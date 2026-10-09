@@ -18,6 +18,7 @@ import { pointAt, press, rest } from "./human.mjs";
 
 const KEY = process.env.ANTHROPIC_E2E_KEY;
 const MODEL = process.env.DEMO_MODEL ?? "claude-opus-5-5";
+const EFFORT = process.env.DEMO_EFFORT; // low | medium | high | xhigh | max
 const MUSIC = "/home/dj/Music";
 
 // How fast each kind of moment plays in the finished video.
@@ -90,7 +91,7 @@ function library(ctx, folder, ...keys) {
 
 async function start(ctx, { dir, files }, title) {
   const { d } = ctx;
-  await onboardClaude(ctx, { model: MODEL });
+  await onboardClaude(ctx, { model: MODEL, effort: EFFORT });
   await d.until(async () => (await d.count("[data-testid='settings']")) === 0, { timeout: 60000, label: "the welcome to close" });
   assert((await d.invoke("get_active_provider")) === "anthropic", "Anthropic is active");
   await sleep(800);
@@ -189,6 +190,22 @@ const mmss = (s) => {
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
 };
 
+/** Check a placement the way a DJ would look at the timeline: if Claude
+ * is off, say so once, with the numbers, and let it fix it on camera.
+ * `read` returns the values to check; `off` returns a correction prompt
+ * when they are wrong, or null when they are right. Asserts after one
+ * correction, so a demo can never publish a wrong edit. */
+async function settle(ctx, caption, read, off, describe) {
+  const first = await read();
+  const ask = off(first);
+  if (!ask) return first;
+  ctx.note(`${caption}: correction needed (${describe(first)})`);
+  await step(ctx, caption, ask);
+  const second = await read();
+  assert(!off(second), `${caption} — still off after one correction (${describe(second)})`);
+  return second;
+}
+
 const demos = [
   {
     id: "8-demo-dj-beatmatched-transition",
@@ -210,8 +227,13 @@ const demos = [
       assert(Math.abs(after - before * (128 / 120)) < 0.4, `Neon Rush now runs at 120 BPM (${before.toFixed(2)} s to ${after.toFixed(2)} s)`);
 
       await step(ctx, "3 · Line up the overlap", "Start Neon Rush at 16 seconds, so it plays under the last 8 bars of Midnight Drive.");
-      const startSec = (await tracks(ctx))[1].clips[0].start_sec;
-      assert(Math.abs(startSec - 16) < 0.06, `Neon Rush starts at 16 s (${startSec})`);
+      await settle(
+        ctx,
+        "Nudge it onto the bar",
+        async () => (await tracks(ctx))[1].clips[0].start_sec,
+        (s) => (Math.abs(s - 16) < 0.06 ? null : `Neon Rush starts at ${s.toFixed(2)} s. Move it so it starts at exactly 16.00 s.`),
+        (s) => `Neon Rush at ${s.toFixed(3)} s`,
+      );
 
       const blend = await step(
         ctx,
@@ -222,11 +244,11 @@ const demos = [
 
       await listen(ctx, "Listen: the transition, from 0:12", 12, 16);
 
-      await step(
-        ctx,
-        "5 · Master and export",
-        `Master the mix for streaming: compress it gently, put a limiter on the master at -1 dB, normalize it to -14 LUFS, then export it as a WAV file to ${out}`,
-      );
+      // Two requests, not one: mastering alone is several edits, and
+      // splitting keeps each request well inside the per-request tool
+      // budget (#439).
+      await step(ctx, "5 · Master for streaming", "Master the mix for streaming: compress it gently, put a limiter on the master at -1 dB, and normalize it to -14 LUFS.");
+      await step(ctx, "6 · Export", `Export the mix as a WAV file to ${out}`);
       const seconds = exported(out, { about: 16 + after });
       ctx.note(`exported ${basename(out)}: ${seconds.toFixed(2)} s`);
 
@@ -297,14 +319,36 @@ const demos = [
         "2 · Sequence with 4-bar overlaps",
         "Sequence them: Midnight Drive first, then Solar Flare starting 4 bars before Midnight Drive ends, then Neon Rush starting 4 bars before Solar Flare ends. Crossfade each overlap.",
       );
-      const all2 = await tracks(ctx);
-      const t2 = [named(all2, "midnight"), named(all2, "solar"), named(all2, "neon")];
       const bar = 4 * (60 / 124);
       const endOf = (t) => t.clips.reduce((a, c) => Math.max(a, c.start_sec + c.length_sec), 0);
       const startOf = (t) => Math.min(...t.clips.map((c) => c.start_sec));
+      const readMix = async () => {
+        const all = await tracks(ctx);
+        return [named(all, "midnight"), named(all, "solar"), named(all, "neon")];
+      };
+      // Where each track should come in, from where the one before ends:
+      // 4 bars (7.74 s at 124 BPM) before it.
+      const targets = (t) => {
+        const solar = endOf(t[0]) - 4 * bar;
+        const neon = solar + (endOf(t[1]) - startOf(t[1])) - 4 * bar;
+        return { solar, neon };
+      };
+      const t2 = await settle(
+        ctx,
+        "Nudge the overlaps onto the bar",
+        readMix,
+        (t) => {
+          const want = targets(t);
+          const fixes = [];
+          if (Math.abs(startOf(t[1]) - want.solar) >= 0.3) fixes.push(`Solar Flare at ${want.solar.toFixed(2)} s`);
+          if (Math.abs(startOf(t[2]) - want.neon) >= 0.3) fixes.push(`Neon Rush at ${want.neon.toFixed(2)} s`);
+          return fixes.length
+            ? `The overlaps are off. Each track should come in 4 bars (${(4 * bar).toFixed(2)} s) before the previous one ends, so start ${fixes.join(" and ")}, and keep the crossfades.`
+            : null;
+        },
+        (t) => t.map((x) => `${x.name} ${startOf(x).toFixed(2)}-${endOf(x).toFixed(2)} s`).join("; "),
+      );
       ctx.note(`starts: ${t2.map((t) => `${t.name} ${startOf(t).toFixed(2)}-${endOf(t).toFixed(2)} s`).join("; ")}`);
-      assert(Math.abs(startOf(t2[1]) - (endOf(t2[0]) - 4 * bar)) < 0.3, `Solar Flare comes in 4 bars before Midnight Drive ends (${startOf(t2[1]).toFixed(2)} s)`);
-      assert(Math.abs(startOf(t2[2]) - (endOf(t2[1]) - 4 * bar)) < 0.3, `Neon Rush comes in 4 bars before Solar Flare ends (${startOf(t2[2]).toFixed(2)} s)`);
 
       const level = await step(ctx, "3 · Match loudness, limit the master", "Match their loudness so no track jumps out: bring each track to the same level, around -14 LUFS, and put a limiter on the master at -1 dB.");
       const node = await ctx.d.invoke("get_node", { id: await ctx.d.invoke("get_session_head") });
