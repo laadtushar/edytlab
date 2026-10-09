@@ -179,17 +179,17 @@ export const octoberPosts: BlogPost[] = [
     title: "Make a Mixable Extended Intro",
     date: "2026-10-09",
     description:
-      "Turn a track's drums-only opening into a longer, DJ-friendly intro: copy, trim, repeat, high-pass, fade in and export. A prompt for every step.",
+      "Turn a track's drums-only opening into a longer, DJ-friendly intro: copy the bars, paste them back, high-pass, fade in and export. A prompt for every step.",
     coverAlt:
-      "Four identical drum-bar blocks in a row, a rising fade-in ramp over the first two, and a high-pass curve beside them",
+      "Four identical drum-bar blocks in a row, a rising fade-in ramp over the first two, and a loop arrow beneath them",
     excerpt:
-      "Many dance tracks open with a few bars of drums and nothing else. Repeat those bars, thin them out and fade them in, and the track gains an intro a DJ can mix over.",
+      "Many dance tracks open with a few bars of drums and nothing else. Paste those bars back in at the start, thin them out and fade them in, and the track gains an intro a DJ can mix over.",
     readTime: 5,
     tags: ["extended intro", "DJ edit", "loop", "tutorial"],
     body: [
       {
         type: "p",
-        text: "DJs like long, sparse intros. They give the previous track time to leave, and they make the start of a track easy to beat-match. Plenty of tracks already open with a few bars of drums and nothing else, but not many open with enough of them. If yours does, you can build a longer intro out of its own first bars, and in edytlab that is a short conversation.",
+        text: "DJs like long, sparse intros. They give the previous track time to leave, and they make the start of a track easy to beat-match. Plenty of tracks already open with a few bars of drums and nothing else, but not many open with enough of them. If yours does, you can build a longer intro out of its own first bars, and in edytlab that is a short conversation. The [extended-intro demo](/#demos) on the home page (2:26, with sound) shows the whole thing on one track; this post goes through it a step at a time and takes it a little further.",
       },
       {
         type: "callout",
@@ -198,11 +198,7 @@ export const octoberPosts: BlogPost[] = [
       { type: "h2", text: "What you are building" },
       {
         type: "p",
-        text: "The plan has three parts: copy the track and keep only the drums-only bars, repeat that loop until it is as long as you like, and place the original track right after it. Along the way you thin the intro out with a high-pass filter and fade it in, so it sits quietly under the end of whatever played before.",
-      },
-      {
-        type: "p",
-        text: "You do the repeating on a short copy, not on the track itself. `repeat_selection` appends its copies after the end of a track's audio, so the loop has to be the whole of the track it is repeated on.",
+        text: "The plan is short: copy the drums-only bars to the clipboard, paste them back in at the start as many times as you like, thin the new intro out with a high-pass filter, fade it in, and export. Pasting is a splice. The audio after the insertion point shifts later by exactly the length you pasted, so the track starts later by a whole number of bars and the join stays on the grid.",
       },
       { type: "h2", text: "Step 1: Find the bars" },
       {
@@ -213,87 +209,78 @@ export const octoberPosts: BlogPost[] = [
         type: "p",
         text: "`analyze_track` returns the BPM, the downbeats and the sections. In 4/4 a bar lasts 4 × 60 ÷ BPM seconds. At 120 BPM that is 2 seconds, so eight bars are 16 seconds. Those are example numbers; use your track's. Section detection is a guide, not an oracle: play the opening and confirm by ear that nothing but drums happens in the bars you plan to loop. A loop that includes the first bass note repeats the bass note.",
       },
-      { type: "h2", text: "Step 2: Copy the track and keep the loop" },
+      { type: "h2", text: "Step 2: Copy the bars" },
       {
         type: "prompt",
-        text: "Duplicate the track, then on the copy keep only the first 8 bars, from 0 to 16 seconds.",
+        text: "Copy the first 8 bars of the track, from 0 to 16 seconds.",
       },
       {
         type: "p",
-        text: "`duplicate_track` makes an exact copy as a new track, and `trim` keeps a range and discards the rest. Both are nodes on the session graph, so the original is untouched. Cut on the bar line. A loop that starts or ends slightly off the downbeat will stumble every time it comes around, so ask the agent to use the downbeat positions from the analysis.",
+        text: "`copy_region` puts a time range of a track on an in-memory clipboard and leaves the session alone, so this step adds nothing to the graph. Cut on the bar line. A loop that starts or ends slightly off the downbeat will stumble every time it comes around, so ask the agent to take the bar boundaries from the analysis rather than from a rounded guess.",
       },
-      { type: "h2", text: "Step 3: Repeat the loop" },
-      { type: "prompt", text: "Repeat those 8 bars 3 more times." },
-      {
-        type: "p",
-        text: "The intro track now holds four passes of the loop: 32 bars, or 64 seconds at 120 BPM. Three more is a choice, not a rule. Ask for a different count for a longer or shorter intro.",
-      },
-      { type: "h2", text: "Step 4: Thin it out and fade it in" },
+      { type: "h2", text: "Step 3: Paste them in at the start" },
       {
         type: "prompt",
-        text: "High-pass the first 24 bars of the intro track at 150 Hz and leave the last 8 bars full range.",
+        text: "Paste the copied bars at the very start of the track, three times.",
       },
       {
         type: "p",
-        text: "Taking the low end out keeps the intro from piling bass and kick weight on top of the track you are mixing out of. Bringing it back for the last eight bars is the cue that the track is about to start. `high_pass_filter` takes a cutoff and an optional start and end time, and the cutoff is fixed across that range. 150 Hz is a starting point. To find yours without committing, audition a few:",
+        text: "`paste_region` takes an insertion point in seconds and splices the clipboard in there, shifting everything after it to the right. Pasting at 0 puts the new bars in front of the original opening. At 120 BPM each paste adds 16 seconds, so three pastes add 48 seconds and the intro runs 32 bars: 24 pasted ones, then the original eight. The demo pastes once, for a 16-bar intro. Three is a choice, not a rule.",
       },
+      {
+        type: "p",
+        text: "Each paste is its own node in the session graph, so undo takes them off one at a time, and you can stop at whatever length sounds right. There is also `repeat_selection`, but it appends its copies to the end of a track's audio. That suits looping a tail, not lengthening an intro.",
+      },
+      { type: "h2", text: "Step 4: Thin the new intro out" },
       {
         type: "prompt",
-        text: "Audition a 200 Hz high-pass on the intro track from 0 to 10 seconds.",
+        text: "High-pass the new intro, the first 24 bars, at 150 Hz.",
       },
       {
         type: "p",
-        text: "`audition_effect` plays a few seconds with the effect added and creates no node. Once you have a cutoff you like, ask for the real thing, then the fade:",
-      },
-      {
-        type: "prompt",
-        text: "Fade the intro track in over the first 4 bars.",
-      },
-      {
-        type: "p",
-        text: "`fade` is linear, in or out, over a range you give it. Four bars at 120 BPM is 8 seconds.",
-      },
-      { type: "h2", text: "Step 5: Move the original in after it" },
-      {
-        type: "prompt",
-        text: "Move the original track so it starts right after the intro, at 64 seconds.",
-      },
-      {
-        type: "p",
-        text: "`time_shift` moves a whole track later by a number of seconds. The intro is a whole number of bars long and the original starts on a downbeat, so the join stays on the grid. The original brings its own opening bars with it, so the drums-only stretch runs a little longer than your 32 bars. If you would rather not hear the loop twice, ask the agent to cut the original's first 8 bars with `cut_range` before moving it. It still goes in at 64 seconds.",
-      },
-      { type: "h2", text: "Step 6: Check the join, then export" },
-      {
-        type: "p",
-        text: "Play across the join and tell the agent what you hear, in plain words. If the intro sits quieter than the track, say so:",
+        text: "Taking the low end out keeps the intro from piling bass and kick weight on top of the track you are mixing out of. Leaving the last eight bars, the track's own opening, full range brings the low end back as the cue that the track is about to start. `high_pass_filter` takes a cutoff and an optional start and end time, and the cutoff is fixed across that range. 150 Hz is a starting point. To find yours without committing, audition a few:",
       },
       {
         type: "prompt",
-        text: "The intro is quieter than the track. Raise the intro track by 2 dB.",
+        text: "Audition a 200 Hz high-pass on the track from 0 to 10 seconds.",
       },
       {
         type: "p",
-        text: "When it sounds right, mix down and render. You can do it in one message:",
+        text: "`audition_effect` plays a few seconds with the effect added and creates no node. Once you have a cutoff you like, ask for the real thing.",
+      },
+      { type: "h2", text: "Step 5: Fade it in" },
+      {
+        type: "prompt",
+        text: "Fade the track in over the first 4 bars.",
+      },
+      {
+        type: "p",
+        text: "`fade` is linear, in or out, over a range you give it. Four bars at 120 BPM is 8 seconds. The fade is what lets the intro slide in under the end of the previous track instead of arriving as a hard edge.",
+      },
+      { type: "h2", text: "Step 6: Listen, then export" },
+      {
+        type: "p",
+        text: "Play the start, then the join at the end of the new bars, then the drop. In the demo you hear the original intro first, then the new one, then the drop. If something is off, say what you hear in plain words (“the join clicks”, “the filter comes off too early”) and the agent will adjust the range or cutoff. When it sounds right:",
       },
       {
         type: "prompt",
-        text: "Mix both tracks down to a new track, mute the originals, normalize the loudness to -14 LUFS and export a WAV to /Users/me/Desktop/extended-intro.wav.",
+        text: "Export the track as a WAV to /Users/me/Desktop/extended-intro.wav.",
       },
       {
         type: "p",
-        text: "That is `mix_to_new_track`, `mute_track`, `normalize_loudness` and `render_final`. If the track needs a limiter first to reach its target, the loudness tool will say how far short it fell. The [beatmatch walkthrough](/blog/beatmatch-and-blend-two-tracks) covers that order in more detail.",
+        text: "`render_final` also writes FLAC and MP3. A DJ edit usually keeps the level of the original, so there is no loudness step here; the [beatmatch walkthrough](/blog/beatmatch-and-blend-two-tracks) covers mastering for a mix.",
       },
       { type: "h2", text: "Try two lengths, keep both" },
       {
         type: "p",
-        text: "You rarely know whether 16 or 32 bars is right until you hear it. Name the version you have (`name_node` labels a node in the graph, and you can also rename one by right-clicking it in the Graph tab), step back to Step 3, and repeat the loop a different number of times. Both versions stay in the graph, and you can switch between them with A/B compare. [Undo is a graph](/blog/undo-is-a-graph-branches-and-ab-compare) explains how.",
+        text: "You rarely know whether 16 or 32 bars is right until you hear it. Name the version you have (`name_node` labels a node in the graph, and right-clicking a node in the Graph tab renames it too), step back to Step 3, and paste a different number of times. Both versions stay in the graph, and you can switch between them with A/B compare. [Undo is a graph](/blog/undo-is-a-graph-branches-and-ab-compare) explains how.",
       },
       {
         type: "p",
         text:
-          "Every tool named here is listed in the [tools reference](/docs/tools), and the [demos on the home page](/#demos) show a transition built from the same pieces. To try this on your own tracks, [download the latest release](" +
+          "Every tool named here is listed in the [tools reference](/docs/tools). To try this on your own tracks, [download the latest release](" +
           RELEASES +
-          ").",
+          ") for macOS, Windows or Linux.",
       },
     ],
   },
