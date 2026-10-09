@@ -60,7 +60,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`invert`](#invert) — Invert (negate) audio polarity on a track, optionally within a time range.
 - [`label`](#label) — Place a named marker or region label in the session at the current head.
 - [`leveler`](#leveler) — Apply dynamic leveling: normalise each short window to a target RMS level.
-- [`limiter`](#limiter) — Brick-wall limiter: hard-clip any samples exceeding ceiling_db.
+- [`limiter`](#limiter) — Peak limiter: turns the gain down just enough that no sample exceeds ceiling_db, then lets it recover smoothly over release_ms.
 - [`load`](#load) — Decode an audio file and add it to the session as a new track.
 - [`low_pass_filter`](#low_pass_filter) — Apply a Butterworth low-pass filter to a track, removing frequencies above cutoff_hz.
 - [`mix_to_new_track`](#mix_to_new_track) — Offline-render the selected tracks together and add the result as a new mixed track.
@@ -126,7 +126,7 @@ Add a non-destructive effect to a track's chain. Unlike the destructive effect t
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `kind` | string | yes | Effect kind, e.g. gain, limiter, low_pass_filter, high_pass_filter, notch_filter. |
-| `params` | object | no | Effect parameters, e.g. { "cutoff_hz": 800 }. Defaults are used for anything omitted. |
+| `params` | object | no | Effect parameters, e.g. { "cutoff_hz": 800 }, or { "ceiling_db": -1, "release_ms": 80 } for a limiter. Defaults are used for anything omitted. |
 | `position` | integer | no | Index in the chain. Appended to the end when omitted. |
 | `track` | integer | yes |  |
 
@@ -540,12 +540,13 @@ Apply dynamic leveling: normalise each short window to a target RMS level. Reduc
 
 ## `limiter`
 
-Brick-wall limiter: hard-clip any samples exceeding ceiling_db. Prevents digital clipping. Appends a new session node.
+Peak limiter: turns the gain down just enough that no sample exceeds ceiling_db, then lets it recover smoothly over release_ms. Transients are tamed without the harmonic distortion of hard clipping, and all channels share one gain so the stereo image holds. Zero latency; the ceiling is a sample-peak ceiling, not an inter-sample true-peak one. Prevents digital clipping. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `ceiling_db` | number | yes | Maximum peak level in dBFS (e.g. -1.0) |
 | `end_sec` | number | no |  |
+| `release_ms` | number | no | How long the gain takes to recover after a peak, in milliseconds. Default 80. Shorter keeps the level up but distorts bass more; longer is smoother but holds the level down for longer after each peak. |
 | `start_sec` | number | no |  |
 | `track` | integer | yes |  |
 
