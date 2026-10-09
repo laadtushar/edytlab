@@ -140,6 +140,10 @@ test.describe("a label added in the lane", () => {
    * found its target rather than where it went, and with the path taken
    * the call is no longer made — what the user sees is the `set_head_to`
    * sequence below and the head the next render works from.
+   *
+   * The lane shows the labels of the head undo and redo land on, although
+   * `set_head_to` emits no `marker-changed` (#453): the chip goes with
+   * the undo and comes back with the redo.
    */
   test("is what undo takes back, and redo restores", async ({ app }) => {
     await openProject(app);
@@ -153,12 +157,16 @@ test.describe("a label added in the lane", () => {
     });
     await app.page.keyboard.press("Control+z");
     await expect.poll(() => app.requestsFor("set_head_to")).toEqual([{ nodeId: BEFORE }]);
+    // The label went with the head. No event said so: the lane read again
+    // because the head moved.
+    await expect(app.page.getByTestId("label-chip")).toHaveCount(0);
 
     await app.become({ set_head_to: ok(LABELLED), list_markers: ok([verse(time)]) });
     await app.page.keyboard.press("Control+Shift+z");
     await expect
       .poll(() => app.requestsFor("set_head_to"))
       .toEqual([{ nodeId: BEFORE }, { nodeId: LABELLED }]);
+    await expect(app.page.getByTestId("label-chip")).toHaveAttribute("data-label-name", "verse");
 
     // And the head the app works from is the label's again.
     await app.page.getByTestId("render-preview-button").click();

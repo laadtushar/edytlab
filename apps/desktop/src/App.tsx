@@ -17,21 +17,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import type {
   EnvelopePoint,
-  Marker,
   TrackSummary,
   TranscriptWord,
 } from "./lib/tauri-bridge";
 import {
   addMarker,
   getNode,
-  listMarkers,
   getTranscript,
   cutTranscriptWords,
   isNoSession,
   listTracks,
   getSyncLock,
   setSyncLock,
-  onMarkerChanged,
   removeMarker,
   updateMarker,
   renderRange,
@@ -73,6 +70,7 @@ import {
   type Selection,
   type TimelineHandle,
 } from "./components/Timeline";
+import { useMarkers } from "./hooks/useMarkers";
 import { useSession } from "./hooks/useSession";
 import {
   hasApiKey,
@@ -164,7 +162,9 @@ function App() {
   const [compareMode, setCompareMode] = useState<CompareMode | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
   const timelineRef = useRef<TimelineHandle>(null);
-  const [markers, setMarkers] = useState<Marker[]>([]);
+  // The label lane's labels: re-read when a label changes and whenever
+  // the head moves, since undo does not announce itself (#453).
+  const markers = useMarkers(head);
   const [tracks, setTracks] = useState<TrackSummary[]>([]);
   // The latest list, for handlers that must compare against what the
   // session holds now rather than what they closed over.
@@ -463,19 +463,6 @@ function App() {
       cancelled = true;
     };
   }, []);
-
-  // Marker init + subscription.
-  useEffect(() => {
-    void listMarkers().then(setMarkers).catch(() => setMarkers([]));
-    let unlisten: (() => void) | null = null;
-    onMarkerChanged(() => {
-      void listMarkers().then(setMarkers).catch(() => setMarkers([]));
-    })
-      .then((fn) => { unlisten = fn; })
-      .catch(() => undefined);
-    return () => { unlisten?.(); };
-  }, []);
-
 
   /**
    * Adopt the node a command just appended (#232).
@@ -945,7 +932,8 @@ function App() {
     if (!name.trim()) return;
     try {
       applyNewHead(await addMarker(timeSec, name.trim()));
-      // marker-changed event fires → setMarkers
+      // The lane re-reads on the `marker-changed` event and on the head
+      // change this adoption makes (`useMarkers`).
     } catch (err) {
       setRenderError(String(err));
     }
