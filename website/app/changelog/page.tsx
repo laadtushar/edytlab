@@ -1,5 +1,5 @@
-import { Reveal } from "@/components/motion";
 import type { Metadata } from "next";
+import { Fragment } from "react";
 
 import { LegalShell } from "@/components/landing/legal-shell";
 
@@ -124,8 +124,11 @@ export default function ChangelogPage() {
         </a>
         .
       </p>
+      {/* Flat — heading, list, heading, list — so the shell's cascade
+          reveals each bullet as it arrives instead of a whole release
+          at once. */}
       {entries.map((e) => (
-        <Reveal as="section" key={e.version} className="mt-10" distance={16}>
+        <Fragment key={e.version}>
           <h2>
             {e.version}
             <span className="ml-3 text-sm font-normal text-muted-foreground">
@@ -137,7 +140,7 @@ export default function ChangelogPage() {
               <li key={i}>{b}</li>
             ))}
           </ul>
-        </Reveal>
+        </Fragment>
       ))}
     </LegalShell>
   );

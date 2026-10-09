@@ -161,15 +161,47 @@
     opacity: 1;
   }
 
-  /* A ring that brightens on hover, for cards that are links. */
+  /* A ring that brightens on hover, for cards that are links. The lift
+     that goes with it is GSAP's (`data-lift`), so it can stay off for
+     touch and reduced motion while the ring still answers the pointer. */
   .ring-hover {
     transition:
       border-color 0.3s ease,
-      box-shadow 0.3s ease;
+      box-shadow 0.3s ease,
+      background-color 0.3s ease;
   }
   .ring-hover:hover {
     border-color: hsl(var(--primary) / 0.45);
     box-shadow: 0 0 0 1px hsl(var(--primary) / 0.15), 0 18px 40px -24px hsl(270 95% 50% / 0.5);
+  }
+
+  /* A link underline that sweeps: drawn in from the left on hover and
+     out to the right on leave. The line lives here; `MicroInteractions`
+     tweens `--sweep` (0 → 1) and flips `--sweep-origin`, so only a number
+     crosses the JS boundary. Keyboard focus and reduced motion get the
+     same line without the tween. */
+  [data-sweep] {
+    position: relative;
+  }
+  [data-sweep]::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -3px;
+    height: 1px;
+    background: hsl(var(--primary));
+    transform: scaleX(var(--sweep, 0));
+    transform-origin: var(--sweep-origin, left);
+    pointer-events: none;
+  }
+  [data-sweep]:focus-visible::after {
+    transform: scaleX(1);
+  }
+  @media (prefers-reduced-motion: reduce), (hover: none) {
+    [data-sweep]:hover::after {
+      transform: scaleX(1);
+    }
   }
 
   /* Very fine film grain over the whole page. Flat dark backgrounds band

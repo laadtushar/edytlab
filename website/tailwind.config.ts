@@ -66,9 +66,11 @@ const config: Config = {
           to: { height: "0" },
         },
       },
+      // The house curve (GSAP's `power3.out`) as a cubic-bezier, so the
+      // accordion's CSS height animation eases like everything else.
       animation: {
-        "accordion-down": "accordion-down 0.2s ease-out",
-        "accordion-up": "accordion-up 0.2s ease-out",
+        "accordion-down": "accordion-down 0.35s cubic-bezier(0.215, 0.61, 0.355, 1)",
+        "accordion-up": "accordion-up 0.25s cubic-bezier(0.215, 0.61, 0.355, 1)",
       },
     },
   },

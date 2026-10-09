@@ -1,16 +1,6 @@
 "use client";
 
-import {
-  AudioWaveform,
-  FileDown,
-  FileText,
-  GitBranch,
-  KeyRound,
-  MessageSquare,
-  ShieldCheck,
-  Waves,
-  Zap,
-} from "lucide-react";
+import { FileDown, FileText, GitBranch, MessageSquare, Waves, Zap } from "lucide-react";
 
 import {
   Card,
@@ -20,8 +10,25 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-import { Reveal, Stagger, TiltCard } from "@/components/motion";
+import { LineDraw, Stagger, TiltCard } from "@/components/motion";
+import { SectionHeading } from "@/components/motion/section-heading";
 
+/**
+ * Six cards, one idea each.
+ *
+ * There were nine. Three said something another section already says
+ * better: "Local-first" is the stats strip and the first FAQ answer,
+ * "Bring your own LLM" is the provider section, and "Time, pitch and
+ * timing" repeated the DSP card's time-stretch and formant sentence —
+ * so the two DSP cards are one card now, and the other two live where
+ * their detail is.
+ *
+ * The phrases `website_tool_docs.rs` pins to registered tools ("Edit
+ * the words, not the waveform", "Demucs stem separation", "Warp a
+ * performance onto a beat grid", "Loudness-normalise", "Fork, A/B
+ * compare, and revert" …) are load-bearing: reword one and update that
+ * test in the same change.
+ */
 const features = [
   {
     icon: FileText,
@@ -31,17 +38,12 @@ const features = [
   {
     icon: MessageSquare,
     title: "Conversational multi-track",
-    body: "Mash A's vocals over B's drums, key-match, give me three takes. The agent plans, executes multi-track mixing, and renders branches — all from a single prompt.",
+    body: "Mash A's vocals over B's drums, key-match, give me three takes. The agent plans, shows you the plan, runs the multi-track mix and renders branches you can A/B — all from a single prompt.",
   },
   {
     icon: Waves,
     title: "Pro-grade DSP",
-    body: "Pure Rust audio graph (cpal · symphonia · rubato · realfft). Time-stretch, pitch-shift and formant preservation run on a phase vocoder written for this project — no C dependency in the audio path. Demucs stem separation and Whisper transcription are wired in as tools; their model inference has not shipped yet.",
-  },
-  {
-    icon: ShieldCheck,
-    title: "Local-first",
-    body: "Your audio never leaves your machine. The DSP engine runs on-device; only chat tokens hit your chosen LLM provider.",
+    body: "A pure-Rust audio graph (cpal · symphonia · rubato · realfft) with no C dependency in the audio path. Time-stretch and pitch-shift run on a phase vocoder written for this project, with formant preservation so a shifted voice still sounds like the same person. Warp a performance onto a beat grid in a single pass — no seam at the beats. Demucs stem separation and Whisper transcription are wired in as tools; their model inference has not shipped yet.",
   },
   {
     icon: GitBranch,
@@ -49,19 +51,9 @@ const features = [
     body: "Every state is a DAG node. Ctrl+Z/Y traverse the branch history. Fork, A/B compare, and revert are first-class — not hidden behind a linear undo stack.",
   },
   {
-    icon: KeyRound,
-    title: "Bring your own LLM",
-    body: "Anthropic, OpenAI, Gemini, Groq, OpenRouter or a local Ollama daemon. Keys live in your OS keychain. Per-model agent profiles tune tools and behaviour. Swap providers without reinstalling.",
-  },
-  {
-    icon: AudioWaveform,
-    title: "Time, pitch and timing",
-    body: "Stretch without moving the pitch, shift pitch without moving the clock, and preserve formants so a shifted voice still sounds like the same person. Warp a performance onto a beat grid in a single pass — no seam at the beats.",
-  },
-  {
     icon: FileDown,
     title: "Export that plays anywhere",
-    body: "WAV when you want the samples, FLAC for lossless at about half the size, MP3 when it has to open on anything. Loudness-normalise to a LUFS target — the number streaming platforms actually use — with a true-peak ceiling so it never clips getting there.",
+    body: "WAV when you want the samples, FLAC for lossless at about half the size, MP3 when it has to open on anything. Loudness-normalise to a LUFS target — the number streaming platforms actually use — with a true-peak ceiling so it never clips getting there. On the way in, it opens WAV, MP3, FLAC and OGG.",
   },
   {
     icon: Zap,
@@ -72,46 +64,43 @@ const features = [
 
 export function FeatureGrid() {
   return (
-    <section
-      id="features"
-      className="border-y border-border/50 bg-secondary/20 py-20 md:py-28"
-    >
+    <section id="features" className="py-20 md:py-28">
       <div className="container">
-        <Reveal className="mx-auto mb-14 max-w-2xl text-center">
-          <h2 className="text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
-            Built for producers who want help — not handcuffs.
-          </h2>
-          <p className="mt-3 text-muted-foreground">
-            What makes edytlab different from cleanup tools, preset chains, and
-            shallow AI wrappers.
-          </p>
-        </Reveal>
-        <Stagger
-          className="mx-auto grid max-w-6xl gap-5 sm:grid-cols-2 lg:grid-cols-3"
-          each={0.06}
-          distance={28}
-          scale
-        >
-          {features.map((f) => (
-            <div key={f.title} className="group">
-              <TiltCard className="h-full">
-                <Card className="surface h-full border-border/60 backdrop-blur transition-colors group-hover:border-primary/40">
-                  <CardHeader>
-                    <div className="mb-3 flex size-11 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20 transition-transform duration-300 group-hover:rotate-6 group-hover:scale-110">
-                      <f.icon className="size-5" />
-                    </div>
-                    <CardTitle>{f.title}</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <CardDescription className="text-[0.95rem] leading-relaxed">
-                      {f.body}
-                    </CardDescription>
-                  </CardContent>
-                </Card>
-              </TiltCard>
-            </div>
-          ))}
-        </Stagger>
+        <SectionHeading
+          eyebrow="Features"
+          title="Built for producers who want help — not handcuffs."
+        />
+        {/* Cards settle in a stagger, each icon is drawn stroke by
+            stroke as its card lands, and a card tilts toward the cursor
+            once it is there. */}
+        <LineDraw>
+          <Stagger
+            className="mx-auto grid max-w-6xl gap-5 sm:grid-cols-2 lg:grid-cols-3"
+            each={0.06}
+            distance={28}
+            scale
+          >
+            {features.map((f) => (
+              <div key={f.title} className="group">
+                <TiltCard className="h-full">
+                  <Card className="surface h-full border-border/60 backdrop-blur transition-colors group-hover:border-primary/40">
+                    <CardHeader>
+                      <div className="mb-3 flex size-11 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20 transition-transform duration-300 group-hover:rotate-6 group-hover:scale-110">
+                        <f.icon className="size-5" />
+                      </div>
+                      <CardTitle>{f.title}</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <CardDescription className="text-[0.95rem] leading-relaxed">
+                        {f.body}
+                      </CardDescription>
+                    </CardContent>
+                  </Card>
+                </TiltCard>
+              </div>
+            ))}
+          </Stagger>
+        </LineDraw>
       </div>
     </section>
   );

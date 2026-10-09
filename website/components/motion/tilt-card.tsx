@@ -2,7 +2,7 @@
 
 import { useRef, type ReactNode } from "react";
 
-import { gsap, useGSAP, motionOk, NO_PREFERENCE } from "@/lib/gsap";
+import { gsap, useGSAP, motionOk, HOVER_MOTION } from "@/lib/gsap";
 
 interface TiltCardProps {
   children: ReactNode;
@@ -31,9 +31,12 @@ export function TiltCard({ children, className = "" }: TiltCardProps) {
       if (!el) return;
 
       const mm = motionOk();
-      mm.add(`${NO_PREFERENCE} and (hover: hover) and (pointer: fine)`, () => {
-        const rx = gsap.quickTo(el, "rotateX", { duration: 0.5, ease: "power3.out" });
-        const ry = gsap.quickTo(el, "rotateY", { duration: 0.5, ease: "power3.out" });
+      mm.add(HOVER_MOTION, () => {
+        // GSAP's own names, not the `rotateX` aliases: `quickTo` looks its
+        // property up by name, finds the tween stored under `rotationX`,
+        // and warns "not eligible for reset" on every hover otherwise.
+        const rx = gsap.quickTo(el, "rotationX", { duration: 0.5, ease: "power3.out" });
+        const ry = gsap.quickTo(el, "rotationY", { duration: 0.5, ease: "power3.out" });
         const gx = gsap.quickSetter(el, "--gx", "%");
         const gy = gsap.quickSetter(el, "--gy", "%");
 

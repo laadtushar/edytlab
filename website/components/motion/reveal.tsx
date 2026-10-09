@@ -7,7 +7,7 @@ import { gsap, useGSAP, motionOk, NO_PREFERENCE, REVEAL_START } from "@/lib/gsap
 type Direction = "up" | "down" | "left" | "right" | "none";
 
 interface RevealProps {
-  children: ReactNode;
+  children?: ReactNode;
   className?: string;
   /** Seconds to wait after the trigger fires. */
   delay?: number;
@@ -19,6 +19,11 @@ interface RevealProps {
   as?: ElementType;
   /** Blur-in as well as fade. Reads as depth; use sparingly. */
   blur?: boolean;
+  /**
+   * Replace the from-state outright — `{ scaleX: 0 }` draws a rule out
+   * from its middle. A plain object, so a server component can pass it.
+   */
+  from?: gsap.TweenVars;
 }
 
 const offset: Record<Direction, { x?: number; y?: number }> = {
@@ -48,6 +53,7 @@ export function Reveal({
   duration = 0.7,
   as: Tag = "div",
   blur = false,
+  from,
 }: RevealProps) {
   const ref = useRef<HTMLElement>(null);
 
@@ -57,10 +63,12 @@ export function Reveal({
       mm.add(NO_PREFERENCE, () => {
         const { x = 0, y = 0 } = offset[direction];
         gsap.from(ref.current, {
-          opacity: 0,
-          x: x * distance,
-          y: y * distance,
-          filter: blur ? "blur(8px)" : undefined,
+          ...(from ?? {
+            opacity: 0,
+            x: x * distance,
+            y: y * distance,
+            filter: blur ? "blur(8px)" : undefined,
+          }),
           duration,
           delay,
           scrollTrigger: { trigger: ref.current, start: REVEAL_START, once: true },
