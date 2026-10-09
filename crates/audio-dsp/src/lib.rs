@@ -63,6 +63,14 @@ pub use dynamics::{Gain, Limiter};
 /// the same samples. `audio-engine` documents that its master chunk size
 /// does not affect output bytes, and a processor that resets state per
 /// call would quietly make that false.
+///
+/// One qualification: a processor whose output for one channel depends
+/// on the *other channels of the same frame* (a channel-linked limiter)
+/// can honour this only for chunks that hold whole frames, because the
+/// first channels of a split frame have to be written before the last
+/// exist. The renderer only ever passes whole frames, so for it the
+/// property holds; such a processor documents what it does with a split
+/// frame instead.
 pub trait Processor: std::fmt::Debug {
     /// Process one chunk of interleaved samples in place.
     ///
