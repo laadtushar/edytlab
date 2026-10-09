@@ -87,8 +87,10 @@ getting caught.
   runs anyway ([#415](https://github.com/laadtushar/edytlab/issues/415)).
 - Undo after an edit that returns to an earlier state can land on the wrong
   node ([#398](https://github.com/laadtushar/edytlab/issues/398)).
-- The limiter is a hard-clip brick-wall, not a look-ahead true-peak limiter.
-  Audio engineers will ask.
+- The limiter is a zero-latency sample-peak limiter (instant attack, smooth
+  release; it was a hard clip until
+  [#441](https://github.com/laadtushar/edytlab/issues/441)), not a look-ahead
+  true-peak one. Audio engineers will ask.
 
 ## Before the first post
 

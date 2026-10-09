@@ -33,7 +33,7 @@ export const octoberPosts: BlogPost[] = [
       "Two waveforms on a shared beat grid, the second starting near the end of the first, with crossing fade ramps over the overlap",
     excerpt:
       "A DJ transition is a short list of exact operations. Here is the one in the demo video, step by step, with the sentence to type for each and the tool that runs it.",
-    readTime: 5,
+    readTime: 6,
     tags: ["DJ transition", "beatmatching", "time stretch", "tutorial"],
     body: [
       {
@@ -145,7 +145,7 @@ export const octoberPosts: BlogPost[] = [
       },
       {
         type: "p",
-        text: "The compressor numbers are starting points. `compressor` needs a threshold, ratio, attack and release. `limiter` is a brick-wall at the ceiling you give it. `normalize_loudness` sets the gain so integrated loudness reaches a target, and it has presets for delivery: −14 LUFS for Spotify and YouTube, −16 for Apple Podcasts, −23 for broadcast. If the gain needed would push peaks past the true-peak ceiling (−1 dBFS by default), it stops there instead of clipping and reports the shortfall, which is why the limiter comes first. That is the order in the demo: compressed, limited at −1 dB, brought to −14 LUFS.",
+        text: "The compressor numbers are starting points. `compressor` needs a threshold, ratio, attack and release. `limiter` keeps every sample under the ceiling you give it by turning the gain down and letting it recover over `release_ms`, rather than clipping the peaks off. `normalize_loudness` sets the gain so integrated loudness reaches a target, and it has presets for delivery: −14 LUFS for Spotify and YouTube, −16 for Apple Podcasts, −23 for broadcast. If the gain needed would push peaks past the true-peak ceiling (−1 dBFS by default), it stops there instead of clipping and reports the shortfall, which is why the limiter comes first. That is the order in the demo: compressed, limited at −1 dB, brought to −14 LUFS.",
       },
       { type: "h2", text: "Step 6: Export" },
       {

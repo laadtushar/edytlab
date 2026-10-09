@@ -41,6 +41,7 @@
 //! Registered today: `gain`, `limiter`, and the three filters, which are
 //! either memoryless or already have a streaming form.
 
+use audio_dsp::dynamics::DEFAULT_RELEASE_MS;
 use audio_dsp::{Biquad, BiquadCoeffs, Gain, Limiter, Processor};
 use session::EffectInstance;
 
@@ -100,7 +101,14 @@ pub fn build(
         let p = &effect.params;
         let processor: Box<dyn Processor> = match effect.kind.as_str() {
             "gain" => Box::new(Gain::from_db(param(p, "db", 0.0))),
-            "limiter" => Box::new(Limiter::from_db(param(p, "ceiling_db", 0.0))),
+            // The release is in milliseconds and the coefficient comes
+            // from the project rate, so the same `release_ms` is the
+            // same duration at 44.1 and at 96 kHz.
+            "limiter" => Box::new(Limiter::new(
+                param(p, "ceiling_db", 0.0),
+                param(p, "release_ms", DEFAULT_RELEASE_MS),
+                sample_rate,
+            )),
             "low_pass_filter" => Box::new(Biquad::new(
                 BiquadCoeffs::low_pass(param(p, "cutoff_hz", 20_000.0), sample_rate),
                 channels,
@@ -185,6 +193,10 @@ mod tests {
             ("gain", serde_json::json!({ "db": -3.0 })),
             ("limiter", serde_json::json!({ "ceiling_db": -1.0 })),
             (
+                "limiter",
+                serde_json::json!({ "ceiling_db": -1.0, "release_ms": 120.0 }),
+            ),
+            (
                 "low_pass_filter",
                 serde_json::json!({ "cutoff_hz": 5000.0 }),
             ),
@@ -208,5 +220,98 @@ mod tests {
         let mut buf = vec![0.5f32; 8];
         chain[0].process(&mut buf, 1);
         assert_eq!(buf, vec![0.5f32; 8]);
+    }
+
+    /// The gain a limiter applies to a steady 0.1, sample by sample,
+    /// after one frame that needs it to halve.
+    ///
+    /// Measured through the registry rather than by constructing a
+    /// `Limiter`, so what is under test is that `build` passes the
+    /// parameters and the rate on.
+    fn recovery_curve(params: serde_json::Value, sample_rate: u32, frames: usize) -> Vec<f32> {
+        let mut chain = build(&[effect("limiter", params)], sample_rate, 1).unwrap();
+        let mut buf = vec![0.1f32; frames + 1];
+        // Ceiling is 0 dBFS, so a 2.0 must be halved.
+        buf[0] = 2.0;
+        chain[0].process(&mut buf, 1);
+        buf[1..].iter().map(|s| s / 0.1).collect()
+    }
+
+    /// `release_ms` has to reach the limiter. A short release is back at
+    /// unity while a long one is still holding the gain down.
+    #[test]
+    fn a_limiters_release_comes_from_its_params() {
+        let frames = 24_000; // half a second at 48 kHz
+        let quick = recovery_curve(
+            serde_json::json!({ "ceiling_db": 0.0, "release_ms": 10.0 }),
+            48_000,
+            frames,
+        );
+        let slow = recovery_curve(
+            serde_json::json!({ "ceiling_db": 0.0, "release_ms": 2_000.0 }),
+            48_000,
+            frames,
+        );
+        assert!(
+            *quick.last().unwrap() > 0.999,
+            "10 ms release should be back at unity after 500 ms, got {}",
+            quick.last().unwrap()
+        );
+        assert!(
+            *slow.last().unwrap() < 0.65,
+            "a 2 s release should still be holding the gain well down after 500 ms, got {}",
+            slow.last().unwrap()
+        );
+    }
+
+    /// Omitting `release_ms` is allowed — every limiter saved before the
+    /// parameter existed has none — and must mean the default, not zero
+    /// (which would be a hard clip again).
+    #[test]
+    fn a_limiter_without_release_ms_uses_the_default() {
+        let omitted = recovery_curve(serde_json::json!({ "ceiling_db": 0.0 }), 48_000, 4_800);
+        let explicit = recovery_curve(
+            serde_json::json!({
+                "ceiling_db": 0.0,
+                "release_ms": audio_dsp::dynamics::DEFAULT_RELEASE_MS
+            }),
+            48_000,
+            4_800,
+        );
+        assert_eq!(omitted, explicit);
+        assert!(
+            omitted[0] < 0.51,
+            "the frame after the spike should still be held down, got {}",
+            omitted[0]
+        );
+    }
+
+    /// A release time is a duration. The coefficient is derived from the
+    /// project rate, so 100 ms is 100 ms whether the project is 8 kHz or
+    /// 96 kHz. A coefficient fixed in samples would make it 12 times
+    /// longer at 8 kHz than at 96.
+    #[test]
+    fn a_limiters_release_is_the_same_duration_at_every_rate() {
+        let release_ms = 100.0f32;
+        for rate in [8_000u32, 22_050, 44_100, 48_000, 96_000, 192_000] {
+            let frames = (rate as usize) / 2;
+            let gain = recovery_curve(
+                serde_json::json!({ "ceiling_db": 0.0, "release_ms": release_ms }),
+                rate,
+                frames,
+            );
+            // The reduction starts at 0.5 and decays by 1/e per release
+            // time; find when it has fallen to 0.5 / e.
+            let target = 0.5 / std::f32::consts::E;
+            let at = gain
+                .iter()
+                .position(|g| 1.0 - g <= target)
+                .unwrap_or_else(|| panic!("{rate} Hz never recovered"));
+            let ms = (at + 1) as f32 * 1000.0 / rate as f32;
+            assert!(
+                (ms - release_ms).abs() < release_ms * 0.03,
+                "at {rate} Hz the reduction fell to 1/e after {ms:.1} ms, not {release_ms} ms"
+            );
+        }
     }
 }

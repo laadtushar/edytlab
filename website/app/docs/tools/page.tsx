@@ -243,7 +243,7 @@ const groups = [
       {
         name: "limiter",
         prompt: "limit track 1 to -1 dBFS",
-        what: "Brick-wall limiter: hard-clip any samples exceeding ceiling_db. Prevents digital clipping.",
+        what: "Peak limiter: turns the gain down just enough that no sample exceeds ceiling_db, then lets it recover smoothly over release_ms (default 80). Transients are tamed without the harmonic distortion of hard clipping, and all channels share one gain so the stereo image holds. Zero latency; a sample-peak ceiling, not an inter-sample true-peak one.",
         output: "node_id",
       },
       {

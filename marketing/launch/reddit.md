@@ -134,9 +134,11 @@ holds up only if the rules allow it.
 >
 > What I know is weak:
 >
-> - The limiter is a hard-clip brick wall at the ceiling. It's not look-ahead
->   and it isn't a true-peak limiter. Loudness normalisation to a LUFS target
->   is capped so the true peak stays under -1 dBFS rather than clipping.
+> - The limiter turns the gain down and releases over about 80 ms rather than
+>   clipping, but it has no look-ahead (the gain steps in on the first sample
+>   over the ceiling) and it isn't a true-peak limiter. Loudness normalisation
+>   to a LUFS target is capped so the true peak stays under -1 dBFS rather than
+>   clipping.
 > - Time-stretch and pitch-shift are a phase vocoder with onset-triggered
 >   phase resets. Fine on sustained material, phasey on dense mixes and at
 >   factors far from 1.0.

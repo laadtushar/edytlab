@@ -190,7 +190,8 @@ fn no_discontinuity_at_chunk_boundaries() {
 
 /// Order is honoured. Two filters at different cutoffs commute in
 /// magnitude but not in state, so the simplest order-sensitive pair is a
-/// gain and a limiter: gain-then-limit clips, limit-then-gain does not.
+/// gain and a limiter: gain-then-limit holds the ceiling, limit-then-gain
+/// pushes the limited peaks back past it.
 #[test]
 fn reordering_effects_changes_the_output() {
     let gain_then_limit = render(vec![

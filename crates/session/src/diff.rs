@@ -1011,9 +1011,10 @@ pub fn fork(store: &mut Store, parent: NodeId) -> Result<NodeId> {
     Ok(parent)
 }
 
-/// Append a node whose state matches `target`'s, parented to the
-/// current head. Useful for a "revert" UX: leaves the full history in
-/// place but moves head to a state equivalent to a past node.
+/// Move head to a state equivalent to `target`'s, by appending a node
+/// with that state. A node's id hashes its state alone, so this is
+/// `target` itself (the append finds it already there): head moves back
+/// and the full history stays in place. See [`Store::revert_to`].
 pub fn revert_to(store: &mut Store, target: NodeId) -> Result<NodeId> {
     let target_node = store.get(target)?;
     let new_node = SessionNode {

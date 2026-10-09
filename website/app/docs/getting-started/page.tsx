@@ -268,6 +268,12 @@ export default function GettingStartedPage() {
         You can fork a session, try a different edit, and switch between
         branches using the Graph view.
       </p>
+      <p>
+        Undo retraces the steps you took, even when an edit returned to an
+        earlier state (mute, then unmute), and the Graph view marks that
+        path. After a restart, undo steps back through the parent of each
+        node.
+      </p>
 
       <h2>Keyboard shortcuts</h2>
       <p>
