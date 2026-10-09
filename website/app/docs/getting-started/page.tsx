@@ -282,7 +282,7 @@ export default function GettingStartedPage() {
           </tr>
         </thead>
         <tbody>
-          <tr><td>Space</td><td>Play / Pause</td></tr>
+          <tr><td>Space</td><td>Play / Pause (renders the preview first if there is none)</td></tr>
           <tr><td>L</td><td>Toggle loop playback (loops the selected region)</td></tr>
           <tr><td>Ctrl/Cmd + Z</td><td>Undo</td></tr>
           <tr><td>Ctrl/Cmd + Y</td><td>Redo</td></tr>

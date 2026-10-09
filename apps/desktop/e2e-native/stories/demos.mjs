@@ -142,9 +142,10 @@ async function togglePlay(ctx) {
   else await ctx.d.keys(" ");
 }
 
-/** Render the preview mix, which is what plays. The app makes one only
- * when Preview is pressed, and every edit drops it (#431), so a person
- * presses Preview before listening, and so does the demo. */
+/** Render the preview mix, which is what plays. Every edit drops it, and
+ * Play renders a new one when there is none (#431). The demo renders with
+ * Preview anyway, because it seeks to a point before playing and a seek
+ * needs the mix to have loaded first. */
 async function freshMix(ctx) {
   const { d } = ctx;
   await press(ctx, "[data-testid='render-preview-button']");

@@ -74,11 +74,10 @@ telemetry and the website has no analytics.
   have the steps.
 - It is an offline editor. It is not a live DJ tool or a DAW: no MIDI, no VST
   hosting.
-- Rough edges I know about: Play does nothing after an edit until you press
-  Preview (#431); on Linux your API key does not survive a reboot (#394); the
-  limiter is a plain hard-clip, not a look-ahead true-peak one; with a local
-  model the first request is large (about 15k tokens in my one measurement,
-  #395), so you need a generous context window.
+- Rough edges I know about: on Linux your API key does not survive a reboot
+  (#394); the limiter is a plain hard-clip, not a look-ahead true-peak one;
+  with a local model the first request is large (about 15k tokens in my one
+  measurement, #395), so you need a generous context window.
 
 **Transparency.** This project is developed with Claude Code as a collaborator.
 Many commits carry a `Co-Authored-By: Claude` trailer, and the repo has a

@@ -78,9 +78,6 @@ These are the claims that are easy to get wrong. Each has bitten a draft once.
 Readers will find these within an hour. Answer them plainly instead of
 getting caught.
 
-- Pressing Play after an edit does nothing until **Preview** is pressed
-  ([#431](https://github.com/laadtushar/edytlab/issues/431)). Say it in the
-  first reply to anyone who reports "no sound".
 - Linux: API keys are held in the kernel keyring and are lost on reboot
   ([#394](https://github.com/laadtushar/edytlab/issues/394)).
 - Local models: a first request was measured at about 15,000 tokens, which an

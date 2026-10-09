@@ -46,10 +46,21 @@ async function load(app: App, tracks: TrackSummary[]): Promise<void> {
   await expect(app.page.getByTestId("ruler")).toContainText("0:03");
 }
 
-/** Render the mix, and wait for the transport to hold it. */
+/**
+ * Render the mix with Preview, and wait for the transport to hold it.
+ *
+ * The play button no longer waits for a mix to be enabled (#431), so it
+ * cannot say when the mix has loaded; the player that holds a file can.
+ */
 async function preview(page: Page): Promise<void> {
   await page.getByTestId("render-preview-button").click();
-  await expect(page.getByTestId("play-pause-button")).toBeEnabled();
+  await expect
+    .poll(() =>
+      page
+        .locator("[data-testid=timeline-mix-player] audio")
+        .evaluateAll((els) => (els as HTMLAudioElement[]).filter((a) => a.src).length),
+    )
+    .toBe(1);
 }
 
 /** The mix as the browser has it: the side that holds a file. */
@@ -98,14 +109,15 @@ async function expectPlayheadsAt(page: Page, count: number, x: number, sec: numb
 }
 
 test.describe("the play button", () => {
-  test("waits for a mix, then plays it and pauses it", async ({ app }) => {
+  test("plays the mix and pauses it", async ({ app }) => {
     await load(app, [long()]);
     const page = app.page;
     const button = page.getByTestId("play-pause-button");
 
-    // The lanes are only pictures; before a preview there is nothing to play.
+    // Not disabled for want of a preview: Play renders one (#431, and
+    // play-renders-preview.spec.ts). Here the mix is made with Preview.
     await expect(button).toBeVisible();
-    await expect(button).toBeDisabled();
+    await expect(button).toBeEnabled();
 
     await preview(page);
     await expect(button).toHaveAccessibleName("Play");
