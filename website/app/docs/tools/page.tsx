@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Fragment } from "react";
 import { siteConfig } from "@/lib/site";
+import { DEFAULT_OG_IMAGE } from "@/lib/seo-core";
 import { DocShell } from "@/components/docs/doc-shell";
 
 export const metadata: Metadata = {
@@ -12,6 +13,7 @@ export const metadata: Metadata = {
     title: "Audio Tools Reference — edytlab Docs",
     description: "Complete reference for all 93 agent-callable audio tools.",
     url: `${siteConfig.url}/docs/tools`,
+    images: [DEFAULT_OG_IMAGE],
   },
 };
 

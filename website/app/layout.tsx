@@ -56,9 +56,10 @@ export const metadata: Metadata = {
       "max-snippet": -1,
     },
   },
-  alternates: {
-    canonical: "/",
-  },
+  // No `alternates` here on purpose. A canonical set at the root is
+  // inherited by every page that does not set its own, which would
+  // name the home page as the canonical of /changelog. Each page sets
+  // its own with `pageAlternates()` (`lib/seo.ts`).
 };
 
 export const viewport: Viewport = {

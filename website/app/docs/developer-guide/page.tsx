@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { siteConfig } from "@/lib/site";
+import { DEFAULT_OG_IMAGE } from "@/lib/seo-core";
 import { DocShell } from "@/components/docs/doc-shell";
 
 export const metadata: Metadata = {
@@ -11,6 +12,7 @@ export const metadata: Metadata = {
     title: "Developer Guide — edytlab Docs",
     description: "Build from source, run tests, and contribute to edytlab.",
     url: `${siteConfig.url}/docs/developer-guide`,
+    images: [DEFAULT_OG_IMAGE],
   },
 };
 

@@ -4,7 +4,24 @@ import Link from "next/link";
 import { Calendar, Clock, ArrowLeft } from "lucide-react";
 
 import { siteConfig } from "@/lib/site";
-import { getPost, getAllSlugs, type Block } from "@/lib/blog";
+import {
+  BLOG_AUTHOR,
+  getPost,
+  getAllSlugs,
+  modifiedOf,
+  type Block,
+} from "@/lib/blog";
+import {
+  absoluteUrl,
+  blogPostingJsonLd,
+  breadcrumbJsonLd,
+  pageAlternates,
+  postBreadcrumbs,
+  postPath,
+  serializeJsonLd,
+} from "@/lib/seo";
+import { BlogCover } from "@/components/blog/cover";
+import { InlineText } from "@/components/blog/inline";
 import { SiteHeader } from "@/components/landing/site-header";
 import { Footer } from "@/components/landing/footer";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +35,9 @@ export async function generateStaticParams() {
   return getAllSlugs().map((slug) => ({ slug }));
 }
 
+// The social image comes from `opengraph-image.tsx` and
+// `twitter-image.tsx` in this folder: Next adds them to `openGraph`
+// and `twitter` itself, so neither block names an image here.
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const post = getPost(slug);
@@ -25,30 +45,32 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   return {
     title: post.title,
-    description: post.excerpt,
+    description: post.description,
     keywords: post.tags,
-    authors: [{ name: "edytlab" }],
+    authors: [{ name: BLOG_AUTHOR.name, url: BLOG_AUTHOR.url }],
+    alternates: pageAlternates(postPath(post.slug)),
     openGraph: {
       title: post.title,
-      description: post.excerpt,
-      url: `${siteConfig.url}/blog/${post.slug}`,
+      description: post.description,
+      url: absoluteUrl(postPath(post.slug)),
+      siteName: siteConfig.name,
       type: "article",
       publishedTime: post.date,
+      modifiedTime: modifiedOf(post),
+      authors: [BLOG_AUTHOR.name],
       tags: post.tags,
     },
     twitter: {
       card: "summary_large_image",
       title: post.title,
-      description: post.excerpt,
-    },
-    alternates: {
-      canonical: `/blog/${post.slug}`,
+      description: post.description,
     },
   };
 }
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", {
+    timeZone: "UTC", // an ISO date is UTC midnight; the reader's zone must not move it a day
     year: "numeric",
     month: "long",
     day: "numeric",
@@ -78,7 +100,7 @@ function renderBlock(block: Block, i: number) {
     case "p":
       return (
         <p key={i} className="mt-4 leading-7 text-muted-foreground">
-          {block.text}
+          <InlineText text={block.text} />
         </p>
       );
     case "ul":
@@ -89,10 +111,36 @@ function renderBlock(block: Block, i: number) {
               key={j}
               className="relative text-muted-foreground leading-7 before:absolute before:-left-4 before:text-primary before:content-['–']"
             >
-              {item}
+              <InlineText text={item} />
             </li>
           ))}
         </ul>
+      );
+    case "ol":
+      return (
+        <ol key={i} className="mt-4 list-decimal space-y-2 pl-6 marker:text-primary">
+          {block.items.map((item, j) => (
+            <li key={j} className="text-muted-foreground leading-7">
+              <InlineText text={item} />
+            </li>
+          ))}
+        </ol>
+      );
+    case "prompt":
+      // A line to type into the chat: shown as typed, never parsed.
+      return (
+        <div
+          key={i}
+          className="mt-4 flex gap-3 rounded-lg border border-primary/30 bg-secondary/60 px-4 py-3 font-mono text-sm leading-6 text-foreground"
+        >
+          <span aria-hidden="true" className="select-none text-primary">
+            &gt;
+          </span>
+          <span>
+            <span className="sr-only">Prompt: </span>
+            {block.text}
+          </span>
+        </div>
       );
     case "callout":
       return (
@@ -100,7 +148,7 @@ function renderBlock(block: Block, i: number) {
           key={i}
           className="mt-6 rounded-lg border border-primary/30 bg-primary/5 px-5 py-4 text-sm leading-7 text-foreground"
         >
-          {block.text}
+          <InlineText text={block.text} />
         </blockquote>
       );
   }
@@ -111,27 +159,17 @@ export default async function BlogPostPage({ params }: Props) {
   const post = getPost(slug);
   if (!post) notFound();
 
-  const jsonLd = {
-    "@context": "https://schema.org",
-    "@type": "Article",
-    headline: post.title,
-    description: post.excerpt,
-    datePublished: post.date,
-    author: { "@type": "Organization", name: "edytlab", url: siteConfig.url },
-    publisher: {
-      "@type": "Organization",
-      name: "edytlab",
-      logo: { "@type": "ImageObject", url: `${siteConfig.url}/logo.png` },
-    },
-    url: `${siteConfig.url}/blog/${post.slug}`,
-    keywords: post.tags.join(", "),
-  };
-
   return (
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(blogPostingJsonLd(post)) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: serializeJsonLd(breadcrumbJsonLd(postBreadcrumbs(post))),
+        }}
       />
       <SiteHeader />
       <main className="min-h-screen pt-20">
@@ -174,12 +212,16 @@ export default async function BlogPostPage({ params }: Props) {
                   <div className="mt-4 flex items-center gap-5 text-sm text-muted-foreground">
                     <span className="flex items-center gap-1.5">
                       <Calendar className="size-3.5" />
-                      {formatDate(post.date)}
+                      <time dateTime={post.date}>{formatDate(post.date)}</time>
                     </span>
                     <span className="flex items-center gap-1.5">
                       <Clock className="size-3.5" />
                       {post.readTime} min read
                     </span>
+                  </div>
+
+                  <div className="mt-8 aspect-[1200/630] overflow-hidden rounded-xl border border-border/60">
+                    <BlogCover slug={post.slug} alt={post.coverAlt} />
                   </div>
 
                   <p className="mt-6 text-lg leading-relaxed text-muted-foreground border-l-2 border-primary/40 pl-4">

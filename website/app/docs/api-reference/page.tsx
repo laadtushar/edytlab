@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { siteConfig } from "@/lib/site";
+import { DEFAULT_OG_IMAGE } from "@/lib/seo-core";
 import { DocShell } from "@/components/docs/doc-shell";
 
 export const metadata: Metadata = {
@@ -11,6 +12,7 @@ export const metadata: Metadata = {
     title: "API Reference — edytlab Docs",
     description: "All Tauri commands, TypeScript types, and events for edytlab.",
     url: `${siteConfig.url}/docs/api-reference`,
+    images: [DEFAULT_OG_IMAGE],
   },
 };
 

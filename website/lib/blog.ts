@@ -1,25 +1,58 @@
+import { octoberPosts } from "./blog-posts-october";
+import { stripInline } from "./inline";
+import { siteConfig } from "./site";
+
+/**
+ * `p`, `ul`, `ol` and `callout` text takes the inline markup in
+ * `lib/inline.ts` (links, `code`, **bold**). A `prompt` is a line to
+ * type into edytlab's chat, shown as typed: verbatim, never parsed.
+ */
 export type Block =
   | { type: "h2"; text: string }
   | { type: "h3"; text: string }
   | { type: "p"; text: string }
   | { type: "ul"; items: string[] }
+  | { type: "ol"; items: string[] }
+  | { type: "prompt"; text: string }
   | { type: "callout"; text: string };
 
 export interface BlogPost {
+  /** Kebab-case. Names the URL, the cover and the social image. */
   slug: string;
   title: string;
+  /** ISO date (YYYY-MM-DD) the post was first published. */
   date: string;
+  /** ISO date of the last substantive edit. Defaults to `date`. */
+  dateModified?: string;
+  /**
+   * One or two sentences for search results, social cards, the blog
+   * index and the feed. At most `MAX_DESCRIPTION` characters, about
+   * what a search result shows before it cuts the line.
+   */
+  description: string;
+  /** The longer lede shown under the title on the post itself. */
   excerpt: string;
+  /** What the cover shows, as the alt text for the cover and the social image. */
+  coverAlt: string;
   readTime: number;
   tags: string[];
   body: Block[];
 }
 
-export const posts: BlogPost[] = [
+export const MAX_DESCRIPTION = 160;
+
+/** Who the posts are by: the project, as in every byline so far. */
+export const BLOG_AUTHOR = { name: "edytlab", url: siteConfig.url } as const;
+
+const earlierPosts: BlogPost[] = [
   {
     slug: "ai-audio-editing-local-first",
     title: "AI Audio Editing in 2026: Why Local-First Is the Only Approach That Matters",
     date: "2026-05-10",
+    description:
+      "Cloud AI audio tools upload your files and depend on someone else's servers. Here is what local-first audio editing changes, and where an LLM still comes in.",
+    coverAlt:
+      "A laptop holding a waveform, with a dashed line to a small cloud that carries only a short text message",
     excerpt:
       "Cloud AI audio tools upload your stems to third-party servers, lock you into subscriptions, and go offline when the API is down. Local-first AI audio editing changes all of that.",
     readTime: 7,
@@ -27,7 +60,7 @@ export const posts: BlogPost[] = [
     body: [
       {
         type: "p",
-        text: "In the last three years, AI audio editing has exploded. Tools that once required a full-time engineer — stem separation, automatic transcription, pitch correction, noise removal — now live inside consumer apps. The catch? Almost every one of them routes your audio through a cloud server.",
+        text: "AI audio editing has exploded. Tools that once required a full-time engineer — stem separation, automatic transcription, pitch correction, noise removal — now live inside consumer apps. The catch? Almost every one of them routes your audio through a cloud server.",
       },
       {
         type: "h2",
@@ -41,7 +74,7 @@ export const posts: BlogPost[] = [
         type: "ul",
         items: [
           "Your unreleased music is now on someone else's server — often with vague retention policies.",
-          "Processing latency scales with file size; a 200 MB session can take minutes to round-trip.",
+          "Every file makes the round trip, so latency grows with file size.",
           "If the service has an outage, your session is blocked regardless of your deadline.",
           "Subscriptions fund the compute. Cancel the sub, lose the feature.",
         ],
@@ -52,7 +85,7 @@ export const posts: BlogPost[] = [
       },
       {
         type: "p",
-        text: "Local-first means the DSP engine — the code that actually processes audio samples — runs entirely on your machine. Your stems never leave. The AI model weights live locally. The waveform analysis happens on your CPU or GPU. The only bytes that leave your machine are the text tokens you send to your chosen LLM provider to describe the edit you want.",
+        text: "Local-first means the DSP engine — the code that actually processes audio samples — runs entirely on your machine. Your stems never leave. The waveform analysis happens on your CPU. The only bytes that leave your machine are the text tokens you send to your chosen LLM provider to describe the edit you want.",
       },
       {
         type: "callout",
@@ -64,15 +97,15 @@ export const posts: BlogPost[] = [
       },
       {
         type: "p",
-        text: 'Imagine you are mastering a 10-track album. In a cloud workflow, you upload each stem set, wait for processing, download results, repeat. With a local-first editor, you open the session, type "separate the drums on track 3, boost the low end by 4 dB, and export a 24-bit WAV", and the agent executes that chain locally in seconds.',
+        text: 'Imagine you are mastering a 10-track album. In a cloud workflow, you upload each stem set, wait for processing, download results, repeat. With a local-first editor, you open the session, type "trim the silence off the start of track 3, boost the low end by 4 dB, and export a WAV", and the agent runs that chain on files that are already on your disk.',
       },
       {
         type: "h3",
-        text: "Latency Numbers That Matter",
+        text: "Nothing to Round-Trip",
       },
       {
         type: "p",
-        text: "A 96 kHz stereo file demucs stem separation on a modern M-series Mac or Ryzen 7 desktop takes roughly 8–15 seconds per minute of audio — fully offline. The equivalent cloud round-trip (upload + queue + process + download) is typically 45–120 seconds for the same file, and that assumes the API is healthy.",
+        text: "In a cloud workflow every operation pays for an upload, a queue and a download. In edytlab the audio is already on your disk, so an edit is a function call on files you already have. The one network request is the chat message to your LLM provider, and with Ollama even that stays on your machine.",
       },
       {
         type: "h2",
@@ -92,7 +125,7 @@ export const posts: BlogPost[] = [
       },
       {
         type: "p",
-        text: "As on-device AI inference improves — Apple Silicon Neural Engine, AMD XDNA, NVIDIA DLSS-equivalent for audio — the gap between local and cloud audio AI will narrow to zero. Tools built local-first today will not need to be rearchitected. Tools built cloud-first will.",
+        text: "As on-device AI inference improves — Apple Silicon Neural Engine, AMD XDNA, NVIDIA DLSS-equivalent for audio — the gap between local and cloud audio AI should keep narrowing. Tools built local-first today will not need to be rearchitected. Tools built cloud-first will.",
       },
     ],
   },
@@ -100,8 +133,12 @@ export const posts: BlogPost[] = [
     slug: "stem-separation-explained-demucs",
     title: "Stem Separation Explained: How AI Isolates Vocals and Instruments",
     date: "2026-05-12",
+    description:
+      "How Demucs splits a mix into vocals, drums, bass and other, what each stem is good for, and where stem separation stands in edytlab (it has not shipped yet).",
+    coverAlt:
+      "One wide waveform on the left splitting into four stacked lanes on the right, one for each stem",
     excerpt:
-      "Stem separation used to require a mixing console and a human engineer. Now Demucs can split a stereo mix into vocals, drums, bass, and other in seconds — and it runs entirely on your laptop.",
+      "Stem separation used to need the original multitrack session. Demucs can split a stereo mix into vocals, drums, bass and other, and it is built to run on your own machine. In edytlab the tool has not shipped yet, so this post explains the idea.",
     readTime: 6,
     tags: ["stem separation", "Demucs", "vocal isolation", "music production"],
     body: [
@@ -158,7 +195,7 @@ export const posts: BlogPost[] = [
         type: "ul",
         items: [
           "Isolate the vocal from a reference track to study the performance style.",
-          "Extract the drum stem to create an acapella version for a DJ edit.",
+          "Extract the vocal stem to make an acapella for a DJ edit.",
           "Remove the bass from a full mix to re-record it with a different instrument.",
           "Create an instrumental version of a track where the original multitrack no longer exists.",
           "Transcribe a melody by separating the lead instrument and running it through pitch detection.",
@@ -182,11 +219,11 @@ export const posts: BlogPost[] = [
       },
       {
         type: "p",
-        text: "Demucs offers several model variants. htdemucs is the recommended default — it offers the best quality-to-speed ratio on modern hardware. mdx_extra gives slightly better vocal quality at the cost of more VRAM. htdemucs_6s adds guitar and piano as separate stems, which is useful for complex arrangements but takes roughly 2× the inference time.",
+        text: "Demucs offers several model variants. htdemucs is the recommended default — it offers the best quality-to-speed ratio on modern hardware. mdx_extra gives slightly better vocal quality at the cost of more VRAM. htdemucs_6s adds guitar and piano as separate stems, which is useful for complex arrangements but takes longer to run.",
       },
       {
         type: "p",
-        text: "On an Apple M3 MacBook Pro, a 4-minute track separates into 4 stems in approximately 45 seconds with htdemucs. On a Windows machine with a mid-range NVIDIA GPU (RTX 3060), the same track takes 18–25 seconds with CUDA acceleration.",
+        text: "How long separation takes depends on your hardware and on the variant, and a GPU helps a great deal. edytlab has no separation speed to quote, because the tool has not shipped.",
       },
     ],
   },
@@ -194,8 +231,12 @@ export const posts: BlogPost[] = [
     slug: "podcast-production-ai-workflow",
     title: "AI Podcast Production: Record, Edit, Transcribe, and Export in One Session",
     date: "2026-05-13",
+    description:
+      "A podcast edit is a list of repeatable steps. Here is the whole list, which of them edytlab can run today, and which wait on transcription.",
+    coverAlt:
+      "A speech waveform in bursts, with the gaps between them marked as trimmed silence",
     excerpt:
-      "The typical podcast post-production workflow takes 4–6 hours per episode. Here is how to use an AI audio editor to collapse that to under 30 minutes without sacrificing quality.",
+      "Podcast post-production is the same list of steps every episode. Here is the list, which steps edytlab can run from a sentence today, and which ones wait for on-device transcription, which has not shipped yet.",
     readTime: 8,
     tags: ["podcast editor", "AI podcast", "transcription", "Whisper", "audio editing"],
     body: [
@@ -216,7 +257,7 @@ export const posts: BlogPost[] = [
         items: [
           "Manual review of the waveform to find and cut long pauses.",
           "Noise gate or spectral repair to remove room noise and HVAC hum.",
-          "Loudness normalization to LUFS broadcast targets (-16 LUFS for Spotify, -19 LUFS for Apple Podcasts).",
+          "Loudness normalization to a delivery target (-14 LUFS for Spotify and YouTube, -16 LUFS for Apple Podcasts, -23 LUFS for broadcast).",
           "Music intro/outro mixing with level automation.",
           "Export to MP3 at appropriate bitrate with ID3 tags.",
           "Show notes generation from timestamps.",
@@ -224,7 +265,7 @@ export const posts: BlogPost[] = [
       },
       {
         type: "p",
-        text: "Each of these steps requires different tools, different knowledge, and careful listening. It adds up to 4–6 hours of editing for a 1-hour episode for most solo producers.",
+        text: "Each of these steps requires different tools, different knowledge, and careful listening. Together they make editing an episode a long job, and most of it is the same moves every time.",
       },
       {
         type: "h2",
@@ -284,7 +325,7 @@ export const posts: BlogPost[] = [
       },
       {
         type: "p",
-        text: "Automated workflows do not replace critical listening. AI can normalize to a target LUFS, but it does not know if your interview guest had an unusually nasally recording environment that day. Ums and filler words can be removed automatically, but rhythm editing — making the conversation flow more naturally — still benefits from a human ear. Use AI to handle the mechanical 80% and spend your time on the creative 20%.",
+        text: "Automated workflows do not replace critical listening. AI can normalize to a target LUFS, but it does not know if your interview guest had an unusually nasally recording environment that day. Ums and filler words can be removed automatically, but rhythm editing — making the conversation flow more naturally — still benefits from a human ear. Use AI to handle the mechanical steps and spend your time on the creative ones.",
       },
       {
         type: "h2",
@@ -300,6 +341,10 @@ export const posts: BlogPost[] = [
     slug: "conversational-daw-prompt-to-mix",
     title: "From Prompt to Mix: How Conversational Audio Editing Works",
     date: "2026-05-15",
+    description:
+      "What happens between a sentence you type and a changed waveform: tools, session context, the session graph, and how to write prompts that work.",
+    coverAlt:
+      "A chat bubble with a text cursor, an arrow from it fanning out to three track lanes with waveforms",
     excerpt:
       "You type what you want. The AI figures out which audio operations to run, in which order, and executes them against your session. Here is exactly how that translation happens.",
     readTime: 6,
@@ -315,7 +360,7 @@ export const posts: BlogPost[] = [
       },
       {
         type: "p",
-        text: "Modern AI audio editors work by giving a large language model a set of tools — functions it can call to manipulate the audio session. These tools correspond to discrete audio operations: load a file, cut a region, adjust gain, apply a plugin, normalize loudness, run stem separation, render to disk.",
+        text: "Modern AI audio editors work by giving a large language model a set of tools — functions it can call to manipulate the audio session. These tools correspond to discrete audio operations: load a file, cut a region, adjust gain, apply a plugin, normalize loudness, render to disk.",
       },
       {
         type: "p",
@@ -347,7 +392,6 @@ export const posts: BlogPost[] = [
           "Branch: create a fork of the session to try a different arrangement without losing the current one.",
           "Compare: A/B between two branch nodes to decide which mix sounds better.",
           "Revert: jump to any earlier state by navigating the graph.",
-          "Merge: take the best elements of two branches into a new node.",
         ],
       },
       {
@@ -364,7 +408,7 @@ export const posts: BlogPost[] = [
       },
       {
         type: "p",
-        text: '"Boost the bass" is ambiguous: which track? How much? What frequency? The agent will make a reasonable default (the first track with audio, +3 dB, shelf below 200 Hz) and tell you what it did. If that is not what you wanted, you can correct it in natural language: "not that track — the second one, and just +2 dB".',
+        text: '"Boost the bass" is ambiguous: which track? How much? What frequency? The agent either asks or picks a reasonable default and tells you what it did, and it can see which tracks exist, so naming the track in the prompt saves a round trip. If the result is not what you wanted, you can correct it in natural language: "not that track — the second one, and just +2 dB".',
       },
       {
         type: "h2",
@@ -372,7 +416,7 @@ export const posts: BlogPost[] = [
       },
       {
         type: "p",
-        text: "Not all LLMs perform equally well at multi-step audio planning. Models with strong function-calling support (Claude 3.7 Sonnet, GPT-4o, Mistral Large via OpenRouter) reliably decompose complex audio instructions into correct tool chains. Smaller models may execute the first tool correctly but lose track of the plan on longer chains. edytlab lets you swap providers without reinstalling — you can test which model works best for your workflow.",
+        text: "Not all LLMs perform equally well at multi-step audio planning. Models with strong function-calling support tend to decompose complex audio instructions into correct tool chains. Smaller models may execute the first tool correctly but lose track of the plan on longer chains. edytlab lets you swap providers without reinstalling, so you can test which model works best for your workflow. The post [Which LLM should drive your audio editor?](/blog/which-llm-should-drive-your-audio-editor) goes through the six providers.",
       },
       {
         type: "h2",
@@ -388,6 +432,10 @@ export const posts: BlogPost[] = [
     slug: "open-source-audio-editor-byo-llm",
     title: "Why the Best AI Audio Tools Let You Bring Your Own LLM Key",
     date: "2026-05-17",
+    description:
+      "AI audio tools that hardcode one model decide for you. What bring-your-own-key means in practice: where the key lives, what you can switch, and what it costs.",
+    coverAlt:
+      "A key plugging into a socket on a device, with the socket wired to a single line out",
     excerpt:
       "Vendor lock-in is the oldest trick in enterprise software. AI audio tools that hardcode a single provider are not tools — they are subscriptions. Here is what BYO-key architecture means in practice.",
     readTime: 5,
@@ -395,7 +443,7 @@ export const posts: BlogPost[] = [
     body: [
       {
         type: "p",
-        text: "Every AI tool that buries its LLM provider in the backend is making a bet on your behalf: that the model they chose today will remain the best choice for your workflow forever. That bet has a 0% historical success rate in software.",
+        text: "Every AI tool that buries its LLM provider in the backend is making a bet on your behalf: that the model they chose today will remain the best choice for your workflow forever. Software history gives little reason to take it.",
       },
       {
         type: "h2",
@@ -424,7 +472,7 @@ export const posts: BlogPost[] = [
       },
       {
         type: "callout",
-        text: "edytlab stores API keys in your native OS keychain (macOS Keychain, Windows Credential Manager). The desktop app reads the key at runtime, signs the LLM request locally, and sends it directly to the provider. No intermediary server, no usage logging by edytlab.",
+        text: "edytlab stores API keys in your native OS keychain (macOS Keychain, Windows Credential Manager, the Secret Service on Linux). The desktop app reads the key at runtime, signs the LLM request locally, and sends it directly to the provider. No intermediary server, no usage logging by edytlab.",
       },
       {
         type: "h2",
@@ -432,7 +480,7 @@ export const posts: BlogPost[] = [
       },
       {
         type: "p",
-        text: "Different providers have different strengths for audio agent tasks. Anthropic Claude models have strong long-context reasoning and reliable multi-step tool use — good for complex arrangements. OpenAI GPT-4o has excellent speed and broad tool-call support — good for quick edits. OpenRouter gives you access to 50+ models including open-weight options like Llama 3.3, Mistral Large, and Qwen 2.5.",
+        text: "Different providers have different strengths for audio agent tasks. Anthropic's Claude models are built for multi-step tool use, which suits complex arrangements. OpenAI's models are a drop-in if you already have access. OpenRouter puts many models, including open-weight ones, behind one key. Groq serves open models, Google Gemini offers long context, and Ollama runs models on your own machine with no key at all. The follow-up post [Which LLM should drive your audio editor?](/blog/which-llm-should-drive-your-audio-editor) compares all six.",
       },
       {
         type: "h3",
@@ -443,7 +491,7 @@ export const posts: BlogPost[] = [
         items: [
           "Complex multi-track arrangements with many interdependencies: use Claude or GPT-4o.",
           "Simple edits (normalize, cut, export): use a fast, cheap model like Haiku or GPT-4o mini.",
-          "Budget-sensitive production: route through OpenRouter to access open-weight models at 10× lower cost.",
+          "Budget-sensitive production: route through OpenRouter to reach cheaper open-weight models.",
           "Privacy-critical sessions: choose a provider with zero data retention commitments.",
         ],
       },
@@ -461,7 +509,7 @@ export const posts: BlogPost[] = [
       },
       {
         type: "p",
-        text: "A typical 30-minute podcast edit might consume 50,000–200,000 tokens of LLM context (session state + conversation history). At Claude Sonnet pricing (~$3/M input tokens), that is $0.15–0.60 per session. At Haiku pricing (~$0.25/M input), it is $0.01–0.05. When you own the key, you see these costs directly on your provider dashboard and can optimize accordingly. When the tool owns the key, those costs are buried in your subscription.",
+        text: "What you spend follows the conversation: the messages you send, the session description the model reads each turn, and the tool results it gets back. Your audio is not part of it. Provider prices change, so look at your provider's pricing page rather than at a number in a blog post. When you own the key, you see the cost directly on your provider dashboard and can choose a cheaper model for simple edits. When the tool owns the key, that cost is buried in your subscription.",
       },
       {
         type: "p",
@@ -471,10 +519,41 @@ export const posts: BlogPost[] = [
   },
 ];
 
+/** Every post, oldest first. Where two share a date, the order here is the order shown. */
+export const posts: BlogPost[] = [...earlierPosts, ...octoberPosts];
+
 export function getPost(slug: string): BlogPost | undefined {
   return posts.find((p) => p.slug === slug);
 }
 
 export function getAllSlugs(): string[] {
   return posts.map((p) => p.slug);
+}
+
+/** Newest first. A stable sort, so posts on one date keep their order above. */
+export function postsNewestFirst(list: readonly BlogPost[] = posts): BlogPost[] {
+  return [...list].sort((a, b) => b.date.localeCompare(a.date));
+}
+
+/** The last time a post changed: `dateModified`, else the day it went up. */
+export function modifiedOf(post: BlogPost): string {
+  return post.dateModified ?? post.date;
+}
+
+/** The words a reader reads, markup and prompts included. */
+export function wordCount(post: BlogPost): number {
+  const text = post.body
+    .map((b) => {
+      switch (b.type) {
+        case "ul":
+        case "ol":
+          return b.items.map(stripInline).join(" ");
+        case "prompt":
+          return b.text;
+        default:
+          return stripInline(b.text);
+      }
+    })
+    .join(" ");
+  return text.split(/\s+/).filter(Boolean).length;
 }

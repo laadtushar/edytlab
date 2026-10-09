@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 import { SiteHeader } from "@/components/landing/site-header";
 import { Footer } from "@/components/landing/footer";
 import { Cascade, LineDraw, Reveal, SplitHeading, Stagger } from "@/components/motion";
+import { breadcrumbJsonLd, serializeJsonLd, type Crumb } from "@/lib/seo-core";
 
 const navGroups = [
   {
@@ -43,8 +44,20 @@ export function DocShell({
 }) {
   const pathname = usePathname();
 
+  // Home > Documentation > this page. The overview page is its own
+  // "Documentation" crumb, so it gets two crumbs, not three.
+  const trail: Crumb[] = [
+    { name: "Home", path: "/" },
+    { name: "Documentation", path: "/docs" },
+    ...(pathname === "/docs" ? [] : [{ name: title, path: pathname }]),
+  ];
+
   return (
     <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(breadcrumbJsonLd(trail)) }}
+      />
       <SiteHeader />
       <div className="min-h-screen pt-14">
         <div className="container mx-auto flex gap-0 lg:gap-8 xl:gap-12">
