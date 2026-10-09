@@ -163,3 +163,42 @@ export function nodeLabel(n: GraphNode): string {
   }
   return n.id.slice(0, 7);
 }
+
+/** One move along the path the user took, drawn over the graph. */
+export interface PathStep {
+  id: string;
+  source: string;
+  target: string;
+  /** The step is an existing parent-to-child edge, so it is drawn on that edge. */
+  onTree: boolean;
+}
+
+/**
+ * The steps of `path` (heads the user was on, oldest first) that the
+ * graph can draw.
+ *
+ * The graph is content-addressed: a state reached twice is one node with
+ * one parent, so a path that returns to an earlier state (mute, then
+ * unmute) has a step the parent edges do not contain. Those steps are
+ * `onTree: false` and are drawn as extra edges; the rest highlight the
+ * edge that is already there (#398).
+ *
+ * A step is skipped when it goes nowhere (the same id twice), when either
+ * end is not a node of `nodes`, or when the same step was already taken:
+ * the graph shows where the user went, not how often.
+ */
+export function pathSteps(nodes: GraphNode[], path: readonly string[]): PathStep[] {
+  const parentOf = new Map(nodes.map((n) => [n.id, n.parent]));
+  const seen = new Set<string>();
+  const steps: PathStep[] = [];
+  for (let i = 1; i < path.length; i++) {
+    const source = path[i - 1];
+    const target = path[i];
+    if (source === target || !parentOf.has(source) || !parentOf.has(target)) continue;
+    const id = `path:${source}->${target}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    steps.push({ id, source, target, onTree: parentOf.get(target) === source });
+  }
+  return steps;
+}

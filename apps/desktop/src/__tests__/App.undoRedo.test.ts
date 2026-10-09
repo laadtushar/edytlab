@@ -2,8 +2,6 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  applyUndo,
-  applyRedo,
   isUndoChord,
   isRedoChord,
   isTextEntry,
@@ -78,10 +76,12 @@ describe("undo/redo chords", () => {
  * test cannot render, so this asserts the delegation instead: the
  * handler must call the same predicate these tests exercise.
  *
- * Undo and redo are also driven for real in `e2e/labels.spec.ts`,
- * through the keys, against a `get_node` answer taken from the Rust
- * snapshot of a serialised `SessionNode`. This stays as the cheap layer
- * that names the predicates the tests above exercise.
+ * Undo and redo are also driven for real through the keys, in
+ * `e2e/undo-path.spec.ts` (the path taken, #398) and
+ * `e2e/labels.spec.ts`, against a `get_node` answer taken from the Rust
+ * snapshot of a serialised `SessionNode`. Where they go is
+ * `lib/headTrail.ts`, tested in `headTrail.test.ts`. This stays as the
+ * cheap layer that names the predicates the tests above exercise.
  */
 describe("App.tsx delegates to the tested predicates", () => {
   const app = readFileSync(join(process.cwd(), "src", "App.tsx"), "utf8");
@@ -93,41 +93,6 @@ describe("App.tsx delegates to the tested predicates", () => {
       `App.tsx never calls ${name}(e) — the tests below would be ` +
         `asserting against code the app does not run`,
     ).toBe(true);
-  });
-});
-
-describe("undo/redo logic", () => {
-  it("undo pushes current head to redo stack and returns parent", () => {
-    const result = applyUndo("node-b", "node-a", []);
-    expect(result).toEqual({ head: "node-a", redoStack: ["node-b"] });
-  });
-
-  it("undo at root (no parent) returns null", () => {
-    expect(applyUndo("node-a", null, [])).toBeNull();
-  });
-
-  it("redo pops from redo stack", () => {
-    const result = applyRedo(["node-b"]);
-    expect(result).toEqual({ head: "node-b", redoStack: [] });
-  });
-
-  it("redo on empty stack returns null", () => {
-    expect(applyRedo([])).toBeNull();
-  });
-
-  it("undo then redo returns to original head", () => {
-    const afterUndo = applyUndo("node-b", "node-a", [])!;
-    const afterRedo = applyRedo(afterUndo.redoStack)!;
-    expect(afterRedo.head).toBe("node-b");
-  });
-
-  it("redo stack cleared after new node resets all forward history", () => {
-    // After undo, redoStack has one entry
-    const afterUndo = applyUndo("node-b", "node-a", [])!;
-    expect(afterUndo.redoStack).toHaveLength(1);
-    // When onNodeCreated fires, App.tsx calls setRedoStack([])
-    // Verify that after that reset, applyRedo finds nothing
-    expect(applyRedo([])).toBeNull();
   });
 });
 
