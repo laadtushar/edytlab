@@ -266,7 +266,7 @@ User text
     └─────────┬──────────┘
               │  stream chunks
     ┌─────────▼──────────────────────┐
-    │  Tool call loop (max 10/turn)  │
+    │  Tool call loop (max 20/turn)  │
     │  1. Collect tool_use blocks    │
     │  2. Dispatch to ToolDispatcher │
     │  3. Append tool_result         │
@@ -278,6 +278,28 @@ User text
     │  (text deltas + tool events)   │
     └────────────────────────────────┘
 ```
+
+### Tool budget
+
+A turn may make at most `MAX_TOOL_CALLS_PER_TURN` (20) tool calls, counted over
+every step of the turn. It is protection against a model that never stops
+calling tools, not an error condition: one sensible mastering pass is 7 to 10
+calls. The budget is stated to the model in its system prompt (one line, built
+from the constant, appended to the mode's base prompt), so it can plan within it.
+
+When a step's calls would go past the budget, the loop does not run that step.
+Each of its `tool_use` blocks is answered with an `is_error` `tool_result` saying
+it was not run because the budget was reached (and `ToolCallEnd { ok: false }` is
+emitted for each, so no badge is left "running"). It then makes **one last
+request with tools off** (`tool_choice: none`; the tool definitions stay in the
+request because the history holds tool calls, which Anthropic rejects without
+them) so the model says what was done and what is left. That text streams as
+normal and the turn ends with `Done`, not an error. Edits already made stay as
+ordinary undoable nodes. If the last request itself fails, the turn ends with that
+request's error.
+
+The check comes before the Plan first gate below, so a step that cannot run is
+never shown for approval.
 
 ### Plan first
 
@@ -383,7 +405,7 @@ On Linux the `keyring` crate is built with only its `linux-native` feature, whic
 ```rust
 pub const DEFAULT_MODEL: &str = "claude-sonnet-4-6";
 pub const CLASSIFIER_MODEL: &str = "claude-haiku-4-5-20251001";
-pub const MAX_TOOL_CALLS_PER_TURN: usize = 10;
+pub const MAX_TOOL_CALLS_PER_TURN: usize = 20;
 ```
 
 ---
