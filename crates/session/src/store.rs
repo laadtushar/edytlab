@@ -370,8 +370,14 @@ impl Store {
         diff::merge(self, a, b)
     }
 
-    /// Revert head to a node whose state matches `target`. Appends a
-    /// new node parented to current head (history is preserved).
+    /// Move head to a node whose state matches `target`.
+    ///
+    /// Node ids hash the state alone, so appending `target`'s state lands
+    /// on `target` itself: the result is `target`, still parented to
+    /// whatever it was parented to when first reached (see
+    /// [`Store::append`]). Nothing is added and every node after it is
+    /// kept, so no history is lost; what is not recorded is the route
+    /// that led here.
     pub fn revert_to(&mut self, target: NodeId) -> Result<NodeId> {
         diff::revert_to(self, target)
     }

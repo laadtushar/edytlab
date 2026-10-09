@@ -236,8 +236,9 @@ src/
 ├── lib/
 │   ├── tauri-bridge.ts        # Type-safe IPC + event wrappers
 │   ├── file-open.ts           # Audio file picker + drag-drop
-│   ├── graph.ts               # Graph layout (dagre)
-│   └── undoRedo.ts            # Undo/redo DAG traversal
+│   ├── graph.ts               # Graph layout (dagre), path steps for the graph
+│   ├── headTrail.ts           # The path taken through history: undo/redo targets
+│   └── undoRedo.ts            # Undo/redo chords, text-entry check
 └── __tests__/
     ├── App.undoRedo.test.ts
     ├── ShortcutsOverlay.test.tsx
@@ -451,8 +452,8 @@ if (!wsRef.current || duration === 0) return;
 wsRef.current.zoom(level);
 ```
 
-**Undo/redo not working:**
-Check that `head` is in the `useEffect` dependency array for the undo/redo handlers.
+**Undo/redo not working, or going to the wrong node:**
+Undo and redo read the path the user took through `peekUndo()` / `peekRedo()` from `useSession`, never `node.parent` alone (a state reached again keeps its first parent, #398). Any code that moves the head must go through `setHeadLocal(id)` (an edit, an agent step, a graph click) or `resetHead(id)` (a different project); a head moved any other way is one the path does not know about. After a `set_head_to` that you made yourself, call `stepBack(from, to)` / `stepForward(from, to)`.
 
 **Keyboard shortcut firing twice:**
 Two `window.addEventListener("keydown")` handlers both firing. Add a guard:
