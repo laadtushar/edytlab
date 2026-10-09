@@ -64,6 +64,54 @@ pub(crate) enum Mode {
     General,
 }
 
+/// The conversation as plain-text messages for a one-shot call (the
+/// classifier, the plan), ending with `user_message`, keeping the most
+/// recent `last` messages if given.
+///
+/// A tool-using turn leaves an assistant message with only `tool_use`
+/// and a user message with only `tool_result`, which have no text. Sent
+/// as `{"role":"user","content":""}` the API rejects the whole request
+/// ("user messages must have non-empty content"), so after the first
+/// tool-using turn the classifier fell back to `general` and Plan first
+/// skipped its plan and ran the tools unapproved (#418). Empty turns are
+/// dropped, and what that leaves side by side from one role is merged,
+/// so roles still alternate.
+fn one_shot_messages(
+    conversation: &[Message],
+    last: Option<usize>,
+    user_message: &str,
+) -> Vec<Value> {
+    let mut turns: Vec<(&'static str, String)> = Vec::new();
+    let all = conversation
+        .iter()
+        .map(|m| {
+            let role = match m.role {
+                Role::User => "user",
+                Role::Assistant => "assistant",
+            };
+            (role, message_text(m))
+        })
+        .chain(std::iter::once(("user", user_message.to_string())));
+    for (role, text) in all {
+        let text = text.trim();
+        if text.is_empty() {
+            continue;
+        }
+        match turns.last_mut() {
+            Some((r, t)) if *r == role => {
+                t.push_str("\n\n");
+                t.push_str(text);
+            }
+            _ => turns.push((role, text.to_string())),
+        }
+    }
+    let keep = last.map_or(turns.len(), |n| n.saturating_add(1).min(turns.len()));
+    turns[turns.len() - keep..]
+        .iter()
+        .map(|(role, text)| serde_json::json!({ "role": role, "content": text }))
+        .collect()
+}
+
 /// A non-streaming request in the shape `cfg.provider` speaks, so the
 /// provider reads its system prompt and its reply can be read back by
 /// [`extract_response_text`].
@@ -135,21 +183,9 @@ pub(crate) async fn classify_mode(
 ) -> Mode {
     let system_text = "Classify the user's request as one word: mashup, mix, voice, or general. Output only the single word.";
 
-    // Include the last 6 conversation messages for context, then the new
-    // user message so the classifier sees the full intent.
-    let mut messages: Vec<serde_json::Value> = conversation
-        .iter()
-        .rev()
-        .take(6)
-        .rev()
-        .map(|m| {
-            serde_json::json!({
-                "role": match m.role { Role::User => "user", Role::Assistant => "assistant" },
-                "content": message_text(m),
-            })
-        })
-        .collect();
-    messages.push(serde_json::json!({ "role": "user", "content": user_message }));
+    // The last 6 conversation messages for context, then the new user
+    // message so the classifier sees the full intent.
+    let messages = one_shot_messages(conversation, Some(6), user_message);
 
     let request_body = one_shot_body(
         cfg,
@@ -356,16 +392,7 @@ async fn fetch_plan(
     conversation: &[Message],
     user_message: &str,
 ) -> std::result::Result<Vec<Value>, PlanUnavailable> {
-    let mut messages: Vec<serde_json::Value> = conversation
-        .iter()
-        .map(|m| {
-            serde_json::json!({
-                "role": match m.role { Role::User => "user", Role::Assistant => "assistant" },
-                "content": message_text(m),
-            })
-        })
-        .collect();
-    messages.push(serde_json::json!({ "role": "user", "content": user_message }));
+    let messages = one_shot_messages(conversation, None, user_message);
 
     let plan_instruction =
         "Output only a <plan>...</plan> XML block listing the steps as JSON. No other text.";
@@ -1306,6 +1333,97 @@ mod tests {
             assert_eq!(body_for(id)["max_tokens"], 7, "{id}");
             assert!(body_for(id).get("max_completion_tokens").is_none(), "{id}");
         }
+    }
+
+    // ------------------------------------------------------------------
+    // one_shot_messages (#418)
+    // ------------------------------------------------------------------
+
+    /// A turn that used a tool: the request, the model's tool call (no
+    /// text), the tool's result (no text), and the model's reply.
+    fn tool_turn(request: &str, reply: &str) -> Vec<Message> {
+        vec![
+            Message {
+                role: Role::User,
+                content: vec![ContentBlock::Text {
+                    text: request.into(),
+                }],
+            },
+            Message {
+                role: Role::Assistant,
+                content: vec![ContentBlock::ToolUse {
+                    id: "t1".into(),
+                    name: "gain".into(),
+                    input: json!({}),
+                }],
+            },
+            Message {
+                role: Role::User,
+                content: vec![ContentBlock::ToolResult {
+                    tool_use_id: "t1".into(),
+                    content: "{\"gain_db\":3}".into(),
+                    is_error: None,
+                }],
+            },
+            Message {
+                role: Role::Assistant,
+                content: vec![ContentBlock::Text { text: reply.into() }],
+            },
+        ]
+    }
+
+    fn assert_sendable(messages: &[Value]) {
+        assert!(!messages.is_empty());
+        for (i, m) in messages.iter().enumerate() {
+            let text = m["content"].as_str().expect("text content");
+            assert!(
+                !text.trim().is_empty(),
+                "message {i} is empty: {messages:?}"
+            );
+            if i > 0 {
+                assert_ne!(
+                    m["role"],
+                    messages[i - 1]["role"],
+                    "roles repeat at {i}: {messages:?}"
+                );
+            }
+        }
+        assert_eq!(messages.last().unwrap()["role"], "user");
+    }
+
+    #[test]
+    fn a_tool_using_turn_leaves_no_empty_message() {
+        let conversation = tool_turn("make it louder", "Done, +3 dB.");
+        let messages = one_shot_messages(&conversation, None, "do that again");
+        assert_sendable(&messages);
+        assert_eq!(messages.len(), 3, "{messages:?}");
+        assert_eq!(messages[0]["content"], "make it louder");
+        assert_eq!(messages[2]["content"], "do that again");
+    }
+
+    /// A turn whose reply was tool calls only leaves two user messages
+    /// side by side once the empty ones go; they are merged.
+    #[test]
+    fn user_messages_left_side_by_side_are_merged() {
+        let mut conversation = tool_turn("make it louder", "");
+        conversation.pop();
+        let messages = one_shot_messages(&conversation, None, "and fade it out");
+        assert_sendable(&messages);
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0]["content"], "make it louder\n\nand fade it out");
+    }
+
+    #[test]
+    fn the_classifier_keeps_the_most_recent_turns() {
+        let mut conversation = Vec::new();
+        for i in 0..5 {
+            conversation.extend(tool_turn(&format!("request {i}"), &format!("reply {i}")));
+        }
+        let messages = one_shot_messages(&conversation, Some(6), "the new one");
+        assert_sendable(&messages);
+        assert_eq!(messages.len(), 7, "six of history and the new message");
+        assert_eq!(messages.last().unwrap()["content"], "the new one");
+        assert_eq!(messages[0]["content"], "request 2");
     }
 
     // ------------------------------------------------------------------
