@@ -23,9 +23,14 @@
 //! 6. Reassemble each `tool_use` block, validate args via the
 //!    dispatcher's compiled JSON Schema, invoke the tool synchronously,
 //!    and append a `tool_result` block to the conversation.
-//! 7. If at least one tool was used, loop. The hard cap of
+//! 7. If at least one tool was used, loop. The budget of
 //!    [`crate::prompt::MAX_TOOL_CALLS_PER_TURN`] applies across all
-//!    iterations of the same turn. Where the gate is still waiting for
+//!    iterations of the same turn, and the model is told it in the system
+//!    prompt. A step whose calls would go past it is not run at all (and
+//!    so never shown for approval): each of its calls is answered "not
+//!    run", and the model gets one last request with tools off to say what
+//!    was done and what is left. That ends the turn normally, not with an
+//!    error (#439). Where the gate is still waiting for
 //!    its first mutating step, that step is held *before* any of its
 //!    calls dispatch and shown as the plan card; approving runs it and
 //!    opens the gate for the rest of the turn, declining ends the turn
@@ -57,7 +62,7 @@ use crate::anthropic::{
     Message, MessagesRequest, OutputConfig, Role, StreamEvent, SystemBlock, ToolChoice,
 };
 use crate::approval::{self, Approval};
-use crate::prompt::{DEFAULT_MAX_TOKENS, MAX_TOOL_CALLS_PER_TURN};
+use crate::prompt::{tool_budget_line, DEFAULT_MAX_TOKENS, MAX_TOOL_CALLS_PER_TURN};
 use crate::session_context::{render_block, SessionContext};
 use crate::{AgentEvent, Effort, Error, LlmConfig, Result, TurnResult, WireFormat};
 
@@ -264,6 +269,18 @@ fn select_system_prompt(mode: Mode) -> &'static str {
         Mode::Mashup => include_str!("../prompts/mashup_mode.md"),
         _ => include_str!("../prompts/system.md"),
     }
+}
+
+/// The base prompt for `mode`, followed by the line that tells the model
+/// its tool budget (#439). Every mode gets it: the budget is the loop's,
+/// not a mode's. The line is built here rather than written into the
+/// prompt files so that it states the constant the loop enforces.
+fn base_prompt_with_budget(mode: Mode) -> String {
+    format!(
+        "{}\n\n{}",
+        select_system_prompt(mode).trim_end(),
+        tool_budget_line()
+    )
 }
 
 /// The per-turn fragments that go into the system prompt.
@@ -520,7 +537,7 @@ where
     // M27: classify the user message to select the system prompt and
     // decide whether to gate on plan approval.
     let mode = classify_mode(cfg, http, &user_message, conversation).await;
-    let base_prompt = select_system_prompt(mode);
+    let base_prompt = base_prompt_with_budget(mode);
 
     let memory_block = memory_store.map(|m| m.render()).unwrap_or_default();
     let skills_block = skill_library
@@ -550,7 +567,7 @@ where
         })
         .unwrap_or_default();
     let combined_prompt = assemble_system_prompt(&SystemPromptParts {
-        base: base_prompt,
+        base: &base_prompt,
         profile: &profile_block,
         skills: &skills_block,
         memory: &memory_block,
@@ -672,15 +689,25 @@ where
     // emit text the caller streamed; we concatenate so `TurnResult`
     // matches the rebuilt-from-events reconstruction.
     let mut accumulated_text = String::new();
+    // Set once a step has been refused for going past the tool budget.
+    // The next request is the last of the turn: tools off, so the model
+    // can only say what it did and what is left (#439).
+    let mut summarising = false;
 
     loop {
         // 2. Build and send the streaming request.
         let wire_model = cfg.wire_model();
+        let tool_choice = if summarising {
+            ToolChoice::NONE
+        } else {
+            ToolChoice::AUTO
+        };
         let request_struct = build_request(
             &wire_model,
             system_prompt,
             &tool_schemas,
             conversation,
+            tool_choice,
             cfg.effective_effort(),
         );
         // Provider-specific wire serialisation. Anthropic + OpenRouter
@@ -860,11 +887,14 @@ where
                 PartialBlock::RedactedThinking(data) if keep_thinking && !data.is_empty() => {
                     Some(ContentBlock::RedactedThinking { data: data.clone() })
                 }
+                // The last request offers no tools. A provider that
+                // ignores that and calls one anyway has the call left
+                // out of the history, since nothing will answer it.
                 PartialBlock::ToolUse {
                     id,
                     name,
                     args_json,
-                } => Some(ContentBlock::ToolUse {
+                } if !summarising => Some(ContentBlock::ToolUse {
                     id: id.clone(),
                     name: name.clone(),
                     // We re-serialise the parsed args (or empty object)
@@ -906,6 +936,38 @@ where
             })
             .collect();
 
+        // The last request of a turn that spent its tool budget. Its
+        // text is the summary; this is where the turn ends.
+        if summarising {
+            // Tools were off, so a call here means the provider ignored
+            // that. It was announced as it streamed, so its badge is
+            // resolved; it is not run and not in the history.
+            for (id, _, _) in &tool_uses {
+                on_event(AgentEvent::ToolCallEnd {
+                    id: id.clone(),
+                    ok: false,
+                    view: None,
+                });
+            }
+            // A reply with no words would leave the user with neither
+            // the work they asked for nor a reason why.
+            if text_this_message.is_empty() {
+                let notice = budget_notice();
+                on_event(AgentEvent::TextDelta(notice.clone()));
+                accumulated_text.push_str(&notice);
+                conversation.push(Message {
+                    role: Role::Assistant,
+                    content: vec![ContentBlock::Text { text: notice }],
+                });
+            }
+            on_event(AgentEvent::Done);
+            return Ok(TurnResult {
+                text: accumulated_text,
+                stop_reason,
+                node_ids: node_ids_emitted,
+            });
+        }
+
         if tool_uses.is_empty() {
             on_event(AgentEvent::Done);
             return Ok(TurnResult {
@@ -915,15 +977,34 @@ where
             });
         }
 
-        // The cap is enforced *before* dispatching this batch, so a
-        // model that requests 11 tools in a single turn never gets the
-        // 11th invoked. Checking the whole batch up-front (rather than
-        // per-call inside the loop) keeps the conversation history
-        // consistent: if the batch would push us over the cap we bail
-        // *before* appending any tool_result blocks, so we never end up
-        // with an assistant tool_use missing its matching tool_result.
+        // The budget is checked on the whole step *before* anything in
+        // it dispatches, so a model that proposes a step that would go
+        // past it never gets the call that crosses it invoked. A step
+        // is refused whole rather than run part way: its calls were
+        // written to go together, and the budget is runaway protection,
+        // not a meter to spend to the last unit.
+        //
+        // This is not an error. The edits already made stay as the
+        // undoable nodes they are, so ending the turn in `Err` after
+        // them told the user their request failed when most of it had
+        // been done, and left the model's reply unsaid (#439). Each call
+        // is answered "not run", so the history stays valid (a `tool_use`
+        // with no `tool_result` is a 400) and every badge resolves, and
+        // the next request, with tools off, is the model's account of
+        // what was done and what is left.
+        //
+        // It sits before the held-step gate on purpose: a step that will
+        // not run is not put to the user for approval.
         if total_tool_calls + tool_uses.len() > MAX_TOOL_CALLS_PER_TURN {
-            return Err(Error::ToolBudgetExceeded(MAX_TOOL_CALLS_PER_TURN));
+            approval::not_run(
+                &mut on_event,
+                conversation,
+                &tool_uses,
+                &budget_reached_result(),
+                None,
+            );
+            summarising = true;
+            continue;
         }
 
         // With Plan first on and no plan, the first step with a call that
@@ -1161,11 +1242,17 @@ pub(crate) fn parse_tool_args(args_json: &str) -> serde_json::Result<Value> {
 /// `wire_model` is the provider-translated model id (Anthropic uses the
 /// canonical id as-is; OpenRouter prepends `anthropic/`). The caller
 /// computes it once per turn iteration via [`LlmConfig::wire_model`].
+///
+/// `tool_choice` is `AUTO` for a turn's steps and `NONE` for the last
+/// request after the tool budget is spent. The tools are sent either way:
+/// the history holds tool calls and their results, which Anthropic
+/// rejects when no tools are defined.
 fn build_request<'a>(
     wire_model: &'a str,
     system_prompt: &'a str,
     tool_schemas: &Value,
     conversation: &'a [Message],
+    tool_choice: ToolChoice,
     effort: Option<Effort>,
 ) -> MessagesRequest<'a> {
     MessagesRequest {
@@ -1178,10 +1265,30 @@ fn build_request<'a>(
         }],
         messages: conversation,
         tools: Some(attach_cache_control_to_tools(tool_schemas.clone())),
-        tool_choice: Some(ToolChoice::AUTO),
+        tool_choice: Some(tool_choice),
         stream: true,
         output_config: effort.map(OutputConfig::effort),
     }
+}
+
+/// What the model is told for each call of a step that went past the tool
+/// budget: it was not run, nothing changed, and the next thing to do is
+/// tell the user where things stand.
+fn budget_reached_result() -> String {
+    format!(
+        "Not run: this request has used its budget of {MAX_TOOL_CALLS_PER_TURN} tool calls, so \
+         this call was not made and changed nothing. Make no more tool calls in this reply. \
+         Tell the user what has been done and what is left, so they can ask you to continue."
+    )
+}
+
+/// What the user is shown when the model, asked to summarise after the
+/// budget ran out, said nothing.
+fn budget_notice() -> String {
+    format!(
+        "I stopped after reaching the limit of {MAX_TOOL_CALLS_PER_TURN} tool calls for one \
+         request. What already ran is applied and can be undone; ask me to continue to do the rest."
+    )
 }
 
 /// Decorate the LAST tool entry with `cache_control: ephemeral`. The
@@ -1588,7 +1695,14 @@ mod tests {
         let tools = json!([{ "name": "t", "description": "d", "input_schema": {"type":"object"} }]);
         for id in crate::SUPPORTED_PROVIDER_IDS {
             let cfg = config_with_effort(id, Effort::High);
-            let req = build_request("m", "sys", &tools, &conversation, cfg.effective_effort());
+            let req = build_request(
+                "m",
+                "sys",
+                &tools,
+                &conversation,
+                ToolChoice::AUTO,
+                cfg.effective_effort(),
+            );
             let body = cfg.provider.serialize_request(&req);
             let text = body.to_string();
             if *id == crate::ANTHROPIC_ID {
@@ -1600,12 +1714,19 @@ mod tests {
             }
 
             let unset = LlmConfig::new(crate::provider::provider_from_id(id), "k");
-            let req = build_request("m", "sys", &tools, &conversation, unset.effective_effort());
+            let req = build_request(
+                "m",
+                "sys",
+                &tools,
+                &conversation,
+                ToolChoice::AUTO,
+                unset.effective_effort(),
+            );
             let text = unset.provider.serialize_request(&req).to_string();
             assert!(!text.contains("output_config"), "{id}: {text}");
         }
         // Unset also keeps the token cap it always had.
-        let req = build_request("m", "sys", &tools, &conversation, None);
+        let req = build_request("m", "sys", &tools, &conversation, ToolChoice::AUTO, None);
         assert_eq!(req.max_tokens, DEFAULT_MAX_TOKENS);
     }
 
@@ -2183,6 +2304,45 @@ No other text."#;
             !prompt.contains("Mashup Mode"),
             "expected default system prompt; got mashup prompt"
         );
+    }
+
+    /// Every mode's prompt says how many tool calls the model has (#439),
+    /// after the mode's own text, with the mode's file untouched.
+    #[test]
+    fn every_mode_s_base_prompt_states_the_tool_budget() {
+        for mode in [Mode::Mashup, Mode::Mix, Mode::Voice, Mode::General] {
+            let base = base_prompt_with_budget(mode);
+            let line = tool_budget_line();
+            assert!(
+                base.ends_with(&line),
+                "{} mode: the budget line is not at the end of the base prompt",
+                mode_as_str(mode)
+            );
+            assert!(
+                base.starts_with(select_system_prompt(mode).trim_end()),
+                "{} mode: the mode's own prompt was changed",
+                mode_as_str(mode)
+            );
+            assert!(
+                base.contains(&format!("at most {MAX_TOOL_CALLS_PER_TURN} tool calls")),
+                "{} mode: {base:?}",
+                mode_as_str(mode)
+            );
+        }
+    }
+
+    /// What the model reads for a call it was not allowed to make has to
+    /// say why, and what to do next, in the words it can act on.
+    #[test]
+    fn the_not_run_answer_names_the_budget_and_asks_for_a_summary() {
+        let answer = budget_reached_result();
+        assert!(
+            answer.contains(&MAX_TOOL_CALLS_PER_TURN.to_string()),
+            "{answer:?}"
+        );
+        assert!(answer.starts_with("Not run"), "{answer:?}");
+        assert!(answer.contains("what is left"), "{answer:?}");
+        assert!(budget_notice().contains(&MAX_TOOL_CALLS_PER_TURN.to_string()));
     }
 
     // ------------------------------------------------------------------

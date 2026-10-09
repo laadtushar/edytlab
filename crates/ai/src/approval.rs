@@ -275,7 +275,8 @@ pub(crate) fn describe_call(
     shorten(&parts.join(", "), DESCRIPTION_CAP)
 }
 
-/// Answer a held step without running it.
+/// Answer a step without running it: one the user declined, revised or
+/// did not answer, or one that would have gone past the tool budget.
 ///
 /// Emits `ToolCallEnd { ok: false }` for every held id, so no badge is
 /// left reading "running", and records one user message holding a

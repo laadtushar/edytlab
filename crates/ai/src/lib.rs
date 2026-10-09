@@ -340,11 +340,6 @@ pub enum Error {
     #[error("streaming protocol violation: {0}")]
     Protocol(String),
 
-    #[error(
-        "model exceeded the per-turn tool budget of {0}; the run was aborted to protect the user"
-    )]
-    ToolBudgetExceeded(usize),
-
     #[error("tool argument validation failed twice: {0}")]
     ToolValidation(String),
 
