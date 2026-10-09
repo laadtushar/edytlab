@@ -29,13 +29,12 @@
  */
 
 import { useRef } from "react";
-import Link from "next/link";
-import { Apple, Download } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Magnetic } from "@/components/motion";
-import { gsap, useGSAP, motionOk, NO_PREFERENCE } from "@/lib/gsap";
+import { BUILD_NOTE, DownloadButtons } from "@/components/landing/download-buttons";
+import { Words } from "@/components/motion/words";
+import { gsap, useGSAP, motionOk, NO_PREFERENCE, REVEAL_START, undash } from "@/lib/gsap";
+import "@/lib/gsap-svg";
 import type { ReleaseAssets } from "@/lib/releases";
 import { WAVE_H, WAVE_W, duckPath, flatPath, wavePath, waveClosedPath } from "./waveform";
 
@@ -67,6 +66,17 @@ const TOOLS = ["load", "transcribe", "truncate_silence", "set_clip_envelope", "r
 /** Only pin where there is room for a stage; narrow screens read the stack. */
 const STAGE = `${NO_PREFERENCE} and (min-width: 768px)`;
 
+/** Narrow screens with motion: the stack, with each scene doing its one thing. */
+const STACK = `${NO_PREFERENCE} and (max-width: 767px)`;
+
+/**
+ * Point-for-point morphs. Every waveform here is built with the same
+ * bar count, so the right morph is the plain one: `shapeIndex: 0` stops
+ * MorphSVG searching for a "better" start point, which on a closed
+ * outline like these would twist the shape halfway through.
+ */
+const morphTo = (shape: string) => ({ shape, shapeIndex: 0 });
+
 export function ScrollStory({ release }: { release: ReleaseAssets }) {
   const root = useRef<HTMLDivElement>(null);
 
@@ -74,41 +84,66 @@ export function ScrollStory({ release }: { release: ReleaseAssets }) {
     () => {
       const mm = motionOk();
 
+      // ── Scene 1 plays on load, not on scroll ──────────────────────
+      //
+      // This is the one thing that must not be scrubbed. A scrubbed
+      // timeline sits at progress 0 until the reader scrolls, so putting
+      // the opening headline in it means landing on an empty hero and
+      // having to scroll to find out what the site is. The entrance runs
+      // once on its own clock — on the stage and on the stack alike —
+      // and the *story* is what the scroll controls.
+      //
+      // The audio arrives as it would in the app: a flat line is drawn
+      // across the lane (DrawSVG), then swells into the voice (MorphSVG)
+      // and fills. The flat start is set here, after mount; the markup
+      // holds the finished waveform.
+      const intro = () => {
+        gsap.set("[data-voice]", { morphSVG: FLAT });
+        gsap.set("[data-voice]", { drawSVG: "0%" });
+        return gsap
+          .timeline({ defaults: { ease: "power3.out" } })
+          .from("[data-s1-badge]", { opacity: 0, y: -10, scale: 0.92, duration: 0.5 })
+          .from(
+            "[data-s1-title] .word",
+            { yPercent: 120, opacity: 0, rotateX: -50, stagger: 0.06, duration: 0.8 },
+            "-=0.25",
+          )
+          .from("[data-s1-sub]", { opacity: 0, y: 16, duration: 0.6 }, "-=0.45")
+          .to(
+            "[data-voice]",
+            {
+              drawSVG: "100%",
+              duration: 0.7,
+              ease: "power1.inOut",
+              // The dash was measured on the flat line; it has to go
+              // before the line becomes a longer waveform.
+              onComplete: undash("[data-voice]"),
+            },
+            "-=0.4",
+          )
+          .to("[data-voice]", { morphSVG: morphTo(VOICE_RAW), duration: 1, ease: "power2.inOut" })
+          .to("[data-voice]", { fillOpacity: 0.22, duration: 0.5 }, "-=0.4");
+      };
+
       mm.add(STAGE, () => {
         const scenes = gsap.utils.toArray<HTMLElement>("[data-scene]");
 
         // Lift the scenes out of flow and stack them. Done here rather
         // than in the class list so the stacked fallback is what the
-        // markup actually says, and this is the enhancement.
-        gsap.set(scenes, { position: "absolute", inset: 0, autoAlpha: 0 });
+        // markup actually says, and this is the enhancement. The
+        // stack's breathing room comes off too: on the stage each scene
+        // is centred in a full-height box instead.
+        gsap.set(scenes, {
+          position: "absolute",
+          inset: 0,
+          autoAlpha: 0,
+          paddingTop: 0,
+          paddingBottom: 0,
+        });
         gsap.set(scenes[0], { autoAlpha: 1 });
         gsap.set("[data-stage]", { height: "100vh" });
 
-        // ── Scene 1 plays on load, not on scroll ────────────────────
-        //
-        // This is the one thing that must not be scrubbed. A scrubbed
-        // timeline sits at progress 0 until the reader scrolls, so
-        // putting the opening headline in it means landing on an empty
-        // hero and having to scroll to find out what the site is. The
-        // entrance runs once on its own clock; the *story* is what the
-        // scroll controls, and it starts from a finished scene 1.
-        gsap
-          .timeline({ defaults: { ease: "power3.out" } })
-          .from("[data-s1-title] .word", {
-            yPercent: 120,
-            opacity: 0,
-            rotateX: -50,
-            stagger: 0.06,
-            duration: 0.8,
-          })
-          .from("[data-s1-sub]", { opacity: 0, y: 16, duration: 0.6 }, "-=0.45")
-          .fromTo(
-            "[data-voice]",
-            { drawSVG: "0%" },
-            { drawSVG: "100%", duration: 1.4, ease: "power1.inOut" },
-            "-=0.4",
-          )
-          .to("[data-voice]", { fillOpacity: 0.22, duration: 0.5 }, "-=0.4");
+        intro();
 
         // ── The story: scene to scene, driven by the scrollbar ──────
         const tl = gsap.timeline({
@@ -153,7 +188,7 @@ export function ScrollStory({ release }: { release: ReleaseAssets }) {
           // same path, reshaped.
           .to(
             "[data-voice-3]",
-            { attr: { d: VOICE_CUT }, duration: 1.6, ease: "power2.inOut" },
+            { morphSVG: morphTo(VOICE_CUT), duration: 1.6, ease: "power2.inOut" },
             "work+=1.1",
           )
           .from("[data-saved]", { opacity: 0, y: 10, duration: 0.6 }, "work+=2.3");
@@ -208,6 +243,42 @@ export function ScrollStory({ release }: { release: ReleaseAssets }) {
         });
       });
 
+      mm.add(STACK, () => {
+        intro();
+
+        // Each later scene settles in as it scrolls up, then does the
+        // one thing it is about — the same beats as the stage, played
+        // by position instead of by scrub.
+        gsap.utils.toArray<HTMLElement>("[data-scene]").slice(1).forEach((scene) => {
+          gsap.from(scene.querySelectorAll(":scope > div > *"), {
+            opacity: 0,
+            y: 20,
+            duration: 0.6,
+            stagger: 0.08,
+            scrollTrigger: { trigger: scene, start: REVEAL_START, once: true },
+          });
+        });
+        gsap.to("[data-voice-3]", {
+          morphSVG: morphTo(VOICE_CUT),
+          duration: 1.4,
+          delay: 0.4,
+          ease: "power2.inOut",
+          scrollTrigger: { trigger: "[data-scene='3']", start: "top 60%", once: true },
+        });
+        gsap.fromTo(
+          "[data-duck]",
+          { drawSVG: "0%" },
+          {
+            drawSVG: "100%",
+            duration: 1.4,
+            delay: 0.3,
+            ease: "power1.inOut",
+            onComplete: undash("[data-duck]"),
+            scrollTrigger: { trigger: "[data-scene='4']", start: "top 65%", once: true },
+          },
+        );
+      });
+
       return () => mm.revert();
     },
     { scope: root },
@@ -218,7 +289,11 @@ export function ScrollStory({ release }: { release: ReleaseAssets }) {
       <div data-stage className="relative overflow-hidden">
         {/* ── 1 ─────────────────────────────────────────────────── */}
         <Scene n={1}>
-          <Badge variant="outline" className="mb-6 border-primary/30 bg-primary/10 text-primary">
+          <Badge
+            data-s1-badge
+            variant="outline"
+            className="mb-6 border-primary/30 bg-primary/10 text-primary"
+          >
             Local-first AI audio editor{release.isFallback ? "" : ` · ${release.version}`}
           </Badge>
           <h1
@@ -313,7 +388,8 @@ export function ScrollStory({ release }: { release: ReleaseAssets }) {
           <p data-duck-note className="mx-auto mt-6 max-w-xl text-sm text-muted-foreground">
             Keyed on the transcript, not on level — so a breath does not
             trigger it and a quiet line does not escape it. The result is an
-            ordinary automation curve you can drag.
+            ordinary automation curve you can drag. (It needs a transcript, and
+            on-device transcription has not shipped yet.)
           </p>
         </Scene>
 
@@ -329,33 +405,8 @@ export function ScrollStory({ release }: { release: ReleaseAssets }) {
             Every step is a node you can undo, branch, or export as a recipe
             and run over the next twelve episodes.
           </p>
-          <div
-            data-done-cta
-            className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row"
-          >
-            {/* An absent installer links to the release page and says
-                so, rather than sending the user to a generic link
-                dressed as a direct download (#241). */}
-            <Magnetic>
-              <Button asChild size="lg" className="glow w-full sm:w-auto">
-                <Link href={release.macUrl ?? release.releaseUrl}>
-                  <Apple className="size-4" />
-                  {release.macUrl ? "Download for Mac" : "Mac builds on GitHub"}
-                </Link>
-              </Button>
-            </Magnetic>
-            <Magnetic>
-              <Button asChild size="lg" variant="outline" className="w-full sm:w-auto">
-                <Link href={release.winUrl ?? release.releaseUrl}>
-                  <Download className="size-4" />
-                  {release.winUrl ? "Download for Windows" : "Windows builds on GitHub"}
-                </Link>
-              </Button>
-            </Magnetic>
-          </div>
-          <p className="mt-4 text-xs text-muted-foreground">
-            Unsigned dev builds · Mac (universal) · Windows 10/11 · Linux
-          </p>
+          <DownloadButtons data-done-cta release={release} className="mt-10" />
+          <p className="mt-4 text-xs text-muted-foreground">{BUILD_NOTE}</p>
         </Scene>
 
         {/* Chapter rail — where you are in the story, and the only hint
@@ -377,12 +428,18 @@ export function ScrollStory({ release }: { release: ReleaseAssets }) {
   );
 }
 
-/** One scene. Ordinary block in the markup; GSAP stacks them. */
+/**
+ * One scene. Ordinary block in the markup; GSAP stacks them.
+ *
+ * The padding is the stacked layout's — narrow screens, reduced motion,
+ * no script — so scenes do not run into each other and the first clears
+ * the fixed header. The stage takes it off when it pins.
+ */
 function Scene({ n, children }: { n: number; children: React.ReactNode }) {
   return (
     <section
       data-scene={n}
-      className="flex min-h-[60vh] flex-col items-center justify-center px-4 py-16 text-center md:min-h-0 md:py-0"
+      className={`flex min-h-[60vh] flex-col items-center justify-center px-4 pb-16 text-center ${n === 1 ? "pt-24" : "pt-16"}`}
     >
       <div className="mx-auto w-full max-w-4xl">{children}</div>
     </section>
@@ -400,29 +457,5 @@ function Lanes({ children }: { children: React.ReactNode }) {
     >
       {children}
     </svg>
-  );
-}
-
-/**
- * Words wrapped for a stagger.
- *
- * Hand-split rather than `SplitText` because these headings are inside a
- * scrubbed timeline: SplitText re-splits on resize and hands back new
- * elements, which would leave the timeline animating nodes that are no
- * longer in the document. A fixed split has no such lifecycle.
- */
-function Words({ text, className }: { text: string; className?: string }) {
-  const words = text.split(" ");
-  return (
-    <span>
-      {words.map((w, i) => (
-        <span key={`${w}-${i}`}>
-          <span className="inline-block overflow-hidden py-[0.08em] align-bottom">
-            <span className={`word inline-block ${className ?? ""}`}>{w}</span>
-          </span>
-          {i < words.length - 1 ? " " : null}
-        </span>
-      ))}
-    </span>
   );
 }

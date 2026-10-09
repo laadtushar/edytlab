@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { siteConfig } from "@/lib/site";
+import { DEFAULT_OG_IMAGE } from "@/lib/seo-core";
 import { DocShell } from "@/components/docs/doc-shell";
 
 export const metadata: Metadata = {
@@ -11,6 +12,7 @@ export const metadata: Metadata = {
     title: "User Guide — edytlab Docs",
     description: "Everything you need to know to use edytlab effectively.",
     url: `${siteConfig.url}/docs/user-guide`,
+    images: [DEFAULT_OG_IMAGE],
   },
 };
 
@@ -136,6 +138,36 @@ export default function UserGuidePage() {
         </li>
       </ul>
 
+      <h3>Plan first</h3>
+      <p>
+        Turn on the <strong>Plan</strong> toggle beside the chat box when you
+        want to see what the agent will do before it does it. With it on,{" "}
+        <strong>no edit runs until you approve it</strong>.
+      </p>
+      <ul>
+        <li>
+          The agent shows a plan card. <strong>Run</strong> approves it,{" "}
+          <strong>Discard</strong> ends the turn without applying anything, and{" "}
+          <strong>Edit</strong> lets you reword a step before you run it.
+        </li>
+        <li>
+          If the agent answers without a plan, the first edit it is about to
+          make is shown on the same card, with its exact tool and settings (for
+          example <code>reverse</code>, <code>track: 0</code>), before anything
+          changes. Approve it to carry on; once you have, the rest of that turn
+          runs without asking again. Discard it and nothing runs, and the agent
+          is told you declined.
+        </li>
+        <li>
+          If you reword a step on that card instead, nothing runs: the agent
+          gets your wording and proposes again, and you approve that.
+        </li>
+        <li>
+          Questions that only read the session, like the tempo, the loudness
+          or the spectrum of a track, run without asking.
+        </li>
+      </ul>
+
       <h2>Playback</h2>
       <ul>
         <li>
@@ -228,7 +260,7 @@ export default function UserGuidePage() {
       </p>
 
       <h2>Export</h2>
-      <p>Export the session to a WAV file:</p>
+      <p>Export the session to a WAV, FLAC or MP3 file:</p>
       <ul>
         <li>
           <strong>Full session:</strong>{" "}
@@ -265,8 +297,9 @@ export default function UserGuidePage() {
         </li>
       </ul>
       <p>
-        Access memory from Settings → Memory. The agent can also write to memory
-        directly: <code>remember that the BPM is 128</code>.
+        Edit memory from Settings → Memory. The agent reads it on every turn
+        but cannot write to it — no tool does — so a note like{" "}
+        <code>the BPM is 128</code> goes in there by hand.
       </p>
 
       <h2>Skills</h2>
@@ -303,7 +336,7 @@ export default function UserGuidePage() {
           all tools; injects mastering instructions into the system prompt.
         </li>
       </ul>
-      <p>Set the active profile from Settings → Agent Profiles.</p>
+      <p>Set the active profile from Settings → Agents.</p>
 
       <h2>Tips and Keyboard Shortcuts</h2>
       <ul>
@@ -327,7 +360,7 @@ export default function UserGuidePage() {
 
       <h2>LLM Provider and Model</h2>
       <p>
-        Switch providers or models at any time from Settings → Provider. No
+        Switch providers or models at any time from Settings → Account. No
         restart needed. Your conversation history carries over.
       </p>
       <ul>
@@ -346,6 +379,14 @@ export default function UserGuidePage() {
         <li>
           <strong>OpenAI GPT-4o</strong> — reliable tool use; good general
           performance.
+        </li>
+        <li>
+          <strong>Google Gemini</strong> and <strong>Groq</strong> — hosted
+          alternatives, each with its own key.
+        </li>
+        <li>
+          <strong>Ollama</strong> — a local model on your own machine; no key,
+          and not even the chat leaves the computer.
         </li>
       </ul>
     </DocShell>

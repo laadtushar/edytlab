@@ -5,7 +5,8 @@ import { useRef, type ReactNode } from "react";
 import { gsap, useGSAP, motionOk, NO_PREFERENCE } from "@/lib/gsap";
 
 interface ParallaxProps {
-  children: ReactNode;
+  /** Optional: a decorative layer can be the element itself. */
+  children?: ReactNode;
   className?: string;
   /**
    * How far it drifts across the whole scroll pass, in px. Negative

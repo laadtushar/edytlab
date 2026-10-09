@@ -60,15 +60,78 @@ function stubStripWidth(width = 1000) {
     ({ left: 0, top: 0, width, height: 22, right: width, bottom: 22 }) as DOMRect;
 }
 
+/** The name in #416's report: what a reversed file was called. */
+const HASH = "703e2a7b07919f079abdfbd8c3556c274c8d519c40ef72fe75586ba5bada370e";
+const DERIVED = `/home/me/Music/song/.audiograph/derived/${HASH}.wav`;
+const DERIVED_WINDOWS = `C:\\Users\\tusha\\Music\\song\\.audiograph\\derived\\${HASH}.wav`;
+
+/** A clip that reads an edit's output rather than the file loaded. */
+const derivedClip = (start: number, length: number, path = DERIVED): ClipSummary => ({
+  start_sec: start,
+  length_sec: length,
+  source_path: path,
+  volume_envelope: [],
+});
+
 describe("clipLabel", () => {
+  const take = { name: "take", clipCount: 2 };
+
   it("uses the file name", () => {
-    expect(clipLabel(TWO_CLIPS[0], 0)).toBe("take.wav");
+    expect(clipLabel(TWO_CLIPS[0], 0, take)).toBe("take.wav");
   });
 
   it("falls back to a position when there is no path", () => {
     expect(
-      clipLabel({ ...TWO_CLIPS[0], source_path: "" }, 2),
+      clipLabel({ ...TWO_CLIPS[0], source_path: "" }, 2, take),
     ).toBe("clip 3");
+  });
+
+  /**
+   * #416. After a reverse the clip reads `.audiograph/derived/<hash>.wav`,
+   * and the chip said the hash. It says the track's name instead — the
+   * name the lane header already shows.
+   */
+  it("names an edited clip after its track, never its hash", () => {
+    const label = clipLabel(derivedClip(0, 8), 0, {
+      name: "Lead guitar",
+      clipCount: 1,
+    });
+    expect(label).toBe("Lead guitar");
+    expect(label).not.toContain(HASH.slice(0, 12));
+  });
+
+  it("does the same for a Windows path", () => {
+    expect(
+      clipLabel(derivedClip(0, 8, DERIVED_WINDOWS), 0, {
+        name: "Lead guitar",
+        clipCount: 1,
+      }),
+    ).toBe("Lead guitar");
+  });
+
+  /**
+   * The chip labels clips by source so two cut from one file can be told
+   * apart (`ClipSummary`'s docs). Two halves of an edited track share a
+   * derived file *and* a track name, so the position tells them apart.
+   */
+  it("numbers edited clips when the track has several", () => {
+    const lead = { name: "Lead guitar", clipCount: 3 };
+    expect(clipLabel(derivedClip(0, 2), 0, lead)).toBe("Lead guitar · 1");
+    expect(clipLabel(derivedClip(5, 3), 2, lead)).toBe("Lead guitar · 3");
+  });
+
+  it("keeps the file name for a clip read straight from its source", () => {
+    // A track with one edited clip and one that was not: only the edited
+    // one changes.
+    const mixed = { name: "take", clipCount: 2 };
+    expect(clipLabel(TWO_CLIPS[0], 0, mixed)).toBe("take.wav");
+    expect(clipLabel(derivedClip(5, 3), 1, mixed)).toBe("take · 2");
+  });
+
+  it("falls back to a position for an edited clip on an unnamed track", () => {
+    expect(
+      clipLabel(derivedClip(0, 2), 1, { name: "  ", clipCount: 2 }),
+    ).toBe("clip 2");
   });
 });
 
@@ -175,6 +238,36 @@ describe("ClipStrip", () => {
 
     fireEvent.keyDown(chip, { key: "Delete" });
     expect(onRemoveClip).toHaveBeenCalledWith(1);
+  });
+
+  /**
+   * #416, as a person meets it: a track reversed and then cut in two.
+   * Both halves read the same derived file, and neither chip — its text
+   * or its accessible name — may say the hash.
+   */
+  it("shows an edited track's clips by track name and position", () => {
+    render(
+      <ClipStrip
+        clips={[derivedClip(0, 2), derivedClip(5, 3)]}
+        duration={10}
+        trackName="Lead guitar"
+        selectedClip={null}
+        onSelectClip={onSelectClip}
+        onMoveClip={onMoveClip}
+        onRemoveClip={onRemoveClip}
+      />,
+    );
+    const first = screen.getByTestId("clip-chip-0");
+    const second = screen.getByTestId("clip-chip-1");
+    expect(first).toHaveTextContent("Lead guitar · 1");
+    expect(second).toHaveTextContent("Lead guitar · 2");
+    expect(second).toHaveAccessibleName("Lead guitar · 2, 5.00 to 8.00 seconds");
+
+    const strip = screen.getByTestId("clip-strip");
+    expect(strip.textContent).not.toMatch(/[0-9a-f]{12}/i);
+    for (const chip of [first, second]) {
+      expect(chip.getAttribute("aria-label")).not.toMatch(/[0-9a-f]{12}/i);
+    }
   });
 
   it("reconciles from the session rather than keeping its draft", () => {

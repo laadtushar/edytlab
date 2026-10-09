@@ -7,7 +7,7 @@ pnpm workspace on purpose so Vercel can build it without monorepo gymnastics.
 
 - Next.js 16 (App Router) · React 18 · TypeScript 5
 - Tailwind CSS 3 · shadcn/ui (locally vendored primitives)
-- framer-motion for subtle entrance animations
+- GSAP (`gsap` + `@gsap/react`) for entrance and scroll animations, wrapped in `components/motion/`
 - lucide-react icons
 
 ## Local development
@@ -36,10 +36,15 @@ pnpm start
 ## Quality gates
 
 ```bash
-pnpm exec tsc --noEmit   # type-check
-pnpm exec next lint      # lint
+pnpm test                # vitest (lib/*.test.ts)
+pnpm typecheck           # tsc --noEmit
 pnpm build               # production build
+pnpm exec eslint .       # lint
 ```
+
+CI's `website (test)` job runs `pnpm test` and `pnpm typecheck`. Lint is run with
+`eslint` directly: Next.js 16 removed `next lint`, so the `pnpm lint` script
+(`next lint`) no longer works.
 
 ## Deployment (Vercel)
 
@@ -50,8 +55,9 @@ standalone project:
 2. Set the **Root Directory** to `website/`.
 3. Framework preset is detected automatically (Next.js).
 4. No environment variables are required.
-5. Set the canonical domain (e.g. `edytlab.app`) under **Settings → Domains**;
-   `metadataBase` in `lib/site.ts` should match it.
+5. Set the canonical domain (`edytlab.com`, which redirects to `www.edytlab.com`)
+   under **Settings → Domains**; `siteConfig.url` in `lib/site.ts` should match
+   it, since `app/layout.tsx` builds `metadataBase` from it.
 
 > Why the dashboard setting and not a root `vercel.json`: Vercel's Next.js
 > framework detection runs against the `package.json` it finds at the project

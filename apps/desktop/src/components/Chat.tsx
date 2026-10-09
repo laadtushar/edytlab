@@ -21,6 +21,7 @@ import {
   setPlanFirst as setPlanFirstBridge,
 } from "../lib/tauri-bridge";
 import type { Marker } from "../lib/tauri-bridge";
+import { describeChatError, needsSettings } from "../lib/chat-errors";
 
 import {
   useAgentStream,
@@ -62,27 +63,10 @@ export interface ChatProps {
    * Open the settings panel. Offered on the error banner when the
    * failure is "no agent configured" (#250) — that message is
    * unactionable from here otherwise, and the most common way to reach
-   * it is a provider switch that left the app without a key.
+   * it is a provider switch that left the app without a key — and when
+   * the provider refused the key (#414). See `lib/chat-errors`.
    */
   onOpenSettings?: () => void;
-}
-
-/**
- * Whether an error is one the user fixes in Settings rather than by
- * retrying (#250).
- *
- * Deliberately loose, and matching `App.tsx`'s `isApiKeyError`: the Rust
- * side words this family several ways ("no agent configured; call
- * set_api_key first", missing-key messages), and a Retry button alone
- * on any of them just repeats the failure.
- */
-function needsSettings(message: string): boolean {
-  const m = message.toLowerCase();
-  return (
-    m.includes("no agent") ||
-    m.includes("set_api_key") ||
-    m.includes("api key")
-  );
 }
 
 function isMessage(e: LogEntry): e is MessageEntry {
@@ -99,6 +83,14 @@ function isPlan(e: LogEntry): e is PlanEntry {
 }
 function isNotice(e: LogEntry): e is NoticeEntry {
   return e.kind === "notice";
+}
+
+/**
+ * "1 step", "2 steps". A held edit (#415) is usually a single call, and
+ * "1 steps" reads as a bug.
+ */
+function stepCount(n: number): string {
+  return `${n} step${n === 1 ? "" : "s"}`;
 }
 
 const CHAT_HINTS = [
@@ -126,6 +118,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
     entries,
     current,
     awaiting,
+    stopAwaiting,
     pushUserMessage,
     pendingPlan,
     approvePlan,
@@ -258,7 +251,9 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
       }
       await bridgeSendMessage(wireText, disabledTools);
     } catch (err) {
-      setLocalError(friendlyError(err));
+      // The request failed before any agent event could clear "thinking".
+      stopAwaiting();
+      setLocalError(describeChatError(err));
     } finally {
       setBusy(false);
     }
@@ -400,11 +395,9 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
                   px-3 py-2 text-xs text-[var(--text-dim)]
                 "
               >
-                <span className="font-medium text-[var(--text)]">
-                  Mashup Plan
-                </span>
+                <span className="font-medium text-[var(--text)]">Plan</span>
                 <span className="ml-1.5 font-mono text-[10px] text-[var(--text-faint)]">
-                  ({entry.steps.length} steps)
+                  ({stepCount(entry.steps.length)})
                 </span>
                 <ol className="mt-1.5 space-y-0.5 pl-4 list-decimal">
                   {entry.steps.map((s) => (
@@ -422,10 +415,12 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
             );
           }
           if (isNotice(entry)) {
-            // Amber, not red: nothing failed for the user — the turn is
-            // going ahead. What they have lost is the checkpoint they
-            // asked for, and the point is that they find that out from
-            // the transcript rather than by noticing its absence (#267).
+            // Amber, not red: nothing failed for the user. No plan
+            // arrived, and the point is that they find that out from the
+            // transcript rather than by noticing its absence (#267). With
+            // Plan first on the notice goes on to say the first edit will
+            // be shown for approval (#415); otherwise it says the turn is
+            // continuing without a checkpoint.
             return (
               <div
                 key={entry.id}
@@ -509,10 +504,10 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
             <div className="flex items-center gap-2">
               <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)] shadow-[0_0_8px_var(--accent-glow)]" />
               <span className="font-medium text-sm text-[var(--text)]">
-                Mashup Plan
+                Plan
               </span>
               <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-dim)]">
-                {pendingPlan.steps.length} steps
+                {stepCount(pendingPlan.steps.length)}
               </span>
             </div>
             <div className="flex gap-1.5">
@@ -1074,13 +1069,6 @@ function WhisperSetupCard() {
       </p>
     </div>
   );
-}
-
-function friendlyError(err: unknown): string {
-  const raw = String(
-    err instanceof Error ? err.message : (err ?? "unknown error"),
-  );
-  return `Could not complete request: ${raw}`;
 }
 
 function fmtTime(sec: number): string {

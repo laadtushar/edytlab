@@ -1,7 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
-import { ScrollProgress } from "@/components/motion";
+import { MicroInteractions, ScrollProgress } from "@/components/motion";
 import { siteConfig } from "@/lib/site";
 
 import "./globals.css";
@@ -54,9 +56,10 @@ export const metadata: Metadata = {
       "max-snippet": -1,
     },
   },
-  alternates: {
-    canonical: "/",
-  },
+  // No `alternates` here on purpose. A canonical set at the root is
+  // inherited by every page that does not set its own, which would
+  // name the home page as the canonical of /changelog. Each page sets
+  // its own with `pageAlternates()` (`lib/seo.ts`).
 };
 
 export const viewport: Viewport = {
@@ -73,7 +76,10 @@ export default function RootLayout({
     <html lang="en" className={`dark ${inter.variable}`} suppressHydrationWarning>
       <body className="grain min-h-screen bg-background font-sans antialiased">
         <ScrollProgress />
+        <MicroInteractions />
         {children}
+        <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );

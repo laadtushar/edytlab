@@ -54,8 +54,10 @@ import {
   applyRedo,
   isUndoChord,
   isRedoChord,
+  isTextEntry,
 } from "./lib/undoRedo";
 import { undoTarget } from "./lib/headTrail";
+import { isDerivedAudioPath } from "./lib/derivedAudio";
 import { mixIsStale } from "./lib/mixState";
 import { scheduledTake, startTake, stopTake } from "./lib/recording";
 
@@ -93,6 +95,7 @@ import {
   pickAudioFiles,
   pickProjectDirectory,
 } from "./lib/file-open";
+import { isSessionValue } from "./lib/controlValue";
 import { describeLoadFailures } from "./lib/load-failures";
 import { batchLoad } from "./lib/tauri-bridge";
 import {
@@ -160,6 +163,12 @@ function App() {
   const timelineRef = useRef<TimelineHandle>(null);
   const [markers, setMarkers] = useState<Marker[]>([]);
   const [tracks, setTracks] = useState<TrackSummary[]>([]);
+  // The latest list, for handlers that must compare against what the
+  // session holds now rather than what they closed over.
+  const tracksRef = useRef<TrackSummary[]>(tracks);
+  useEffect(() => {
+    tracksRef.current = tracks;
+  }, [tracks]);
   /**
    * The one way the track list is refreshed (#341, #342).
    *
@@ -190,7 +199,9 @@ function App() {
   }, []);
   /**
    * What the timeline draws and the status bar names: the session's own
-   * audio, whichever track holds it.
+   * audio, whichever track holds it. The track itself is kept for its
+   * name, which the status bar shows when that audio is an edit's
+   * output rather than a file the user brought (#416).
    *
    * Only ever the session's. It also used to fall back to a file the user
    * had just picked, drawn before anything had loaded it — so with no
@@ -206,10 +217,11 @@ function App() {
    * track is empty hid the audio on its second. A value computed from
    * `tracks` cannot be skipped by any path that sets them.
    */
-  const timelineSource = useMemo(
-    () => tracks.find((t) => t.audio_path)?.audio_path ?? null,
+  const sourceTrack = useMemo(
+    () => tracks.find((t) => t.audio_path) ?? null,
     [tracks],
   );
+  const timelineSource = sourceTrack?.audio_path ?? null;
   const selectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [zoomPxPerSec, setZoomPxPerSec] = useState(0);
   // Whether the head lane's audio actually decoded. The status bar
@@ -337,12 +349,17 @@ function App() {
       const tag = target?.tagName ?? "";
       const isTyping =
         tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable;
-      if (isUndoChord(e) && !isTyping) {
+      // Undo and redo ask a narrower question than the keys below: a
+      // focused slider is not text entry, so Ctrl+Z still undoes the
+      // fader edit that put focus there. Space, Home, End and the
+      // arrows stay with `isTyping`, because on a slider they move it.
+      const inTextField = isTextEntry(target);
+      if (isUndoChord(e) && !inTextField) {
         e.preventDefault();
         handleUndo();
         return;
       }
-      if (isRedoChord(e) && !isTyping) {
+      if (isRedoChord(e) && !inTextField) {
         e.preventDefault();
         handleRedo();
         return;
@@ -579,14 +596,20 @@ function App() {
     [applyNewHead],
   );
 
+  // Release, key-up and blur all commit a slider, and most carry the value
+  // the session already holds: see `isSessionValue` for the undo it broke.
   const handleTrackGainChange = useCallback(
-    (index: number, gainDb: number) =>
-      void commitTrackChange(() => setTrackGain(index, gainDb)),
+    (index: number, gainDb: number) => {
+      if (isSessionValue(tracksRef.current[index]?.gain_db, gainDb)) return;
+      void commitTrackChange(() => setTrackGain(index, gainDb));
+    },
     [commitTrackChange],
   );
   const handleTrackPanChange = useCallback(
-    (index: number, pan: number) =>
-      void commitTrackChange(() => setTrackPan(index, pan)),
+    (index: number, pan: number) => {
+      if (isSessionValue(tracksRef.current[index]?.pan, pan)) return;
+      void commitTrackChange(() => setTrackPan(index, pan));
+    },
     [commitTrackChange],
   );
   const handleTrackMuteChange = useCallback(
@@ -1399,6 +1422,7 @@ function App() {
 
       <StatusBar
         audioPath={timelineSource}
+        trackName={sourceTrack?.name}
         head={head}
         rendering={rendering}
         selection={selection}
@@ -1453,6 +1477,11 @@ function App() {
 
 interface StatusBarProps {
   audioPath: string | null;
+  /**
+   * The name of the track `audioPath` belongs to. Shown in its place when
+   * the path is derived audio, whose file name is a content hash (#416).
+   */
+  trackName?: string | null;
   head: string | null;
   rendering: boolean;
   selection: Selection | null;
@@ -1484,6 +1513,7 @@ interface StatusBarProps {
 
 export function StatusBar({
   audioPath,
+  trackName,
   head,
   rendering,
   selection,
@@ -1492,7 +1522,17 @@ export function StatusBar({
   restoringHistory = false,
 }: StatusBarProps) {
   const failed = Boolean(audioPath) && Boolean(loadError);
-  const fileLabel = audioPath ? trimPath(audioPath) : "no file loaded";
+  // A file the user loaded is named by its file name, with the whole path
+  // on hover. After a destructive edit the track reads a derived file
+  // named by its hash, so the bar names the track instead — the name the
+  // lane header shows — and leaves the hash out of the tooltip too.
+  const derived = audioPath !== null && isDerivedAudioPath(audioPath);
+  const fileLabel = !audioPath
+    ? "no file loaded"
+    : derived
+      ? trackName?.trim() || "edited audio"
+      : trimPath(audioPath);
+  const fileTitle = derived ? fileLabel : (audioPath ?? undefined);
   const headLabel = head ? `head ${head.slice(0, 7)}` : "no head";
   return (
     <footer
@@ -1547,7 +1587,7 @@ export function StatusBar({
         </>
       ) : null}
       <span className="text-[var(--text-faint)]/80">·</span>
-      <span data-testid="status-bar-file" title={audioPath ?? undefined}>
+      <span data-testid="status-bar-file" title={fileTitle}>
         {fileLabel}
       </span>
       <span className="text-[var(--text-faint)]/80">·</span>

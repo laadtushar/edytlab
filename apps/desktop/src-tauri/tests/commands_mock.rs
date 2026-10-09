@@ -32,7 +32,7 @@ use serde_json::json;
 use tauri::ipc::{CallbackFn, InvokeBody};
 use tauri::test::{assert_ipc_response, mock_builder, mock_context, noop_assets, INVOKE_KEY};
 use tauri::webview::InvokeRequest;
-use tauri::WebviewWindowBuilder;
+use tauri::{Manager, WebviewWindowBuilder};
 
 fn make_request(cmd: &str, body: serde_json::Value) -> InvokeRequest {
     InvokeRequest {
@@ -533,4 +533,32 @@ fn under_the_cap_the_background_sweep_does_nothing() {
 
     assert_eq!(report, None);
     assert_eq!(files(), before);
+}
+
+/// The webview plays a rendered preview and an audition over the asset
+/// protocol (#402). Both live under `<project>/.audiograph/`, a hidden
+/// directory, and on Linux and macOS the asset scope's `**` does not
+/// reach through one — so opening a project must grant the two caches by
+/// name, and only them.
+#[test]
+fn opening_a_project_lets_the_webview_read_its_previews_and_auditions() {
+    let p = SweptProject::open();
+    let scope = p.app.asset_protocol_scope();
+    let store = p.dir.path().join(".audiograph");
+
+    for cache in ["previews", "auditions"] {
+        let wav = store.join(cache).join("0123abcd.wav");
+        assert!(scope.is_allowed(&wav), "{} is not readable", wav.display());
+    }
+    // What else lives in the store is not the webview's to read.
+    for private in [
+        store.join("notes.json"),
+        store.join("derived").join("0123abcd.wav"),
+    ] {
+        assert!(
+            !scope.is_allowed(&private),
+            "{} was exposed",
+            private.display()
+        );
+    }
 }

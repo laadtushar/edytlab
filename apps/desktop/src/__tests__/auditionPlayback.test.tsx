@@ -62,6 +62,7 @@ vi.mock("../lib/tauri-bridge", () => ({
   onAgentDone: vi.fn(noop),
   onPlan: vi.fn(noop),
   onPlanUnavailable: vi.fn(noop),
+  onPlanRejected: vi.fn(noop),
 }));
 
 // The webview cannot open a filesystem path; Tauri's asset protocol is

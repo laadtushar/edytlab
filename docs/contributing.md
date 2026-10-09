@@ -29,7 +29,7 @@ edytlab is open source. This document covers how to contribute effectively — f
 | Bug fixes | Off-by-one errors, null panics, incorrect output | Medium |
 | New audio tools | A new deterministic DSP operation for the agent | Medium |
 | Frontend features | New UI component, improved empty state | Medium |
-| New LLM providers | Cohere, Mistral-native, Gemini | High |
+| New LLM providers | Cohere, Mistral-native (Gemini, Groq and Ollama are already in) | High |
 | New ML models | Alternative transcription, better stem separation | High |
 | Architecture changes | Session model extensions, DAG operations | High — discuss first |
 
@@ -56,8 +56,8 @@ A good bug report includes:
 **Expected:** Track normalized to -14 LUFS
 **Actual:** "normalize: NaN target" error appears
 
-**Logs (RUST_LOG=debug):**
-[paste relevant log output]
+**Terminal output (when run with `pnpm tauri:dev`):**
+[paste relevant output — `RUST_LOG` does nothing yet, see development-guide.md §6]
 ```
 
 ### Feature Requests
@@ -243,135 +243,120 @@ Tools are the building blocks the AI agent uses to edit audio. Adding one is the
 touch crates/tools/src/tool/my_tool.rs
 ```
 
-**2. Implement the `Tool` trait:**
+**2. Implement the `Tool` trait** (defined in `crates/tools/src/dispatcher.rs`). This mirrors `tool/mute_track.rs`, a real tool:
 
 ```rust
 // crates/tools/src/tool/my_tool.rs
 
-use crate::{Tool, ToolContext, ToolError};
-use serde_json::{Value, json};
-use session::SessionState;
+use crate::schema::anthropic_tool;
+use crate::tool::util::{append_state, check_track_index, load_head_state};
+use crate::{Tool, ToolContext, ToolResult};
+use serde::Deserialize;
+use serde_json::{json, Value};
+
+#[derive(Debug, Deserialize)]
+struct Args {
+    track: usize,
+    amount_db: f32,
+}
 
 pub struct MyTool;
 
 impl Tool for MyTool {
-    fn name(&self) -> &'static str { "my_tool" }
-
-    fn description(&self) -> &'static str {
-        "One-sentence description of what this tool does and when to use it."
+    fn name(&self) -> &'static str {
+        "my_tool"
     }
 
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "track_id": {
-                    "type": "string",
-                    "description": "The track to operate on."
+    /// Name, description and input schema, in the Anthropic tool shape.
+    /// The dispatcher validates every call against `input_schema` before
+    /// `invoke` runs, and the tools reference is generated from it.
+    fn schema(&self) -> Value {
+        anthropic_tool(
+            "my_tool",
+            "One-sentence description of what this tool does and when to use it.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "track": { "type": "integer", "description": "Index of the track." },
+                    "amount_db": { "type": "number", "description": "Amount in dB (-60 to +12)." }
                 },
-                "amount_db": {
-                    "type": "number",
-                    "description": "Amount in dB (-60 to +12)."
-                }
-            },
-            "required": ["track_id", "amount_db"]
-        })
+                "required": ["track", "amount_db"]
+            }),
+        )
     }
 
-    fn call(
-        &self,
-        input: Value,
-        ctx: &mut ToolContext,
-    ) -> Result<Value, ToolError> {
-        let track_id = input["track_id"].as_str()
-            .ok_or_else(|| ToolError::InvalidInput("track_id required".into()))?;
-        let amount_db = input["amount_db"].as_f64()
-            .ok_or_else(|| ToolError::InvalidInput("amount_db required".into()))?;
-
-        // Validate
-        if amount_db.is_nan() || amount_db < -60.0 || amount_db > 12.0 {
-            return Err(ToolError::InvalidInput(
-                format!("amount_db out of range: {}", amount_db)
-            ));
+    fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
+        // Bad input is a `ToolResult::Error` the model can read and
+        // correct, not an `Err` and never a panic.
+        let args: Args = match serde_json::from_value(args) {
+            Ok(a) => a,
+            Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+        };
+        if !args.amount_db.is_finite() || !(-60.0..=12.0).contains(&args.amount_db) {
+            return Ok(ToolResult::Error(format!("amount_db out of range: {}", args.amount_db)));
+        }
+        let mut state = match load_head_state(ctx) {
+            Ok(s) => s,
+            Err(e) => return Ok(ToolResult::Error(e)),
+        };
+        if let Err(e) = check_track_index(&state.tracks, args.track) {
+            return Ok(ToolResult::Error(e));
         }
 
-        // Get current session state
-        let store = ctx.store.lock().map_err(|_| ToolError::Internal("store lock".into()))?;
-        let head = store.head().ok_or_else(|| ToolError::InvalidInput("no session open".into()))?;
-        let node = store.get(head)?;
-        drop(store);
+        state.tracks[args.track].gain_db += args.amount_db;
 
-        // Mutate state
-        let mut new_state = node.state.clone();
-        let track = new_state.tracks.iter_mut()
-            .find(|t| t.id.as_str() == track_id)
-            .ok_or_else(|| ToolError::InvalidInput(format!("track {} not found", track_id)))?;
-        
-        track.gain_db += amount_db as f32;
-
-        // Append new DAG node
-        let mut store = ctx.store.lock().map_err(|_| ToolError::Internal("store lock".into()))?;
-        let new_id = store.append(Some(head), Some("my_tool applied".into()), new_state)?;
-        store.set_head(new_id)?;
-
-        Ok(json!({ "node_id": new_id.to_string() }))
+        // Appends a new DAG node parented to the current head.
+        let label = format!("my_tool {} {:+} dB", args.track, args.amount_db);
+        let new_id = match append_state(ctx, state, label) {
+            Ok(id) => id,
+            Err(e) => return Ok(ToolResult::Error(e)),
+        };
+        Ok(ToolResult::Ok(json!({ "node_id": new_id.to_hex() })))
     }
 }
 ```
 
-**3. Register in the dispatcher:**
+**3. Register it.** Export it from `crates/tools/src/tool/mod.rs`, then register it in `ToolDispatcher::default_dispatcher()` in `crates/tools/src/dispatcher.rs`:
 
 ```rust
-// crates/tools/src/lib.rs
+// crates/tools/src/tool/mod.rs
+pub mod my_tool;
+pub use my_tool::MyTool;
 
-mod tool {
-    // ...existing modules...
-    pub mod my_tool;
-}
-
-impl ToolDispatcher {
-    pub fn new() -> Self {
-        let mut tools: HashMap<String, Box<dyn Tool>> = HashMap::new();
-        // ...existing registrations...
-        tools.insert("my_tool".into(), Box::new(tool::my_tool::MyTool));
-        Self { tools }
-    }
-}
+// crates/tools/src/dispatcher.rs, inside default_dispatcher()
+d.register(Box::new(MyTool));
 ```
 
-**4. Write tests:**
+**4. Write tests.** Integration tests in `crates/tools/tests/` drive tools through a real dispatcher, store and engine; `tools_integration.rs` is the model:
 
 ```rust
-// crates/tools/src/tool/my_tool.rs (continued)
+use serde_json::json;
+use tempfile::TempDir;
+use tools::{ToolContext, ToolDispatcher, ToolResult};
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::test_helpers::{minimal_context};
+#[test]
+fn rejects_out_of_range_amount() {
+    let tmp = TempDir::new().unwrap();
+    let mut store = session::Store::open(tmp.path()).unwrap();
+    let mut engine = audio_engine::Engine::new();
+    let dispatcher = ToolDispatcher::default_dispatcher();
+    let mut clipboard: Option<tools::Clipboard> = None;
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+        user_message: "",
+        clipboard: &mut clipboard,
+        allowed_tools: None,
+    };
 
-    #[test]
-    fn rejects_nan_amount() {
-        let mut ctx = minimal_context();
-        let result = MyTool.call(
-            serde_json::json!({ "track_id": "t1", "amount_db": f64::NAN }),
-            &mut ctx,
-        );
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn applies_gain_correctly() {
-        let mut ctx = minimal_context();
-        // Load a track first...
-        let result = MyTool.call(
-            serde_json::json!({ "track_id": "t1", "amount_db": 3.0 }),
-            &mut ctx,
-        );
-        assert!(result.is_ok());
-        // Verify state change...
-    }
+    let result = dispatcher
+        .invoke("my_tool", json!({ "track": 0, "amount_db": 99.0 }), &mut ctx)
+        .unwrap();
+    assert!(matches!(result, ToolResult::Error(_)));
 }
 ```
+
+The website's tool reference, `website/app/docs/tools/page.tsx`, must list every registered tool: `crates/tools/tests/website_tool_docs.rs` fails until it does.
 
 **5. Regenerate the tools reference.**
 
@@ -389,12 +374,14 @@ Commit the result. The name, description and parameter table all come from the s
 
 See [architecture.md §14](./architecture.md#14-extension-points) for the full guide. Summary:
 
-1. Implement `LlmProvider` in `crates/ai/src/provider.rs`
-2. Add to `SUPPORTED_PROVIDER_IDS` + `from_id()` factory
-3. Add keychain slot handling in `commands.rs`
-4. Update `ProviderId` union in `tauri-bridge.ts`
+1. Implement `LlmProvider` in `crates/ai/src/provider.rs` (an OpenAI-compatible API can delegate serialization and parsing to `OpenAIProvider`, as Groq, Gemini and Ollama do)
+2. Add to `SUPPORTED_PROVIDER_IDS` + the `provider_from_id()` factory
+3. Add an arm to `list_models_for_at()` in `crates/ai/src/models.rs`
+4. Update the `ProviderId` union in `tauri-bridge.ts` and the `PROVIDERS` list in `components/Settings.tsx`
 5. Write unit tests for request serialization and stream parsing
 6. Test with a real API key against the provider's sandbox/test environment
+
+Keychain slots need no code: they are keyed by provider id (`<id>_api_key`, `<id>_model`, `<id>_base_url`).
 
 The hardest part is usually stream parsing — write exhaustive tests covering partial chunks, multi-event chunks, tool call id synthesis, and the `[DONE]` sentinel.
 
@@ -409,12 +396,7 @@ The hardest part is usually stream parsing — write exhaustive tests covering p
 5. Import in the parent component — avoid barrel re-exports in the components folder
 6. Write a test in `apps/desktop/src/__tests__/MyComponent.test.tsx`
 
-**For animated components**, import from `framer-motion`:
-```typescript
-import { motion, AnimatePresence } from "framer-motion";
-// All components using framer-motion hooks need "use client" in Next.js,
-// but in the Tauri app this is not needed — it's already a client-side app.
-```
+**For motion**, the desktop app has no animation library — `framer-motion` is not a dependency of `@edytlab/desktop`. Use CSS transitions on the shared duration and easing tokens in `src/styles.css` (`--dur-1`…`--dur-3`, `--ease-out`, `--ease-in-out`); [motion-audit.md](./motion-audit.md) says which to use when, and when to use none.
 
 ---
 
@@ -430,18 +412,18 @@ import { motion, AnimatePresence } from "framer-motion";
 
 ### Test Helpers
 
-Use shared helpers to avoid boilerplate:
+There is no shared test-helper module. The patterns in use:
 
-```rust
-// Rust — minimal session context
-use crate::test_helpers::{minimal_context, minimal_state_with_track};
+- **Rust tools:** build a real `ToolContext` over a `TempDir` store, as in [§6 step 4](#6-adding-a-new-audio-tool) and `crates/tools/tests/tools_integration.rs`.
+- **Frontend:** mock the bridge module rather than Tauri's `invoke`, so a test names the calls it expects:
 
-// Frontend — mock Tauri invoke
-import { mockIPC } from "@tauri-apps/api/mocks";
-mockIPC((cmd, args) => {
-  if (cmd === "get_session_head") return "abc123";
-});
-```
+  ```typescript
+  vi.mock("../lib/tauri-bridge", () => ({
+    getSessionHead: vi.fn(() => Promise.resolve("abc123")),
+  }));
+  ```
+
+  To control *when* a mocked call answers, use `src/__tests__/held.ts`, and make sure the suite also passes under `test:slow-scheduler`.
 
 ### Coverage Expectations
 
@@ -481,9 +463,9 @@ Releases are automated — contributors do not need to manage them.
 
 1. Merge to `main` with a passing CI run
 2. `auto-release.yml` tags `v<version>-dev.<run_number>` automatically
-3. `release-dev.yml` builds unsigned bundles and attaches to a draft GitHub Release
+3. `release-dev.yml` builds unsigned bundles for macOS (universal), Windows and Linux into a draft GitHub Release, and publishes it as a prerelease once every platform is green
 
-Signed production releases require maintainer access and signing credentials. See [`docs/development-guide.md#7-building-for-release`](./development-guide.md#7-building-for-release).
+Signed production releases require maintainer access and signing credentials, which are not provisioned yet ([#386](https://github.com/laadtushar/edytlab/issues/386)) — every release so far, v0.2.0 included, is unsigned. See [`docs/development-guide.md#7-building-for-release`](./development-guide.md#7-building-for-release).
 
 ---
 

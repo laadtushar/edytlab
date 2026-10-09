@@ -1,16 +1,19 @@
 import type { Metadata } from "next";
+import { Fragment } from "react";
 import { siteConfig } from "@/lib/site";
+import { DEFAULT_OG_IMAGE } from "@/lib/seo-core";
 import { DocShell } from "@/components/docs/doc-shell";
 
 export const metadata: Metadata = {
   title: "Audio Tools Reference",
   description:
-    "All 93 audio-editing tools available to the edytlab AI agent — cut, normalize, stem separate, transcribe, render, and more.",
+    "All 93 audio-editing tools available to the edytlab AI agent — cut, normalize, time-stretch, render, and more.",
   alternates: { canonical: "/docs/tools" },
   openGraph: {
     title: "Audio Tools Reference — edytlab Docs",
     description: "Complete reference for all 93 agent-callable audio tools.",
     url: `${siteConfig.url}/docs/tools`,
+    images: [DEFAULT_OG_IMAGE],
   },
 };
 
@@ -233,7 +236,7 @@ const groups = [
       {
         name: "duck_under_speech",
         prompt: "duck the music under the voiceover",
-        what: "Drop a music track under the speech and bring it back in the gaps, keyed on the transcript rather than on level. A sidechain compressor keys on level, so a breath triggers it and a quiet line escapes it; the transcript says where the words actually are. It also ducks slightly before each line starts, which a level trigger cannot do — it only knows a line began after it has.",
+        what: "Drop a music track under the speech and bring it back in the gaps, keyed on the transcript rather than on level. A sidechain compressor keys on level, so a breath triggers it and a quiet line escapes it; the transcript says where the words actually are. It also ducks slightly before each line starts, which a level trigger cannot do — it only knows a line began after it has. Needs a transcript, which this build cannot produce yet (see transcribe).",
         output: "node_id, passages, ducks",
         note: "The result is an ordinary volume-automation curve on the music clip, so it is visible in the automation lane and draggable if a duck lands wrong. Short pauses inside a sentence do not un-duck: bringing the music up for a comma is a pump, not an edit.",
       },
@@ -447,7 +450,7 @@ const groups = [
       {
         name: "select_region",
         prompt: "select the bit where he talks about latency",
-        what: "Resolve a description of a region into a concrete time range, using the session's transcript and tempo map. Give a phrase to find, a passage of speech (1 is the first, -1 the last), or a beat range. Returns start_sec and end_sec for any tool that takes a range.",
+        what: "Resolve a description of a region into a concrete time range, using the session's transcript and tempo map. Give a phrase to find, a passage of speech (1 is the first, -1 the last), or a beat range. Returns start_sec and end_sec for any tool that takes a range. Phrases and speech passages need a transcript, which this build cannot produce yet (see transcribe); beat ranges do not.",
         output: "start_sec, end_sec, duration_sec, matched",
         note: "It refuses rather than approximating: a phrase that is not in the transcript selects nothing, because the next call is usually a destructive edit and a range that is nearly right is worse than none. Every range-taking tool became describable without any of them changing.",
       },
@@ -488,14 +491,14 @@ const groups = [
       {
         name: "cut_words",
         prompt: "delete the bit where he repeats himself",
-        what: "Delete a span of transcribed words and the audio underneath, closing the gap. Indices are into the session transcript from `transcribe`. The remaining word timings shift so they still line up with the audio, and the whole thing is one undoable node.",
+        what: "Delete a span of transcribed words and the audio underneath, closing the gap. Indices are into the session transcript from `transcribe`. The remaining word timings shift so they still line up with the audio, and the whole thing is one undoable node. Needs a transcript, which this build cannot produce yet (see transcribe).",
         output: "node_id, removed_words, removed_text, removed_sec",
         note: "The span runs from the first word's start to the last word's end — cutting from the first word's end would leave a clipped syllable behind.",
       },
       {
         name: "remove_fillers",
         prompt: "how many ums are in this?",
-        what: "Find filler words in the transcript and, when asked, remove them and their audio in one undoable edit. Reports by default without changing anything — this is a destructive edit across a whole track. Hesitations (um, uh, er) go wherever they appear; discourse markers (like, actually) only where they stand alone between pauses, because speech with every hesitation stripped sounds rushed.",
+        what: "Find filler words in the transcript and, when asked, remove them and their audio in one undoable edit. Reports by default without changing anything — this is a destructive edit across a whole track. Hesitations (um, uh, er) go wherever they appear; discourse markers (like, actually) only where they stand alone between pauses, because speech with every hesitation stripped sounds rushed. Needs a transcript, which this build cannot produce yet (see transcribe).",
         output: "found, would_save_sec, per-word list; node_id when applied",
         note: "Leaves a short pause where each filler was, so the result does not sound spliced. The word list can be replaced — fillers are language- and speaker-specific.",
       },
@@ -537,7 +540,7 @@ const groups = [
         prompt: 'transcribe track 1',
         what: "Not implemented in this build. Would transcribe spoken audio on-device with an ONNX Whisper-base export, storing word-level timestamps in the session.",
         output: "node_id, word_count, language",
-        note: "The decoder ships as a stub, so this currently returns an error whatever you configure. Text-based editing (cut_words) depends on a transcript and is unavailable for the same reason.",
+        note: "The decoder ships as a stub, so this currently returns an error whatever you configure. Everything that reads a transcript — cut_words, remove_fillers, duck_under_speech, and select_region's phrase and speech-passage modes — is unavailable for the same reason.",
       },
     ],
   },
@@ -692,10 +695,13 @@ export default function ToolsPage() {
         </li>
       </ul>
 
+      {/* Flat — heading, cards, heading, cards — and the card list
+          marked as items, so the page's cascade brings each tool in as
+          it scrolls up rather than a whole group at once. */}
       {groups.map((group) => (
-        <div key={group.title}>
+        <Fragment key={group.title}>
           <h2>{group.title}</h2>
-          <div className="not-prose space-y-4">
+          <div className="not-prose space-y-4" data-cascade-items>
             {group.tools.map((tool) => (
               <div
                 key={tool.name}
@@ -727,7 +733,7 @@ export default function ToolsPage() {
               </div>
             ))}
           </div>
-        </div>
+        </Fragment>
       ))}
     </DocShell>
   );

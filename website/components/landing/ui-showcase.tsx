@@ -3,21 +3,22 @@
 /**
  * Animated renders of the editor's own surfaces.
  *
- * These are drawn, not screenshotted — the app is unsigned and
- * Apple-Silicon-only today, so a static screenshot would age badly and
+ * These are drawn, not screenshotted — the app is unsigned and still at
+ * 0.x on all three platforms, so a static screenshot would age badly and
  * says nothing about how the thing behaves. Each panel animates the
  * interaction it is describing: the fader moves, the curve draws itself,
  * the clip slides.
  *
- * Everything depicted exists. Mixer controls, the automation lane and
- * the clip strip all shipped; nothing here is a mock of a feature that
- * is only planned.
+ * Everything depicted exists. Mixer controls, the automation lane, the
+ * clip strip and the session graph view all shipped; nothing here is a
+ * mock of a feature that is only planned.
  */
 
 import { useRef } from "react";
 
-import { Reveal, Stagger } from "@/components/motion";
-import { gsap, useGSAP, motionOk, NO_PREFERENCE } from "@/lib/gsap";
+import { Stagger, TiltCard } from "@/components/motion";
+import { SectionHeading } from "@/components/motion/section-heading";
+import { gsap, useGSAP, motionOk, NO_PREFERENCE, undash, whileVisible } from "@/lib/gsap";
 
 /**
  * Each panel renders its **finished** state and GSAP animates *from* the
@@ -184,9 +185,8 @@ function AutomationPanel() {
         const path = ref.current?.querySelector<SVGPathElement>("[data-curve]");
         if (path) {
           // Draw the stroke by animating a dash gap the length of the
-          // path back to zero. GSAP's DrawSVG plugin does this too and
-          // is a paid extra; for a single open path the two lines below
-          // are the whole of it.
+          // path back to zero — what DrawSVG does, done by hand so the
+          // dash pattern can be cleared the moment it lands (below).
           const len = path.getTotalLength();
           gsap.fromTo(
             path,
@@ -294,6 +294,16 @@ function ClipStripPanel() {
           stagger: 0.008,
           scrollTrigger: st,
         });
+        // Then it plays: the playhead crosses the arrangement — over the
+        // seam, through the gap — on a loop that only runs while the
+        // panel is on screen. A full-width track translated by its own
+        // width, so the line moves on the compositor.
+        const play = gsap.fromTo(
+          "[data-playhead]",
+          { xPercent: 0 },
+          { xPercent: 100, duration: 4.5, ease: "none", repeat: -1, delay: 1.6 },
+        );
+        whileVisible(play, ref.current);
       });
       return () => mm.revert();
     },
@@ -301,7 +311,11 @@ function ClipStripPanel() {
   );
 
   return (
-    <div ref={ref} className="space-y-2">
+    <div ref={ref} className="relative space-y-2 overflow-hidden">
+      {/* The playhead, parked at 0:00 in the markup. */}
+      <div data-playhead aria-hidden className="pointer-events-none absolute inset-0 z-10">
+        <div className="h-full w-px bg-foreground/60 shadow-[0_0_8px_hsl(var(--primary))]" />
+      </div>
       {/* Chips: one cut into two, the second sitting later. */}
       <div className="relative h-6">
         <div
@@ -338,6 +352,141 @@ function ClipStripPanel() {
   );
 }
 
+// ─── Session graph ────────────────────────────────────────────────────────────
+
+/** Node centres in the panel's own 200 × 96 space. */
+const GRAPH_NODES: Array<[number, number]> = [
+  [14, 48],
+  [54, 48],
+  [94, 48],
+  [134, 24],
+  [178, 24],
+  [134, 72],
+  [178, 72],
+];
+
+/** Edges as paths, in history order: the trunk, then the two branches. */
+const GRAPH_EDGES = [
+  "M14,48 L54,48",
+  "M54,48 L94,48",
+  "M94,48 C114,48 114,24 134,24",
+  "M134,24 L178,24",
+  "M94,48 C114,48 114,72 134,72",
+  "M134,72 L178,72",
+];
+
+/** The head — the node the session is on. */
+const HEAD = 4;
+
+function GraphPanel() {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useGSAP(
+    () => {
+      const mm = motionOk();
+      mm.add(NO_PREFERENCE, (context) => {
+        // History is written in the order it happened: each edge draws,
+        // then the node it leads to pops — the trunk first, then the
+        // fork into two branches.
+        const tl = gsap.timeline({ scrollTrigger: panelTrigger(ref.current) });
+        tl.from("[data-gnode='0']", {
+          scale: 0,
+          transformOrigin: "50% 50%",
+          duration: 0.3,
+          ease: "back.out(2.5)",
+        });
+        GRAPH_EDGES.forEach((_, i) => {
+          const to = i + 1;
+          tl.fromTo(
+            `[data-gedge='${i}']`,
+            { drawSVG: "0%" },
+            {
+              drawSVG: "100%",
+              duration: 0.35,
+              ease: "power1.inOut",
+              onComplete: undash(ref.current?.querySelectorAll(`[data-gedge='${i}']`) ?? []),
+            },
+            i === 4 ? "-=0.9" : "-=0.05",
+          ).from(
+            `[data-gnode='${to}']`,
+            { scale: 0, transformOrigin: "50% 50%", duration: 0.3, ease: "back.out(2.5)" },
+            "-=0.1",
+          );
+        });
+        tl.from("[data-head-label]", { opacity: 0, y: 4, duration: 0.3 });
+
+        // Once the head exists it keeps a slow pulse, like a cursor —
+        // and only while the panel is on screen.
+        const pulse = gsap.fromTo(
+          "[data-head-ring]",
+          { scale: 1, opacity: 0.8 },
+          {
+            scale: 2.2,
+            opacity: 0,
+            transformOrigin: "50% 50%",
+            duration: 1.6,
+            ease: "power2.out",
+            repeat: -1,
+            repeatDelay: 0.4,
+            paused: true,
+          },
+        );
+        gsap.set("[data-head-ring]", { opacity: 0 });
+        tl.eventCallback("onComplete", () => {
+          context.add(() => whileVisible(pulse, ref.current));
+        });
+      });
+      return () => mm.revert();
+    },
+    { scope: ref },
+  );
+
+  const [hx, hy] = GRAPH_NODES[HEAD];
+  return (
+    <div ref={ref}>
+      <svg
+        viewBox="0 0 200 96"
+        className="h-24 w-full"
+        role="img"
+        aria-label="A session graph: three edits in a row, then a fork into two branches of two edits each, with the head on the upper branch"
+      >
+        {GRAPH_EDGES.map((d, i) => (
+          <path
+            key={d}
+            data-gedge={i}
+            d={d}
+            fill="none"
+            className="stroke-primary/50"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+        ))}
+        <circle data-head-ring cx={hx} cy={hy} r="6" fill="none" className="stroke-primary" strokeWidth="1" />
+        {GRAPH_NODES.map(([cx, cy], i) => (
+          <circle
+            key={i}
+            data-gnode={i}
+            cx={cx}
+            cy={cy}
+            r={i === HEAD ? 5.5 : 4.5}
+            className={i === HEAD ? "fill-primary" : "fill-card stroke-primary/70"}
+            strokeWidth="1.5"
+          />
+        ))}
+        <text
+          data-head-label
+          x={hx}
+          y={hy - 11}
+          textAnchor="middle"
+          className="fill-primary font-mono text-[8px] uppercase tracking-widest"
+        >
+          head
+        </text>
+      </svg>
+    </div>
+  );
+}
+
 // ─── Section ──────────────────────────────────────────────────────────────────
 
 const PANELS = [
@@ -359,30 +508,37 @@ const PANELS = [
       "Cut a track and the seam is visible. Select a clip, drag it later, delete it — the waveform and the arrangement stay in step.",
     render: <ClipStripPanel />,
   },
+  {
+    title: "graph",
+    caption:
+      "Every edit is a node in the session graph. Click one to hear it; right-click to set it as the head, compare it with another or rename it.",
+    render: <GraphPanel />,
+  },
 ];
 
 export function UiShowcase() {
   return (
     <section id="interface" className="py-20 md:py-28">
       <div className="container">
-        <Reveal className="mx-auto mb-12 max-w-2xl text-center">
-          <p className="font-mono text-xs uppercase tracking-widest text-primary">
-            The interface
-          </p>
-          <h2 className="mt-3 text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
-            Talk to it — or reach in and move things yourself.
-          </h2>
-          <p className="mt-4 text-pretty text-lg text-muted-foreground">
-            The agent is the fast path, not the only one. Faders, automation
-            curves and clips are all directly editable, and every change lands
-            in the same undoable session graph the agent writes to.
-          </p>
-        </Reveal>
-        <Stagger className="mx-auto grid max-w-6xl gap-5 lg:grid-cols-3" each={0.1} distance={28}>
+        <SectionHeading
+          eyebrow="The interface"
+          title="Talk to it — or reach in and move things yourself."
+          lead="The agent is the fast path, not the only one. Faders, automation curves and clips are all directly editable, and every change lands in the same undoable session graph the agent writes to."
+        />
+        {/* Each panel animates the interaction it describes, and tilts
+            toward the cursor once it has landed. */}
+        <Stagger className="mx-auto grid max-w-5xl gap-5 md:grid-cols-2" each={0.1} distance={28}>
+          {/* The stagger moves the wrapper and the tilt moves the card
+              inside it — two tweens on one element would fight over its
+              transform. */}
           {PANELS.map((p) => (
-            <Panel key={p.title} title={p.title} caption={p.caption}>
-              {p.render}
-            </Panel>
+            <div key={p.title}>
+              <TiltCard className="h-full">
+                <Panel title={p.title} caption={p.caption}>
+                  {p.render}
+                </Panel>
+              </TiltCard>
+            </div>
           ))}
         </Stagger>
       </div>

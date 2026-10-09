@@ -417,9 +417,11 @@ export const approvePlan = (steps?: string[]): Promise<void> =>
   invoke<void>("approve_plan", { steps: steps && steps.length > 0 ? steps : null });
 
 /**
- * Decline a plan. The waiting turn ends having run no tools and
- * appended no node — previously the only exits were approving it or
- * waiting out a five-minute timeout.
+ * Decline a plan, or a held first edit (#415). The waiting turn ends
+ * having run nothing that changes the session and appended no node —
+ * previously the only exits were approving it or waiting out a
+ * five-minute timeout. For a held edit the model is told the user
+ * declined.
  */
 export const rejectPlan = (): Promise<void> => invoke<void>("reject_plan");
 
@@ -430,6 +432,13 @@ export const setPlanFirst = (enabled: boolean): Promise<void> =>
 export const getPlanFirst = (): Promise<boolean> =>
   invoke<boolean>("get_plan_first");
 
+/**
+ * Something needs the user's approval before it runs: the model's plan,
+ * or, with Plan first on and no plan from the model, the first step that
+ * would change the session (#415). The steps of a held edit are its
+ * concrete tool calls, one `{step, tool, description}` per call, with the
+ * arguments it will run with as the description.
+ */
 export const onPlan = (
   cb: (steps: Record<string, unknown>[]) => void,
 ): Promise<UnlistenFn> =>
@@ -438,20 +447,35 @@ export const onPlan = (
   );
 
 /**
- * A plan was asked for and none arrived, so the turn ran **without** the
- * approval gate (#267).
+ * A plan was asked for and none arrived (#267).
  *
  * Distinct from receiving no `onPlan` at all, which means no plan was
  * requested for this turn. Without this the two are indistinguishable
  * from the outside, and a user who turned Plan First on would watch the
  * agent act while assuming the model had decided no plan was needed.
+ *
+ * `firstEditHeld` says what happens next: `true` when Plan first is on and
+ * the turn will show its first edit for approval before running it
+ * (#415), `false` when the turn proceeds without a gate.
  */
 export const onPlanUnavailable = (
-  cb: (reason: string) => void,
+  cb: (reason: string, firstEditHeld: boolean) => void,
 ): Promise<UnlistenFn> =>
-  listen<{ reason: string }>("agent://plan-unavailable", (e) =>
-    cb(e.payload.reason),
+  listen<{ reason: string; first_edit_held?: boolean }>(
+    "agent://plan-unavailable",
+    (e) => cb(e.payload.reason, e.payload.first_edit_held ?? false),
   );
+
+/**
+ * The user declined a plan or a held edit and the turn has ended without
+ * a `done` (#415).
+ *
+ * For a held edit, text and tool badges for the declined calls are
+ * already on screen by now, so this is what tells the transcript to
+ * settle them rather than leave a half-streamed bubble behind.
+ */
+export const onPlanRejected = (cb: () => void): Promise<UnlistenFn> =>
+  listen<null>("agent://plan-rejected", () => cb());
 
 // ---- Marker / selection IPC ----
 

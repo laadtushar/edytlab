@@ -1,24 +1,28 @@
 //! OS keychain wrapper for LLM provider API keys.
 //!
 //! On macOS this resolves to the user's login keychain via Security.framework;
-//! on Windows it lands in the Credential Manager; on Linux it uses
-//! libsecret/Secret Service. Keys are never written to disk by edytlab
-//! itself and never logged.
+//! on Windows it lands in the Credential Manager. On Linux it is the
+//! kernel keyring (`keyutils`, the `keyring` crate's `linux-native`
+//! feature), which lives in memory and does not survive a reboot
+//! (#394). Keys are never written to disk by edytlab itself and never
+//! logged.
 //!
 //! # Per-provider slots
 //!
 //! Each provider stores its key under a separate keychain account so a
-//! user can have credentials for both Anthropic and OpenRouter
-//! configured at once and switch between them without re-typing. The
-//! account name is `"<provider_id>_api_key"` (e.g.
-//! `"anthropic_api_key"`, `"openrouter_api_key"`).
+//! user can have credentials for several providers configured at once
+//! and switch between them without re-typing. The account name is
+//! `"<provider_id>_api_key"` (e.g. `"anthropic_api_key"`,
+//! `"openrouter_api_key"`); the chosen model and an overridden base URL
+//! sit beside it as `"<provider_id>_model"` and `"<provider_id>_base_url"`.
 //!
 //! # Active provider
 //!
 //! Which provider is currently selected is stored as a tiny string in
 //! its own slot: account `"active_provider"`. `load_active_provider`
-//! returns `Some("anthropic")` or `Some("openrouter")`; `None` means
-//! "no preference, default to Anthropic" (the historical behaviour).
+//! returns its id (`Some("anthropic")`, `Some("ollama")`, …); `None`
+//! means "no preference, default to Anthropic" (the historical
+//! behaviour).
 //!
 //! # Back-compat
 //!

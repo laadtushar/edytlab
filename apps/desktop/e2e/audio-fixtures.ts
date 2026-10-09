@@ -74,6 +74,16 @@ export const FIXTURES = {
     file: "tone-1s-at-1s.wav",
     spec: { seconds: 1, hz: 330, amplitude: 0.5, leadIn: 1 },
   },
+  /**
+   * `tone3s` after a destructive edit, where the edit leaves it: a
+   * content-addressed file under the project's `.audiograph/derived/`,
+   * named by the hash of its samples (#416). The name is the one in
+   * #416's report; nothing in the frontend checks it against the samples.
+   */
+  tone3sEdited: {
+    file: ".audiograph/derived/703e2a7b07919f079abdfbd8c3556c274c8d519c40ef72fe75586ba5bada370e.wav",
+    spec: { seconds: 3, hz: 440, amplitude: 0.5 },
+  },
 } as const;
 
 export type FixtureName = keyof typeof FIXTURES;
@@ -90,8 +100,10 @@ export function fixtureSeconds(name: FixtureName): number {
 }
 
 export function writeFixtures(): void {
-  mkdirSync(FIXTURE_DIR, { recursive: true });
   for (const { file, spec } of Object.values(FIXTURES)) {
-    writeFileSync(join(FIXTURE_DIR, file), toneWav(spec));
+    const path = join(FIXTURE_DIR, file);
+    // Some sit in a subdirectory, where the backend would put them.
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, toneWav(spec));
   }
 }

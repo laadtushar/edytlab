@@ -20,7 +20,9 @@ import { act, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { cbs, noop } = vi.hoisted(() => ({
-  cbs: { planUnavailable: [] as ((reason: string) => void)[] },
+  cbs: {
+    planUnavailable: [] as ((reason: string, firstEditHeld: boolean) => void)[],
+  },
   // `vi.mock` is hoisted above ordinary consts, so the stub listener has
   // to be hoisted with it.
   noop: () => Promise.resolve(() => undefined),
@@ -41,17 +43,20 @@ vi.mock("../lib/tauri-bridge", () => ({
   onNodeCreated: vi.fn(noop),
   onAgentDone: vi.fn(noop),
   onPlan: vi.fn(noop),
-  onPlanUnavailable: vi.fn((cb: (reason: string) => void) => {
-    cbs.planUnavailable.push(cb);
-    return Promise.resolve(() => undefined);
-  }),
+  onPlanUnavailable: vi.fn(
+    (cb: (reason: string, firstEditHeld: boolean) => void) => {
+      cbs.planUnavailable.push(cb);
+      return Promise.resolve(() => undefined);
+    },
+  ),
+  onPlanRejected: vi.fn(noop),
 }));
 
 import { Chat } from "../components/Chat";
 
 const flush = () => new Promise<void>((r) => setTimeout(r, 0));
 
-async function mountAndFire(reason: string) {
+async function mountAndFire(reason: string, firstEditHeld = false) {
   render(<Chat />);
   await act(async () => {
     await flush();
@@ -61,7 +66,7 @@ async function mountAndFire(reason: string) {
     "nothing subscribed to the plan-unavailable event",
   ).toBeGreaterThan(0);
   await act(async () => {
-    cbs.planUnavailable.forEach((cb) => cb(reason));
+    cbs.planUnavailable.forEach((cb) => cb(reason, firstEditHeld));
     await flush();
   });
 }
@@ -91,6 +96,21 @@ describe("a skipped plan gate", () => {
     const text = screen.getByTestId("chat-notice").textContent ?? "";
     expect(text).toMatch(/skipped/i);
     expect(text).toMatch(/continuing without/i);
+  });
+
+  /**
+   * With Plan first on, the checkpoint is not lost, it moves: the first
+   * edit is shown for approval instead of a plan (#415). Saying the turn
+   * is "continuing without" one would be false, and would send the user
+   * looking for a way to stop something that is going to ask them first.
+   */
+  it("with Plan first on, says the first edit will be shown for approval", async () => {
+    await mountAndFire("the model did not return a plan", true);
+    const text = screen.getByTestId("chat-notice").textContent ?? "";
+    expect(text).toMatch(/first edit/i);
+    expect(text).toMatch(/approv/i);
+    expect(text).not.toMatch(/continuing without/i);
+    expect(text).toMatch(/did not return a plan/);
   });
 
   it("draws nothing until the event arrives", async () => {

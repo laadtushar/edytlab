@@ -118,6 +118,11 @@ impl Tool for StorageReportTool {
         )
     }
 
+    // Read-only: reads metadata and lists nodes. It deletes nothing.
+    fn mutates(&self) -> bool {
+        false
+    }
+
     fn invoke(&self, _args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
         let head = match ctx.store.head() {
             Some(h) => h,

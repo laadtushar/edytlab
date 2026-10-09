@@ -6,13 +6,17 @@
 //!
 //! * Mode detection: a cheap Haiku call classifies each user message as
 //!   `mashup`, `mix`, `voice`, or `general`.
-//! * Plan gate (mashup mode only): the loop emits a `Plan` event and
-//!   suspends until the frontend approves by calling `Agent::approve_plan`.
+//! * Plan gate (mashup mode, or whenever Plan first is on): the loop emits
+//!   a `Plan` event and suspends until the frontend approves by calling
+//!   `Agent::approve_plan`.
 //!
 //! Per [`crate::Agent::turn`] we:
 //! 1. Classify the user message.
-//! 2. If mashup mode, request a `<plan>` from the model and gate on
-//!    frontend approval before proceeding.
+//! 2. If mashup mode or Plan first, request a `<plan>` from the model and
+//!    gate on frontend approval before proceeding. If no plan comes back
+//!    and Plan first is on, the gate moves to the first model step that
+//!    would change the session (see 7), so that with Plan first on no
+//!    edit runs without approval (#415).
 //! 3. Append the user's message to the conversation.
 //! 4. Open a streaming Anthropic call (system prompt + tools cached).
 //! 5. Forward `text` deltas to the caller's `on_event` sink in order.
@@ -21,7 +25,13 @@
 //!    and append a `tool_result` block to the conversation.
 //! 7. If at least one tool was used, loop. The hard cap of
 //!    [`crate::prompt::MAX_TOOL_CALLS_PER_TURN`] applies across all
-//!    iterations of the same turn.
+//!    iterations of the same turn. Where the gate is still waiting for
+//!    its first mutating step, that step is held *before* any of its
+//!    calls dispatch and shown as the plan card; approving runs it and
+//!    opens the gate for the rest of the turn, declining ends the turn
+//!    having run nothing, and revising it runs nothing and goes back to
+//!    the model with the user's words. Steps that only read are never
+//!    held.
 //! 8. If the model emits a malformed `tool_use` (e.g. unparseable JSON
 //!    args, or args that fail schema validation), we send back a
 //!    `tool_result` with `is_error: true` and let the model retry once;
@@ -34,7 +44,6 @@
 //! work is.
 
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use tokio::sync::Notify;
 
@@ -47,9 +56,10 @@ use crate::anthropic::{
     ApiError, CacheControl, ContentBlock, ContentBlockDelta, ContentBlockStart, Message,
     MessagesRequest, Role, StreamEvent, SystemBlock, ToolChoice,
 };
+use crate::approval::{self, Approval};
 use crate::prompt::{DEFAULT_MAX_TOKENS, MAX_TOOL_CALLS_PER_TURN};
 use crate::session_context::{render_block, SessionContext};
-use crate::{AgentEvent, Error, LlmConfig, Result, TurnResult};
+use crate::{AgentEvent, Error, LlmConfig, Result, TurnResult, WireFormat};
 
 // ---------------------------------------------------------------------------
 // Mode detection (M27)
@@ -62,6 +72,112 @@ pub(crate) enum Mode {
     Mix,
     Voice,
     General,
+}
+
+/// The conversation as plain-text messages for a one-shot call (the
+/// classifier, the plan), ending with `user_message`, keeping the most
+/// recent `last` messages if given.
+///
+/// A tool-using turn leaves an assistant message with only `tool_use`
+/// and a user message with only `tool_result`, which have no text. Sent
+/// as `{"role":"user","content":""}` the API rejects the whole request
+/// ("user messages must have non-empty content"), so after the first
+/// tool-using turn the classifier fell back to `general` and Plan first
+/// skipped its plan and ran the tools unapproved (#418). Empty turns are
+/// dropped, and what that leaves side by side from one role is merged,
+/// so roles still alternate.
+fn one_shot_messages(
+    conversation: &[Message],
+    last: Option<usize>,
+    user_message: &str,
+) -> Vec<Value> {
+    let mut turns: Vec<(&'static str, String)> = Vec::new();
+    let all = conversation
+        .iter()
+        .map(|m| {
+            let role = match m.role {
+                Role::User => "user",
+                Role::Assistant => "assistant",
+            };
+            (role, message_text(m))
+        })
+        .chain(std::iter::once(("user", user_message.to_string())));
+    for (role, text) in all {
+        let text = text.trim();
+        if text.is_empty() {
+            continue;
+        }
+        match turns.last_mut() {
+            Some((r, t)) if *r == role => {
+                t.push_str("\n\n");
+                t.push_str(text);
+            }
+            _ => turns.push((role, text.to_string())),
+        }
+    }
+    let keep = last.map_or(turns.len(), |n| n.saturating_add(1).min(turns.len()));
+    turns[turns.len() - keep..]
+        .iter()
+        .map(|(role, text)| serde_json::json!({ "role": role, "content": text }))
+        .collect()
+}
+
+/// A non-streaming request in the shape `cfg.provider` speaks, so the
+/// provider reads its system prompt and its reply can be read back by
+/// [`extract_response_text`].
+///
+/// This used to branch on the provider being OpenAI itself. Groq, Gemini
+/// and Ollama speak the same chat-completions API but got Anthropic's
+/// body — a top-level `system` their servers ignore, so neither the
+/// classifier nor the plan request carried its instructions — and their
+/// replies were read as Anthropic's, so every plan came back "carried no
+/// text" and every request classified as general (#399).
+fn one_shot_body(
+    cfg: &LlmConfig,
+    model: String,
+    max_tokens: u32,
+    system: &[&str],
+    messages: Vec<serde_json::Value>,
+) -> serde_json::Value {
+    match cfg.provider.wire_format() {
+        WireFormat::ChatCompletions => {
+            // OpenAI's newer models reject `max_tokens`; the compatible
+            // servers know only that name.
+            let limit_key = if cfg.provider.id() == crate::OPENAI_ID {
+                "max_completion_tokens"
+            } else {
+                "max_tokens"
+            };
+            serde_json::json!({
+                "model": model,
+                limit_key: max_tokens,
+                "messages": std::iter::once(serde_json::json!({
+                        "role": "system",
+                        "content": system.join("\n\n"),
+                    }))
+                    .chain(messages)
+                    .collect::<Vec<_>>(),
+                "stream": false
+            })
+        }
+        WireFormat::AnthropicMessages => {
+            let system = match system {
+                [one] => serde_json::json!(one),
+                many => serde_json::Value::Array(
+                    many.iter()
+                        .map(|t| serde_json::json!({ "type": "text", "text": t }))
+                        .collect(),
+                ),
+            };
+            serde_json::json!({
+                "model": model,
+                "max_tokens": max_tokens,
+                "system": system,
+                "messages": messages,
+                "stream": false
+            })
+        }
+    }
 }
 
 /// Classify the user's request using a cheap single-turn call to
@@ -77,43 +193,17 @@ pub(crate) async fn classify_mode(
 ) -> Mode {
     let system_text = "Classify the user's request as one word: mashup, mix, voice, or general. Output only the single word.";
 
-    // Include the last 6 conversation messages for context, then the new
-    // user message so the classifier sees the full intent.
-    let mut messages: Vec<serde_json::Value> = conversation
-        .iter()
-        .rev()
-        .take(6)
-        .rev()
-        .map(|m| {
-            serde_json::json!({
-                "role": match m.role { Role::User => "user", Role::Assistant => "assistant" },
-                "content": message_text(m),
-            })
-        })
-        .collect();
-    messages.push(serde_json::json!({ "role": "user", "content": user_message }));
+    // The last 6 conversation messages for context, then the new user
+    // message so the classifier sees the full intent.
+    let messages = one_shot_messages(conversation, Some(6), user_message);
 
-    // Build a provider-shaped non-streaming body. OpenAI's chat-completions
-    // returns `choices[0].message.content`; Anthropic returns
-    // `content[0].text`; we handle both shapes after we get the response.
-    let request_body = if cfg.provider.id() == crate::OPENAI_ID {
-        serde_json::json!({
-            "model": cfg.wire_classifier_model(),
-            "max_completion_tokens": 10,
-            "messages": std::iter::once(serde_json::json!({"role":"system","content":system_text}))
-                .chain(messages.iter().cloned())
-                .collect::<Vec<_>>(),
-            "stream": false
-        })
-    } else {
-        serde_json::json!({
-            "model": cfg.wire_classifier_model(),
-            "max_tokens": 10,
-            "system": system_text,
-            "messages": messages,
-            "stream": false
-        })
-    };
+    let request_body = one_shot_body(
+        cfg,
+        cfg.wire_classifier_model(),
+        10,
+        &[system_text],
+        messages,
+    );
 
     let req = http.post(format!(
         "{}{}",
@@ -284,6 +374,9 @@ pub(crate) enum PlanUnavailable {
     NoResponseText,
     /// Text that carried no well-formed `<plan>` block.
     NoPlanBlock,
+    /// A well-formed `<plan>` block listing no steps. Approving it would
+    /// approve nothing, so it is no plan at all.
+    EmptyPlan,
 }
 
 impl std::fmt::Display for PlanUnavailable {
@@ -294,6 +387,7 @@ impl std::fmt::Display for PlanUnavailable {
             Self::BodyParse(e) => write!(f, "the planning response could not be read: {e}"),
             Self::NoResponseText => write!(f, "the planning response carried no text"),
             Self::NoPlanBlock => write!(f, "the model did not return a plan"),
+            Self::EmptyPlan => write!(f, "the model returned a plan with no steps"),
         }
     }
 }
@@ -302,9 +396,9 @@ impl std::fmt::Display for PlanUnavailable {
 /// return the parsed steps. Includes conversation history so follow-up
 /// requests can be planned in context.
 ///
-/// `Err` names the failure class rather than erasing it: the caller
-/// proceeds without the gate either way — that degradation is
-/// deliberate — but it can now say so.
+/// `Err` names the failure class rather than erasing it. Whatever the
+/// class, the caller proceeds without a plan; with Plan first on it then
+/// holds the first edit for approval instead (#415).
 async fn fetch_plan(
     cfg: &LlmConfig,
     http: &reqwest::Client,
@@ -312,41 +406,17 @@ async fn fetch_plan(
     conversation: &[Message],
     user_message: &str,
 ) -> std::result::Result<Vec<Value>, PlanUnavailable> {
-    let mut messages: Vec<serde_json::Value> = conversation
-        .iter()
-        .map(|m| {
-            serde_json::json!({
-                "role": match m.role { Role::User => "user", Role::Assistant => "assistant" },
-                "content": message_text(m),
-            })
-        })
-        .collect();
-    messages.push(serde_json::json!({ "role": "user", "content": user_message }));
+    let messages = one_shot_messages(conversation, None, user_message);
 
     let plan_instruction =
         "Output only a <plan>...</plan> XML block listing the steps as JSON. No other text.";
-    let request_body = if cfg.provider.id() == crate::OPENAI_ID {
-        let combined_system = format!("{system_prompt}\n\n{plan_instruction}");
-        serde_json::json!({
-            "model": cfg.wire_model(),
-            "max_completion_tokens": 1024,
-            "messages": std::iter::once(serde_json::json!({"role":"system","content":combined_system}))
-                .chain(messages.iter().cloned())
-                .collect::<Vec<_>>(),
-            "stream": false
-        })
-    } else {
-        serde_json::json!({
-            "model": cfg.wire_model(),
-            "max_tokens": 1024,
-            "system": [
-                { "type": "text", "text": system_prompt },
-                { "type": "text", "text": plan_instruction }
-            ],
-            "messages": messages,
-            "stream": false
-        })
-    };
+    let request_body = one_shot_body(
+        cfg,
+        cfg.wire_model(),
+        1024,
+        &[system_prompt, plan_instruction],
+        messages,
+    );
 
     let req = http.post(format!(
         "{}{}",
@@ -371,31 +441,13 @@ async fn fetch_plan(
         .map_err(|e| PlanUnavailable::BodyParse(e.to_string()))?;
     let text = extract_response_text(cfg, &body).ok_or(PlanUnavailable::NoResponseText)?;
 
-    parse_plan(&text).ok_or(PlanUnavailable::NoPlanBlock)
-}
-
-/// Wait for the frontend to approve the pending plan. Uses
-/// `tokio::sync::Notify` so the loop wakes immediately when the user
-/// clicks "Run" with zero polling overhead. Times out after 5 minutes.
-///
-/// The notifier is stored in `AppState` (not behind the agent Mutex),
-/// so the `approve_plan` Tauri command can fire it without holding any
-/// lock that `send_message` also holds, eliminating the deadlock.
-/// Block until the frontend answers the plan gate.
-///
-/// There used to be exactly two ways out: approve, or wait five minutes.
-/// A user who disliked the plan had no way to say so, which made the
-/// gate feel like a trap rather than a checkpoint. `rejected` is set by
-/// the `reject_plan` command before it fires the same notifier, so a
-/// rejection is a normal answer rather than a timeout.
-async fn await_plan_approval(
-    notify: &Arc<Notify>,
-    rejected: &Arc<std::sync::atomic::AtomicBool>,
-) -> Result<bool> {
-    tokio::time::timeout(Duration::from_secs(300), notify.notified())
-        .await
-        .map_err(|_| Error::PlanTimeout)?;
-    Ok(rejected.swap(false, std::sync::atomic::Ordering::SeqCst))
+    let steps = parse_plan(&text).ok_or(PlanUnavailable::NoPlanBlock)?;
+    // `<plan>[]</plan>` used to reach the user as a card with no steps,
+    // whose Run approved nothing and then let every edit through.
+    if steps.is_empty() {
+        return Err(PlanUnavailable::EmptyPlan);
+    }
+    Ok(steps)
 }
 
 /// Hard upper bound on the number of content blocks we'll allocate for
@@ -404,6 +456,17 @@ async fn await_plan_approval(
 /// hand us `u64::MAX` and force a massive `Vec` allocation. Anthropic's
 /// real tool-use messages have well under 10 blocks, so 100 is generous.
 const MAX_CONTENT_BLOCKS: usize = 100;
+
+/// Where a turn stands on approving edits (#415).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Gate {
+    /// Nothing is waiting to be approved: no gate was asked for, the
+    /// approved plan covers the turn, or the held step has been approved.
+    Open,
+    /// Plan first is on and the model wrote no plan. The first step with a
+    /// call that would change the session is held for approval.
+    HoldFirstEdit,
+}
 
 /// Run a single agent turn. See [`crate::Agent::turn`] for behaviour.
 ///
@@ -487,47 +550,58 @@ where
     // the same phrasing sometimes planned and sometimes just acted, with
     // nothing to explain why. `plan_first` makes it a choice.
     let mut step_override: Option<String> = None;
+    let mut gate = Gate::Open;
     if plan_first || mode == Mode::Mashup {
         match fetch_plan(cfg, http, system_prompt, conversation, &user_message).await {
             Ok(steps) => {
-                on_event(AgentEvent::Plan {
-                    steps: steps.clone(),
-                });
                 // Block until the frontend answers via `approve_plan` or
                 // `reject_plan`, or time out after 5 minutes.
-                if await_plan_approval(plan_notify, plan_rejected).await? {
-                    on_event(AgentEvent::PlanRejected);
-                    return Ok(TurnResult::default());
+                match approval::ask(
+                    &mut on_event,
+                    steps,
+                    plan_notify,
+                    plan_rejected,
+                    plan_steps_override,
+                )
+                .await?
+                {
+                    Approval::Rejected => {
+                        on_event(AgentEvent::PlanRejected);
+                        return Ok(TurnResult::default());
+                    }
+                    Approval::Approved => {}
+                    Approval::Revised(text) => step_override = Some(text),
                 }
-                // Consume any step overrides the frontend stored before
-                // firing the notifier.
-                step_override = plan_steps_override
-                    .lock()
-                    .expect("plan_steps_override mutex poisoned")
-                    .take();
             }
-            // No plan: the turn proceeds without the gate. That
-            // degradation is deliberate — a planning hiccup should not
-            // block work the user asked for — but it is no longer
-            // silent, and the causes are no longer indistinguishable
-            // from each other (#267).
+            // No plan, for any reason. With Plan first on, the user asked
+            // for no edit to run unapproved, so the gate moves to the
+            // first step that would change the session and shows its
+            // concrete tool calls instead (#415). A mashup request with
+            // Plan first off keeps the notice and no gate: that guarantee
+            // is tied to the user's explicit choice.
             //
-            // Every class ends up here: a transport failure, a non-2xx,
-            // a body that would not parse, a response with no text, and
-            // a response with no `<plan>` block. Only the last is the
-            // model choosing not to plan; the rest are faults, and a
-            // user who turned Plan First on is losing a checkpoint they
-            // asked for either way.
+            // Every class lands here: a transport failure, a non-2xx, a
+            // body that would not parse, a response with no text, a
+            // response with no `<plan>` block, and a plan with no steps.
+            // Only the last two are the model choosing not to plan; the
+            // rest are faults. Either way the checkpoint the user asked
+            // for is kept, and neither is silent (#267).
             Err(reason) => {
+                let first_edit_held = plan_first;
                 tracing::warn!(
                     reason = %reason,
                     plan_first,
+                    first_edit_held,
                     mode = mode_as_str(mode),
-                    "plan gate skipped: no plan was produced"
+                    "no plan was produced"
                 );
                 on_event(AgentEvent::PlanUnavailable {
                     reason: reason.to_string(),
+                    first_edit_held,
                 });
+                if first_edit_held {
+                    gate = Gate::HoldFirstEdit;
+                }
             }
         }
     }
@@ -543,10 +617,10 @@ where
     } else {
         user_message
     };
-    conversation.push(Message {
-        role: Role::User,
-        content: vec![ContentBlock::Text { text: user_text }],
-    });
+    // Joins a trailing user message rather than following it: after a
+    // declined step the conversation ends in the `tool_result`s that
+    // answered it, and a second user message in a row is rejected.
+    approval::push_user_text(conversation, user_text);
 
     let tool_schemas = {
         let d = dispatcher.lock().expect("dispatcher mutex poisoned");
@@ -779,11 +853,82 @@ where
         if total_tool_calls + tool_uses.len() > MAX_TOOL_CALLS_PER_TURN {
             return Err(Error::ToolBudgetExceeded(MAX_TOOL_CALLS_PER_TURN));
         }
+
+        // With Plan first on and no plan, the first step with a call that
+        // would change the session is held here: after the budget check,
+        // before anything in it dispatches, with the assistant message
+        // already recorded so the `tool_result`s below can pair with it.
+        // The calls were announced as they streamed, so their badges
+        // already exist; every path out answers each one.
+        if gate == Gate::HoldFirstEdit {
+            // Decided under the dispatcher lock, which is dropped before
+            // the await that waits for the user.
+            let held = {
+                let d = dispatcher.lock().expect("dispatcher mutex poisoned");
+                approval::held_step(&d, &tool_uses, allowed_tools.as_ref(), &user_msg_saved)
+            };
+            if let Some(steps) = held {
+                match approval::ask(
+                    &mut on_event,
+                    steps,
+                    plan_notify,
+                    plan_rejected,
+                    plan_steps_override,
+                )
+                .await
+                {
+                    // This step runs, and so does the rest of the turn,
+                    // as after an approved plan.
+                    Ok(Approval::Approved) => gate = Gate::Open,
+                    Ok(Approval::Rejected) => {
+                        approval::not_run(
+                            &mut on_event,
+                            conversation,
+                            &tool_uses,
+                            approval::DECLINED,
+                            None,
+                        );
+                        on_event(AgentEvent::PlanRejected);
+                        return Ok(TurnResult {
+                            text: accumulated_text,
+                            stop_reason,
+                            node_ids: node_ids_emitted,
+                        });
+                    }
+                    // The user rewrote the step. Running the held calls
+                    // would apply the very thing they just changed, so
+                    // nothing runs: the model gets their words and
+                    // proposes again, and that proposal is held in turn.
+                    // Every edit that runs is one the user saw as shown.
+                    Ok(Approval::Revised(guidance)) => {
+                        approval::not_run(
+                            &mut on_event,
+                            conversation,
+                            &tool_uses,
+                            approval::REVISED,
+                            Some(guidance),
+                        );
+                        continue;
+                    }
+                    Err(e) => {
+                        approval::not_run(
+                            &mut on_event,
+                            conversation,
+                            &tool_uses,
+                            approval::TIMED_OUT,
+                            None,
+                        );
+                        return Err(e);
+                    }
+                }
+            }
+        }
+
         let mut tool_results: Vec<ContentBlock> = Vec::with_capacity(tool_uses.len());
         for (id, name, args_json) in tool_uses {
             total_tool_calls += 1;
 
-            let args: Value = match serde_json::from_str(&args_json) {
+            let args: Value = match parse_tool_args(&args_json) {
                 Ok(v) => v,
                 Err(e) => {
                     consecutive_validation_errors += 1;
@@ -923,6 +1068,20 @@ where
     }
 }
 
+/// A tool call's arguments, from the JSON the stream delivered.
+///
+/// A call with no arguments arrives with no `input_json_delta` at all, or
+/// with an empty one, so the accumulated text is empty. That is `{}`, not
+/// malformed JSON. Parsing it as JSON failed with "EOF while parsing", the
+/// call was reported as malformed, and a second such call ended the whole
+/// turn with an error (#409).
+pub(crate) fn parse_tool_args(args_json: &str) -> serde_json::Result<Value> {
+    if args_json.trim().is_empty() {
+        return Ok(Value::Object(serde_json::Map::new()));
+    }
+    serde_json::from_str(args_json)
+}
+
 /// Build the outgoing request. Keeps the system prompt + tool schemas
 /// `cache_control: ephemeral` so they're cached server-side across the
 /// many round trips a tool-using turn makes.
@@ -977,7 +1136,7 @@ fn error_message(err: &ApiError) -> String {
 /// body, handling both Anthropic-shape (`content[0].text`) and
 /// OpenAI-shape (`choices[0].message.content`).
 fn extract_response_text(cfg: &LlmConfig, body: &Value) -> Option<String> {
-    if cfg.provider.id() == crate::OPENAI_ID {
+    if cfg.provider.wire_format() == WireFormat::ChatCompletions {
         body.get("choices")
             .and_then(|c| c.as_array())
             .and_then(|a| a.first())
@@ -1121,6 +1280,279 @@ mod tests {
     #[test]
     fn parse_plan_returns_none_when_no_block() {
         assert!(parse_plan("some text without plan tags").is_none());
+    }
+
+    // ------------------------------------------------------------------
+    // One-shot requests: the classifier and the plan (#399)
+    // ------------------------------------------------------------------
+
+    /// Whether a provider's server speaks chat-completions, judged by the
+    /// endpoint it is called on — independent of `wire_format`, which is
+    /// what is under test. A provider that posts to `/chat/completions`
+    /// and does not say so is the fault this guards.
+    fn speaks_chat_completions(provider_id: &str) -> bool {
+        crate::provider::provider_from_id(provider_id)
+            .endpoint_path()
+            .ends_with("/chat/completions")
+    }
+
+    /// What a server of `provider_id` answers a one-shot call with: the
+    /// text, in the shape that server's API uses.
+    fn reply_in_providers_shape(provider_id: &str, text: &str) -> Value {
+        if speaks_chat_completions(provider_id) {
+            json!({ "choices": [{ "message": { "role": "assistant", "content": text } }] })
+        } else {
+            json!({ "content": [{ "type": "text", "text": text }] })
+        }
+    }
+
+    #[test]
+    fn a_provider_on_chat_completions_declares_it() {
+        for id in crate::SUPPORTED_PROVIDER_IDS {
+            let declared = crate::provider::provider_from_id(id).wire_format();
+            let expected = if speaks_chat_completions(id) {
+                WireFormat::ChatCompletions
+            } else {
+                WireFormat::AnthropicMessages
+            };
+            assert_eq!(
+                declared, expected,
+                "{id}: its endpoint and its wire_format disagree"
+            );
+        }
+    }
+
+    /// Run `call` against a mock that answers `text` in the shape of
+    /// `provider_id`, and return what the server was sent.
+    async fn serve_one_shot<F, Fut, T>(provider_id: &str, text: &str, call: F) -> (T, Value)
+    where
+        F: FnOnce(LlmConfig, reqwest::Client) -> Fut,
+        Fut: std::future::Future<Output = T>,
+    {
+        use wiremock::matchers::method;
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(reply_in_providers_shape(provider_id, text)),
+            )
+            .mount(&server)
+            .await;
+        let cfg = LlmConfig::new(crate::provider::provider_from_id(provider_id), "key")
+            .with_base_url(server.uri());
+        let out = call(cfg, reqwest::Client::new()).await;
+        let sent = server.received_requests().await.expect("recorded");
+        assert_eq!(sent.len(), 1, "{provider_id}: exactly one request");
+        let body: Value = serde_json::from_slice(&sent[0].body).expect("a JSON body");
+        (out, body)
+    }
+
+    /// Every provider, so a new one is covered the day it is added: its
+    /// plan request carries the plan instruction where its server reads
+    /// instructions, and a plan in its own reply shape is read back.
+    #[tokio::test]
+    async fn a_plan_round_trips_for_every_provider() {
+        let plan = r#"<plan>[{"step":1,"tool":"set_track_gain","description":"Louder"}]</plan>"#;
+        for id in crate::SUPPORTED_PROVIDER_IDS {
+            let (steps, body) = serve_one_shot(id, plan, |cfg, http| async move {
+                fetch_plan(&cfg, &http, "SYSTEM-PROMPT", &[], "make it louder").await
+            })
+            .await;
+
+            let steps = steps.unwrap_or_else(|e| panic!("{id}: no plan read back: {e:?}"));
+            assert_eq!(steps.len(), 1, "{id}");
+            let everything = body.to_string();
+            assert!(
+                everything.contains("SYSTEM-PROMPT"),
+                "{id}: the system prompt was not sent"
+            );
+            assert!(
+                everything.contains("<plan>"),
+                "{id}: the plan instruction was not sent"
+            );
+            match crate::provider::provider_from_id(id).wire_format() {
+                WireFormat::ChatCompletions => {
+                    assert!(
+                        body.get("system").is_none(),
+                        "{id}: a top-level `system` is ignored by this API"
+                    );
+                    assert_eq!(body["messages"][0]["role"], "system", "{id}");
+                    assert_eq!(body["messages"][1]["content"], "make it louder", "{id}");
+                }
+                WireFormat::AnthropicMessages => {
+                    assert_eq!(body["system"].as_array().map(Vec::len), Some(2), "{id}");
+                    assert_eq!(body["messages"][0]["role"], "user", "{id}");
+                }
+            }
+        }
+    }
+
+    /// `<plan>[]</plan>` is no plan: approving it approves nothing, and
+    /// the card it made had no steps and a Run button that let every edit
+    /// through (#415).
+    #[tokio::test]
+    async fn an_empty_plan_block_is_no_plan() {
+        for id in crate::SUPPORTED_PROVIDER_IDS {
+            let (result, _) = serve_one_shot(id, "<plan>[]</plan>", |cfg, http| async move {
+                fetch_plan(&cfg, &http, "SYSTEM-PROMPT", &[], "make it louder").await
+            })
+            .await;
+            assert!(
+                matches!(result, Err(PlanUnavailable::EmptyPlan)),
+                "{id}: an empty plan was accepted: {result:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn the_classifier_reads_its_answer_for_every_provider() {
+        for id in crate::SUPPORTED_PROVIDER_IDS {
+            let (mode, body) = serve_one_shot(id, "mashup", |cfg, http| async move {
+                classify_mode(&cfg, &http, "mash these two songs up", &[]).await
+            })
+            .await;
+
+            assert_eq!(mode, Mode::Mashup, "{id}: the answer was not read");
+            assert!(
+                body.to_string().contains("Classify the user's request"),
+                "{id}: the classifier instruction was not sent"
+            );
+        }
+    }
+
+    /// OpenAI's own models reject `max_tokens`; the compatible servers
+    /// know only that name.
+    #[test]
+    fn the_token_limit_is_named_as_each_api_expects() {
+        let body_for = |id: &str| {
+            let cfg = LlmConfig::new(crate::provider::provider_from_id(id), "k");
+            one_shot_body(&cfg, "m".into(), 7, &["s"], vec![])
+        };
+        assert_eq!(body_for(crate::OPENAI_ID)["max_completion_tokens"], 7);
+        for id in [
+            crate::provider::OLLAMA_ID,
+            crate::provider::GROQ_ID,
+            crate::provider::GEMINI_ID,
+        ] {
+            assert_eq!(body_for(id)["max_tokens"], 7, "{id}");
+            assert!(body_for(id).get("max_completion_tokens").is_none(), "{id}");
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // one_shot_messages (#418)
+    // ------------------------------------------------------------------
+
+    /// A turn that used a tool: the request, the model's tool call (no
+    /// text), the tool's result (no text), and the model's reply.
+    fn tool_turn(request: &str, reply: &str) -> Vec<Message> {
+        vec![
+            Message {
+                role: Role::User,
+                content: vec![ContentBlock::Text {
+                    text: request.into(),
+                }],
+            },
+            Message {
+                role: Role::Assistant,
+                content: vec![ContentBlock::ToolUse {
+                    id: "t1".into(),
+                    name: "gain".into(),
+                    input: json!({}),
+                }],
+            },
+            Message {
+                role: Role::User,
+                content: vec![ContentBlock::ToolResult {
+                    tool_use_id: "t1".into(),
+                    content: "{\"gain_db\":3}".into(),
+                    is_error: None,
+                }],
+            },
+            Message {
+                role: Role::Assistant,
+                content: vec![ContentBlock::Text { text: reply.into() }],
+            },
+        ]
+    }
+
+    fn assert_sendable(messages: &[Value]) {
+        assert!(!messages.is_empty());
+        for (i, m) in messages.iter().enumerate() {
+            let text = m["content"].as_str().expect("text content");
+            assert!(
+                !text.trim().is_empty(),
+                "message {i} is empty: {messages:?}"
+            );
+            if i > 0 {
+                assert_ne!(
+                    m["role"],
+                    messages[i - 1]["role"],
+                    "roles repeat at {i}: {messages:?}"
+                );
+            }
+        }
+        assert_eq!(messages.last().unwrap()["role"], "user");
+    }
+
+    #[test]
+    fn a_tool_using_turn_leaves_no_empty_message() {
+        let conversation = tool_turn("make it louder", "Done, +3 dB.");
+        let messages = one_shot_messages(&conversation, None, "do that again");
+        assert_sendable(&messages);
+        assert_eq!(messages.len(), 3, "{messages:?}");
+        assert_eq!(messages[0]["content"], "make it louder");
+        assert_eq!(messages[2]["content"], "do that again");
+    }
+
+    /// A turn whose reply was tool calls only leaves two user messages
+    /// side by side once the empty ones go; they are merged.
+    #[test]
+    fn user_messages_left_side_by_side_are_merged() {
+        let mut conversation = tool_turn("make it louder", "");
+        conversation.pop();
+        let messages = one_shot_messages(&conversation, None, "and fade it out");
+        assert_sendable(&messages);
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0]["content"], "make it louder\n\nand fade it out");
+    }
+
+    #[test]
+    fn the_classifier_keeps_the_most_recent_turns() {
+        let mut conversation = Vec::new();
+        for i in 0..5 {
+            conversation.extend(tool_turn(&format!("request {i}"), &format!("reply {i}")));
+        }
+        let messages = one_shot_messages(&conversation, Some(6), "the new one");
+        assert_sendable(&messages);
+        assert_eq!(messages.len(), 7, "six of history and the new message");
+        assert_eq!(messages.last().unwrap()["content"], "the new one");
+        assert_eq!(messages[0]["content"], "request 2");
+    }
+
+    // ------------------------------------------------------------------
+    // parse_tool_args (#409)
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn a_call_with_no_arguments_is_an_empty_object() {
+        assert_eq!(parse_tool_args("").unwrap(), json!({}));
+        assert_eq!(parse_tool_args("  \n").unwrap(), json!({}));
+    }
+
+    #[test]
+    fn arguments_are_parsed_as_json() {
+        assert_eq!(
+            parse_tool_args(r#"{"track":0}"#).unwrap(),
+            json!({"track": 0})
+        );
+    }
+
+    #[test]
+    fn truncated_arguments_are_still_malformed() {
+        assert!(parse_tool_args(r#"{"track":"#).is_err());
     }
 
     // ------------------------------------------------------------------
@@ -1590,6 +2022,7 @@ No other text."#;
             PlanUnavailable::BodyParse("expected value at line 1".into()),
             PlanUnavailable::NoResponseText,
             PlanUnavailable::NoPlanBlock,
+            PlanUnavailable::EmptyPlan,
         ];
 
         for case in &cases {
@@ -1648,7 +2081,7 @@ No other text."#;
                 start_sec: 1.0,
                 end_sec: 2.5,
             }),
-            markers: vec![],
+            ..Default::default()
         };
         let rendered = render_block(&ctx);
         assert!(

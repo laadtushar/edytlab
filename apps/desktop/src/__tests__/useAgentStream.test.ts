@@ -20,10 +20,14 @@ const cbs = {
   nodeCreated: [] as ((nodeId: string) => void)[],
   done: [] as (() => void)[],
   plan: [] as ((steps: Record<string, unknown>[]) => void)[],
+  planRejected: [] as (() => void)[],
 };
 
+const approvePlanMock = vi.hoisted(() => vi.fn());
+
 vi.mock("../lib/tauri-bridge", () => ({
-  approvePlan: vi.fn(() => Promise.resolve()),
+  approvePlan: approvePlanMock,
+  rejectPlan: vi.fn(() => Promise.resolve()),
   onTextDelta: vi.fn((cb: (t: string) => void) => {
     cbs.textDelta.push(cb);
     return Promise.resolve(() => {
@@ -61,9 +65,16 @@ vi.mock("../lib/tauri-bridge", () => ({
     });
   }),
   onPlanUnavailable: vi.fn(() => Promise.resolve(() => undefined)),
+  onPlanRejected: vi.fn((cb: () => void) => {
+    cbs.planRejected.push(cb);
+    return Promise.resolve(() => {
+      cbs.planRejected = cbs.planRejected.filter((c) => c !== cb);
+    });
+  }),
 }));
 
 import { useAgentStream } from "../hooks/useAgentStream";
+import { held } from "./held";
 
 const flush = () => new Promise<void>((r) => setTimeout(r, 0));
 
@@ -75,6 +86,8 @@ describe("useAgentStream", () => {
     cbs.nodeCreated = [];
     cbs.done = [];
     cbs.plan = [];
+    cbs.planRejected = [];
+    approvePlanMock.mockReset().mockResolvedValue(undefined);
   });
 
   it("accumulates text deltas into `current` and commits on done", async () => {
@@ -206,5 +219,121 @@ describe("useAgentStream", () => {
       role: "user",
       text: "normalize to -1 dBFS",
     });
+  });
+
+  // ------------------------------------------------------------------
+  // A held first edit (#415)
+  // ------------------------------------------------------------------
+
+  /**
+   * With Plan first on and no plan from the model, the text and the tool
+   * badge are already on screen when the card for the held edit appears.
+   * Declining ends the turn with no `done`, so something else has to
+   * settle them: a bubble left "pending" forever, above a card that is
+   * gone, is what the user would see.
+   */
+  it("plan-rejected commits the streamed text and takes the card down", async () => {
+    const { result } = renderHook(() => useAgentStream());
+    await act(async () => {
+      await flush();
+    });
+    act(() => {
+      result.current.pushUserMessage("reverse track 0");
+    });
+
+    await act(async () => {
+      cbs.textDelta[0]("Reversing track 0.");
+      cbs.plan[0]([{ step: 1, tool: "reverse", description: "track: 0" }]);
+    });
+    expect(result.current.pendingPlan).not.toBeNull();
+    expect(result.current.current).toBe("Reversing track 0.");
+
+    await act(async () => {
+      cbs.planRejected[0]();
+    });
+    expect(result.current.pendingPlan).toBeNull();
+    expect(result.current.current).toBe("");
+    expect(result.current.awaiting).toBe(false);
+    expect(result.current.entries).toContainEqual(
+      expect.objectContaining({
+        kind: "message",
+        role: "assistant",
+        text: "Reversing track 0.",
+      }),
+    );
+  });
+
+  it("a declined held call's badge resolves", async () => {
+    const { result } = renderHook(() => useAgentStream());
+    await act(async () => {
+      await flush();
+    });
+
+    await act(async () => {
+      cbs.toolCall[0]("reverse", "t1");
+      cbs.plan[0]([{ step: 1, tool: "reverse", description: "track: 0" }]);
+    });
+    expect(result.current.entries[0]).toMatchObject({ id: "t1", status: "running" });
+
+    await act(async () => {
+      cbs.toolCallEnd[0]("t1", false);
+      cbs.planRejected[0]();
+    });
+    expect(result.current.entries[0]).toMatchObject({ id: "t1", status: "error" });
+  });
+
+  /**
+   * Revising a held edit sends the model off to propose again, and its
+   * new proposal is a new card. If that arrives while the answer to the
+   * old card is still in flight, resolving the old answer must not take
+   * the new card down: nobody could answer it, and the turn would sit
+   * parked on a gate nobody can see.
+   */
+  it("an approval in flight does not take down a newer plan", async () => {
+    const answer = held<void>();
+    approvePlanMock.mockReturnValue(answer.promise);
+
+    const { result } = renderHook(() => useAgentStream());
+    await act(async () => {
+      await flush();
+    });
+
+    await act(async () => {
+      cbs.plan[0]([{ step: 1, tool: "reverse", description: "track: 0" }]);
+    });
+    const first = result.current.pendingPlan;
+    expect(first).not.toBeNull();
+
+    let answered!: Promise<void>;
+    act(() => {
+      answered = result.current.approvePlan();
+    });
+    expect(approvePlanMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      cbs.plan[0]([{ step: 1, tool: "reverse", description: "track: 1" }]);
+    });
+    const second = result.current.pendingPlan;
+    expect(second?.steps[0].description).toBe("track: 1");
+
+    await answer.resolve();
+    await answered;
+    expect(result.current.pendingPlan).toBe(second);
+  });
+
+  it("an approval takes down the card it answered", async () => {
+    const { result } = renderHook(() => useAgentStream());
+    await act(async () => {
+      await flush();
+    });
+    await act(async () => {
+      cbs.plan[0]([{ step: 1, tool: "reverse", description: "track: 0" }]);
+    });
+    expect(result.current.pendingPlan).not.toBeNull();
+
+    await act(async () => {
+      await result.current.approvePlan();
+    });
+    expect(result.current.pendingPlan).toBeNull();
   });
 });

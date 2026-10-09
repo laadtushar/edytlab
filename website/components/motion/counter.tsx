@@ -57,8 +57,14 @@ export function Counter({ value, className }: CounterProps) {
     { scope: ref, dependencies: [value] },
   );
 
+  // Held at the width of the final figure, with every digit the same
+  // width, so "0" → "93" never nudges the unit beside it while it counts.
   return (
-    <span ref={ref} className={className}>
+    <span
+      ref={ref}
+      className={`inline-block text-right tabular-nums ${className ?? ""}`}
+      style={match ? { minWidth: `${match[1].length}ch` } : undefined}
+    >
       {value}
     </span>
   );

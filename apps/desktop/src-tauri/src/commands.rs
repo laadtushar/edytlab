@@ -181,9 +181,23 @@ pub(crate) fn sweep_orphaned_audio(store: &Store) {
 /// there) plus what the app grants as it goes: each project as it opens,
 /// the files `list_tracks` hands the timeline, and compare renders.
 /// A failed grant shows as audio that will not load, so it is logged.
+///
+/// `allow_directory(dir, true)` is not enough on Linux and macOS: Tauri
+/// matches the asset scope with `require_literal_leading_dot` there, so
+/// `dir/**` does not reach through `.audiograph`, and the previews the
+/// transport plays and the auditions the chat plays live under it (#402).
+/// Those two caches are therefore granted by name, which a literal `.`
+/// satisfies; the rest of `.audiograph` stays out of reach.
 pub(crate) fn allow_assets_in_dir<R: Runtime>(app: &AppHandle<R>, dir: &std::path::Path) {
-    if let Err(e) = app.asset_protocol_scope().allow_directory(dir, true) {
-        tracing::warn!(dir = %dir.display(), error = %e, "could not allow a project in the asset scope");
+    let scope = app.asset_protocol_scope();
+    let caches = [
+        tools::PreviewCache::new(dir),
+        tools::PreviewCache::in_dir(dir, tools::tool::audition::AUDITION_DIR),
+    ];
+    for allowed in std::iter::once(dir).chain(caches.iter().map(|c| c.dir())) {
+        if let Err(e) = scope.allow_directory(allowed, true) {
+            tracing::warn!(dir = %allowed.display(), error = %e, "could not allow a project in the asset scope");
+        }
     }
 }
 
@@ -1666,25 +1680,36 @@ pub async fn send_message<R: Runtime>(
     text: String,
     disabled_tools: Vec<String>,
 ) -> CmdResult<()> {
-    // Build the per-turn SessionContext from the current selection and
-    // the annotations on the store head. We snapshot these before
-    // acquiring the agent lock to minimise the lock hold time.
+    // Build the per-turn SessionContext from the current selection, the
+    // annotations on the store head, and the head's tracks (#408). We
+    // snapshot these before acquiring the agent lock to minimise the lock
+    // hold time.
     let selection = state.selection_snapshot();
-    let markers = match state.store_handle() {
-        None => vec![],
+    let (head, markers, tracks) = match state.store_handle() {
+        None => (None, vec![], vec![]),
         Some(store_arc) => {
             let store = lock_std(&*store_arc, "store")?;
             match store.head() {
-                None => vec![],
-                Some(head) => store.annotations_for(head).unwrap_or_default(),
+                None => (None, vec![], vec![]),
+                Some(head) => {
+                    let markers = store.annotations_for(head).unwrap_or_default();
+                    // A head that cannot be read still gets its selection
+                    // and markers; the turn is not the place to fail.
+                    let tracks = store
+                        .get(head)
+                        .map(|node| ai::TrackBrief::from_state(&node.state))
+                        .unwrap_or_default();
+                    (Some(head.to_hex()), markers, tracks)
+                }
             }
         }
     };
-    let session_ctx = if selection.is_some() || !markers.is_empty() {
-        Some(ai::SessionContext { selection, markers })
-    } else {
-        None
-    };
+    let session_ctx = Some(ai::SessionContext {
+        selection,
+        markers,
+        head,
+        tracks,
+    });
 
     // Hold the agent lock for the duration of the turn. Phase 1 has a
     // single chat thread, so serialised turns are correct (the user
@@ -1729,6 +1754,15 @@ pub async fn send_message<R: Runtime>(
     let turn_result = agent
         .turn_with_context(text, session_ctx.as_ref(), on_event)
         .await;
+
+    // However the turn ended, it is no longer waiting for an answer. Only
+    // `Done` and `PlanRejected` clear the flag from inside the turn, so a
+    // turn that timed out at the gate, or failed while holding it, left it
+    // open and a stray Run click could bank a permit for the next turn
+    // (#251).
+    state
+        .plan_gate_open
+        .store(false, std::sync::atomic::Ordering::SeqCst);
 
     // Restore the original whitelist regardless of turn success/failure.
     // Restore happens before the `?` propagation so it is guaranteed even
@@ -1788,8 +1822,15 @@ fn emit_agent_event<R: tauri::Runtime>(app: &AppHandle<R>, event: ai::AgentEvent
                 tracing::warn!(error = %e, "failed to emit plan rejection");
             }
         }
-        ai::AgentEvent::PlanUnavailable { reason } => {
-            if let Err(e) = app.emit(PLAN_UNAVAILABLE, PlanUnavailablePayload { reason }) {
+        ai::AgentEvent::PlanUnavailable {
+            reason,
+            first_edit_held,
+        } => {
+            let payload = PlanUnavailablePayload {
+                reason,
+                first_edit_held,
+            };
+            if let Err(e) = app.emit(PLAN_UNAVAILABLE, payload) {
                 tracing::warn!(error = %e, "failed to emit plan-unavailable");
             }
         }
@@ -1800,19 +1841,11 @@ fn emit_agent_event<R: tauri::Runtime>(app: &AppHandle<R>, event: ai::AgentEvent
 // approve_plan
 // ---------------------------------------------------------------------------
 
-/// Called by the frontend "Approve plan" button. Fires the plan-approval
-/// notifier in `AppState`, unblocking the mashup-mode turn loop.
-///
-/// Deliberately does NOT acquire the agent mutex — `send_message` holds
-/// it across its `.await` points, so touching the agent here would
-/// deadlock.  The notifier lives independently on `AppState`.
-///
-/// When `steps` is non-empty the edited step descriptions are stored in
-/// `plan_steps_override` before the notifier fires.  The agent loop reads
-/// and clears this slot immediately after it wakes, then appends the
-/// override text to the conversation so the model executes the user's
-/// modified plan rather than the original one.
 /// Turn "plan before acting" on or off.
+///
+/// With it on, no edit runs without approval: the model's plan is shown
+/// first, and when it writes none the first step that would change the
+/// session is shown instead (#415).
 ///
 /// Held on `AppState` rather than the agent because the agent is rebuilt
 /// on every key, model or base-URL change, and a preference that
@@ -1858,6 +1891,20 @@ fn plan_gate_was_open(state: &AppState) -> bool {
         .swap(false, std::sync::atomic::Ordering::SeqCst)
 }
 
+/// Called by the frontend "Run" button. Fires the plan-approval notifier
+/// in `AppState`, unblocking the turn loop. What is approved is whatever
+/// the card showed: a plan, or the held first edit (#415).
+///
+/// Deliberately does NOT acquire the agent mutex — `send_message` holds
+/// it across its `.await` points, so touching the agent here would
+/// deadlock.  The notifier lives independently on `AppState`.
+///
+/// When `steps` is non-empty the edited step descriptions are stored in
+/// `plan_steps_override` before the notifier fires.  The agent loop reads
+/// and clears this slot immediately after it wakes. For a plan it appends
+/// the override text to the conversation so the model executes the user's
+/// modified plan rather than the original one. For a held edit nothing
+/// runs: the model is given the revision and proposes again.
 #[tauri::command]
 pub async fn approve_plan(state: State<'_, AppState>, steps: Option<Vec<String>>) -> CmdResult<()> {
     // A stray Run — on a card that should already have gone away — is a
@@ -1917,7 +1964,9 @@ pub fn set_selection_context(state: State<'_, AppState>, range: Option<Range>) -
 ///
 /// Also emits a `marker-changed` event so the waveform UI can refresh
 /// its overlay without polling.
-#[tauri::command]
+// Off the main thread: it takes the store lock, which a running tool
+// holds for its whole length (#421).
+#[tauri::command(async)]
 pub fn add_marker(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -1955,7 +2004,9 @@ pub fn add_marker(
 /// head hex unchanged otherwise.
 ///
 /// Also emits a `marker-changed` event.
-#[tauri::command]
+// Off the main thread: it takes the store lock, which a running tool
+// holds for its whole length (#421).
+#[tauri::command(async)]
 pub fn remove_marker(app: AppHandle, state: State<'_, AppState>, id: String) -> CmdResult<String> {
     let annotation_id = session::AnnotationId(
         uuid::Uuid::parse_str(&id).map_err(|e| CommandError::InvalidNodeId(e.to_string()))?,
@@ -1990,7 +2041,9 @@ pub fn cancel_long_running_tool() -> CmdResult<()> {
 /// each would otherwise be a separate undo step for what the user did
 /// once. Omitted fields are left alone; a change that changes nothing
 /// appends no node.
-#[tauri::command]
+// Off the main thread: it takes the store lock, which a running tool
+// holds for its whole length (#421).
+#[tauri::command(async)]
 pub fn update_marker(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -2077,7 +2130,9 @@ pub struct TranscriptWordOut {
 /// job when there is no transcript is to say "run transcribe", and it
 /// can say that from an empty list — an error would make "you have not
 /// transcribed yet", which is an ordinary state, look like a fault.
-#[tauri::command]
+// Off the main thread: it takes the store lock, which a running tool
+// holds for its whole length (#421).
+#[tauri::command(async)]
 pub fn get_transcript(state: State<'_, AppState>) -> CmdResult<Vec<TranscriptWordOut>> {
     let Some(store_arc) = state.store_handle() else {
         return Ok(Vec::new());
@@ -2127,7 +2182,9 @@ pub fn cut_transcript_words(
 /// Return all annotations (markers and region labels) visible at the
 /// current session head as a JSON array. Each entry is the serialised
 /// [`session::Annotation`] shape.
-#[tauri::command]
+// Off the main thread: it takes the store lock, which a running tool
+// holds for its whole length (#421).
+#[tauri::command(async)]
 pub fn list_markers(state: State<'_, AppState>) -> CmdResult<Vec<serde_json::Value>> {
     let store_arc = state.store_handle().ok_or(CommandError::NoSession)?;
     let store = lock_std(&*store_arc, "store")?;
@@ -2162,7 +2219,9 @@ pub fn set_head_to(state: State<'_, AppState>, node_id: String) -> CmdResult<Str
 
 /// Set or clear a human-readable label on a node. Pass an empty
 /// string to clear. Used by the graph view's "Rename" overlay.
-#[tauri::command]
+// Off the main thread: it takes the store lock, which a running tool
+// holds for its whole length (#421).
+#[tauri::command(async)]
 pub fn rename_node(state: State<'_, AppState>, node_id: String, label: String) -> CmdResult<()> {
     let id = session::NodeId::from_hex(&node_id).map_err(CommandError::from)?;
     let label_opt = if label.trim().is_empty() {
@@ -2224,7 +2283,9 @@ pub struct EnvelopePointSummary {
 /// Return one entry per track at the current session head. Used by
 /// the frontend Timeline to render per-lane waveforms — without this
 /// every lane fell back to the same mix path.
-#[tauri::command]
+// Off the main thread: it takes the store lock, which a running tool
+// holds for its whole length (#421).
+#[tauri::command(async)]
 pub fn list_tracks<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
@@ -2513,7 +2574,9 @@ pub(crate) fn set_track_muted_inner(
 /// Read separately from `list_tracks` because it is a property of the
 /// session rather than of any track — and the toggle has to show the
 /// right state the moment a project opens, not after the first edit.
-#[tauri::command]
+// Off the main thread: it takes the store lock, which a running tool
+// holds for its whole length (#421).
+#[tauri::command(async)]
 pub fn get_sync_lock(state: State<'_, AppState>) -> CmdResult<bool> {
     let store_arc = state.store_handle().ok_or(CommandError::NoSession)?;
     let store = lock_std(&store_arc, "store")?;

@@ -57,12 +57,14 @@ sudo apt-get update
 sudo apt-get install -y \
   libgtk-3-dev \
   libwebkit2gtk-4.1-dev \
-  libappindicator3-dev \
+  libayatana-appindicator3-dev \
   librsvg2-dev \
   libssl-dev \
   libasound2-dev \
   patchelf
 ```
+
+This is the list `ci.yml` and the release workflows install — note `libayatana-appindicator3-dev`, not the older `libappindicator3-dev`. `patchelf` is only needed to bundle an AppImage; the release build also adds `libfuse2` for that.
 
 ### ML Model Files (Whisper/Demucs) — not usable yet
 
@@ -118,12 +120,12 @@ The **first build takes 5–20 minutes** — Cargo compiles the full workspace p
 
 ### Directory of the `pnpm tauri:dev` shortcut
 
-`pnpm tauri:dev` is defined in `apps/desktop/package.json` and expands to:
+`pnpm tauri:dev` is defined in the root `package.json` and expands to:
 ```bash
 pnpm --filter @edytlab/desktop tauri dev
 ```
 
-Which in turn runs `cargo tauri dev` inside `apps/desktop/src-tauri/`.
+Which in turn runs the Tauri CLI (`@tauri-apps/cli`, the desktop package's `tauri` script) — `tauri dev`, which starts Vite and builds `apps/desktop/src-tauri/`.
 
 ### Setting up an API Key (required to use the agent)
 
@@ -131,8 +133,11 @@ Which in turn runs `cargo tauri dev` inside `apps/desktop/src-tauri/`.
    - Anthropic: https://console.anthropic.com/settings/keys
    - OpenRouter: https://openrouter.ai/keys
    - OpenAI: https://platform.openai.com/api-keys
+   - Groq: https://console.groq.com/keys
+   - Google Gemini: https://aistudio.google.com/apikey
+   - Ollama: no key — run a local Ollama daemon (`ollama serve`, then `ollama pull llama3.2`)
 
-2. In the running app, click the gear icon → enter your key. The key is stored in your OS keychain — never on disk or committed to git.
+2. In the running app, click the gear icon → pick the provider → enter your key. The key is stored in your OS keychain — never on disk or committed to git.
 
 ---
 
@@ -194,7 +199,7 @@ Allowed prefixes: `feat`, `fix`, `ci`, `chore`, `docs`, `test`, `refactor`.
 ### Adding a New Tauri Command
 
 1. Add the function to `apps/desktop/src-tauri/src/commands.rs`
-2. Add `#[tauri::command]` attribute
+2. Add the `#[tauri::command]` attribute. If the command takes the session store's lock, it must not run on the main thread: make it an `async fn`, or use `#[tauri::command(async)]` (`src-tauri/tests/main_thread_commands.rs` enforces this, #421)
 3. Register in `tauri::Builder::invoke_handler` in `lib.rs`
 4. Add a matching TypeScript wrapper in `apps/desktop/src/lib/tauri-bridge.ts`
 5. Update [API Reference](./api-reference.md)
@@ -212,7 +217,6 @@ src/
 ├── components/
 │   ├── ABCompareBar.tsx       # A/B compare mode controls
 │   ├── AgentProfilesEditor.tsx
-│   ├── Canvas.tsx             # Waveform canvas rendering
 │   ├── CapabilitiesMenu.tsx   # + button for capabilities
 │   ├── Chat.tsx               # Chat panel, message streaming
 │   ├── EmptyState.tsx         # No-audio-loaded state
@@ -244,24 +248,36 @@ src/
 
 ```
 src/
-├── commands.rs    # All ~50 #[tauri::command] functions
-├── lib.rs         # AppState, builder, lock helpers
-└── main.rs        # Entry point
+├── commands.rs    # The #[tauri::command] functions (~86 of them)
+├── events.rs      # agent://… event names and payloads
+├── lib.rs         # Builder, command registration, startup
+├── main.rs        # Entry point
+├── mcp_tool.rs    # Wraps MCP server tools as `tools::Tool`
+├── project.rs     # Project metadata, view state, recents
+├── reclaimer.rs   # Background cap on a project's derived audio
+└── state.rs       # AppState
 ```
 
-`AppState` (defined in `lib.rs`):
+`AppState` (defined in `state.rs`; abridged — read the struct for the plan-gate flags and directory fields):
 ```rust
 pub struct AppState {
-    pub store:        Arc<Mutex<Option<Store>>>,
-    pub engine:       Arc<Mutex<Engine>>,
-    pub agent:        Arc<Mutex<Option<Agent>>>,
-    pub clipboard:    Arc<Mutex<Option<Vec<f32>>>>,
-    pub plan_notify:  Arc<Notify>,
-    pub memory:       Arc<MemoryStore>,
-    pub skills:       Arc<Mutex<SkillLibrary>>,
-    pub profiles:     Arc<Mutex<ProfileLibrary>>,
-    pub mcp:          Arc<Mutex<McpRegistry>>,
-    pub project_dir:  Arc<Mutex<Option<PathBuf>>>,
+    pub agent:                    Arc<tokio::sync::Mutex<Option<Agent>>>,
+    pub dispatcher:               Arc<Mutex<ToolDispatcher>>,
+    pub store:                    Arc<Mutex<Option<Arc<Mutex<Store>>>>>,
+    pub engine:                   Arc<Mutex<Engine>>,
+    pub project_dir:              Arc<Mutex<Option<PathBuf>>>,
+    pub api_key:                  Arc<Mutex<Option<String>>>,
+    pub active_provider:          Arc<Mutex<String>>,
+    pub active_model_by_provider: Arc<Mutex<HashMap<String, String>>>,
+    pub plan_notify:              Arc<tokio::sync::Notify>,
+    pub selection:                Arc<Mutex<Option<Range>>>,
+    pub clipboard:                Arc<Mutex<Option<tools::Clipboard>>>,
+    pub memory:                   Arc<Mutex<Option<Arc<MemoryStore>>>>,
+    pub skills:                   Arc<Mutex<SkillLibrary>>,
+    pub agent_profiles:           Arc<Mutex<ProfileLibrary>>,
+    pub mcp_config:               Arc<Mutex<McpConfig>>,
+    pub mcp:                      Arc<McpRegistry>,
+    // …
 }
 ```
 
@@ -275,7 +291,7 @@ src/
 ├── keychain.rs     # OS credential storage via keyring
 ├── models.rs       # Model catalogue + 10-min TTL cache
 ├── prompt.rs       # System prompt construction
-├── provider.rs     # LlmProvider trait + 3 implementations
+├── provider.rs     # LlmProvider trait + 6 implementations
 ├── session_context.rs  # Selection/marker context for turns
 └── validate.rs     # API key validation (1-token probe)
 ```
@@ -294,7 +310,12 @@ cargo test --workspace -- --test-threads=1
 
 # Frontend
 pnpm --filter @edytlab/desktop test
+pnpm --filter @edytlab/desktop test:slow-scheduler
 pnpm --filter @edytlab/desktop typecheck
+
+# Frontend in Chromium (Playwright); once: pnpm --filter @edytlab/desktop exec playwright install chromium
+pnpm --filter @edytlab/desktop typecheck:e2e
+pnpm --filter @edytlab/desktop test:e2e
 ```
 
 > **Why `--test-threads=1`?** Some tests in `crates/ai` use a shared model cache that is not safe for concurrent test runs. The `--test-threads=1` flag serializes them.
@@ -327,26 +348,34 @@ pnpm --filter @edytlab/desktop typecheck
 | Rust unit tests | `cargo test` | `#[cfg(test)]` mod in each file |
 | Rust integration tests | `cargo test` | `tests/` in each crate |
 | Frontend unit tests | Vitest | `apps/desktop/src/__tests__/` |
+| Frontend in a real browser | Playwright (Chromium), IPC faked by `e2e/backend.ts` | `apps/desktop/e2e/` |
 | HTTP mock tests | `wiremock` | `crates/ai/tests/` |
 
 ### Writing New Tests
 
-**Rust tools tests** — test against a minimal `SessionState`:
+**Rust tools tests** — drive the tool through a real dispatcher over a temporary store, as `crates/tools/tests/tools_integration.rs` does (there is no shared test-helper module):
 ```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use session::test_helpers::minimal_state;
+use serde_json::json;
+use tempfile::TempDir;
+use tools::{ToolContext, ToolDispatcher, ToolResult};
 
-    #[test]
-    fn normalize_rejects_nan_lufs() {
-        let mut ctx = test_context();
-        let result = NormalizeTool.call(
-            serde_json::json!({ "target_lufs": f64::NAN }),
-            &mut ctx,
-        );
-        assert!(matches!(result, ToolResult::Error(_)));
-    }
+#[test]
+fn gain_needs_a_session() {
+    let tmp = TempDir::new().unwrap();
+    let mut store = session::Store::open(tmp.path()).unwrap();
+    let mut engine = audio_engine::Engine::new();
+    let mut clipboard: Option<tools::Clipboard> = None;
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+        user_message: "",
+        clipboard: &mut clipboard,
+        allowed_tools: None,
+    };
+    let result = ToolDispatcher::default_dispatcher()
+        .invoke("gain", json!({ "track": 0, "db": 3.0 }), &mut ctx)
+        .unwrap();
+    assert!(matches!(result, ToolResult::Error(_)));
 }
 ```
 
@@ -384,16 +413,7 @@ listen("*", (event) => console.log("tauri event:", event));
 
 ### Rust Debugging
 
-**`tracing` crate** — structured logging throughout the Rust codebase:
-```bash
-# Enable debug logs
-RUST_LOG=debug pnpm tauri:dev
-
-# Enable trace logs for specific crate
-RUST_LOG=edytlab_ai=trace pnpm tauri:dev
-```
-
-Log output appears in the terminal where `tauri:dev` is running.
+**`tracing` crate** — the Rust crates emit `tracing` events, but neither the desktop app nor `edytlab-cli` installs a subscriber (there is no `tracing-subscriber`, `env_logger` or log plugin in the dependency tree), so those events are currently discarded and `RUST_LOG` has no effect. Until a subscriber is added, use `eprintln!` / `dbg!` for ad-hoc output; it appears in the terminal where `tauri:dev` is running.
 
 **Breakpoints:**
 Attach a native debugger (LLDB on macOS, WinDbg on Windows) to the running `edytlab` process. Or use `println!` / `dbg!` macros for quick inspection.
@@ -451,7 +471,7 @@ Dev builds are created automatically by `auto-release.yml` on every push to `mai
 1. CI passes on `main`
 2. `auto-release.yml` triggers, tags `v<version>-dev.<ci_run_number>`
 3. Dispatches `release-dev.yml`
-4. `release-dev.yml` builds unsigned bundles for macOS (universal) + Windows
+4. `release-dev.yml` builds unsigned bundles for macOS (universal), Windows and Linux (`.deb` + AppImage)
 5. Attaches the bundles to a GitHub Release, created as a draft
 6. The `publish` job flips it out of draft once the whole matrix is green, so
    the prerelease is public without a manual step. It is marked `prerelease`
@@ -468,9 +488,9 @@ Requires Apple Developer Program membership + signing secrets in GitHub.
 - `APPLE_SIGNING_IDENTITY` (e.g., "Developer ID Application: Your Name (TEAMID)")
 - `APPLE_TEAM_ID`
 - `APPLE_ID` (for notarization)
-- `APPLE_ID_PASSWORD` (app-specific password)
+- `APPLE_PASSWORD` (app-specific password)
 
-Trigger `release-signed.yml` via GitHub Actions manual dispatch.
+Trigger `release-signed.yml` via GitHub Actions manual dispatch. None of these secrets (nor the Windows ones below) are provisioned yet, so every release so far is unsigned ([#386](https://github.com/laadtushar/edytlab/issues/386)). A versioned but unsigned release — v0.2.0 was one — comes from dispatching `release-dev.yml` with `channel: release`.
 
 ### Signed Windows Build
 
@@ -498,14 +518,15 @@ Defined in `apps/desktop/src-tauri/tauri.conf.json`:
 
 App version is **canonical** in `apps/desktop/src-tauri/tauri.conf.json`:
 ```json
-"version": "0.1.0"
+"version": "0.2.0"
 ```
 
-`package.json` files mirror this. When bumping a version:
+The other manifests mirror it, and `apps/desktop/src/__tests__/appVersion.test.ts` fails if any drifts. When bumping a version:
 1. Update `tauri.conf.json`
-2. Update `apps/desktop/package.json`
-3. Update `apps/desktop/src-tauri/Cargo.toml`
-4. Commit as `chore: bump version to X.Y.Z`
+2. Update the root `package.json`, `apps/desktop/package.json` and `website/package.json`
+3. Update `[workspace.package] version` in the root `Cargo.toml` (every crate, the desktop one included, inherits it)
+4. Add the entry to `website/app/changelog/page.tsx`
+5. Commit as `chore(release): X.Y.Z`
 
 ---
 
@@ -515,18 +536,23 @@ App version is **canonical** in `apps/desktop/src-tauri/tauri.conf.json`:
 
 **Trigger:** Push to `main` + all PRs.
 
-**Matrix:** macOS 14 (arm64) · Windows latest (x86_64) · Ubuntu 22.04 (x86_64).
+**`build` job — matrix:** macOS 14 (arm64) · Windows latest (x86_64) · Ubuntu 22.04 (x86_64).
 
-**Jobs:**
 1. Install platform build deps (Linux only: GTK, WebKit, AppIndicator, libssl, libasound2)
 2. Install Rust toolchain (from `rust-toolchain.toml`)
-3. Cache cargo registry + `target/` (keyed per OS + `Cargo.lock` hash)
+3. Cache cargo registry + `target/` (`Swatinem/rust-cache`, keyed per platform)
 4. Install pnpm + Node 20
 5. `pnpm install --frozen-lockfile`
-6. `cargo fmt --all -- --check`
+6. `cargo fmt --all --check`
 7. `cargo clippy --workspace --all-targets -- -D warnings`
 8. `cargo test --workspace --no-fail-fast -- --test-threads=1`
-9. `pnpm --filter @edytlab/desktop build`
+9. `pnpm --filter @edytlab/desktop test`
+10. `pnpm --filter @edytlab/desktop test:slow-scheduler` (Linux leg only)
+11. `pnpm --filter @edytlab/desktop build` (`tsc -b` + `vite build`)
+
+**`e2e (chromium)` job** (Ubuntu only): installs Chromium for Playwright, then `typecheck:e2e` and `test:e2e` against a production build of the frontend.
+
+**`website (test)` job:** in `website/`, `pnpm install --frozen-lockfile --ignore-workspace`, `pnpm test`, `pnpm typecheck`.
 
 **Important:** CI concurrency is set to cancel in-flight PR runs but **never cancel main runs** — `auto-release.yml` waits on the `workflow_run` completion event.
 
@@ -546,9 +572,10 @@ Replaced the earlier `release-mac.yml` / `release-win.yml` pair, which raced eac
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `RUST_LOG` | `info` | Tracing log level. Format: `level` or `crate=level` |
-| `ORT_DYLIB_PATH` | Auto-detected | Path to `libonnxruntime.{so,dylib,dll}` |
-| `EDYTLAB_DATA_DIR` | OS app data dir | App data root (skills, profiles, MCP config) |
+| `ORT_DYLIB_PATH` | unset | Path to `libonnxruntime.{so,dylib,dll}`. Read by `ort` (`load-dynamic`); nothing in the app sets it or ships the library yet ([#383](https://github.com/laadtushar/edytlab/issues/383)) |
+| `WHISPER_MODEL_PATH`, `DEMUCS_FT_MODEL_PATH`, `DEMUCS_MODEL_PATH` | unset | Model file locations — see [ML Model Files](#ml-model-files-whisperdemucs--not-usable-yet) |
+
+`RUST_LOG` is not listed because nothing reads it (see [Rust Debugging](#rust-debugging)). Skills, agent profiles and the MCP config live under `~/.edytlab/`, which is not configurable.
 
 These are set at runtime; no `.env` file is needed for development.
 
@@ -586,9 +613,9 @@ See [WaveSurfer Quirks in architecture.md](./architecture.md#wavesurfer-quirks).
 if (!wsRef.current || duration === 0) return;
 ```
 
-### `cargo test` OOM on CI
+### `cargo test` flaking on shared state
 
-Add `-- --test-threads=1` to serialize tests. Model loading in `ml-pipeline` tests is memory-intensive when concurrent.
+Add `-- --test-threads=1` to serialize tests within each binary, as CI does: tests that share global state — `crates/ai`'s model-catalogue cache, for one — race otherwise (`cache_returns_within_ttl` flaked on Windows next to a test that calls `clear_cache()`).
 
 ### Keychain access dialog on macOS
 
@@ -621,11 +648,18 @@ cargo test --workspace -- --test-threads=1
 # 4. Frontend tests
 pnpm --filter @edytlab/desktop test
 
-# 5. TypeScript check (tsc -b: app, tests, vite.config.ts)
+# 5. Frontend tests with React's scheduler 40 ms late (#349)
+pnpm --filter @edytlab/desktop test:slow-scheduler
+
+# 6. TypeScript check (tsc -b: app, tests, vite.config.ts)
 pnpm --filter @edytlab/desktop typecheck
+
+# 7–8. The frontend in Chromium — for anything that changes what mounts, draws, scrolls or decodes
+pnpm --filter @edytlab/desktop typecheck:e2e
+pnpm --filter @edytlab/desktop test:e2e
 ```
 
-All five must pass. CI blocks merge on any failure.
+All eight must pass. CI blocks merge on any failure.
 
 ---
 

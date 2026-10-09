@@ -1,16 +1,18 @@
 import type { Metadata } from "next";
 import { siteConfig } from "@/lib/site";
+import { DEFAULT_OG_IMAGE } from "@/lib/seo-core";
 import { DocShell } from "@/components/docs/doc-shell";
 
 export const metadata: Metadata = {
   title: "API Reference",
   description:
-    "Complete API reference for edytlab — all Tauri commands, TypeScript bridge types, and SSE events.",
+    "Complete API reference for edytlab — all Tauri commands, TypeScript bridge types, and events.",
   alternates: { canonical: "/docs/api-reference" },
   openGraph: {
     title: "API Reference — edytlab Docs",
     description: "All Tauri commands, TypeScript types, and events for edytlab.",
     url: `${siteConfig.url}/docs/api-reference`,
+    images: [DEFAULT_OG_IMAGE],
   },
 };
 
@@ -106,7 +108,7 @@ const commands = [
       {
         name: "listProviders()",
         returns: 'ProviderId[]',
-        desc: 'Returns ["anthropic", "openrouter", "openai"].',
+        desc: 'Returns ["anthropic", "openrouter", "openai", "groq", "gemini", "ollama"].',
       },
       {
         name: "getActiveProvider()",
@@ -199,9 +201,19 @@ const commands = [
         desc: "Send a user message. Agent runs async; emits events during processing.",
       },
       {
-        name: "approvePlan()",
+        name: "approvePlan(steps?)",
         returns: "void",
-        desc: "In mashup mode: approve the agent's proposed plan to proceed.",
+        desc: "Approve what onPlan showed (the agent's plan, or its first edit when Plan first is on and it wrote no plan). Pass edited step descriptions to change it instead: a plan follows the revision, a held edit is not run and the agent proposes again.",
+      },
+      {
+        name: "rejectPlan()",
+        returns: "void",
+        desc: "Decline what onPlan showed. The turn ends and nothing is applied; for a held edit, the agent is told you declined.",
+      },
+      {
+        name: "setPlanFirst(enabled)",
+        returns: "void",
+        desc: "With Plan first on, no edit runs without your approval: the plan is shown, or, with no plan, the first step that would change the session. Calls that only read the session are never held.",
       },
     ],
   },
@@ -415,7 +427,7 @@ const events = [
   },
   {
     name: "onToolCallEnd(cb)",
-    payload: "{ id, ok: boolean }",
+    payload: "{ id, ok: boolean, view? }",
     desc: "Tool execution completed. ok = false if the tool returned an error.",
   },
   {
@@ -430,8 +442,18 @@ const events = [
   },
   {
     name: "onPlan(cb)",
-    payload: "steps: object[]",
-    desc: "Mashup mode: agent proposed a multi-step plan before execution.",
+    payload: "steps: { step, tool, description }[]",
+    desc: "Something needs approval before it runs: the agent's plan, or with Plan first on and no plan, its first edit shown as the exact tool calls and arguments. The turn waits for approvePlan() or rejectPlan().",
+  },
+  {
+    name: "onPlanUnavailable(cb)",
+    payload: "reason: string, firstEditHeld: boolean",
+    desc: "A plan was asked for and none arrived. firstEditHeld says whether the first edit will be held for approval (Plan first on) or the turn proceeds with no gate.",
+  },
+  {
+    name: "onPlanRejected(cb)",
+    payload: "none",
+    desc: "The user declined a plan or a held edit. The turn ends with no onAgentDone.",
   },
   {
     name: "onMarkerChanged(cb)",
@@ -444,7 +466,7 @@ export default function ApiReferencePage() {
   return (
     <DocShell
       title="API Reference"
-      description="All Tauri commands, TypeScript bridge types, and SSE events."
+      description="All Tauri commands, TypeScript bridge types, and events."
     >
       <blockquote>
         This page covers the public API consumed by the edytlab frontend. For
@@ -548,7 +570,7 @@ return () => { unlisten(); };`}</code>
       <h2>Key types</h2>
       <pre>
         <code>{`type NodeId = string;
-type ProviderId = "anthropic" | "openrouter" | "openai";
+type ProviderId = "anthropic" | "openrouter" | "openai" | "groq" | "gemini" | "ollama";
 
 interface ProjectInfo  { path: string; head: NodeId | null }
 interface SessionNode  { id: NodeId; parent: NodeId | null; label: string | null; state: SessionState }

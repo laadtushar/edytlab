@@ -17,12 +17,16 @@ You do not call tools directly. The agent picks them from what you ask for; this
 
 Implementations live in `crates/tools/src/tool/`. A tool that is not registered in `crates/tools/src/dispatcher.rs` is not on this page and the agent cannot call it.
 
+### Approval with Plan first
+
+With Plan first on and no plan from the model, the first step that would change something is shown for your approval before it runs. Tools marked read-only below never need it. Every other tool, and every tool an MCP server adds, counts as changing something.
+
 ## Index
 
 - [`add_effect`](#add_effect) — Add a non-destructive effect to a track's chain.
 - [`add_track`](#add_track) — Append a new empty track to the current session.
 - [`align_to_beat`](#align_to_beat) — Warp a track in time so the beats at source_beats land on beat_grid, without changing its pitch.
-- [`analyze_track`](#analyze_track) — Analyse a music file and return BPM, key, beat grid, downbeats, sections, an RMS curve (one bin per ~100 ms), and EBU R128 integrated loudness in LUFS.
+- [`analyze_track`](#analyze_track) — Analyse a track in the session, or an audio file, and return BPM, key, beat grid, downbeats, sections, an RMS curve (one bin per ~100 ms), and EBU R128 integrated loudness in LUFS.
 - [`apply_diff`](#apply_diff) — Apply one or more SessionDiff specs to a parent node, producing one new sibling node per spec.
 - [`apply_recipe`](#apply_recipe) — Replay an exported edit chain.
 - [`audition_effect`](#audition_effect) — Hear what an effect would sound like on a track without applying it.
@@ -150,11 +154,14 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `analyze_track`
 
-Analyse a music file and return BPM, key, beat grid, downbeats, sections, an RMS curve (one bin per ~100 ms), and EBU R128 integrated loudness in LUFS. Pure-Rust analysis: no model weights or env vars required. The audio is downmixed to mono internally for the music-feature passes; LUFS is measured on the original interleaved signal.
+Analyse a track in the session, or an audio file, and return BPM, key, beat grid, downbeats, sections, an RMS curve (one bin per ~100 ms), and EBU R128 integrated loudness in LUFS. Give `track` (its index in the session) to analyse a track as it sits on the timeline, before its gain and effects; give `path` only for a file that is not in the session. Pure-Rust analysis: no model weights or env vars required. The audio is downmixed to mono internally for the music-feature passes; LUFS is measured on the original interleaved signal.
+
+_Read-only — never held for approval._
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
-| `path` | string | yes |  |
+| `path` | string | no | An audio file that is not in the session. |
+| `track` | integer | no | Index of a track in the session. |
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 
@@ -243,6 +250,8 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 ## `compare_nodes`
 
 Compute the structural diff between two session nodes. Returns a `SessionDiff` JSON object with `added`, `removed`, and `modified` arrays of operations; each op identifies its target (track id, effect index, etc.) so callers can detect overlaps. Read-only.
+
+_Read-only — never held for approval._
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
@@ -382,6 +391,8 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 ## `export_labels`
 
 Export session annotations as Audacity-format label text (start_sec TAB end_sec TAB name, one per line). Does not modify audio. Returns the label text.
+
+_Read-only — never held for approval._
 
 Takes no parameters.
 
@@ -706,6 +717,8 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 Compute the frequency spectrum of a track region and show the user a chart of it. Returns the analysis you need as numbers: peak frequency and level, energy per band (sub/bass/low_mid/mid/high_mid/air) in dBFS, spectral centroid (brightness), 85% rolloff, and the noise floor. Use these to decide on EQ moves. Does not modify audio.
 
+_Read-only — never held for approval._
+
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `end_sec` | number | yes | Region end in seconds |
@@ -881,6 +894,8 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 Resolve a description of a region into a concrete time range, using the session's transcript and tempo map. Give exactly one of: `text` (a phrase to find in the transcript), `speech_passage` (1-based, or negative from the end — -1 is the last thing said), or `from_beat`/`to_beat`. Returns start_sec and end_sec for any tool that takes a range, and reports what it matched so the choice can be checked before acting on it. Refuses rather than guessing when the description does not resolve.
 
+_Read-only — never held for approval._
+
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `from_beat` | integer | no |  |
@@ -982,6 +997,8 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 Analyse a track and return the time ranges of silent regions. Does not modify audio. Returns a list of {start_sec, end_sec} objects.
 
+_Read-only — never held for approval._
+
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `min_silence_ms` | number | no |  |
@@ -1049,6 +1066,8 @@ Widen or narrow the stereo field using M/S processing. width=0 collapses to mono
 ## `storage_report`
 
 Report what this session is costing on disk. Every destructive edit writes a new audio file. Splits the derived audio three ways: files the current head needs, files only older nodes need (what undo is holding onto), and files no node references at all, plus what the bounded preview cache is holding. Reads only — it deletes nothing. Audio no node references is removed when the project is opened, and once a project's derived audio passes 2 GiB, audio only undo history holds is swept automatically in the background, oldest first — but only files that replaying their edits rebuilds, and undoing back to one rebuilds it. Audio nothing can rebuild is never swept: `compact_session` reclaims that, at the cost of dropping undo history permanently.
+
+_Read-only — never held for approval._
 
 Takes no parameters.
 

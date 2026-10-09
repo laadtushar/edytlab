@@ -3,6 +3,7 @@ import Link from "next/link";
 import { BookOpen, Code2, Wrench, Zap, Terminal, FileCode2 } from "lucide-react";
 
 import { siteConfig } from "@/lib/site";
+import { DEFAULT_OG_IMAGE } from "@/lib/seo-core";
 import { DocShell } from "@/components/docs/doc-shell";
 
 export const metadata: Metadata = {
@@ -14,6 +15,7 @@ export const metadata: Metadata = {
     description:
       "Complete documentation for edytlab — installation, user guide, tools reference, and developer API.",
     url: `${siteConfig.url}/docs`,
+    images: [DEFAULT_OG_IMAGE],
   },
   alternates: { canonical: "/docs" },
 };
@@ -37,7 +39,7 @@ const cards = [
     href: "/docs/tools",
     icon: Wrench,
     title: "Audio Tools Reference",
-    desc: "All 93 tools the agent can call — cut, normalize, stem separate, transcribe, render, and more.",
+    desc: "All 93 tools the agent can call — cut, normalize, time-stretch, render, and more.",
     audience: "User",
   },
   {
@@ -51,7 +53,7 @@ const cards = [
     href: "/docs/api-reference",
     icon: FileCode2,
     title: "API Reference",
-    desc: "Every Tauri command, TypeScript bridge type, and SSE event — complete with signatures and examples.",
+    desc: "Every Tauri command, TypeScript bridge type, and event — complete with signatures and examples.",
     audience: "Developer",
   },
 ];
@@ -62,12 +64,13 @@ export default function DocsPage() {
       title="Documentation"
       description="Everything you need to use edytlab and build on top of it."
     >
-      <div className="not-prose mt-8 grid gap-4 sm:grid-cols-2">
+      <div className="not-prose mt-8 grid gap-4 sm:grid-cols-2" data-cascade-items>
         {cards.map((card) => (
           <Link
             key={card.href}
             href={card.href}
-            className="group flex flex-col gap-3 rounded-xl border border-border/60 bg-card/40 p-5 transition-colors hover:border-primary/40 hover:bg-card"
+            data-lift
+            className="ring-hover group flex flex-col gap-3 rounded-xl border border-border/60 bg-card/40 p-5 hover:bg-card"
           >
             <div className="flex items-center justify-between">
               <div className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">
@@ -92,17 +95,18 @@ export default function DocsPage() {
       <h2>About edytlab</h2>
       <p>
         edytlab is a local-first, open-source desktop audio editor where you
-        chat with an AI agent to load, cut, mix, transcribe, and render audio.
+        chat with an AI agent to load, cut, mix, and render audio.
         The DSP engine runs entirely on your machine — your audio never leaves
         your device. The only network traffic is the text tokens you send to
         your chosen LLM provider.
       </p>
       <p>
-        edytlab supports five LLM providers out of the box:{" "}
+        edytlab supports six LLM providers out of the box:{" "}
         <strong>Anthropic</strong>, <strong>OpenAI</strong>,{" "}
-        <strong>Google Gemini</strong>, <strong>Groq</strong>, and{" "}
-        <strong>OpenRouter</strong>. You bring your own API key, stored in your
-        OS keychain. You can switch providers at any time from Settings without
+        <strong>Google Gemini</strong>, <strong>Groq</strong>,{" "}
+        <strong>OpenRouter</strong>, and <strong>Ollama</strong> for a local
+        model. You bring your own API key, stored in your OS keychain — Ollama
+        needs none. You can switch providers at any time from Settings without
         reinstalling.
       </p>
 
