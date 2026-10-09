@@ -8,7 +8,7 @@ Local-first, multi-provider, pure-Rust DSP. Mac and Windows in v1.
 
 ## Website and docs
 
-- Website: <https://edytlab.app> (placeholder — DNS not yet provisioned; see `/website` for the marketing site source)
+- Website: <https://edytlab.com> (source in `/website`)
 - Design spec: [`docs/specs/2026-05-05-conversational-audio-editor-design.md`](docs/specs/2026-05-05-conversational-audio-editor-design.md)
 - Documentation index: [`docs/README.md`](docs/README.md)
 
@@ -21,6 +21,14 @@ Local-first, multi-provider, pure-Rust DSP. Mac and Windows in v1.
 - **Branchable session graph.** Every state is a node in a DAG. Fork, name, compare, revert — A/B is first-class, not an undo stack. *(Linear timeline shipping in Phase 1; full DAG view lands in Phase 2.)*
 - **ML primitives where they matter.** Demucs (stem separation) and Whisper (transcription) integrated as ONNX-driven tools the agent can call.
 - **Time and pitch without a C dependency.** Time-stretch, pitch-shift, formant preservation and beat-grid warping run on a phase vocoder written here, on `realfft`. Rubber Band was the original plan and was dropped: it needs a different native package on each of the three CI targets, and a native dependency is the kind of thing that breaks every build at once. See the module docs in `crates/audio-time/src/vocoder.rs` for the trade that buys and what it costs.
+
+## Demo videos
+
+Screen recordings of the desktop app with Claude as the agent, each one a DJ job that ends in an exported file. They also play on the website: <https://edytlab.com/#demos>.
+
+- [**Beatmatch and blend two tracks**](website/public/demos/dj-beatmatched-transition.mp4) (2:58, shown at 1.6× speed): the DJ asks for both tempos; the incoming track is time-stretched to match, started 8 bars before the outgoing one ends and crossfaded, with a low-pass filter on the outgoing track; the mix is compressed, limited, brought to −14 LUFS and exported as a WAV.
+
+The list lives in [`website/lib/demos.ts`](website/lib/demos.ts); its test fails if a listed video or poster is missing from `website/public/demos/`.
 
 ## Quick start
 

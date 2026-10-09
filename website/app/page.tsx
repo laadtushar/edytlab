@@ -8,6 +8,7 @@ import { ScrollStory } from "@/components/story/scroll-story";
 import { HowItWorks } from "@/components/landing/how-it-works";
 import { Problem } from "@/components/landing/problem";
 import { ProviderCards } from "@/components/landing/provider-cards";
+import { RealDemos } from "@/components/landing/real-demos";
 import { SiteHeader } from "@/components/landing/site-header";
 import { StatsStrip } from "@/components/landing/stats-strip";
 import { ToolCatalogue } from "@/components/landing/tool-catalogue";
@@ -55,6 +56,7 @@ export default async function Home() {
         <Problem />
         <Comparison />
         <DemoFrame />
+        <RealDemos />
         <FeatureGrid />
         <UiShowcase />
         <ToolCatalogue />
