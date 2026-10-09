@@ -1,5 +1,10 @@
 # edytlab
 
+[![Latest release](https://img.shields.io/github/v/release/laadtushar/edytlab)](https://github.com/laadtushar/edytlab/releases/latest)
+[![License: MIT](https://img.shields.io/github/license/laadtushar/edytlab)](LICENSE)
+[![Platforms: macOS | Windows | Linux](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-informational)](https://github.com/laadtushar/edytlab/releases/latest)
+[![Website: edytlab.com](https://img.shields.io/badge/website-edytlab.com-9D4EF5)](https://edytlab.com)
+
 **Talk to Claude. Get pro-grade audio edits.**
 
 A Tauri 2 desktop audio editor where producers, podcasters, and DJs do real audio editing by chatting with an AI agent. Drop two MP3s, ask for a mashup, get a rendered WAV. Drop stems, refine the mix through conversation with audible A/B at every turn.

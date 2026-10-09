@@ -11,6 +11,7 @@ const links = [
   { href: "/blog", label: "Blog" },
   { href: "/docs", label: "Docs" },
   { href: "/changelog", label: "Changelog" },
+  { href: "/press", label: "Press" },
   { href: "/privacy", label: "Privacy" },
   { href: "/terms", label: "Terms" },
   // Social handles intentionally omitted until accounts exist.
@@ -52,6 +53,26 @@ export function Footer() {
             </Stagger>
           </LineDraw>
         </div>
+        <nav
+          aria-label="Use cases"
+          className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm"
+        >
+          <span className="font-medium">Use cases</span>
+          <Link
+            href="/use-cases/dj"
+            data-sweep
+            className="text-muted-foreground transition-colors hover:text-foreground"
+          >
+            AI audio editor for DJs
+          </Link>
+          <Link
+            href="/use-cases/local-ai-audio-editor"
+            data-sweep
+            className="text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Local AI audio editor
+          </Link>
+        </nav>
         {/* The rule draws out from the middle: `scaleX` from 0, which is
             a transform — the footer's height never changes. */}
         <Reveal
