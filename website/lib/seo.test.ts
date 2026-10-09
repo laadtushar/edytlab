@@ -245,6 +245,7 @@ describe("one h1 per page", () => {
   const expected: Record<string, number> = {
     "components/docs/doc-shell.tsx": 1,
     "components/landing/legal-shell.tsx": 1,
+    "components/landing/page-shell.tsx": 1,
     "components/story/scroll-story.tsx": 1,
     "app/blog/page.tsx": 1,
     "app/blog/[slug]/page.tsx": 1,

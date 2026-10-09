@@ -80,7 +80,9 @@ describe("footer and marketing pages", () => {
     for (const [file, path] of canonicals) {
       const source = read(join(WEBSITE, file));
       expect(source).toContain(`\`\${siteConfig.url}${path}\``);
-      expect(source).toContain("alternates: { canonical: url }");
+      // The site-wide helper: the canonical path (resolved against the
+      // layout's metadataBase) plus the feed link, like every other page.
+      expect(source).toContain(`alternates: pageAlternates("${path}")`);
     }
   });
 });
