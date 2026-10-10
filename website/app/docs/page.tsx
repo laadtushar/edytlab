@@ -3,21 +3,18 @@ import Link from "next/link";
 import { BookOpen, Code2, Wrench, Zap, Terminal, FileCode2 } from "lucide-react";
 
 import { siteConfig } from "@/lib/site";
-import { DEFAULT_OG_IMAGE } from "@/lib/seo-core";
+import { pageSocial } from "@/lib/seo-core";
 import { DocShell } from "@/components/docs/doc-shell";
 
+const title = "Documentation: install, use and build on edytlab";
+const description =
+  "Complete documentation for edytlab, the local-first AI audio editor: getting started, the user guide, the tools reference, and the developer and API guides.";
+
 export const metadata: Metadata = {
-  title: "Documentation",
-  description:
-    "Complete documentation for edytlab — the local-first AI audio editor. Guides for users and developers.",
-  openGraph: {
-    title: "edytlab Documentation",
-    description:
-      "Complete documentation for edytlab — installation, user guide, tools reference, and developer API.",
-    url: `${siteConfig.url}/docs`,
-    images: [DEFAULT_OG_IMAGE],
-  },
+  title,
+  description,
   alternates: { canonical: "/docs" },
+  ...pageSocial("/docs", `${title} · edytlab`, description),
 };
 
 const cards = [
