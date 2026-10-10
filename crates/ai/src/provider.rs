@@ -121,6 +121,25 @@ pub const GEMINI_DEFAULT_MODEL: &str = "gemini-3.8-flash";
 /// output wants.
 pub const GEMINI_CLASSIFIER_MODEL: &str = "gemini-3.5-flash-lite";
 
+/// The field that carries the output cap in a streamed chat-completions body
+/// for `provider_id`.
+///
+/// `max_completion_tokens`, which OpenAI's newer models require, for every
+/// provider but Ollama. Ollama's OpenAI-compatible API lists `max_tokens`
+/// among the request fields it supports and not `max_completion_tokens`
+/// (<https://docs.ollama.com/api/openai-compatibility>), so the cap went out
+/// under a name its documentation does not list, which a server is free to
+/// ignore, leaving a local model to run on without one.
+/// The classifier and plan requests already sent `max_tokens` to every
+/// provider but OpenAI (`one_shot_body`).
+pub(crate) fn output_limit_field(provider_id: &str) -> &'static str {
+    if provider_id == OLLAMA_ID {
+        "max_tokens"
+    } else {
+        "max_completion_tokens"
+    }
+}
+
 /// What to send as `reasoning_effort` to OpenAI's own endpoint for `model`,
 /// if it needs one.
 ///
@@ -512,10 +531,11 @@ impl OpenAIProvider {
         // OpenAI's newer reasoning-class models reject `max_tokens` and
         // require `max_completion_tokens`. We send the latter only —
         // current `gpt-*` models accept it and it's forward-compatible
-        // with `o1`/`o3`.
+        // with `o1`/`o3`. Ollama is the exception (see
+        // [`output_limit_field`]).
         if let Some(obj) = body.as_object_mut() {
             obj.insert(
-                "max_completion_tokens".to_string(),
+                output_limit_field(provider_id).to_string(),
                 Value::from(crate::models::clamp_max_tokens(
                     provider_id,
                     req.model,
@@ -2030,7 +2050,7 @@ mod tests {
         // OpenAI's models.
         for id in [GROQ_ID, GEMINI_ID, OLLAMA_ID] {
             let body = provider_from_id(id).serialize_request(&step_for("gpt-4-turbo", &msgs, cap));
-            assert_eq!(body["max_completion_tokens"], 8192, "{id}");
+            assert_eq!(output_cap(&body), 8192, "{id}");
         }
         // And the defaults of each stay at the cap.
         for (id, model) in [
@@ -2040,7 +2060,38 @@ mod tests {
             (OLLAMA_ID, "llama3.2"),
         ] {
             let body = provider_from_id(id).serialize_request(&step_for(model, &msgs, cap));
-            assert_eq!(body["max_completion_tokens"], 8192, "{id} {model}");
+            assert_eq!(output_cap(&body), 8192, "{id} {model}");
+        }
+    }
+
+    /// The output cap of a chat-completions body, under whichever field the
+    /// provider reads it from.
+    fn output_cap(body: &Value) -> &Value {
+        body.get("max_completion_tokens")
+            .or_else(|| body.get("max_tokens"))
+            .expect("the body carries an output cap")
+    }
+
+    /// Ollama's OpenAI-compatible API lists `max_tokens` among the request
+    /// fields it supports and not `max_completion_tokens`
+    /// (<https://docs.ollama.com/api/openai-compatibility>). A field the server
+    /// does not read leaves the step uncapped, and a local model that runs on
+    /// is the thing the cap exists to stop. The classifier and plan requests
+    /// have always sent `max_tokens` to it; the streamed steps now do too.
+    #[test]
+    fn ollama_is_sent_the_output_cap_field_it_reads() {
+        let msgs = one_user_message();
+        let cap = crate::prompt::DEFAULT_MAX_TOKENS;
+
+        let body = provider_from_id(OLLAMA_ID).serialize_request(&step_for("llama3.2", &msgs, cap));
+        assert_eq!(body["max_tokens"], 8192, "{body}");
+        assert!(body.get("max_completion_tokens").is_none(), "{body}");
+
+        // The others keep the field they were sent.
+        for id in [OPENAI_ID, GROQ_ID, GEMINI_ID] {
+            let body = provider_from_id(id).serialize_request(&step_for("a-model", &msgs, cap));
+            assert_eq!(body["max_completion_tokens"], 8192, "{id}");
+            assert!(body.get("max_tokens").is_none(), "{id}");
         }
     }
 
