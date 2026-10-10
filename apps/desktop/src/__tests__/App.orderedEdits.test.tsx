@@ -1,0 +1,373 @@
+/**
+ * Edits reach the session in the order the user made them (#498).
+ *
+ * Every command that changes the session is its own task in the backend,
+ * and when a long tool has the store locked they all wait on it and
+ * wake in no order anyone promised. The app used to fire them at once and
+ * adopt whatever came back, so two fader moves could apply the wrong way
+ * round (the older value landed last, and the refresh showed it) and two
+ * replies could cross (the head went to a node older than the one it was
+ * on, which `applyNewHead` treats as lost work).
+ *
+ * The real `App` runs here with only the IPC boundary replaced, by a
+ * backend that holds each edit's answer until the test releases it
+ * (`held.ts`). The test always answers the newest edit first, which is the
+ * order the bug needs: if the app sends everything at once, that is the
+ * order the answers cross in; if it sends one at a time, there is only
+ * ever one to answer.
+ *
+ * The backend applies an edit at one of two moments, because the two
+ * failures are different:
+ *
+ * - `answer`: when the test releases it. Releasing the newest first makes
+ *   the backend apply edits the wrong way round, as a lock that wakes the
+ *   wrong waiter does.
+ * - `send`: when the command arrives. Edits apply in order, and only the
+ *   replies cross.
+ */
+
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { held, type Held } from "./held";
+
+vi.mock("wavesurfer.js", () => ({
+  default: {
+    create: () => ({
+      on: vi.fn(),
+      un: vi.fn(),
+      load: vi.fn(),
+      zoom: vi.fn(),
+      play: vi.fn(),
+      pause: vi.fn(),
+      seekTo: vi.fn(),
+      setTime: vi.fn(),
+      setVolume: vi.fn(),
+      setOptions: vi.fn(),
+      isPlaying: vi.fn(() => false),
+      destroy: vi.fn(),
+      getDuration: () => 10,
+      getCurrentTime: () => 0,
+    }),
+  },
+}));
+
+import App from "../App";
+
+type Args = Record<string, unknown>;
+
+/**
+ * A node id. The status bar shows the first seven characters, so each id
+ * is told apart by them: `node(2)` reads `head 0000002`.
+ */
+const node = (n: number): string => n.toString(16).padStart(7, "0").padEnd(64, "0");
+const headLabel = (n: number): string => `head ${node(n).slice(0, 7)}`;
+
+/** An edit the backend has been asked for and has not answered. */
+interface Edit {
+  cmd: string;
+  args: Args;
+  reply: Held<string>;
+  /** What the backend does to the session when it applies the edit. */
+  apply: () => void;
+  /** The node it created, once applied. */
+  node: string | null;
+}
+
+/** The commands that change the session; every other command answers at once. */
+const EDITS = new Set([
+  "set_track_gain",
+  "set_track_muted",
+  "set_sync_lock",
+  "add_marker",
+  "set_head_to",
+]);
+
+class Backend {
+  /** Every edit command received, in the order it arrived. */
+  readonly sent: { cmd: string; args: Args }[] = [];
+  /** What the backend did, in the order it did it. */
+  readonly applied: string[] = [];
+  head = node(1);
+  gainDb = 0;
+  muted = false;
+  private nodes = 1;
+  private waiting: Edit[] = [];
+
+  constructor(private readonly appliesOn: "send" | "answer") {}
+
+  /** The IPC boundary. */
+  handle = (cmd: string, args: Args = {}): unknown => {
+    if (EDITS.has(cmd)) return this.edit(cmd, args);
+    switch (cmd) {
+      case "has_api_key":
+        return true;
+      case "get_keychain_persistence":
+        return { persistent: true, reason: null };
+      case "install_bundled_skills":
+        return 0;
+      case "list_templates":
+      case "list_recent_projects":
+      case "list_markers":
+      case "get_transcript":
+        return [];
+      case "get_view_state":
+        return {};
+      case "get_plan_first":
+      case "get_sync_lock":
+        return false;
+      case "get_session_head":
+        return this.head;
+      case "get_node":
+        return { id: args.id, parent: null };
+      case "save_view_state":
+      case "set_selection_context":
+        return null;
+      case "list_tracks":
+        return [this.track()];
+      default:
+        return undefined;
+    }
+  };
+
+  private track() {
+    return {
+      id: "3f2b8c1e-7d4a-4e9b-9c6f-1a2b3c4d5e6f",
+      name: "Voice",
+      muted: this.muted,
+      gain_db: this.gainDb,
+      pan: 0,
+      soloed: false,
+      audio_path: "/tmp/voice.wav",
+      clips: [
+        { start_sec: 0, length_sec: 10, source_path: "/tmp/voice.wav", volume_envelope: [] },
+      ],
+    };
+  }
+
+  private edit(cmd: string, args: Args): Promise<string> {
+    const edit: Edit = {
+      cmd,
+      args,
+      reply: held<string>(),
+      node: null,
+      apply: () => {
+        if (cmd === "set_track_gain") this.gainDb = args.gainDb as number;
+        if (cmd === "set_track_muted") this.muted = args.muted as boolean;
+        if (cmd === "set_head_to") this.head = args.nodeId as string;
+      },
+    };
+    this.sent.push({ cmd, args });
+    this.waiting.push(edit);
+    if (this.appliesOn === "send") this.run(edit);
+    return edit.reply.promise;
+  }
+
+  private run(edit: Edit): void {
+    edit.apply();
+    this.applied.push(`${edit.cmd} ${JSON.stringify(edit.args)}`);
+    if (edit.cmd === "set_head_to") {
+      edit.node = edit.args.nodeId as string;
+    } else {
+      edit.node = node(++this.nodes);
+      this.head = edit.node;
+    }
+  }
+
+  /** The edits waiting for an answer, oldest first. */
+  get inFlight(): readonly Edit[] {
+    return this.waiting;
+  }
+
+  async answer(edit: Edit): Promise<void> {
+    this.take(edit);
+    if (this.appliesOn === "answer") this.run(edit);
+    await edit.reply.resolve(edit.node as string);
+  }
+
+  async refuse(edit: Edit, message: string): Promise<void> {
+    this.take(edit);
+    await edit.reply.reject(message);
+  }
+
+  private take(edit: Edit): void {
+    this.waiting = this.waiting.filter((e) => e !== edit);
+  }
+}
+
+/** Let what the app does next (sending the next edit, refreshing) happen. */
+const settle = () =>
+  act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+/**
+ * Answer the newest edit first, until nothing is waiting and nothing more
+ * is sent: the order in which a backend that was racing would answer.
+ */
+async function answerNewestFirst(backend: Backend): Promise<void> {
+  for (let guard = 0; guard < 20; guard++) {
+    await settle();
+    const open = backend.inFlight;
+    if (open.length === 0) return;
+    await backend.answer(open[open.length - 1]);
+  }
+  throw new Error("the app kept sending edits");
+}
+
+/** The heads the status bar showed, in order, without repeats. */
+function watchHead() {
+  const el = screen.getByTestId("status-bar-head");
+  const seen = [el.textContent ?? ""];
+  const observer = new MutationObserver(() => {
+    const now = el.textContent ?? "";
+    if (now !== seen[seen.length - 1]) seen.push(now);
+  });
+  observer.observe(el, { childList: true, characterData: true, subtree: true });
+  return { seen, stop: () => observer.disconnect() };
+}
+
+/** Move the first fader to `db` and let go of it. */
+function dragGain(db: number) {
+  const fader = screen.getByTestId("timeline-lane-gain");
+  fireEvent.change(fader, { target: { value: String(db) } });
+  fireEvent.pointerUp(fader);
+}
+
+const gainReadout = () => screen.getByTestId("timeline-lane-gain-readout");
+const names = (backend: Backend) => backend.sent.map((s) => s.cmd);
+
+async function start(appliesOn: "send" | "answer"): Promise<Backend> {
+  const backend = new Backend(appliesOn);
+  mockIPC((cmd, args) => backend.handle(cmd, args as Args | undefined), {
+    shouldMockEvents: true,
+  });
+  render(<App />);
+  await screen.findByTestId("timeline-lane-gain");
+  await waitFor(() =>
+    expect(screen.getByTestId("status-bar-head")).toHaveTextContent(headLabel(1)),
+  );
+  return backend;
+}
+
+beforeEach(() => {
+  vi.spyOn(window, "prompt").mockReturnValue("verse");
+});
+
+afterEach(() => {
+  // Unmount first: the app unlistens through the mocked IPC on its way out.
+  cleanup();
+  clearMocks();
+  vi.restoreAllMocks();
+});
+
+describe("edits made in quick succession", () => {
+  it("reach the session in the order they were made, so the last one wins", async () => {
+    const backend = await start("answer");
+
+    dragGain(-3);
+    dragGain(-9);
+    await answerNewestFirst(backend);
+
+    expect(backend.sent).toEqual([
+      { cmd: "set_track_gain", args: { track: 0, gainDb: -3 } },
+      { cmd: "set_track_gain", args: { track: 0, gainDb: -9 } },
+    ]);
+    // The backend applied them in that order, so the older value did not
+    // land last...
+    expect(backend.applied.map((a) => /gainDb":(-?\d+)/.exec(a)?.[1])).toEqual(["-3", "-9"]);
+    expect(backend.gainDb).toBe(-9);
+    // ...and the fader shows what the session holds.
+    await waitFor(() => expect(gainReadout()).toHaveTextContent("-9.0 dB"));
+  });
+
+  it("go out one at a time: the second waits for the first to be answered", async () => {
+    const backend = await start("answer");
+
+    dragGain(-3);
+    dragGain(-9);
+    await settle();
+
+    expect(backend.sent).toEqual([{ cmd: "set_track_gain", args: { track: 0, gainDb: -3 } }]);
+
+    await backend.answer(backend.inFlight[0]);
+    await settle();
+
+    expect(backend.sent[1]).toEqual({ cmd: "set_track_gain", args: { track: 0, gainDb: -9 } });
+    await answerNewestFirst(backend);
+  });
+
+  it("never take the head back to a node it has already left", async () => {
+    // Edits apply in order here; only the answers cross.
+    const backend = await start("send");
+    const heads = watchHead();
+
+    dragGain(-3);
+    dragGain(-9);
+    await answerNewestFirst(backend);
+
+    expect(backend.applied).toHaveLength(2);
+    expect(heads.seen).toEqual([headLabel(1), headLabel(2), headLabel(3)]);
+    expect(screen.getByTestId("status-bar-head")).toHaveTextContent(headLabel(3));
+    await waitFor(() => expect(gainReadout()).toHaveTextContent("-9.0 dB"));
+    heads.stop();
+  });
+
+  it("still run after one that failed, and the failure is shown", async () => {
+    const backend = await start("answer");
+
+    dragGain(-3);
+    dragGain(-9);
+    await settle();
+    await backend.refuse(backend.inFlight[0], "gain must be between -60 and 24 dB");
+    await answerNewestFirst(backend);
+
+    expect(names(backend)).toEqual(["set_track_gain", "set_track_gain"]);
+    expect(backend.sent[1].args).toEqual({ track: 0, gainDb: -9 });
+    // Only the second was applied, and its head was adopted.
+    expect(backend.gainDb).toBe(-9);
+    expect(screen.getByTestId("status-bar-head")).toHaveTextContent(headLabel(2));
+    expect(screen.getByTestId("render-error")).toHaveTextContent(
+      "gain must be between -60 and 24 dB",
+    );
+    await waitFor(() => expect(gainReadout()).toHaveTextContent("-9.0 dB"));
+  });
+
+  it("share one line across kinds: a label and a mute go out in the order made", async () => {
+    const backend = await start("answer");
+
+    // A label added in the label lane, then the track muted.
+    fireEvent.doubleClick(screen.getByTestId("label-lane-track"));
+    fireEvent.click(screen.getByTestId("timeline-lane-mute"));
+    await settle();
+
+    expect(names(backend)).toEqual(["add_marker"]);
+
+    await answerNewestFirst(backend);
+
+    expect(names(backend)).toEqual(["add_marker", "set_track_muted"]);
+    expect(backend.muted).toBe(true);
+  });
+
+  it("are undone from where they leave the head, not from where it was when Ctrl+Z was pressed", async () => {
+    const backend = await start("answer");
+
+    dragGain(-3);
+    await settle();
+    // Pressed while the edit has not been answered yet.
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+    await settle();
+    expect(names(backend)).toEqual(["set_track_gain"]);
+
+    await backend.answer(backend.inFlight[0]);
+    await settle();
+
+    // Undo goes back over the edit it was pressed after.
+    expect(backend.sent[1]).toEqual({ cmd: "set_head_to", args: { nodeId: node(1) } });
+    await answerNewestFirst(backend);
+    await waitFor(() =>
+      expect(screen.getByTestId("status-bar-head")).toHaveTextContent(headLabel(1)),
+    );
+  });
+});
