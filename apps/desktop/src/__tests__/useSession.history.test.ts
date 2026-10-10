@@ -17,6 +17,10 @@ const bridge = vi.hoisted(() => ({
 
 vi.mock("../lib/tauri-bridge", () => ({
   getSessionHead: bridge.getSessionHead,
+  // Nothing saved with the project, and saving is not under test here
+  // (`useSession.trail.test.ts`).
+  getHeadTrail: vi.fn(() => Promise.resolve({ head: null, trail: [], redo: [] })),
+  saveHeadTrail: vi.fn(() => Promise.resolve()),
   renderPreview: vi.fn(() => Promise.resolve("/tmp/mix.wav")),
   onNodeCreated: vi.fn((cb: (n: string) => void) => {
     bridge.nodeCreated.push(cb);

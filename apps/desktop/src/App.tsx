@@ -101,6 +101,7 @@ import { describeLoadFailures } from "./lib/load-failures";
 import { batchLoad } from "./lib/tauri-bridge";
 import {
   forgetRecentProject,
+  getHeadTrail,
   getViewState,
   listRecentProjects,
   openProject,
@@ -109,6 +110,7 @@ import {
   type RecentProject,
 } from "./lib/tauri-bridge";
 import { type ViewToApply, viewToApply, viewToSave } from "./lib/viewState";
+import { readSavedTrail } from "./lib/headTrail";
 
 import type { LeftView } from "./lib/views";
 import { useHeadMove } from "./hooks/useHeadMove";
@@ -839,14 +841,28 @@ function App() {
    * even looked at: a node `view.json` names that the store lacks (a
    * folder copied without `.audiograph/`) is no longer a case to
    * tolerate, because nothing is asked of the store.
+   *
+   * The path the user took through the project is read here too (#453),
+   * beside the view, and goes to `resetHead` with the head. It applies
+   * only if it ends at the store's head: a path that ends elsewhere (the
+   * last save was lost to a crash, another client moved the store) is not
+   * the way to this head, and undo then asks the node for its parent. A
+   * path that cannot be read is no path; it never stops a project opening.
    */
   const restoreView = useCallback(
     async (storeHead: string | null) => {
-      applyView(viewToApply(await getViewState().catch(() => null)), "replace");
+      const [view, path] = await Promise.all([
+        getViewState().catch(() => null),
+        Promise.resolve()
+          .then(() => getHeadTrail())
+          .then(readSavedTrail)
+          .catch(() => null),
+      ]);
+      applyView(viewToApply(view), "replace");
       // Always, including `null`: the project just opened has its own
       // head and its own history, and neither the old project's head nor
       // the path taken through it may carry over (#398).
-      resetHead(storeHead);
+      resetHead(storeHead, path);
     },
     [applyView, resetHead],
   );

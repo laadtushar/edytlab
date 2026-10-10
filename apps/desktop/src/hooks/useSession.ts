@@ -11,6 +11,10 @@
  *  - keeps the path the user took (undo trail and redo list, #398)
  *    beside the head, in one reducer (`lib/headTrail.ts`), so undo and
  *    redo follow the steps taken rather than the node's first parent.
+ *  - saves that path with the project after every move (#453) and reads
+ *    it back when the project opens, so it survives a restart. The save
+ *    is not a turn in the line below and nothing waits for it
+ *    (`lib/trailWriter.ts`).
  *  - holds the one line every session-changing command goes through
  *    (`lib/sessionQueue.ts`, #498), so edits reach the backend, and their
  *    heads are adopted, in the order the user made them.
@@ -32,17 +36,22 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   headTrailReducer,
   initialHeadTrail,
+  readSavedTrail,
   redoTarget,
   undoTarget,
   type HeadAction,
+  type SavedTrail,
 } from "../lib/headTrail";
 
 import { createSessionQueue, type InSessionOrder } from "../lib/sessionQueue";
+import { createTrailWriter } from "../lib/trailWriter";
 
 import {
+  getHeadTrail,
   getSessionHead,
   onNodeCreated,
   renderPreview as bridgeRenderPreview,
+  saveHeadTrail,
   type NodeId,
 } from "../lib/tauri-bridge";
 
@@ -68,8 +77,13 @@ export interface UseSessionResult {
   /**
    * A different project is open: its head replaces this one's and none of
    * the old path applies. `null` is a project with nothing in it yet.
+   *
+   * `saved` is the path that project was saved with (`getHeadTrail`). It
+   * is used if it ends at `nodeId`, and ignored if it ends anywhere else:
+   * then it is not the path to this head, and undo falls back to the
+   * node's parent (#453).
    */
-  resetHead: (nodeId: NodeId | null) => void;
+  resetHead: (nodeId: NodeId | null, saved?: SavedTrail | null) => void;
   /**
    * The heads the user has been on this session, oldest first, not
    * including `head`. Undo goes to its last entry: the node's stored
@@ -110,15 +124,37 @@ export function useSession(): UseSessionResult {
   const historyRef = useRef(initialHeadTrail);
   const [history, setHistory] = useState(initialHeadTrail);
   const { head, trail } = history;
-  const dispatchHead = useCallback((action: HeadAction) => {
-    const next = headTrailReducer(historyRef.current, action);
-    if (next === historyRef.current) return;
-    historyRef.current = next;
-    setHistory(next);
-  }, []);
   // One per mounted session, made once: the line is state, so it must not
   // be rebuilt by a render.
   const [queue] = useState(createSessionQueue);
+  // Saves the path with the project, outside the line above: no edit waits
+  // for the disk. `send` reads the bridge when it runs, not now.
+  const [writer] = useState(() => createTrailWriter((path) => saveHeadTrail(path)));
+  const dispatchHead = useCallback(
+    (action: HeadAction) => {
+      const next = headTrailReducer(historyRef.current, action);
+      if (next === historyRef.current) return;
+      historyRef.current = next;
+      setHistory(next);
+      // The path is saved when the user's steps change it. Not when it is
+      // only being read (`fill`, `restore`): that is what is already
+      // saved. And a different project drops what was waiting to be saved
+      // for the old one.
+      switch (action.type) {
+        case "advance":
+        case "stepBack":
+        case "stepForward":
+          if (next.head !== null) writer.save(next);
+          break;
+        case "reset":
+          writer.forget();
+          break;
+        default:
+          break;
+      }
+    },
+    [writer],
+  );
 
   // Subscribe to node-created so the head pointer follows the agent's
   // edits. Cleanup detaches the listener — important under StrictMode.
@@ -134,6 +170,12 @@ export function useSession(): UseSessionResult {
   // that is still unknown. A rejection leaves it unknown, which is what a
   // fresh project's `NoSession` means and what the boot `listTracks`
   // does with a failure too.
+  //
+  // And the path saved with the project, read with it (#453). It applies
+  // only to the head it ends at, so it is used once that head is known,
+  // and only if no edit has made a path of its own meanwhile. A project
+  // with no saved path, a corrupt one and a backend that cannot answer
+  // all read as no path: undo then falls back to the node's parent.
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     let cancelled = false;
@@ -146,9 +188,15 @@ export function useSession(): UseSessionResult {
         unlisten = fn;
       }
     });
+    const saved = Promise.resolve()
+      .then(() => getHeadTrail())
+      .then(readSavedTrail, () => null);
     getSessionHead()
-      .then((restored) => {
-        if (!cancelled) dispatchHead({ type: "fill", head: restored });
+      .then(async (restored) => {
+        if (cancelled) return;
+        dispatchHead({ type: "fill", head: restored });
+        const path = await saved;
+        if (!cancelled && path) dispatchHead({ type: "restore", saved: path });
       })
       .catch(() => undefined);
     return () => {
@@ -169,7 +217,8 @@ export function useSession(): UseSessionResult {
     [dispatchHead],
   );
   const resetHead = useCallback(
-    (nodeId: NodeId | null) => dispatchHead({ type: "reset", head: nodeId }),
+    (nodeId: NodeId | null, saved?: SavedTrail | null) =>
+      dispatchHead({ type: "reset", head: nodeId, saved }),
     [dispatchHead],
   );
   const stepBack = useCallback(

@@ -162,6 +162,18 @@ function bootCommands({ hasKey }: { hasKey: boolean }): Backend {
     // `ViewState::default()`, which serialises as `{}`. A test that needs
     // a saved view overrides this.
     get_view_state: ok({}),
+    // Read at every launch and every project open, beside the head
+    // (#453). `get_head_trail` is `session::trail::read_trail` on the open
+    // project's directory, which never fails: with no `trail.json` it is
+    // `HeadTrail::default()`, serialised as a null head and two empty
+    // lists. A test of a project that was closed with a path overrides it
+    // with what the earlier run saved.
+    get_head_trail: ok({ head: null, trail: [], redo: [] }),
+    // `save_head_trail` is `CmdResult<()>`, so `null`, whether the trail
+    // was written or dropped for not belonging to the open project. The
+    // app calls it after every head move, with no wait; like
+    // `get_view_state` it needs a project directory, not a head.
+    save_head_trail: ok(null),
     list_recent_projects: ok([]),
     list_templates: ok(bundledTemplates()),
   };
