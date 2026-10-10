@@ -12,14 +12,16 @@
 //! ## Phase-2 sandbox behaviour
 //!
 //! **Not available in this build.** Every invocation ends in a
-//! `ToolResult::Error`, by one of two routes:
+//! `ToolResult::Error`, by one of three routes:
 //!
 //! - no model configured — [`DemucsModel::load`] returns
 //!   `ModelMissing`;
+//! - a model configured but no ONNX Runtime library to load it with —
+//!   `RuntimeUnavailable` (this used to hang the agent, #383);
 //! - a model configured and loaded — [`DemucsModel::separate`] returns
 //!   `NotImplemented`.
 //!
-//! The second is the one that matters: **dropping an `.onnx` into place
+//! The last is the one that matters: **dropping an `.onnx` into place
 //! does not enable separation.** What is missing is the ORT decode
 //! loop, an M28 deliverable, not the file. This module used to say the
 //! opposite, and the error called itself actionable (#233).

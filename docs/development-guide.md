@@ -74,8 +74,15 @@ this build, and there is no configuration that makes them work:
 - `WhisperModel::transcribe` returns `NotImplemented`. It used to return
   `Ok(vec![])`, which reported success with an empty transcript (#233).
 - `DemucsModel::separate` returns `NotImplemented`.
-- `ml_pipeline::download::fetched_model_path` is a stub that always
-  errors, and has no callers. There is no automatic download.
+- `ml_pipeline::fetched_model_path` downloads, hash-checks and caches a
+  pinned model artifact (tested against a local HTTP server), but it has
+  no callers and no model is pinned. **Nothing is downloaded.** The
+  download UI is a later part of
+  [#383](https://github.com/laadtushar/edytlab/issues/383).
+- If a model variable below names a file but there is no ONNX Runtime
+  library, `transcribe` and `separate_stems` return a tool error that
+  says so (and that the feature is not implemented anyway). They used to
+  hang the agent. Installing the library does not make either tool work.
 
 <!-- historical:begin -->
 Earlier revisions of this guide described a `~/.edytlab/models` cache, an
@@ -573,7 +580,7 @@ Replaced the earlier `release-mac.yml` / `release-win.yml` pair, which raced eac
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `ORT_DYLIB_PATH` | unset | Path to `libonnxruntime.{so,dylib,dll}`. Read by `ort` (`load-dynamic`); nothing in the app sets it or ships the library yet ([#383](https://github.com/laadtushar/edytlab/issues/383)) |
+| `ORT_DYLIB_PATH` | unset | Path to `libonnxruntime.{so,dylib,dll}`. Read by `ml_pipeline::runtime::ensure`, which also looks for the library next to the executable and never searches the system; nothing in the app sets it or ships the library yet ([#383](https://github.com/laadtushar/edytlab/issues/383)) |
 | `WHISPER_MODEL_PATH`, `DEMUCS_FT_MODEL_PATH`, `DEMUCS_MODEL_PATH` | unset | Model file locations — see [ML Model Files](#ml-model-files-whisperdemucs--not-usable-yet) |
 
 `RUST_LOG` is not listed because nothing reads it (see [Rust Debugging](#rust-debugging)). Skills, agent profiles and the MCP config live under `~/.edytlab/`, which is not configurable.

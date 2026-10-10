@@ -7,15 +7,19 @@
 //! is ever appended. The steps above describe the shape the tool will
 //! have, not what it does today (#233).
 //!
-//! The two failure paths differ only in wording:
+//! The failure paths differ only in wording:
 //!
 //! - no model configured — `WHISPER_MODEL_PATH` unset or naming a file
 //!   that is not there;
+//! - a model configured but no ONNX Runtime library to load it with —
+//!   [`WhisperError::RuntimeUnavailable`] (this used to hang the agent,
+//!   #383);
 //! - a model configured and loaded — [`WhisperError::NotImplemented`].
 //!
-//! Neither is a setup problem, and neither message suggests one. The
-//! first used to be called an "install hint" and to name a fetch-models
-//! script that has never existed in this repository.
+//! None is a setup problem: every message ends by saying no setup makes
+//! transcription work. The first used to be called an "install hint" and
+//! to name a fetch-models script that has never existed in this
+//! repository.
 //!
 //! Side effect, once a decoder lands: the new session head's
 //! `state.transcript` is set to the produced words, and the result JSON
