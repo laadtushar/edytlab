@@ -5,7 +5,7 @@
 //
 // Each story group starts the app fresh (a new HOME, so a first launch),
 // except where a story is about what survives a restart.
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { Driver } from "./webdriver.mjs";
@@ -150,6 +150,23 @@ for (const story of stories) {
       const file = `shots/${story.id}-fail.png`;
       await session?.d.screenshot(join(OUT, file));
       result.steps.push({ caption: "at failure", file });
+    } catch {}
+    // Evidence for a failure the story cannot explain, such as the WebDriver
+    // socket closing: which processes were still alive, and this story's
+    // tauri-driver log (it carries the app's stderr), which the next story's
+    // boot would otherwise overwrite. Names are matched exactly, never by
+    // command line; `comm` is cut at 15 characters, hence "WebKitWebProces".
+    try {
+      const alive = ["edytlab-desktop", "WebKitWebDriver", "WebKitWebProces", "tauri-driver"]
+        .map((n) => `${n} ${spawnSync("pgrep", ["-x", n]).status === 0 ? "up" : "down"}`)
+        .join(", ");
+      result.steps.push({ caption: `processes at failure: ${alive}` });
+      const log = join(OUT, "tauri-driver.log");
+      if (existsSync(log)) {
+        const file = `shots/${story.id}-driver.log`;
+        copyFileSync(log, join(OUT, file));
+        result.steps.push({ caption: "tauri-driver log at failure", file });
+      }
     } catch {}
   } finally {
     if (recorder) {
