@@ -232,6 +232,8 @@ const ready = await bridge.hasApiKey();
 
 **Throws:** Error string when the system keychain could not be read (a locked keyring, a dismissed unlock prompt, no service). That is not the same as resolving `false`: `false` means no key is stored and the app asks for one, while a rejection means a key may well be stored and could not be looked up, so the app says so instead.
 
+**Pending** while the backend's launch-time keychain reads are still going. They run off the setup thread, so the window is up while a locked keyring's unlock prompt waits on the user, and this resolves or rejects when they finish. The app shows "Waiting for your keyring" if that takes more than a moment.
+
 ### `hasApiKeyFor(provider: ProviderId) → boolean`
 
 Check whether a specific provider has a key.
@@ -311,6 +313,8 @@ const providers = await bridge.listProviders();
 
 Returns the currently active provider.
 
+**Throws:** Error string (the reason alone) after a startup the system keychain could not be read in, until a save goes through. The default provider is then what was never read, not an answer: a caller that saved it would overwrite the stored choice. Pending, like `hasApiKey`, while the app's launch-time keychain reads are still going.
+
 ### `setActiveProvider(provider: ProviderId) → void`
 
 Switch the active provider. Rebuilds the agent with the new provider configuration.
@@ -325,6 +329,11 @@ await bridge.setActiveProvider("openrouter");
 
 The base URL this provider has been pointed at, or `null` when it is on its
 default.
+
+**Throws:** Error string (the reason alone) when the keychain could not be
+read. That is not `null`: a caller that saved the blank it took for "no
+override" would delete the one that is stored, which is what Settings did
+after a startup the keychain refused.
 
 ---
 
@@ -347,6 +356,9 @@ empty string restores the default**, which is how the field is cleared.
 The reasoning effort saved for this provider, or `null` when the model's own
 default applies. Only Anthropic has the setting, so any other provider answers
 `null`.
+
+**Throws:** Error string (the reason alone) when the keychain could not be
+read, as `getBaseUrlFor` does, and for the same reason.
 
 ---
 

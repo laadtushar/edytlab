@@ -16,7 +16,7 @@
  * false`. The Rust half is in `commands.rs` and `keychain.rs`.
  */
 
-import { firstRun, ok, readyToLoad, reject } from "./backend";
+import { deferred, firstRun, ok, readyToLoad, reject } from "./backend";
 import { expect, test } from "./fixtures";
 
 const DISMISSED_KEY = "edytlab.keychainSessionOnlyDismissed";
@@ -49,6 +49,41 @@ test.describe("a keychain that cannot be read", () => {
     const settings = page.getByRole("dialog", { name: "Settings" });
     await expect(settings).toBeVisible();
     await expect(settings).toHaveAttribute("data-mode", "panel");
+  });
+});
+
+test.describe("a keychain that is still being read", () => {
+  /**
+   * #497. The backend reads the keychain off the setup thread, so the
+   * window is up while a locked keyring's unlock prompt waits on the user
+   * and `has_api_key` is pending. The app has to say what it is waiting
+   * for, and must not guess: it is neither the first-run prompt (a key
+   * may be stored) nor an error (nothing has failed yet).
+   */
+  test("says it is waiting for the keyring, and carries on when it answers", async ({
+    app,
+  }) => {
+    // `has_api_key` waits on `AppState::startup_reads_settled` first.
+    await app.boot({ ...firstRun(), has_api_key: deferred("keyring") });
+    const page = app.page;
+
+    const waiting = page.getByTestId("keychain-waiting");
+    await expect(waiting).toBeVisible();
+    await expect(waiting).toContainText("Waiting for your keyring");
+    await expect(page.getByRole("heading", { name: "Welcome to edytlab" })).toHaveCount(0);
+    await expect(page.getByTestId("keychain-error")).toHaveCount(0);
+
+    // The keyring answered: no key stored.
+    await app.release("keyring", false);
+    await expect(waiting).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Welcome to edytlab" })).toBeVisible();
+  });
+
+  test("says nothing at all when the keychain answers at once", async ({ app }) => {
+    await app.boot(readyToLoad());
+    await app.settle();
+
+    await expect(app.page.getByTestId("keychain-waiting")).toHaveCount(0);
   });
 });
 

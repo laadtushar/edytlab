@@ -86,6 +86,7 @@ import {
   readSessionOnlyDismissed,
   writeSessionOnlyDismissed,
 } from "./lib/keychainNotice";
+import { KeyringWaiting } from "./components/KeyringWaiting";
 import { listTemplates, applyTemplate, startRecording, stopRecording, timerRecord } from "./lib/tauri-bridge";
 import type { TemplateInfo } from "./components/TemplatePickerModal";
 import {
@@ -164,6 +165,12 @@ function App() {
   const [leftView, setLeftView] = useState<LeftView>("timeline");
   const [graphRefresh, setGraphRefresh] = useState(0);
   const [keyConfigured, setKeyConfigured] = useState<boolean | null>(null);
+  // Whether the launch-time `has_api_key` is still pending. It is while
+  // the backend reads the keychain, which can be as long as a locked
+  // keyring's unlock prompt waits on the user (#497). Not derived from
+  // `keyConfigured` and `keychainError`: dismissing the error banner
+  // clears the second, and that is not the read starting again.
+  const [keyCheckPending, setKeyCheckPending] = useState(true);
   // Why the keychain could not be read at launch, if it could not. Not
   // the same as `keyConfigured === false`: a key may well be stored, and
   // asking for one again would be wrong (#394).
@@ -463,7 +470,9 @@ function App() {
     let cancelled = false;
     hasApiKey()
       .then((ok) => {
-        if (!cancelled) setKeyConfigured(ok);
+        if (cancelled) return;
+        setKeyConfigured(ok);
+        setKeyCheckPending(false);
       })
       .catch((err) => {
         // The keychain could not be read. That is not "no key": the old
@@ -471,7 +480,9 @@ function App() {
         // that was stored, and entering a new one overwrote it (#394).
         // `keyConfigured` stays null, so no blocking prompt mounts, and
         // the banner says what happened and offers Settings.
-        if (!cancelled) setKeychainError(String(err));
+        if (cancelled) return;
+        setKeychainError(String(err));
+        setKeyCheckPending(false);
       });
 
     // Whether what gets saved will survive a reboot. A failure to ask is
@@ -1348,6 +1359,7 @@ function App() {
 
       <div className="grid min-h-0 grid-cols-[minmax(0,1fr)_360px] gap-px bg-[var(--border)]">
         <section className="flex h-full min-h-0 flex-col bg-[var(--surface)]">
+          <KeyringWaiting pending={keyCheckPending} />
           {notice?.kind === "read-error" ? (
             <ErrorBanner
               testId="keychain-error"

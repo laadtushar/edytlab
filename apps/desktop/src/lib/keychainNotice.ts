@@ -52,6 +52,26 @@ export function keychainNotice(
 }
 
 /**
+ * What the app says while the backend is still reading the keychain at
+ * launch (#497).
+ *
+ * The reads run off the setup thread so the window can come up, and a
+ * locked Secret Service's unlock prompt has no time limit, so they can
+ * take as long as the user does. `has_api_key` is pending until they are
+ * done; this is what the window says meanwhile, so a prompt the user has
+ * not noticed is something they are told to look for.
+ */
+export const KEYRING_WAITING_MESSAGE =
+  "Waiting for your keyring. If it is asking you to unlock it, answer or dismiss the prompt; edytlab carries on when it's done.";
+
+/**
+ * How long `has_api_key` must have been pending before the app says it is
+ * waiting. A keychain that answers at once is no news, and a line that
+ * flashed on every launch would be noise.
+ */
+export const KEYRING_WAIT_NOTICE_DELAY_MS = 600;
+
+/**
  * Where the dismissal of the session-only warning is remembered. It is
  * a per-viewer convenience, so it lives in localStorage, and the page
  * must work without it.

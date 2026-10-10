@@ -47,4 +47,6 @@ zip = "2"
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }
+# Timeouts in the tests that wait on a signal, so a hang fails instead of stalling.
+tokio = { version = "1", features = ["time"] }
 tempfile = "3"

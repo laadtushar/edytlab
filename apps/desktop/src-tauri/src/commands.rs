@@ -433,6 +433,7 @@ fn open_project_inner(state: &AppState, path: PathBuf) -> Result<ProjectInfo, Co
 /// "the API key" continue to work.
 #[tauri::command]
 pub async fn set_api_key(state: State<'_, AppState>, key: String) -> CmdResult<()> {
+    state.startup_reads_settled().await;
     let provider_id = state.active_provider_id();
     set_api_key_for_inner(&state, &provider_id, &key).await
 }
@@ -585,6 +586,9 @@ pub async fn set_effort_for(
 }
 
 async fn set_api_key_for_inner(state: &AppState, provider_id: &str, key: &str) -> CmdResult<()> {
+    // Startup's reads fill the cache this writes over, and would write
+    // over this in turn if they finished after it.
+    state.startup_reads_settled().await;
     // Selecting a keyless provider is a save with an empty key — that is
     // how the UI says "make this one active" — so it must be allowed
     // through rather than rejected as a blank credential.
@@ -623,6 +627,10 @@ async fn set_api_key_for_inner(state: &AppState, provider_id: &str, key: &str) -
 /// to enter a key, which on a locked keyring they already have (#394).
 #[tauri::command]
 pub async fn has_api_key(state: State<'_, AppState>) -> CmdResult<bool> {
+    // Pending while startup's keychain reads are (#497): the window is up
+    // before they are done, and the frontend says it is waiting for the
+    // keyring until this answers.
+    state.startup_reads_settled().await;
     let provider_id = state.active_provider_id();
     has_key_answer(state.keychain_read_error(), || {
         provider_is_configured(&provider_id)
@@ -720,6 +728,9 @@ pub async fn get_keychain_persistence() -> CmdResult<KeychainPersistenceDto> {
 /// first-launch state without restart.
 #[tauri::command]
 pub async fn clear_api_key(state: State<'_, AppState>) -> CmdResult<()> {
+    // The active provider is what startup is reading: before that, this
+    // would clear the default provider's key.
+    state.startup_reads_settled().await;
     let provider_id = state.active_provider_id();
     clear_api_key_for_inner(&state, &provider_id).await
 }
@@ -730,6 +741,7 @@ pub async fn clear_api_key_for(state: State<'_, AppState>, provider: String) -> 
 }
 
 async fn clear_api_key_for_inner(state: &AppState, provider_id: &str) -> CmdResult<()> {
+    state.startup_reads_settled().await;
     ai::keychain::delete_api_key(provider_id).map_err(CommandError::from)?;
     if state.active_provider_id() == provider_id {
         state.set_api_key_cache(None);
@@ -821,6 +833,7 @@ pub async fn list_providers() -> CmdResult<Vec<String>> {
 /// and its Save would write it over the real one (#497).
 #[tauri::command]
 pub async fn get_active_provider(state: State<'_, AppState>) -> CmdResult<String> {
+    state.startup_reads_settled().await;
     active_provider_answer(state.keychain_read_error(), state.active_provider_id())
 }
 
@@ -844,6 +857,7 @@ pub async fn set_active_provider(state: State<'_, AppState>, provider: String) -
     if !ai::SUPPORTED_PROVIDER_IDS.iter().any(|p| *p == provider) {
         return Err(format!("unsupported provider id: {provider}"));
     }
+    state.startup_reads_settled().await;
     ai::keychain::save_active_provider(&provider).map_err(CommandError::from)?;
     keychain_readable_again(&state, ai::keychain::try_load_model);
     state.set_active_provider(provider.clone());
@@ -949,6 +963,8 @@ pub async fn set_active_model(
     if model.is_empty() {
         return Err("model id must not be empty".into());
     }
+    // Startup restores every provider's pick into the map this writes to.
+    state.startup_reads_settled().await;
     // Persisted, not only cached (#249). `active_model_by_provider` is
     // in-memory, and nothing re-pushed it at startup — so after a
     // restart `rebuild_agent` saw no model and silently used
@@ -969,6 +985,7 @@ pub async fn set_active_model(
 /// when nothing has been chosen yet.
 #[tauri::command]
 pub async fn get_active_model(state: State<'_, AppState>, provider: String) -> CmdResult<String> {
+    state.startup_reads_settled().await;
     Ok(state.model_for(&provider).unwrap_or_default())
 }
 
@@ -3925,6 +3942,11 @@ fn entry_to_server_config(e: &McpServerEntry) -> Result<mcp::McpServerConfig, Co
 /// A keychain that cannot be read is not "nothing stored": the reason is
 /// kept on `state` and `has_api_key` rejects with it, so the frontend can
 /// tell the user instead of asking for a key they already entered (#394).
+///
+/// Blocks for as long as the keychain does, which for a locked Secret
+/// Service is as long as the user takes to answer its prompt, so `run`
+/// calls it off the setup thread and the commands that depend on it wait
+/// for it (`AppState::startup_reads_settled`, #497).
 pub fn try_load_api_key_at_startup(state: &AppState) {
     load_startup_settings(
         state,

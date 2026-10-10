@@ -184,6 +184,86 @@ fn the_active_provider_is_answered_when_the_keychain_was_read() {
     assert_eq!(active_provider_over_ipc(None), Ok("anthropic".to_string()));
 }
 
+/// How long the reads are held in these tests. The checks are one-sided
+/// (a call cannot answer before they are released), so a slow machine can
+/// only make them wait longer, never fail.
+const HELD_FOR: std::time::Duration = std::time::Duration::from_millis(400);
+
+/// Call `cmd` while startup's keychain reads are still going, release them
+/// [`HELD_FOR`] later, and report how long the call took and what it
+/// answered. The stash makes the answers that depend on it "locked"
+/// without touching the real keychain.
+fn call_while_startup_reads_are_pending(
+    cmd: &str,
+    body: serde_json::Value,
+) -> (std::time::Duration, Result<serde_json::Value, String>) {
+    let state = AppState::new();
+    state.set_keychain_read_error(Some("locked".into()));
+    state.begin_startup_reads();
+    let reads = state.startup_reads_guard();
+    let app = mock_builder()
+        .manage(state)
+        .invoke_handler(tauri::generate_handler![
+            commands::has_api_key,
+            commands::get_active_provider,
+            commands::get_active_model,
+        ])
+        .build(mock_context(noop_assets()))
+        .expect("mock app");
+    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .expect("webview");
+
+    let releaser = std::thread::spawn(move || {
+        std::thread::sleep(HELD_FOR);
+        drop(reads);
+    });
+    let started = std::time::Instant::now();
+    let answer = tauri::test::get_ipc_response(&webview, make_request(cmd, body))
+        .map(|r| r.deserialize::<serde_json::Value>().expect("json"))
+        .map_err(|e| e.as_str().unwrap_or_default().to_string());
+    let waited = started.elapsed();
+    releaser.join().expect("releaser");
+    (waited, answer)
+}
+
+/// Not answered before the reads were released. Allows for the time it
+/// took to get from starting the releaser to making the call.
+fn assert_held(waited: std::time::Duration) {
+    assert!(
+        waited >= HELD_FOR / 2,
+        "answered after {waited:?}, before the reads were done"
+    );
+}
+
+/// #497 item 5. The keychain reads run off the setup thread, so the window
+/// is up while they wait on the user. `has_api_key`, which the frontend
+/// calls on mount, stays pending until they finish (the frontend shows
+/// "waiting for your keyring" meanwhile), and then answers from what they
+/// found.
+#[test]
+fn has_api_key_is_pending_until_the_startup_reads_finish() {
+    let (waited, answer) = call_while_startup_reads_are_pending("has_api_key", json!({}));
+    assert_held(waited);
+    assert_eq!(answer, Err("locked".to_string()), "then it answers");
+}
+
+/// The default provider is not an answer while it is still being read,
+/// and neither is "no model chosen yet".
+#[test]
+fn the_active_provider_and_model_wait_for_the_startup_reads_too() {
+    let (waited, answer) = call_while_startup_reads_are_pending("get_active_provider", json!({}));
+    assert_held(waited);
+    assert_eq!(answer, Err("locked".to_string()));
+
+    let (waited, answer) = call_while_startup_reads_are_pending(
+        "get_active_model",
+        json!({ "provider": "anthropic" }),
+    );
+    assert_held(waited);
+    assert_eq!(answer, Ok(json!("")), "nothing chosen, once it may say so");
+}
+
 /// #497 item 4. A restart from Settings after a startup the keychain
 /// refused would read the keychain for each reference the server has, and
 /// each is an unlock prompt. The server is not started, says why, and

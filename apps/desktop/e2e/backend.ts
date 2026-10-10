@@ -136,7 +136,9 @@ function bootCommands({ hasKey }: { hasKey: boolean }): Backend {
     // session is open, so the window can still draw.
     get_sync_lock: ok(false),
     // Without a key, the app opens Settings as onboarding — which is
-    // what calls `providerCommands`.
+    // what calls `providerCommands`. In the app it first waits for
+    // startup's keychain reads (`AppState::startup_reads_settled`), which
+    // run off the setup thread; a test of that wait answers `deferred`.
     has_api_key: ok(hasKey),
     // `ai::keychain::persistence()`: `Durable` on macOS and Windows, and
     // on Linux whenever a Secret Service answers. A test of the
