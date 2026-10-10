@@ -276,7 +276,8 @@ pub(crate) fn describe_call(
 }
 
 /// Answer a step without running it: one the user declined, revised or
-/// did not answer, or one that would have gone past the tool budget.
+/// did not answer, one that would have gone past the tool budget, or the
+/// rest of one that a failing call ended the turn in the middle of.
 ///
 /// Emits `ToolCallNotRun` for every held id, so no badge is left reading
 /// "running" and none reads as a failure, and records one user message holding a
@@ -291,7 +292,29 @@ pub(crate) fn not_run(
     content: &str,
     guidance: Option<String>,
 ) {
-    let mut blocks: Vec<ContentBlock> = Vec::with_capacity(calls.len() + 1);
+    not_run_after(on_event, conversation, Vec::new(), calls, content, guidance);
+}
+
+/// [`not_run`] for a step that was cut short part way through, where the
+/// calls before the cut already have their answers.
+///
+/// `answered` are those answers, in the order the calls were made: the
+/// results of the calls that ran, and of the one that failed. They stay
+/// first and are not touched, because they are true: a call that ran and
+/// changed the session must not be reported as "not run". `calls` are the
+/// ones the step never reached, and each is answered `content`. All of it
+/// is one user message, so the step's `tool_use`s are answered together,
+/// in order, in the message right after them.
+pub(crate) fn not_run_after(
+    on_event: &mut impl FnMut(AgentEvent),
+    conversation: &mut Vec<Message>,
+    answered: Vec<ContentBlock>,
+    calls: &Calls,
+    content: &str,
+    guidance: Option<String>,
+) {
+    let mut blocks = answered;
+    blocks.reserve(calls.len() + 1);
     for (id, _, _) in calls {
         on_event(AgentEvent::ToolCallNotRun { id: id.clone() });
         blocks.push(ContentBlock::ToolResult {
