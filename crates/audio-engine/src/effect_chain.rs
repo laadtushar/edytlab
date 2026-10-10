@@ -40,12 +40,116 @@
 //!
 //! Registered today: `gain`, `limiter`, and the three filters, which are
 //! either memoryless or already have a streaming form.
+//!
+//! ## One list, asked from outside
+//!
+//! The registered kinds are a table (`STREAMABLE`) that [`build`]
+//! instantiates from, and [`support`] / [`streamable_kinds`] answer from
+//! the same table. Anything that decides whether a kind may be put in a
+//! chain (the `add_effect` tool, #520) asks here instead of keeping its
+//! own list, because a second list is how a tool comes to accept what the
+//! renderer then fails on: a chain holding one such effect fails every
+//! render until it is removed, and on the master bus that is the whole mix.
 
 use audio_dsp::dynamics::DEFAULT_RELEASE_MS;
 use audio_dsp::{Biquad, BiquadCoeffs, Gain, Limiter, Processor};
 use session::EffectInstance;
 
 use crate::{Error, Result};
+
+/// How to make one streamable effect: the arguments are its parameters,
+/// the project rate and the channel count.
+type Make = fn(&serde_json::Value, u32, usize) -> Box<dyn Processor>;
+
+/// An effect kind the streaming renderer can run.
+struct Streamable {
+    kind: &'static str,
+    make: Make,
+}
+
+/// Every kind the renderer can run in a chain, and the only place that
+/// says so. A kind belongs here when its output is the same however the
+/// signal is divided into chunks (see the module docs); until then it
+/// belongs in `NOT_YET_STREAMING`.
+const STREAMABLE: &[Streamable] = &[
+    Streamable {
+        kind: "gain",
+        make: |p, _, _| Box::new(Gain::from_db(param(p, "db", 0.0))),
+    },
+    // The release is in milliseconds and the coefficient comes from the
+    // project rate, so the same `release_ms` is the same duration at 44.1
+    // and at 96 kHz.
+    Streamable {
+        kind: "limiter",
+        make: |p, sample_rate, _| {
+            Box::new(Limiter::new(
+                param(p, "ceiling_db", 0.0),
+                param(p, "release_ms", DEFAULT_RELEASE_MS),
+                sample_rate,
+            ))
+        },
+    },
+    Streamable {
+        kind: "low_pass_filter",
+        make: |p, sample_rate, channels| {
+            Box::new(Biquad::new(
+                BiquadCoeffs::low_pass(param(p, "cutoff_hz", 20_000.0), sample_rate),
+                channels,
+            ))
+        },
+    },
+    Streamable {
+        kind: "high_pass_filter",
+        make: |p, sample_rate, channels| {
+            Box::new(Biquad::new(
+                BiquadCoeffs::high_pass(param(p, "cutoff_hz", 20.0), sample_rate),
+                channels,
+            ))
+        },
+    },
+    Streamable {
+        kind: "notch_filter",
+        make: |p, sample_rate, channels| {
+            Box::new(Biquad::new(
+                BiquadCoeffs::notch(
+                    param(p, "center_hz", 1_000.0),
+                    param(p, "q", 1.0),
+                    sample_rate,
+                ),
+                channels,
+            ))
+        },
+    },
+];
+
+/// What the renderer can do with an effect kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KindSupport {
+    /// It runs in a chain.
+    Streamable,
+    /// It exists (as a destructive tool, say) but cannot run on a stream
+    /// yet.
+    NotYetStreamable,
+    /// No such effect. Kinds are matched exactly, so a different case or a
+    /// stray space is a different, unknown kind.
+    Unknown,
+}
+
+/// Whether the renderer can run `kind` in a chain.
+pub fn support(kind: &str) -> KindSupport {
+    if STREAMABLE.iter().any(|s| s.kind == kind) {
+        KindSupport::Streamable
+    } else if NOT_YET_STREAMING.contains(&kind) {
+        KindSupport::NotYetStreamable
+    } else {
+        KindSupport::Unknown
+    }
+}
+
+/// The kinds the renderer can run in a chain, in registry order.
+pub fn streamable_kinds() -> impl Iterator<Item = &'static str> + Clone {
+    STREAMABLE.iter().map(|s| s.kind)
+}
 
 /// Effect kinds that exist as algorithms but cannot yet run on a
 /// stream. Listed explicitly so the error can distinguish "not
@@ -78,7 +182,7 @@ fn param(params: &serde_json::Value, name: &str, default: f32) -> f32 {
 ///
 /// Shared by the master chain, the bus chains and — as of #102 — the
 /// per-track chains. The registry was never master-specific; only its
-/// name was, and a second copy of this match would have been the
+/// name was, and a second copy of this table would have been the
 /// duplication #80 and #81 came from.
 ///
 /// Order is the `Vec`'s declaration order, which the determinism
@@ -98,39 +202,14 @@ pub fn build(
         if effect.bypassed {
             continue;
         }
-        let p = &effect.params;
-        let processor: Box<dyn Processor> = match effect.kind.as_str() {
-            "gain" => Box::new(Gain::from_db(param(p, "db", 0.0))),
-            // The release is in milliseconds and the coefficient comes
-            // from the project rate, so the same `release_ms` is the
-            // same duration at 44.1 and at 96 kHz.
-            "limiter" => Box::new(Limiter::new(
-                param(p, "ceiling_db", 0.0),
-                param(p, "release_ms", DEFAULT_RELEASE_MS),
-                sample_rate,
-            )),
-            "low_pass_filter" => Box::new(Biquad::new(
-                BiquadCoeffs::low_pass(param(p, "cutoff_hz", 20_000.0), sample_rate),
-                channels,
-            )),
-            "high_pass_filter" => Box::new(Biquad::new(
-                BiquadCoeffs::high_pass(param(p, "cutoff_hz", 20.0), sample_rate),
-                channels,
-            )),
-            "notch_filter" => Box::new(Biquad::new(
-                BiquadCoeffs::notch(
-                    param(p, "center_hz", 1_000.0),
-                    param(p, "q", 1.0),
-                    sample_rate,
-                ),
-                channels,
-            )),
-            other if NOT_YET_STREAMING.contains(&other) => {
-                return Err(Error::EffectNotStreamable(other.to_string()));
-            }
-            other => return Err(Error::UnknownEffect(other.to_string())),
+        let Some(streamable) = STREAMABLE.iter().find(|s| s.kind == effect.kind) else {
+            return Err(if NOT_YET_STREAMING.contains(&effect.kind.as_str()) {
+                Error::EffectNotStreamable(effect.kind.clone())
+            } else {
+                Error::UnknownEffect(effect.kind.clone())
+            });
         };
-        out.push(processor);
+        out.push((streamable.make)(&effect.params, sample_rate, channels));
     }
     Ok(out)
 }
@@ -189,7 +268,7 @@ mod tests {
 
     #[test]
     fn every_registered_kind_builds() {
-        for (kind, params) in [
+        let cases = [
             ("gain", serde_json::json!({ "db": -3.0 })),
             ("limiter", serde_json::json!({ "ceiling_db": -1.0 })),
             (
@@ -205,11 +284,76 @@ mod tests {
                 "notch_filter",
                 serde_json::json!({ "center_hz": 50.0, "q": 4.0 }),
             ),
-        ] {
+        ];
+        for (kind, params) in cases.iter().cloned() {
             let built = build(&[effect(kind, params)], 44_100, 2)
                 .unwrap_or_else(|e| panic!("{kind} failed to build: {e}"));
             assert_eq!(built.len(), 1, "{kind}");
         }
+        // A kind added to the table without a case above would build
+        // untested; make that an edit to this test.
+        for kind in streamable_kinds() {
+            assert!(
+                cases.iter().any(|(k, _)| *k == kind),
+                "{kind} is registered but has no case in this test"
+            );
+        }
+    }
+
+    /// The table, [`support`] and [`build`] are one list seen three ways;
+    /// this is the check that they stay so (#520). The `add_effect` tool
+    /// asks [`support`] before storing a kind, so a disagreement here is a
+    /// tool that accepts what the renderer then fails on.
+    #[test]
+    fn support_agrees_with_what_build_accepts() {
+        for kind in streamable_kinds() {
+            assert_eq!(support(kind), KindSupport::Streamable, "{kind}");
+            build(&[effect(kind, serde_json::json!({}))], 44_100, 2)
+                .unwrap_or_else(|e| panic!("{kind} is streamable but failed to build: {e}"));
+        }
+        for kind in NOT_YET_STREAMING {
+            assert_eq!(support(kind), KindSupport::NotYetStreamable, "{kind}");
+            let err = build(&[effect(kind, serde_json::json!({}))], 44_100, 2)
+                .err()
+                .unwrap_or_else(|| panic!("{kind} is not streamable but built"));
+            assert!(
+                matches!(err, Error::EffectNotStreamable(_)),
+                "{kind}: {err}"
+            );
+        }
+        // Kinds are matched exactly: a case or a space makes a new kind.
+        for kind in ["wobbulator", "Gain", "GAIN", " gain", "gain ", ""] {
+            assert_eq!(support(kind), KindSupport::Unknown, "{kind:?}");
+            let err = build(&[effect(kind, serde_json::json!({}))], 44_100, 2)
+                .err()
+                .unwrap_or_else(|| panic!("{kind:?} is unknown but built"));
+            assert!(matches!(err, Error::UnknownEffect(_)), "{kind:?}: {err}");
+        }
+    }
+
+    /// A kind in both lists would be reported as one thing and built as
+    /// the other.
+    #[test]
+    fn a_kind_is_never_both_streamable_and_not_yet() {
+        for kind in NOT_YET_STREAMING {
+            assert!(
+                !streamable_kinds().any(|k| k == *kind),
+                "{kind} is in both lists"
+            );
+        }
+        let mut seen = std::collections::HashSet::new();
+        for kind in streamable_kinds() {
+            assert!(seen.insert(kind), "{kind} is registered twice");
+        }
+    }
+
+    /// A bypassed effect is not built, so the renderer never has to run
+    /// it: an unsupported kind that is switched off is harmless.
+    #[test]
+    fn a_bypassed_unstreamable_effect_does_not_fail_the_build() {
+        let mut e = effect("reverb", serde_json::json!({}));
+        e.bypassed = true;
+        assert!(build(&[e], 44_100, 2).unwrap().is_empty());
     }
 
     /// Missing parameters must fall back to something inert rather than

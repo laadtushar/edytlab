@@ -12,18 +12,21 @@
 //! exist alongside the destructive ones rather than replacing them.
 //!
 //! Which kinds actually render is decided by
-//! `audio_engine::effect_chain`, not here. Validating the kind at
-//! add-time would duplicate that registry and the two would drift; a
-//! chain the renderer cannot honour fails the render with a message
-//! naming the effect and saying whether it is unknown or merely not yet
-//! streamable.
+//! `audio_engine::effect_chain`, not here, and `add_effect` asks it (via
+//! `check_effect_kind`) before it stores anything. It used to leave the
+//! kind unchecked on the grounds that a second list would drift from the
+//! registry; the cost was that an effect the renderer cannot stream
+//! (reverb, echo, eq, compressor...) was accepted and then failed every
+//! render until removed (#520). Asking the registry, rather than keeping
+//! a list here, is what keeps the two from drifting. A refused kind names
+//! the ones that work.
 
 use serde::Deserialize;
 use serde_json::{json, Value};
 use session::EffectInstance;
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{append_state, check_track_index, load_head_state};
+use crate::tool::util::{append_state, check_effect_kind, check_track_index, load_head_state};
 use crate::{Tool, ToolContext, ToolResult};
 
 /// Look up a track's chain, or an actionable error naming the range.
@@ -93,6 +96,9 @@ impl Tool for AddEffectTool {
             Ok(a) => a,
             Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
         };
+        if let Err(e) = check_effect_kind(&args.kind) {
+            return Ok(ToolResult::Error(e));
+        }
         let mut state = match load_head_state(ctx) {
             Ok(s) => s,
             Err(e) => return Ok(ToolResult::Error(e)),
@@ -463,8 +469,21 @@ impl Tool for SetEffectBypassedTool {
         if let Err(e) = check_effect_index(chain.len(), args.effect_index, args.track) {
             return Ok(ToolResult::Error(e));
         }
-        chain[args.effect_index].bypassed = args.bypassed;
         let kind = chain[args.effect_index].kind.clone();
+        // Switching an effect on is a way into the chain, like adding one.
+        // A project saved before `add_effect` checked its kind can hold a
+        // bypassed effect the renderer cannot stream; it renders because
+        // bypassed entries are skipped, and would stop rendering the
+        // moment it was switched back on.
+        if !args.bypassed {
+            if let Err(e) = check_effect_kind(&kind) {
+                return Ok(ToolResult::Error(format!(
+                    "effect {} ({kind}) stays bypassed: {e}",
+                    args.effect_index
+                )));
+            }
+        }
+        chain[args.effect_index].bypassed = args.bypassed;
 
         let new_id = match append_state(
             ctx,

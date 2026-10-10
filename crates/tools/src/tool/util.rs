@@ -507,6 +507,35 @@ pub(crate) fn check_track_index(tracks: &[Track], track_index: usize) -> Result<
     Ok(())
 }
 
+/// Refuse an effect kind the renderer cannot run in a chain (#520), with a
+/// message that lists the kinds that work so the model can choose one.
+///
+/// The answer comes from `audio_engine::effect_chain`, the registry the
+/// renderer builds chains from, and not from a list kept here: a chain
+/// holding a kind it cannot stream fails every render until the effect is
+/// removed, so the two must not be able to disagree. Every way an effect
+/// gets into a chain goes through this: `add_effect`, and
+/// `set_effect_bypassed` when it switches an effect back on.
+/// `set_effect_params` cannot change a kind and does not need it.
+pub(crate) fn check_effect_kind(kind: &str) -> Result<(), String> {
+    use audio_engine::effect_chain::{streamable_kinds, support, KindSupport};
+
+    let works = streamable_kinds().collect::<Vec<_>>().join(", ");
+    match support(kind) {
+        KindSupport::Streamable => Ok(()),
+        KindSupport::NotYetStreamable => Err(format!(
+            "'{kind}' can't go in an effect chain yet: the renderer streams a chain, and \
+             '{kind}' needs state it can't carry across the stream, so a chain holding it would \
+             fail every render. Kinds that work in a chain: {works}. To use '{kind}' now, call \
+             the `{kind}` tool, which applies it to the audio directly (undoable, but its \
+             parameters can't be edited afterwards)."
+        )),
+        KindSupport::Unknown => Err(format!(
+            "unknown effect kind '{kind}'. Kinds that work in a chain: {works}."
+        )),
+    }
+}
+
 /// Write `samples` to the content-addressed WAV `path`, unless it is
 /// already there, so that the name is only ever on a whole file.
 ///
