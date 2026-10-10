@@ -173,6 +173,14 @@ const FORBIDDEN: &[(&str, &str)] = &[
         "an alias for the store hides `Store::open` from this scan",
     ),
     (
+        "Store::{",
+        "renaming the store inside a `use` group hides `Store::open` from this scan",
+    ),
+    (
+        "Store>::",
+        "a qualified path on the store hides `Store::open` from this scan",
+    ),
+    (
         "rederive",
         "re-deriving opens a second store and builds a nested dispatcher",
     ),
@@ -210,7 +218,9 @@ const FORBIDDEN: &[(&str, &str)] = &[
 ];
 
 /// The parts of the crate a tool that runs off the lock may reach with a
-/// `crate::` path. Anything else is a module nobody has read for what a
+/// `crate::` path, or with the `super::` path that is the same module
+/// (a tool's file is in `src/tool/`, so `super::` there is `crate::tool`
+/// and `super::super::` is the crate root). Anything else is a module nobody has read for what a
 /// staged run cannot do, which is how a helper in another file (the
 /// `rederive` module opens a second `Store` and builds a dispatcher)
 /// would get past a scan of the tool's own source. A path may start with
@@ -401,36 +411,164 @@ fn code_of(source: &str) -> Vec<(usize, String)> {
     out
 }
 
-/// Every `crate::` path in `code`, as its text after `crate::` up to the
-/// end of the path: `tool::util::flatten`, or for a group, `{Tool, ToolResult}`.
-fn crate_paths(code: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut rest = code;
-    while let Some(at) = rest.find("crate::") {
-        let after = &rest[at + "crate::".len()..];
-        let end = if after.starts_with('{') {
-            after.find('}').map_or(after.len(), |e| e + 1)
-        } else {
-            after
-                .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == ':'))
-                .unwrap_or(after.len())
-        };
-        out.push(after[..end].to_string());
-        rest = &after[end..];
+fn is_ident_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+/// The code lines of a file as one text, so that a path or an item that
+/// rustfmt wraps onto the next line is still one thing, with the line each
+/// offset in it came from.
+struct Code<'a> {
+    lines: &'a [(usize, String)],
+    text: String,
+    /// The offset in `text` where each of `lines` starts.
+    starts: Vec<usize>,
+}
+
+impl<'a> Code<'a> {
+    fn new(lines: &'a [(usize, String)]) -> Self {
+        let mut text = String::new();
+        let mut starts = Vec::with_capacity(lines.len());
+        for (_, line) in lines {
+            starts.push(text.len());
+            text.push_str(line);
+            text.push('\n');
+        }
+        Self {
+            lines,
+            text,
+            starts,
+        }
     }
+
+    /// The number and the text of the line `offset` is on.
+    fn locate(&self, offset: usize) -> (usize, &str) {
+        let at = self.starts.partition_point(|&s| s <= offset).max(1) - 1;
+        let (n, line) = &self.lines[at];
+        (*n, line.trim())
+    }
+}
+
+/// The offset of the `}` that closes the `{` at `open` in `text`.
+fn closing_brace(text: &str, open: usize) -> Option<usize> {
+    let mut depth = 0;
+    for (i, c) in text[open..].char_indices() {
+        match c {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(open + i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// `inner` (the inside of a `{ }` group) cut at the commas that are not
+/// inside a group of their own.
+fn split_group(inner: &str) -> Vec<&str> {
+    let (mut parts, mut depth, mut from) = (Vec::new(), 0, 0);
+    for (i, c) in inner.char_indices() {
+        match c {
+            '{' => depth += 1,
+            '}' => depth -= 1,
+            ',' if depth == 0 => {
+                parts.push(&inner[from..i]);
+                from = i + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&inner[from..]);
+    parts
+}
+
+/// The paths a use-tree names, one each, groups spelled out:
+/// `{Tool, tool::{util, batch}}` is `Tool`, `tool::util` and `tool::batch`.
+/// A rename (`util::edit as e`) is read as what it renames.
+fn expand_tree(tree: &str) -> Vec<String> {
+    let tree = tree.trim();
+    let Some(open) = tree.find('{') else {
+        return tree
+            .split_whitespace()
+            .next()
+            .map(|path| vec![path.to_string()])
+            .unwrap_or_default();
+    };
+    let close = closing_brace(tree, open).unwrap_or(tree.len());
+    let prefix = tree[..open].trim();
+    let inner = tree.get(open + 1..close).unwrap_or_default();
+    split_group(inner)
+        .into_iter()
+        .flat_map(expand_tree)
+        .map(|path| format!("{prefix}{path}"))
+        .collect()
+}
+
+/// Every `crate::` and `super::` path in `text`, as the offset it starts
+/// at and the paths it names, from the crate root and with groups spelled
+/// out: `crate::{Tool, tool::util}` is `Tool` and `tool::util`.
+///
+/// A tool lives in `src/tool/`, so in its file `super` is `crate::tool`
+/// and `super::super` is the crate root; a path that climbs higher has no
+/// root, and is kept as one nobody vetted. (`super` inside an inline
+/// module is read the same way, which can only report more.)
+fn module_paths(text: &str) -> Vec<(usize, String)> {
+    let mut out = Vec::new();
+    let mut found: Vec<(usize, &str)> = Vec::new();
+    for (at, _) in text.match_indices("crate::") {
+        if !text[..at].chars().next_back().is_some_and(is_ident_char) {
+            found.push((at, "crate::"));
+        }
+    }
+    for (at, _) in text.match_indices("super::") {
+        // The start of a chain: not the middle of `super::super::`, and
+        // not the end of a longer word. After `self::` is fine.
+        let before = &text[..at];
+        if !before.ends_with("super::") && !before.chars().next_back().is_some_and(is_ident_char) {
+            found.push((at, "super::"));
+        }
+    }
+    for (at, keyword) in found {
+        let mut rest = &text[at + keyword.len()..];
+        let mut prefix = String::new();
+        if keyword == "super::" {
+            let mut climbed = 1;
+            while let Some(more) = rest.strip_prefix("super::") {
+                climbed += 1;
+                rest = more;
+            }
+            prefix = match climbed {
+                1 => "tool::".to_string(),
+                2 => String::new(),
+                _ => "above-the-crate-root::".to_string(),
+            };
+        }
+        // The path, and a group after it if it ends in `::` (or is empty).
+        let mut end = rest
+            .find(|c: char| !(is_ident_char(c) || c == ':'))
+            .unwrap_or(rest.len());
+        if rest[end..].starts_with('{') && (end == 0 || rest[..end].ends_with("::")) {
+            end = closing_brace(rest, end).map_or(rest.len(), |close| close + 1);
+        }
+        for path in expand_tree(&rest[..end]) {
+            out.push((at, format!("{prefix}{path}")));
+        }
+        // `crate::*` and `super::*` name no path: the glob is the item.
+        if rest[..end].is_empty() {
+            out.push((at, format!("{prefix}*")));
+        }
+    }
+    out.sort();
     out
 }
 
-/// Whether a `crate::` path stays inside [`REACHABLE`] and [`ROOT_ITEMS`].
+/// Whether a path from the crate root stays inside [`REACHABLE`] and
+/// [`ROOT_ITEMS`].
 fn reachable(path: &str) -> bool {
-    if let Some(group) = path.strip_prefix('{') {
-        return group
-            .trim_end_matches('}')
-            .split(',')
-            .map(str::trim)
-            .filter(|item| !item.is_empty())
-            .all(|item| ROOT_ITEMS.contains(&item));
-    }
     // An item at the crate root, with or without a path below it
     // (`ToolResult::Error`).
     let first = path.split("::").next().unwrap_or_default();
@@ -440,25 +578,89 @@ fn reachable(path: &str) -> bool {
             .any(|ok| path == *ok || path.starts_with(&format!("{ok}::")))
 }
 
-fn offences_in(file: &str, source: &str) -> Vec<String> {
+/// Where each `type` item that names the store starts. A `type` item is an
+/// alias, so `type S = session::Store;` hides `S::open(p)`, which has no
+/// `Store::open` in it, from the token scan.
+fn store_aliases(text: &str) -> Vec<usize> {
     let mut out = Vec::new();
-    for (n, line) in code_of(source) {
-        for &(token, why) in FORBIDDEN {
-            if line.contains(token) {
-                out.push(format!("{file}:{n}: `{token}` ({why}): {}", line.trim()));
+    for (at, _) in text.match_indices("type") {
+        let before = text[..at].chars().next_back();
+        let after = text[at + 4..].chars().next();
+        // The keyword: not `subtype`, `type_name` or `r#type`.
+        if before.is_some_and(|c| is_ident_char(c) || c == '#')
+            || !after.is_some_and(char::is_whitespace)
+        {
+            continue;
+        }
+        // Up to the `;` that ends the item, not one inside `[T; 4]`.
+        let mut depth = 0;
+        let mut end = text.len();
+        for (i, c) in text[at..].char_indices() {
+            match c {
+                '(' | '[' | '{' => depth += 1,
+                ')' | ']' | '}' => depth -= 1,
+                ';' if depth <= 0 => {
+                    end = at + i;
+                    break;
+                }
+                _ => {}
             }
         }
-        for path in crate_paths(&line) {
-            if !reachable(&path) {
-                out.push(format!(
-                    "{file}:{n}: `crate::{path}` is a module this scan has not been taught \
-                     to trust (REACHABLE): {}",
-                    line.trim()
+        let item = &text[at..end];
+        let names_store = item.match_indices("Store").any(|(i, _)| {
+            let word_before = item[..i].chars().next_back();
+            let word_after = item[i + "Store".len()..].chars().next();
+            !word_before.is_some_and(is_ident_char) && !word_after.is_some_and(is_ident_char)
+        });
+        if names_store {
+            out.push(at);
+        }
+    }
+    out
+}
+
+fn offences_in(file: &str, source: &str) -> Vec<String> {
+    let lines = code_of(source);
+    let mut found: Vec<(usize, String)> = Vec::new();
+    for (n, line) in &lines {
+        for &(token, why) in FORBIDDEN {
+            if line.contains(token) {
+                found.push((
+                    *n,
+                    format!("{file}:{n}: `{token}` ({why}): {}", line.trim()),
                 ));
             }
         }
     }
-    out
+
+    // What spans lines: paths, and the items that alias the store.
+    let code = Code::new(&lines);
+    for (at, path) in module_paths(&code.text) {
+        if !reachable(&path) {
+            let (n, line) = code.locate(at);
+            found.push((
+                n,
+                format!(
+                    "{file}:{n}: `{path}` (from the crate root) is a module this scan has not been \
+                     taught to trust (REACHABLE): {line}"
+                ),
+            ));
+        }
+    }
+    for at in store_aliases(&code.text) {
+        let (n, line) = code.locate(at);
+        found.push((
+            n,
+            format!(
+                "{file}:{n}: `type` (an alias for the store hides `Store::open` from this \
+                 scan): {line}"
+            ),
+        ));
+    }
+
+    // In the order of the file, whichever pass found them.
+    found.sort_by_key(|(n, _)| *n);
+    found.into_iter().map(|(_, text)| text).collect()
 }
 
 fn offences(file: &str) -> Vec<String> {
@@ -471,6 +673,17 @@ fn offences(file: &str) -> Vec<String> {
 /// opted in and then grows a clipboard read — not a proof; the
 /// behavioural tests in `off_lock_dispatch.rs` are the proof for the tools
 /// they run.
+///
+/// What it reads is text, so it does not guard against a tool written to
+/// get past it. The spellings that need no such effort are found and
+/// tested (`the_scan_finds_the_spellings_that_hide_a_second_store`): an
+/// alias (`use ... as`, `type S = Store;`), a qualified path
+/// (`<Store>::open`), a rename in a `use` group, `super::` paths, and a
+/// `use crate::{...}` that rustfmt wraps onto several lines. What it does
+/// not see, because telling them from ordinary code needs the compiler:
+/// whitespace or a line break inside a path (`Store :: open`), and a path
+/// put together by a macro (`paste!`). Reaching a second store through
+/// either is a decision someone made, and review is the guard for it.
 #[test]
 fn every_off_lock_tool_avoids_what_a_staged_run_cannot_do() {
     let mut problems = Vec::new();
@@ -488,21 +701,23 @@ fn every_off_lock_tool_avoids_what_a_staged_run_cannot_do() {
     );
 }
 
+/// The line of each offence the scan finds in `source`, one entry per
+/// offence.
+fn found(source: &str) -> Vec<usize> {
+    offences_in("fixture.rs", source)
+        .iter()
+        .map(|o| {
+            o.split(':')
+                .nth(1)
+                .and_then(|n| n.parse().ok())
+                .expect("a line number")
+        })
+        .collect()
+}
+
 /// The scan only means something if it can fail.
 #[test]
 fn the_scan_finds_what_it_looks_for() {
-    let found = |source: &str| -> Vec<usize> {
-        offences_in("fixture.rs", source)
-            .iter()
-            .map(|o| {
-                o.split(':')
-                    .nth(1)
-                    .and_then(|n| n.parse().ok())
-                    .expect("a line number")
-            })
-            .collect()
-    };
-
     // A call, and the same words in a comment, a doc comment, a string and
     // a raw string, which are not calls.
     let source = "fn f() {\n    // ctx.clipboard in a comment\n    /// ctx.clipboard in docs\n    \
@@ -563,55 +778,433 @@ fn the_scan_finds_what_it_looks_for() {
     assert_eq!(found("use crate::tool::batch::run;\n"), vec![1]);
 }
 
+/// The scan reads text, so a second `Store` reached by a spelling it does
+/// not search for gets through. These are the spellings that take no
+/// effort to write, and one that rustfmt produces on its own.
+#[test]
+fn the_scan_finds_the_spellings_that_hide_a_second_store() {
+    // An alias: `S::open` never contains `Store::open`. The line is the
+    // alias's, wherever its type is written.
+    assert_eq!(
+        found("type S = session::Store;\nfn f() { S::open(p); }\n"),
+        vec![1]
+    );
+    assert_eq!(found("pub type S =\n    session::Store;\n"), vec![1]);
+    assert_eq!(found("type S = Box<Store>;\n"), vec![1]);
+    // A qualified path, and a rename inside a `use` group.
+    assert_eq!(found("fn f() { <session::Store>::open(p); }\n"), vec![1]);
+    assert_eq!(found("fn f() { <Store>::open(p); }\n"), vec![1]);
+    assert_eq!(found("use session::Store::{self as S};\n"), vec![1]);
+    // What is not an alias for the store: other types, associated types,
+    // a function that takes a store, and `type` inside a longer word.
+    assert!(found(
+        "type Output = Foo;\ntrait T { type Item; }\nimpl T for U { type Item = u8; }\n\
+         fn f(s: &session::Store, type_name: &str) { let subtype = 1; }\n"
+    )
+    .is_empty());
+    // A comment or a string may say anything.
+    assert!(found("// type S = Store;\nlet a = \"type S = Store;\";\n").is_empty());
+
+    // `super` in a tool's file is `crate::tool`, and `super::super` is the
+    // crate root: the same paths as `crate::`, held to the same list.
+    assert!(found(
+        "use super::util::edit;\nuse super::{util, util::edit};\n\
+         use super::super::schema::anthropic_tool;\nuse super::super::{Tool, ToolResult};\n"
+    )
+    .is_empty());
+    assert_eq!(found("use super::batch::run;\n"), vec![1]);
+    assert_eq!(found("fn f() { super::batch::run(x); }\n"), vec![1]);
+    assert_eq!(found("use super::super::batch::run;\n"), vec![1]);
+    assert_eq!(found("use self::super::batch::run;\n"), vec![1]);
+    assert_eq!(found("use super::{util, batch};\n"), vec![1]);
+    assert_eq!(found("use super::*;\n"), vec![1]);
+    assert_eq!(
+        found("use super::super::super::batch::run;\n"),
+        vec![1],
+        "above the crate root is not a path anyone vetted"
+    );
+    assert!(found("fn f() { my_super::batch::run(x); let unsuper = 1; }\n").is_empty());
+
+    // A group that rustfmt wraps. Its items are on lines of their own, and
+    // each is checked as a path of its own.
+    assert!(found("use crate::{\n    Tool,\n    ToolContext,\n};\n").is_empty());
+    assert_eq!(
+        found("use crate::{\n    Tool,\n    batch::run,\n};\n"),
+        vec![1]
+    );
+    assert_eq!(found("use super::{\n    util,\n    batch,\n};\n"), vec![1]);
+    assert!(found("use crate::{tool::util::edit, Tool};\n").is_empty());
+}
+
+/// Integer arguments of tools that run off the lock that are **not** tracks,
+/// as `(tool, argument, what it is)`.
+///
+/// The re-run guard reads a track from an argument whose name contains
+/// `track` and nothing else, so an integer argument with any other name is
+/// either not a track, and is listed here with what it is, or is a track in
+/// a place the guard does not look. Keyed by tool as well as by argument,
+/// so a second tool that adds a `times` is read again, not waved through.
+const NOT_TRACKS: &[(&str, &str, &str)] = &[
+    (
+        "phaser",
+        "stages",
+        "the number of all-pass stages in the filter chain (2-12)",
+    ),
+    (
+        "repeat_selection",
+        "times",
+        "how many extra copies of the selection to append",
+    ),
+    (
+        "resample_track",
+        "target_sample_rate",
+        "a sample rate in Hz (the track to resample is `track`)",
+    ),
+];
+
+/// A property found in a tool's `input_schema`, at any depth.
+struct Prop {
+    /// Where it sits, `segments[].track`.
+    path: String,
+    /// Its own name, `track`.
+    name: String,
+    /// How many `properties` maps were crossed to reach it. 1 is an
+    /// argument of the call itself, which is all `addressed_tracks` reads.
+    depth: usize,
+    spec: Value,
+}
+
+/// Everything under a schema keyword that holds a schema (`items`, `oneOf`,
+/// `additionalProperties`, ...) is walked; the keywords that hold values,
+/// not schemas, are not.
+const VALUE_KEYWORDS: &[&str] = &["enum", "const", "default", "examples", "required"];
+
+/// Every property in `node`, nested ones too, and the `$ref`s, which this
+/// guard does not follow and so cannot read through.
+fn walk_schema(
+    node: &Value,
+    path: &str,
+    depth: usize,
+    props: &mut Vec<Prop>,
+    refs: &mut Vec<String>,
+) {
+    match node {
+        Value::Array(schemas) => {
+            for schema in schemas {
+                walk_schema(schema, path, depth, props, refs);
+            }
+        }
+        Value::Object(map) => {
+            for (key, value) in map {
+                if key == "properties" {
+                    for (name, spec) in value.as_object().into_iter().flatten() {
+                        let at = if path.is_empty() {
+                            name.clone()
+                        } else {
+                            format!("{path}.{name}")
+                        };
+                        props.push(Prop {
+                            path: at.clone(),
+                            name: name.clone(),
+                            depth: depth + 1,
+                            spec: spec.clone(),
+                        });
+                        walk_schema(spec, &at, depth + 1, props, refs);
+                    }
+                } else if key == "$ref" {
+                    refs.push(path.to_string());
+                } else if !VALUE_KEYWORDS.contains(&key.as_str()) {
+                    let below = if key == "items" {
+                        format!("{path}[]")
+                    } else {
+                        path.to_string()
+                    };
+                    walk_schema(value, &below, depth, props, refs);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Whether `spec`'s `type` is `want`, or lists it.
+fn has_type(spec: &Value, want: &str) -> bool {
+    match &spec["type"] {
+        Value::String(t) => t == want,
+        Value::Array(ts) => ts.iter().any(|t| t == want),
+        _ => false,
+    }
+}
+
+/// Whether any of `schemas` (one schema, or a list of them) satisfies `f`.
+fn any_schema(schemas: &Value, f: fn(&Value) -> bool) -> bool {
+    match schemas {
+        Value::Array(list) => list.iter().any(f),
+        one => f(one),
+    }
+}
+
+/// Whether an argument can carry a whole number: it is one, or a list of
+/// them, or one of several shapes is.
+fn holds_integers(spec: &Value) -> bool {
+    has_type(spec, "integer")
+        || spec
+            .get("items")
+            .is_some_and(|i| any_schema(i, holds_integers))
+        || ["anyOf", "oneOf", "allOf"]
+            .iter()
+            .any(|k| spec.get(*k).is_some_and(|s| any_schema(s, holds_integers)))
+}
+
+/// A whole number or a list of them: the two shapes `addressed_tracks`
+/// reads.
+fn reads_as_positions(spec: &Value) -> bool {
+    has_type(spec, "integer")
+        || (has_type(spec, "array") && spec.get("items").is_some_and(|i| has_type(i, "integer")))
+}
+
+/// What is wrong, for the re-run guard, with the way `tool` takes its
+/// arguments. `input_schema` is the tool's `input_schema`.
+///
+/// 1. An argument with `track` in its name must be a whole number or a list
+///    of them (what `addressed_tracks` reads), and must be an argument of
+///    the call itself: `addressed_tracks` does not look inside an object or
+///    a list of objects, so `segments: [{track}]` would be re-run on a
+///    session it no longer describes, with no error.
+/// 2. An integer argument with any other name must be listed in
+///    [`NOT_TRACKS`], with what it is. Otherwise a track called `source` or
+///    `index` would be invisible to the guard in the same way. This holds
+///    at any depth.
+/// 3. An argument with no `type`, or a `$ref`, cannot be read at all.
+fn track_problems(tool: &str, input_schema: &Value) -> Vec<String> {
+    let (mut props, mut refs) = (Vec::new(), Vec::new());
+    walk_schema(input_schema, "", 0, &mut props, &mut refs);
+
+    let mut problems: Vec<String> = refs
+        .iter()
+        .map(|at| {
+            format!("{tool}: `$ref` at `{at}`, which this guard does not follow, so it cannot tell whether a track is behind it")
+        })
+        .collect();
+    for Prop {
+        path,
+        name,
+        depth,
+        spec,
+    } in &props
+    {
+        if name.contains("track") {
+            if *depth != 1 {
+                problems.push(format!(
+                    "{tool}: `{path}` names a track inside another argument, where \
+                     `addressed_tracks` does not look"
+                ));
+            }
+            if !reads_as_positions(spec) {
+                problems.push(format!(
+                    "{tool}: `{path}` is {spec}, which `addressed_tracks` does not read"
+                ));
+            }
+        } else if holds_integers(spec)
+            && !NOT_TRACKS
+                .iter()
+                .any(|(t, a, _)| (*t, *a) == (tool, path.as_str()))
+        {
+            problems.push(format!(
+                "{tool}: `{path}` is a whole number whose name does not contain `track`. If it \
+                 is a track, rename it; if not, add (\"{tool}\", \"{path}\") to NOT_TRACKS with \
+                 what it is"
+            ));
+        }
+        let combinator = ["$ref", "anyOf", "oneOf", "allOf"]
+            .iter()
+            .any(|k| spec.get(*k).is_some());
+        if spec.get("type").is_none() && !combinator {
+            problems.push(format!(
+                "{tool}: `{path}` has no `type`, so the guard cannot tell whether it holds a track"
+            ));
+        }
+    }
+    problems
+}
+
 /// The guard in `Shared::dispatch` (a re-run must mean what the first run
 /// meant) finds the tracks a call names by reading its arguments:
-/// `tools::shared::addressed_tracks` takes every argument with `track` in
-/// its name that holds a whole number or a list of them. A tool that names
-/// a track some other way — an object, a string — would be re-run on a
-/// session its arguments no longer describe, with no error, so every tool
-/// that runs off the lock is checked to name its tracks the way the guard
-/// reads them.
+/// `tools::shared::addressed_tracks` takes every top-level argument with
+/// `track` in its name that holds a whole number or a list of them. A tool
+/// that names a track some other way — an object, a string, a list of
+/// objects, an integer with another name — would be re-run on a session its
+/// arguments no longer describe, with no error, so every tool that runs off
+/// the lock is checked, at every depth of its schema, to name its tracks
+/// the way the guard reads them (see [`track_problems`]).
 #[test]
 fn every_off_lock_tool_names_its_tracks_where_the_dispatch_guard_looks() {
     let dispatcher = ToolDispatcher::default_dispatcher();
     let mut problems = Vec::new();
     for name in OFF_LOCK {
         let schema = dispatcher.get(name).expect("registered").schema();
-        let props = schema["input_schema"]["properties"]
-            .as_object()
-            .cloned()
-            .unwrap_or_default();
-        for (arg, spec) in props.iter().filter(|(arg, _)| arg.contains("track")) {
-            let whole = |t: &Value| t["type"] == "integer";
-            let ok = whole(spec) || (spec["type"] == "array" && whole(&spec["items"]));
-            if !ok {
-                problems.push(format!(
-                    "{name}: `{arg}` is {spec}, which `addressed_tracks` does not read"
-                ));
-            }
-        }
+        problems.extend(track_problems(name, &schema["input_schema"]));
     }
     assert!(
         problems.is_empty(),
         "an off-lock tool names a track in a way the re-run guard cannot see:\n  {}\n\n\
-         Name it with an integer (or a list of integers) in an argument whose name \
+         Name it with an integer (or a list of integers) in a top-level argument whose name \
          contains `track`, or teach `tools::shared::addressed_tracks` the new shape.",
         problems.join("\n  ")
     );
 
     // And the tools that take a track at all do: a vacuous pass would be
     // an empty list of tools or of arguments.
+    let top_level = |name: &str| -> Vec<String> {
+        let schema = dispatcher.get(name).unwrap().schema();
+        let (mut props, mut refs) = (Vec::new(), Vec::new());
+        walk_schema(&schema["input_schema"], "", 0, &mut props, &mut refs);
+        props
+            .into_iter()
+            .filter(|p| p.depth == 1)
+            .map(|p| p.name)
+            .collect()
+    };
     let named: Vec<&str> = OFF_LOCK
         .iter()
         .copied()
-        .filter(|name| {
-            dispatcher.get(name).unwrap().schema()["input_schema"]["properties"]
-                .as_object()
-                .is_some_and(|p| p.keys().any(|k| k.contains("track")))
-        })
+        .filter(|name| top_level(name).iter().any(|k| k.contains("track")))
         .collect();
     assert!(
         named.len() >= 35 && named.contains(&"time_stretch") && named.contains(&"mix_to_new_track"),
         "{named:?}"
+    );
+
+    // Every allowlisted argument is still there, on a tool that is still
+    // off the lock, and still a whole number: an entry that matches nothing
+    // would wave a future property of that name through.
+    for (tool, arg, what) in NOT_TRACKS {
+        assert!(
+            OFF_LOCK.contains(tool),
+            "{tool} is not off the lock ({what})"
+        );
+        let schema = dispatcher.get(tool).expect("registered").schema();
+        let (mut props, mut refs) = (Vec::new(), Vec::new());
+        walk_schema(&schema["input_schema"], "", 0, &mut props, &mut refs);
+        assert!(
+            props
+                .iter()
+                .any(|p| p.path == *arg && holds_integers(&p.spec)),
+            "NOT_TRACKS lists {tool}.{arg} ({what}), which is not a whole number of that tool"
+        );
+    }
+}
+
+/// The track guard only means something if it can fail. These are the
+/// shapes it exists for, as schemas of their own so that no real tool has to
+/// carry one.
+#[test]
+fn the_track_guard_finds_what_it_looks_for() {
+    use serde_json::json;
+    let problems_of = |tool: &str, schema: Value| track_problems(tool, &schema);
+
+    // What the real tools do passes: a whole number, a list of them, under
+    // any name that has `track` in it, at the top; other arguments that are
+    // not whole numbers.
+    assert!(problems_of(
+        "echo",
+        json!({ "type": "object", "properties": {
+            "track": { "type": "integer" },
+            "source_track": { "type": "integer" },
+            "track_indices": { "type": "array", "items": { "type": "integer" } },
+            "gain_db": { "type": "number" },
+            "kind": { "type": "string" },
+            "range": { "type": "object", "properties": {
+                "start_sec": { "type": "number" } } },
+        } })
+    )
+    .is_empty());
+
+    // The reviewer's case: a track inside a list of objects, and inside an
+    // object. Both used to pass.
+    let nested = problems_of(
+        "echo",
+        json!({ "type": "object", "properties": {
+            "track": { "type": "integer" },
+            "segments": { "type": "array", "items": { "type": "object", "properties": {
+                "track": { "type": "integer" } } } },
+            "region": { "type": "object", "properties": {
+                "source_track": { "type": "integer" } } },
+        } }),
+    );
+    assert_eq!(nested.len(), 2, "{nested:?}");
+    for at in ["segments[].track", "region.source_track"] {
+        assert!(nested.iter().any(|p| p.contains(at)), "{at}: {nested:?}");
+    }
+
+    // Nested under a combinator, too.
+    let combined = problems_of(
+        "echo",
+        json!({ "type": "object", "properties": {
+            "where": { "anyOf": [{ "type": "object", "properties": {
+                "track": { "type": "integer" } } }] },
+        } }),
+    );
+    assert_eq!(combined.len(), 1, "{combined:?}");
+
+    // Wrong type at the top: reported as before.
+    assert_eq!(
+        problems_of(
+            "echo",
+            json!({ "properties": { "track": { "type": "string" } } })
+        )
+        .len(),
+        1
+    );
+    assert_eq!(
+        problems_of(
+            "echo",
+            json!({ "properties": { "track_name": { "type": "string" } } })
+        )
+        .len(),
+        1
+    );
+
+    // A whole number that is not named for a track: top level, nested, in a
+    // list, and in a union.
+    for spec in [
+        json!({ "type": "integer" }),
+        json!({ "type": ["integer", "null"] }),
+        json!({ "type": "array", "items": { "type": "integer" } }),
+        json!({ "anyOf": [{ "type": "integer" }, { "type": "null" }] }),
+    ] {
+        let sneaky = problems_of("echo", json!({ "properties": { "source": spec.clone() } }));
+        assert_eq!(sneaky.len(), 1, "{spec}: {sneaky:?}");
+    }
+    let deep = problems_of(
+        "echo",
+        json!({ "properties": { "segments": { "type": "array", "items": {
+            "type": "object", "properties": { "index": { "type": "integer" } } } } } }),
+    );
+    assert_eq!(deep.len(), 1, "{deep:?}");
+    assert!(deep[0].contains("segments[].index"), "{deep:?}");
+
+    // The allowlist is per tool: `stages` is the phaser's, not everyone's,
+    // and only at the top.
+    let stages = json!({ "properties": { "stages": { "type": "integer" } } });
+    assert!(problems_of("phaser", stages.clone()).is_empty());
+    assert_eq!(problems_of("echo", stages).len(), 1);
+    let nested_stages = json!({ "properties": { "extra": { "type": "object", "properties": {
+        "stages": { "type": "integer" } } } } });
+    assert_eq!(problems_of("phaser", nested_stages).len(), 1);
+
+    // What cannot be read: no type, a reference.
+    assert_eq!(
+        problems_of("echo", json!({ "properties": { "source": {} } })).len(),
+        1
+    );
+    assert_eq!(
+        problems_of(
+            "echo",
+            json!({ "properties": { "source": { "$ref": "#/definitions/T" } } })
+        )
+        .len(),
+        1,
+        "the reference itself; the definition behind it is not read"
     );
 }
