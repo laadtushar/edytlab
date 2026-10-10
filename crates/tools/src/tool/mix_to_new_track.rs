@@ -43,6 +43,12 @@ impl Tool for MixToNewTrackTool {
         )
     }
 
+    // Renders to a uniquely named temporary file and renames it to its content
+    // hash; uses the offline renderer, not the engine (#421).
+    fn runs_off_the_lock(&self) -> bool {
+        true
+    }
+
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
         let args: Args = match serde_json::from_value(args) {
             Ok(a) => a,
