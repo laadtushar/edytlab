@@ -208,11 +208,15 @@ Allowed prefixes: `feat`, `fix`, `ci`, `chore`, `docs`, `test`, `refactor`.
 ### Adding a New Tauri Command
 
 1. Add the function to `apps/desktop/src-tauri/src/commands.rs`
-2. Add the `#[tauri::command]` attribute. If the command takes a lock a running tool can hold, it must not run on the main thread: make it an `async fn`, or use `#[tauri::command(async)]` (#421). `src-tauri/tests/main_thread_commands.rs` fails a synchronous command when its body, or the body of a function or method it calls (matched by name), does either of these:
+2. Add the `#[tauri::command]` attribute. If the command takes a lock a running tool can hold, it must not run on the main thread: make it an `async fn` (#421), and do the waiting inside `blocking(&state, |state| ..)` so it happens on Tokio's blocking pool and not on one of the async runtime's few workers (#498). `src-tauri/tests/main_thread_commands.rs` fails a synchronous command when its body, or the body of a function or method it calls (matched by name), does either of these:
    - names the `engine`, `dispatcher` or `clipboard` field of `AppState`, however the lock is then taken: `state.engine.lock()`, `lock_std(&state.engine, ..)`, `let e = &state.engine`
    - reaches the session store with `store_handle()` or `lock_std(&store, ..)`
 
    So a command that calls `run_track_tool`, `AppState::all_tool_names` or `apply_blacklist` fails too. The scan reads the `.rs` files directly in `src-tauri/src/`. It does not see a call through a closure or a trait object, `AppState` taken apart by a pattern (`let AppState { engine, .. } = ..`), or a function in another crate that locks for itself.
+
+   The same test fails an `async` command that does either of those outside a `blocking(..)` or `spawn_blocking(..)` call: a `std` lock blocks the thread, so a command left waiting in its task holds a worker until the lock is free, and enough of them leave none to run any async command. `rebuild_agent` is exempt, because it only clones the handles. `tests/blocking_commands.rs` shows the effect on a runtime with one worker.
+
+   Whatever edits the session also has to be sent in order by the frontend. Send it through the session's line (`inOrder` from `useSession`, `src/lib/sessionQueue.ts`), with its head adopted inside the turn, so two edits made in quick succession cannot apply or be answered the wrong way round (#498).
 3. Register in `tauri::Builder::invoke_handler` in `lib.rs`
 4. Add a matching TypeScript wrapper in `apps/desktop/src/lib/tauri-bridge.ts`
 5. Update [API Reference](./api-reference.md)

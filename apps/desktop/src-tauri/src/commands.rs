@@ -120,6 +120,11 @@ pub enum CommandError {
     /// The message already says which file and why.
     #[error("{0}")]
     MissingAudio(String),
+
+    /// The task a command's blocking work ran on did not finish: the work
+    /// panicked, or the runtime was shutting down. See [`blocking`].
+    #[error("internal: a command's task did not finish ({0})")]
+    TaskFailed(String),
 }
 
 impl From<CommandError> for String {
@@ -148,6 +153,41 @@ fn lock_std<'a, T>(
     label: &'static str,
 ) -> Result<std::sync::MutexGuard<'a, T>, CommandError> {
     mu.lock().map_err(|_| CommandError::Poisoned(label))
+}
+
+/// Run a command's blocking work on Tokio's blocking pool, and wait for it
+/// (#498).
+///
+/// The session commands wait on `std::sync::Mutex` locks (the store, the
+/// engine, the dispatcher) that a running tool can hold for a long time. A
+/// `std` lock blocks the thread rather than the task, so a command that
+/// waited inside its async task held one of the runtime's few workers until
+/// the lock came free: about as many waiting fader clicks as there are
+/// cores, during one long tool, left no worker to run any async command,
+/// including ones that take no lock. The blocking pool exists to be
+/// blocked, so the wait happens there and the worker stays free.
+///
+/// `body` gets the state as the commands do, as `&AppState`. [`AppState`]
+/// is a bundle of `Arc`s, so the clone it runs on costs a few reference
+/// counts and shares every lock with the original. Keep the rule in
+/// CLAUDE.md inside `body`: take the store lock, drop it, then take the
+/// engine's.
+///
+/// A panic in `body` (a poisoned mutex that is `expect`ed, say) comes back
+/// as an error. Without this it would end the command's task and the
+/// frontend's promise would never settle.
+///
+/// What goes here is any command that can wait on a lock a tool holds.
+/// `tests/main_thread_commands.rs` checks that none is left outside it.
+async fn blocking<T, F>(state: &State<'_, AppState>, body: F) -> CmdResult<T>
+where
+    T: Send + 'static,
+    F: FnOnce(&AppState) -> CmdResult<T> + Send + 'static,
+{
+    let state = AppState::clone(state.inner());
+    tauri::async_runtime::spawn_blocking(move || body(&state))
+        .await
+        .map_err(|e| CommandError::TaskFailed(e.to_string()))?
 }
 
 // ---------------------------------------------------------------------------
@@ -1000,8 +1040,14 @@ fn category_for(name: &str) -> &'static str {
     }
 }
 
+// The dispatcher lock can be held by a running tool, so the wait is on the
+// blocking pool (#498).
 #[tauri::command]
 pub async fn list_capabilities(state: State<'_, AppState>) -> CmdResult<Capabilities> {
+    blocking(&state, list_capabilities_inner).await
+}
+
+fn list_capabilities_inner(state: &AppState) -> CmdResult<Capabilities> {
     // Refresh the skill library before snapshotting, the same way
     // `list_skills` does. Keeps both surfaces consistent — the `+`
     // menu can't show a different skill set than Settings → Skills
@@ -1044,7 +1090,7 @@ pub async fn list_capabilities(state: State<'_, AppState>) -> CmdResult<Capabili
     // shape across all groups. Skills carry a trigger summary as
     // their category so the popover can show users when the skill
     // fires without growing the shape with a new field.
-    let skills: Vec<CapabilityDescriptor> = read_skill_summaries(&state)
+    let skills: Vec<CapabilityDescriptor> = read_skill_summaries(state)
         .into_iter()
         .map(|s| CapabilityDescriptor {
             id: s.name.clone(),
@@ -1571,10 +1617,13 @@ mod commands_tests {
 
 #[tauri::command]
 pub async fn get_session_head(state: State<'_, AppState>) -> CmdResult<String> {
-    let store_handle = state.store_handle().ok_or(CommandError::NoSession)?;
-    let store = lock_std(&store_handle, "store")?;
-    let head = store.head().ok_or(CommandError::NoSession)?;
-    Ok(head.to_hex())
+    blocking(&state, |state| {
+        let store_handle = state.store_handle().ok_or(CommandError::NoSession)?;
+        let store = lock_std(&store_handle, "store")?;
+        let head = store.head().ok_or(CommandError::NoSession)?;
+        Ok(head.to_hex())
+    })
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -1583,11 +1632,14 @@ pub async fn get_session_head(state: State<'_, AppState>) -> CmdResult<String> {
 
 #[tauri::command]
 pub async fn get_node(state: State<'_, AppState>, id: String) -> CmdResult<SessionNode> {
-    let store_handle = state.store_handle().ok_or(CommandError::NoSession)?;
-    let node_id = NodeId::from_hex(&id).map_err(|_| CommandError::InvalidNodeId(id.clone()))?;
-    let store = lock_std(&store_handle, "store")?;
-    let node = store.get(node_id).map_err(CommandError::from)?;
-    Ok(node)
+    blocking(&state, move |state| {
+        let store_handle = state.store_handle().ok_or(CommandError::NoSession)?;
+        let node_id = NodeId::from_hex(&id).map_err(|_| CommandError::InvalidNodeId(id.clone()))?;
+        let store = lock_std(&store_handle, "store")?;
+        let node = store.get(node_id).map_err(CommandError::from)?;
+        Ok(node)
+    })
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -1628,26 +1680,29 @@ pub struct GraphSummary {
 
 #[tauri::command]
 pub async fn get_graph(state: State<'_, AppState>) -> CmdResult<GraphSummary> {
-    let store_handle = state.store_handle().ok_or(CommandError::NoSession)?;
-    let store = lock_std(&store_handle, "store")?;
-    let nodes = store.list_nodes().map_err(CommandError::from)?;
-    let head = store.head().map(|id| id.to_hex());
+    blocking(&state, |state| {
+        let store_handle = state.store_handle().ok_or(CommandError::NoSession)?;
+        let store = lock_std(&store_handle, "store")?;
+        let nodes = store.list_nodes().map_err(CommandError::from)?;
+        let head = store.head().map(|id| id.to_hex());
 
-    let graph_nodes = nodes
-        .into_iter()
-        .map(|n| GraphNode {
-            id: n.id.to_hex(),
-            parent: n.parent.map(|p| p.to_hex()),
-            tool: n.label.as_deref().and_then(first_token).map(str::to_owned),
-            label: n.label,
-            created_at: n.created_at.to_rfc3339(),
+        let graph_nodes = nodes
+            .into_iter()
+            .map(|n| GraphNode {
+                id: n.id.to_hex(),
+                parent: n.parent.map(|p| p.to_hex()),
+                tool: n.label.as_deref().and_then(first_token).map(str::to_owned),
+                label: n.label,
+                created_at: n.created_at.to_rfc3339(),
+            })
+            .collect();
+
+        Ok(GraphSummary {
+            nodes: graph_nodes,
+            head,
         })
-        .collect();
-
-    Ok(GraphSummary {
-        nodes: graph_nodes,
-        head,
     })
+    .await
 }
 
 /// First whitespace-delimited token of `s`, or `None` if `s` is blank.
@@ -1661,42 +1716,46 @@ fn first_token(s: &str) -> Option<&str> {
 
 #[tauri::command]
 pub async fn render_preview(state: State<'_, AppState>, node: String) -> CmdResult<String> {
-    let store_handle = state.store_handle().ok_or(CommandError::NoSession)?;
-    let node_id = NodeId::from_hex(&node).map_err(|_| CommandError::InvalidNodeId(node.clone()))?;
+    blocking(&state, move |state| {
+        let store_handle = state.store_handle().ok_or(CommandError::NoSession)?;
+        let node_id =
+            NodeId::from_hex(&node).map_err(|_| CommandError::InvalidNodeId(node.clone()))?;
 
-    let session_node = {
-        let store = lock_std(&store_handle, "store")?;
-        store.get(node_id).map_err(CommandError::from)?
-    };
-
-    // Cached under `<project>/.audiograph/previews/`, keyed by node id.
-    // The id is a hash of the session state, so undo and redo land back
-    // on renders that already exist instead of paying for the mix again
-    // — which is the difference between an editor that feels live and
-    // one that goes quiet after every edit.
-    let project_dir = {
-        let store = lock_std(&store_handle, "store")?;
-        store.project_dir().to_path_buf()
-    };
-    let cache = tools::PreviewCache::new(&project_dir);
-
-    let (out_path, _hit) = cache.get_or_render::<_, CommandError>(node_id, |path| {
-        // A cached render needs none of the node's audio; a new one does.
-        {
+        let session_node = {
             let store = lock_std(&store_handle, "store")?;
-            materialize(&store, node_id)?;
-        }
-        let engine = lock_std(&state.engine, "engine")?;
-        engine
-            .render_to_wav(&session_node.state, path, None)
-            .map_err(CommandError::from)?;
-        Ok(())
-    })?;
+            store.get(node_id).map_err(CommandError::from)?
+        };
 
-    out_path
-        .to_str()
-        .map(str::to_owned)
-        .ok_or_else(|| CommandError::InvalidPath("temp path is not valid UTF-8".into()).into())
+        // Cached under `<project>/.audiograph/previews/`, keyed by node id.
+        // The id is a hash of the session state, so undo and redo land back
+        // on renders that already exist instead of paying for the mix again
+        // — which is the difference between an editor that feels live and
+        // one that goes quiet after every edit.
+        let project_dir = {
+            let store = lock_std(&store_handle, "store")?;
+            store.project_dir().to_path_buf()
+        };
+        let cache = tools::PreviewCache::new(&project_dir);
+
+        let (out_path, _hit) = cache.get_or_render::<_, CommandError>(node_id, |path| {
+            // A cached render needs none of the node's audio; a new one does.
+            {
+                let store = lock_std(&store_handle, "store")?;
+                materialize(&store, node_id)?;
+            }
+            let engine = lock_std(&state.engine, "engine")?;
+            engine
+                .render_to_wav(&session_node.state, path, None)
+                .map_err(CommandError::from)?;
+            Ok(())
+        })?;
+
+        out_path
+            .to_str()
+            .map(str::to_owned)
+            .ok_or_else(|| CommandError::InvalidPath("temp path is not valid UTF-8".into()).into())
+    })
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -1719,53 +1778,56 @@ pub async fn prepare_compare<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
 ) -> CmdResult<serde_json::Value> {
-    let store_handle = state.store_handle().ok_or(CommandError::NoSession)?;
+    blocking(&state, move |state| {
+        let store_handle = state.store_handle().ok_or(CommandError::NoSession)?;
 
-    let a_id = NodeId::from_hex(&a).map_err(|_| CommandError::InvalidNodeId(a.clone()))?;
-    let b_id = NodeId::from_hex(&b).map_err(|_| CommandError::InvalidNodeId(b.clone()))?;
+        let a_id = NodeId::from_hex(&a).map_err(|_| CommandError::InvalidNodeId(a.clone()))?;
+        let b_id = NodeId::from_hex(&b).map_err(|_| CommandError::InvalidNodeId(b.clone()))?;
 
-    let (a_state, b_state) = {
-        let store = lock_std(&store_handle, "store")?;
-        let a_node = store.get(a_id).map_err(CommandError::from)?;
-        let b_node = store.get(b_id).map_err(CommandError::from)?;
-        materialize(&store, a_id)?;
-        materialize(&store, b_id)?;
-        (a_node.state, b_node.state)
-    };
+        let (a_state, b_state) = {
+            let store = lock_std(&store_handle, "store")?;
+            let a_node = store.get(a_id).map_err(CommandError::from)?;
+            let b_node = store.get(b_id).map_err(CommandError::from)?;
+            materialize(&store, a_id)?;
+            materialize(&store, b_id)?;
+            (a_node.state, b_node.state)
+        };
 
-    let mut a_path = std::env::temp_dir();
-    a_path.push(format!("edytlab-compare-a-{}.wav", a_id.to_hex()));
-    let mut b_path = std::env::temp_dir();
-    b_path.push(format!("edytlab-compare-b-{}.wav", b_id.to_hex()));
+        let mut a_path = std::env::temp_dir();
+        a_path.push(format!("edytlab-compare-a-{}.wav", a_id.to_hex()));
+        let mut b_path = std::env::temp_dir();
+        b_path.push(format!("edytlab-compare-b-{}.wav", b_id.to_hex()));
 
-    {
-        let engine = lock_std(&state.engine, "engine")?;
-        engine
-            .render_to_wav(&a_state, &a_path, None)
-            .map_err(CommandError::from)?;
-        engine
-            .render_to_wav(&b_state, &b_path, None)
-            .map_err(CommandError::from)?;
-    }
+        {
+            let engine = lock_std(&state.engine, "engine")?;
+            engine
+                .render_to_wav(&a_state, &a_path, None)
+                .map_err(CommandError::from)?;
+            engine
+                .render_to_wav(&b_state, &b_path, None)
+                .map_err(CommandError::from)?;
+        }
 
-    let a_path_str = a_path
-        .to_str()
-        .map(str::to_owned)
-        .ok_or_else(|| CommandError::InvalidPath("compare_a path is not valid UTF-8".into()))?;
-    let b_path_str = b_path
-        .to_str()
-        .map(str::to_owned)
-        .ok_or_else(|| CommandError::InvalidPath("compare_b path is not valid UTF-8".into()))?;
+        let a_path_str = a_path
+            .to_str()
+            .map(str::to_owned)
+            .ok_or_else(|| CommandError::InvalidPath("compare_a path is not valid UTF-8".into()))?;
+        let b_path_str = b_path
+            .to_str()
+            .map(str::to_owned)
+            .ok_or_else(|| CommandError::InvalidPath("compare_b path is not valid UTF-8".into()))?;
 
-    // Rendered to the OS temp directory, which is outside the asset
-    // scope: grant exactly these two, not the whole temp directory.
-    allow_asset_file(&app, &a_path);
-    allow_asset_file(&app, &b_path);
+        // Rendered to the OS temp directory, which is outside the asset
+        // scope: grant exactly these two, not the whole temp directory.
+        allow_asset_file(&app, &a_path);
+        allow_asset_file(&app, &b_path);
 
-    Ok(serde_json::json!({
-        "a_path": a_path_str,
-        "b_path": b_path_str,
-    }))
+        Ok(serde_json::json!({
+            "a_path": a_path_str,
+            "b_path": b_path_str,
+        }))
+    })
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -1782,14 +1844,17 @@ pub async fn accept_b<R: Runtime>(
     _app: AppHandle<R>,
     state: State<'_, AppState>,
 ) -> CmdResult<String> {
-    let store_handle = state.store_handle().ok_or(CommandError::NoSession)?;
-    let b_id = NodeId::from_hex(&b).map_err(|_| CommandError::InvalidNodeId(b.clone()))?;
-    {
-        let mut store = lock_std(&store_handle, "store")?;
-        materialize(&store, b_id)?;
-        store.set_head(b_id).map_err(CommandError::from)?;
-    }
-    Ok(b_id.to_hex())
+    blocking(&state, move |state| {
+        let store_handle = state.store_handle().ok_or(CommandError::NoSession)?;
+        let b_id = NodeId::from_hex(&b).map_err(|_| CommandError::InvalidNodeId(b.clone()))?;
+        {
+            let mut store = lock_std(&store_handle, "store")?;
+            materialize(&store, b_id)?;
+            store.set_head(b_id).map_err(CommandError::from)?;
+        }
+        Ok(b_id.to_hex())
+    })
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -1845,25 +1910,30 @@ pub async fn send_message<R: Runtime>(
     // snapshot these before acquiring the agent lock to minimise the lock
     // hold time.
     let selection = state.selection_snapshot();
-    let (head, markers, tracks) = match state.store_handle() {
-        None => (None, vec![], vec![]),
-        Some(store_arc) => {
-            let store = lock_std(&*store_arc, "store")?;
-            match store.head() {
-                None => (None, vec![], vec![]),
-                Some(head) => {
-                    let markers = store.annotations_for(head).unwrap_or_default();
-                    // A head that cannot be read still gets its selection
-                    // and markers; the turn is not the place to fail.
-                    let tracks = store
-                        .get(head)
-                        .map(|node| ai::TrackBrief::from_state(&node.state))
-                        .unwrap_or_default();
-                    (Some(head.to_hex()), markers, tracks)
+    // On the blocking pool: a message sent while a tool holds the store
+    // would otherwise park a worker here for as long as the tool runs.
+    let (head, markers, tracks) = blocking(&state, |state| {
+        Ok(match state.store_handle() {
+            None => (None, vec![], vec![]),
+            Some(store_arc) => {
+                let store = lock_std(&*store_arc, "store")?;
+                match store.head() {
+                    None => (None, vec![], vec![]),
+                    Some(head) => {
+                        let markers = store.annotations_for(head).unwrap_or_default();
+                        // A head that cannot be read still gets its selection
+                        // and markers; the turn is not the place to fail.
+                        let tracks = store
+                            .get(head)
+                            .map(|node| ai::TrackBrief::from_state(&node.state))
+                            .unwrap_or_default();
+                        (Some(head.to_hex()), markers, tracks)
+                    }
                 }
             }
-        }
-    };
+        })
+    })
+    .await?;
     let session_ctx = Some(ai::SessionContext {
         selection,
         markers,
@@ -1907,8 +1977,22 @@ pub async fn send_message<R: Runtime>(
     // agent's current whitelist, compute an effective whitelist that
     // excludes the disabled tools, swap it in for the duration of this
     // turn, and restore the original afterwards — even on error.
-    let current = agent.swap_tool_whitelist(None); // take current out
-    let effective = apply_blacklist(current.clone(), &disabled_tools, &state);
+    //
+    // The effective list can need the dispatcher's tool names, and the
+    // dispatcher lock can be held by a running tool, so it is worked out
+    // on the blocking pool. That is an `.await`, and the whitelist must
+    // not be left out of the agent across it: it is read here without
+    // being kept out, and swapped for good once there is nothing to wait
+    // for.
+    let current = agent.swap_tool_whitelist(None);
+    agent.swap_tool_whitelist(current.clone());
+    let effective = {
+        let current = current.clone();
+        blocking(&state, move |state| {
+            Ok(apply_blacklist(current, &disabled_tools, state))
+        })
+        .await?
+    };
     agent.swap_tool_whitelist(effective); // put effective in
 
     let turn_result = agent
@@ -2176,12 +2260,25 @@ pub fn set_selection_context(state: State<'_, AppState>, range: Option<Range>) -
 ///
 /// Also emits a `marker-changed` event so the waveform UI can refresh
 /// its overlay without polling.
-// Off the main thread: it takes the store lock, which a running tool
-// can hold for its whole length (#421).
-#[tauri::command(async)]
-pub fn add_marker(
+// The store lock can be held by a running tool for its whole length, so
+// the wait is on the blocking pool, off the main thread (#421) and off the
+// runtime's workers (#498).
+#[tauri::command]
+pub async fn add_marker(
     app: AppHandle,
     state: State<'_, AppState>,
+    time: f64,
+    name: String,
+) -> CmdResult<String> {
+    blocking(&state, move |state| {
+        add_marker_inner(&app, state, time, name)
+    })
+    .await
+}
+
+fn add_marker_inner(
+    app: &AppHandle,
+    state: &AppState,
     time: f64,
     name: String,
 ) -> CmdResult<String> {
@@ -2216,10 +2313,19 @@ pub fn add_marker(
 /// head hex unchanged otherwise.
 ///
 /// Also emits a `marker-changed` event.
-// Off the main thread: it takes the store lock, which a running tool
-// can hold for its whole length (#421).
-#[tauri::command(async)]
-pub fn remove_marker(app: AppHandle, state: State<'_, AppState>, id: String) -> CmdResult<String> {
+// The store lock can be held by a running tool for its whole length, so
+// the wait is on the blocking pool, off the main thread (#421) and off the
+// runtime's workers (#498).
+#[tauri::command]
+pub async fn remove_marker(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> CmdResult<String> {
+    blocking(&state, move |state| remove_marker_inner(&app, state, id)).await
+}
+
+fn remove_marker_inner(app: &AppHandle, state: &AppState, id: String) -> CmdResult<String> {
     let annotation_id = session::AnnotationId(
         uuid::Uuid::parse_str(&id).map_err(|e| CommandError::InvalidNodeId(e.to_string()))?,
     );
@@ -2253,12 +2359,28 @@ pub fn cancel_long_running_tool() -> CmdResult<()> {
 /// each would otherwise be a separate undo step for what the user did
 /// once. Omitted fields are left alone; a change that changes nothing
 /// appends no node.
-// Off the main thread: it takes the store lock, which a running tool
-// can hold for its whole length (#421).
-#[tauri::command(async)]
-pub fn update_marker(
+// The store lock can be held by a running tool for its whole length, so
+// the wait is on the blocking pool, off the main thread (#421) and off the
+// runtime's workers (#498).
+#[tauri::command]
+pub async fn update_marker(
     app: AppHandle,
     state: State<'_, AppState>,
+    id: String,
+    name: Option<String>,
+    time: Option<f64>,
+    start: Option<f64>,
+    end: Option<f64>,
+) -> CmdResult<String> {
+    blocking(&state, move |state| {
+        update_marker_inner(&app, state, id, name, time, start, end)
+    })
+    .await
+}
+
+fn update_marker_inner(
+    app: &AppHandle,
+    state: &AppState,
     id: String,
     name: Option<String>,
     time: Option<f64>,
@@ -2342,10 +2464,15 @@ pub struct TranscriptWordOut {
 /// job when there is no transcript is to say "run transcribe", and it
 /// can say that from an empty list — an error would make "you have not
 /// transcribed yet", which is an ordinary state, look like a fault.
-// Off the main thread: it takes the store lock, which a running tool
-// can hold for its whole length (#421).
-#[tauri::command(async)]
-pub fn get_transcript(state: State<'_, AppState>) -> CmdResult<Vec<TranscriptWordOut>> {
+// The store lock can be held by a running tool for its whole length, so
+// the wait is on the blocking pool, off the main thread (#421) and off the
+// runtime's workers (#498).
+#[tauri::command]
+pub async fn get_transcript(state: State<'_, AppState>) -> CmdResult<Vec<TranscriptWordOut>> {
+    blocking(&state, get_transcript_inner).await
+}
+
+fn get_transcript_inner(state: &AppState) -> CmdResult<Vec<TranscriptWordOut>> {
     let Some(store_arc) = state.store_handle() else {
         return Ok(Vec::new());
     };
@@ -2377,30 +2504,39 @@ pub fn get_transcript(state: State<'_, AppState>) -> CmdResult<Vec<TranscriptWor
 /// same code path the agent does — one node, same provenance, same
 /// timing fix-ups. A second implementation here is how the two would
 /// drift.
-// Off the main thread: through `run_track_tool` it takes the store,
-// engine and dispatcher locks, which a running tool can hold for its
-// whole length (#421).
-#[tauri::command(async)]
-pub fn cut_transcript_words(
+// Through `run_track_tool` it takes the store, engine and dispatcher locks,
+// which a running tool can hold for its whole length, so the wait is on the
+// blocking pool, off the main thread (#421) and off the runtime's workers
+// (#498).
+#[tauri::command]
+pub async fn cut_transcript_words(
     state: State<'_, AppState>,
     track: usize,
     from_word: usize,
     to_word: usize,
 ) -> CmdResult<String> {
-    run_track_tool(
-        &state,
-        "cut_words",
-        serde_json::json!({ "track": track, "from_word": from_word, "to_word": to_word }),
-    )
+    blocking(&state, move |state| {
+        run_track_tool(
+            state,
+            "cut_words",
+            serde_json::json!({ "track": track, "from_word": from_word, "to_word": to_word }),
+        )
+    })
+    .await
 }
 
 /// Return all annotations (markers and region labels) visible at the
 /// current session head as a JSON array. Each entry is the serialised
 /// [`session::Annotation`] shape.
-// Off the main thread: it takes the store lock, which a running tool
-// can hold for its whole length (#421).
-#[tauri::command(async)]
-pub fn list_markers(state: State<'_, AppState>) -> CmdResult<Vec<serde_json::Value>> {
+// The store lock can be held by a running tool for its whole length, so
+// the wait is on the blocking pool, off the main thread (#421) and off the
+// runtime's workers (#498).
+#[tauri::command]
+pub async fn list_markers(state: State<'_, AppState>) -> CmdResult<Vec<serde_json::Value>> {
+    blocking(&state, list_markers_inner).await
+}
+
+fn list_markers_inner(state: &AppState) -> CmdResult<Vec<serde_json::Value>> {
     let store_arc = state.store_handle().ok_or(CommandError::NoSession)?;
     let store = lock_std(&*store_arc, "store")?;
     let head = store.head().ok_or(CommandError::NoSession)?;
@@ -2418,9 +2554,15 @@ pub fn list_markers(state: State<'_, AppState>) -> CmdResult<Vec<serde_json::Val
 ///
 /// Off the main thread (`async`): moving to a node whose audio was swept
 /// replays the edits that made it, which can take seconds, and a sync
-/// command would hold the window still for all of it.
-#[tauri::command(async)]
-pub fn set_head_to(state: State<'_, AppState>, node_id: String) -> CmdResult<String> {
+/// command would hold the window still for all of it. On the blocking pool
+/// too (#498): the replay and the wait for the store lock both block, and
+/// neither should hold one of the runtime's workers.
+#[tauri::command]
+pub async fn set_head_to(state: State<'_, AppState>, node_id: String) -> CmdResult<String> {
+    blocking(&state, move |state| set_head_to_inner(state, node_id)).await
+}
+
+fn set_head_to_inner(state: &AppState, node_id: String) -> CmdResult<String> {
     let id = session::NodeId::from_hex(&node_id).map_err(CommandError::from)?;
     let store_arc = state.store_handle().ok_or(CommandError::NoSession)?;
     let mut store = lock_std(&*store_arc, "store")?;
@@ -2434,10 +2576,22 @@ pub fn set_head_to(state: State<'_, AppState>, node_id: String) -> CmdResult<Str
 
 /// Set or clear a human-readable label on a node. Pass an empty
 /// string to clear. Used by the graph view's "Rename" overlay.
-// Off the main thread: it takes the store lock, which a running tool
-// can hold for its whole length (#421).
-#[tauri::command(async)]
-pub fn rename_node(state: State<'_, AppState>, node_id: String, label: String) -> CmdResult<()> {
+// The store lock can be held by a running tool for its whole length, so
+// the wait is on the blocking pool, off the main thread (#421) and off the
+// runtime's workers (#498).
+#[tauri::command]
+pub async fn rename_node(
+    state: State<'_, AppState>,
+    node_id: String,
+    label: String,
+) -> CmdResult<()> {
+    blocking(&state, move |state| {
+        rename_node_inner(state, node_id, label)
+    })
+    .await
+}
+
+fn rename_node_inner(state: &AppState, node_id: String, label: String) -> CmdResult<()> {
     let id = session::NodeId::from_hex(&node_id).map_err(CommandError::from)?;
     let label_opt = if label.trim().is_empty() {
         None
@@ -2498,12 +2652,20 @@ pub struct EnvelopePointSummary {
 /// Return one entry per track at the current session head. Used by
 /// the frontend Timeline to render per-lane waveforms — without this
 /// every lane fell back to the same mix path.
-// Off the main thread: it takes the store lock, which a running tool
-// can hold for its whole length (#421).
-#[tauri::command(async)]
-pub fn list_tracks<R: Runtime>(
+// The store lock can be held by a running tool for its whole length, so
+// the wait is on the blocking pool, off the main thread (#421) and off the
+// runtime's workers (#498).
+#[tauri::command]
+pub async fn list_tracks<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
+) -> CmdResult<Vec<TrackSummary>> {
+    blocking(&state, move |state| list_tracks_inner(&app, state)).await
+}
+
+fn list_tracks_inner<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &AppState,
 ) -> CmdResult<Vec<TrackSummary>> {
     let store_arc = state.store_handle().ok_or(CommandError::NoSession)?;
     let store = lock_std(&*store_arc, "store")?;
@@ -2582,7 +2744,7 @@ pub fn list_tracks<R: Runtime>(
     // and a track's source can be anywhere on disk: grant each one as it
     // is handed over (#334).
     for path in tracks.iter().filter_map(|t| t.audio_path.as_deref()) {
-        allow_asset_file(&app, std::path::Path::new(path));
+        allow_asset_file(app, std::path::Path::new(path));
     }
     Ok(tracks)
 }
@@ -2657,12 +2819,20 @@ fn run_track_tool(state: &AppState, tool: &str, args: serde_json::Value) -> CmdR
 }
 
 /// Set a track's gain in dB. Returns the new session head.
-// Off the main thread: through `run_track_tool` it takes the store,
-// engine and dispatcher locks, which a running tool can hold for its
-// whole length (#421).
-#[tauri::command(async)]
-pub fn set_track_gain(state: State<'_, AppState>, track: usize, gain_db: f32) -> CmdResult<String> {
-    set_track_gain_inner(&state, track, gain_db)
+// Through `run_track_tool` it takes the store, engine and dispatcher
+// locks, which a running tool can hold for its whole length, so the wait is
+// on the blocking pool, off the main thread (#421) and off the runtime's
+// workers (#498).
+#[tauri::command]
+pub async fn set_track_gain(
+    state: State<'_, AppState>,
+    track: usize,
+    gain_db: f32,
+) -> CmdResult<String> {
+    blocking(&state, move |state| {
+        set_track_gain_inner(state, track, gain_db)
+    })
+    .await
 }
 
 pub(crate) fn set_track_gain_inner(
@@ -2690,12 +2860,17 @@ pub(crate) fn set_track_gain_inner(
 /// tool clamps because a model can reasonably say "pan it to 1.5" and
 /// mean "hard right"; a slider that sends 1.5 is broken, and quietly
 /// accepting it hides that.
-// Off the main thread: through `run_track_tool` it takes the store,
-// engine and dispatcher locks, which a running tool can hold for its
-// whole length (#421).
-#[tauri::command(async)]
-pub fn set_track_pan(state: State<'_, AppState>, track: usize, pan: f32) -> CmdResult<String> {
-    set_track_pan_inner(&state, track, pan)
+// Through `run_track_tool` it takes the store, engine and dispatcher
+// locks, which a running tool can hold for its whole length, so the wait is
+// on the blocking pool, off the main thread (#421) and off the runtime's
+// workers (#498).
+#[tauri::command]
+pub async fn set_track_pan(
+    state: State<'_, AppState>,
+    track: usize,
+    pan: f32,
+) -> CmdResult<String> {
+    blocking(&state, move |state| set_track_pan_inner(state, track, pan)).await
 }
 
 pub(crate) fn set_track_pan_inner(state: &AppState, track: usize, pan: f32) -> CmdResult<String> {
@@ -2717,12 +2892,17 @@ pub(crate) fn set_track_pan_inner(state: &AppState, track: usize, pan: f32) -> C
 /// The name is the one thing on a track head that a user expects to be
 /// able to change directly; until now it could only be changed by
 /// asking the agent in a sentence.
-// Off the main thread: through `run_track_tool` it takes the store,
-// engine and dispatcher locks, which a running tool can hold for its
-// whole length (#421).
-#[tauri::command(async)]
-pub fn rename_track(state: State<'_, AppState>, track: usize, name: String) -> CmdResult<String> {
-    rename_track_inner(&state, track, name)
+// Through `run_track_tool` it takes the store, engine and dispatcher
+// locks, which a running tool can hold for its whole length, so the wait is
+// on the blocking pool, off the main thread (#421) and off the runtime's
+// workers (#498).
+#[tauri::command]
+pub async fn rename_track(
+    state: State<'_, AppState>,
+    track: usize,
+    name: String,
+) -> CmdResult<String> {
+    blocking(&state, move |state| rename_track_inner(state, track, name)).await
 }
 
 pub(crate) fn rename_track_inner(
@@ -2751,12 +2931,13 @@ pub(crate) fn rename_track_inner(
 /// Destructive in the ordinary sense — the node it appends can be
 /// undone like any other, which is why this does not ask for
 /// confirmation down here. Whether to ask is the UI's decision.
-// Off the main thread: through `run_track_tool` it takes the store,
-// engine and dispatcher locks, which a running tool can hold for its
-// whole length (#421).
-#[tauri::command(async)]
-pub fn remove_track(state: State<'_, AppState>, track: usize) -> CmdResult<String> {
-    remove_track_inner(&state, track)
+// Through `run_track_tool` it takes the store, engine and dispatcher
+// locks, which a running tool can hold for its whole length, so the wait is
+// on the blocking pool, off the main thread (#421) and off the runtime's
+// workers (#498).
+#[tauri::command]
+pub async fn remove_track(state: State<'_, AppState>, track: usize) -> CmdResult<String> {
+    blocking(&state, move |state| remove_track_inner(state, track)).await
 }
 
 pub(crate) fn remove_track_inner(state: &AppState, track: usize) -> CmdResult<String> {
@@ -2765,12 +2946,13 @@ pub(crate) fn remove_track_inner(state: &AppState, track: usize) -> CmdResult<St
 
 /// Duplicate a track, clips and mixer settings included. Returns the
 /// new session head.
-// Off the main thread: through `run_track_tool` it takes the store,
-// engine and dispatcher locks, which a running tool can hold for its
-// whole length (#421).
-#[tauri::command(async)]
-pub fn duplicate_track(state: State<'_, AppState>, track: usize) -> CmdResult<String> {
-    duplicate_track_inner(&state, track)
+// Through `run_track_tool` it takes the store, engine and dispatcher
+// locks, which a running tool can hold for its whole length, so the wait is
+// on the blocking pool, off the main thread (#421) and off the runtime's
+// workers (#498).
+#[tauri::command]
+pub async fn duplicate_track(state: State<'_, AppState>, track: usize) -> CmdResult<String> {
+    blocking(&state, move |state| duplicate_track_inner(state, track)).await
 }
 
 pub(crate) fn duplicate_track_inner(state: &AppState, track: usize) -> CmdResult<String> {
@@ -2782,12 +2964,20 @@ pub(crate) fn duplicate_track_inner(state: &AppState, track: usize) -> CmdResult
 }
 
 /// Mute or unmute a track. Returns the new session head.
-// Off the main thread: through `run_track_tool` it takes the store,
-// engine and dispatcher locks, which a running tool can hold for its
-// whole length (#421).
-#[tauri::command(async)]
-pub fn set_track_muted(state: State<'_, AppState>, track: usize, muted: bool) -> CmdResult<String> {
-    set_track_muted_inner(&state, track, muted)
+// Through `run_track_tool` it takes the store, engine and dispatcher
+// locks, which a running tool can hold for its whole length, so the wait is
+// on the blocking pool, off the main thread (#421) and off the runtime's
+// workers (#498).
+#[tauri::command]
+pub async fn set_track_muted(
+    state: State<'_, AppState>,
+    track: usize,
+    muted: bool,
+) -> CmdResult<String> {
+    blocking(&state, move |state| {
+        set_track_muted_inner(state, track, muted)
+    })
+    .await
 }
 
 pub(crate) fn set_track_muted_inner(
@@ -2807,10 +2997,15 @@ pub(crate) fn set_track_muted_inner(
 /// Read separately from `list_tracks` because it is a property of the
 /// session rather than of any track — and the toggle has to show the
 /// right state the moment a project opens, not after the first edit.
-// Off the main thread: it takes the store lock, which a running tool
-// can hold for its whole length (#421).
-#[tauri::command(async)]
-pub fn get_sync_lock(state: State<'_, AppState>) -> CmdResult<bool> {
+// The store lock can be held by a running tool for its whole length, so
+// the wait is on the blocking pool, off the main thread (#421) and off the
+// runtime's workers (#498).
+#[tauri::command]
+pub async fn get_sync_lock(state: State<'_, AppState>) -> CmdResult<bool> {
+    blocking(&state, get_sync_lock_inner).await
+}
+
+fn get_sync_lock_inner(state: &AppState) -> CmdResult<bool> {
     let store_arc = state.store_handle().ok_or(CommandError::NoSession)?;
     let store = lock_std(&store_arc, "store")?;
     let Some(head) = store.head() else {
@@ -2828,12 +3023,13 @@ pub fn get_sync_lock(state: State<'_, AppState>) -> CmdResult<bool> {
 /// travels with the project and the agent can read it before deciding
 /// whether a cut is safe (#170 §3). Setting it to what it already is
 /// appends no node, and the head comes back unchanged.
-// Off the main thread: through `run_track_tool` it takes the store,
-// engine and dispatcher locks, which a running tool can hold for its
-// whole length (#421).
-#[tauri::command(async)]
-pub fn set_sync_lock(state: State<'_, AppState>, enabled: bool) -> CmdResult<String> {
-    set_sync_lock_inner(&state, enabled)
+// Through `run_track_tool` it takes the store, engine and dispatcher
+// locks, which a running tool can hold for its whole length, so the wait is
+// on the blocking pool, off the main thread (#421) and off the runtime's
+// workers (#498).
+#[tauri::command]
+pub async fn set_sync_lock(state: State<'_, AppState>, enabled: bool) -> CmdResult<String> {
+    blocking(&state, move |state| set_sync_lock_inner(state, enabled)).await
 }
 
 pub(crate) fn set_sync_lock_inner(state: &AppState, enabled: bool) -> CmdResult<String> {
@@ -2845,16 +3041,20 @@ pub(crate) fn set_sync_lock_inner(state: &AppState, enabled: bool) -> CmdResult<
 }
 
 /// Solo or un-solo a track. Returns the new session head.
-// Off the main thread: through `run_track_tool` it takes the store,
-// engine and dispatcher locks, which a running tool can hold for its
-// whole length (#421).
-#[tauri::command(async)]
-pub fn set_track_soloed(
+// Through `run_track_tool` it takes the store, engine and dispatcher
+// locks, which a running tool can hold for its whole length, so the wait is
+// on the blocking pool, off the main thread (#421) and off the runtime's
+// workers (#498).
+#[tauri::command]
+pub async fn set_track_soloed(
     state: State<'_, AppState>,
     track: usize,
     soloed: bool,
 ) -> CmdResult<String> {
-    set_track_soloed_inner(&state, track, soloed)
+    blocking(&state, move |state| {
+        set_track_soloed_inner(state, track, soloed)
+    })
+    .await
 }
 
 pub(crate) fn set_track_soloed_inner(
@@ -2890,17 +3090,21 @@ const ENVELOPE_MAX_DB: f32 = 12.0;
 ///
 /// Sorting is the tool's job and it already does it, so a caller that
 /// drags a point past its neighbour does not have to reorder first.
-// Off the main thread: through `run_track_tool` it takes the store,
-// engine and dispatcher locks, which a running tool can hold for its
-// whole length (#421).
-#[tauri::command(async)]
-pub fn set_clip_envelope(
+// Through `run_track_tool` it takes the store, engine and dispatcher
+// locks, which a running tool can hold for its whole length, so the wait is
+// on the blocking pool, off the main thread (#421) and off the runtime's
+// workers (#498).
+#[tauri::command]
+pub async fn set_clip_envelope(
     state: State<'_, AppState>,
     track: usize,
     clip: usize,
     points: Vec<EnvelopePointSummary>,
 ) -> CmdResult<String> {
-    set_clip_envelope_inner(&state, track, clip, points)
+    blocking(&state, move |state| {
+        set_clip_envelope_inner(state, track, clip, points)
+    })
+    .await
 }
 
 pub(crate) fn set_clip_envelope_inner(
@@ -2952,17 +3156,21 @@ pub(crate) fn set_clip_envelope_inner(
 /// its neighbour comes back at a different index than it went in with.
 /// Callers re-read `list_tracks` rather than assuming their index
 /// survived — which the UI does anyway to reconcile.
-// Off the main thread: through `run_track_tool` it takes the store,
-// engine and dispatcher locks, which a running tool can hold for its
-// whole length (#421).
-#[tauri::command(async)]
-pub fn move_clip(
+// Through `run_track_tool` it takes the store, engine and dispatcher
+// locks, which a running tool can hold for its whole length, so the wait is
+// on the blocking pool, off the main thread (#421) and off the runtime's
+// workers (#498).
+#[tauri::command]
+pub async fn move_clip(
     state: State<'_, AppState>,
     track: usize,
     clip: usize,
     start_sec: f64,
 ) -> CmdResult<String> {
-    move_clip_inner(&state, track, clip, start_sec)
+    blocking(&state, move |state| {
+        move_clip_inner(state, track, clip, start_sec)
+    })
+    .await
 }
 
 pub(crate) fn move_clip_inner(
@@ -2985,12 +3193,17 @@ pub(crate) fn move_clip_inner(
 }
 
 /// Remove one clip from a track. Returns the new head.
-// Off the main thread: through `run_track_tool` it takes the store,
-// engine and dispatcher locks, which a running tool can hold for its
-// whole length (#421).
-#[tauri::command(async)]
-pub fn remove_clip(state: State<'_, AppState>, track: usize, clip: usize) -> CmdResult<String> {
-    remove_clip_inner(&state, track, clip)
+// Through `run_track_tool` it takes the store, engine and dispatcher
+// locks, which a running tool can hold for its whole length, so the wait is
+// on the blocking pool, off the main thread (#421) and off the runtime's
+// workers (#498).
+#[tauri::command]
+pub async fn remove_clip(
+    state: State<'_, AppState>,
+    track: usize,
+    clip: usize,
+) -> CmdResult<String> {
+    blocking(&state, move |state| remove_clip_inner(state, track, clip)).await
 }
 
 pub(crate) fn remove_clip_inner(state: &AppState, track: usize, clip: usize) -> CmdResult<String> {
@@ -3037,10 +3250,23 @@ pub async fn list_templates(app_handle: tauri::AppHandle) -> CmdResult<Vec<Templ
     Ok(out)
 }
 
+// Appending the node waits for the store lock, which a running tool can
+// hold, so it is on the blocking pool (#498).
 #[tauri::command]
 pub async fn apply_template(
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
+    name: String,
+) -> CmdResult<String> {
+    blocking(&state, move |state| {
+        apply_template_inner(state, &app_handle, name)
+    })
+    .await
+}
+
+fn apply_template_inner(
+    state: &AppState,
+    app_handle: &tauri::AppHandle,
     name: String,
 ) -> CmdResult<String> {
     let resource_dir = app_handle
@@ -3608,12 +3834,21 @@ pub async fn read_mcp_server(state: State<'_, AppState>, id: String) -> CmdResul
     Ok(mcp_server_to_entry(&id, &server))
 }
 
+// Registering the tools takes the dispatcher lock, which a running tool can
+// hold, so it is on the blocking pool (#498).
 #[tauri::command]
 pub async fn upsert_mcp_server(
     state: State<'_, AppState>,
     id: String,
     entry: McpServerEntry,
 ) -> CmdResult<()> {
+    blocking(&state, move |state| {
+        upsert_mcp_server_inner(state, id, entry)
+    })
+    .await
+}
+
+fn upsert_mcp_server_inner(state: &AppState, id: String, entry: McpServerEntry) -> CmdResult<()> {
     if id != entry.id {
         return Err(CommandError::InvalidMcpServer(format!(
             "id `{id}` does not match entry.id `{}`",
@@ -3651,6 +3886,10 @@ pub async fn upsert_mcp_server(
 
 #[tauri::command]
 pub async fn delete_mcp_server(state: State<'_, AppState>, id: String) -> CmdResult<()> {
+    blocking(&state, move |state| delete_mcp_server_inner(state, id)).await
+}
+
+fn delete_mcp_server_inner(state: &AppState, id: String) -> CmdResult<()> {
     validate_mcp_id(&id)?;
     state.mcp.stop(&id);
     {
@@ -3678,6 +3917,10 @@ pub async fn delete_mcp_server(state: State<'_, AppState>, id: String) -> CmdRes
 
 #[tauri::command]
 pub async fn restart_mcp_server(state: State<'_, AppState>, id: String) -> CmdResult<()> {
+    blocking(&state, move |state| restart_mcp_server_inner(state, id)).await
+}
+
+fn restart_mcp_server_inner(state: &AppState, id: String) -> CmdResult<()> {
     validate_mcp_id(&id)?;
     let server = {
         let cfg = state
@@ -3995,6 +4238,19 @@ pub async fn render_range(
     end_sec: f64,
     out_path: String,
 ) -> CmdResult<serde_json::Value> {
+    blocking(&state, move |state| {
+        render_range_inner(state, node_id, start_sec, end_sec, out_path)
+    })
+    .await
+}
+
+fn render_range_inner(
+    state: &AppState,
+    node_id: String,
+    start_sec: f64,
+    end_sec: f64,
+    out_path: String,
+) -> CmdResult<serde_json::Value> {
     let id = NodeId::from_hex(&node_id)
         .map_err(|_| CommandError::InvalidNodeId(node_id.clone()).to_string())?;
     let out = std::path::PathBuf::from(&out_path);
@@ -4075,7 +4331,9 @@ pub async fn batch_load(
     state: tauri::State<'_, AppState>,
     paths: Vec<String>,
 ) -> CmdResult<BatchLoadResult> {
-    batch_load_inner(&state, &paths)
+    // Decoding each file with the store, engine and dispatcher locks held
+    // is the longest wait of any command here; it is on the blocking pool.
+    blocking(&state, move |state| batch_load_inner(state, &paths)).await
 }
 
 pub(crate) fn batch_load_inner(state: &AppState, paths: &[String]) -> CmdResult<BatchLoadResult> {

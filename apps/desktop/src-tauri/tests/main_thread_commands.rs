@@ -30,6 +30,17 @@
 //!
 //! The source is scanned rather than the behaviour exercised because the
 //! mock runtime does not model Tauri's threads.
+//!
+//! The same scan answers a second question (#498). An `async` command
+//! does not freeze the window, but a lock it waits on inside its task
+//! holds one of the async runtime's workers until the lock is free, and
+//! enough of them leave none to run any async command. So an `async`
+//! command that waits on a turn lock must do the waiting inside
+//! `blocking(..)` (or `spawn_blocking(..)`), which moves it to the
+//! blocking pool. The text left once those calls are cut out is what runs
+//! on the worker, and it must take no turn lock and call nothing that does.
+//! `tests/blocking_commands.rs` shows the effect on a real runtime for the
+//! commands it names; this covers every command.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -234,7 +245,17 @@ fn functions_in(src: &str) -> Vec<Func> {
 /// The functions and methods that take a turn lock, directly or through
 /// another one: grown until nothing new joins.
 fn lock_takers(sources: &[(String, String)]) -> BTreeSet<Callee> {
-    let funcs: Vec<Func> = sources.iter().flat_map(|(_, s)| functions_in(s)).collect();
+    lock_takers_except(sources, &[])
+}
+
+/// [`lock_takers`], leaving out the functions named in `except` and so
+/// anything that reaches a lock only through them.
+fn lock_takers_except(sources: &[(String, String)], except: &[&str]) -> BTreeSet<Callee> {
+    let funcs: Vec<Func> = sources
+        .iter()
+        .flat_map(|(_, s)| functions_in(s))
+        .filter(|f| !except.contains(&f.name.as_str()))
+        .collect();
     let mut set: BTreeSet<Callee> = funcs
         .iter()
         .filter(|f| takes_a_turn_lock(&f.body))
@@ -303,6 +324,124 @@ fn main_thread_offenders(sources: &[(String, String)]) -> Vec<String> {
         .collect()
 }
 
+/// Functions that name the engine, the dispatcher and the store only to
+/// clone their `Arc`s into a new agent, and wait on none of them.
+/// `rebuild_agent` hands the handles to `Agent::new`; the only thing it
+/// awaits is the agent's own `tokio` mutex, which does not block a worker.
+/// The commands that rebuild the agent (a key, a model, a profile) reach
+/// them, and are not waiting on a tool for it.
+const HANDLE_ONLY: [&str; 2] = ["rebuild_agent", "rebuild_agent_public"];
+
+/// Where a call to a function whose name ends in `blocking` starts in
+/// `text`: the offset of its name (`blocking`, or `spawn_blocking` with its
+/// prefix) and of its opening parenthesis. `blocking(` inside a longer
+/// name (`is_blocking(`) is not one.
+fn next_blocking_call(text: &str) -> Option<(usize, usize)> {
+    let needle = "blocking(";
+    let mut from = 0;
+    while let Some(i) = text[from..].find(needle) {
+        let at = from + i;
+        let before = &text[..at];
+        let start = if before.ends_with("spawn_") {
+            at - "spawn_".len()
+        } else {
+            at
+        };
+        let earlier = text[..start].chars().next_back();
+        if !earlier.is_some_and(|c| is_ident_char(c) || c == '.') {
+            return Some((start, at + needle.len() - 1));
+        }
+        from = at + needle.len();
+    }
+    None
+}
+
+/// Where the parenthesis that `text` opens with is closed, passing over
+/// string literals, character literals and `//` comments, which may hold
+/// parentheses of their own.
+fn closing_paren(text: &str) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut depth = 0usize;
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            b'"' => {
+                i += 1;
+                while i < bytes.len() && bytes[i] != b'"' {
+                    if bytes[i] == b'\\' {
+                        i += 1;
+                    }
+                    i += 1;
+                }
+            }
+            b'\'' => {
+                // `'x'` and `'\n'` are characters; `'a` is a lifetime, with
+                // no closing quote to skip to.
+                if bytes.get(i + 2) == Some(&b'\'') {
+                    i += 2;
+                } else if bytes.get(i + 1) == Some(&b'\\') && bytes.get(i + 3) == Some(&b'\'') {
+                    i += 3;
+                }
+            }
+            b'/' if bytes.get(i + 1) == Some(&b'/') => {
+                while i < bytes.len() && bytes[i] != b'\n' {
+                    i += 1;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+/// `body` with every `blocking(..)` and `spawn_blocking(..)` call cut out,
+/// arguments and all. What is left runs on the async runtime's worker.
+fn outside_blocking(body: &str) -> String {
+    let mut out = String::new();
+    let mut rest = body;
+    while let Some((start, open)) = next_blocking_call(rest) {
+        out.push_str(&rest[..start]);
+        match closing_paren(&rest[open..]) {
+            Some(close) => rest = &rest[open + close + 1..],
+            // A call the scan cannot see the end of is not cut at all, so
+            // that what is inside it is read as the worker's.
+            None => {
+                rest = &rest[start..];
+                break;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The `async` commands in `sources` that wait on a turn lock on the
+/// runtime's worker: those that take one, or call what does, outside any
+/// `blocking(..)`, as "file: name".
+fn worker_offenders(sources: &[(String, String)]) -> Vec<String> {
+    let takers = lock_takers_except(sources, &HANDLE_ONLY);
+    commands_in(sources)
+        .iter()
+        .filter(|(_, _, attr, is_async, _)| *is_async || attr.contains("async"))
+        .filter_map(|(file, name, _, _, body)| {
+            let on_the_worker = outside_blocking(body);
+            if takes_a_turn_lock(&on_the_worker) {
+                return Some(format!("{file}: {name}"));
+            }
+            first_call(&takers, &on_the_worker)
+                .map(|c| format!("{file}: {name} (through `{}`)", spelt(c)))
+        })
+        .collect()
+}
+
 #[test]
 fn no_main_thread_command_waits_on_a_lock_a_tool_holds() {
     let sources = sources();
@@ -345,6 +484,148 @@ fn no_main_thread_command_waits_on_a_lock_a_tool_holds() {
          tool holds, freezing the window: {offenders:?}. Declare them \
          `#[tauri::command(async)]` or `pub async fn`."
     );
+}
+
+#[test]
+fn no_async_command_waits_on_a_lock_on_the_runtimes_worker() {
+    let sources = sources();
+    // The scan has to be looking at the right thing: the commands that
+    // were moved to the blocking pool are in it, and say so.
+    let moved = commands_in(&sources)
+        .iter()
+        .filter(|(_, _, attr, is_async, body)| {
+            (*is_async || attr.contains("async")) && outside_blocking(body).len() < body.len()
+        })
+        .count();
+    assert!(
+        moved > 30,
+        "found only {moved} commands that wait through `blocking(..)`; the scan is broken"
+    );
+    let offenders = worker_offenders(&sources);
+    assert!(
+        offenders.is_empty(),
+        "these async commands wait on a lock a running tool can hold, on the \
+         async runtime's worker, and enough of them leave no worker to run any \
+         async command: {offenders:?}. Do the waiting inside `blocking(&state, \
+         |state| ..)`."
+    );
+}
+
+/// Async commands, as the scan above has to read them. The first four wait
+/// on a worker in a way it has to name; the last three do not.
+const ON_THE_WORKER: &str = r#"
+#[tauri::command]
+pub async fn waits_directly(state: State<'_, AppState>) -> CmdResult<()> {
+    let store = lock_std(&state.store_handle().unwrap(), "store")?;
+    drop(store);
+    Ok(())
+}
+
+#[tauri::command(async)]
+pub fn waits_directly_but_is_async_by_attribute(state: State<'_, AppState>) -> CmdResult<()> {
+    let _engine = lock_std(&state.engine, "engine")?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn waits_through_a_helper(state: State<'_, AppState>) -> CmdResult<String> {
+    run_track_tool(&state, "mute_track", serde_json::json!({}))
+}
+
+#[tauri::command]
+pub async fn waits_outside_the_one_call_it_moved(state: State<'_, AppState>) -> CmdResult<()> {
+    blocking(&state, |state| {
+        let _store = lock_std(&state.store_handle().unwrap(), "store")?;
+        Ok(())
+    })
+    .await?;
+    // A second wait, left where it was.
+    let _engine = lock_std(&state.engine, "engine")?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn waits_on_the_blocking_pool(state: State<'_, AppState>) -> CmdResult<String> {
+    blocking(&state, |state| {
+        // A parenthesis in a comment ( and in text: ")" and '(' ...
+        let _msg = "closes ) early?";
+        let _open = '(';
+        let _store = lock_std(&state.store_handle().unwrap(), "store")?;
+        run_track_tool(state, "mute_track", serde_json::json!({}))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn waits_on_the_blocking_pool_directly(state: State<'_, AppState>) -> CmdResult<()> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _engine = lock_std(&state.engine, "engine").unwrap();
+    })
+    .await
+    .unwrap();
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn rebuilds_the_agent(state: State<'_, AppState>) -> CmdResult<()> {
+    rebuild_agent(&state).await?;
+    Ok(())
+}
+
+async fn rebuild_agent(state: &AppState) -> Result<(), CommandError> {
+    let _store = state.store_handle();
+    let _engine = Arc::clone(&state.engine);
+    Ok(())
+}
+
+fn run_track_tool(state: &AppState, tool: &str, args: serde_json::Value) -> CmdResult<String> {
+    let _store = lock_std(&state.store_handle().unwrap(), "store")?;
+    Ok(String::new())
+}
+"#;
+
+#[test]
+fn the_scan_names_the_async_commands_that_wait_on_the_worker_and_only_those() {
+    let sources = [("on_the_worker.rs".to_string(), ON_THE_WORKER.to_string())];
+    let named = worker_offenders(&sources);
+    for must in [
+        "waits_directly",
+        "waits_directly_but_is_async_by_attribute",
+        "waits_through_a_helper",
+        "waits_outside_the_one_call_it_moved",
+    ] {
+        assert!(
+            named
+                .iter()
+                .any(|n| n.starts_with(&format!("on_the_worker.rs: {must}"))),
+            "the scan lets `{must}` through: {named:?}"
+        );
+    }
+    assert_eq!(
+        named.len(),
+        4,
+        "the scan names a command that waits on the blocking pool, or on no \
+         lock: {named:?}"
+    );
+}
+
+#[test]
+fn the_blocking_cut_takes_out_the_call_and_nothing_else() {
+    let cut = |text: &str| outside_blocking(text);
+    assert_eq!(cut("a; blocking(&s, |s| f(s)).await; b"), "a; .await; b");
+    assert_eq!(cut("x(); spawn_blocking(move || g()).await"), "x(); .await");
+    // Parentheses inside the call's strings, characters and comments do
+    // not end it early.
+    assert_eq!(cut(r#"blocking(s, |s| h(")", '(')) tail"#), " tail");
+    assert_eq!(cut("blocking(s, |s| { // )\n f(s) }) tail"), " tail");
+    // Two calls.
+    assert_eq!(cut("blocking(a) mid blocking(b) end"), " mid  end");
+    // A longer name, or a method, is not the call.
+    assert_eq!(cut("is_blocking(a)"), "is_blocking(a)");
+    assert_eq!(cut("x.blocking(a)"), "x.blocking(a)");
+    // A call the scan cannot see the end of is left in, to be read as the worker's.
+    assert_eq!(cut("pre blocking(a, b"), "pre blocking(a, b");
 }
 
 /// Every way a lock was reached that an earlier version of the scan let
