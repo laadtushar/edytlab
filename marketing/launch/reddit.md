@@ -272,8 +272,10 @@ truth.
 >   three CI targets at once. The module docs in
 >   `crates/audio-time/src/vocoder.rs` write down what the trade costs.
 > - Session state is a content-addressed DAG (node id = blake3 of the state),
->   so two routes to the same state are one node. That has a sharp edge for
->   undo, which is issue #398, and I'd like to hear how you'd model it.
+>   so two routes to the same state are one node. That had a sharp edge for
+>   undo (issue #398: a revisited state keeps its first parent, so undo went to
+>   the wrong node). v0.4.0 fixes it by making undo and redo follow the path
+>   the user took (#401), and I'd still like to hear how you'd model it.
 > - Tools are registered in a dispatcher with JSON-schema validation, and
 >   `docs/tools-reference.md` is generated from the registry by a test, so the
 >   docs can't disagree with what the agent can call.

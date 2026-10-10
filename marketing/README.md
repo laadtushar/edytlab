@@ -1,6 +1,6 @@
 # edytlab launch kit
 
-Copy-paste material for launching edytlab v0.3.0. Everything here is written
+Copy-paste material for launching edytlab v0.4.0. Everything here is written
 to be posted as-is, by the owner, from their own accounts. Nothing in this
 folder posts anywhere by itself, and nothing here opens a PR on another repo.
 
@@ -15,7 +15,7 @@ folder posts anywhere by itself, and nothing here opens a PR on another repo.
 | Press kit page | <https://edytlab.com/press> |
 
 Use `releases/latest` for "download" links in posts. It resolves to the newest
-non-prerelease, which is v0.3.0 today. (The website's own buttons point at the
+non-prerelease, which is v0.4.0 today. (The website's own buttons point at the
 full releases list on purpose, so they can also reach dev builds.)
 
 ## What is in the kit
@@ -25,7 +25,7 @@ full releases list on purpose, so they can also reach dev builds.)
 | [`launch/show-hn.md`](launch/show-hn.md) | Show HN title, body and the author's first comment, plus answers to the questions HN will ask |
 | [`launch/product-hunt.md`](launch/product-hunt.md) | Tagline, description, maker's first comment, 5 gallery captions, topics |
 | [`launch/reddit.md`](launch/reddit.md) | Seven separate posts: r/WeAreTheMusicMakers, r/DJs, r/audioengineering, r/podcasting, r/LocalLLaMA, r/rust, r/tauri |
-| [`social/x-thread.md`](social/x-thread.md) | 8-post thread for v0.3.0 and the DJ demo |
+| [`social/x-thread.md`](social/x-thread.md) | 8-post thread for v0.4.0 and the DJ demo |
 | [`social/linkedin.md`](social/linkedin.md) | One LinkedIn post, same angle |
 | [`press-kit.md`](press-kit.md) | Boilerplate, fact sheet, asset links |
 | [`awesome-lists.md`](awesome-lists.md) | Lists worth a pull request, exact entry text, and which ones are blocked today |
@@ -51,13 +51,17 @@ These are the claims that are easy to get wrong. Each has bitten a draft once.
   predates this; do not reuse it.
 - A user count, download count, star count, testimonial, press quote or
   benchmark. None exists in the repo to cite.
+- That the website has no analytics. The desktop app sends no telemetry, but
+  the website uses Vercel Web Analytics and Speed Insights (anonymous, no
+  cookies), as `website/app/privacy/page.tsx` says. Keep the two apart:
+  "the app has no telemetry" is true; "no analytics" about the site is not.
 - That builds are signed. They are not
   ([#386](https://github.com/laadtushar/edytlab/issues/386)). Say so wherever a
   download link appears.
 - That the editor is for live DJ performance. It edits files. Live decks and
   controllers are on the post-v1 roadmap.
 
-**Safe, and verified against the repo on 2026-10-09:**
+**Safe, and verified against the repo on 2026-10-10:**
 
 | Claim | Where it was checked |
 |---|---|
@@ -65,13 +69,13 @@ These are the claims that are easy to get wrong. Each has bitten a draft once.
 | Six providers: Anthropic, OpenAI, OpenRouter, Groq, Gemini, Ollama | `README.md`, `website/app/docs/getting-started/page.tsx` |
 | Ollama needs no key and can keep the chat on your machine | `website/app/privacy/page.tsx`, user guide |
 | Audio is never uploaded; only the chat goes to the provider | `website/app/privacy/page.tsx` |
-| No telemetry in the app or the website | `website/app/privacy/page.tsx` |
+| The desktop app sends no telemetry. The website uses anonymous Vercel analytics | `website/app/privacy/page.tsx`; `<Analytics />` and `<SpeedInsights />` in `website/app/layout.tsx` |
 | Branchable session graph, fork, A/B compare, undo | `crates/tools/src/tool/fork_node.rs`, `compare_nodes.rs`, README |
 | Plan first is an optional toggle in the chat box | `apps/desktop/src/components/Chat.tsx` |
 | Export to WAV, FLAC and MP3 | `crates/tools/src/tool/render_final.rs` |
 | Time-stretch and pitch-shift on its own phase vocoder | `crates/audio-time/src/vocoder.rs` |
 | BPM, key, beat grid and EBU R128 loudness analysis | `analyze_track` in `docs/tools-reference.md` |
-| macOS universal, Windows, Linux builds; MIT; v0.3.0 | GitHub release v0.3.0, `LICENSE` |
+| macOS universal, Windows, Linux builds; MIT; v0.4.0 | GitHub release v0.4.0, `LICENSE` |
 
 ## Known rough edges to be ready for
 
@@ -85,10 +89,6 @@ getting caught.
 - Local models: a first request was measured at about 15,000 tokens, which an
   8,192-token context refuses
   ([#395](https://github.com/laadtushar/edytlab/issues/395)).
-- Plan first: if the model does not write a plan, a one-step edit currently
-  runs anyway ([#415](https://github.com/laadtushar/edytlab/issues/415)).
-- Undo after an edit that returns to an earlier state can land on the wrong
-  node ([#398](https://github.com/laadtushar/edytlab/issues/398)).
 - The limiter is a zero-latency sample-peak limiter (instant attack, smooth
   release; it was a hard clip until
   [#441](https://github.com/laadtushar/edytlab/issues/441)), not a look-ahead
@@ -96,7 +96,7 @@ getting caught.
 
 ## Before the first post
 
-- [ ] Install the v0.3.0 build on at least one machine per OS you will claim.
+- [ ] Install the v0.4.0 build on at least one machine per OS you will claim.
       Confirm the macOS `xattr` step in the release notes works as written.
 - [ ] Open <https://edytlab.com> on a phone and play the demo.
 - [ ] GitHub repo topics. The repo currently lists `audacity`, `audacity-pro`
@@ -110,11 +110,6 @@ getting caught.
 - [ ] Capture the Product Hunt screenshots listed in
       [`launch/product-hunt.md`](launch/product-hunt.md). No UI screenshots are
       committed to the repo.
-- [ ] When PR #432 (the extended-intro demo with sound) lands, add its link to
-      the X thread, LinkedIn post and press kit. Those spots are marked
-      `https://edytlab.com/demos/dj-extended-club-intro.mp4`.
-- [ ] Once the blog and SEO PR lands, add `/press` and the two `/use-cases/*`
-      pages to the sitemap.
 - [ ] Decide how you will answer "was this written by AI?". The commit history
       shows `Co-Authored-By: Claude` trailers on many commits, and the repo has a
       `CLAUDE.md`. The drafts disclose it once, briefly. Keep that line.
@@ -135,7 +130,7 @@ comments, and one thread cannot be answered well while three others are open.
 | 5 | **r/podcasting** | Say plainly that there is no transcript editing. |
 | 6 | **r/audioengineering** | Expect scrutiny of the DSP. Post only if the current rules allow it. |
 | 7 to 14 | **Product Hunt** ([`launch/product-hunt.md`](launch/product-hunt.md)) | Needs the screenshots and a launch-day calendar. Schedule it for 00:01 PT. Later is fine; it works better with a few real users to show up. |
-| After the star count passes the bar | **Awesome lists** ([`awesome-lists.md`](awesome-lists.md)) | `awesome-rust` requires more than 50 stars or 2,000 downloads. At the time of writing the repo has 3. |
+| After the star count passes the bar | **Awesome lists** ([`awesome-lists.md`](awesome-lists.md)) | `awesome-rust` requires more than 50 stars or 2,000 downloads. On 2026-10-10 the repo has 4. |
 
 The days are a suggestion. Do not post the same day to several subreddits, and
 do not paste the same text twice: each post in `reddit.md` is written for its
@@ -151,6 +146,9 @@ own community.
 - Answer criticism with the issue number if one exists, and open an issue if
   one does not.
 - No one is asked to star, upvote or share.
-- Measurement: the website has no analytics, by design. The only built-in
-  signals are GitHub release download counts, stars and issues. Do not add
-  tracking for the launch; it would contradict the privacy page.
+- Measurement: the website runs Vercel Web Analytics and Speed Insights
+  (anonymous page views and page performance, no cookies), and the owner sees
+  them as aggregates in the Vercel dashboard. The desktop app sends no
+  telemetry. The other built-in signals are GitHub release download counts,
+  stars and issues. Do not add any further tracking for the launch; the
+  privacy page says Vercel's is the only analytics the site runs.

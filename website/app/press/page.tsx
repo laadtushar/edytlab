@@ -137,7 +137,11 @@ export default function PressPage() {
             </tr>
             <tr>
               <th scope="row">Telemetry</th>
-              <td>None in the app; no analytics on this website</td>
+              <td>
+                None in the app. This website uses anonymous Vercel analytics
+                (Web Analytics and Speed Insights); see{" "}
+                <Link href="/privacy">Privacy</Link>.
+              </td>
             </tr>
             <tr>
               <th scope="row">History</th>
