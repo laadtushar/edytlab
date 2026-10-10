@@ -16,7 +16,10 @@
 //!
 //! Values that earlier builds left in the kernel keyring are moved into
 //! the Secret Service on first read, if they are still there (same
-//! boot, and within the three-day expiry of the persistent keyring).
+//! boot, and within the three-day expiry of the persistent keyring). A
+//! move the Secret Service refuses (locked, unlock prompt dismissed) is
+//! not tried again until edytlab restarts, since each try is another
+//! prompt; the value is still read from the kernel keyring meanwhile.
 //!
 //! A locked or refused store is an error, never a silent "nothing
 //! stored": the `try_` readers return it, and the `Option` readers log
@@ -52,6 +55,7 @@
 //! migration is required. [`load_api_key("anthropic")`] continues to
 //! return the legacy entry on first launch.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 use keyring::Entry;
@@ -65,6 +69,19 @@ const SERVICE: &str = "app.edytlab.desktop";
 
 /// Account slot for the "active provider" preference.
 const ACTIVE_PROVIDER_ACCOUNT: &str = "active_provider";
+
+/// The account [`persistence`] looks up. Nothing is ever written to it, so
+/// the lookup can only ever answer "not found" (or fail to reach the
+/// store): the Secret Service unlocks an item only when a search matches
+/// one, so a lookup that matches nothing never raises an unlock prompt,
+/// and reachability is all the probe needs. Probing a slot that holds
+/// something, `active_provider` for one, would raise a second prompt on
+/// the same locked collection that startup's first read was refused on.
+///
+/// Its name must collide with no slot: every real account ends in
+/// `_api_key`, `_model`, `_base_url` or `_effort`, or is
+/// [`ACTIVE_PROVIDER_ACCOUNT`] (a test pins this).
+const PROBE_ACCOUNT: &str = "persistence_probe";
 
 /// Where the values written now will end up.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -188,7 +205,11 @@ fn unreachable(e: &keyring::Error) -> bool {
 /// - `primary` has it: that is the answer.
 /// - `primary` answers "not found" and `legacy` has it: a value an
 ///   earlier build left behind. Move it into `primary`, and drop the
-///   `legacy` copy only once `primary` took it.
+///   `legacy` copy only once `primary` took it. The value is returned
+///   whether or not the move worked. If `primary` refuses the move
+///   (locked, prompt dismissed), `move_refused` records it and no later
+///   read tries to move anything: each try is its own unlock prompt, and
+///   a user who dismissed one has answered for the rest.
 /// - `primary` cannot be reached: the answer is whatever `legacy` holds,
 ///   which is where [`write_to`] put it. If `legacy` holds nothing, ask
 ///   `primary` once more before calling the value missing: the Secret
@@ -200,7 +221,11 @@ fn unreachable(e: &keyring::Error) -> bool {
 /// - `primary` fails any other way (locked, refused, ambiguous,
 ///   undecodable): that is an error. It is never read as "not found",
 ///   or the app would show a first-run prompt over a key that is there.
-fn read_from(primary: &dyn Slot, legacy: Option<&dyn Slot>) -> keyring::Result<Option<String>> {
+fn read_from(
+    primary: &dyn Slot,
+    legacy: Option<&dyn Slot>,
+    move_refused: &AtomicBool,
+) -> keyring::Result<Option<String>> {
     match primary.get() {
         Ok(v) => Ok(Some(v)),
         Err(keyring::Error::NoEntry) => {
@@ -210,9 +235,7 @@ fn read_from(primary: &dyn Slot, legacy: Option<&dyn Slot>) -> keyring::Result<O
             let Ok(v) = legacy.get() else {
                 return Ok(None);
             };
-            if primary.set(&v).is_ok() {
-                let _ = legacy.delete();
-            }
+            move_across(primary, legacy, &v, move_refused);
             Ok(Some(v))
         }
         Err(e) if unreachable(&e) => {
@@ -233,6 +256,31 @@ fn read_from(primary: &dyn Slot, legacy: Option<&dyn Slot>) -> keyring::Result<O
             }
         }
         Err(e) => Err(e),
+    }
+}
+
+/// Move `value` from `legacy` into `primary`, unless an earlier move was
+/// refused. `legacy` loses its copy only once `primary` has taken it.
+///
+/// A refusal (`NoStorageAccess`: a locked store, a dismissed unlock
+/// prompt) sets `move_refused`. Any other failure is about this slot
+/// alone and the next one is still tried.
+fn move_across(primary: &dyn Slot, legacy: &dyn Slot, value: &str, move_refused: &AtomicBool) {
+    if move_refused.load(Ordering::Relaxed) {
+        return;
+    }
+    match primary.set(value) {
+        Ok(()) => {
+            let _ = legacy.delete();
+        }
+        Err(keyring::Error::NoStorageAccess(_)) => {
+            move_refused.store(true, Ordering::Relaxed);
+            tracing::warn!(
+                "the Secret Service refused a value from the kernel keyring; \
+                 not asking again until edytlab restarts"
+            );
+        }
+        Err(_) => {}
     }
 }
 
@@ -301,6 +349,10 @@ fn delete_from(primary: &dyn Slot, legacy: Option<&dyn Slot>) -> keyring::Result
 
 /// Where a write would land right now.
 ///
+/// `primary` should be an account nothing writes ([`PROBE_ACCOUNT`]): the
+/// lookup then matches no item, so it cannot unlock anything and cannot
+/// prompt, whatever state the store is in.
+///
 /// With no second store (`fallback_available` false: macOS, Windows)
 /// the answer is always durable and `primary` is not touched, so those
 /// platforms never see an extra keychain prompt. Otherwise the answer
@@ -328,6 +380,11 @@ fn probe(primary: &dyn Slot, fallback_available: bool) -> Persistence {
 /// keychain operation takes this lock. It is not reentrant: only the
 /// four `*_account` helpers below take it, and none calls another.
 static KEYCHAIN_LOCK: Mutex<()> = Mutex::new(());
+
+/// Set once the Secret Service has refused to take a value moved over
+/// from the kernel keyring (see [`read_from`]), for the rest of the
+/// process. Only touched under [`KEYCHAIN_LOCK`].
+static MOVE_REFUSED: AtomicBool = AtomicBool::new(false);
 
 fn lock() -> MutexGuard<'static, ()> {
     // The guarded data is `()`; a panic elsewhere cannot have left it
@@ -362,7 +419,12 @@ fn read_account(account: &str) -> Result<Option<String>, KeychainError> {
     let _guard = lock();
     let primary = open_primary(account)?;
     let legacy = open_legacy(account);
-    read_from(&primary, legacy.as_ref().map(|e| e as &dyn Slot)).map_err(KeychainError::from)
+    read_from(
+        &primary,
+        legacy.as_ref().map(|e| e as &dyn Slot),
+        &MOVE_REFUSED,
+    )
+    .map_err(KeychainError::from)
 }
 
 fn write_account(account: &str, value: &str) -> keyring::Result<Persistence> {
@@ -406,13 +468,16 @@ fn read_or_warn(account: &str) -> Option<String> {
 /// [`Persistence::SessionOnly`] while no Secret Service answers, which
 /// the app surfaces so the user is not surprised by a Welcome screen
 /// after the next restart (#394).
+///
+/// Looks up [`PROBE_ACCOUNT`], which nothing writes, so it never raises
+/// an unlock prompt.
 pub fn persistence() -> Persistence {
     let _guard = lock();
-    let Ok(primary) = open_primary(ACTIVE_PROVIDER_ACCOUNT) else {
+    let Ok(primary) = open_primary(PROBE_ACCOUNT) else {
         tracing::warn!("could not build the keychain entry to probe persistence");
         return Persistence::Durable;
     };
-    probe(&primary, open_legacy(ACTIVE_PROVIDER_ACCOUNT).is_some())
+    probe(&primary, open_legacy(PROBE_ACCOUNT).is_some())
 }
 
 /// Build the per-provider keychain account name.
@@ -706,12 +771,17 @@ mod tests {
         WriteFails,
         /// Holds bytes that are not UTF-8.
         Garbled,
+        /// Reads work (a locked collection holds no match for a value
+        /// that was never moved in), but creating an item is refused:
+        /// the unlock prompt for it was dismissed.
+        WriteRefused,
     }
 
     struct Fake {
         mode: Mode,
         value: RefCell<Option<String>>,
         gets: Cell<u32>,
+        sets: Cell<u32>,
         /// How many of the first `get`s fail as unreachable whatever the
         /// mode is: a Secret Service whose first D-Bus call timed out
         /// while the daemon was still starting.
@@ -724,6 +794,7 @@ mod tests {
                 mode,
                 value: RefCell::new(None),
                 gets: Cell::new(0),
+                sets: Cell::new(0),
                 slow_start_gets: Cell::new(0),
             }
         }
@@ -760,15 +831,16 @@ mod tests {
                 Mode::Unreachable => Err(no_service()),
                 Mode::Locked => Err(locked()),
                 Mode::Garbled => Err(keyring::Error::BadEncoding(b"sk-secret".to_vec())),
-                Mode::Works | Mode::WriteFails => {
+                Mode::Works | Mode::WriteFails | Mode::WriteRefused => {
                     self.value.borrow().clone().ok_or(keyring::Error::NoEntry)
                 }
             }
         }
         fn set(&self, v: &str) -> keyring::Result<()> {
+            self.sets.set(self.sets.get() + 1);
             match self.mode {
                 Mode::Unreachable => Err(no_service()),
-                Mode::Locked => Err(locked()),
+                Mode::Locked | Mode::WriteRefused => Err(locked()),
                 Mode::WriteFails => {
                     Err(keyring::Error::PlatformFailure("create_item failed".into()))
                 }
@@ -784,7 +856,7 @@ mod tests {
                 Mode::Unreachable => Err(no_service()),
                 Mode::Locked => Err(locked()),
                 Mode::Garbled => Err(keyring::Error::BadEncoding(b"sk-secret".to_vec())),
-                Mode::Works | Mode::WriteFails => self
+                Mode::Works | Mode::WriteFails | Mode::WriteRefused => self
                     .value
                     .borrow_mut()
                     .take()
@@ -798,20 +870,25 @@ mod tests {
         Some(f)
     }
 
+    /// A read in a process where no move has been refused yet.
+    fn read(primary: &dyn Slot, legacy: Option<&dyn Slot>) -> keyring::Result<Option<String>> {
+        read_from(primary, legacy, &AtomicBool::new(false))
+    }
+
     // --- read ---
 
     #[test]
     fn a_missing_value_is_none_not_an_error() {
         let primary = Fake::empty(Mode::Works);
         let legacy = Fake::empty(Mode::Works);
-        assert_eq!(read_from(&primary, some(&legacy)).unwrap(), None);
-        assert_eq!(read_from(&primary, None).unwrap(), None);
+        assert_eq!(read(&primary, some(&legacy)).unwrap(), None);
+        assert_eq!(read(&primary, None).unwrap(), None);
     }
 
     #[test]
     fn a_stored_value_is_read_back() {
         let primary = Fake::holding(Mode::Works, "sk-a");
-        assert_eq!(read_from(&primary, None).unwrap().as_deref(), Some("sk-a"));
+        assert_eq!(read(&primary, None).unwrap().as_deref(), Some("sk-a"));
     }
 
     /// The pin for the bug in #394's second half: a store that is there
@@ -821,11 +898,11 @@ mod tests {
     fn a_locked_store_is_an_error_not_a_missing_value() {
         let primary = Fake::empty(Mode::Locked);
         let legacy = Fake::holding(Mode::Works, "sk-old");
-        let err = read_from(&primary, some(&legacy)).expect_err("locked must not read as None");
+        let err = read(&primary, some(&legacy)).expect_err("locked must not read as None");
         assert!(matches!(err, keyring::Error::NoStorageAccess(_)));
         // And it did not wander into the other store to find an answer.
         assert_eq!(legacy.value().as_deref(), Some("sk-old"));
-        let err = read_from(&primary, None).expect_err("with no fallback store either");
+        let err = read(&primary, None).expect_err("with no fallback store either");
         assert!(matches!(err, keyring::Error::NoStorageAccess(_)));
     }
 
@@ -833,7 +910,7 @@ mod tests {
     fn an_ambiguous_or_undecodable_value_is_an_error() {
         let primary = Fake::empty(Mode::Garbled);
         let legacy = Fake::holding(Mode::Works, "sk-old");
-        let err = read_from(&primary, some(&legacy)).expect_err("garbled must not read as None");
+        let err = read(&primary, some(&legacy)).expect_err("garbled must not read as None");
         assert!(matches!(err, keyring::Error::BadEncoding(_)));
         assert_eq!(
             legacy.gets.get(),
@@ -847,7 +924,7 @@ mod tests {
         let primary = Fake::empty(Mode::Unreachable);
         let legacy = Fake::holding(Mode::Works, "sk-session");
         assert_eq!(
-            read_from(&primary, some(&legacy)).unwrap().as_deref(),
+            read(&primary, some(&legacy)).unwrap().as_deref(),
             Some("sk-session")
         );
         assert_eq!(legacy.value().as_deref(), Some("sk-session"), "not moved");
@@ -857,7 +934,7 @@ mod tests {
     fn an_unreachable_secret_service_with_no_session_copy_reads_as_missing() {
         let primary = Fake::empty(Mode::Unreachable);
         let legacy = Fake::empty(Mode::Works);
-        assert_eq!(read_from(&primary, some(&legacy)).unwrap(), None);
+        assert_eq!(read(&primary, some(&legacy)).unwrap(), None);
         assert_eq!(
             primary.gets.get(),
             2,
@@ -874,7 +951,7 @@ mod tests {
         let primary = Fake::holding(Mode::Works, "sk-durable").slow_to_start(1);
         let legacy = Fake::empty(Mode::Works);
         assert_eq!(
-            read_from(&primary, some(&legacy)).unwrap().as_deref(),
+            read(&primary, some(&legacy)).unwrap().as_deref(),
             Some("sk-durable"),
             "the second look found it"
         );
@@ -888,7 +965,7 @@ mod tests {
     fn a_slow_secret_service_with_nothing_stored_reads_as_missing() {
         let primary = Fake::empty(Mode::Works).slow_to_start(1);
         let legacy = Fake::empty(Mode::Works);
-        assert_eq!(read_from(&primary, some(&legacy)).unwrap(), None);
+        assert_eq!(read(&primary, some(&legacy)).unwrap(), None);
     }
 
     /// A service that comes up locked on the second look is a locked
@@ -897,7 +974,7 @@ mod tests {
     fn a_secret_service_that_comes_up_locked_on_the_second_look_is_an_error() {
         let primary = Fake::empty(Mode::Locked).slow_to_start(1);
         let legacy = Fake::empty(Mode::Works);
-        let err = read_from(&primary, some(&legacy)).expect_err("locked must not read as None");
+        let err = read(&primary, some(&legacy)).expect_err("locked must not read as None");
         assert!(matches!(err, keyring::Error::NoStorageAccess(_)));
     }
 
@@ -908,7 +985,7 @@ mod tests {
         let primary = Fake::holding(Mode::Works, "sk-durable").slow_to_start(1);
         let legacy = Fake::holding(Mode::Works, "sk-session");
         assert_eq!(
-            read_from(&primary, some(&legacy)).unwrap().as_deref(),
+            read(&primary, some(&legacy)).unwrap().as_deref(),
             Some("sk-session")
         );
         assert_eq!(primary.gets.get(), 1);
@@ -918,10 +995,10 @@ mod tests {
     fn neither_store_answering_is_an_error() {
         let primary = Fake::empty(Mode::Unreachable);
         let legacy = Fake::empty(Mode::Unreachable);
-        let err = read_from(&primary, some(&legacy)).expect_err("nothing could be asked");
+        let err = read(&primary, some(&legacy)).expect_err("nothing could be asked");
         assert!(matches!(err, keyring::Error::PlatformFailure(_)));
         // With no second store at all (macOS, Windows) the same.
-        let err = read_from(&primary, None).expect_err("nothing could be asked");
+        let err = read(&primary, None).expect_err("nothing could be asked");
         assert!(matches!(err, keyring::Error::PlatformFailure(_)));
     }
 
@@ -930,14 +1007,14 @@ mod tests {
         let primary = Fake::empty(Mode::Works);
         let legacy = Fake::holding(Mode::Works, "sk-from-last-version");
         assert_eq!(
-            read_from(&primary, some(&legacy)).unwrap().as_deref(),
+            read(&primary, some(&legacy)).unwrap().as_deref(),
             Some("sk-from-last-version")
         );
         assert_eq!(primary.value().as_deref(), Some("sk-from-last-version"));
         assert_eq!(legacy.value(), None, "the old copy is gone once moved");
         // And the next read is just a read.
         assert_eq!(
-            read_from(&primary, some(&legacy)).unwrap().as_deref(),
+            read(&primary, some(&legacy)).unwrap().as_deref(),
             Some("sk-from-last-version")
         );
     }
@@ -947,12 +1024,91 @@ mod tests {
         let primary = Fake::empty(Mode::WriteFails);
         let legacy = Fake::holding(Mode::Works, "sk-keep-me");
         assert_eq!(
-            read_from(&primary, some(&legacy)).unwrap().as_deref(),
+            read(&primary, some(&legacy)).unwrap().as_deref(),
             Some("sk-keep-me"),
             "the value is still returned"
         );
         assert_eq!(legacy.value().as_deref(), Some("sk-keep-me"), "and kept");
         assert_eq!(primary.value(), None);
+    }
+
+    /// The bug: with a locked keyring and a dismissed prompt, every slot
+    /// that still had a kernel copy tried its own move and raised its own
+    /// prompt (the active provider, the key, each model), and startup never
+    /// stopped asking. One refusal is the answer for the rest of the
+    /// process, and every value is still returned from the kernel copy.
+    #[test]
+    fn a_refused_move_is_not_tried_again_for_the_rest_of_the_process() {
+        let refused = AtomicBool::new(false);
+        let (key_primary, key_kernel) = (
+            Fake::empty(Mode::WriteRefused),
+            Fake::holding(Mode::Works, "sk-key"),
+        );
+        let (model_primary, model_kernel) = (
+            Fake::empty(Mode::WriteRefused),
+            Fake::holding(Mode::Works, "a-model"),
+        );
+
+        assert_eq!(
+            read_from(&key_primary, some(&key_kernel), &refused)
+                .unwrap()
+                .as_deref(),
+            Some("sk-key"),
+            "the value is still returned"
+        );
+        assert_eq!(key_primary.sets.get(), 1, "the first slot asked once");
+
+        assert_eq!(
+            read_from(&model_primary, some(&model_kernel), &refused)
+                .unwrap()
+                .as_deref(),
+            Some("a-model")
+        );
+        assert_eq!(
+            model_primary.sets.get(),
+            0,
+            "the second slot did not ask again"
+        );
+        assert!(refused.load(Ordering::Relaxed), "and it is remembered");
+        assert_eq!(key_kernel.value().as_deref(), Some("sk-key"), "kept");
+        assert_eq!(model_kernel.value().as_deref(), Some("a-model"), "kept");
+    }
+
+    /// Only a refusal ends the moves. A move that failed for a reason of
+    /// its own raises no prompt, and the next slot may well work.
+    #[test]
+    fn a_move_that_failed_for_another_reason_does_not_stop_the_next_one() {
+        let refused = AtomicBool::new(false);
+        let broken = Fake::empty(Mode::WriteFails);
+        let broken_kernel = Fake::holding(Mode::Works, "sk-a");
+        read_from(&broken, some(&broken_kernel), &refused).unwrap();
+        assert!(!refused.load(Ordering::Relaxed));
+
+        let primary = Fake::empty(Mode::Works);
+        let kernel = Fake::holding(Mode::Works, "sk-b");
+        assert_eq!(
+            read_from(&primary, some(&kernel), &refused)
+                .unwrap()
+                .as_deref(),
+            Some("sk-b")
+        );
+        assert_eq!(primary.value().as_deref(), Some("sk-b"), "moved");
+        assert_eq!(kernel.value(), None);
+    }
+
+    /// Reading a value the Secret Service already holds is not a move and
+    /// is not affected by an earlier refusal.
+    #[test]
+    fn a_refused_move_does_not_stop_reads_the_secret_service_answers() {
+        let refused = AtomicBool::new(true);
+        let primary = Fake::holding(Mode::Works, "sk-durable");
+        let kernel = Fake::empty(Mode::Works);
+        assert_eq!(
+            read_from(&primary, some(&kernel), &refused)
+                .unwrap()
+                .as_deref(),
+            Some("sk-durable")
+        );
     }
 
     // --- write ---
@@ -1036,7 +1192,7 @@ mod tests {
         delete_from(&primary, some(&legacy)).unwrap();
         assert_eq!(primary.value(), None);
         assert_eq!(legacy.value(), None);
-        assert_eq!(read_from(&primary, some(&legacy)).unwrap(), None);
+        assert_eq!(read(&primary, some(&legacy)).unwrap(), None);
         // Clearing what is not there is success.
         delete_from(&primary, some(&legacy)).unwrap();
         delete_from(&primary, None).unwrap();
@@ -1095,6 +1251,46 @@ mod tests {
                 assert!(reason.contains("no secret service"), "{reason}");
             }
             other => panic!("expected session-only, got {other:?}"),
+        }
+    }
+
+    /// The probe looks up an account nothing writes (reading a stored,
+    /// locked one raises an unlock prompt), so it must be no slot's name:
+    /// a collision would put the prompt back, and a save to that slot
+    /// would put a value where the probe finds it.
+    #[test]
+    fn the_probe_account_collides_with_no_slot() {
+        assert_ne!(PROBE_ACCOUNT, ACTIVE_PROVIDER_ACCOUNT);
+        // Every per-provider slot is `<provider_id><suffix>`. Whatever the
+        // provider id, the probe account is not one of them.
+        for suffix in [
+            account_for(""),
+            base_url_account_for(""),
+            model_account_for(""),
+            effort_account_for(""),
+        ] {
+            assert!(suffix.starts_with('_'), "{suffix}");
+            assert!(
+                !PROBE_ACCOUNT.ends_with(&suffix),
+                "{PROBE_ACCOUNT} would be the {suffix} slot of some provider"
+            );
+        }
+        for p in [
+            "anthropic",
+            "openai",
+            "openrouter",
+            "groq",
+            "gemini",
+            "ollama",
+        ] {
+            for slot in [
+                account_for(p),
+                base_url_account_for(p),
+                model_account_for(p),
+                effort_account_for(p),
+            ] {
+                assert_ne!(PROBE_ACCOUNT, slot);
+            }
         }
     }
 

@@ -240,7 +240,7 @@ Check whether a specific provider has a key.
 
 ### `getKeychainPersistence() → KeychainPersistence`
 
-Whether keys and settings saved now survive a reboot. Always `persistent: true` on macOS and Windows. On Linux they live in the Secret Service (GNOME Keyring, KWallet or KeePassXC), and `persistent: false` means none is running, so they are kept in the kernel keyring until the machine restarts. `reason` is why the Secret Service could not be used.
+Whether keys and settings saved now survive a reboot. Always `persistent: true` on macOS and Windows. On Linux they live in the Secret Service (GNOME Keyring, KWallet or KeePassXC), and `persistent: false` means none is running, so they are kept in the kernel keyring until the machine restarts. `reason` is why the Secret Service could not be used. It looks up an account nothing ever stores, so it never raises an unlock prompt.
 
 ```typescript
 const { persistent, reason } = await bridge.getKeychainPersistence();

@@ -581,7 +581,7 @@ async fn set_api_key_for_inner(state: &AppState, provider_id: &str, key: &str) -
     ai::keychain::save_active_provider(provider_id).map_err(CommandError::from)?;
     // Both writes went through, so the keychain is readable and writable
     // now whatever it was at launch.
-    state.set_keychain_read_error(None);
+    keychain_readable_again(state, ai::keychain::try_load_model);
     state.set_active_provider(provider_id.to_string());
     state.set_api_key_cache(Some(key.to_string()));
     rebuild_agent(state).await?;
@@ -812,7 +812,7 @@ pub async fn set_active_provider(state: State<'_, AppState>, provider: String) -
         return Err(format!("unsupported provider id: {provider}"));
     }
     ai::keychain::save_active_provider(&provider).map_err(CommandError::from)?;
-    state.set_keychain_read_error(None);
+    keychain_readable_again(&state, ai::keychain::try_load_model);
     state.set_active_provider(provider.clone());
     // Re-cache the key for the now-active provider (if any) so the
     // next `rebuild_agent` picks the right credentials up. When the read
@@ -3849,6 +3849,34 @@ pub(crate) fn load_startup_settings(
     }
 }
 
+/// A key or provider save went through, so the keychain is readable and
+/// writable now whatever it was at launch: drop the failure startup kept.
+///
+/// If there was one, startup stopped reading there and never restored the
+/// chosen models, so read them now. Without that the agent would run each
+/// provider's default model while Settings showed the stored pick (#249).
+/// A provider with a pick already in this session is left alone: it was
+/// made after the failure and may be newer than what the keychain holds.
+///
+/// With nothing kept this reads nothing, so an ordinary save costs no
+/// extra keychain round trips.
+fn keychain_readable_again(
+    state: &AppState,
+    load_model: impl Fn(&str) -> Result<Option<String>, ai::keychain::KeychainError>,
+) {
+    if state.keychain_read_error().is_none() {
+        return;
+    }
+    state.set_keychain_read_error(None);
+    restore_models(state, |id| {
+        if state.model_for(id).is_some() {
+            Ok(None)
+        } else {
+            load_model(id)
+        }
+    });
+}
+
 /// Log a startup read that failed and keep the first one's reason.
 /// Returns whether the keychain refused access, which ends startup's
 /// reads.
@@ -5700,6 +5728,70 @@ mod tests {
 
         assert_eq!(state.keychain_read_error().as_deref(), Some("not UTF-8"));
         assert_eq!(state.model_for("anthropic").as_deref(), Some("m"));
+    }
+
+    // ---- Models come back once the keychain does (#394) ----------------
+
+    /// Startup was refused, so the chosen models were never read, and the
+    /// first save that worked cleared the failure without reading them.
+    /// The agent then ran the provider's default model while Settings went
+    /// on showing the stored pick.
+    #[test]
+    fn a_save_after_a_refused_startup_restores_the_models_startup_skipped() {
+        let state = AppState::default();
+        load_startup_settings(
+            &state,
+            || Err(KeychainError::access_denied("prompt dismissed")),
+            |_| Ok(None),
+            |_| Ok(Some("never read".to_string())),
+        );
+        assert_eq!(state.model_for("anthropic"), None, "startup skipped them");
+
+        keychain_readable_again(&state, |id| {
+            Ok((id == "anthropic").then(|| "claude-opus-5".to_string()))
+        });
+
+        assert_eq!(state.keychain_read_error(), None, "the stash is cleared");
+        assert_eq!(
+            state.model_for("anthropic").as_deref(),
+            Some("claude-opus-5"),
+            "the stored pick is back, so rebuild_agent uses it"
+        );
+    }
+
+    /// A model picked after the failure may be newer than the stored one
+    /// (the pick could not be saved while the keychain was locked), so
+    /// recovery fills gaps and overwrites nothing.
+    #[test]
+    fn recovery_does_not_overwrite_a_model_picked_since() {
+        let state = AppState::default();
+        state.set_keychain_read_error(Some("locked".to_string()));
+        state.set_model_for("anthropic".to_string(), "picked-today".to_string());
+
+        keychain_readable_again(&state, |id| Ok(Some(format!("{id}-stored"))));
+
+        assert_eq!(
+            state.model_for("anthropic").as_deref(),
+            Some("picked-today")
+        );
+        assert_eq!(
+            state.model_for("openrouter").as_deref(),
+            Some("openrouter-stored")
+        );
+    }
+
+    /// Every successful save passes through here, and almost none follow a
+    /// failed startup. Those must not read eight model slots each.
+    #[test]
+    fn a_save_with_no_failure_kept_reads_no_models() {
+        let state = AppState::default();
+        let reads = Cell::new(0u32);
+        keychain_readable_again(&state, |_| {
+            reads.set(reads.get() + 1);
+            Ok(None)
+        });
+        assert_eq!(reads.get(), 0);
+        assert_eq!(state.keychain_read_error(), None);
     }
 
     // ---- Switching to a provider that needs no key ---------------------
