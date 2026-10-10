@@ -62,7 +62,9 @@ use crate::anthropic::{
     Message, MessagesRequest, OutputConfig, Role, StreamEvent, SystemBlock, ToolChoice,
 };
 use crate::approval::{self, Approval};
-use crate::prompt::{tool_budget_line, DEFAULT_MAX_TOKENS, MAX_TOOL_CALLS_PER_TURN};
+use crate::prompt::{
+    tool_budget_line, DEFAULT_MAX_TOKENS, MAX_TOOL_CALLS_PER_TURN, PLAN_MAX_TOKENS,
+};
 use crate::session_context::{render_block, SessionContext};
 use crate::{AgentEvent, Effort, Error, LlmConfig, Result, TurnResult, WireFormat};
 
@@ -147,6 +149,15 @@ fn one_shot_messages(
 /// effort parameter"), and `classify_mode` swallows errors, so sending it
 /// there would quietly turn mode detection off. A set effort also raises
 /// `max_tokens` to what that effort needs (see [`Effort::min_max_tokens`]).
+///
+/// `thinking_off` sends `thinking: {"type": "disabled"}` on the Anthropic
+/// wire format, for a request that wants a few words and nothing else. The
+/// current Anthropic models think by default and what they write while
+/// thinking counts toward `max_tokens`, so a short cap can end before any
+/// text. The caller must be on a model that accepts `disabled`, which the
+/// Haiku models do and Sonnet 5.5, Opus 5.5 and Fable 5.1 do not (400):
+/// that is why the plan, the main model's own work, never sets it. Chat
+/// completions bodies are built without it, as without an effort.
 fn one_shot_body(
     cfg: &LlmConfig,
     model: String,
@@ -154,6 +165,7 @@ fn one_shot_body(
     system: &[&str],
     messages: Vec<serde_json::Value>,
     effort: Option<Effort>,
+    thinking_off: bool,
 ) -> serde_json::Value {
     match cfg.provider.wire_format() {
         WireFormat::ChatCompletions => {
@@ -195,16 +207,30 @@ fn one_shot_body(
             if let Some(effort) = effort {
                 body["output_config"] = serde_json::json!(OutputConfig::effort(effort));
             }
+            if thinking_off {
+                body["thinking"] = serde_json::json!({ "type": "disabled" });
+            }
             body
         }
     }
 }
 
-/// Classify the user's request using a cheap single-turn call to
-/// `claude-haiku-4-5-20251001`. Passes recent conversation history for
-/// context (last 6 messages) so follow-up messages ("actually, change
-/// the BPM") classify correctly. Falls back to `Mode::General` on any
-/// error so classification failures are never user-visible.
+/// `max_tokens` for the classifier. The answer is one word, but the
+/// classifier model may think first and that counts toward the cap: at the
+/// 10 this used to be, a model that opens with a thinking block ends
+/// before any text, `classify_mode` reads no mode out of it, and mode
+/// detection is off with nothing to show for it. Anthropic's classifier is
+/// sent with thinking disabled as well (see [`one_shot_body`]); this is the
+/// room for a provider whose model thinks regardless. A cap is a ceiling,
+/// so the usual one-word answer costs what it always did.
+const CLASSIFIER_MAX_TOKENS: u32 = 256;
+
+/// Classify the user's request using a cheap single-turn call to the
+/// provider's [`classifier_model`](crate::LlmProvider::classifier_model).
+/// Passes recent conversation history for context (last 6 messages) so
+/// follow-up messages ("actually, change the BPM") classify correctly.
+/// Falls back to `Mode::General` on any error so classification failures
+/// are never user-visible.
 pub(crate) async fn classify_mode(
     cfg: &LlmConfig,
     http: &reqwest::Client,
@@ -217,14 +243,16 @@ pub(crate) async fn classify_mode(
     // message so the classifier sees the full intent.
     let messages = one_shot_messages(conversation, Some(6), user_message);
 
-    // No effort: see `one_shot_body`.
+    // No effort (see `one_shot_body`), and no thinking: the answer is one
+    // word and nothing here is worth reasoning about.
     let request_body = one_shot_body(
         cfg,
         cfg.wire_classifier_model(),
-        10,
+        CLASSIFIER_MAX_TOKENS,
         &[system_text],
         messages,
         None,
+        true,
     );
 
     let req = http.post(format!(
@@ -447,10 +475,11 @@ async fn fetch_plan(
     let request_body = one_shot_body(
         cfg,
         cfg.wire_model(),
-        1024,
+        PLAN_MAX_TOKENS,
         &[system_prompt, plan_instruction],
         messages,
         cfg.effective_effort(),
+        false,
     );
 
     let req = http.post(format!(
@@ -501,6 +530,52 @@ enum Gate {
     /// Plan first is on and the model wrote no plan. The first step with a
     /// call that would change the session is held for approval.
     HoldFirstEdit,
+}
+
+/// Remove every `thinking` and `redacted_thinking` block from
+/// `conversation`; text, `tool_use` and `tool_result` blocks stay, in order.
+///
+/// A thinking block's signature is bound to the request that produced it:
+/// the top-level `system`, the `tools` set, and every message before it.
+/// On Anthropic's 5.x models (Fable 5.1, Opus 5.5, Sonnet 5.5, Haiku 5.5)
+/// a block replayed under a different prefix is a 400
+/// (`Invalid signature in thinking block ... bound to a different
+/// conversation`) for accounts created on or after 2026-08-31, and for any
+/// request that opts in. Removing the blocks is the documented way out:
+/// "Remove `thinking` blocks from the start of the history, from the end,
+/// or all of them" is valid, and the model only loses that reasoning.
+///
+/// [`run_turn`] calls this once at the start of every turn, because every
+/// turn rebuilds the prefix: `system` is assembled from the classifier's
+/// mode, the matched skills, the memory, the agent profile and a session
+/// context that carries the head node id and the selection, and `tools` is
+/// filtered by that turn's whitelist. Almost no two turns send the same
+/// `system`, so a block kept from an earlier turn would not be valid.
+///
+/// Within a turn the prefix cannot change: `run_turn` builds `system` and
+/// `tools` once before its request loop and sends those same values on every
+/// step, so the thinking a step produced is replayed, unmodified, with the
+/// tool results that follow it. `tests/prior_turn_thinking.rs` pins that;
+/// anything that makes `system` or `tools` change between a turn's steps
+/// has to strip there too.
+///
+/// A provider that does not keep thinking in the first place (everything
+/// but Anthropic's own API) has none of these blocks, so this is a no-op
+/// for it. No message is left empty: an assistant message is stored only if
+/// it carries a block other than thinking.
+///
+/// Follow-up, not done here: an append-only history with a frozen `system`
+/// (the session context sent as part of the user message or as a
+/// mid-conversation system message) would keep the reasoning across turns.
+pub(crate) fn strip_thinking(conversation: &mut [Message]) {
+    for message in conversation {
+        message.content.retain(|block| {
+            !matches!(
+                block,
+                ContentBlock::Thinking { .. } | ContentBlock::RedactedThinking { .. }
+            )
+        });
+    }
 }
 
 /// Run a single agent turn. See [`crate::Agent::turn`] for behaviour.
@@ -642,6 +717,12 @@ where
     }
 
     // 1. Push the user turn onto the running conversation.
+    //
+    // First, drop the thinking that earlier turns left in it. `system` and
+    // `tools` were rebuilt above for this turn, and a thinking block only
+    // stays valid under the prefix it was produced with: replayed under
+    // this one it is a 400 on the 5.x models. See `strip_thinking`.
+    strip_thinking(conversation);
     // Save a copy before `user_message` is consumed by the ContentBlock move.
     let user_msg_saved = user_message.clone();
     // If the user edited the plan steps before approving, merge the override
@@ -1614,7 +1695,7 @@ mod tests {
     fn the_token_limit_is_named_as_each_api_expects() {
         let body_for = |id: &str| {
             let cfg = LlmConfig::new(crate::provider::provider_from_id(id), "k");
-            one_shot_body(&cfg, "m".into(), 7, &["s"], vec![], None)
+            one_shot_body(&cfg, "m".into(), 7, &["s"], vec![], None, false)
         };
         assert_eq!(body_for(crate::OPENAI_ID)["max_completion_tokens"], 7);
         for id in [
@@ -1640,7 +1721,15 @@ mod tests {
     fn a_one_shot_body_carries_the_effort_in_the_anthropic_shape_only() {
         for id in crate::SUPPORTED_PROVIDER_IDS {
             let cfg = config_with_effort(id, Effort::XHigh);
-            let body = one_shot_body(&cfg, "m".into(), 1024, &["s"], vec![], Some(Effort::XHigh));
+            let body = one_shot_body(
+                &cfg,
+                "m".into(),
+                1024,
+                &["s"],
+                vec![],
+                Some(Effort::XHigh),
+                false,
+            );
             match cfg.provider.wire_format() {
                 WireFormat::AnthropicMessages => {
                     assert_eq!(body["output_config"], json!({ "effort": "xhigh" }), "{id}");
@@ -1666,7 +1755,7 @@ mod tests {
     #[test]
     fn a_one_shot_body_with_no_effort_is_unchanged() {
         let cfg = LlmConfig::new_anthropic("k");
-        let body = one_shot_body(&cfg, "m".into(), 1024, &["s"], vec![], None);
+        let body = one_shot_body(&cfg, "m".into(), 1024, &["s"], vec![], None, false);
         assert_eq!(
             body,
             json!({
@@ -1767,16 +1856,212 @@ mod tests {
         }
     }
 
+    /// With no effort the plan request adds no `output_config`, and it
+    /// asks for `PLAN_MAX_TOKENS`: on a model that thinks by default the
+    /// old 1024 came back as a thinking block with no text, which reads
+    /// as "the model returned no plan". It does not turn thinking off
+    /// either: the plan is the main model's own work, and the main model
+    /// may be one that rejects `disabled`.
     #[tokio::test]
-    async fn the_plan_request_with_no_effort_is_what_it_was() {
+    async fn the_plan_request_with_no_effort_adds_no_output_config() {
         let plan = r#"<plan>[{"step":1,"tool":"set_track_gain","description":"Louder"}]</plan>"#;
-        let (steps, body) = serve_one_shot(crate::ANTHROPIC_ID, plan, |cfg, http| async move {
-            fetch_plan(&cfg, &http, "SYSTEM-PROMPT", &[], "make it louder").await
-        })
-        .await;
-        assert!(steps.is_ok());
-        assert!(body.get("output_config").is_none());
-        assert_eq!(body["max_tokens"], 1024);
+        for id in crate::SUPPORTED_PROVIDER_IDS {
+            let (steps, body) = serve_one_shot(id, plan, |cfg, http| async move {
+                fetch_plan(&cfg, &http, "SYSTEM-PROMPT", &[], "make it louder").await
+            })
+            .await;
+            assert!(steps.is_ok(), "{id}: {steps:?}");
+            assert!(body.get("output_config").is_none(), "{id}");
+            assert!(body.get("thinking").is_none(), "{id}");
+            let cap = body
+                .get("max_tokens")
+                .or_else(|| body.get("max_completion_tokens"));
+            assert_eq!(cap, Some(&json!(PLAN_MAX_TOKENS)), "{id}");
+            // The literal is deliberate: a lowered constant must not pass.
+            assert!(
+                cap.and_then(Value::as_u64).is_some_and(|c| c >= 8192),
+                "{id}: no room to think before a plan: {cap:?}"
+            );
+        }
+    }
+
+    /// A model step needs the same room: thinking counts toward the cap,
+    /// and the 5.x models think by default. The literal is deliberate.
+    #[test]
+    fn a_step_of_a_turn_has_room_to_think_before_it_answers() {
+        let conversation = [Message {
+            role: Role::User,
+            content: vec![ContentBlock::Text { text: "hi".into() }],
+        }];
+        let req = build_request(
+            "m",
+            "sys",
+            &json!([]),
+            &conversation,
+            ToolChoice::AUTO,
+            None,
+        );
+        assert!(req.max_tokens >= 8192, "{}", req.max_tokens);
+        assert_eq!(req.max_tokens, DEFAULT_MAX_TOKENS);
+    }
+
+    /// The classifier asks for one word, and a model that thinks by
+    /// default spends the cap on thinking first, so an answer of no text
+    /// at all (read as `general`, silently) was one short cap away.
+    /// Anthropic's classifier is sent with thinking disabled and room to
+    /// spare; a chat-completions body has no `thinking` field to set and
+    /// gets the room.
+    #[tokio::test]
+    async fn the_classifier_turns_thinking_off_and_has_headroom() {
+        for id in crate::SUPPORTED_PROVIDER_IDS {
+            let (mode, body) = serve_one_shot(id, "mashup", |cfg, http| async move {
+                classify_mode(&cfg, &http, "mash these two songs up", &[]).await
+            })
+            .await;
+            assert_eq!(mode, Mode::Mashup, "{id}");
+            match crate::provider::provider_from_id(id).wire_format() {
+                WireFormat::AnthropicMessages => {
+                    assert_eq!(body["thinking"], json!({ "type": "disabled" }), "{id}");
+                }
+                WireFormat::ChatCompletions => {
+                    assert!(body.get("thinking").is_none(), "{id}: {body}");
+                }
+            }
+            // Room for a model that thinks before its one word. The
+            // literal is deliberate: a lowered constant must not pass.
+            let cap = body
+                .get("max_tokens")
+                .or_else(|| body.get("max_completion_tokens"))
+                .and_then(Value::as_u64);
+            assert_eq!(cap, Some(u64::from(CLASSIFIER_MAX_TOKENS)), "{id}");
+            assert!(cap.is_some_and(|c| c >= 256), "{id}: {cap:?}");
+        }
+    }
+
+    /// `thinking_off` is what puts the field on the wire, and only on the
+    /// Anthropic format.
+    #[test]
+    fn thinking_off_is_a_request_for_the_anthropic_body_only() {
+        for id in crate::SUPPORTED_PROVIDER_IDS {
+            let cfg = LlmConfig::new(crate::provider::provider_from_id(id), "k");
+            let off = one_shot_body(&cfg, "m".into(), 7, &["s"], vec![], None, true);
+            let on = one_shot_body(&cfg, "m".into(), 7, &["s"], vec![], None, false);
+            assert!(on.get("thinking").is_none(), "{id}");
+            match cfg.provider.wire_format() {
+                WireFormat::AnthropicMessages => {
+                    assert_eq!(off["thinking"], json!({ "type": "disabled" }), "{id}")
+                }
+                WireFormat::ChatCompletions => assert!(off.get("thinking").is_none(), "{id}"),
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // strip_thinking (#468)
+    // ------------------------------------------------------------------
+
+    fn thinking(signature: &str) -> ContentBlock {
+        ContentBlock::Thinking {
+            thinking: format!("reasoning {signature}"),
+            signature: signature.into(),
+        }
+    }
+
+    /// `role:kind,kind` per message, to compare a conversation's shape.
+    fn shape_of(conversation: &[Message]) -> Vec<String> {
+        conversation
+            .iter()
+            .map(|m| {
+                let kinds: Vec<&str> = m
+                    .content
+                    .iter()
+                    .map(|b| match b {
+                        ContentBlock::Text { .. } => "text",
+                        ContentBlock::ToolUse { .. } => "tool_use",
+                        ContentBlock::ToolResult { .. } => "tool_result",
+                        ContentBlock::Thinking { .. } => "thinking",
+                        ContentBlock::RedactedThinking { .. } => "redacted_thinking",
+                    })
+                    .collect();
+                format!("{:?}:{}", m.role, kinds.join(","))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn strip_thinking_removes_both_kinds_and_keeps_the_rest_in_order() {
+        let mut conversation = vec![
+            Message {
+                role: Role::User,
+                content: vec![ContentBlock::Text { text: "go".into() }],
+            },
+            Message {
+                role: Role::Assistant,
+                content: vec![
+                    thinking("A"),
+                    ContentBlock::RedactedThinking { data: "R".into() },
+                    ContentBlock::Text {
+                        text: "on it".into(),
+                    },
+                    thinking("B"),
+                    ContentBlock::ToolUse {
+                        id: "t1".into(),
+                        name: "gain".into(),
+                        input: json!({ "db": 3 }),
+                    },
+                ],
+            },
+            Message {
+                role: Role::User,
+                content: vec![ContentBlock::ToolResult {
+                    tool_use_id: "t1".into(),
+                    content: "{}".into(),
+                    is_error: None,
+                }],
+            },
+            Message {
+                role: Role::Assistant,
+                content: vec![
+                    thinking("C"),
+                    ContentBlock::Text {
+                        text: "done".into(),
+                    },
+                ],
+            },
+        ];
+        strip_thinking(&mut conversation);
+
+        assert_eq!(
+            shape_of(&conversation),
+            [
+                "User:text",
+                "Assistant:text,tool_use",
+                "User:tool_result",
+                "Assistant:text"
+            ]
+        );
+        // The survivors are untouched.
+        assert!(matches!(
+            &conversation[1].content[0],
+            ContentBlock::Text { text } if text == "on it"
+        ));
+        assert!(matches!(
+            &conversation[1].content[1],
+            ContentBlock::ToolUse { id, input, .. } if id == "t1" && input == &json!({ "db": 3 })
+        ));
+        assert!(matches!(
+            &conversation[2].content[0],
+            ContentBlock::ToolResult { tool_use_id, .. } if tool_use_id == "t1"
+        ));
+    }
+
+    #[test]
+    fn strip_thinking_leaves_a_conversation_without_any_alone() {
+        let mut conversation = tool_turn("make it louder", "Done.");
+        let before = shape_of(&conversation);
+        strip_thinking(&mut conversation);
+        assert_eq!(shape_of(&conversation), before);
+        strip_thinking(&mut []);
     }
 
     /// A reply to a request with an effort can lead with a `thinking`
