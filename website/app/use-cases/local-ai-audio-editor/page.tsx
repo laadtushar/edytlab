@@ -70,8 +70,16 @@ export default function LocalAiUseCasePage() {
               </td>
             </tr>
             <tr>
-              <td>Usage data</td>
-              <td>None. The app has no telemetry and this site has no analytics.</td>
+              <td>Usage data from the app</td>
+              <td>None. The app sends no telemetry.</td>
+            </tr>
+            <tr>
+              <td>Visits to this website</td>
+              <td>
+                Recorded by anonymous Vercel analytics (Web Analytics and
+                Speed Insights), which the website loads and the app does not.
+                See the <Link href="/privacy">privacy page</Link>.
+              </td>
             </tr>
           </tbody>
         </table>

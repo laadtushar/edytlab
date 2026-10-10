@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <LegalShell title="Privacy" updated="2026-10-09">
+    <LegalShell title="Privacy" updated="2026-10-10">
       <p>
         edytlab is a local-first desktop application. This page describes what
         data the app handles and how it handles it, and what the website you
@@ -47,8 +47,10 @@ export default function PrivacyPage() {
         The only outbound network traffic the app makes during normal use is
         chat requests to the LLM provider you have selected. These requests
         contain your prompt text, agent context, and tool-call results — never
-        your raw audio. You can inspect the full set of requests in your OS
-        network tools at any time.
+        your raw audio. Beyond that, the app connects only where you tell it
+        to: a plugin you install from a URL is downloaded from that URL, and an
+        MCP server you add is contacted at the address you gave it. You can
+        inspect the full set of requests in your OS network tools at any time.
       </p>
 
       <h2>Telemetry and analytics</h2>
@@ -120,9 +122,10 @@ export default function PrivacyPage() {
 
       <h2>Updates</h2>
       <p>
-        The app may check for new releases. This check fetches a small JSON
-        manifest from the public release host. No identifying information is
-        sent.
+        The app does not check for updates and makes no request to find out
+        whether a new release exists. New versions are published on the
+        GitHub releases page and announced on this website; you download and
+        install them yourself.
       </p>
 
       <h2>Contact</h2>

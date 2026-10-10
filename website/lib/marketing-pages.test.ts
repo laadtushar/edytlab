@@ -8,7 +8,7 @@
  * files.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -84,6 +84,61 @@ describe("footer and marketing pages", () => {
       // layout's metadataBase) plus the feed link, like every other page.
       expect(source).toContain(`alternates: pageAlternates("${path}")`);
     }
+  });
+});
+
+/**
+ * What the site says about its own analytics.
+ *
+ * `app/layout.tsx` mounts Vercel Web Analytics and Speed Insights, and
+ * `/privacy` says so while promising that the desktop app sends no
+ * telemetry. Two marketing pages once said "no analytics on this
+ * website", which the privacy page, one click away, contradicted. The
+ * claim about the app and the claim about the site are different facts;
+ * only the first is "none".
+ */
+describe("analytics claims", () => {
+  /** "no analytics", "without tracking", "analytics-free" and the like. */
+  const deniesSiteAnalytics =
+    /\b(?:no|without|zero)\s+(?:web\s+|site\s+)?(?:analytics|tracking|trackers)\b|\banalytics[- ]free\b/i;
+
+  /** Every hand-written source file that renders text for a visitor. */
+  function siteSources(): string[] {
+    const out: string[] = [];
+    for (const dir of ["app", "components", "lib"]) {
+      const root = join(WEBSITE, dir);
+      for (const rel of readdirSync(root, { recursive: true })) {
+        const name = String(rel);
+        if (!/\.tsx?$/.test(name) || /\.test\.tsx?$/.test(name)) continue;
+        out.push(join(dir, name));
+      }
+    }
+    return out;
+  }
+
+  it("mounts the analytics that the privacy page discloses", () => {
+    const layout = read(join(WEBSITE, "app/layout.tsx"));
+    const privacy = read(join(WEBSITE, "app/privacy/page.tsx"));
+    expect(layout).toContain("<Analytics />");
+    expect(layout).toContain("<SpeedInsights />");
+    expect(privacy).toContain("Vercel Web Analytics");
+    expect(privacy).toContain("Vercel Speed Insights");
+  });
+
+  it("does not claim, on any page, that the website has no analytics", () => {
+    const offenders = siteSources().filter((file) =>
+      deniesSiteAnalytics.test(read(join(WEBSITE, file))),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it.each([
+    "app/press/page.tsx",
+    "app/use-cases/local-ai-audio-editor/page.tsx",
+  ])("%s discloses the site's analytics and links the privacy page", (file) => {
+    const source = read(join(WEBSITE, file));
+    expect(source).toMatch(/Vercel\s+analytics/);
+    expect(source).toContain('href="/privacy"');
   });
 });
 
