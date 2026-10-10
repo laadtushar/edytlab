@@ -14,6 +14,11 @@
  * running, above a card that is gone. jsdom draws neither, so this is
  * checked here and not only in the unit tests.
  *
+ * A call the user declines or rewords never runs, so it resolves as "not
+ * run" (`not_run: true` on `agent://tool-call-end`), which is not the
+ * failure `ok: false` alone would read as. Editing a held step sends its
+ * tool along with the new text, so the model is told `tool — text`.
+ *
  * `send_message` is held open for the whole turn, as it is in the real
  * app: the command returns when the turn does. `approve_plan` and
  * `reject_plan` return `CmdResult<()>`, which serialises as `null`.
@@ -85,13 +90,39 @@ test("a held edit is shown, and Discard runs nothing", async ({ app }) => {
 
   // What the backend then says: the held call is resolved as not run,
   // and the turn ends as rejected, with no `done`.
-  await app.emit("agent://tool-call-end", { id: "t1", ok: false });
+  await app.emit("agent://tool-call-end", { id: "t1", ok: false, not_run: true });
   await app.emit("agent://plan-rejected", null);
 
   // The sentence is a message now, not a bubble still being typed.
   await expect(page.getByTestId("message-bubble").filter({ hasText: "Reversing track 0." })).toBeVisible();
   await expect(page.getByTestId("caret")).toHaveCount(0);
-  await expect(page.getByTestId("tool-badge")).not.toHaveAttribute("data-status", "running");
+  // Declined, so nothing ran: "not run", neither a tick nor a failure.
+  const badge = page.getByTestId("tool-badge");
+  await expect(badge).toHaveAttribute("data-status", "not_run");
+  await expect(badge).toContainText("not run");
+
+  await app.release("send", null);
+});
+
+test("Editing a held edit sends its tool with the revision", async ({ app }) => {
+  await holdAnEdit(app);
+  const page = app.page;
+
+  await page.getByTestId("plan-edit-button").click();
+  await page.getByTestId("plan-step-editor").fill("track: 1");
+  await page.getByTestId("plan-step-save").click();
+  await page.getByTestId("plan-run-button").click();
+
+  // The tool is not editable and travels with the new text.
+  await expect
+    .poll(() => app.requestsFor("approve_plan"))
+    .toEqual([{ steps: [{ tool: "reverse", description: "track: 1" }] }]);
+  await expect(page.getByTestId("plan-approval-card")).toHaveCount(0);
+
+  // A revised step runs nothing: the held call is resolved as not run
+  // while the model proposes again.
+  await app.emit("agent://tool-call-end", { id: "t1", ok: false, not_run: true });
+  await expect(page.getByTestId("tool-badge")).toHaveAttribute("data-status", "not_run");
 
   await app.release("send", null);
 });

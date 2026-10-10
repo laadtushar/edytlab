@@ -278,8 +278,8 @@ pub(crate) fn describe_call(
 /// Answer a step without running it: one the user declined, revised or
 /// did not answer, or one that would have gone past the tool budget.
 ///
-/// Emits `ToolCallEnd { ok: false }` for every held id, so no badge is
-/// left reading "running", and records one user message holding a
+/// Emits `ToolCallNotRun` for every held id, so no badge is left reading
+/// "running" and none reads as a failure, and records one user message holding a
 /// `tool_result` for every `tool_use` in the step, plus the user's own
 /// words after them when there are any. The pairing has to hold on every
 /// path: an assistant `tool_use` with no `tool_result` makes the next
@@ -293,11 +293,7 @@ pub(crate) fn not_run(
 ) {
     let mut blocks: Vec<ContentBlock> = Vec::with_capacity(calls.len() + 1);
     for (id, _, _) in calls {
-        on_event(AgentEvent::ToolCallEnd {
-            id: id.clone(),
-            ok: false,
-            view: None,
-        });
+        on_event(AgentEvent::ToolCallNotRun { id: id.clone() });
         blocks.push(ContentBlock::ToolResult {
             tool_use_id: id.clone(),
             content: content.to_string(),
@@ -731,14 +727,14 @@ mod tests {
             None,
         );
 
-        let ended: Vec<(&str, bool)> = events
+        let not_run_ids: Vec<&str> = events
             .iter()
             .map(|e| match e {
-                AgentEvent::ToolCallEnd { id, ok, view: None } => (id.as_str(), *ok),
+                AgentEvent::ToolCallNotRun { id } => id.as_str(),
                 other => panic!("unexpected event {other:?}"),
             })
             .collect();
-        assert_eq!(ended, vec![("a", false), ("b", false), ("c", false)]);
+        assert_eq!(not_run_ids, vec!["a", "b", "c"]);
 
         assert_eq!(conversation.len(), 1);
         assert_eq!(conversation[0].role, Role::User);

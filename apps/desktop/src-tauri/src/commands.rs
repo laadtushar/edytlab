@@ -1855,7 +1855,26 @@ fn emit_agent_event<R: tauri::Runtime>(app: &AppHandle<R>, event: ai::AgentEvent
             }
         }
         ai::AgentEvent::ToolCallEnd { id, ok, view } => {
-            if let Err(e) = app.emit(TOOL_CALL_END, ToolCallEndPayload { id, ok, view }) {
+            let payload = ToolCallEndPayload {
+                id,
+                ok,
+                not_run: false,
+                view,
+            };
+            if let Err(e) = app.emit(TOOL_CALL_END, payload) {
+                tracing::warn!(error = %e, "failed to emit tool-call-end");
+            }
+        }
+        // Same event, so the badge's lifecycle ends the way it always
+        // does; `not_run` is what tells the UI it was never a failure.
+        ai::AgentEvent::ToolCallNotRun { id } => {
+            let payload = ToolCallEndPayload {
+                id,
+                ok: false,
+                not_run: true,
+                view: None,
+            };
+            if let Err(e) = app.emit(TOOL_CALL_END, payload) {
                 tracing::warn!(error = %e, "failed to emit tool-call-end");
             }
         }
@@ -1951,6 +1970,46 @@ fn plan_gate_was_open(state: &AppState) -> bool {
         .swap(false, std::sync::atomic::Ordering::SeqCst)
 }
 
+/// One step of the card, as the user left it. The tool is carried along
+/// with the (possibly edited) description because the description alone
+/// reads "track: 1": without the tool the model has to guess what to run
+/// with it from its earlier `tool_use`.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct EditedStep {
+    #[serde(default)]
+    pub tool: String,
+    pub description: String,
+}
+
+/// The message that tells the model what the user changed, or `None`
+/// when there is nothing to say.
+///
+/// Each line reads `{n}. {tool} — {description}`, the way the card shows
+/// it, so the model sees the tool and the arguments as the user did. A
+/// step with no tool (a plan the model wrote without naming one) is just
+/// `{n}. {description}`.
+fn revision_text(steps: &[EditedStep]) -> Option<String> {
+    if steps.is_empty() {
+        return None;
+    }
+    let formatted = steps
+        .iter()
+        .enumerate()
+        .map(|(i, s)| {
+            let tool = s.tool.trim();
+            if tool.is_empty() {
+                format!("{}. {}", i + 1, s.description)
+            } else {
+                format!("{}. {} — {}", i + 1, tool, s.description)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    Some(format!(
+        "I've updated the plan. Please follow these revised steps instead:\n{formatted}"
+    ))
+}
+
 /// Called by the frontend "Run" button. Fires the plan-approval notifier
 /// in `AppState`, unblocking the turn loop. What is approved is whatever
 /// the card showed: a plan, or the held first edit (#415).
@@ -1959,14 +2018,18 @@ fn plan_gate_was_open(state: &AppState) -> bool {
 /// it across its `.await` points, so touching the agent here would
 /// deadlock.  The notifier lives independently on `AppState`.
 ///
-/// When `steps` is non-empty the edited step descriptions are stored in
-/// `plan_steps_override` before the notifier fires.  The agent loop reads
-/// and clears this slot immediately after it wakes. For a plan it appends
-/// the override text to the conversation so the model executes the user's
-/// modified plan rather than the original one. For a held edit nothing
-/// runs: the model is given the revision and proposes again.
+/// When `steps` is non-empty the edited steps, each with its tool, are
+/// stored in `plan_steps_override` as `{n}. {tool} — {description}` lines
+/// before the notifier fires.  The agent loop reads and clears this slot
+/// immediately after it wakes. For a plan it appends the override text to
+/// the conversation so the model executes the user's modified plan rather
+/// than the original one. For a held edit nothing runs: the model is
+/// given the revision and proposes again.
 #[tauri::command]
-pub async fn approve_plan(state: State<'_, AppState>, steps: Option<Vec<String>>) -> CmdResult<()> {
+pub async fn approve_plan(
+    state: State<'_, AppState>,
+    steps: Option<Vec<EditedStep>>,
+) -> CmdResult<()> {
     // A stray Run — on a card that should already have gone away — is a
     // no-op, not a banked permit (#251).
     //
@@ -1978,22 +2041,11 @@ pub async fn approve_plan(state: State<'_, AppState>, steps: Option<Vec<String>>
     if !plan_gate_was_open(&state) {
         return Ok(());
     }
-    if let Some(steps) = steps {
-        if !steps.is_empty() {
-            let formatted = steps
-                .iter()
-                .enumerate()
-                .map(|(i, s)| format!("{}. {}", i + 1, s))
-                .collect::<Vec<_>>()
-                .join("\n");
-            let override_text = format!(
-                "I've updated the plan. Please follow these revised steps instead:\n{formatted}"
-            );
-            *state
-                .plan_steps_override
-                .lock()
-                .expect("plan_steps_override mutex poisoned") = Some(override_text);
-        }
+    if let Some(override_text) = steps.as_deref().and_then(revision_text) {
+        *state
+            .plan_steps_override
+            .lock()
+            .expect("plan_steps_override mutex poisoned") = Some(override_text);
     }
     state.plan_notify.notify_one();
     Ok(())
@@ -4494,6 +4546,56 @@ mod tests {
     use super::*;
     use session::SessionState;
     use tempfile::tempdir;
+
+    fn step(tool: &str, description: &str) -> EditedStep {
+        EditedStep {
+            tool: tool.to_string(),
+            description: description.to_string(),
+        }
+    }
+
+    /// An edited held step used to reach the model as `1. track: 1`, with
+    /// the tool left for it to guess from its earlier `tool_use`. The
+    /// override names the tool, in the card's own `tool — description`
+    /// form.
+    #[test]
+    fn revision_text_names_each_steps_tool() {
+        assert_eq!(
+            revision_text(&[step("reverse", "track: 1")]).as_deref(),
+            Some(
+                "I've updated the plan. Please follow these revised steps instead:\n\
+                 1. reverse — track: 1"
+            )
+        );
+
+        let two = revision_text(&[step("reverse", "track: 1"), step("normalize", "track: 2")])
+            .expect("two steps");
+        assert!(
+            two.ends_with("\n1. reverse — track: 1\n2. normalize — track: 2"),
+            "{two}"
+        );
+
+        // A plan step the model wrote without a tool keeps the old form,
+        // and a tool that is only whitespace counts as none.
+        let bare =
+            revision_text(&[step("", "just text"), step("  ", "more text")]).expect("two steps");
+        assert!(bare.ends_with("\n1. just text\n2. more text"), "{bare}");
+
+        assert_eq!(revision_text(&[]), None);
+    }
+
+    #[test]
+    fn an_edited_step_may_arrive_without_a_tool() {
+        let steps: Vec<EditedStep> =
+            serde_json::from_str(r#"[{"description":"track: 1"}]"#).expect("tool is optional");
+        assert_eq!(steps[0].tool, "");
+        assert_eq!(
+            revision_text(&steps)
+                .as_deref()
+                .map(|t| t.ends_with("\n1. track: 1")),
+            Some(true)
+        );
+    }
 
     fn empty_session_state() -> SessionState {
         SessionState {
