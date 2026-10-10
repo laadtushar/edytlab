@@ -1,0 +1,303 @@
+{
+  "video": "reel-highlights-es.mp4",
+  "duration": 62.3,
+  "audio_dir": "audio/reel-highlights-es",
+  "narration_voice": "Roger - Laid-Back, Casual, Resonant (CwhRBWXzGAHq8TQ4Fs17)",
+  "narration_model": "eleven_v4",
+  "cues": [
+    {
+      "id": "R01",
+      "kind": "hook",
+      "start": 0.0,
+      "end": 2.9,
+      "onscreen": "Describe la mezcla. Escúchala.",
+      "max_seconds": 2.6,
+      "max_words": 6,
+      "narration": "[excited] Describe la mezcla. Escúchala.",
+      "narration_spoken": "[excited] Describe la mezcla. Escúchala.",
+      "narration_display": "Describe la mezcla. Escúchala.",
+      "words": 4,
+      "title": [
+        "Describe la mezcla.",
+        "Escúchala."
+      ],
+      "sub": "Una grabación real de pantalla de edytlab",
+      "speech_seconds": 2.4,
+      "clip": "R01.mp3",
+      "clip_speech_seconds": 2.4
+    },
+    {
+      "id": "R02",
+      "kind": "step",
+      "start": 2.9,
+      "end": 8.0,
+      "onscreen": "2 · Beatmatch",
+      "max_seconds": 4.8,
+      "max_words": 11,
+      "narration": "{2|Dos}: beatmatch. Neon Rush baja a {120|ciento veinte}.",
+      "narration_spoken": "Dos: beatmatch. Neon Rush baja a ciento veinte.",
+      "narration_display": "2: beatmatch. Neon Rush baja a 120.",
+      "words": 8,
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT05",
+        "start": 37.9,
+        "end": 43.0
+      },
+      "speech_seconds": 4.48,
+      "clip": "R02.mp3",
+      "clip_speech_seconds": 4.48
+    },
+    {
+      "id": "R03",
+      "kind": "step",
+      "start": 8.0,
+      "end": 12.9,
+      "onscreen": "4 · Blend: crossfade, low-pass on the outgoing track",
+      "max_seconds": 4.6,
+      "max_words": 11,
+      "narration": "{4|Cuatro}: crossfade, con un pasa-bajos en la pista que sale.",
+      "narration_spoken": "Cuatro: crossfade, con un pasa-bajos en la pista que sale.",
+      "narration_display": "4: crossfade, con un pasa-bajos en la pista que sale.",
+      "words": 10,
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT07",
+        "start": 82.6,
+        "end": 87.5
+      },
+      "speech_seconds": 4.24,
+      "clip": "R03.mp3",
+      "clip_speech_seconds": 4.24
+    },
+    {
+      "id": "R04",
+      "kind": "listen",
+      "start": 12.9,
+      "end": 21.6,
+      "onscreen": "Escucha: la transición, desde el 0:12",
+      "max_seconds": 1.7,
+      "max_words": 4,
+      "narration": "Escucha.",
+      "narration_spoken": "Escucha.",
+      "narration_display": "Escucha.",
+      "words": 1,
+      "voice_end": 14.9,
+      "note": "app audio plays after the voice window: the line is only a lead-in, narration stays silent over the music",
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT08",
+        "start": 90.3,
+        "end": 99.0
+      },
+      "speech_seconds": 0.8,
+      "clip": "R04.mp3",
+      "clip_speech_seconds": 0.8
+    },
+    {
+      "id": "R05",
+      "kind": "step",
+      "start": 21.6,
+      "end": 27.0,
+      "onscreen": "2 · Extend the intro",
+      "max_seconds": 5.1,
+      "max_words": 12,
+      "narration": "{2|Dos}: alarga la intro. Copia los primeros {8|ocho} compases.",
+      "narration_spoken": "Dos: alarga la intro. Copia los primeros ocho compases.",
+      "narration_display": "2: alarga la intro. Copia los primeros 8 compases.",
+      "words": 9,
+      "source": {
+        "demo": "dj-extended-club-intro",
+        "code": "EI",
+        "caption": "EI05",
+        "start": 40.0,
+        "end": 45.4
+      },
+      "speech_seconds": 4.8,
+      "clip": "R05.mp3",
+      "clip_speech_seconds": 4.8
+    },
+    {
+      "id": "R06",
+      "kind": "step",
+      "start": 27.0,
+      "end": 31.2,
+      "onscreen": "3 · A filter that opens into the drop",
+      "max_seconds": 3.9,
+      "max_words": 9,
+      "narration": "{3|Tres}: un filtro que se abre en el drop.",
+      "narration_spoken": "Tres: un filtro que se abre en el drop.",
+      "narration_display": "3: un filtro que se abre en el drop.",
+      "words": 9,
+      "source": {
+        "demo": "dj-extended-club-intro",
+        "code": "EI",
+        "caption": "EI06",
+        "start": 61.5,
+        "end": 65.7
+      },
+      "speech_seconds": 2.88,
+      "clip": "R06.mp3",
+      "clip_speech_seconds": 2.88
+    },
+    {
+      "id": "R07",
+      "kind": "listen",
+      "start": 31.2,
+      "end": 41.7,
+      "onscreen": "Escucha: el grave llega con el drop (0:31)",
+      "max_seconds": 1.7,
+      "max_words": 4,
+      "narration": "Espera el drop.",
+      "narration_spoken": "Espera el drop.",
+      "narration_display": "Espera el drop.",
+      "words": 3,
+      "voice_end": 33.2,
+      "note": "app audio plays after the voice window: the line is only a lead-in, narration stays silent over the music",
+      "source": {
+        "demo": "dj-extended-club-intro",
+        "code": "EI",
+        "caption": "EI09",
+        "start": 97.51,
+        "end": 108.01
+      },
+      "speech_seconds": 1.04,
+      "clip": "R07.mp3",
+      "clip_speech_seconds": 1.04
+    },
+    {
+      "id": "R08",
+      "kind": "step",
+      "start": 41.7,
+      "end": 46.9,
+      "onscreen": "1 · Match every track to 124 BPM",
+      "max_seconds": 4.9,
+      "max_words": 11,
+      "narration": "{1|Uno}: iguala cada pista a {124|ciento veinticuatro} {BPM|B P M}.",
+      "narration_spoken": "Uno: iguala cada pista a ciento veinticuatro B P M.",
+      "narration_display": "1: iguala cada pista a 124 BPM.",
+      "words": 10,
+      "source": {
+        "demo": "dj-mini-mix",
+        "code": "MM",
+        "caption": "MM03",
+        "start": 13.6,
+        "end": 18.8
+      },
+      "speech_seconds": 4.56,
+      "clip": "R08.mp3",
+      "clip_speech_seconds": 4.56
+    },
+    {
+      "id": "R09",
+      "kind": "step",
+      "start": 46.9,
+      "end": 51.1,
+      "onscreen": "2 · Sequence with 4-bar overlaps",
+      "max_seconds": 3.9,
+      "max_words": 9,
+      "narration": "{2|Dos}: secuencia con solapes de {4|cuatro} compases.",
+      "narration_spoken": "Dos: secuencia con solapes de cuatro compases.",
+      "narration_display": "2: secuencia con solapes de 4 compases.",
+      "words": 7,
+      "source": {
+        "demo": "dj-mini-mix",
+        "code": "MM",
+        "caption": "MM04",
+        "start": 54.0,
+        "end": 58.2
+      },
+      "speech_seconds": 3.6,
+      "clip": "R09.mp3",
+      "clip_speech_seconds": 3.6
+    },
+    {
+      "id": "R10",
+      "kind": "listen",
+      "start": 51.1,
+      "end": 59.6,
+      "onscreen": "Escucha: Midnight Drive entra en Solar Flare (0:23)",
+      "max_seconds": 1.7,
+      "max_words": 4,
+      "narration": "Así suena.",
+      "narration_spoken": "Así suena.",
+      "narration_display": "Así suena.",
+      "words": 2,
+      "voice_end": 53.1,
+      "note": "app audio plays after the voice window: the line is only a lead-in, narration stays silent over the music",
+      "source": {
+        "demo": "dj-mini-mix",
+        "code": "MM",
+        "caption": "MM06",
+        "start": 89.75,
+        "end": 98.25
+      },
+      "speech_seconds": 0.96,
+      "clip": "R10.mp3",
+      "clip_speech_seconds": 0.96
+    },
+    {
+      "id": "R11",
+      "kind": "end",
+      "start": 59.6,
+      "end": 62.3,
+      "onscreen": "edytlab · Gratis y de código abierto · edytlab.com · macOS · Windows · Linux",
+      "max_seconds": 2.4,
+      "max_words": 5,
+      "narration": "Gratis y de código abierto.",
+      "narration_spoken": "Gratis y de código abierto.",
+      "narration_display": "Gratis y de código abierto.",
+      "words": 5,
+      "speech_seconds": 2.24,
+      "clip": "R11.mp3",
+      "clip_speech_seconds": 2.24
+    }
+  ],
+  "fps": 30,
+  "language": "es",
+  "sfx": [
+    {
+      "file": "sfx/hit.mp3",
+      "at": 0.0,
+      "gain_db": 9.5
+    },
+    {
+      "file": "sfx/whoosh.mp3",
+      "at": 2.8,
+      "gain_db": 2.1
+    },
+    {
+      "file": "sfx/whoosh.mp3",
+      "at": 7.9,
+      "gain_db": 2.1
+    },
+    {
+      "file": "sfx/whoosh.mp3",
+      "at": 21.5,
+      "gain_db": 2.1
+    },
+    {
+      "file": "sfx/whoosh.mp3",
+      "at": 26.9,
+      "gain_db": 2.1
+    },
+    {
+      "file": "sfx/whoosh.mp3",
+      "at": 41.6,
+      "gain_db": 2.1
+    },
+    {
+      "file": "sfx/whoosh.mp3",
+      "at": 46.8,
+      "gain_db": 2.1
+    },
+    {
+      "file": "sfx/ding.mp3",
+      "at": 59.6,
+      "gain_db": -16.4
+    }
+  ]
+}

@@ -1,0 +1,327 @@
+{
+ "E01": {
+  "words": [
+   {
+    "text": "Extend",
+    "start": 0.0,
+    "end": 0.56
+   },
+   {
+    "text": "an",
+    "start": 0.6,
+    "end": 0.64
+   },
+   {
+    "text": "intro.",
+    "start": 0.8,
+    "end": 1.52
+   },
+   {
+    "text": "Just",
+    "start": 1.76,
+    "end": 1.92
+   },
+   {
+    "text": "ask.",
+    "start": 2.08,
+    "end": 2.64
+   }
+  ],
+  "speech_end": 2.64,
+  "tempo": 1.0,
+  "clip": "E01.mp3",
+  "window": 3.0,
+  "status": "ok",
+  "request_id": "dwv9P2jSKWPWpt5Diz7j"
+ },
+ "E02": {
+  "words": [
+   {
+    "text": "1:",
+    "start": 0.0,
+    "end": 0.88
+   },
+   {
+    "text": "check",
+    "start": 0.96,
+    "end": 1.2
+   },
+   {
+    "text": "the",
+    "start": 1.28,
+    "end": 1.36
+   },
+   {
+    "text": "tempo",
+    "start": 1.52,
+    "end": 1.92
+   },
+   {
+    "text": "and",
+    "start": 2.0,
+    "end": 2.08
+   },
+   {
+    "text": "bar",
+    "start": 2.16,
+    "end": 2.32
+   },
+   {
+    "text": "length.",
+    "start": 2.4,
+    "end": 3.28
+   }
+  ],
+  "speech_end": 3.28,
+  "tempo": 1.0,
+  "clip": "E02.mp3",
+  "window": 4.2,
+  "status": "ok",
+  "request_id": "F6wp0o4RxFiT2kkbV456"
+ },
+ "E03": {
+  "words": [
+   {
+    "text": "2:",
+    "start": 0.0,
+    "end": 0.4
+   },
+   {
+    "text": "extend",
+    "start": 0.8,
+    "end": 1.36
+   },
+   {
+    "text": "the",
+    "start": 1.4,
+    "end": 1.44
+   },
+   {
+    "text": "intro.",
+    "start": 1.6,
+    "end": 2.08
+   },
+   {
+    "text": "Copy",
+    "start": 2.56,
+    "end": 2.8
+   },
+   {
+    "text": "the",
+    "start": 2.88,
+    "end": 2.96
+   },
+   {
+    "text": "first",
+    "start": 3.04,
+    "end": 3.36
+   },
+   {
+    "text": "8",
+    "start": 3.44,
+    "end": 3.6
+   },
+   {
+    "text": "bars.",
+    "start": 3.68,
+    "end": 4.32
+   }
+  ],
+  "speech_end": 4.32,
+  "tempo": 1.0,
+  "clip": "E03.mp3",
+  "window": 5.0,
+  "status": "ok",
+  "request_id": "PnoTdHasZAJq1xsOav41"
+ },
+ "E04": {
+  "words": [
+   {
+    "text": "3:",
+    "start": 0.0,
+    "end": 0.8
+   },
+   {
+    "text": "a",
+    "start": 0.88,
+    "end": 0.96
+   },
+   {
+    "text": "filter",
+    "start": 1.04,
+    "end": 1.44
+   },
+   {
+    "text": "that",
+    "start": 1.52,
+    "end": 1.6
+   },
+   {
+    "text": "opens",
+    "start": 1.76,
+    "end": 2.16
+   },
+   {
+    "text": "into",
+    "start": 2.24,
+    "end": 2.48
+   },
+   {
+    "text": "the",
+    "start": 2.56,
+    "end": 2.6
+   },
+   {
+    "text": "drop.",
+    "start": 2.64,
+    "end": 3.2
+   }
+  ],
+  "speech_end": 3.2,
+  "tempo": 1.0,
+  "clip": "E04.mp3",
+  "window": 4.2,
+  "status": "ok",
+  "request_id": "ylJBmAg7nBuARlXCTjCL"
+ },
+ "E05": {
+  "words": [
+   {
+    "text": "4:",
+    "start": 0.0,
+    "end": 0.88
+   },
+   {
+    "text": "fade",
+    "start": 1.04,
+    "end": 1.2
+   },
+   {
+    "text": "it",
+    "start": 1.28,
+    "end": 1.36
+   },
+   {
+    "text": "in,",
+    "start": 1.44,
+    "end": 1.92
+   },
+   {
+    "text": "and",
+    "start": 2.0,
+    "end": 2.08
+   },
+   {
+    "text": "export.",
+    "start": 2.24,
+    "end": 2.96
+   }
+  ],
+  "speech_end": 2.96,
+  "tempo": 1.0,
+  "clip": "E05.mp3",
+  "window": 4.2,
+  "status": "ok",
+  "request_id": "68JuYm9yFMYqK7OKcwsF"
+ },
+ "E06": {
+  "words": [
+   {
+    "text": "Wait",
+    "start": 0.0,
+    "end": 0.32
+   },
+   {
+    "text": "for",
+    "start": 0.4,
+    "end": 0.48
+   },
+   {
+    "text": "the",
+    "start": 0.56,
+    "end": 0.6
+   },
+   {
+    "text": "drop.",
+    "start": 0.64,
+    "end": 1.28
+   }
+  ],
+  "speech_end": 1.28,
+  "tempo": 1.0,
+  "clip": "E06.mp3",
+  "window": 2.0,
+  "status": "ok",
+  "request_id": "2KrOk06HW82P9D5oqQhH"
+ },
+ "E07": {
+  "words": [
+   {
+    "text": "Done:",
+    "start": 0.0,
+    "end": 0.8
+   },
+   {
+    "text": "a",
+    "start": 0.88,
+    "end": 0.96
+   },
+   {
+    "text": "16-bar",
+    "start": 1.04,
+    "end": 1.76
+   },
+   {
+    "text": "intro,",
+    "start": 1.92,
+    "end": 2.72
+   },
+   {
+    "text": "exported.",
+    "start": 2.96,
+    "end": 3.52
+   }
+  ],
+  "speech_end": 3.52,
+  "tempo": 1.0,
+  "clip": "E07.mp3",
+  "window": 4.167,
+  "status": "ok",
+  "request_id": "NSXS7ZExqhB1rdb3tzw3"
+ },
+ "E08": {
+  "words": [
+   {
+    "text": "edytlab.",
+    "start": 0.0,
+    "end": 0.876
+   },
+   {
+    "text": "Free",
+    "start": 1.095,
+    "end": 1.386
+   },
+   {
+    "text": "and",
+    "start": 1.459,
+    "end": 1.605
+   },
+   {
+    "text": "open",
+    "start": 1.678,
+    "end": 1.897
+   },
+   {
+    "text": "source.",
+    "start": 2.043,
+    "end": 2.7
+   }
+  ],
+  "speech_end": 2.7,
+  "tempo": 1.0963,
+  "clip": "E08.wav",
+  "window": 3.0,
+  "status": "ok",
+  "request_id": "hIkW5Uov0WrzSWWLEDeX"
+ }
+}

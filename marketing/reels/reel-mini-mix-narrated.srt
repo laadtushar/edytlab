@@ -1,0 +1,37 @@
+1
+00:00:00,000 --> 00:00:02,810
+Build a mini-mix. Just ask.
+
+2
+00:00:03,000 --> 00:00:07,250
+First, match every track to 124 BPM.
+
+3
+00:00:07,600 --> 00:00:11,370
+Second, sequence them with 4-bar overlaps.
+
+4
+00:00:11,800 --> 00:00:15,650
+Third, match the loudness,
+and limit the master.
+
+5
+00:00:16,000 --> 00:00:17,690
+Here's the first blend.
+
+6
+00:00:24,500 --> 00:00:26,030
+And the second one.
+
+7
+00:00:33,000 --> 00:00:35,490
+Fourth, export the mix.
+
+8
+00:00:37,200 --> 00:00:40,730
+Done: 1:21, exported.
+
+9
+00:00:41,200 --> 00:00:44,150
+edytlab. Free and open source.
+

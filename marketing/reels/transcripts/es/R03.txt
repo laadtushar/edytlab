@@ -1,0 +1,1 @@
+Cuatro: crossfade, con un pasa-bajos en la pista que sale.
