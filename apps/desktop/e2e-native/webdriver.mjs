@@ -1,6 +1,7 @@
 // A minimal W3C WebDriver client for tauri-driver: just what these
-// stories need, over fetch, so the native suite adds no dependencies.
+// stories need, over node:http, so the native suite adds no dependencies.
 import { writeFileSync } from "node:fs";
+import { request as httpRequest } from "node:http";
 
 const ELEMENT = "element-6066-11e4-a52e-4f735466cecf";
 
@@ -21,11 +22,62 @@ export const K = {
   del: "\uE017",
 };
 
-// Every request closes its connection. Node's fetch pools keep-alive
-// sockets per origin, and a story's driver lives on the same port as the
-// last story's dead one: the first request of the next story reused the
-// dead socket and failed with "fetch failed" — which made every other
-// story fail, with the new driver up and its log empty.
+// How long a command may take before it is given up on: what fetch (undici)
+// allowed before this client used node:http.
+const TIMEOUT_MS = 300000;
+
+/**
+ * One HTTP exchange with tauri-driver, on a connection of its own.
+ *
+ * Every request gets a fresh TCP connection (`agent: false`), which Node
+ * closes once the answer is in. Nothing is pooled on this side: a story's
+ * driver lives on the same port as the last story's dead one, and a pooled
+ * socket to the dead one made the next story's first request fail.
+ *
+ * But the request says `Connection: keep-alive`, never `close`, although
+ * this side closes it anyway. tauri-driver forwards every header but Host
+ * to WebKitWebDriver through a hyper client that pools its connections
+ * there and never retries one (`retry_canceled_requests(false)`, in 2.0.6
+ * and 2.1.0). WebKitWebDriver's server (libsoup) honours a request's
+ * `Connection: close` by closing the socket after the response, but does
+ * not say so in the response; hyper decides from the response alone, so it
+ * pooled the socket the server was closing. A command handed that socket in
+ * the moment before hyper saw it close never reached WebKitWebDriver:
+ * tauri-driver logged "client error (SendRequest) ... Connection reset by
+ * peer" or "client error (Canceled) ... connection closed", dropped this
+ * side's connection without an answer, and the story failed with "other
+ * side closed" on whatever command it was on, two or three times a run.
+ * With keep-alive the server keeps its end open, and hyper's pool holds
+ * only live sockets.
+ */
+function exchange(method, url, payload, label = `${method} ${new URL(url).pathname}`) {
+  const body = payload === undefined ? undefined : Buffer.from(JSON.stringify(payload));
+  const headers = { "content-type": "application/json", connection: "keep-alive" };
+  if (body) headers["content-length"] = body.length;
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(url, { method, agent: false, headers }, (res) => {
+      const chunks = [];
+      res.on("data", (c) => chunks.push(c));
+      res.on("error", reject);
+      res.on("end", () => {
+        let json = {};
+        try {
+          json = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+        } catch {}
+        resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, body: json });
+      });
+    });
+    req.setTimeout(TIMEOUT_MS, () =>
+      req.destroy(Object.assign(new Error(`no answer in ${TIMEOUT_MS / 1000} s`), { code: "ETIMEDOUT" })),
+    );
+    req.on("error", reject);
+    req.end(body);
+  }).catch((e) => {
+    // The code says whether the driver refused, reset, or timed out.
+    throw new Error(`${label}: request failed (${`${e.code ?? ""} ${e.message}`.trim()})`);
+  });
+}
+
 export class Driver {
   constructor(base, id) {
     this.base = base;
@@ -33,43 +85,25 @@ export class Driver {
   }
 
   static async start({ application, args = [], base = "http://127.0.0.1:4444" }) {
-    const res = await fetch(`${base}/session`, {
-      method: "POST",
-      headers: { "content-type": "application/json", connection: "close" },
-      body: JSON.stringify({
-        capabilities: {
-          alwaysMatch: { "tauri:options": { application, args } },
-        },
-      }),
+    const { ok, body } = await exchange("POST", `${base}/session`, {
+      capabilities: {
+        alwaysMatch: { "tauri:options": { application, args } },
+      },
     });
-    const body = await res.json();
-    if (!res.ok) throw new Error(`session: ${JSON.stringify(body)}`);
+    if (!ok || !body.value?.sessionId) throw new Error(`session: ${JSON.stringify(body)}`);
     return new Driver(base, body.value.sessionId);
   }
 
   async cmd(method, path, payload) {
-    let res;
-    try {
-      res = await fetch(`${this.base}/session/${this.id}${path}`, {
-        method,
-        headers: { "content-type": "application/json", connection: "close" },
-        body: payload === undefined ? undefined : JSON.stringify(payload),
-      });
-    } catch (e) {
-      // "fetch failed" alone says nothing; the cause says whether the
-      // driver refused, reset, or timed out.
-      const cause = e.cause ? `${e.cause.code ?? ""} ${e.cause.message ?? ""}`.trim() : "";
-      throw new Error(`${method} ${path}: fetch failed${cause ? ` (${cause})` : ""}`);
-    }
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) {
+    const { ok, body } = await exchange(method, `${this.base}/session/${this.id}${path}`, payload, `${method} ${path}`);
+    if (!ok) {
       throw new Error(`${method} ${path}: ${JSON.stringify(body.value ?? body).slice(0, 400)}`);
     }
     return body.value;
   }
 
   async quit() {
-    await fetch(`${this.base}/session/${this.id}`, { method: "DELETE", headers: { connection: "close" } }).catch(() => {});
+    await exchange("DELETE", `${this.base}/session/${this.id}`).catch(() => {});
   }
 
   /** Run `fn` in the page; it receives `args` and may return a promise. */

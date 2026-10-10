@@ -372,6 +372,9 @@ async fn agent_dispatches_normalize_and_emits_node_created() {
                 assert!(saw_node, "NodeCreated should precede ToolCallEnd");
                 saw_tool_end_ok = true;
             }
+            ai::AgentEvent::ToolCallNotRun { id } => {
+                panic!("nothing here is held or over budget, so every call runs: {id}")
+            }
             ai::AgentEvent::Done => {
                 assert!(saw_tool_end_ok);
                 saw_done = true;

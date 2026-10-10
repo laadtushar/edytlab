@@ -222,6 +222,7 @@ pub enum AgentEvent {
     TextDelta(String),
     ToolCallStart { name: String, id: String },
     ToolCallEnd   { id: String, ok: bool, view: Option<ToolView> },
+    ToolCallNotRun { id: String },   // announced, never dispatched: not a failure
     NodeCreated(NodeId),
     Done,
     Plan { steps: Vec<serde_json::Value> },
@@ -289,8 +290,8 @@ from the constant, appended to the mode's base prompt), so it can plan within it
 
 When a step's calls would go past the budget, the loop does not run that step.
 Each of its `tool_use` blocks is answered with an `is_error` `tool_result` saying
-it was not run because the budget was reached (and `ToolCallEnd { ok: false }` is
-emitted for each, so no badge is left "running"). It then makes **one last
+it was not run because the budget was reached (and `ToolCallNotRun` is
+emitted for each, so no badge is left "running" and none reads as a failure). It then makes **one last
 request with tools off** (`tool_choice: none`; the tool definitions stay in the
 request because the history holds tool calls, which Anthropic rejects without
 them) so the model says what was done and what is left. That text streams as
@@ -310,9 +311,12 @@ depends on whether the model wrote a plan:
 | Situation | What happens |
 |-----------|--------------|
 | The model writes a plan | The plan card is shown; the turn waits. Approving lets every edit run, as before. |
-| No plan, with Plan first on (the model did not write one, or planning failed in any way) | `PlanUnavailable { first_edit_held: true }`, then the turn goes on. The first model step with a call that would change the session is **held before any of it dispatches**, and its concrete tool calls are shown on the same card. Approve: that step runs and the rest of the turn is ungated. Decline: nothing runs, the model is told the user declined, and the turn ends with `PlanRejected`. Edit the descriptions: nothing runs, and the model is given the revision and proposes again, which is held in turn. |
+| No plan, with Plan first on (the model did not write one, or planning failed in any way) | `PlanUnavailable { first_edit_held: true }`, then the turn goes on. The first model step with a call that would change the session is **held before any of it dispatches**, and its concrete tool calls are shown on the same card. Approve: that step runs and the rest of the turn is ungated. Decline: nothing runs, each held call reads "not run" (`ToolCallNotRun`), the model is told the user declined, and the turn ends with `PlanRejected`. Edit the descriptions: nothing runs, each held call reads "not run", and the model is given the revision (each step as `tool — description`) and proposes again, which is held in turn. |
 | No plan, mashup request, Plan first off | `PlanUnavailable { first_edit_held: false }` and the turn proceeds with no gate. |
 | A turn whose calls only read the session | Never held. |
+
+With no answer within five minutes nothing runs, each held call is answered "not
+run" (`ToolCallNotRun`), and the turn ends with `PlanTimeout`.
 
 "Would change the session" is `Tool::mutates()`, which defaults to `true`: a new
 tool, and every MCP tool, is held unless it is deliberately marked read-only.
@@ -867,7 +871,7 @@ The agent turn emits events via Tauri's event system (names in `apps/desktop/src
 |-----------|---------|-------------|
 | `agent://text-delta` | `{ text: string }` | Each text chunk streamed from the LLM |
 | `agent://tool-call` | `{ name: string, id: string }` | Tool execution starts |
-| `agent://tool-call-end` | `{ id: string, ok: boolean, view?: ToolView }` | Tool execution completes |
+| `agent://tool-call-end` | `{ id: string, ok: boolean, not_run: boolean, view?: ToolView }` | Tool execution completes, or the call was announced and will never run (`ok: false`, `not_run: true`: declined, reworded, unanswered, or over the tool budget) |
 | `agent://node-created` | `{ node_id: string }` | DAG node appended after tool |
 | `agent://done` | `{}` | Turn complete (no more tool calls) |
 | `agent://plan` | `{ steps: object[] }` | A plan, or the held first edit, awaits approval; the turn is suspended (see [Plan first](#plan-first)) |
