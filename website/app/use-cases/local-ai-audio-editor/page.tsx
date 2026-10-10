@@ -126,19 +126,18 @@ export default function LocalAiUseCasePage() {
         <h2>Be realistic about local models</h2>
         <ul>
           <li>
-            The agent sends its instructions and the tool list with every
-            request. One measured first request was about 15,000 tokens, and a
-            local model run with an 8,192-token context refused it. Use a model
-            with reliable tool calling and a context window well above that.
-            Shrinking the request is tracked in{" "}
-            <a
-              href={`${siteConfig.github}/issues/395`}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              issue 395
-            </a>
-            .
+            With Ollama the agent sends a smaller set of tools: the common
+            editing tools, plus any tool you have named or the assistant has
+            just proposed, with shortened descriptions. The names of the rest
+            go in the prompt, so the model knows they exist and can call them.
+            That keeps a first request small enough for an 8,192-token
+            context. A long conversation can still outgrow a small context.
+            If the server refuses an over-long request, as llama.cpp does, the
+            app says so and how to raise the context. Ollama trims an
+            over-long prompt instead, and the app shows nothing, so if replies
+            start to forget earlier messages, raise the model&apos;s context
+            length or reopen the project to start the conversation afresh. Use
+            a model with reliable tool calling.
           </li>
           <li>
             On a CPU, a large request means a long wait for the first reply.

@@ -39,11 +39,13 @@
 pub mod agent_loop;
 pub mod anthropic;
 mod approval;
+mod context_window;
 pub mod keychain;
 pub mod models;
 pub mod prompt;
 pub mod provider;
 pub mod session_context;
+pub mod tool_selection;
 pub mod validate;
 
 pub use session_context::{render_block as render_session_block, SessionContext, TrackBrief};
@@ -56,8 +58,8 @@ pub use anthropic::Effort;
 pub use models::{list_models_for, list_models_for_at, ModelInfo};
 pub use prompt::{DEFAULT_BASE_URL, DEFAULT_MODEL, MAX_TOOL_CALLS_PER_TURN};
 pub use provider::{
-    AnthropicProvider, LlmProvider, OpenAIProvider, OpenRouterProvider, WireFormat, ANTHROPIC_ID,
-    OPENAI_ID, OPENROUTER_ID, SUPPORTED_PROVIDER_IDS,
+    AnthropicProvider, LlmProvider, OpenAIProvider, OpenRouterProvider, ToolSet, WireFormat,
+    ANTHROPIC_ID, OPENAI_ID, OPENROUTER_ID, SUPPORTED_PROVIDER_IDS,
 };
 
 /// Classifier model used for cheap mode detection (M27).
@@ -336,6 +338,26 @@ pub enum Error {
     // failed is the status and the server's own message.
     #[error("the model provider returned an error ({status}): {message}")]
     Api { status: u16, message: String },
+
+    /// The request did not fit the model's context window (#395).
+    ///
+    /// Split out of [`Error::Api`] because it is the one provider error
+    /// with something the person can do about it, and the server's own
+    /// words ("exceed_context_size_error") say nothing of that. The
+    /// counts are there when the server gave them (llama.cpp does).
+    /// Like `Api`, the text names no hosted provider (#405) (it names the
+    /// two local servers, Ollama and llama.cpp, only to say where their
+    /// context is raised), and it avoids the words a credential error is
+    /// recognised by, so the chat does not offer Settings for it.
+    #[error("{}", crate::context_window::explain(.needed, .available))]
+    ContextTooSmall {
+        /// Tokens the request needed, when the server said.
+        needed: Option<u64>,
+        /// Tokens the model's context holds, when the server said.
+        available: Option<u64>,
+        /// The server's own body, for the log.
+        message: String,
+    },
 
     #[error("the model provider's stream failed: {0}")]
     ApiStream(String),

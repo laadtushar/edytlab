@@ -18,7 +18,11 @@
 //!    would change the session (see 7), so that with Plan first on no
 //!    edit runs without approval (#415).
 //! 3. Append the user's message to the conversation.
-//! 4. Open a streaming Anthropic call (system prompt + tools cached).
+//! 4. Open a streaming Anthropic call (system prompt + tools cached). A
+//!    provider that asks for the slim tool set (Ollama) is sent a core
+//!    plus the tools the message names instead, chosen once per turn
+//!    ([`crate::tool_selection`], #395); the others get every permitted
+//!    tool, in the dispatcher's order, so Anthropic's cache holds.
 //! 5. Forward `text` deltas to the caller's `on_event` sink in order.
 //! 6. Reassemble each `tool_use` block, validate args via the
 //!    dispatcher's compiled JSON Schema, invoke the tool synchronously,
@@ -66,7 +70,9 @@ use crate::models::clamp_max_tokens;
 use crate::prompt::{
     tool_budget_line, DEFAULT_MAX_TOKENS, MAX_TOOL_CALLS_PER_TURN, PLAN_MAX_TOKENS,
 };
+use crate::provider::ToolSet;
 use crate::session_context::{render_block, SessionContext};
+use crate::{context_window, tool_selection};
 use crate::{AgentEvent, Effort, Error, LlmConfig, Result, TurnResult, WireFormat};
 
 // ---------------------------------------------------------------------------
@@ -741,9 +747,17 @@ where
     // nothing to explain why. `plan_first` makes it a choice.
     let mut step_override: Option<String> = None;
     let mut gate = Gate::Open;
+    // The tools an approved plan names, for the slim tool set: a plan that
+    // says to use `reverb` is no use if the model is then not shown it.
+    let mut plan_tool_names = String::new();
     if plan_first || mode == Mode::Mashup {
         match fetch_plan(cfg, http, system_prompt, conversation, &user_message).await {
             Ok(steps) => {
+                plan_tool_names = steps
+                    .iter()
+                    .filter_map(|step| step.get("tool").and_then(Value::as_str))
+                    .collect::<Vec<_>>()
+                    .join(" ");
                 // Block until the frontend answers via `approve_plan` or
                 // `reject_plan`, or time out after 5 minutes.
                 match approval::ask(
@@ -813,6 +827,10 @@ where
     } else {
         user_message
     };
+    // What the slim tool set reads to see which tools were asked for: the
+    // words the user sent, an edited plan if they changed one, and the
+    // tools an approved plan named.
+    let mention_text = format!("{user_text} {plan_tool_names}");
     // Joins a trailing user message rather than following it: after a
     // declined step the conversation ends in the `tool_result`s that
     // answered it, and a second user message in a row is rejected.
@@ -826,6 +844,41 @@ where
             None => all,
         }
     };
+    // A provider for small-context models is sent a core plus the tools
+    // this message points at, in a shorter form (#395). Worked out once
+    // per turn, here, so every round trip carries the same tools in the
+    // same order: a local server then keeps the prompt it has already
+    // processed. The full path is untouched, which is what keeps
+    // Anthropic's prompt cache valid.
+    //
+    // The tools it was not sent are named in one line at the end of the
+    // system prompt, from the same selection, so the model knows they
+    // exist and can call them by name. Appended here, after the prompt
+    // the plan request used, because only now is the selection made.
+    let (tool_schemas, tools_not_sent_note) = match cfg.provider.tool_set() {
+        ToolSet::Full => (tool_schemas, None),
+        ToolSet::Slim => {
+            let selection = tool_selection::slim_tool_schemas(
+                tool_schemas,
+                &mention_text,
+                // Not the memory or session blocks: track names and effect
+                // kinds there would pull in tools nobody asked for.
+                &[
+                    base_prompt.as_str(),
+                    profile_block.as_str(),
+                    skills_block.as_str(),
+                ],
+                conversation,
+            );
+            let note = selection.names_note();
+            (selection.tools, note)
+        }
+    };
+    let request_prompt = match tools_not_sent_note {
+        Some(note) => format!("{combined_prompt}\n\n{note}"),
+        None => combined_prompt.clone(),
+    };
+    let system_prompt: &str = &request_prompt;
 
     // The same whitelist, as a set, for the dispatch-time check (#238).
     //
@@ -886,10 +939,9 @@ where
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
-            return Err(Error::Api {
-                status: status.as_u16(),
-                message: body,
-            });
+            // A request that did not fit the model's context is its own
+            // error, with what to do about it (#395).
+            return Err(context_window::api_error(status.as_u16(), body));
         }
 
         // 3. Drain the SSE stream, accumulating text deltas + tool_use

@@ -329,6 +329,138 @@ The shared approval path (arming the gate, the five-minute timeout, the card's
 steps, the bookkeeping for a step that does not run) is
 `crates/ai/src/approval.rs`.
 
+### Request size and small-context models
+
+A request is the system prompt, the tool schemas and the conversation. For a
+one-line message the tool schemas are nearly all of it, which a local model
+with a small context cannot take: the native end-to-end run sent "Make track 0
+louder by 6 dB." and a local server with an 8,192-token context refused it
+(#395). `crates/ai/tests/request_size.rs` drives the real `Agent` against a mock
+server, takes the first streaming request, and prints its parts. Read them with
+
+```
+cargo test -p ai --test request_size -- --nocapture
+```
+
+At the time of writing:
+
+| Request | System prompt | Tool schemas | Total |
+|---------|---------------|--------------|-------|
+| Anthropic (every tool) | 1.2 KB | 54 KB | 55.5 KB |
+| A chat-completions provider sent every tool | 1.2 KB | 57 KB | 58 KB |
+| Ollama (slim set, with the names line) | 2.3 KB | 6.3 KB | 8.7 KB |
+
+The system prompt is a kilobyte, so the fix is fewer and terser tools, and only
+for the provider that needs it. `LlmProvider::tool_set()` says which:
+
+- **`ToolSet::Full`** (the default, and every hosted provider): every tool the
+  turn permits, as the dispatcher lists them. **Anthropic must stay `Full`.**
+  Its prompt cache keys on the whole tools-plus-system prefix, so a tool list
+  that varied with the message would make every message a cache miss. That path
+  is not touched. `request_size.rs` pins that Anthropic is sent every registered
+  tool with the `cache_control` breakpoints, and ratchets the system prompt and
+  the tool schemas separately, so growth shows up as a failing test whose
+  message says to raise the constant deliberately.
+- **`ToolSet::Slim`** (Ollama): `crates/ai/src/tool_selection.rs` builds the
+  list once per turn from the tools the turn permits (so a disabled tool is
+  never brought back), in this order of priority:
+  1. tools the user's message names, by name, by a distinctive word of it
+     ("reverb", "pitch it up", "reversed") or by what people say instead
+     ("remove the reverb" for `remove_effect`, "less harsh" for `de_esser`,
+     "export each track separately" for `export_multiple`), the first
+     mentioned first. Words that appear in many tool names, such as `track` or
+     `region`, name none. The tools an approved plan names count here too, and
+     a plan step's name is split at underscores, so `add_reverb` brings in
+     `reverb`;
+  2. the core list `SLIM_CORE_TOOLS` (the edits a message does not name: cut,
+     pan, undo, export, gain);
+  3. tools the assistant's latest message names, so "yes, do it" after "I could
+     add a limiter or a de-esser" is shown those two;
+  4. tools the system prompt points at in backticks (a profile or a matched
+     skill);
+  5. tools the model has already called in the conversation;
+  6. tools the user named in earlier messages, the latest message first.
+
+  They are added while the compacted descriptors stay within
+  `SLIM_TOOLS_BUDGET_BYTES`, then sorted by name. If everything permitted
+  already fits (a small agent profile), all of it is sent. Each description is
+  cut to its first sentence and the keywords the model can do without
+  (`default`, `examples`, `title`, `additionalProperties: false`) are dropped;
+  names, types, enums, bounds and `required` are kept. A tool whose
+  description says it is not implemented in this build (`separate_stems`,
+  `transcribe`) is never selected and never listed: a small model that is
+  offered one calls it, and it can only fail. The same goes for the tools
+  that only work on a transcript (`NEEDS_TRANSCRIPT_TOOLS`: `cut_words`,
+  `duck_under_speech`, `remove_fillers`), because the only thing that makes
+  a transcript is `transcribe`. A test fails when `transcribe` stops being a
+  stub, and says to delete that list.
+
+  **The names line.** A model that is not shown a tool does not know it
+  exists, so the permitted tools that were not sent are named, names only, in
+  one line at the end of the system prompt ("More tools you can call by exact
+  name…"). It comes from the same whitelist-filtered list as the selection, so
+  a tool the profile or the Capabilities menu took away is in neither. The
+  built-in tools come first and are always all listed (they come to about
+  1 KB). The MCP tools follow, in name order, while the names stay within
+  `SLIM_NAMES_BUDGET_BYTES` (1,600 B), and the line then ends "and N more",
+  which counts MCP tools only. The order matters: an MCP wire name is
+  `<server>__<tool>` and can sort ahead of every built-in name, so a cap that
+  walked the names alphabetically would cut built-in tools that sort late to
+  make room for MCP tools the user may never use (with sixty MCP tools that
+  left 35 built-ins neither sent nor named). The line tells the two apart by
+  the `__`, and a test fails if a built-in name ever has one. The budget is
+  tight on purpose: the request that names a dozen tools sends the most
+  schemas, and `request_size.rs` holds it 500 B under the bound with MCP
+  tools registered. When everything was sent there is no line. A call to a
+  listed tool by name works: the dispatcher validates it against the tool's
+  full schema and the error says what is missing.
+
+  **The set can change between turns.** It is chosen from the conversation
+  so far, so a message that names a tool the earlier ones did not changes it,
+  and a local server then has to process the prompt again from the tools on.
+  What the user named is sticky (item 6) and so is what the model called
+  (item 5): such a tool stays in the set until the budget needs the room for
+  something newer, so a message that names nothing new keeps what the earlier
+  ones named, and a tool does not drop out at the next message that does not
+  repeat its name and come back at the next that does. What the assistant
+  named is not: item 3 reads only its latest message, so a proposal is kept
+  for the next message and is gone once a later reply does not repeat it. If
+  it proposes a limiter and a de-esser, the user asks "what's a de-esser?"
+  and the answer is about that alone, then "ok do both" is no longer shown the
+  limiter (the de-esser stays, because the user named it). Making every
+  assistant mention sticky would let a reply that lists what the model can do
+  take the budget for the rest of the conversation. The names line follows the
+  set, so it changes with it and only then.
+
+  MCP tools are part of the registry, so the selection applies to them on
+  Ollama like any other tool: one is sent in full when a message names it
+  (their names are matched by the same rules), and otherwise it is listed by
+  name.
+
+Three things stay as they were. The set and the names line are worked out once
+per turn, so every round trip sends the same tools in the same order and
+llama.cpp can keep the prompt it has already processed. The dispatcher still
+validates a call against the tool's full schema, so shortening what the model
+reads loosens nothing. And permission is the whitelist, not the slim set: a
+permitted tool the model calls without having been shown it still runs.
+
+When the context is still too small (a long conversation, or a large profile),
+a 400 or 413 whose body says so becomes `Error::ContextTooSmall`
+(`crates/ai/src/context_window.rs`) instead of "the model provider returned an
+error". It recognises llama.cpp's `exceed_context_size_error`, the
+`context_length_exceeded` code, and the wording of OpenAI, Anthropic and Gemini,
+and carries the token counts when the server gave them. Its text names no
+hosted provider and says what to change, using only what the app can do today:
+reopen the project (`rebuild_agent`, which opening a project and changing the
+model both run, builds the agent afresh with an empty conversation; there is no
+new-chat or clear-conversation control), choose a model with a larger context,
+and for a local server raise its context (for Ollama its context length, for
+llama.cpp `--ctx-size`). The server's own body is logged at `warn`, with the
+status, where the error is produced. Ollama's own server typically
+truncates an over-long prompt to its context length instead of refusing it, so
+for Ollama the bound on the first request is what protects the model; the error
+covers servers that do refuse.
+
 ### LlmProvider Trait
 
 The single extension point for new LLM providers. Located at `crates/ai/src/provider.rs`.
@@ -344,6 +476,7 @@ pub trait LlmProvider: Send + Sync + Debug {
     fn endpoint_path(&self) -> &str { "/v1/messages" }
     fn wire_format(&self) -> WireFormat { WireFormat::AnthropicMessages }
     fn requires_api_key(&self) -> bool { true }
+    fn tool_set(&self) -> ToolSet { ToolSet::Full } // Slim for Ollama only
     fn supports_effort(&self) -> bool { false } // true for Anthropic only
     fn list_models_path(&self) -> &str { "/v1/models" }
     fn serialize_request(&self, req: &MessagesRequest) -> Value;
@@ -361,7 +494,7 @@ pub trait LlmProvider: Send + Sync + Debug {
 | `openai` | `https://api.openai.com` | `Authorization: Bearer` | `gpt-4o-mini` | Full translation: Anthropic shape → chat-completions → back |
 | `groq` | `https://api.groq.com/openai` | `Authorization: Bearer` | `llama-3.3-70b-versatile` | Chat-completions; reuses `OpenAIProvider`'s translation |
 | `gemini` | `https://generativelanguage.googleapis.com/v1beta/openai` | `Authorization: Bearer` | `gemini-2.0-flash` | Gemini's OpenAI-compatible endpoint; reuses the same translation |
-| `ollama` | `http://localhost:11434/v1` | none (`requires_api_key() == false`) | `llama3.2` | Local daemon, OpenAI-compatible; reuses the same translation |
+| `ollama` | `http://localhost:11434/v1` | none (`requires_api_key() == false`) | `llama3.2` | Local daemon, OpenAI-compatible; reuses the same translation. The only provider sent the slim tool set (see [Request size](#request-size-and-small-context-models)) |
 
 Every provider's base URL can be overridden per provider from Settings (`<provider>_base_url` in the keychain).
 
@@ -377,9 +510,9 @@ Anthropic's Messages API takes `output_config: {"effort": "low" | "medium" | "hi
 
 On Anthropic's 5.x models (Fable 5.1, Opus 5.5, Sonnet 5.5, Haiku 5.5) a `thinking` block's signature is bound to the request that produced it: the top-level `system`, the `tools` set, and every message before it. Replayed under a different prefix it is a 400 `invalid_request_error` ("Invalid `signature` in `thinking` block. The block is bound to a different conversation"). The API enforces this by default for accounts created on or after 2026-08-31, and for any request that sets `thinking.block_binding.prefix_mismatch_behavior`.
 
-edytlab changes the prefix between user turns: `system` is rebuilt every turn (the classifier's mode, matched skills, memory, the agent profile, and the session context with the head node id and the selection), and `tools` follows that turn's whitelist (the per-turn disabled-tools list). So `run_turn` calls `strip_thinking` once at the start of every turn, removing every `thinking` and `redacted_thinking` block from the history before the new user message is added. The docs list removing all of them as valid; the model only loses that reasoning. Text, `tool_use` and `tool_result` blocks, and their pairing, are untouched.
+edytlab changes the prefix between user turns: `system` is rebuilt every turn (the classifier's mode, matched skills, memory, the agent profile, and the session context with the head node id and the selection), and `tools` follows that turn's whitelist (the per-turn disabled-tools list) and, for a provider sent `ToolSet::Slim` (Ollama), the tools that turn's message names (see [Request size](#request-size-and-small-context-models)). So `run_turn` calls `strip_thinking` once at the start of every turn, removing every `thinking` and `redacted_thinking` block from the history before the new user message is added. The docs list removing all of them as valid; the model only loses that reasoning. Text, `tool_use` and `tool_result` blocks, and their pairing, are untouched.
 
-Within a turn nothing changes: `system` and `tools` are built once before the request loop and sent unchanged on every step, so the thinking a step produced is replayed, signature intact, with the tool results that follow it. That is the one case where replaying is valid, and it holds only while that stays true: **a change that rebuilds `system` or `tools` between a turn's steps must strip there too, and so must one that edits or removes an earlier message** (compaction, trimming old tool results, rewriting a stored `tool_use` or `tool_result`), because that changes the prefix of every block after it. `tests/prior_turn_thinking.rs` pins both halves with a mock provider (a changed `system`, a changed tool set, and a fixed prefix inside a turn), and `tests/live_thinking_binding.rs` is the `#[ignore]`d check against the real API with the strict check switched on (`ANTHROPIC_E2E_KEY`).
+Within a turn nothing changes: `system` and `tools` are built once before the request loop and sent unchanged on every step, so the thinking a step produced is replayed, signature intact, with the tool results that follow it. The slim tool set and the names line it adds to `system` are chosen at that same point, once per turn and after `strip_thinking`, so they sit inside this rule (and a local server keeps the prompt it has processed only while they stay put). That is the one case where replaying is valid, and it holds only while that stays true: **a change that rebuilds `system` or `tools` between a turn's steps must strip there too, and so must one that edits or removes an earlier message** (compaction, trimming old tool results, rewriting a stored `tool_use` or `tool_result`), because that changes the prefix of every block after it. `tests/prior_turn_thinking.rs` pins both halves with a mock provider (a changed `system`, a changed tool set, and a fixed prefix inside a turn), and `tests/live_thinking_binding.rs` is the `#[ignore]`d check against the real API with the strict check switched on (`ANTHROPIC_E2E_KEY`).
 
 Providers that do not keep thinking in the history (everything but Anthropic's own API, see `supports_effort`) have no such blocks, so this is a no-op for them. A follow-up would keep reasoning across turns with an append-only history and a frozen `system` (the session context sent in the user message or as a mid-conversation system message); it is not done.
 
@@ -832,7 +965,7 @@ edytlab supports the Model Context Protocol for extending the agent with externa
 
 Transport types: `stdio` (JSON-RPC over stdin/stdout; `command`/`args`/`env`, as above) and `sse` (HTTP Server-Sent Events; `url` and `headers` instead). The transport is inferred from which fields are present (`McpServerConfig` in `crates/mcp/src/config.rs` is untagged). A `<keychain:slot>` value in `env` is replaced with that keychain secret when the server launches.
 
-The MCP layer starts registered servers at app launch, discovers available tools via `tools/list`, and injects them into the agent's tool list alongside built-in tools.
+The MCP layer starts registered servers at app launch, discovers available tools via `tools/list`, and injects them into the agent's tool list alongside built-in tools. On Ollama the slim selection applies to them like any built-in tool (see [Request size](#request-size-and-small-context-models)): an MCP tool is sent in full when a message names it and otherwise only listed by name, after the built-in tools, and a long MCP tool list ends the names line with "and N more" (the built-in tools are never what it leaves out).
 
 ---
 
@@ -972,7 +1105,7 @@ Full end-to-end trace from user input to UI update:
 4. Give it an arm in `list_models_for_at()` in `crates/ai/src/models.rs`, or picking it shows "unsupported provider id" where the model list belongs
 5. Update the `ProviderId` TypeScript union in `tauri-bridge.ts` and the `PROVIDERS` list in `components/Settings.tsx`
 
-No per-provider keychain code is needed: the slots are keyed by provider id (`<id>_api_key`, `<id>_model`, `<id>_base_url`), and the commands in `commands.rs` check ids against `SUPPORTED_PROVIDER_IDS`. A keyless provider overrides `requires_api_key()`.
+No per-provider keychain code is needed: the slots are keyed by provider id (`<id>_api_key`, `<id>_model`, `<id>_base_url`), and the commands in `commands.rs` check ids against `SUPPORTED_PROVIDER_IDS`. A keyless provider overrides `requires_api_key()`. A provider whose models usually run with a small context window (a local one) overrides `tool_set()` to `ToolSet::Slim`; every hosted provider keeps the default, `Full`, and Anthropic must, for its prompt cache (see [Request size and small-context models](#request-size-and-small-context-models)).
 
 ### Adding a New Tool
 
@@ -981,6 +1114,7 @@ No per-provider keychain code is needed: the slots are keyed by provider id (`<i
 3. Register it in `ToolDispatcher::default_dispatcher()` in `crates/tools/src/dispatcher.rs`
 4. Tests: cover happy path, invalid input, edge cases (empty session, out-of-range times)
 5. Regenerate [tools-reference.md](./tools-reference.md) (`UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc`) and add the tool to `website/app/docs/tools/page.tsx` — both are checked by tests
+6. Nothing to do for local models: Ollama is sent a core of common tools plus the ones a message names, so a new tool reaches it by being named, and is listed by name in the system prompt until then (a test checks that every permitted tool is sent or listed). If it is an edit a small model should see without being asked, add it to `SLIM_CORE_TOOLS` in `crates/ai/src/tool_selection.rs`; a test holds the core's compacted size within its budget. If people will ask for it in words that are not in its name ("less harsh" for `de_esser`), add a `Cue` there; the three phrasings in `request_size.rs` show how
 
 ### Adding a Skill
 
