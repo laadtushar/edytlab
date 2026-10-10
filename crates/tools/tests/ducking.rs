@@ -315,7 +315,23 @@ fn the_speech_track_is_not_modified() {
 fn no_transcript_says_what_to_do() {
     let mut s = Session::new();
     let msg = err(s.call("duck_under_speech", json!({ "music_track": 1 })));
-    assert!(msg.contains("transcribe"), "{msg}");
+    assert!(msg.contains("voice_tracks"), "{msg}");
+}
+
+/// The transcript route says so in its result, so a caller can tell
+/// which key a curve came from.
+#[test]
+fn the_transcript_route_reports_what_it_keyed_on() {
+    let mut s = Session::new();
+    s.with_transcript(&two_passages());
+    let v = ok(s.call("duck_under_speech", json!({ "music_track": 1 })));
+    assert_eq!(v["keyed_on"], json!("transcript"), "{v}");
+    // Two lines of half a second each, twice: 2.0-3.0 and 10.0-11.0.
+    assert!(
+        (v["speech_sec"].as_f64().unwrap() - 2.0).abs() < 1e-3,
+        "{v}"
+    );
+    assert!(v.get("voice_tracks").is_none(), "{v}");
 }
 
 #[test]
@@ -477,4 +493,427 @@ fn an_edit_that_changes_length_rescales_the_curve() {
         last.time_samples,
         clip.length
     );
+}
+
+// =============================================================================
+// Keyed on a voice track's audio (#168)
+// =============================================================================
+//
+// `transcribe` is a stub (#384), so a transcript is not something a
+// session can have in a shipped build. Ducking is mostly about where
+// the speech is, not what was said, and `voice_tracks` answers that
+// from the audio: voiced (pitched) sound counts, a breath, a click or
+// hiss does not.
+
+/// Mono 16-bit WAV of `samples` at `rate`.
+fn write_samples(path: &Path, rate: u32, samples: &[f32]) -> PathBuf {
+    let spec = WavSpec {
+        channels: 1,
+        sample_rate: rate,
+        bits_per_sample: 16,
+        sample_format: SampleFormat::Int,
+    };
+    let mut w = WavWriter::create(path, spec).expect("wav writer");
+    for s in samples {
+        w.write_sample((s.clamp(-1.0, 1.0) * 32_767.0) as i16)
+            .unwrap();
+    }
+    w.finalize().unwrap();
+    path.to_path_buf()
+}
+
+/// Voiced sound: six harmonics of 140 Hz falling as 1/k, about -21 dBFS.
+fn voice_burst(rate: u32, seconds: f64) -> Vec<f32> {
+    (0..(rate as f64 * seconds) as usize)
+        .map(|n| {
+            let t = n as f64 / rate as f64;
+            (1..=6)
+                .map(|k| 0.1 / k as f64 * (std::f64::consts::TAU * k as f64 * 140.0 * t).sin())
+                .sum::<f64>() as f32
+        })
+        .collect()
+}
+
+/// White noise at `rms`, from a fixed xorshift so the run is repeatable.
+fn noise_burst(rate: u32, seconds: f64, rms: f32) -> Vec<f32> {
+    let mut state = 0x2545_f491u32;
+    (0..(rate as f64 * seconds) as usize)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            (state as f32 / u32::MAX as f32 * 2.0 - 1.0) * rms * 3f32.sqrt()
+        })
+        .collect()
+}
+
+fn rms_of(v: &[f32]) -> f32 {
+    (v.iter().map(|s| s * s).sum::<f32>() / v.len() as f32).sqrt()
+}
+
+/// `seconds` of silence at `rate` with each `(at_sec, signal)` mixed in.
+fn track_with(rate: u32, seconds: f64, parts: &[(f64, Vec<f32>)]) -> Vec<f32> {
+    let mut buf = vec![0.0f32; (rate as f64 * seconds) as usize];
+    for (at, signal) in parts {
+        let start = (at * rate as f64).round() as usize;
+        for (d, s) in buf[start..].iter_mut().zip(signal) {
+            *d += *s;
+        }
+    }
+    buf
+}
+
+/// The default voice: lines at 2.0-3.0 s and 10.0-11.0 s of twenty.
+fn two_voiced_lines(rate: u32) -> Vec<f32> {
+    track_with(
+        rate,
+        20.0,
+        &[
+            (2.0, voice_burst(rate, 1.0)),
+            (10.0, voice_burst(rate, 1.0)),
+        ],
+    )
+}
+
+/// Twenty seconds of the usual music sine at `rate`.
+fn music_at(rate: u32) -> Vec<f32> {
+    (0..rate as usize * 20)
+        .map(|n| (2.0 * std::f32::consts::PI * 440.0 * n as f32 / rate as f32).sin() * 0.25)
+        .collect()
+}
+
+impl Session {
+    /// One track per `(sample_rate, samples)`, in order.
+    fn with_tracks(tracks: &[(u32, Vec<f32>)]) -> Self {
+        let dir = TempDir::new().expect("tempdir");
+        let paths: Vec<PathBuf> = tracks
+            .iter()
+            .enumerate()
+            .map(|(i, (rate, samples))| {
+                write_samples(&dir.path().join(format!("track{i}.wav")), *rate, samples)
+            })
+            .collect();
+        let store = session::Store::open(dir.path()).expect("open store");
+        let mut s = Self {
+            _dir: dir,
+            store,
+            engine: audio_engine::Engine::new(),
+            dispatcher: ToolDispatcher::default_dispatcher(),
+            clipboard: None,
+        };
+        for p in &paths {
+            ok(s.call("load", json!({ "path": p.to_string_lossy() })));
+        }
+        assert_eq!(s.state().tracks.len(), tracks.len(), "one track each");
+        s
+    }
+
+    /// A voice track and a music track, the voice being `voice`.
+    fn with_voice(voice: Vec<f32>) -> Self {
+        Self::with_tracks(&[(SAMPLE_RATE, voice), (SAMPLE_RATE, music_at(SAMPLE_RATE))])
+    }
+
+    /// Track `track`'s first clip's automation, in (seconds, dB), read
+    /// at that clip's own `rate`.
+    fn envelope_of(&self, track: usize, rate: u32) -> Vec<(f64, f32)> {
+        self.state().tracks[track].clips[0]
+            .volume_envelope
+            .iter()
+            .map(|p| (p.time_samples as f64 / rate as f64, p.gain_db))
+            .collect()
+    }
+}
+
+/// With no transcript at all, naming the voice track is enough.
+#[test]
+fn with_no_transcript_it_keys_on_the_voice_track() {
+    let mut s = Session::with_voice(two_voiced_lines(SAMPLE_RATE));
+    assert!(
+        s.state().transcript.is_none(),
+        "this session has no transcript"
+    );
+
+    let v = ok(s.call(
+        "duck_under_speech",
+        json!({ "music_track": 1, "voice_tracks": [0] }),
+    ));
+    assert_eq!(v["passages"], json!(2), "{v}");
+    assert_eq!(v["keyed_on"], json!("audio"), "{v}");
+    assert_eq!(v["voice_tracks"], json!([0]), "{v}");
+    let speech = v["speech_sec"].as_f64().unwrap();
+    assert!((2.0..2.4).contains(&speech), "two 1 s lines: {speech}");
+
+    let env = s.envelope();
+    assert!(level_at(&env, 2.5) < -6.0, "down under the first line");
+    assert!(level_at(&env, 6.0) > -0.5, "up in the gap");
+    assert!(level_at(&env, 10.5) < -6.0, "down under the second");
+}
+
+/// **The thing a level trigger gets wrong.** A breath between two
+/// lines is as loud as the voice, and it must not duck the music.
+#[test]
+fn a_breath_between_lines_does_not_duck() {
+    let line = voice_burst(SAMPLE_RATE, 1.0);
+    let breath = noise_burst(SAMPLE_RATE, 0.5, rms_of(&line));
+    let voice = track_with(
+        SAMPLE_RATE,
+        20.0,
+        &[(2.0, line.clone()), (6.0, breath), (10.0, line)],
+    );
+    let mut s = Session::with_voice(voice);
+
+    let v = ok(s.call(
+        "duck_under_speech",
+        json!({ "music_track": 1, "voice_tracks": [0] }),
+    ));
+    assert_eq!(v["passages"], json!(2), "the breath is not a passage: {v}");
+    assert!(
+        level_at(&s.envelope(), 6.25) > -0.5,
+        "the music stays up under a breath"
+    );
+}
+
+/// The pre-roll is why this is better than a sidechain, and it holds
+/// when the key is audio too.
+#[test]
+fn audio_keyed_ducking_still_starts_before_the_line() {
+    let mut s = Session::with_voice(two_voiced_lines(SAMPLE_RATE));
+    ok(s.call(
+        "duck_under_speech",
+        json!({ "music_track": 1, "voice_tracks": [0], "pre_roll_ms": 500, "attack_ms": 0 }),
+    ));
+    assert!(
+        level_at(&s.envelope(), 1.6) < -6.0,
+        "ducking should start half a second early: {:?}",
+        s.envelope()
+    );
+}
+
+/// A line on either voice track ducks the music.
+#[test]
+fn two_voice_tracks_duck_under_either() {
+    let a = track_with(SAMPLE_RATE, 20.0, &[(2.0, voice_burst(SAMPLE_RATE, 1.0))]);
+    let b = track_with(SAMPLE_RATE, 20.0, &[(10.0, voice_burst(SAMPLE_RATE, 1.0))]);
+    let mut s = Session::with_tracks(&[
+        (SAMPLE_RATE, a),
+        (SAMPLE_RATE, b),
+        (SAMPLE_RATE, music_at(SAMPLE_RATE)),
+    ]);
+
+    let v = ok(s.call(
+        "duck_under_speech",
+        json!({ "music_track": 2, "voice_tracks": [0, 1] }),
+    ));
+    assert_eq!(v["passages"], json!(2), "{v}");
+    assert_eq!(v["voice_tracks"], json!([0, 1]), "{v}");
+
+    let env = s.envelope_of(2, SAMPLE_RATE);
+    assert!(level_at(&env, 2.5) < -6.0, "ducked under voice A");
+    assert!(level_at(&env, 6.0) > -0.5, "up between them");
+    assert!(level_at(&env, 10.5) < -6.0, "ducked under voice B");
+}
+
+/// Naming the same track twice is one track, not two.
+#[test]
+fn a_repeated_voice_track_counts_once() {
+    let mut s = Session::with_voice(two_voiced_lines(SAMPLE_RATE));
+    let v = ok(s.call(
+        "duck_under_speech",
+        json!({ "music_track": 1, "voice_tracks": [0, 0] }),
+    ));
+    assert_eq!(v["voice_tracks"], json!([0]), "{v}");
+    assert_eq!(v["passages"], json!(2), "{v}");
+}
+
+/// The speech is read where the clip sits on the timeline, not where it
+/// sits in its source file.
+#[test]
+fn the_voice_is_read_where_it_sits_on_the_timeline() {
+    let mut s = Session::with_voice(two_voiced_lines(SAMPLE_RATE));
+    ok(s.call(
+        "move_clip",
+        json!({ "track": 0, "clip_index": 0, "start_sec": 5.0 }),
+    ));
+
+    ok(s.call(
+        "duck_under_speech",
+        json!({ "music_track": 1, "voice_tracks": [0] }),
+    ));
+    let env = s.envelope();
+    // The lines moved from 2-3 and 10-11 to 7-8 and 15-16.
+    assert!(level_at(&env, 7.5) < -6.0, "ducked under the moved line");
+    assert!(level_at(&env, 15.5) < -6.0, "and the second");
+    assert!(
+        level_at(&env, 2.5) > -0.5,
+        "nothing is said at 2.5 s any more"
+    );
+}
+
+/// The voice and the music need not share a sample rate: the passages
+/// are seconds, and each music clip maps them with its own rate (#234).
+#[test]
+fn a_voice_at_another_rate_ducks_at_the_right_time() {
+    let voice_rate = 44_100;
+    let mut s = Session::with_tracks(&[
+        (voice_rate, two_voiced_lines(voice_rate)),
+        (SAMPLE_RATE, music_at(SAMPLE_RATE)),
+    ]);
+
+    ok(s.call(
+        "duck_under_speech",
+        json!({ "music_track": 1, "voice_tracks": [0], "attack_ms": 0, "pre_roll_ms": 0 }),
+    ));
+    let env = s.envelope();
+    let first_drop = env
+        .iter()
+        .find(|(_, db)| *db < -6.0)
+        .expect("a ducked point")
+        .0;
+    assert!(
+        (first_drop - 2.0).abs() < 0.03,
+        "the duck should land at 2.0 s, not {first_drop}: {env:?}"
+    );
+    assert!(level_at(&env, 6.0) > -0.5, "up in the gap");
+}
+
+/// The same, the other way round: the music is the odd rate out, so the
+/// envelope is counted in 44.1 kHz frames.
+#[test]
+fn a_music_bed_at_another_rate_ducks_at_the_right_time() {
+    let music_rate = 44_100;
+    let mut s = Session::with_tracks(&[
+        (SAMPLE_RATE, two_voiced_lines(SAMPLE_RATE)),
+        (music_rate, music_at(music_rate)),
+    ]);
+
+    ok(s.call(
+        "duck_under_speech",
+        json!({ "music_track": 1, "voice_tracks": [0], "attack_ms": 0, "pre_roll_ms": 0 }),
+    ));
+    let env = s.envelope_of(1, music_rate);
+    let first_drop = env
+        .iter()
+        .find(|(_, db)| *db < -6.0)
+        .expect("a ducked point")
+        .0;
+    assert!(
+        (first_drop - 2.0).abs() < 0.03,
+        "the duck should land at 2.0 s, not {first_drop}: {env:?}"
+    );
+}
+
+/// A track named as the voice wins over a transcript: the transcript is
+/// session-level and cannot say which track it belongs to.
+#[test]
+fn voice_tracks_wins_over_a_transcript() {
+    let mut s = Session::with_voice(two_voiced_lines(SAMPLE_RATE));
+    s.with_transcript(&[("elsewhere", 14.0, 15.0)]);
+
+    let v = ok(s.call(
+        "duck_under_speech",
+        json!({ "music_track": 1, "voice_tracks": [0] }),
+    ));
+    assert_eq!(v["keyed_on"], json!("audio"), "{v}");
+    let env = s.envelope();
+    assert!(level_at(&env, 2.5) < -6.0, "ducked where the audio speaks");
+    assert!(
+        level_at(&env, 14.5) > -0.5,
+        "not where the transcript says: {env:?}"
+    );
+}
+
+/// Finding nothing is an error, not an empty curve and a new node that
+/// looks like it did something.
+#[test]
+fn a_silent_voice_track_is_an_error_not_an_empty_curve() {
+    let mut s = Session::with_voice(vec![0.0; SAMPLE_RATE as usize * 20]);
+    let head = s.store.head();
+
+    let msg = err(s.call(
+        "duck_under_speech",
+        json!({ "music_track": 1, "voice_tracks": [0] }),
+    ));
+    assert!(msg.contains("no speech"), "{msg}");
+    assert!(msg.contains('0'), "names the track: {msg}");
+    assert_eq!(s.store.head(), head, "no node was appended");
+    assert!(
+        s.state().tracks[1].clips[0].volume_envelope.is_empty(),
+        "the music is untouched"
+    );
+}
+
+/// Noise alone is not speech either, however loud.
+#[test]
+fn a_voice_track_of_only_hiss_is_an_error() {
+    let mut s = Session::with_voice(noise_burst(SAMPLE_RATE, 20.0, 0.05));
+    let msg = err(s.call(
+        "duck_under_speech",
+        json!({ "music_track": 1, "voice_tracks": [0] }),
+    ));
+    assert!(msg.contains("no speech"), "{msg}");
+}
+
+#[test]
+fn the_music_track_cannot_be_its_own_voice() {
+    let mut s = Session::with_voice(two_voiced_lines(SAMPLE_RATE));
+    let msg = err(s.call(
+        "duck_under_speech",
+        json!({ "music_track": 1, "voice_tracks": [1] }),
+    ));
+    assert!(msg.contains("music track"), "{msg}");
+
+    let msg = err(s.call(
+        "duck_under_speech",
+        json!({ "music_track": 1, "voice_tracks": [7] }),
+    ));
+    assert!(msg.contains('7'), "names the bad index: {msg}");
+}
+
+/// An empty list is a mistake to report, not "no voice, use the
+/// transcript". The schema refuses it before the tool sees it.
+#[test]
+fn an_empty_voice_tracks_list_is_refused() {
+    let mut s = Session::with_voice(two_voiced_lines(SAMPLE_RATE));
+    s.with_transcript(&two_passages());
+    let mut ctx = ToolContext {
+        store: &mut s.store,
+        engine: &mut s.engine,
+        user_message: "",
+        clipboard: &mut s.clipboard,
+        allowed_tools: None,
+    };
+    let refused = s
+        .dispatcher
+        .invoke(
+            "duck_under_speech",
+            json!({ "music_track": 1, "voice_tracks": [] }),
+            &mut ctx,
+        )
+        .expect_err("an empty voice_tracks must not reach the tool");
+    assert!(refused.to_string().contains("voice_tracks"), "{refused}");
+}
+
+#[test]
+fn a_voice_track_with_no_clips_is_refused() {
+    let mut s = Session::with_voice(two_voiced_lines(SAMPLE_RATE));
+    ok(s.call("remove_clip", json!({ "track": 0, "clip_index": 0 })));
+    let msg = err(s.call(
+        "duck_under_speech",
+        json!({ "music_track": 1, "voice_tracks": [0] }),
+    ));
+    assert!(msg.contains("no clips"), "{msg}");
+}
+
+/// Reading the voice is a read: the track keeps its audio.
+#[test]
+fn the_voice_track_is_not_modified_in_audio_mode() {
+    let mut s = Session::with_voice(two_voiced_lines(SAMPLE_RATE));
+    let before = s.state().tracks[0].clone();
+
+    ok(s.call(
+        "duck_under_speech",
+        json!({ "music_track": 1, "voice_tracks": [0] }),
+    ));
+
+    assert_eq!(s.state().tracks[0], before, "the voice must not be touched");
 }

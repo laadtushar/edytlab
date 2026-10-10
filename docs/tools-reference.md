@@ -42,7 +42,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`cut_words`](#cut_words) — Delete a span of transcribed words and the audio underneath it, closing the gap.
 - [`de_esser`](#de_esser) — Reduce harsh sibilant 's' and 'sh' sounds.
 - [`distortion`](#distortion) — Apply soft-clip distortion (tanh waveshaper) followed by a tone filter.
-- [`duck_under_speech`](#duck_under_speech) — Drop a music track under the speech and bring it back in the gaps, keyed on the transcript rather than on level.
+- [`duck_under_speech`](#duck_under_speech) — Drop a music track under the speech and bring it back in the gaps.
 - [`duplicate_track`](#duplicate_track) — Create an exact copy of a track (same clips, gain, pan, effects).
 - [`echo`](#echo) — Add a single echo (delay + decay).
 - [`eq`](#eq) — Apply a parametric equalizer (chain of biquad peak filters) to a track.
@@ -344,7 +344,7 @@ Apply soft-clip distortion (tanh waveshaper) followed by a tone filter. drive > 
 
 ## `duck_under_speech`
 
-Drop a music track under the speech and bring it back in the gaps, keyed on the transcript rather than on level. More accurate than a sidechain compressor — a breath does not trigger it and a quiet line does not escape it — and it can duck slightly before a line starts, which a level trigger cannot. Writes an ordinary volume-automation curve on the music track, so the result is visible and editable rather than a black box.
+Drop a music track under the speech and bring it back in the gaps. Keyed on the transcript when there is one; otherwise pass voice_tracks and it keys on where those tracks' audio has voiced (pitched) sound, so a breath, click or hiss does not trigger a duck. Either way it can duck slightly before a line starts, which a live sidechain cannot, and it writes an ordinary volume-automation curve on the music track, so the result is visible and editable rather than a black box.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
@@ -354,6 +354,7 @@ Drop a music track under the speech and bring it back in the gaps, keyed on the 
 | `music_track` | integer | yes | Track to duck |
 | `pre_roll_ms` | number | no | Start ducking this long before a line. Default 150 ms. |
 | `release_ms` | number | no | Time to recover. Default 400 ms. |
+| `voice_tracks` | array of integer | no | Track(s) with the speech. Key the ducking on where their audio has voiced sound instead of on the transcript; needed when there is no transcript. The voice alone — a track with music in it reads as speech throughout. |
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 

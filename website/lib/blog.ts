@@ -289,7 +289,7 @@ const earlierPosts: BlogPost[] = [
       },
       {
         type: "p",
-        text: 'Type "transcribe track 1". The agent calls Whisper locally — no upload, no API key for transcription needed — and returns a word-level transcript with timestamps. You can now see exactly where filler words, long silences, and retakes are without scrubbing the waveform. (This step is not available yet: the on-device Whisper decoder has not shipped, so today the transcribe tool returns an error — and ducking the music under the speech in step 4, which is keyed on the transcript, waits on it too.)',
+        text: 'Type "transcribe track 1". The agent calls Whisper locally — no upload, no API key for transcription needed — and returns a word-level transcript with timestamps. You can now see exactly where filler words, long silences, and retakes are without scrubbing the waveform. (This step is not available yet: the on-device Whisper decoder has not shipped, so today the transcribe tool returns an error. Ducking the music under the speech in step 4 does not wait on it: with no transcript, it keys on the voice track\'s audio instead.)',
       },
       {
         type: "callout",
