@@ -16,10 +16,12 @@ import sitemap from "../app/sitemap";
 import { buildFeed, escapeXml, rfc822 } from "./feed";
 import { posts, postsNewestFirst, type BlogPost } from "./blog";
 import {
+  DEFAULT_OG_IMAGE,
   absoluteUrl,
   blogPostingJsonLd,
   breadcrumbJsonLd,
   pageAlternates,
+  pageSocial,
   postBreadcrumbs,
   postImagePath,
   postPath,
@@ -176,6 +178,52 @@ describe("structured data on a post", () => {
 });
 
 describe("structured data on the home page", () => {
+  // What the page renders: the block as `serializeJsonLd` writes it into
+  // the `<script>`, read back the way a crawler reads it.
+  const ld = JSON.parse(serializeJsonLd(softwareJsonLd("v0.4.0")));
+
+  it("parses as a schema.org SoftwareApplication", () => {
+    expect(ld["@context"]).toBe("https://schema.org");
+    expect(ld["@type"]).toBe("SoftwareApplication");
+    expect(ld.name).toBe("edytlab");
+    expect(ld.applicationCategory).toBe("MultimediaApplication");
+  });
+
+  it("names the canonical URL, the home page's own", () => {
+    expect(ld.url).toBe("https://www.edytlab.com");
+    expect(ld.url).toBe(absoluteUrl("/"));
+    // The canonical `pageAlternates("/")` resolves to against `metadataBase`.
+    expect(new URL(pageAlternates("/").canonical, siteConfig.url).origin).toBe(new URL(ld.url).origin);
+  });
+
+  it("is free and MIT-licensed, with the releases page to download from", () => {
+    expect(ld.offers).toEqual({ "@type": "Offer", price: "0", priceCurrency: "USD" });
+    expect(ld.license).toBe("https://opensource.org/licenses/MIT");
+    expect(ld.downloadUrl).toBe("https://github.com/laadtushar/edytlab/releases");
+  });
+
+  it("is published by LabyNator and authored by Tushar Laad", () => {
+    expect(ld.publisher).toEqual({
+      "@type": "Organization",
+      name: "LabyNator",
+      url: "https://www.labynator.com",
+    });
+    expect(ld.author).toEqual({
+      "@type": "Person",
+      name: "Tushar Laad",
+      url: "https://www.tusharlaad.com",
+    });
+  });
+
+  it("takes its version from the release the page shows, not from a copy", () => {
+    expect(ld.softwareVersion).toBe("0.4.0");
+    const home = readFileSync(join(ROOT, "app/page.tsx"), "utf8");
+    // The same `getLatestRelease()` call feeds the badge, the buttons and this block.
+    expect(home).toContain("const release = await getLatestRelease()");
+    expect(home).toMatch(/softwareJsonLd\(release\.isFallback \? undefined : release\.version\)/);
+    expect(readFileSync(join(ROOT, "lib/seo-core.ts"), "utf8")).not.toMatch(/softwareVersion:\s*["'`]/);
+  });
+
   it("says the app runs on macOS, Windows and Linux", () => {
     expect(softwareJsonLd().operatingSystem).toBe("macOS, Windows, Linux");
   });
@@ -188,8 +236,40 @@ describe("structured data on the home page", () => {
     expect("softwareVersion" in softwareJsonLd()).toBe(false);
   });
 
-  it("claims no rating", () => {
-    expect("aggregateRating" in softwareJsonLd()).toBe(false);
+  it("claims no rating, review or user count", () => {
+    const keys = Object.keys(softwareJsonLd("v0.4.0"));
+    for (const claim of ["aggregateRating", "review", "interactionStatistic"]) {
+      expect(keys).not.toContain(claim);
+    }
+  });
+});
+
+describe("the canonical host", () => {
+  // The apex redirects to www, so www is the URL that serves the page;
+  // a canonical naming the apex points search engines at a redirect.
+  const sources = (dir: string): string[] =>
+    readdirSync(join(ROOT, dir)).flatMap((name) => {
+      const rel = join(dir, name);
+      if (statSync(join(ROOT, rel)).isDirectory()) return sources(rel);
+      return /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name) ? [rel] : [];
+    });
+
+  it("is www.edytlab.com, and metadataBase is built from it", () => {
+    expect(siteConfig.url).toBe("https://www.edytlab.com");
+    expect(readFileSync(join(ROOT, "app/layout.tsx"), "utf8")).toContain("metadataBase: new URL(siteConfig.url)");
+  });
+
+  it("starts the sitemap, the robots sitemap line and every page URL from it", () => {
+    expect(robots().sitemap).toBe("https://www.edytlab.com/sitemap.xml");
+    for (const e of sitemap()) expect(e.url.startsWith("https://www.edytlab.com")).toBe(true);
+  });
+
+  it("is never spelled as the apex in the site's own code", () => {
+    const apex = /https?:\/\/edytlab\.com/;
+    const offenders = [...sources("app"), ...sources("components"), ...sources("lib")].filter((f) =>
+      apex.test(readFileSync(join(ROOT, f), "utf8")),
+    );
+    expect(offenders).toEqual([]);
   });
 });
 
@@ -219,6 +299,37 @@ describe("canonical URLs", () => {
       const m = src.match(/canonical:\s*"([^"]+)"/) ?? src.match(/pageAlternates\("([^"]+)"\)/);
       expect(m?.[1], `${route} sets no canonical`).toBe(route);
     }
+  });
+});
+
+describe("og:url", () => {
+  // A page that sets no `openGraph` inherits the layout's, whose url is
+  // the home page's. So every page but the home page has to name its own.
+  it("matches each page's canonical", () => {
+    const wrong: string[] = [];
+    for (const route of staticRoutes()) {
+      if (route === "/") continue;
+      const src = readFileSync(join(ROOT, "app", route.slice(1), "page.tsx"), "utf8");
+      const named = [
+        ...[...src.matchAll(/\$\{siteConfig\.url\}(\/[^`$]*)`/g)].map((m) => m[1]),
+        ...[...src.matchAll(/(?:absoluteUrl|pageSocial)\(\s*"([^"]+)"/g)].map((m) => m[1]),
+      ];
+      if (!named.includes(route)) wrong.push(route);
+    }
+    expect(wrong, "pages whose og:url is not their own address").toEqual([]);
+  });
+
+  it("is the home page's own on the layout, which the home page inherits", () => {
+    expect(readFileSync(join(ROOT, "app/layout.tsx"), "utf8")).toMatch(/openGraph:\s*\{[^}]*url: siteConfig\.url/);
+  });
+
+  it("is built by pageSocial from the page's path, with the card and image a share needs", () => {
+    const { openGraph, twitter } = pageSocial("/changelog", "Changelog · edytlab", "Release notes.");
+    expect(openGraph.url).toBe("https://www.edytlab.com/changelog");
+    expect(openGraph).toMatchObject({ type: "website", siteName: "edytlab", title: "Changelog · edytlab" });
+    expect(openGraph.images).toEqual([DEFAULT_OG_IMAGE]);
+    expect(twitter.card).toBe("summary_large_image");
+    expect(twitter.images).toEqual([DEFAULT_OG_IMAGE.url]);
   });
 });
 

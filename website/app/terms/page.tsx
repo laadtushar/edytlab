@@ -1,11 +1,17 @@
 import type { Metadata } from "next";
 
 import { LegalShell } from "@/components/landing/legal-shell";
+import { pageSocial } from "@/lib/seo";
+
+const title = "Terms of use: MIT licence, no warranty";
+const description =
+  "The terms for using edytlab, the free open-source desktop audio editor: the MIT licence, third-party LLM providers, the disclaimer and the limit of liability.";
 
 export const metadata: Metadata = {
-  title: "Terms",
-  description: "Terms of use for edytlab.",
+  title,
+  description,
   alternates: { canonical: "/terms" },
+  ...pageSocial("/terms", `${title} · edytlab`, description),
 };
 
 export default function TermsPage() {

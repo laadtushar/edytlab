@@ -1,0 +1,3 @@
+# Scratch directory the tools create (cue files, synthesised sounds, QC stills, mix intermediates)
+work/
+__pycache__/
