@@ -104,6 +104,29 @@ describe("Settings", () => {
     expect(save).toBeDisabled();
   });
 
+  /**
+   * The blocking dialog covers the app's banner, and it is where a user
+   * whose key went with the last reboot is standing (#394). So it says
+   * where saved keys go, in the same words.
+   */
+  it("shows the storage warning it is given, and nothing when it is not", async () => {
+    const { unmount } = render(
+      <Settings
+        mode="blocking"
+        onSaved={vi.fn()}
+        storageWarning="kept only until restart"
+      />,
+    );
+    expect(await screen.findByTestId("settings-storage-warning")).toHaveTextContent(
+      "kept only until restart",
+    );
+    unmount();
+
+    render(<Settings mode="blocking" onSaved={vi.fn()} />);
+    await screen.findByTestId("settings-provider-picker");
+    expect(screen.queryByTestId("settings-storage-warning")).toBeNull();
+  });
+
   it("saves a base URL, and saves it before the key so the rebuilt agent uses it", async () => {
     const user = userEvent.setup();
     render(<Settings mode="blocking" onSaved={vi.fn()} />);

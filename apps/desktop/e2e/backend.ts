@@ -133,6 +133,10 @@ function bootCommands({ hasKey }: { hasKey: boolean }): Backend {
     // Without a key, the app opens Settings as onboarding — which is
     // what calls `providerCommands`.
     has_api_key: ok(hasKey),
+    // `ai::keychain::persistence()`: `Durable` on macOS and Windows, and
+    // on Linux whenever a Secret Service answers. A test of the
+    // no-Secret-Service warning overrides this.
+    get_keychain_persistence: ok({ persistent: true, reason: null }),
     install_bundled_skills: ok(bundledSkillCount()),
     // Read at every launch, to put the user back where they were.
     // `get_view_state` needs a project directory, not a head, and the

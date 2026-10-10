@@ -17,6 +17,8 @@ interface ErrorBannerProps {
     onClick: () => void;
   };
   testId?: string;
+  /** Accessible name of the dismiss button. Defaults to "Dismiss error". */
+  dismissLabel?: string;
 }
 
 export function ErrorBanner({
@@ -24,6 +26,7 @@ export function ErrorBanner({
   onDismiss,
   action,
   testId,
+  dismissLabel = "Dismiss error",
 }: ErrorBannerProps) {
   return (
     <div
@@ -70,7 +73,7 @@ export function ErrorBanner({
       {onDismiss ? (
         <button
           type="button"
-          aria-label="Dismiss error"
+          aria-label={dismissLabel}
           onClick={onDismiss}
           className="
             shrink-0 rounded-md p-1

@@ -579,6 +579,9 @@ async fn set_api_key_for_inner(state: &AppState, provider_id: &str, key: &str) -
     // matches the user's intent and avoids a second "switch provider"
     // step in the settings UI.
     ai::keychain::save_active_provider(provider_id).map_err(CommandError::from)?;
+    // Both writes went through, so the keychain is readable and writable
+    // now whatever it was at launch.
+    state.set_keychain_read_error(None);
     state.set_active_provider(provider_id.to_string());
     state.set_api_key_cache(Some(key.to_string()));
     rebuild_agent(state).await?;
@@ -597,10 +600,32 @@ async fn set_api_key_for_inner(state: &AppState, provider_id: &str, key: &str) -
 /// reflects the actual on-disk state — `clear_api_key` mutates the
 /// keychain and we want subsequent `has_api_key` calls to immediately
 /// see "no key" without needing the cache to also be cleared in lockstep.
+///
+/// Rejects when the keychain could not be read (locked, access denied,
+/// no service). That is not the same as `false`: `false` sends the user
+/// to enter a key, which on a locked keyring they already have (#394).
 #[tauri::command]
 pub async fn has_api_key(state: State<'_, AppState>) -> CmdResult<bool> {
     let provider_id = state.active_provider_id();
-    Ok(provider_is_configured(&provider_id))
+    has_key_answer(state.keychain_read_error(), || {
+        provider_is_configured(&provider_id)
+    })
+}
+
+/// The answer to [`has_api_key`], given what startup found.
+///
+/// A keychain that could not be read at launch means the active provider
+/// and key were never restored, so an answer computed from the defaults
+/// would be about the wrong provider. Report the failure instead, and
+/// only ask `configured` when startup read cleanly.
+fn has_key_answer(
+    startup_error: Option<String>,
+    configured: impl FnOnce() -> Result<bool, ai::keychain::KeychainError>,
+) -> CmdResult<bool> {
+    match startup_error {
+        Some(e) => Err(e),
+        None => configured().map_err(|e| e.to_string()),
+    }
 }
 
 /// Whether `provider_id` is ready to use.
@@ -608,17 +633,61 @@ pub async fn has_api_key(state: State<'_, AppState>) -> CmdResult<bool> {
 /// For a keyless provider that is unconditionally true: there is no
 /// credential to store, so asking the keychain would answer "no" forever
 /// and leave first launch stuck behind a key prompt it can never satisfy.
-fn provider_is_configured(provider_id: &str) -> bool {
-    !ai::validate::provider_for(provider_id).requires_api_key()
-        || ai::keychain::load_api_key(provider_id).is_some()
+///
+/// An unreadable keychain is an error rather than `false`.
+fn provider_is_configured(provider_id: &str) -> Result<bool, ai::keychain::KeychainError> {
+    if !ai::validate::provider_for(provider_id).requires_api_key() {
+        return Ok(true);
+    }
+    ai::keychain::try_load_api_key(provider_id).map(|k| k.is_some())
 }
 
 /// Whether a key is stored for `provider`. The Settings UI uses this
 /// when the user toggles the provider picker, so we can show "configured"
 /// vs "needs a key" without forcing a save.
+///
+/// Rejects when the keychain could not be read, which is not the same as
+/// `false`; Settings shows the reason where it shows other save errors.
 #[tauri::command]
 pub async fn has_api_key_for(provider: String) -> CmdResult<bool> {
-    Ok(provider_is_configured(&provider))
+    provider_is_configured(&provider).map_err(|e| e.to_string())
+}
+
+/// Where values saved now would end up, as the frontend needs to see it.
+///
+/// `persistent: false` means Linux with no Secret Service running, so
+/// settings sit in the kernel keyring and are gone after the next restart
+/// of the machine. `reason` is why, as the keyring library words it.
+#[derive(Debug, Clone, Serialize)]
+pub struct KeychainPersistenceDto {
+    pub persistent: bool,
+    pub reason: Option<String>,
+}
+
+impl From<ai::keychain::Persistence> for KeychainPersistenceDto {
+    fn from(p: ai::keychain::Persistence) -> Self {
+        match p {
+            ai::keychain::Persistence::Durable => Self {
+                persistent: true,
+                reason: None,
+            },
+            ai::keychain::Persistence::SessionOnly { reason } => Self {
+                persistent: false,
+                reason: Some(reason),
+            },
+        }
+    }
+}
+
+/// Whether settings and keys saved now survive a reboot.
+///
+/// Always persistent on macOS and Windows. On Linux it is not while no
+/// Secret Service (GNOME Keyring, KWallet, KeePassXC) answers, and the
+/// frontend says so once instead of letting the Welcome screen be the
+/// first the user hears of it (#394).
+#[tauri::command]
+pub async fn get_keychain_persistence() -> CmdResult<KeychainPersistenceDto> {
+    Ok(ai::keychain::persistence().into())
 }
 
 /// Remove the stored API key for the active provider and tear down the
@@ -739,12 +808,22 @@ pub async fn set_active_provider(state: State<'_, AppState>, provider: String) -
         return Err(format!("unsupported provider id: {provider}"));
     }
     ai::keychain::save_active_provider(&provider).map_err(CommandError::from)?;
+    state.set_keychain_read_error(None);
     state.set_active_provider(provider.clone());
     // Re-cache the key for the now-active provider (if any) so the
-    // next `rebuild_agent` picks the right credentials up.
-    let cached = ai::keychain::load_api_key(&provider);
-    state.set_api_key_cache(cached);
+    // next `rebuild_agent` picks the right credentials up. When the read
+    // fails the cache is emptied rather than left holding the previous
+    // provider's key, which the new provider would be sent.
+    let read = ai::keychain::try_load_api_key(&provider);
+    state.set_api_key_cache(read.as_ref().ok().cloned().flatten());
     rebuild_agent(&state).await?;
+    // The switch itself worked, so say what did not instead of
+    // failing it: the agent is built for the new provider with no key.
+    if let Err(e) = read {
+        return Err(format!(
+            "switched to {provider}, but its saved key could not be read: {e}"
+        ));
+    }
     Ok(())
 }
 
@@ -3650,15 +3729,42 @@ fn entry_to_server_config(e: &McpServerEntry) -> Result<mcp::McpServerConfig, Co
 /// recorded) and load that provider's stored key into the in-memory
 /// cache. If nothing is stored, this is a no-op and the frontend's
 /// first action is to surface the Settings modal.
+///
+/// A keychain that cannot be read is not "nothing stored": the reason is
+/// kept on `state` and `has_api_key` rejects with it, so the frontend can
+/// tell the user instead of asking for a key they already entered (#394).
 pub fn try_load_api_key_at_startup(state: &AppState) {
-    if let Some(active) = ai::keychain::load_active_provider() {
-        state.set_active_provider(active);
-    }
-    let provider_id = state.active_provider_id();
-    if let Some(key) = ai::keychain::load_api_key(&provider_id) {
-        state.set_api_key_cache(Some(key));
-    }
+    load_startup_settings(
+        state,
+        ai::keychain::try_load_active_provider,
+        ai::keychain::try_load_api_key,
+    );
     restore_models(state, ai::keychain::load_model);
+}
+
+/// The provider-and-key half of startup, with the keychain reads passed
+/// in so the failure paths can be tested without an OS keychain.
+pub(crate) fn load_startup_settings(
+    state: &AppState,
+    load_active: impl Fn() -> Result<Option<String>, ai::keychain::KeychainError>,
+    load_key: impl Fn(&str) -> Result<Option<String>, ai::keychain::KeychainError>,
+) {
+    let mut first_error: Option<String> = None;
+    let mut note = |what: &str, e: ai::keychain::KeychainError| {
+        tracing::warn!(error = %e, "could not read the {what} from the keychain at startup");
+        first_error.get_or_insert_with(|| e.to_string());
+    };
+    match load_active() {
+        Ok(Some(active)) => state.set_active_provider(active),
+        Ok(None) => {}
+        Err(e) => note("active provider", e),
+    }
+    match load_key(&state.active_provider_id()) {
+        Ok(Some(key)) => state.set_api_key_cache(Some(key)),
+        Ok(None) => {}
+        Err(e) => note("API key", e),
+    }
+    state.set_keychain_read_error(first_error);
 }
 
 /// Repopulate the in-memory model map from `load`.
@@ -5188,6 +5294,124 @@ mod tests {
         for id in ai::SUPPORTED_PROVIDER_IDS {
             assert_eq!(state.model_for(id), None);
         }
+    }
+
+    // ---- A keychain that cannot be read is not a fresh install (#394) --
+
+    use ai::keychain::KeychainError;
+
+    /// Nothing stored, and every read answered: the Welcome flow is the
+    /// right thing to show, so `has_api_key` answers `false` and does not
+    /// reject.
+    #[test]
+    fn startup_with_nothing_stored_is_a_fresh_install() {
+        let state = AppState::default();
+        load_startup_settings(&state, || Ok(None), |_| Ok(None));
+
+        assert_eq!(state.active_provider_id(), ai::ANTHROPIC_ID);
+        assert_eq!(state.api_key_snapshot(), None);
+        assert_eq!(state.keychain_read_error(), None);
+        assert_eq!(
+            has_key_answer(state.keychain_read_error(), || Ok(false)),
+            Ok(false)
+        );
+    }
+
+    /// The bug: on a locked keyring every read failed, the failure was
+    /// collapsed to "no key", and a user with a stored key was shown the
+    /// first-run Welcome. The failure has to reach `has_api_key`.
+    #[test]
+    fn startup_read_failure_is_reported_not_treated_as_a_fresh_install() {
+        let state = AppState::default();
+        load_startup_settings(&state, || Err(KeychainError::new("locked")), |_| Ok(None));
+
+        let stashed = state.keychain_read_error().expect("the failure is kept");
+        assert!(stashed.contains("locked"), "{stashed}");
+        // Even though a live read would say "no key", `has_api_key` must
+        // not: that read is about the wrong provider.
+        let answer = has_key_answer(state.keychain_read_error(), || Ok(false));
+        let err = answer.expect_err("must reject, not answer false");
+        assert!(err.contains("locked"), "{err}");
+    }
+
+    #[test]
+    fn startup_key_read_failure_is_reported() {
+        let state = AppState::default();
+        load_startup_settings(
+            &state,
+            || Ok(Some("openrouter".to_string())),
+            |_| Err(KeychainError::new("dismissed the unlock prompt")),
+        );
+
+        assert_eq!(state.active_provider_id(), "openrouter");
+        assert_eq!(state.api_key_snapshot(), None);
+        let stashed = state.keychain_read_error().expect("the failure is kept");
+        assert!(stashed.contains("dismissed the unlock prompt"), "{stashed}");
+    }
+
+    /// The first failure is the one reported, and a later one does not
+    /// replace it.
+    #[test]
+    fn the_first_startup_failure_is_the_one_kept() {
+        let state = AppState::default();
+        load_startup_settings(
+            &state,
+            || Err(KeychainError::new("first")),
+            |_| Err(KeychainError::new("second")),
+        );
+        let stashed = state.keychain_read_error().unwrap();
+        assert!(
+            stashed.contains("first") && !stashed.contains("second"),
+            "{stashed}"
+        );
+    }
+
+    #[test]
+    fn startup_restores_provider_and_key() {
+        let state = AppState::default();
+        load_startup_settings(
+            &state,
+            || Ok(Some("openrouter".to_string())),
+            |id| Ok((id == "openrouter").then(|| "sk-or-1".to_string())),
+        );
+
+        assert_eq!(state.active_provider_id(), "openrouter");
+        assert_eq!(state.api_key_snapshot().as_deref(), Some("sk-or-1"));
+        assert_eq!(state.keychain_read_error(), None);
+        assert_eq!(
+            has_key_answer(state.keychain_read_error(), || Ok(true)),
+            Ok(true)
+        );
+    }
+
+    /// A clean read after a failed one (the user saved a key, so the
+    /// keychain is evidently working) clears the stash, or `has_api_key`
+    /// would go on rejecting.
+    #[test]
+    fn a_later_clean_startup_read_clears_the_stash() {
+        let state = AppState::default();
+        state.set_keychain_read_error(Some("locked".to_string()));
+        load_startup_settings(&state, || Ok(None), |_| Ok(None));
+        assert_eq!(state.keychain_read_error(), None);
+    }
+
+    #[test]
+    fn has_key_answer_passes_a_live_read_failure_through() {
+        let answer = has_key_answer(None, || Err(KeychainError::new("locked")));
+        let err = answer.expect_err("a read failure is not `false`");
+        assert!(err.contains("locked"), "{err}");
+    }
+
+    #[test]
+    fn the_persistence_dto_says_why_it_is_not_persistent() {
+        let durable: KeychainPersistenceDto = ai::keychain::Persistence::Durable.into();
+        assert!(durable.persistent && durable.reason.is_none());
+        let session: KeychainPersistenceDto = ai::keychain::Persistence::SessionOnly {
+            reason: "no secret service".to_string(),
+        }
+        .into();
+        assert!(!session.persistent);
+        assert_eq!(session.reason.as_deref(), Some("no secret service"));
     }
 
     // ---- Reasoning effort setting -------------------------------------

@@ -73,12 +73,19 @@ import {
 import { useMarkers } from "./hooks/useMarkers";
 import { useSession } from "./hooks/useSession";
 import {
+  getKeychainPersistence,
   hasApiKey,
   installBundledSkills,
   onNodeCreated,
   onToolProgress,
   renderPreview as bridgeRenderPreview,
+  type KeychainPersistence,
 } from "./lib/tauri-bridge";
+import {
+  keychainNotice,
+  readSessionOnlyDismissed,
+  writeSessionOnlyDismissed,
+} from "./lib/keychainNotice";
 import { listTemplates, applyTemplate, startRecording, stopRecording, timerRecord } from "./lib/tauri-bridge";
 import type { TemplateInfo } from "./components/TemplatePickerModal";
 import {
@@ -157,6 +164,16 @@ function App() {
   const [leftView, setLeftView] = useState<LeftView>("timeline");
   const [graphRefresh, setGraphRefresh] = useState(0);
   const [keyConfigured, setKeyConfigured] = useState<boolean | null>(null);
+  // Why the keychain could not be read at launch, if it could not. Not
+  // the same as `keyConfigured === false`: a key may well be stored, and
+  // asking for one again would be wrong (#394).
+  const [keychainError, setKeychainError] = useState<string | null>(null);
+  // Whether saved settings survive a reboot; null until the backend says.
+  const [keychainPersistence, setKeychainPersistence] =
+    useState<KeychainPersistence | null>(null);
+  const [sessionOnlyDismissed, setSessionOnlyDismissed] = useState(
+    readSessionOnlyDismissed,
+  );
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [compareMode, setCompareMode] = useState<CompareMode | null>(null);
@@ -448,9 +465,29 @@ function App() {
       .then((ok) => {
         if (!cancelled) setKeyConfigured(ok);
       })
-      .catch(() => {
-        if (!cancelled) setKeyConfigured(false);
+      .catch((err) => {
+        // The keychain could not be read. That is not "no key": the old
+        // `setKeyConfigured(false)` put the first-run Welcome over a key
+        // that was stored, and entering a new one overwrote it (#394).
+        // `keyConfigured` stays null, so no blocking prompt mounts, and
+        // the banner says what happened and offers Settings.
+        if (!cancelled) setKeychainError(String(err));
       });
+
+    // Whether what gets saved will survive a reboot. A failure to ask is
+    // not worth a banner of its own.
+    getKeychainPersistence()
+      .then((p) => {
+        if (cancelled) return;
+        setKeychainPersistence(p);
+        // Persistent again (a Secret Service was started): forget the
+        // dismissal, so the warning comes back if it ever stops being.
+        if (p.persistent) {
+          writeSessionOnlyDismissed(false);
+          setSessionOnlyDismissed(false);
+        }
+      })
+      .catch(() => undefined);
 
     // Install the 8 bundled skill files to ~/.edytlab/skills/ on first
     // launch. Fire-and-forget — non-fatal if the resource dir is absent
@@ -1275,6 +1312,12 @@ function App() {
   const mixMatchesHead =
     compareMode !== null || mixIsCurrent({ mixPath, mixNodeId }, head);
 
+  const notice = keychainNotice(keychainError, keychainPersistence);
+  // The same words in Settings: the blocking dialog covers the banner,
+  // and it is where a user who lost their key to a reboot lands.
+  const storageWarning =
+    keychainNotice(null, keychainPersistence)?.message ?? null;
+
   const errorAction = useMemo(() => {
     if (!renderError) return undefined;
     if (!isApiKeyError(renderError)) return undefined;
@@ -1305,6 +1348,28 @@ function App() {
 
       <div className="grid min-h-0 grid-cols-[minmax(0,1fr)_360px] gap-px bg-[var(--border)]">
         <section className="flex h-full min-h-0 flex-col bg-[var(--surface)]">
+          {notice?.kind === "read-error" ? (
+            <ErrorBanner
+              testId="keychain-error"
+              message={notice.message}
+              action={{
+                label: "Open Settings",
+                onClick: () => setSettingsOpen(true),
+              }}
+              onDismiss={() => setKeychainError(null)}
+            />
+          ) : null}
+          {notice?.kind === "session-only" && !sessionOnlyDismissed ? (
+            <ErrorBanner
+              testId="keychain-session-only"
+              message={notice.message}
+              dismissLabel="Dismiss warning"
+              onDismiss={() => {
+                writeSessionOnlyDismissed(true);
+                setSessionOnlyDismissed(true);
+              }}
+            />
+          ) : null}
           {renderError ? (
             <ErrorBanner
               testId="render-error"
@@ -1466,8 +1531,10 @@ function App() {
       {showBlocking ? (
         <Settings
           mode="blocking"
+          storageWarning={storageWarning}
           onSaved={() => {
             setKeyConfigured(true);
+            setKeychainError(null);
             // First-launch save: clear any stale error from the
             // pre-key state (e.g. an automatic Render Preview that
             // hit "no agent configured").
@@ -1479,9 +1546,12 @@ function App() {
       {!showBlocking && settingsOpen ? (
         <Settings
           mode="panel"
+          storageWarning={storageWarning}
           onClose={() => setSettingsOpen(false)}
           onSaved={() => {
             setSettingsOpen(false);
+            // A save went through, so the keychain is readable now.
+            setKeychainError(null);
             // The Rust side rebuilds the agent inside set_api_key_for,
             // so any "no agent configured" banner left over from the
             // failed action that prompted the user to open settings is

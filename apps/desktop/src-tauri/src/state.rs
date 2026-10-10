@@ -53,6 +53,12 @@ pub struct AppState {
     /// re-prompt the user. When the user switches the active provider we
     /// reload this slot from the new provider's keychain entry.
     pub api_key: Arc<Mutex<Option<String>>>,
+    /// Why the keychain could not be read at startup, if it could not.
+    /// `Some` is not the same as "no key stored": `has_api_key` rejects
+    /// with this instead of answering `false`, so the frontend shows the
+    /// reason rather than a first-run prompt for a key that is already
+    /// there (#394). Cleared by the next successful key or provider save.
+    pub keychain_read_error: Arc<Mutex<Option<String>>>,
     /// Stable id of the active provider (e.g. `"anthropic"` or
     /// `"openrouter"`). Defaults to `"anthropic"` when no preference is
     /// recorded — matches the pre-multi-provider behaviour.
@@ -151,6 +157,7 @@ impl AppState {
             engine: Arc::new(Mutex::new(Engine::new())),
             project_dir: Arc::new(Mutex::new(None)),
             api_key: Arc::new(Mutex::new(None)),
+            keychain_read_error: Arc::new(Mutex::new(None)),
             active_provider: Arc::new(Mutex::new(ai::ANTHROPIC_ID.to_string())),
             active_model_by_provider: Arc::new(Mutex::new(std::collections::HashMap::new())),
             plan_notify: Arc::new(tokio::sync::Notify::new()),
@@ -432,6 +439,23 @@ impl AppState {
     /// Replace the cached API key with `key`.
     pub fn set_api_key_cache(&self, key: Option<String>) {
         *self.api_key.lock().expect("api_key mutex poisoned") = key;
+    }
+
+    /// Record why the keychain could not be read, or `None` once it can
+    /// be. See [`AppState::keychain_read_error`].
+    pub fn set_keychain_read_error(&self, error: Option<String>) {
+        *self
+            .keychain_read_error
+            .lock()
+            .expect("keychain_read_error mutex poisoned") = error;
+    }
+
+    /// Why the keychain could not be read, if it could not.
+    pub fn keychain_read_error(&self) -> Option<String> {
+        self.keychain_read_error
+            .lock()
+            .expect("keychain_read_error mutex poisoned")
+            .clone()
     }
 
     /// Replace the open store with `handle`. Pass `None` to clear it.
