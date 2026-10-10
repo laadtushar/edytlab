@@ -1,0 +1,247 @@
+{
+  "video": "dj-extended-club-intro.mp4",
+  "duration": 115.867,
+  "audio_dir": "audio/demo-dj-extended-club-intro",
+  "narration_voice": "Roger - Laid-Back, Casual, Resonant (CwhRBWXzGAHq8TQ4Fs17)",
+  "narration_model": "eleven_v4",
+  "cues": [
+    {
+      "id": "EI01",
+      "kind": "title",
+      "start": 0.0,
+      "end": 2.4,
+      "onscreen": "A DJ makes a mixable intro for Solar Flare (124 BPM)",
+      "max_seconds": 2.1,
+      "max_words": 5,
+      "narration": "A mixable intro.",
+      "narration_spoken": "A mixable intro.",
+      "narration_display": "A mixable intro.",
+      "words": 3,
+      "source": {
+        "demo": "dj-extended-club-intro",
+        "code": "EI",
+        "caption": "EI01",
+        "start": 0.0,
+        "end": 2.4
+      },
+      "clip": "EI01.mp3",
+      "clip_speech_seconds": 1.52
+    },
+    {
+      "id": "EI02",
+      "kind": "step",
+      "start": 2.4,
+      "end": 9.4,
+      "onscreen": "Open the tracks",
+      "max_seconds": 6.7,
+      "max_words": 16,
+      "narration": "First, open the track.",
+      "narration_spoken": "First, open the track.",
+      "narration_display": "First, open the track.",
+      "words": 4,
+      "source": {
+        "demo": "dj-extended-club-intro",
+        "code": "EI",
+        "caption": "EI02",
+        "start": 2.4,
+        "end": 9.4
+      },
+      "clip": "EI02.mp3",
+      "clip_speech_seconds": 1.84
+    },
+    {
+      "id": "EI03",
+      "kind": "listen",
+      "start": 9.4,
+      "end": 22.4,
+      "onscreen": "Before: the original intro",
+      "max_seconds": 4.45,
+      "max_words": 10,
+      "narration": "First, the original intro.",
+      "narration_spoken": "First, the original intro.",
+      "narration_display": "First, the original intro.",
+      "words": 4,
+      "voice_end": 14.15,
+      "note": "app audio plays after the voice window: the line is only a lead-in, narration stays silent over the music",
+      "source": {
+        "demo": "dj-extended-club-intro",
+        "code": "EI",
+        "caption": "EI03",
+        "start": 9.4,
+        "end": 22.4
+      },
+      "audio_window": [
+        14.15,
+        20.75
+      ],
+      "clip": "EI03.mp3",
+      "clip_speech_seconds": 2.16
+    },
+    {
+      "id": "EI04",
+      "kind": "step",
+      "start": 22.4,
+      "end": 34.73,
+      "onscreen": "1 · Tempo and bar length",
+      "max_seconds": 12.03,
+      "max_words": 28,
+      "narration": "{1|One}: check the tempo and bar length.",
+      "narration_spoken": "One: check the tempo and bar length.",
+      "narration_display": "1: check the tempo and bar length.",
+      "words": 7,
+      "source": {
+        "demo": "dj-extended-club-intro",
+        "code": "EI",
+        "caption": "EI04",
+        "start": 22.4,
+        "end": 34.73
+      },
+      "clip": "EI04.mp3",
+      "clip_speech_seconds": 3.28
+    },
+    {
+      "id": "EI05",
+      "kind": "step",
+      "start": 34.73,
+      "end": 53.6,
+      "onscreen": "2 · Extend the intro",
+      "max_seconds": 18.57,
+      "max_words": 44,
+      "narration": "{2|Two}: extend the intro. Copy the first {8|eight} bars.",
+      "narration_spoken": "Two: extend the intro. Copy the first eight bars.",
+      "narration_display": "2: extend the intro. Copy the first 8 bars.",
+      "words": 9,
+      "source": {
+        "demo": "dj-extended-club-intro",
+        "code": "EI",
+        "caption": "EI05",
+        "start": 34.73,
+        "end": 53.6
+      },
+      "clip": "EI05.mp3",
+      "clip_speech_seconds": 4.32
+    },
+    {
+      "id": "EI06",
+      "kind": "step",
+      "start": 53.6,
+      "end": 67.2,
+      "onscreen": "3 · A filter that opens into the drop",
+      "max_seconds": 13.3,
+      "max_words": 31,
+      "narration": "{3|Three}: a filter that opens into the drop.",
+      "narration_spoken": "Three: a filter that opens into the drop.",
+      "narration_display": "3: a filter that opens into the drop.",
+      "words": 8,
+      "source": {
+        "demo": "dj-extended-club-intro",
+        "code": "EI",
+        "caption": "EI06",
+        "start": 53.6,
+        "end": 67.2
+      },
+      "clip": "EI06.mp3",
+      "clip_speech_seconds": 3.2
+    },
+    {
+      "id": "EI07",
+      "kind": "step",
+      "start": 67.2,
+      "end": 81.53,
+      "onscreen": "4 · Fade in and export",
+      "max_seconds": 14.03,
+      "max_words": 33,
+      "narration": "{4|Four}: fade it in, and export.",
+      "narration_spoken": "Four: fade it in, and export.",
+      "narration_display": "4: fade it in, and export.",
+      "words": 6,
+      "source": {
+        "demo": "dj-extended-club-intro",
+        "code": "EI",
+        "caption": "EI07",
+        "start": 67.2,
+        "end": 81.53
+      },
+      "clip": "EI07.mp3",
+      "clip_speech_seconds": 2.96
+    },
+    {
+      "id": "EI08",
+      "kind": "listen",
+      "start": 81.53,
+      "end": 95.27,
+      "onscreen": "Listen: the new intro fades in",
+      "max_seconds": 4.2,
+      "max_words": 10,
+      "narration": "Listen to the intro fade in.",
+      "narration_spoken": "Listen to the intro fade in.",
+      "narration_display": "Listen to the intro fade in.",
+      "words": 6,
+      "voice_end": 86.03,
+      "note": "app audio plays after the voice window: the line is only a lead-in, narration stays silent over the music",
+      "source": {
+        "demo": "dj-extended-club-intro",
+        "code": "EI",
+        "caption": "EI08",
+        "start": 81.53,
+        "end": 95.27
+      },
+      "audio_window": [
+        86.03,
+        93.65
+      ],
+      "clip": "EI08.mp3",
+      "clip_speech_seconds": 2.0
+    },
+    {
+      "id": "EI09",
+      "kind": "listen",
+      "start": 95.27,
+      "end": 111.67,
+      "onscreen": "Listen: the low end arrives at the drop (0:31)",
+      "max_seconds": 3.94,
+      "max_words": 9,
+      "narration": "Wait for the drop.",
+      "narration_spoken": "Wait for the drop.",
+      "narration_display": "Wait for the drop.",
+      "words": 4,
+      "voice_end": 99.51,
+      "note": "app audio plays after the voice window: the line is only a lead-in, narration stays silent over the music",
+      "source": {
+        "demo": "dj-extended-club-intro",
+        "code": "EI",
+        "caption": "EI09",
+        "start": 95.27,
+        "end": 111.67
+      },
+      "audio_window": [
+        99.51,
+        110.1
+      ],
+      "clip": "EI09.mp3",
+      "clip_speech_seconds": 1.28
+    },
+    {
+      "id": "EI10",
+      "kind": "step",
+      "start": 111.67,
+      "end": 115.867,
+      "onscreen": "Done: solar-flare-extended-intro.wav, a 16-bar intro",
+      "max_seconds": 3.897,
+      "max_words": 9,
+      "narration": "Done: a {16|sixteen}-bar intro, exported.",
+      "narration_spoken": "Done: a sixteen-bar intro, exported.",
+      "narration_display": "Done: a 16-bar intro, exported.",
+      "words": 5,
+      "source": {
+        "demo": "dj-extended-club-intro",
+        "code": "EI",
+        "caption": "EI10",
+        "start": 111.67,
+        "end": 115.867
+      },
+      "clip": "EI10.mp3",
+      "clip_speech_seconds": 3.52
+    }
+  ]
+}
