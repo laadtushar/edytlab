@@ -411,7 +411,7 @@ fn not_implemented_tools() -> BTreeSet<String> {
 /// is the only thing that makes one and does nothing in this build, so a
 /// small model is not offered these either. Mirrors
 /// `NEEDS_TRANSCRIPT_TOOLS` in `tool_selection.rs`.
-const NEEDS_A_TRANSCRIPT: [&str; 3] = ["cut_words", "duck_under_speech", "remove_fillers"];
+const NEEDS_A_TRANSCRIPT: [&str; 2] = ["cut_words", "remove_fillers"];
 
 /// Every tool a small model is offered neither in full nor by name: the
 /// ones that do nothing in this build, and the ones that need a transcript.
@@ -1028,6 +1028,9 @@ async fn ollama_loose_phrasings_are_shown_the_tool_they_ask_for() {
         ("remove the reverb from track 1", "remove_effect"),
         ("make the vocals less harsh", "de_esser"),
         ("export each track separately", "export_multiple"),
+        // Keys on a voice track's audio when there is no transcript, so it
+        // is not one of the tools left out for needing one.
+        ("duck the music under the speech", "duck_under_speech"),
     ] {
         let turn = run("ollama", message, chat_script()).await;
         turn.result.as_ref().expect("the turn succeeds");

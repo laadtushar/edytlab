@@ -168,11 +168,15 @@ const NOT_IMPLEMENTED_MARKER: &str = "NOT IMPLEMENTED";
 /// that makes one, and it does nothing in this build (#383-#385), so these
 /// can only fail, and a small model that is offered one calls it. They are
 /// left out like the tools above. (`select_region` also reads a
-/// transcript, but resolves beats without one, so it stays.) Alphabetical.
+/// transcript, but resolves beats without one, so it stays. So does
+/// `duck_under_speech`: it keys on a transcript when there is one, and on
+/// the audio of the tracks named in `voice_tracks` when there is not.
+/// A test fails if a tool with a `voice_tracks` property is listed here.)
+/// Alphabetical.
 ///
 /// A test fails when `transcribe` stops saying it is not implemented, and
 /// says to delete this list.
-const NEEDS_TRANSCRIPT_TOOLS: &[&str] = &["cut_words", "duck_under_speech", "remove_fillers"];
+const NEEDS_TRANSCRIPT_TOOLS: &[&str] = &["cut_words", "remove_fillers"];
 
 /// Words in tool names that say nothing about which tool is meant. A user
 /// who writes "remove the region on this track" has named no tool, and
@@ -1188,10 +1192,9 @@ mod tests {
         }
     }
 
-    /// `remove_fillers`, `cut_words` and `duck_under_speech` can only answer
-    /// "this session has no transcript" while `transcribe` is a stub, so a
-    /// small model is not offered them, by a message that names them or
-    /// otherwise.
+    /// `remove_fillers` and `cut_words` can only answer "this session has no
+    /// transcript" while `transcribe` is a stub, so a small model is not
+    /// offered them, by a message that names them or otherwise.
     #[test]
     fn a_tool_that_needs_a_transcript_is_never_selected_or_listed() {
         let registered = names(&all_tools());
@@ -1209,8 +1212,7 @@ mod tests {
             "remove the ums and uhs",
             "remove the filler words",
             "cut the words from 3 to 9",
-            "duck the music under the speech",
-            "remove_fillers cut_words duck_under_speech",
+            "remove_fillers cut_words",
             "make it louder",
         ] {
             let selection = selection_for(text, &[]);
@@ -1239,6 +1241,80 @@ mod tests {
         );
         let selection = slim_tool_schemas(available, "remove the ums", &[], &[]);
         assert_eq!(names(&selection.tools), vec!["gain"]);
+    }
+
+    /// `duck_under_speech` reads the transcript when there is one, but with
+    /// `voice_tracks` it keys on a track's audio and needs none, so it works
+    /// while `transcribe` is a stub and a small model should be offered it.
+    #[test]
+    fn duck_under_speech_is_offered_to_a_small_model_because_it_needs_no_transcript() {
+        assert!(
+            !NEEDS_TRANSCRIPT_TOOLS.contains(&"duck_under_speech"),
+            "duck_under_speech is on NEEDS_TRANSCRIPT_TOOLS, but it can key on `voice_tracks` \
+             audio with no transcript"
+        );
+        for text in ["duck the music under the speech", "duck_under_speech"] {
+            let selection = selection_for(text, &[]);
+            let sent = names(&selection.tools);
+            assert!(
+                sent.iter().any(|n| n == "duck_under_speech"),
+                "{text:?} did not send duck_under_speech: {sent:?}"
+            );
+            assert!(
+                !selection.unsent.iter().any(|n| n == "duck_under_speech"),
+                "{text:?} lists duck_under_speech as callable though it was sent: {:?}",
+                selection.unsent
+            );
+        }
+        // The slim set keeps the first sentence of a parameter's description
+        // only, so that sentence has to say when `voice_tracks` is needed.
+        let selection = selection_for("duck the music under the speech", &[]);
+        let duck = selection
+            .tools
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| name_of(t) == Some("duck_under_speech"))
+            .expect("duck_under_speech was sent");
+        let voice_tracks = duck["input_schema"]["properties"]["voice_tracks"]["description"]
+            .as_str()
+            .expect("voice_tracks has a description");
+        assert!(
+            voice_tracks.contains("no transcript"),
+            "the first sentence of voice_tracks must say it is needed when there is no \
+             transcript, or a small model never learns it: {voice_tracks:?}"
+        );
+        // A message that has nothing to do with it still lists it by name,
+        // so the model knows it exists.
+        let selection = selection_for("make it louder", &[]);
+        assert!(
+            selection.unsent.iter().any(|n| n == "duck_under_speech"),
+            "duck_under_speech is neither sent nor named for an unrelated message: {:?}",
+            selection.unsent
+        );
+    }
+
+    /// A tool with a `voice_tracks` property keys on audio, so it does not
+    /// need a transcript. Listing one in `NEEDS_TRANSCRIPT_TOOLS` hides a
+    /// working tool from every small model (this was `duck_under_speech`,
+    /// until it gained `voice_tracks`).
+    #[test]
+    fn a_tool_that_can_key_on_voice_audio_is_not_listed_as_needing_a_transcript() {
+        let registry = all_tools();
+        for tool in registry.as_array().unwrap() {
+            let name = name_of(tool).expect("a name");
+            if !NEEDS_TRANSCRIPT_TOOLS.contains(&name) {
+                continue;
+            }
+            assert!(
+                tool["input_schema"]["properties"]
+                    .get("voice_tracks")
+                    .is_none(),
+                "{name} is on NEEDS_TRANSCRIPT_TOOLS but takes `voice_tracks`, so it can key on \
+                 a track's audio and works with no transcript. Take it off the list (and out of \
+                 the docs that say it needs a transcript) so a small model is offered it."
+            );
+        }
     }
 
     /// The exclusion is for as long as nothing can make a transcript. When

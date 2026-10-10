@@ -112,7 +112,7 @@ impl Tool for DuckUnderSpeechTool {
                         "type": "array",
                         "items": { "type": "integer", "minimum": 0 },
                         "minItems": 1,
-                        "description": "Track(s) with the speech. Key the ducking on where their audio has voiced sound instead of on the transcript; needed when there is no transcript. The voice alone: a track with music in it reads as speech throughout, and loud low rumble, or a fan that runs for part of the track, reads as speech while it lasts.",
+                        "description": "Track(s) with the speech; needed when the session has no transcript. Key the ducking on where their audio has voiced sound instead of on the transcript. The voice alone: a track with music in it reads as speech throughout, and loud low rumble, or a fan that runs for part of the track, reads as speech while it lasts.",
                     },
                 },
                 "required": ["music_track"],
