@@ -170,10 +170,25 @@ pub(crate) fn held_step(
 
 /// Longest value shown on the card before it is cut.
 const VALUE_CAP: usize = 60;
-/// Longest description, whatever it holds.
+/// Longest description of a call's own arguments. The steps of a recipe it
+/// replays are listed after that, in full (see [`recipe_steps`]).
 const DESCRIPTION_CAP: usize = 300;
 /// Longest array shown inline as `[a, b, c]`.
 const INLINE_ARRAY_MAX: usize = 8;
+
+/// The tools that replay a recipe file, and the argument that names it.
+///
+/// Their arguments say where the steps are, not what they are: the steps
+/// are in the file, and the card is meant to show what will run. The test
+/// `the_recipe_tools_are_real_and_take_their_file_as_a_required_string`
+/// checks these names against the real tools.
+const RECIPE_RUNNERS: [(&str, &str); 2] =
+    [("apply_recipe", "path"), ("batch_apply", "recipe_path")];
+
+/// Largest file the gate reads to find a recipe's steps. A recipe is a few
+/// kilobytes of JSON; a path the model chose that is bigger than this is
+/// not one, and is not read into memory before the user has said yes.
+const RECIPE_READ_CAP: u64 = 4 * 1024 * 1024;
 
 /// `text`, cut to at most `max` characters, ending in `…` if it was cut.
 /// Counts and cuts on characters, never inside a multi-byte one.
@@ -212,6 +227,9 @@ fn render_value(v: &Value) -> String {
 /// Required parameters come first, in the order the schema lists them
 /// (the only reliable order: `serde_json`'s map order depends on its
 /// features), then the rest alphabetically.
+///
+/// A call that replays a recipe file ([`RECIPE_RUNNERS`]) is followed by
+/// the steps in that file ([`recipe_steps`]).
 pub(crate) fn describe_call(
     schema: Option<&Value>,
     name: &str,
@@ -269,10 +287,62 @@ pub(crate) fn describe_call(
         ));
     }
 
-    if parts.is_empty() {
-        return "no arguments".to_string();
+    let own = if parts.is_empty() {
+        "no arguments".to_string()
+    } else {
+        shorten(&parts.join(", "), DESCRIPTION_CAP)
+    };
+    match recipe_steps(name, map) {
+        Some(steps) => format!("{own}; {steps}"),
+        None => own,
     }
-    shorten(&parts.join(", "), DESCRIPTION_CAP)
+}
+
+/// What a recipe-replaying call will run, read from the recipe file its
+/// arguments name: `recipe steps (3): normalize → reverb → fade`.
+///
+/// `apply_recipe` and `batch_apply` carry only the path, so the card used
+/// to show a path and nothing of the edits the user was approving. Every
+/// step's tool is listed and none is cut: neither [`VALUE_CAP`] nor
+/// [`DESCRIPTION_CAP`] applies, as they keep one argument from filling the
+/// card and these are the call's whole effect. The parameters of each step
+/// stay in the file.
+///
+/// `None` for any other tool, and for a call that names no file. A file
+/// that cannot be read says so and that the call will fail, which is what
+/// the tool itself will answer: showing a list of steps for a call that
+/// then fails would be worse than showing none.
+fn recipe_steps(name: &str, args: &serde_json::Map<String, Value>) -> Option<String> {
+    let (_, arg) = RECIPE_RUNNERS.iter().find(|(tool, _)| *tool == name)?;
+    let path = args.get(*arg)?.as_str()?;
+    Some(match read_recipe(path) {
+        Ok(recipe) => {
+            let tools: Vec<&str> = recipe.steps.iter().map(|s| s.tool.as_str()).collect();
+            format!("recipe steps ({}): {}", tools.len(), tools.join(" → "))
+        }
+        Err(why) => format!(
+            "the recipe could not be read ({}); this call will fail",
+            shorten(&why, VALUE_CAP * 2)
+        ),
+    })
+}
+
+/// The recipe at `path`, or why there is not one.
+///
+/// This runs at the approval gate, on a path the model chose, before the
+/// user has said yes. So it opens only a regular file of a size a recipe
+/// could be: a device, a pipe or a gigabyte of audio is not read, which
+/// would stall the turn or fill memory.
+fn read_recipe(path: &str) -> std::result::Result<tools::Recipe, String> {
+    let meta = std::fs::metadata(path).map_err(|e| e.to_string())?;
+    if !meta.is_file() {
+        return Err("it is not a file".to_string());
+    }
+    if meta.len() > RECIPE_READ_CAP {
+        return Err("it is too large to be a recipe".to_string());
+    }
+    let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    tools::recipe::parse(&text)
 }
 
 /// Answer a step without running it: one the user declined, revised or
@@ -635,6 +705,161 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
+    // describe_call: the steps of a recipe (#438)
+    // ------------------------------------------------------------------
+
+    /// A recipe file holding steps for `names`, in order. Returns its path.
+    fn recipe_file(dir: &std::path::Path, names: &[&str]) -> String {
+        let steps: Vec<Value> = names
+            .iter()
+            .map(|tool| json!({ "tool": tool, "params": {}, "replayable": true }))
+            .collect();
+        let recipe = json!({
+            "format_version": 1,
+            "engine_version": "test",
+            "steps": steps,
+        });
+        let path = dir.join("chain.json");
+        std::fs::write(&path, recipe.to_string()).expect("write recipe");
+        path.to_string_lossy().into_owned()
+    }
+
+    /// `apply_recipe` takes a path, not the steps, so what it will do is in
+    /// the file. The card said `path: "…"` and nothing else.
+    #[test]
+    fn a_recipe_call_lists_the_steps_it_will_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = recipe_file(dir.path(), &["normalize", "low_pass_filter", "fade"]);
+        let out = describe(None, "apply_recipe", &json!({ "path": path }).to_string());
+        assert_eq!(
+            out,
+            format!(
+                "path: {}; recipe steps (3): normalize → low_pass_filter → fade",
+                serde_json::to_string(&path).unwrap()
+            )
+        );
+    }
+
+    #[test]
+    fn a_batch_call_lists_the_steps_of_its_recipe_too() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = recipe_file(dir.path(), &["trim_silence", "normalize"]);
+        let args = json!({ "recipe_path": path, "input_dir": "/takes" }).to_string();
+        let out = describe(None, "batch_apply", &args);
+        assert!(
+            out.ends_with("; recipe steps (2): trim_silence → normalize"),
+            "{out}"
+        );
+        assert!(out.contains("input_dir: \"/takes\""), "{out}");
+    }
+
+    /// Neither cap applies to the steps: both exist to keep one argument
+    /// from filling the card, and the steps are what the call does.
+    #[test]
+    fn the_steps_are_shown_in_full_past_both_caps() {
+        // A folder name far longer than a value is shown at: the file is
+        // read from the argument, not from its shortened rendering.
+        let dir = tempfile::tempdir().unwrap();
+        let deep = dir.path().join("d".repeat(VALUE_CAP * 2));
+        std::fs::create_dir(&deep).unwrap();
+        let names: Vec<String> = (0..60).map(|i| format!("effect_number_{i}")).collect();
+        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        let path = recipe_file(&deep, &refs);
+
+        let out = describe(None, "apply_recipe", &json!({ "path": path }).to_string());
+        assert!(out.chars().count() > DESCRIPTION_CAP, "{out}");
+        assert!(
+            out.ends_with(&format!("recipe steps (60): {}", names.join(" → "))),
+            "{out}"
+        );
+        for name in &names {
+            assert!(out.contains(name.as_str()), "{name} was cut: {out}");
+        }
+    }
+
+    #[test]
+    fn a_recipe_that_cannot_be_read_says_the_call_will_fail() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("none.json").to_string_lossy().into_owned();
+        let out = describe(
+            None,
+            "apply_recipe",
+            &json!({ "path": missing }).to_string(),
+        );
+        assert!(out.contains("recipe could not be read"), "{out}");
+        assert!(out.ends_with("this call will fail"), "{out}");
+
+        // A folder is not a recipe.
+        let folder = dir.path().to_string_lossy().into_owned();
+        let out = describe(None, "apply_recipe", &json!({ "path": folder }).to_string());
+        assert!(out.contains("recipe could not be read"), "{out}");
+
+        // Not a recipe, and a recipe with nothing in it.
+        std::fs::write(dir.path().join("text.json"), "not json").unwrap();
+        let text = dir.path().join("text.json").to_string_lossy().into_owned();
+        let out = describe(
+            None,
+            "batch_apply",
+            &json!({ "recipe_path": text }).to_string(),
+        );
+        assert!(out.contains("not a readable recipe"), "{out}");
+        let empty = recipe_file(dir.path(), &[]);
+        let out = describe(None, "apply_recipe", &json!({ "path": empty }).to_string());
+        assert!(out.contains("no steps"), "{out}");
+    }
+
+    /// The approval gate reads a path the model chose, before the user has
+    /// said yes. A file that is plainly not a recipe is not read whole.
+    #[test]
+    fn a_file_too_large_to_be_a_recipe_is_not_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let big = dir.path().join("big.json");
+        std::fs::write(&big, vec![b' '; RECIPE_READ_CAP as usize + 1]).unwrap();
+        let out = describe(
+            None,
+            "apply_recipe",
+            &json!({ "path": big.to_string_lossy() }).to_string(),
+        );
+        assert!(out.contains("too large"), "{out}");
+    }
+
+    /// Only the two tools that replay a recipe have steps to show. A tool
+    /// that merely takes a `path` is not opened.
+    #[test]
+    fn other_tools_with_a_path_are_not_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = recipe_file(dir.path(), &["normalize"]);
+        let args = json!({ "path": path }).to_string();
+        let out = describe(None, "load", &args);
+        assert!(!out.contains("recipe steps"), "{out}");
+        // Nor is a call that names no file.
+        assert_eq!(describe(None, "apply_recipe", "{}"), "no arguments");
+        assert_eq!(describe(None, "apply_recipe", r#"{"path":7}"#), "path: 7");
+    }
+
+    /// The table above names tools and arguments by string. If one is
+    /// renamed, the card would quietly go back to showing a bare path.
+    #[test]
+    fn the_recipe_tools_are_real_and_take_their_file_as_a_required_string() {
+        let d = ToolDispatcher::default_dispatcher();
+        for (tool, arg) in RECIPE_RUNNERS {
+            let schema = d
+                .get(tool)
+                .unwrap_or_else(|| panic!("{tool} is not a registered tool"))
+                .schema();
+            let input = &schema["input_schema"];
+            assert_eq!(input["properties"][arg]["type"], "string", "{tool}.{arg}");
+            let required: Vec<&str> = input["required"]
+                .as_array()
+                .expect("required")
+                .iter()
+                .filter_map(Value::as_str)
+                .collect();
+            assert!(required.contains(&arg), "{tool}.{arg} is not required");
+        }
+    }
+
+    // ------------------------------------------------------------------
     // held_step
     // ------------------------------------------------------------------
 
@@ -722,6 +947,29 @@ mod tests {
                 json!({"step": 1, "tool": "peek", "description": "track: 0"}),
                 json!({"step": 2, "tool": "edit", "description": "track: 1"}),
             ]
+        );
+    }
+
+    /// Through the real registry, which is what the agent loop holds: the
+    /// card for a replayed recipe carries the steps in its description.
+    #[test]
+    fn a_held_recipe_call_carries_its_steps_to_the_card() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = recipe_file(dir.path(), &["normalize", "reverb", "fade"]);
+        let d = ToolDispatcher::default_dispatcher();
+        let step = [call(
+            "r1",
+            "apply_recipe",
+            &json!({ "path": path }).to_string(),
+        )];
+
+        let steps = held_step(&d, &step, None, "").expect("a recipe edits the session");
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0]["tool"], "apply_recipe");
+        let description = steps[0]["description"].as_str().expect("text");
+        assert!(
+            description.ends_with("recipe steps (3): normalize → reverb → fade"),
+            "{description}"
         );
     }
 
