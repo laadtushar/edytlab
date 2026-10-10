@@ -5433,7 +5433,7 @@ mod tests {
         let (provider, key, model) = super::resolve_effective_llm(
             "anthropic".into(),
             Some("anthropic-key".into()),
-            Some("claude-sonnet-4-6".into()),
+            Some("claude-sonnet-5-5".into()),
             Some(("openai".into(), "gpt-4o-mini".into())),
             |p| {
                 assert_eq!(p, "openai", "must look up the pinned provider");
@@ -5452,7 +5452,7 @@ mod tests {
         let (provider, key, model) = super::resolve_effective_llm(
             "anthropic".into(),
             Some("anthropic-key".into()),
-            Some("claude-sonnet-4-6".into()),
+            Some("claude-sonnet-5-5".into()),
             Some(("anthropic".into(), "claude-opus-4-7".into())),
             |_| panic!("must not hit the keychain for the active provider"),
         );
@@ -5468,13 +5468,13 @@ mod tests {
         let (provider, key, model) = super::resolve_effective_llm(
             "openrouter".into(),
             Some("or-key".into()),
-            Some("anthropic/claude-sonnet-4-6".into()),
+            Some("anthropic/claude-sonnet-5.5".into()),
             None,
             |_| panic!("must not hit the keychain when no profile is active"),
         );
         assert_eq!(provider, "openrouter");
         assert_eq!(key.as_deref(), Some("or-key"));
-        assert_eq!(model.as_deref(), Some("anthropic/claude-sonnet-4-6"));
+        assert_eq!(model.as_deref(), Some("anthropic/claude-sonnet-5.5"));
     }
 
     /// A pinned provider with no stored key yields `None` rather than

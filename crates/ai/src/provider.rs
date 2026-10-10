@@ -507,8 +507,9 @@ impl OpenAIProvider {
     ///
     /// The caller's `max_tokens` is lowered to the output limit of the model
     /// if [`crate::models::max_output_tokens`] knows one for that provider.
-    /// OpenAI answers a request above a model's limit with a 400 and does not
-    /// lower it, and the agent asks every provider for the same number. This
+    /// OpenAI is reported to reject a request above a model's limit rather
+    /// than lower it (see [`crate::prompt::DEFAULT_MAX_TOKENS`]), and the agent
+    /// asks every provider for the same number. This
     /// is the one serializer behind every streamed step and the Settings
     /// probe, so no caller has to remember to clamp.
     fn serialize_chat_completions(&self, provider_id: &str, req: &MessagesRequest<'_>) -> Value {
@@ -1191,15 +1192,15 @@ mod tests {
     #[test]
     fn anthropic_translate_model_is_identity() {
         let p = AnthropicProvider;
-        assert_eq!(p.translate_model("claude-sonnet-4-6"), "claude-sonnet-4-6");
+        assert_eq!(p.translate_model("claude-sonnet-5-5"), "claude-sonnet-5-5");
     }
 
     #[test]
     fn openrouter_translate_model_prepends_anthropic_namespace() {
         let p = OpenRouterProvider;
         assert_eq!(
-            p.translate_model("claude-sonnet-4-6"),
-            "anthropic/claude-sonnet-4-6"
+            p.translate_model("claude-sonnet-5-5"),
+            "anthropic/claude-sonnet-5-5"
         );
     }
 
@@ -1207,8 +1208,8 @@ mod tests {
     fn openrouter_translate_model_passes_through_already_qualified_ids() {
         let p = OpenRouterProvider;
         assert_eq!(
-            p.translate_model("anthropic/claude-sonnet-4-6"),
-            "anthropic/claude-sonnet-4-6"
+            p.translate_model("anthropic/claude-sonnet-5.5"),
+            "anthropic/claude-sonnet-5.5"
         );
         assert_eq!(
             p.translate_model("openai/gpt-4o-mini"),
@@ -1320,7 +1321,7 @@ mod tests {
         assert_eq!(p.endpoint_path(), "/chat/completions");
         assert_eq!(p.list_models_path(), "/models");
         assert!(p.base_url().contains("generativelanguage.googleapis.com"));
-        assert_eq!(p.translate_model("gemini-2.0-flash"), "gemini-2.0-flash");
+        assert_eq!(p.translate_model("gemini-3.8-flash"), "gemini-3.8-flash");
     }
 
     #[test]
@@ -1360,7 +1361,7 @@ mod tests {
             content: vec![ContentBlock::Text { text: "hi".into() }],
         }];
         let req = MessagesRequest {
-            model: "claude-sonnet-4-6",
+            model: "claude-sonnet-5-5",
             max_tokens: 16,
             system: vec![SystemBlock {
                 kind: "text",
@@ -1374,7 +1375,7 @@ mod tests {
             output_config: None,
         };
         let body = AnthropicProvider.serialize_request(&req);
-        assert_eq!(body["model"], "claude-sonnet-4-6");
+        assert_eq!(body["model"], "claude-sonnet-5-5");
         assert_eq!(body["max_tokens"], 16);
         assert_eq!(body["messages"][0]["role"], "user");
         assert_eq!(body["messages"][0]["content"][0]["type"], "text");
@@ -1670,7 +1671,7 @@ mod tests {
         output_config: Option<crate::anthropic::OutputConfig>,
     ) -> MessagesRequest<'a> {
         MessagesRequest {
-            model: "claude-sonnet-4-6",
+            model: "claude-sonnet-5-5",
             max_tokens: 16,
             system: vec![SystemBlock {
                 kind: "text",
@@ -1716,7 +1717,7 @@ mod tests {
         assert_eq!(
             body,
             json!({
-                "model": "claude-sonnet-4-6",
+                "model": "claude-sonnet-5-5",
                 "max_tokens": 16,
                 "system": [{ "type": "text", "text": "be helpful" }],
                 "messages": [{ "role": "user", "content": [{ "type": "text", "text": "hi" }] }],
@@ -1971,8 +1972,8 @@ mod tests {
     }
 
     /// The defect: the 8192 every step asks for went to OpenAI's older
-    /// models, which answer a request above their limit with a 400. Each
-    /// of them now carries the limit OpenAI's page gives.
+    /// models, which are reported to reject a request above their limit.
+    /// Each of them now carries the limit OpenAI's page gives.
     #[test]
     fn an_openai_request_for_a_legacy_model_carries_its_output_limit() {
         let msgs = one_user_message();

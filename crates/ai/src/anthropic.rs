@@ -386,7 +386,7 @@ mod tests {
             content: vec![ContentBlock::Text { text: "hi".into() }],
         }];
         serde_json::to_value(MessagesRequest {
-            model: "claude-sonnet-4-6",
+            model: "claude-sonnet-5-5",
             max_tokens: 16,
             system: Vec::new(),
             messages: &messages,
@@ -414,7 +414,7 @@ mod tests {
         assert_eq!(
             request(None),
             json!({
-                "model": "claude-sonnet-4-6",
+                "model": "claude-sonnet-5-5",
                 "max_tokens": 16,
                 "system": [],
                 "messages": [{ "role": "user", "content": [{ "type": "text", "text": "hi" }] }],

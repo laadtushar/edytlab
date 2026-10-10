@@ -221,10 +221,10 @@ describe("a model the provider no longer has", () => {
   it("is read from OpenRouter-style ids, which contain a slash and a dot", () => {
     const message = RETIRED.replace(
       "claude-opus-4-1-20250805",
-      "anthropic/claude-opus-4.1",
+      "anthropic/claude-sonnet-4",
     ).replace("claude-sonnet-5-5", "anthropic/claude-sonnet-5.5");
     expect(parseModelUnavailable(message)).toEqual({
-      model: "anthropic/claude-opus-4.1",
+      model: "anthropic/claude-sonnet-4",
       defaultModel: "anthropic/claude-sonnet-5.5",
     });
   });

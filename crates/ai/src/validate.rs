@@ -518,7 +518,7 @@ mod tests {
                 "id": "msg_1",
                 "type": "message",
                 "role": "assistant",
-                "model": "claude-haiku-4-5",
+                "model": "claude-haiku-5-5",
                 "content": [{"type": "text", "text": "p"}],
                 "stop_reason": "end_turn"
             })))
@@ -559,7 +559,7 @@ mod tests {
                 "id": "msg_1",
                 "type": "message",
                 "role": "assistant",
-                "model": "anthropic/claude-haiku-4-5-20251001",
+                "model": "anthropic/claude-haiku-5.5",
                 "content": [{"type": "text", "text": "p"}],
                 "stop_reason": "end_turn"
             })))
@@ -753,7 +753,7 @@ mod tests {
                 "id": "msg_1",
                 "type": "message",
                 "role": "assistant",
-                "model": "anthropic/claude-haiku-4-5-20251001",
+                "model": "anthropic/claude-haiku-5.5",
                 "content": [{"type": "text", "text": "p"}],
                 "stop_reason": "end_turn"
             })))
@@ -903,7 +903,7 @@ mod tests {
                 "id": "msg_1",
                 "type": "message",
                 "role": "assistant",
-                "model": "claude-sonnet-4-6",
+                "model": "claude-sonnet-5-5",
                 "content": [
                     {"type": "tool_use", "id": "tu_1", "name": PROBE_TOOL, "input": {"ok": true}}
                 ],
