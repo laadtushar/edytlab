@@ -303,6 +303,45 @@ pub fn chat_sse_tool_call(id: &str, name: &str, args_json: &str) -> String {
     out
 }
 
+/// A chat-completions streamed step that says a sentence and then makes
+/// one tool call per `(id, name, arguments as JSON text)`, in the same
+/// message. Each call's arguments arrive in two fragments, the way a real
+/// stream splits them.
+pub fn chat_sse_tool_step(calls: &[(&str, &str, &str)]) -> String {
+    let mut out = chat_chunk(
+        json!({ "role": "assistant", "content": "Working on it." }),
+        Value::Null,
+    );
+    for (index, (id, name, args_json)) in calls.iter().enumerate() {
+        let cut = args_json
+            .char_indices()
+            .nth(args_json.chars().count() / 2)
+            .map_or(0, |(i, _)| i);
+        let (head, tail) = args_json.split_at(cut);
+        out.push_str(&chat_chunk(
+            json!({ "tool_calls": [{
+                "index": index,
+                "id": id,
+                "type": "function",
+                "function": { "name": name, "arguments": head }
+            }] }),
+            Value::Null,
+        ));
+        if !tail.is_empty() {
+            out.push_str(&chat_chunk(
+                json!({ "tool_calls": [{
+                    "index": index,
+                    "function": { "arguments": tail }
+                }] }),
+                Value::Null,
+            ));
+        }
+    }
+    out.push_str(&chat_chunk(json!({}), json!("tool_calls")));
+    out.push_str("data: [DONE]\n\n");
+    out
+}
+
 /// One scripted answer: an HTTP status and a body.
 pub type Entry = (u16, String);
 

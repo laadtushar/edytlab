@@ -12,14 +12,16 @@
 //! ## Phase-2 sandbox behaviour
 //!
 //! **Not available in this build.** Every invocation ends in a
-//! `ToolResult::Error`, by one of two routes:
+//! `ToolResult::Error`, by one of three routes:
 //!
 //! - no model configured — [`DemucsModel::load`] returns
 //!   `ModelMissing`;
+//! - a model configured but no ONNX Runtime library to load it with —
+//!   `RuntimeUnavailable` (this used to hang the agent, #383);
 //! - a model configured and loaded — [`DemucsModel::separate`] returns
 //!   `NotImplemented`.
 //!
-//! The second is the one that matters: **dropping an `.onnx` into place
+//! The last is the one that matters: **dropping an `.onnx` into place
 //! does not enable separation.** What is missing is the ORT decode
 //! loop, an M28 deliverable, not the file. This module used to say the
 //! opposite, and the error called itself actionable (#233).
@@ -241,6 +243,15 @@ fn run_separation(
             return Err(SeparateError::Tool(format!(
                 "Demucs model not found at {path}; {INSTALL_HINT}"
             )));
+        }
+        // No ONNX Runtime library. Not `Oom`, and not "model load
+        // failed". Only the reason goes in: the error's own text repeats
+        // "not implemented in this build" (the hint already says it) and
+        // the agent reads whatever it is given as something to act on. The
+        // hint is the sentence it is told never to contradict, so it is
+        // appended as for a missing model.
+        Err(DemucsError::RuntimeUnavailable(reason)) => {
+            return Err(SeparateError::Tool(format!("{reason}; {INSTALL_HINT}")));
         }
         Err(e) => return Err(SeparateError::Tool(format!("model load failed: {e}"))),
     };
