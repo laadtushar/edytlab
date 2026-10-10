@@ -16,9 +16,10 @@
 //!   is showing instead of presenting a built-in list as Anthropic's.
 //! * **OpenRouter** — `GET /api/v1/models` (public; auth optional but
 //!   raises rate limits when present).
-//! * **OpenAI** — `GET /v1/models` (auth required). We filter to
-//!   chat-capable model ids (heuristic: prefix `gpt-`, `o1-`, `o3-`,
-//!   `chatgpt-`).
+//! * **OpenAI** — `GET /v1/models` (auth required). We keep the ids that
+//!   can chat (see [`is_chat_capable`]) and whose context window can hold the
+//!   agent's request (see [`holds_the_agents_request`]), newest family first
+//!   (see [`openai_rank`]).
 //! * **Groq** — `GET /v1/models` (auth required). No filtering: the
 //!   OpenAI heuristic above would reject every `llama-*` id and leave
 //!   the dropdown empty.
@@ -65,7 +66,7 @@ use crate::prompt::DEFAULT_MODEL;
 use crate::provider::{
     AnthropicProvider, LlmProvider, ANTHROPIC_DEFAULT_BASE_URL, ANTHROPIC_ID,
     GEMINI_DEFAULT_BASE_URL, GEMINI_ID, GROQ_DEFAULT_BASE_URL, GROQ_ID, OLLAMA_DEFAULT_BASE_URL,
-    OLLAMA_ID, OPENAI_DEFAULT_BASE_URL, OPENAI_ID, OPENROUTER_ID,
+    OLLAMA_ID, OPENAI_DEFAULT_BASE_URL, OPENAI_DEFAULT_MODEL, OPENAI_ID, OPENROUTER_ID,
 };
 
 /// One entry in a provider's model catalogue.
@@ -538,9 +539,19 @@ fn require_key<'a>(api_key: Option<&'a str>, label: &str) -> Result<&'a str, Str
     Ok(key)
 }
 
-/// Live fetch from OpenAI's `/v1/models`. Filters to chat-capable
-/// model ids using a prefix heuristic; OpenAI's catalogue mixes
-/// embeddings, audio, and image models we never want to surface here.
+/// Live fetch from OpenAI's `/v1/models`. Keeps the ids that can chat and
+/// can hold the agent's request ([`is_chat_capable`],
+/// [`holds_the_agents_request`]) — OpenAI's catalogue mixes embeddings, audio,
+/// image and search models we never want to surface here — and orders them
+/// newest family first ([`openai_rank`]). The default is labelled.
+///
+/// Known limitation, not coded around: a model that is listed here may still
+/// not take tools on Chat Completions, the only API edytlab speaks.
+/// `gpt-6.1-sol` is one: "Use the Responses API for tool calling. Chat
+/// Completions is supported without tool calling"
+/// (<https://developers.openai.com/api/docs/models/gpt-6.1-sol>). The list
+/// carries no capability to filter on, so TEST's tool probe is where that
+/// shows, as "did not call the tool".
 async fn fetch_openai_models(
     base_url: &str,
     api_key: Option<&str>,
@@ -550,21 +561,20 @@ async fn fetch_openai_models(
 
     let mut models: Vec<ModelInfo> = ids
         .into_iter()
-        .filter(|id| is_chat_capable(id))
+        .filter(|id| is_chat_capable(id) && holds_the_agents_request(id))
         .map(|id| ModelInfo {
-            display_name: id.clone(),
+            display_name: if id == OPENAI_DEFAULT_MODEL {
+                format!("{id} (default)")
+            } else {
+                id.clone()
+            },
             context_length: None,
             provider_hint: None,
             id,
         })
         .collect();
 
-    // Newest-first heuristic: gpt-4o, gpt-4.1, o3, o1, then alphabetical.
-    models.sort_by(|a, b| {
-        openai_rank(&a.id)
-            .cmp(&openai_rank(&b.id))
-            .then_with(|| a.id.cmp(&b.id))
-    });
+    models.sort_by_cached_key(|m| openai_rank(&m.id));
     Ok(models)
 }
 
@@ -667,33 +677,99 @@ async fn fetch_gemini_models(
         .collect())
 }
 
-fn is_chat_capable(id: &str) -> bool {
-    id.starts_with("gpt-")
-        || id.starts_with("o1-")
-        || id.starts_with("o3-")
-        || id == "o1"
-        || id == "o3"
-        || id.starts_with("chatgpt-")
+/// Whether `id` is an OpenAI o-series reasoning model: `o`, a number, and
+/// then nothing or a `-` (`o1`, `o3-mini`, `o4-mini`), but not `omni-…`.
+fn is_o_series(id: &str) -> bool {
+    let Some(rest) = id.strip_prefix('o') else {
+        return false;
+    };
+    let digits = rest.chars().take_while(char::is_ascii_digit).count();
+    digits > 0 && matches!(rest[digits..].chars().next(), None | Some('-'))
 }
 
-/// Lower rank = higher in the list. Designed so the most-recent /
-/// most-relevant model families surface at the top of the combo.
-fn openai_rank(id: &str) -> u8 {
-    if id.starts_with("gpt-4o") {
-        0
-    } else if id.starts_with("gpt-4.1") {
-        1
-    } else if id.starts_with("o3") {
-        2
-    } else if id.starts_with("o1") {
-        3
-    } else if id.starts_with("gpt-4") {
-        4
-    } else if id.starts_with("gpt-") {
-        5
-    } else {
-        9
+/// Whether `id` is a model the agent can chat with: a `gpt-` or `chatgpt-`
+/// id or an o-series one, minus the ids that start with `gpt-` and are not
+/// chat models.
+///
+/// There are many of those, and the prefix alone offered all of them:
+/// `gpt-4o-transcribe`, `gpt-4o-mini-tts`, `gpt-realtime-2.1`,
+/// `gpt-audio-1.5`, `gpt-live-transcribe`, `gpt-transcribe`, `gpt-image-1`
+/// and `gpt-4o-search-preview-2025-03-11` are all on OpenAI's deprecations
+/// page or models page (<https://developers.openai.com/api/docs/deprecations>),
+/// and so are the `-completions` aliases and `gpt-3.5-turbo-instruct`, which
+/// serve the legacy completions endpoint and not Chat Completions. The words
+/// are matched anywhere in the id, so a family that does not exist yet and is
+/// named the same way is left out too.
+fn is_chat_capable(id: &str) -> bool {
+    const NOT_CHAT: [&str; 10] = [
+        "transcribe",
+        "tts",
+        "realtime",
+        "audio",
+        "image",
+        "search-preview",
+        "embedding",
+        "moderation",
+        "instruct",
+        "completions",
+    ];
+    let chats = id.starts_with("gpt-") || id.starts_with("chatgpt-") || is_o_series(id);
+    chats && !NOT_CHAT.iter().any(|word| id.contains(word))
+}
+
+/// Whether a model's context window can hold the agent's first request, which
+/// is the tool list and the prompt: about 57 KB as chat-completions JSON
+/// (`tests/request_size.rs`), roughly 15K tokens (llama.cpp counted 15,157
+/// tokens for a request of this kind), and then the agent asks to write up
+/// to 4,096 more, and a context window is shared by input and output
+/// (<https://developers.openai.com/api/docs/guides/conversation-state>). A
+/// model whose whole window is smaller than that fails every request it is
+/// given, so offering it in a dropdown is offering something that cannot
+/// work.
+///
+/// * `gpt-4`, `gpt-4-0613` and `gpt-4-0314`: 8,192 tokens of context
+///   (<https://developers.openai.com/api/docs/models/gpt-4>).
+/// * `gpt-3.5-turbo` and its snapshots: 16,385 tokens
+///   (<https://developers.openai.com/api/docs/models/gpt-3.5-turbo>), less
+///   than the request and its 4,096 together.
+///
+/// Both families shut down on 2026-10-23 anyway (see
+/// [`openai_max_output_tokens`]). It only hides them: a model typed into
+/// Settings by hand still goes out, with its output limit lowered, and fails
+/// with the provider's own context-length answer.
+///
+/// The older models that stay are well above it: `gpt-4-turbo`'s page gives
+/// 128,000 (<https://developers.openai.com/api/docs/models/gpt-4-turbo>).
+fn holds_the_agents_request(id: &str) -> bool {
+    !(matches!(id, "gpt-4" | "gpt-4-0613" | "gpt-4-0314") || id.starts_with("gpt-3.5-turbo"))
+}
+
+/// The sort key of an OpenAI model id: lower sorts higher in the list, so the
+/// newest models surface at the top of the combo.
+///
+/// No generation is written into it, so it does not go stale. Family 0 is
+/// `gpt-N[.M]…`, ordered by `N.M` descending (`gpt-6.1-sol` is 6.1, `gpt-6-luna`
+/// is 6.0, `gpt-4o-mini` is 4.0); family 1 is the o-series, ordered by its
+/// number descending; family 2 is anything else (`chatgpt-…`). The id is the
+/// last component, so models of one generation sort alphabetically.
+fn openai_rank(id: &str) -> (u8, std::cmp::Reverse<(u32, u32)>, String) {
+    fn leading_number(s: &str) -> (u32, &str) {
+        let digits = s.chars().take_while(char::is_ascii_digit).count();
+        (s[..digits].parse().unwrap_or(0), &s[digits..])
     }
+
+    let (family, version) = if let Some(rest) = id.strip_prefix("gpt-") {
+        let (major, rest) = leading_number(rest);
+        let minor = rest
+            .strip_prefix('.')
+            .map_or(0, |after_dot| leading_number(after_dot).0);
+        (0, (major, minor))
+    } else if is_o_series(id) {
+        (1, (leading_number(&id[1..]).0, 0))
+    } else {
+        (2, (0, 0))
+    };
+    (family, std::cmp::Reverse(version), id.to_string())
 }
 
 /// The most output tokens one request may ask `model` for on `provider_id`,
@@ -850,23 +926,116 @@ mod tests {
 
     #[test]
     fn is_chat_capable_filters_correctly() {
-        assert!(is_chat_capable("gpt-4o-mini"));
-        assert!(is_chat_capable("gpt-4.1"));
-        assert!(is_chat_capable("o1-preview"));
-        assert!(is_chat_capable("o3-mini"));
-        assert!(is_chat_capable("chatgpt-4o-latest"));
-        assert!(!is_chat_capable("text-embedding-3-small"));
-        assert!(!is_chat_capable("dall-e-3"));
-        assert!(!is_chat_capable("whisper-1"));
-        assert!(!is_chat_capable("tts-1"));
+        for id in [
+            "gpt-4o-mini",
+            "gpt-4.1",
+            "o1",
+            "o3",
+            "o1-preview",
+            "o3-mini",
+            "o4-mini",
+            "chatgpt-4o-latest",
+            // The current generation: ids with a major and a minor in them.
+            "gpt-6-luna",
+            "gpt-6.1-sol",
+            "gpt-6-astra",
+            "gpt-5.6-terra",
+        ] {
+            assert!(is_chat_capable(id), "{id} chats");
+        }
+        for id in [
+            "text-embedding-3-small",
+            "dall-e-3",
+            "whisper-1",
+            "tts-1",
+            // All of these start with `gpt-` and none of them chats. They are
+            // ids on OpenAI's deprecations page
+            // (<https://developers.openai.com/api/docs/deprecations>) or its
+            // models page, and the dropdown used to offer every one.
+            "gpt-4o-transcribe",
+            "gpt-4o-mini-tts",
+            "gpt-realtime-2.1",
+            "gpt-audio-1.5",
+            "gpt-live-transcribe",
+            "gpt-transcribe",
+            "gpt-image-1",
+            "gpt-4o-search-preview",
+            "gpt-4o-mini-search-preview-2025-03-11",
+            // Completions-only ids: the `-completions` aliases and the
+            // instruct model, which Chat Completions does not serve.
+            "gpt-4-completions",
+            "gpt-4-turbo-completions",
+            "gpt-3.5-turbo-instruct",
+        ] {
+            assert!(!is_chat_capable(id), "{id} does not chat");
+        }
     }
 
+    /// No generation is written into the order: a model that did not exist
+    /// when this was written sorts by its number, and the families sort as
+    /// `gpt-N[.M]`, then the o-series, then the rest.
     #[test]
     fn openai_rank_orders_newest_families_first() {
-        assert!(openai_rank("gpt-4o-mini") < openai_rank("gpt-4-turbo"));
-        assert!(openai_rank("gpt-4.1") < openai_rank("gpt-4-turbo"));
-        assert!(openai_rank("o3-mini") < openai_rank("o1-preview"));
-        assert!(openai_rank("gpt-4o") < openai_rank("o1-preview"));
+        let in_order = [
+            "gpt-6.1-sol",
+            "gpt-6-astra",
+            "gpt-6-luna",
+            "gpt-5.6-terra",
+            "gpt-4.1",
+            "gpt-4o-mini",
+            "o4-mini",
+            "o3",
+            "o1-preview",
+            "chatgpt-4o-latest",
+        ];
+        for pair in in_order.windows(2) {
+            assert!(
+                openai_rank(pair[0]) < openai_rank(pair[1]),
+                "{} should sort before {}",
+                pair[0],
+                pair[1]
+            );
+        }
+        // The same family and generation sort by id, and `gpt-4-turbo` is
+        // `gpt-4`, not `gpt-4.1`.
+        assert!(openai_rank("gpt-4-turbo") < openai_rank("gpt-4o-mini"));
+        assert!(openai_rank("gpt-4.1-nano") < openai_rank("gpt-4-turbo"));
+        assert!(openai_rank("gpt-4-turbo") < openai_rank("gpt-3.5-turbo"));
+    }
+
+    /// The agent's request is about 15K tokens of tools and prompt, and it is
+    /// asked to write up to 4,096 more. A model whose whole context window is
+    /// smaller than that can never run it, whatever it is called.
+    #[test]
+    fn models_that_cannot_hold_the_agents_request_are_not_listed() {
+        for id in [
+            // 8,192 tokens of context and of output
+            // (<https://developers.openai.com/api/docs/models/gpt-4>).
+            "gpt-4",
+            "gpt-4-0613",
+            "gpt-4-0314",
+            // 16,385 tokens of context
+            // (<https://developers.openai.com/api/docs/models/gpt-3.5-turbo>).
+            "gpt-3.5-turbo",
+            "gpt-3.5-turbo-0125",
+            "gpt-3.5-turbo-1106",
+        ] {
+            assert!(!holds_the_agents_request(id), "{id}");
+        }
+        for id in [
+            "gpt-4-turbo",
+            "gpt-4-turbo-2024-04-09",
+            "gpt-4o",
+            "gpt-4o-mini",
+            "gpt-4.1",
+            "gpt-6-luna",
+            "o3",
+            // Not the 8K model, whatever the prefix looks like.
+            "gpt-4-0125-preview",
+            "gpt-4-1106-preview",
+        ] {
+            assert!(holds_the_agents_request(id), "{id}");
+        }
     }
 
     // ------------------------------------------------------------------
@@ -1707,14 +1876,22 @@ mod tests {
     }
 
     /// OpenAI keeps its filter and its ordering — the refactor that
-    /// added the other two arms must not have loosened it.
+    /// added the other two arms must not have loosened it. The current
+    /// default comes first among the current generation, and says it is the
+    /// default.
     #[tokio::test]
     async fn openai_catalogue_keeps_its_filter_and_ranking() {
         let _guard = CACHE_LOCK.lock().await;
         clear_cache();
         let server = serve(
             "/v1/models",
-            &["text-embedding-3-small", "gpt-4o-mini", "dall-e-3", "o1"],
+            &[
+                "text-embedding-3-small",
+                "gpt-4o-mini",
+                "gpt-6-luna",
+                "gpt-4o-transcribe",
+                "o3",
+            ],
         )
         .await;
 
@@ -1725,9 +1902,39 @@ mod tests {
         let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
         assert_eq!(
             ids,
-            vec!["gpt-4o-mini", "o1"],
-            "embeddings and image models must stay out, gpt-4o ranks first"
+            vec!["gpt-6-luna", "gpt-4o-mini", "o3"],
+            "embeddings and audio models must stay out, the newest family ranks first"
         );
+        assert!(
+            models[0].display_name.ends_with("(default)"),
+            "{}",
+            models[0].display_name
+        );
+        assert!(!models[1].display_name.contains("default"));
+    }
+
+    #[tokio::test]
+    async fn openai_catalogue_hides_what_cannot_run_the_agent() {
+        let _guard = CACHE_LOCK.lock().await;
+        clear_cache();
+        let server = serve(
+            "/v1/models",
+            &[
+                "gpt-4",
+                "gpt-4-0613",
+                "gpt-3.5-turbo",
+                "gpt-3.5-turbo-instruct",
+                "gpt-4-turbo",
+                "gpt-4o-mini",
+            ],
+        )
+        .await;
+        let models = list_models_at(OPENAI_ID, Some("k"), &server.uri())
+            .await
+            .unwrap()
+            .models;
+        let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(ids, vec!["gpt-4-turbo", "gpt-4o-mini"]);
     }
 
     #[tokio::test]
