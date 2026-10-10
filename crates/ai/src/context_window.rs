@@ -39,11 +39,23 @@ const OVERFLOW_PHRASES: &[&str] = &[
 /// body says the request did not fit, [`Error::Api`] otherwise.
 pub(crate) fn api_error(status: u16, body: String) -> Error {
     match overflow(status, &body) {
-        Some((needed, available)) => Error::ContextTooSmall {
-            needed,
-            available,
-            message: body,
-        },
+        Some((needed, available)) => {
+            // The person is shown an explanation, not the server's body
+            // (see `Error::ContextTooSmall`), so this is where the body
+            // is kept for whoever has to find out what the server said.
+            tracing::warn!(
+                status,
+                needed = ?needed,
+                available = ?available,
+                body = %body,
+                "the model's context window is too small for the request"
+            );
+            Error::ContextTooSmall {
+                needed,
+                available,
+                message: body,
+            }
+        }
         None => Error::Api {
             status,
             message: body,
@@ -108,12 +120,16 @@ fn numbers_before_tokens(text: &str) -> Vec<u64> {
 
 /// What the person is shown for [`Error::ContextTooSmall`].
 ///
-/// It names no provider (#405) and none of the credential wording the
-/// chat reads as "fix this in Settings" (#414): the fix is a bigger
-/// context, not a different key. The two ways to get one are the two
-/// local servers the Ollama provider is pointed at; a hosted provider's
-/// answer is to start a new chat or pick a larger model, which comes
-/// first.
+/// It names no hosted provider (#405) and none of the credential wording
+/// the chat reads as "fix this in Settings" (#414): the fix is a bigger
+/// context, not a different key. It does name the two local servers the
+/// Ollama provider is pointed at, because how to give a local model more
+/// context is a setting of that server and nowhere else. The two ways to
+/// fit a request that is already too long are the two things the app can
+/// do today: reopen the project, which builds the agent afresh with an
+/// empty conversation (`rebuild_agent` runs on opening a project, and
+/// there is no new-chat or clear-conversation control), and choose a
+/// model with a larger context, which rebuilds it the same way.
 pub(crate) fn explain(needed: &Option<u64>, available: &Option<u64>) -> String {
     let counts = match (needed, available) {
         (Some(n), Some(a)) => format!(" (it needs about {n} tokens; the model has {a})"),
@@ -122,10 +138,10 @@ pub(crate) fn explain(needed: &Option<u64>, available: &Option<u64>) -> String {
         (None, None) => String::new(),
     };
     format!(
-        "The model's context window is too small for this request{counts}. Start a new chat to \
-         drop the earlier messages, or choose a model with a larger context. For a local model, \
-         give it more: with Ollama, raise its context length; with llama.cpp, start the server \
-         with a larger --ctx-size."
+        "The model's context window is too small for this request{counts}. Reopen the project \
+         to drop the earlier messages, or choose a model with a larger context. For a local \
+         model, give it more: with Ollama, raise its context length; with llama.cpp, start the \
+         server with a larger --ctx-size."
     )
 }
 
@@ -245,6 +261,24 @@ mod tests {
             for banned in ["anthropic", "api key", "api-key", "authenticat", "settings"] {
                 assert!(!text.contains(banned), "{banned:?} in {text}");
             }
+        }
+    }
+
+    /// The app has no new-chat or clear-conversation control: the agent
+    /// (and with it the conversation) is built afresh by `rebuild_agent`,
+    /// which runs when a project is opened or the model is changed. The
+    /// text must send a person to one of those, not to a button that is
+    /// not there.
+    #[test]
+    fn the_text_offers_only_what_the_app_can_do() {
+        let text = explain(&Some(15157), &Some(8192));
+        assert!(text.contains("Reopen the project"), "{text}");
+        assert!(text.contains("a model with a larger context"), "{text}");
+        for not_there in ["new chat", "clear the chat", "clear the conversation"] {
+            assert!(
+                !text.to_lowercase().contains(not_there),
+                "{not_there:?} in {text}"
+            );
         }
     }
 

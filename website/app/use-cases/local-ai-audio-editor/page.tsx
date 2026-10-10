@@ -127,12 +127,17 @@ export default function LocalAiUseCasePage() {
         <ul>
           <li>
             With Ollama the agent sends a smaller set of tools: the common
-            editing tools, plus any tool your message names, with shortened
-            descriptions. That keeps a first request small enough for an
-            8,192-token context. A tool that is not offered is used as soon as
-            you name it. A long conversation can still outgrow a small
-            context, and the app then says so and how to raise it. Use a model
-            with reliable tool calling.
+            editing tools, plus any tool you have named or the assistant has
+            just proposed, with shortened descriptions. The names of the rest
+            go in the prompt, so the model knows they exist and can call them.
+            That keeps a first request small enough for an 8,192-token
+            context. A long conversation can still outgrow a small context.
+            If the server refuses an over-long request, as llama.cpp does, the
+            app says so and how to raise the context. Ollama trims an
+            over-long prompt instead, and the app shows nothing, so if replies
+            start to forget earlier messages, raise the model&apos;s context
+            length or reopen the project to start the conversation afresh. Use
+            a model with reliable tool calling.
           </li>
           <li>
             On a CPU, a large request means a long wait for the first reply.

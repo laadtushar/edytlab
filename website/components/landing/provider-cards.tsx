@@ -41,7 +41,7 @@ const providers = [
   },
   {
     name: "Ollama",
-    body: "Runs on your own machine. No key, no account — not even the chat leaves the computer. It gets the same tools as any provider; pick a model trained for tool use to drive them reliably.",
+    body: "Runs on your own machine. No key, no account — not even the chat leaves the computer. It gets a compact tool set sized for small contexts, and every other tool is still there when you name it; pick a model trained for tool use to drive them reliably.",
     href: "https://ollama.com",
     cta: "Get Ollama",
     local: true,

@@ -348,7 +348,7 @@ At the time of writing:
 |---------|---------------|--------------|-------|
 | Anthropic (every tool) | 1.2 KB | 54 KB | 55.5 KB |
 | A chat-completions provider sent every tool | 1.2 KB | 57 KB | 58 KB |
-| Ollama (slim set) | 1.2 KB | 6.3 KB | 7.6 KB |
+| Ollama (slim set, with the names line) | 2.4 KB | 6.3 KB | 8.8 KB |
 
 The system prompt is a kilobyte, so the fix is fewer and terser tools, and only
 for the provider that needs it. `LlmProvider::tool_set()` says which:
@@ -363,25 +363,67 @@ for the provider that needs it. `LlmProvider::tool_set()` says which:
   message says to raise the constant deliberately.
 - **`ToolSet::Slim`** (Ollama): `crates/ai/src/tool_selection.rs` builds the
   list once per turn from the tools the turn permits (so a disabled tool is
-  never brought back), in this order of priority: tools the user's message
-  names (by name or by a distinctive word of it: "reverb", "pitch it up",
-  "reversed", the first mentioned first; words that appear in many tool names,
-  such as `track` or `region`, name none), the core list `SLIM_CORE_TOOLS` (the
-  edits a message does not name: cut, pan, undo, export, gain), tools the system
-  prompt points at in backticks (a profile or a matched skill) and tools the
-  model has already called in the conversation. They are added while the
-  compacted descriptors stay within `SLIM_TOOLS_BUDGET_BYTES`, then sorted by
-  name. If everything permitted already fits (a small agent profile), all of it
-  is sent. Each description is cut to its first sentence and the keywords the
-  model can do without (`default`, `examples`, `title`, `additionalProperties:
-  false`) are dropped; names, types, enums, bounds and `required` are kept.
+  never brought back), in this order of priority:
+  1. tools the user's message names, by name, by a distinctive word of it
+     ("reverb", "pitch it up", "reversed") or by what people say instead
+     ("remove the reverb" for `remove_effect`, "less harsh" for `de_esser`,
+     "export each track separately" for `export_multiple`), the first
+     mentioned first. Words that appear in many tool names, such as `track` or
+     `region`, name none. The tools an approved plan names count here too, and
+     a plan step's name is split at underscores, so `add_reverb` brings in
+     `reverb`;
+  2. the core list `SLIM_CORE_TOOLS` (the edits a message does not name: cut,
+     pan, undo, export, gain);
+  3. tools the assistant's latest message names, so "yes, do it" after "I could
+     add a limiter or a de-esser" is shown those two;
+  4. tools the system prompt points at in backticks (a profile or a matched
+     skill);
+  5. tools the model has already called in the conversation;
+  6. tools the user named in earlier messages, the latest message first.
 
-Three things stay as they were. The set is worked out once per turn, so every
-round trip sends the same tools in the same order and llama.cpp can keep the
-prompt it has already processed. The dispatcher still validates a call against
-the tool's full schema, so shortening what the model reads loosens nothing. And
-permission is the whitelist, not the slim set: a permitted tool the model calls
-without having been shown it still runs.
+  They are added while the compacted descriptors stay within
+  `SLIM_TOOLS_BUDGET_BYTES`, then sorted by name. If everything permitted
+  already fits (a small agent profile), all of it is sent. Each description is
+  cut to its first sentence and the keywords the model can do without
+  (`default`, `examples`, `title`, `additionalProperties: false`) are dropped;
+  names, types, enums, bounds and `required` are kept. A tool whose
+  description says it is not implemented in this build (`separate_stems`,
+  `transcribe`) is never selected and never listed: a small model that is
+  offered one calls it, and it can only fail.
+
+  **The names line.** A model that is not shown a tool does not know it
+  exists, so the permitted tools that were not sent are named, names only, in
+  one line at the end of the system prompt ("More tools you can call by exact
+  name…"). It comes from the same whitelist-filtered list as the selection, so
+  a tool the profile or the Capabilities menu took away is in neither. With the
+  built-in tools it is about 1.2 KB; it is capped at `SLIM_NAMES_BUDGET_BYTES`
+  and ends "and N more" past that, which only MCP tools can reach. When
+  everything was sent there is no line. A call to a listed tool by name works:
+  the dispatcher validates it against the tool's full schema and the error says
+  what is missing.
+
+  **The set can change between turns.** It is chosen from the conversation so
+  far, so a message that names a tool the earlier ones did not changes it, and
+  a local server then has to process the prompt again from the tools on.
+  Mentions are sticky (items 3 and 6) so that this happens only when something
+  new is named: a tool asked for earlier, or just proposed by the assistant,
+  stays in the set until the budget needs the room for something newer, and a
+  message that names nothing new keeps what the earlier ones named. Without
+  that, a tool would drop out at the next message that did not repeat its name
+  and come back at the next that did. The names line follows the set, so it
+  changes with it and only then.
+
+  MCP tools are part of the registry, so the selection applies to them on
+  Ollama like any other tool: one is sent in full when a message names it
+  (their names are matched by the same rules), and otherwise it is listed by
+  name.
+
+Three things stay as they were. The set and the names line are worked out once
+per turn, so every round trip sends the same tools in the same order and
+llama.cpp can keep the prompt it has already processed. The dispatcher still
+validates a call against the tool's full schema, so shortening what the model
+reads loosens nothing. And permission is the whitelist, not the slim set: a
+permitted tool the model calls without having been shown it still runs.
 
 When the context is still too small (a long conversation, or a large profile),
 a 400 or 413 whose body says so becomes `Error::ContextTooSmall`
@@ -389,8 +431,13 @@ a 400 or 413 whose body says so becomes `Error::ContextTooSmall`
 error". It recognises llama.cpp's `exceed_context_size_error`, the
 `context_length_exceeded` code, and the wording of OpenAI, Anthropic and Gemini,
 and carries the token counts when the server gave them. Its text names no
-provider and says what to change (a new chat, a larger context, for Ollama its
-context length, for llama.cpp `--ctx-size`). Ollama's own server typically
+hosted provider and says what to change, using only what the app can do today:
+reopen the project (`rebuild_agent`, which opening a project and changing the
+model both run, builds the agent afresh with an empty conversation; there is no
+new-chat or clear-conversation control), choose a model with a larger context,
+and for a local server raise its context (for Ollama its context length, for
+llama.cpp `--ctx-size`). The server's own body is logged at `warn`, with the
+status, where the error is produced. Ollama's own server typically
 truncates an over-long prompt to its context length instead of refusing it, so
 for Ollama the bound on the first request is what protects the model; the error
 covers servers that do refuse.
@@ -887,7 +934,7 @@ edytlab supports the Model Context Protocol for extending the agent with externa
 
 Transport types: `stdio` (JSON-RPC over stdin/stdout; `command`/`args`/`env`, as above) and `sse` (HTTP Server-Sent Events; `url` and `headers` instead). The transport is inferred from which fields are present (`McpServerConfig` in `crates/mcp/src/config.rs` is untagged). A `<keychain:slot>` value in `env` is replaced with that keychain secret when the server launches.
 
-The MCP layer starts registered servers at app launch, discovers available tools via `tools/list`, and injects them into the agent's tool list alongside built-in tools.
+The MCP layer starts registered servers at app launch, discovers available tools via `tools/list`, and injects them into the agent's tool list alongside built-in tools. On Ollama the slim selection applies to them like any built-in tool (see [Request size](#request-size-and-small-context-models)): an MCP tool is sent in full when a message names it and otherwise only listed by name, and a long MCP tool list ends the names line with "and N more".
 
 ---
 
@@ -1036,7 +1083,7 @@ No per-provider keychain code is needed: the slots are keyed by provider id (`<i
 3. Register it in `ToolDispatcher::default_dispatcher()` in `crates/tools/src/dispatcher.rs`
 4. Tests: cover happy path, invalid input, edge cases (empty session, out-of-range times)
 5. Regenerate [tools-reference.md](./tools-reference.md) (`UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc`) and add the tool to `website/app/docs/tools/page.tsx` — both are checked by tests
-6. Nothing to do for local models: Ollama is sent a core of common tools plus the ones a message names, so a new tool reaches it by being named. If it is an edit a small model should see without being asked, add it to `SLIM_CORE_TOOLS` in `crates/ai/src/tool_selection.rs`; a test holds the core's compacted size within its budget
+6. Nothing to do for local models: Ollama is sent a core of common tools plus the ones a message names, so a new tool reaches it by being named, and is listed by name in the system prompt until then (a test checks that every permitted tool is sent or listed). If it is an edit a small model should see without being asked, add it to `SLIM_CORE_TOOLS` in `crates/ai/src/tool_selection.rs`; a test holds the core's compacted size within its budget. If people will ask for it in words that are not in its name ("less harsh" for `de_esser`), add a `Cue` there; the three phrasings in `request_size.rs` show how
 
 ### Adding a Skill
 

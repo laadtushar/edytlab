@@ -689,21 +689,35 @@ where
     // same order: a local server then keeps the prompt it has already
     // processed. The full path is untouched, which is what keeps
     // Anthropic's prompt cache valid.
-    let tool_schemas = match cfg.provider.tool_set() {
-        ToolSet::Full => tool_schemas,
-        ToolSet::Slim => tool_selection::slim_tool_schemas(
-            tool_schemas,
-            &mention_text,
-            // Not the memory or session blocks: track names and effect
-            // kinds there would pull in tools nobody asked for.
-            &[
-                base_prompt.as_str(),
-                profile_block.as_str(),
-                skills_block.as_str(),
-            ],
-            conversation,
-        ),
+    //
+    // The tools it was not sent are named in one line at the end of the
+    // system prompt, from the same selection, so the model knows they
+    // exist and can call them by name. Appended here, after the prompt
+    // the plan request used, because only now is the selection made.
+    let (tool_schemas, tools_not_sent_note) = match cfg.provider.tool_set() {
+        ToolSet::Full => (tool_schemas, None),
+        ToolSet::Slim => {
+            let selection = tool_selection::slim_tool_schemas(
+                tool_schemas,
+                &mention_text,
+                // Not the memory or session blocks: track names and effect
+                // kinds there would pull in tools nobody asked for.
+                &[
+                    base_prompt.as_str(),
+                    profile_block.as_str(),
+                    skills_block.as_str(),
+                ],
+                conversation,
+            );
+            let note = selection.names_note();
+            (selection.tools, note)
+        }
     };
+    let request_prompt = match tools_not_sent_note {
+        Some(note) => format!("{combined_prompt}\n\n{note}"),
+        None => combined_prompt.clone(),
+    };
+    let system_prompt: &str = &request_prompt;
 
     // The same whitelist, as a set, for the dispatch-time check (#238).
     //

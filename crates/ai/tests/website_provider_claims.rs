@@ -28,7 +28,7 @@
 //! The repo has form for this drift: `9b3de78 docs(website): the app
 //! supports five LLM providers, not three (#100)`.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use ai::SUPPORTED_PROVIDER_IDS;
 
@@ -210,4 +210,82 @@ fn the_local_model_page_describes_the_slim_tool_set_only_while_ollama_has_one() 
         },
         ollama.tool_set()
     );
+}
+
+/// Every `.ts` and `.tsx` file under the site's own source folders, as
+/// `(path relative to website/, whitespace-normalised lowercase source)`.
+/// Prose in these files is wrapped across lines, so compare on words.
+fn website_sources() -> Vec<(String, String)> {
+    fn collect(dir: &Path, root: &Path, out: &mut Vec<(String, String)>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if path.is_dir() {
+                if name != "node_modules" && name != ".next" {
+                    collect(&path, root, out);
+                }
+            } else if name.ends_with(".ts") || name.ends_with(".tsx") {
+                if let Ok(source) = std::fs::read_to_string(&path) {
+                    let words = source
+                        .split_whitespace()
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                        .to_lowercase();
+                    let relative = path.strip_prefix(root).unwrap_or(&path);
+                    out.push((relative.display().to_string(), words));
+                }
+            }
+        }
+    }
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../website");
+    let mut out = Vec::new();
+    for folder in ["app", "components", "lib"] {
+        collect(&root.join(folder), &root, &mut out);
+    }
+    out
+}
+
+/// No page says Ollama gets "the same tools as any provider" while it is
+/// sent a smaller set (#395).
+///
+/// The provider card and a blog post both said so. It was true when they
+/// were written, because every provider was sent every tool. Like the
+/// local-model page's sentence above, the ban is tied to `tool_set()`: if
+/// Ollama is ever sent the full list again, the site is free to say it.
+#[test]
+fn no_page_says_ollama_gets_the_same_tools_as_other_providers_while_it_gets_a_smaller_set() {
+    if !SUPPORTED_PROVIDER_IDS.contains(&"ollama") {
+        return; // Removed as a provider; the site is free to say so.
+    }
+    let ollama = ai::provider::provider_from_id("ollama");
+    assert_eq!(ollama.id(), "ollama", "provider_from_id fell back");
+    if ollama.tool_set() != ai::ToolSet::Slim {
+        return; // Sent every tool again: the sentence is true again.
+    }
+
+    let sources = website_sources();
+    assert!(
+        sources.len() > 20,
+        "found only {} site sources, so the scan below proves nothing: has the website moved?",
+        sources.len()
+    );
+    for (file, words) in &sources {
+        for banned in [
+            "same tools as any",
+            "same tools as every",
+            "same tools as all",
+            "same tools as other",
+            "same tools as the other",
+        ] {
+            assert!(
+                !words.contains(banned),
+                "{file} says {banned:?}, but OllamaProvider::tool_set() is Slim: Ollama is sent \
+                 a compact set (the common edits plus the tools a message names), with every \
+                 other tool still callable by name"
+            );
+        }
+    }
 }

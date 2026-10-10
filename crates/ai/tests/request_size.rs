@@ -28,20 +28,25 @@
 //!   tools-plus-system prefix, so sending a different subset per message
 //!   would make every message a cache miss. The ratchets below only make
 //!   growth visible.
-//! * Ollama sends a core set plus the tools the message names, with
-//!   shortened descriptions, and the request must fit half of an
-//!   8,192-token context. The bound is bytes, at a cautious three bytes
+//! * Ollama sends a core set plus the tools the message (or the
+//!   assistant's last message, or an earlier one of the user's) names,
+//!   with shortened descriptions, and names every other tool it may use
+//!   in one line of the system prompt. The request must fit half of an
+//!   8,192-token context. The bound is bytes, at an assumed three bytes
 //!   per token.
 //!
 //! Where three bytes per token comes from: the issue's llama.cpp run
-//! counted 15,157 tokens for a request of the whole-list kind. This
-//! file's `openai_first_request_reports_the_full_chat_completions_size`
-//! builds that request today and divides its size by 15,157. The result,
-//! 3.84 bytes per token, is an upper bound on the true ratio, because the
-//! registry has grown since the issue and the same request now has more
-//! tokens. The assertion there fails if the ratio ever drops under three.
-//! No tokenizer is run here: the figure is as good as that one
-//! measurement, which is why the bound is half the context and not all.
+//! counted 15,157 tokens for a request of the whole-list kind, and
+//! `openai_first_request_reports_the_full_chat_completions_size` builds
+//! that kind of request today. Divided by 15,157 it is 3.84 bytes per
+//! token. The registry has grown since the issue, so today's request has
+//! more tokens than were counted, and 3.84 is an upper bound on the true
+//! ratio, not an estimate of it. Three is a margin under that bound,
+//! chosen by judgement. Nothing here measures the true ratio: no
+//! tokenizer is run, and the count in that division is fixed, so the
+//! assertion there only fails if the whole-list request shrinks below the
+//! size the issue measured. That is why the bound is half the context and
+//! not all of it.
 
 mod common;
 
@@ -70,8 +75,8 @@ const NAMES_MANY_TOOLS: &str = "add reverb, echo, tremolo, phaser and distortion
      de-esser";
 
 /// Bytes per token assumed when turning a context size into a byte
-/// budget. JSON tool schemas tokenize at roughly three to four bytes per
-/// token; three is the cautious end, so the budget is conservative.
+/// budget. An assumption, not a measurement: the top of this file says
+/// what is known (an upper bound of 3.84) and what is not.
 const BYTES_PER_TOKEN: usize = 3;
 
 /// A first request must fit in half of an 8,192-token context, leaving
@@ -148,6 +153,36 @@ async fn run_with(
     responses: Vec<Entry>,
     plan_first: bool,
 ) -> Turn {
+    run_conversation(
+        provider_id,
+        &[message],
+        responses,
+        Options {
+            plan_first,
+            whitelist: None,
+        },
+    )
+    .await
+}
+
+/// What a test can set on the agent beyond the provider.
+#[derive(Default)]
+struct Options {
+    plan_first: bool,
+    /// The tools the agent profile permits. `None` permits all.
+    whitelist: Option<Vec<String>>,
+}
+
+/// Run `messages` as consecutive turns of one conversation, with the mock
+/// answering `responses` in order across all of them. `Turn::streaming`
+/// has every streaming request of every turn, in order, and
+/// `Turn::result` is the last turn's.
+async fn run_conversation(
+    provider_id: &str,
+    messages: &[&str],
+    responses: Vec<Entry>,
+    options: Options,
+) -> Turn {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .respond_with(SeqResponder::new(responses))
@@ -168,16 +203,25 @@ async fn run_with(
         Arc::new(AtomicBool::new(false)),
         Arc::new(Mutex::new(None::<tools::Clipboard>)),
     );
-    agent.set_plan_first(plan_first);
+    agent.set_plan_first(options.plan_first);
+    if let Some(whitelist) = options.whitelist {
+        agent = agent.with_tool_whitelist(whitelist);
+    }
 
     let ctx = native_run_context();
-    let result = agent
-        .turn_with_context(message.to_string(), Some(&ctx), |event| {
-            if matches!(event, AgentEvent::Plan { .. }) {
-                notify.notify_one();
-            }
-        })
-        .await;
+    let mut result = None;
+    for message in messages {
+        result = Some(
+            agent
+                .turn_with_context((*message).to_string(), Some(&ctx), |event| {
+                    if matches!(event, AgentEvent::Plan { .. }) {
+                        notify.notify_one();
+                    }
+                })
+                .await,
+        );
+    }
+    let result = result.expect("at least one message to send");
 
     let streaming = server
         .received_requests()
@@ -279,6 +323,67 @@ fn tool_names_in(tools: &Value) -> BTreeSet<String> {
         .collect()
 }
 
+/// The tools that describe themselves as doing nothing in this build
+/// (stem separation, transcription). A small model is not offered them.
+fn not_implemented_tools() -> BTreeSet<String> {
+    ToolDispatcher::default_dispatcher()
+        .tool_schemas()
+        .as_array()
+        .expect("tool schemas")
+        .iter()
+        .filter(|t| {
+            t["description"]
+                .as_str()
+                .is_some_and(|d| d.starts_with("NOT IMPLEMENTED"))
+        })
+        .map(|t| t["name"].as_str().expect("a name").to_string())
+        .collect()
+}
+
+/// The system prompt as the model reads it, in either wire shape:
+/// Anthropic's `system` blocks, or chat-completions' first message.
+fn system_text(body: &Value) -> String {
+    if let Some(blocks) = body["system"].as_array() {
+        return blocks
+            .iter()
+            .filter_map(|b| b["text"].as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+    }
+    body["messages"][0]["content"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// How the line that names the tools a small model was not sent begins.
+const NAMES_LINE_START: &str = "More tools you can call by exact name";
+
+/// The words of the system prompt's names line, or none if it has none.
+/// Only that line: a tool name that happens to be an ordinary word
+/// elsewhere in the prompt (`gain`, `fade`) must not stand in for it.
+fn names_line_words(system: &str) -> BTreeSet<String> {
+    system
+        .split("\n\n")
+        .find(|paragraph| paragraph.starts_with(NAMES_LINE_START))
+        .map(|line| {
+            line.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                .filter(|w| !w.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Every word of the system prompt, for "this appears nowhere in it".
+fn all_words(system: &str) -> BTreeSet<String> {
+    system
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .filter(|w| !w.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 // ---------------------------------------------------------------------
 // Anthropic: the whole list, cached
 // ---------------------------------------------------------------------
@@ -301,6 +406,11 @@ async fn anthropic_first_request_is_the_full_cached_set() {
         tool_names_in(&sent.body["tools"]),
         registered_tool_names(),
         "Anthropic is sent every registered tool, so its prompt cache stays valid"
+    );
+    assert!(
+        !system_text(&sent.body).contains(NAMES_LINE_START),
+        "the names line is for a provider that is not sent every tool; Anthropic's system prompt \
+         is part of its cached prefix and must not vary with it"
     );
     assert_eq!(
         sent.body["system"][0]["cache_control"]["type"], "ephemeral",
@@ -342,16 +452,25 @@ async fn openai_first_request_reports_the_full_chat_completions_size() {
         "the issue's 15,157 tokens over this request is {bytes_per_token:.2} bytes per token \
          (the request has grown since the issue was written, so this is an upper bound)"
     );
+    // Not a check of the tokenizer, which is not run: the token count is
+    // the issue's, fixed. This fails only if the whole-list request has
+    // become smaller than the one the issue measured, and then the figure
+    // above says nothing about today's requests.
     assert!(
         bytes_per_token >= BYTES_PER_TOKEN as f64,
-        "the issue's 15,157 tokens over this request is {bytes_per_token:.2} bytes per token, \
-         under the {BYTES_PER_TOKEN} that SLIM_FIRST_REQUEST_MAX_BYTES assumes: the bound is no \
-         longer cautious. Lower BYTES_PER_TOKEN."
+        "the issue's 15,157 tokens over this request is {bytes_per_token:.2} bytes per token. \
+         The whole-list request has shrunk below the size the issue measured, so that count no \
+         longer bounds the ratio: re-measure before trusting BYTES_PER_TOKEN \
+         ({BYTES_PER_TOKEN})."
     );
     assert_eq!(
         split.n_tools,
         registered_tool_names().len(),
         "OpenAI is sent every registered tool"
+    );
+    assert!(
+        !system_text(&turn.streaming[0].body).contains(NAMES_LINE_START),
+        "a provider that is sent every tool has nothing to be told about"
     );
     assert!(
         split.tools > split.system * 10,
@@ -454,6 +573,17 @@ async fn ollama_round_trips_in_a_turn_send_identical_tools() {
         "the tools changed between round trips"
     );
     assert!(turn.streaming[0].body["tools"].is_array());
+    // The names line is part of what precedes the conversation, so it is
+    // held to the same rule.
+    let (first, second) = (
+        system_text(&turn.streaming[0].body),
+        system_text(&turn.streaming[1].body),
+    );
+    assert!(first.contains(NAMES_LINE_START), "no names line: {first}");
+    assert_eq!(
+        first, second,
+        "the system prompt changed between round trips"
+    );
 }
 
 /// The tool results of a request, as chat-completions messages with
@@ -492,6 +622,12 @@ async fn ollama_runs_a_permitted_tool_it_was_not_offered() {
 
     let offered = tool_names_in(&turn.streaming[0].body["tools"]);
     assert!(!offered.contains("echo"), "echo was offered: {offered:?}");
+    // It was not sent in full, but the model was told it exists, which is
+    // what makes calling it by name something a model can do.
+    assert!(
+        names_line_words(&system_text(&turn.streaming[0].body)).contains("echo"),
+        "echo was neither sent nor named"
+    );
     let results = tool_results(&turn.streaming[1].body);
     assert_eq!(results.len(), 1, "{results:?}");
     assert!(
@@ -505,23 +641,32 @@ async fn ollama_runs_a_permitted_tool_it_was_not_offered() {
 /// shown them. The message here names none.
 #[tokio::test]
 async fn ollama_is_shown_the_tools_its_approved_plan_names() {
-    let plan = r#"I will add a reverb. <plan>[{"step":1,"tool":"reverb","description":"Add reverb"}]</plan>"#;
     let message = "make it sound spacious";
 
-    let planned = run_with(
-        "ollama",
-        message,
-        vec![
-            ok(chat_reply_json("general")),
-            ok(chat_reply_json(plan)),
-            ok(chat_sse_text("Done.")),
-        ],
-        true,
-    )
-    .await;
-    planned.result.as_ref().expect("the turn succeeds");
-    let with_plan = tool_names_in(&planned.streaming[0].body["tools"]);
-    assert!(with_plan.contains("reverb"), "{with_plan:?}");
+    // A step names its tool as the model wrote it, which is not always a
+    // registered name: "add_reverb" is about the `reverb` tool.
+    for step_tool in ["reverb", "add_reverb"] {
+        let plan = format!(
+            r#"I will add a reverb. <plan>[{{"step":1,"tool":"{step_tool}","description":"Add reverb"}}]</plan>"#
+        );
+        let planned = run_with(
+            "ollama",
+            message,
+            vec![
+                ok(chat_reply_json("general")),
+                ok(chat_reply_json(&plan)),
+                ok(chat_sse_text("Done.")),
+            ],
+            true,
+        )
+        .await;
+        planned.result.as_ref().expect("the turn succeeds");
+        let with_plan = tool_names_in(&planned.streaming[0].body["tools"]);
+        assert!(
+            with_plan.contains("reverb"),
+            "a plan step for {step_tool:?} did not bring in reverb: {with_plan:?}"
+        );
+    }
 
     let unplanned = run("ollama", message, chat_script()).await;
     unplanned.result.as_ref().expect("the turn succeeds");
@@ -530,6 +675,207 @@ async fn ollama_is_shown_the_tools_its_approved_plan_names() {
         !without.contains("reverb"),
         "the message alone must not name reverb, or this test proves nothing: {without:?}"
     );
+}
+
+// ---------------------------------------------------------------------
+// Telling the model which tools it was not sent
+// ---------------------------------------------------------------------
+
+/// A model that cannot see a tool cannot know it exists. So every tool
+/// the turn permits is either sent or named in the system prompt, for any
+/// message, and the request still fits the bound with the names in it.
+#[tokio::test]
+async fn ollama_every_permitted_tool_is_sent_or_named_and_the_bound_holds() {
+    let stubs = not_implemented_tools();
+    assert!(
+        !stubs.is_empty(),
+        "no tool says it is not implemented: has the marker changed?"
+    );
+    let permitted: BTreeSet<String> = registered_tool_names()
+        .difference(&stubs)
+        .cloned()
+        .collect();
+
+    for message in [CANONICAL, NAMES_MANY_TOOLS, "hello"] {
+        let turn = run("ollama", message, chat_script()).await;
+        turn.result.as_ref().expect("the turn succeeds");
+        let sent = &turn.streaming[0];
+        let split = split_chat(sent);
+        report("ollama, tools and the names line", &split);
+        assert_fits(message, &split);
+
+        let in_tools = tool_names_in(&sent.body["tools"]);
+        let in_line = names_line_words(&system_text(&sent.body));
+        let neither: Vec<_> = permitted
+            .iter()
+            .filter(|n| !in_tools.contains(*n) && !in_line.contains(*n))
+            .collect();
+        assert!(
+            neither.is_empty(),
+            "{message:?}: these permitted tools are neither sent nor named: {neither:?}"
+        );
+        // A tool sent in full is not also listed by name.
+        let both: Vec<_> = in_tools.iter().filter(|n| in_line.contains(*n)).collect();
+        assert!(both.is_empty(), "{message:?}: sent and listed: {both:?}");
+
+        // A tool that does nothing in this build is offered by neither.
+        for stub in &stubs {
+            assert!(
+                !in_tools.contains(stub) && !all_words(&system_text(&sent.body)).contains(stub),
+                "{message:?}: {stub} is not implemented and was offered"
+            );
+        }
+    }
+}
+
+/// What the profile or the Capabilities menu took away is not brought
+/// back by being named in the message, and not mentioned to the model.
+#[tokio::test]
+async fn ollama_a_tool_the_profile_does_not_permit_is_in_neither_tools_nor_names() {
+    let removed = ["limiter", "echo"];
+    let whitelist: Vec<String> = registered_tool_names()
+        .into_iter()
+        .filter(|n| !removed.contains(&n.as_str()))
+        .collect();
+    let turn = run_conversation(
+        "ollama",
+        &["add a limiter and an echo"],
+        chat_script(),
+        Options {
+            whitelist: Some(whitelist),
+            ..Options::default()
+        },
+    )
+    .await;
+    turn.result.as_ref().expect("the turn succeeds");
+    let sent = &turn.streaming[0];
+    assert_fits("whitelist", &split_chat(sent));
+
+    let in_tools = tool_names_in(&sent.body["tools"]);
+    let words = all_words(&system_text(&sent.body));
+    for gone in removed {
+        assert!(!in_tools.contains(gone), "{gone} was sent");
+        assert!(
+            !words.contains(gone),
+            "{gone} was named in the system prompt"
+        );
+    }
+    // The control: a tool that is permitted, and not sent, is named.
+    assert!(names_line_words(&system_text(&sent.body)).contains("reverb"));
+}
+
+/// "Yes, do it" names no tool. After the assistant proposed "a limiter or
+/// a de-esser" it means those two, and the model has to be shown them.
+#[tokio::test]
+async fn ollama_a_yes_after_a_proposal_is_shown_the_tools_proposed() {
+    let turn = run_conversation(
+        "ollama",
+        &[
+            "how could this voice sound more professional?",
+            "yes, do it",
+        ],
+        vec![
+            ok(chat_reply_json("general")),
+            ok(chat_sse_text(
+                "I could add a limiter or a de-esser. Want me to?",
+            )),
+            ok(chat_reply_json("general")),
+            ok(chat_sse_text("Done.")),
+        ],
+        Options::default(),
+    )
+    .await;
+    turn.result.as_ref().expect("the turn succeeds");
+    assert_eq!(turn.streaming.len(), 2, "one reply per message");
+
+    // Neither message names the tools, so the first request has neither.
+    let first = tool_names_in(&turn.streaming[0].body["tools"]);
+    assert!(
+        !first.contains("limiter") && !first.contains("de_esser"),
+        "the question must not name them, or this proves nothing: {first:?}"
+    );
+
+    let second = &turn.streaming[1];
+    report("ollama, the follow-up", &split_chat(second));
+    assert_fits("follow-up", &split_chat(second));
+    let names = tool_names_in(&second.body["tools"]);
+    for wanted in ["limiter", "de_esser"] {
+        assert!(
+            names.contains(wanted),
+            "{wanted} was proposed, not sent: {names:?}"
+        );
+    }
+
+    // The same two words with nothing proposed before them send neither.
+    let alone = run("ollama", "yes, do it", chat_script()).await;
+    alone.result.as_ref().expect("the turn succeeds");
+    let alone_names = tool_names_in(&alone.streaming[0].body["tools"]);
+    assert!(
+        !alone_names.contains("limiter") && !alone_names.contains("de_esser"),
+        "{alone_names:?}"
+    );
+}
+
+/// A tool the user asked for stays in the set when the next message is
+/// about something else, so the set does not churn from message to
+/// message (each change costs a local server the prompt it had processed).
+#[tokio::test]
+async fn ollama_a_tool_named_earlier_stays_and_the_set_only_grows() {
+    let turn = run_conversation(
+        "ollama",
+        &["add some reverb", "now make it a bit louder"],
+        vec![
+            ok(chat_reply_json("general")),
+            ok(chat_sse_text("Done.")),
+            ok(chat_reply_json("general")),
+            ok(chat_sse_text("Done.")),
+        ],
+        Options::default(),
+    )
+    .await;
+    turn.result.as_ref().expect("the turn succeeds");
+    assert_eq!(turn.streaming.len(), 2);
+
+    let first = tool_names_in(&turn.streaming[0].body["tools"]);
+    let second = tool_names_in(&turn.streaming[1].body["tools"]);
+    assert!(first.contains("reverb"), "{first:?}");
+    assert!(
+        second.contains("reverb"),
+        "reverb was asked for and not yet used, then dropped: {second:?}"
+    );
+    assert_eq!(
+        first, second,
+        "a message that named nothing changed the set"
+    );
+    assert_fits("second message", &split_chat(&turn.streaming[1]));
+}
+
+/// Phrasings that name no tool by a word of its name still reach it, and
+/// none of them offers a tool that does nothing in this build.
+#[tokio::test]
+async fn ollama_loose_phrasings_are_shown_the_tool_they_ask_for() {
+    for (message, wanted) in [
+        ("remove the reverb from track 1", "remove_effect"),
+        ("make the vocals less harsh", "de_esser"),
+        ("export each track separately", "export_multiple"),
+    ] {
+        let turn = run("ollama", message, chat_script()).await;
+        turn.result.as_ref().expect("the turn succeeds");
+        let sent = &turn.streaming[0];
+        assert_fits(message, &split_chat(sent));
+
+        let names = tool_names_in(&sent.body["tools"]);
+        assert!(
+            names.contains(wanted),
+            "{message:?} should send {wanted}: {names:?}"
+        );
+        for stub in not_implemented_tools() {
+            assert!(
+                !names.contains(&stub) && !all_words(&system_text(&sent.body)).contains(&stub),
+                "{message:?} offered {stub}, which does nothing in this build"
+            );
+        }
+    }
 }
 
 // ---------------------------------------------------------------------

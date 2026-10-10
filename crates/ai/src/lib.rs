@@ -345,9 +345,10 @@ pub enum Error {
     /// with something the person can do about it, and the server's own
     /// words ("exceed_context_size_error") say nothing of that. The
     /// counts are there when the server gave them (llama.cpp does).
-    /// Like `Api`, the text names no provider (#405), and it avoids the
-    /// words a credential error is recognised by, so the chat does not
-    /// offer Settings for it.
+    /// Like `Api`, the text names no hosted provider (#405) (it names the
+    /// two local servers, Ollama and llama.cpp, only to say where their
+    /// context is raised), and it avoids the words a credential error is
+    /// recognised by, so the chat does not offer Settings for it.
     #[error("{}", crate::context_window::explain(.needed, .available))]
     ContextTooSmall {
         /// Tokens the request needed, when the server said.
