@@ -79,7 +79,7 @@ describe("Settings", () => {
     setApiKeyForMock.mockReset().mockResolvedValue(undefined);
     testApiKeyForMock
       .mockReset()
-      .mockResolvedValue({ model: "claude-sonnet-4-6", toolsOk: true, detail: null });
+      .mockResolvedValue({ model: "claude-sonnet-5-5", toolsOk: true, detail: null });
     clearApiKeyMock.mockReset().mockResolvedValue(undefined);
     clearApiKeyForMock.mockReset().mockResolvedValue(undefined);
     setActiveProviderMock.mockReset().mockResolvedValue(undefined);
@@ -87,7 +87,9 @@ describe("Settings", () => {
     setActiveModelMock.mockReset().mockResolvedValue(undefined);
     getActiveModelMock.mockReset().mockResolvedValue("");
     getActiveProviderMock.mockReset().mockResolvedValue("");
-    listModelsForMock.mockReset().mockResolvedValue([]);
+    listModelsForMock
+      .mockReset()
+      .mockResolvedValue({ models: [], source: "live", notice: null });
     getBaseUrlForMock.mockReset().mockResolvedValue(null);
     defaultBaseUrlForMock
       .mockReset()
@@ -212,7 +214,7 @@ describe("Settings", () => {
       "anthropic",
       "sk-ant-good",
       undefined,
-      "claude-sonnet-4-6",
+      "claude-sonnet-5-5",
     );
   });
 

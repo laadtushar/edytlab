@@ -65,17 +65,160 @@ pub const OLLAMA_DEFAULT_BASE_URL: &str = "http://localhost:11434/v1";
 /// `anthropic-version` header value sent on every Anthropic call.
 pub use crate::prompt::ANTHROPIC_VERSION;
 
-/// Default OpenAI chat model. We pick `gpt-4o-mini` because it has
-/// solid tool-calling support, sub-second TTFT, and is the cheapest
-/// `gpt-4o`-class model — the agent loop dispatches many round-trips
-/// per turn so the per-call cost dominates.
-pub const OPENAI_DEFAULT_MODEL: &str = "gpt-4o-mini";
+/// Default OpenAI chat model: `gpt-6-luna`, which OpenAI describes as "our
+/// most efficient model for focused, high-volume tasks"
+/// (<https://developers.openai.com/api/docs/models>). It is the cheapest
+/// current model that takes tools on Chat Completions, which is the only API
+/// edytlab speaks, and the agent loop dispatches many round-trips per turn,
+/// so the per-call cost dominates. Its page lists $0.1 in and $0.5 out per 1M
+/// tokens (<https://developers.openai.com/api/docs/models/gpt-6-luna>).
+///
+/// Not the larger models: `gpt-6.1-sol` takes tools only through the
+/// Responses API ("Chat Completions is supported without tool calling"), and
+/// `gpt-6-astra` costs 100 times as much and is one dropdown pick away.
+///
+/// It takes tools on Chat Completions only with `reasoning_effort` set to
+/// `none`, which [`openai_reasoning_effort`] sends.
+pub const OPENAI_DEFAULT_MODEL: &str = "gpt-6-luna";
 
-/// Cheap classifier model on OpenAI. Re-uses the main model id today —
-/// `gpt-4o-mini` is already at the low end of OpenAI's pricing curve and
-/// the M27 classifier prompt is one short user message + one-token cap,
-/// so swapping in a separate model would not move the cost needle.
-pub const OPENAI_CLASSIFIER_MODEL: &str = "gpt-4o-mini";
+/// Cheap classifier model on OpenAI. The same model as the main one: it is
+/// already OpenAI's cost-optimised model, and the classifier prompt is one
+/// short user message, so a separate model would not move the cost needle.
+pub const OPENAI_CLASSIFIER_MODEL: &str = "gpt-6-luna";
+
+/// OpenRouter's default model. OpenRouter's ids are its own, with a dot in
+/// the version (`anthropic/claude-sonnet-5.5`, as its public
+/// `/api/v1/models` list and
+/// <https://openrouter.ai/docs/cookbook/evaluate-and-optimize/model-migrations/claude-5-5>
+/// give it), so it is not the Anthropic id with a prefix. A bare Anthropic id
+/// run through [`OpenRouterProvider::translate_model`] is not guaranteed to
+/// resolve there: the dated form of the old classifier did not.
+pub const OPENROUTER_DEFAULT_MODEL: &str = "anthropic/claude-sonnet-5.5";
+
+/// OpenRouter's classifier model: the Haiku tier, which Anthropic's models
+/// page describes as "for high-volume, latency-sensitive tasks such as
+/// classification, extraction, and routing". OpenRouter allows thinking to be
+/// disabled on it, which the classifier request does.
+pub const OPENROUTER_CLASSIFIER_MODEL: &str = "anthropic/claude-haiku-5.5";
+
+/// Groq's default model. Both of Groq's defaults are in the Production
+/// table of <https://console.groq.com/docs/models> and take tools
+/// (<https://console.groq.com/docs/tool-use/overview>).
+pub const GROQ_DEFAULT_MODEL: &str = "llama-3.3-70b-versatile";
+
+/// Groq's classifier model: its small, fast one.
+pub const GROQ_CLASSIFIER_MODEL: &str = "llama-3.1-8b-instant";
+
+/// Gemini's default model: Google's pick for new projects, "our most
+/// intelligent Flash model" (<https://ai.google.dev/gemini-api/docs/models>).
+/// `gemini-2.0-flash`, which this replaced, was shut down on 2026-06-01
+/// (<https://ai.google.dev/gemini-api/docs/deprecations>).
+pub const GEMINI_DEFAULT_MODEL: &str = "gemini-3.8-flash";
+
+/// Gemini's classifier model: "our fastest, most cost-effective 3.5 model for
+/// high-throughput execution", which thinks at `minimal` by default
+/// (<https://ai.google.dev/gemini-api/docs/thinking>), what one word of
+/// output wants.
+pub const GEMINI_CLASSIFIER_MODEL: &str = "gemini-3.5-flash-lite";
+
+/// The field that carries the output cap in a streamed chat-completions body
+/// for `provider_id`.
+///
+/// `max_completion_tokens`, which OpenAI's newer models require, for every
+/// provider but Ollama. Ollama's OpenAI-compatible API lists `max_tokens`
+/// among the request fields it supports and not `max_completion_tokens`
+/// (<https://docs.ollama.com/api/openai-compatibility>), so the cap went out
+/// under a name its documentation does not list, which a server is free to
+/// ignore, leaving a local model to run on without one.
+/// The classifier and plan requests already sent `max_tokens` to every
+/// provider but OpenAI (`one_shot_body`).
+pub(crate) fn output_limit_field(provider_id: &str) -> &'static str {
+    if provider_id == OLLAMA_ID {
+        "max_tokens"
+    } else {
+        "max_completion_tokens"
+    }
+}
+
+/// What to send as `reasoning_effort` to OpenAI's own endpoint for `model`,
+/// if it needs one.
+///
+/// `gpt-6-luna` "supports function calling only with `reasoning_effort` set
+/// to `none`" on Chat Completions
+/// (<https://developers.openai.com/api/docs/models/gpt-6-luna>), and every
+/// edit the agent makes is a tool call, so without this the default model
+/// cannot edit.
+///
+/// It is a rule for that one model (and a dated snapshot of it) on purpose.
+/// `none` is not an effort every model accepts, and a non-reasoning model
+/// rejects the field altogether, so sending it to others would break models
+/// that work. A successor needs its own line, and
+/// `every_provider_defaults_to_a_current_model` makes the next default visible.
+pub(crate) fn openai_reasoning_effort(model: &str) -> Option<&'static str> {
+    (model == "gpt-6-luna" || model.starts_with("gpt-6-luna-")).then_some("none")
+}
+
+/// Whether a failed chat request means the provider has no such model
+/// (retired, renamed, or never existed), as opposed to any other failure.
+///
+/// Providers retire models, and a model somebody chose keeps being sent
+/// until they choose another. The answer is a 404 that, shown raw, says
+/// nothing a person can act on; knowing it is the model lets the app say so
+/// and offer the default. It is a claim ("it may have been retired"), so it is
+/// made only where the answer is unambiguous, and everything else stays a
+/// plain API error:
+///
+/// * Never for a provider that needs no key. Ollama's own message, "model
+///   ... not found, try pulling it first", is the useful one, and "retired"
+///   would be wrong for a model that was simply never pulled.
+/// * A body that is not JSON is a wrong base path on a proxy, not a model.
+///   Gemini wraps its errors in an array, so the first element is read too.
+/// * `error.code == "model_not_found"`, which OpenAI and the providers that
+///   copy its API use, at any status.
+/// * Otherwise a **404** only, never a 400, which can name the model for other
+///   reasons (a field it does not take): on Anthropic's wire format an
+///   `error.type` of `not_found_error`, since `POST /v1/messages` names no
+///   resource but the model; and on either format, a 404 whose body names
+///   the model that was sent.
+///
+/// Anthropic's answer for a retired model is
+/// `{"type":"error","error":{"type":"not_found_error","message":"model: <id>"}}`
+/// with status 404, captured from the API (see the test). The other
+/// providers' shapes are written from their documented fields and are not
+/// captured; the rules key on those fields, not on wording.
+pub(crate) fn is_model_unavailable(
+    provider: &dyn LlmProvider,
+    status: u16,
+    body: &str,
+    wire_model: &str,
+) -> bool {
+    if !provider.requires_api_key() {
+        return false;
+    }
+    let Ok(json) = serde_json::from_str::<Value>(body) else {
+        return false;
+    };
+    let error = match &json {
+        Value::Array(items) => items.first().and_then(|item| item.get("error")),
+        other => other.get("error"),
+    };
+    let Some(error) = error else {
+        return false;
+    };
+
+    if error.get("code").and_then(Value::as_str) == Some("model_not_found") {
+        return true;
+    }
+    if status != 404 {
+        return false;
+    }
+    if provider.wire_format() == WireFormat::AnthropicMessages
+        && error.get("type").and_then(Value::as_str) == Some("not_found_error")
+    {
+        return true;
+    }
+    !wire_model.is_empty() && body.contains(wire_model)
+}
 
 /// Provider-level error surfaced from `parse_stream_chunk`. We use a
 /// thin `String` wrapper rather than re-exporting `crate::Error` to
@@ -270,10 +413,10 @@ impl LlmProvider for OpenRouterProvider {
         OPENROUTER_DEFAULT_BASE_URL
     }
     fn default_model(&self) -> &str {
-        crate::prompt::DEFAULT_MODEL
+        OPENROUTER_DEFAULT_MODEL
     }
     fn classifier_model(&self) -> &str {
-        crate::CLASSIFIER_MODEL
+        OPENROUTER_CLASSIFIER_MODEL
     }
     fn translate_model(&self, model: &str) -> String {
         if model.contains('/') {
@@ -364,8 +507,9 @@ impl OpenAIProvider {
     ///
     /// The caller's `max_tokens` is lowered to the output limit of the model
     /// if [`crate::models::max_output_tokens`] knows one for that provider.
-    /// OpenAI answers a request above a model's limit with a 400 and does not
-    /// lower it, and the agent asks every provider for the same number. This
+    /// OpenAI is reported to reject a request above a model's limit rather
+    /// than lower it (see [`crate::prompt::DEFAULT_MAX_TOKENS`]), and the agent
+    /// asks every provider for the same number. This
     /// is the one serializer behind every streamed step and the Settings
     /// probe, so no caller has to remember to clamp.
     fn serialize_chat_completions(&self, provider_id: &str, req: &MessagesRequest<'_>) -> Value {
@@ -388,16 +532,24 @@ impl OpenAIProvider {
         // OpenAI's newer reasoning-class models reject `max_tokens` and
         // require `max_completion_tokens`. We send the latter only —
         // current `gpt-*` models accept it and it's forward-compatible
-        // with `o1`/`o3`.
+        // with `o1`/`o3`. Ollama is the exception (see
+        // [`output_limit_field`]).
         if let Some(obj) = body.as_object_mut() {
             obj.insert(
-                "max_completion_tokens".to_string(),
+                output_limit_field(provider_id).to_string(),
                 Value::from(crate::models::clamp_max_tokens(
                     provider_id,
                     req.model,
                     req.max_tokens,
                 )),
             );
+            // Only OpenAI's own endpoint: Groq, Gemini and Ollama serialize
+            // through here too and would not know the field.
+            if provider_id == OPENAI_ID {
+                if let Some(effort) = openai_reasoning_effort(req.model) {
+                    obj.insert("reasoning_effort".to_string(), Value::from(effort));
+                }
+            }
             if let Some(t) = tools {
                 obj.insert("tools".to_string(), t);
                 // `tool_choice: "auto"` is OpenAI's shape, and so is
@@ -834,10 +986,10 @@ impl LlmProvider for GroqProvider {
         GROQ_DEFAULT_BASE_URL
     }
     fn default_model(&self) -> &str {
-        "llama-3.3-70b-versatile"
+        GROQ_DEFAULT_MODEL
     }
     fn classifier_model(&self) -> &str {
-        "llama-3.1-8b-instant"
+        GROQ_CLASSIFIER_MODEL
     }
     fn translate_model(&self, model: &str) -> String {
         model.to_string()
@@ -893,10 +1045,10 @@ impl LlmProvider for GeminiProvider {
         GEMINI_DEFAULT_BASE_URL
     }
     fn default_model(&self) -> &str {
-        "gemini-2.0-flash"
+        GEMINI_DEFAULT_MODEL
     }
     fn classifier_model(&self) -> &str {
-        "gemini-2.0-flash"
+        GEMINI_CLASSIFIER_MODEL
     }
     fn translate_model(&self, model: &str) -> String {
         model.to_string()
@@ -1040,15 +1192,15 @@ mod tests {
     #[test]
     fn anthropic_translate_model_is_identity() {
         let p = AnthropicProvider;
-        assert_eq!(p.translate_model("claude-sonnet-4-6"), "claude-sonnet-4-6");
+        assert_eq!(p.translate_model("claude-sonnet-5-5"), "claude-sonnet-5-5");
     }
 
     #[test]
     fn openrouter_translate_model_prepends_anthropic_namespace() {
         let p = OpenRouterProvider;
         assert_eq!(
-            p.translate_model("claude-sonnet-4-6"),
-            "anthropic/claude-sonnet-4-6"
+            p.translate_model("claude-sonnet-5-5"),
+            "anthropic/claude-sonnet-5-5"
         );
     }
 
@@ -1056,8 +1208,8 @@ mod tests {
     fn openrouter_translate_model_passes_through_already_qualified_ids() {
         let p = OpenRouterProvider;
         assert_eq!(
-            p.translate_model("anthropic/claude-sonnet-4-6"),
-            "anthropic/claude-sonnet-4-6"
+            p.translate_model("anthropic/claude-sonnet-5.5"),
+            "anthropic/claude-sonnet-5.5"
         );
         assert_eq!(
             p.translate_model("openai/gpt-4o-mini"),
@@ -1169,7 +1321,7 @@ mod tests {
         assert_eq!(p.endpoint_path(), "/chat/completions");
         assert_eq!(p.list_models_path(), "/models");
         assert!(p.base_url().contains("generativelanguage.googleapis.com"));
-        assert_eq!(p.translate_model("gemini-2.0-flash"), "gemini-2.0-flash");
+        assert_eq!(p.translate_model("gemini-3.8-flash"), "gemini-3.8-flash");
     }
 
     #[test]
@@ -1209,7 +1361,7 @@ mod tests {
             content: vec![ContentBlock::Text { text: "hi".into() }],
         }];
         let req = MessagesRequest {
-            model: "claude-sonnet-4-6",
+            model: "claude-sonnet-5-5",
             max_tokens: 16,
             system: vec![SystemBlock {
                 kind: "text",
@@ -1223,7 +1375,7 @@ mod tests {
             output_config: None,
         };
         let body = AnthropicProvider.serialize_request(&req);
-        assert_eq!(body["model"], "claude-sonnet-4-6");
+        assert_eq!(body["model"], "claude-sonnet-5-5");
         assert_eq!(body["max_tokens"], 16);
         assert_eq!(body["messages"][0]["role"], "user");
         assert_eq!(body["messages"][0]["content"][0]["type"], "text");
@@ -1519,7 +1671,7 @@ mod tests {
         output_config: Option<crate::anthropic::OutputConfig>,
     ) -> MessagesRequest<'a> {
         MessagesRequest {
-            model: "claude-sonnet-4-6",
+            model: "claude-sonnet-5-5",
             max_tokens: 16,
             system: vec![SystemBlock {
                 kind: "text",
@@ -1565,7 +1717,7 @@ mod tests {
         assert_eq!(
             body,
             json!({
-                "model": "claude-sonnet-4-6",
+                "model": "claude-sonnet-5-5",
                 "max_tokens": 16,
                 "system": [{ "type": "text", "text": "be helpful" }],
                 "messages": [{ "role": "user", "content": [{ "type": "text", "text": "hi" }] }],
@@ -1820,8 +1972,8 @@ mod tests {
     }
 
     /// The defect: the 8192 every step asks for went to OpenAI's older
-    /// models, which answer a request above their limit with a 400. Each
-    /// of them now carries the limit OpenAI's page gives.
+    /// models, which are reported to reject a request above their limit.
+    /// Each of them now carries the limit OpenAI's page gives.
     #[test]
     fn an_openai_request_for_a_legacy_model_carries_its_output_limit() {
         let msgs = one_user_message();
@@ -1899,16 +2051,48 @@ mod tests {
         // OpenAI's models.
         for id in [GROQ_ID, GEMINI_ID, OLLAMA_ID] {
             let body = provider_from_id(id).serialize_request(&step_for("gpt-4-turbo", &msgs, cap));
-            assert_eq!(body["max_completion_tokens"], 8192, "{id}");
+            assert_eq!(output_cap(&body), 8192, "{id}");
         }
         // And the defaults of each stay at the cap.
         for (id, model) in [
             (GROQ_ID, "llama-3.3-70b-versatile"),
-            (GEMINI_ID, "gemini-2.0-flash"),
+            (GEMINI_ID, "gemini-3.8-flash"),
+            (GEMINI_ID, "gemini-3.5-flash-lite"),
             (OLLAMA_ID, "llama3.2"),
         ] {
             let body = provider_from_id(id).serialize_request(&step_for(model, &msgs, cap));
-            assert_eq!(body["max_completion_tokens"], 8192, "{id} {model}");
+            assert_eq!(output_cap(&body), 8192, "{id} {model}");
+        }
+    }
+
+    /// The output cap of a chat-completions body, under whichever field the
+    /// provider reads it from.
+    fn output_cap(body: &Value) -> &Value {
+        body.get("max_completion_tokens")
+            .or_else(|| body.get("max_tokens"))
+            .expect("the body carries an output cap")
+    }
+
+    /// Ollama's OpenAI-compatible API lists `max_tokens` among the request
+    /// fields it supports and not `max_completion_tokens`
+    /// (<https://docs.ollama.com/api/openai-compatibility>). A field the server
+    /// does not read leaves the step uncapped, and a local model that runs on
+    /// is the thing the cap exists to stop. The classifier and plan requests
+    /// have always sent `max_tokens` to it; the streamed steps now do too.
+    #[test]
+    fn ollama_is_sent_the_output_cap_field_it_reads() {
+        let msgs = one_user_message();
+        let cap = crate::prompt::DEFAULT_MAX_TOKENS;
+
+        let body = provider_from_id(OLLAMA_ID).serialize_request(&step_for("llama3.2", &msgs, cap));
+        assert_eq!(body["max_tokens"], 8192, "{body}");
+        assert!(body.get("max_completion_tokens").is_none(), "{body}");
+
+        // The others keep the field they were sent.
+        for id in [OPENAI_ID, GROQ_ID, GEMINI_ID] {
+            let body = provider_from_id(id).serialize_request(&step_for("a-model", &msgs, cap));
+            assert_eq!(body["max_completion_tokens"], 8192, "{id}");
+            assert!(body.get("max_tokens").is_none(), "{id}");
         }
     }
 
@@ -1924,5 +2108,239 @@ mod tests {
             let body = provider.serialize_request(&step_for("gpt-4-turbo", &msgs, 8192));
             assert_eq!(body["max_tokens"], 8192, "{}", provider.id());
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Current defaults
+    // ------------------------------------------------------------------
+
+    /// The model each provider uses when the user has not chosen one, and
+    /// the one it classifies with. Each id was checked against its
+    /// provider's own page, listed in the PR that set it; a new generation
+    /// updates this test with the constant, which is the point of it.
+    ///
+    /// The ids are exact on purpose. OpenRouter's are dotted
+    /// (`anthropic/claude-sonnet-5.5`, not `-5-5`), which its public
+    /// `/api/v1/models` list and its docs both show.
+    #[test]
+    fn every_provider_defaults_to_a_current_model() {
+        for (id, default, classifier) in [
+            (ANTHROPIC_ID, "claude-sonnet-5-5", "claude-haiku-5-5"),
+            (
+                OPENROUTER_ID,
+                "anthropic/claude-sonnet-5.5",
+                "anthropic/claude-haiku-5.5",
+            ),
+            (OPENAI_ID, "gpt-6-luna", "gpt-6-luna"),
+            (GROQ_ID, "llama-3.3-70b-versatile", "llama-3.1-8b-instant"),
+            (GEMINI_ID, "gemini-3.8-flash", "gemini-3.5-flash-lite"),
+            (OLLAMA_ID, "llama3.2", "llama3.2"),
+        ] {
+            let p = provider_from_id(id);
+            assert_eq!(p.default_model(), default, "{id} default");
+            assert_eq!(p.classifier_model(), classifier, "{id} classifier");
+        }
+        // Every provider is covered, so a new one cannot skip this.
+        assert_eq!(SUPPORTED_PROVIDER_IDS.len(), 6);
+    }
+
+    /// OpenRouter's ids are already its own, so they go out as they are
+    /// rather than being prefixed a second time.
+    #[test]
+    fn openrouter_sends_its_defaults_unchanged() {
+        let p = OpenRouterProvider;
+        assert_eq!(
+            p.translate_model(p.default_model()),
+            "anthropic/claude-sonnet-5.5"
+        );
+        assert_eq!(
+            p.translate_model(p.classifier_model()),
+            "anthropic/claude-haiku-5.5"
+        );
+    }
+
+    /// `gpt-6-luna` "supports function calling only with `reasoning_effort`
+    /// set to `none`" on Chat Completions
+    /// (<https://developers.openai.com/api/docs/models/gpt-6-luna>), and
+    /// every edit the agent makes is a tool call. The rule is for that model
+    /// alone: `none` is not offered by every model, and a non-reasoning model
+    /// does not take the field.
+    #[test]
+    fn luna_is_sent_reasoning_effort_none_and_nothing_else_is() {
+        let msgs = one_user_message();
+        let cap = crate::prompt::DEFAULT_MAX_TOKENS;
+
+        let luna = OpenAIProvider::default().serialize_request(&step_for("gpt-6-luna", &msgs, cap));
+        assert_eq!(luna["reasoning_effort"], "none", "{luna}");
+        assert!(luna.get("tools").is_some(), "the step carries its tools");
+
+        for model in ["gpt-6-astra", "gpt-6.1-sol", "gpt-4o-mini", "o3", "gpt-5"] {
+            let body = OpenAIProvider::default().serialize_request(&step_for(model, &msgs, cap));
+            assert!(body.get("reasoning_effort").is_none(), "{model}: {body}");
+        }
+        for id in [GROQ_ID, GEMINI_ID, OLLAMA_ID] {
+            for model in ["llama-3.3-70b-versatile", "gemini-3.8-flash", "gpt-6-luna"] {
+                let body = provider_from_id(id).serialize_request(&step_for(model, &msgs, cap));
+                assert!(
+                    body.get("reasoning_effort").is_none(),
+                    "{id} {model}: only OpenAI's own endpoint is sent it: {body}"
+                );
+            }
+        }
+        // The Anthropic wire format has no such field.
+        let body = AnthropicProvider.serialize_request(&step_for("gpt-6-luna", &msgs, cap));
+        assert!(body.get("reasoning_effort").is_none());
+    }
+
+    #[test]
+    fn openai_reasoning_effort_is_a_single_model_rule() {
+        assert_eq!(openai_reasoning_effort("gpt-6-luna"), Some("none"));
+        // A dated snapshot of it, should OpenAI publish one.
+        assert_eq!(openai_reasoning_effort("gpt-6-luna-snapshot"), Some("none"));
+        for model in ["gpt-6-lunar", "gpt-6", "gpt-6-astra", "gpt-4o-mini", ""] {
+            assert_eq!(openai_reasoning_effort(model), None, "{model:?}");
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // A model the provider no longer has
+    // ------------------------------------------------------------------
+
+    fn unavailable(provider_id: &str, status: u16, body: &str, wire_model: &str) -> bool {
+        is_model_unavailable(
+            provider_from_id(provider_id).as_ref(),
+            status,
+            body,
+            wire_model,
+        )
+    }
+
+    /// What a request naming a retired model is answered with, per wire
+    /// format, and what is not that: any other failure must stay the plain
+    /// API error it was, because "it may have been retired" is a claim.
+    ///
+    /// The Anthropic body is the real one: the answer to a `POST
+    /// /v1/messages` naming `claude-opus-4-1-20250805`, retired on
+    /// 2026-08-05 (<https://platform.claude.com/docs/en/about-claude/model-deprecations>),
+    /// captured from the API on 2026-10-10. The other providers' bodies are
+    /// illustrative: they are written from the documented fields
+    /// (`error.code == "model_not_found"`, a 404 that names the model), not
+    /// captured, and the rule keys on those fields and not on the wording.
+    #[test]
+    fn model_unavailable_is_recognised_per_wire_format() {
+        const ANTHROPIC_RETIRED: &str = r#"{"type":"error","error":{"type":"not_found_error","message":"model: claude-opus-4-1-20250805"},"request_id":"req_011Cftywc6xsQRBrAxHK2RgM"}"#;
+        let retired = "claude-opus-4-1-20250805";
+
+        // Anthropic: a 404 `not_found_error` from POST /v1/messages names no
+        // resource but the model.
+        assert!(unavailable(ANTHROPIC_ID, 404, ANTHROPIC_RETIRED, retired));
+        // A 404 that is not JSON is a wrong base path on a proxy.
+        assert!(!unavailable(
+            ANTHROPIC_ID,
+            404,
+            "<html><body>404 Not Found</body></html>",
+            retired
+        ));
+        // A 400 can name the model for other reasons.
+        let bad_request = r#"{"type":"error","error":{"type":"invalid_request_error","message":"'claude-opus-5-5' does not support this request"}}"#;
+        assert!(!unavailable(
+            ANTHROPIC_ID,
+            400,
+            bad_request,
+            "claude-opus-5-5"
+        ));
+        // Other statuses are other problems, whatever they say.
+        for (status, body) in [
+            (
+                401,
+                r#"{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}"#,
+            ),
+            (
+                429,
+                r#"{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}"#,
+            ),
+            (
+                500,
+                r#"{"type":"error","error":{"type":"api_error","message":"Internal server error"}}"#,
+            ),
+            (
+                529,
+                r#"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#,
+            ),
+        ] {
+            assert!(
+                !unavailable(ANTHROPIC_ID, status, body, retired),
+                "{status}"
+            );
+        }
+
+        // OpenRouter speaks Anthropic's wire format and answers its own way
+        // for a model it no longer serves: a 404 that names it.
+        let openrouter_gone = r#"{"error":{"message":"No endpoints found for anthropic/claude-sonnet-4.","code":404}}"#;
+        assert!(unavailable(
+            OPENROUTER_ID,
+            404,
+            openrouter_gone,
+            "anthropic/claude-sonnet-4"
+        ));
+        assert!(!unavailable(
+            OPENROUTER_ID,
+            404,
+            openrouter_gone,
+            "anthropic/claude-sonnet-5.5"
+        ));
+
+        // OpenAI and the providers that copy its API: `model_not_found`.
+        let openai_gone = r#"{"error":{"message":"The model `gpt-4o-2024-05-13` does not exist or you do not have access to it.","type":"invalid_request_error","param":null,"code":"model_not_found"}}"#;
+        assert!(unavailable(
+            OPENAI_ID,
+            404,
+            openai_gone,
+            "gpt-4o-2024-05-13"
+        ));
+        assert!(unavailable(
+            GROQ_ID,
+            404,
+            openai_gone,
+            "llama-3.3-70b-versatile"
+        ));
+        // The code decides, whatever the status.
+        assert!(unavailable(
+            OPENAI_ID,
+            400,
+            openai_gone,
+            "gpt-4o-2024-05-13"
+        ));
+        // Gemini wraps its errors in an array, and has no such code: a 404
+        // that names the model is the model.
+        let gemini_gone = r#"[{"error":{"code":404,"message":"models/gemini-2.0-flash is not found for API version v1beta, or is not supported for generateContent.","status":"NOT_FOUND"}}]"#;
+        assert!(unavailable(GEMINI_ID, 404, gemini_gone, "gemini-2.0-flash"));
+        assert!(!unavailable(
+            GEMINI_ID,
+            404,
+            gemini_gone,
+            "gemini-3.8-flash"
+        ));
+        // A 400 that names the model is not that.
+        let gemini_bad = r#"[{"error":{"code":400,"message":"gemini-3.8-flash: unsupported field","status":"INVALID_ARGUMENT"}}]"#;
+        assert!(!unavailable(GEMINI_ID, 400, gemini_bad, "gemini-3.8-flash"));
+        // Not found for another reason, with no model in it.
+        let other_404 = r#"{"error":{"message":"Unknown request URL: POST /v1/chat/completionz","type":"invalid_request_error"}}"#;
+        assert!(!unavailable(OPENAI_ID, 404, other_404, "gpt-6-luna"));
+        // A key problem and a server fault are not it.
+        let bad_key = r#"{"error":{"message":"Incorrect API key provided","type":"invalid_request_error","code":"invalid_api_key"}}"#;
+        assert!(!unavailable(OPENAI_ID, 401, bad_key, "gpt-6-luna"));
+        assert!(!unavailable(
+            OPENAI_ID,
+            500,
+            "upstream fell over",
+            "gpt-6-luna"
+        ));
+
+        // Ollama says it in its own words, and they are the useful ones:
+        // "try pulling it first" is the fix, "retired" would be wrong.
+        let ollama_missing = r#"{"error":{"message":"model \"llama3.2\" not found, try pulling it first","type":"api_error","param":null,"code":null}}"#;
+        assert!(!unavailable(OLLAMA_ID, 404, ollama_missing, "llama3.2"));
+        assert!(!unavailable(OLLAMA_ID, 404, openai_gone, "llama3.2"));
     }
 }

@@ -125,8 +125,8 @@ const commands = [
       },
       {
         name: "listModelsFor(provider, apiKey?)",
-        returns: "ModelInfo[]",
-        desc: "Fetch available models. Results cached 10 minutes.",
+        returns: "ModelCatalogue",
+        desc: "Live list; Anthropic falls back to a built-in list without a key or when the fetch fails. Cached 10 minutes.",
       },
       {
         name: "getActiveModel(provider)",
@@ -581,6 +581,7 @@ interface GraphSummary { nodes: GraphNode[]; head: NodeId | null }
 interface GraphNode    { id: NodeId; parent: NodeId | null; label: string | null; tool: string | null }
 interface TrackSummary { id: string; name: string; muted: boolean; gain_db: number; audio_path: string | null }
 interface ModelInfo    { id: string; display_name: string; context_length: number | null }
+interface ModelCatalogue { models: ModelInfo[]; source: "live" | "fallback"; notice: string | null }
 interface Marker       { id: string; name: string; kind: "marker" | "region"; time_sec?: number; start_sec?: number; end_sec?: number }`}</code>
       </pre>
     </DocShell>

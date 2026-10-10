@@ -288,13 +288,16 @@ interface ProbeReport {
   model: string;        // the model that was probed
   toolsOk: boolean;     // did it call the tool it was offered?
   detail: string | null; // what it said instead, when it did not
+  modelUnavailable: boolean; // the provider has no such model (retired?)
 }
 ```
 
 **Throws:** the endpoint is unreachable or the key was rejected —
 `"<status> <body>"`, e.g. `"401 invalid x-api-key"`. A model that
 connects but cannot call tools resolves with `toolsOk: false` instead of
-throwing: the key is fine, the model is not.
+throwing: the key is fine, the model is not. A model the provider no longer
+has (retired, renamed, or never there) resolves with `modelUnavailable: true`,
+`toolsOk: false` and no `detail`: it was never asked about tools.
 
 ---
 
@@ -382,16 +385,25 @@ await bridge.setEffortFor("anthropic", null); // back to the model's default
 
 ## Model Selection
 
-### `listModelsFor(provider: ProviderId, apiKey?: string) → ModelInfo[]`
+### `listModelsFor(provider: ProviderId, apiKey?: string) → ModelCatalogue`
 
-Fetch available models from the provider's API. Results are cached for 10 minutes.
+Fetch available models from the provider's API, and say which list they are.
+Live results are cached for 10 minutes, per provider, endpoint and key.
 
 **Parameters:**
 - `provider` — provider to query
 - `apiKey` — optional key override (uses stored key if omitted)
 
-**Returns:** `ModelInfo[]`
+**Returns:** `ModelCatalogue`
 ```typescript
+interface ModelCatalogue {
+  models: ModelInfo[];
+  // "live": the provider's own list. "fallback": edytlab's built-in list,
+  // which Anthropic gets with no key, or when its list cannot be fetched.
+  source: "live" | "fallback";
+  notice: string | null; // why the fallback is shown; null for a live list
+}
+
 interface ModelInfo {
   id: string;
   display_name: string;
@@ -402,8 +414,9 @@ interface ModelInfo {
 
 **Example:**
 ```typescript
-const models = await bridge.listModelsFor("anthropic");
-// [{ id: "claude-sonnet-4-6", display_name: "Claude Sonnet 4.6", ... }, ...]
+const { models, source } = await bridge.listModelsFor("anthropic");
+// source === "live"
+// models: [{ id: "claude-haiku-5-5", display_name: "Claude Haiku 5.5", ... }, ...]
 ```
 
 ### `getActiveModel(provider: ProviderId) → string`
@@ -415,7 +428,7 @@ Returns the model ID currently selected for the provider.
 Set the active model for a provider. Persisted in the keychain as `<provider>_model` (e.g. `anthropic_model`).
 
 ```typescript
-await bridge.setActiveModel("anthropic", "claude-opus-4-7");
+await bridge.setActiveModel("anthropic", "claude-opus-5-5");
 ```
 
 ---
@@ -1292,6 +1305,12 @@ interface ModelInfo {
   display_name: string;
   context_length: number | null;
   provider_hint: string | null;
+}
+
+interface ModelCatalogue {
+  models: ModelInfo[];
+  source: "live" | "fallback";
+  notice: string | null;
 }
 
 interface TrackSummary {

@@ -65,11 +65,27 @@ export interface ModelInfo {
   provider_hint: string | null;
 }
 
+/**
+ * A provider's models and which list they are: `ModelCatalogueDto` in
+ * `commands.rs`. `source` is "live" for a list the provider answered with, and
+ * "fallback" for edytlab's built-in one (Anthropic with no key, or when its
+ * list could not be fetched), with `notice` saying why.
+ */
+export interface ModelCatalogue {
+  models: ModelInfo[];
+  source: "live" | "fallback";
+  notice: string | null;
+}
+
+/**
+ * `apiKey` is the key typed into the form, if any; without one the backend
+ * uses the key saved for `provider`, which never leaves it.
+ */
 export const listModelsFor = (
   provider: ProviderId,
   apiKey?: string,
-): Promise<ModelInfo[]> =>
-  invoke<ModelInfo[]>("list_models_for", {
+): Promise<ModelCatalogue> =>
+  invoke<ModelCatalogue>("list_models_for", {
     provider,
     apiKey: apiKey ?? null,
   });
@@ -141,6 +157,12 @@ export interface ProbeReport {
   model: string;
   toolsOk: boolean;
   detail: string | null;
+  /**
+   * The provider has no such model: it was retired, renamed or never
+   * existed. `toolsOk` is false then and `detail` is null, because the model
+   * was never asked about tools.
+   */
+  modelUnavailable: boolean;
 }
 
 /**

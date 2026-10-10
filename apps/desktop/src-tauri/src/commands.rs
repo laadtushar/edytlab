@@ -814,6 +814,9 @@ pub struct ProbeReportDto {
     pub model: String,
     pub tools_ok: bool,
     pub detail: Option<String>,
+    /// The provider has no such model; `tools_ok` is false then and
+    /// `detail` is empty. Serialised as `modelUnavailable`.
+    pub model_unavailable: bool,
 }
 
 impl From<ai::validate::ProbeReport> for ProbeReportDto {
@@ -822,6 +825,7 @@ impl From<ai::validate::ProbeReport> for ProbeReportDto {
             model: r.model,
             tools_ok: r.tools_ok,
             detail: r.detail,
+            model_unavailable: r.model_unavailable,
         }
     }
 }
@@ -961,26 +965,77 @@ impl From<ai::ModelInfo> for ModelInfoDto {
     }
 }
 
-/// List the model catalogue for `provider`. `api_key` is required for
-/// OpenAI (the catalogue endpoint is auth-gated); optional for the
-/// other providers — Anthropic returns a static curated list and
-/// OpenRouter's catalogue is publicly accessible.
+/// A provider's models and which list they are: the answer of
+/// [`list_models_for`]. Mirrors [`ai::Catalogue`] for the IPC boundary, like
+/// [`ModelInfoDto`] mirrors [`ai::ModelInfo`].
+#[derive(Debug, Clone, Serialize)]
+pub struct ModelCatalogueDto {
+    pub models: Vec<ModelInfoDto>,
+    /// `"live"`, fetched from the provider, or `"fallback"`, edytlab's
+    /// built-in list because the live one was unavailable.
+    pub source: &'static str,
+    /// Why the fallback is shown, in words for Settings; `None` for a live
+    /// list.
+    pub notice: Option<String>,
+}
+
+impl From<ai::Catalogue> for ModelCatalogueDto {
+    fn from(c: ai::Catalogue) -> Self {
+        let (source, notice) = match c.source {
+            ai::CatalogueSource::Live => ("live", None),
+            ai::CatalogueSource::Fallback { reason } => ("fallback", Some(reason)),
+        };
+        Self {
+            models: c.models.into_iter().map(ModelInfoDto::from).collect(),
+            source,
+            notice,
+        }
+    }
+}
+
+/// The key the catalogue is fetched with: the one typed into the form if
+/// there is one, else the one saved for `provider`.
 ///
-/// The Rust layer caches results for 10 minutes; repeated calls within
-/// that window return cached entries without hitting the network.
+/// Settings sends only what was typed, and after a key is saved the form is
+/// empty, so without the fallback the normal case, a saved key, never got a
+/// live list. The saved key is read here and stays in this process; it is
+/// not sent to the webview.
+fn catalogue_key(
+    provider: &str,
+    typed: Option<String>,
+    load: impl Fn(&str) -> Option<String>,
+) -> Option<String> {
+    typed
+        .map(|k| k.trim().to_string())
+        .filter(|k| !k.is_empty())
+        .or_else(|| load(provider))
+}
+
+/// List the model catalogue for `provider`, and say which list it is.
+///
+/// `api_key` is the key typed into the form, if any; without one the saved
+/// key for `provider` is used. It is required for OpenAI, Groq and Gemini
+/// (their catalogue endpoints are auth-gated) and optional for OpenRouter,
+/// whose catalogue is public. Anthropic's is fetched live with the key, and
+/// without one, or when the fetch fails, the answer is edytlab's built-in
+/// list with `source: "fallback"` and the reason as `notice`.
+///
+/// The Rust layer caches live results for 10 minutes, per provider,
+/// endpoint and key; repeated calls within that window return cached
+/// entries without hitting the network.
 #[tauri::command]
 pub async fn list_models_for(
     provider: String,
     api_key: Option<String>,
-) -> CmdResult<Vec<ModelInfoDto>> {
-    let key_ref = api_key.as_deref();
+) -> CmdResult<ModelCatalogueDto> {
+    let key = catalogue_key(&provider, api_key, ai::keychain::load_api_key);
     // Follow the same endpoint the agent will use. Listing one server's
     // catalogue while chat talks to another is worse than not listing.
     let base = ai::keychain::load_base_url(&provider);
-    let models = ai::list_models_for_at(&provider, key_ref, base.as_deref())
+    let catalogue = ai::list_models_for_at(&provider, key.as_deref(), base.as_deref())
         .await
         .map_err(|e| e.to_string())?;
-    Ok(models.into_iter().map(ModelInfoDto::from).collect())
+    Ok(ModelCatalogueDto::from(catalogue))
 }
 
 // ---------------------------------------------------------------------------
@@ -5749,7 +5804,7 @@ mod tests {
         let (provider, key, model) = super::resolve_effective_llm(
             "anthropic".into(),
             Some("anthropic-key".into()),
-            Some("claude-sonnet-4-6".into()),
+            Some("claude-sonnet-5-5".into()),
             Some(("openai".into(), "gpt-4o-mini".into())),
             |p| {
                 assert_eq!(p, "openai", "must look up the pinned provider");
@@ -5768,7 +5823,7 @@ mod tests {
         let (provider, key, model) = super::resolve_effective_llm(
             "anthropic".into(),
             Some("anthropic-key".into()),
-            Some("claude-sonnet-4-6".into()),
+            Some("claude-sonnet-5-5".into()),
             Some(("anthropic".into(), "claude-opus-4-7".into())),
             |_| panic!("must not hit the keychain for the active provider"),
         );
@@ -5784,13 +5839,13 @@ mod tests {
         let (provider, key, model) = super::resolve_effective_llm(
             "openrouter".into(),
             Some("or-key".into()),
-            Some("anthropic/claude-sonnet-4-6".into()),
+            Some("anthropic/claude-sonnet-5.5".into()),
             None,
             |_| panic!("must not hit the keychain when no profile is active"),
         );
         assert_eq!(provider, "openrouter");
         assert_eq!(key.as_deref(), Some("or-key"));
-        assert_eq!(model.as_deref(), Some("anthropic/claude-sonnet-4-6"));
+        assert_eq!(model.as_deref(), Some("anthropic/claude-sonnet-5.5"));
     }
 
     /// A pinned provider with no stored key yields `None` rather than
@@ -6563,5 +6618,81 @@ mod tests {
             let err = parse_effort_setting(id, Some("high")).unwrap_err();
             assert!(err.contains("Anthropic only"), "{id}: {err}");
         }
+    }
+
+    // -----------------------------------------------------------------
+    // Model catalogue
+    // -----------------------------------------------------------------
+
+    /// A saved key is the normal case: the form is empty once a key is
+    /// saved, and a catalogue fetched with no key is a catalogue that
+    /// cannot be live.
+    #[test]
+    fn the_catalogue_uses_the_saved_key_when_none_is_typed() {
+        let saved = |p: &str| {
+            assert_eq!(p, "anthropic", "the saved key of the provider on screen");
+            Some("saved".to_string())
+        };
+        assert_eq!(
+            super::catalogue_key("anthropic", None, saved).as_deref(),
+            Some("saved")
+        );
+        assert_eq!(
+            super::catalogue_key("anthropic", Some("  ".into()), saved).as_deref(),
+            Some("saved"),
+            "a blank field is no key"
+        );
+        assert_eq!(
+            super::catalogue_key("anthropic", Some("t".into()), |_| {
+                panic!("a typed key must not read the keychain")
+            })
+            .as_deref(),
+            Some("t")
+        );
+        assert_eq!(
+            super::catalogue_key("anthropic", Some(" t ".into()), |_| None).as_deref(),
+            Some("t"),
+            "the typed key is trimmed"
+        );
+        assert_eq!(super::catalogue_key("ollama", None, |_| None), None);
+    }
+
+    #[test]
+    fn a_fallback_catalogue_serialises_with_its_notice() {
+        let dto = super::ModelCatalogueDto::from(ai::Catalogue {
+            models: vec![ai::ModelInfo {
+                id: "claude-sonnet-5-5".into(),
+                display_name: "Claude Sonnet 5.5 (default)".into(),
+                context_length: Some(1_000_000),
+                provider_hint: None,
+            }],
+            source: ai::CatalogueSource::Fallback {
+                reason: "no API key saved".into(),
+            },
+        });
+        assert_eq!(
+            serde_json::to_value(&dto).unwrap(),
+            serde_json::json!({
+                "models": [{
+                    "id": "claude-sonnet-5-5",
+                    "display_name": "Claude Sonnet 5.5 (default)",
+                    "context_length": 1_000_000,
+                    "provider_hint": null,
+                }],
+                "source": "fallback",
+                "notice": "no API key saved",
+            })
+        );
+    }
+
+    #[test]
+    fn a_live_catalogue_has_no_notice() {
+        let dto = super::ModelCatalogueDto::from(ai::Catalogue {
+            models: vec![],
+            source: ai::CatalogueSource::Live,
+        });
+        let json = serde_json::to_value(&dto).unwrap();
+        assert_eq!(json["source"], "live");
+        assert!(json["notice"].is_null());
     }
 }

@@ -155,7 +155,11 @@ describe("Settings tab strip", () => {
     vi.mocked(getActiveModel).mockResolvedValue("");
     vi.mocked(getBaseUrlFor).mockResolvedValue(null);
     vi.mocked(getEffortFor).mockResolvedValue(null);
-    vi.mocked(listModelsFor).mockResolvedValue([]);
+    vi.mocked(listModelsFor).mockResolvedValue({
+      models: [],
+      source: "live",
+      notice: null,
+    });
     vi.mocked(defaultBaseUrlFor).mockResolvedValue(
       "https://api.anthropic.com",
     );

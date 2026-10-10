@@ -5,7 +5,9 @@
  * A failed send reaches the frontend as the backend's error text, so
  * this reads text. Two kinds of failure are fixed in Settings, and a
  * Retry alone only repeats them: no agent configured, which means no key
- * at all (#250), and a key the provider refused (#414).
+ * at all (#250), and a key the provider refused (#414). A third is a model
+ * the provider no longer has (#468): the person chose it, and only choosing
+ * another fixes it.
  */
 
 /** "no agent configured; call set_api_key first" (`CommandError::NoAgent`). */
@@ -42,6 +44,28 @@ const STATUS_PATTERNS: readonly RegExp[] = [
  * "invalid_api_key" count.
  */
 const CREDENTIAL_WORDING = /(?:^|[^a-z])(?:api[\s_-]?key|(?:un)?authenticat)/i;
+
+/**
+ * `ai::Error::ModelUnavailable`'s text: "model unavailable: the model
+ * provider has no model `X` (HTTP 404); it may have been retired. Choose
+ * another model in Settings; this provider's default is `Y`." The two ids
+ * are in backticks after those fixed phrases, which is what this reads, so
+ * the wording in `crates/ai/src/lib.rs` and this pattern change together
+ * (`a_model_unavailable_error_names_both_models_and_no_provider` pins the
+ * Rust side).
+ */
+const MODEL_UNAVAILABLE = /model unavailable: .*?`([^`]+)`.*?default is `([^`]+)`/s;
+
+/**
+ * The model that failed and the provider's default, if `message` says the
+ * provider has no such model; null for any other failure.
+ */
+export function parseModelUnavailable(
+  message: string,
+): { model: string; defaultModel: string } | null {
+  const match = MODEL_UNAVAILABLE.exec(message);
+  return match ? { model: match[1], defaultModel: match[2] } : null;
+}
 
 function statedStatus(message: string): number | null {
   for (const pattern of STATUS_PATTERNS) {
@@ -83,13 +107,18 @@ export function isCredentialError(message: string): boolean {
 
 /** Whether the person fixes this failure in Settings rather than by retrying. */
 export function needsSettings(message: string): boolean {
-  return isNoAgentError(message) || isCredentialError(message);
+  return (
+    isNoAgentError(message) ||
+    isCredentialError(message) ||
+    parseModelUnavailable(message) !== null
+  );
 }
 
 /**
  * The banner text for a send that failed with `err`.
  *
- * A refused key leads with what happened in words, because the
+ * A model that is gone is named, in words. A refused key leads with what
+ * happened in words, because the
  * provider's reply is raw JSON ("authentication_error", "invalid
  * x-api-key") that does not say what to do. The reply follows in full:
  * its status and message say which key, and are what anyone reporting
@@ -99,6 +128,14 @@ export function describeChatError(err: unknown): string {
   const raw = String(
     err instanceof Error ? err.message : (err ?? "unknown error"),
   );
+  // In words, with no status and none of the provider's JSON: the person
+  // needs the model's name and what to do, and the log has the rest.
+  const gone = parseModelUnavailable(raw);
+  if (gone) {
+    return gone.model === gone.defaultModel
+      ? `\`${gone.model}\` is no longer available from this provider — it may have been retired. Choose another model in Settings.`
+      : `\`${gone.model}\` is no longer available from this provider — it may have been retired. Switch to \`${gone.defaultModel}\`, or choose another model in Settings.`;
+  }
   if (isCredentialError(raw)) {
     return `The provider rejected the API key. Check it in Settings. Details: ${raw}`;
   }

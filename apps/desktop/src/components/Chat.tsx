@@ -17,11 +17,19 @@ import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo
 
 import {
   sendMessage as bridgeSendMessage,
+  getActiveModel,
+  getActiveProvider,
   getPlanFirst,
+  setActiveModel,
   setPlanFirst as setPlanFirstBridge,
 } from "../lib/tauri-bridge";
-import type { Marker } from "../lib/tauri-bridge";
-import { describeChatError, needsSettings } from "../lib/chat-errors";
+import type { Marker, ProviderId } from "../lib/tauri-bridge";
+import {
+  describeChatError,
+  needsSettings,
+  parseModelUnavailable,
+} from "../lib/chat-errors";
+import { modelStorageKey } from "../lib/model-storage";
 import { nothingCanRun, type PlanStep } from "../lib/planSteps";
 
 import {
@@ -129,6 +137,18 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  // Set when the failure is a model the provider no longer has (#468).
+  // `switchTo` is what the banner offers as one explicit click, and is
+  // there only if the model that failed is the one chosen in Settings: an
+  // agent profile can pin its own, and switching the global one would then
+  // change nothing it sends.
+  const [modelGone, setModelGone] = useState<{
+    defaultModel: string;
+    switchTo: ProviderId | null;
+  } | null>(null);
+  // Which failure a lookup is about, so a slow answer for an earlier one
+  // cannot put a button on a later banner.
+  const failureSeq = useRef(0);
   // Inline plan step editing state
   const [editingStepIdx, setEditingStepIdx] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState("");
@@ -238,9 +258,49 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
     }
   };
 
+  // After a model the provider no longer has: find out whether the model
+  // that failed is the one chosen, and if so offer the provider's default.
+  const offerDefaultModel = async (raw: string, seq: number) => {
+    const gone = parseModelUnavailable(raw);
+    if (!gone) return;
+    setModelGone({ defaultModel: gone.defaultModel, switchTo: null });
+    if (gone.model === gone.defaultModel) return;
+    try {
+      const provider = (await getActiveProvider()) as ProviderId;
+      const chosen = await getActiveModel(provider);
+      if (seq === failureSeq.current && chosen === gone.model) {
+        setModelGone({ defaultModel: gone.defaultModel, switchTo: provider });
+      }
+    } catch {
+      // No button, then: Open Settings is still there.
+    }
+  };
+
+  const useDefaultModel = async () => {
+    if (!modelGone?.switchTo) return;
+    const { switchTo: provider, defaultModel } = modelGone;
+    try {
+      await setActiveModel(provider, defaultModel);
+    } catch (err) {
+      setLocalError(`could not select ${defaultModel}: ${String(err)}`);
+      return;
+    }
+    // What Settings' model field shows, so the two agree.
+    try {
+      window.localStorage.setItem(modelStorageKey(provider), defaultModel);
+    } catch {
+      // Private mode or blocked storage: the backend has it, which is what
+      // the next message uses.
+    }
+    setModelGone(null);
+    setLocalError(`Now using ${defaultModel}. Retry to send your message again.`);
+  };
+
   const sendInternal = async (wireText: string) => {
     lastSentRef.current = wireText;
+    failureSeq.current += 1;
     setLocalError(null);
+    setModelGone(null);
     pushUserMessage(wireText);
     setBusy(true);
     try {
@@ -256,6 +316,10 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
       // The request failed before any agent event could clear "thinking".
       stopAwaiting();
       setLocalError(describeChatError(err));
+      void offerDefaultModel(
+        String(err instanceof Error ? err.message : (err ?? "")),
+        failureSeq.current,
+      );
     } finally {
       setBusy(false);
     }
@@ -458,7 +522,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
           >
             <div className="flex items-start justify-between gap-2">
               <span>{localError}</span>
-              {onOpenSettings && needsSettings(localError) ? (
+              {onOpenSettings && (needsSettings(localError) || modelGone) ? (
                 <button
                   type="button"
                   onClick={onOpenSettings}
@@ -470,6 +534,20 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
                   "
                 >
                   Open Settings
+                </button>
+              ) : null}
+              {modelGone?.switchTo ? (
+                <button
+                  type="button"
+                  onClick={() => void useDefaultModel()}
+                  data-testid="chat-error-use-default"
+                  className="
+                    shrink-0 rounded border border-[var(--danger)]/40
+                    px-2 py-0.5 font-mono text-[10px] tracking-wider
+                    hover:bg-[var(--danger)]/20
+                  "
+                >
+                  Use {modelGone.defaultModel}
                 </button>
               ) : null}
               {lastSentRef.current ? (
@@ -525,6 +603,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
                   // agent then looks stuck until its five-minute
                   // timeout, which is worth saying (#251).
                   setLocalError(null);
+                  setModelGone(null);
                   void discardPlan().catch((err: unknown) =>
                     setLocalError(
                       `Discarded the plan, but the agent may still be waiting: ${String(err)}`,

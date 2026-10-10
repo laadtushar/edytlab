@@ -21,7 +21,10 @@ use std::sync::{Arc, Mutex};
 
 use ai::anthropic::{ContentBlock, Role};
 use ai::{Agent, AgentEvent, LlmConfig};
-use common::{classifier_json, ok, plan_json, sse_text, sse_tool_step, Entry, SeqResponder};
+use common::{
+    classifier_json, ok, plan_json, sse_text, sse_thinking_tool_step, sse_tool_step, Entry,
+    SeqResponder,
+};
 use serde_json::{json, Value};
 use tokio::sync::Notify;
 use tools::schema::{anthropic_tool, object_schema};
@@ -459,6 +462,77 @@ async fn the_turn_after_a_rejection_is_well_formed() {
     assert_eq!(blocks[0]["type"], "tool_result");
     assert_eq!(blocks[0]["tool_use_id"], "t1");
     assert_eq!(blocks[1]["type"], "text");
+    assert_eq!(blocks[1]["text"], "next request");
+}
+
+/// The same on a model that thinks by default, which is every current
+/// Anthropic model and so the default (#468): a held step that is declined
+/// and then a new message. The declined step's thinking was produced under
+/// the first turn's `system` and `tools`, and the new turn rebuilds both, so
+/// it must not go back. What must be there is the declined call's answer, so
+/// the history is one the provider accepts. This is the case the manual
+/// Plan-first check of the default switch was owed.
+#[tokio::test]
+async fn a_new_message_after_a_declined_step_replays_none_of_its_thinking() {
+    let mut responses = vec![
+        ok(classifier_json("general")),
+        ok(plan_json("Sure.")),
+        ok(sse_thinking_tool_step(
+            "SIG-DECLINED",
+            "RED-DECLINED",
+            ("t1", "edit", r#"{"track":0}"#),
+        )),
+    ];
+    responses.extend([ok(classifier_json("general")), ok(sse_text("Okay."))]);
+    let mut fx = Fixture::new(true, None, responses).await;
+
+    let (first, events) = fx.turn("make it louder", |_, _| Answer::Reject).await;
+    first.expect("a declined step is not an error");
+    assert!(events.contains(&Ev::PlanRejected), "{events:#?}");
+    assert!(fx.edits_run().is_empty(), "a declined edit ran");
+
+    fx.agent.set_plan_first(false);
+    let (second, events) = fx.turn("next request", approve).await;
+    second.expect("second turn");
+    assert_eq!(events.last(), Some(&Ev::Done));
+
+    let requests = fx.requests().await;
+    let main = requests.last().expect("the second turn's step");
+    assert_eq!(main["stream"], true, "{main}");
+    let messages = main["messages"].as_array().expect("messages");
+
+    // None of the declined step's thinking, whatever its kind.
+    let wire = serde_json::to_string(messages).unwrap();
+    for banned in [
+        "\"thinking\"",
+        "redacted_thinking",
+        "SIG-DECLINED",
+        "RED-DECLINED",
+    ] {
+        assert!(!wire.contains(banned), "{banned} was replayed: {wire}");
+    }
+
+    // The history is well formed: roles alternate, the call is still there
+    // with its answer ahead of the new message.
+    for pair in messages.windows(2) {
+        assert_ne!(pair[0]["role"], pair[1]["role"], "{messages:#?}");
+    }
+    let assistant = messages
+        .iter()
+        .find(|m| m["role"] == "assistant")
+        .expect("the declined step's message is kept");
+    let kinds: Vec<&str> = assistant["content"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|b| b["type"].as_str())
+        .collect();
+    assert_eq!(kinds, ["text", "tool_use"], "{assistant}");
+    let last = messages.last().unwrap();
+    let blocks = last["content"].as_array().expect("blocks");
+    assert_eq!(blocks[0]["type"], "tool_result");
+    assert_eq!(blocks[0]["tool_use_id"], "t1");
+    assert_eq!(blocks[0]["is_error"], true);
     assert_eq!(blocks[1]["text"], "next request");
 }
 

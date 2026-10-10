@@ -52,43 +52,46 @@ vi.mock("../../lib/tauri-bridge", async () => {
   };
 });
 
+import type { ModelInfo } from "../../lib/tauri-bridge";
 import { Settings } from "../Settings";
 
-const ANTHROPIC_CATALOGUE = [
-  {
-    id: "claude-sonnet-4-6",
-    display_name: "Claude Sonnet 4.6 (default)",
-    context_length: 200000,
-    provider_hint: null,
-  },
-  {
-    id: "claude-haiku-4-5-20251001",
-    display_name: "Claude Haiku 4.5 (cheap mode)",
-    context_length: 200000,
-    provider_hint: null,
-  },
-  {
-    id: "claude-opus-4-1-20250805",
-    display_name: "Claude Opus 4.1",
-    context_length: 200000,
-    provider_hint: null,
-  },
+const info = (
+  id: string,
+  display_name: string,
+): ModelInfo => ({
+  id,
+  display_name,
+  context_length: 1_000_000,
+  provider_hint: null,
+});
+
+/** The built-in list: `anthropic_fallback_models()` in `crates/ai/src/models.rs`. */
+const ANTHROPIC_MODELS = [
+  info("claude-sonnet-5-5", "Claude Sonnet 5.5 (default)"),
+  info("claude-haiku-5-5", "Claude Haiku 5.5"),
+  info("claude-opus-5-5", "Claude Opus 5.5"),
+  info("claude-fable-5-1", "Claude Fable 5.1"),
 ];
 
-const OPENAI_CATALOGUE = [
-  {
-    id: "gpt-4o-mini",
-    display_name: "gpt-4o-mini",
-    context_length: null,
-    provider_hint: null,
-  },
-  {
-    id: "gpt-4o",
-    display_name: "gpt-4o",
-    context_length: null,
-    provider_hint: null,
-  },
-];
+/** What `list_models_for` answers: the models and which list they are. */
+const live = (models: ModelInfo[]) => ({
+  models,
+  source: "live" as const,
+  notice: null,
+});
+
+const ANTHROPIC_CATALOGUE = live(ANTHROPIC_MODELS);
+
+const ANTHROPIC_FALLBACK = {
+  models: ANTHROPIC_MODELS,
+  source: "fallback" as const,
+  notice: "no API key saved",
+};
+
+const OPENAI_CATALOGUE = live([
+  { ...info("gpt-6-luna", "gpt-6-luna (default)"), context_length: null },
+  { ...info("gpt-6-astra", "gpt-6-astra"), context_length: null },
+]);
 
 beforeEach(() => {
   setApiKeyForMock.mockReset();
@@ -100,20 +103,21 @@ beforeEach(() => {
   listModelsForMock.mockReset();
   setApiKeyForMock.mockResolvedValue(undefined);
   testApiKeyForMock.mockResolvedValue({
-    model: "claude-sonnet-4-6",
+    model: "claude-sonnet-5-5",
     toolsOk: true,
     detail: null,
+    modelUnavailable: false,
   });
   setActiveProviderMock.mockResolvedValue(undefined);
   setActiveModelMock.mockResolvedValue(undefined);
   getActiveModelMock.mockResolvedValue("");
   clearApiKeyMock.mockResolvedValue(undefined);
-  // Default: catalogue resolves to the Anthropic curated list. Tests
+  // Default: catalogue resolves to a live Anthropic list. Tests
   // override per-provider as needed.
   listModelsForMock.mockImplementation(async (p: string) => {
     if (p === "anthropic") return ANTHROPIC_CATALOGUE;
     if (p === "openai") return OPENAI_CATALOGUE;
-    return [];
+    return live([]);
   });
   window.localStorage.clear();
 });
@@ -223,9 +227,50 @@ describe("Settings model combo", () => {
     // matching the first catalogue id.
     await waitFor(() => {
       const opts = datalist.querySelectorAll("option");
-      expect(opts.length).toBe(ANTHROPIC_CATALOGUE.length);
-      expect(opts[0].getAttribute("value")).toBe("claude-sonnet-4-6");
+      expect(opts.length).toBe(ANTHROPIC_CATALOGUE.models.length);
+      expect(opts[0].getAttribute("value")).toBe("claude-sonnet-5-5");
     });
+    // A live list says how many models it holds and nothing about a fallback.
+    const hint = await screen.findByTestId("settings-model-hint");
+    expect(hint.textContent).toMatch(/4 models available/);
+    expect(screen.queryByTestId("settings-model-fallback")).toBeNull();
+  });
+
+  // The list shown is not always Anthropic's. With no key to fetch it with, or
+  // when the fetch fails, the backend answers with edytlab's built-in list, and
+  // the hint says so rather than presenting it as the provider's own.
+  it("says when the list is edytlab's built-in one, and why", async () => {
+    listModelsForMock.mockResolvedValue(ANTHROPIC_FALLBACK);
+    render(<Settings mode="blocking" onSaved={() => {}} />);
+
+    const note = await screen.findByTestId("settings-model-fallback");
+    expect(note.textContent).toContain("built-in list");
+    expect(note.textContent).toContain("no API key saved");
+    expect(note.textContent).toContain("Anthropic");
+    expect(screen.queryByTestId("settings-model-hint")).toBeNull();
+
+    // The suggestions are still there to pick from.
+    const datalist = screen.getByTestId("settings-model-datalist");
+    await waitFor(() => {
+      const ids = Array.from(datalist.querySelectorAll("option")).map((o) =>
+        o.getAttribute("value"),
+      );
+      expect(ids).toEqual([
+        "claude-sonnet-5-5",
+        "claude-haiku-5-5",
+        "claude-opus-5-5",
+        "claude-fable-5-1",
+      ]);
+    });
+  });
+
+  // A failed fetch has no source to speak of; the error says what happened.
+  it("shows the error and no source when the fetch fails", async () => {
+    listModelsForMock.mockRejectedValue(new Error("boom"));
+    render(<Settings mode="blocking" onSaved={() => {}} />);
+    await screen.findByTestId("settings-model-error");
+    expect(screen.queryByTestId("settings-model-fallback")).toBeNull();
+    expect(screen.queryByTestId("settings-model-hint")).toBeNull();
   });
 
   it("accepts free-form model ids not in the suggestion list", async () => {
@@ -244,7 +289,7 @@ describe("Settings model combo", () => {
 
     // Type an Anthropic-specific id under the Anthropic radio.
     fireEvent.change(screen.getByTestId("settings-model-input"), {
-      target: { value: "claude-haiku-4-5-20251001" },
+      target: { value: "claude-haiku-5-5" },
     });
 
     // Switch to OpenAI; the input should reset to OpenAI's default
@@ -262,7 +307,7 @@ describe("Settings model combo", () => {
 
     // Both selections must be persisted independently.
     expect(window.localStorage.getItem("edytlab.model.anthropic")).toBe(
-      "claude-haiku-4-5-20251001",
+      "claude-haiku-5-5",
     );
     expect(window.localStorage.getItem("edytlab.model.openai")).toBe("gpt-4o");
 
@@ -275,7 +320,7 @@ describe("Settings model combo", () => {
     await waitFor(() =>
       expect(
         (screen.getByTestId("settings-model-input") as HTMLInputElement).value,
-      ).toBe("claude-haiku-4-5-20251001"),
+      ).toBe("claude-haiku-5-5"),
     );
   });
 
@@ -301,5 +346,141 @@ describe("Settings model combo", () => {
     const input = screen.getByTestId("settings-model-input") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "claude-typed-by-hand" } });
     expect(input.value).toBe("claude-typed-by-hand");
+  });
+});
+
+/**
+ * A saved model the provider has retired (#468). Settings used to list
+ * it, or nothing, and TEST reported it as a model that "did not call the
+ * tool". Anthropic's live list is complete, so a saved model missing from it
+ * is flagged; another provider's is filtered or spelt differently, so
+ * absence there proves nothing.
+ */
+describe("Settings, when the saved model is gone", () => {
+  const RETIRED = "claude-opus-4-1-20250805";
+
+  it("warns when a saved model is missing from Anthropic's live list, and offers the default", async () => {
+    getActiveModelMock.mockResolvedValue(RETIRED);
+    render(<Settings mode="blocking" onSaved={() => {}} />);
+
+    const warning = await screen.findByTestId("settings-model-unlisted");
+    expect(warning.textContent).toContain(RETIRED);
+    expect(warning.textContent).toMatch(/retired/);
+    expect(warning.textContent).toContain("claude-sonnet-5-5");
+    expect(setActiveModelMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId("settings-model-use-default"));
+
+    expect(setActiveModelMock).toHaveBeenCalledWith(
+      "anthropic",
+      "claude-sonnet-5-5",
+    );
+    await waitFor(() =>
+      expect(
+        (screen.getByTestId("settings-model-input") as HTMLInputElement).value,
+      ).toBe("claude-sonnet-5-5"),
+    );
+    expect(screen.queryByTestId("settings-model-unlisted")).toBeNull();
+  });
+
+  // `claude-haiku-4-5` is an alias that resolves to the dated id the list
+  // holds, so it is a model Anthropic has.
+  it("does not warn about an alias of a listed dated id", async () => {
+    listModelsForMock.mockResolvedValue(
+      live([info("claude-haiku-4-5-20251001", "Claude Haiku 4.5")]),
+    );
+    getActiveModelMock.mockResolvedValue("claude-haiku-4-5");
+    render(<Settings mode="blocking" onSaved={() => {}} />);
+
+    await screen.findByTestId("settings-model-hint");
+    await waitFor(() =>
+      expect(
+        (screen.getByTestId("settings-model-input") as HTMLInputElement).value,
+      ).toBe("claude-haiku-4-5"),
+    );
+    expect(screen.queryByTestId("settings-model-unlisted")).toBeNull();
+  });
+
+  it("does not warn about a model that is listed, nor about the default", async () => {
+    getActiveModelMock.mockResolvedValue("claude-opus-5-5");
+    render(<Settings mode="blocking" onSaved={() => {}} />);
+    await screen.findByTestId("settings-model-hint");
+    expect(screen.queryByTestId("settings-model-unlisted")).toBeNull();
+  });
+
+  // The built-in list is edytlab's, not the provider's, so what it lacks says
+  // nothing about what the provider has.
+  it("does not warn against the built-in list", async () => {
+    listModelsForMock.mockResolvedValue(ANTHROPIC_FALLBACK);
+    getActiveModelMock.mockResolvedValue(RETIRED);
+    render(<Settings mode="blocking" onSaved={() => {}} />);
+    await screen.findByTestId("settings-model-fallback");
+    await waitFor(() =>
+      expect(
+        (screen.getByTestId("settings-model-input") as HTMLInputElement).value,
+      ).toBe(RETIRED),
+    );
+    expect(screen.queryByTestId("settings-model-unlisted")).toBeNull();
+  });
+
+  it("does not warn for another provider's list", async () => {
+    getActiveModelMock.mockResolvedValue("some-model-not-listed");
+    render(<Settings mode="blocking" onSaved={() => {}} />);
+    fireEvent.click(screen.getByTestId("settings-provider-openai"));
+    await waitFor(() =>
+      expect(setActiveProviderMock).toHaveBeenCalledWith("openai"),
+    );
+    await screen.findByTestId("settings-model-hint");
+    expect(screen.queryByTestId("settings-model-unlisted")).toBeNull();
+  });
+
+  it("reports a retired model from TEST as gone, not as unable to call tools", async () => {
+    getActiveModelMock.mockResolvedValue(RETIRED);
+    testApiKeyForMock.mockResolvedValue({
+      model: RETIRED,
+      toolsOk: false,
+      detail: null,
+      modelUnavailable: true,
+    });
+    render(<Settings mode="blocking" onSaved={() => {}} />);
+    fireEvent.change(screen.getByTestId("settings-key-input"), {
+      target: { value: "k" },
+    });
+    await waitFor(() =>
+      expect(
+        (screen.getByTestId("settings-model-input") as HTMLInputElement).value,
+      ).toBe(RETIRED),
+    );
+    fireEvent.click(screen.getByTestId("settings-test-button"));
+
+    const missing = await screen.findByTestId("settings-test-model-missing");
+    expect(missing.textContent).toContain(RETIRED);
+    expect(missing.textContent).toContain("Anthropic");
+    expect(missing.textContent).toMatch(/retired/);
+    expect(screen.queryByTestId("settings-test-no-tools")).toBeNull();
+    expect(screen.queryByTestId("settings-test-ok")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("settings-test-use-default"));
+    expect(setActiveModelMock).toHaveBeenCalledWith(
+      "anthropic",
+      "claude-sonnet-5-5",
+    );
+  });
+
+  it("offers no switch from TEST when the model that is gone is the default", async () => {
+    testApiKeyForMock.mockResolvedValue({
+      model: "claude-sonnet-5-5",
+      toolsOk: false,
+      detail: null,
+      modelUnavailable: true,
+    });
+    render(<Settings mode="blocking" onSaved={() => {}} />);
+    fireEvent.change(screen.getByTestId("settings-key-input"), {
+      target: { value: "k" },
+    });
+    fireEvent.click(screen.getByTestId("settings-test-button"));
+
+    await screen.findByTestId("settings-test-model-missing");
+    expect(screen.queryByTestId("settings-test-use-default")).toBeNull();
   });
 });

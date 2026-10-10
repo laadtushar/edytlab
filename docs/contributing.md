@@ -46,7 +46,7 @@ A good bug report includes:
 ```markdown
 **edytlab version:** v0.1.0-dev.31
 **OS:** macOS 14.3 (arm64)
-**Provider:** Anthropic / claude-sonnet-4-6
+**Provider:** Anthropic / claude-sonnet-5-5
 
 **Steps to reproduce:**
 1. Load a WAV file

@@ -48,3 +48,28 @@ fn a_context_error_names_no_provider_and_says_what_to_change() {
         "the server's raw body belongs in the log, not the chat: {text}"
     );
 }
+
+/// A model the provider no longer has is named, with the default to switch
+/// to, in words that name no provider (#405) and show none of its JSON. The
+/// chat's banner reads the two ids out of the backticks (see `chat-errors.ts`),
+/// so the shape is part of the contract.
+#[test]
+fn a_model_unavailable_error_names_both_models_and_no_provider() {
+    let text = words(Error::ModelUnavailable {
+        model: "claude-opus-4-1-20250805".into(),
+        default_model: "claude-sonnet-5-5".into(),
+        status: 404,
+    });
+    let lower = text.to_lowercase();
+    assert!(lower.contains("model unavailable"), "{text}");
+    assert!(text.contains("`claude-opus-4-1-20250805`"), "{text}");
+    assert!(text.contains("`claude-sonnet-5-5`"), "{text}");
+    assert!(text.contains("Settings"), "{text}");
+    assert!(text.contains("404"), "{text}");
+    assert!(!lower.contains("anthropic"), "{text}");
+    assert!(!lower.contains("not_found_error"), "{text}");
+    assert!(!text.contains('{'), "{text}");
+    // Not a key problem: the chat offers Settings for those by the words
+    // "api key", and no key fixes this.
+    assert!(!lower.contains("api key"), "{text}");
+}

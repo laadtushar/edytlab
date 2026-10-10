@@ -17,6 +17,7 @@ import {
   describeChatError,
   isCredentialError,
   needsSettings,
+  parseModelUnavailable,
 } from "../lib/chat-errors";
 
 const api = (status: number, body: string) =>
@@ -194,5 +195,74 @@ describe("describeChatError", () => {
     expect(describeChatError(undefined)).toBe(
       "Could not complete request: unknown error",
     );
+  });
+});
+
+/**
+ * A model the provider no longer has (#468). The string is what the app
+ * really shows: `ai::Error::ModelUnavailable`'s text behind the commands
+ * layer's "ai error: " prefix. The two ids sit in backticks after fixed
+ * phrases, and the banner reads them back out of it.
+ */
+describe("a model the provider no longer has", () => {
+  const RETIRED =
+    "ai error: model unavailable: the model provider has no model " +
+    "`claude-opus-4-1-20250805` (HTTP 404); it may have been retired. " +
+    "Choose another model in Settings; this provider's default is " +
+    "`claude-sonnet-5-5`.";
+
+  it("is read back into the model that failed and the default to switch to", () => {
+    expect(parseModelUnavailable(RETIRED)).toEqual({
+      model: "claude-opus-4-1-20250805",
+      defaultModel: "claude-sonnet-5-5",
+    });
+  });
+
+  it("is read from OpenRouter-style ids, which contain a slash and a dot", () => {
+    const message = RETIRED.replace(
+      "claude-opus-4-1-20250805",
+      "anthropic/claude-sonnet-4",
+    ).replace("claude-sonnet-5-5", "anthropic/claude-sonnet-5.5");
+    expect(parseModelUnavailable(message)).toEqual({
+      model: "anthropic/claude-sonnet-4",
+      defaultModel: "anthropic/claude-sonnet-5.5",
+    });
+  });
+
+  it("is not read out of anything else", () => {
+    for (const message of [
+      ANTHROPIC_WRONG_KEY,
+      api(404, "<html>not found</html>"),
+      api(400, '{"error":{"message":"claude-sonnet-5-5 does not support this"}}'),
+      "no agent configured; call set_api_key first",
+      "",
+    ]) {
+      expect(parseModelUnavailable(message), message).toBeNull();
+    }
+  });
+
+  it("is a failure fixed in Settings, and not a refused key", () => {
+    expect(needsSettings(RETIRED)).toBe(true);
+    expect(isCredentialError(RETIRED)).toBe(false);
+  });
+
+  it("is described in words, with both models and no raw JSON", () => {
+    const text = describeChatError(RETIRED);
+    expect(text).toContain("claude-opus-4-1-20250805");
+    expect(text).toContain("claude-sonnet-5-5");
+    expect(text).toMatch(/retired/);
+    expect(text).toMatch(/Switch to .claude-sonnet-5-5./);
+    for (const raw of ["HTTP", "{", "ai error", "Details:", "Could not complete"]) {
+      expect(text, raw).not.toContain(raw);
+    }
+  });
+
+  it("does not offer to switch to the model that has just failed", () => {
+    const text = describeChatError(
+      RETIRED.replace("claude-opus-4-1-20250805", "claude-sonnet-5-5"),
+    );
+    expect(text).toMatch(/retired/);
+    expect(text).not.toMatch(/Switch to/);
+    expect(text).toMatch(/Settings/);
   });
 });

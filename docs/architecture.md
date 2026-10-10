@@ -492,11 +492,11 @@ pub trait LlmProvider: Send + Sync + Debug {
 
 | ID | Base URL | Auth | Default Model | Notes |
 |----|----------|------|---------------|-------|
-| `anthropic` | `https://api.anthropic.com` | `x-api-key` header | `claude-sonnet-4-6` | Native Anthropic format |
-| `openrouter` | `https://openrouter.ai/api` | `Authorization: Bearer` | `claude-sonnet-4-6` | Anthropic-compatible API; prepends `"anthropic/"` to unqualified model ids |
-| `openai` | `https://api.openai.com` | `Authorization: Bearer` | `gpt-4o-mini` | Full translation: Anthropic shape → chat-completions → back |
+| `anthropic` | `https://api.anthropic.com` | `x-api-key` header | `claude-sonnet-5-5` | Native Anthropic format. The classifier is `claude-haiku-5-5` |
+| `openrouter` | `https://openrouter.ai/api` | `Authorization: Bearer` | `anthropic/claude-sonnet-5.5` | Anthropic-compatible API. Its ids are its own and dotted (`anthropic/claude-haiku-5.5` is the classifier), so the defaults are consts of their own; an unqualified id is still prefixed with `"anthropic/"`, which is not guaranteed to resolve there |
+| `openai` | `https://api.openai.com` | `Authorization: Bearer` | `gpt-6-luna` | Full translation: Anthropic shape → chat-completions → back. `gpt-6-luna` takes tools on Chat Completions only with `reasoning_effort: "none"`, which is sent for it (`openai_reasoning_effort`) |
 | `groq` | `https://api.groq.com/openai` | `Authorization: Bearer` | `llama-3.3-70b-versatile` | Chat-completions; reuses `OpenAIProvider`'s translation |
-| `gemini` | `https://generativelanguage.googleapis.com/v1beta/openai` | `Authorization: Bearer` | `gemini-2.0-flash` | Gemini's OpenAI-compatible endpoint; reuses the same translation |
+| `gemini` | `https://generativelanguage.googleapis.com/v1beta/openai` | `Authorization: Bearer` | `gemini-3.8-flash` | Gemini's OpenAI-compatible endpoint; reuses the same translation. The classifier is `gemini-3.5-flash-lite` |
 | `ollama` | `http://localhost:11434/v1` | none (`requires_api_key() == false`) | `llama3.2` | Local daemon, OpenAI-compatible; reuses the same translation. The only provider sent the slim tool set (see [Request size](#request-size-and-small-context-models)) |
 
 Every provider's base URL can be overridden per provider from Settings (`<provider>_base_url` in the keychain).
@@ -505,8 +505,8 @@ Every provider's base URL can be overridden per provider from Settings (`<provid
 
 Anthropic's Messages API takes `output_config: {"effort": "low" | "medium" | "high" | "xhigh" | "max"}`; Settings exposes it for Anthropic only (`<provider>_effort` in the keychain, `get_effort_for` / `set_effort_for`). `LlmConfig::effective_effort()` drops it for any provider whose `supports_effort()` is false, so OpenRouter and the chat-completions providers never receive the field. Three consequences are handled in `agent_loop.rs`:
 
-- The classifier request never carries it: its cheap model answers `effort` with a 400, and `classify_mode` swallows errors. It is sent with `thinking: {"type": "disabled"}` (Anthropic wire format only; the Haiku models accept it at their default effort) and `max_tokens` 256, because a model that thinks first would otherwise spend the cap before its one word and the mode would silently fall back to `general`.
-- A set effort raises `max_tokens` (`Effort::min_max_tokens`), because thinking counts against it; the one-shot reply reader takes the first `text` block, not `content[0]`. With no effort set the caps are `DEFAULT_MAX_TOKENS` (a turn's step) and `PLAN_MAX_TOKENS` (the plan request), both 8192: Anthropic's 5.x models think by default whether or not an effort is sent. The 8192 goes to every provider, and OpenAI answers a request above a model's output limit with a 400, so a chat-completions body (a streamed step, the plan, the classifier, the Settings probe) is clamped to the limit `models::max_output_tokens` holds for its model; an id not in that table goes out unchanged.
+- The classifier request never carries it: its answer is one word, and a classifier model without the parameter answers `effort` with a 400 while `classify_mode` swallows errors. It is sent with `thinking: {"type": "disabled"}` (Anthropic wire format only; the Haiku models accept it at their default effort) and `max_tokens` 256, because a model that thinks first would otherwise spend the cap before its one word and the mode would silently fall back to `general`.
+- A set effort raises `max_tokens` (`Effort::min_max_tokens`), because thinking counts against it; the one-shot reply reader takes the first `text` block, not `content[0]`. With no effort set the caps are `DEFAULT_MAX_TOKENS` (a turn's step) and `PLAN_MAX_TOKENS` (the plan request), both 8192: Anthropic's 5.x models think by default whether or not an effort is sent. The 8192 goes to every provider, and OpenAI is reported to reject a request above a model's output limit, so a chat-completions body (a streamed step, the plan, the classifier, the Settings probe) is clamped to the limit `models::max_output_tokens` holds for its model; an id not in that table goes out unchanged.
 - `thinking` / `redacted_thinking` blocks are kept in the assistant history and replayed first, signature intact, for as long as the turn that produced them lasts; block and delta types the client does not model are skipped. The next turn drops them (below).
 
 ### Thinking blocks and the request prefix
@@ -515,7 +515,7 @@ On Anthropic's 5.x models (Fable 5.1, Opus 5.5, Sonnet 5.5, Haiku 5.5) a `thinki
 
 edytlab changes the prefix between user turns: `system` is rebuilt every turn (the classifier's mode, matched skills, memory, the agent profile, and the session context with the head node id and the selection), and `tools` follows that turn's whitelist (the per-turn disabled-tools list) and, for a provider sent `ToolSet::Slim` (Ollama), the tools that turn's message names (see [Request size](#request-size-and-small-context-models)). So `run_turn` calls `strip_thinking` once at the start of every turn, removing every `thinking` and `redacted_thinking` block from the history before the new user message is added. The docs list removing all of them as valid; the model only loses that reasoning. Text, `tool_use` and `tool_result` blocks, and their pairing, are untouched.
 
-Within a turn nothing changes: `system` and `tools` are built once before the request loop and sent unchanged on every step, so the thinking a step produced is replayed, signature intact, with the tool results that follow it. The slim tool set and the names line it adds to `system` are chosen at that same point, once per turn and after `strip_thinking`, so they sit inside this rule (and a local server keeps the prompt it has processed only while they stay put). That is the one case where replaying is valid, and it holds only while that stays true: **a change that rebuilds `system` or `tools` between a turn's steps must strip there too, and so must one that edits or removes an earlier message** (compaction, trimming old tool results, rewriting a stored `tool_use` or `tool_result`), because that changes the prefix of every block after it. `tests/prior_turn_thinking.rs` pins both halves with a mock provider (a changed `system`, a changed tool set, and a fixed prefix inside a turn), and `tests/live_thinking_binding.rs` is the `#[ignore]`d check against the real API with the strict check switched on (`ANTHROPIC_E2E_KEY`).
+Within a turn nothing changes: `system` and `tools` are built once before the request loop and sent unchanged on every step, so the thinking a step produced is replayed, signature intact, with the tool results that follow it. The slim tool set and the names line it adds to `system` are chosen at that same point, once per turn and after `strip_thinking`, so they sit inside this rule (and a local server keeps the prompt it has processed only while they stay put). That is the one case where replaying is valid, and it holds only while that stays true: **a change that rebuilds `system` or `tools` between a turn's steps must strip there too, and so must one that edits or removes an earlier message** (client-side compaction, trimming old tool results, rewriting a stored `tool_use` or `tool_result`), because that changes the prefix of every block after it. Anthropic's server-side compaction and context editing are documented as valid, since the check compares the conversation as it was sent. `tests/prior_turn_thinking.rs` pins both halves with a mock provider (a changed `system`, a changed tool set, and a fixed prefix inside a turn), and `tests/live_thinking_binding.rs` is the `#[ignore]`d check against the real API with the strict check switched on (`ANTHROPIC_E2E_KEY`).
 
 Providers that do not keep thinking in the history (everything but Anthropic's own API, see `supports_effort`) have no such blocks, so this is a no-op for them. A follow-up would keep reasoning across turns with an append-only history and a frozen `system` (the session context sent in the user message or as a mid-conversation system message); it is not done.
 
@@ -566,15 +566,17 @@ A locked or refused store is an error, never a silent "nothing stored": `try_loa
 
 ### Model Catalogue
 
-`crates/ai/src/models.rs` returns a static curated list for Anthropic and fetches the live list for the other five (OpenRouter's `GET /api/v1/models`; OpenAI, Groq, Gemini and Ollama from their OpenAI-style models endpoint under the configured base URL), with a 10-minute TTL cache. The combo picker in Settings surfaces these alongside free-form input so new model ids work immediately.
+`crates/ai/src/models.rs` fetches the live list for every provider: Anthropic's `GET /v1/models` with the saved key (newest first; deprecated models are listed and labelled with the day they retire; retired ones are never asked for), OpenRouter's `GET /api/v1/models`, and OpenAI's, Groq's, Gemini's and Ollama's OpenAI-style models endpoint under the configured base URL. Anthropic's list is the one that cannot be assumed: with no key, or when the fetch fails (a 10 s timeout, a rejected key, an unreadable answer), `list_models_for` answers with edytlab's built-in list of the current models (`anthropic_fallback_models`) and says so, as a `Catalogue { models, source }` whose source is `Live` or `Fallback { reason }`. Settings shows "Showing edytlab's built-in list (reason)" for a fallback, and warns when the saved model is missing from a live Anthropic list (it may have been retired). The command reads the saved key when none is typed; it stays in the Rust process.
 
-The same file holds the one table of per-model output limits (`max_output_tokens`, applied by `clamp_max_tokens`): the OpenAI models that cannot write 8192 tokens (the `gpt-3.5-turbo` and `gpt-4-turbo` families and the `gpt-4-*-preview` snapshots, 4,096; `gpt-4`, 8,192), and the Groq and Gemini models with a documented limit under it. Each figure is taken from the provider's own documentation, cited next to it; a model nobody has sourced is left out, so its requests go out as built. When the caps in `prompt.rs` are raised, check this table first.
+Results are cached for 10 minutes, per provider, endpoint and a hash of the key held only in memory (so a changed base URL or a rotated key fetches again), and only live lists are cached, so a fallback is never served after the key is fixed. The OpenAI list keeps the ids that chat and can hold the agent's request (it drops `gpt-4` and `gpt-3.5-turbo`, whose context is smaller than one) and sorts the newest family first, with no generation written into the order. The combo picker in Settings surfaces these alongside free-form input so new model ids work immediately.
+
+The same file holds the one table of per-model output limits (`max_output_tokens`, applied by `clamp_max_tokens`): the OpenAI models with an output limit of 8192 or less (the `gpt-3.5-turbo` and `gpt-4-turbo` families and the `gpt-4-*-preview` snapshots at 4,096, and `gpt-4` at 8,192, which lowers nothing and is there so the figure is written down), and the Groq and Gemini models with a documented limit under it. The OpenAI rows are for models OpenAI is retiring (the last of them on 2026-10-23, dates in the table's doc), so they can be pruned as the dates pass. Each figure is taken from the provider's own documentation, cited next to it; a model nobody has sourced is left out, so its requests go out as built. When the caps in `prompt.rs` are raised, check this table first.
 
 ### Constants
 
 ```rust
-pub const DEFAULT_MODEL: &str = "claude-sonnet-4-6";
-pub const CLASSIFIER_MODEL: &str = "claude-haiku-4-5-20251001";
+pub const DEFAULT_MODEL: &str = "claude-sonnet-5-5";
+pub const CLASSIFIER_MODEL: &str = "claude-haiku-5-5";
 pub const MAX_TOOL_CALLS_PER_TURN: usize = 20;
 ```
 
@@ -979,7 +981,7 @@ Override model, tool whitelist, and system-prompt addendum per session. Stored u
 ---
 description: "Podcast production — fast, focused"
 model.provider: anthropic
-model.id: claude-haiku-4-5-20251001
+model.id: claude-haiku-5-5
 tools: [load, cut_range, normalize, trim, transcribe, render_final]
 ---
 

@@ -4,7 +4,9 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 vi.mock('../lib/tauri-bridge', () => ({
   installPlugin: vi.fn(),
   clearApiKey: vi.fn().mockResolvedValue(undefined),
-  listModelsFor: vi.fn().mockResolvedValue([]),
+  listModelsFor: vi
+    .fn()
+    .mockResolvedValue({ models: [], source: "live", notice: null }),
   setApiKeyFor: vi.fn().mockResolvedValue(undefined),
   setActiveModel: vi.fn().mockResolvedValue(undefined),
   getActiveModel: vi.fn().mockResolvedValue(""),

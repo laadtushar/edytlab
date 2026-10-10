@@ -367,8 +367,8 @@ export default function UserGuidePage() {
       </p>
       <ul>
         <li>
-          <strong>Anthropic Claude Sonnet 4.6</strong> — best for complex
-          multi-track arrangements and long planning chains.
+          <strong>Anthropic Claude Sonnet</strong> — the default; best for
+          complex multi-track arrangements and long planning chains.
         </li>
         <li>
           <strong>Anthropic Claude Haiku</strong> — fastest and cheapest; good
@@ -379,8 +379,8 @@ export default function UserGuidePage() {
           open-weight options at lower cost.
         </li>
         <li>
-          <strong>OpenAI GPT-4o</strong> — reliable tool use; good general
-          performance.
+          <strong>OpenAI</strong> — reliable tool use; the default is GPT-6
+          Luna.
         </li>
         <li>
           <strong>Google Gemini</strong> and <strong>Groq</strong> — hosted

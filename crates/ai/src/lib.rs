@@ -55,15 +55,23 @@ use std::sync::{Arc, Mutex};
 use anthropic::Message;
 
 pub use anthropic::Effort;
-pub use models::{list_models_for, list_models_for_at, ModelInfo};
+pub use models::{
+    anthropic_fallback_models, list_models_for, list_models_for_at, Catalogue, CatalogueSource,
+    ModelInfo,
+};
 pub use prompt::{DEFAULT_BASE_URL, DEFAULT_MODEL, MAX_TOOL_CALLS_PER_TURN};
 pub use provider::{
     AnthropicProvider, LlmProvider, OpenAIProvider, OpenRouterProvider, ToolSet, WireFormat,
     ANTHROPIC_ID, OPENAI_ID, OPENROUTER_ID, SUPPORTED_PROVIDER_IDS,
 };
 
-/// Classifier model used for cheap mode detection (M27).
-pub const CLASSIFIER_MODEL: &str = "claude-haiku-4-5-20251001";
+/// Classifier model used for cheap mode detection (M27): the current Haiku,
+/// which the models overview describes as "for high-volume, latency-sensitive
+/// tasks such as classification, extraction, and routing"
+/// (<https://platform.claude.com/docs/en/about-claude/models/overview>).
+/// It thinks by default, so the classifier request is sent with thinking
+/// disabled (see `classify_mode`).
+pub const CLASSIFIER_MODEL: &str = "claude-haiku-5-5";
 
 /// Configuration for the LLM client.
 ///
@@ -363,6 +371,25 @@ pub enum Error {
         available: Option<u64>,
         /// The server's own body, for the log.
         message: String,
+    },
+
+    /// The provider has no model of the id that was sent (#468): retired,
+    /// renamed, or never there. See [`provider::is_model_unavailable`] for
+    /// what counts, and what does not.
+    ///
+    /// The text names no provider (#405) and shows none of the provider's
+    /// JSON, and the two ids sit in backticks after fixed phrases because the
+    /// chat reads them back out of this string to offer the default
+    /// (`parseModelUnavailable` in `chat-errors.ts`): change the wording
+    /// there too. It avoids the words a credential error is recognised by,
+    /// so the chat does not read it as a key problem.
+    #[error("model unavailable: the model provider has no model `{model}` (HTTP {status}); it may have been retired. Choose another model in Settings; this provider's default is `{default_model}`.")]
+    ModelUnavailable {
+        /// The model that was asked for (as the user chose it).
+        model: String,
+        /// The provider's own default, which is what to switch to.
+        default_model: String,
+        status: u16,
     },
 
     #[error("the model provider's stream failed: {0}")]

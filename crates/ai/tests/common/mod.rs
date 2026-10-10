@@ -40,7 +40,7 @@ fn message_start() -> (&'static str, Value) {
                 "type": "message",
                 "role": "assistant",
                 "content": [],
-                "model": "claude-sonnet-4-6",
+                "model": "claude-sonnet-5-5",
                 "stop_reason": null,
                 "stop_sequence": null,
                 "usage": { "input_tokens": 1, "output_tokens": 0 }
@@ -232,7 +232,7 @@ fn reply_json(text: &str) -> String {
         "id": "msg_one_shot",
         "type": "message",
         "role": "assistant",
-        "model": "claude-haiku-4-5-20251001",
+        "model": "claude-haiku-5-5",
         "stop_reason": "end_turn",
         "content": [{ "type": "text", "text": text }],
         "usage": { "input_tokens": 1, "output_tokens": 1 }

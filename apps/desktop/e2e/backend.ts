@@ -97,29 +97,40 @@ function providerCommands(): Backend {
     // `e.as_str()`: no slot stored, so `None` (the model's own default).
     // An unreadable keychain rejects with the reason.
     get_effort_for: ok(null),
-    // `anthropic_models()` in `crates/ai/src/models.rs` — a static
-    // catalogue, so it answers without a key or a network. Serialised
-    // through `ModelInfoDto`.
-    list_models_for: ok([
-      {
-        id: "claude-sonnet-4-6",
-        display_name: "Claude Sonnet 4.6 (default)",
-        context_length: 200_000,
-        provider_hint: null,
-      },
-      {
-        id: "claude-haiku-4-5-20251001",
-        display_name: "Claude Haiku 4.5 (cheap mode)",
-        context_length: 200_000,
-        provider_hint: null,
-      },
-      {
-        id: "claude-opus-4-1-20250805",
-        display_name: "Claude Opus 4.1",
-        context_length: 200_000,
-        provider_hint: null,
-      },
-    ]),
+    // `list_models_at`'s Anthropic arm with no key saved, which is what a
+    // fresh profile has: `anthropic_fallback_models()` in
+    // `crates/ai/src/models.rs`, uncached, with the reason as the notice.
+    // Serialised through `ModelCatalogueDto` (`commands.rs`).
+    list_models_for: ok({
+      models: [
+        {
+          id: "claude-sonnet-5-5",
+          display_name: "Claude Sonnet 5.5 (default)",
+          context_length: 1_000_000,
+          provider_hint: null,
+        },
+        {
+          id: "claude-haiku-5-5",
+          display_name: "Claude Haiku 5.5",
+          context_length: 1_000_000,
+          provider_hint: null,
+        },
+        {
+          id: "claude-opus-5-5",
+          display_name: "Claude Opus 5.5",
+          context_length: 1_000_000,
+          provider_hint: null,
+        },
+        {
+          id: "claude-fable-5-1",
+          display_name: "Claude Fable 5.1",
+          context_length: 1_000_000,
+          provider_hint: null,
+        },
+      ],
+      source: "fallback",
+      notice: "no API key saved",
+    }),
   };
 }
 

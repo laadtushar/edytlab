@@ -11,8 +11,10 @@
  * The model picker is a combo (text input + `<datalist>`) populated
  * from the Rust catalogue command for the active provider. The user
  * can type a free-form id (so brand-new models work the moment the
- * user knows their id), and the suggestion list shows curated entries
- * pulled from the live catalogue. Per-provider selections are
+ * user knows their id), and the suggestion list shows entries pulled
+ * from the live catalogue, or, for Anthropic without a key, a built-in
+ * fallback list, and the hint under the field says which. Per-provider
+ * selections are
  * persisted in localStorage under `edytlab.model.<provider>` so
  * switching provider preserves each side's choice.
  */
@@ -45,6 +47,10 @@ import {
   type ProviderId,
   type ReasoningEffort,
 } from "../lib/tauri-bridge";
+import {
+  MODEL_STORAGE_KEY_PREFIX,
+  modelStorageKey,
+} from "../lib/model-storage";
 import { AgentProfilesEditor } from "./AgentProfilesEditor";
 import { McpServersEditor } from "./McpServersEditor";
 import { MemoryEditor } from "./MemoryEditor";
@@ -64,7 +70,7 @@ type SettingsTab =
   | "plugins";
 
 export const LEGACY_MODEL_STORAGE_KEY = "edytlab.model";
-export const MODEL_STORAGE_KEY_PREFIX = "edytlab.model.";
+export { MODEL_STORAGE_KEY_PREFIX };
 export const PROVIDER_STORAGE_KEY = "edytlab.provider";
 
 export const ANTHROPIC_KEYS_URL =
@@ -75,12 +81,16 @@ export const GROQ_KEYS_URL = "https://console.groq.com/keys";
 export const GEMINI_KEYS_URL = "https://aistudio.google.com/apikey";
 export const OLLAMA_DOCS_URL = "https://ollama.com/download";
 
+// What the model field shows for a provider nothing was chosen for. Each is
+// the backend's own default (`LlmProvider::default_model`, run through
+// `translate_model`), and `crates/ai/tests/settings_default_models.rs`
+// fails if the two drift.
 const DEFAULT_MODEL_BY_PROVIDER: Record<ProviderId, string> = {
-  anthropic: "claude-sonnet-4-6",
-  openrouter: "anthropic/claude-sonnet-4-6",
-  openai: "gpt-4o-mini",
+  anthropic: "claude-sonnet-5-5",
+  openrouter: "anthropic/claude-sonnet-5.5",
+  openai: "gpt-6-luna",
   groq: "llama-3.3-70b-versatile",
-  gemini: "gemini-2.0-flash",
+  gemini: "gemini-3.8-flash",
   ollama: "llama3.2",
 };
 
@@ -175,10 +185,6 @@ function asEffort(value: string | null | undefined): ReasoningEffort | "" {
     : "";
 }
 
-function modelStorageKey(provider: ProviderId): string {
-  return `${MODEL_STORAGE_KEY_PREFIX}${provider}`;
-}
-
 function readStoredModel(provider: ProviderId): string {
   if (typeof window === "undefined") return DEFAULT_MODEL_BY_PROVIDER[provider];
   const ns = window.localStorage.getItem(modelStorageKey(provider));
@@ -195,7 +201,7 @@ function readStoredModel(provider: ProviderId): string {
 }
 
 /**
- * Three outcomes, not two. "Reachable" and "can edit" are different
+ * Four outcomes, not two. "Reachable" and "can edit" are different
  * questions: tool support is a property of the model, and a local model
  * without it connects, tests green, and then fails on the first edit —
  * which is a confusing way to learn something we can say here.
@@ -205,6 +211,7 @@ type TestState =
   | { kind: "running" }
   | { kind: "ok" }
   | { kind: "no-tools"; model: string; detail: string | null }
+  | { kind: "model-missing"; model: string }
   | { kind: "err"; message: string };
 
 export interface SettingsProps {
@@ -268,6 +275,9 @@ export function Settings({
     PROVIDERS.find((p) => p.id === provider)?.supportsEffort === true;
 
   const [model, setModel] = useState<string>(() => readStoredModel(provider));
+  // Whether the model field has focus. A model being typed is not a saved one
+  // that has gone missing, so the "not in the list" warning waits for it.
+  const [modelFocused, setModelFocused] = useState(false);
   // Empty means "use the provider's own endpoint". Kept per provider, so
   // switching to Anthropic does not inherit a local server's URL.
   const [baseUrl, setBaseUrl] = useState("");
@@ -290,6 +300,12 @@ export function Settings({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [models, setModels] = useState<ModelInfo[]>([]);
+  // Which list `models` is: the provider's own, or edytlab's built-in one,
+  // and why. Null until a fetch has answered, and after one has failed.
+  const [catalogueSource, setCatalogueSource] = useState<
+    "live" | "fallback" | null
+  >(null);
+  const [catalogueNotice, setCatalogueNotice] = useState<string | null>(null);
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [tab, setTab] = useState<SettingsTab>("account");
 
@@ -535,11 +551,15 @@ export function Settings({
   const fetchCatalogue = useCallback(
     async (p: ProviderId, k: string | undefined) => {
       try {
-        const list = await listModelsFor(p, k);
-        setModels(list);
+        const catalogue = await listModelsFor(p, k);
+        setModels(catalogue.models);
+        setCatalogueSource(catalogue.source);
+        setCatalogueNotice(catalogue.notice);
         setModelsError(null);
       } catch (err) {
         setModels([]);
+        setCatalogueSource(null);
+        setCatalogueNotice(null);
         setModelsError(String(err));
       }
     },
@@ -702,7 +722,9 @@ export function Settings({
         model.trim() || undefined,
       );
       setTest(
-        report.toolsOk
+        report.modelUnavailable
+          ? { kind: "model-missing", model: report.model }
+          : report.toolsOk
           ? { kind: "ok" }
           : { kind: "no-tools", model: report.model, detail: report.detail },
       );
@@ -777,12 +799,46 @@ export function Settings({
     return { id: m.id, label };
   });
 
-  const modelHint =
+  const providerLabel = activeProviderEntry.label;
+  // In order: the fetch failed; the list is edytlab's own and not the
+  // provider's (the person should know that before trusting it as complete);
+  // the provider's list.
+  const modelHintKind: "error" | "fallback" | "live" | null =
     modelsError !== null
-      ? `Couldn't fetch model list (${modelsError}); type the model id manually.`
+      ? "error"
+      : catalogueSource === "fallback"
+      ? "fallback"
       : models.length > 0
+      ? "live"
+      : null;
+  const modelHint =
+    modelHintKind === "error"
+      ? `Couldn't fetch model list (${modelsError}); type the model id manually.`
+      : modelHintKind === "fallback"
+      ? `Showing edytlab's built-in list${
+          catalogueNotice ? ` (${catalogueNotice})` : ""
+        }. Save your key to load ${providerLabel}'s current models, or type any model id.`
+      : modelHintKind === "live"
       ? `${models.length} model${models.length === 1 ? "" : "s"} available — start typing for suggestions.`
       : "";
+
+  // The saved model is missing from Anthropic's own current list: it may have
+  // been retired, and the first message on it would fail. Only for a list the
+  // provider answered with (the built-in one is edytlab's, and lacking a model
+  // says nothing), and only for Anthropic, whose list is complete; another
+  // provider's is filtered (OpenAI) or spells ids another way (OpenRouter), so
+  // absence proves nothing there. A pre-4.6 alias such as `claude-haiku-4-5`
+  // resolves to the dated id the list holds, so `<id>-<8 digits>` counts as
+  // listed (<https://platform.claude.com/docs/en/about-claude/models/overview>).
+  const savedModel = model.trim();
+  const modelUnlisted =
+    provider === "anthropic" &&
+    catalogueSource === "live" &&
+    savedModel !== "" &&
+    !modelFocused &&
+    !models.some(
+      (m) => m.id === savedModel || m.id.match(/^(.+)-\d{8}$/)?.[1] === savedModel,
+    );
 
   return (
     <div
@@ -1144,6 +1200,29 @@ export function Settings({
               ) : null}
             </div>
           ) : null}
+          {test.kind === "model-missing" ? (
+            <div
+              data-testid="settings-test-model-missing"
+              role="alert"
+              className="mb-3 rounded-md border border-[var(--warning)]/40 bg-[var(--warning)]/10 px-3 py-1.5 text-xs text-[var(--warning)]"
+            >
+              <p>
+                <span className="font-mono">{test.model}</span> isn't offered by{" "}
+                {activeProviderEntry.label} — it may have been retired. Pick
+                another model below.
+              </p>
+              {test.model !== DEFAULT_MODEL_BY_PROVIDER[provider] ? (
+                <button
+                  type="button"
+                  data-testid="settings-test-use-default"
+                  onClick={() => handleModelChange(DEFAULT_MODEL_BY_PROVIDER[provider])}
+                  className="mt-1 rounded border border-[var(--warning)]/40 px-2 py-0.5 font-mono text-[10px] hover:bg-[var(--warning)]/20"
+                >
+                  Use {DEFAULT_MODEL_BY_PROVIDER[provider]}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           {test.kind === "err" ? (
             <p
               data-testid="settings-test-error"
@@ -1214,6 +1293,8 @@ export function Settings({
             list="settings-model-suggestions"
             value={model}
             onChange={(e) => handleModelChange(e.target.value)}
+            onFocus={() => setModelFocused(true)}
+            onBlur={() => setModelFocused(false)}
             data-testid="settings-model-input"
             aria-label="Model"
             placeholder={DEFAULT_MODEL_BY_PROVIDER[provider]}
@@ -1237,13 +1318,15 @@ export function Settings({
           {modelHint ? (
             <p
               data-testid={
-                modelsError !== null
+                modelHintKind === "error"
                   ? "settings-model-error"
+                  : modelHintKind === "fallback"
+                  ? "settings-model-fallback"
                   : "settings-model-hint"
               }
               className={
                 "mb-4 text-xs " +
-                (modelsError !== null
+                (modelHintKind === "error" || modelHintKind === "fallback"
                   ? "text-[var(--warning)]"
                   : "text-[var(--text-faint)]")
               }
@@ -1253,6 +1336,31 @@ export function Settings({
           ) : (
             <div className="mb-4" />
           )}
+          {modelUnlisted ? (
+            <div
+              data-testid="settings-model-unlisted"
+              role="status"
+              className="-mt-2 mb-4 rounded-md border border-[var(--warning)]/40 bg-[var(--warning)]/10 px-3 py-1.5 text-xs text-[var(--warning)]"
+            >
+              <p>
+                <span className="font-mono">{savedModel}</span> is not in
+                Anthropic's current model list — it may have been retired. The
+                default is{" "}
+                <span className="font-mono">
+                  {DEFAULT_MODEL_BY_PROVIDER.anthropic}
+                </span>
+                .
+              </p>
+              <button
+                type="button"
+                data-testid="settings-model-use-default"
+                onClick={() => handleModelChange(DEFAULT_MODEL_BY_PROVIDER.anthropic)}
+                className="mt-1 rounded border border-[var(--warning)]/40 px-2 py-0.5 font-mono text-[10px] hover:bg-[var(--warning)]/20"
+              >
+                Use default
+              </button>
+            </div>
+          ) : null}
 
           {supportsEffort ? (
             <>

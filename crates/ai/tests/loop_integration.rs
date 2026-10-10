@@ -38,7 +38,7 @@ fn first_response_sse() -> String {
                     "type": "message",
                     "role": "assistant",
                     "content": [],
-                    "model": "claude-sonnet-4-6",
+                    "model": "claude-sonnet-5-5",
                     "stop_reason": null,
                     "stop_sequence": null,
                     "usage": { "input_tokens": 10, "output_tokens": 0 }
@@ -138,7 +138,7 @@ fn second_response_sse() -> String {
                     "type": "message",
                     "role": "assistant",
                     "content": [],
-                    "model": "claude-sonnet-4-6",
+                    "model": "claude-sonnet-5-5",
                     "stop_reason": null,
                     "stop_sequence": null,
                     "usage": { "input_tokens": 30, "output_tokens": 0 }
@@ -186,7 +186,7 @@ fn classifier_response_json() -> String {
         "id": "msg_classify",
         "type": "message",
         "role": "assistant",
-        "model": "claude-haiku-4-5-20251001",
+        "model": "claude-haiku-5-5",
         "stop_reason": "end_turn",
         "content": [{"type": "text", "text": "general"}],
         "usage": {"input_tokens": 10, "output_tokens": 1}
@@ -432,7 +432,7 @@ async fn agent_dispatches_normalize_and_emits_node_created() {
     // Model + tool_choice present.
     assert_eq!(
         body.get("model").and_then(|v| v.as_str()),
-        Some("claude-sonnet-4-6")
+        Some(ai::DEFAULT_MODEL)
     );
     assert_eq!(
         body.get("tool_choice")
@@ -502,7 +502,7 @@ fn loop_response_sse(n: usize) -> String {
                 "type": "message",
                 "role": "assistant",
                 "content": [],
-                "model": "claude-sonnet-4-6",
+                "model": "claude-sonnet-5-5",
                 "stop_reason": null,
                 "stop_sequence": null,
                 "usage": { "input_tokens": 1, "output_tokens": 0 }

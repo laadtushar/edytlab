@@ -61,7 +61,7 @@ fn message_start() -> (&'static str, Value) {
             "type": "message_start",
             "message": {
                 "id": "msg_test", "type": "message", "role": "assistant", "content": [],
-                "model": "claude-sonnet-4-6", "stop_reason": null, "stop_sequence": null,
+                "model": "claude-sonnet-5-5", "stop_reason": null, "stop_sequence": null,
                 "usage": { "input_tokens": 1, "output_tokens": 0 }
             }
         }),
