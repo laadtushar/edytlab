@@ -78,6 +78,11 @@ impl Tool for SilenceFinderTool {
         false
     }
 
+    // Reads the head's audio and appends nothing (#421).
+    fn runs_off_the_lock(&self) -> bool {
+        true
+    }
+
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
         let args: Args = match serde_json::from_value(args) {
             Ok(a) => a,

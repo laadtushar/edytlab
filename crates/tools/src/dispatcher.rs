@@ -1,6 +1,7 @@
 //! Dispatcher: trait, registry, and per-call context.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use jsonschema::JSONSchema;
 use serde_json::Value;
@@ -13,6 +14,13 @@ use crate::{DispatchError, Result, ToolResult};
 ///
 /// The lifetime parameter ties the borrows to the caller â€” tools must
 /// not stash these references beyond the call.
+///
+/// What `store` is depends on how the call was dispatched. Under
+/// [`crate::Shared::dispatch`] a tool that says [`Tool::runs_off_the_lock`]
+/// is given a *staged* handle (`session::Store::stage`) and a fresh
+/// engine and clipboard of its own, and no lock is held while it runs;
+/// every other tool is given the app's store, engine and clipboard with
+/// their locks held for the whole call, as before (#421).
 pub struct ToolContext<'a> {
     pub store: &'a mut session::Store,
     pub engine: &'a mut audio_engine::Engine,
@@ -73,6 +81,45 @@ pub trait Tool: Send + Sync {
         true
     }
 
+    /// Whether this tool may run without the app's store lock held (#421).
+    ///
+    /// A long tool (a time-stretch of a 32 s stereo track takes ten
+    /// seconds in a debug build) used to hold the store, engine and
+    /// clipboard locks for all of it, and every UI read waited behind it.
+    /// A tool that returns `true` here is run by [`crate::Shared::dispatch`]
+    /// against a staged store handle with no lock held. Its appends are
+    /// kept in memory and published under the lock only if the session's
+    /// head has not moved meanwhile; if it has — the user edited while the
+    /// tool ran — the tool is run again on the new head, so the user's
+    /// edit is kept and the tool's result lands on top of it.
+    ///
+    /// A tool may say `true` only if all of these hold:
+    ///
+    /// * its session access is `head`, `get`, `project_dir` and `append`,
+    ///   plus `set_op` on a node it appended. A staged handle refuses
+    ///   anything that rewrites history (`set_head`, `set_label`,
+    ///   `remove_node`, `detach_parent`, `append_branches`, `fork`);
+    /// * it never touches `ctx.clipboard` or `ctx.engine`: in an off-lock
+    ///   run they are a local empty clipboard and a fresh engine, not the
+    ///   app's;
+    /// * it builds no nested dispatcher, and reports no `progress`;
+    /// * running it again on a newer head is correct, because it may be.
+    ///   It runs on the arguments it was given, so it must read the head
+    ///   it is run on rather than remember anything from the first run;
+    /// * every file it writes outside the session is named by its own
+    ///   content or by a unique temporary name, and is put in place
+    ///   whole. A run that loses the race leaves its files behind, unnamed
+    ///   by any node, for the sweep to remove.
+    ///
+    /// The default is `false`, deliberately: a new tool, and every tool an
+    /// MCP server adds, runs under the lock as every tool did before.
+    /// `tests/off_lock_tools.rs` pins the list, and scans each opted-in
+    /// tool's source for what a staged run cannot do, so widening it is a
+    /// reviewed decision.
+    fn runs_off_the_lock(&self) -> bool {
+        false
+    }
+
     /// Invoked with `args` already validated against `input_schema`.
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> Result<ToolResult>;
 }
@@ -89,8 +136,35 @@ pub trait Tool: Send + Sync {
 /// [`DispatchError::MalformedToolSchema`] so the panic-free API stays
 /// panic-free.
 struct Registered {
-    tool: Box<dyn Tool>,
+    // Shared so a call can be admitted under the dispatcher's lock and run
+    // after it is released ([`ToolDispatcher::prepare`]).
+    tool: Arc<dyn Tool>,
     compiled_schema: std::result::Result<JSONSchema, String>,
+}
+
+/// A call that passed [`ToolDispatcher::prepare`]: the tool, ready to run
+/// without the dispatcher.
+///
+/// Holds its own reference to the tool, so the dispatcher's lock can be
+/// dropped before [`ToolDispatcher::run`] — a tool unregistered meanwhile
+/// (an MCP server removed) finishes the call it was admitted for.
+pub struct Prepared {
+    tool: Arc<dyn Tool>,
+    /// The name the caller used. Never `Tool::name()`, which leaks a
+    /// `String` per call for an MCP tool.
+    name: String,
+}
+
+impl Prepared {
+    /// See [`Tool::runs_off_the_lock`].
+    pub fn runs_off_the_lock(&self) -> bool {
+        self.tool.runs_off_the_lock()
+    }
+
+    /// The name the call was made under.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
 }
 
 /// Registry of tools keyed by canonical name.
@@ -298,7 +372,7 @@ impl ToolDispatcher {
         self.tools.insert(
             name.to_string(),
             Registered {
-                tool,
+                tool: Arc::from(tool),
                 compiled_schema,
             },
         );
@@ -424,7 +498,35 @@ impl ToolDispatcher {
     /// * [`DispatchError::SchemaValidation`] if `args` does not match
     ///   the tool's `input_schema`.
     pub fn invoke(&self, name: &str, args: Value, ctx: &mut ToolContext) -> Result<ToolResult> {
-        let entry = self.admit(name, &args, ctx.allowed_tools)?;
+        let prepared = self.prepare(name, &args, ctx.allowed_tools)?;
+        Self::run(&prepared, args, ctx)
+    }
+
+    /// Admit a call — the checks of [`Self::invoke`], with the same errors —
+    /// and return it ready to run without this dispatcher (#421).
+    ///
+    /// The point of splitting `invoke` in two is the lock: a caller that
+    /// shares the dispatcher behind a mutex takes it for this and drops it
+    /// before [`Self::run`], so a tool that takes seconds does not hold
+    /// up everything else that wants the registry.
+    pub fn prepare(
+        &self,
+        name: &str,
+        args: &Value,
+        allowed: Option<&HashSet<String>>,
+    ) -> Result<Prepared> {
+        let entry = self.admit(name, args, allowed)?;
+        Ok(Prepared {
+            tool: Arc::clone(&entry.tool),
+            name: name.to_string(),
+        })
+    }
+
+    /// Run an admitted call: the tool, then the provenance record for the
+    /// node it produced. This is the second half of [`Self::invoke`], with
+    /// no registry needed.
+    pub fn run(prepared: &Prepared, args: Value, ctx: &mut ToolContext) -> Result<ToolResult> {
+        let name = prepared.name.as_str();
 
         // Provenance is recorded here rather than in each tool, and that
         // is the whole reason it is feasible: this is the one place every
@@ -435,7 +537,7 @@ impl ToolDispatcher {
         // forgot — the failure mode this repo already keeps guard tests
         // for.
         let head_before = ctx.store.head();
-        let result = entry.tool.invoke(args.clone(), ctx)?;
+        let result = prepared.tool.invoke(args.clone(), ctx)?;
 
         // A moved head means a node was appended, and that node is the
         // one this call produced.

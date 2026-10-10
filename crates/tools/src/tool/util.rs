@@ -161,10 +161,15 @@ pub fn flattened_track_wav(project_dir: &Path, clips: &[Clip]) -> Result<PathBuf
     let (file, tmp_path) = tmp.into_parts();
     write_track_timeline(clips, file, TIMELINE_CHUNK_FRAMES)
         .map_err(|e| format!("failed to write {}: {e}", cas_path.display()))?;
-    tmp_path
-        .persist(&cas_path)
-        .map_err(|e| format!("failed to write {}: {e}", cas_path.display()))?;
-    Ok(cas_path)
+    match tmp_path.persist(&cas_path) {
+        Ok(()) => Ok(cas_path),
+        // Another writer of the same clip list got there first — `list_tracks`
+        // and an analysis tool running off the store lock can (#421). The
+        // name is the hash of the clip list, so what is there is what this
+        // would have put there.
+        Err(_) if cas_path.is_file() => Ok(cas_path),
+        Err(e) => Err(format!("failed to write {}: {e}", cas_path.display())),
+    }
 }
 
 /// The file a timeline lane draws for a track: its audio on the
@@ -500,6 +505,50 @@ pub(crate) fn check_track_index(tracks: &[Track], track_index: usize) -> Result<
         ));
     }
     Ok(())
+}
+
+/// Write `samples` to the content-addressed WAV `path`, unless it is
+/// already there, so that the name is only ever on a whole file.
+///
+/// The name is trusted on sight: an existing file under it is reused
+/// without a look, and a node names it as audio that exists. So a write
+/// cut short — a crash, a full disk — must never be left under it, and
+/// neither may one that another writer is half-way through. The audio goes
+/// to a temporary file in the same directory and is renamed into place
+/// once whole, as [`flattened_track_wav`] does for the same reason.
+///
+/// The second reason became real when tools stopped holding the store's
+/// lock while they run (#421): a user's `batch_load` can write the very
+/// file an agent tool is writing, and an agent run that lost a race to a
+/// user edit writes it again on its retry.
+pub(crate) fn write_cas_wav(
+    samples: &[f32],
+    sample_rate: u32,
+    channels: u16,
+    path: &Path,
+) -> Result<(), String> {
+    if path.exists() {
+        return Ok(());
+    }
+    let dir = path
+        .parent()
+        .ok_or_else(|| format!("{} has no parent directory", path.display()))?;
+    let tmp = tempfile::Builder::new()
+        .prefix(".cas-")
+        .suffix(".wav.part")
+        .tempfile_in(dir)
+        .map_err(|e| format!("failed to create a file in {}: {e}", dir.display()))?
+        .into_temp_path();
+    audio_engine::write_wav(samples, sample_rate, channels, &tmp).map_err(|e| e.to_string())?;
+    match tmp.persist(path) {
+        Ok(()) => Ok(()),
+        // Another writer of the same name got there first. The name is the
+        // hash of the content, so what is there is what this would have
+        // put there, and on Windows replacing a file somebody has open
+        // fails.
+        Err(_) if path.is_file() => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 /// Run a destructive sample-buffer edit against the first clip of
@@ -874,13 +923,11 @@ where
     let hash_hex = hash.to_hex().to_string();
     let cas_path = derived_dir.join(format!("{hash_hex}.wav"));
 
-    if !cas_path.exists() {
-        if let Err(e) = audio_engine::write_wav(&window, rate_out, channels_out, &cas_path) {
-            return ToolResult::Error(format!(
-                "failed to write CAS wav {}: {e}",
-                cas_path.display()
-            ));
-        }
+    if let Err(e) = write_cas_wav(&window, rate_out, channels_out, &cas_path) {
+        return ToolResult::Error(format!(
+            "failed to write CAS wav {}: {e}",
+            cas_path.display()
+        ));
     }
 
     // The edited buffer is the whole track laid end to end, so the track

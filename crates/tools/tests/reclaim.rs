@@ -1005,6 +1005,49 @@ fn a_plan_for_another_project_deletes_nothing() {
     assert_eq!((planned.derived_files(), open.derived_files()), before);
 }
 
+/// A tool running off the store's lock (#421) writes its output before the
+/// node that names it is committed, so for that stretch the output is an
+/// orphan. Nothing is deleted while a staged handle is alive, by either
+/// sweep, and the same calls do their work once it is gone.
+#[test]
+fn the_sweep_waits_for_a_tool_running_off_the_lock() {
+    let mut s = Session::new();
+    s.make_history();
+    let orphan = s
+        .derived()
+        .join("0123abcd-written-by-a-tool-still-running.wav");
+    std::fs::write(&orphan, vec![0u8; 4096]).expect("write orphan");
+
+    let plan = tools::reclaim::plan_sweep(&s.store, 0).expect("plan");
+    assert!(
+        !plan.is_empty(),
+        "there is something the sweep would delete"
+    );
+    let before = s.derived_files().len();
+
+    // A tool is mid-run: its handle is alive.
+    let staged = s.store.stage().expect("stage");
+    assert_eq!(s.store.staged_in_flight(), 1);
+    let applied = tools::reclaim::apply_sweep(&s.store, &plan).expect("apply");
+    let swept = tools::reclaim::sweep(&s.store, 0).expect("sweep");
+    let orphans = tools::reclaim::sweep_orphans(&s.store).expect("sweep orphans");
+    for report in [&applied, &swept, &orphans] {
+        assert_eq!(report.removed_files, 0, "{report:?}");
+        assert_eq!(report.freed_bytes, 0);
+    }
+    assert!(orphan.is_file(), "a sweep deleted a running tool's output");
+    assert_eq!(s.derived_files().len(), before);
+
+    // It finished, or lost its race and was dropped: the sweeps work again.
+    drop(staged);
+    assert_eq!(s.store.staged_in_flight(), 0);
+    let report = tools::reclaim::sweep_orphans(&s.store).expect("sweep orphans");
+    assert_eq!(report.removed_orphans, 1, "{report:?}");
+    assert!(!orphan.exists());
+    let report = tools::reclaim::apply_sweep(&s.store, &plan).expect("apply");
+    assert!(report.removed_files > 0, "{report:?}");
+}
+
 // =============================================================================
 // Replay from the nearest audio on disk (#377): the probes above check
 // nothing is lost; these check the same history is now reclaimed — swept,

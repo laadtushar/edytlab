@@ -10,16 +10,22 @@
 //! ## Why two handles
 //!
 //! Deciding what may go is slow: each history file is verified by
-//! replaying the edits that made it. Every edit and every read holds the
-//! store's lock for its whole length, so a sweep that verified under that
-//! lock would stall the app — the timeline's reads are synchronous
-//! commands, which run on the main thread. So the plan is made on a store
-//! handle of this thread's own, which only reads, and only the deletes
-//! take the lock. Node files are written whole and renamed into place, so
-//! a second reader never sees half of one. Under the lock no edit is
-//! half-way through, and `apply_sweep` checks each file against the store
-//! as it is then: an undo onto a planned file, or an edit that came to
-//! name one, keeps it.
+//! replaying the edits that made it. A command that takes the store's lock
+//! holds it for its whole length, and so does any agent tool that does not
+//! run off the lock (#421), so a sweep that verified under that lock would
+//! stall the app: every read of the session would wait behind it. So the
+//! plan is made on a store handle of this thread's own, which only reads,
+//! and only the deletes take the lock. Node files are written whole and
+//! renamed into place, so a second reader never sees half of one. Under
+//! the lock no locked edit is half-way through, and `apply_sweep` checks
+//! each file against the store as it is then: an undo onto a planned file,
+//! or an edit that came to name one, keeps it.
+//!
+//! A tool that does run off the lock is half-way through, though, and the
+//! lock does not show it: it has written its output file and not yet the
+//! node that names it. `apply_sweep` therefore does nothing while one is
+//! in flight (`Store::staged_in_flight`), and this pass tries again a
+//! minute later.
 
 use std::time::Duration;
 
@@ -59,6 +65,10 @@ pub fn reclaim_once(state: &AppState, cap_bytes: u64) -> Option<SweepReport> {
     }
 
     let store = handle.lock().ok()?;
+    if store.staged_in_flight() > 0 {
+        tracing::debug!("derived-audio sweep deferred: a tool is running off the store lock");
+        return None;
+    }
     match tools::reclaim::apply_sweep(&store, &plan) {
         Ok(r) => {
             if r.removed_files > 0 {

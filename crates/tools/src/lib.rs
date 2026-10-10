@@ -31,15 +31,18 @@ pub mod recipe;
 pub mod reclaim;
 pub mod rederive;
 pub mod schema;
+pub mod shared;
 pub mod tool;
 pub mod util;
 
 pub use dispatcher::{
-    Tool, ToolContext, ToolDispatcher, READS_OUTSIDE_THE_SESSION, READS_RANGE_FROM_MESSAGE,
+    Prepared, Tool, ToolContext, ToolDispatcher, READS_OUTSIDE_THE_SESSION,
+    READS_RANGE_FROM_MESSAGE,
 };
 pub use preview_cache::{Hit as PreviewHit, PreviewCache};
 pub use provenance::{derived_dir, verify_chain, Problem};
 pub use recipe::{Recipe, RecipeStep};
+pub use shared::{Shared, OFF_LOCK_ATTEMPTS};
 pub use util::range_resolver::{resolve as resolve_range, Range, RangeError};
 
 /// A track's audio as one file on the session's time axis, for callers

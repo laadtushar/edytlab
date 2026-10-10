@@ -21,8 +21,10 @@
 //! 4. Open a streaming Anthropic call (system prompt + tools cached).
 //! 5. Forward `text` deltas to the caller's `on_event` sink in order.
 //! 6. Reassemble each `tool_use` block, validate args via the
-//!    dispatcher's compiled JSON Schema, invoke the tool synchronously,
-//!    and append a `tool_result` block to the conversation.
+//!    dispatcher's compiled JSON Schema, invoke the tool synchronously
+//!    (through [`tools::Shared`], so a tool that opts in runs without
+//!    holding the store's lock, #421), and append a `tool_result` block to
+//!    the conversation.
 //! 7. If at least one tool was used, loop. The budget of
 //!    [`crate::prompt::MAX_TOOL_CALLS_PER_TURN`] applies across all
 //!    iterations of the same turn, and the model is told it in the system
@@ -55,7 +57,7 @@ use tokio::sync::Notify;
 use eventsource_stream::Eventsource;
 use futures_util::StreamExt;
 use serde_json::Value;
-use tools::{ToolContext, ToolDispatcher, ToolResult};
+use tools::{ToolDispatcher, ToolResult};
 
 use crate::anthropic::{
     max_tokens_for, ApiError, CacheControl, ContentBlock, ContentBlockDelta, ContentBlockStart,
@@ -1183,22 +1185,20 @@ where
                 }
             };
 
-            // Dispatch under a single lock acquisition. The dispatcher
-            // holds tool implementations + compiled schema validators.
-            let result = {
-                let d = dispatcher.lock().expect("dispatcher mutex poisoned");
-                let mut store_g = store.lock().expect("store mutex poisoned");
-                let mut engine_g = engine.lock().expect("engine mutex poisoned");
-                let mut clipboard_g = clipboard.lock().expect("clipboard mutex poisoned");
-                let mut ctx = ToolContext {
-                    store: &mut store_g,
-                    engine: &mut engine_g,
-                    user_message: &user_msg_saved,
-                    clipboard: &mut clipboard_g,
-                    allowed_tools: allowed_tools.as_ref(),
-                };
-                d.invoke(&name, args, &mut ctx)
-            };
+            // The dispatcher is locked only to admit the call. A tool that
+            // runs off the store lock (`Tool::runs_off_the_lock`) then runs
+            // with no lock held at all, so the window's reads of the
+            // session are not parked behind a time-stretch, and its result
+            // is published only if the session did not change meanwhile
+            // (#421); every other tool runs under the store, engine and
+            // clipboard locks as before. See `tools::shared`.
+            let result = tools::Shared {
+                dispatcher: dispatcher.as_ref(),
+                store: store.as_ref(),
+                engine: engine.as_ref(),
+                clipboard: clipboard.as_ref(),
+            }
+            .dispatch(&name, args, &user_msg_saved, allowed_tools.as_ref());
 
             match result {
                 Err(tools::DispatchError::NotPermitted(tool)) => {
@@ -1521,6 +1521,7 @@ enum PartialBlock {
 mod tests {
     use super::*;
     use serde_json::json;
+    use tools::ToolContext;
 
     // ------------------------------------------------------------------
     // parse_plan

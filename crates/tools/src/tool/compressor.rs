@@ -63,6 +63,12 @@ impl Tool for CompressorTool {
         )
     }
 
+    // A pure edit of the head's audio and one node on top of it: safe on a
+    // staged store, and safe to run again on a newer head (#421).
+    fn runs_off_the_lock(&self) -> bool {
+        true
+    }
+
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
         let parsed: Args = match serde_json::from_value(args) {
             Ok(a) => a,

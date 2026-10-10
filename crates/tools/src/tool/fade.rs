@@ -131,6 +131,12 @@ impl Tool for FadeTool {
         )
     }
 
+    // A pure edit of the head's audio and one node on top of it: safe on a
+    // staged store, and safe to run again on a newer head (#421).
+    fn runs_off_the_lock(&self) -> bool {
+        true
+    }
+
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
         #[derive(serde::Deserialize)]
         struct Args {

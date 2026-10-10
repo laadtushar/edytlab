@@ -358,6 +358,8 @@ fn rejects_out_of_range_amount() {
 
 The website's tool reference, `website/app/docs/tools/page.tsx`, must list every registered tool: `crates/tools/tests/website_tool_docs.rs` fails until it does.
 
+A new tool runs under the store, engine and clipboard locks, as every tool did before, and the window's reads of the session wait while it does. A slow, pure edit of the head's audio can opt out by overriding `runs_off_the_lock` to return `true` (see [architecture.md](./architecture.md#off-lock-tools) for what that promises and what it costs). It then runs on a staged store handle and is run again if the user edits meanwhile, so it may use only `head`, `get`, `project_dir`, `append` and `set_op` on its own node, and never the clipboard, the engine or a nested dispatcher. Opting in is a reviewed decision: add the name to `OFF_LOCK` in `crates/tools/tests/off_lock_tools.rs`, which also scans the tool's source for what a staged run cannot do.
+
 **5. Regenerate the tools reference.**
 
 [tools-reference.md](./tools-reference.md) is generated from the registry — do not edit it by hand:
