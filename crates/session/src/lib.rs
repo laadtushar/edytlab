@@ -24,7 +24,7 @@ pub use state::{
     Bus, BusGraph, Clip, EffectInstance, EnvelopePoint, KeyMap, KeySegment, Send, SessionState,
     TempoMap, TempoSegment, Track, TrackId, Transcript, TranscriptWord,
 };
-pub use store::{Store, STORE_DIR};
+pub use store::{Commit, Store, STORE_DIR};
 
 /// Unified error type for the session crate.
 #[derive(Debug, thiserror::Error)]
@@ -53,6 +53,12 @@ pub enum Error {
     /// human-readable diagnostics.
     #[error("merge conflict on {} target(s): [{}]", targets.len(), targets.join(", "))]
     MergeConflict { targets: Vec<String> },
+
+    /// A staged store (see [`Store::stage`]) was asked to do something only
+    /// the shared store may: rewrite history, move the head, or commit
+    /// into the wrong place. The payload names what was asked.
+    #[error("{0} is not allowed on a staged store")]
+    Staged(&'static str),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
