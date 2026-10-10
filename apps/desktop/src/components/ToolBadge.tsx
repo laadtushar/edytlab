@@ -4,7 +4,8 @@
  * Visual states use semantic accent tokens (warning/success/danger)
  * mapped to the design system, so the dark theme stays cohesive
  * across the whole app rather than each component picking its own
- * red/green/yellow.
+ * red/green/yellow. "Not run" (declined, reworded, unanswered or over
+ * budget) uses the neutral tokens instead: it is not a failure.
  */
 
 import type { ToolStatus } from "../hooks/useAgentStream";
@@ -156,6 +157,8 @@ const STATUS_GLYPH: Record<ToolStatus, string> = {
   running: "⟳",
   ok: "✓",
   error: "✗",
+  // Neither a tick nor a cross: nothing ran, so nothing succeeded or failed.
+  not_run: "–",
 };
 
 const STATUS_CLASS: Record<ToolStatus, string> = {
@@ -164,12 +167,18 @@ const STATUS_CLASS: Record<ToolStatus, string> = {
   ok: "border-[var(--success)]/35 bg-[var(--success)]/10 text-[var(--success)]",
   error:
     "border-[var(--danger)]/40 bg-[var(--danger)]/10 text-[var(--danger)]",
+  not_run:
+    "border-[var(--border-strong)] bg-transparent text-[var(--text-dim)]",
 };
 
 export function ToolBadge({ name, status, result }: ToolBadgeProps) {
   const friendlyName = TOOL_LABELS[name] ?? name.replace(/_/g, " ");
   const label =
-    status === "running" ? `${friendlyName}…` : (result ?? friendlyName);
+    status === "running"
+      ? `${friendlyName}…`
+      : status === "not_run"
+        ? `${friendlyName} · not run`
+        : (result ?? friendlyName);
   return (
     <span
       data-testid="tool-badge"

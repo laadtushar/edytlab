@@ -89,6 +89,8 @@ enum Answer {
     Approve,
     Reject,
     Revise(String),
+    /// The user walks away: nothing answers, and the gate times out.
+    Ignore,
 }
 
 /// The events of a turn, reduced to what these tests compare.
@@ -97,6 +99,8 @@ enum Ev {
     Text,
     ToolStart(String),
     ToolEnd(String, bool),
+    /// Announced and never dispatched: declined, reworded or unanswered.
+    NotRun(String),
     Node,
     Done,
     /// The card, with how much had run by the time it was shown.
@@ -197,6 +201,7 @@ impl Fixture {
                 AgentEvent::TextDelta(_) => events.push(Ev::Text),
                 AgentEvent::ToolCallStart { id, .. } => events.push(Ev::ToolStart(id)),
                 AgentEvent::ToolCallEnd { id, ok, .. } => events.push(Ev::ToolEnd(id, ok)),
+                AgentEvent::ToolCallNotRun { id } => events.push(Ev::NotRun(id)),
                 AgentEvent::NodeCreated(_) => events.push(Ev::Node),
                 AgentEvent::Done => events.push(Ev::Done),
                 AgentEvent::PlanRejected => events.push(Ev::PlanRejected),
@@ -216,11 +221,29 @@ impl Fixture {
                     let answered = answer(cards, &steps);
                     cards += 1;
                     match answered {
-                        Answer::Approve => {}
-                        Answer::Reject => rejected.store(true, Ordering::SeqCst),
-                        Answer::Revise(text) => *slot.lock().unwrap() = Some(text),
+                        Answer::Approve => notify.notify_one(),
+                        Answer::Reject => {
+                            rejected.store(true, Ordering::SeqCst);
+                            notify.notify_one();
+                        }
+                        Answer::Revise(text) => {
+                            *slot.lock().unwrap() = Some(text);
+                            notify.notify_one();
+                        }
+                        // Freezing the clock here, after every HTTP request
+                        // so far has completed, lets tokio's auto-advance
+                        // jump to the gate's five-minute deadline as soon
+                        // as the runtime goes idle. There is no real wait,
+                        // and nothing auto-advances under in-flight
+                        // mock-server I/O. `pause` is legal because
+                        // `#[tokio::test]` is current_thread and this runs
+                        // inside the runtime's context. The timeout in
+                        // `approval::await_answer` is created after the
+                        // emit, so its deadline is on the paused clock. At
+                        // most one card per test may do this: a second
+                        // `pause` panics.
+                        Answer::Ignore => tokio::time::pause(),
                     }
-                    notify.notify_one();
                 }
             })
             .await;
@@ -370,11 +393,18 @@ async fn a_rejected_step_runs_nothing_and_ends_the_turn() {
     result.expect("a declined step is not an error");
 
     assert!(fx.edits_run().is_empty(), "a declined edit ran");
+    // The held call reads "not run", not as a call that failed.
     let tail = &events[events.len() - 2..];
     assert_eq!(
         tail,
-        [Ev::ToolEnd("t1".into(), false), Ev::PlanRejected],
+        [Ev::NotRun("t1".into()), Ev::PlanRejected],
         "{events:#?}"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, Ev::ToolEnd(id, _) if id == "t1")),
+        "a call that never ran was reported as finished: {events:#?}"
     );
     assert!(
         !events.contains(&Ev::Done),
@@ -425,6 +455,73 @@ async fn the_turn_after_a_rejection_is_well_formed() {
     let last = messages.last().unwrap();
     assert_eq!(last["role"], "user");
     let blocks = last["content"].as_array().expect("blocks");
+    assert_eq!(blocks.len(), 2, "{blocks:#?}");
+    assert_eq!(blocks[0]["type"], "tool_result");
+    assert_eq!(blocks[0]["tool_use_id"], "t1");
+    assert_eq!(blocks[1]["type"], "text");
+    assert_eq!(blocks[1]["text"], "next request");
+}
+
+#[tokio::test]
+async fn an_unanswered_step_times_out_and_runs_nothing() {
+    let mut responses = without_a_plan(vec![edit_track("t1", 0)]);
+    responses.extend([ok(classifier_json("general")), ok(sse_text("Okay."))]);
+    let mut fx = Fixture::new(true, None, responses).await;
+
+    let (result, events) = fx.turn("make it louder", |_, _| Answer::Ignore).await;
+
+    assert!(
+        matches!(result, Err(ai::Error::PlanTimeout)),
+        "an unanswered card ends the turn with a timeout: {result:?}"
+    );
+    assert!(fx.edits_run().is_empty(), "an unanswered edit ran");
+    match cards(&events).as_slice() {
+        [Ev::Plan { edits_run, .. }] => assert_eq!(*edits_run, 0),
+        other => panic!("expected one card, got {other:?}"),
+    }
+    // The held call's badge is resolved as not run, and nothing follows
+    // it: the turn neither finished nor was declined.
+    assert_eq!(events.last(), Some(&Ev::NotRun("t1".into())), "{events:#?}");
+    assert!(!events.contains(&Ev::Done), "{events:#?}");
+    assert!(!events.contains(&Ev::PlanRejected), "{events:#?}");
+    assert_eq!(
+        fx.requests().await.len(),
+        3,
+        "no follow-up model call after a timeout"
+    );
+
+    // The model's tool_use is answered, so the conversation stays valid.
+    let last = fx.agent.conversation().last().expect("a message");
+    assert_eq!(last.role, Role::User);
+    assert!(
+        matches!(
+            last.content.as_slice(),
+            [ContentBlock::ToolResult { tool_use_id, content, is_error: Some(true) }]
+                if tool_use_id == "t1"
+                    && content.contains("did not answer the approval request")
+        ),
+        "{last:?}"
+    );
+
+    // The next turn builds on that: roles alternate, and the user's words
+    // join the tool_result message instead of starting a second one.
+    tokio::time::resume();
+    fx.agent.set_plan_first(false);
+    let (second, events) = fx.turn("next request", approve).await;
+    second.expect("second turn");
+    assert_eq!(events.last(), Some(&Ev::Done));
+
+    let requests = fx.requests().await;
+    let messages = requests[4]["messages"].as_array().expect("messages");
+    for pair in messages.windows(2) {
+        assert_ne!(
+            pair[0]["role"], pair[1]["role"],
+            "a role repeats, which providers reject: {messages:#?}"
+        );
+    }
+    let blocks = messages.last().unwrap()["content"]
+        .as_array()
+        .expect("blocks");
     assert_eq!(blocks.len(), 2, "{blocks:#?}");
     assert_eq!(blocks[0]["type"], "tool_result");
     assert_eq!(blocks[0]["tool_use_id"], "t1");
@@ -635,7 +732,8 @@ async fn mashup_without_plan_first_keeps_the_notice_only() {
 
 #[tokio::test]
 async fn a_revised_step_runs_nothing_and_is_held_again() {
-    let revision = "I've updated the plan. Please follow these revised steps instead:\n1. track: 1";
+    let revision =
+        "I've updated the plan. Please follow these revised steps instead:\n1. edit — track: 1";
     let mut fx = Fixture::new(
         true,
         None,
@@ -676,7 +774,7 @@ async fn a_revised_step_runs_nothing_and_is_held_again() {
     );
     // The first card's call was resolved, not left "running".
     let first_card = position(&events, |e| matches!(e, Ev::Plan { .. }));
-    let resolved = position(&events, |e| *e == Ev::ToolEnd("t1".into(), false));
+    let resolved = position(&events, |e| *e == Ev::NotRun("t1".into()));
     assert!(first_card < resolved, "{events:#?}");
 
     // Only what the user approved as shown ran.

@@ -119,6 +119,9 @@ async fn main() -> anyhow::Result<()> {
                 // CLI has nowhere to put it, and the tool's own JSON
                 // result is already on the model's side of the wire.
                 ai::AgentEvent::ToolCallEnd { id, ok, view: _ } => CliEvent::ToolCallEnd { id, ok },
+                // The CLI's stream has no "not run" state, so it keeps
+                // reporting these the way it always has.
+                ai::AgentEvent::ToolCallNotRun { id } => CliEvent::ToolCallEnd { id, ok: false },
                 ai::AgentEvent::NodeCreated(id) => CliEvent::NodeCreated {
                     node_id: id.to_hex(),
                 },

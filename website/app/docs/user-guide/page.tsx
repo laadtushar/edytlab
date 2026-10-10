@@ -155,8 +155,8 @@ export default function UserGuidePage() {
           make is shown on the same card, with its exact tool and settings (for
           example <code>reverse</code>, <code>track: 0</code>), before anything
           changes. Approve it to carry on; once you have, the rest of that turn
-          runs without asking again. Discard it and nothing runs, and the agent
-          is told you declined.
+          runs without asking again. Discard it and nothing runs, its badge reads{" "}
+          <em>not run</em>, and the agent is told you declined.
         </li>
         <li>
           If you reword a step on that card instead, nothing runs: the agent
