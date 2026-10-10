@@ -28,6 +28,7 @@ use session::{
 use audio_decoder::{DecodedAudio, WavStreamReader};
 
 use crate::schema::{anthropic_tool, object_schema};
+use crate::tool::util::write_cas_wav;
 use crate::{Tool, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
@@ -48,6 +49,13 @@ impl Tool for LoadTool {
             "Decode an audio file and add it to the session as a new track. With no current head this creates a fresh single-track session; otherwise the file is appended as a new track on the current head, leaving existing tracks intact. Returns the new session node id, the new track's index, and the source's sample rate, length, and channel count.",
             object_schema(&[("path", "string", true)]),
         )
+    }
+
+    // Reads a file outside the session and appends one node. Run again on a
+    // newer head it adds the track there; its transcode is put in place whole
+    // under its content hash (#421).
+    fn runs_off_the_lock(&self) -> bool {
+        true
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
@@ -256,21 +264,19 @@ fn ensure_streamable_wav(
         crate::provenance::audio_hash(&decoded.samples, decoded.sample_rate, decoded.channels)
     ));
 
-    if !cas_path.exists() {
-        audio_engine::write_wav(
-            &decoded.samples,
-            decoded.sample_rate,
-            decoded.channels,
-            &cas_path,
+    write_cas_wav(
+        &decoded.samples,
+        decoded.sample_rate,
+        decoded.channels,
+        &cas_path,
+    )
+    .map_err(|e| {
+        format!(
+            "failed to transcode {} -> {}: {e}",
+            src.display(),
+            cas_path.display()
         )
-        .map_err(|e| {
-            format!(
-                "failed to transcode {} -> {}: {e}",
-                src.display(),
-                cas_path.display()
-            )
-        })?;
-    }
+    })?;
 
     Ok(cas_path)
 }

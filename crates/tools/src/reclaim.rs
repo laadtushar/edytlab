@@ -25,6 +25,14 @@
 //!
 //! ## The rules
 //!
+//! 0. **Nothing is deleted while a tool runs off the lock** (#421). Such a
+//!    tool writes its output before the node that names it is committed,
+//!    so for that stretch the output is an orphan, and rule 3 would take
+//!    it. The audio it is reading may also stop being the head's if the
+//!    user edits meanwhile. [`apply_sweep`] and [`sweep_orphans`] check
+//!    `Store::staged_in_flight` under the store's lock, where it cannot
+//!    change, and do nothing if it is not zero. The sweep runs again
+//!    every minute, so this defers it; it does not lose it.
 //! 1. **Never touch a file the current head names.** Whatever the
 //!    policy, the session you are looking at keeps working.
 //! 2. **Never touch a file no op can rebuild.** A node written before
@@ -349,6 +357,12 @@ pub fn apply_sweep(store: &session::Store, plan: &SweepPlan) -> std::io::Result<
         kept_unverified: plan.kept_unverified,
         ..Default::default()
     };
+    // Not while a tool is running without the lock (rule 0): the output it
+    // has written so far is named by no node, and this would take it for
+    // an orphan. The next check, a minute on, plans again.
+    if store.staged_in_flight() > 0 {
+        return Ok(report);
+    }
     let dir = derived_dir(store.project_dir());
     if key(store.project_dir()) != key(&plan.project_dir) || !dir.is_dir() {
         return Ok(report);
@@ -497,6 +511,10 @@ impl Verifier {
 /// `apply_diff`, and a moved source file), which is why [`sweep`] now
 /// verifies each file by replaying it before deleting it.
 pub fn sweep_orphans(store: &session::Store) -> std::io::Result<SweepReport> {
+    // Rule 0: not while a tool runs without the lock.
+    if store.staged_in_flight() > 0 {
+        return Ok(SweepReport::default());
+    }
     let dir = derived_dir(store.project_dir());
     if !dir.is_dir() {
         return Ok(SweepReport::default());
