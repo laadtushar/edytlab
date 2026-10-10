@@ -45,21 +45,50 @@ impl NodeId {
         s
     }
 
+    /// Parse the 64-hex-digit form [`NodeId::to_hex`] writes (either case).
+    ///
+    /// Anything else is an [`Error::HexDecode`], never a panic: the input
+    /// can come from a hand-edited `head` file or from a model's tool
+    /// arguments, so it is not trusted to be ASCII.
     pub fn from_hex(s: &str) -> Result<Self> {
-        if s.len() != 64 {
-            return Err(Error::HexDecode(format!(
-                "expected 64 hex chars, got {}",
-                s.len()
-            )));
-        }
-        let mut out = [0u8; 32];
-        for (i, byte) in out.iter_mut().enumerate() {
-            let chunk = &s[i * 2..i * 2 + 2];
-            *byte = u8::from_str_radix(chunk, 16)
-                .map_err(|e| Error::HexDecode(format!("byte {i}: {e}")))?;
-        }
-        Ok(NodeId(out))
+        decode_hex_32(s).map(NodeId).map_err(Error::HexDecode)
     }
+}
+
+/// Decode exactly 64 ASCII hex digits into 32 bytes.
+///
+/// Every hex decoder for a 32-byte hash in this crate goes through here
+/// (`NodeId::from_hex` and both serde modules below). It reads bytes, not
+/// `&s[a..b]` slices: a `str` slice that cuts through a multi-byte
+/// character panics, and the length check alone cannot rule that out (a
+/// 64-byte string can hold fewer than 64 characters, #523). It also takes
+/// digits only; `u8::from_str_radix` on each pair would let a `+` through.
+fn decode_hex_32(s: &str) -> std::result::Result<[u8; 32], String> {
+    fn nibble(b: u8) -> Option<u8> {
+        match b {
+            b'0'..=b'9' => Some(b - b'0'),
+            b'a'..=b'f' => Some(b - b'a' + 10),
+            b'A'..=b'F' => Some(b - b'A' + 10),
+            _ => None,
+        }
+    }
+
+    let bytes = s.as_bytes();
+    if bytes.len() != 64 {
+        return Err(format!("expected 64 hex chars, got {}", bytes.len()));
+    }
+    let mut out = [0u8; 32];
+    for (i, byte) in out.iter_mut().enumerate() {
+        let (hi, lo) = (nibble(bytes[i * 2]), nibble(bytes[i * 2 + 1]));
+        let (Some(hi), Some(lo)) = (hi, lo) else {
+            // Report where, not what: the offending byte may be half of a
+            // multi-byte character and has no useful printable form.
+            let at = if hi.is_none() { i * 2 } else { i * 2 + 1 };
+            return Err(format!("byte offset {at} is not an ASCII hex digit"));
+        };
+        *byte = (hi << 4) | lo;
+    }
+    Ok(out)
 }
 
 impl std::fmt::Display for NodeId {
@@ -200,18 +229,7 @@ mod hex_array_32 {
 
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<[u8; 32], D::Error> {
         let s = String::deserialize(d)?;
-        if s.len() != 64 {
-            return Err(serde::de::Error::custom(format!(
-                "expected 64 hex chars, got {}",
-                s.len()
-            )));
-        }
-        let mut out = [0u8; 32];
-        for (i, byte) in out.iter_mut().enumerate() {
-            let chunk = &s[i * 2..i * 2 + 2];
-            *byte = u8::from_str_radix(chunk, 16).map_err(serde::de::Error::custom)?;
-        }
-        Ok(out)
+        super::decode_hex_32(&s).map_err(serde::de::Error::custom)
     }
 }
 
@@ -239,18 +257,9 @@ pub mod hex_array_32_opt {
         // Accept either `null` or a 64-char hex string.
         let opt: Option<String> = Option::deserialize(d)?;
         let Some(s) = opt else { return Ok(None) };
-        if s.len() != 64 {
-            return Err(serde::de::Error::custom(format!(
-                "expected 64 hex chars, got {}",
-                s.len()
-            )));
-        }
-        let mut out = [0u8; 32];
-        for (i, byte) in out.iter_mut().enumerate() {
-            let chunk = &s[i * 2..i * 2 + 2];
-            *byte = u8::from_str_radix(chunk, 16).map_err(serde::de::Error::custom)?;
-        }
-        Ok(Some(out))
+        super::decode_hex_32(&s)
+            .map(Some)
+            .map_err(serde::de::Error::custom)
     }
 }
 
