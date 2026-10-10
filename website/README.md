@@ -67,7 +67,11 @@ standalone project:
 > `website/` is the only path that supports the full Next.js feature set.
 
 Pushes to `main` trigger production deploys; PRs get preview URLs
-automatically.
+automatically. A commit that changes nothing under `website/` is not deployed:
+`ignoreCommand` in `vercel.json` runs from the Root Directory, and
+`git diff --quiet HEAD^ HEAD -- .` exits 0 (skip) when the last commit left
+`website/` alone. The team is on Vercel's free plan, which allows 100
+deployments a day, and most pushes to this repo only touch the app.
 
 ## Editing copy
 
