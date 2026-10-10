@@ -602,6 +602,17 @@ impl Agent {
         &self.conversation
     }
 
+    /// The session store this agent's tool calls edit: the handle it was
+    /// built with, which is not necessarily the one the app has open now.
+    ///
+    /// An agent keeps its store for as long as it lives, so whoever swaps
+    /// the open project has to build a new agent. This is how that is
+    /// checked: a handle that is not the app's current one means the agent
+    /// is editing another project.
+    pub fn store(&self) -> &Arc<Mutex<session::Store>> {
+        &self.store
+    }
+
     /// Reset the conversation history. The next [`Agent::turn`] starts
     /// from a clean slate; the dispatcher / store / engine are
     /// untouched.

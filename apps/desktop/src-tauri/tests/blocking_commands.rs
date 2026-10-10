@@ -274,3 +274,193 @@ fn open_project_rebuilds_the_agent_before_it_answers_when_no_turn_runs() {
         "the agent was not rebuilt by the time open_project answered"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Save As moves the agent with the window (#506)
+// ---------------------------------------------------------------------------
+
+/// A session node with nothing in it. Appending one to a store is what an
+/// edit does, so the store a node lands in is the project that edit went to.
+fn an_edit() -> session::SessionNode {
+    session::SessionNode {
+        id: session::NodeId([0u8; 32]),
+        parent: None,
+        created_at: chrono::Utc::now(),
+        label: Some("an edit".into()),
+        reasoning: None,
+        state: session::SessionState {
+            tracks: Vec::new(),
+            bus_routing: session::BusGraph::default(),
+            master_chain: Vec::new(),
+            tempo_map: session::TempoMap::default(),
+            key_map: None,
+            transcript: None,
+            sample_rate: 48_000,
+            length_samples: 0,
+            annotations: Vec::new(),
+            sync_lock: false,
+        },
+        op: None,
+    }
+}
+
+type StoreHandle = std::sync::Arc<std::sync::Mutex<session::Store>>;
+
+/// Whether the agent in `slot` edits `store`: the handle it was built with is
+/// the very handle the app holds open. A tool call locks that handle and
+/// appends to it, so this is where the agent's next edit goes.
+fn agent_edits(slot: &Option<ai::Agent>, store: &StoreHandle) -> bool {
+    slot.as_ref()
+        .is_some_and(|agent| std::sync::Arc::ptr_eq(agent.store(), store))
+}
+
+/// A mock app with `open_project` and `save_project_as`, a project open and
+/// an agent built on it (a key is cached, so there is one to build).
+struct SavedAsFixture {
+    state: AppState,
+    webview: WebviewWindow<MockRuntime>,
+    original: tempfile::TempDir,
+    copies: tempfile::TempDir,
+    /// The store the agent was built on, before Save As.
+    original_store: StoreHandle,
+    // The app has to outlive the webview.
+    _app: tauri::App<MockRuntime>,
+}
+
+fn a_project_with_an_agent() -> SavedAsFixture {
+    one_worker();
+    let original = tempfile::tempdir().expect("tempdir");
+    let copies = tempfile::tempdir().expect("tempdir");
+
+    let state = AppState::new();
+    state.set_api_key_cache(Some("saved".into()));
+    let app = mock_builder()
+        .manage(state.clone())
+        .invoke_handler(tauri::generate_handler![
+            commands::open_project,
+            commands::save_project_as
+        ])
+        .build(mock_context(noop_assets()))
+        .expect("mock app");
+    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .expect("webview");
+
+    send(&webview, "open_project", json!({ "path": original.path() }))
+        .recv_timeout(Duration::from_secs(5))
+        .expect("open_project is answered");
+    let original_store = state.store_handle().expect("a project is open");
+    assert!(
+        agent_edits(&state.agent.blocking_lock(), &original_store),
+        "the fixture's agent starts on the project it opened"
+    );
+
+    SavedAsFixture {
+        state,
+        webview,
+        original,
+        copies,
+        original_store,
+        _app: app,
+    }
+}
+
+/// Save As continues in the copy, and the agent has to continue there with
+/// the window. It used to keep the original's store: the user looked at the
+/// copy while the agent's edits (and the `agent://node-created` events for
+/// them) went to the project they had just left.
+///
+/// With no turn running nothing is deferred, as for `open_project`: the
+/// agent is on the copy when Save As answers.
+#[test]
+fn the_agent_edits_the_copy_after_save_as() {
+    let fixture = a_project_with_an_agent();
+    let copy = fixture.copies.path().join("copy");
+
+    send(&fixture.webview, "save_project_as", json!({ "dest": copy }))
+        .recv_timeout(Duration::from_secs(5))
+        .expect("save_project_as is answered");
+
+    let copy_store = fixture.state.store_handle().expect("the copy is open");
+    assert!(
+        !std::sync::Arc::ptr_eq(&copy_store, &fixture.original_store),
+        "Save As did not swap the open store, so this test shows nothing"
+    );
+    let agent = fixture.state.agent.blocking_lock();
+    assert!(
+        agent_edits(&agent, &copy_store),
+        "after Save As the agent still holds the original project's store"
+    );
+
+    // The agent's next edit: appended through the handle it holds, as a
+    // tool call does. It lands in the copy and nowhere else.
+    agent
+        .as_ref()
+        .expect("an agent")
+        .store()
+        .lock()
+        .expect("store")
+        .append(an_edit())
+        .expect("append");
+    assert!(
+        copy_store.lock().expect("store").head().is_some(),
+        "the agent's edit did not reach the project the window is on"
+    );
+    assert!(
+        fixture
+            .original_store
+            .lock()
+            .expect("store")
+            .head()
+            .is_none(),
+        "the original's open store gained the agent's edit"
+    );
+    assert!(
+        session::Store::open(fixture.original.path())
+            .expect("reopen the original")
+            .head()
+            .is_none(),
+        "the agent's edit went into the original project on disk"
+    );
+}
+
+/// Save As is in the session's line, like `open_project`, so it answers
+/// while a turn holds the agent and leaves the rebuild to run behind it
+/// (`rebuild_agent_soon`). The turn finishes on the store it started with;
+/// the next agent is on the copy.
+#[test]
+fn save_as_answers_during_a_turn_and_the_agent_follows_it_after() {
+    let fixture = a_project_with_an_agent();
+    let copy = fixture.copies.path().join("copy");
+
+    // What `send_message` holds for the length of a turn.
+    let turn = fixture.state.agent.blocking_lock();
+    let saved = send(&fixture.webview, "save_project_as", json!({ "dest": copy }))
+        .recv_timeout(Duration::from_secs(5));
+    let copy_store = fixture.state.store_handle();
+    let turn_still_on_the_original = agent_edits(&turn, &fixture.original_store);
+
+    // Let go before asserting, so a failure here cannot leave the rebuild
+    // waiting for ever.
+    drop(turn);
+
+    assert!(
+        saved.is_ok(),
+        "save_project_as was not answered in 5 s while a turn held the agent: \
+         it waits for the turn, and so would every edit queued behind it"
+    );
+    assert!(
+        turn_still_on_the_original,
+        "the running turn's agent was swapped under it"
+    );
+    let copy_store = copy_store.expect("the copy is open");
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while !agent_edits(&fixture.state.agent.blocking_lock(), &copy_store) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the agent was never moved to the copy after the turn ended"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}

@@ -413,6 +413,11 @@ pub async fn save_project_as<R: Runtime>(
         .await?
     };
     allow_assets_in_dir(&app, &dest_path);
+    // The agent holds the store it was built with, so left alone it would
+    // go on editing the project this one just left (#506). Rebuild it as
+    // `open_project` does, and for the same reason never wait for a turn to
+    // end to do it: Save As is in the session's line (#498).
+    rebuild_agent_soon(&state);
     Ok(report)
 }
 
@@ -3827,8 +3832,8 @@ async fn rebuild_agent(state: &AppState) -> Result<(), CommandError> {
 
 /// Rebuild the agent without waiting for a turn to end (#498).
 ///
-/// Opening a project calls this, and the app sends `open_project` in the
-/// session's line, so it must answer even while the agent is mid-turn.
+/// Opening a project and Save As call this, and the app sends both in the
+/// session's line, so they must answer even while the agent is mid-turn.
 ///
 /// - Nobody holds the agent (the usual case): rebuilt here and now, so the
 ///   agent is on the new store when the command answers.
