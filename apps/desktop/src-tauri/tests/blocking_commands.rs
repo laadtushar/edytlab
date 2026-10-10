@@ -241,3 +241,36 @@ fn open_project_answers_while_an_agent_turn_holds_the_agent() {
         std::thread::sleep(Duration::from_millis(20));
     }
 }
+
+/// With no turn running, nothing is deferred: the agent is on the new
+/// project when `open_project` answers, as it always was. Only a turn in
+/// the way postpones the rebuild.
+#[test]
+fn open_project_rebuilds_the_agent_before_it_answers_when_no_turn_runs() {
+    one_worker();
+    let project = tempfile::tempdir().expect("tempdir");
+
+    let state = AppState::new();
+    state.set_api_key_cache(Some("saved".into()));
+    let app = mock_builder()
+        .manage(state.clone())
+        .invoke_handler(tauri::generate_handler![commands::open_project])
+        .build(mock_context(noop_assets()))
+        .expect("mock app");
+    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .expect("webview");
+
+    assert!(
+        state.agent.blocking_lock().is_none(),
+        "no agent before a project is open"
+    );
+    send(&webview, "open_project", json!({ "path": project.path() }))
+        .recv_timeout(Duration::from_secs(5))
+        .expect("open_project is answered");
+
+    assert!(
+        state.agent.blocking_lock().is_some(),
+        "the agent was not rebuilt by the time open_project answered"
+    );
+}

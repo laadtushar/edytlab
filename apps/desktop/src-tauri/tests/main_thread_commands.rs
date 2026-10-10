@@ -325,12 +325,27 @@ fn main_thread_offenders(sources: &[(String, String)]) -> Vec<String> {
 }
 
 /// Functions that name the engine, the dispatcher and the store only to
-/// clone their `Arc`s into a new agent, and wait on none of them.
-/// `rebuild_agent` hands the handles to `Agent::new`; the only thing it
-/// awaits is the agent's own `tokio` mutex, which does not block a worker.
-/// The commands that rebuild the agent (a key, a model, a profile) reach
-/// them, and are not waiting on a tool for it.
-const HANDLE_ONLY: [&str; 2] = ["rebuild_agent", "rebuild_agent_public"];
+/// clone their `Arc`s into a new agent, and wait on none of the locks a
+/// tool holds. `rebuild_agent_into` hands the handles to `Agent::new`. The
+/// commands that rebuild the agent (a key, a model, a profile) reach them,
+/// and are not waiting on a tool for it.
+///
+/// That is all this list says. The rebuild is not free of waiting:
+/// `rebuild_agent` awaits the agent's own `tokio` mutex, which does not
+/// block a worker, but which `send_message` holds for a whole turn, and a
+/// plan card can keep a turn open for five minutes. A command that waits
+/// for the rebuild waits for the turn, which this scan does not look for.
+/// It also reads the keychain synchronously (`load_base_url`, `load_effort`
+/// and, for a profile that pins another provider, `load_api_key`) on the
+/// worker it runs on. So a command in the session's line must not call
+/// `rebuild_agent`: `open_project` calls `rebuild_agent_soon`, which never
+/// waits for a turn, and `tests/blocking_commands.rs` holds it to that.
+const HANDLE_ONLY: [&str; 4] = [
+    "rebuild_agent",
+    "rebuild_agent_public",
+    "rebuild_agent_soon",
+    "rebuild_agent_into",
+];
 
 /// Where a call to a function whose name ends in `blocking` starts in
 /// `text`: the offset of its name (`blocking`, or `spawn_blocking` with its

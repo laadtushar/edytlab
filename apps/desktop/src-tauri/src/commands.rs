@@ -123,6 +123,11 @@ pub enum CommandError {
 
     /// The task a command's blocking work ran on did not finish: the work
     /// panicked, or the runtime was shutting down. See [`blocking`].
+    ///
+    /// The panic case exists in dev and test builds only. The release
+    /// profile sets `panic = "abort"`, so a panic in a shipped build ends
+    /// the app before the task can report anything; what a shipped build
+    /// can see here is the runtime shutting down.
     #[error("internal: a command's task did not finish ({0})")]
     TaskFailed(String),
 }
@@ -173,9 +178,12 @@ fn lock_std<'a, T>(
 /// CLAUDE.md inside `body`: take the store lock, drop it, then take the
 /// engine's.
 ///
-/// A panic in `body` (a poisoned mutex that is `expect`ed, say) comes back
-/// as an error. Without this it would end the command's task and the
-/// frontend's promise would never settle.
+/// In a dev or test build, a panic in `body` (a poisoned mutex that is
+/// `expect`ed, say) comes back as an error; without this it would end the
+/// command's task and the frontend's promise would never settle. A shipped
+/// build sets `panic = "abort"` in its release profile, so there a panic
+/// ends the app instead, and this covers the runtime shutting down under
+/// the command.
 ///
 /// What goes here is any command that can wait on a lock a tool holds.
 /// `tests/main_thread_commands.rs` checks that none is left outside it.
@@ -255,11 +263,19 @@ pub async fn open_project<R: Runtime>(
     path: String,
 ) -> CmdResult<ProjectInfo> {
     let project_path = PathBuf::from(&path);
-    let info = open_project_inner(&state, project_path.clone())?;
+    // Disk work (the store, the orphan sweep), so on the blocking pool.
+    let info = {
+        let project_path = project_path.clone();
+        blocking(&state, move |state| {
+            Ok(open_project_inner(state, project_path)?)
+        })
+        .await?
+    };
     allow_assets_in_dir(&app, &project_path);
     // After the store is replaced we may now be able to construct the
-    // agent (if an API key was already cached). Rebuild it eagerly.
-    rebuild_agent(&state).await?;
+    // agent (if an API key was already cached). Rebuild it, but never
+    // wait for a turn to end to do it (#498).
+    rebuild_agent_soon(&state);
     Ok(info)
 }
 
@@ -381,12 +397,20 @@ pub async fn save_project_as<R: Runtime>(
         );
     }
 
-    let report = crate::project::copy_project(&src, &dest_path).map_err(CommandError::Io)?;
+    // The copy can be gigabytes: on the blocking pool, not a worker.
+    let report = {
+        let dest_path = dest_path.clone();
+        blocking(&state, move |state| {
+            let report = crate::project::copy_project(&src, &dest_path).map_err(CommandError::Io)?;
 
-    // Continue in the copy. Leaving the original open would make Save As
-    // a backup button, which is a different feature with a different
-    // name.
-    open_project_inner(&state, dest_path.clone())?;
+            // Continue in the copy. Leaving the original open would make
+            // Save As a backup button, which is a different feature with a
+            // different name.
+            open_project_inner(state, dest_path)?;
+            Ok(report)
+        })
+        .await?
+    };
     allow_assets_in_dir(&app, &dest_path);
     Ok(report)
 }
@@ -3783,7 +3807,52 @@ fn resolve_effective_llm(
     }
 }
 
+/// Wait for the agent's mutex, then rebuild the agent.
+///
+/// The mutex is held by `send_message` for a whole turn, which can be
+/// minutes (a plan card waits up to five), so this waits that long too. A
+/// command that is in the session's line (`sessionQueue.ts`) must not
+/// call it: everything queued after that command would wait for the turn.
+/// [`rebuild_agent_soon`] is the one for those.
+///
+/// What the agent is built from is read *after* the mutex is held, not
+/// before: a caller that waited behind a turn builds from the state of the
+/// moment it runs, not of the moment it was asked.
 async fn rebuild_agent(state: &AppState) -> Result<(), CommandError> {
+    let mut slot = state.agent.lock().await;
+    rebuild_agent_into(state, &mut slot);
+    Ok(())
+}
+
+/// Rebuild the agent without waiting for a turn to end (#498).
+///
+/// Opening a project calls this, and the app sends `open_project` in the
+/// session's line, so it must answer even while the agent is mid-turn.
+///
+/// - Nobody holds the agent (the usual case): rebuilt here and now, so the
+///   agent is on the new store when the command answers.
+/// - A turn holds it: the rebuild runs as its own task, which waits its
+///   turn on the mutex and then reads the state as it is *then*. Several of
+///   these queued behind one turn each build from the latest state, so an
+///   older open cannot be applied after a newer one. The turn itself
+///   carries on with the agent and the store it started with (#501).
+fn rebuild_agent_soon(state: &AppState) {
+    if let Ok(mut slot) = state.agent.try_lock() {
+        rebuild_agent_into(state, &mut slot);
+        return;
+    }
+    let state = state.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = rebuild_agent(&state).await {
+            tracing::warn!(error = %e, "could not rebuild the agent after a turn");
+        }
+    });
+}
+
+/// Build the agent from the state as it is now and put it in `slot`, which
+/// is the agent's mutex, held by the caller. Nothing here waits for a
+/// turn; see [`rebuild_agent`] and [`rebuild_agent_soon`] for the callers.
+fn rebuild_agent_into(state: &AppState, slot: &mut Option<ai::Agent>) {
     let store_handle = state.store_handle();
     let global_provider_id = state.active_provider_id();
     let global_chosen_model = state.model_for(&global_provider_id);
@@ -3808,8 +3877,7 @@ async fn rebuild_agent(state: &AppState) -> Result<(), CommandError> {
         None => None,
     };
 
-    let mut guard = state.agent.lock().await;
-    *guard = match (api_key, store_handle) {
+    *slot = match (api_key, store_handle) {
         (Some(key), Some(store)) => {
             let mut cfg = ai::LlmConfig::new(provider, key);
             if let Some(m) = effective_model {
@@ -3856,7 +3924,6 @@ async fn rebuild_agent(state: &AppState) -> Result<(), CommandError> {
         }
         _ => None,
     };
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------
