@@ -37,6 +37,30 @@ fn marker(name: &str) -> Annotation {
     }
 }
 
+/// A session with nothing in it.
+fn plain_node() -> session::SessionNode {
+    session::SessionNode {
+        id: NodeId([0u8; 32]),
+        parent: None,
+        created_at: chrono::Utc::now(),
+        label: None,
+        reasoning: None,
+        state: session::SessionState {
+            tracks: Vec::new(),
+            bus_routing: session::BusGraph::default(),
+            master_chain: Vec::new(),
+            tempo_map: session::TempoMap::default(),
+            key_map: None,
+            transcript: None,
+            sample_rate: 48_000,
+            length_samples: 0,
+            annotations: Vec::new(),
+            sync_lock: false,
+        },
+        op: None,
+    }
+}
+
 fn names(store: &Store, id: NodeId) -> Vec<String> {
     store
         .get(id)
@@ -221,28 +245,7 @@ impl App {
     fn new(configure: impl FnOnce(&mut Probe)) -> Self {
         let dir = TempDir::new().expect("tempdir");
         let mut store = Store::open(dir.path()).expect("open store");
-        let base = store
-            .append(session::SessionNode {
-                id: NodeId([0u8; 32]),
-                parent: None,
-                created_at: chrono::Utc::now(),
-                label: None,
-                reasoning: None,
-                state: session::SessionState {
-                    tracks: Vec::new(),
-                    bus_routing: session::BusGraph::default(),
-                    master_chain: Vec::new(),
-                    tempo_map: session::TempoMap::default(),
-                    key_map: None,
-                    transcript: None,
-                    sample_rate: 48_000,
-                    length_samples: 0,
-                    annotations: Vec::new(),
-                    sync_lock: false,
-                },
-                op: None,
-            })
-            .expect("base node");
+        let base = store.append(plain_node()).expect("base node");
         let store = Arc::new(Mutex::new(store));
 
         let mut probe = Probe::new(&store);
@@ -504,6 +507,122 @@ fn a_sweep_that_runs_while_an_off_lock_tool_works_deletes_nothing() {
     let report = tools::reclaim::sweep_orphans(&store).expect("sweep");
     assert_eq!(report.removed_files, 1, "{report:?}");
     assert!(!derived.join(ORPHAN).exists());
+}
+
+// ---------------------------------------------------------------------
+// Real threads
+// ---------------------------------------------------------------------
+
+/// An edit that takes a while, then adds a marker named for the call.
+struct Slow {
+    work: std::time::Duration,
+}
+
+impl Tool for Slow {
+    fn name(&self) -> &'static str {
+        "slow"
+    }
+    fn schema(&self) -> Value {
+        anthropic_tool(
+            "slow",
+            "A fixture.",
+            object_schema(&[("i", "integer", true)]),
+        )
+    }
+    fn runs_off_the_lock(&self) -> bool {
+        true
+    }
+    fn invoke(&self, args: Value, ctx: &mut ToolContext) -> tools::Result<ToolResult> {
+        std::thread::sleep(self.work);
+        let head = ctx.store.head().expect("a head");
+        let name = format!("tool-{}", args["i"]);
+        let id = ctx
+            .store
+            .add_annotation(head, marker(&name))
+            .expect("tool edit");
+        Ok(ToolResult::Ok(json!({ "node_id": id.to_hex() })))
+    }
+}
+
+/// Users edit from several threads, as commands do — each holding the
+/// store's lock for its own edit — while a tool is dispatched over and
+/// over. However the two interleave, nothing is lost: every marker the
+/// users added and every marker the tools added is in the final state, the
+/// chain from the head is whole, and no handle is left counting.
+///
+/// Some runs lose their race and some may fall back to the locked run;
+/// which is up to the scheduler. This asserts only what must hold either
+/// way.
+#[test]
+fn concurrent_user_edits_and_tool_runs_lose_nothing() {
+    const USERS: usize = 4;
+    const EDITS_EACH: usize = 20;
+    const TOOL_RUNS: usize = 8;
+
+    let dir = TempDir::new().unwrap();
+    let mut store = Store::open(dir.path()).unwrap();
+    let base = store.append(plain_node()).unwrap();
+    let store = Arc::new(Mutex::new(store));
+    let dispatcher = {
+        let mut d = ToolDispatcher::new();
+        d.register(Box::new(Slow {
+            work: std::time::Duration::from_millis(15),
+        }));
+        Mutex::new(d)
+    };
+    let engine = Mutex::new(audio_engine::Engine::new());
+    let clipboard = Mutex::new(None::<tools::Clipboard>);
+
+    std::thread::scope(|scope| {
+        for user in 0..USERS {
+            let store = Arc::clone(&store);
+            scope.spawn(move || {
+                for n in 0..EDITS_EACH {
+                    {
+                        let mut s = store.lock().unwrap();
+                        let head = s.head().expect("a head");
+                        s.add_annotation(head, marker(&format!("user-{user}-{n}")))
+                            .expect("user edit");
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(3));
+                }
+            });
+        }
+        for i in 0..TOOL_RUNS {
+            let result = Shared {
+                dispatcher: &dispatcher,
+                store: &store,
+                engine: &engine,
+                clipboard: &clipboard,
+            }
+            .dispatch("slow", json!({ "i": i }), "", None)
+            .expect("dispatch");
+            assert!(matches!(result, ToolResult::Ok(_)), "{result:?}");
+        }
+    });
+
+    let store = store.lock().unwrap();
+    let head = store.head().expect("head");
+    let mut names: Vec<String> = names(&store, head);
+    names.sort();
+    let mut expected: Vec<String> = (0..USERS)
+        .flat_map(|u| (0..EDITS_EACH).map(move |n| format!("user-{u}-{n}")))
+        .chain((0..TOOL_RUNS).map(|i| format!("tool-{i}")))
+        .collect();
+    expected.sort();
+    assert_eq!(names, expected, "an edit was lost or duplicated");
+
+    // The chain from the head to the first node can be walked, with every
+    // node's file present: nothing the head depends on was left unwritten.
+    let mut cursor = Some(head);
+    let mut length = 0;
+    while let Some(id) = cursor {
+        cursor = store.get(id).expect("a node on the head's chain").parent;
+        length += 1;
+    }
+    assert_eq!(length, 1 + USERS * EDITS_EACH + TOOL_RUNS);
+    assert_eq!(store.get(base).unwrap().parent, None);
+    assert_eq!(store.staged_in_flight(), 0);
 }
 
 // ---------------------------------------------------------------------

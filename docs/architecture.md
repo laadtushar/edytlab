@@ -476,7 +476,7 @@ The agent calls `tools::Shared::dispatch` (`crates/tools/src/shared.rs`), not `i
 
 Which tools run off the lock is pinned by name in `crates/tools/tests/off_lock_tools.rs`: the pure audio edits, `load`, `mix_to_new_track`, and the analysis tools. That test also scans each opted-in tool's source for what a staged run cannot do (clipboard, engine, nested dispatchers, history rewrites, `progress`). A tool is run on the arguments the model gave it, so a re-run after a user edit uses the same arguments on a newer head: if the user removed a track meanwhile, an index may now name a different track. That is the same hazard as the user editing right after the call.
 
-The derived-audio sweep waits while a staged handle is alive (`Store::staged_in_flight`), because the output of an off-lock tool is named by no node until it commits (rule 0 in `crates/tools/src/reclaim.rs`). Files written for a run that lost the race are orphans, and the next sweep removes them. CAS WAVs are written to a temporary name and renamed into place, so a name that exists is always a whole file.
+The derived-audio sweep waits while a staged handle is alive (`Store::staged_in_flight`), because the output of an off-lock tool is named by no node until it commits (rule 0 in `crates/tools/src/reclaim.rs`). Files written under `derived/` by a run that lost the race are orphans, and the next sweep removes them. (`mix_to_new_track` writes to `<project>/generated/`, which nothing sweeps, so a run of it that loses the race to an edit that changes the mix leaves its render there.) The WAVs these tools write under a content hash are written to a temporary name and renamed into place, so a name that exists is always a whole file.
 
 ### The Tools
 

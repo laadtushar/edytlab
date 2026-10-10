@@ -535,7 +535,15 @@ pub(crate) fn write_cas_wav(
         .map_err(|e| format!("failed to create a file in {}: {e}", dir.display()))?
         .into_temp_path();
     audio_engine::write_wav(samples, sample_rate, channels, &tmp).map_err(|e| e.to_string())?;
-    tmp.persist(path).map_err(|e| e.to_string())
+    match tmp.persist(path) {
+        Ok(()) => Ok(()),
+        // Another writer of the same name got there first. The name is the
+        // hash of the content, so what is there is what this would have
+        // put there, and on Windows replacing a file somebody has open
+        // fails.
+        Err(_) if path.is_file() => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 /// Run a destructive sample-buffer edit against the first clip of
