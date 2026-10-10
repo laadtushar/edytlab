@@ -159,10 +159,12 @@ fn one_shot_messages(
 /// Anthropic wire format has a place for it: chat-completions bodies are
 /// built without it whatever is passed. The caller decides whether the
 /// request wants it. The plan does, being the main model's own work. The
-/// classifier does not: it runs on the cheap model, which answers any
-/// `output_config.effort` with a 400 ("This model does not support the
-/// effort parameter"), and `classify_mode` swallows errors, so sending it
-/// there would quietly turn mode detection off. A set effort also raises
+/// classifier does not: its answer is one word, so the effort the user chose
+/// for the main model's work has nothing to do there, and a classifier model
+/// without the parameter (Haiku 4.5, which the one before the current one
+/// was) answers any `output_config.effort` with a 400 ("This model does not
+/// support the effort parameter"). `classify_mode` swallows errors, so that
+/// would quietly turn mode detection off. A set effort also raises
 /// `max_tokens` to what that effort needs (see [`Effort::min_max_tokens`]).
 ///
 /// `thinking_off` sends `thinking: {"type": "disabled"}` on the Anthropic
@@ -177,10 +179,11 @@ fn one_shot_messages(
 ///
 /// On a chat-completions body `max_tokens` is lowered to the output limit of
 /// `model` where [`crate::models::max_output_tokens`] knows one, since the
-/// plan asks for [`PLAN_MAX_TOKENS`] of every provider and OpenAI answers a
-/// request above a model's limit with a 400. The Anthropic-format body is
-/// not clamped: the models it is sent for (Anthropic's, and OpenRouter's
-/// defaults) allow 64K and more.
+/// plan asks for [`PLAN_MAX_TOKENS`] of every provider and OpenAI is reported
+/// to reject a request above a model's limit (see
+/// [`DEFAULT_MAX_TOKENS`](crate::prompt::DEFAULT_MAX_TOKENS)). The
+/// Anthropic-format body is not clamped: the models it is sent for
+/// (Anthropic's current ones, and OpenRouter's defaults) allow 128K.
 fn one_shot_body(
     cfg: &LlmConfig,
     model: String,
@@ -2524,8 +2527,8 @@ mod tests {
     ];
 
     /// A model step, built and serialized the way `run_turn` does, carries
-    /// the limit of its model. The 8192 it asks for would be answered with a
-    /// 400 by OpenAI on every one of these.
+    /// the limit of its model. The 8192 it asks for is above the limit of
+    /// every one of these.
     #[test]
     fn a_step_for_a_legacy_openai_model_asks_for_no_more_than_it_allows() {
         let conversation = [Message {
@@ -2557,7 +2560,8 @@ mod tests {
     }
 
     /// The plan is the same request on every provider, and on OpenAI's older
-    /// models it was a 400, so the plan was lost with Plan first on.
+    /// models it asked for more than they can write, so the plan was lost with
+    /// Plan first on.
     #[tokio::test]
     async fn the_plan_request_is_clamped_to_the_models_output_limit() {
         let plan = r#"<plan>[{"step":1,"tool":"set_track_gain","description":"Louder"}]</plan>"#;
@@ -2747,9 +2751,10 @@ mod tests {
         assert_eq!(req.max_tokens, DEFAULT_MAX_TOKENS);
     }
 
-    /// The cheap classifier model rejects `effort` with a 400 and
-    /// `classify_mode` swallows errors, so it must never be sent: it
-    /// would turn mode detection off without a word.
+    /// The classifier's answer is one word, so it is never sent the user's
+    /// effort: a classifier model without the parameter rejects it with a 400,
+    /// and `classify_mode` swallows errors, so it would turn mode detection
+    /// off without a word.
     #[tokio::test]
     async fn the_classifier_request_never_carries_an_effort() {
         for id in crate::SUPPORTED_PROVIDER_IDS {

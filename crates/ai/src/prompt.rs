@@ -61,8 +61,12 @@ pub(crate) fn tool_budget_line() -> String {
 /// less pays for less.
 ///
 /// The one number goes to every provider, and not every model can write that
-/// much: OpenAI answers a request above a model's output limit with a 400
-/// instead of lowering it, and its older models stop at 4,096. So it is a
+/// much: OpenAI is reported to reject a request above a model's output limit
+/// ("max_tokens is too large: 32000. This model supports at most 4096
+/// completion tokens",
+/// <https://community.openai.com/t/max-tokens-chat-completion-gpt4o/758066>)
+/// rather than lower it, though its API reference does not say what it does,
+/// and its older models stop at 4,096. So it is a
 /// cap on what a request may ask for, and each request lowers it to the limit
 /// of its own model where [`crate::models::max_output_tokens`] knows one
 /// (every chat-completions body, in `OpenAIProvider` and `one_shot_body`).

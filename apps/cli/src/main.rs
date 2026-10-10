@@ -47,9 +47,9 @@ struct Args {
     base_url: Option<String>,
 
     /// Optional model id override; defaults to the provider's
-    /// `default_model`. Use the canonical Anthropic id (e.g.
-    /// `claude-sonnet-4-6`); the OpenRouter provider prepends
-    /// `anthropic/` automatically.
+    /// `default_model`. Use the provider's own id, e.g.
+    /// `claude-sonnet-5-5`; for OpenRouter, OpenRouter's own, e.g.
+    /// `anthropic/claude-sonnet-5.5`.
     #[arg(long)]
     model: Option<String>,
 }

@@ -172,8 +172,8 @@ export default function GettingStartedPage() {
       <blockquote>
         <strong>Cost estimate:</strong> A typical 30-minute editing session
         consumes roughly $0.05–0.50 in LLM tokens depending on the model and
-        session complexity. Haiku / GPT-4o mini cost ~10× less than Sonnet /
-        GPT-4o.
+        session complexity. Haiku-class models cost about 20× less per token
+        than Sonnet-class models.
       </blockquote>
 
       <h2>3. Enter your API key</h2>

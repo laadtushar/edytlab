@@ -649,8 +649,8 @@ async fn fetch_ollama_models(base_url: &str) -> Result<Vec<ModelInfo>, String> {
 /// `GeminiProvider` overrides `list_models_path`, and it is mirrored
 /// here.
 ///
-/// Ids come back either bare (`gemini-2.0-flash`) or resource-qualified
-/// (`models/gemini-2.0-flash`) depending on which surface answers. We
+/// Ids come back either bare (`gemini-3.8-flash`) or resource-qualified
+/// (`models/gemini-3.8-flash`) depending on which surface answers. We
 /// strip the prefix rather than assuming a form: the bare id is what
 /// the OpenAI-compatible chat endpoint accepts, `translate_model` is
 /// identity for this provider, and stripping is a no-op when the ids
@@ -733,7 +733,7 @@ fn is_chat_capable(id: &str) -> bool {
 ///   (<https://developers.openai.com/api/docs/models/gpt-3.5-turbo>), less
 ///   than the request and its 4,096 together.
 ///
-/// Both families shut down on 2026-10-23 anyway (see
+/// What is left of both families shuts down on 2026-10-23 anyway (see
 /// [`openai_max_output_tokens`]). It only hides them: a model typed into
 /// Settings by hand still goes out, with its output limit lowered, and fails
 /// with the provider's own context-length answer.
@@ -773,9 +773,11 @@ fn openai_rank(id: &str) -> (u8, std::cmp::Reverse<(u32, u32)>, String) {
 }
 
 /// The most output tokens one request may ask `model` for on `provider_id`,
-/// for the models whose limit is below the caps the agent sends
+/// for the models whose limit is 8192 or less, the caps the agent sends
 /// ([`DEFAULT_MAX_TOKENS`](crate::prompt::DEFAULT_MAX_TOKENS) and
-/// [`PLAN_MAX_TOKENS`](crate::prompt::PLAN_MAX_TOKENS), both 8192).
+/// [`PLAN_MAX_TOKENS`](crate::prompt::PLAN_MAX_TOKENS), both 8192). A limit of
+/// exactly 8192 lowers nothing; it is in the table so that the figure is
+/// written down where a model with it is looked up.
 ///
 /// `None` means this table does not know a limit, not that there is none: the
 /// request goes out as built. Every figure comes from the provider's own
@@ -784,12 +786,13 @@ fn openai_rank(id: &str) -> (u8, std::cmp::Reverse<(u32, u32)>, String) {
 /// out, and why.
 ///
 /// There is no arm for the other providers, each for its own reason.
-/// Anthropic's models in the curated list and OpenRouter's defaults
-/// (`anthropic/claude-sonnet-4-6`, and `anthropic/claude-haiku-4-5-20251001`
-/// for its classifier) allow 128K and 64K of output
-/// (<https://platform.claude.com/docs/en/models/sonnet-4-6/overview>,
-/// <https://platform.claude.com/docs/en/models/haiku-4-5/overview>). Ollama's
-/// OpenAI-compatible API lists `max_tokens` as supported
+/// Anthropic's current models, which is all its built-in list holds, allow
+/// 128K tokens of output
+/// (<https://platform.claude.com/docs/en/about-claude/models/overview>), and
+/// OpenRouter's public model list gives 128,000 for its two defaults
+/// (`anthropic/claude-sonnet-5.5` and `anthropic/claude-haiku-5.5`,
+/// <https://openrouter.ai/api/v1/models>). Ollama's OpenAI-compatible API
+/// lists `max_tokens` as supported
 /// (<https://docs.ollama.com/api/openai-compatibility>) and neither that page
 /// nor `llama3.2`'s (<https://ollama.com/library/llama3.2>) states an output
 /// limit.
@@ -811,7 +814,29 @@ pub fn clamp_max_tokens(provider_id: &str, model: &str, requested: u32) -> u32 {
 
 /// OpenAI's models with an output limit of 8192 or less.
 ///
-/// Sources, OpenAI's model pages, which give one context window and one
+/// # Shutdown dates
+///
+/// Every row here is for a model OpenAI is retiring. By its deprecations page
+/// (<https://developers.openai.com/api/docs/deprecations>):
+///
+/// * **2026-10-23**: `gpt-3.5-turbo-0125` (and its alias `gpt-3.5-turbo`),
+///   `gpt-4-0613` (`gpt-4`), `gpt-4-turbo` (`gpt-4-turbo-2024-04-09`) and
+///   `gpt-4-1106-preview` (the page's 2026-04-22 notice; an older one gave
+///   2026-03-26), and `gpt-4o-2024-05-13`, which this table leaves out.
+/// * Already shut down: `gpt-4-0314`, `gpt-4-0125-preview` (and its alias
+///   `gpt-4-turbo-preview`) on 2026-03-26; `gpt-3.5-turbo-1106` and
+///   `gpt-3.5-turbo-instruct` on 2026-09-28; `gpt-4-vision-preview` and
+///   `gpt-4-1106-vision-preview` on 2024-12-06.
+///
+/// So the rows, and the tests that pin them (`legacy_openai_models_have_their_published_output_limit`
+/// and the ones that name these ids), can be pruned as the dates pass, and all
+/// of them once the last has. Until then they are what keeps a typed-in id
+/// from being sent a limit it would refuse. The dropdown does not offer the
+/// models that cannot run the agent in any case ([`holds_the_agents_request`]).
+///
+/// # Sources
+///
+/// OpenAI's model pages, which give one context window and one
 /// maximum output for a model and list the snapshots and aliases they cover:
 ///
 /// * <https://developers.openai.com/api/docs/models/gpt-3.5-turbo>: 16,385
@@ -839,7 +864,8 @@ pub fn clamp_max_tokens(provider_id: &str, model: &str, requested: u32) -> u32 {
 /// run on these models in any case: the tool definitions sent with each step
 /// (93 tools, 54 KB of JSON when this was written) are well over 8,192
 /// tokens, so the request fails on the context length whatever the output
-/// cap is.
+/// cap is. That is why the dropdown does not list them
+/// ([`holds_the_agents_request`]).
 ///
 /// Left out: `gpt-4o-2024-05-13`. Its page,
 /// <https://developers.openai.com/api/docs/models/gpt-4o>, gives 16,384, but as
@@ -887,10 +913,11 @@ fn groq_max_output_tokens(model: &str) -> Option<u32> {
 /// states an output token limit. The only one under 8192 is
 /// <https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-lite-image>,
 /// 4,096, an image generation model that the agent cannot use; it is here for
-/// the same reason as Groq's. `gemini-2.0-flash`, the default and the
-/// classifier, is exactly 8,192
-/// (<https://ai.google.dev/gemini-api/docs/models/gemini-2.0-flash>) and so
-/// takes the cap as it is. The embedding models state an output dimension and
+/// the same reason as Groq's. The default and the classifier, `gemini-3.8-flash`
+/// and `gemini-3.5-flash-lite`, both state 65,536
+/// (<https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash> and
+/// <https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite>) and so
+/// take the cap as it is. The embedding models state an output dimension and
 /// no output limit, and nor do the pages of `gemini-3.5-transcribe` and
 /// `gemini-omni-flash`; those stay unclamped.
 fn gemini_max_output_tokens(model: &str) -> Option<u32> {

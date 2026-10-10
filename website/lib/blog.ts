@@ -490,8 +490,8 @@ const earlierPosts: BlogPost[] = [
       {
         type: "ul",
         items: [
-          "Complex multi-track arrangements with many interdependencies: use Claude or GPT-4o.",
-          "Simple edits (normalize, cut, export): use a fast, cheap model like Haiku or GPT-4o mini.",
+          "Complex multi-track arrangements with many interdependencies: use a Claude Sonnet or Opus model, or OpenAI's flagship.",
+          "Simple edits (normalize, cut, export): use a fast, cheap model such as Claude Haiku or OpenAI's Luna.",
           "Budget-sensitive production: route through OpenRouter to reach cheaper open-weight models.",
           "Privacy-critical sessions: choose a provider with zero data retention commitments.",
         ],
