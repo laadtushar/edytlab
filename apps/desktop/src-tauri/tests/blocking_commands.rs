@@ -21,6 +21,9 @@
 //! that order. So by the time it reaches the last, it has already run
 //! each of the others as far as its first wait. If one of them blocks
 //! the worker there, the last never runs.
+//!
+//! The second test is about a wait that is not on a worker: opening a
+//! project must not wait for the agent's turn (see its own comment).
 
 #![cfg(not(target_os = "windows"))]
 
@@ -165,5 +168,76 @@ fn commands_waiting_on_a_lock_leave_the_worker_free() {
             answer.recv_timeout(Duration::from_secs(30)).is_ok(),
             "`{cmd}` was never answered after the locks were released"
         );
+    }
+}
+
+/// Opening a project does not wait for the agent's turn (#498).
+///
+/// `send_message` holds the agent's mutex for the whole turn: while the
+/// model streams, while a tool runs, and while a plan card waits for an
+/// answer, which can be five minutes. Opening a project rebuilds the agent
+/// so it works on the new store, and the rebuild takes that same mutex. If
+/// `open_project` waited for it, it would answer only when the turn ended,
+/// and since the app sends it in the session's line (`sessionQueue.ts`),
+/// every edit made after it (a fader, a mute, undo) would wait with it, for
+/// as long as the turn.
+///
+/// So the project is opened and the command answers; the rebuild is left
+/// to run once the turn lets go. The rebuild reads the session as it is
+/// *when it runs*, so two opens during one turn cannot leave the agent on
+/// the first project's store, and a key saved in the meantime is not lost.
+#[test]
+fn open_project_answers_while_an_agent_turn_holds_the_agent() {
+    one_worker();
+    let first = tempfile::tempdir().expect("tempdir");
+    let second = tempfile::tempdir().expect("tempdir");
+
+    let state = AppState::new();
+    let app = mock_builder()
+        .manage(state.clone())
+        .invoke_handler(tauri::generate_handler![commands::open_project])
+        .build(mock_context(noop_assets()))
+        .expect("mock app");
+    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .expect("webview");
+
+    // What `send_message` holds for the length of a turn.
+    let turn = state.agent.blocking_lock();
+
+    let opened_first = send(&webview, "open_project", json!({ "path": first.path() }))
+        .recv_timeout(Duration::from_secs(5));
+    let opened_second = send(&webview, "open_project", json!({ "path": second.path() }))
+        .recv_timeout(Duration::from_secs(5));
+    let project_now = state.project_dir.lock().expect("project_dir").clone();
+
+    // A key saved while the turn runs. A rebuild that took its snapshot of
+    // the state when the project was opened would not see it.
+    state.set_api_key_cache(Some("saved-during-the-turn".into()));
+
+    // Let go before asserting, so a failure here cannot leave the open
+    // waiting for ever.
+    drop(turn);
+
+    assert!(
+        opened_first.is_ok() && opened_second.is_ok(),
+        "open_project was not answered in 5 s while a turn held the agent: \
+         it waits for the turn, and so would every edit queued behind it"
+    );
+    assert_eq!(
+        project_now.as_deref(),
+        Some(second.path()),
+        "the project opened while the turn ran is the one the session is on"
+    );
+
+    // And the agent was not forgotten: once the turn is over it is rebuilt,
+    // from the state of that moment (it has a key now).
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while state.agent.blocking_lock().is_none() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the agent was never rebuilt after the turn ended"
+        );
+        std::thread::sleep(Duration::from_millis(20));
     }
 }
