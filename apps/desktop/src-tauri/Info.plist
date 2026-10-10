@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Merged into the bundle's generated Info.plist: Tauri picks up this
+         file from the directory of tauri.conf.json (see
+         https://v2.tauri.app/distribute/macos-application-bundle/). Keep to
+         keys the generated file does not set; a key here overwrites its
+         default. macOS shows this string in the microphone permission
+         dialog, and ends an app that opens the microphone without one. The
+         matching entitlement is in entitlements.plist. -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>edytlab uses the microphone to record audio into a track when you start a recording.</string>
+</dict>
+</plist>
