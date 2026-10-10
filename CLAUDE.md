@@ -74,6 +74,7 @@ This repo lives at `C:\Users\tusha\Work\Playground\Edytlab\edytlab` on Windows 1
 
 - Return type alias: `CmdResult<T>` (= `Result<T, String>`) — all commands use it; never raw `Result<T, String>`.
 - Store and engine locks must be in separate scopes: acquire and drop store lock before opening engine lock to avoid double-borrow panics. Use `let state = { let store = lock_std(...); store.get(id)? };` pattern.
+- Agent tools run off the store lock when `Tool::runs_off_the_lock()` is true (#421): `tools::Shared::dispatch` runs them on a `Store::stage()` handle and commits only if the head is unchanged, re-running on the new head (twice, then once under the lock). The default is false, and `crates/tools/tests/off_lock_tools.rs` pins the list, so opting a tool in is a reviewed change. Never wait on another lock while holding the dispatcher lock.
 
 ## Website (`website/`)
 

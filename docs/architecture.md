@@ -434,6 +434,9 @@ pub trait Tool: Send + Sync {
     /// Can a call change anything the user owns? Defaults to `true`, so a new
     /// tool is held for approval under Plan first until marked read-only.
     fn mutates(&self) -> bool { true }
+    /// May this tool run without the store lock held (#421)? Defaults to `false`:
+    /// a new tool runs under the locks until someone opts it in.
+    fn runs_off_the_lock(&self) -> bool { false }
     /// Called with `args` already validated against `input_schema`.
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> Result<ToolResult>;
 }
@@ -454,8 +457,26 @@ impl ToolDispatcher {
     pub fn tool_schemas(&self) -> Value     // sent to the LLM
     pub fn would_mutate(&self, name: &str, args: &Value, allowed: Option<&HashSet<String>>) -> bool
     pub fn invoke(&self, name: &str, args: Value, ctx: &mut ToolContext) -> Result<ToolResult>
+    // `invoke` is these two in a row. The split lets a caller admit a call under the
+    // dispatcher's lock and run it after dropping it:
+    pub fn prepare(&self, name: &str, args: &Value, allowed: Option<&HashSet<String>>) -> Result<Prepared>
+    pub fn run(prepared: &Prepared, args: Value, ctx: &mut ToolContext) -> Result<ToolResult>
 }
 ```
+
+### Off-lock tools
+
+The agent calls `tools::Shared::dispatch` (`crates/tools/src/shared.rs`), not `invoke`. It admits the call under the dispatcher's lock, alone, and drops that lock. Then:
+
+- A tool that does not say `runs_off_the_lock` takes the store, engine and clipboard locks, in that order, for the whole call. This is what every tool did before.
+- A tool that does is run on a **staged** store handle with no lock held, a fresh `Engine` and an empty clipboard. Its appends stay in memory. Then the store's lock is taken for `Store::commit`:
+  - **Published**: the head did not move, so its nodes are written and the result is returned.
+  - **Conflict**: the head moved while the tool ran, which means the user edited (a marker, a fader, an undo). That edit is kept. The tool's work is thrown away and the tool is run again on the new head, so its node parents off the user's. After `OFF_LOCK_ATTEMPTS` (2) lost races it runs once under the locks, so it always finishes.
+- A read-only tool stages nothing, so it never conflicts and is never re-run.
+
+Which tools run off the lock is pinned by name in `crates/tools/tests/off_lock_tools.rs`: the pure audio edits, `load`, `mix_to_new_track`, and the analysis tools. That test also scans each opted-in tool's source for what a staged run cannot do (clipboard, engine, nested dispatchers, history rewrites, `progress`). A tool is run on the arguments the model gave it, so a re-run after a user edit uses the same arguments on a newer head: if the user removed a track meanwhile, an index may now name a different track. That is the same hazard as the user editing right after the call.
+
+The derived-audio sweep waits while a staged handle is alive (`Store::staged_in_flight`), because the output of an off-lock tool is named by no node until it commits (rule 0 in `crates/tools/src/reclaim.rs`). Files written for a run that lost the race are orphans, and the next sweep removes them. CAS WAVs are written to a temporary name and renamed into place, so a name that exists is always a whole file.
 
 ### The Tools
 
@@ -545,8 +566,13 @@ impl Store {
     pub fn merge(&mut self, a: NodeId, b: NodeId) -> Result<NodeId>
     pub fn revert_to(&mut self, target: NodeId) -> Result<NodeId>  // lands on target itself (ids hash state); history is kept
     pub fn set_label(&mut self, id: NodeId, label: Option<String>) -> Result<()>
+    pub fn stage(&self) -> Result<Store>             // a handle for a tool that runs off the lock (#421)
+    pub fn commit(&mut self, staged: Store) -> Result<Commit>  // Published, or Conflict if the head moved
+    pub fn staged_in_flight(&self) -> usize          // staged handles alive; the sweep waits while > 0
 }
 ```
+
+A **staged** handle (`Store::stage`) is how a long tool runs without holding the store's lock. It starts at the shared head, reads node files from disk, and keeps its `append`s (and the `set_op` on them) in memory. It refuses everything that rewrites history: `set_head`, `set_label`, `remove_node`, `detach_parent`, `append_branches`, so `fork`. `Store::commit`, under the lock, writes the staged nodes and then the head file only if the shared head is still the one the handle started at. Node ids hash state alone, so that is an exact comparison, and a head that moved away and came back is no conflict. On `Conflict` nothing is written. See [Off-lock tools](#off-lock-tools).
 
 ### DAG Operations
 
@@ -868,6 +894,14 @@ engine.render_to_wav(&state.state, ...)?;
 let store = lock_std(&app_state.store, "store")?;
 let engine = lock_std(&app_state.engine, "engine")?;  // DEADLOCK RISK
 ```
+
+The agent's tool dispatch (`tools::Shared::dispatch`) follows the same order:
+
+1. The dispatcher lock is taken alone, to admit the call and clone the tool, and released. It is never held while waiting on another lock. (The agent used to take dispatcher then store, while `run_track_tool` and `batch_load` take store, engine, then dispatcher: two orders, a deadlock waiting for the right timing.)
+2. A tool that runs off the lock (see [Off-lock tools](#off-lock-tools)) takes only the store lock, twice and briefly: to stage a handle, and to commit it. Nothing is locked while it runs.
+3. Any other tool takes store, engine, then clipboard, and keeps them for the call.
+
+A command that reads the session while an off-lock tool runs gets the head as it was when the tool started. The tool's node appears when it commits, and `agent://node-created` is emitted after that, so a refresh triggered by the event sees it.
 
 ---
 

@@ -2025,7 +2025,7 @@ pub fn set_selection_context(state: State<'_, AppState>, range: Option<Range>) -
 /// Also emits a `marker-changed` event so the waveform UI can refresh
 /// its overlay without polling.
 // Off the main thread: it takes the store lock, which a running tool
-// holds for its whole length (#421).
+// can hold for its whole length (#421).
 #[tauri::command(async)]
 pub fn add_marker(
     app: AppHandle,
@@ -2065,7 +2065,7 @@ pub fn add_marker(
 ///
 /// Also emits a `marker-changed` event.
 // Off the main thread: it takes the store lock, which a running tool
-// holds for its whole length (#421).
+// can hold for its whole length (#421).
 #[tauri::command(async)]
 pub fn remove_marker(app: AppHandle, state: State<'_, AppState>, id: String) -> CmdResult<String> {
     let annotation_id = session::AnnotationId(
@@ -2102,7 +2102,7 @@ pub fn cancel_long_running_tool() -> CmdResult<()> {
 /// once. Omitted fields are left alone; a change that changes nothing
 /// appends no node.
 // Off the main thread: it takes the store lock, which a running tool
-// holds for its whole length (#421).
+// can hold for its whole length (#421).
 #[tauri::command(async)]
 pub fn update_marker(
     app: AppHandle,
@@ -2191,7 +2191,7 @@ pub struct TranscriptWordOut {
 /// can say that from an empty list — an error would make "you have not
 /// transcribed yet", which is an ordinary state, look like a fault.
 // Off the main thread: it takes the store lock, which a running tool
-// holds for its whole length (#421).
+// can hold for its whole length (#421).
 #[tauri::command(async)]
 pub fn get_transcript(state: State<'_, AppState>) -> CmdResult<Vec<TranscriptWordOut>> {
     let Some(store_arc) = state.store_handle() else {
@@ -2243,7 +2243,7 @@ pub fn cut_transcript_words(
 /// current session head as a JSON array. Each entry is the serialised
 /// [`session::Annotation`] shape.
 // Off the main thread: it takes the store lock, which a running tool
-// holds for its whole length (#421).
+// can hold for its whole length (#421).
 #[tauri::command(async)]
 pub fn list_markers(state: State<'_, AppState>) -> CmdResult<Vec<serde_json::Value>> {
     let store_arc = state.store_handle().ok_or(CommandError::NoSession)?;
@@ -2280,7 +2280,7 @@ pub fn set_head_to(state: State<'_, AppState>, node_id: String) -> CmdResult<Str
 /// Set or clear a human-readable label on a node. Pass an empty
 /// string to clear. Used by the graph view's "Rename" overlay.
 // Off the main thread: it takes the store lock, which a running tool
-// holds for its whole length (#421).
+// can hold for its whole length (#421).
 #[tauri::command(async)]
 pub fn rename_node(state: State<'_, AppState>, node_id: String, label: String) -> CmdResult<()> {
     let id = session::NodeId::from_hex(&node_id).map_err(CommandError::from)?;
@@ -2344,7 +2344,7 @@ pub struct EnvelopePointSummary {
 /// the frontend Timeline to render per-lane waveforms — without this
 /// every lane fell back to the same mix path.
 // Off the main thread: it takes the store lock, which a running tool
-// holds for its whole length (#421).
+// can hold for its whole length (#421).
 #[tauri::command(async)]
 pub fn list_tracks<R: Runtime>(
     app: AppHandle<R>,
@@ -2635,7 +2635,7 @@ pub(crate) fn set_track_muted_inner(
 /// session rather than of any track — and the toggle has to show the
 /// right state the moment a project opens, not after the first edit.
 // Off the main thread: it takes the store lock, which a running tool
-// holds for its whole length (#421).
+// can hold for its whole length (#421).
 #[tauri::command(async)]
 pub fn get_sync_lock(state: State<'_, AppState>) -> CmdResult<bool> {
     let store_arc = state.store_handle().ok_or(CommandError::NoSession)?;
