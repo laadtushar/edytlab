@@ -87,6 +87,10 @@ const NOT_A_KEY_PROBLEM: Record<string, string> = {
     400,
     '{"type":"error","error":{"type":"invalid_request_error","message":"model: claude-x not found"}}',
   ),
+  // `ai::Error::ContextTooSmall`'s own text (#395). No fix for it is in
+  // Settings' key field, so it must not offer Settings, and its words
+  // ("context", "Ollama") must not read as a credential.
+  "a model context that is too small": `ai error: The model's context window is too small for this request (it needs about 15157 tokens; the model has 8192). Start a new chat to drop the earlier messages, or choose a model with a larger context. For a local model, give it more: with Ollama, raise its context length; with llama.cpp, start the server with a larger --ctx-size.`,
   "a network failure": "ai error: http error: error sending request for url (https://api.anthropic.com/v1/messages)",
   // 401 and 403 here are seconds, not statuses.
   "a tool error with 401 and 403 in it":

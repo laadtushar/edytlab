@@ -383,6 +383,8 @@ See [architecture.md §14](./architecture.md#14-extension-points) for the full g
 
 Keychain slots need no code: they are keyed by provider id (`<id>_api_key`, `<id>_model`, `<id>_base_url`).
 
+A provider for small-context (local) models overrides `tool_set()` to return `ToolSet::Slim`, so it is sent a core of tools plus the ones a message names rather than every tool. Leave it at the default for a hosted provider; Anthropic must stay on the full list for its prompt cache. `cargo test -p ai --test request_size -- --nocapture` prints how big a first request is.
+
 The hardest part is usually stream parsing — write exhaustive tests covering partial chunks, multi-event chunks, tool call id synthesis, and the `[DONE]` sentinel.
 
 ---

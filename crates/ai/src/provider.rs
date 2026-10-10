@@ -101,6 +101,19 @@ pub enum WireFormat {
     ChatCompletions,
 }
 
+/// How much of the tool list a provider is sent with each request (#395).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolSet {
+    /// Every tool that is permitted this turn, with its full description
+    /// and schema, in the order the dispatcher lists them.
+    Full,
+    /// A core of common edits plus the tools the conversation points at,
+    /// with shortened descriptions, within a fixed size
+    /// ([`crate::tool_selection`]). For a model whose context window is
+    /// small enough that the whole list does not fit.
+    Slim,
+}
+
 /// Per-provider knobs the agent loop and validator need.
 pub trait LlmProvider: Send + Sync + Debug {
     /// Stable identifier (`"anthropic"`, `"openrouter"`, `"openai"`).
@@ -160,6 +173,18 @@ pub trait LlmProvider: Send + Sync + Debug {
     /// the server that issued them will take back.
     fn supports_effort(&self) -> bool {
         false
+    }
+
+    /// How much of the tool list each request carries.
+    ///
+    /// [`ToolSet::Full`] unless a provider says otherwise, and a provider
+    /// should only say [`ToolSet::Slim`] for models with a small context
+    /// window, which is what local models usually run with. Anthropic
+    /// must stay `Full`: its prompt cache keys on the whole tools-plus-
+    /// system prefix, so a tool list that varied with the message would
+    /// turn every message into a cache miss.
+    fn tool_set(&self) -> ToolSet {
+        ToolSet::Full
     }
 
     /// Path used to probe the key via a GET models list (OpenAI-compatible
@@ -937,6 +962,11 @@ impl LlmProvider for OllamaProvider {
     fn requires_api_key(&self) -> bool {
         false
     }
+    fn tool_set(&self) -> ToolSet {
+        // Local models usually run with a 4k to 8k context, and the whole
+        // tool list alone is several times that (#395).
+        ToolSet::Slim
+    }
     fn endpoint_path(&self) -> &str {
         "/chat/completions"
     }
@@ -1126,6 +1156,27 @@ mod tests {
     fn provider_from_id_returns_groq_and_gemini() {
         assert_eq!(provider_from_id("groq").id(), "groq");
         assert_eq!(provider_from_id("gemini").id(), "gemini");
+    }
+
+    /// Only Ollama is sent the smaller tool set (#395).
+    ///
+    /// Anthropic must not be: its prompt cache keys on the whole tool
+    /// list, so a list that varied with the message would turn every
+    /// message into a cache miss. Hosted providers take the whole list,
+    /// and changing any of them is a decision to make on its own, so a
+    /// provider added later is `Full` until someone says otherwise.
+    #[test]
+    fn only_ollama_sends_the_slim_tool_set() {
+        for id in SUPPORTED_PROVIDER_IDS {
+            let provider = provider_from_id(id);
+            assert_eq!(provider.id(), *id, "provider_from_id fell back for {id}");
+            let expected = if *id == OLLAMA_ID {
+                ToolSet::Slim
+            } else {
+                ToolSet::Full
+            };
+            assert_eq!(provider.tool_set(), expected, "for {id}");
+        }
     }
 
     #[test]

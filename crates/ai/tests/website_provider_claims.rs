@@ -2,11 +2,17 @@
 //!
 //! The landing FAQ told visitors that Ollama was *"planned for v1 phase
 //! 3"* and that local models got *"a simplified tool surface"*. Both
-//! were untrue: Ollama shipped in #126, and no provider-conditioned
-//! tool narrowing has ever existed — the only whitelist is keyed on the
-//! active agent profile. Meanwhile four other places on the same site
-//! advertised Ollama as working, including the changelog entry
+//! were untrue when it was written: Ollama shipped in #126, and no
+//! provider-conditioned tool narrowing existed — the only whitelist was
+//! keyed on the active agent profile. Meanwhile four other places on the
+//! same site advertised Ollama as working, including the changelog entry
 //! announcing it.
+//!
+//! Since #395 the second claim is true: Ollama is sent a smaller set of
+//! tools (`LlmProvider::tool_set`), so "a simplified tool surface" is no
+//! longer banned below. Only the "planned" phrases are. The local-model
+//! page describes the real thing, and a test here ties that sentence to
+//! the code, so the claim cannot outlive the behaviour.
 //!
 //! Someone evaluating the app for offline use reads the answer written
 //! for exactly that question and is told the capability is unbuilt, on
@@ -129,19 +135,17 @@ fn the_faq_does_not_call_a_shipped_provider_unbuilt() {
     }
     let src = faq();
 
-    // The specific stale sentences from #261, and the general shapes
-    // they belong to. "phase 3" is the one that was actually there;
-    // the rest are the ways the same claim tends to get rewritten.
+    // The stale "planned" sentences from #261, and the general shape they
+    // belong to. "phase 3" is the one that was actually there; the rest is
+    // the way the same claim tends to get rewritten.
     for stale in [
         "planned for v1 phase 3",
-        "simplified tool surface",
         "Ollama (Qwen, Llama 3, etc.) are planned",
     ] {
         assert!(
             !src.contains(stale),
-            "the FAQ still says {stale:?}. Ollama is a registered provider and there is no \
-             provider-conditioned tool filtering anywhere in the codebase — the only whitelist \
-             is keyed on the agent profile."
+            "the FAQ still says {stale:?}. Ollama is a registered provider, shipped since #126; \
+             the tool narrowing it gets is described on the local-model page, not promised here."
         );
     }
 }
@@ -172,5 +176,38 @@ fn the_keyless_claim_matches_the_provider() {
         faq().contains("no API key"),
         "the FAQ no longer says Ollama is keyless — that is allowed, but this test has to be \
          told, or it silently stops guarding the claim"
+    );
+}
+
+/// The local-model page says Ollama is sent a smaller set of tools, and
+/// that is only true while the provider asks for one.
+///
+/// Pinned both ways, like the keyless claim above: if `tool_set()` is
+/// ever changed back to the full list, the page must stop saying so, and
+/// if the page's sentence is removed this test has to be told rather than
+/// silently guarding nothing.
+#[test]
+fn the_local_model_page_describes_the_slim_tool_set_only_while_ollama_has_one() {
+    if !SUPPORTED_PROVIDER_IDS.contains(&"ollama") {
+        return; // Removed as a provider; the page is free to say so.
+    }
+    let ollama = ai::provider::provider_from_id("ollama");
+    assert_eq!(ollama.id(), "ollama", "provider_from_id fell back");
+    let page = read_website("app/use-cases/local-ai-audio-editor/page.tsx");
+    // The page wraps its prose across lines, so compare on words.
+    let words = page.split_whitespace().collect::<Vec<_>>().join(" ");
+    let claims_it = words.contains("smaller set of tools");
+    let has_it = ollama.tool_set() == ai::ToolSet::Slim;
+    assert_eq!(
+        claims_it,
+        has_it,
+        "the local-model page {} a smaller set of tools for Ollama, but OllamaProvider::tool_set() \
+         is {:?}",
+        if claims_it {
+            "claims"
+        } else {
+            "does not mention"
+        },
+        ollama.tool_set()
     );
 }

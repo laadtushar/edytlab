@@ -73,6 +73,8 @@ Keys are stored via the [`keyring`](https://crates.io/crates/keyring) crate — 
 
 The model picker is a combo (free-form input + curated suggestions from the live catalogue) so a brand-new model id works the moment you know it.
 
+Ollama is sent a smaller set of tools than the hosted providers: the common edits plus any tool your message names, with shortened descriptions, so a first request fits a small local context (see [Request size and small-context models](docs/architecture.md#request-size-and-small-context-models)). A tool that is not offered still runs if the model calls it.
+
 ## Architecture
 
 ```

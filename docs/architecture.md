@@ -325,6 +325,72 @@ The shared approval path (arming the gate, the five-minute timeout, the card's
 steps, the bookkeeping for a step that does not run) is
 `crates/ai/src/approval.rs`.
 
+### Request size and small-context models
+
+A request is the system prompt, the tool schemas and the conversation. For a
+one-line message the tool schemas are nearly all of it, which a local model
+with a small context cannot take: the native end-to-end run sent "Make track 0
+louder by 6 dB." and a local server with an 8,192-token context refused it
+(#395). `crates/ai/tests/request_size.rs` drives the real `Agent` against a mock
+server, takes the first streaming request, and prints its parts. Read them with
+
+```
+cargo test -p ai --test request_size -- --nocapture
+```
+
+At the time of writing:
+
+| Request | System prompt | Tool schemas | Total |
+|---------|---------------|--------------|-------|
+| Anthropic (every tool) | 1.2 KB | 54 KB | 55.5 KB |
+| A chat-completions provider sent every tool | 1.2 KB | 57 KB | 58 KB |
+| Ollama (slim set) | 1.2 KB | 6.3 KB | 7.6 KB |
+
+The system prompt is a kilobyte, so the fix is fewer and terser tools, and only
+for the provider that needs it. `LlmProvider::tool_set()` says which:
+
+- **`ToolSet::Full`** (the default, and every hosted provider): every tool the
+  turn permits, as the dispatcher lists them. **Anthropic must stay `Full`.**
+  Its prompt cache keys on the whole tools-plus-system prefix, so a tool list
+  that varied with the message would make every message a cache miss. That path
+  is not touched. `request_size.rs` pins that Anthropic is sent every registered
+  tool with the `cache_control` breakpoints, and ratchets the system prompt and
+  the tool schemas separately, so growth shows up as a failing test whose
+  message says to raise the constant deliberately.
+- **`ToolSet::Slim`** (Ollama): `crates/ai/src/tool_selection.rs` builds the
+  list once per turn from the tools the turn permits (so a disabled tool is
+  never brought back), in this order of priority: tools the user's message
+  names (by name or by a distinctive word of it: "reverb", "pitch it up",
+  "reversed", the first mentioned first; words that appear in many tool names,
+  such as `track` or `region`, name none), the core list `SLIM_CORE_TOOLS` (the
+  edits a message does not name: cut, pan, undo, export, gain), tools the system
+  prompt points at in backticks (a profile or a matched skill) and tools the
+  model has already called in the conversation. They are added while the
+  compacted descriptors stay within `SLIM_TOOLS_BUDGET_BYTES`, then sorted by
+  name. If everything permitted already fits (a small agent profile), all of it
+  is sent. Each description is cut to its first sentence and the keywords the
+  model can do without (`default`, `examples`, `title`, `additionalProperties:
+  false`) are dropped; names, types, enums, bounds and `required` are kept.
+
+Three things stay as they were. The set is worked out once per turn, so every
+round trip sends the same tools in the same order and llama.cpp can keep the
+prompt it has already processed. The dispatcher still validates a call against
+the tool's full schema, so shortening what the model reads loosens nothing. And
+permission is the whitelist, not the slim set: a permitted tool the model calls
+without having been shown it still runs.
+
+When the context is still too small (a long conversation, or a large profile),
+a 400 or 413 whose body says so becomes `Error::ContextTooSmall`
+(`crates/ai/src/context_window.rs`) instead of "the model provider returned an
+error". It recognises llama.cpp's `exceed_context_size_error`, the
+`context_length_exceeded` code, and the wording of OpenAI, Anthropic and Gemini,
+and carries the token counts when the server gave them. Its text names no
+provider and says what to change (a new chat, a larger context, for Ollama its
+context length, for llama.cpp `--ctx-size`). Ollama's own server typically
+truncates an over-long prompt to its context length instead of refusing it, so
+for Ollama the bound on the first request is what protects the model; the error
+covers servers that do refuse.
+
 ### LlmProvider Trait
 
 The single extension point for new LLM providers. Located at `crates/ai/src/provider.rs`.
@@ -340,6 +406,7 @@ pub trait LlmProvider: Send + Sync + Debug {
     fn endpoint_path(&self) -> &str { "/v1/messages" }
     fn wire_format(&self) -> WireFormat { WireFormat::AnthropicMessages }
     fn requires_api_key(&self) -> bool { true }
+    fn tool_set(&self) -> ToolSet { ToolSet::Full } // Slim for Ollama only
     fn supports_effort(&self) -> bool { false } // true for Anthropic only
     fn list_models_path(&self) -> &str { "/v1/models" }
     fn serialize_request(&self, req: &MessagesRequest) -> Value;
@@ -357,7 +424,7 @@ pub trait LlmProvider: Send + Sync + Debug {
 | `openai` | `https://api.openai.com` | `Authorization: Bearer` | `gpt-4o-mini` | Full translation: Anthropic shape → chat-completions → back |
 | `groq` | `https://api.groq.com/openai` | `Authorization: Bearer` | `llama-3.3-70b-versatile` | Chat-completions; reuses `OpenAIProvider`'s translation |
 | `gemini` | `https://generativelanguage.googleapis.com/v1beta/openai` | `Authorization: Bearer` | `gemini-2.0-flash` | Gemini's OpenAI-compatible endpoint; reuses the same translation |
-| `ollama` | `http://localhost:11434/v1` | none (`requires_api_key() == false`) | `llama3.2` | Local daemon, OpenAI-compatible; reuses the same translation |
+| `ollama` | `http://localhost:11434/v1` | none (`requires_api_key() == false`) | `llama3.2` | Local daemon, OpenAI-compatible; reuses the same translation. The only provider sent the slim tool set (see [Request size](#request-size-and-small-context-models)) |
 
 Every provider's base URL can be overridden per provider from Settings (`<provider>_base_url` in the keychain).
 
@@ -956,7 +1023,7 @@ Full end-to-end trace from user input to UI update:
 4. Give it an arm in `list_models_for_at()` in `crates/ai/src/models.rs`, or picking it shows "unsupported provider id" where the model list belongs
 5. Update the `ProviderId` TypeScript union in `tauri-bridge.ts` and the `PROVIDERS` list in `components/Settings.tsx`
 
-No per-provider keychain code is needed: the slots are keyed by provider id (`<id>_api_key`, `<id>_model`, `<id>_base_url`), and the commands in `commands.rs` check ids against `SUPPORTED_PROVIDER_IDS`. A keyless provider overrides `requires_api_key()`.
+No per-provider keychain code is needed: the slots are keyed by provider id (`<id>_api_key`, `<id>_model`, `<id>_base_url`), and the commands in `commands.rs` check ids against `SUPPORTED_PROVIDER_IDS`. A keyless provider overrides `requires_api_key()`. A provider whose models usually run with a small context window (a local one) overrides `tool_set()` to `ToolSet::Slim`; every hosted provider keeps the default, `Full`, and Anthropic must, for its prompt cache (see [Request size and small-context models](#request-size-and-small-context-models)).
 
 ### Adding a New Tool
 
@@ -965,6 +1032,7 @@ No per-provider keychain code is needed: the slots are keyed by provider id (`<i
 3. Register it in `ToolDispatcher::default_dispatcher()` in `crates/tools/src/dispatcher.rs`
 4. Tests: cover happy path, invalid input, edge cases (empty session, out-of-range times)
 5. Regenerate [tools-reference.md](./tools-reference.md) (`UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc`) and add the tool to `website/app/docs/tools/page.tsx` — both are checked by tests
+6. Nothing to do for local models: Ollama is sent a core of common tools plus the ones a message names, so a new tool reaches it by being named. If it is an edit a small model should see without being asked, add it to `SLIM_CORE_TOOLS` in `crates/ai/src/tool_selection.rs`; a test holds the core's compacted size within its budget
 
 ### Adding a Skill
 
