@@ -186,6 +186,72 @@ function emptyProject(): Backend {
   };
 }
 
+/**
+ * A Linux machine with no Secret Service running: the keychain answers
+ * every read, but nothing saved to it survives a reboot.
+ *
+ * `get_keychain_persistence` is `ai::keychain::persistence().into()`, and
+ * `probe` turns an unreachable service (the keyring's `PlatformFailure`)
+ * into `SessionOnly { reason: e.to_string() }`, which `From` maps to
+ * `persistent: false` with that reason. The reason is the text a real run
+ * produced with `DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent`, the
+ * way a box with no session bus answers (release-candidate run of
+ * e2b4c30). It is not decoration: the warning Settings draws is that
+ * sentence plus this reason, and its length is what decides how tall the
+ * dialog is.
+ */
+export function sessionOnlyKeychain(): Backend {
+  return {
+    get_keychain_persistence: ok({
+      persistent: false,
+      reason:
+        "Platform secure storage failure: DBus error: Failed to connect to socket /nonexistent: No such file or directory",
+    }),
+  };
+}
+
+/**
+ * What Settings' Save sends, answered as the backend does: each of these
+ * is a `CmdResult<()>`, which serialises as `null`. Save writes the base
+ * URL and the reasoning level once their reads have answered (the
+ * defaults here do), then the key, then the model.
+ */
+export function savingSettings(): Backend {
+  return {
+    set_base_url_for: ok(null),
+    set_effort_for: ok(null),
+    set_api_key_for: ok(null),
+    set_active_model: ok(null),
+  };
+}
+
+/**
+ * What the Settings panel's other tabs ask for when opened on a fresh
+ * profile.
+ *
+ * - `get_project_meta`: `read_meta` of the default project, which has no
+ *   `project.json`, so `ProjectMeta::from_dir` — the folder's name
+ *   (`default-project`, `lib.rs`) and nothing else, since every other
+ *   field is skipped when empty.
+ * - `read_memory`: `MemoryStore::read`, `""` for a file never written.
+ * - `list_skills`, `list_agent_profiles`, `list_mcp_servers`: no entries.
+ *   A first launch installs the bundled skills, but the editor is a
+ *   fixed `h-[28rem]` whatever its list holds, so the dialog is no
+ *   different for it.
+ * - `get_active_agent_profile`: `AppState::active_agent_profile`, `None`
+ *   until one is chosen.
+ */
+export function settingsTabs(): Backend {
+  return {
+    get_project_meta: ok({ name: "default-project" }),
+    read_memory: ok(""),
+    list_skills: ok([]),
+    list_agent_profiles: ok([]),
+    get_active_agent_profile: ok(null),
+    list_mcp_servers: ok([]),
+  };
+}
+
 /** The very first launch: no key, and nothing in the project yet. */
 export function firstRun(): Backend {
   return { ...bootCommands({ hasKey: false }), ...emptyProject() };
