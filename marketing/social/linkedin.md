@@ -1,4 +1,4 @@
-# LinkedIn: v0.3.0 and the DJ demo
+# LinkedIn: v0.4.0 and the DJ demo
 
 **Links:** site <https://edytlab.com> · download
 <https://github.com/laadtushar/edytlab/releases/latest>
@@ -10,7 +10,7 @@ comment, which you post right after publishing.
 ## Post
 
 ```
-I've released edytlab 0.3.0, a free, open-source desktop audio editor you drive by describing what you want.
+I've released edytlab 0.4.0, a free, open-source desktop audio editor you drive by describing what you want.
 
 The demo is a DJ transition. The request: get both tracks' tempos, time-stretch the incoming track to match, start it 8 bars before the outgoing one ends, crossfade, put a low-pass on the outgoing track, compress and limit the mix, bring it to -14 LUFS, export a WAV. An AI agent turns that into calls to audio tools, step by step. (The recording is 3:08, with sound; the waits for the agent are sped up. In it the agent also points out a spot where the bars land a beat apart.)
 
@@ -37,9 +37,9 @@ Demo, docs and the DJ walkthrough: https://edytlab.com
 Source (MIT): https://github.com/laadtushar/edytlab
 ```
 
-## Optional second post, once PR #432 is live
+## Optional second post
 
 Same format, built around the extended-intro demo with sound.
 `https://edytlab.com/demos/dj-extended-club-intro.mp4`. Describe only what the recording shows; read the
-caption in `website/lib/demos.ts` after #432 lands and quote it, rather than
-writing from memory.
+caption in `website/lib/demos.ts` and quote it, rather than writing from
+memory.

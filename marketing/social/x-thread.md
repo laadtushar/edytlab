@@ -1,4 +1,4 @@
-# X thread: v0.3.0 and the DJ demo
+# X thread: v0.4.0 and the DJ demo
 
 **Links:** site <https://edytlab.com> · download
 <https://github.com/laadtushar/edytlab/releases/latest>
@@ -7,8 +7,7 @@ Attach the demo to post 1. Upload
 `website/public/demos/dj-beatmatched-transition.mp4` (2.4 MB, 3:08) directly
 as native video, rather than linking to it. Put links in post 8, not post 1.
 
-Each post is 280 characters or fewer (counted by script). Replace nothing in
-brackets until the extended-intro demo (PR #432) is on the site.
+Each post is 280 characters or fewer (counted by script).
 
 ---
 
@@ -55,7 +54,7 @@ It's for prep, not live use. And in the demo, the agent itself flags a spot wher
 **6/8**
 
 ```
-v0.3.0 is out. Highlights: playback works on Linux and macOS again, the assistant knows the session it's editing ("fade out the last two seconds" now fades), and the window no longer freezes during long edits.
+v0.4.0 is out. Highlights: Play works straight after opening a file or making an edit, the assistant's replies render lists, bold and tables, a request with many steps finishes instead of ending in an error, and the limiter limits instead of hard-clipping.
 ```
 
 **7/8**
@@ -71,7 +70,9 @@ Download for macOS (universal), Windows or Linux: https://github.com/laadtushar/
 
 Demo and docs: https://edytlab.com
 
-MIT-licensed. Tell me which edit you'd ask for first. [EXTENDED-INTRO DEMO LINK, when #432 is live]
+MIT-licensed. Tell me which edit you'd ask for first.
+
+Another demo: https://edytlab.com/demos/dj-extended-club-intro.mp4
 ```
 
 ---
@@ -80,6 +81,6 @@ MIT-licensed. Tell me which edit you'd ask for first. [EXTENDED-INTRO DEMO LINK,
 
 - If you pin one post, pin post 1.
 - Reply to questions with the issue number when one exists.
-- Post 6 repeats the v0.3.0 release notes. Check them against
+- Post 6 repeats the v0.4.0 release notes. Check them against
   <https://github.com/laadtushar/edytlab/releases/latest> before posting; if
   there is a newer release, rewrite that post.
