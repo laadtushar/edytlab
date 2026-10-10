@@ -13,16 +13,19 @@ import { existsSync, mkdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { assert, head, waitForNewHead } from "./helpers.mjs";
 import { toolBadges } from "./agent.mjs";
-import { ask, askThrough, effectsOf, near, okBadges, ready, reply, setPlanFirst, tracks } from "./claude.mjs";
+import { askThrough, effectsOf, near, okBadges, ready, reply, setPlanFirst, tracks } from "./claude.mjs";
 import { flacInfo, levelSpreadDb, looksLikeMp3, lufs, mono, peakHz, readWav, reversedError, rmsBetween, tiltDb } from "./measure.mjs";
 
 const KEY = process.env.ANTHROPIC_E2E_KEY;
 
-/** One turn: ask, wait, and return only the tool badges this turn added (the
- * chat keeps every badge from every turn). */
+/** One turn: ask, run any plan card the app shows, wait, and return only the
+ * tool badges this turn added (the chat keeps every badge from every turn).
+ * A request with more than one step can come back as a plan to approve
+ * (#415), whichever model answers; a person would press Run, so the story
+ * does too, and notes the plan it ran. */
 async function turn(ctx, text) {
   const seen = (await toolBadges(ctx)).length;
-  return (await ask(ctx, text)).slice(seen);
+  return (await askThrough(ctx, text, text.slice(0, 48))).slice(seen);
 }
 
 const summary = (badges) => badges.map((b) => `${b.text}:${b.status}`).join(", ") || "none";
