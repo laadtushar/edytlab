@@ -45,7 +45,11 @@
 //!    args, or args that fail schema validation), we send back a
 //!    `tool_result` with `is_error: true` and let the model retry once;
 //!    if it errors a second time on the same tool call, the loop bails
-//!    with [`crate::Error::ToolValidation`].
+//!    with [`crate::Error::ToolValidation`]. Bailing answers the step
+//!    first: the failing call gets an error that says why, the calls before
+//!    it keep their results, and the calls after it are answered "not run".
+//!    The history is never left ending in a `tool_use` with no
+//!    `tool_result`, because that is a 400 on every later message (#486).
 //!
 //! `on_event` is `FnMut(AgentEvent)` and synchronous: this keeps the API
 //! ergonomic for the Tauri command layer that just pushes each event
@@ -1286,26 +1290,42 @@ where
             }
         }
 
+        // The step's `tool_use`s are all in the assistant message stored
+        // above, so every one of them has to be answered in the user message
+        // that follows it, whichever way this loop is left. `tool_results`
+        // is that message in the making. The two exits below that end the
+        // turn in an error close it first, with `close_failed_step`, rather
+        // than return with the step unanswered: a history that ends in a
+        // `tool_use` with no `tool_result` is a 400 on the user's next
+        // message, and on every one after it (#486).
         let mut tool_results: Vec<ContentBlock> = Vec::with_capacity(tool_uses.len());
-        for (id, name, args_json) in tool_uses {
+        for (at, (id, name, args_json)) in tool_uses.iter().enumerate() {
             total_tool_calls += 1;
 
-            let args: Value = match parse_tool_args(&args_json) {
+            let args: Value = match parse_tool_args(args_json) {
                 Ok(v) => v,
                 Err(e) => {
                     consecutive_validation_errors += 1;
-                    if consecutive_validation_errors > 1 {
-                        return Err(Error::ToolValidation(format!(
-                            "tool {name} args malformed twice; bailing: {e}"
-                        )));
-                    }
                     on_event(AgentEvent::ToolCallEnd {
                         id: id.clone(),
                         ok: false,
                         view: None,
                     });
+                    if consecutive_validation_errors > 1 {
+                        close_failed_step(
+                            &mut on_event,
+                            conversation,
+                            tool_results,
+                            id,
+                            format!("tool args were not valid JSON: {e}. {TURN_STOPPED}"),
+                            &tool_uses[at + 1..],
+                        );
+                        return Err(Error::ToolValidation(format!(
+                            "tool {name} args malformed twice; bailing: {e}"
+                        )));
+                    }
                     tool_results.push(ContentBlock::ToolResult {
-                        tool_use_id: id,
+                        tool_use_id: id.clone(),
                         content: format!(
                             "tool args were not valid JSON: {e}. retry once with a valid JSON object."
                         ),
@@ -1329,7 +1349,7 @@ where
                     clipboard: &mut clipboard_g,
                     allowed_tools: allowed_tools.as_ref(),
                 };
-                d.invoke(&name, args, &mut ctx)
+                d.invoke(name, args, &mut ctx)
             };
 
             match result {
@@ -1351,7 +1371,7 @@ where
                         view: None,
                     });
                     tool_results.push(ContentBlock::ToolResult {
-                        tool_use_id: id,
+                        tool_use_id: id.clone(),
                         content: format!(
                             "`{tool}` is turned off for this turn. Do not try it again; \
                              use one of the tools you were given, or say what you would \
@@ -1365,19 +1385,26 @@ where
                     // to the model as a tool_result error and let it
                     // retry once.
                     consecutive_validation_errors += 1;
-                    let is_unrecoverable = consecutive_validation_errors > 1;
                     on_event(AgentEvent::ToolCallEnd {
                         id: id.clone(),
                         ok: false,
                         view: None,
                     });
-                    if is_unrecoverable {
+                    if consecutive_validation_errors > 1 {
+                        close_failed_step(
+                            &mut on_event,
+                            conversation,
+                            tool_results,
+                            id,
+                            format!("{dispatch_err}\n{TURN_STOPPED}"),
+                            &tool_uses[at + 1..],
+                        );
                         return Err(Error::ToolValidation(format!(
                             "tool {name} failed validation twice: {dispatch_err}"
                         )));
                     }
                     tool_results.push(ContentBlock::ToolResult {
-                        tool_use_id: id,
+                        tool_use_id: id.clone(),
                         content: format!("{dispatch_err}"),
                         is_error: Some(true),
                     });
@@ -1397,7 +1424,7 @@ where
                     // chart's bulk can come out of the model's copy.
                     strip_view_only_fields(&mut value);
                     tool_results.push(ContentBlock::ToolResult {
-                        tool_use_id: id,
+                        tool_use_id: id.clone(),
                         content: serde_json::to_string(&value).unwrap_or_else(|_| "{}".to_string()),
                         is_error: None,
                     });
@@ -1410,7 +1437,7 @@ where
                         view: None,
                     });
                     tool_results.push(ContentBlock::ToolResult {
-                        tool_use_id: id,
+                        tool_use_id: id.clone(),
                         content: msg,
                         is_error: Some(true),
                     });
@@ -1489,6 +1516,61 @@ fn budget_reached_result() -> String {
          this call was not made and changed nothing. Make no more tool calls in this reply. \
          Tell the user what has been done and what is left, so they can ask you to continue."
     )
+}
+
+/// What a failing call is told when its failure is the second in a row and
+/// ends the turn, after what went wrong. The model reads it with the user's
+/// next message, so it says what happened and not to repeat it.
+const TURN_STOPPED: &str = "This is the second failed call in a row, so the turn was stopped. \
+     Do not send the same arguments again; check them against the tool's schema.";
+
+/// What the calls of a step that a failing call cut short are told: they
+/// come after it in the same message, were never reached, and changed
+/// nothing.
+const STEP_STOPPED: &str = "Not run: an earlier call in this step failed twice in a row, \
+     so the turn was stopped before this call was made. It changed nothing.";
+
+/// Answer every call of a step whose turn is about to end in an error, so
+/// the history it leaves behind is valid for the next message (#486).
+///
+/// The assistant message holding the step's `tool_use`s is already stored
+/// and must stay as it is: the history is append-only within a turn, so
+/// that thinking blocks stay in the prefix they were signed under (#484),
+/// and nothing is rolled back. What is missing is the answer to it, which
+/// is one user message with a `tool_result` for each call, in the order the
+/// calls were made:
+///
+/// * `answered` are the results of the calls before the failing one, kept
+///   as they are. They ran; their edits are in the session, and the model
+///   must read that and not that they were skipped.
+/// * the failing call `failed_id` is answered `failure`, an error that says
+///   what was wrong, and its badge is ended by the caller before this runs.
+/// * `unreached` are the calls after it, which never ran. Each is answered
+///   as not run, and its badge resolved as such.
+///
+/// The user's next message then joins this message, after its results, as
+/// [`approval::push_user_text`] does for every turn that ended on one.
+fn close_failed_step(
+    on_event: &mut impl FnMut(AgentEvent),
+    conversation: &mut Vec<Message>,
+    mut answered: Vec<ContentBlock>,
+    failed_id: &str,
+    failure: String,
+    unreached: &approval::Calls,
+) {
+    answered.push(ContentBlock::ToolResult {
+        tool_use_id: failed_id.to_string(),
+        content: failure,
+        is_error: Some(true),
+    });
+    approval::not_run_after(
+        on_event,
+        conversation,
+        answered,
+        unreached,
+        STEP_STOPPED,
+        None,
+    );
 }
 
 /// What the user is shown when the model, asked to summarise after the
