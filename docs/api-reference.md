@@ -421,7 +421,16 @@ const { models, source } = await bridge.listModelsFor("anthropic");
 
 ### `getActiveModel(provider: ProviderId) → string`
 
-Returns the model ID currently selected for the provider.
+Returns the model ID currently selected for the provider, or an empty string
+when none has been chosen.
+
+**Throws:** Error string when the app's launch-time keychain reads could not
+restore the chosen models (a locked keyring, a dismissed unlock prompt) and
+nothing is known for this provider. That is not the empty string: "none
+chosen" would be what the map lacks, not what the keychain says, and a caller
+that saved the model it showed would overwrite the stored one. A model chosen
+since, or restored before the refusal, is still answered. Pending, like
+`hasApiKey`, while the launch-time reads are still going.
 
 ### `setActiveModel(provider: ProviderId, model: string) → void`
 

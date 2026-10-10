@@ -293,9 +293,14 @@ export function Settings({
   // the startup prompts (#497).
   const [baseUrlKnown, setBaseUrlKnown] = useState(false);
   const [effortKnown, setEffortKnown] = useState(false);
+  // The model field is the same case. It starts as what this browser
+  // remembers or the provider's default, which is a thing to show, not a
+  // thing that was read; the backend's answer is what makes it known.
+  const [modelKnown, setModelKnown] = useState(false);
   // Why a read failed, per field, for the note that says Save leaves it be.
   const [baseUrlUnread, setBaseUrlUnread] = useState<string | null>(null);
   const [effortUnread, setEffortUnread] = useState<string | null>(null);
+  const [modelUnread, setModelUnread] = useState<string | null>(null);
   const [test, setTest] = useState<TestState>({ kind: "idle" });
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -474,21 +479,34 @@ export function Settings({
   // localStorage stays the immediate value so the control is never
   // blank while the IPC is in flight, and remains the answer when the
   // backend has no opinion yet (nothing chosen for this provider).
+  //
+  // An answer, empty or not, is what makes the field known (see
+  // `modelKnown`). A rejection is not one: after a startup the keychain
+  // refused, the chosen model was never restored, and the backend says so
+  // instead of answering "none chosen" (#497). The stored value stays on
+  // screen then, and Save leaves the model alone.
   useEffect(() => {
     setModel(readStoredModel(provider));
+    // Another provider's model is not this one's, and until this one's
+    // read answers there is nothing here to save.
+    setModelKnown(false);
+    setModelUnread(null);
 
     let cancelled = false;
     void getActiveModel(provider)
       .then((active) => {
-        if (cancelled || !active.trim()) return;
+        if (cancelled) return;
+        setModelKnown(true);
+        if (!active.trim()) return;
         setModel(active);
         if (typeof window !== "undefined") {
           window.localStorage.setItem(modelStorageKey(provider), active);
         }
       })
-      .catch(() => {
-        // Not worth an error banner: the stored value is still a
-        // reasonable thing to show, and saving will reconcile them.
+      .catch((err) => {
+        // No error banner: the stored value is still a reasonable thing
+        // to show, and a note under the field says why Save skips it.
+        if (!cancelled) setModelUnread(String(err));
       });
     return () => {
       cancelled = true;
@@ -629,6 +647,8 @@ export function Settings({
   const handleModelChange = useCallback(
     (next: string) => {
       setModel(next);
+      // Typed over: the user means this, whatever was stored.
+      setModelKnown(true);
       if (typeof window !== "undefined") {
         window.localStorage.setItem(modelStorageKey(provider), next);
       }
@@ -687,7 +707,9 @@ export function Settings({
       } else {
         await setActiveProvider(provider);
       }
-      if (model.trim()) {
+      // Only a model this form knows (see `modelKnown`): the field of a
+      // read that was refused is the browser's memory or the default.
+      if (modelKnown && model.trim()) {
         try {
           await setActiveModel(provider, model);
         } catch {
@@ -707,6 +729,7 @@ export function Settings({
     needsKey,
     provider,
     model,
+    modelKnown,
     baseUrl,
     baseUrlKnown,
     effort,
@@ -1317,6 +1340,16 @@ export function Settings({
               <option key={s.id} value={s.id} label={s.label} />
             ))}
           </datalist>
+          {modelUnread !== null && !modelKnown ? (
+            <p
+              data-testid="settings-model-unread"
+              role="status"
+              className="mb-1 text-xs text-[var(--warning)]"
+            >
+              Couldn&apos;t read the saved model from the system keychain, so
+              Save leaves it as it is. ({modelUnread})
+            </p>
+          ) : null}
           {modelHint ? (
             <p
               data-testid={

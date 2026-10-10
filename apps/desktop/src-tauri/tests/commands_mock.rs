@@ -352,7 +352,7 @@ fn has_api_key_is_pending_until_the_startup_reads_finish() {
 }
 
 /// The default provider is not an answer while it is still being read,
-/// and neither is "no model chosen yet".
+/// and neither is "no model chosen yet", once it is known why none is.
 #[test]
 fn the_active_provider_and_model_wait_for_the_startup_reads_too() {
     let (waited, answer) = call_while_startup_reads_are_pending("get_active_provider", json!({}));
@@ -364,7 +364,10 @@ fn the_active_provider_and_model_wait_for_the_startup_reads_too() {
         json!({ "provider": "anthropic" }),
     );
     assert_held(waited);
-    assert_eq!(answer, Ok(json!("")), "nothing chosen, once it may say so");
+    // The stash is "locked", so no model is known for lack of a read, and
+    // that is what it says rather than "none chosen".
+    let reason = answer.expect_err("the models were never read");
+    assert!(reason.contains("locked"), "{reason}");
 }
 
 /// #497 item 4. A restart from Settings after a startup the keychain

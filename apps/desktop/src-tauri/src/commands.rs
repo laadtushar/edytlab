@@ -1170,10 +1170,62 @@ pub async fn set_active_model(
 
 /// Read the model id currently selected for `provider`. Empty string
 /// when nothing has been chosen yet.
+///
+/// Rejects when startup could not read the keychain and nothing is known
+/// for `provider` (see [`active_model_answer`]): "nothing chosen" is then
+/// what the map lacks, not what the keychain says, and Settings would save
+/// what its field shows over the stored model (#497).
 #[tauri::command]
 pub async fn get_active_model(state: State<'_, AppState>, provider: String) -> CmdResult<String> {
     state.startup_reads_settled().await;
-    Ok(state.model_for(&provider).unwrap_or_default())
+    active_model_answer(models_unread_reason(&state), state.model_for(&provider))
+}
+
+/// The answer to [`get_active_model`]: the model known for the provider,
+/// else "none chosen" if startup read the keychain cleanly, else the
+/// reason it could not.
+///
+/// A model that is known is an answer whatever startup found. It was
+/// restored before the refusal ended the reads, or chosen since.
+fn active_model_answer(unread: Option<String>, known: Option<String>) -> CmdResult<String> {
+    match (known, unread) {
+        (Some(model), _) => Ok(model),
+        (None, Some(why)) => Err(why),
+        (None, None) => Ok(String::new()),
+    }
+}
+
+/// Why startup's keychain reads left the chosen models unrestored, if
+/// they did. Startup stops at the first refusal, so the models after it
+/// were never read; a read that failed some other way (the stash) may have
+/// been one of the models'. Either way an empty map entry proves nothing.
+fn models_unread_reason(state: &AppState) -> Option<String> {
+    refusal_note(state).or_else(|| {
+        state
+            .keychain_read_error()
+            .map(|reason| format!("the keychain could not be read at launch ({reason})"))
+    })
+}
+
+/// Why the keychain is not asked, if startup found it refusing access
+/// ([`AppState::keychain_refused`]); `None` while it is not known to.
+///
+/// Each further read of a locked Secret Service raises its own unlock
+/// prompt, right after the user dismissed the first, so what is read on
+/// the user's behalf only because a panel opened is refused up front with
+/// this instead (#497). The reason alone, in words for Settings' "Save
+/// leaves it as it is" note.
+fn refusal_note(state: &AppState) -> Option<String> {
+    if !state.keychain_refused() {
+        return None;
+    }
+    let why = state
+        .keychain_read_error()
+        .map(|reason| format!(" ({reason})"))
+        .unwrap_or_default();
+    Some(format!(
+        "the keychain refused access at launch{why}, so it was not asked again"
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -6596,6 +6648,54 @@ mod tests {
             active_provider_answer(None, "openrouter".into()),
             Ok("openrouter".to_string())
         );
+    }
+
+    /// The bug: after a startup the keychain refused, the models were never
+    /// restored, and "no model" came back as the empty answer Settings reads
+    /// as "none chosen". A model that is known is an answer all the same.
+    #[test]
+    fn a_model_is_not_answered_as_none_chosen_while_startup_left_it_unread() {
+        let why = || Some("the keychain refused access at launch".to_string());
+        assert_eq!(
+            active_model_answer(why(), None),
+            Err("the keychain refused access at launch".to_string())
+        );
+        assert_eq!(
+            active_model_answer(why(), Some("claude-opus-5".into())),
+            Ok("claude-opus-5".to_string()),
+            "restored before the refusal, or chosen since"
+        );
+        assert_eq!(active_model_answer(None, None), Ok(String::new()));
+        assert_eq!(
+            active_model_answer(None, Some("claude-opus-5".into())),
+            Ok("claude-opus-5".to_string())
+        );
+    }
+
+    /// Both ways startup can leave the models unread count: a refusal ends
+    /// the reads, and a failed read may have been a model's own.
+    #[test]
+    fn the_models_are_unread_after_a_refusal_or_after_any_failed_read() {
+        let clean = AppState::default();
+        assert_eq!(models_unread_reason(&clean), None);
+
+        let failed = AppState::default();
+        failed.set_keychain_read_error(Some("ambiguous".into()));
+        let reason = models_unread_reason(&failed).expect("a failed read");
+        assert!(
+            reason.contains("could not be read") && reason.contains("ambiguous"),
+            "{reason}"
+        );
+
+        let refused = AppState::default();
+        refused.set_keychain_refused(true);
+        let reason = models_unread_reason(&refused).expect("a refusal");
+        assert!(
+            reason.contains("refused access") && !reason.contains("()"),
+            "{reason}"
+        );
+        refused.set_keychain_read_error(Some("locked".into()));
+        assert!(models_unread_reason(&refused).unwrap().contains("(locked)"));
     }
 
     #[test]
