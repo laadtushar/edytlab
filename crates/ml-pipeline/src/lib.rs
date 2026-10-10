@@ -22,22 +22,38 @@
 //!   CUDA where the user opts in, CPU otherwise. Non-supported EPs fall
 //!   back to CPU with a `tracing::warn!` rather than panicking, which
 //!   keeps the dev sandbox (Linux, no GPU) building cleanly.
+//! - [`ModelStore`] downloads a pinned [`ModelArtifact`] (URL, size and
+//!   SHA-256 per file) into a local directory, resumably, and never
+//!   gives a file its final name until it verifies. It has no callers
+//!   yet and no model is pinned; see the `download` module.
 //!
 //! ## Runtime requirements
 //!
-//! `ort` is configured with `load-dynamic`, so the binary needs
-//! `ORT_DYLIB_PATH` set (or `libonnxruntime.{so,dylib,dll}` next to the
-//! binary). Tests that build sessions check the env var and skip with a
-//! printed notice when it's absent — see `tests/cache_smoke.rs`.
+//! `ort` is configured with `load-dynamic`, so the process needs an ONNX
+//! Runtime library to load: the file `ORT_DYLIB_PATH` names, or
+//! `libonnxruntime.{so,dylib}` / `onnxruntime.dll` next to the
+//! executable. Nothing ships that library yet (#383).
+//!
+//! Left alone, `ort` **hangs** when it cannot load the library: it
+//! deadlocks inside its own initialisation, and the calling thread never
+//! returns. So every caller that builds an `ort` session goes through
+//! [`runtime::ensure`] first, which turns a missing or unloadable
+//! library into [`Error::MissingRuntime`] / [`Error::RuntimeLoad`]. See
+//! the [`runtime`] module for why that matters. Tests that build real
+//! sessions are `#[ignore]`d — see `tests/cache_smoke.rs`.
 
 use std::io;
+use std::path::PathBuf;
 
 mod cache;
 mod download;
 mod onnx_session;
+pub mod runtime;
 
 pub use cache::{ContentHash, InferenceCache};
-pub use download::fetched_model_path;
+pub use download::{
+    fetched_model_path, FetchObserver, FetchProgress, ModelArtifact, ModelFile, ModelStore,
+};
 pub use onnx_session::{ExecProvider, ModelRegistry};
 
 /// Crate-wide error type. One enum, lives at the crate root so callers
@@ -63,11 +79,77 @@ pub enum Error {
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
 
-    /// `ORT_DYLIB_PATH` was unset or the dylib couldn't be opened. This
-    /// is distinct from a generic ORT error so callers can present a
-    /// structured install-script hint.
-    #[error("onnxruntime dynamic library not available; set ORT_DYLIB_PATH")]
-    MissingRuntime,
+    /// No ONNX Runtime library exists at any of the places
+    /// [`runtime::ensure`] looks. `searched` lists them all, so the
+    /// message says where a copy would be picked up.
+    ///
+    /// Distinct from [`Error::Ort`] so callers can tell "this machine
+    /// has no runtime" from "the runtime rejected the model".
+    ///
+    /// The message states the fact and offers no remedy. It ends up in
+    /// the text of a tool error, and the agent that reads it must not set
+    /// about installing a library: that would not make transcription or
+    /// stem separation work (#384, #385). How to point the app at a copy
+    /// (`ORT_DYLIB_PATH`, ONNX Runtime 1.x or newer for the `ort` we
+    /// build against) is in the docs.
+    #[error(
+        "ONNX Runtime library not found; looked in: {}. edytlab does not ship it yet (#383)",
+        list_paths(.searched)
+    )]
+    MissingRuntime { searched: Vec<PathBuf> },
+
+    /// A library file exists where [`runtime::ensure`] looked, but it
+    /// could not be loaded: not an ONNX Runtime, the wrong architecture,
+    /// or older than the version `ort` needs. An explicit path that
+    /// fails is reported, never skipped in favour of another one.
+    #[error("ONNX Runtime at {} could not be loaded: {reason}", .path.display())]
+    RuntimeLoad { path: PathBuf, reason: String },
+
+    /// A model file could not be downloaded: the network failed, the
+    /// connection closed early, or the server answered with an error
+    /// status (`status`). Whatever had arrived is kept for a resume.
+    #[error("downloading {url} failed{}: {reason}", http_status(.status))]
+    Download {
+        url: String,
+        status: Option<u16>,
+        reason: String,
+    },
+
+    /// A model file's bytes are not the ones its manifest pins: the
+    /// wrong SHA-256, or more bytes than the pinned size. Nothing that
+    /// fails this is ever given its final name.
+    #[error("model file {file} failed verification: {reason}")]
+    Integrity { file: String, reason: String },
+
+    /// The fetch was cancelled through its
+    /// [`FetchObserver`](crate::FetchObserver). A partial file is kept
+    /// for a resume.
+    #[error("model download cancelled")]
+    Cancelled,
+
+    /// A model manifest that is malformed, or that would write outside
+    /// the model store. Reported before any file or network access.
+    #[error("invalid model manifest: {0}")]
+    InvalidManifest(String),
+}
+
+/// " (HTTP 404)" for [`Error::Download`]'s message, or nothing.
+fn http_status(status: &Option<u16>) -> String {
+    status.map(|s| format!(" (HTTP {s})")).unwrap_or_default()
+}
+
+/// Comma-separated paths for [`Error::MissingRuntime`]'s message.
+fn list_paths(paths: &[PathBuf]) -> String {
+    if paths.is_empty() {
+        return "nowhere (the executable's directory is unknown, and ORT_DYLIB_PATH is unset or \
+                relative)"
+            .to_string();
+    }
+    paths
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 impl From<ort::Error> for Error {

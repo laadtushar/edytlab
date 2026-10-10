@@ -71,6 +71,20 @@ pub enum WhisperError {
     #[error("ONNX runtime error: {0}")]
     Ort(#[from] ort::Error),
 
+    /// No usable ONNX Runtime library (see
+    /// [`ml_pipeline::runtime::ensure`]). Reported instead of building a
+    /// session, because `ort` hangs (deadlocks) when it cannot load the
+    /// library.
+    ///
+    /// The message says what the feature does today too: a user who
+    /// goes and installs the runtime on the strength of this error would
+    /// otherwise reach the next one believing they were nearly done.
+    #[error(
+        "{0}. Speech-to-text is not implemented in this build either, so installing ONNX \
+         Runtime will not yet produce a transcript (#384)"
+    )]
+    RuntimeUnavailable(String),
+
     #[error("rubato resampler construction failed: {0}")]
     ResamplerInit(#[from] rubato::ResamplerConstructionError),
 
@@ -124,13 +138,19 @@ impl WhisperModel {
     ///
     /// Returns [`WhisperError::ModelMissing`] if the path does not exist
     /// (so callers can present a structured install-script hint instead
-    /// of an opaque ORT error), and propagates any other ORT failure.
+    /// of an opaque ORT error), [`WhisperError::RuntimeUnavailable`] if
+    /// there is no ONNX Runtime library to load, and propagates any
+    /// other ORT failure.
     pub fn load(model_path: &Path) -> Result<Self> {
         if !model_path.exists() {
             return Err(WhisperError::ModelMissing {
                 path: model_path.display().to_string(),
             });
         }
+        // Before any `ort` call: `Session::builder()` never returns, rather
+        // than erroring, when the library is missing.
+        ml_pipeline::runtime::ensure()
+            .map_err(|e| WhisperError::RuntimeUnavailable(e.to_string()))?;
         let session = ort::session::Session::builder()?.commit_from_file(model_path)?;
         Ok(Self { session })
     }
