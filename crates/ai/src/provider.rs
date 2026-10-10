@@ -65,17 +65,79 @@ pub const OLLAMA_DEFAULT_BASE_URL: &str = "http://localhost:11434/v1";
 /// `anthropic-version` header value sent on every Anthropic call.
 pub use crate::prompt::ANTHROPIC_VERSION;
 
-/// Default OpenAI chat model. We pick `gpt-4o-mini` because it has
-/// solid tool-calling support, sub-second TTFT, and is the cheapest
-/// `gpt-4o`-class model — the agent loop dispatches many round-trips
-/// per turn so the per-call cost dominates.
-pub const OPENAI_DEFAULT_MODEL: &str = "gpt-4o-mini";
+/// Default OpenAI chat model: `gpt-6-luna`, which OpenAI describes as "our
+/// most efficient model for focused, high-volume tasks"
+/// (<https://developers.openai.com/api/docs/models>). It is the cheapest
+/// current model that takes tools on Chat Completions, which is the only API
+/// edytlab speaks, and the agent loop dispatches many round-trips per turn,
+/// so the per-call cost dominates. Its page lists $0.1 in and $0.5 out per 1M
+/// tokens (<https://developers.openai.com/api/docs/models/gpt-6-luna>).
+///
+/// Not the larger models: `gpt-6.1-sol` takes tools only through the
+/// Responses API ("Chat Completions is supported without tool calling"), and
+/// `gpt-6-astra` costs 100 times as much and is one dropdown pick away.
+///
+/// It takes tools on Chat Completions only with `reasoning_effort` set to
+/// `none`, which [`openai_reasoning_effort`] sends.
+pub const OPENAI_DEFAULT_MODEL: &str = "gpt-6-luna";
 
-/// Cheap classifier model on OpenAI. Re-uses the main model id today —
-/// `gpt-4o-mini` is already at the low end of OpenAI's pricing curve and
-/// the M27 classifier prompt is one short user message + one-token cap,
-/// so swapping in a separate model would not move the cost needle.
-pub const OPENAI_CLASSIFIER_MODEL: &str = "gpt-4o-mini";
+/// Cheap classifier model on OpenAI. The same model as the main one: it is
+/// already OpenAI's cost-optimised model, and the classifier prompt is one
+/// short user message, so a separate model would not move the cost needle.
+pub const OPENAI_CLASSIFIER_MODEL: &str = "gpt-6-luna";
+
+/// OpenRouter's default model. OpenRouter's ids are its own, with a dot in
+/// the version (`anthropic/claude-sonnet-5.5`, as its public
+/// `/api/v1/models` list and
+/// <https://openrouter.ai/docs/cookbook/evaluate-and-optimize/model-migrations/claude-5-5>
+/// give it), so it is not the Anthropic id with a prefix. A bare Anthropic id
+/// run through [`OpenRouterProvider::translate_model`] is not guaranteed to
+/// resolve there: the dated form of the old classifier did not.
+pub const OPENROUTER_DEFAULT_MODEL: &str = "anthropic/claude-sonnet-5.5";
+
+/// OpenRouter's classifier model: the Haiku tier, which Anthropic's models
+/// page describes as "for high-volume, latency-sensitive tasks such as
+/// classification, extraction, and routing". OpenRouter allows thinking to be
+/// disabled on it, which the classifier request does.
+pub const OPENROUTER_CLASSIFIER_MODEL: &str = "anthropic/claude-haiku-5.5";
+
+/// Groq's default model. Both of Groq's defaults are in the Production
+/// table of <https://console.groq.com/docs/models> and take tools
+/// (<https://console.groq.com/docs/tool-use/overview>).
+pub const GROQ_DEFAULT_MODEL: &str = "llama-3.3-70b-versatile";
+
+/// Groq's classifier model: its small, fast one.
+pub const GROQ_CLASSIFIER_MODEL: &str = "llama-3.1-8b-instant";
+
+/// Gemini's default model: Google's pick for new projects, "our most
+/// intelligent Flash model" (<https://ai.google.dev/gemini-api/docs/models>).
+/// `gemini-2.0-flash`, which this replaced, was shut down on 2026-06-01
+/// (<https://ai.google.dev/gemini-api/docs/deprecations>).
+pub const GEMINI_DEFAULT_MODEL: &str = "gemini-3.8-flash";
+
+/// Gemini's classifier model: "our fastest, most cost-effective 3.5 model for
+/// high-throughput execution", which thinks at `minimal` by default
+/// (<https://ai.google.dev/gemini-api/docs/thinking>), what one word of
+/// output wants.
+pub const GEMINI_CLASSIFIER_MODEL: &str = "gemini-3.5-flash-lite";
+
+/// What to send as `reasoning_effort` to OpenAI's own endpoint for `model`,
+/// if it needs one.
+///
+/// `gpt-6-luna` "supports function calling only with `reasoning_effort` set
+/// to `none`" on Chat Completions
+/// (<https://developers.openai.com/api/docs/models/gpt-6-luna>), and every
+/// edit the agent makes is a tool call, so without this the default model
+/// cannot edit.
+///
+/// It is a rule for that one model (and a dated snapshot of it) on purpose.
+/// `none` is not an effort every model accepts, and a non-reasoning model
+/// rejects the field altogether, so sending it to others would break models
+/// that work. A successor needs its own line, and
+/// `every_provider_defaults_to_a_current_model` makes the next default visible.
+pub(crate) fn openai_reasoning_effort(model: &str) -> Option<&'static str> {
+    (model == "gpt-6-luna" || model.starts_with("gpt-6-luna-")).then_some("none")
+}
 
 /// Provider-level error surfaced from `parse_stream_chunk`. We use a
 /// thin `String` wrapper rather than re-exporting `crate::Error` to
@@ -270,10 +332,10 @@ impl LlmProvider for OpenRouterProvider {
         OPENROUTER_DEFAULT_BASE_URL
     }
     fn default_model(&self) -> &str {
-        crate::prompt::DEFAULT_MODEL
+        OPENROUTER_DEFAULT_MODEL
     }
     fn classifier_model(&self) -> &str {
-        crate::CLASSIFIER_MODEL
+        OPENROUTER_CLASSIFIER_MODEL
     }
     fn translate_model(&self, model: &str) -> String {
         if model.contains('/') {
@@ -398,6 +460,13 @@ impl OpenAIProvider {
                     req.max_tokens,
                 )),
             );
+            // Only OpenAI's own endpoint: Groq, Gemini and Ollama serialize
+            // through here too and would not know the field.
+            if provider_id == OPENAI_ID {
+                if let Some(effort) = openai_reasoning_effort(req.model) {
+                    obj.insert("reasoning_effort".to_string(), Value::from(effort));
+                }
+            }
             if let Some(t) = tools {
                 obj.insert("tools".to_string(), t);
                 // `tool_choice: "auto"` is OpenAI's shape, and so is
@@ -834,10 +903,10 @@ impl LlmProvider for GroqProvider {
         GROQ_DEFAULT_BASE_URL
     }
     fn default_model(&self) -> &str {
-        "llama-3.3-70b-versatile"
+        GROQ_DEFAULT_MODEL
     }
     fn classifier_model(&self) -> &str {
-        "llama-3.1-8b-instant"
+        GROQ_CLASSIFIER_MODEL
     }
     fn translate_model(&self, model: &str) -> String {
         model.to_string()
@@ -893,10 +962,10 @@ impl LlmProvider for GeminiProvider {
         GEMINI_DEFAULT_BASE_URL
     }
     fn default_model(&self) -> &str {
-        "gemini-2.0-flash"
+        GEMINI_DEFAULT_MODEL
     }
     fn classifier_model(&self) -> &str {
-        "gemini-2.0-flash"
+        GEMINI_CLASSIFIER_MODEL
     }
     fn translate_model(&self, model: &str) -> String {
         model.to_string()
@@ -1904,7 +1973,8 @@ mod tests {
         // And the defaults of each stay at the cap.
         for (id, model) in [
             (GROQ_ID, "llama-3.3-70b-versatile"),
-            (GEMINI_ID, "gemini-2.0-flash"),
+            (GEMINI_ID, "gemini-3.8-flash"),
+            (GEMINI_ID, "gemini-3.5-flash-lite"),
             (OLLAMA_ID, "llama3.2"),
         ] {
             let body = provider_from_id(id).serialize_request(&step_for(model, &msgs, cap));
@@ -1923,6 +1993,98 @@ mod tests {
         ] {
             let body = provider.serialize_request(&step_for("gpt-4-turbo", &msgs, 8192));
             assert_eq!(body["max_tokens"], 8192, "{}", provider.id());
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Current defaults
+    // ------------------------------------------------------------------
+
+    /// The model each provider uses when the user has not chosen one, and
+    /// the one it classifies with. Each id was checked against its
+    /// provider's own page, listed in the PR that set it; a new generation
+    /// updates this test with the constant, which is the point of it.
+    ///
+    /// The ids are exact on purpose. OpenRouter's are dotted
+    /// (`anthropic/claude-sonnet-5.5`, not `-5-5`), which its public
+    /// `/api/v1/models` list and its docs both show.
+    #[test]
+    fn every_provider_defaults_to_a_current_model() {
+        for (id, default, classifier) in [
+            (ANTHROPIC_ID, "claude-sonnet-5-5", "claude-haiku-5-5"),
+            (
+                OPENROUTER_ID,
+                "anthropic/claude-sonnet-5.5",
+                "anthropic/claude-haiku-5.5",
+            ),
+            (OPENAI_ID, "gpt-6-luna", "gpt-6-luna"),
+            (GROQ_ID, "llama-3.3-70b-versatile", "llama-3.1-8b-instant"),
+            (GEMINI_ID, "gemini-3.8-flash", "gemini-3.5-flash-lite"),
+            (OLLAMA_ID, "llama3.2", "llama3.2"),
+        ] {
+            let p = provider_from_id(id);
+            assert_eq!(p.default_model(), default, "{id} default");
+            assert_eq!(p.classifier_model(), classifier, "{id} classifier");
+        }
+        // Every provider is covered, so a new one cannot skip this.
+        assert_eq!(SUPPORTED_PROVIDER_IDS.len(), 6);
+    }
+
+    /// OpenRouter's ids are already its own, so they go out as they are
+    /// rather than being prefixed a second time.
+    #[test]
+    fn openrouter_sends_its_defaults_unchanged() {
+        let p = OpenRouterProvider;
+        assert_eq!(
+            p.translate_model(p.default_model()),
+            "anthropic/claude-sonnet-5.5"
+        );
+        assert_eq!(
+            p.translate_model(p.classifier_model()),
+            "anthropic/claude-haiku-5.5"
+        );
+    }
+
+    /// `gpt-6-luna` "supports function calling only with `reasoning_effort`
+    /// set to `none`" on Chat Completions
+    /// (<https://developers.openai.com/api/docs/models/gpt-6-luna>), and
+    /// every edit the agent makes is a tool call. The rule is for that model
+    /// alone: `none` is not offered by every model, and a non-reasoning model
+    /// does not take the field.
+    #[test]
+    fn luna_is_sent_reasoning_effort_none_and_nothing_else_is() {
+        let msgs = one_user_message();
+        let cap = crate::prompt::DEFAULT_MAX_TOKENS;
+
+        let luna = OpenAIProvider::default().serialize_request(&step_for("gpt-6-luna", &msgs, cap));
+        assert_eq!(luna["reasoning_effort"], "none", "{luna}");
+        assert!(luna.get("tools").is_some(), "the step carries its tools");
+
+        for model in ["gpt-6-astra", "gpt-6.1-sol", "gpt-4o-mini", "o3", "gpt-5"] {
+            let body = OpenAIProvider::default().serialize_request(&step_for(model, &msgs, cap));
+            assert!(body.get("reasoning_effort").is_none(), "{model}: {body}");
+        }
+        for id in [GROQ_ID, GEMINI_ID, OLLAMA_ID] {
+            for model in ["llama-3.3-70b-versatile", "gemini-3.8-flash", "gpt-6-luna"] {
+                let body = provider_from_id(id).serialize_request(&step_for(model, &msgs, cap));
+                assert!(
+                    body.get("reasoning_effort").is_none(),
+                    "{id} {model}: only OpenAI's own endpoint is sent it: {body}"
+                );
+            }
+        }
+        // The Anthropic wire format has no such field.
+        let body = AnthropicProvider.serialize_request(&step_for("gpt-6-luna", &msgs, cap));
+        assert!(body.get("reasoning_effort").is_none());
+    }
+
+    #[test]
+    fn openai_reasoning_effort_is_a_single_model_rule() {
+        assert_eq!(openai_reasoning_effort("gpt-6-luna"), Some("none"));
+        // A dated snapshot of it, should OpenAI publish one.
+        assert_eq!(openai_reasoning_effort("gpt-6-luna-snapshot"), Some("none"));
+        for model in ["gpt-6-lunar", "gpt-6", "gpt-6-astra", "gpt-4o-mini", ""] {
+            assert_eq!(openai_reasoning_effort(model), None, "{model:?}");
         }
     }
 }

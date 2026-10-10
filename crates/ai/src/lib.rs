@@ -62,8 +62,13 @@ pub use provider::{
     ANTHROPIC_ID, OPENAI_ID, OPENROUTER_ID, SUPPORTED_PROVIDER_IDS,
 };
 
-/// Classifier model used for cheap mode detection (M27).
-pub const CLASSIFIER_MODEL: &str = "claude-haiku-4-5-20251001";
+/// Classifier model used for cheap mode detection (M27): the current Haiku,
+/// which the models overview describes as "for high-volume, latency-sensitive
+/// tasks such as classification, extraction, and routing"
+/// (<https://platform.claude.com/docs/en/about-claude/models/overview>).
+/// It thinks by default, so the classifier request is sent with thinking
+/// disabled (see `classify_mode`).
+pub const CLASSIFIER_MODEL: &str = "claude-haiku-5-5";
 
 /// Configuration for the LLM client.
 ///

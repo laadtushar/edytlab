@@ -326,9 +326,12 @@ async fn reachability_probe(
         let req = provider.apply_auth(req, api_key);
         req.send().await.map_err(|e| e.to_string())?
     } else {
+        // Thinking off: the model thinks by default, thinking counts toward
+        // `max_tokens`, and one token would otherwise be spent on it.
         let body = json!({
             "model": provider.translate_model(provider.classifier_model()),
             "max_tokens": 1,
+            "thinking": { "type": "disabled" },
             "messages": [{
                 "role": "user",
                 "content": "ping",
@@ -543,6 +546,48 @@ mod tests {
         test_openrouter_key_against("or-test-key", &server.uri())
             .await
             .expect("should be ok");
+    }
+
+    /// TEST asks the classifier model for one token. The current Claude
+    /// models think by default and what they write while thinking counts
+    /// toward `max_tokens`, so without `thinking: disabled` the one token
+    /// would go on the thinking and the probe stop before any text. The
+    /// Haiku models accept `disabled` at their default effort.
+    #[tokio::test]
+    async fn the_reachability_probe_turns_thinking_off() {
+        for openrouter in [false, true] {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path("/v1/messages"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "id": "msg_1", "type": "message", "role": "assistant",
+                    "model": "m", "content": [{"type": "text", "text": "p"}],
+                    "stop_reason": "end_turn"
+                })))
+                .mount(&server)
+                .await;
+
+            if openrouter {
+                test_openrouter_key_against("k", &server.uri())
+                    .await
+                    .unwrap();
+            } else {
+                test_api_key_against("k", &server.uri()).await.unwrap();
+            }
+
+            let received = server.received_requests().await.unwrap();
+            let body: Value = serde_json::from_slice(&received[0].body).unwrap();
+            assert_eq!(body["thinking"], json!({"type": "disabled"}), "{body}");
+            assert_eq!(body["max_tokens"], 1, "{body}");
+            assert_eq!(
+                body["model"],
+                if openrouter {
+                    "anthropic/claude-haiku-5.5"
+                } else {
+                    "claude-haiku-5-5"
+                }
+            );
+        }
     }
 
     /// OpenAI validation must hit `/v1/models` with a Bearer header,

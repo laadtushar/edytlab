@@ -75,12 +75,16 @@ export const GROQ_KEYS_URL = "https://console.groq.com/keys";
 export const GEMINI_KEYS_URL = "https://aistudio.google.com/apikey";
 export const OLLAMA_DOCS_URL = "https://ollama.com/download";
 
+// What the model field shows for a provider nothing was chosen for. Each is
+// the backend's own default (`LlmProvider::default_model`, run through
+// `translate_model`), and `crates/ai/tests/settings_default_models.rs`
+// fails if the two drift.
 const DEFAULT_MODEL_BY_PROVIDER: Record<ProviderId, string> = {
-  anthropic: "claude-sonnet-4-6",
-  openrouter: "anthropic/claude-sonnet-4-6",
-  openai: "gpt-4o-mini",
+  anthropic: "claude-sonnet-5-5",
+  openrouter: "anthropic/claude-sonnet-5.5",
+  openai: "gpt-6-luna",
   groq: "llama-3.3-70b-versatile",
-  gemini: "gemini-2.0-flash",
+  gemini: "gemini-3.8-flash",
   ollama: "llama3.2",
 };
 

@@ -8,9 +8,12 @@
 //! variant exists as a stub for forward-compat with the Phase 2 prompt
 //! split.
 
-/// Default Anthropic model name used when [`crate::AnthropicConfig`] does
-/// not override it. Pinned to a stable Sonnet release id.
-pub const DEFAULT_MODEL: &str = "claude-sonnet-4-6";
+/// Default Anthropic model name used when nothing else is chosen: the current
+/// Sonnet, "the best combination of speed and intelligence"
+/// (<https://platform.claude.com/docs/en/about-claude/models/overview>). It
+/// thinks by default, which is why [`DEFAULT_MAX_TOKENS`] is as large as it
+/// is. Its id is a pinned snapshot; there is no dated form.
+pub const DEFAULT_MODEL: &str = "claude-sonnet-5-5";
 
 /// Default Anthropic API base URL. Tests substitute a `wiremock` server.
 pub const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";

@@ -200,7 +200,7 @@ fn one_shot_body(
                 "max_tokens"
             };
             let max_tokens = clamp_max_tokens(cfg.provider.id(), &model, max_tokens);
-            serde_json::json!({
+            let mut body = serde_json::json!({
                 "model": model,
                 limit_key: max_tokens,
                 "messages": std::iter::once(serde_json::json!({
@@ -210,7 +210,18 @@ fn one_shot_body(
                     .chain(messages)
                     .collect::<Vec<_>>(),
                 "stream": false
-            })
+            });
+            // OpenAI's default model takes tools only with this set, and the
+            // plan is asked for with the tools off but on the same model, so
+            // the rule is the one a streamed step follows. Only OpenAI's own
+            // endpoint: the other chat-completions providers would not know
+            // the field.
+            if cfg.provider.id() == crate::OPENAI_ID {
+                if let Some(effort) = crate::provider::openai_reasoning_effort(&model) {
+                    body["reasoning_effort"] = serde_json::json!(effort);
+                }
+            }
+            body
         }
         WireFormat::AnthropicMessages => {
             let system = match system {
@@ -2728,7 +2739,47 @@ mod tests {
             assert_eq!(mode, Mode::Mashup, "{id}");
             let text = body.to_string();
             assert!(!text.contains("output_config"), "{id}: {text}");
-            assert!(!text.contains("effort"), "{id}: {text}");
+            // The one effort that may appear is OpenAI's own default model's
+            // `none` (it takes tools only with it), which is not the user's
+            // setting: `Max` is set on the config above and is nowhere.
+            match body.get("reasoning_effort") {
+                None => {}
+                Some(v) => assert_eq!(v, "none", "{id}: {text}"),
+            }
+            assert!(!text.contains("\"max\""), "{id}: {text}");
+            assert!(
+                body.get("reasoning").is_none() && body.get("effort").is_none(),
+                "{id}: {text}"
+            );
+        }
+    }
+
+    /// OpenAI's default model takes tools only with `reasoning_effort:
+    /// "none"`, so the one-shot requests that go to it carry that, and
+    /// nothing else's carry the field.
+    #[tokio::test]
+    async fn the_one_shot_requests_follow_the_openai_default_models_effort_rule() {
+        let plan = r#"<plan>[{"step":1,"tool":"set_track_gain","description":"Louder"}]</plan>"#;
+        for id in crate::SUPPORTED_PROVIDER_IDS {
+            let (_, classified) = serve_one_shot(id, "mashup", |cfg, http| async move {
+                classify_mode(&cfg, &http, "mash these two songs up", &[]).await
+            })
+            .await;
+            let (_, planned) = serve_one_shot(id, plan, |cfg, http| async move {
+                let tools = registry(&["set_track_gain"]);
+                fetch_plan(&cfg, &http, "SYSTEM-PROMPT", &[], "make it louder", &tools).await
+            })
+            .await;
+            for (what, body) in [("classifier", classified), ("plan", planned)] {
+                if *id == crate::OPENAI_ID {
+                    assert_eq!(body["reasoning_effort"], "none", "{what}: {body}");
+                } else {
+                    assert!(
+                        body.get("reasoning_effort").is_none(),
+                        "{id} {what}: {body}"
+                    );
+                }
+            }
         }
     }
 

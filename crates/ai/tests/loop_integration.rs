@@ -432,7 +432,7 @@ async fn agent_dispatches_normalize_and_emits_node_created() {
     // Model + tool_choice present.
     assert_eq!(
         body.get("model").and_then(|v| v.as_str()),
-        Some("claude-sonnet-4-6")
+        Some(ai::DEFAULT_MODEL)
     );
     assert_eq!(
         body.get("tool_choice")
