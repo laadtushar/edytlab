@@ -18,7 +18,11 @@
 //!    would change the session (see 7), so that with Plan first on no
 //!    edit runs without approval (#415).
 //! 3. Append the user's message to the conversation.
-//! 4. Open a streaming Anthropic call (system prompt + tools cached).
+//! 4. Open a streaming Anthropic call (system prompt + tools cached). A
+//!    provider that asks for the slim tool set (Ollama) is sent a core
+//!    plus the tools the message names instead, chosen once per turn
+//!    ([`crate::tool_selection`], #395); the others get every permitted
+//!    tool, in the dispatcher's order, so Anthropic's cache holds.
 //! 5. Forward `text` deltas to the caller's `on_event` sink in order.
 //! 6. Reassemble each `tool_use` block, validate args via the
 //!    dispatcher's compiled JSON Schema, invoke the tool synchronously
@@ -68,7 +72,9 @@ use crate::models::clamp_max_tokens;
 use crate::prompt::{
     tool_budget_line, DEFAULT_MAX_TOKENS, MAX_TOOL_CALLS_PER_TURN, PLAN_MAX_TOKENS,
 };
+use crate::provider::ToolSet;
 use crate::session_context::{render_block, SessionContext};
+use crate::{context_window, tool_selection};
 use crate::{AgentEvent, Effort, Error, LlmConfig, Result, TurnResult, WireFormat};
 
 // ---------------------------------------------------------------------------
@@ -242,7 +248,8 @@ const CLASSIFIER_MAX_TOKENS: u32 = 256;
 /// Passes recent conversation history for context (last 6 messages) so
 /// follow-up messages ("actually, change the BPM") classify correctly.
 /// Falls back to `Mode::General` on any error so classification failures
-/// are never user-visible.
+/// are never user-visible, and on any answer that is not exactly one label
+/// (see [`parse_mode`]).
 pub(crate) async fn classify_mode(
     cfg: &LlmConfig,
     http: &reqwest::Client,
@@ -287,19 +294,85 @@ pub(crate) async fn classify_mode(
         Err(_) => return Mode::General,
     };
 
-    let text = extract_response_text(cfg, &body)
-        .unwrap_or_default()
-        .trim()
-        .to_lowercase();
+    let answer = extract_response_text(cfg, &body).unwrap_or_default();
+    let mode = parse_mode(&answer);
 
-    if text.contains("mashup") {
-        Mode::Mashup
-    } else if text.contains("mix") {
-        Mode::Mix
-    } else if text.contains("voice") {
-        Mode::Voice
-    } else {
+    // The answer is the model's label (or its attempt at one), never the
+    // user's prompt, so it is safe to log. Without it a misrouted request
+    // can only be inferred from token counts (#494).
+    tracing::debug!(
+        answer = ?truncate_for_log(&answer, CLASSIFIER_LOG_CHARS),
+        ?mode,
+        "classifier answer"
+    );
+
+    mode
+}
+
+/// How much of the classifier's answer the debug log keeps. A label is one
+/// word; anything past this is the model talking, and only the start of
+/// that is of use in telling why it did not answer with one.
+const CLASSIFIER_LOG_CHARS: usize = 200;
+
+/// The first `max_chars` characters of `text`, cut on a character boundary
+/// and ending in `…` when anything was left out.
+fn truncate_for_log(text: &str, max_chars: usize) -> String {
+    match text.char_indices().nth(max_chars) {
+        Some((end, _)) => format!("{}…", &text[..end]),
+        None => text.to_string(),
+    }
+}
+
+/// The labels the classifier is asked to answer with.
+const MODE_LABELS: [&str; 4] = ["mashup", "mix", "voice", "general"];
+
+/// Read the classifier's answer as one label.
+///
+/// The label is the answer's first alphabetic word, lowercased, matched
+/// exactly: `Mashup.`, `**mashup**` and `MIX` are labels, `mixture` and
+/// `I think this is a mix of things` are not. Anything that is not
+/// `mashup`, `mix` or `voice` is [`Mode::General`], which is also what an
+/// empty answer is.
+///
+/// This used to search the answer for each label in turn, so an answer
+/// that only named them read as the first one named: `general` followed by
+/// a sentence about mashups was a mashup, and a question was held at the
+/// plan gate that only a mashup (or Plan first) opens (#494). Wrongly
+/// general costs a request its mode prompt; wrongly mashup costs a
+/// question an approval, so a doubtful answer is general.
+///
+/// One addition to the first-word rule: a label whose own line names
+/// another of the [`MODE_LABELS`] is the instruction echoed back
+/// (`mashup, mix, voice, or general`), not a choice from it, and reads as
+/// general. Only the first line counts, so a label that goes on to explain
+/// itself on the lines below still stands.
+fn parse_mode(answer: &str) -> Mode {
+    let answer = answer.trim();
+    let words = |text: &str| -> Vec<String> {
+        text.split(|c: char| !c.is_alphabetic())
+            .filter(|w| !w.is_empty())
+            .map(str::to_lowercase)
+            .collect()
+    };
+
+    let Some(first) = words(answer).into_iter().next() else {
+        return Mode::General;
+    };
+    let mode = match first.as_str() {
+        "mashup" => Mode::Mashup,
+        "mix" => Mode::Mix,
+        "voice" => Mode::Voice,
+        _ => return Mode::General,
+    };
+
+    let first_line = answer.lines().next().unwrap_or_default();
+    let names_another = words(first_line)
+        .iter()
+        .any(|w| *w != first && MODE_LABELS.contains(&w.as_str()));
+    if names_another {
         Mode::General
+    } else {
+        mode
     }
 }
 
@@ -676,9 +749,17 @@ where
     // nothing to explain why. `plan_first` makes it a choice.
     let mut step_override: Option<String> = None;
     let mut gate = Gate::Open;
+    // The tools an approved plan names, for the slim tool set: a plan that
+    // says to use `reverb` is no use if the model is then not shown it.
+    let mut plan_tool_names = String::new();
     if plan_first || mode == Mode::Mashup {
         match fetch_plan(cfg, http, system_prompt, conversation, &user_message).await {
             Ok(steps) => {
+                plan_tool_names = steps
+                    .iter()
+                    .filter_map(|step| step.get("tool").and_then(Value::as_str))
+                    .collect::<Vec<_>>()
+                    .join(" ");
                 // Block until the frontend answers via `approve_plan` or
                 // `reject_plan`, or time out after 5 minutes.
                 match approval::ask(
@@ -748,6 +829,10 @@ where
     } else {
         user_message
     };
+    // What the slim tool set reads to see which tools were asked for: the
+    // words the user sent, an edited plan if they changed one, and the
+    // tools an approved plan named.
+    let mention_text = format!("{user_text} {plan_tool_names}");
     // Joins a trailing user message rather than following it: after a
     // declined step the conversation ends in the `tool_result`s that
     // answered it, and a second user message in a row is rejected.
@@ -761,6 +846,41 @@ where
             None => all,
         }
     };
+    // A provider for small-context models is sent a core plus the tools
+    // this message points at, in a shorter form (#395). Worked out once
+    // per turn, here, so every round trip carries the same tools in the
+    // same order: a local server then keeps the prompt it has already
+    // processed. The full path is untouched, which is what keeps
+    // Anthropic's prompt cache valid.
+    //
+    // The tools it was not sent are named in one line at the end of the
+    // system prompt, from the same selection, so the model knows they
+    // exist and can call them by name. Appended here, after the prompt
+    // the plan request used, because only now is the selection made.
+    let (tool_schemas, tools_not_sent_note) = match cfg.provider.tool_set() {
+        ToolSet::Full => (tool_schemas, None),
+        ToolSet::Slim => {
+            let selection = tool_selection::slim_tool_schemas(
+                tool_schemas,
+                &mention_text,
+                // Not the memory or session blocks: track names and effect
+                // kinds there would pull in tools nobody asked for.
+                &[
+                    base_prompt.as_str(),
+                    profile_block.as_str(),
+                    skills_block.as_str(),
+                ],
+                conversation,
+            );
+            let note = selection.names_note();
+            (selection.tools, note)
+        }
+    };
+    let request_prompt = match tools_not_sent_note {
+        Some(note) => format!("{combined_prompt}\n\n{note}"),
+        None => combined_prompt.clone(),
+    };
+    let system_prompt: &str = &request_prompt;
 
     // The same whitelist, as a set, for the dispatch-time check (#238).
     //
@@ -821,10 +941,9 @@ where
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
-            return Err(Error::Api {
-                status: status.as_u16(),
-                message: body,
-            });
+            // A request that did not fit the model's context is its own
+            // error, with what to do about it (#395).
+            return Err(context_window::api_error(status.as_u16(), body));
         }
 
         // 3. Drain the SSE stream, accumulating text deltas + tool_use
@@ -1701,6 +1820,94 @@ mod tests {
                 "{id}: the classifier instruction was not sent"
             );
         }
+    }
+
+    /// The classifier's answer, whatever the model wrapped around it, as
+    /// `classify_mode` reads it back. Each case goes through a mock of
+    /// every provider, so the parse and the reply-shape reading are both
+    /// on the path. All the mismatches are reported together.
+    async fn classify_canned_answers(cases: &[(&str, Mode)]) {
+        let mut wrong = Vec::new();
+        for id in crate::SUPPORTED_PROVIDER_IDS {
+            for &(answer, expected) in cases {
+                let (mode, _) = serve_one_shot(id, answer, |cfg, http| async move {
+                    classify_mode(&cfg, &http, "what can you do?", &[]).await
+                })
+                .await;
+                if mode != expected {
+                    wrong.push(format!(
+                        "{id}: {answer:?} gave {mode:?}, wanted {expected:?}"
+                    ));
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "misread answers:\n{}", wrong.join("\n"));
+    }
+
+    /// #494: a question was held at the plan gate, which only a mashup
+    /// (or Plan first) opens. The classifier's answer was searched for the
+    /// labels, so one that merely named them read as the first it named.
+    #[tokio::test]
+    async fn an_answer_that_is_not_one_label_is_general() {
+        classify_canned_answers(&[
+            // Answers "general" and goes on to talk about the others.
+            ("general\n\nThe user asks about mashup…", Mode::General),
+            // The instruction echoed back, not a choice from it.
+            ("mashup, mix, voice, or general", Mode::General),
+            // No text at all (a reply that was all thinking).
+            ("", Mode::General),
+            ("   \n", Mode::General),
+            // A sentence that happens to contain a label.
+            ("I think this is a mix of things", Mode::General),
+            ("The request is about voice", Mode::General),
+            // A word that only starts with, or holds, a label.
+            ("mixture", Mode::General),
+            ("remix", Mode::General),
+            ("mashups", Mode::General),
+            // Torn between two labels.
+            ("mashup or mix", Mode::General),
+        ])
+        .await;
+    }
+
+    #[tokio::test]
+    async fn a_label_is_read_through_its_punctuation_and_case() {
+        classify_canned_answers(&[
+            ("Mashup.", Mode::Mashup),
+            ("mashup", Mode::Mashup),
+            ("MIX", Mode::Mix),
+            ("Voice\n", Mode::Voice),
+            ("**mashup**", Mode::Mashup),
+            ("  \n\"Mix\"", Mode::Mix),
+            ("`voice`", Mode::Voice),
+            ("General.", Mode::General),
+            // A label first, then the model explains itself.
+            ("mix\n\nThe user wants to balance two stems.", Mode::Mix),
+            // Only the answer's own line is checked for a second label.
+            (
+                "mashup\n\nThis is not a mix or a voice request.",
+                Mode::Mashup,
+            ),
+        ])
+        .await;
+    }
+
+    /// The log line keeps the start of a long answer, whole characters
+    /// only, and says it left something out.
+    #[test]
+    fn a_long_classifier_answer_is_cut_for_the_log_on_a_character() {
+        assert_eq!(truncate_for_log("mashup", 200), "mashup");
+        assert_eq!(truncate_for_log("abcde", 5), "abcde");
+        assert_eq!(truncate_for_log("abcdef", 5), "abcde…");
+        // 3-byte characters: a cut by bytes would split one.
+        assert_eq!(truncate_for_log("日本語日本語", 4), "日本語日…");
+        let long = "x".repeat(1000);
+        assert_eq!(
+            truncate_for_log(&long, CLASSIFIER_LOG_CHARS)
+                .chars()
+                .count(),
+            CLASSIFIER_LOG_CHARS + 1
+        );
     }
 
     /// OpenAI's own models reject `max_tokens`; the compatible servers

@@ -1,0 +1,90 @@
+[
+ {
+  "id": "R01",
+  "t": 0.25,
+  "win": 4.1,
+  "text": "An open-source audio editor you drive in plain English.",
+  "prev": "",
+  "next": "A DJ types the edit in plain English."
+ },
+ {
+  "id": "R02",
+  "t": 4.6,
+  "win": 4.0,
+  "text": "A DJ types the edit in plain English.",
+  "prev": "An open-source audio editor you drive in plain English.",
+  "next": "The agent calls a tool: a time stretch."
+ },
+ {
+  "id": "R03",
+  "t": 9.2,
+  "win": 3.6,
+  "text": "The agent calls a tool: a time stretch.",
+  "prev": "A DJ types the edit in plain English.",
+  "next": "It points out a downbeat half a second into the file."
+ },
+ {
+  "id": "R04",
+  "t": 13.3,
+  "win": 3.8,
+  "text": "It points out a downbeat half a second into the file.",
+  "prev": "The agent calls a tool: a time stretch.",
+  "next": "Then the blend: a crossfade, with a low-pass on the outgoing track."
+ },
+ {
+  "id": "R05",
+  "t": 17.6,
+  "win": 5.8,
+  "text": "Then the blend: a crossfade, with a low-pass on the outgoing track.",
+  "prev": "It points out a downbeat half a second into the file.",
+  "next": "Have a listen."
+ },
+ {
+  "id": "R06",
+  "t": 24.3,
+  "win": 1.4,
+  "text": "Have a listen.",
+  "prev": "Then the blend: a crossfade, with a low-pass on the outgoing track.",
+  "next": "Mastered to minus fourteen loofs, exported as a WAV."
+ },
+ {
+  "id": "R07",
+  "t": 33.2,
+  "win": 4.8,
+  "text": "Mastered to minus fourteen loofs, exported as a WAV.",
+  "prev": "Have a listen.",
+  "next": "Two more jobs from the same recordings: an extended intro, and a three-track mini-mix."
+ },
+ {
+  "id": "R08",
+  "t": 38.9,
+  "win": 6.5,
+  "text": "Two more jobs from the same recordings: an extended intro, and a three-track mini-mix.",
+  "prev": "Mastered to minus fourteen loofs, exported as a WAV.",
+  "next": "The tools run locally, in Rust. Only the chat goes to your provider."
+ },
+ {
+  "id": "R09",
+  "t": 46.4,
+  "win": 5.9,
+  "text": "The tools run locally, in Rust. Only the chat goes to your provider.",
+  "prev": "Two more jobs from the same recordings: an extended intro, and a three-track mini-mix.",
+  "next": "Limits: synthetic tracks, no stems, unsigned installers."
+ },
+ {
+  "id": "R10",
+  "t": 52.7,
+  "win": 5.2,
+  "text": "Limits: synthetic tracks, no stems, unsigned installers.",
+  "prev": "The tools run locally, in Rust. Only the chat goes to your provider.",
+  "next": "Source is on GitHub, under the MIT license."
+ },
+ {
+  "id": "R11",
+  "t": 58.9,
+  "win": 4.2,
+  "text": "Source is on GitHub, under the MIT license.",
+  "prev": "Limits: synthetic tracks, no stems, unsigned installers.",
+  "next": ""
+ }
+]

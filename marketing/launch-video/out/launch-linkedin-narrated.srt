@@ -1,0 +1,48 @@
+1
+00:00:00,300 --> 00:00:02,850
+I built an audio editor you talk to.
+
+2
+00:00:03,900 --> 00:00:09,250
+Prepping one blend is a pile of small chores. Or just describe it.
+
+3
+00:00:10,350 --> 00:00:13,060
+You type the edit in plain English.
+
+4
+00:00:15,000 --> 00:00:17,950
+The agent picks a tool, and runs it.
+
+5
+00:00:19,100 --> 00:00:22,850
+It flags a downbeat half a second into the file.
+
+6
+00:00:23,400 --> 00:00:28,110
+Then the blend: a crossfade, with a two kilohertz low-pass.
+
+7
+00:00:30,100 --> 00:00:31,370
+Have a listen.
+
+8
+00:00:39,000 --> 00:00:43,630
+Mastered to minus fourteen loofs, exported as a WAV.
+
+9
+00:00:44,800 --> 00:00:49,590
+The same recordings show an extended intro, and a three-track mini-mix.
+
+10
+00:00:52,400 --> 00:00:57,990
+Ninety-three tools run on your machine. Only the chat goes to your provider.
+
+11
+00:00:58,600 --> 00:01:04,110
+Limits: synthetic tracks, no stems, unsigned installers.
+
+12
+00:01:04,200 --> 00:01:08,430
+Free and open source. What would you hand off first?
+

@@ -59,6 +59,12 @@ function screenSize() {
   }
 }
 
+// A chat error that says the account cannot make the request (Anthropic's
+// "usage limits" and "credit balance is too low") says nothing about the
+// app. Such a story is "blocked", not "failed", so a run that hit the limit
+// is not read as a regression, and is run again once the limit lifts.
+const BLOCKED_BY = /usage limits|credit balance/i;
+
 const results = [];
 for (const story of stories) {
   if (only.length && !only.some((o) => story.id.includes(o))) continue;
@@ -144,7 +150,7 @@ for (const story of stories) {
     };
     await story.run(ctx);
   } catch (e) {
-    result.status = "fail";
+    result.status = BLOCKED_BY.test(String(e?.message ?? e)) ? "blocked" : "fail";
     result.error = String(e.stack ?? e).slice(0, 1500);
     try {
       const file = `shots/${story.id}-fail.png`;
@@ -189,7 +195,7 @@ for (const story of stories) {
     writeFileSync(join(OUT, "videos", "passed", `${story.id}.json`), JSON.stringify(result, null, 2));
   }
   results.push(result);
-  console.log(`${result.status === "pass" ? "PASS" : "FAIL"} ${story.id} (${result.ms} ms)${result.error ? `\n  ${result.error.split("\n")[0]}` : ""}`);
+  console.log(`${result.status.toUpperCase()} ${story.id} (${result.ms} ms)${result.error ? `\n  ${result.error.split("\n")[0]}` : ""}`);
 }
 
 // Accumulate across runs, keyed by story id: a run of a few stories updates
@@ -202,4 +208,8 @@ const ran = new Set(results.map((r) => r.id));
 const merged = [...previous.filter((r) => !ran.has(r.id)), ...results];
 writeFileSync(join(OUT, "results.json"), JSON.stringify(merged, null, 2));
 const passed = results.filter((r) => r.status === "pass").length;
+const blocked = results.filter((r) => r.status === "blocked").map((r) => r.id);
 console.log(`\n${passed}/${results.length} stories passed this run (${merged.length} recorded)`);
+if (blocked.length) {
+  console.log(`${blocked.length} BLOCKED by a usage limit or credit balance, not failed (run them again once it lifts): ${blocked.join(", ")}`);
+}

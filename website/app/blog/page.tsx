@@ -24,7 +24,7 @@ const DESCRIPTION =
   "Practical guides to editing audio by asking an AI agent: DJ transitions, choosing a model, the session graph, and local-first audio editing.";
 
 export const metadata: Metadata = {
-  title: "Blog",
+  title: "Blog: guides to editing audio with an AI agent",
   description: DESCRIPTION,
   openGraph: {
     title: `${BLOG_TITLE}: guides to editing audio with an AI agent`,

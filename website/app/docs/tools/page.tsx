@@ -1,20 +1,17 @@
 import type { Metadata } from "next";
 import { Fragment } from "react";
-import { siteConfig } from "@/lib/site";
-import { DEFAULT_OG_IMAGE } from "@/lib/seo-core";
+import { pageSocial } from "@/lib/seo-core";
 import { DocShell } from "@/components/docs/doc-shell";
 
+const title = "Audio Tools Reference: all 93 edytlab agent tools";
+const description =
+  "All 93 audio-editing tools the edytlab AI agent can call, from cut and normalize to time-stretch and render, with example prompts and what is not implemented yet.";
+
 export const metadata: Metadata = {
-  title: "Audio Tools Reference",
-  description:
-    "All 93 audio-editing tools available to the edytlab AI agent — cut, normalize, time-stretch, render, and more.",
+  title,
+  description,
   alternates: { canonical: "/docs/tools" },
-  openGraph: {
-    title: "Audio Tools Reference — edytlab Docs",
-    description: "Complete reference for all 93 agent-callable audio tools.",
-    url: `${siteConfig.url}/docs/tools`,
-    images: [DEFAULT_OG_IMAGE],
-  },
+  ...pageSocial("/docs/tools", `${title} · edytlab`, description),
 };
 
 const groups = [

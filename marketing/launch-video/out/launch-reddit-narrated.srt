@@ -1,0 +1,44 @@
+1
+00:00:00,250 --> 00:00:04,400
+An open-source audio editor you drive in plain English.
+
+2
+00:00:04,600 --> 00:00:08,030
+A DJ types the edit in plain English.
+
+3
+00:00:09,200 --> 00:00:12,710
+The agent calls a tool: a time stretch.
+
+4
+00:00:13,300 --> 00:00:17,130
+It points out a downbeat half a second into the file.
+
+5
+00:00:17,600 --> 00:00:22,710
+Then the blend: a crossfade, with a low-pass on the outgoing track.
+
+6
+00:00:24,300 --> 00:00:25,570
+Have a listen.
+
+7
+00:00:33,200 --> 00:00:37,830
+Mastered to minus fourteen loofs, exported as a WAV.
+
+8
+00:00:38,900 --> 00:00:45,050
+Two more jobs from the same recordings: an extended intro, and a three-track mini-mix.
+
+9
+00:00:46,400 --> 00:00:51,910
+The tools run locally, in Rust. Only the chat goes to your provider.
+
+10
+00:00:52,700 --> 00:00:58,050
+Limits: synthetic tracks, no stems, unsigned installers.
+
+11
+00:00:58,900 --> 00:01:02,650
+Source is on GitHub, under the MIT license.
+

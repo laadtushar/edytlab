@@ -1,19 +1,16 @@
 import type { Metadata } from "next";
-import { siteConfig } from "@/lib/site";
-import { DEFAULT_OG_IMAGE } from "@/lib/seo-core";
+import { pageSocial } from "@/lib/seo-core";
 import { DocShell } from "@/components/docs/doc-shell";
 
+const title = "User Guide: sessions, tracks, chat and export";
+const description =
+  "The user guide for edytlab: sessions and the edit graph, tracks, chat, A/B compare, export, memory and skills, and what is not available yet.";
+
 export const metadata: Metadata = {
-  title: "User Guide",
-  description:
-    "Complete user guide for edytlab — sessions, tracks, chat interface, A/B compare, export, memory, and skills.",
+  title,
+  description,
   alternates: { canonical: "/docs/user-guide" },
-  openGraph: {
-    title: "User Guide — edytlab Docs",
-    description: "Everything you need to know to use edytlab effectively.",
-    url: `${siteConfig.url}/docs/user-guide`,
-    images: [DEFAULT_OG_IMAGE],
-  },
+  ...pageSocial("/docs/user-guide", `${title} · edytlab`, description),
 };
 
 export default function UserGuidePage() {
@@ -334,7 +331,7 @@ export default function UserGuidePage() {
       <ul>
         <li>
           <strong>Podcast profile</strong> — uses a fast, cheap model; restricts
-          tools to load, cut, normalize, trim, transcribe, render.
+          tools to load, cut, normalize, trim, render.
         </li>
         <li>
           <strong>Mastering profile</strong> — uses Claude Sonnet; has access to

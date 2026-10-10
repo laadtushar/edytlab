@@ -5,7 +5,7 @@ import { PageLinks, PageShell, Prose } from "@/components/landing/page-shell";
 import { DEFAULT_OG_IMAGE, pageAlternates } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 
-const title = "Press kit";
+const title = "Press kit: logos, fact sheet and demo video";
 const description =
   "Boilerplate, fact sheet, logos and demo video for writing about edytlab, the free, open-source desktop audio editor you drive by chatting with an AI agent.";
 const url = `${siteConfig.url}/press`;
