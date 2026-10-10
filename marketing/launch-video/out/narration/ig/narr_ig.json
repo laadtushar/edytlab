@@ -1,0 +1,72 @@
+[
+ {
+  "id": "I01",
+  "t": 0.12,
+  "file": "../out/narration/ig/I01_t4.mp3",
+  "gain_db": 0,
+  "tempo": 1.1,
+  "speech_end": 2.545454545454545,
+  "win": 2.6,
+  "text": "Describe the blend. Hear the mix."
+ },
+ {
+  "id": "I02",
+  "t": 2.8,
+  "file": "../out/narration/ig/I02_t2.mp3",
+  "gain_db": 0,
+  "tempo": 1.0,
+  "speech_end": 2.24,
+  "win": 3.4,
+  "text": "Type it, in plain English."
+ },
+ {
+  "id": "I03",
+  "t": 6.8,
+  "file": "../out/narration/ig/I03_t2.mp3",
+  "gain_db": 0,
+  "tempo": 1.0,
+  "speech_end": 2.16,
+  "win": 2.8,
+  "text": "The agent runs a tool."
+ },
+ {
+  "id": "I04",
+  "t": 10.2,
+  "file": "../out/narration/ig/I04_t1.mp3",
+  "gain_db": 0,
+  "tempo": 1.0,
+  "speech_end": 3.92,
+  "win": 4.9,
+  "text": "Then ask for the blend: a crossfade, with a low-pass."
+ },
+ {
+  "id": "I05",
+  "t": 15.4,
+  "file": "../out/narration/ig/I05_t1.mp3",
+  "gain_db": 0,
+  "tempo": 1.0,
+  "speech_end": 1.04,
+  "win": 1.15,
+  "text": "Listen."
+ },
+ {
+  "id": "I06",
+  "t": 22.45,
+  "file": "../out/narration/ig/I06_t1.mp3",
+  "gain_db": 0,
+  "tempo": 1.0,
+  "speech_end": 2.96,
+  "win": 3.4,
+  "text": "Mastered, and exported as a WAV."
+ },
+ {
+  "id": "I07",
+  "t": 26.9,
+  "file": "../out/narration/ig/I07_t1.mp3",
+  "gain_db": 0,
+  "tempo": 1.0,
+  "speech_end": 3.68,
+  "win": 4.2,
+  "text": "Free and open source. Unsigned installers."
+ }
+]

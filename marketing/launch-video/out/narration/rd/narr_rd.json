@@ -1,0 +1,112 @@
+[
+ {
+  "id": "R01",
+  "t": 0.25,
+  "file": "../out/narration/rd/R01_t2.mp3",
+  "gain_db": 0,
+  "tempo": 1.0,
+  "speech_end": 4.0,
+  "win": 4.1,
+  "text": "An open-source audio editor you drive in plain English."
+ },
+ {
+  "id": "R02",
+  "t": 4.6,
+  "file": "../out/narration/rd/R02_t1.mp3",
+  "gain_db": 0,
+  "tempo": 1.0,
+  "speech_end": 3.28,
+  "win": 4.0,
+  "text": "A DJ types the edit in plain English."
+ },
+ {
+  "id": "R03",
+  "t": 9.2,
+  "file": "../out/narration/rd/R03_t2.mp3",
+  "gain_db": 0,
+  "tempo": 1.0,
+  "speech_end": 3.36,
+  "win": 3.6,
+  "text": "The agent calls a tool: a time stretch."
+ },
+ {
+  "id": "R04",
+  "t": 13.3,
+  "file": "../out/narration/rd/R04_t2.mp3",
+  "gain_db": 0,
+  "tempo": 1.0,
+  "speech_end": 3.68,
+  "win": 3.8,
+  "text": "It points out a downbeat half a second into the file."
+ },
+ {
+  "id": "R05",
+  "t": 17.6,
+  "file": "../out/narration/rd/R05_t2.mp3",
+  "gain_db": 0,
+  "tempo": 1.0,
+  "speech_end": 4.96,
+  "win": 5.8,
+  "text": "Then the blend: a crossfade, with a low-pass on the outgoing track."
+ },
+ {
+  "id": "R06",
+  "t": 24.3,
+  "file": "../out/narration/rd/R06_t1.mp3",
+  "gain_db": 0,
+  "tempo": 1.0,
+  "speech_end": 1.12,
+  "win": 1.4,
+  "text": "Have a listen."
+ },
+ {
+  "id": "R07",
+  "t": 33.2,
+  "file": "../out/narration/rd/R07_t1.mp3",
+  "gain_db": 0,
+  "tempo": 1.0,
+  "speech_end": 4.48,
+  "win": 4.8,
+  "text": "Mastered to minus fourteen loofs, exported as a WAV."
+ },
+ {
+  "id": "R08",
+  "t": 38.9,
+  "file": "../out/narration/rd/R08_t2.mp3",
+  "gain_db": 0,
+  "tempo": 1.0,
+  "speech_end": 6.0,
+  "win": 6.5,
+  "text": "Two more jobs from the same recordings: an extended intro, and a three-track mini-mix."
+ },
+ {
+  "id": "R09",
+  "t": 46.4,
+  "file": "../out/narration/rd/R09_t2.mp3",
+  "gain_db": 0,
+  "tempo": 1.0,
+  "speech_end": 5.36,
+  "win": 5.9,
+  "text": "The tools run locally, in Rust. Only the chat goes to your provider."
+ },
+ {
+  "id": "R10",
+  "t": 52.7,
+  "file": "../out/narration/rd/R10_t2.mp3",
+  "gain_db": 0,
+  "tempo": 1.0,
+  "speech_end": 5.2,
+  "win": 5.2,
+  "text": "Limits: synthetic tracks, no stems, unsigned installers."
+ },
+ {
+  "id": "R11",
+  "t": 58.9,
+  "file": "../out/narration/rd/R11_t1.mp3",
+  "gain_db": 0,
+  "tempo": 1.0,
+  "speech_end": 3.6,
+  "win": 4.2,
+  "text": "Source is on GitHub, under the MIT license."
+ }
+]
