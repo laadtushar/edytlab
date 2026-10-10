@@ -204,8 +204,10 @@ where
 
 /// Remove derived audio no node names, as a project opens (#98).
 ///
-/// Run on the store before it is shared, so no edit can be half-way
-/// through writing a file that its node does not name yet. Only orphans:
+/// Run on the store before it is shared, or, when the project being
+/// opened is the one already open, with that store's lock held (see
+/// [`open_project_with`]): either way no edit can be half-way through
+/// writing a file that its node does not name yet. Only orphans:
 /// audio that older history still names stays, because a replay cannot
 /// yet be trusted to rebuild it. A failure costs disk, not work, so it is
 /// logged.
@@ -449,14 +451,68 @@ pub fn forget_recent_project(path: String) -> CmdResult<Vec<crate::project::Rece
 }
 
 fn open_project_inner(state: &AppState, path: PathBuf) -> Result<ProjectInfo, CommandError> {
+    open_project_with(state, path, sweep_orphaned_audio)
+}
+
+/// The store of the open project, if `path` is that project.
+///
+/// Compared by canonical path as well as as given, the way the in-flight
+/// counter is keyed (`session::store`): `a/../a` and a symlink are one
+/// folder.
+fn store_of_open_project(state: &AppState, path: &Path) -> Option<Arc<Mutex<Store>>> {
+    let open = state.project_dir.lock().ok()?.clone()?;
+    let same = open == path
+        || matches!(
+            (std::fs::canonicalize(&open), std::fs::canonicalize(path)),
+            (Ok(a), Ok(b)) if a == b
+        );
+    if same {
+        state.store_handle()
+    } else {
+        None
+    }
+}
+
+/// [`open_project_inner`] with the sweep of unreferenced derived audio
+/// handed in, so a test can stop at the moment it would run.
+///
+/// **Re-opening the project that is already open** goes through the store it
+/// already has (#501). The agent holds that store for the length of a turn,
+/// so a second `Store` for the same folder would leave the agent and the
+/// window as two writers, each with its own idea of the head. The folder is
+/// read again, as an open does, into the same `Arc<Mutex<Store>>`; the agent
+/// and every command keep one handle and one lock.
+///
+/// The sweep then runs holding that lock. A tool that runs off the lock
+/// takes it to stage, so with it held no tool can stage between the sweep's
+/// in-flight check and its deletes, which would lose the output it had
+/// written and no node names yet. The lock is taken before the sweep and kept
+/// until the store is in place, and nothing in between takes the store or
+/// engine locks.
+///
+/// Any other project has no store anyone could be staging from yet, so it is
+/// swept as it opens, before it is shared.
+fn open_project_with(
+    state: &AppState,
+    path: PathBuf,
+    sweep: impl FnOnce(&Store),
+) -> Result<ProjectInfo, CommandError> {
     if !path.is_absolute() {
         return Err(CommandError::InvalidPath(format!(
             "expected absolute path, got `{}`",
             path.display()
         )));
     }
-    let store = Store::open(&path)?;
-    sweep_orphaned_audio(&store);
+    let reopened = store_of_open_project(state, &path);
+    let mut open = reopened
+        .as_deref()
+        .map(|handle| lock_std(handle, "store"))
+        .transpose()?;
+    // Under the open store's own spelling of the folder: a staged edit
+    // refuses to commit into a store whose `project_dir` differs from the
+    // one it was staged from.
+    let store = Store::open(open.as_deref().map_or(path.as_path(), Store::project_dir))?;
+    sweep(&store);
     let head_hex = store.head().map(|id| id.to_hex());
     let path_str = path
         .to_str()
@@ -478,8 +534,14 @@ fn open_project_inner(state: &AppState, path: PathBuf) -> Result<ProjectInfo, Co
         },
     );
 
-    state.set_store(Some(Arc::new(Mutex::new(store))));
-    state.set_project_dir(Some(path));
+    match open.as_deref_mut() {
+        Some(held) => *held = store,
+        None => {
+            state.set_store(Some(Arc::new(Mutex::new(store))));
+            state.set_project_dir(Some(path));
+        }
+    }
+    drop(open);
 
     Ok(ProjectInfo {
         path: path_str,
@@ -5395,6 +5457,140 @@ mod tests {
         drop(running);
         open_project_for_test(&state, tmp.path()).unwrap();
         assert!(!output.exists(), "the orphan should go once nothing runs");
+    }
+
+    /// A node whose state differs by `length_samples`, so that appending two
+    /// of them makes two nodes (ids hash the state, and the same state is the
+    /// same node).
+    fn an_edit(length_samples: u64) -> session::SessionNode {
+        let mut state = empty_session_state();
+        state.length_samples = length_samples;
+        session::SessionNode {
+            id: session::NodeId([0u8; 32]),
+            parent: None,
+            created_at: chrono::Utc::now(),
+            label: None,
+            reasoning: None,
+            state,
+            op: None,
+        }
+    }
+
+    /// #501 item 1. The agent is built with the store that was open, and a
+    /// turn keeps it until it ends. Opening the project that is already open
+    /// during that turn used to build a second `Store` for the window, so the
+    /// agent went on committing through one and the window read through the
+    /// other: two writers on one folder, each with its own idea of the head.
+    ///
+    /// Re-opening the open project goes through the store it has. There is
+    /// one writer, so what the agent commits is what the window sees.
+    #[test]
+    fn reopening_the_open_project_leaves_the_agent_and_the_window_one_store() {
+        let tmp = tempdir().unwrap();
+        let state = AppState::new();
+        open_project_for_test(&state, tmp.path()).unwrap();
+        // What the agent holds for the length of a turn.
+        let agents = state.store_handle().expect("store");
+        let first = agents.lock().unwrap().append(an_edit(1)).unwrap();
+
+        let reopened = open_project_for_test(&state, tmp.path()).unwrap();
+
+        let windows = state.store_handle().expect("store");
+        assert!(
+            Arc::ptr_eq(&agents, &windows),
+            "re-opening the open project replaced its store: the agent mid-turn and the window \
+             are now two writers on one folder"
+        );
+        // And the consequence, which is what the user would see: the agent
+        // commits again, and the window's head is the agent's.
+        let second = agents.lock().unwrap().append(an_edit(2)).unwrap();
+        assert_eq!(
+            windows.lock().unwrap().head(),
+            Some(second),
+            "the window's store did not see the agent's edit"
+        );
+        assert_eq!(
+            reopened.head,
+            Some(first.to_hex()),
+            "the open reported the head it found, which was the first edit"
+        );
+    }
+
+    /// The other half of the rule above: routing a re-open through the store
+    /// it has must not make it a no-op. Opening a project reads it from disk,
+    /// and a user who re-opens one that something else changed (the CLI, a
+    /// copy dropped over it) expects to see that.
+    #[test]
+    fn reopening_the_open_project_still_reads_it_from_disk() {
+        let tmp = tempdir().unwrap();
+        let state = AppState::new();
+        open_project_for_test(&state, tmp.path()).unwrap();
+
+        // Another process moves the head: a store of its own on the folder.
+        let mut elsewhere = Store::open(tmp.path()).unwrap();
+        let moved = elsewhere.append(an_edit(7)).unwrap();
+        assert_eq!(
+            state.store_handle().unwrap().lock().unwrap().head(),
+            None,
+            "the open store cannot know yet"
+        );
+
+        let reopened = open_project_for_test(&state, tmp.path()).unwrap();
+
+        assert_eq!(reopened.head, Some(moved.to_hex()));
+        assert_eq!(
+            state.store_handle().unwrap().lock().unwrap().head(),
+            Some(moved),
+            "the re-opened project did not pick up the head on disk"
+        );
+    }
+
+    /// #501 item 2. The sweep decides what is unreferenced and then deletes
+    /// it, and a tool that runs off the store lock stages (taking the lock),
+    /// writes its output, and only later commits the node that names it. A
+    /// sweep with no lock held could have its in-flight check pass just before
+    /// such a tool stages, and then delete the output the tool wrote before
+    /// the check could see it.
+    ///
+    /// So when the project being opened is the one already open, the sweep
+    /// runs holding that store's lock: nothing can stage from it while the
+    /// sweep checks and deletes. This stops the open at the point where the
+    /// sweep would start and asks whether the lock is held there. (The
+    /// closure stands in for the sweep, then runs the real one.)
+    #[test]
+    fn reopening_the_open_project_sweeps_while_holding_its_store_lock() {
+        let tmp = tempdir().unwrap();
+        let state = AppState::new();
+        open_project_for_test(&state, tmp.path()).unwrap();
+        let handle = state.store_handle().expect("store");
+
+        let (at_the_sweep, opener_is_there) = std::sync::mpsc::channel();
+        let (carry_on, opener_waits) = std::sync::mpsc::channel::<()>();
+        let opener = {
+            let state = state.clone();
+            let dir = tmp.path().to_path_buf();
+            std::thread::spawn(move || {
+                open_project_with(&state, dir, |store| {
+                    at_the_sweep.send(()).expect("the test is listening");
+                    opener_waits.recv().expect("the test lets the sweep go on");
+                    sweep_orphaned_audio(store);
+                })
+            })
+        };
+
+        opener_is_there
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .expect("the open reached its sweep");
+        // A tool that is about to stage takes the lock to do it.
+        let could_stage = handle.try_lock().is_ok();
+        carry_on.send(()).unwrap();
+        opener.join().unwrap().unwrap();
+
+        assert!(
+            !could_stage,
+            "the sweep ran without the open store's lock, so a tool could stage between its \
+             in-flight check and its deletes and lose the output it had just written"
+        );
     }
 
     #[test]
