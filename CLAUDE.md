@@ -110,7 +110,7 @@ Facts in this repo are copied by hand into many files, and most copies have no t
 - A Tauri command added or changed: `docs/api-reference.md` and `website/app/docs/api-reference/page.tsx` (the fake backend in `e2e/backend.ts` is already an acceptance gate).
 - A provider or keychain slot added or changed: `README.md`, the keychain bullet above, `docs/development-guide.md`, and the site's getting-started, user-guide and privacy pages.
 - A provider ships a new model generation or retires one: the default in `crates/ai/src/prompt.rs` (`DEFAULT_MODEL`), the curated Anthropic list in `crates/ai/src/models.rs`, `CLASSIFIER_MODEL` in `crates/ai/src/lib.rs`, the OpenAI ranking in `models.rs`, and every doc or site line that names a model. Check ids against the provider's own models endpoint or docs; a retired id answers 404.
-- A caveat resolved (something documented as not shipped, unused or lost on reboot, such as #383–#385 or #394): `git grep` the issue number and rewrite every line that cites it, here included.
+- A caveat resolved (something documented as not shipped or unused, such as #383–#385, or as lost on reboot, as #394 was): `git grep` the issue number and rewrite every line that cites it, here included.
 - A new outbound network request from the app (a downloader, an updater, a new provider host): the "Network traffic" and "Updates" sections of `website/app/privacy/page.tsx`, the local-first table on `website/app/use-cases/local-ai-audio-editor/page.tsx`, and the privacy lines in `marketing/press-kit.md`.
 - A UI change: the `apps/desktop/e2e-native` stories that drive it, and any README or site screenshot that shows it.
 - A new site page: `website/app/sitemap.ts`, plus `lib/seo.test.ts` and `lib/marketing-pages.test.ts`.
