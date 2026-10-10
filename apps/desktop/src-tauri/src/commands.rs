@@ -2103,28 +2103,33 @@ pub async fn send_message<R: Runtime>(
     disabled_tools: Vec<String>,
 ) -> CmdResult<()> {
     // Build the per-turn SessionContext from the current selection, the
-    // annotations on the store head, and the head's tracks (#408). We
-    // snapshot these before acquiring the agent lock to minimise the lock
-    // hold time.
+    // annotations on the store head, and the head's tracks (#408) and
+    // master chain (#460). We snapshot these before acquiring the agent
+    // lock to minimise the lock hold time.
     let selection = state.selection_snapshot();
     // On the blocking pool: a message sent while a tool holds the store
     // would otherwise park a worker here for as long as the tool runs.
-    let (head, markers, tracks) = blocking(&state, |state| {
+    let (head, markers, tracks, master_effects) = blocking(&state, |state| {
         Ok(match state.store_handle() {
-            None => (None, vec![], vec![]),
+            None => (None, vec![], vec![], vec![]),
             Some(store_arc) => {
                 let store = lock_std(&*store_arc, "store")?;
                 match store.head() {
-                    None => (None, vec![], vec![]),
+                    None => (None, vec![], vec![], vec![]),
                     Some(head) => {
                         let markers = store.annotations_for(head).unwrap_or_default();
                         // A head that cannot be read still gets its selection
                         // and markers; the turn is not the place to fail.
-                        let tracks = store
+                        let (tracks, master_effects) = store
                             .get(head)
-                            .map(|node| ai::TrackBrief::from_state(&node.state))
+                            .map(|node| {
+                                (
+                                    ai::TrackBrief::from_state(&node.state),
+                                    ai::SessionContext::master_effects_from_state(&node.state),
+                                )
+                            })
                             .unwrap_or_default();
-                        (Some(head.to_hex()), markers, tracks)
+                        (Some(head.to_hex()), markers, tracks, master_effects)
                     }
                 }
             }
@@ -2136,6 +2141,7 @@ pub async fn send_message<R: Runtime>(
         markers,
         head,
         tracks,
+        master_effects,
     });
 
     // Hold the agent lock for the duration of the turn. Phase 1 has a
