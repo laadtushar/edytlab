@@ -2,11 +2,11 @@
 //! thread (#421).
 //!
 //! Tauri 2 runs a command declared without `async` on the main thread,
-//! and the agent loop holds the store, engine, dispatcher and clipboard
-//! locks for the whole of a tool call. A main-thread command that waits on
-//! one of them freezes the window for as long as the tool runs: no
-//! repaint, no input, no transport. A time-stretch of a 32 s track froze it
-//! for about ten seconds.
+//! and a running agent tool can hold the store, engine, dispatcher and
+//! clipboard locks for the whole of its call. A main-thread command that
+//! waits on one of them freezes the window for as long as the tool runs:
+//! no repaint, no input, no transport. A time-stretch of a 32 s track
+//! froze it for about ten seconds.
 //!
 //! The lock can be reached through a helper as easily as directly:
 //! twelve synchronous commands — the mixer's faders and mutes, renames,

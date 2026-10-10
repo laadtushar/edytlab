@@ -2278,7 +2278,7 @@ pub fn get_transcript(state: State<'_, AppState>) -> CmdResult<Vec<TranscriptWor
 /// timing fix-ups. A second implementation here is how the two would
 /// drift.
 // Off the main thread: through `run_track_tool` it takes the store,
-// engine and dispatcher locks, which a running tool holds for its
+// engine and dispatcher locks, which a running tool can hold for its
 // whole length (#421).
 #[tauri::command(async)]
 pub fn cut_transcript_words(
@@ -2558,7 +2558,7 @@ fn run_track_tool(state: &AppState, tool: &str, args: serde_json::Value) -> CmdR
 
 /// Set a track's gain in dB. Returns the new session head.
 // Off the main thread: through `run_track_tool` it takes the store,
-// engine and dispatcher locks, which a running tool holds for its
+// engine and dispatcher locks, which a running tool can hold for its
 // whole length (#421).
 #[tauri::command(async)]
 pub fn set_track_gain(state: State<'_, AppState>, track: usize, gain_db: f32) -> CmdResult<String> {
@@ -2591,7 +2591,7 @@ pub(crate) fn set_track_gain_inner(
 /// mean "hard right"; a slider that sends 1.5 is broken, and quietly
 /// accepting it hides that.
 // Off the main thread: through `run_track_tool` it takes the store,
-// engine and dispatcher locks, which a running tool holds for its
+// engine and dispatcher locks, which a running tool can hold for its
 // whole length (#421).
 #[tauri::command(async)]
 pub fn set_track_pan(state: State<'_, AppState>, track: usize, pan: f32) -> CmdResult<String> {
@@ -2618,7 +2618,7 @@ pub(crate) fn set_track_pan_inner(state: &AppState, track: usize, pan: f32) -> C
 /// able to change directly; until now it could only be changed by
 /// asking the agent in a sentence.
 // Off the main thread: through `run_track_tool` it takes the store,
-// engine and dispatcher locks, which a running tool holds for its
+// engine and dispatcher locks, which a running tool can hold for its
 // whole length (#421).
 #[tauri::command(async)]
 pub fn rename_track(state: State<'_, AppState>, track: usize, name: String) -> CmdResult<String> {
@@ -2652,7 +2652,7 @@ pub(crate) fn rename_track_inner(
 /// undone like any other, which is why this does not ask for
 /// confirmation down here. Whether to ask is the UI's decision.
 // Off the main thread: through `run_track_tool` it takes the store,
-// engine and dispatcher locks, which a running tool holds for its
+// engine and dispatcher locks, which a running tool can hold for its
 // whole length (#421).
 #[tauri::command(async)]
 pub fn remove_track(state: State<'_, AppState>, track: usize) -> CmdResult<String> {
@@ -2666,7 +2666,7 @@ pub(crate) fn remove_track_inner(state: &AppState, track: usize) -> CmdResult<St
 /// Duplicate a track, clips and mixer settings included. Returns the
 /// new session head.
 // Off the main thread: through `run_track_tool` it takes the store,
-// engine and dispatcher locks, which a running tool holds for its
+// engine and dispatcher locks, which a running tool can hold for its
 // whole length (#421).
 #[tauri::command(async)]
 pub fn duplicate_track(state: State<'_, AppState>, track: usize) -> CmdResult<String> {
@@ -2683,7 +2683,7 @@ pub(crate) fn duplicate_track_inner(state: &AppState, track: usize) -> CmdResult
 
 /// Mute or unmute a track. Returns the new session head.
 // Off the main thread: through `run_track_tool` it takes the store,
-// engine and dispatcher locks, which a running tool holds for its
+// engine and dispatcher locks, which a running tool can hold for its
 // whole length (#421).
 #[tauri::command(async)]
 pub fn set_track_muted(state: State<'_, AppState>, track: usize, muted: bool) -> CmdResult<String> {
@@ -2729,7 +2729,7 @@ pub fn get_sync_lock(state: State<'_, AppState>) -> CmdResult<bool> {
 /// whether a cut is safe (#170 §3). Setting it to what it already is
 /// appends no node, and the head comes back unchanged.
 // Off the main thread: through `run_track_tool` it takes the store,
-// engine and dispatcher locks, which a running tool holds for its
+// engine and dispatcher locks, which a running tool can hold for its
 // whole length (#421).
 #[tauri::command(async)]
 pub fn set_sync_lock(state: State<'_, AppState>, enabled: bool) -> CmdResult<String> {
@@ -2746,7 +2746,7 @@ pub(crate) fn set_sync_lock_inner(state: &AppState, enabled: bool) -> CmdResult<
 
 /// Solo or un-solo a track. Returns the new session head.
 // Off the main thread: through `run_track_tool` it takes the store,
-// engine and dispatcher locks, which a running tool holds for its
+// engine and dispatcher locks, which a running tool can hold for its
 // whole length (#421).
 #[tauri::command(async)]
 pub fn set_track_soloed(
@@ -2791,7 +2791,7 @@ const ENVELOPE_MAX_DB: f32 = 12.0;
 /// Sorting is the tool's job and it already does it, so a caller that
 /// drags a point past its neighbour does not have to reorder first.
 // Off the main thread: through `run_track_tool` it takes the store,
-// engine and dispatcher locks, which a running tool holds for its
+// engine and dispatcher locks, which a running tool can hold for its
 // whole length (#421).
 #[tauri::command(async)]
 pub fn set_clip_envelope(
@@ -2853,7 +2853,7 @@ pub(crate) fn set_clip_envelope_inner(
 /// Callers re-read `list_tracks` rather than assuming their index
 /// survived — which the UI does anyway to reconcile.
 // Off the main thread: through `run_track_tool` it takes the store,
-// engine and dispatcher locks, which a running tool holds for its
+// engine and dispatcher locks, which a running tool can hold for its
 // whole length (#421).
 #[tauri::command(async)]
 pub fn move_clip(
@@ -2886,7 +2886,7 @@ pub(crate) fn move_clip_inner(
 
 /// Remove one clip from a track. Returns the new head.
 // Off the main thread: through `run_track_tool` it takes the store,
-// engine and dispatcher locks, which a running tool holds for its
+// engine and dispatcher locks, which a running tool can hold for its
 // whole length (#421).
 #[tauri::command(async)]
 pub fn remove_clip(state: State<'_, AppState>, track: usize, clip: usize) -> CmdResult<String> {
