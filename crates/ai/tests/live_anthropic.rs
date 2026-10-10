@@ -97,3 +97,47 @@ async fn live_round_trip() {
     assert!(events > 0, "expected at least one event");
     eprintln!("final text: {}", result.text);
 }
+
+/// The key for the live tests: `ANTHROPIC_API_KEY`, or `ANTHROPIC_E2E_KEY`,
+/// which `live_thinking_binding` reads.
+fn live_key() -> Option<String> {
+    std::env::var("ANTHROPIC_API_KEY")
+        .or_else(|_| std::env::var("ANTHROPIC_E2E_KEY"))
+        .ok()
+        .filter(|k| !k.trim().is_empty())
+}
+
+/// What Settings lists for Anthropic with a saved key is Anthropic's own
+/// list, in the shape `fetch_anthropic_models` reads, and it holds the two
+/// models the app uses without being asked. The mocked tests pin the shape
+/// the docs describe; this is the check that the real API still answers in
+/// it, and that the defaults still exist on it.
+#[tokio::test]
+#[ignore = "live API; requires ANTHROPIC_API_KEY"]
+async fn live_model_list_holds_the_defaults() {
+    let Some(key) = live_key() else {
+        eprintln!("no key set, skipping");
+        return;
+    };
+
+    ai::models::clear_cache();
+    let catalogue = ai::list_models_for_at(ai::ANTHROPIC_ID, Some(&key), None)
+        .await
+        .expect("the catalogue never errors for Anthropic");
+
+    assert_eq!(
+        catalogue.source,
+        ai::CatalogueSource::Live,
+        "the live list was not used"
+    );
+    let ids: Vec<&str> = catalogue.models.iter().map(|m| m.id.as_str()).collect();
+    eprintln!("live Anthropic models: {ids:?}");
+    assert!(ids.contains(&ai::DEFAULT_MODEL), "{ids:?}");
+    assert!(ids.contains(&ai::CLASSIFIER_MODEL), "{ids:?}");
+    for m in &catalogue.models {
+        assert!(
+            !m.display_name.is_empty() && m.context_length.is_some(),
+            "{m:?}: the live entry is missing a name or a context length"
+        );
+    }
+}
