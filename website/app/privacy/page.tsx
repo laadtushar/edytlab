@@ -1,12 +1,17 @@
 import type { Metadata } from "next";
 
 import { LegalShell } from "@/components/landing/legal-shell";
+import { pageSocial } from "@/lib/seo";
+
+const title = "Privacy policy: your audio stays on your machine";
+const description =
+  "How edytlab handles your data: audio stays local, LLM keys live in the OS keychain, the app sends no telemetry, and this site uses anonymous Vercel analytics.";
 
 export const metadata: Metadata = {
-  title: "Privacy",
-  description:
-    "How edytlab handles your data. Audio stays local, LLM keys live in the OS keychain, the desktop app sends no telemetry, and this website uses anonymous Vercel analytics.",
+  title,
+  description,
   alternates: { canonical: "/privacy" },
+  ...pageSocial("/privacy", `${title} · edytlab`, description),
 };
 
 export default function PrivacyPage() {
@@ -111,7 +116,7 @@ export default function PrivacyPage() {
           Speed Insights privacy and compliance
         </a>{" "}
         pages, and its{" "}
-        <a href="https://vercel.com/legal/privacy-policy">Privacy Notice</a>,
+        <a href="https://vercel.com/legal/privacy-notice">Privacy Notice</a>,
         for the details.
       </p>
 

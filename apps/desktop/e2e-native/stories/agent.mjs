@@ -11,24 +11,61 @@ export async function say(ctx, text) {
   await d.keys(K.enter);
 }
 
+/** The plan-approval card (Plan first, or a turn the app gates on a plan),
+ * or null when none is showing. `steps` is the numbered list as a person
+ * reads it; it is empty when the plan came back with blank steps (#481),
+ * so `card` is everything the card says, for a message that must name it. */
+export async function planCard(ctx) {
+  return ctx.d.exec(() => {
+    const card = document.querySelector("[data-testid='plan-approval-card']");
+    if (!card) return null;
+    const squash = (s) => (s ?? "").replace(/\s+/g, " ").trim();
+    return { steps: squash(card.querySelector("ol")?.innerText), card: squash(card.innerText) };
+  });
+}
+
+/** What to call a plan card in a message: its steps, else what the card reads. */
+export const describePlan = (plan) => plan.steps || `(blank steps; the card reads "${plan.card}")`;
+
 /** Wait for the assistant to finish: no thinking indicator, no streaming
  * cursor, a reply shown, and its text unchanged for two seconds. The
  * thinking indicator goes away at the *first* token, so it alone says
- * nothing about the reply being complete. */
-export async function waitForReply(ctx, { timeout = 480000 } = {}) {
+ * nothing about the reply being complete.
+ *
+ * A turn can stop for good without finishing: a chat error, or a plan card
+ * (the app gates Plan first, and some turns it classes as a plan, on an
+ * approval nobody gives here). Each throws at once, naming itself, rather
+ * than running out `timeout` with "last: false". A story that expects a
+ * plan card waits for it, answers it, and only then waits for the reply;
+ * one that does not should send its turn through `askThrough`
+ * (claude.mjs), which answers the card. A card seen for less than
+ * `planGraceMs` is not reported: one just answered takes a moment to go.
+ *
+ * `until` swallows what its callback throws and tries again, so the
+ * callback returns what it found and the throw happens out here. */
+export async function waitForReply(ctx, { timeout = 480000, planGraceMs = 1500 } = {}) {
   const { d } = ctx;
   const replyText = () =>
     d.exec(() => {
       const b = [...document.querySelectorAll("[data-testid='message-bubble'][data-role='assistant']")];
       return b.map((e) => e.textContent).join("\n");
     });
-  await d.until(async () => {
+  let planSince = 0;
+  const found = await d.until(async () => {
     if (await d.count("[data-testid='chat-error']")) {
-      throw new Error(`the chat showed an error: ${await d.text("[data-testid='chat-error']")}`);
+      return { error: await d.text("[data-testid='chat-error']") };
     }
+    const plan = await planCard(ctx);
+    if (plan) {
+      planSince ||= Date.now();
+      return Date.now() - planSince >= planGraceMs ? { plan } : false;
+    }
+    planSince = 0;
     const streaming = (await d.count("[data-testid='thinking-indicator']")) + (await d.count("[data-testid='caret']"));
     return streaming === 0 && (await d.count("[data-testid='message-bubble'][data-role='assistant']")) >= 1;
   }, { timeout, label: "the assistant to finish streaming" });
+  if (found.error !== undefined) throw new Error(`the chat showed an error: ${found.error}`);
+  if (found.plan) throw new Error(`a plan card is waiting for approval: ${describePlan(found.plan)}`);
   let last = await replyText();
   for (let i = 0; i < 10; i++) {
     await sleep(2000);

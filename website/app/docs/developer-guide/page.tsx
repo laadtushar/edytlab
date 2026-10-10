@@ -1,19 +1,17 @@
 import type { Metadata } from "next";
 import { siteConfig } from "@/lib/site";
-import { DEFAULT_OG_IMAGE } from "@/lib/seo-core";
+import { pageSocial } from "@/lib/seo-core";
 import { DocShell } from "@/components/docs/doc-shell";
 
+const title = "Developer Guide: build from source and contribute";
+const description =
+  "Build edytlab from source, understand the Rust crates and the Tauri app, run the tests, and contribute new audio tools or LLM providers.";
+
 export const metadata: Metadata = {
-  title: "Developer Guide",
-  description:
-    "Build edytlab from source, understand the architecture, run tests, and contribute new tools or LLM providers.",
+  title,
+  description,
   alternates: { canonical: "/docs/developer-guide" },
-  openGraph: {
-    title: "Developer Guide — edytlab Docs",
-    description: "Build from source, run tests, and contribute to edytlab.",
-    url: `${siteConfig.url}/docs/developer-guide`,
-    images: [DEFAULT_OG_IMAGE],
-  },
+  ...pageSocial("/docs/developer-guide", `${title} · edytlab`, description),
 };
 
 export default function DeveloperGuidePage() {

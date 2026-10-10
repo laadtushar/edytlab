@@ -43,23 +43,34 @@ pub(crate) fn tool_budget_line() -> String {
     )
 }
 
-/// `max_tokens` for one model step of a turn.
+/// `max_tokens` for one model step of a turn, whichever provider it goes to.
 ///
-/// It caps everything the model writes in the step, *thinking included*,
-/// and Anthropic's 5.x models (Sonnet 5.5, Opus 5.5, Haiku 5.5, Fable 5.1)
-/// think by default, whether or not the request asks. A cap sized for a
-/// model that answers straight away (this was 4096) is spent on reasoning
-/// before the first word of the reply, or before the tool call the step
-/// was for. 8192 is what [`crate::anthropic::Effort::High`] already
-/// raises the cap to for an explicit `high`, and what Sonnet 5.5 does at
-/// its own default. `max_tokens` is a ceiling and not a charge: a step
-/// that needs less pays for less.
+/// It caps everything the model writes in the step, *thinking included*.
+/// Anthropic's 5.x models (Sonnet 5.5, Opus 5.5, Haiku 5.5, Fable 5.1) think
+/// by default, whether or not the request asks, and OpenAI counts reasoning
+/// tokens against `max_completion_tokens` too
+/// (<https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create>).
+/// A cap sized for a model that answers straight away (this was 4096) is
+/// spent on reasoning before the first word of the reply, or before the tool
+/// call the step was for. 8192 is what [`crate::anthropic::Effort::High`]
+/// raises the cap to for an explicit `high`, and Sonnet 5.5 defaults to
+/// `high`. `max_tokens` is a ceiling and not a charge: a step that needs
+/// less pays for less.
+///
+/// The one number goes to every provider, and not every model can write that
+/// much: OpenAI answers a request above a model's output limit with a 400
+/// instead of lowering it, and its older models stop at 4,096. So it is a
+/// cap on what a request may ask for, and each request lowers it to the limit
+/// of its own model where [`crate::models::max_output_tokens`] knows one
+/// (every chat-completions body, in `OpenAIProvider` and `one_shot_body`).
+/// Raising this constant further means checking that table first.
 pub const DEFAULT_MAX_TOKENS: u32 = 8192;
 
 /// `max_tokens` for the plan request. The plan is the main model's own
 /// work, so it needs the room a step has: on a model that thinks first, a
 /// cap of 1024 came back as a thinking block with no text, which reads as
-/// "the model returned no plan". See [`DEFAULT_MAX_TOKENS`].
+/// "the model returned no plan". Clamped per model like a step's. See
+/// [`DEFAULT_MAX_TOKENS`].
 pub const PLAN_MAX_TOKENS: u32 = 8192;
 
 /// The Phase 1 system prompt. Embedded at compile time; the snapshot

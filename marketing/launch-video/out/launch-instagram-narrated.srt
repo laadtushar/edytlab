@@ -1,0 +1,28 @@
+1
+00:00:00,120 --> 00:00:02,770
+Describe the blend. Hear the mix.
+
+2
+00:00:02,800 --> 00:00:05,190
+Type it, in plain English.
+
+3
+00:00:06,800 --> 00:00:09,110
+The agent runs a tool.
+
+4
+00:00:10,200 --> 00:00:14,270
+Then ask for the blend: a crossfade, with a low-pass.
+
+5
+00:00:15,400 --> 00:00:16,590
+Listen.
+
+6
+00:00:22,450 --> 00:00:25,560
+Mastered, and exported as a WAV.
+
+7
+00:00:26,900 --> 00:00:30,730
+Free and open source. Unsigned installers.
+
