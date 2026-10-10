@@ -16,7 +16,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const cbs = {
   textDelta: [] as ((text: string) => void)[],
   toolCall: [] as ((name: string, id: string) => void)[],
-  toolCallEnd: [] as ((id: string, ok: boolean) => void)[],
+  toolCallEnd: [] as ((
+    id: string,
+    ok: boolean,
+    view?: unknown,
+    notRun?: boolean,
+  ) => void)[],
   nodeCreated: [] as ((nodeId: string) => void)[],
   done: [] as (() => void)[],
   plan: [] as ((steps: Record<string, unknown>[]) => void)[],
@@ -40,7 +45,7 @@ vi.mock("../lib/tauri-bridge", () => ({
       cbs.toolCall = cbs.toolCall.filter((c) => c !== cb);
     });
   }),
-  onToolCallEnd: vi.fn((cb: (id: string, ok: boolean) => void) => {
+  onToolCallEnd: vi.fn((cb: (id: string, ok: boolean, view?: unknown, notRun?: boolean) => void) => {
     cbs.toolCallEnd.push(cb);
     return Promise.resolve(() => {
       cbs.toolCallEnd = cbs.toolCallEnd.filter((c) => c !== cb);
@@ -263,7 +268,7 @@ describe("useAgentStream", () => {
     );
   });
 
-  it("a declined held call's badge resolves", async () => {
+  it("a declined held call's badge resolves as not run, not as an error", async () => {
     const { result } = renderHook(() => useAgentStream());
     await act(async () => {
       await flush();
@@ -276,10 +281,31 @@ describe("useAgentStream", () => {
     expect(result.current.entries[0]).toMatchObject({ id: "t1", status: "running" });
 
     await act(async () => {
-      cbs.toolCallEnd[0]("t1", false);
+      cbs.toolCallEnd[0]("t1", false, undefined, true);
       cbs.planRejected[0]();
     });
-    expect(result.current.entries[0]).toMatchObject({ id: "t1", status: "error" });
+    expect(result.current.entries[0]).toMatchObject({ id: "t1", status: "not_run" });
+  });
+
+  /**
+   * An edited step used to reach the backend as a bare string, so the
+   * model was told `1. track: 1` and had to work out the tool from its
+   * earlier `tool_use`. The tool goes with each step now.
+   */
+  it("approvePlan forwards each step's tool", async () => {
+    const { result } = renderHook(() => useAgentStream());
+    await act(async () => {
+      await flush();
+    });
+
+    await act(async () => {
+      await result.current.approvePlan([
+        { step: 1, tool: "reverse", description: "track: 1" },
+      ]);
+    });
+    expect(approvePlanMock).toHaveBeenCalledWith([
+      { tool: "reverse", description: "track: 1" },
+    ]);
   });
 
   /**

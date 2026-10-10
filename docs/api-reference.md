@@ -528,13 +528,15 @@ Send a user message to the agent. The agent turn runs asynchronously and emits e
 await bridge.sendMessage("cut the silence at the start and normalize to -14 LUFS");
 ```
 
-### `approvePlan(steps?: string[]) → void`
+### `approvePlan(steps?: { tool: string; description: string }[]) → void`
 
 Approve what `onPlan` showed, so the suspended turn runs it: the agent's
 proposed plan, or, when there was no plan, the first edit it is about to make.
 
-Pass `steps` (the step descriptions, edited) to change it instead of approving it
-as shown. For a plan, the agent follows the revised steps. For a held edit,
+Pass `steps` as edited, each with its `tool` (which is not editable) and its
+`description`, to change it instead of approving it as shown. The agent receives
+each step as `tool — description`, so an edited `track: 1` still says what it is
+to run with. For a plan, the agent follows the revised steps. For a held edit,
 **nothing runs**: the agent is told what you changed and proposes again, and that
 proposal is held in turn, so every edit that runs is one you saw as shown.
 
@@ -1083,9 +1085,14 @@ const unlisten = await bridge.onTextDelta((chunk) => {
 
 Emitted when the agent starts executing a tool. Use to show tool badge in the UI.
 
-### `onToolCallEnd(cb: (id: string, ok: boolean, view?: ToolView) => void) → Promise<UnlistenFn>`
+### `onToolCallEnd(cb: (id: string, ok: boolean, view: ToolView | undefined, notRun: boolean) => void) → Promise<UnlistenFn>`
 
 Emitted when tool execution completes. `ok = false` if the tool returned an error. `view` is set for the few tools that return something to draw, such as `plot_spectrum`'s chart.
+
+`notRun` is `true` (with `ok = false`) when the call was announced but never
+dispatched: the user declined or reworded the held step, did not answer within
+five minutes, or the step would have gone past the tool budget. Nothing ran, so
+show it as "not run", not as a failure.
 
 ### `onNodeCreated(cb: (nodeId: string) => void) → Promise<UnlistenFn>`
 
@@ -1141,7 +1148,7 @@ The user declined a plan or a held edit (`rejectPlan()`), and the turn has ended
 with no `onAgentDone`.
 
 For a held edit, the agent's sentence has already streamed and its tool calls
-already announced; each call's `onToolCallEnd` (`ok = false`) comes first. This
+already announced; each call's `onToolCallEnd` (`ok = false`, `notRun = true`) comes first. This
 is the event that tells a transcript to settle the half-streamed message rather
 than leave it pending.
 

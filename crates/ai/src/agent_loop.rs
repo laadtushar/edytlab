@@ -981,11 +981,7 @@ where
             // that. It was announced as it streamed, so its badge is
             // resolved; it is not run and not in the history.
             for (id, _, _) in &tool_uses {
-                on_event(AgentEvent::ToolCallEnd {
-                    id: id.clone(),
-                    ok: false,
-                    view: None,
-                });
+                on_event(AgentEvent::ToolCallNotRun { id: id.clone() });
             }
             // A reply with no words would leave the user with neither
             // the work they asked for nor a reason why.

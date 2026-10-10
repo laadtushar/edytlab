@@ -257,6 +257,15 @@ pub enum AgentEvent {
         ok: bool,
         view: Option<ToolView>,
     },
+    /// A call whose [`AgentEvent::ToolCallStart`] went out as it streamed
+    /// and that will never be dispatched: the user declined the held step,
+    /// reworded it, or did not answer within five minutes; or the step
+    /// would have gone past the tool budget, or a provider called a tool
+    /// during the tools-off summary request.
+    ///
+    /// It ends the badge's lifecycle the way [`AgentEvent::ToolCallEnd`]
+    /// does, but it is not a failure, because nothing ran.
+    ToolCallNotRun { id: String },
     /// A tool call resulted in a new session node. Emitted before the
     /// matching [`AgentEvent::ToolCallEnd`].
     NodeCreated(session::NodeId),
@@ -278,8 +287,8 @@ pub enum AgentEvent {
     /// the session and appended no node.
     ///
     /// For a declined held step (#415) the tool calls had already been
-    /// announced, so each one's [`AgentEvent::ToolCallEnd`] (`ok: false`)
-    /// comes first, and the model was given a tool result saying the user
+    /// announced, so each one's [`AgentEvent::ToolCallNotRun`] comes
+    /// first, and the model was given a tool result saying the user
     /// declined. There is no [`AgentEvent::Done`] after this.
     PlanRejected,
     /// A plan was asked for and none arrived (#267).

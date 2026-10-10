@@ -39,4 +39,17 @@ describe("ToolBadge", () => {
     expect(badge).toHaveAttribute("data-status", "error");
     expect(badge.textContent).toContain("✗");
   });
+
+  it("renders not_run as neither success nor failure", () => {
+    render(<ToolBadge name="normalize" status="not_run" />);
+    const badge = screen.getByTestId("tool-badge");
+    expect(badge).toHaveAttribute("data-status", "not_run");
+    expect(badge.textContent).toContain("Normalize");
+    expect(badge.textContent).toContain("not run");
+    expect(badge.textContent).not.toContain("✗");
+    expect(badge.textContent).not.toContain("✓");
+    // Nothing ran, so it takes no danger or success colour.
+    expect(badge.className).not.toContain("--danger");
+    expect(badge.className).not.toContain("--success");
+  });
 });
