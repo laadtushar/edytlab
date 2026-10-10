@@ -443,12 +443,25 @@ export type ToolView =
       summary?: string | null;
     };
 
+/**
+ * `notRun` is true for a call that was announced but never dispatched:
+ * the user declined or reworded the held step, did not answer in five
+ * minutes, or the step would have gone past the tool budget. `ok` is
+ * then false and there is no `view`, but it was not a failure — nothing
+ * ran — so show it as "not run".
+ */
 export const onToolCallEnd = (
-  cb: (id: string, ok: boolean, view?: ToolView) => void,
+  cb: (
+    id: string,
+    ok: boolean,
+    view: ToolView | undefined,
+    notRun: boolean,
+  ) => void,
 ): Promise<UnlistenFn> =>
-  listen<{ id: string; ok: boolean; view?: ToolView }>(
+  listen<{ id: string; ok: boolean; view?: ToolView; not_run?: boolean }>(
     "agent://tool-call-end",
-    (e) => cb(e.payload.id, e.payload.ok, e.payload.view),
+    (e) =>
+      cb(e.payload.id, e.payload.ok, e.payload.view, e.payload.not_run === true),
   );
 
 export const onNodeCreated = (
@@ -461,7 +474,17 @@ export const onNodeCreated = (
 export const onAgentDone = (cb: () => void): Promise<UnlistenFn> =>
   listen<Record<string, never>>("agent://done", () => cb());
 
-export const approvePlan = (steps?: string[]): Promise<void> =>
+/**
+ * A step as the card showed it. `tool` is not editable; it travels with
+ * the edited `description` so the agent is told `tool — description`
+ * rather than a bare `track: 1` it would have to match to a tool itself.
+ */
+export interface EditedPlanStep {
+  tool: string;
+  description: string;
+}
+
+export const approvePlan = (steps?: EditedPlanStep[]): Promise<void> =>
   invoke<void>("approve_plan", { steps: steps && steps.length > 0 ? steps : null });
 
 /**

@@ -15,6 +15,7 @@ Long-form technical documentation for contributors and integrators. Marketing co
 | [**specs/2026-10-10-chatgpt-subscription-sign-in.md**](specs/2026-10-10-chatgpt-subscription-sign-in.md) | Research and plan: letting users sign in with ChatGPT so the agent runs on their Plus or Pro plan (OpenAI's open-source plan-usage preview), with the OAuth flow, terms, edytlab code changes and tests. |
 | [**HANDOVER.md**](./HANDOVER.md) | One-page product brief and phase recap. |
 | [**packaging-windows.md**](./packaging-windows.md) | Windows signing, WebView2 bootstrapper, Authenticode, SmartScreen reputation. Read before touching the Windows leg of `release-signed.yml`. |
+| [**saas-evaluation.md**](./saas-evaluation.md) | Whether and how edytlab could run as a browser-based SaaS: what ties it to the desktop, options, costs, privacy, risks, phased plan (#389). |
 
 ## Quick Links
 

@@ -54,7 +54,7 @@ export async function onboardClaude(ctx, { key = KEY, model, effort } = {}) {
   await d.click("[data-testid='settings-save-button']");
 }
 
-async function ready(ctx, ...files) {
+export async function ready(ctx, ...files) {
   const { d } = ctx;
   await onboardClaude(ctx, { model: MODEL, effort: EFFORT });
   ctx.note(`model: ${MODEL ?? "the app's default"}, effort: ${EFFORT ?? "the app's default"}`);
@@ -65,7 +65,7 @@ async function ready(ctx, ...files) {
   ctx.record();
 }
 
-async function ask(ctx, text) {
+export async function ask(ctx, text) {
   await say(ctx, text);
   await waitForReply(ctx, { timeout: TURN });
   return toolBadges(ctx);
@@ -140,7 +140,7 @@ export function wavSeconds(bytes) {
   return 0;
 }
 
-async function setPlanFirst(ctx) {
+export async function setPlanFirst(ctx) {
   await ctx.d.click("[data-testid='plan-first-toggle']");
   await ctx.d.until(async () => (await ctx.d.attr("[data-testid='plan-first-toggle']", "aria-pressed")) === "true", { label: "Plan first on" });
 }

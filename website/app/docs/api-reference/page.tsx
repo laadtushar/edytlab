@@ -208,7 +208,7 @@ const commands = [
       {
         name: "approvePlan(steps?)",
         returns: "void",
-        desc: "Approve what onPlan showed (the agent's plan, or its first edit when Plan first is on and it wrote no plan). Pass edited step descriptions to change it instead: a plan follows the revision, a held edit is not run and the agent proposes again.",
+        desc: "Approve what onPlan showed (the agent's plan, or its first edit when Plan first is on and it wrote no plan). Pass the edited steps, each with its tool, to change it instead: a plan follows the revision, a held edit is not run and the agent proposes again.",
       },
       {
         name: "rejectPlan()",
@@ -432,8 +432,8 @@ const events = [
   },
   {
     name: "onToolCallEnd(cb)",
-    payload: "{ id, ok: boolean, view? }",
-    desc: "Tool execution completed. ok = false if the tool returned an error.",
+    payload: "{ id, ok: boolean, not_run: boolean, view? }",
+    desc: "Tool execution completed. ok = false if the tool returned an error. not_run = true (with ok = false) when the call was announced but never dispatched (declined, reworded, unanswered, or over the tool budget): show it as not run, not as a failure.",
   },
   {
     name: "onNodeCreated(cb)",
