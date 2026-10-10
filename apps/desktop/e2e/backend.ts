@@ -81,16 +81,21 @@ function bundledSkillCount(): number {
  */
 function providerCommands(): Backend {
   return {
-    // `AppState::new` starts on `ai::ANTHROPIC_ID`.
+    // `active_provider_answer(state.keychain_read_error(), ..)`: with a
+    // clean startup, `AppState::new` starts on `ai::ANTHROPIC_ID`. After a
+    // startup the keychain refused it rejects with the reason instead.
     get_active_provider: ok("anthropic"),
     // `model_for(..).unwrap_or_default()`: nothing chosen yet.
     get_active_model: ok(""),
-    // No override stored in the keychain.
+    // `stored_setting(ai::keychain::try_load_base_url(..))`: no override
+    // stored, so `None`. A keychain that cannot be read rejects with the
+    // reason instead.
     get_base_url_for: ok(null),
     // `ANTHROPIC_DEFAULT_BASE_URL` in `crates/ai/src/provider.rs`.
     default_base_url_for: ok("https://api.anthropic.com"),
-    // `ai::keychain::load_effort(..).map(|e| e.as_str().to_string())`:
-    // no slot stored, so `None` (the model's own default).
+    // `stored_setting(ai::keychain::try_load_effort(..))` mapped through
+    // `e.as_str()`: no slot stored, so `None` (the model's own default).
+    // An unreadable keychain rejects with the reason.
     get_effort_for: ok(null),
     // `anthropic_models()` in `crates/ai/src/models.rs` — a static
     // catalogue, so it answers without a key or a network. Serialised
@@ -131,7 +136,9 @@ function bootCommands({ hasKey }: { hasKey: boolean }): Backend {
     // session is open, so the window can still draw.
     get_sync_lock: ok(false),
     // Without a key, the app opens Settings as onboarding — which is
-    // what calls `providerCommands`.
+    // what calls `providerCommands`. In the app it first waits for
+    // startup's keychain reads (`AppState::startup_reads_settled`), which
+    // run off the setup thread; a test of that wait answers `deferred`.
     has_api_key: ok(hasKey),
     // `ai::keychain::persistence()`: `Durable` on macOS and Windows, and
     // on Linux whenever a Secret Service answers. A test of the

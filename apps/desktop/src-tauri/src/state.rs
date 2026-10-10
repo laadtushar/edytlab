@@ -59,6 +59,25 @@ pub struct AppState {
     /// reason rather than a first-run prompt for a key that is already
     /// there (#394). Cleared by the next successful key or provider save.
     pub keychain_read_error: Arc<Mutex<Option<String>>>,
+    /// Whether startup was *refused* by the keychain (locked, or an unlock
+    /// prompt dismissed), as opposed to merely failing a read. Every further
+    /// read would raise its own unlock prompt, so what would otherwise read
+    /// the keychain on its own, the autostart of MCP servers whose config
+    /// refers to it, skips instead (#497). Cleared with
+    /// [`Self::keychain_read_error`] by the next successful save, and
+    /// false again on every launch.
+    pub keychain_refused: Arc<std::sync::atomic::AtomicBool>,
+    /// Whether startup's keychain reads have finished: `true` once they
+    /// have, and from the start for a state nothing is reading into.
+    ///
+    /// The reads can wait on the user for as long as they like (a locked
+    /// Secret Service's unlock prompt has no time limit), so they run on a
+    /// thread of their own and the window comes up meanwhile. What the
+    /// reads fill in (the active provider, the key, the chosen models, the
+    /// failure above) is not there until then, so the commands that
+    /// answer from it or write over it wait on this first
+    /// ([`AppState::startup_reads_settled`], #497).
+    pub startup_reads: Arc<tokio::sync::watch::Sender<bool>>,
     /// Stable id of the active provider (e.g. `"anthropic"` or
     /// `"openrouter"`). Defaults to `"anthropic"` when no preference is
     /// recorded — matches the pre-multi-provider behaviour.
@@ -158,6 +177,8 @@ impl AppState {
             project_dir: Arc::new(Mutex::new(None)),
             api_key: Arc::new(Mutex::new(None)),
             keychain_read_error: Arc::new(Mutex::new(None)),
+            keychain_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            startup_reads: Arc::new(tokio::sync::watch::channel(true).0),
             active_provider: Arc::new(Mutex::new(ai::ANTHROPIC_ID.to_string())),
             active_model_by_provider: Arc::new(Mutex::new(std::collections::HashMap::new())),
             plan_notify: Arc::new(tokio::sync::Notify::new()),
@@ -458,6 +479,48 @@ impl AppState {
             .clone()
     }
 
+    /// Mark startup's keychain reads as pending, before anything can ask
+    /// for what they fill in. Pair it with [`Self::startup_reads_guard`],
+    /// or the commands that wait for them wait for good.
+    pub fn begin_startup_reads(&self) {
+        self.startup_reads.send_replace(false);
+    }
+
+    /// A guard that marks startup's keychain reads as finished when it is
+    /// dropped, however the thread holding it ends: a read that panicked
+    /// must not leave `has_api_key` pending forever.
+    pub fn startup_reads_guard(&self) -> StartupReadsGuard {
+        StartupReadsGuard(Arc::clone(&self.startup_reads))
+    }
+
+    /// Wait until startup's keychain reads have finished. Returns at once
+    /// when they have (or were never begun).
+    pub async fn startup_reads_settled(&self) {
+        let mut settled = self.startup_reads.subscribe();
+        // The sender is `self`'s own, so it outlives the wait; an error
+        // here could only mean it is gone, and then nothing is pending.
+        let _ = settled.wait_for(|done| *done).await;
+    }
+
+    /// Whether startup's keychain reads are still going.
+    pub fn startup_reads_pending(&self) -> bool {
+        !*self.startup_reads.borrow()
+    }
+
+    /// Record whether the keychain refused access at startup. See
+    /// [`AppState::keychain_refused`].
+    pub fn set_keychain_refused(&self, refused: bool) {
+        self.keychain_refused
+            .store(refused, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Whether the keychain refused access at startup and nothing has
+    /// worked since.
+    pub fn keychain_refused(&self) -> bool {
+        self.keychain_refused
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     /// Replace the open store with `handle`. Pass `None` to clear it.
     pub fn set_store(&self, handle: Option<Arc<Mutex<Store>>>) {
         *self.store.lock().expect("store mutex poisoned") = handle;
@@ -518,6 +581,16 @@ impl AppState {
 impl Default for AppState {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Marks startup's keychain reads as finished when dropped. See
+/// [`AppState::startup_reads_guard`].
+pub struct StartupReadsGuard(Arc<tokio::sync::watch::Sender<bool>>);
+
+impl Drop for StartupReadsGuard {
+    fn drop(&mut self) {
+        self.0.send_replace(true);
     }
 }
 
@@ -602,5 +675,80 @@ mod active_profile_tests {
         let _ = state.set_active_agent_profile(None);
 
         assert_eq!(state.active_agent_profile(), None);
+    }
+}
+
+#[cfg(test)]
+mod startup_reads_tests {
+    //! The window comes up while the keychain reads are still waiting on
+    //! the user (#497). What waits on them must wait exactly as long as
+    //! they run: not at all when nothing is reading, and not for good
+    //! when the thread reading dies.
+
+    use std::time::Duration;
+
+    use super::*;
+
+    /// A state nothing reads into (every test, the CLI) never makes a
+    /// command wait.
+    #[tokio::test]
+    async fn a_state_nothing_is_reading_into_is_settled() {
+        let state = AppState::new();
+        assert!(!state.startup_reads_pending());
+        tokio::time::timeout(Duration::from_secs(5), state.startup_reads_settled())
+            .await
+            .expect("settled at once");
+    }
+
+    #[tokio::test]
+    async fn a_wait_ends_when_the_reads_finish_and_not_before() {
+        let state = AppState::new();
+        state.begin_startup_reads();
+        assert!(state.startup_reads_pending());
+
+        let waiter = {
+            let state = state.clone();
+            tokio::spawn(async move { state.startup_reads_settled().await })
+        };
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(!waiter.is_finished(), "still reading, so still waiting");
+
+        drop(state.startup_reads_guard());
+        tokio::time::timeout(Duration::from_secs(5), waiter)
+            .await
+            .expect("the wait ended")
+            .expect("and did not panic");
+        assert!(!state.startup_reads_pending());
+    }
+
+    /// A read that panics must not leave `has_api_key` pending forever.
+    #[tokio::test]
+    async fn a_thread_that_dies_reading_still_ends_the_wait() {
+        let state = AppState::new();
+        state.begin_startup_reads();
+
+        let reader = {
+            let state = state.clone();
+            std::thread::spawn(move || {
+                let _settled = state.startup_reads_guard();
+                panic!("the keychain read blew up");
+            })
+        };
+        assert!(reader.join().is_err(), "the thread did panic");
+
+        tokio::time::timeout(Duration::from_secs(5), state.startup_reads_settled())
+            .await
+            .expect("settled although the reader panicked");
+    }
+
+    /// A waiter that starts after the reads finished does not miss it.
+    #[tokio::test]
+    async fn a_wait_that_starts_after_the_reads_finished_returns_at_once() {
+        let state = AppState::new();
+        state.begin_startup_reads();
+        drop(state.startup_reads_guard());
+        tokio::time::timeout(Duration::from_secs(5), state.startup_reads_settled())
+            .await
+            .expect("settled");
     }
 }

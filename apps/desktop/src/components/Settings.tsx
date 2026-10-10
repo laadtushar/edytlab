@@ -274,6 +274,18 @@ export function Settings({
   const [defaultBaseUrl, setDefaultBaseUrl] = useState("");
   // Empty means "Default": the model's own effort, nothing sent.
   const [effort, setEffort] = useState<ReasoningEffort | "">("");
+  // Whether each field above holds something the user can mean: what was
+  // stored, or what they typed over it. Empty is not that. It is also
+  // what a field shows while its read is in flight and after a read the
+  // keychain refused, and Save turns an empty URL into "delete the
+  // override" and no level into "delete the level". Writing a field that
+  // is not known erased the stored value of a user who had only dismissed
+  // the startup prompts (#497).
+  const [baseUrlKnown, setBaseUrlKnown] = useState(false);
+  const [effortKnown, setEffortKnown] = useState(false);
+  // Why a read failed, per field, for the note that says Save leaves it be.
+  const [baseUrlUnread, setBaseUrlUnread] = useState<string | null>(null);
+  const [effortUnread, setEffortUnread] = useState<string | null>(null);
   const [test, setTest] = useState<TestState>({ kind: "idle" });
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -460,18 +472,33 @@ export function Settings({
 
   useEffect(() => {
     let cancelled = false;
+    // Another provider's URL is not this one's, and until this one's read
+    // answers there is nothing here to save.
+    setBaseUrl("");
+    setBaseUrlKnown(false);
+    setBaseUrlUnread(null);
+    // Asked apart: the placeholder is only a hint, and a read of the
+    // stored URL that failed must not take it down, nor the reverse. A
+    // settings panel that cannot read one optional field should still
+    // open; the placeholder simply stays blank.
     void (async () => {
       try {
-        const [stored, fallback] = await Promise.all([
-          getBaseUrlFor(provider),
-          defaultBaseUrlFor(provider),
-        ]);
+        const fallback = await defaultBaseUrlFor(provider);
+        if (!cancelled) setDefaultBaseUrl(fallback);
+      } catch {
+        // The placeholder stays blank.
+      }
+    })();
+    void (async () => {
+      try {
+        const stored = await getBaseUrlFor(provider);
         if (cancelled) return;
         setBaseUrl(stored ?? "");
-        setDefaultBaseUrl(fallback);
-      } catch {
-        // A settings panel that cannot read one optional field should
-        // still open; the placeholder simply stays blank.
+        setBaseUrlKnown(true);
+      } catch (err) {
+        // The field stays blank and unknown, so Save leaves the stored
+        // URL alone.
+        if (!cancelled) setBaseUrlUnread(String(err));
       }
     })();
     return () => {
@@ -484,14 +511,20 @@ export function Settings({
   // user switches away and back before the read answers.
   useEffect(() => {
     setEffort("");
+    setEffortKnown(false);
+    setEffortUnread(null);
     if (!supportsEffort) return;
     let cancelled = false;
     void (async () => {
       try {
         const stored = await getEffortFor(provider);
-        if (!cancelled) setEffort(asEffort(stored));
-      } catch {
-        // Optional setting: the panel opens on "Default" without it.
+        if (cancelled) return;
+        setEffort(asEffort(stored));
+        setEffortKnown(true);
+      } catch (err) {
+        // Optional setting: the panel opens on "Default" without it, and
+        // Save leaves the stored level alone.
+        if (!cancelled) setEffortUnread(String(err));
       }
     })();
     return () => {
@@ -592,10 +625,16 @@ export function Settings({
       // Saved first: `set_api_key_for` rebuilds the agent, and the
       // rebuild reads this. The other order builds an agent pointing at
       // the old endpoint until something else triggers another rebuild.
-      await setBaseUrlFor(provider, baseUrl);
+      //
+      // Only a URL this form knows (see `baseUrlKnown`): an empty field
+      // that stands for "not read" would be sent as a delete.
+      if (baseUrlKnown) {
+        await setBaseUrlFor(provider, baseUrl);
+      }
       // Same reason, same place: the rebuild reads the stored effort.
-      // "Default" is sent as null, which clears the slot.
-      if (supportsEffort) {
+      // "Default" is sent as null, which clears the slot. Same condition
+      // too.
+      if (supportsEffort && effortKnown) {
         await setEffortFor(provider, effort === "" ? null : effort);
       }
       // A keyless provider is activated, not written.
@@ -640,7 +679,9 @@ export function Settings({
     provider,
     model,
     baseUrl,
+    baseUrlKnown,
     effort,
+    effortKnown,
     supportsEffort,
     saving,
     onSaved,
@@ -1122,7 +1163,11 @@ export function Settings({
           <input
             id="settings-base-url-input"
             value={baseUrl}
-            onChange={(e) => setBaseUrl(e.target.value)}
+            onChange={(e) => {
+              setBaseUrl(e.target.value);
+              // Typed over: the user means this, whatever was stored.
+              setBaseUrlKnown(true);
+            }}
             data-testid="settings-base-url-input"
             aria-label="Base URL"
             spellCheck={false}
@@ -1140,6 +1185,16 @@ export function Settings({
               focus:shadow-[0_0_0_3px_var(--accent-soft)]
             "
           />
+          {baseUrlUnread !== null && !baseUrlKnown ? (
+            <p
+              data-testid="settings-base-url-unread"
+              role="status"
+              className="mb-1 text-xs text-[var(--warning)]"
+            >
+              Couldn&apos;t read the saved base URL from the system keychain, so
+              Save leaves it as it is. ({baseUrlUnread})
+            </p>
+          ) : null}
           <p className="mb-4 text-xs text-[var(--text-faint)]">
             Point this provider anywhere that speaks its API — a local
             server on another port, a gateway, a proxy. Leave empty for
@@ -1210,7 +1265,10 @@ export function Settings({
               <select
                 id="settings-effort-select"
                 value={effort}
-                onChange={(e) => setEffort(asEffort(e.target.value))}
+                onChange={(e) => {
+                  setEffort(asEffort(e.target.value));
+                  setEffortKnown(true);
+                }}
                 data-testid="settings-effort-select"
                 aria-label="Reasoning effort"
                 className="
@@ -1230,6 +1288,16 @@ export function Settings({
                   </option>
                 ))}
               </select>
+              {effortUnread !== null && !effortKnown ? (
+                <p
+                  data-testid="settings-effort-unread"
+                  role="status"
+                  className="mb-1 text-xs text-[var(--warning)]"
+                >
+                  Couldn&apos;t read the saved level from the system keychain,
+                  so Save leaves it as it is. ({effortUnread})
+                </p>
+              ) : null}
               <p
                 data-testid="settings-effort-hint"
                 className="mb-4 text-xs text-[var(--text-faint)]"

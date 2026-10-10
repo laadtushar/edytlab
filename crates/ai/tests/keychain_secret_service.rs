@@ -38,6 +38,7 @@ fn the_effort_slot_round_trips_through_the_keychain() {
 
     keychain::save_effort(&id, Effort::High).expect("save");
     assert_eq!(keychain::load_effort(&id), Some(Effort::High));
+    assert_eq!(keychain::try_load_effort(&id).unwrap(), Some(Effort::High));
     keychain::save_effort(&id, Effort::XHigh).expect("overwrite");
     assert_eq!(
         keychain::load_effort(&id),
@@ -50,7 +51,30 @@ fn the_effort_slot_round_trips_through_the_keychain() {
         None,
         "deleted slot reads as default"
     );
+    assert_eq!(keychain::try_load_effort(&id).unwrap(), None);
     keychain::delete_effort(&id).expect("deleting a missing slot is success");
+}
+
+/// The `try_` reader answers what the `Option` one does while the store
+/// works; the difference is only in a store that cannot be read.
+#[test]
+#[ignore = "writes to the real OS keychain"]
+fn the_base_url_slot_round_trips_through_the_keychain() {
+    let id = test_provider("base-url");
+
+    assert_eq!(keychain::try_load_base_url(&id).unwrap(), None);
+    keychain::save_base_url(&id, "http://localhost:11434/v1").expect("save");
+    assert_eq!(
+        keychain::try_load_base_url(&id).unwrap().as_deref(),
+        Some("http://localhost:11434/v1")
+    );
+    assert_eq!(
+        keychain::load_base_url(&id).as_deref(),
+        Some("http://localhost:11434/v1")
+    );
+    keychain::delete_base_url(&id).expect("clear");
+    assert_eq!(keychain::try_load_base_url(&id).unwrap(), None);
+    keychain::delete_base_url(&id).expect("deleting a missing slot is success");
 }
 
 #[cfg(target_os = "linux")]

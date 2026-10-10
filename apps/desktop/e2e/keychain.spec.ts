@@ -16,7 +16,7 @@
  * false`. The Rust half is in `commands.rs` and `keychain.rs`.
  */
 
-import { firstRun, ok, readyToLoad, reject } from "./backend";
+import { deferred, firstRun, ok, readyToLoad, reject } from "./backend";
 import { expect, test } from "./fixtures";
 
 const DISMISSED_KEY = "edytlab.keychainSessionOnlyDismissed";
@@ -49,6 +49,90 @@ test.describe("a keychain that cannot be read", () => {
     const settings = page.getByRole("dialog", { name: "Settings" });
     await expect(settings).toBeVisible();
     await expect(settings).toHaveAttribute("data-mode", "panel");
+  });
+});
+
+test.describe("a keychain that is still being read", () => {
+  /**
+   * #497. The backend reads the keychain off the setup thread, so the
+   * window is up while a locked keyring's unlock prompt waits on the user
+   * and `has_api_key` is pending. The app has to say what it is waiting
+   * for, and must not guess: it is neither the first-run prompt (a key
+   * may be stored) nor an error (nothing has failed yet).
+   */
+  test("says it is waiting for the keyring, and carries on when it answers", async ({
+    app,
+  }) => {
+    // `has_api_key` waits on `AppState::startup_reads_settled` first.
+    await app.boot({ ...firstRun(), has_api_key: deferred("keyring") });
+    const page = app.page;
+
+    const waiting = page.getByTestId("keychain-waiting");
+    await expect(waiting).toBeVisible();
+    await expect(waiting).toContainText("Waiting for your keyring");
+    await expect(page.getByRole("heading", { name: "Welcome to edytlab" })).toHaveCount(0);
+    await expect(page.getByTestId("keychain-error")).toHaveCount(0);
+
+    // The keyring answered: no key stored.
+    await app.release("keyring", false);
+    await expect(waiting).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Welcome to edytlab" })).toBeVisible();
+  });
+
+  test("says nothing at all when the keychain answers at once", async ({ app }) => {
+    await app.boot(readyToLoad());
+    await app.settle();
+
+    await expect(app.page.getByTestId("keychain-waiting")).toHaveCount(0);
+  });
+});
+
+test.describe("Settings after a startup the keychain refused", () => {
+  /**
+   * #497. The base URL and the reasoning level read as "nothing stored",
+   * and Save sent a blank URL and no level, which delete the stored ones.
+   * The user who dismissed the startup prompts and accepted the one Save
+   * raises lost both. Here every read is refused the way the backend
+   * refuses it, and Save must write the key and nothing else.
+   */
+  test("saves the key and leaves the stored base URL and level alone", async ({ app }) => {
+    const refused = reject("Couldn't access platform secure storage: locked");
+    await app.boot({
+      ...firstRun(),
+      has_api_key: refused,
+      // `active_provider_answer`: the default is not an answer while
+      // startup's read is unaccounted for.
+      get_active_provider: refused,
+      // `stored_setting(try_load_base_url(..))` and `try_load_effort`.
+      get_base_url_for: refused,
+      get_effort_for: refused,
+      // `CmdResult<()>` serialises as `null`. Save also writes the model
+      // field, which comes from the page's own storage and the backend's
+      // memory rather than from a keychain read.
+      set_api_key_for: ok(null),
+      set_active_model: ok(null),
+    });
+    const page = app.page;
+
+    await page
+      .getByTestId("keychain-error")
+      .getByRole("button", { name: "Open Settings" })
+      .click();
+    const settings = page.getByRole("dialog", { name: "Settings" });
+    await expect(settings).toHaveAttribute("data-mode", "panel");
+    await expect(settings.getByTestId("settings-base-url-unread")).toContainText("locked");
+    await expect(settings.getByTestId("settings-effort-unread")).toContainText("locked");
+
+    await settings.getByTestId("settings-key-input").fill("sk-ant-test");
+    await settings.getByTestId("settings-save-button").click();
+
+    // The panel closes on a save that went through.
+    await expect(settings).toHaveCount(0);
+    expect(await app.requestsFor("set_api_key_for")).toEqual([
+      { provider: "anthropic", key: "sk-ant-test" },
+    ]);
+    expect(await app.requestsFor("set_base_url_for")).toEqual([]);
+    expect(await app.requestsFor("set_effort_for")).toEqual([]);
   });
 });
 

@@ -217,7 +217,12 @@ fn unreachable(e: &keyring::Error) -> bool {
 ///   seconds, and the first one is where a service that is not running
 ///   yet gets started, so a slow start reads as "unreachable" with the
 ///   key sitting right there. Taking that for "no key" shows the
-///   first-run prompt over a stored key (#394).
+///   first-run prompt over a stored key (#394). Once that second look
+///   has also failed, `unreachable_confirmed` records it and later reads
+///   skip the second look: a service that has had its two seconds twice
+///   is not about to start for the next slot, and startup reads eight
+///   slots, so asking twice each is about half a minute of waiting
+///   (#497). Any answer from `primary` clears the record.
 /// - `primary` fails any other way (locked, refused, ambiguous,
 ///   undecodable): that is an error. It is never read as "not found",
 ///   or the app would show a first-run prompt over a key that is there.
@@ -225,8 +230,15 @@ fn read_from(
     primary: &dyn Slot,
     legacy: Option<&dyn Slot>,
     move_refused: &AtomicBool,
+    unreachable_confirmed: &AtomicBool,
 ) -> keyring::Result<Option<String>> {
-    match primary.get() {
+    let first = primary.get();
+    // The service answered, with a value, "not found", or a refusal:
+    // whatever the last reads found, it is not gone now.
+    if !matches!(&first, Err(e) if unreachable(e)) {
+        unreachable_confirmed.store(false, Ordering::Relaxed);
+    }
+    match first {
         Ok(v) => Ok(Some(v)),
         Err(keyring::Error::NoEntry) => {
             let Some(legacy) = legacy else {
@@ -244,12 +256,19 @@ fn read_from(
             };
             match legacy.get() {
                 Ok(v) => Ok(Some(v)),
+                // A second look has already failed in this process.
+                Err(keyring::Error::NoEntry) if unreachable_confirmed.load(Ordering::Relaxed) => {
+                    Ok(None)
+                }
                 Err(keyring::Error::NoEntry) => match primary.get() {
                     Ok(v) => Ok(Some(v)),
                     // Only a second failure to reach it makes this a
                     // machine with no Secret Service and nothing stored.
                     Err(keyring::Error::NoEntry) => Ok(None),
-                    Err(ref again) if unreachable(again) => Ok(None),
+                    Err(ref again) if unreachable(again) => {
+                        unreachable_confirmed.store(true, Ordering::Relaxed);
+                        Ok(None)
+                    }
                     Err(other) => Err(other),
                 },
                 Err(_) => Err(e),
@@ -386,6 +405,12 @@ static KEYCHAIN_LOCK: Mutex<()> = Mutex::new(());
 /// process. Only touched under [`KEYCHAIN_LOCK`].
 static MOVE_REFUSED: AtomicBool = AtomicBool::new(false);
 
+/// Set once a read has asked the Secret Service twice and found it
+/// unreachable both times (see [`read_from`]), so the slots read after it
+/// get one look each instead of two. Cleared by the first read the
+/// service answers. Only touched under [`KEYCHAIN_LOCK`].
+static UNREACHABLE_CONFIRMED: AtomicBool = AtomicBool::new(false);
+
 fn lock() -> MutexGuard<'static, ()> {
     // The guarded data is `()`; a panic elsewhere cannot have left it
     // in a bad state.
@@ -423,6 +448,7 @@ fn read_account(account: &str) -> Result<Option<String>, KeychainError> {
         &primary,
         legacy.as_ref().map(|e| e as &dyn Slot),
         &MOVE_REFUSED,
+        &UNREACHABLE_CONFIRMED,
     )
     .map_err(KeychainError::from)
 }
@@ -578,7 +604,22 @@ fn base_url_account_for(provider_id: &str) -> String {
 /// established that this module is where per-provider settings live.
 /// Standing up a second store for one string would be worse.
 pub fn load_base_url(provider_id: &str) -> Option<String> {
-    read_or_warn(&base_url_account_for(provider_id)).filter(|url| !url.trim().is_empty())
+    base_url_from(read_or_warn(&base_url_account_for(provider_id)))
+}
+
+/// Like [`load_base_url`], but a keychain that cannot be read is an error
+/// rather than `None`.
+///
+/// Settings needs the difference: it saves what it showed, and a blank
+/// that stood for "could not be read" would be saved as "no override",
+/// deleting the one that is stored (#497).
+pub fn try_load_base_url(provider_id: &str) -> Result<Option<String>, KeychainError> {
+    read_account(&base_url_account_for(provider_id)).map(base_url_from)
+}
+
+/// The stored URL, with a blank one counting as no override.
+fn base_url_from(raw: Option<String>) -> Option<String> {
+    raw.filter(|url| !url.trim().is_empty())
 }
 
 /// Store a provider's base-URL override.
@@ -658,7 +699,20 @@ fn effort_account_for(provider_id: &str) -> String {
 /// is ever used today, but a level means nothing to a server that has
 /// no such setting, and a shared slot would follow you across a switch.
 pub fn load_effort(provider_id: &str) -> Option<Effort> {
-    read_or_warn(&effort_account_for(provider_id)).and_then(|s| Effort::parse(&s))
+    effort_from(read_or_warn(&effort_account_for(provider_id)))
+}
+
+/// Like [`load_effort`], but a keychain that cannot be read is an error
+/// rather than `None`. A stored string that is not a level is still
+/// `Ok(None)`: the store answered, and the answer is "the default".
+pub fn try_load_effort(provider_id: &str) -> Result<Option<Effort>, KeychainError> {
+    read_account(&effort_account_for(provider_id)).map(effort_from)
+}
+
+/// The stored level, with anything that is not one of the five counting
+/// as unset.
+fn effort_from(raw: Option<String>) -> Option<Effort> {
+    raw.and_then(|s| Effort::parse(&s))
 }
 
 /// Store a provider's reasoning effort.
@@ -872,7 +926,12 @@ mod tests {
 
     /// A read in a process where no move has been refused yet.
     fn read(primary: &dyn Slot, legacy: Option<&dyn Slot>) -> keyring::Result<Option<String>> {
-        read_from(primary, legacy, &AtomicBool::new(false))
+        read_from(
+            primary,
+            legacy,
+            &AtomicBool::new(false),
+            &AtomicBool::new(false),
+        )
     }
 
     // --- read ---
@@ -991,6 +1050,106 @@ mod tests {
         assert_eq!(primary.gets.get(), 1);
     }
 
+    // --- the second look is not repeated for every slot (#497) ---
+
+    /// The bug: startup reads eight slots, and with a Secret Service that
+    /// hangs each read took its two seconds twice, so the window waited
+    /// about half a minute. Once a second look has failed, the slots after
+    /// it get one look each.
+    #[test]
+    fn one_confirmed_unreachable_read_ends_the_second_look_for_later_slots() {
+        let (refused, gone) = (AtomicBool::new(false), AtomicBool::new(false));
+
+        let first = Fake::empty(Mode::Unreachable);
+        assert_eq!(
+            read_from(&first, some(&Fake::empty(Mode::Works)), &refused, &gone).unwrap(),
+            None
+        );
+        assert_eq!(first.gets.get(), 2, "the first slot gets both looks");
+        assert!(gone.load(Ordering::Relaxed), "and it is remembered");
+
+        for slot in 0..7 {
+            let later = Fake::empty(Mode::Unreachable);
+            assert_eq!(
+                read_from(&later, some(&Fake::empty(Mode::Works)), &refused, &gone).unwrap(),
+                None,
+                "slot {slot}: still nothing stored"
+            );
+            assert_eq!(later.gets.get(), 1, "slot {slot} was asked once");
+        }
+    }
+
+    /// A kernel keyring copy is an answer whatever the flag says, so the
+    /// shortcut never hides a session-only value.
+    #[test]
+    fn a_session_copy_is_still_found_once_the_second_look_has_been_dropped() {
+        let (refused, gone) = (AtomicBool::new(false), AtomicBool::new(true));
+        let primary = Fake::empty(Mode::Unreachable);
+        let legacy = Fake::holding(Mode::Works, "sk-session");
+        assert_eq!(
+            read_from(&primary, some(&legacy), &refused, &gone)
+                .unwrap()
+                .as_deref(),
+            Some("sk-session")
+        );
+    }
+
+    /// One look that fails is a service that is slow, not one that is gone.
+    /// Only a second failure may drop the second look for the slots after.
+    #[test]
+    fn a_session_copy_or_a_late_answer_does_not_confirm_anything() {
+        let (refused, gone) = (AtomicBool::new(false), AtomicBool::new(false));
+        read_from(
+            &Fake::empty(Mode::Unreachable),
+            some(&Fake::holding(Mode::Works, "sk-session")),
+            &refused,
+            &gone,
+        )
+        .unwrap();
+        assert!(
+            !gone.load(Ordering::Relaxed),
+            "a session copy settles nothing"
+        );
+
+        let slow = Fake::holding(Mode::Works, "sk-durable").slow_to_start(1);
+        assert_eq!(
+            read_from(&slow, some(&Fake::empty(Mode::Works)), &refused, &gone)
+                .unwrap()
+                .as_deref(),
+            Some("sk-durable")
+        );
+        assert!(!gone.load(Ordering::Relaxed), "the second look found it");
+    }
+
+    /// If the service comes up after startup, reading it again says so, and
+    /// the next time it goes quiet it gets both looks again.
+    #[test]
+    fn a_service_that_answers_again_gets_its_second_look_back() {
+        let (refused, gone) = (AtomicBool::new(false), AtomicBool::new(true));
+        for answering in [
+            Fake::holding(Mode::Works, "sk-a"),
+            Fake::empty(Mode::Works),
+            Fake::empty(Mode::Locked),
+        ] {
+            gone.store(true, Ordering::Relaxed);
+            let _ = read_from(&answering, some(&Fake::empty(Mode::Works)), &refused, &gone);
+            assert!(
+                !gone.load(Ordering::Relaxed),
+                "an answer (even a refusal) means it is there"
+            );
+        }
+
+        let quiet_again = Fake::empty(Mode::Unreachable);
+        read_from(
+            &quiet_again,
+            some(&Fake::empty(Mode::Works)),
+            &refused,
+            &gone,
+        )
+        .unwrap();
+        assert_eq!(quiet_again.gets.get(), 2);
+    }
+
     #[test]
     fn neither_store_answering_is_an_error() {
         let primary = Fake::empty(Mode::Unreachable);
@@ -1040,6 +1199,7 @@ mod tests {
     #[test]
     fn a_refused_move_is_not_tried_again_for_the_rest_of_the_process() {
         let refused = AtomicBool::new(false);
+        let gone = AtomicBool::new(false);
         let (key_primary, key_kernel) = (
             Fake::empty(Mode::WriteRefused),
             Fake::holding(Mode::Works, "sk-key"),
@@ -1050,7 +1210,7 @@ mod tests {
         );
 
         assert_eq!(
-            read_from(&key_primary, some(&key_kernel), &refused)
+            read_from(&key_primary, some(&key_kernel), &refused, &gone)
                 .unwrap()
                 .as_deref(),
             Some("sk-key"),
@@ -1059,7 +1219,7 @@ mod tests {
         assert_eq!(key_primary.sets.get(), 1, "the first slot asked once");
 
         assert_eq!(
-            read_from(&model_primary, some(&model_kernel), &refused)
+            read_from(&model_primary, some(&model_kernel), &refused, &gone)
                 .unwrap()
                 .as_deref(),
             Some("a-model")
@@ -1079,15 +1239,16 @@ mod tests {
     #[test]
     fn a_move_that_failed_for_another_reason_does_not_stop_the_next_one() {
         let refused = AtomicBool::new(false);
+        let gone = AtomicBool::new(false);
         let broken = Fake::empty(Mode::WriteFails);
         let broken_kernel = Fake::holding(Mode::Works, "sk-a");
-        read_from(&broken, some(&broken_kernel), &refused).unwrap();
+        read_from(&broken, some(&broken_kernel), &refused, &gone).unwrap();
         assert!(!refused.load(Ordering::Relaxed));
 
         let primary = Fake::empty(Mode::Works);
         let kernel = Fake::holding(Mode::Works, "sk-b");
         assert_eq!(
-            read_from(&primary, some(&kernel), &refused)
+            read_from(&primary, some(&kernel), &refused, &gone)
                 .unwrap()
                 .as_deref(),
             Some("sk-b")
@@ -1101,10 +1262,11 @@ mod tests {
     #[test]
     fn a_refused_move_does_not_stop_reads_the_secret_service_answers() {
         let refused = AtomicBool::new(true);
+        let gone = AtomicBool::new(false);
         let primary = Fake::holding(Mode::Works, "sk-durable");
         let kernel = Fake::empty(Mode::Works);
         assert_eq!(
-            read_from(&primary, some(&kernel), &refused)
+            read_from(&primary, some(&kernel), &refused, &gone)
                 .unwrap()
                 .as_deref(),
             Some("sk-durable")
@@ -1333,6 +1495,27 @@ mod tests {
             );
         }
         assert!(!KeychainError::new("anything").is_access_denied());
+    }
+
+    /// A blank stored URL is what `set_base_url_for` would never write, but a
+    /// hand edit could; it must read as no override rather than a URL
+    /// that fails every request.
+    #[test]
+    fn a_blank_base_url_means_no_override() {
+        assert_eq!(base_url_from(None), None);
+        assert_eq!(base_url_from(Some(String::new())), None);
+        assert_eq!(base_url_from(Some(" \n".into())), None);
+        assert_eq!(
+            base_url_from(Some("http://localhost:11434/v1".into())).as_deref(),
+            Some("http://localhost:11434/v1")
+        );
+    }
+
+    #[test]
+    fn a_stored_value_that_is_not_a_level_reads_as_unset() {
+        assert_eq!(effort_from(None), None);
+        assert_eq!(effort_from(Some("ultra".into())), None);
+        assert_eq!(effort_from(Some("high".into())), Some(Effort::High));
     }
 
     #[test]

@@ -48,14 +48,16 @@ const MENU_OPEN_FILE_EVENT: &str = "menu://open-file";
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app_state = AppState::new();
+    // Pending from the first moment, before any command can ask: the
+    // keychain reads that settle it start in `setup` below and can take
+    // as long as the user does (#497).
+    app_state.begin_startup_reads();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(app_state.clone())
         .manage(RecorderState(std::sync::Mutex::new(None)))
         .setup(move |app| {
-            try_load_api_key_at_startup(&app_state);
-
             // Where a long tool's progress goes (#169 §1). Registered
             // once, here, because `tools` reports without knowing who
             // is listening — see `tools::progress`. The handle is
@@ -84,20 +86,33 @@ pub fn run() {
             let agents_dir = resolve_global_agent_profiles_dir(app);
             app_state.install_agent_profile_library(agents_dir);
 
-            // Install the MCP config (~/.edytlab/mcp.json), then start
-            // every enabled server on a background thread. Without this
-            // a registered server contributes no tools until the user
-            // opens Settings and restarts it by hand — every launch,
-            // for every server. Starting is off the setup thread
-            // because each server costs a process spawn plus an
-            // `initialize` round trip, which would otherwise delay the
-            // window appearing.
+            // Install the MCP config (~/.edytlab/mcp.json), then, on a
+            // background thread, read the keychain and start every enabled
+            // server. Without the second part a registered server
+            // contributes no tools until the user opens Settings and
+            // restarts it by hand — every launch, for every server.
+            //
+            // Off the setup thread, both: each server costs a process
+            // spawn plus an `initialize` round trip, and a locked Secret
+            // Service's unlock prompt has no time limit (dbus-secret-service
+            // waits a year), so on the setup thread no window would appear
+            // until the user answered it (#497). The commands that need
+            // what the reads fill in wait for them (`startup_reads_settled`),
+            // and the frontend says it is waiting for the keyring.
+            //
+            // The servers start after the reads, in this one thread: whether
+            // the keychain refused decides which of them may be started.
             let mcp_path = resolve_global_mcp_path(app);
             app_state.install_mcp(mcp_path);
             {
-                let state_for_mcp = app_state.clone();
+                let state_for_startup = app_state.clone();
                 std::thread::spawn(move || {
-                    crate::commands::start_enabled_mcp_servers(&state_for_mcp);
+                    {
+                        // Ends the wait however this block ends.
+                        let _settled = state_for_startup.startup_reads_guard();
+                        try_load_api_key_at_startup(&state_for_startup);
+                    }
+                    crate::commands::start_enabled_mcp_servers(&state_for_startup);
                 });
             }
 
@@ -123,11 +138,15 @@ pub fn run() {
                             crate::commands::allow_assets_in_dir(app.handle(), &project_dir);
                             app_state.set_store(Some(Arc::new(Mutex::new(store))));
                             app_state.set_project_dir(Some(project_dir.clone()));
-                            // If a key was already loaded above, kick a
-                            // rebuild so the agent is ready for the very
-                            // first chat turn — no manual save needed.
+                            // If a key was loaded by the startup reads,
+                            // kick a rebuild so the agent is ready for the
+                            // very first chat turn — no manual save
+                            // needed. After them, not alongside: the
+                            // store is in place by now, and the key may
+                            // not be.
                             let state_for_rebuild = app_state.clone();
                             tauri::async_runtime::spawn(async move {
+                                state_for_rebuild.startup_reads_settled().await;
                                 if let Err(e) =
                                     crate::commands::rebuild_agent_public(&state_for_rebuild).await
                                 {
