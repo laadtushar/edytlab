@@ -1048,6 +1048,40 @@ fn the_sweep_waits_for_a_tool_running_off_the_lock() {
     assert!(report.removed_files > 0, "{report:?}");
 }
 
+/// The wait is for the project, not for the `Store` a tool happened to be
+/// staged from. The app builds a new `Store` each time a project is opened
+/// (the background reclaimer's reader and the one an open sweeps with
+/// are other handles on the same directory), and a sweep from any of them
+/// must see the run (N1).
+#[test]
+fn a_sweep_from_another_handle_on_the_project_waits_too() {
+    let mut s = Session::new();
+    s.make_history();
+    let orphan = s
+        .derived()
+        .join("0123abcd-written-by-a-tool-still-running.wav");
+    std::fs::write(&orphan, vec![0u8; 4096]).expect("write orphan");
+
+    let staged = s.store.stage().expect("stage");
+    let other = session::Store::open(s.dir.path()).expect("the project opened again");
+    assert_eq!(other.staged_in_flight(), 1);
+
+    let plan = tools::reclaim::plan_sweep(&other, 0).expect("plan");
+    let applied = tools::reclaim::apply_sweep(&other, &plan).expect("apply");
+    let orphans = tools::reclaim::sweep_orphans(&other).expect("sweep orphans");
+    for report in [&applied, &orphans] {
+        assert_eq!(report.removed_files, 0, "{report:?}");
+    }
+    assert!(
+        orphan.is_file(),
+        "a second handle swept a running tool's output"
+    );
+
+    drop(staged);
+    let report = tools::reclaim::sweep_orphans(&other).expect("sweep orphans");
+    assert_eq!(report.removed_orphans, 1, "{report:?}");
+}
+
 // =============================================================================
 // Replay from the nearest audio on disk (#377): the probes above check
 // nothing is lost; these check the same history is now reclaimed — swept,

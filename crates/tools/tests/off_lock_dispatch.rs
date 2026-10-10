@@ -873,6 +873,12 @@ fn off_lock_and_locked_loads_record_the_same_op() {
 /// A real edit is not lost to, and does not lose, a real concurrent edit.
 /// The "user" here adds a marker to the app's store between the tool's
 /// stage and its commit by way of a second tool that runs first.
+///
+/// This stages by hand, so it pins the pieces (`stage`, `ToolDispatcher::run`
+/// on a staged handle, `commit` answering `Conflict`, a fresh dispatch landing
+/// on the marker) and not `Shared`'s conflict loop with a real tool. That loop
+/// is run with real tools by the tests under "Edits that change what a call's
+/// arguments mean" below, where the edit lands from inside the tool.
 #[test]
 fn a_real_tool_reruns_on_top_of_a_marker_added_while_it_ran() {
     let world = Real::new();
@@ -923,4 +929,474 @@ fn a_real_tool_reruns_on_top_of_a_marker_added_while_it_ran() {
     assert_eq!(node.parent, Some(user));
     assert_eq!(node.state.annotations.len(), 1);
     assert_eq!(node.state.annotations[0].name, "user");
+}
+
+// ---------------------------------------------------------------------
+// Edits that change what a call's arguments mean
+// ---------------------------------------------------------------------
+//
+// A call names a track by its position, and a time by its seconds, as the
+// model saw them. Before #421 the user's edit waited for the tool, so the
+// tool always ran on what the model had seen. Off the lock the user's edit
+// can land first, and running the tool again "on top of it" means running
+// it on a session its arguments no longer describe: `time_stretch {track: 1}`
+// after the user removed track 0 stretches the track that was number 2.
+//
+// These tests use the real tools throughout. `Hooked` wraps the real tool
+// under test and, from inside its first run, makes the user's edit with
+// another real tool, as the mixer does (`run_track_tool`), so the conflict
+// loop in `Shared::dispatch` runs against a real session.
+
+/// What the user does while the tool runs.
+enum UserEdit {
+    /// A real tool, called as the mixer calls them: under the locks.
+    Tool(&'static str, Value),
+    /// Undo or redo: the head moves to a node that already exists.
+    SetHead(NodeId),
+    /// A marker, which changes no track.
+    Marker,
+}
+
+/// The wrapped tool's calls, and the edits left to make: one on each call
+/// that finds the lock free, in order.
+struct Script {
+    edits: Mutex<std::collections::VecDeque<UserEdit>>,
+    heads: Mutex<Vec<Option<NodeId>>>,
+}
+
+/// A real tool that, before it runs, plays the part of the user.
+struct Hooked {
+    inner: Box<dyn Tool>,
+    app_store: Arc<Mutex<Store>>,
+    user: ToolDispatcher,
+    script: Arc<Script>,
+}
+
+impl Tool for Hooked {
+    fn name(&self) -> &'static str {
+        self.inner.name()
+    }
+    fn schema(&self) -> Value {
+        self.inner.schema()
+    }
+    fn mutates(&self) -> bool {
+        self.inner.mutates()
+    }
+    fn runs_off_the_lock(&self) -> bool {
+        self.inner.runs_off_the_lock()
+    }
+    fn invoke(&self, args: Value, ctx: &mut ToolContext) -> tools::Result<ToolResult> {
+        self.script.heads.lock().unwrap().push(ctx.store.head());
+        let edit = self.script.edits.lock().unwrap().pop_front();
+        if let Some(edit) = edit {
+            let mut app = self
+                .app_store
+                .try_lock()
+                .expect("the store is free while an off-lock tool runs");
+            match edit {
+                UserEdit::Tool(name, args) => {
+                    let mut engine = audio_engine::Engine::new();
+                    let mut clipboard = None;
+                    let mut user_ctx = ToolContext {
+                        store: &mut app,
+                        engine: &mut engine,
+                        user_message: "",
+                        clipboard: &mut clipboard,
+                        allowed_tools: None,
+                    };
+                    match self.user.invoke(name, args, &mut user_ctx) {
+                        Ok(ToolResult::Ok(_)) => {}
+                        other => panic!("the user's {name} failed: {other:?}"),
+                    }
+                }
+                UserEdit::SetHead(id) => app.set_head(id).expect("undo"),
+                UserEdit::Marker => {
+                    let head = app.head().expect("head");
+                    app.add_annotation(head, marker("user")).expect("marker");
+                }
+            }
+        }
+        self.inner.invoke(args, ctx)
+    }
+}
+
+/// A session of three tracks, drums, vocals and bass, in that order, one
+/// clip each, with a tool registered under the user's hook.
+struct Studio {
+    dir: TempDir,
+    dispatcher: Mutex<ToolDispatcher>,
+    store: Arc<Mutex<Store>>,
+    engine: Mutex<audio_engine::Engine>,
+    clipboard: Mutex<Option<tools::Clipboard>>,
+    script: Arc<Script>,
+}
+
+/// A clip as `(start, offset, length, source)`.
+type ClipShape = (u64, u64, u64, PathBuf);
+
+impl Studio {
+    fn new(tool: Box<dyn Tool>) -> Self {
+        let dir = TempDir::new().expect("tempdir");
+        let store = Arc::new(Mutex::new(Store::open(dir.path()).expect("store")));
+
+        // The tracks, loaded the way the agent loads them.
+        let setup = ToolDispatcher::default_dispatcher();
+        for name in ["drums", "vocals", "bass"] {
+            let take = write_tone(&dir.path().join(format!("{name}.wav")));
+            let mut engine = audio_engine::Engine::new();
+            let mut clipboard = None;
+            let mut guard = store.lock().unwrap();
+            let mut ctx = ToolContext {
+                store: &mut guard,
+                engine: &mut engine,
+                user_message: "",
+                clipboard: &mut clipboard,
+                allowed_tools: None,
+            };
+            let loaded = setup
+                .invoke("load", json!({ "path": take }), &mut ctx)
+                .expect("load");
+            assert!(matches!(loaded, ToolResult::Ok(_)), "{loaded:?}");
+        }
+
+        let script = Arc::new(Script {
+            edits: Mutex::new(Default::default()),
+            heads: Mutex::new(Vec::new()),
+        });
+        let mut dispatcher = ToolDispatcher::new();
+        dispatcher.register(Box::new(Hooked {
+            inner: tool,
+            app_store: Arc::clone(&store),
+            user: ToolDispatcher::default_dispatcher(),
+            script: Arc::clone(&script),
+        }));
+        let studio = Self {
+            dir,
+            dispatcher: Mutex::new(dispatcher),
+            store,
+            engine: Mutex::new(audio_engine::Engine::new()),
+            clipboard: Mutex::new(None),
+            script,
+        };
+        assert_eq!(studio.track_names(), ["drums", "vocals", "bass"]);
+        studio
+    }
+
+    /// The user makes `edit` between the tool's stage and its commit, on
+    /// the next call that finds the store free.
+    fn then_the_user(&self, edit: UserEdit) -> &Self {
+        self.script.edits.lock().unwrap().push_back(edit);
+        self
+    }
+
+    /// The user's own edit, made before the agent starts, with the locks
+    /// as the mixer takes them.
+    fn user_now(&self, tool: &str, args: Value) {
+        let d = ToolDispatcher::default_dispatcher();
+        let mut store = self.store.lock().unwrap();
+        let mut engine = audio_engine::Engine::new();
+        let mut clipboard = None;
+        let mut ctx = ToolContext {
+            store: &mut store,
+            engine: &mut engine,
+            user_message: "",
+            clipboard: &mut clipboard,
+            allowed_tools: None,
+        };
+        let r = d.invoke(tool, args, &mut ctx).expect("invoke");
+        assert!(matches!(r, ToolResult::Ok(_)), "{tool}: {r:?}");
+    }
+
+    fn dispatch(&self, tool: &str, args: Value, message: &str) -> ToolResult {
+        Shared {
+            dispatcher: &self.dispatcher,
+            store: &self.store,
+            engine: &self.engine,
+            clipboard: &self.clipboard,
+        }
+        .dispatch(tool, args, message, None)
+        .expect("dispatch")
+    }
+
+    fn head(&self) -> NodeId {
+        self.store.lock().unwrap().head().expect("head")
+    }
+
+    fn track_names(&self) -> Vec<String> {
+        self.tracks().into_iter().map(|t| t.0).collect()
+    }
+
+    /// Each track at the head, with its clips.
+    fn tracks(&self) -> Vec<(String, Vec<ClipShape>)> {
+        let store = self.store.lock().unwrap();
+        let node = store.get(store.head().expect("head")).expect("head node");
+        node.state
+            .tracks
+            .iter()
+            .map(|t| {
+                let clips = t
+                    .clips
+                    .iter()
+                    .map(|c| {
+                        (
+                            c.start_in_track,
+                            c.source_offset,
+                            c.length,
+                            c.source_path.clone(),
+                        )
+                    })
+                    .collect();
+                (t.name.clone(), clips)
+            })
+            .collect()
+    }
+
+    fn clips_of(&self, name: &str) -> Vec<ClipShape> {
+        self.tracks()
+            .into_iter()
+            .find(|t| t.0 == name)
+            .unwrap_or_else(|| panic!("no track called {name}"))
+            .1
+    }
+
+    /// How many times the wrapped tool ran.
+    fn runs(&self) -> usize {
+        self.script.heads.lock().unwrap().len()
+    }
+
+    fn node_count(&self) -> usize {
+        self.store.lock().unwrap().list_nodes().unwrap().len()
+    }
+}
+
+fn error_text(result: &ToolResult) -> &str {
+    match result {
+        ToolResult::Error(m) => m,
+        ToolResult::Ok(v) => panic!("expected an error, the call succeeded: {v}"),
+    }
+}
+
+/// The reviewer's reproduction (B1).
+///
+/// The agent chose `time_stretch {track: 1}` when the tracks were drums,
+/// vocals, bass: vocals. While it ran, the user removed drums in the mixer,
+/// which takes the free lock at once. The commit loses, and the tool used to
+/// run again on [vocals, bass] with the same `track: 1`: bass. It published,
+/// and the model was told its call had succeeded.
+///
+/// The call must not edit a track it did not name. The user's removal stays.
+#[test]
+fn a_track_removed_while_a_tool_ran_does_not_send_the_rerun_to_another_track() {
+    let studio = Studio::new(Box::new(tools::tool::TimeStretchTool));
+    let vocals = studio.clips_of("vocals");
+    let bass = studio.clips_of("bass");
+    studio.then_the_user(UserEdit::Tool("remove_track", json!({ "track": 0 })));
+
+    let result = studio.dispatch("time_stretch", json!({ "track": 1, "factor": 0.5 }), "");
+
+    assert_eq!(
+        studio.clips_of("bass"),
+        bass,
+        "bass was stretched by a call that named vocals: {result:?}"
+    );
+    assert_eq!(studio.clips_of("vocals"), vocals, "nothing was applied");
+    let said = error_text(&result);
+    assert!(
+        said.contains("not applied") && said.contains("vocals") && said.contains("bass"),
+        "the model is told what moved, by name: {said}"
+    );
+    // The user's removal is kept, and the tool did not run a second time.
+    assert_eq!(studio.track_names(), ["vocals", "bass"]);
+    assert_eq!(studio.runs(), 1, "the tool ran again on a changed session");
+    assert_eq!(
+        studio.store.lock().unwrap().staged_in_flight(),
+        0,
+        "a refused call left a handle counting"
+    );
+}
+
+/// The same hazard by undo. The tracks are [vocals, bass] after the user
+/// removed drums; the agent stretches bass (`track: 1`); the user undoes the
+/// removal. On [drums, vocals, bass], `track: 1` is vocals.
+#[test]
+fn an_undo_that_brings_a_track_back_does_not_send_the_rerun_to_another_track() {
+    let studio = Studio::new(Box::new(tools::tool::TimeStretchTool));
+    let before_removal = studio.head();
+    studio.user_now("remove_track", json!({ "track": 0 }));
+    let vocals = studio.clips_of("vocals");
+    let bass = studio.clips_of("bass");
+    studio.then_the_user(UserEdit::SetHead(before_removal));
+
+    let result = studio.dispatch("time_stretch", json!({ "track": 1, "factor": 0.5 }), "");
+
+    assert_eq!(studio.clips_of("vocals"), vocals, "{result:?}");
+    assert_eq!(studio.clips_of("bass"), bass, "{result:?}");
+    assert!(error_text(&result).contains("not applied"), "{result:?}");
+    assert_eq!(studio.head(), before_removal, "the undo is kept");
+    assert_eq!(studio.runs(), 1);
+}
+
+/// The window is not only the first attempt. A removal during the second
+/// run must not be missed by the run that follows it under the lock.
+#[test]
+fn a_track_removed_during_the_second_run_does_not_reach_the_locked_run() {
+    let studio = Studio::new(Box::new(tools::tool::TimeStretchTool));
+    let bass = studio.clips_of("bass");
+    // First run: a marker, which is a conflict but changes no track, so
+    // the tool runs again. Second run: drums are removed.
+    studio
+        .then_the_user(UserEdit::Marker)
+        .then_the_user(UserEdit::Tool("remove_track", json!({ "track": 0 })));
+
+    let result = studio.dispatch("time_stretch", json!({ "track": 1, "factor": 0.5 }), "");
+
+    assert_eq!(studio.clips_of("bass"), bass, "{result:?}");
+    assert!(error_text(&result).contains("not applied"), "{result:?}");
+    assert_eq!(studio.runs(), 2, "the locked run should not have started");
+    assert_eq!(studio.store.lock().unwrap().staged_in_flight(), 0);
+}
+
+/// An edit that leaves the named track where it was is what the re-run is
+/// for, and it still happens: drums are stretched, bass is gone.
+#[test]
+fn a_track_removed_after_the_one_named_leaves_the_rerun_alone() {
+    let studio = Studio::new(Box::new(tools::tool::TimeStretchTool));
+    let drums = studio.clips_of("drums");
+    studio.then_the_user(UserEdit::Tool("remove_track", json!({ "track": 2 })));
+
+    let result = studio.dispatch("time_stretch", json!({ "track": 0, "factor": 0.5 }), "");
+
+    assert!(matches!(result, ToolResult::Ok(_)), "{result:?}");
+    assert_eq!(studio.runs(), 2, "the tool should run again");
+    let stretched = studio.clips_of("drums");
+    assert!(
+        stretched[0].2 > drums[0].2 * 3 / 2,
+        "drums were not stretched: {drums:?} -> {stretched:?}"
+    );
+    assert_eq!(
+        studio.track_names(),
+        ["drums", "vocals"],
+        "the user's removal is kept"
+    );
+}
+
+/// A track added at the end moves nobody.
+#[test]
+fn a_track_added_while_a_tool_ran_leaves_the_rerun_alone() {
+    let studio = Studio::new(Box::new(tools::tool::TimeStretchTool));
+    let vocals = studio.clips_of("vocals");
+    studio.then_the_user(UserEdit::Tool("add_track", json!({ "name": "fx" })));
+
+    let result = studio.dispatch("time_stretch", json!({ "track": 1, "factor": 0.5 }), "");
+
+    assert!(matches!(result, ToolResult::Ok(_)), "{result:?}");
+    assert_eq!(studio.runs(), 2);
+    assert!(studio.clips_of("vocals")[0].2 > vocals[0].2 * 3 / 2);
+    assert_eq!(studio.track_names(), ["drums", "vocals", "bass", "fx"]);
+}
+
+/// A call that names no track has nothing to be moved off: `load` adds a
+/// track wherever the session is.
+#[test]
+fn a_call_that_names_no_track_runs_again_after_a_track_is_removed() {
+    let studio = Studio::new(Box::new(tools::tool::LoadTool));
+    let take = write_tone(&studio.dir.path().join("extra.wav"));
+    studio.then_the_user(UserEdit::Tool("remove_track", json!({ "track": 0 })));
+
+    let result = studio.dispatch("load", json!({ "path": take }), "");
+
+    assert!(matches!(result, ToolResult::Ok(_)), "{result:?}");
+    assert_eq!(studio.runs(), 2);
+    assert_eq!(studio.track_names(), ["vocals", "bass", "extra"]);
+}
+
+/// The milder variant: the track is the same one, but its clips are not
+/// where the arguments think. `fade` takes absolute seconds, so after the
+/// user drags the clip the same seconds are different audio.
+#[test]
+fn a_clip_moved_while_a_ranged_tool_ran_does_not_send_the_rerun_to_other_audio() {
+    let studio = Studio::new(Box::new(tools::tool::FadeTool));
+    let drums = studio.clips_of("drums");
+    studio.then_the_user(UserEdit::Tool(
+        "move_clip",
+        json!({ "track": 0, "clip_index": 0, "start_sec": 0.5 }),
+    ));
+
+    let result = studio.dispatch(
+        "fade",
+        json!({ "track": 0, "kind": "out", "range": { "start_sec": 0.5, "end_sec": 1.0 } }),
+        "",
+    );
+
+    let moved = studio.clips_of("drums");
+    assert_ne!(moved[0].0, drums[0].0, "the user's move is kept");
+    assert_eq!(
+        moved[0].3, drums[0].3,
+        "the fade was applied to a clip it was not meant for: {result:?}"
+    );
+    let said = error_text(&result);
+    assert!(
+        said.contains("not applied") && said.contains("drums") && said.contains("clips"),
+        "{said}"
+    );
+    assert_eq!(studio.runs(), 1);
+}
+
+/// The same edit on another track is nothing to the call.
+#[test]
+fn a_clip_moved_on_another_track_leaves_the_rerun_alone() {
+    let studio = Studio::new(Box::new(tools::tool::FadeTool));
+    let drums = studio.clips_of("drums");
+    studio.then_the_user(UserEdit::Tool(
+        "move_clip",
+        json!({ "track": 1, "clip_index": 0, "start_sec": 0.5 }),
+    ));
+
+    let result = studio.dispatch(
+        "fade",
+        json!({ "track": 0, "kind": "out", "range": { "start_sec": 0.5, "end_sec": 1.0 } }),
+        "",
+    );
+
+    assert!(matches!(result, ToolResult::Ok(_)), "{result:?}");
+    assert_eq!(studio.runs(), 2);
+    assert_ne!(
+        studio.clips_of("drums")[0].3,
+        drums[0].3,
+        "drums were not faded"
+    );
+    assert_ne!(studio.clips_of("vocals")[0].0, 0, "the user's move is kept");
+}
+
+/// A range taken from the chat message is a range in seconds like any
+/// other.
+#[test]
+fn a_clip_moved_while_a_tool_ran_on_the_chat_selection_is_refused_too() {
+    let studio = Studio::new(Box::new(tools::tool::FadeTool));
+    let drums = studio.clips_of("drums");
+    studio.then_the_user(UserEdit::Tool(
+        "move_clip",
+        json!({ "track": 0, "clip_index": 0, "start_sec": 0.5 }),
+    ));
+
+    let result = studio.dispatch(
+        "fade",
+        json!({ "track": 0, "kind": "out" }),
+        "[apply to 0:00-0:01] fade that out",
+    );
+
+    assert_eq!(studio.clips_of("drums")[0].3, drums[0].3, "{result:?}");
+    assert!(error_text(&result).contains("not applied"), "{result:?}");
+}
+
+/// A refusal costs the session nothing but what the user did.
+#[test]
+fn a_refused_call_adds_no_node() {
+    let studio = Studio::new(Box::new(tools::tool::TimeStretchTool));
+    let nodes = studio.node_count();
+    studio.then_the_user(UserEdit::Tool("remove_track", json!({ "track": 0 })));
+
+    studio.dispatch("time_stretch", json!({ "track": 1, "factor": 0.5 }), "");
+
+    assert_eq!(studio.node_count(), nodes + 1, "only the user's removal");
 }

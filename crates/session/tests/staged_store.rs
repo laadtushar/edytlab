@@ -369,6 +369,51 @@ fn in_flight_counts_staged_handles() {
     assert_eq!(shared.staged_in_flight(), 0);
 }
 
+/// N1. The count says "something is running without the lock on this
+/// project", and the sweeps that read it hold a `Store` they may not have
+/// staged from: opening a project again (the app does it for a project
+/// that is already open) builds a fresh `Store`, which used to start at
+/// zero and so let a sweep delete a running tool's output.
+#[test]
+fn the_in_flight_count_belongs_to_the_project_not_to_one_store() {
+    let dir = TempDir::new().unwrap();
+    let mut shared = Store::open(dir.path()).unwrap();
+    shared.append(node(1)).unwrap();
+
+    let first = shared.stage().unwrap();
+
+    // The project opened again, by the same path and by another spelling of
+    // it: the same count.
+    let again = Store::open(dir.path()).unwrap();
+    std::fs::create_dir_all(dir.path().join("sub")).unwrap();
+    let spelled = Store::open(&dir.path().join("sub").join("..")).unwrap();
+    assert_eq!(again.staged_in_flight(), 1, "a re-opened store saw zero");
+    assert_eq!(spelled.staged_in_flight(), 1, "another spelling saw zero");
+
+    // It counts runs staged from either, and each store reads all of them.
+    let second = again.stage().unwrap();
+    assert_eq!(shared.staged_in_flight(), 2);
+    assert_eq!(again.staged_in_flight(), 2);
+
+    // Another project's runs are not this one's.
+    let elsewhere = TempDir::new().unwrap();
+    let other = Store::open(elsewhere.path()).unwrap();
+    assert_eq!(other.staged_in_flight(), 0);
+
+    // The first store can be gone and the run still counts for the next
+    // one to open the project: the handle holds the count.
+    drop(shared);
+    drop(spelled);
+    let later = Store::open(dir.path()).unwrap();
+    assert_eq!(later.staged_in_flight(), 2);
+
+    drop(first);
+    assert_eq!(later.staged_in_flight(), 1);
+    drop(second);
+    assert_eq!(later.staged_in_flight(), 0);
+    assert_eq!(again.staged_in_flight(), 0);
+}
+
 #[test]
 fn commit_into_the_wrong_place_is_refused() {
     let dir = TempDir::new().unwrap();
@@ -410,4 +455,110 @@ fn list_nodes_on_a_handle_includes_what_it_appended() {
     staged.append(node(2)).unwrap();
     assert_eq!(staged.list_nodes().unwrap().len(), 2);
     assert_eq!(shared.list_nodes().unwrap().len(), 1);
+}
+
+/// The ids on the chain of parents from `from`, nearest first, read through
+/// `store`. Stops after `limit` so a loop is a failure and not a hang.
+fn ancestry(store: &Store, from: NodeId, limit: usize) -> Vec<NodeId> {
+    let mut out = vec![from];
+    let mut cursor = store.get(from).unwrap().parent;
+    while let Some(id) = cursor {
+        out.push(id);
+        if out.len() > limit {
+            break;
+        }
+        cursor = store.get(id).unwrap().parent;
+    }
+    out
+}
+
+/// N3. A state reached again keeps the record it first had on disk, parent
+/// included: that is how the shared store behaves, since the file is there
+/// and is not rewritten. A handle that answered `get` with the run's own
+/// copy said something else, and for an edit that changes nothing (a tool
+/// whose result is the state it started from) the copy's parent was the node
+/// itself, so a walk up the handle's parents never ended.
+#[test]
+fn a_staged_edit_that_changes_nothing_does_not_make_the_head_its_own_parent() {
+    let dir = TempDir::new().unwrap();
+    let mut shared = Store::open(dir.path()).unwrap();
+    let root = shared.append(node(1)).unwrap();
+    let head = shared.append(node(2)).unwrap();
+    assert_eq!(shared.get(head).unwrap().parent, Some(root));
+
+    let mut staged = shared.stage().unwrap();
+    let same_state = shared.get(head).unwrap();
+    let id = staged.append(same_state).unwrap();
+    assert_eq!(id, head, "the same state is the same node");
+
+    assert_eq!(
+        staged.get(head).unwrap().parent,
+        Some(root),
+        "the handle disagrees with the disk about where the head came from"
+    );
+    assert_eq!(ancestry(&staged, head, 10), vec![head, root]);
+
+    // And it publishes as nothing: the files are as they were.
+    let before = snapshot(dir.path());
+    assert_eq!(shared.commit(staged).unwrap(), Commit::Published);
+    assert_eq!(snapshot(dir.path()), before);
+    assert_eq!(shared.head(), Some(head));
+    assert_eq!(ancestry(&shared, head, 10), vec![head, root]);
+}
+
+/// Reaching an older state again, which is what a staged edit that undoes
+/// something does, answers as the disk does too.
+#[test]
+fn a_staged_append_of_an_older_state_reads_as_the_disk_reads_it() {
+    let dir = TempDir::new().unwrap();
+    let mut shared = Store::open(dir.path()).unwrap();
+    let root = shared.append(node(1)).unwrap();
+    let head = shared.append(node(2)).unwrap();
+
+    let mut staged = shared.stage().unwrap();
+    let back = staged.append(shared.get(root).unwrap()).unwrap();
+    assert_eq!(back, root);
+    assert_eq!(staged.head(), Some(root));
+    assert_eq!(
+        staged.get(root).unwrap().parent,
+        None,
+        "the root grew a parent in memory"
+    );
+    assert_eq!(ancestry(&staged, root, 10), vec![root]);
+    assert_eq!(staged.get(head).unwrap().parent, Some(root));
+
+    // Committed onto a head that has not moved, the shared store ends up
+    // the same: on the root, which still has no parent.
+    assert_eq!(shared.commit(staged).unwrap(), Commit::Published);
+    assert_eq!(shared.head(), Some(root));
+    assert_eq!(shared.get(root).unwrap().parent, None);
+}
+
+/// A node already on disk without an op takes the staged run's. Reading it
+/// from the handle shows what the commit will leave, op included; one that
+/// already has an op keeps its own.
+#[test]
+fn a_staged_get_of_a_node_on_disk_shows_the_op_the_commit_will_leave() {
+    let dir = TempDir::new().unwrap();
+    let mut shared = Store::open(dir.path()).unwrap();
+    let base = shared.append(node(1)).unwrap();
+    let plain = shared.append(node(2)).unwrap();
+    shared.set_head(base).unwrap();
+    let described = shared.append(node(3)).unwrap();
+    shared.set_op(described, op("recorded")).unwrap();
+    shared.set_head(base).unwrap();
+
+    let mut staged = shared.stage().unwrap();
+    assert_eq!(staged.append(node(2)).unwrap(), plain);
+    staged.set_op(plain, op("filled")).unwrap();
+    assert_eq!(staged.get(plain).unwrap().op.unwrap().tool, "filled");
+    assert_eq!(staged.get(plain).unwrap().parent, Some(base));
+
+    assert_eq!(staged.append(node(3)).unwrap(), described);
+    staged.set_op(described, op("later")).unwrap();
+    assert_eq!(staged.get(described).unwrap().op.unwrap().tool, "recorded");
+
+    assert_eq!(shared.commit(staged).unwrap(), Commit::Published);
+    assert_eq!(shared.get(plain).unwrap().op.unwrap().tool, "filled");
+    assert_eq!(shared.get(described).unwrap().op.unwrap().tool, "recorded");
 }

@@ -31,8 +31,12 @@
 //!    it. The audio it is reading may also stop being the head's if the
 //!    user edits meanwhile. [`apply_sweep`] and [`sweep_orphans`] check
 //!    `Store::staged_in_flight` under the store's lock, where it cannot
-//!    change, and do nothing if it is not zero. The sweep runs again
-//!    every minute, so this defers it; it does not lose it.
+//!    change for runs staged from that store, and do nothing if it is not
+//!    zero. The count is the project's, shared by every `Store` opened on
+//!    the directory in this process, so a sweep through a freshly opened
+//!    handle (a project opened again, the reclaimer's reader) sees a run
+//!    staged from another. The sweep runs again every minute, so this
+//!    defers it; it does not lose it.
 //! 1. **Never touch a file the current head names.** Whatever the
 //!    policy, the session you are looking at keeps working.
 //! 2. **Never touch a file no op can rebuild.** A node written before

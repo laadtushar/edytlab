@@ -29,12 +29,13 @@
 //! drift. If the head moved — the user edited meanwhile — nothing is
 //! written, and the caller runs the edit again on the new head.
 
+use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use tempfile::NamedTempFile;
 
@@ -81,9 +82,11 @@ fn fsync_dir(_path: &Path) -> io::Result<()> {
 pub struct Store {
     project_dir: PathBuf,
     head: Option<NodeId>,
-    /// How many staged handles made from this store are alive. Shared by
-    /// the store and every handle staged from it, so a sweep holding the
-    /// store can tell that an edit is running without the lock (#421).
+    /// How many staged handles on this project are alive, from any `Store`
+    /// opened on it in this process. Shared by those stores and every
+    /// handle staged from them, so a sweep holding any one of them can
+    /// tell that an edit is running without the lock (#421). See
+    /// [`in_flight_counter`].
     in_flight: Arc<AtomicUsize>,
     /// `Some` for a handle made by [`Store::stage`]: appends go here
     /// instead of to disk.
@@ -100,6 +103,43 @@ struct Staged {
     /// Counts this handle in [`Store::staged_in_flight`] for as long as
     /// it lives, however it ends: committed, dropped, or unwound.
     _guard: InFlight,
+}
+
+/// The in-flight counter of the project at `project_dir`: one per project
+/// directory in the process, shared by every [`Store`] opened on it.
+///
+/// A counter per `Store::open` would be wrong, because opening is not rare
+/// and not owned by one place: the app builds a new `Store` each time a
+/// project is opened, including the one already open, and sweeps the
+/// derived audio with it before anything else; the background reclaimer
+/// opens a reader of its own. Each would start at zero and delete the
+/// output of a tool another handle has running without the lock (#421, N1).
+/// The alternative, skipping the sweep when the project being opened is the
+/// one already open, would protect that one call site and none of the
+/// others.
+///
+/// Keyed by the canonical path, so `a/../a`, a symlink and a different case
+/// on a case-insensitive disk are one project; the directory exists by the
+/// time this is called (`open` creates it), and if it cannot be resolved the
+/// path as given is the key. The map holds weak references, so a project
+/// nobody has open any more is forgotten rather than counted forever, and a
+/// live handle keeps its project's counter alive.
+fn in_flight_counter(project_dir: &Path) -> Arc<AtomicUsize> {
+    static COUNTERS: OnceLock<Mutex<HashMap<PathBuf, Weak<AtomicUsize>>>> = OnceLock::new();
+    let key = fs::canonicalize(project_dir).unwrap_or_else(|_| project_dir.to_path_buf());
+    // Nothing in here can panic while the lock is held, so a poisoned lock
+    // holds a map that is whole.
+    let mut counters = COUNTERS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    counters.retain(|_, counter| counter.strong_count() > 0);
+    if let Some(counter) = counters.get(&key).and_then(Weak::upgrade) {
+        return counter;
+    }
+    let counter = Arc::new(AtomicUsize::new(0));
+    counters.insert(key, Arc::downgrade(&counter));
+    counter
 }
 
 /// Decrements the shared in-flight count when dropped.
@@ -157,7 +197,7 @@ impl Store {
         Ok(Self {
             project_dir: project_dir.to_path_buf(),
             head,
-            in_flight: Arc::new(AtomicUsize::new(0)),
+            in_flight: in_flight_counter(project_dir),
             staged: None,
         })
     }
@@ -200,7 +240,8 @@ impl Store {
         self.staged.is_some()
     }
 
-    /// How many staged handles made from this store are alive.
+    /// How many staged handles on this project are alive, whichever
+    /// `Store` they were staged from.
     ///
     /// Anything that deletes files from the project has to wait while this
     /// is not zero: a staged edit writes its output before it is
@@ -208,8 +249,20 @@ impl Store {
     /// [`Store::stage`], which needs the store, so only under the store's
     /// lock; and decremented when the handle goes — in [`Store::commit`]
     /// on the normal path, or as a panicking tool unwinds. So a caller
-    /// holding the lock that reads zero knows no staged run can start until
-    /// it lets go, and one that reads more than zero waits.
+    /// holding the lock that reads zero knows no staged run can start from
+    /// that store until it lets go, and one that reads more than zero waits.
+    ///
+    /// The count is the project's, not this `Store`'s: every `Store::open`
+    /// on the same directory in this process shares it (see
+    /// [`in_flight_counter`]). The app builds a new `Store` whenever a
+    /// project is opened, including one that is already open, and the
+    /// background reclaimer reads through a handle of its own, so a count
+    /// per `Store` would read zero for exactly the sweeps that can run
+    /// during a tool. What is not shared is the lock: a run staged from an
+    /// older `Store` of the same project, after the app has swapped in a
+    /// newer one, is counted by both, but holding the newer store's lock
+    /// does not stop that older store from staging a new run between a
+    /// sweep's check and its delete.
     pub fn staged_in_flight(&self) -> usize {
         self.in_flight.load(Ordering::SeqCst)
     }
@@ -465,18 +518,20 @@ impl Store {
     }
 
     pub fn get(&self, id: NodeId) -> Result<SessionNode> {
-        // A staged handle sees what it appended before what is on disk.
-        if let Some(node) = self
-            .staged
-            .as_ref()
-            .and_then(|run| run.nodes.iter().find(|n| n.id == id))
-        {
-            return Ok(node.clone());
-        }
         let hex = id.to_hex();
         let path = self.shard_dir(&hex).join(format!("{hex}.json"));
+        // What a staged handle appended, if this is one and it did.
+        let appended = self
+            .staged
+            .as_ref()
+            .and_then(|run| run.nodes.iter().find(|n| n.id == id));
         if !path.exists() {
-            return Err(Error::NodeNotFound(hex));
+            // Not on disk: the staged copy is the only record, and is what
+            // the commit will write.
+            return match appended {
+                Some(node) => Ok(node.clone()),
+                None => Err(Error::NodeNotFound(hex)),
+            };
         }
         let bytes = fs::read(&path)?;
         let mut node: SessionNode = serde_json::from_slice(&bytes)?;
@@ -484,6 +539,18 @@ impl Store {
         // under paths the nodes do not name. See `crate::relocate`; in a
         // project that has not moved this does nothing.
         crate::relocate::rebind(&mut node.state, &self.project_dir);
+        // A node a staged run appended that is on disk already — a state
+        // reached again, which is a node ids hash state alone — stands as
+        // the file has it, parent included, exactly as `append` leaves it
+        // on the shared store: the file is not rewritten. The run's own
+        // copy has the parent the run had when it got there, which for an
+        // edit that changed nothing is the node itself. The one thing the
+        // commit adds to such a file is an `op` it lacks, so that shows.
+        if let Some(appended) = appended {
+            if node.op.is_none() {
+                node.op = appended.op.clone();
+            }
+        }
         Ok(node)
     }
 

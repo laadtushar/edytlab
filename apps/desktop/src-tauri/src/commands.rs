@@ -4627,6 +4627,52 @@ mod tests {
         );
     }
 
+    /// N1 (#421). A tool that runs off the store lock has written its
+    /// output before the node that names it exists, so for that stretch the
+    /// file is an orphan and the sweep an open runs would take it. Opening
+    /// the project again, which the app lets the user do mid-turn, builds a
+    /// fresh `Store`; the count of tools in flight has to be the project's,
+    /// not that handle's.
+    #[test]
+    fn reopening_a_project_while_a_tool_runs_off_the_lock_does_not_sweep_its_output() {
+        let tmp = tempdir().unwrap();
+        let state = AppState::new();
+        open_project_for_test(&state, tmp.path()).unwrap();
+        let handle = state.store_handle().expect("store");
+        handle
+            .lock()
+            .unwrap()
+            .append(session::SessionNode {
+                id: session::NodeId([0u8; 32]),
+                parent: None,
+                created_at: chrono::Utc::now(),
+                label: None,
+                reasoning: None,
+                state: empty_session_state(),
+                op: None,
+            })
+            .unwrap();
+
+        // A tool is running without the lock, and has written its output.
+        let running = handle.lock().unwrap().stage().unwrap();
+        let derived = tools::derived_dir(tmp.path());
+        std::fs::create_dir_all(&derived).unwrap();
+        let output = derived.join("0123abcd-not-yet-named.wav");
+        std::fs::write(&output, b"RIFF-not-yet-named").unwrap();
+
+        open_project_for_test(&state, tmp.path()).unwrap();
+        assert!(
+            output.is_file(),
+            "opening the project again swept the output of a tool that was running"
+        );
+
+        // The deferral is not a leak: once the tool is done the next open
+        // removes what no node names.
+        drop(running);
+        open_project_for_test(&state, tmp.path()).unwrap();
+        assert!(!output.exists(), "the orphan should go once nothing runs");
+    }
+
     #[test]
     fn open_project_rejects_relative_path() {
         let state = AppState::new();

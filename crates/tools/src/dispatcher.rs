@@ -91,7 +91,14 @@ pub trait Tool: Send + Sync {
     /// kept in memory and published under the lock only if the session's
     /// head has not moved meanwhile; if it has — the user edited while the
     /// tool ran — the tool is run again on the new head, so the user's
-    /// edit is kept and the tool's result lands on top of it.
+    /// edit is kept and the tool's result lands on top of it. The exception
+    /// is an edit that changes what the call's arguments mean: if the call
+    /// names a track by its position (an argument with `track` in its name,
+    /// see [`crate::shared::addressed_tracks`]) and the user removed or
+    /// restored a track so that position holds another one, or changed that
+    /// track's clips, the tool is not run again. The call returns an error
+    /// for the model to read, because `track: 1` on a session where track 1
+    /// is a different track edits audio nobody asked about.
     ///
     /// A tool may say `true` only if all of these hold:
     ///
@@ -105,7 +112,10 @@ pub trait Tool: Send + Sync {
     /// * it builds no nested dispatcher, and reports no `progress`;
     /// * running it again on a newer head is correct, because it may be.
     ///   It runs on the arguments it was given, so it must read the head
-    ///   it is run on rather than remember anything from the first run;
+    ///   it is run on rather than remember anything from the first run.
+    ///   A tool that names a track must do so in an argument with `track`
+    ///   in its name, holding a whole number or a list of them, so the
+    ///   guard above sees it (`tests/off_lock_tools.rs` checks);
     /// * every file it writes outside the session is named by its own
     ///   content or by a unique temporary name, and is put in place
     ///   whole. A run that loses the race leaves its files behind, unnamed
