@@ -273,22 +273,33 @@ for (const win of WINDOWS) {
         await expectInWindow(page, card, `the card before the ${tab} tab`, MARGIN);
         await expectInWindow(page, page.getByTestId("settings-tabs"), `the tab strip for ${tab}`);
         await page.getByTestId(`settings-tab-${tab}`).click();
+        // A tab opens at its top, whatever the one before it was scrolled to.
+        expect(
+          await page.getByTestId("settings-body").evaluate((el) => el.scrollTop),
+          `the ${tab} tab opened scrolled down`,
+        ).toBe(0);
         const end = page.getByTestId(endId);
         await expect(end, `the ${tab} tab shows ${endId}`).toBeVisible();
 
         await expectInWindow(page, card, `the card on the ${tab} tab`, MARGIN);
 
         // The wheel, as a user has it: over the dialog, not a scrollIntoView
-        // that would move an `overflow-hidden` box no one can scroll.
+        // that would move an `overflow-hidden` box no one can scroll. It
+        // scrolls smoothly, so the end is waited for rather than assumed.
         const cardBox = await card.boundingBox();
         await page.mouse.move(cardBox!.x + cardBox!.width / 2, cardBox!.y + cardBox!.height / 2);
         await page.mouse.wheel(0, 4_000);
 
-        const endSpan = await spanOf(end, `${endId} on ${tab}`);
         const h = heightOf(page);
+        const deadline = Date.now() + 5_000;
+        let span = await spanOf(end, `${endId} on ${tab}`);
+        while ((span.top < 0 || span.bottom > h) && Date.now() < deadline) {
+          await page.waitForTimeout(100);
+          span = await spanOf(end, `${endId} on ${tab}`);
+        }
         expect(
-          endSpan.top >= 0 && endSpan.bottom <= h,
-          `${endId} on the ${tab} tab sits at ${show(endSpan)} after scrolling to the end, ` +
+          span.top >= 0 && span.bottom <= h,
+          `${endId} on the ${tab} tab sits at ${show(span)} after scrolling to the end, ` +
             `but the window is ${h} px tall`,
         ).toBe(true);
       }

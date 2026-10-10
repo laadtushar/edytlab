@@ -391,6 +391,15 @@ export function Settings({
       ? `linear-gradient(to right, ${tabEdges.start ? "transparent" : "#000"}, #000 ${TAB_FADE_PX}px, #000 calc(100% - ${TAB_FADE_PX}px), ${tabEdges.end ? "transparent" : "#000"})`
       : null;
 
+  // The body scrolls (see the card), and it is one element for every tab, so
+  // a tab opens at its top: the scroll left over from a tall tab would start
+  // the next one half way down it.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const body = bodyRef.current;
+    if (body) body.scrollTop = 0;
+  }, [tab]);
+
   const [pluginSource, setPluginSource] = useState('');
   const [pluginInstalling, setPluginInstalling] = useState(false);
   const [pluginResult, setPluginResult] = useState<string | null>(null);
@@ -849,16 +858,31 @@ export function Settings({
       data-mode={mode}
       className={containerClass}
     >
+      {/*
+        The card is a column that never outgrows the window: it is capped at
+        the window's height less 2rem, which centring turns into 1rem of
+        margin above and below. The header and the tab strip keep their
+        height, the body takes what is left and scrolls, and the footer
+        (Save, on the Account tab) is outside the scroll, so it is on screen
+        whatever is in the body. `vh`, not `max-h-full`: the container is
+        the window, and a viewport unit needs no height to be definite.
+
+        It was a block with `overflow-hidden` and no height cap, centred in
+        a `fixed inset-0` box. Once the storage warning (#477) and the
+        model-list note (#504) joined the Account tab it was 874 px tall in
+        a 775 px window, ran off both edges, and had nothing to scroll: a
+        new user could not reach Save & Continue.
+      */}
       <div
         data-testid="settings-card"
         className="
-          relative w-[30rem] max-w-[90vw] overflow-hidden
+          relative flex max-h-[calc(100vh-2rem)] w-[30rem] max-w-[90vw] flex-col overflow-hidden
           rounded-xl border border-[var(--border-strong)]
           bg-[var(--surface-elev)]
           shadow-[0_30px_80px_-20px_rgba(0,0,0,0.7),0_0_0_1px_rgba(255,255,255,0.02)_inset]
         "
       >
-        <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
+        <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-5 py-4">
           <div className="flex items-baseline gap-2">
             <h2 className="font-[family-name:var(--font-serif)] text-2xl leading-none text-[var(--text)]">
               {mode === "blocking" ? (
@@ -894,7 +918,7 @@ export function Settings({
         {mode === "panel" ? (
           // The divider is on this wrapper, not on the strip: the fade is a
           // mask on the strip, and would fade the divider line with it.
-          <div className="border-b border-[var(--border)]">
+          <div className="shrink-0 border-b border-[var(--border)]">
             <div
               ref={tabsRef}
               data-testid="settings-tabs"
@@ -965,7 +989,16 @@ export function Settings({
           </div>
         ) : null}
 
-        <div className="px-5 py-4">
+        <div
+          ref={bodyRef}
+          data-testid="settings-body"
+          // No bottom padding on Account: its last field ends in a `mb-4` of
+          // its own, which is the gap above the footer's divider.
+          className={
+            "min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-5 pt-4 " +
+            (tab === "account" ? "pb-0" : "pb-4")
+          }
+        >
           {tab === "project" && mode === "panel" ? <ProjectEditor /> : null}
           {tab === "memory" && mode === "panel" ? <MemoryEditor /> : null}
           {tab === "skills" && mode === "panel" ? <SkillsEditor /> : null}
@@ -1415,56 +1448,67 @@ export function Settings({
             </>
           ) : null}
 
-          {saveError ? (
-            <p
-              data-testid="settings-save-error"
-              role="alert"
-              className="mb-3 rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-3 py-1.5 text-xs text-[var(--danger)]"
-            >
-              {saveError}
-            </p>
-          ) : null}
-
-          <div className="flex items-center justify-between gap-2 pt-1">
-            {mode === "panel" ? (
-              <button
-                type="button"
-                onClick={handleClear}
-                data-testid="settings-clear-button"
-                className="
-                  rounded-md border border-[var(--danger)]/40
-                  px-3 py-1.5 text-sm text-[var(--danger)]
-                  transition
-                  hover:bg-[var(--danger)]/10
-                "
-              >
-                Clear key
-              </button>
-            ) : (
-              <span />
-            )}
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={saveDisabled}
-              data-testid="settings-save-button"
-              className="
-                rounded-md
-                bg-[var(--accent)]
-                px-4 py-1.5
-                text-sm font-medium text-[var(--bg)]
-                shadow-[0_4px_12px_-4px_var(--accent-glow)]
-                transition
-                hover:bg-[#ffa05f]
-                disabled:cursor-not-allowed disabled:bg-[var(--surface-elev-2)] disabled:text-[var(--text-faint)] disabled:shadow-none
-              "
-            >
-              {saving ? "Saving…" : "Save & Continue"}
-            </button>
-          </div>
           </>
           ) : null}
         </div>
+
+        {tab === "account" ? (
+          // Outside the scrolling body, so Save is reachable without
+          // scrolling and a failed save's message is read where it was
+          // clicked, not somewhere below the fold.
+          <div
+            data-testid="settings-footer"
+            className="shrink-0 border-t border-[var(--border)] px-5 pb-4 pt-3"
+          >
+            {saveError ? (
+              <p
+                data-testid="settings-save-error"
+                role="alert"
+                className="mb-3 rounded-md border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-3 py-1.5 text-xs text-[var(--danger)]"
+              >
+                {saveError}
+              </p>
+            ) : null}
+
+            <div className="flex items-center justify-between gap-2">
+              {mode === "panel" ? (
+                <button
+                  type="button"
+                  onClick={handleClear}
+                  data-testid="settings-clear-button"
+                  className="
+                    rounded-md border border-[var(--danger)]/40
+                    px-3 py-1.5 text-sm text-[var(--danger)]
+                    transition
+                    hover:bg-[var(--danger)]/10
+                  "
+                >
+                  Clear key
+                </button>
+              ) : (
+                <span />
+              )}
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={saveDisabled}
+                data-testid="settings-save-button"
+                className="
+                  rounded-md
+                  bg-[var(--accent)]
+                  px-4 py-1.5
+                  text-sm font-medium text-[var(--bg)]
+                  shadow-[0_4px_12px_-4px_var(--accent-glow)]
+                  transition
+                  hover:bg-[#ffa05f]
+                  disabled:cursor-not-allowed disabled:bg-[var(--surface-elev-2)] disabled:text-[var(--text-faint)] disabled:shadow-none
+                "
+              >
+                {saving ? "Saving…" : "Save & Continue"}
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
