@@ -199,7 +199,7 @@ Allowed prefixes: `feat`, `fix`, `ci`, `chore`, `docs`, `test`, `refactor`.
 ### Adding a New Tauri Command
 
 1. Add the function to `apps/desktop/src-tauri/src/commands.rs`
-2. Add the `#[tauri::command]` attribute. If the command takes the session store's lock, it must not run on the main thread: make it an `async fn`, or use `#[tauri::command(async)]` (`src-tauri/tests/main_thread_commands.rs` enforces this, #421)
+2. Add the `#[tauri::command]` attribute. If the command takes the session store's, engine's, dispatcher's or clipboard's lock, directly or through a helper such as `run_track_tool`, it must not run on the main thread: make it an `async fn`, or use `#[tauri::command(async)]` (`src-tauri/tests/main_thread_commands.rs` enforces this, following calls into the crate's free functions, #421)
 3. Register in `tauri::Builder::invoke_handler` in `lib.rs`
 4. Add a matching TypeScript wrapper in `apps/desktop/src/lib/tauri-bridge.ts`
 5. Update [API Reference](./api-reference.md)
