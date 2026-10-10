@@ -151,7 +151,7 @@ Two honest caveats about that last part:
 - Every request carries the full tool list. One measured first request was about 15,000 tokens, and a local model with an 8,192-token context refused it. You need solid tool calling and a large context.
 - The recordings were made with Claude as the agent. I haven't confirmed which local models can finish a job like these.
 
-The desktop app sends no telemetry. API keys live in your operating system's credential store; on Linux that is the kernel keyring, which does not survive a reboot yet.
+The desktop app sends no telemetry. API keys live in your operating system's credential store. On Linux, v0.4.0 and earlier keep them in the kernel keyring only until you reboot; the next release uses the Secret Service (GNOME Keyring, KWallet or KeePassXC) and warns when none is running.
 
 Both caveats are open issues in the repo, with numbers. If you run local models, I'd like your results.
 
@@ -215,7 +215,7 @@ Sources for the claims:
 - Zero-dependency effects crate and Rubber Band decision:
   `crates/audio-dsp/Cargo.toml`, `crates/audio-time/src/vocoder.rs`.
 - Master-bus workaround: issue 460, and the mini-mix caption in `demos.ts`.
-- Linux keyring: issue 394 (open).
+- Linux keyring: issue 394. v0.4.0 and earlier use the kernel keyring; the next release uses the Secret Service (`crates/ai/src/keychain.rs`, `docs/architecture.md`).
 
 Decisions for you:
 

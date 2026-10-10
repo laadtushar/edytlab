@@ -77,6 +77,7 @@ pub mod set_track_gain;
 pub mod silence_finder;
 pub mod silence_region;
 pub mod solo_track;
+pub(crate) mod speech_detect;
 pub mod split_by_speaker;
 pub mod split_clip;
 pub mod stereo_to_mono;

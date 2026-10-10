@@ -386,10 +386,10 @@ export function ScrollStory({ release }: { release: ReleaseAssets }) {
             />
           </Lanes>
           <p data-duck-note className="mx-auto mt-6 max-w-xl text-sm text-muted-foreground">
-            Keyed on the transcript, not on level — so a breath does not
-            trigger it and a quiet line does not escape it. The result is an
-            ordinary automation curve you can drag. (It needs a transcript, and
-            on-device transcription has not shipped yet.)
+            Keyed on where the speech is, not on level: the voiced sound on
+            the voice track, so a breath does not trigger it, and it ducks
+            just before each line, which a live sidechain cannot. The result
+            is an ordinary automation curve you can drag.
           </p>
         </Scene>
 

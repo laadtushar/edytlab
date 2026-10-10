@@ -12,7 +12,7 @@
 // captions in and plays the waits faster than the listening.
 import { existsSync, mkdirSync, readFileSync, copyFileSync, rmSync } from "node:fs";
 import { basename, join } from "node:path";
-import { assert, K, sleep, waitForWaveform } from "./helpers.mjs";
+import { assert, dismissKeychainNotice, K, sleep, waitForWaveform } from "./helpers.mjs";
 import { askThrough, effectsOf, lowPassed, numbers, okBadges, onboardClaude, reply, tracks, wavSeconds } from "./claude.mjs";
 import { pointAt, press, rest } from "./human.mjs";
 
@@ -93,6 +93,9 @@ async function start(ctx, { dir, files }, title) {
   const { d } = ctx;
   await onboardClaude(ctx, { model: MODEL, effort: EFFORT });
   await d.until(async () => (await d.count("[data-testid='settings']")) === 0, { timeout: 60000, label: "the welcome to close" });
+  // Before recording: the demo videos should not open on a warning about
+  // the machine that records them.
+  await dismissKeychainNotice(ctx);
   assert((await d.invoke("get_active_provider")) === "anthropic", "Anthropic is active");
   await sleep(800);
   ctx.record();

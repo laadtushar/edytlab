@@ -392,9 +392,11 @@ for the provider that needs it. `LlmProvider::tool_set()` says which:
   `transcribe`) is never selected and never listed: a small model that is
   offered one calls it, and it can only fail. The same goes for the tools
   that only work on a transcript (`NEEDS_TRANSCRIPT_TOOLS`: `cut_words`,
-  `duck_under_speech`, `remove_fillers`), because the only thing that makes
-  a transcript is `transcribe`. A test fails when `transcribe` stops being a
-  stub, and says to delete that list.
+  `remove_fillers`), because the only thing that makes a transcript is
+  `transcribe`. `duck_under_speech` is not one of them: with `voice_tracks` it
+  keys on a track's audio and needs no transcript, and a test fails if a tool
+  with a `voice_tracks` property is put on that list. A test fails when
+  `transcribe` stops being a stub, and says to delete that list.
 
   **The names line.** A model that is not shown a tool does not know it
   exists, so the permitted tools that were not sent are named, names only, in
@@ -535,11 +537,14 @@ OpenAI uses a different request/response format. `OpenAIProvider` translates bid
 
 ```rust
 // crates/ai/src/keychain.rs — every entry lives under the service "app.edytlab.desktop"
-pub fn load_api_key(provider_id: &str) -> Option<String>
+pub fn load_api_key(provider_id: &str) -> Option<String>        // logs an unreadable keychain, reads as None
+pub fn try_load_api_key(provider_id: &str) -> Result<Option<String>, KeychainError>
 pub fn save_api_key(provider_id: &str, key: &str) -> Result<(), keyring::Error>
 pub fn delete_api_key(provider_id: &str) -> Result<(), keyring::Error>
 pub fn load_active_provider() -> Option<String>
+pub fn try_load_active_provider() -> Result<Option<String>, KeychainError>
 pub fn save_active_provider(provider_id: &str) -> Result<(), keyring::Error>
+pub fn persistence() -> Persistence                              // Durable | SessionOnly { reason }
 // plus load_/save_/delete_ for `base_url`, `model` and `effort`, keyed the same way
 ```
 
@@ -552,7 +557,12 @@ Keychain slots (accounts):
 
 Builds from before multi-provider support stored the Anthropic key as `anthropic_api_key`, which is already the new name for that slot, so it is read as-is — there is no migration step.
 
-On Linux the `keyring` crate is built with only its `linux-native` feature, which is the kernel's in-memory `keyutils` store: entries do not survive a reboot.
+On Linux the `keyring` crate is built with `linux-native`, `sync-secret-service` and `crypto-rust` (not `linux-native-sync-persistent`, whose builder would make the kernel-keyring entries older builds wrote unreachable). The default store is the **Secret Service** (GNOME Keyring, KWallet from Plasma 5.97/6, KeePassXC) over D-Bus with an encrypted session, so values survive a reboot (#394). The kernel keyring (`keyutils`) stays compiled for two jobs:
+
+- **Fallback.** When no Secret Service answers (no session bus, nothing owning `org.freedesktop.secrets`), a save goes to the kernel keyring and lasts until reboot. `persistence()` reports `SessionOnly { reason }` (it looks up an account nothing writes, `persistence_probe`, so it can never raise an unlock prompt), `get_keychain_persistence` hands it to the frontend, and the app shows a banner and a note in Settings. A save falls back only after a second read confirms the service is unreachable: `keyring` words a failed `create_item` on a live service the same way, and that must fail the save rather than park the key where a reboot erases it. A read looks twice for the opposite reason: the Secret Service client gives each D-Bus call two seconds and the first call is where a service that is not running yet gets started, so a slow start looks unreachable with the key stored. With no kernel copy to return, the read asks the Secret Service once more before calling the value missing.
+- **Migration.** A value that earlier builds left in the kernel keyring is moved into the Secret Service on first read and the old copy deleted, if it is still there (same boot, within the persistent keyring's three-day expiry). A failed move keeps the old copy. A move the Secret Service refuses (locked, unlock prompt dismissed) is remembered for the rest of the process and not tried again, since each try is another prompt; the value is still read from the kernel keyring until the app restarts.
+
+A locked or refused store is an error, never a silent "nothing stored": `try_load_api_key` and `try_load_active_provider` return it, the `Option` loaders log it, and startup keeps the first error's reason so `has_api_key` rejects with it instead of answering `false` (which would show the first-run Welcome over a stored key). Startup also stops reading at the first refusal (locked, or an unlock prompt dismissed), since every further slot would raise the same prompt, and a key or provider save that goes through afterwards reads back the models startup skipped; and switching to a provider that needs no key reads nothing. Clearing a value removes both copies, and fails if the kernel copy cannot be removed, because the next read would move it straight back. All keychain I/O is serialized behind one lock, since the Secret Service mishandles concurrent D-Bus access. `Display` of a `keyring::Error` never carries the secret but its `Debug` can (`BadEncoding`), so errors are carried as text only.
 
 ### Model Catalogue
 
@@ -611,7 +621,7 @@ impl ToolDispatcher {
 
 There are 93, registered in `ToolDispatcher::default_dispatcher()` with their implementations under `crates/tools/src/tool/`. The full list, with every parameter, is [tools-reference.md](./tools-reference.md) — generated from the registry, so it cannot drift from what the agent can call.
 
-Two of them are stubs: `separate_stems` (Demucs, [#385](https://github.com/laadtushar/edytlab/issues/385)) and `transcribe` (Whisper, [#384](https://github.com/laadtushar/edytlab/issues/384)) return an error in this build. `cut_words`, `remove_fillers`, `duck_under_speech` and the phrase/speech modes of `select_region` need a transcript, which only `transcribe` produces, so they cannot run yet either.
+Two of them are stubs: `separate_stems` (Demucs, [#385](https://github.com/laadtushar/edytlab/issues/385)) and `transcribe` (Whisper, [#384](https://github.com/laadtushar/edytlab/issues/384)) return an error in this build. `cut_words`, `remove_fillers` and the phrase/speech modes of `select_region` need a transcript, which only `transcribe` produces, so they cannot run yet either. `duck_under_speech` does not wait on it: with no transcript it keys on a voice track's audio (`voice_tracks`, found by `speech_detect.rs` from voiced sound, not level).
 
 ### Tool Input/Output Contract
 
@@ -1029,7 +1039,7 @@ let engine = lock_std(&app_state.engine, "engine")?;  // DEADLOCK RISK
 
 ### API Key Storage
 
-- Keys are stored in the **OS-native keychain** (macOS Keychain, Windows Credential Manager; on Linux the kernel `keyutils` store, which does not persist across reboots — see [Keychain Integration](#keychain-integration))
+- Keys are stored in the **OS-native keychain** (macOS Keychain, Windows Credential Manager, the Secret Service on Linux; with none running, the kernel keyring for the current boot only — see [Keychain Integration](#keychain-integration))
 - edytlab never transmits keys to its own servers
 - Keys are read at runtime, signed into HTTP requests in-process, and sent directly to provider endpoints
 - Keys are never logged or written to disk outside the OS keychain

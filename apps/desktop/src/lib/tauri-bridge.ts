@@ -91,11 +91,36 @@ export const setApiKeyFor = (
   key: string,
 ): Promise<void> => invoke<void>("set_api_key_for", { provider, key });
 
+/**
+ * Whether the active provider has what it needs (a stored key, or none
+ * required). Rejects when the keychain could not be read, which is not
+ * the same as resolving `false`: `false` means "ask the user for a key",
+ * a rejection means "a key may well be there, and we could not look"
+ * (#394).
+ */
 export const hasApiKey = (): Promise<boolean> =>
   invoke<boolean>("has_api_key");
 
+/**
+ * Whether `provider` has a stored key. Rejects when the keychain could
+ * not be read, as {@link hasApiKey} does.
+ */
 export const hasApiKeyFor = (provider: ProviderId): Promise<boolean> =>
   invoke<boolean>("has_api_key_for", { provider });
+
+/**
+ * Whether keys and settings saved now survive a reboot. `persistent:
+ * false` is Linux with no Secret Service running: they are kept in the
+ * kernel keyring until the machine restarts. `reason` is why the Secret
+ * Service could not be used, when there is one to give.
+ */
+export interface KeychainPersistence {
+  persistent: boolean;
+  reason: string | null;
+}
+
+export const getKeychainPersistence = (): Promise<KeychainPersistence> =>
+  invoke<KeychainPersistence>("get_keychain_persistence");
 
 export const clearApiKey = (): Promise<void> =>
   invoke<void>("clear_api_key");

@@ -75,8 +75,9 @@ telemetry. The website, which is separate, uses Vercel's anonymous analytics
   have the steps.
 - It is an offline editor. It is not a live DJ tool or a DAW: no MIDI, no VST
   hosting.
-- Rough edges I know about: on Linux your API key does not survive a reboot
-  (#394); the limiter has instant attack and no look-ahead, and is not a
+- Rough edges I know about: on Linux, v0.4.0 and earlier keep your API key
+  only until reboot (#394; the next release uses the Secret Service and warns
+  when there is none); the limiter has instant attack and no look-ahead, and is not a
   true-peak one; with a local model the first request is large (about 15k
   tokens in my one measurement, #395), so you need a generous context window.
 

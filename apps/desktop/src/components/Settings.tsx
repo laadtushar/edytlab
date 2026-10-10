@@ -223,6 +223,14 @@ export interface SettingsProps {
    * turned off; the user found out at the next chat message.
    */
   onProviderChanged?: (hasKey: boolean) => void;
+  /**
+   * A note for the Account tab about where saved keys and settings go,
+   * shown when they will not survive a reboot (#394). The same words as
+   * the app's banner: in blocking mode this dialog covers the banner,
+   * and it is exactly where a user whose key went with the last restart
+   * is standing.
+   */
+  storageWarning?: string | null;
 }
 
 export function Settings({
@@ -231,6 +239,7 @@ export function Settings({
   onClose,
   onCleared,
   onProviderChanged,
+  storageWarning,
 }: SettingsProps) {
   const [key, setKey] = useState("");
   /**
@@ -943,6 +952,15 @@ export function Settings({
               edytlab needs an LLM API key to power the assistant. Pick a
               provider below; your key is stored in your OS keychain —
               never on disk in plaintext.
+            </p>
+          ) : null}
+          {storageWarning ? (
+            <p
+              data-testid="settings-storage-warning"
+              role="note"
+              className="mb-4 rounded-md border border-[var(--warning)]/40 bg-[var(--warning)]/10 px-3 py-1.5 text-xs text-[var(--warning)]"
+            >
+              {storageWarning}
             </p>
           ) : null}
 

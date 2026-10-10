@@ -48,10 +48,12 @@ These are the claims that are easy to get wrong. Each has bitten a draft once.
   ([#385](https://github.com/laadtushar/edytlab/issues/385)).
 - Transcription, transcript-based editing, "remove filler words", "edit by
   deleting text". `transcribe` is a stub
-  ([#384](https://github.com/laadtushar/edytlab/issues/384)), and `cut_words`,
-  `remove_fillers` and `duck_under_speech` need a transcript. They are built
-  and untestable end to end until it exists. The README's older mashup example
-  predates this; do not reuse it.
+  ([#384](https://github.com/laadtushar/edytlab/issues/384)), and `cut_words`
+  and `remove_fillers` need a transcript. They are built and untestable end to
+  end until it exists. `duck_under_speech` does not wait on it: with no
+  transcript it keys on a voice track's audio (voiced sound, not what was
+  said), so say that, not "keyed on the words". The README's older mashup
+  example predates this; do not reuse it.
 - A user count, download count, star count, testimonial, press quote or
   benchmark. None exists in the repo to cite.
 - That the website has no analytics. The desktop app sends no telemetry, but
@@ -85,7 +87,9 @@ These are the claims that are easy to get wrong. Each has bitten a draft once.
 Readers will find these within an hour. Answer them plainly instead of
 getting caught.
 
-- Linux: API keys are held in the kernel keyring and are lost on reboot
+- Linux: v0.4.0 and earlier keep API keys in the kernel keyring only until
+  reboot. The next release stores them in the Secret Service and warns when
+  there is none
   ([#394](https://github.com/laadtushar/edytlab/issues/394)).
 - Local models: a first request was measured at about 15,000 tokens, which an
   8,192-token context refuses

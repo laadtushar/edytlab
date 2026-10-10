@@ -199,7 +199,7 @@ From [ERR]:
 | `crates/ai/src/provider.rs` | `LlmProvider` owns auth, endpoint, serialisation and stream parsing. `OpenAIProvider::endpoint_path()` is `"/v1/chat/completions"`. `WireFormat` is `AnthropicMessages` or `ChatCompletions`. | Plan tokens are accepted only on `/v1/responses` (§2.5). A third wire format is needed. |
 | `crates/ai/src/lib.rs` | `LlmConfig { provider, api_key: String, … }` is built once by `rebuild_agent` and held "for its lifetime" (`commands.rs`). | Access tokens expire hourly (§3.6), so the bearer must be fetched, and refreshed if needed, per request. |
 | `crates/ai/src/agent_loop.rs` | Three request sites call `cfg.provider.apply_auth(req, &cfg.api_key)`. `one_shot_body` sends `"stream": false` for the classifier and plan. `extract_response_text` knows two reply shapes. | One-shot calls must stream (§3.7). `max_completion_tokens` and `max_tokens` must not be sent. The system prompt moves to `instructions`. |
-| `crates/ai/src/keychain.rs` | Per-provider slots `<id>_api_key`, `<id>_model`, `<id>_base_url`, `<id>_effort`, plus `active_provider`. On Linux it is "the kernel keyring … which lives in memory and does not survive a reboot (#394)". | A rotating refresh token fits a slot. The **registration** (issued `client_id`, host ID) must survive reboots, or every Linux reboot registers a *new* client in the user's ChatGPT settings. |
+| `crates/ai/src/keychain.rs` | Per-provider slots `<id>_api_key`, `<id>_model`, `<id>_base_url`, `<id>_effort`, plus `active_provider`. On Linux it is the Secret Service (GNOME Keyring, KWallet or KeePassXC), and with none running the kernel keyring, which does not survive a reboot (#394). | A rotating refresh token fits a slot. The **registration** (issued `client_id`, host ID) must survive reboots even where the slot does not (Linux with no Secret Service), or every reboot there registers a *new* client in the user's ChatGPT settings. |
 | Windows Credential Manager via `keyring` 3.6.3 | Secrets are stored UTF-16: "Password strings are converted to UTF-16" [KEYRING]. The blob "cannot be larger than CRED_MAX_CREDENTIAL_BLOB_SIZE (5*512) bytes" [WINCRED]. | So a slot holds at most 1280 ASCII characters. Access and ID tokens are JWTs carrying `encrypted_auth_metadata` [TOK] and may not fit. |
 | `crates/ai/src/models.rs` | Parses `{"data":[{"id":…}]}`. | The plan catalogue is `{"models":[{"slug","display_name","visibility"}]}` (§3.8). |
 | `apps/desktop/src-tauri` | Capability `default.json` allows `core:default`, `dialog:default` and `dialog:allow-open`. The CSP `connect-src` is `'self' ipc: http://ipc.localhost asset: http://asset.localhost`. There is no opener plugin. | Nothing blocks. All HTTP happens in Rust, and the callback page renders in the system browser, so **the CSP and capabilities need no change** (§3.3). |
@@ -250,11 +250,11 @@ Label it **"ChatGPT plan"** in the picker. Later, the API-key `openai` provider 
 
      | Data | Where | Why |
      |---|---|---|
-     | host ID, issued `client_id`, issuer, verified `sub`, email (as a label and `login_hint`), granted scopes, `saved_at` | `<app config dir>/chatgpt/registration.json`, atomic write, `0600` on Unix | Not secret: the client is "a public client without a secret" [SIGNIN], and "A host ID is not an authentication credential" [OSS]. It must survive reboots (#394), or each sign-in re-registers. |
+     | host ID, issued `client_id`, issuer, verified `sub`, email (as a label and `login_hint`), granted scopes, `saved_at` | `<app config dir>/chatgpt/registration.json`, atomic write, `0600` on Unix | Not secret: the client is "a public client without a secret" [SIGNIN], and "A host ID is not an authentication credential" [OSS]. It must survive reboots even where the keychain does not (Linux with no Secret Service, #394), or each sign-in re-registers. |
      | refresh token | keychain slot `chatgpt_refresh_token` | Secret, rotated on every refresh. On save, check it fits the Windows limit; if `keyring` returns `TooLong`, keep the session in memory and tell the user they will sign in again next launch. |
      | access token, ID token | memory only | One-hour lifetime. Avoids the 1280-character slot limit. Reauthorization uses `login_hint` rather than a stored `id_token_hint`. |
 
-     **On Linux, until #394 is fixed,** a reboot drops the refresh token but keeps the registration. Settings then shows "Session ended — Continue with ChatGPT", and the returning sign-in skips consent (§3.6). The same durable store #394 needs would remove even that step.
+     **On Linux with no Secret Service running (#394),** a reboot drops the refresh token but keeps the registration. Settings then shows "Session ended — Continue with ChatGPT", and the returning sign-in skips consent (§3.6). Where a Secret Service runs, the refresh token survives the reboot and this step does not arise.
    - **One account to start.** The docs say "Your app needs to manage multiple account registrations", and also "Within your OSS app, you may choose to offer an account picker" [SESS]. v1 keeps one active account but keys stored registrations by (`sub`, `client_id`), so a picker is additive later.
 5. **`models.rs`:** a `chatgpt` arm that calls `GET /v1/models` with the session bearer, filters `visibility == "list"`, keeps server order, and maps `slug` to `id` and `display_name` to `display_name`.
 6. **`validate.rs`:** for `chatgpt`, "Test" is the models call plus a tiny streamed Responses request carrying one dummy tool, so `tools_ok` stays meaningful. It reports the mapped error, never the raw token.
@@ -282,7 +282,7 @@ Label it **"ChatGPT plan"** in the picker. Later, the API-key `openai` provider 
   - **Signing in:** "Finish signing in in your browser…" with **Cancel**.
   - **Signed in:** the account email, a **Using ChatGPT plan** badge, **Manage usage** (calls `open_chatgpt_usage`) and **Sign out**. The model picker is filled from the plan catalogue. There is no base-URL field and no effort control.
   - **Plan disabled:** "Signed in, but this app isn't allowed to use your ChatGPT plan", with **Enable ChatGPT plan usage** and **Use an API key instead**, which switches to the `openai` provider.
-  - **Session ended** (refresh failed, or Linux reboot): "Your ChatGPT session ended" with **Continue with ChatGPT**.
+  - **Session ended** (refresh failed, or a reboot on Linux with no Secret Service): "Your ChatGPT session ended" with **Continue with ChatGPT**.
 - **First use:** a one-time modal "You're using your ChatGPT plan" with **Got it**, as [UX] says: "Show a welcome modal only the first time".
 - **In use:** a "Using ChatGPT plan · Manage usage" line near the composer or model selector, per [UX]: "display **Using ChatGPT plan** near the composer or model selector".
 - **Usage limit:** a "Usage limit reached" modal or compact card with **Manage usage** as the primary action, and no automatic fallback.
@@ -308,7 +308,7 @@ Label it **"ChatGPT plan"** in the picker. Later, the API-key `openai` provider 
 - **Agent-loop integration (`wiremock`):** a full tool round trip on `chatgpt`; `401` → refresh → single retry; `429` usage limit surfaced with no retry and no provider fallback.
 - **Frontend (vitest, plus `test:slow-scheduler`):** each Settings state, the welcome modal shown once, the usage-limit modal action, and that no bridge response or prop ever carries a token.
 - **e2e (Playwright):** the Settings ChatGPT card renders from the fake backend, and sign-in switches to the signed-in state.
-- **Manual pre-release check with a real Plus account** (not in CI): first registration, returning sign-in, refresh after an hour, sign-out and revocation, disconnect from ChatGPT settings, hitting a per-app weekly cap, and a Linux reboot.
+- **Manual pre-release check with a real Plus account** (not in CI): first registration, returning sign-in, refresh after an hour, sign-out and revocation, disconnect from ChatGPT settings, hitting a per-app weekly cap, and a Linux reboot (with and without a Secret Service).
 
 ### 4.7 Suggested PR sequence (one concern each)
 
@@ -325,7 +325,7 @@ Label it **"ChatGPT plan"** in the picker. Later, the API-key `openai` provider 
 - **Namespaced tools at edytlab's scale.** The agent offers about 93 tools (`docs/README.md`). The preview says to group them in namespaces, and `tool_search` (deferred loading) is unsupported. Verify early with a real account that one namespace of that size is accepted, and whether returned `function_call` items carry a `namespace` field that has to be echoed back.
 - **Reasoning continuity with `store: false`.** The plan-usage pages do not say how a reasoning model's state carries across stateless turns. Test tool-heavy sessions, and check whether `include: ["reasoning.encrypted_content"]` is accepted, since it is not on the unsupported list.
 - **Users' allowance.** Every agent round trip, and the mode classifier, spends the user's Plus or Pro allowance, which their Codex use also draws on [HELP]†. Consider skipping the classifier on `chatgpt`, and say plainly in the UI where usage goes.
-- **Keychain limits.** The Windows 1280-character slot limit and Linux's non-durable keyring (#394) are handled by the split in §4.3. Measure real refresh-token lengths.
+- **Keychain limits.** The Windows 1280-character slot limit and the non-durable kernel-keyring fallback on Linux with no Secret Service (#394) are handled by the split in §4.3. Measure real refresh-token lengths.
 - **Brand assets.** openai.com/brand could not be read from this environment. Check the logo and button rules there before shipping the branded button.
 - **If edytlab goes paid or hosted** (FAQ roadmap), file the interest form before offering plan usage in that product (§2.2).
 

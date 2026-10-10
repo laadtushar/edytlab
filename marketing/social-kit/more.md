@@ -331,7 +331,7 @@ What doesn't work, so you don't have to find it:
 - The installers are unsigned (#386). macOS needs one xattr command after you drag the app to Applications, and Windows shows a SmartScreen warning. The release notes have the steps.
 - It's an offline editor for files. It isn't a live DJ tool or a DAW: no MIDI, no plugin hosting. There's no master-bus effect tool yet, so the agent renders a baked "Master" track (#460).
 - Local models: the first request is large (about 15,000 tokens in my one measurement, #395), and a model with an 8,192-token context refused it. I haven't run a local model through a full job; the recordings used a hosted model.
-- On Linux, API keys are held in the kernel keyring and don't survive a reboot (#394).
+- On Linux, v0.4.0 and earlier keep API keys in the kernel keyring only until you reboot (#394). The next release uses the Secret Service and warns when none is running.
 - The limiter works on sample peaks with no look-ahead; it isn't a true-peak limiter.
 
 I develop this with Claude Code; many commits carry a Co-Authored-By trailer, and the repo has a CLAUDE.md with the working rules.

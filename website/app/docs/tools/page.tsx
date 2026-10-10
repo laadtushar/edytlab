@@ -233,8 +233,8 @@ const groups = [
       {
         name: "duck_under_speech",
         prompt: "duck the music under the voiceover",
-        what: "Drop a music track under the speech and bring it back in the gaps, keyed on the transcript rather than on level. A sidechain compressor keys on level, so a breath triggers it and a quiet line escapes it; the transcript says where the words actually are. It also ducks slightly before each line starts, which a level trigger cannot do — it only knows a line began after it has. Needs a transcript, which this build cannot produce yet (see transcribe).",
-        output: "node_id, passages, ducks",
+        what: "Drop a music track under the speech and bring it back in the gaps. A sidechain compressor keys on level, so a breath triggers it and a quiet line escapes it. This keys on where the speech is instead: on the transcript when there is one, and otherwise on the voice_tracks you name, where it follows the voiced (pitched) sound in their audio, so a breath, a click or hiss does not trigger it. It also ducks slightly before each line starts, which a level trigger cannot do — it only knows a line began after it has. A voice track that carries music reads as speech throughout, so name the voice alone; loud low rumble reads as speech too, and a fan that runs for part of a track is ducked under for as long as it runs.",
+        output: "node_id, passages, ducks, clips, keyed_on, speech_sec, voice_tracks (when keyed on audio)",
         note: "The result is an ordinary volume-automation curve on the music clip, so it is visible in the automation lane and draggable if a duck lands wrong. Short pauses inside a sentence do not un-duck: bringing the music up for a comma is a pump, not an edit.",
       },
       {
@@ -537,7 +537,7 @@ const groups = [
         prompt: 'transcribe track 1',
         what: "Not implemented in this build. Would transcribe spoken audio on-device with an ONNX Whisper-base export, storing word-level timestamps in the session.",
         output: "node_id, word_count, language",
-        note: "The decoder ships as a stub, so this currently returns an error whatever you configure. Everything that reads a transcript — cut_words, remove_fillers, duck_under_speech, and select_region's phrase and speech-passage modes — is unavailable for the same reason.",
+        note: "The decoder ships as a stub, so this currently returns an error whatever you configure. Everything that reads a transcript — cut_words, remove_fillers, and select_region's phrase and speech-passage modes — is unavailable for the same reason. duck_under_speech does not wait on it: it can key on a voice track's audio instead.",
       },
     ],
   },

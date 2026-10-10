@@ -72,7 +72,7 @@ export default function DeveloperGuidePage() {
         <code>{`sudo apt-get install -y \\
   libgtk-3-dev libwebkit2gtk-4.1-dev \\
   libayatana-appindicator3-dev librsvg2-dev \\
-  libssl-dev libasound2-dev patchelf`}</code>
+  libssl-dev libasound2-dev libdbus-1-dev pkg-config patchelf`}</code>
       </pre>
 
       <h2>Initial setup</h2>
