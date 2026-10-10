@@ -78,7 +78,9 @@ These are the claims that are easy to get wrong. Each has bitten a draft once.
 Readers will find these within an hour. Answer them plainly instead of
 getting caught.
 
-- Linux: API keys are held in the kernel keyring and are lost on reboot
+- Linux: v0.4.0 and earlier keep API keys in the kernel keyring only until
+  reboot. The next release stores them in the Secret Service and warns when
+  there is none
   ([#394](https://github.com/laadtushar/edytlab/issues/394)).
 - Local models: a first request was measured at about 15,000 tokens, which an
   8,192-token context refuses

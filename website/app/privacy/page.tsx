@@ -38,7 +38,9 @@ export default function PrivacyPage() {
         plus Ollama for a local model, which needs no key).
         When you add an API key, it is stored in your operating system&apos;s
         secure credential store: macOS Keychain on Mac, Credential Manager on
-        Windows, and the kernel keyring on Linux. Keys are never written to plain-text files and never sent
+        Windows, and the Secret Service (GNOME Keyring, KWallet or KeePassXC) on Linux; on a Linux
+        desktop with no Secret Service running, keys are held in the kernel keyring until you restart, and
+        the app tells you so. Keys are never written to plain-text files and never sent
         anywhere except directly to the provider whose key it is.
       </p>
 

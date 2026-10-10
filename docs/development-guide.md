@@ -61,10 +61,12 @@ sudo apt-get install -y \
   librsvg2-dev \
   libssl-dev \
   libasound2-dev \
+  libdbus-1-dev \
+  pkg-config \
   patchelf
 ```
 
-This is the list `ci.yml` and the release workflows install — note `libayatana-appindicator3-dev`, not the older `libappindicator3-dev`. `patchelf` is only needed to bundle an AppImage; the release build also adds `libfuse2` for that.
+`libdbus-1-dev` and `pkg-config` are for the keychain: on Linux `crates/ai` reaches the Secret Service over D-Bus (#394). This is the list `ci.yml` and the release workflows install — note `libayatana-appindicator3-dev`, not the older `libappindicator3-dev`. `patchelf` is only needed to bundle an AppImage; the release build also adds `libfuse2` for that.
 
 ### ML Model Files (Whisper/Demucs) — not usable yet
 
@@ -621,6 +623,26 @@ Add `-- --test-threads=1` to serialize tests within each binary, as CI does: tes
 ### Keychain access dialog on macOS
 
 On macOS, the first `keyring::Entry::get_password()` call triggers a system dialog. In CI, keychain access is pre-authorized. Locally, approve the dialog once.
+
+### Linux: settings gone after a restart, or the "No Secret Service" banner
+
+On Linux edytlab keeps keys and settings in the **Secret Service** (GNOME Keyring, KWallet or KeePassXC), which survives a reboot. The banner "No Secret Service … is running" means nothing answered on the session D-Bus, so the app fell back to the kernel keyring, and what you save lasts only until the machine restarts (`get_keychain_persistence` reports `persistent: false` and why). This is common in a bare window manager, a container, an SSH session or a CI box.
+
+To get a persistent store on a machine without a desktop, start a throwaway Secret Service for one session and run the app inside it:
+
+```bash
+dbus-run-session -- sh -c 'echo -n dev | gnome-keyring-daemon --unlock --components=secrets; pnpm --filter @edytlab/desktop tauri dev'
+```
+
+(The keyring's contents are lost when that session ends. For a permanent one, run GNOME Keyring, KWallet or KeePassXC with its Secret Service integration turned on in your normal session.)
+
+If the banner is "Couldn't read your saved settings from the system keychain", the Secret Service is there but locked or the unlock prompt was dismissed: unlock it and restart edytlab.
+
+The real-keychain integration test is `#[ignore]` because CI has no Secret Service. Run it inside the same kind of session:
+
+```bash
+dbus-run-session -- sh -c 'echo -n dev | gnome-keyring-daemon --unlock --components=secrets; cargo test -p ai --test keychain_secret_service -- --ignored'
+```
 
 ### `cannot find crate for X`
 
