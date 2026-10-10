@@ -2,12 +2,10 @@
 //! thread (#421).
 //!
 //! Tauri 2 runs a command declared without `async` on the main thread,
-//! and the agent loop can hold the store lock for the whole of a tool
-//! call: every tool that does not say `Tool::runs_off_the_lock` still
-//! does. A main-thread command that waits on that lock freezes the window
-//! for as long as the tool runs: no repaint, no input, no transport. A
-//! time-stretch of a 32 s track froze it for about ten seconds, before
-//! the long DSP tools stopped holding the lock (#421).
+//! and the agent loop holds the store lock for the whole of a tool call.
+//! A main-thread command that waits on that lock freezes the window for
+//! as long as the tool runs: no repaint, no input, no transport. A
+//! time-stretch of a 32 s track froze it for about ten seconds.
 //!
 //! The source is scanned rather than the behaviour exercised because the
 //! mock runtime does not model Tauri's threads.
