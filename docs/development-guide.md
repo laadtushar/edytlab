@@ -199,7 +199,11 @@ Allowed prefixes: `feat`, `fix`, `ci`, `chore`, `docs`, `test`, `refactor`.
 ### Adding a New Tauri Command
 
 1. Add the function to `apps/desktop/src-tauri/src/commands.rs`
-2. Add the `#[tauri::command]` attribute. If the command takes the session store's lock, it must not run on the main thread: make it an `async fn`, or use `#[tauri::command(async)]` (`src-tauri/tests/main_thread_commands.rs` enforces this, #421)
+2. Add the `#[tauri::command]` attribute. If the command takes a lock a running tool can hold, it must not run on the main thread: make it an `async fn`, or use `#[tauri::command(async)]` (#421). `src-tauri/tests/main_thread_commands.rs` fails a synchronous command when its body, or the body of a function or method it calls (matched by name), does either of these:
+   - names the `engine`, `dispatcher` or `clipboard` field of `AppState`, however the lock is then taken: `state.engine.lock()`, `lock_std(&state.engine, ..)`, `let e = &state.engine`
+   - reaches the session store with `store_handle()` or `lock_std(&store, ..)`
+
+   So a command that calls `run_track_tool`, `AppState::all_tool_names` or `apply_blacklist` fails too. The scan reads the `.rs` files directly in `src-tauri/src/`. It does not see a call through a closure or a trait object, `AppState` taken apart by a pattern (`let AppState { engine, .. } = ..`), or a function in another crate that locks for itself.
 3. Register in `tauri::Builder::invoke_handler` in `lib.rs`
 4. Add a matching TypeScript wrapper in `apps/desktop/src/lib/tauri-bridge.ts`
 5. Update [API Reference](./api-reference.md)
