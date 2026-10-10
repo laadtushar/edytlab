@@ -2,8 +2,11 @@ export const siteConfig = {
   name: "edytlab",
   title: "edytlab — Describe it. Get pro-grade audio edits.",
   description:
-    "Desktop audio editor where you chat with an AI to load, cut, mix, and render. Pure-Rust DSP, local-first, BYO LLM key.",
-  url: "https://edytlab.com",
+    "Free, open-source desktop audio editor: chat with an AI to load, cut, mix and render. Pure-Rust DSP on your machine, local-first, bring your own LLM key.",
+  // The canonical origin: the host that serves the pages. The apex
+  // (edytlab.com) answers with a redirect to this one, so it is never
+  // the URL a page, a sitemap or a structured-data block should name.
+  url: "https://www.edytlab.com",
   // Placeholder shown only when the GitHub API is unreachable — the real
   // version comes from `getLatestRelease()`. It matches no tag on purpose:
   // if you see it on the live site, the fetch failed.
@@ -11,7 +14,7 @@ export const siteConfig = {
   github: "https://github.com/laadtushar/edytlab",
   // The list, not `/releases/latest`: every dev build is a prerelease, and
   // `/latest` skips prereleases, so it would hide every dev build newer
-  // than the last versioned release (v0.2.0).
+  // than the last versioned release.
   releases: "https://github.com/laadtushar/edytlab/releases",
   designSpec:
     "https://github.com/laadtushar/edytlab/blob/main/docs/specs/2026-05-05-conversational-audio-editor-design.md",

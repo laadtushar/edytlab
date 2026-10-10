@@ -3,6 +3,7 @@ import { Github } from "lucide-react";
 
 import { LineDraw, Reveal, Stagger } from "@/components/motion";
 import { Logo } from "@/components/motion/logo";
+import { FOUNDER, LABYNATOR, otherApps } from "@/lib/family";
 import { siteConfig } from "@/lib/site";
 
 const links = [
@@ -21,6 +22,12 @@ const links = [
  * The foot of every page. The mark builds itself as it scrolls into
  * view, the links arrive left to right, the rule draws out from the
  * middle, and each link underlines with a sweep on hover.
+ *
+ * The LabyNator family block (`lib/family.ts`) is plain markup with no
+ * entrance of its own: it is in the page whether or not scripts run,
+ * and with reduced motion the sweep falls back to a plain underline
+ * (see `[data-sweep]` in `globals.css`). Its links are ordinary
+ * same-tab links to the sites' canonical URLs.
  */
 export function Footer() {
   return (
@@ -72,6 +79,41 @@ export function Footer() {
           >
             Local AI audio editor
           </Link>
+        </nav>
+        <nav
+          aria-label="The LabyNator family"
+          className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm"
+        >
+          <span className="text-muted-foreground">
+            Part of{" "}
+            <a
+              href={LABYNATOR.url}
+              data-sweep
+              className="font-medium text-foreground transition-colors hover:text-primary"
+            >
+              {LABYNATOR.name}
+            </a>
+          </span>
+          {otherApps.map((app) => (
+            <a
+              key={app.url}
+              href={app.url}
+              data-sweep
+              className="text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {app.name} &mdash; {app.blurb}
+            </a>
+          ))}
+          <span className="text-muted-foreground">
+            Built by{" "}
+            <a
+              href={FOUNDER.url}
+              data-sweep
+              className="font-medium text-foreground transition-colors hover:text-primary"
+            >
+              {FOUNDER.name}
+            </a>
+          </span>
         </nav>
         {/* The rule draws out from the middle: `scaleX` from 0, which is
             a transform — the footer's height never changes. */}

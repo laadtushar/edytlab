@@ -1,19 +1,17 @@
 import type { Metadata } from "next";
 import { siteConfig } from "@/lib/site";
-import { DEFAULT_OG_IMAGE } from "@/lib/seo-core";
+import { pageSocial } from "@/lib/seo-core";
 import { DocShell } from "@/components/docs/doc-shell";
 
+const title = "Getting Started: install and edit your first file";
+const description =
+  "Install edytlab on macOS, Windows or Linux, connect an LLM provider with your own API key (or Ollama, no key), and edit your first audio file by chatting.";
+
 export const metadata: Metadata = {
-  title: "Getting Started",
-  description:
-    "Install edytlab, set up your API key, and edit your first audio file in under 5 minutes.",
+  title,
+  description,
   alternates: { canonical: "/docs/getting-started" },
-  openGraph: {
-    title: "Getting Started — edytlab Docs",
-    description: "Install edytlab, configure your LLM provider, and run your first session.",
-    url: `${siteConfig.url}/docs/getting-started`,
-    images: [DEFAULT_OG_IMAGE],
-  },
+  ...pageSocial("/docs/getting-started", `${title} · edytlab`, description),
 };
 
 export default function GettingStartedPage() {

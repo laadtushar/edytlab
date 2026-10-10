@@ -29,6 +29,7 @@ full releases list on purpose, so they can also reach dev builds.)
 | [`social/linkedin.md`](social/linkedin.md) | One LinkedIn post, same angle |
 | [`social-kit/`](social-kit/README.md) | The 2026-10-10 social set: 5 LinkedIn posts, 5 Instagram reel captions, 6 Reddit posts, X, Bluesky, Mastodon, TikTok, Shorts, YouTube, Show HN and newsletter copy, and a two-week calendar |
 | [`reels/`](reels/README.md) | Vertical reels (1080×1920) cut from the three DJ demos, plain and narrated, with `.srt` captions, cue files, transcripts and the scripts that build them. Read its licence note before posting a narrated file |
+| [`launch-video/`](launch-video/README.md) | The launch video, cut three ways from the real demo recordings: LinkedIn 1:1, Reddit 16:9 and Instagram 9:16, plain and narrated, with `.srt` captions, contact sheets, silent picture-only masters, the narration clips, the script, the research and the code that renders them. Read its licence note before posting a narrated file |
 | [`press-kit.md`](press-kit.md) | Boilerplate, fact sheet, asset links |
 | [`awesome-lists.md`](awesome-lists.md) | Lists worth a pull request, exact entry text, and which ones are blocked today |
 

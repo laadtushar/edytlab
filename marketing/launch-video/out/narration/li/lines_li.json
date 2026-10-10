@@ -1,0 +1,98 @@
+[
+ {
+  "id": "L01",
+  "t": 0.3,
+  "win": 3.0,
+  "text": "I built an audio editor you talk to.",
+  "prev": "",
+  "next": "Prepping one blend is a pile of small chores. Or just describe it."
+ },
+ {
+  "id": "L02",
+  "t": 3.9,
+  "win": 5.4,
+  "text": "Prepping one blend is a pile of small chores. Or just describe it.",
+  "prev": "I built an audio editor you talk to.",
+  "next": "You type the edit in plain English."
+ },
+ {
+  "id": "L03",
+  "t": 10.35,
+  "win": 4.0,
+  "text": "You type the edit in plain English.",
+  "prev": "Prepping one blend is a pile of small chores. Or just describe it.",
+  "next": "The agent picks a tool, and runs it."
+ },
+ {
+  "id": "L04",
+  "t": 15.0,
+  "win": 3.5,
+  "text": "The agent picks a tool, and runs it.",
+  "prev": "You type the edit in plain English.",
+  "next": "It flags a downbeat half a second into the file."
+ },
+ {
+  "id": "L05",
+  "t": 19.1,
+  "win": 3.7,
+  "text": "It flags a downbeat half a second into the file.",
+  "prev": "The agent picks a tool, and runs it.",
+  "next": "Then the blend: a crossfade, with a two kilohertz low-pass."
+ },
+ {
+  "id": "L06",
+  "t": 23.4,
+  "win": 5.4,
+  "text": "Then the blend: a crossfade, with a two kilohertz low-pass.",
+  "prev": "It flags a downbeat half a second into the file.",
+  "next": "Have a listen."
+ },
+ {
+  "id": "L07",
+  "t": 30.1,
+  "win": 1.5,
+  "text": "Have a listen.",
+  "prev": "Then the blend: a crossfade, with a two kilohertz low-pass.",
+  "next": "Mastered to minus fourteen loofs, exported as a WAV."
+ },
+ {
+  "id": "L08",
+  "t": 39.0,
+  "win": 4.8,
+  "text": "Mastered to minus fourteen loofs, exported as a WAV.",
+  "prev": "Have a listen.",
+  "next": "The same recordings show an extended intro, and a three-track mini-mix."
+ },
+ {
+  "id": "L09",
+  "t": 44.8,
+  "win": 6.5,
+  "text": "The same recordings show an extended intro, and a three-track mini-mix.",
+  "prev": "Mastered to minus fourteen loofs, exported as a WAV.",
+  "next": "Ninety-three tools run on your machine. Only the chat goes to your provider."
+ },
+ {
+  "id": "L10",
+  "t": 52.4,
+  "win": 5.8,
+  "text": "Ninety-three tools run on your machine. Only the chat goes to your provider.",
+  "prev": "The same recordings show an extended intro, and a three-track mini-mix.",
+  "next": "Limits: synthetic tracks, no stems, unsigned installers."
+ },
+ {
+  "id": "L11",
+  "t": 58.6,
+  "win": 5.4,
+  "text": "Limits: synthetic tracks, no stems, unsigned installers.",
+  "prev": "Ninety-three tools run on your machine. Only the chat goes to your provider.",
+  "next": "Free and open source. What would you hand off first?"
+ },
+ {
+  "id": "L12",
+  "t": 64.2,
+  "win": 4.7,
+  "text": "Free and open source. What would you hand off first?",
+  "prev": "Limits: synthetic tracks, no stems, unsigned installers.",
+  "next": ""
+ }
+]

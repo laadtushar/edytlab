@@ -2,11 +2,17 @@ import type { Metadata } from "next";
 import { Fragment } from "react";
 
 import { LegalShell } from "@/components/landing/legal-shell";
+import { pageSocial } from "@/lib/seo";
+
+const title = "Changelog: release notes for every version";
+const description =
+  "What changed in each edytlab release, newest first: new audio tools, fixes and the limits that remain. Installers for every version are on GitHub Releases.";
 
 export const metadata: Metadata = {
-  title: "Changelog",
-  description: "Recent updates to edytlab.",
+  title,
+  description,
   alternates: { canonical: "/changelog" },
+  ...pageSocial("/changelog", `${title} · edytlab`, description),
 };
 
 interface Entry {

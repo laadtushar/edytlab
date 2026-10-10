@@ -1,19 +1,17 @@
 import type { Metadata } from "next";
 import { siteConfig } from "@/lib/site";
-import { DEFAULT_OG_IMAGE } from "@/lib/seo-core";
+import { pageSocial } from "@/lib/seo-core";
 import { DocShell } from "@/components/docs/doc-shell";
 
+const title = "API Reference: Tauri commands, types and events";
+const description =
+  "The API reference for edytlab: every Tauri command the frontend can call, the TypeScript bridge types and the events the backend emits, with examples.";
+
 export const metadata: Metadata = {
-  title: "API Reference",
-  description:
-    "Complete API reference for edytlab — all Tauri commands, TypeScript bridge types, and events.",
+  title,
+  description,
   alternates: { canonical: "/docs/api-reference" },
-  openGraph: {
-    title: "API Reference — edytlab Docs",
-    description: "All Tauri commands, TypeScript types, and events for edytlab.",
-    url: `${siteConfig.url}/docs/api-reference`,
-    images: [DEFAULT_OG_IMAGE],
-  },
+  ...pageSocial("/docs/api-reference", `${title} · edytlab`, description),
 };
 
 const commands = [

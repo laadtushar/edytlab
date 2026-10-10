@@ -1,0 +1,59 @@
+[
+ {
+  "id": "I01",
+  "t": 0.12,
+  "win": 2.6,
+  "text": "Describe the blend. Hear the mix.",
+  "prev": "",
+  "next": "Type it, in plain English.",
+  "tempo": 1.1
+ },
+ {
+  "id": "I02",
+  "t": 2.8,
+  "win": 3.4,
+  "text": "Type it, in plain English.",
+  "prev": "Describe the blend. Hear the mix.",
+  "next": "The agent runs a tool."
+ },
+ {
+  "id": "I03",
+  "t": 6.8,
+  "win": 2.8,
+  "text": "The agent runs a tool.",
+  "prev": "Type it, in plain English.",
+  "next": "Then ask for the blend: a crossfade, with a low-pass."
+ },
+ {
+  "id": "I04",
+  "t": 10.2,
+  "win": 4.9,
+  "text": "Then ask for the blend: a crossfade, with a low-pass.",
+  "prev": "The agent runs a tool.",
+  "next": "Listen."
+ },
+ {
+  "id": "I05",
+  "t": 15.4,
+  "win": 1.15,
+  "text": "Listen.",
+  "prev": "Then ask for the blend: a crossfade, with a low-pass.",
+  "next": "Mastered, and exported as a WAV."
+ },
+ {
+  "id": "I06",
+  "t": 22.45,
+  "win": 3.4,
+  "text": "Mastered, and exported as a WAV.",
+  "prev": "Listen.",
+  "next": "Free and open source. Unsigned installers."
+ },
+ {
+  "id": "I07",
+  "t": 26.9,
+  "win": 4.2,
+  "text": "Free and open source. Unsigned installers.",
+  "prev": "Mastered, and exported as a WAV.",
+  "next": ""
+ }
+]

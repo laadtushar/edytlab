@@ -229,8 +229,9 @@ const earlierPosts: BlogPost[] = [
   },
   {
     slug: "podcast-production-ai-workflow",
-    title: "AI Podcast Production: Record, Edit, Transcribe, and Export in One Session",
+    title: "AI Podcast Production: Record, Edit, Mix and Export in One Session",
     date: "2026-05-13",
+    dateModified: "2026-10-10",
     description:
       "A podcast edit is a list of repeatable steps. Here is the whole list, which of them edytlab can run today, and which wait on transcription.",
     coverAlt:
@@ -285,11 +286,11 @@ const earlierPosts: BlogPost[] = [
       },
       {
         type: "h3",
-        text: "Step 2: Transcribe and Review",
+        text: "Step 2: Transcribe and Review (Not Available Yet)",
       },
       {
         type: "p",
-        text: 'Type "transcribe track 1". The agent calls Whisper locally — no upload, no API key for transcription needed — and returns a word-level transcript with timestamps. You can now see exactly where filler words, long silences, and retakes are without scrubbing the waveform. (This step is not available yet: the on-device Whisper decoder has not shipped, so today the transcribe tool returns an error — and ducking the music under the speech in step 4, which is keyed on the transcript, waits on it too.)',
+        text: 'This step is not available yet: the on-device Whisper decoder has not shipped, so today the transcribe tool returns an error, and ducking the music under the speech in step 4, which is keyed on the transcript, waits on it too. Once it ships, the step is one sentence, "transcribe track 1": the agent runs Whisper locally, with no upload and no API key for transcription, and returns a word-level transcript with timestamps, so you can see where filler words, long silences and retakes are without scrubbing the waveform. Until then, find them by listening.',
       },
       {
         type: "callout",
@@ -301,7 +302,7 @@ const earlierPosts: BlogPost[] = [
       },
       {
         type: "p",
-        text: 'With the transcript in hand, describe what you want: "Cut all silences longer than 1.5 seconds. Remove the section between 12:30 and 13:45 — that was an off-topic tangent. Normalize to -16 LUFS." The agent executes each operation as a tool call against the session DAG.',
+        text: 'Describe what you want, in plain English: "Cut all silences longer than 1.5 seconds. Remove the section between 12:30 and 13:45 — that was an off-topic tangent. Normalize to -16 LUFS." The agent executes each operation as a tool call against the session DAG.',
       },
       {
         type: "h3",
@@ -325,7 +326,7 @@ const earlierPosts: BlogPost[] = [
       },
       {
         type: "p",
-        text: "Automated workflows do not replace critical listening. AI can normalize to a target LUFS, but it does not know if your interview guest had an unusually nasally recording environment that day. Ums and filler words can be removed automatically, but rhythm editing — making the conversation flow more naturally — still benefits from a human ear. Use AI to handle the mechanical steps and spend your time on the creative ones.",
+        text: "Automated workflows do not replace critical listening. AI can normalize to a target LUFS, but it does not know if your interview guest had an unusually nasally recording environment that day. Ums and filler words will be removable automatically once transcription ships, but rhythm editing — making the conversation flow more naturally — still benefits from a human ear. Use AI to handle the mechanical steps and spend your time on the creative ones.",
       },
       {
         type: "h2",

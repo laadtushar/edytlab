@@ -13,9 +13,12 @@ const NO_AGENT = /\bno agent\b|\bset_api_key\b/i;
 
 /**
  * Where a message states the HTTP status the provider answered with.
- * The first is `ai::Error::Api`, which every chat request that gets a
- * non-2xx reply fails with: "the model provider returned an error (401):
- * …"; the others are the usual ways a status is written elsewhere.
+ * The first is `ai::Error::Api`, which a chat request that gets a non-2xx
+ * reply fails with: "the model provider returned an error (401): …"; the
+ * others are the usual ways a status is written elsewhere. (A reply that
+ * says the request did not fit the model's context is the exception: it
+ * fails with `ai::Error::ContextTooSmall`, whose text states no status and
+ * is not a key problem, #395.)
  *
  * A bare number is never read as a status: in "duration 403 s is longer
  * than the track (401.2 s)" both are lengths.

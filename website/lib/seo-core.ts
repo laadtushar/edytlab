@@ -8,10 +8,13 @@
  * to another domain is a one-line change there.
  */
 
+import type { Metadata } from "next";
+
+import { FOUNDER, LABYNATOR } from "./family";
 import { siteConfig } from "./site";
 
 /** The day the site's pages last changed in substance, for the sitemap. */
-export const SITE_UPDATED = "2026-10-09";
+export const SITE_UPDATED = "2026-10-10";
 
 export const BLOG_TITLE = "edytlab Blog";
 export const FEED_PATH = "/blog/feed.xml";
@@ -29,7 +32,7 @@ export const DEFAULT_OG_IMAGE = {
   alt: "edytlab — Describe it. Get pro-grade audio edits.",
 } as const;
 
-/** `/blog/x` becomes `https://edytlab.com/blog/x`; `/` is the bare origin. */
+/** `/blog/x` becomes `https://www.edytlab.com/blog/x`; `/` is the bare origin. */
 export function absoluteUrl(path = "/"): string {
   return path === "/" ? siteConfig.url : `${siteConfig.url}${path}`;
 }
@@ -46,6 +49,31 @@ export function pageAlternates(path: string) {
       "application/rss+xml": [{ url: FEED_PATH, title: BLOG_TITLE }],
     },
   };
+}
+
+/**
+ * The `openGraph` and `twitter` blocks for a page that has none of its
+ * own. Without them the page inherits the layout's, whose `og:url` is
+ * the home page: a share of `/changelog` would name `/` as its address
+ * and disagree with the page's canonical.
+ */
+export function pageSocial(path: string, title: string, description: string) {
+  return {
+    openGraph: {
+      type: "website",
+      url: absoluteUrl(path),
+      title,
+      description,
+      siteName: siteConfig.name,
+      images: [DEFAULT_OG_IMAGE],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+      images: [DEFAULT_OG_IMAGE.url],
+    },
+  } satisfies Pick<Metadata, "openGraph" | "twitter">;
 }
 
 export interface Crumb {
@@ -76,24 +104,36 @@ export function serializeJsonLd(data: unknown): string {
   return JSON.stringify(data).replace(/</g, "\\u003c");
 }
 
-/** The home page's `SoftwareApplication`. `version` is the release the page shows, if it is a real one. */
+/** The licence the app is released under, as schema.org wants it: a URL. */
+export const LICENSE_URL = "https://opensource.org/licenses/MIT";
+
+/**
+ * The home page's `SoftwareApplication`.
+ *
+ * `version` is the release the page offers for download, the same one
+ * its badge and buttons show (`getLatestRelease()`), so this block
+ * cannot name a version the page does not. Leave it out when that is
+ * only the placeholder used while GitHub is unreachable.
+ *
+ * The app is free and open source, so `offers` says price 0 and
+ * `license` the MIT URL. It carries no rating, review or user count:
+ * there are none to report.
+ */
 export function softwareJsonLd(version?: string) {
   return {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
     name: siteConfig.name,
+    url: siteConfig.url,
     description: siteConfig.description,
     applicationCategory: "MultimediaApplication",
     operatingSystem: "macOS, Windows, Linux",
-    url: siteConfig.url,
     downloadUrl: siteConfig.releases,
     ...(version ? { softwareVersion: version.replace(/^v/, "") } : {}),
+    license: LICENSE_URL,
     offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
-    publisher: {
-      "@type": "Organization",
-      name: siteConfig.name,
-      url: siteConfig.url,
-      sameAs: [siteConfig.github],
-    },
+    sameAs: [siteConfig.github],
+    publisher: { "@type": "Organization", name: LABYNATOR.name, url: LABYNATOR.url },
+    author: { "@type": "Person", name: FOUNDER.name, url: FOUNDER.url },
   };
 }

@@ -18,7 +18,11 @@
 //!    would change the session (see 7), so that with Plan first on no
 //!    edit runs without approval (#415).
 //! 3. Append the user's message to the conversation.
-//! 4. Open a streaming Anthropic call (system prompt + tools cached).
+//! 4. Open a streaming Anthropic call (system prompt + tools cached). A
+//!    provider that asks for the slim tool set (Ollama) is sent a core
+//!    plus the tools the message names instead, chosen once per turn
+//!    ([`crate::tool_selection`], #395); the others get every permitted
+//!    tool, in the dispatcher's order, so Anthropic's cache holds.
 //! 5. Forward `text` deltas to the caller's `on_event` sink in order.
 //! 6. Reassemble each `tool_use` block, validate args via the
 //!    dispatcher's compiled JSON Schema, invoke the tool synchronously,
@@ -63,10 +67,14 @@ use crate::anthropic::{
     Message, MessagesRequest, OutputConfig, Role, StreamEvent, SystemBlock, ToolChoice,
 };
 use crate::approval::{self, Approval};
+use crate::models::clamp_max_tokens;
 use crate::prompt::{
     tool_budget_line, DEFAULT_MAX_TOKENS, MAX_TOOL_CALLS_PER_TURN, PLAN_MAX_TOKENS,
 };
+use crate::provider::ToolSet;
 use crate::session_context::{render_block, SessionContext};
+use crate::tool_selection::is_not_implemented;
+use crate::{context_window, tool_selection};
 use crate::{AgentEvent, Effort, Error, LlmConfig, Result, TurnResult, WireFormat};
 
 // ---------------------------------------------------------------------------
@@ -156,9 +164,17 @@ fn one_shot_messages(
 /// current Anthropic models think by default and what they write while
 /// thinking counts toward `max_tokens`, so a short cap can end before any
 /// text. The caller must be on a model that accepts `disabled`, which the
-/// Haiku models do and Sonnet 5.5, Opus 5.5 and Fable 5.1 do not (400):
-/// that is why the plan, the main model's own work, never sets it. Chat
-/// completions bodies are built without it, as without an effort.
+/// Haiku models do at their default effort and Sonnet 5.5, Opus 5.5 and
+/// Fable 5.1 do not (400): that is why the plan, the main model's own work,
+/// never sets it. Chat completions bodies are built without it, as without
+/// an effort.
+///
+/// On a chat-completions body `max_tokens` is lowered to the output limit of
+/// `model` where [`crate::models::max_output_tokens`] knows one, since the
+/// plan asks for [`PLAN_MAX_TOKENS`] of every provider and OpenAI answers a
+/// request above a model's limit with a 400. The Anthropic-format body is
+/// not clamped: the models it is sent for (Anthropic's, and OpenRouter's
+/// defaults) allow 64K and more.
 fn one_shot_body(
     cfg: &LlmConfig,
     model: String,
@@ -177,6 +193,7 @@ fn one_shot_body(
             } else {
                 "max_tokens"
             };
+            let max_tokens = clamp_max_tokens(cfg.provider.id(), &model, max_tokens);
             serde_json::json!({
                 "model": model,
                 limit_key: max_tokens,
@@ -231,7 +248,8 @@ const CLASSIFIER_MAX_TOKENS: u32 = 256;
 /// Passes recent conversation history for context (last 6 messages) so
 /// follow-up messages ("actually, change the BPM") classify correctly.
 /// Falls back to `Mode::General` on any error so classification failures
-/// are never user-visible.
+/// are never user-visible, and on any answer that is not exactly one label
+/// (see [`parse_mode`]).
 pub(crate) async fn classify_mode(
     cfg: &LlmConfig,
     http: &reqwest::Client,
@@ -276,19 +294,85 @@ pub(crate) async fn classify_mode(
         Err(_) => return Mode::General,
     };
 
-    let text = extract_response_text(cfg, &body)
-        .unwrap_or_default()
-        .trim()
-        .to_lowercase();
+    let answer = extract_response_text(cfg, &body).unwrap_or_default();
+    let mode = parse_mode(&answer);
 
-    if text.contains("mashup") {
-        Mode::Mashup
-    } else if text.contains("mix") {
-        Mode::Mix
-    } else if text.contains("voice") {
-        Mode::Voice
-    } else {
+    // The answer is the model's label (or its attempt at one), never the
+    // user's prompt, so it is safe to log. Without it a misrouted request
+    // can only be inferred from token counts (#494).
+    tracing::debug!(
+        answer = ?truncate_for_log(&answer, CLASSIFIER_LOG_CHARS),
+        ?mode,
+        "classifier answer"
+    );
+
+    mode
+}
+
+/// How much of the classifier's answer the debug log keeps. A label is one
+/// word; anything past this is the model talking, and only the start of
+/// that is of use in telling why it did not answer with one.
+const CLASSIFIER_LOG_CHARS: usize = 200;
+
+/// The first `max_chars` characters of `text`, cut on a character boundary
+/// and ending in `…` when anything was left out.
+fn truncate_for_log(text: &str, max_chars: usize) -> String {
+    match text.char_indices().nth(max_chars) {
+        Some((end, _)) => format!("{}…", &text[..end]),
+        None => text.to_string(),
+    }
+}
+
+/// The labels the classifier is asked to answer with.
+const MODE_LABELS: [&str; 4] = ["mashup", "mix", "voice", "general"];
+
+/// Read the classifier's answer as one label.
+///
+/// The label is the answer's first alphabetic word, lowercased, matched
+/// exactly: `Mashup.`, `**mashup**` and `MIX` are labels, `mixture` and
+/// `I think this is a mix of things` are not. Anything that is not
+/// `mashup`, `mix` or `voice` is [`Mode::General`], which is also what an
+/// empty answer is.
+///
+/// This used to search the answer for each label in turn, so an answer
+/// that only named them read as the first one named: `general` followed by
+/// a sentence about mashups was a mashup, and a question was held at the
+/// plan gate that only a mashup (or Plan first) opens (#494). Wrongly
+/// general costs a request its mode prompt; wrongly mashup costs a
+/// question an approval, so a doubtful answer is general.
+///
+/// One addition to the first-word rule: a label whose own line names
+/// another of the [`MODE_LABELS`] is the instruction echoed back
+/// (`mashup, mix, voice, or general`), not a choice from it, and reads as
+/// general. Only the first line counts, so a label that goes on to explain
+/// itself on the lines below still stands.
+fn parse_mode(answer: &str) -> Mode {
+    let answer = answer.trim();
+    let words = |text: &str| -> Vec<String> {
+        text.split(|c: char| !c.is_alphabetic())
+            .filter(|w| !w.is_empty())
+            .map(str::to_lowercase)
+            .collect()
+    };
+
+    let Some(first) = words(answer).into_iter().next() else {
+        return Mode::General;
+    };
+    let mode = match first.as_str() {
+        "mashup" => Mode::Mashup,
+        "mix" => Mode::Mix,
+        "voice" => Mode::Voice,
+        _ => return Mode::General,
+    };
+
+    let first_line = answer.lines().next().unwrap_or_default();
+    let names_another = words(first_line)
+        .iter()
+        .any(|w| *w != first && MODE_LABELS.contains(&w.as_str()));
+    if names_another {
         Mode::General
+    } else {
+        mode
     }
 }
 
@@ -423,18 +507,6 @@ pub(crate) fn parse_plan(text: &str) -> Option<Vec<Value>> {
 /// drew a bare "—" for each (#481).
 const PLAN_STEP_SCHEMA: &str =
     r#"[{"step":1,"tool":"<tool name>","description":"<what it does, with its arguments>"}]"#;
-
-/// A tool whose description begins with this does nothing in this build
-/// (`separate_stems`, `transcribe`: their inference is not shipped,
-/// #383-#385). The description is the only place the tool says so.
-const NOT_IMPLEMENTED_MARKER: &str = "NOT IMPLEMENTED";
-
-/// Whether a tool's description says it does nothing in this build.
-fn is_not_implemented(tool: &Value) -> bool {
-    tool.get("description")
-        .and_then(Value::as_str)
-        .is_some_and(|d| d.trim_start().starts_with(NOT_IMPLEMENTED_MARKER))
-}
 
 /// The names of the tools a plan may use: this turn's, sorted, and not
 /// the ones that do nothing in this build (a plan that offers the model a
@@ -692,7 +764,10 @@ enum Gate {
 /// step, so the thinking a step produced is replayed, unmodified, with the
 /// tool results that follow it. `tests/prior_turn_thinking.rs` pins that;
 /// anything that makes `system` or `tools` change between a turn's steps
-/// has to strip there too.
+/// has to strip there too, and so does editing or removing an earlier
+/// message (compaction, trimming old tool results, rewriting a stored
+/// `tool_use` or `tool_result`), which changes the prefix of every block
+/// after it.
 ///
 /// A provider that does not keep thinking in the first place (everything
 /// but Anthropic's own API) has none of these blocks, so this is a no-op
@@ -785,9 +860,13 @@ where
     });
     let system_prompt: &str = &combined_prompt;
 
-    // The tools this turn may call. Built before the plan is requested,
-    // because the plan is checked against the same list (#482): a step
-    // can only name a tool the turn is allowed to run.
+    // The tools this turn may call: every registered tool the whitelist
+    // permits, in full. Built once, before the plan is requested, because
+    // the plan is checked against this list (#482): a step can only name a
+    // tool the turn is allowed to run. A provider that is sent fewer tools
+    // (below) trims what is *sent* from this same list after the gate. It
+    // does not trim what is permitted, so the plan is vetted against the
+    // full set, not the slim one: a slim turn can still call any of them.
     let tool_schemas = {
         let d = dispatcher.lock().expect("dispatcher mutex poisoned");
         let all = d.tool_schemas();
@@ -808,6 +887,9 @@ where
     // nothing to explain why. `plan_first` makes it a choice.
     let mut step_override: Option<String> = None;
     let mut gate = Gate::Open;
+    // The tools an approved plan names, for the slim tool set: a plan that
+    // says to use `reverb` is no use if the model is then not shown it.
+    let mut plan_tool_names = String::new();
     if plan_first || mode == Mode::Mashup {
         match fetch_plan(
             cfg,
@@ -820,6 +902,11 @@ where
         .await
         {
             Ok(steps) => {
+                plan_tool_names = steps
+                    .iter()
+                    .filter_map(|step| step.get("tool").and_then(Value::as_str))
+                    .collect::<Vec<_>>()
+                    .join(" ");
                 // Block until the frontend answers via `approve_plan` or
                 // `reject_plan`, or time out after 5 minutes.
                 match approval::ask(
@@ -889,10 +976,50 @@ where
     } else {
         user_message
     };
+    // What the slim tool set reads to see which tools were asked for: the
+    // words the user sent, an edited plan if they changed one, and the
+    // tools an approved plan named.
+    let mention_text = format!("{user_text} {plan_tool_names}");
     // Joins a trailing user message rather than following it: after a
     // declined step the conversation ends in the `tool_result`s that
     // answered it, and a second user message in a row is rejected.
     approval::push_user_text(conversation, user_text);
+
+    // A provider for small-context models is sent a core plus the tools
+    // this message points at, in a shorter form (#395). Worked out once
+    // per turn, here, so every round trip carries the same tools in the
+    // same order: a local server then keeps the prompt it has already
+    // processed. The full path is untouched, which is what keeps
+    // Anthropic's prompt cache valid.
+    //
+    // The tools it was not sent are named in one line at the end of the
+    // system prompt, from the same selection, so the model knows they
+    // exist and can call them by name. Appended here, after the prompt
+    // the plan request used, because only now is the selection made.
+    let (tool_schemas, tools_not_sent_note) = match cfg.provider.tool_set() {
+        ToolSet::Full => (tool_schemas, None),
+        ToolSet::Slim => {
+            let selection = tool_selection::slim_tool_schemas(
+                tool_schemas,
+                &mention_text,
+                // Not the memory or session blocks: track names and effect
+                // kinds there would pull in tools nobody asked for.
+                &[
+                    base_prompt.as_str(),
+                    profile_block.as_str(),
+                    skills_block.as_str(),
+                ],
+                conversation,
+            );
+            let note = selection.names_note();
+            (selection.tools, note)
+        }
+    };
+    let request_prompt = match tools_not_sent_note {
+        Some(note) => format!("{combined_prompt}\n\n{note}"),
+        None => combined_prompt.clone(),
+    };
+    let system_prompt: &str = &request_prompt;
 
     // The same whitelist, as a set, for the dispatch-time check (#238).
     //
@@ -953,10 +1080,9 @@ where
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
-            return Err(Error::Api {
-                status: status.as_u16(),
-                message: body,
-            });
+            // A request that did not fit the model's context is its own
+            // error, with what to do about it (#395).
+            return Err(context_window::api_error(status.as_u16(), body));
         }
 
         // 3. Drain the SSE stream, accumulating text deltas + tool_use
@@ -1982,6 +2108,75 @@ mod tests {
         );
     }
 
+    /// A tool an MCP server adds after startup, as the desktop app
+    /// registers it: into the dispatcher, under the `<server>__<tool>` wire
+    /// name, with that name in its schema (`RemoteMcpTool::from_descriptor`).
+    struct McpStyleTool;
+
+    impl tools::Tool for McpStyleTool {
+        fn name(&self) -> &'static str {
+            "github__create_issue"
+        }
+        fn schema(&self) -> Value {
+            json!({
+                "name": "github__create_issue",
+                "description": "Open an issue.",
+                "input_schema": { "type": "object" },
+            })
+        }
+        fn invoke(&self, _args: Value, _ctx: &mut ToolContext) -> tools::Result<ToolResult> {
+            Ok(ToolResult::Ok(json!({})))
+        }
+    }
+
+    /// The plan is checked against `d.tool_schemas()`, so a tool is in the
+    /// check exactly when it is registered. MCP tools are registered into
+    /// the same dispatcher as the built-ins, so a step naming one is not
+    /// dropped as unknown, and the model is told its name. The whitelist
+    /// still applies to it like any other tool.
+    #[test]
+    fn an_mcp_tool_is_in_the_registry_a_plan_is_checked_against() {
+        let mut dispatcher = ToolDispatcher::default_dispatcher();
+        dispatcher.register(Box::new(McpStyleTool));
+        let steps = || {
+            vec![
+                json!({"step":1,"tool":"github__create_issue","description":"Open an issue"}),
+                json!({"step":2,"tool":"github__delete_repo","description":"Delete it"}),
+                json!({"step":3,"tool":"reverse","description":"track: 0"}),
+            ]
+        };
+
+        // Every permitted tool: the MCP tool is there, the made-up one is not.
+        let all = dispatcher.tool_schemas();
+        let kept = vet_plan(steps(), &all);
+        let tools: Vec<_> = kept.iter().map(|s| s["tool"].as_str().unwrap()).collect();
+        assert_eq!(tools, ["github__create_issue", "reverse"]);
+        assert!(
+            kept[0].get("unavailable").is_none(),
+            "an MCP tool was marked unavailable: {:?}",
+            kept[0]
+        );
+        assert!(
+            plan_instruction(&all).contains("github__create_issue"),
+            "the model was not told the MCP tool exists"
+        );
+
+        // A whitelist that leaves it out takes it out of the plan as well.
+        let whitelist = vec!["reverse".to_string()];
+        let filtered = filter_tool_schemas(dispatcher.tool_schemas(), &whitelist);
+        let kept = vet_plan(steps(), &filtered);
+        let tools: Vec<_> = kept.iter().map(|s| s["tool"].as_str().unwrap()).collect();
+        assert_eq!(tools, ["reverse"]);
+        assert!(!plan_instruction(&filtered).contains("github__create_issue"));
+
+        // And one it includes keeps it.
+        let whitelist = vec!["github__create_issue".to_string()];
+        let filtered = filter_tool_schemas(dispatcher.tool_schemas(), &whitelist);
+        let kept = vet_plan(steps(), &filtered);
+        let tools: Vec<_> = kept.iter().map(|s| s["tool"].as_str().unwrap()).collect();
+        assert_eq!(tools, ["github__create_issue"]);
+    }
+
     /// `separate_stems` and `transcribe` are registered, and their
     /// inference is not shipped (#383-#385). A step naming one is kept, so
     /// the user sees what was proposed, and marked, so the card can say it
@@ -2002,29 +2197,6 @@ mod tests {
                 json!({"step":3,"tool":"transcribe","description":"","unavailable":true}),
             ]
         );
-    }
-
-    /// The marker is read off the tools' own descriptions, so it is only as
-    /// good as those descriptions. This is the check that the two tools the
-    /// issue names still carry it, and that an ordinary tool does not.
-    #[test]
-    fn the_registered_stubs_are_recognised_and_working_tools_are_not() {
-        let registry = the_real_registry();
-        let flagged = |name: &str| -> bool {
-            let schema = registry
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|t| t["name"] == name)
-                .unwrap_or_else(|| panic!("{name} is not registered"));
-            is_not_implemented(schema)
-        };
-        for stub in ["separate_stems", "transcribe"] {
-            assert!(flagged(stub), "{stub} no longer reads as not implemented");
-        }
-        for working in ["analyze_track", "reverse", "set_track_gain", "label"] {
-            assert!(!flagged(working), "{working} reads as not implemented");
-        }
     }
 
     /// A plan that is right is passed on exactly as the model wrote it:
@@ -2113,6 +2285,94 @@ mod tests {
         }
     }
 
+    /// The classifier's answer, whatever the model wrapped around it, as
+    /// `classify_mode` reads it back. Each case goes through a mock of
+    /// every provider, so the parse and the reply-shape reading are both
+    /// on the path. All the mismatches are reported together.
+    async fn classify_canned_answers(cases: &[(&str, Mode)]) {
+        let mut wrong = Vec::new();
+        for id in crate::SUPPORTED_PROVIDER_IDS {
+            for &(answer, expected) in cases {
+                let (mode, _) = serve_one_shot(id, answer, |cfg, http| async move {
+                    classify_mode(&cfg, &http, "what can you do?", &[]).await
+                })
+                .await;
+                if mode != expected {
+                    wrong.push(format!(
+                        "{id}: {answer:?} gave {mode:?}, wanted {expected:?}"
+                    ));
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "misread answers:\n{}", wrong.join("\n"));
+    }
+
+    /// #494: a question was held at the plan gate, which only a mashup
+    /// (or Plan first) opens. The classifier's answer was searched for the
+    /// labels, so one that merely named them read as the first it named.
+    #[tokio::test]
+    async fn an_answer_that_is_not_one_label_is_general() {
+        classify_canned_answers(&[
+            // Answers "general" and goes on to talk about the others.
+            ("general\n\nThe user asks about mashup…", Mode::General),
+            // The instruction echoed back, not a choice from it.
+            ("mashup, mix, voice, or general", Mode::General),
+            // No text at all (a reply that was all thinking).
+            ("", Mode::General),
+            ("   \n", Mode::General),
+            // A sentence that happens to contain a label.
+            ("I think this is a mix of things", Mode::General),
+            ("The request is about voice", Mode::General),
+            // A word that only starts with, or holds, a label.
+            ("mixture", Mode::General),
+            ("remix", Mode::General),
+            ("mashups", Mode::General),
+            // Torn between two labels.
+            ("mashup or mix", Mode::General),
+        ])
+        .await;
+    }
+
+    #[tokio::test]
+    async fn a_label_is_read_through_its_punctuation_and_case() {
+        classify_canned_answers(&[
+            ("Mashup.", Mode::Mashup),
+            ("mashup", Mode::Mashup),
+            ("MIX", Mode::Mix),
+            ("Voice\n", Mode::Voice),
+            ("**mashup**", Mode::Mashup),
+            ("  \n\"Mix\"", Mode::Mix),
+            ("`voice`", Mode::Voice),
+            ("General.", Mode::General),
+            // A label first, then the model explains itself.
+            ("mix\n\nThe user wants to balance two stems.", Mode::Mix),
+            // Only the answer's own line is checked for a second label.
+            (
+                "mashup\n\nThis is not a mix or a voice request.",
+                Mode::Mashup,
+            ),
+        ])
+        .await;
+    }
+
+    /// The log line keeps the start of a long answer, whole characters
+    /// only, and says it left something out.
+    #[test]
+    fn a_long_classifier_answer_is_cut_for_the_log_on_a_character() {
+        assert_eq!(truncate_for_log("mashup", 200), "mashup");
+        assert_eq!(truncate_for_log("abcde", 5), "abcde");
+        assert_eq!(truncate_for_log("abcdef", 5), "abcde…");
+        // 3-byte characters: a cut by bytes would split one.
+        assert_eq!(truncate_for_log("日本語日本語", 4), "日本語日…");
+        let long = "x".repeat(1000);
+        assert_eq!(
+            truncate_for_log(&long, CLASSIFIER_LOG_CHARS)
+                .chars()
+                .count(),
+            CLASSIFIER_LOG_CHARS + 1
+        );
+    }
+
     /// OpenAI's own models reject `max_tokens`; the compatible servers
     /// know only that name.
     #[test]
@@ -2129,6 +2389,138 @@ mod tests {
         ] {
             assert_eq!(body_for(id)["max_tokens"], 7, "{id}");
             assert!(body_for(id).get("max_completion_tokens").is_none(), "{id}");
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Per-model output limit
+    // ------------------------------------------------------------------
+
+    /// The models of OpenAI's that cannot write the 8192 a step asks for,
+    /// with the limit [`crate::models::max_output_tokens`] holds for them.
+    const LEGACY_OPENAI: [(&str, u32); 6] = [
+        ("gpt-3.5-turbo", 4_096),
+        ("gpt-4-turbo", 4_096),
+        ("gpt-4-turbo-preview", 4_096),
+        ("gpt-4-0125-preview", 4_096),
+        ("gpt-4", 8_192),
+        ("gpt-4-0613", 8_192),
+    ];
+
+    /// A model step, built and serialized the way `run_turn` does, carries
+    /// the limit of its model. The 8192 it asks for would be answered with a
+    /// 400 by OpenAI on every one of these.
+    #[test]
+    fn a_step_for_a_legacy_openai_model_asks_for_no_more_than_it_allows() {
+        let conversation = [Message {
+            role: Role::User,
+            content: vec![ContentBlock::Text { text: "hi".into() }],
+        }];
+        let provider = crate::provider::provider_from_id(crate::OPENAI_ID);
+        let cap_for = |model: &str| {
+            let req = build_request(
+                model,
+                "sys",
+                &json!([]),
+                &conversation,
+                ToolChoice::AUTO,
+                None,
+            );
+            provider.serialize_request(&req)["max_completion_tokens"].clone()
+        };
+        for (model, limit) in LEGACY_OPENAI {
+            assert_eq!(cap_for(model), json!(limit), "{model}");
+        }
+        // A current model, and one nobody has a limit for, still ask for
+        // the cap. The literal is deliberate: a lowered constant must not
+        // pass.
+        for model in ["gpt-4o-mini", "gpt-4.1", "gpt-4o-2024-05-13", "unheard-of"] {
+            assert_eq!(cap_for(model), json!(8192), "{model}");
+            assert_eq!(cap_for(model), json!(DEFAULT_MAX_TOKENS), "{model}");
+        }
+    }
+
+    /// The plan is the same request on every provider, and on OpenAI's older
+    /// models it was a 400, so the plan was lost with Plan first on.
+    #[tokio::test]
+    async fn the_plan_request_is_clamped_to_the_models_output_limit() {
+        let plan = r#"<plan>[{"step":1,"tool":"set_track_gain","description":"Louder"}]</plan>"#;
+        for (model, limit) in LEGACY_OPENAI {
+            let (steps, body) = serve_one_shot(crate::OPENAI_ID, plan, |cfg, http| async move {
+                let cfg = cfg.with_model(model);
+                let tools = registry(&["set_track_gain"]);
+                fetch_plan(&cfg, &http, "SYSTEM-PROMPT", &[], "make it louder", &tools).await
+            })
+            .await;
+            assert!(steps.is_ok(), "{model}: {steps:?}");
+            assert_eq!(body["model"], model);
+            assert_eq!(body["max_completion_tokens"], limit, "{model}");
+            assert!(body.get("max_tokens").is_none(), "{model}");
+        }
+        for model in ["gpt-4o-mini", "gpt-4o-2024-05-13", "unheard-of"] {
+            let (steps, body) = serve_one_shot(crate::OPENAI_ID, plan, |cfg, http| async move {
+                let cfg = cfg.with_model(model);
+                let tools = registry(&["set_track_gain"]);
+                fetch_plan(&cfg, &http, "SYSTEM-PROMPT", &[], "make it louder", &tools).await
+            })
+            .await;
+            assert!(steps.is_ok(), "{model}: {steps:?}");
+            assert_eq!(body["max_completion_tokens"], 8192, "{model}");
+            assert_eq!(body["max_completion_tokens"], PLAN_MAX_TOKENS, "{model}");
+        }
+    }
+
+    /// Neither the classifier nor the plan builds its own body: both go
+    /// through `one_shot_body`, so the clamp is tested there with a request
+    /// above the limit. The classifier asks for 256, under every limit in the
+    /// table, so on a real request it is never lowered; what matters for it is
+    /// that nothing here raises or changes it.
+    #[tokio::test]
+    async fn the_one_shot_body_clamps_a_chat_completions_request_and_no_other() {
+        let openai = LlmConfig::new(crate::provider::provider_from_id(crate::OPENAI_ID), "k");
+        let body = |cfg: &LlmConfig, model: &str, cap: u32| {
+            one_shot_body(cfg, model.into(), cap, &["s"], vec![], None, false)
+        };
+        assert_eq!(
+            body(&openai, "gpt-3.5-turbo", 8192)["max_completion_tokens"],
+            4_096
+        );
+        assert_eq!(
+            body(&openai, "gpt-4o-mini", 8192)["max_completion_tokens"],
+            8192
+        );
+        assert_eq!(
+            body(&openai, "gpt-3.5-turbo", 256)["max_completion_tokens"],
+            256,
+            "a cap under the limit is the caller's own"
+        );
+
+        // Groq's limit is on Groq's models, in the key Groq reads.
+        let groq = LlmConfig::new(
+            crate::provider::provider_from_id(crate::provider::GROQ_ID),
+            "k",
+        );
+        assert_eq!(
+            body(&groq, "meta-llama/llama-prompt-guard-2-22m", 8192)["max_tokens"],
+            512
+        );
+        assert_eq!(body(&groq, "gpt-3.5-turbo", 8192)["max_tokens"], 8192);
+
+        // The Anthropic format is not clamped.
+        let anthropic = LlmConfig::new_anthropic("k");
+        assert_eq!(body(&anthropic, "gpt-3.5-turbo", 8192)["max_tokens"], 8192);
+
+        // And the classifier's own request keeps its 256 for every provider.
+        for id in crate::SUPPORTED_PROVIDER_IDS {
+            let (mode, sent) = serve_one_shot(id, "mashup", |cfg, http| async move {
+                classify_mode(&cfg, &http, "mash these two songs up", &[]).await
+            })
+            .await;
+            assert_eq!(mode, Mode::Mashup, "{id}");
+            let cap = sent
+                .get("max_tokens")
+                .or_else(|| sent.get("max_completion_tokens"));
+            assert_eq!(cap, Some(&json!(CLASSIFIER_MAX_TOKENS)), "{id}");
         }
     }
 
