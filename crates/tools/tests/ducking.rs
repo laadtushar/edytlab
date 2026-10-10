@@ -749,6 +749,98 @@ fn the_voice_is_read_where_it_sits_on_the_timeline() {
     );
 }
 
+/// **Background under a voice clip that does not start at 0.** The
+/// detector reads the track as a window from frame 0, with zeros before
+/// the clip. Counted in its noise floor, five seconds of them drop the
+/// floor to digital silence, so the room tone under the voice cleared
+/// the threshold for the whole clip and the two lines became one passage
+/// that ducked the gap between them.
+#[test]
+fn room_tone_under_a_moved_voice_is_not_speech() {
+    let room_tone = noise_burst(SAMPLE_RATE, 20.0, 0.01); // -40 dBFS
+    let voice = track_with(
+        SAMPLE_RATE,
+        20.0,
+        &[
+            (0.0, room_tone),
+            (2.0, voice_burst(SAMPLE_RATE, 1.0)),
+            (10.0, voice_burst(SAMPLE_RATE, 1.0)),
+        ],
+    );
+
+    let mut in_place = Session::with_voice(voice.clone());
+    let v = ok(in_place.call(
+        "duck_under_speech",
+        json!({ "music_track": 1, "voice_tracks": [0] }),
+    ));
+    assert_eq!(v["passages"], json!(2), "in place: {v}");
+
+    let mut s = Session::with_voice(voice);
+    ok(s.call(
+        "move_clip",
+        json!({ "track": 0, "clip_index": 0, "start_sec": 5.0 }),
+    ));
+    let v = ok(s.call(
+        "duck_under_speech",
+        json!({ "music_track": 1, "voice_tracks": [0] }),
+    ));
+    assert_eq!(v["passages"], json!(2), "moved to 5 s: {v}");
+    let speech = v["speech_sec"].as_f64().unwrap();
+    assert!((2.0..2.4).contains(&speech), "two 1 s lines: {speech}");
+
+    let env = s.envelope();
+    // The lines moved from 2-3 and 10-11 to 7-8 and 15-16.
+    assert!(level_at(&env, 7.5) < -6.0, "down under the first line");
+    assert!(level_at(&env, 15.5) < -6.0, "and the second");
+    assert!(
+        level_at(&env, 11.5) > -0.5,
+        "up in the seven seconds between them: {env:?}"
+    );
+}
+
+/// The same through a gap between two clips of one voice track, which
+/// reaches the detector as zeros in the middle of the window.
+#[test]
+fn room_tone_around_a_gap_between_voice_clips_is_not_speech() {
+    let room_tone = noise_burst(SAMPLE_RATE, 20.0, 0.01); // -40 dBFS
+    let voice = track_with(
+        SAMPLE_RATE,
+        20.0,
+        &[
+            (0.0, room_tone),
+            (2.0, voice_burst(SAMPLE_RATE, 1.0)),
+            (12.0, voice_burst(SAMPLE_RATE, 1.0)),
+        ],
+    );
+    let mut s = Session::with_voice(voice);
+    // Cut at 8 s, then slide the second half out to 14 s: clips at
+    // 0-8 s and 14-26 s with six seconds of nothing between them.
+    ok(s.call(
+        "split_clip",
+        json!({ "track": 0, "clip_index": 0, "at_sec": 8.0 }),
+    ));
+    ok(s.call(
+        "move_clip",
+        json!({ "track": 0, "clip_index": 1, "start_sec": 14.0 }),
+    ));
+
+    let v = ok(s.call(
+        "duck_under_speech",
+        json!({ "music_track": 1, "voice_tracks": [0] }),
+    ));
+    // The lines are at 2-3 s and, 4 s into the second clip, 18-19 s.
+    assert_eq!(v["passages"], json!(2), "{v}");
+    let env = s.envelope();
+    assert!(level_at(&env, 2.5) < -6.0, "down under the first line");
+    assert!(level_at(&env, 6.0) > -0.5, "up after it, in the first clip");
+    assert!(level_at(&env, 11.0) > -0.5, "up in the gap");
+    assert!(
+        level_at(&env, 15.0) > -0.5,
+        "up in the second clip before its line: {env:?}"
+    );
+    assert!(level_at(&env, 18.5) < -6.0, "down under the second line");
+}
+
 /// The voice and the music need not share a sample rate: the passages
 /// are seconds, and each music clip maps them with its own rate (#234).
 #[test]
@@ -866,7 +958,7 @@ fn the_music_track_cannot_be_its_own_voice() {
         "duck_under_speech",
         json!({ "music_track": 1, "voice_tracks": [7] }),
     ));
-    assert!(msg.contains('7'), "names the bad index: {msg}");
+    assert!(msg.contains("out of range"), "{msg}");
 }
 
 /// An empty list is a mistake to report, not "no voice, use the
@@ -902,6 +994,31 @@ fn a_voice_track_with_no_clips_is_refused() {
         json!({ "music_track": 1, "voice_tracks": [0] }),
     ));
     assert!(msg.contains("no clips"), "{msg}");
+}
+
+/// A music track with nothing to automate is known before any audio is
+/// read, so the refusal must not wait for the voice to be decoded and
+/// analysed first. The voice file is deleted: if the tool read it first
+/// the error would be about that file, not about the music track.
+#[test]
+fn an_empty_music_track_is_refused_before_the_voice_is_read() {
+    let mut s = Session::with_voice(two_voiced_lines(SAMPLE_RATE));
+    std::fs::remove_file(s._dir.path().join("track0.wav")).expect("delete the voice file");
+
+    // The control: with a music clip to automate, the missing voice
+    // file is what the tool trips over.
+    let msg = err(s.call(
+        "duck_under_speech",
+        json!({ "music_track": 1, "voice_tracks": [0] }),
+    ));
+    assert!(msg.contains("failed to decode"), "{msg}");
+
+    ok(s.call("remove_clip", json!({ "track": 1, "clip_index": 0 })));
+    let msg = err(s.call(
+        "duck_under_speech",
+        json!({ "music_track": 1, "voice_tracks": [0] }),
+    ));
+    assert!(msg.contains("no clips to automate"), "{msg}");
 }
 
 /// Reading the voice is a read: the track keeps its audio.

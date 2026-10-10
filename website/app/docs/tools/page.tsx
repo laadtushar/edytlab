@@ -236,8 +236,8 @@ const groups = [
       {
         name: "duck_under_speech",
         prompt: "duck the music under the voiceover",
-        what: "Drop a music track under the speech and bring it back in the gaps. A sidechain compressor keys on level, so a breath triggers it and a quiet line escapes it. This keys on where the speech is instead: on the transcript when there is one, and otherwise on the voice_tracks you name, where it follows the voiced (pitched) sound in their audio, so a breath, a click or hiss does not trigger it. It also ducks slightly before each line starts, which a level trigger cannot do — it only knows a line began after it has. A voice track that carries music reads as speech throughout, so name the voice alone.",
-        output: "node_id, passages, ducks, clips, keyed_on, speech_sec",
+        what: "Drop a music track under the speech and bring it back in the gaps. A sidechain compressor keys on level, so a breath triggers it and a quiet line escapes it. This keys on where the speech is instead: on the transcript when there is one, and otherwise on the voice_tracks you name, where it follows the voiced (pitched) sound in their audio, so a breath, a click or hiss does not trigger it. It also ducks slightly before each line starts, which a level trigger cannot do — it only knows a line began after it has. A voice track that carries music reads as speech throughout, so name the voice alone; loud low rumble reads as speech too, and a fan that runs for part of a track is ducked under for as long as it runs.",
+        output: "node_id, passages, ducks, clips, keyed_on, speech_sec, voice_tracks (when keyed on audio)",
         note: "The result is an ordinary volume-automation curve on the music clip, so it is visible in the automation lane and draggable if a duck lands wrong. Short pauses inside a sentence do not un-duck: bringing the music up for a comma is a pump, not an edit.",
       },
       {

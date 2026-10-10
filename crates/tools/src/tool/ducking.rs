@@ -29,6 +29,8 @@
 //! visible and editable rather than a black box, and the render path
 //! needed no changes at all.
 
+use std::ops::Range;
+
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -110,7 +112,7 @@ impl Tool for DuckUnderSpeechTool {
                         "type": "array",
                         "items": { "type": "integer", "minimum": 0 },
                         "minItems": 1,
-                        "description": "Track(s) with the speech. Key the ducking on where their audio has voiced sound instead of on the transcript; needed when there is no transcript. The voice alone — a track with music in it reads as speech throughout.",
+                        "description": "Track(s) with the speech. Key the ducking on where their audio has voiced sound instead of on the transcript; needed when there is no transcript. The voice alone: a track with music in it reads as speech throughout, and loud low rumble, or a fan that runs for part of the track, reads as speech while it lasts.",
                     },
                 },
                 "required": ["music_track"],
@@ -142,6 +144,15 @@ impl Tool for DuckUnderSpeechTool {
         };
         if let Err(msg) = check_track_index(&state.tracks, args.music_track) {
             return Ok(ToolResult::Error(msg));
+        }
+        // Checked before the voice is read: decoding and analysing a
+        // long voice track is the expensive part, and it would be thrown
+        // away for a music track that has nothing to automate.
+        if state.tracks[args.music_track].clips.is_empty() {
+            return Ok(ToolResult::Error(format!(
+                "track {} has no clips to automate",
+                args.music_track
+            )));
         }
 
         // Where the speech is. An explicitly named voice track wins over
@@ -189,10 +200,25 @@ impl Tool for DuckUnderSpeechTool {
                         Ok(a) => a,
                         Err(msg) => return Ok(ToolResult::Error(msg)),
                     };
+                    // Only the frames a clip sits on are the voice's
+                    // audio. The rest of the window is the silence
+                    // `flatten_track` lays down before and between
+                    // clips, and it must not set the noise floor.
+                    let channels = audio.channels as usize;
+                    let frames = audio.window.len() / channels.max(1);
+                    let covered: Vec<Range<usize>> = clips
+                        .iter()
+                        .map(|c| {
+                            let from = usize::try_from(c.start_in_track).unwrap_or(usize::MAX);
+                            let len = usize::try_from(c.length).unwrap_or(usize::MAX);
+                            from.min(frames)..from.saturating_add(len).min(frames)
+                        })
+                        .collect();
                     found.extend(detect_speech(
                         &audio.window,
                         audio.sample_rate,
-                        audio.channels as usize,
+                        channels,
+                        &covered,
                     ));
                 }
                 let passages = join_passages(found, join_gap_s);
@@ -226,12 +252,6 @@ impl Tool for DuckUnderSpeechTool {
         let speech_sec: f64 = passages.iter().map(|p| (p.end_s - p.start_s) as f64).sum();
 
         let music = &mut state.tracks[args.music_track];
-        if music.clips.is_empty() {
-            return Ok(ToolResult::Error(format!(
-                "track {} has no clips to automate",
-                args.music_track
-            )));
-        }
 
         // Every clip on the track, not just the first. A track that has
         // been cut or split holds several, and ducking only `clips[0]`

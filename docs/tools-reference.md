@@ -354,7 +354,7 @@ Drop a music track under the speech and bring it back in the gaps. Keyed on the 
 | `music_track` | integer | yes | Track to duck |
 | `pre_roll_ms` | number | no | Start ducking this long before a line. Default 150 ms. |
 | `release_ms` | number | no | Time to recover. Default 400 ms. |
-| `voice_tracks` | array of integer | no | Track(s) with the speech. Key the ducking on where their audio has voiced sound instead of on the transcript; needed when there is no transcript. The voice alone — a track with music in it reads as speech throughout. |
+| `voice_tracks` | array of integer | no | Track(s) with the speech. Key the ducking on where their audio has voiced sound instead of on the transcript; needed when there is no transcript. The voice alone: a track with music in it reads as speech throughout, and loud low rumble, or a fan that runs for part of the track, reads as speech while it lasts. |
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 
