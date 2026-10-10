@@ -93,6 +93,7 @@ my-session/
   .audiograph/
     nodes/                the edit history
     head                  where you are in it
+    trail.json            the path taken to it, which undo follows
     view.json             zoom, selection, playhead
     derived/              audio produced by edits
     clipboard/            blobs a paste depends on
@@ -101,7 +102,9 @@ my-session/
 
 The split is by lifetime. `project.json` is the project's identity and
 sits outside the store because the store is an implementation detail.
-`view.json` is disposable — losing it costs a scroll. `previews/` is a
+`view.json` is disposable — losing it costs a scroll. `trail.json` is the
+path taken through that history; losing it makes undo skip steps, so it sits
+beside `head` and is written the same way. `previews/` is a
 cache: every entry re-derives byte-identically from the node it is named
 for, so it is the one directory a copy of a project can safely skip.
 
@@ -146,6 +149,43 @@ recorded" rather than "reset this". A recorded head that no longer
 exists is ignored on restore — a folder copied without `.audiograph/`
 leaves one behind, and refusing to open the project over it would be
 absurd.
+
+### `getHeadTrail() → SavedTrail` · `saveHeadTrail(trail: SavedTrail) → void`
+
+The path the user took through the history, kept with the project
+(`.audiograph/trail.json`) so that undo retraces it after a restart (#453).
+
+```typescript
+interface SavedTrail {
+  head: string | null;   // the head the path ends at
+  trail: string[];       // heads left behind, oldest first
+  redo: string[];        // where undo came from, most recent last
+}
+```
+
+Why it exists: a node's id is the hash of its state, so an edit that returns
+to an earlier state (mute, then unmute) lands on a node that already exists
+and keeps the parent it had the first time. Undo cannot follow `parent`; it
+follows this path. The frontend decides where undo and redo go
+(`src/lib/headTrail.ts`); the backend only keeps the file.
+
+`getHeadTrail` never fails because of the file. No file, an unreadable or
+corrupt one, and one whose head the project no longer has all answer
+`{ head: null, trail: [], redo: [] }`. Entries naming nodes the project no
+longer has (a compaction removed them) are dropped from the lists, and ids
+that are not node ids are dropped too. The app uses the path only if its
+`head` is the head the project opened on; a path that ends elsewhere (a save
+lost to a crash, a store another client moved) is ignored and undo falls
+back on the node's parent.
+
+`saveHeadTrail` replaces the file, written to a temporary file in the same
+directory and renamed over it, so a reader sees the old file or the new
+one. Each list is cut to its last 500 entries. A path whose `head` is not a
+node of the open project is dropped and answered as success: the app saves
+without waiting, so a save for the project just left can arrive after the
+next has opened. The app calls it after every move of the head, outside the
+queue that orders edits, with at most one save in flight (the newest
+replaces any waiting), so no edit waits for the disk.
 
 ### `listRecentProjects() → RecentProject[]`
 

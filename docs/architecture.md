@@ -763,7 +763,12 @@ The frontend keeps the path instead: `apps/desktop/src/lib/headTrail.ts`, held b
 
 The History graph's "Set as head" is one of those moves. `GraphView` hands the choice to App (`onSetHead`), which calls `set_head_to` and then records the step with `setHeadLocal`, so undo returns from the jump (#453). `set_head_to` emits no event of its own, so the views of session state do not wait to be told: the track list is refreshed by the move itself, and the label lane (`useMarkers`), the transcript and the sync-lock toggle re-read when `head` changes.
 
-The path lives for the session. After a restart the trail is empty and undo steps back through each node's `parent`, which is right unless the history revisited a state.
+The path is kept with the project, so it survives a restart (#453). It is `<project-dir>/.audiograph/trail.json` (`session::trail`), beside `head`, not in `view.json`: the view is disposable by design, and losing the path makes undo skip steps. The file holds `{ head, trail, redo }`, each list bounded to the last 500 heads (`MAX_TRAIL`, the same bound the reducer keeps).
+
+- **Saving.** After every move that changes the path (an edit, an agent step, Set as head, undo, redo) `useSession` hands the whole path to `save_head_trail`. The save is not a turn in the session's line of edits (`lib/sessionQueue.ts`, #498): it writes and syncs a file, and no edit waits for the disk. `lib/trailWriter.ts` keeps at most one save in flight and lets the newest replace any waiting, so a slow disk cannot leave an older path in the file after a newer one. The file is written to a temporary file in the same directory and renamed over `trail.json`, as the head file is, so a reader sees the old file or the new one. Opening a project is not a move and saves nothing; a different project drops a save still waiting for the one left.
+- **Reading.** `get_head_trail` runs as a project opens: at launch (`useSession`, beside `get_session_head`) and in `restoreView` for every project opened after (`resetHead(head, saved)`). A missing, unreadable or corrupt file is an empty path, never an error, and never stops a project opening. The backend drops ids that are not node ids and entries naming nodes the project no longer has (a compaction removes nodes), so undo is never pointed at a node that is gone.
+- **When it applies.** The reducer takes the saved path only if it ends at the head the project opened on (`restore`, and `saved` of `reset`). A path that ends elsewhere (the last save was lost to a crash, another client moved the store) is not the way to this head and is ignored: undo then steps back through each node's `parent`, as it did before the path was kept, which is right unless the history revisited a state. An edit made before the saved path was read wins over it.
+- **Which project.** The save goes to the project that is open when the command runs, and it is dropped unless its head is a node of that project, so a save sent for the project just left cannot put its path in the next one. Save As copies `trail.json` with the rest of `.audiograph/`.
 
 ### Storage Format
 
@@ -775,6 +780,7 @@ Nodes are stored as content-addressed JSON files under `<project-dir>/.audiograp
     nodes/
       <hex[0..2]>/<blake3-hex>.json   # sharded by the first two hex chars
     head           # plain text: current NodeId
+    trail.json     # the path taken to the head, which undo follows
     view.json      # where you were: head, zoom, selection, playhead
     derived/       # audio written by destructive edits, named by content hash
     clipboard/     # copy_region blobs
