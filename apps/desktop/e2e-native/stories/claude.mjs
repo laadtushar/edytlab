@@ -10,6 +10,11 @@ import { say, toolBadges, waitForReply } from "./agent.mjs";
 
 const KEY = process.env.ANTHROPIC_E2E_KEY;
 const PROXY = process.env.CLAUDE_PROXY ?? "http://127.0.0.1:8788";
+// The model and reasoning effort the stories run with. Unset, the app's own
+// default applies, which is what a new user gets. Set, a run can compare
+// models (CLAUDE_MODEL=claude-haiku-5-5 ./run-suite.sh 7-claude).
+const MODEL = process.env.CLAUDE_MODEL || undefined;
+const EFFORT = process.env.CLAUDE_EFFORT || undefined; // low | medium | high | xhigh | max
 const TURN = 240000;
 
 /** First launch: choose Anthropic and enter the key, as a person does.
@@ -51,7 +56,8 @@ export async function onboardClaude(ctx, { key = KEY, model, effort } = {}) {
 
 async function ready(ctx, ...files) {
   const { d } = ctx;
-  await onboardClaude(ctx);
+  await onboardClaude(ctx, { model: MODEL, effort: EFFORT });
+  ctx.note(`model: ${MODEL ?? "the app's default"}, effort: ${EFFORT ?? "the app's default"}`);
   await d.until(async () => (await d.count("[data-testid='settings']")) === 0, { timeout: 60000, label: "the welcome to close" });
   assert((await d.invoke("get_active_provider")) === "anthropic", "Anthropic is the active provider");
   if (files.length) await openAudio(ctx, ...files);
