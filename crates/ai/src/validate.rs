@@ -74,6 +74,11 @@ pub struct ProbeReport {
     /// Why the tool probe failed, when it did: the model's text reply,
     /// or the endpoint's `"<status> <body>"`. `None` when tools work.
     pub detail: Option<String>,
+    /// The provider has no such model (retired, renamed, or never there):
+    /// the request for it was answered "not found". Then `tools_ok` is false
+    /// and `detail` is `None`, because the model was never asked about
+    /// tools, and the way to say so is not the endpoint's raw 404.
+    pub model_unavailable: bool,
 }
 
 impl ProbeReport {
@@ -82,6 +87,7 @@ impl ProbeReport {
             model,
             tools_ok: true,
             detail: None,
+            model_unavailable: false,
         }
     }
 }
@@ -265,12 +271,27 @@ async fn tool_probe(
                 model: model.to_string(),
                 tools_ok: false,
                 detail: Some(e.to_string()),
+                model_unavailable: false,
             }
         }
     };
 
     let status = resp.status();
     let text = resp.text().await.unwrap_or_default();
+
+    // The model the person chose is gone: say that, and not that it "did
+    // not call the tool", which sends them looking for a model with tool
+    // support when this one simply is not offered any more (#468).
+    if !status.is_success()
+        && crate::provider::is_model_unavailable(provider, status.as_u16(), &text, &wire_model)
+    {
+        return ProbeReport {
+            model: model.to_string(),
+            tools_ok: false,
+            detail: None,
+            model_unavailable: true,
+        };
+    }
 
     // A non-2xx here is nearly always the server saying it does not
     // accept a `tools` array — llama.cpp and vLLM both answer 400 for
@@ -286,6 +307,7 @@ async fn tool_probe(
             model: model.to_string(),
             tools_ok: false,
             detail: Some(format!("{} {}", status.as_u16(), detail)),
+            model_unavailable: false,
         };
     }
 
@@ -298,6 +320,7 @@ async fn tool_probe(
         model: model.to_string(),
         tools_ok: false,
         detail: response_text(&parsed),
+        model_unavailable: false,
     }
 }
 
@@ -441,7 +464,7 @@ pub fn provider_for(id: &str) -> Arc<dyn LlmProvider> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wiremock::matchers::{header, method, path};
+    use wiremock::matchers::{body_partial_json, header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[tokio::test]
@@ -587,6 +610,92 @@ mod tests {
                     "claude-haiku-5-5"
                 }
             );
+        }
+    }
+
+    /// A retired model used to read as "did not call the tool": the tool
+    /// probe was answered 404 and reported as a model that cannot call
+    /// tools, which sends a person looking for a model with tool support when
+    /// the model is gone. It is reported as what it is.
+    #[tokio::test]
+    async fn a_retired_model_is_reported_as_unavailable_not_as_tool_less() {
+        let server = MockServer::start().await;
+        // Reachability uses the classifier model and passes.
+        Mock::given(method("POST"))
+            .and(path("/v1/messages"))
+            .and(body_partial_json(json!({ "max_tokens": 1 })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "msg_1", "type": "message", "role": "assistant",
+                "model": "m", "content": [{"type": "text", "text": "p"}],
+                "stop_reason": "end_turn"
+            })))
+            .mount(&server)
+            .await;
+        // The model the person chose is gone.
+        Mock::given(method("POST"))
+            .and(path("/v1/messages"))
+            .and(body_partial_json(
+                json!({ "model": "claude-opus-4-1-20250805" }),
+            ))
+            .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+                "type": "error",
+                "error": {
+                    "type": "not_found_error",
+                    "message": "model: claude-opus-4-1-20250805"
+                },
+                "request_id": "req_011Cftywc6xsQRBrAxHK2RgM"
+            })))
+            .mount(&server)
+            .await;
+
+        let report = probe_provider(
+            &AnthropicProvider,
+            "k",
+            &server.uri(),
+            Some("claude-opus-4-1-20250805"),
+        )
+        .await
+        .expect("reachability passed");
+
+        assert!(report.model_unavailable, "{report:?}");
+        assert!(!report.tools_ok, "{report:?}");
+        assert_eq!(report.detail, None, "the raw 404 is not the message");
+        assert_eq!(report.model, "claude-opus-4-1-20250805");
+    }
+
+    /// Only a missing model is that: a model that is there and ignores the
+    /// tool, and a 400 from a server that does not take `tools`, are still
+    /// reports about tools.
+    #[tokio::test]
+    async fn other_probe_failures_are_still_about_tools() {
+        for (status, body) in [
+            (400, r#"{"error":{"message":"tools are not supported"}}"#),
+            (404, "<html>not found</html>"),
+        ] {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path("/v1/messages"))
+                .and(body_partial_json(json!({ "max_tokens": 1 })))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "id": "msg_1", "type": "message", "role": "assistant",
+                    "model": "m", "content": [{"type": "text", "text": "p"}],
+                    "stop_reason": "end_turn"
+                })))
+                .mount(&server)
+                .await;
+            Mock::given(method("POST"))
+                .and(path("/v1/messages"))
+                .and(body_partial_json(json!({ "max_tokens": 256 })))
+                .respond_with(ResponseTemplate::new(status).set_body_string(body))
+                .mount(&server)
+                .await;
+
+            let report = probe_provider(&AnthropicProvider, "k", &server.uri(), Some("m"))
+                .await
+                .unwrap();
+            assert!(!report.model_unavailable, "{status}: {report:?}");
+            assert!(!report.tools_ok, "{status}: {report:?}");
+            assert!(report.detail.is_some(), "{status}: {report:?}");
         }
     }
 

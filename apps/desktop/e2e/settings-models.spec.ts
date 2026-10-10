@@ -90,3 +90,51 @@ test("a list the provider answered with is described by its size, with no fallba
   await expect(page.getByTestId("settings-model-hint")).toContainText("2 models available");
   await expect(page.getByTestId("settings-model-fallback")).toHaveCount(0);
 });
+
+// A saved model that is no longer in Anthropic's own list may have been
+// retired. Settings says so and offers the default: one click, and the
+// backend is pointed at it.
+test("a saved model missing from Anthropic's list is flagged, and the default is one click away", async ({
+  app,
+}) => {
+  await app.boot({
+    ...readyToLoad(),
+    get_active_model: ok("claude-opus-4-1-20250805"),
+    set_active_model: ok(null),
+    list_models_for: ok({
+      models: [
+        {
+          id: "claude-sonnet-5-5",
+          display_name: "Claude Sonnet 5.5 (default)",
+          context_length: 1_000_000,
+          provider_hint: null,
+        },
+        {
+          id: "claude-haiku-5-5",
+          display_name: "Claude Haiku 5.5",
+          context_length: 1_000_000,
+          provider_hint: null,
+        },
+      ],
+      source: "live",
+      notice: null,
+    }),
+  });
+  const page = app.page;
+  await expect(page.getByTestId("empty-state")).toBeVisible();
+  await page.getByTestId("open-settings-button").click();
+
+  const warning = page.getByTestId("settings-model-unlisted");
+  await expect(warning).toBeVisible();
+  await expect(warning).toContainText("claude-opus-4-1-20250805");
+  await expect(warning).toContainText("claude-sonnet-5-5");
+  expect(await app.requestsFor("set_active_model")).toEqual([]);
+
+  await page.getByTestId("settings-model-use-default").click();
+
+  await expect(page.getByTestId("settings-model-input")).toHaveValue("claude-sonnet-5-5");
+  await expect(warning).toHaveCount(0);
+  expect(await app.requestsFor("set_active_model")).toEqual([
+    { provider: "anthropic", model: "claude-sonnet-5-5" },
+  ]);
+});

@@ -745,6 +745,9 @@ pub struct ProbeReportDto {
     pub model: String,
     pub tools_ok: bool,
     pub detail: Option<String>,
+    /// The provider has no such model; `tools_ok` is false then and
+    /// `detail` is empty. Serialised as `modelUnavailable`.
+    pub model_unavailable: bool,
 }
 
 impl From<ai::validate::ProbeReport> for ProbeReportDto {
@@ -753,6 +756,7 @@ impl From<ai::validate::ProbeReport> for ProbeReportDto {
             model: r.model,
             tools_ok: r.tools_ok,
             detail: r.detail,
+            model_unavailable: r.model_unavailable,
         }
     }
 }

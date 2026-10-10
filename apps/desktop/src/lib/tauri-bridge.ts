@@ -157,6 +157,12 @@ export interface ProbeReport {
   model: string;
   toolsOk: boolean;
   detail: string | null;
+  /**
+   * The provider has no such model: it was retired, renamed or never
+   * existed. `toolsOk` is false then and `detail` is null, because the model
+   * was never asked about tools.
+   */
+  modelUnavailable: boolean;
 }
 
 /**

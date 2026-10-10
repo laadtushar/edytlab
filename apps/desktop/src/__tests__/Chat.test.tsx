@@ -6,7 +6,7 @@
  * can be driven directly from the test.
  */
 
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -23,9 +23,16 @@ const cbs = {
 };
 
 const sendMessageMock = vi.fn();
+const getActiveProviderMock = vi.fn();
+const getActiveModelMock = vi.fn();
+const setActiveModelMock = vi.fn();
 
 vi.mock("../lib/tauri-bridge", () => ({
   sendMessage: (text: string) => sendMessageMock(text),
+  getActiveProvider: () => getActiveProviderMock(),
+  getActiveModel: (provider: string) => getActiveModelMock(provider),
+  setActiveModel: (provider: string, model: string) =>
+    setActiveModelMock(provider, model),
   approvePlan: vi.fn(() => Promise.resolve()),
   rejectPlan: vi.fn(() => Promise.resolve()),
   getPlanFirst: vi.fn(() => Promise.resolve(false)),
@@ -78,6 +85,7 @@ vi.mock("../lib/tauri-bridge", () => ({
 }));
 
 import { Chat } from "../components/Chat";
+import { MODEL_STORAGE_KEY_PREFIX } from "../lib/model-storage";
 
 const flush = () => new Promise<void>((r) => setTimeout(r, 0));
 
@@ -85,6 +93,10 @@ describe("Chat", () => {
   beforeEach(() => {
     sendMessageMock.mockReset();
     sendMessageMock.mockResolvedValue(undefined);
+    getActiveProviderMock.mockReset().mockResolvedValue("anthropic");
+    getActiveModelMock.mockReset().mockResolvedValue("");
+    setActiveModelMock.mockReset().mockResolvedValue(undefined);
+    window.localStorage.clear();
     cbs.textDelta = [];
     cbs.toolCall = [];
     cbs.toolCallEnd = [];
@@ -520,5 +532,134 @@ describe("Chat", () => {
     expect(screen.queryByTestId("capabilities-menu")).not.toBeInTheDocument();
     await user.click(screen.getByTestId("capabilities-toggle"));
     expect(screen.getByTestId("capabilities-menu")).toBeInTheDocument();
+  });
+});
+
+/**
+ * A model the provider has retired (#468). The person chose it, nothing
+ * rewrites the choice, and every message then fails the same way. The banner
+ * names the model and offers the provider's default as one explicit click:
+ * nothing is switched without it.
+ */
+describe("Chat, when the chosen model is gone", () => {
+  beforeEach(() => {
+    sendMessageMock.mockReset().mockResolvedValue(undefined);
+    getActiveProviderMock.mockReset().mockResolvedValue("anthropic");
+    getActiveModelMock.mockReset().mockResolvedValue("");
+    setActiveModelMock.mockReset().mockResolvedValue(undefined);
+    window.localStorage.clear();
+  });
+
+  const RETIRED =
+    "ai error: model unavailable: the model provider has no model " +
+    "`claude-opus-4-1-20250805` (HTTP 404); it may have been retired. " +
+    "Choose another model in Settings; this provider's default is " +
+    "`claude-sonnet-5-5`.";
+
+  async function sendAndFail() {
+    const user = userEvent.setup();
+    const onOpenSettings = vi.fn();
+    render(<Chat onOpenSettings={onOpenSettings} />);
+    await act(async () => {
+      await flush();
+    });
+    await user.type(screen.getByLabelText("Message"), "make it louder");
+    await user.click(screen.getByRole("button", { name: /send/i }));
+    return { user, onOpenSettings };
+  }
+
+  it("offers the default, and switches only when asked", async () => {
+    sendMessageMock.mockRejectedValue(RETIRED);
+    getActiveModelMock.mockResolvedValue("claude-opus-4-1-20250805");
+    const { user } = await sendAndFail();
+
+    const use = await screen.findByTestId("chat-error-use-default");
+    expect(use.textContent).toBe("Use claude-sonnet-5-5");
+    const banner = screen.getByTestId("chat-error");
+    expect(banner.textContent).toContain("claude-opus-4-1-20250805");
+    expect(banner.textContent).toMatch(/retired/);
+    expect(banner.textContent).not.toContain("HTTP");
+    expect(screen.getByTestId("chat-error-open-settings")).toBeInTheDocument();
+    expect(setActiveModelMock).not.toHaveBeenCalled();
+
+    await user.click(use);
+
+    expect(setActiveModelMock).toHaveBeenCalledTimes(1);
+    expect(setActiveModelMock).toHaveBeenCalledWith(
+      "anthropic",
+      "claude-sonnet-5-5",
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("chat-error").textContent).toContain(
+        "Now using",
+      ),
+    );
+    expect(screen.queryByTestId("chat-error-use-default")).toBeNull();
+    // The dropdown in Settings reads this, so the two agree.
+    expect(
+      window.localStorage.getItem(`${MODEL_STORAGE_KEY_PREFIX}anthropic`),
+    ).toBe("claude-sonnet-5-5");
+
+    // And Retry sends the same message again, on the new model.
+    sendMessageMock.mockReset().mockResolvedValue(undefined);
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() =>
+      expect(sendMessageMock).toHaveBeenCalledWith("make it louder"),
+    );
+    expect(screen.queryByTestId("chat-error")).toBeNull();
+  });
+
+  // An agent profile can pin its own model. Switching the global one would
+  // not change what the profile sends, so offering to is offering nothing.
+  it("offers no switch when the failing model is not the one chosen globally", async () => {
+    sendMessageMock.mockRejectedValue(RETIRED);
+    getActiveModelMock.mockResolvedValue("claude-haiku-5-5");
+    await sendAndFail();
+
+    await screen.findByTestId("chat-error-open-settings");
+    // Wait for the lookup to have answered before asserting an absence.
+    await waitFor(() => expect(getActiveModelMock).toHaveBeenCalled());
+    await act(async () => {
+      await flush();
+    });
+    expect(screen.queryByTestId("chat-error-use-default")).toBeNull();
+    expect(setActiveModelMock).not.toHaveBeenCalled();
+  });
+
+  it("says so when selecting the default fails", async () => {
+    sendMessageMock.mockRejectedValue(RETIRED);
+    getActiveModelMock.mockResolvedValue("claude-opus-4-1-20250805");
+    setActiveModelMock.mockRejectedValue("keychain is locked");
+    const { user } = await sendAndFail();
+
+    await user.click(await screen.findByTestId("chat-error-use-default"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("chat-error").textContent).toMatch(
+        /could not select claude-sonnet-5-5.*keychain is locked/,
+      ),
+    );
+  });
+
+  it("opens Settings from the banner", async () => {
+    sendMessageMock.mockRejectedValue(RETIRED);
+    getActiveModelMock.mockResolvedValue("claude-opus-4-1-20250805");
+    const { user, onOpenSettings } = await sendAndFail();
+
+    await user.click(await screen.findByTestId("chat-error-open-settings"));
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves other failures as they were", async () => {
+    sendMessageMock.mockRejectedValue(
+      "ai error: the model provider returned an error (500): overloaded",
+    );
+    await sendAndFail();
+
+    const banner = await screen.findByTestId("chat-error");
+    expect(banner.textContent).toContain("overloaded");
+    expect(screen.queryByTestId("chat-error-use-default")).toBeNull();
+    expect(screen.queryByTestId("chat-error-open-settings")).toBeNull();
+    expect(getActiveModelMock).not.toHaveBeenCalled();
   });
 });

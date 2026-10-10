@@ -348,3 +348,139 @@ describe("Settings model combo", () => {
     expect(input.value).toBe("claude-typed-by-hand");
   });
 });
+
+/**
+ * A saved model the provider has retired (#468). Settings used to list
+ * it, or nothing, and TEST reported it as a model that "did not call the
+ * tool". Anthropic's live list is complete, so a saved model missing from it
+ * is flagged; another provider's is filtered or spelt differently, so
+ * absence there proves nothing.
+ */
+describe("Settings, when the saved model is gone", () => {
+  const RETIRED = "claude-opus-4-1-20250805";
+
+  it("warns when a saved model is missing from Anthropic's live list, and offers the default", async () => {
+    getActiveModelMock.mockResolvedValue(RETIRED);
+    render(<Settings mode="blocking" onSaved={() => {}} />);
+
+    const warning = await screen.findByTestId("settings-model-unlisted");
+    expect(warning.textContent).toContain(RETIRED);
+    expect(warning.textContent).toMatch(/retired/);
+    expect(warning.textContent).toContain("claude-sonnet-5-5");
+    expect(setActiveModelMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId("settings-model-use-default"));
+
+    expect(setActiveModelMock).toHaveBeenCalledWith(
+      "anthropic",
+      "claude-sonnet-5-5",
+    );
+    await waitFor(() =>
+      expect(
+        (screen.getByTestId("settings-model-input") as HTMLInputElement).value,
+      ).toBe("claude-sonnet-5-5"),
+    );
+    expect(screen.queryByTestId("settings-model-unlisted")).toBeNull();
+  });
+
+  // `claude-haiku-4-5` is an alias that resolves to the dated id the list
+  // holds, so it is a model Anthropic has.
+  it("does not warn about an alias of a listed dated id", async () => {
+    listModelsForMock.mockResolvedValue(
+      live([info("claude-haiku-4-5-20251001", "Claude Haiku 4.5")]),
+    );
+    getActiveModelMock.mockResolvedValue("claude-haiku-4-5");
+    render(<Settings mode="blocking" onSaved={() => {}} />);
+
+    await screen.findByTestId("settings-model-hint");
+    await waitFor(() =>
+      expect(
+        (screen.getByTestId("settings-model-input") as HTMLInputElement).value,
+      ).toBe("claude-haiku-4-5"),
+    );
+    expect(screen.queryByTestId("settings-model-unlisted")).toBeNull();
+  });
+
+  it("does not warn about a model that is listed, nor about the default", async () => {
+    getActiveModelMock.mockResolvedValue("claude-opus-5-5");
+    render(<Settings mode="blocking" onSaved={() => {}} />);
+    await screen.findByTestId("settings-model-hint");
+    expect(screen.queryByTestId("settings-model-unlisted")).toBeNull();
+  });
+
+  // The built-in list is edytlab's, not the provider's, so what it lacks says
+  // nothing about what the provider has.
+  it("does not warn against the built-in list", async () => {
+    listModelsForMock.mockResolvedValue(ANTHROPIC_FALLBACK);
+    getActiveModelMock.mockResolvedValue(RETIRED);
+    render(<Settings mode="blocking" onSaved={() => {}} />);
+    await screen.findByTestId("settings-model-fallback");
+    await waitFor(() =>
+      expect(
+        (screen.getByTestId("settings-model-input") as HTMLInputElement).value,
+      ).toBe(RETIRED),
+    );
+    expect(screen.queryByTestId("settings-model-unlisted")).toBeNull();
+  });
+
+  it("does not warn for another provider's list", async () => {
+    getActiveModelMock.mockResolvedValue("some-model-not-listed");
+    render(<Settings mode="blocking" onSaved={() => {}} />);
+    fireEvent.click(screen.getByTestId("settings-provider-openai"));
+    await waitFor(() =>
+      expect(setActiveProviderMock).toHaveBeenCalledWith("openai"),
+    );
+    await screen.findByTestId("settings-model-hint");
+    expect(screen.queryByTestId("settings-model-unlisted")).toBeNull();
+  });
+
+  it("reports a retired model from TEST as gone, not as unable to call tools", async () => {
+    getActiveModelMock.mockResolvedValue(RETIRED);
+    testApiKeyForMock.mockResolvedValue({
+      model: RETIRED,
+      toolsOk: false,
+      detail: null,
+      modelUnavailable: true,
+    });
+    render(<Settings mode="blocking" onSaved={() => {}} />);
+    fireEvent.change(screen.getByTestId("settings-key-input"), {
+      target: { value: "k" },
+    });
+    await waitFor(() =>
+      expect(
+        (screen.getByTestId("settings-model-input") as HTMLInputElement).value,
+      ).toBe(RETIRED),
+    );
+    fireEvent.click(screen.getByTestId("settings-test-button"));
+
+    const missing = await screen.findByTestId("settings-test-model-missing");
+    expect(missing.textContent).toContain(RETIRED);
+    expect(missing.textContent).toContain("Anthropic");
+    expect(missing.textContent).toMatch(/retired/);
+    expect(screen.queryByTestId("settings-test-no-tools")).toBeNull();
+    expect(screen.queryByTestId("settings-test-ok")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("settings-test-use-default"));
+    expect(setActiveModelMock).toHaveBeenCalledWith(
+      "anthropic",
+      "claude-sonnet-5-5",
+    );
+  });
+
+  it("offers no switch from TEST when the model that is gone is the default", async () => {
+    testApiKeyForMock.mockResolvedValue({
+      model: "claude-sonnet-5-5",
+      toolsOk: false,
+      detail: null,
+      modelUnavailable: true,
+    });
+    render(<Settings mode="blocking" onSaved={() => {}} />);
+    fireEvent.change(screen.getByTestId("settings-key-input"), {
+      target: { value: "k" },
+    });
+    fireEvent.click(screen.getByTestId("settings-test-button"));
+
+    await screen.findByTestId("settings-test-model-missing");
+    expect(screen.queryByTestId("settings-test-use-default")).toBeNull();
+  });
+});

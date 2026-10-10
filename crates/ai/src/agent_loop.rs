@@ -1097,6 +1097,28 @@ where
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
+            // A model the provider no longer has is its own error, naming
+            // the model and the default to switch to (#468).
+            if crate::provider::is_model_unavailable(
+                cfg.provider.as_ref(),
+                status.as_u16(),
+                &body,
+                &wire_model,
+            ) {
+                // The provider's words are for the log; the person is shown
+                // the model. A response body never carries the key.
+                tracing::warn!(
+                    status = status.as_u16(),
+                    model = %cfg.model,
+                    body = %body,
+                    "the provider has no such model"
+                );
+                return Err(Error::ModelUnavailable {
+                    model: cfg.model.clone(),
+                    default_model: cfg.provider.default_model().to_string(),
+                    status: status.as_u16(),
+                });
+            }
             // A request that did not fit the model's context is its own
             // error, with what to do about it (#395).
             return Err(context_window::api_error(status.as_u16(), body));

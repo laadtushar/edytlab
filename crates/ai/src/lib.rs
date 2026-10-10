@@ -373,6 +373,25 @@ pub enum Error {
         message: String,
     },
 
+    /// The provider has no model of the id that was sent (#468): retired,
+    /// renamed, or never there. See [`provider::is_model_unavailable`] for
+    /// what counts, and what does not.
+    ///
+    /// The text names no provider (#405) and shows none of the provider's
+    /// JSON, and the two ids sit in backticks after fixed phrases because the
+    /// chat reads them back out of this string to offer the default
+    /// (`parseModelUnavailable` in `chat-errors.ts`): change the wording
+    /// there too. It avoids the words a credential error is recognised by,
+    /// so the chat does not read it as a key problem.
+    #[error("model unavailable: the model provider has no model `{model}` (HTTP {status}); it may have been retired. Choose another model in Settings; this provider's default is `{default_model}`.")]
+    ModelUnavailable {
+        /// The model that was asked for (as the user chose it).
+        model: String,
+        /// The provider's own default, which is what to switch to.
+        default_model: String,
+        status: u16,
+    },
+
     #[error("the model provider's stream failed: {0}")]
     ApiStream(String),
 

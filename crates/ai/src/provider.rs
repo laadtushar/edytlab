@@ -139,6 +139,68 @@ pub(crate) fn openai_reasoning_effort(model: &str) -> Option<&'static str> {
     (model == "gpt-6-luna" || model.starts_with("gpt-6-luna-")).then_some("none")
 }
 
+/// Whether a failed chat request means the provider has no such model
+/// (retired, renamed, or never existed), as opposed to any other failure.
+///
+/// Providers retire models, and a model somebody chose keeps being sent
+/// until they choose another. The answer is a 404 that, shown raw, says
+/// nothing a person can act on; knowing it is the model lets the app say so
+/// and offer the default. It is a claim ("it may have been retired"), so it is
+/// made only where the answer is unambiguous, and everything else stays a
+/// plain API error:
+///
+/// * Never for a provider that needs no key. Ollama's own message, "model
+///   ... not found, try pulling it first", is the useful one, and "retired"
+///   would be wrong for a model that was simply never pulled.
+/// * A body that is not JSON is a wrong base path on a proxy, not a model.
+///   Gemini wraps its errors in an array, so the first element is read too.
+/// * `error.code == "model_not_found"`, which OpenAI and the providers that
+///   copy its API use, at any status.
+/// * Otherwise a **404** only, never a 400, which can name the model for other
+///   reasons (a field it does not take): on Anthropic's wire format an
+///   `error.type` of `not_found_error`, since `POST /v1/messages` names no
+///   resource but the model; and on either format, a 404 whose body names
+///   the model that was sent.
+///
+/// Anthropic's answer for a retired model is
+/// `{"type":"error","error":{"type":"not_found_error","message":"model: <id>"}}`
+/// with status 404, captured from the API (see the test). The other
+/// providers' shapes are written from their documented fields and are not
+/// captured; the rules key on those fields, not on wording.
+pub(crate) fn is_model_unavailable(
+    provider: &dyn LlmProvider,
+    status: u16,
+    body: &str,
+    wire_model: &str,
+) -> bool {
+    if !provider.requires_api_key() {
+        return false;
+    }
+    let Ok(json) = serde_json::from_str::<Value>(body) else {
+        return false;
+    };
+    let error = match &json {
+        Value::Array(items) => items.first().and_then(|item| item.get("error")),
+        other => other.get("error"),
+    };
+    let Some(error) = error else {
+        return false;
+    };
+
+    if error.get("code").and_then(Value::as_str) == Some("model_not_found") {
+        return true;
+    }
+    if status != 404 {
+        return false;
+    }
+    if provider.wire_format() == WireFormat::AnthropicMessages
+        && error.get("type").and_then(Value::as_str) == Some("not_found_error")
+    {
+        return true;
+    }
+    !wire_model.is_empty() && body.contains(wire_model)
+}
+
 /// Provider-level error surfaced from `parse_stream_chunk`. We use a
 /// thin `String` wrapper rather than re-exporting `crate::Error` to
 /// avoid making the trait depend on the agent loop's error machinery.
@@ -2086,5 +2148,147 @@ mod tests {
         for model in ["gpt-6-lunar", "gpt-6", "gpt-6-astra", "gpt-4o-mini", ""] {
             assert_eq!(openai_reasoning_effort(model), None, "{model:?}");
         }
+    }
+
+    // ------------------------------------------------------------------
+    // A model the provider no longer has
+    // ------------------------------------------------------------------
+
+    fn unavailable(provider_id: &str, status: u16, body: &str, wire_model: &str) -> bool {
+        is_model_unavailable(
+            provider_from_id(provider_id).as_ref(),
+            status,
+            body,
+            wire_model,
+        )
+    }
+
+    /// What a request naming a retired model is answered with, per wire
+    /// format, and what is not that: any other failure must stay the plain
+    /// API error it was, because "it may have been retired" is a claim.
+    ///
+    /// The Anthropic body is the real one: the answer to a `POST
+    /// /v1/messages` naming `claude-opus-4-1-20250805`, retired on
+    /// 2026-08-05 (<https://platform.claude.com/docs/en/about-claude/model-deprecations>),
+    /// captured from the API on 2026-10-10. The other providers' bodies are
+    /// illustrative: they are written from the documented fields
+    /// (`error.code == "model_not_found"`, a 404 that names the model), not
+    /// captured, and the rule keys on those fields and not on the wording.
+    #[test]
+    fn model_unavailable_is_recognised_per_wire_format() {
+        const ANTHROPIC_RETIRED: &str = r#"{"type":"error","error":{"type":"not_found_error","message":"model: claude-opus-4-1-20250805"},"request_id":"req_011Cftywc6xsQRBrAxHK2RgM"}"#;
+        let retired = "claude-opus-4-1-20250805";
+
+        // Anthropic: a 404 `not_found_error` from POST /v1/messages names no
+        // resource but the model.
+        assert!(unavailable(ANTHROPIC_ID, 404, ANTHROPIC_RETIRED, retired));
+        // A 404 that is not JSON is a wrong base path on a proxy.
+        assert!(!unavailable(
+            ANTHROPIC_ID,
+            404,
+            "<html><body>404 Not Found</body></html>",
+            retired
+        ));
+        // A 400 can name the model for other reasons.
+        let bad_request = r#"{"type":"error","error":{"type":"invalid_request_error","message":"'claude-opus-5-5' does not support this request"}}"#;
+        assert!(!unavailable(
+            ANTHROPIC_ID,
+            400,
+            bad_request,
+            "claude-opus-5-5"
+        ));
+        // Other statuses are other problems, whatever they say.
+        for (status, body) in [
+            (
+                401,
+                r#"{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}"#,
+            ),
+            (
+                429,
+                r#"{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}"#,
+            ),
+            (
+                500,
+                r#"{"type":"error","error":{"type":"api_error","message":"Internal server error"}}"#,
+            ),
+            (
+                529,
+                r#"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#,
+            ),
+        ] {
+            assert!(
+                !unavailable(ANTHROPIC_ID, status, body, retired),
+                "{status}"
+            );
+        }
+
+        // OpenRouter speaks Anthropic's wire format and answers its own way
+        // for a model it no longer serves: a 404 that names it.
+        let openrouter_gone = r#"{"error":{"message":"No endpoints found for anthropic/claude-sonnet-4.","code":404}}"#;
+        assert!(unavailable(
+            OPENROUTER_ID,
+            404,
+            openrouter_gone,
+            "anthropic/claude-sonnet-4"
+        ));
+        assert!(!unavailable(
+            OPENROUTER_ID,
+            404,
+            openrouter_gone,
+            "anthropic/claude-sonnet-5.5"
+        ));
+
+        // OpenAI and the providers that copy its API: `model_not_found`.
+        let openai_gone = r#"{"error":{"message":"The model `gpt-4o-2024-05-13` does not exist or you do not have access to it.","type":"invalid_request_error","param":null,"code":"model_not_found"}}"#;
+        assert!(unavailable(
+            OPENAI_ID,
+            404,
+            openai_gone,
+            "gpt-4o-2024-05-13"
+        ));
+        assert!(unavailable(
+            GROQ_ID,
+            404,
+            openai_gone,
+            "llama-3.3-70b-versatile"
+        ));
+        // The code decides, whatever the status.
+        assert!(unavailable(
+            OPENAI_ID,
+            400,
+            openai_gone,
+            "gpt-4o-2024-05-13"
+        ));
+        // Gemini wraps its errors in an array, and has no such code: a 404
+        // that names the model is the model.
+        let gemini_gone = r#"[{"error":{"code":404,"message":"models/gemini-2.0-flash is not found for API version v1beta, or is not supported for generateContent.","status":"NOT_FOUND"}}]"#;
+        assert!(unavailable(GEMINI_ID, 404, gemini_gone, "gemini-2.0-flash"));
+        assert!(!unavailable(
+            GEMINI_ID,
+            404,
+            gemini_gone,
+            "gemini-3.8-flash"
+        ));
+        // A 400 that names the model is not that.
+        let gemini_bad = r#"[{"error":{"code":400,"message":"gemini-3.8-flash: unsupported field","status":"INVALID_ARGUMENT"}}]"#;
+        assert!(!unavailable(GEMINI_ID, 400, gemini_bad, "gemini-3.8-flash"));
+        // Not found for another reason, with no model in it.
+        let other_404 = r#"{"error":{"message":"Unknown request URL: POST /v1/chat/completionz","type":"invalid_request_error"}}"#;
+        assert!(!unavailable(OPENAI_ID, 404, other_404, "gpt-6-luna"));
+        // A key problem and a server fault are not it.
+        let bad_key = r#"{"error":{"message":"Incorrect API key provided","type":"invalid_request_error","code":"invalid_api_key"}}"#;
+        assert!(!unavailable(OPENAI_ID, 401, bad_key, "gpt-6-luna"));
+        assert!(!unavailable(
+            OPENAI_ID,
+            500,
+            "upstream fell over",
+            "gpt-6-luna"
+        ));
+
+        // Ollama says it in its own words, and they are the useful ones:
+        // "try pulling it first" is the fix, "retired" would be wrong.
+        let ollama_missing = r#"{"error":{"message":"model \"llama3.2\" not found, try pulling it first","type":"api_error","param":null,"code":null}}"#;
+        assert!(!unavailable(OLLAMA_ID, 404, ollama_missing, "llama3.2"));
+        assert!(!unavailable(OLLAMA_ID, 404, openai_gone, "llama3.2"));
     }
 }
