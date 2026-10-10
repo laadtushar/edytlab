@@ -1,10 +1,12 @@
 //! Helpers shared by the integration tests that drive `ai::Agent` against
 //! a mocked provider.
 //!
-//! The mock speaks Anthropic's Messages API. A turn makes, in order: one
-//! non-streaming call to classify the request, optionally one more for a
-//! plan, then one streaming call per model step. [`SeqResponder`] answers
-//! them in that order, and can answer one of them with an error status.
+//! The mock speaks Anthropic's Messages API, or, through the `chat_*`
+//! helpers, the chat-completions API that Ollama, Groq, Gemini and OpenAI
+//! speak. A turn makes, in order: one non-streaming call to classify the
+//! request, optionally one more for a plan, then one streaming call per
+//! model step. [`SeqResponder`] answers them in that order, and can answer
+//! one of them with an error status.
 
 // Each test binary uses a subset.
 #![allow(dead_code)]
@@ -249,6 +251,58 @@ pub fn plan_json(text: &str) -> String {
     reply_json(text)
 }
 
+/// A chat-completions non-streaming reply whose text is `text`: what a
+/// chat-completions provider answers the classifier and the plan with.
+pub fn chat_reply_json(text: &str) -> String {
+    json!({
+        "id": "chatcmpl-one-shot",
+        "object": "chat.completion",
+        "choices": [{
+            "index": 0,
+            "message": { "role": "assistant", "content": text },
+            "finish_reason": "stop"
+        }]
+    })
+    .to_string()
+}
+
+/// One chat-completions stream chunk, framed as server-sent events.
+fn chat_chunk(delta: Value, finish_reason: Value) -> String {
+    let chunk = json!({
+        "id": "chatcmpl-test",
+        "object": "chat.completion.chunk",
+        "choices": [{ "index": 0, "delta": delta, "finish_reason": finish_reason }]
+    });
+    format!("data: {}\n\n", serde_json::to_string(&chunk).unwrap())
+}
+
+/// A chat-completions streamed step that only speaks, and ends the turn.
+pub fn chat_sse_text(text: &str) -> String {
+    let mut out = chat_chunk(json!({ "role": "assistant", "content": text }), Value::Null);
+    out.push_str(&chat_chunk(json!({}), json!("stop")));
+    out.push_str("data: [DONE]\n\n");
+    out
+}
+
+/// A chat-completions streamed step that makes one tool call.
+pub fn chat_sse_tool_call(id: &str, name: &str, args_json: &str) -> String {
+    let mut out = chat_chunk(
+        json!({
+            "role": "assistant",
+            "tool_calls": [{
+                "index": 0,
+                "id": id,
+                "type": "function",
+                "function": { "name": name, "arguments": args_json }
+            }]
+        }),
+        Value::Null,
+    );
+    out.push_str(&chat_chunk(json!({}), json!("tool_calls")));
+    out.push_str("data: [DONE]\n\n");
+    out
+}
+
 /// One scripted answer: an HTTP status and a body.
 pub type Entry = (u16, String);
 
@@ -261,8 +315,8 @@ pub fn ok(body: String) -> Entry {
 ///
 /// Wiremock's built-in matchers have no notion of order, so this rolls
 /// its own. A body that starts with `{` is JSON, one that starts with
-/// `event:` is an event stream, anything else is plain text, which is
-/// what a provider answering with an error page looks like.
+/// `event:` or `data:` is an event stream, anything else is plain text,
+/// which is what a provider answering with an error page looks like.
 pub struct SeqResponder {
     counter: Mutex<usize>,
     responses: Vec<Entry>,
@@ -286,7 +340,9 @@ impl Respond for SeqResponder {
             Some((status, body)) => {
                 let content_type = if body.trim_start().starts_with('{') {
                     "application/json"
-                } else if body.trim_start().starts_with("event:") {
+                } else if body.trim_start().starts_with("event:")
+                    || body.trim_start().starts_with("data:")
+                {
                     "text/event-stream"
                 } else {
                     "text/plain"

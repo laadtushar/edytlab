@@ -350,7 +350,7 @@ export const octoberPosts: BlogPost[] = [
       { type: "h3", text: "Tool support in local models" },
       {
         type: "p",
-        text: "Not every local model is trained to call tools. edytlab gives Ollama the same tools as any other provider, so pick a model trained for tool use. The **Test** button in Settings checks that the model you chose can call tools before you rely on it.",
+        text: "Not every local model is trained to call tools. edytlab gives Ollama a compact tool set sized for small contexts (the common edits, plus any tool your message names), and every other tool is still callable by name, so pick a model trained for tool use. The **Test** button in Settings checks that the model you chose can call tools before you rely on it.",
       },
       { type: "h2", text: "How to switch" },
       {
