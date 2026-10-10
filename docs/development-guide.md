@@ -631,18 +631,20 @@ On Linux edytlab keeps keys and settings in the **Secret Service** (GNOME Keyrin
 To get a persistent store on a machine without a desktop, start a throwaway Secret Service for one session and run the app inside it:
 
 ```bash
-dbus-run-session -- sh -c 'echo -n dev | gnome-keyring-daemon --unlock --components=secrets; pnpm --filter @edytlab/desktop tauri dev'
+dbus-run-session -- sh -c 'echo -n dev | XDG_DATA_HOME="$(mktemp -d)" gnome-keyring-daemon --unlock --components=secrets; pnpm --filter @edytlab/desktop tauri dev'
 ```
 
-(The keyring's contents are lost when that session ends. For a permanent one, run GNOME Keyring, KWallet or KeePassXC with its Secret Service integration turned on in your normal session.)
+The `XDG_DATA_HOME` on the daemon matters: `gnome-keyring-daemon --unlock` writes `$XDG_DATA_HOME/keyrings/login.keyring`, so without it the daemon works in your real `~/.local/share/keyrings` and can create a `login.keyring` there that outlives the session. With it, the keyring lives in a temporary directory and goes when you delete that. (It is set for the daemon only, so the app keeps its usual data directory.) For a permanent store, run GNOME Keyring, KWallet or KeePassXC with its Secret Service integration turned on in your normal session. (A KeePassXC with no database exposed does not work: both reading and saving fail.)
 
 If the banner is "Couldn't read your saved settings from the system keychain", the Secret Service is there but locked or the unlock prompt was dismissed: unlock it and restart edytlab.
 
-The real-keychain integration test is `#[ignore]` because CI has no Secret Service. Run it inside the same kind of session:
+The real-keychain tests in `crates/ai/tests/keychain_secret_service.rs` are `#[ignore]`: they write to the keychain of whoever runs them, and CI has no Secret Service. Run them inside the same kind of session, with its own `XDG_DATA_HOME`:
 
 ```bash
-dbus-run-session -- sh -c 'echo -n dev | gnome-keyring-daemon --unlock --components=secrets; cargo test -p ai --test keychain_secret_service -- --ignored'
+dbus-run-session -- sh -c 'echo -n dev | XDG_DATA_HOME="$(mktemp -d)" gnome-keyring-daemon --unlock --components=secrets; cargo test -p ai --test keychain_secret_service -- --ignored'
 ```
+
+What CI does pin, with no Secret Service: the store logic against fake slots, and `the_linux_default_store_is_the_secret_service_not_the_kernel_keyring`, which fails if the `keyring` features in `crates/ai/Cargo.toml` stop selecting the Secret Service.
 
 ### `cannot find crate for X`
 

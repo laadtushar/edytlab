@@ -22,11 +22,22 @@ describe("keychainNotice", () => {
   });
 
   it("reports an unreadable keychain with the reason, and does not call it a missing key", () => {
-    const n = keychainNotice("the system keychain could not be read: locked", null);
+    const n = keychainNotice("Couldn't access platform secure storage: locked", null);
     expect(n?.kind).toBe("read-error");
-    expect(n?.message).toContain("locked");
+    expect(n?.message).toContain("(Couldn't access platform secure storage: locked)");
     expect(n?.message).toContain("can't tell whether an API key is stored");
     expect(n?.message).toContain("Settings");
+  });
+
+  it("says the keychain could not be read once: the backend sends the reason alone", () => {
+    // `has_api_key` rejects with `KeychainError::reason()`. The full
+    // message ("the system keychain could not be read: …") would make the
+    // banner open with the same words its parenthesis then repeats.
+    const reason = "dismissed the unlock prompt";
+    const n = keychainNotice(reason, null);
+    expect(n?.message.split(reason)).toHaveLength(2);
+    expect(n?.message).not.toContain("could not be read");
+    expect(n?.message.match(/system keychain/g)).toHaveLength(1);
   });
 
   it("warns that settings last only until restart when there is no Secret Service", () => {

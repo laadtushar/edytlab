@@ -68,23 +68,26 @@ if [ "${LLM:-fake}" != real ]; then
   }
 fi
 # The app keeps its provider, keys and base URLs through the `keyring`
-# crate. On Linux its primary store is the Secret Service, but this
-# harness has no session bus, so the app uses its fallback, the kernel
-# keyring (#394), and that is what this script clears: an entry lives in
-# the *session* keyring and is linked into the user's *persistent* one,
-# so a run is isolated by neither a fresh HOME nor a fresh process. A
-# first launch clears both; a restart within a story passes KEEP_KEYRING=1
-# to find its settings again.
-#
-# If the harness ever runs where a session bus with a Secret Service is
-# reachable, the first-launch clear must also remove those items
-# (`secret-tool clear service app.edytlab.desktop`), or a run would start
-# from the last one's settings.
+# crate. On Linux its primary store is the Secret Service, and this
+# harness must not use one: the bus address below points at nothing, so
+# the app always takes its fallback, the kernel keyring (#394), and that
+# is what this script clears. An entry lives in the *session* keyring and
+# is linked into the user's *persistent* one, so a run is isolated by
+# neither a fresh HOME nor a fresh process. A first launch clears both; a
+# restart within a story passes KEEP_KEYRING=1 to find its settings again.
 #
 # Both need a session keyring that every process of the run shares, which
 # a desktop login provides (pam_keyinit) and a bare container does not:
 # without one each lookup starts from nothing and a restart "forgets"
 # everything. `run-suite.sh` supplies it; say so when it is missing.
+#
+# The explicit, unreachable bus address is deliberate. With it unset,
+# libdbus autolaunches a session bus (`dbus-launch`) on a machine that has
+# one installed, which on a recording machine means a running keyring and
+# an unlock prompt in the middle of a story, and a run that keeps its
+# settings in a store this script never clears. tauri-driver, and so the
+# app it starts, inherits this.
+export DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent
 if ! keyctl rdescribe @s >/dev/null 2>&1; then
   echo "run-env.sh: no session keyring; start the suite through run-suite.sh" >&2
 fi

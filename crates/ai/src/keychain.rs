@@ -91,6 +91,7 @@ pub enum Persistence {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeychainError {
     reason: String,
+    access_denied: bool,
 }
 
 impl KeychainError {
@@ -98,12 +99,31 @@ impl KeychainError {
     pub fn new(reason: impl Into<String>) -> Self {
         Self {
             reason: reason.into(),
+            access_denied: false,
+        }
+    }
+
+    /// An error for a store that is there but refused access: locked,
+    /// or an unlock prompt that was dismissed.
+    pub fn access_denied(reason: impl Into<String>) -> Self {
+        Self {
+            reason: reason.into(),
+            access_denied: true,
         }
     }
 
     /// The reason alone, without the "could not be read" prefix.
     pub fn reason(&self) -> &str {
         &self.reason
+    }
+
+    /// Whether the store refused access (locked, or a dismissed unlock
+    /// prompt) rather than failing for one slot's sake. Every further
+    /// read would be refused the same way, and on a desktop each one
+    /// raises its own unlock prompt, so a caller reading several slots
+    /// in a row stops at the first of these.
+    pub fn is_access_denied(&self) -> bool {
+        self.access_denied
     }
 }
 
@@ -119,7 +139,10 @@ impl From<keyring::Error> for KeychainError {
     /// Built from `Display` only. `Debug` would include the bytes of an
     /// undecodable value.
     fn from(e: keyring::Error) -> Self {
-        Self::new(e.to_string())
+        Self {
+            reason: e.to_string(),
+            access_denied: matches!(e, keyring::Error::NoStorageAccess(_)),
+        }
     }
 }
 
@@ -167,7 +190,13 @@ fn unreachable(e: &keyring::Error) -> bool {
 ///   earlier build left behind. Move it into `primary`, and drop the
 ///   `legacy` copy only once `primary` took it.
 /// - `primary` cannot be reached: the answer is whatever `legacy` holds,
-///   which is where [`write_to`] put it.
+///   which is where [`write_to`] put it. If `legacy` holds nothing, ask
+///   `primary` once more before calling the value missing: the Secret
+///   Service client (`dbus-secret-service`) gives every D-Bus call two
+///   seconds, and the first one is where a service that is not running
+///   yet gets started, so a slow start reads as "unreachable" with the
+///   key sitting right there. Taking that for "no key" shows the
+///   first-run prompt over a stored key (#394).
 /// - `primary` fails any other way (locked, refused, ambiguous,
 ///   undecodable): that is an error. It is never read as "not found",
 ///   or the app would show a first-run prompt over a key that is there.
@@ -186,14 +215,23 @@ fn read_from(primary: &dyn Slot, legacy: Option<&dyn Slot>) -> keyring::Result<O
             }
             Ok(Some(v))
         }
-        Err(e) if unreachable(&e) => match legacy {
-            Some(legacy) => match legacy.get() {
+        Err(e) if unreachable(&e) => {
+            let Some(legacy) = legacy else {
+                return Err(e);
+            };
+            match legacy.get() {
                 Ok(v) => Ok(Some(v)),
-                Err(keyring::Error::NoEntry) => Ok(None),
+                Err(keyring::Error::NoEntry) => match primary.get() {
+                    Ok(v) => Ok(Some(v)),
+                    // Only a second failure to reach it makes this a
+                    // machine with no Secret Service and nothing stored.
+                    Err(keyring::Error::NoEntry) => Ok(None),
+                    Err(ref again) if unreachable(again) => Ok(None),
+                    Err(other) => Err(other),
+                },
                 Err(_) => Err(e),
-            },
-            None => Err(e),
-        },
+            }
+        }
         Err(e) => Err(e),
     }
 }
@@ -516,6 +554,15 @@ pub fn load_model(provider_id: &str) -> Option<String> {
     read_or_warn(&model_account_for(provider_id)).filter(|m| !m.trim().is_empty())
 }
 
+/// Like [`load_model`], but a keychain that cannot be read is an error
+/// rather than `None`. Startup reads every provider's model in a row and
+/// needs to tell a locked keychain, where it stops, from a slot that is
+/// empty.
+pub fn try_load_model(provider_id: &str) -> Result<Option<String>, KeychainError> {
+    read_account(&model_account_for(provider_id))
+        .map(|model| model.filter(|m| !m.trim().is_empty()))
+}
+
 /// Store a provider's chosen model.
 pub fn save_model(provider_id: &str, model: &str) -> Result<(), keyring::Error> {
     write_account(&model_account_for(provider_id), model).map(|_| ())
@@ -620,28 +667,21 @@ mod tests {
         assert_eq!(Effort::parse(" xhigh\n"), Some(Effort::XHigh));
     }
 
-    /// The slot itself, through the OS keychain: save, read, overwrite,
-    /// delete, and deleting again.
+    /// The pin for the persistence fix in #394, which no other test in
+    /// CI can see: the unit tests below run against fake slots, and CI has
+    /// no Secret Service to run the real one against.
     ///
-    /// Uses a provider id no real provider has, so it cannot touch a
-    /// user's own setting. A machine with no usable keychain (a CI
-    /// container with no session keyring) cannot run this; it says so
-    /// and returns rather than failing a build for something the code
-    /// under test does not control.
+    /// With `keyring`'s Secret Service feature off, the default store on
+    /// Linux is the kernel keyring, whose entries last until reboot and
+    /// whose builder says so. This is what `Entry::new` builds from.
+    #[cfg(target_os = "linux")]
     #[test]
-    fn the_effort_slot_round_trips_through_the_keychain() {
-        let id = "effort-slot-roundtrip-test";
-        if save_effort(id, Effort::High).is_err() || load_effort(id).is_none() {
-            eprintln!("skipping: no usable OS keychain on this machine");
-            let _ = delete_effort(id);
-            return;
-        }
-        assert_eq!(load_effort(id), Some(Effort::High));
-        save_effort(id, Effort::XHigh).unwrap();
-        assert_eq!(load_effort(id), Some(Effort::XHigh), "overwrites");
-        delete_effort(id).unwrap();
-        assert_eq!(load_effort(id), None, "deleted slot reads as default");
-        delete_effort(id).expect("deleting a missing slot is success");
+    fn the_linux_default_store_is_the_secret_service_not_the_kernel_keyring() {
+        use keyring::credential::CredentialPersistence;
+        assert!(matches!(
+            keyring::default::default_credential_builder().persistence(),
+            CredentialPersistence::UntilDelete
+        ));
     }
 
     // -----------------------------------------------------------------
@@ -672,6 +712,10 @@ mod tests {
         mode: Mode,
         value: RefCell<Option<String>>,
         gets: Cell<u32>,
+        /// How many of the first `get`s fail as unreachable whatever the
+        /// mode is: a Secret Service whose first D-Bus call timed out
+        /// while the daemon was still starting.
+        slow_start_gets: Cell<u32>,
     }
 
     impl Fake {
@@ -680,12 +724,18 @@ mod tests {
                 mode,
                 value: RefCell::new(None),
                 gets: Cell::new(0),
+                slow_start_gets: Cell::new(0),
             }
         }
         fn holding(mode: Mode, v: &str) -> Self {
             let f = Self::empty(mode);
             *f.value.borrow_mut() = Some(v.to_string());
             f
+        }
+        /// Unreachable for the first `n` reads, then `mode`.
+        fn slow_to_start(mut self, n: u32) -> Self {
+            self.slow_start_gets = Cell::new(n);
+            self
         }
         fn value(&self) -> Option<String> {
             self.value.borrow().clone()
@@ -702,6 +752,10 @@ mod tests {
     impl Slot for Fake {
         fn get(&self) -> keyring::Result<String> {
             self.gets.set(self.gets.get() + 1);
+            if self.slow_start_gets.get() > 0 {
+                self.slow_start_gets.set(self.slow_start_gets.get() - 1);
+                return Err(no_service());
+            }
             match self.mode {
                 Mode::Unreachable => Err(no_service()),
                 Mode::Locked => Err(locked()),
@@ -804,6 +858,60 @@ mod tests {
         let primary = Fake::empty(Mode::Unreachable);
         let legacy = Fake::empty(Mode::Works);
         assert_eq!(read_from(&primary, some(&legacy)).unwrap(), None);
+        assert_eq!(
+            primary.gets.get(),
+            2,
+            "asked twice before calling it missing"
+        );
+    }
+
+    /// The first D-Bus call is where the Secret Service gets started, and
+    /// it has two seconds. A slow start answers "unreachable" with the key
+    /// stored right there; reading that as "no key" put the first-run
+    /// Welcome over it (#394), the symptom this issue is about.
+    #[test]
+    fn a_secret_service_that_is_slow_to_start_is_asked_again_before_the_key_is_called_missing() {
+        let primary = Fake::holding(Mode::Works, "sk-durable").slow_to_start(1);
+        let legacy = Fake::empty(Mode::Works);
+        assert_eq!(
+            read_from(&primary, some(&legacy)).unwrap().as_deref(),
+            Some("sk-durable"),
+            "the second look found it"
+        );
+        assert_eq!(primary.gets.get(), 2);
+        assert_eq!(legacy.value(), None);
+    }
+
+    /// Nothing stored and a service that was merely slow: the second look
+    /// answers "no entry", which is a fresh install, not an error.
+    #[test]
+    fn a_slow_secret_service_with_nothing_stored_reads_as_missing() {
+        let primary = Fake::empty(Mode::Works).slow_to_start(1);
+        let legacy = Fake::empty(Mode::Works);
+        assert_eq!(read_from(&primary, some(&legacy)).unwrap(), None);
+    }
+
+    /// A service that comes up locked on the second look is a locked
+    /// store, which is an error and never "no key".
+    #[test]
+    fn a_secret_service_that_comes_up_locked_on_the_second_look_is_an_error() {
+        let primary = Fake::empty(Mode::Locked).slow_to_start(1);
+        let legacy = Fake::empty(Mode::Works);
+        let err = read_from(&primary, some(&legacy)).expect_err("locked must not read as None");
+        assert!(matches!(err, keyring::Error::NoStorageAccess(_)));
+    }
+
+    /// A session copy is an answer already, so there is no second look
+    /// at a service that cannot be reached.
+    #[test]
+    fn a_session_copy_is_returned_without_a_second_look() {
+        let primary = Fake::holding(Mode::Works, "sk-durable").slow_to_start(1);
+        let legacy = Fake::holding(Mode::Works, "sk-session");
+        assert_eq!(
+            read_from(&primary, some(&legacy)).unwrap().as_deref(),
+            Some("sk-session")
+        );
+        assert_eq!(primary.gets.get(), 1);
     }
 
     #[test]
@@ -1007,6 +1115,28 @@ mod tests {
         assert!(e
             .to_string()
             .starts_with("the system keychain could not be read: "));
+    }
+
+    /// A locked or dismissed store is the one failure that says every
+    /// read after it will fail too, which is what startup stops on.
+    #[test]
+    fn only_a_refused_store_counts_as_access_denied() {
+        assert!(
+            KeychainError::from(keyring::Error::NoStorageAccess("locked".into()))
+                .is_access_denied()
+        );
+        assert!(KeychainError::access_denied("locked").is_access_denied());
+        for other in [
+            keyring::Error::PlatformFailure("no secret service".into()),
+            keyring::Error::BadEncoding(b"sk-secret".to_vec()),
+            keyring::Error::Ambiguous(Vec::new()),
+        ] {
+            assert!(
+                !KeychainError::from(other).is_access_denied(),
+                "that is about one slot, not the store"
+            );
+        }
+        assert!(!KeychainError::new("anything").is_access_denied());
     }
 
     #[test]

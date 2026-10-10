@@ -25,9 +25,9 @@ test.describe("a keychain that cannot be read", () => {
   test("says so at launch instead of asking for a key", async ({ app }) => {
     await app.boot({
       ...firstRun(),
-      has_api_key: reject(
-        "the system keychain could not be read: Couldn't access platform secure storage: locked",
-      ),
+      // What `has_api_key` rejects with: `KeychainError::reason()`, the
+      // keyring library's words without the "could not be read" prefix.
+      has_api_key: reject("Couldn't access platform secure storage: locked"),
     });
     const page = app.page;
 
@@ -35,6 +35,8 @@ test.describe("a keychain that cannot be read", () => {
     await expect(banner).toBeVisible();
     await expect(banner).toContainText("locked");
     await expect(banner).toContainText("Unlock your keyring");
+    // Said once: the banner's own words, then the reason in brackets.
+    await expect(banner).not.toContainText("could not be read");
 
     // The point of the fix: a stored key was never looked at, so the
     // first-run prompt would be about something that is not true.

@@ -618,13 +618,17 @@ pub async fn has_api_key(state: State<'_, AppState>) -> CmdResult<bool> {
 /// and key were never restored, so an answer computed from the defaults
 /// would be about the wrong provider. Report the failure instead, and
 /// only ask `configured` when startup read cleanly.
+///
+/// Both failures carry the reason alone (`KeychainError::reason`): the
+/// banner that shows it already says the keychain could not be read, and
+/// the full message would say so twice.
 fn has_key_answer(
     startup_error: Option<String>,
     configured: impl FnOnce() -> Result<bool, ai::keychain::KeychainError>,
 ) -> CmdResult<bool> {
     match startup_error {
         Some(e) => Err(e),
-        None => configured().map_err(|e| e.to_string()),
+        None => configured().map_err(|e| e.reason().to_string()),
     }
 }
 
@@ -814,17 +818,34 @@ pub async fn set_active_provider(state: State<'_, AppState>, provider: String) -
     // next `rebuild_agent` picks the right credentials up. When the read
     // fails the cache is emptied rather than left holding the previous
     // provider's key, which the new provider would be sent.
-    let read = ai::keychain::try_load_api_key(&provider);
+    let read = key_for_switch(&provider, ai::keychain::try_load_api_key);
     state.set_api_key_cache(read.as_ref().ok().cloned().flatten());
     rebuild_agent(&state).await?;
     // The switch itself worked, so say what did not instead of
     // failing it: the agent is built for the new provider with no key.
     if let Err(e) = read {
         return Err(format!(
-            "switched to {provider}, but its saved key could not be read: {e}"
+            "switched to {provider}, but its saved key could not be read: {}",
+            e.reason()
         ));
     }
     Ok(())
+}
+
+/// The key to cache when switching to `provider`.
+///
+/// A provider that needs none (a local Ollama daemon) has nothing to
+/// read, so the keychain is not asked: on a locked keyring that read is
+/// an unlock prompt for a key that does not exist, and an error the
+/// switch would then report.
+fn key_for_switch(
+    provider: &str,
+    load: impl FnOnce(&str) -> Result<Option<String>, ai::keychain::KeychainError>,
+) -> Result<Option<String>, ai::keychain::KeychainError> {
+    if !ai::validate::provider_for(provider).requires_api_key() {
+        return Ok(None);
+    }
+    load(provider)
 }
 
 // ---------------------------------------------------------------------------
@@ -3790,33 +3811,58 @@ pub fn try_load_api_key_at_startup(state: &AppState) {
         state,
         ai::keychain::try_load_active_provider,
         ai::keychain::try_load_api_key,
+        ai::keychain::try_load_model,
     );
-    restore_models(state, ai::keychain::load_model);
 }
 
-/// The provider-and-key half of startup, with the keychain reads passed
-/// in so the failure paths can be tested without an OS keychain.
+/// Startup, with the keychain reads passed in so the failure paths can
+/// be tested without an OS keychain: the active provider, its key, then
+/// every provider's chosen model.
+///
+/// A locked keychain stops it at the first refusal. Each read of a
+/// locked Secret Service raises its own unlock prompt, so carrying on
+/// would ask the user to dismiss the same prompt once per slot, eight
+/// times, before the window is up.
 pub(crate) fn load_startup_settings(
     state: &AppState,
     load_active: impl Fn() -> Result<Option<String>, ai::keychain::KeychainError>,
     load_key: impl Fn(&str) -> Result<Option<String>, ai::keychain::KeychainError>,
+    load_model: impl Fn(&str) -> Result<Option<String>, ai::keychain::KeychainError>,
 ) {
     let mut first_error: Option<String> = None;
-    let mut note = |what: &str, e: ai::keychain::KeychainError| {
-        tracing::warn!(error = %e, "could not read the {what} from the keychain at startup");
-        first_error.get_or_insert_with(|| e.to_string());
-    };
+    let mut refused = false;
     match load_active() {
         Ok(Some(active)) => state.set_active_provider(active),
         Ok(None) => {}
-        Err(e) => note("active provider", e),
+        Err(e) => refused = note_startup_failure("active provider", &e, &mut first_error),
     }
-    match load_key(&state.active_provider_id()) {
-        Ok(Some(key)) => state.set_api_key_cache(Some(key)),
-        Ok(None) => {}
-        Err(e) => note("API key", e),
+    if !refused {
+        match load_key(&state.active_provider_id()) {
+            Ok(Some(key)) => state.set_api_key_cache(Some(key)),
+            Ok(None) => {}
+            Err(e) => refused = note_startup_failure("API key", &e, &mut first_error),
+        }
     }
     state.set_keychain_read_error(first_error);
+    if !refused {
+        restore_models(state, load_model);
+    }
+}
+
+/// Log a startup read that failed and keep the first one's reason.
+/// Returns whether the keychain refused access, which ends startup's
+/// reads.
+///
+/// Only the reason is kept (`KeychainError::reason`): the banner built
+/// from it already says the keychain could not be read.
+fn note_startup_failure(
+    what: &str,
+    e: &ai::keychain::KeychainError,
+    first_error: &mut Option<String>,
+) -> bool {
+    tracing::warn!(error = %e, "could not read the {what} from the keychain at startup");
+    first_error.get_or_insert_with(|| e.reason().to_string());
+    e.is_access_denied()
 }
 
 /// Repopulate the in-memory model map from `load`.
@@ -3826,10 +3872,24 @@ pub(crate) fn load_startup_settings(
 /// not just the active one's. Switching provider must not lose a choice
 /// made earlier, and this map is what `rebuild_agent` reads after a
 /// switch.
-pub(crate) fn restore_models(state: &AppState, load: impl Fn(&str) -> Option<String>) {
+///
+/// A slot that cannot be read is skipped, except that a keychain which
+/// refused access ends the loop: the rest would be refused too, each
+/// with an unlock prompt of its own.
+pub(crate) fn restore_models(
+    state: &AppState,
+    load: impl Fn(&str) -> Result<Option<String>, ai::keychain::KeychainError>,
+) {
     for id in ai::SUPPORTED_PROVIDER_IDS {
-        if let Some(model) = load(id) {
-            state.set_model_for((*id).to_string(), model);
+        match load(id) {
+            Ok(Some(model)) => state.set_model_for((*id).to_string(), model),
+            Ok(None) => {}
+            Err(e) => {
+                tracing::warn!(provider = %id, error = %e, "could not read the chosen model from the keychain at startup");
+                if e.is_access_denied() {
+                    break;
+                }
+            }
         }
     }
 }
@@ -5358,7 +5418,7 @@ mod tests {
 
         // What the keychain would hand back after the user picked one.
         restore_models(&state, |id| {
-            (id == "anthropic").then(|| "claude-opus-5".to_string())
+            Ok((id == "anthropic").then(|| "claude-opus-5".to_string()))
         });
 
         assert_eq!(
@@ -5374,7 +5434,7 @@ mod tests {
     #[test]
     fn a_restart_restores_every_provider_not_only_the_active_one() {
         let state = AppState::default();
-        restore_models(&state, |id| Some(format!("{id}-chosen")));
+        restore_models(&state, |id| Ok(Some(format!("{id}-chosen"))));
 
         for id in ai::SUPPORTED_PROVIDER_IDS {
             assert_eq!(
@@ -5391,7 +5451,7 @@ mod tests {
     #[test]
     fn a_provider_with_no_stored_choice_stays_unset() {
         let state = AppState::default();
-        restore_models(&state, |_| None);
+        restore_models(&state, |_| Ok(None));
 
         for id in ai::SUPPORTED_PROVIDER_IDS {
             assert_eq!(state.model_for(id), None);
@@ -5408,7 +5468,7 @@ mod tests {
     #[test]
     fn startup_with_nothing_stored_is_a_fresh_install() {
         let state = AppState::default();
-        load_startup_settings(&state, || Ok(None), |_| Ok(None));
+        load_startup_settings(&state, || Ok(None), |_| Ok(None), |_| Ok(None));
 
         assert_eq!(state.active_provider_id(), ai::ANTHROPIC_ID);
         assert_eq!(state.api_key_snapshot(), None);
@@ -5425,10 +5485,15 @@ mod tests {
     #[test]
     fn startup_read_failure_is_reported_not_treated_as_a_fresh_install() {
         let state = AppState::default();
-        load_startup_settings(&state, || Err(KeychainError::new("locked")), |_| Ok(None));
+        load_startup_settings(
+            &state,
+            || Err(KeychainError::new("locked")),
+            |_| Ok(None),
+            |_| Ok(None),
+        );
 
         let stashed = state.keychain_read_error().expect("the failure is kept");
-        assert!(stashed.contains("locked"), "{stashed}");
+        assert_eq!(stashed, "locked", "the reason alone, not the whole message");
         // Even though a live read would say "no key", `has_api_key` must
         // not: that read is about the wrong provider.
         let answer = has_key_answer(state.keychain_read_error(), || Ok(false));
@@ -5443,6 +5508,7 @@ mod tests {
             &state,
             || Ok(Some("openrouter".to_string())),
             |_| Err(KeychainError::new("dismissed the unlock prompt")),
+            |_| Ok(None),
         );
 
         assert_eq!(state.active_provider_id(), "openrouter");
@@ -5460,6 +5526,7 @@ mod tests {
             &state,
             || Err(KeychainError::new("first")),
             |_| Err(KeychainError::new("second")),
+            |_| Ok(None),
         );
         let stashed = state.keychain_read_error().unwrap();
         assert!(
@@ -5475,10 +5542,12 @@ mod tests {
             &state,
             || Ok(Some("openrouter".to_string())),
             |id| Ok((id == "openrouter").then(|| "sk-or-1".to_string())),
+            |id| Ok((id == "openrouter").then(|| "or-model".to_string())),
         );
 
         assert_eq!(state.active_provider_id(), "openrouter");
         assert_eq!(state.api_key_snapshot().as_deref(), Some("sk-or-1"));
+        assert_eq!(state.model_for("openrouter").as_deref(), Some("or-model"));
         assert_eq!(state.keychain_read_error(), None);
         assert_eq!(
             has_key_answer(state.keychain_read_error(), || Ok(true)),
@@ -5493,7 +5562,7 @@ mod tests {
     fn a_later_clean_startup_read_clears_the_stash() {
         let state = AppState::default();
         state.set_keychain_read_error(Some("locked".to_string()));
-        load_startup_settings(&state, || Ok(None), |_| Ok(None));
+        load_startup_settings(&state, || Ok(None), |_| Ok(None), |_| Ok(None));
         assert_eq!(state.keychain_read_error(), None);
     }
 
@@ -5501,7 +5570,167 @@ mod tests {
     fn has_key_answer_passes_a_live_read_failure_through() {
         let answer = has_key_answer(None, || Err(KeychainError::new("locked")));
         let err = answer.expect_err("a read failure is not `false`");
-        assert!(err.contains("locked"), "{err}");
+        assert_eq!(
+            err, "locked",
+            "the reason alone: the banner supplies the rest"
+        );
+    }
+
+    // ---- A locked keychain is asked once, not once per slot (#394) -----
+
+    use std::cell::Cell;
+
+    /// The user dismissed the unlock prompt. Every further read would
+    /// raise it again, so startup must stop at the first refusal instead
+    /// of asking for the active provider, its key and six models in a row.
+    #[test]
+    fn a_refused_active_provider_read_ends_startup_there() {
+        let state = AppState::default();
+        let reads = Cell::new(0u32);
+        let counted = || reads.set(reads.get() + 1);
+        load_startup_settings(
+            &state,
+            || {
+                counted();
+                Err(KeychainError::access_denied("prompt dismissed"))
+            },
+            |_| {
+                counted();
+                Ok(Some("sk-x".to_string()))
+            },
+            |_| {
+                counted();
+                Ok(Some("a-model".to_string()))
+            },
+        );
+
+        assert_eq!(reads.get(), 1, "nothing was read after the refusal");
+        assert_eq!(
+            state.keychain_read_error().as_deref(),
+            Some("prompt dismissed")
+        );
+        assert_eq!(state.api_key_snapshot(), None);
+        assert_eq!(state.model_for("anthropic"), None);
+    }
+
+    #[test]
+    fn a_refused_key_read_skips_the_model_reads() {
+        let state = AppState::default();
+        let model_reads = Cell::new(0u32);
+        load_startup_settings(
+            &state,
+            || Ok(None),
+            |_| Err(KeychainError::access_denied("prompt dismissed")),
+            |_| {
+                model_reads.set(model_reads.get() + 1);
+                Ok(None)
+            },
+        );
+
+        assert_eq!(model_reads.get(), 0);
+        assert_eq!(
+            state.keychain_read_error().as_deref(),
+            Some("prompt dismissed")
+        );
+    }
+
+    /// Refused partway through the models: the ones already read stay,
+    /// and the rest are left alone.
+    #[test]
+    fn a_refused_model_read_ends_the_loop_and_keeps_what_was_read() {
+        let state = AppState::default();
+        let asked = std::cell::RefCell::new(Vec::new());
+        restore_models(&state, |id| {
+            asked.borrow_mut().push(id.to_string());
+            if asked.borrow().len() == 3 {
+                Err(KeychainError::access_denied("prompt dismissed"))
+            } else {
+                Ok(Some(format!("{id}-chosen")))
+            }
+        });
+
+        let asked = asked.into_inner();
+        assert_eq!(asked.len(), 3, "stopped at the refusal: {asked:?}");
+        assert_eq!(
+            state.model_for(&asked[0]).as_deref(),
+            Some(format!("{}-chosen", asked[0]).as_str())
+        );
+        assert_eq!(state.model_for(&asked[2]), None);
+    }
+
+    /// Any other failure is about one slot, so the next one is still
+    /// worth reading, and the failure is not reported as the keychain
+    /// being unreadable (the key and provider came back fine).
+    #[test]
+    fn a_model_slot_that_cannot_be_decoded_does_not_end_startup() {
+        let state = AppState::default();
+        load_startup_settings(
+            &state,
+            || Ok(None),
+            |_| Ok(Some("sk-x".to_string())),
+            |id| {
+                if id == "anthropic" {
+                    Err(KeychainError::new("not UTF-8"))
+                } else {
+                    Ok(Some(format!("{id}-chosen")))
+                }
+            },
+        );
+
+        assert_eq!(state.keychain_read_error(), None);
+        assert_eq!(state.api_key_snapshot().as_deref(), Some("sk-x"));
+        assert_eq!(state.model_for("anthropic"), None);
+        assert_eq!(
+            state.model_for("openrouter").as_deref(),
+            Some("openrouter-chosen")
+        );
+    }
+
+    /// A failure that is not a refusal does not end startup's reads: the
+    /// models are still restored after a key slot that would not decode.
+    #[test]
+    fn an_unreadable_key_slot_that_is_not_a_refusal_still_restores_models() {
+        let state = AppState::default();
+        load_startup_settings(
+            &state,
+            || Ok(None),
+            |_| Err(KeychainError::new("not UTF-8")),
+            |id| Ok((id == "anthropic").then(|| "m".to_string())),
+        );
+
+        assert_eq!(state.keychain_read_error().as_deref(), Some("not UTF-8"));
+        assert_eq!(state.model_for("anthropic").as_deref(), Some("m"));
+    }
+
+    // ---- Switching to a provider that needs no key ---------------------
+
+    /// Ollama has no key to read. Asking the keychain anyway raised an
+    /// unlock prompt on a locked keyring, and a failure the switch then
+    /// reported over a provider that works with nothing stored.
+    #[test]
+    fn switching_to_a_keyless_provider_does_not_read_the_keychain() {
+        let reads = Cell::new(0u32);
+        let got = key_for_switch("ollama", |_| {
+            reads.set(reads.get() + 1);
+            Err(KeychainError::access_denied("locked"))
+        });
+        assert_eq!(got, Ok(None));
+        assert_eq!(reads.get(), 0);
+    }
+
+    #[test]
+    fn switching_to_a_provider_that_needs_a_key_reads_it() {
+        let got = key_for_switch("openrouter", |id| {
+            assert_eq!(id, "openrouter");
+            Ok(Some("sk-or-1".to_string()))
+        });
+        assert_eq!(got, Ok(Some("sk-or-1".to_string())));
+
+        let err = key_for_switch("openrouter", |_| {
+            Err(KeychainError::access_denied("locked"))
+        })
+        .expect_err("a read failure is reported, not turned into no key");
+        assert_eq!(err.reason(), "locked");
     }
 
     #[test]
