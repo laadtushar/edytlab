@@ -49,8 +49,10 @@ import {
   type NodeId,
   type ToolView,
 } from "../lib/tauri-bridge";
+import { toPlanStep, type PlanStep } from "../lib/planSteps";
 
 export type { ToolView, SpectrumPoint } from "../lib/tauri-bridge";
+export type { PlanStep } from "../lib/planSteps";
 
 export type ChatRole = "user" | "assistant";
 
@@ -111,7 +113,7 @@ export interface NodeDividerEntry {
 export interface PlanEntry {
   kind: "plan";
   id: string;
-  steps: Array<{ step: number; tool: string; description: string }>;
+  steps: PlanStep[];
 }
 
 /**
@@ -162,7 +164,7 @@ export interface UseAgentStreamResult {
    *  Pass `steps` when the user edited one or more step descriptions; the
    *  override is forwarded to the backend so the agent follows the revised
    *  plan rather than the original one. */
-  approvePlan: (steps?: Array<{ step: number; tool: string; description: string }>) => Promise<void>;
+  approvePlan: (steps?: PlanStep[]) => Promise<void>;
   /**
    * Discard the pending plan and take the card down (#251).
    *
@@ -393,12 +395,10 @@ export function useAgentStream(): UseAgentStreamResult {
 
     attach(
       onPlan((rawSteps) => {
-        // Coerce each step object to the typed PlanEntry shape.
-        const steps = rawSteps.map((s) => ({
-          step: (s["step"] as number) ?? 0,
-          tool: (s["tool"] as string) ?? "",
-          description: (s["description"] as string) ?? "",
-        }));
+        // Coerce each step object to the typed PlanEntry shape. A cast
+        // is not a coercion: a step with a number for its description
+        // would have reached the card as one.
+        const steps = rawSteps.map(toPlanStep);
         const entry: PlanEntry = { kind: "plan", id: crypto.randomUUID(), steps };
         setEntries((prev) => [...prev, entry]);
         setPendingPlan(entry);
@@ -481,7 +481,7 @@ export function useAgentStream(): UseAgentStreamResult {
   }, []);
 
   const approvePlan = useCallback(
-    async (steps?: Array<{ step: number; tool: string; description: string }>) => {
+    async (steps?: PlanStep[]) => {
       const answeredId = pendingPlanRef.current?.id;
       // The tool goes with each description: edited text alone ("track: 1")
       // leaves the model to guess what to run it with.

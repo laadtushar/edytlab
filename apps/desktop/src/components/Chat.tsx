@@ -22,6 +22,7 @@ import {
 } from "../lib/tauri-bridge";
 import type { Marker } from "../lib/tauri-bridge";
 import { describeChatError, needsSettings } from "../lib/chat-errors";
+import { nothingCanRun, type PlanStep } from "../lib/planSteps";
 
 import {
   useAgentStream,
@@ -36,10 +37,11 @@ import {
 import { CapabilitiesMenu } from "./CapabilitiesMenu";
 import { COMMANDS } from "./CommandPalette";
 import { MessageBubble } from "./MessageBubble";
+import { PlanStepText } from "./PlanStepText";
 import { AuditionPlayer } from "./AuditionPlayer";
 import { SpectrumChart } from "./SpectrumChart";
 import { ThinkingIndicator } from "./ThinkingIndicator";
-import { ToolBadge } from "./ToolBadge";
+import { ToolBadge, toolLabel } from "./ToolBadge";
 
 export interface ChatProps {
   rendering?: boolean;
@@ -130,7 +132,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
   // Inline plan step editing state
   const [editingStepIdx, setEditingStepIdx] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState("");
-  const [localPlanSteps, setLocalPlanSteps] = useState<Array<{ step: number; tool: string; description: string }> | null>(null);
+  const [localPlanSteps, setLocalPlanSteps] = useState<PlanStep[] | null>(null);
   const [capsOpen, setCapsOpen] = useState(false);
   // Whether to see a plan before the agent touches anything. The gate
   // itself has existed since M27 but was reachable only when a
@@ -400,14 +402,11 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
                   ({stepCount(entry.steps.length)})
                 </span>
                 <ol className="mt-1.5 space-y-0.5 pl-4 list-decimal">
-                  {entry.steps.map((s) => (
-                    <li key={s.step}>
-                      <span className="font-mono text-[var(--text)]">
-                        {s.tool}
-                      </span>{" "}
-                      <span className="text-[var(--text-dim)]">
-                        — {s.description}
-                      </span>
+                  {entry.steps.map((s, idx) => (
+                    // Keyed by place, not by `step`: the model's numbers
+                    // can repeat or be missing.
+                    <li key={idx}>
+                      <PlanStepText step={s} />
                     </li>
                   ))}
                 </ol>
@@ -538,6 +537,9 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
               <button
                 type="button"
                 data-testid="plan-run-button"
+                // A plan of steps that can only fail is not one to run
+                // (#482). Discard is how the user leaves it.
+                disabled={nothingCanRun(localPlanSteps ?? pendingPlan.steps)}
                 className="
                   rounded
                   bg-[var(--accent)]
@@ -545,6 +547,8 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
                   text-xs font-medium text-[var(--bg)]
                   shadow-[0_4px_10px_-4px_var(--accent-glow)]
                   hover:bg-[#ffa05f]
+                  disabled:cursor-not-allowed disabled:opacity-40
+                  disabled:shadow-none disabled:hover:bg-[var(--accent)]
                 "
                 onClick={() => {
                   // Only forward edited steps to the backend when at least
@@ -560,12 +564,29 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
               </button>
             </div>
           </div>
+          {nothingCanRun(localPlanSteps ?? pendingPlan.steps) ? (
+            <p
+              data-testid="plan-nothing-runs"
+              className="px-3 pt-2 text-xs text-[var(--danger)]"
+            >
+              Nothing in this plan can run in this build, so there is nothing to
+              approve. Discard it.
+            </p>
+          ) : null}
           <ol className="space-y-1 px-3 py-2.5 pl-7 list-decimal text-xs text-[var(--text-dim)]">
             {(localPlanSteps ?? pendingPlan.steps).map((s, idx) => (
-              <li key={s.step}>
+              <li
+                // Keyed by place, not by `step`: the model's numbers can
+                // repeat or be missing.
+                key={idx}
+                data-testid="plan-step"
+                data-unavailable={s.unavailable ? "true" : undefined}
+              >
                 {editingStepIdx === idx ? (
                   <span className="flex flex-col gap-1 mt-0.5">
-                    <span className="font-mono text-[var(--text)]">{s.tool}</span>
+                    <span className="font-mono text-[var(--text)]">
+                      {s.tool ? toolLabel(s.tool) : "Step"}
+                    </span>
                     <textarea
                       data-testid="plan-step-editor"
                       autoFocus
@@ -632,25 +653,27 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
                 ) : (
                   <span className="group flex items-start gap-1.5">
                     <span className="flex-1">
-                      <span className="font-mono text-[var(--text)]">{s.tool}</span>{" "}
-                      <span>— {s.description}</span>
+                      <PlanStepText step={s} />
                     </span>
-                    <button
-                      type="button"
-                      data-testid="plan-edit-button"
-                      onClick={() => {
-                        setEditingStepIdx(idx);
-                        setEditDraft(s.description);
-                      }}
-                      className="
-                        shrink-0 rounded border border-[var(--border-strong)]
-                        px-1.5 py-0.5 text-[10px] text-[var(--text-faint)]
-                        opacity-0 group-hover:opacity-100 transition-opacity
-                        hover:bg-[var(--surface-elev-2)] hover:text-[var(--text-dim)]
-                      "
-                    >
-                      Edit
-                    </button>
+                    {/* A step that can only fail has nothing worth rewording. */}
+                    {s.unavailable ? null : (
+                      <button
+                        type="button"
+                        data-testid="plan-edit-button"
+                        onClick={() => {
+                          setEditingStepIdx(idx);
+                          setEditDraft(s.description);
+                        }}
+                        className="
+                          shrink-0 rounded border border-[var(--border-strong)]
+                          px-1.5 py-0.5 text-[10px] text-[var(--text-faint)]
+                          opacity-0 group-hover:opacity-100 transition-opacity
+                          hover:bg-[var(--surface-elev-2)] hover:text-[var(--text-dim)]
+                        "
+                      >
+                        Edit
+                      </button>
+                    )}
                   </span>
                 )}
               </li>

@@ -1106,7 +1106,23 @@ Emitted when the agent turn is fully complete (no more tool calls, no more text)
 
 Emitted when something needs approval before it runs, and the turn is suspended
 until `approvePlan()` or `rejectPlan()`. Each step is
-`{ step: number, tool: string, description: string }`.
+`{ step: number, tool: string, description: string }`, plus
+`unavailable: true` on a step whose tool does nothing in this build
+(`separate_stems`, `transcribe`: their inference is not shipped).
+
+The agent's own plan is checked before it is shown. A step with neither a tool
+nor a description is dropped, and so is a step naming `none` or a tool that is
+not registered or not permitted this turn. If nothing is left there is no plan,
+and the turn takes the `onPlanUnavailable` path (the reason reads "a plan with no
+steps"). A step that names a tool which does nothing in this build is kept and
+marked `unavailable`, so the card can say it will fail; a plan whose every step
+is marked cannot be run. A step that passes is sent exactly as the agent wrote
+it. The plan request names the permitted tools and states the step shape, so a
+plan that follows it is not changed.
+
+The card draws a step as the tool's badge label and the description
+(`Add marker — Add marker 'Drop' at 16.0 s`). A step with no description draws
+the label and any arguments the agent wrote beside it, never a bare dash.
 
 Either the agent's own multi-step plan (mashup mode, or Plan first on), or, with
 Plan first on and no plan from the agent, the first step that would change the

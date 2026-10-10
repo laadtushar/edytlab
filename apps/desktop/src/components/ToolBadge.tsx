@@ -153,6 +153,21 @@ const TOOL_LABELS: Record<string, string> = {
   generate_noise: "Generate noise",
 };
 
+/**
+ * The words a user reads for a tool: the badge's label, and the plan
+ * card's (#481). A tool the map does not know falls back to its name with
+ * the underscores stripped.
+ *
+ * The lookup is an own-property check because the plan card passes the
+ * name a model wrote: `TOOL_LABELS["constructor"]` is a function, not a
+ * label.
+ */
+export function toolLabel(name: string): string {
+  return Object.prototype.hasOwnProperty.call(TOOL_LABELS, name)
+    ? TOOL_LABELS[name]
+    : name.replace(/_/g, " ");
+}
+
 const STATUS_GLYPH: Record<ToolStatus, string> = {
   running: "⟳",
   ok: "✓",
@@ -172,7 +187,7 @@ const STATUS_CLASS: Record<ToolStatus, string> = {
 };
 
 export function ToolBadge({ name, status, result }: ToolBadgeProps) {
-  const friendlyName = TOOL_LABELS[name] ?? name.replace(/_/g, " ");
+  const friendlyName = toolLabel(name);
   const label =
     status === "running"
       ? `${friendlyName}…`

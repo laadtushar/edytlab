@@ -698,6 +698,74 @@ async fn an_empty_plan_is_treated_as_no_plan() {
     }
 }
 
+/// A plan is checked against the tools this turn may call (#482). `edit`
+/// is registered, but the turn's whitelist leaves it out, so a plan that
+/// names it is a plan for something that would be refused. It is no plan:
+/// the notice, and the held first edit in its place.
+#[tokio::test]
+async fn a_plan_naming_a_tool_the_turn_may_not_call_is_no_plan() {
+    let plan = r#"<plan>[{"step":1,"tool":"edit","description":"Edit track 0"}]</plan>"#;
+    let mut fx = Fixture::new(
+        true,
+        Some(vec!["peek".to_string()]),
+        vec![
+            ok(classifier_json("general")),
+            ok(plan_json(plan)),
+            ok(sse_text("I can only look at the session.")),
+        ],
+    )
+    .await;
+
+    let (result, events) = fx.turn("make it louder", approve).await;
+    result.expect("turn");
+
+    let notice = position(&events, |e| matches!(e, Ev::Unavailable { .. }));
+    match &events[notice] {
+        Ev::Unavailable { reason, held } => {
+            assert!(reason.contains("no steps"), "{reason}");
+            assert!(*held, "Plan first is on");
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(
+        cards(&events).is_empty(),
+        "a plan for a tool the turn cannot call was shown: {events:#?}"
+    );
+    assert!(fx.edits_run().is_empty());
+}
+
+/// Checking a plan must not change one that is right: the card gets the
+/// model's steps as written, in order (#482).
+#[tokio::test]
+async fn a_valid_plan_reaches_the_card_unchanged() {
+    let plan = r#"<plan>[{"step":1,"tool":"peek","description":"Look at track 0"},{"step":2,"tool":"edit","description":"Edit track 0"}]</plan>"#;
+    let mut fx = Fixture::new(
+        true,
+        None,
+        vec![
+            ok(classifier_json("general")),
+            ok(plan_json(plan)),
+            ok(edit_track("t1", 0)),
+            ok(sse_text("Done.")),
+        ],
+    )
+    .await;
+
+    let (result, events) = fx.turn("make it louder", approve).await;
+    result.expect("turn");
+
+    match cards(&events).as_slice() {
+        [Ev::Plan { steps, .. }] => assert_eq!(
+            *steps,
+            vec![
+                json!({"step":1,"tool":"peek","description":"Look at track 0"}),
+                json!({"step":2,"tool":"edit","description":"Edit track 0"}),
+            ]
+        ),
+        other => panic!("expected one card, got {other:?}"),
+    }
+}
+
 #[tokio::test]
 async fn mashup_without_plan_first_keeps_the_notice_only() {
     let mut fx = Fixture::new(

@@ -48,6 +48,7 @@
 //! into a channel. The agent itself is `async` because the HTTP/SSE
 //! work is.
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::Notify;
@@ -416,6 +417,132 @@ pub(crate) fn parse_plan(text: &str) -> Option<Vec<Value>> {
     serde_json::from_str(inner).ok()
 }
 
+/// What a step looks like, as the plan card reads it. Stated to the model
+/// word for word: told only to "list the steps as JSON", models wrote
+/// `action`, `name` or `args` for `tool` and `description`, and the card
+/// drew a bare "—" for each (#481).
+const PLAN_STEP_SCHEMA: &str =
+    r#"[{"step":1,"tool":"<tool name>","description":"<what it does, with its arguments>"}]"#;
+
+/// A tool whose description begins with this does nothing in this build
+/// (`separate_stems`, `transcribe`: their inference is not shipped,
+/// #383-#385). The description is the only place the tool says so.
+const NOT_IMPLEMENTED_MARKER: &str = "NOT IMPLEMENTED";
+
+/// Whether a tool's description says it does nothing in this build.
+fn is_not_implemented(tool: &Value) -> bool {
+    tool.get("description")
+        .and_then(Value::as_str)
+        .is_some_and(|d| d.trim_start().starts_with(NOT_IMPLEMENTED_MARKER))
+}
+
+/// The names of the tools a plan may use: this turn's, sorted, and not
+/// the ones that do nothing in this build (a plan that offers the model a
+/// tool which can only fail invites it to plan one).
+fn plannable_tool_names(tool_schemas: &Value) -> Vec<&str> {
+    let mut names: Vec<&str> = tool_schemas
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|t| !is_not_implemented(t))
+        .filter_map(|t| t.get("name").and_then(Value::as_str))
+        .collect();
+    names.sort_unstable();
+    names.dedup();
+    names
+}
+
+/// The instruction that asks for a plan.
+///
+/// The plan request carries no tool schemas, so a model that is not given
+/// the names writes the ones it has seen elsewhere (`add_marker` and
+/// `add_region` for the tool that is called `label`) or none at all
+/// (`none`). The names are listed, and only the turn's own (#482).
+fn plan_instruction(tool_schemas: &Value) -> String {
+    let names = plannable_tool_names(tool_schemas);
+    let tools = if names.is_empty() {
+        "No tool is available for this request, so output <plan>[]</plan>.".to_string()
+    } else {
+        format!(
+            "\"tool\" must be exactly one of these names: {}.",
+            names.join(", ")
+        )
+    };
+    format!(
+        "Output only a <plan>...</plan> XML block holding a JSON array of the steps, in order. \
+         No other text.\n\
+         Each step has this shape: {PLAN_STEP_SCHEMA}\n\
+         {tools}\n\
+         \"description\" says what the step does in words the user recognises, with the values it \
+         uses (the track, times in seconds, names, amounts): the user reads it to decide whether \
+         to approve the plan.\n\
+         If the request needs no edits, or none of these tools can do what it asks, output \
+         <plan>[]</plan>."
+    )
+}
+
+/// The text of a step's `key`, trimmed; empty when it is missing, not a
+/// string, or only whitespace.
+fn step_text<'a>(step: &'a Value, key: &str) -> &'a str {
+    step.get(key).and_then(Value::as_str).map_or("", str::trim)
+}
+
+/// Keep the steps of a plan that the user can read and that can mean
+/// something, and say which of them cannot work (#481, #482).
+///
+/// * A step with neither a tool nor a description says nothing, and is
+///   dropped. A model that does not follow the schema writes steps whose
+///   keys the card does not read, and the card drew each as a bare "—".
+/// * A step that names a tool must name one of `tool_schemas`, this turn's
+///   permitted tools. `none` is how a model says "no tool", and a name
+///   that is not registered (or is filtered out of this turn) could only be
+///   refused, so those are dropped.
+/// * A step that names a tool which does nothing in this build is kept, so
+///   the user sees what was proposed, and gets `"unavailable": true` so the
+///   card can say it will fail.
+///
+/// A step that passes is returned exactly as the model wrote it.
+fn vet_plan(steps: Vec<Value>, tool_schemas: &Value) -> Vec<Value> {
+    let registry: HashMap<&str, bool> = tool_schemas
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|t| Some((t.get("name")?.as_str()?, is_not_implemented(t))))
+        .collect();
+
+    let mut kept = Vec::with_capacity(steps.len());
+    let mut dropped: Vec<String> = Vec::new();
+    for mut step in steps {
+        let tool = step_text(&step, "tool").to_owned();
+        let described = !step_text(&step, "description").is_empty();
+        if tool.is_empty() {
+            if described {
+                kept.push(step);
+            } else {
+                dropped.push("(no tool, no description)".to_string());
+            }
+            continue;
+        }
+        match registry.get(tool.as_str()) {
+            None => dropped.push(tool),
+            Some(&not_implemented) => {
+                if not_implemented {
+                    step["unavailable"] = Value::Bool(true);
+                }
+                kept.push(step);
+            }
+        }
+    }
+    if !dropped.is_empty() {
+        tracing::warn!(
+            dropped = ?dropped,
+            kept = kept.len(),
+            "plan steps dropped: no tool and no description, or a tool this turn cannot call"
+        );
+    }
+    kept
+}
+
 /// Why a plan could not be produced (#267).
 ///
 /// Every one of these used to collapse into a bare `None`, and the
@@ -458,6 +585,10 @@ impl std::fmt::Display for PlanUnavailable {
 /// return the parsed steps. Includes conversation history so follow-up
 /// requests can be planned in context.
 ///
+/// `tool_schemas` is the turn's permitted tools. They are named to the
+/// model, and the steps it writes are checked against them
+/// ([`vet_plan`]).
+///
 /// `Err` names the failure class rather than erasing it. Whatever the
 /// class, the caller proceeds without a plan; with Plan first on it then
 /// holds the first edit for approval instead (#415).
@@ -467,16 +598,16 @@ async fn fetch_plan(
     system_prompt: &str,
     conversation: &[Message],
     user_message: &str,
+    tool_schemas: &Value,
 ) -> std::result::Result<Vec<Value>, PlanUnavailable> {
     let messages = one_shot_messages(conversation, None, user_message);
 
-    let plan_instruction =
-        "Output only a <plan>...</plan> XML block listing the steps as JSON. No other text.";
+    let plan_instruction = plan_instruction(tool_schemas);
     let request_body = one_shot_body(
         cfg,
         cfg.wire_model(),
         PLAN_MAX_TOKENS,
-        &[system_prompt, plan_instruction],
+        &[system_prompt, &plan_instruction],
         messages,
         cfg.effective_effort(),
         false,
@@ -505,9 +636,13 @@ async fn fetch_plan(
         .map_err(|e| PlanUnavailable::BodyParse(e.to_string()))?;
     let text = extract_response_text(cfg, &body).ok_or(PlanUnavailable::NoResponseText)?;
 
-    let steps = parse_plan(&text).ok_or(PlanUnavailable::NoPlanBlock)?;
+    let steps = vet_plan(
+        parse_plan(&text).ok_or(PlanUnavailable::NoPlanBlock)?,
+        tool_schemas,
+    );
     // `<plan>[]</plan>` used to reach the user as a card with no steps,
-    // whose Run approved nothing and then let every edit through.
+    // whose Run approved nothing and then let every edit through. A plan
+    // whose every step was dropped is the same: nothing is left to approve.
     if steps.is_empty() {
         return Err(PlanUnavailable::EmptyPlan);
     }
@@ -650,6 +785,18 @@ where
     });
     let system_prompt: &str = &combined_prompt;
 
+    // The tools this turn may call. Built before the plan is requested,
+    // because the plan is checked against the same list (#482): a step
+    // can only name a tool the turn is allowed to run.
+    let tool_schemas = {
+        let d = dispatcher.lock().expect("dispatcher mutex poisoned");
+        let all = d.tool_schemas();
+        match tool_whitelist {
+            Some(whitelist) => filter_tool_schemas(all, whitelist),
+            None => all,
+        }
+    };
+
     // Plan first when the user asked for it, or when the request
     // classified as a mashup — those are historically plan-gated and
     // stay that way.
@@ -662,7 +809,16 @@ where
     let mut step_override: Option<String> = None;
     let mut gate = Gate::Open;
     if plan_first || mode == Mode::Mashup {
-        match fetch_plan(cfg, http, system_prompt, conversation, &user_message).await {
+        match fetch_plan(
+            cfg,
+            http,
+            system_prompt,
+            conversation,
+            &user_message,
+            &tool_schemas,
+        )
+        .await
+        {
             Ok(steps) => {
                 // Block until the frontend answers via `approve_plan` or
                 // `reject_plan`, or time out after 5 minutes.
@@ -737,15 +893,6 @@ where
     // declined step the conversation ends in the `tool_result`s that
     // answered it, and a second user message in a row is rejected.
     approval::push_user_text(conversation, user_text);
-
-    let tool_schemas = {
-        let d = dispatcher.lock().expect("dispatcher mutex poisoned");
-        let all = d.tool_schemas();
-        match tool_whitelist {
-            Some(whitelist) => filter_tool_schemas(all, whitelist),
-            None => all,
-        }
-    };
 
     // The same whitelist, as a set, for the dispatch-time check (#238).
     //
@@ -1624,7 +1771,15 @@ mod tests {
         let plan = r#"<plan>[{"step":1,"tool":"set_track_gain","description":"Louder"}]</plan>"#;
         for id in crate::SUPPORTED_PROVIDER_IDS {
             let (steps, body) = serve_one_shot(id, plan, |cfg, http| async move {
-                fetch_plan(&cfg, &http, "SYSTEM-PROMPT", &[], "make it louder").await
+                fetch_plan(
+                    &cfg,
+                    &http,
+                    "SYSTEM-PROMPT",
+                    &[],
+                    "make it louder",
+                    &registry(&["set_track_gain"]),
+                )
+                .await
             })
             .await;
 
@@ -1663,7 +1818,15 @@ mod tests {
     async fn an_empty_plan_block_is_no_plan() {
         for id in crate::SUPPORTED_PROVIDER_IDS {
             let (result, _) = serve_one_shot(id, "<plan>[]</plan>", |cfg, http| async move {
-                fetch_plan(&cfg, &http, "SYSTEM-PROMPT", &[], "make it louder").await
+                fetch_plan(
+                    &cfg,
+                    &http,
+                    "SYSTEM-PROMPT",
+                    &[],
+                    "make it louder",
+                    &registry(&["set_track_gain"]),
+                )
+                .await
             })
             .await;
             assert!(
@@ -1671,6 +1834,267 @@ mod tests {
                 "{id}: an empty plan was accepted: {result:?}"
             );
         }
+    }
+
+    // ------------------------------------------------------------------
+    // What a plan step may be (#481, #482)
+    // ------------------------------------------------------------------
+
+    /// The schemas of a turn that may call `names`, and nothing else.
+    fn registry(names: &[&str]) -> Value {
+        Value::Array(
+            names
+                .iter()
+                .map(|n| {
+                    json!({
+                        "name": n,
+                        "description": "Does a thing.",
+                        "input_schema": { "type": "object" },
+                    })
+                })
+                .collect(),
+        )
+    }
+
+    /// Every tool the app registers, as a turn with no whitelist sees them.
+    fn the_real_registry() -> Value {
+        tools::ToolDispatcher::default_dispatcher().tool_schemas()
+    }
+
+    /// What `reply` becomes when `tools` are the tools the turn may call,
+    /// on every provider. Each provider must agree, and the agreed answer
+    /// is returned with the body the first one was sent.
+    async fn plan_from(
+        reply: &str,
+        tools: Value,
+    ) -> (std::result::Result<Vec<Value>, PlanUnavailable>, Value) {
+        let mut agreed: Option<(std::result::Result<Vec<Value>, PlanUnavailable>, Value)> = None;
+        for id in crate::SUPPORTED_PROVIDER_IDS {
+            let tools = tools.clone();
+            let (result, body) = serve_one_shot(id, reply, |cfg, http| async move {
+                fetch_plan(&cfg, &http, "SYSTEM-PROMPT", &[], "make it louder", &tools).await
+            })
+            .await;
+            match &agreed {
+                None => agreed = Some((result, body)),
+                Some((first, _)) => assert_eq!(
+                    format!("{first:?}"),
+                    format!("{result:?}"),
+                    "{id}: read the same reply differently"
+                ),
+            }
+        }
+        agreed.expect("at least one provider")
+    }
+
+    /// A step with neither a tool nor a description says nothing. The UI
+    /// drew it as a bare "—", and Run approved nothing the user could see
+    /// (#481).
+    #[tokio::test]
+    async fn a_step_with_neither_a_tool_nor_a_description_is_dropped() {
+        let reply = r#"<plan>[
+            {"step":1},
+            {"step":2,"tool":"","description":""},
+            {"step":3,"tool":"   ","description":"  "},
+            {"step":4,"tool":null,"description":null},
+            {"step":5,"tool":7,"description":{"text":"not a string"}},
+            "Add some reverb",
+            {"step":6,"tool":"set_track_gain","description":"Louder"}
+        ]</plan>"#;
+        let (result, _) = plan_from(reply, registry(&["set_track_gain"])).await;
+        assert_eq!(
+            result.expect("one step is real"),
+            vec![json!({"step":6,"tool":"set_track_gain","description":"Louder"})]
+        );
+    }
+
+    /// If every step is empty there is no plan, and the turn takes the same
+    /// path as `<plan>[]</plan>`: the notice, then the held first edit.
+    #[tokio::test]
+    async fn a_plan_of_only_empty_steps_is_no_plan() {
+        let reply = r#"<plan>[{"step":1,"tool":"","description":""},{"step":2}]</plan>"#;
+        let (result, _) = plan_from(reply, registry(&["set_track_gain"])).await;
+        assert!(
+            matches!(result, Err(PlanUnavailable::EmptyPlan)),
+            "a plan of nothing was accepted: {result:?}"
+        );
+    }
+
+    /// Opus at max effort wrote a step with words and no tool. The words
+    /// are something the user can read and approve, so it stays.
+    #[tokio::test]
+    async fn a_step_with_a_description_and_no_tool_is_kept() {
+        let reply = r#"<plan>[{"step":1,"description":"Listen back to the result"}]</plan>"#;
+        let (result, _) = plan_from(reply, registry(&["set_track_gain"])).await;
+        assert_eq!(
+            result.expect("a described step is a step"),
+            vec![json!({"step":1,"description":"Listen back to the result"})]
+        );
+    }
+
+    /// `none` is how a model says "no tool", not a tool. Neither is a name
+    /// it made up, or a real tool this turn is not permitted to call.
+    #[tokio::test]
+    async fn a_step_naming_none_or_a_tool_the_turn_does_not_have_is_dropped() {
+        let reply = r#"<plan>[
+            {"step":1,"tool":"none","description":""},
+            {"step":2,"tool":"None","description":"Tell the user"},
+            {"step":3,"tool":"add_marker","description":"Add marker Drop at 16 s"},
+            {"step":4,"tool":"echo","description":"Add an echo"},
+            {"step":5,"tool":"set_track_gain","description":"Louder"},
+            {"step":6,"tool":"Set_Track_Gain","description":"Wrong case"}
+        ]</plan>"#;
+        // `echo` is a real tool, but not one this turn may call.
+        let (result, _) = plan_from(reply, registry(&["set_track_gain", "reverse"])).await;
+        assert_eq!(
+            result.expect("one step names a permitted tool"),
+            vec![json!({"step":5,"tool":"set_track_gain","description":"Louder"})]
+        );
+    }
+
+    /// Haiku's plan for "split into stems" (#482): the two `none` steps are
+    /// gone, and the two that name registered tools are still there.
+    #[tokio::test]
+    async fn the_plan_haiku_wrote_for_stems_loses_its_none_steps() {
+        let reply = r#"<plan>[
+            {"step":1,"tool":"separate_stems","description":"Split track 0"},
+            {"step":2,"tool":"none","description":""},
+            {"step":3,"tool":"analyze_track","description":"Check the result"},
+            {"step":4,"tool":"none","description":""}
+        ]</plan>"#;
+        let (result, _) = plan_from(reply, the_real_registry()).await;
+        let steps = result.expect("two steps name real tools");
+        let tools: Vec<_> = steps.iter().map(|s| s["tool"].as_str().unwrap()).collect();
+        assert_eq!(tools, ["separate_stems", "analyze_track"]);
+    }
+
+    /// A plan whose every step is `none` or invented is no plan.
+    #[tokio::test]
+    async fn a_plan_of_only_unknown_tools_is_no_plan() {
+        let reply = r#"<plan>[
+            {"step":1,"tool":"none","description":""},
+            {"step":2,"tool":"add_region","description":"Region Outro"}
+        ]</plan>"#;
+        let (result, _) = plan_from(reply, the_real_registry()).await;
+        assert!(
+            matches!(result, Err(PlanUnavailable::EmptyPlan)),
+            "a plan with no real tool was accepted: {result:?}"
+        );
+    }
+
+    /// `separate_stems` and `transcribe` are registered, and their
+    /// inference is not shipped (#383-#385). A step naming one is kept, so
+    /// the user sees what was proposed, and marked, so the card can say it
+    /// will fail and not offer it as something that will work.
+    #[tokio::test]
+    async fn a_step_naming_a_not_implemented_tool_is_kept_and_marked() {
+        let reply = r#"<plan>[
+            {"step":1,"tool":"separate_stems","description":"Split track 0"},
+            {"step":2,"tool":"analyze_track","description":"Check the result"},
+            {"step":3,"tool":"transcribe","description":""}
+        ]</plan>"#;
+        let (result, _) = plan_from(reply, the_real_registry()).await;
+        assert_eq!(
+            result.expect("all three name registered tools"),
+            vec![
+                json!({"step":1,"tool":"separate_stems","description":"Split track 0","unavailable":true}),
+                json!({"step":2,"tool":"analyze_track","description":"Check the result"}),
+                json!({"step":3,"tool":"transcribe","description":"","unavailable":true}),
+            ]
+        );
+    }
+
+    /// The marker is read off the tools' own descriptions, so it is only as
+    /// good as those descriptions. This is the check that the two tools the
+    /// issue names still carry it, and that an ordinary tool does not.
+    #[test]
+    fn the_registered_stubs_are_recognised_and_working_tools_are_not() {
+        let registry = the_real_registry();
+        let flagged = |name: &str| -> bool {
+            let schema = registry
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|t| t["name"] == name)
+                .unwrap_or_else(|| panic!("{name} is not registered"));
+            is_not_implemented(schema)
+        };
+        for stub in ["separate_stems", "transcribe"] {
+            assert!(flagged(stub), "{stub} no longer reads as not implemented");
+        }
+        for working in ["analyze_track", "reverse", "set_track_gain", "label"] {
+            assert!(!flagged(working), "{working} reads as not implemented");
+        }
+    }
+
+    /// A plan that is right is passed on exactly as the model wrote it:
+    /// no key added, none removed, none renumbered.
+    #[tokio::test]
+    async fn a_fully_valid_plan_is_unchanged() {
+        let steps = vec![
+            json!({"step":1,"tool":"label","description":"Add marker 'Drop' at 16.0 s"}),
+            json!({"step":2,"tool":"label","description":"Add region 'Outro' from 24.0 s to 32.0 s"}),
+            json!({"step":3,"tool":"render_final","description":"Export to out.wav","note":"kept"}),
+        ];
+        let reply = format!("Here you go. <plan>{}</plan>", Value::Array(steps.clone()));
+        let (result, _) = plan_from(&reply, the_real_registry()).await;
+        assert_eq!(result.expect("a valid plan"), steps);
+    }
+
+    /// The instruction names the shape of a step, because a model that is
+    /// not told writes `action`, `name` or `args` and the card reads none
+    /// of them (#481). It also says what to answer when nothing needs
+    /// editing (`<plan>[]</plan>`, which the loop already treats as no plan).
+    #[tokio::test]
+    async fn the_plan_request_states_the_step_schema() {
+        let (_, body) = plan_from("<plan>[]</plan>", registry(&["set_track_gain"])).await;
+        let text = body.to_string();
+        // The body is JSON, so the quotes inside the instruction are escaped.
+        let schema = r#"[{"step":1,"tool":"<tool name>","description":"<what it does, with its arguments>"}]"#;
+        assert!(
+            text.contains(&schema.replace('"', "\\\"")),
+            "the step schema is not in the request: {text}"
+        );
+        assert!(
+            text.contains("<plan>[]</plan>"),
+            "no way to say 'no edits needed' in the request: {text}"
+        );
+    }
+
+    /// The plan request carries no tool schemas, so a model that is not
+    /// told the names writes ones it has seen elsewhere: `add_marker` and
+    /// `add_region` for the tool that is called `label`. The names offered
+    /// are the turn's permitted tools, and not the ones that do nothing in
+    /// this build.
+    #[tokio::test]
+    async fn the_plan_request_lists_the_tools_the_turn_may_call() {
+        let mut schemas = registry(&["set_track_gain", "reverse"]);
+        schemas.as_array_mut().unwrap().push(json!({
+            "name": "separate_stems",
+            "description": "NOT IMPLEMENTED IN THIS BUILD. Would split a track.",
+            "input_schema": { "type": "object" },
+        }));
+        let (_, body) = plan_from("<plan>[]</plan>", schemas).await;
+        let text = body.to_string();
+        assert!(text.contains("set_track_gain"), "{text}");
+        assert!(text.contains("reverse"), "{text}");
+        assert!(
+            !text.contains("separate_stems"),
+            "a tool that does nothing here was offered: {text}"
+        );
+        assert!(!text.contains("echo"), "a tool outside the turn: {text}");
+    }
+
+    /// With no tool permitted there is nothing to list, and the request must
+    /// not claim there is.
+    #[test]
+    fn a_turn_with_no_tools_is_told_so() {
+        let instruction = plan_instruction(&Value::Array(vec![]));
+        assert!(instruction.contains("<plan>[]</plan>"), "{instruction}");
+        assert!(
+            !instruction.contains("exactly one of"),
+            "an empty list was presented as a choice: {instruction}"
+        );
     }
 
     #[tokio::test]
@@ -1841,7 +2265,15 @@ mod tests {
         for id in crate::SUPPORTED_PROVIDER_IDS {
             let (steps, body) = serve_one_shot(id, plan, |cfg, http| async move {
                 let cfg = cfg.with_effort(Effort::XHigh);
-                fetch_plan(&cfg, &http, "SYSTEM-PROMPT", &[], "make it louder").await
+                fetch_plan(
+                    &cfg,
+                    &http,
+                    "SYSTEM-PROMPT",
+                    &[],
+                    "make it louder",
+                    &registry(&["set_track_gain"]),
+                )
+                .await
             })
             .await;
             assert!(steps.is_ok(), "{id}: {steps:?}");
@@ -1867,7 +2299,15 @@ mod tests {
         let plan = r#"<plan>[{"step":1,"tool":"set_track_gain","description":"Louder"}]</plan>"#;
         for id in crate::SUPPORTED_PROVIDER_IDS {
             let (steps, body) = serve_one_shot(id, plan, |cfg, http| async move {
-                fetch_plan(&cfg, &http, "SYSTEM-PROMPT", &[], "make it louder").await
+                fetch_plan(
+                    &cfg,
+                    &http,
+                    "SYSTEM-PROMPT",
+                    &[],
+                    "make it louder",
+                    &registry(&["set_track_gain"]),
+                )
+                .await
             })
             .await;
             assert!(steps.is_ok(), "{id}: {steps:?}");

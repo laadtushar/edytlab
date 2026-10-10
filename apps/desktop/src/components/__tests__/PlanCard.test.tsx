@@ -130,8 +130,10 @@ describe("PlanCard (inside Chat)", () => {
     });
 
     const card = screen.getByTestId("plan-approval-card");
-    expect(card.textContent).toContain("reverse");
-    expect(card.textContent).toContain("track: 0");
+    // The tool is named the way its badge names it, not by its
+    // registered name (#481).
+    expect(card.textContent).toContain("Reverse — track: 0");
+    expect(card.textContent).not.toContain("reverse");
     expect(card.textContent).toContain("1 step");
     expect(card.textContent).not.toContain("1 steps");
     expect(card.textContent).toContain("Plan");

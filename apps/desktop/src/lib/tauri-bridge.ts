@@ -484,6 +484,11 @@ export const getPlanFirst = (): Promise<boolean> =>
  * would change the session (#415). The steps of a held edit are its
  * concrete tool calls, one `{step, tool, description}` per call, with the
  * arguments it will run with as the description.
+ *
+ * A model's plan is checked first: steps that name nothing, or a tool the
+ * turn cannot call, are dropped. A step whose tool does nothing in this
+ * build carries `unavailable: true` (#482). The payload is still the
+ * model's JSON, so nothing in it is guaranteed; see `toPlanStep`.
  */
 export const onPlan = (
   cb: (steps: Record<string, unknown>[]) => void,

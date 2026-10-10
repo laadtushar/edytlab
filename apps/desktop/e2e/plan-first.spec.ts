@@ -73,7 +73,8 @@ async function holdAnEdit(app: App) {
 
   const card = page.getByTestId("plan-approval-card");
   await expect(card).toBeVisible();
-  await expect(card).toContainText("reverse");
+  // The tool is named the way its badge names it (#481).
+  await expect(card).toContainText("Reverse");
   await expect(card).toContainText("track: 0");
   await expect(card).toContainText("1 step");
   await expect(card).not.toContainText("1 steps");

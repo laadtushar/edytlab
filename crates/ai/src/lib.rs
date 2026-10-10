@@ -280,6 +280,12 @@ pub enum AgentEvent {
     /// that would change the session (#415); the steps are then that
     /// step's concrete tool calls, one `{step, tool, description}` per
     /// call, `description` being the arguments it will run with.
+    ///
+    /// A plan the model wrote has been checked (#481, #482): a step with
+    /// neither a tool nor a description is gone, and so is one that names
+    /// `none` or a tool this turn cannot call. A step that names a tool
+    /// which does nothing in this build is kept and carries
+    /// `"unavailable": true`. Any other step is the model's, as written.
     Plan { steps: Vec<serde_json::Value> },
     /// The user declined. The turn ends having run nothing that changes
     /// the session and appended no node.
