@@ -401,7 +401,8 @@ pub async fn save_project_as<R: Runtime>(
     let report = {
         let dest_path = dest_path.clone();
         blocking(&state, move |state| {
-            let report = crate::project::copy_project(&src, &dest_path).map_err(CommandError::Io)?;
+            let report =
+                crate::project::copy_project(&src, &dest_path).map_err(CommandError::Io)?;
 
             // Continue in the copy. Leaving the original open would make
             // Save As a backup button, which is a different feature with a
