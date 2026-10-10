@@ -92,7 +92,7 @@ edytlab/
     ├── mcp/                      # MCP server lifecycle + JSON-RPC dispatch
     ├── memory/                   # Global/project markdown memory fragments
     ├── ml-demucs/                # Stem separation via ONNX Demucs (inference is a stub, #385)
-    ├── ml-pipeline/              # Shared ONNX runtime + model cache (model download is a stub, #383)
+    ├── ml-pipeline/              # Shared ONNX runtime gate, model downloader (no callers yet) and inference cache (runtime not shipped, #383)
     ├── ml-whisper/               # Transcription via ONNX Whisper-base (decoder is a stub, #384)
     ├── recorder/                 # Microphone capture to WAV (cpal)
     ├── session/                  # DAG data model, node store, fork/diff/compare
@@ -111,7 +111,8 @@ apps/desktop/src-tauri
     │       │   └── crates/audio-decoder
     │       ├── crates/ml-demucs
     │       │   └── crates/ml-pipeline
-    │       └── crates/ml-whisper     (uses `ort` directly, not ml-pipeline)
+    │       └── crates/ml-whisper
+    │           └── crates/ml-pipeline    (the ONNX Runtime gate only; it builds its own `ort` session)
     ├── crates/recorder           (cpal input)
     ├── crates/memory
     ├── crates/skills
@@ -692,7 +693,11 @@ A whole-session render that reduces to one track playing one source untouched is
 // Model files: loaded from disk, cached by blake3 hash
 ```
 
-The runtime is loaded dynamically from `ORT_DYLIB_PATH` (or a `libonnxruntime` next to the binary). This avoids linking ONNX into the binary (reduces binary size; allows model updates without recompilation). Nothing ships that library or sets that variable yet, and `ml_pipeline::download::fetched_model_path` always errors, so no model can load in a user's install — shipping the runtime and fetching models is [#383](https://github.com/laadtushar/edytlab/issues/383).
+The runtime is loaded dynamically from `ORT_DYLIB_PATH` (or a `libonnxruntime` next to the binary). This avoids linking ONNX into the binary (reduces binary size; allows model updates without recompilation).
+
+`ml_pipeline::runtime::ensure()` does the loading, and every code path that builds an `ort` session (`ModelRegistry::load`, `WhisperModel::load`, `DemucsModel::load`) calls it first. It looks at `ORT_DYLIB_PATH` (a relative path is resolved against the executable's directory only), then the library file name next to the executable. There is no working-directory, bare-name or system search: a library found in the directory the app was started from could have been planted there (CWE-427), and a system copy may be the wrong version. A candidate that is not an absolute path is refused outright, because the file that was checked and the file the system loader then opens could be two different files. `ort` 2.0.0-rc.12 cannot report a library it fails to load: building the error re-enters its own initialisation and the thread blocks forever (through `ort::init_from` too). So `ensure()` opens the library itself and makes the checks `ort` would (the `OrtGetApiBase` entry point, version 1.24 or newer, the C API version), and hands it to `ort::init_from` only once they pass. A missing library is `Error::MissingRuntime { searched }` and one that fails the checks is `Error::RuntimeLoad`, where a model load used to hang while the agent held the dispatcher, store and engine locks. The tools turn either into a tool error that still says the feature is not implemented.
+
+`ml_pipeline::fetched_model_path` downloads, verifies and caches a pinned artifact (URL, size and SHA-256 per file): it streams to a `.part` file, resumes with `Range`, re-hashes the `.part` from disk before renaming it into place, refuses a truncated or wrong-hash file and fetches it again once, can be cancelled, and runs its HTTP request on its own thread so it is safe to call from async code. It holds an OS lock on `<root>/<id>.lock` for the length of a fetch, so a second edytlab process (or the CLI) on the same data directory waits instead of writing into the same `.part`, and the re-hash means a writer that ignores the lock still cannot get an unverified file given its final name. Only https URLs are accepted (plain http only for localhost), and at most five redirects are followed. It has no callers and no model is pinned, so nothing is downloaded today. Nothing ships the runtime library or sets `ORT_DYLIB_PATH` yet, so no model can load in a user's install. Shipping the runtime and the download UI is the rest of [#383](https://github.com/laadtushar/edytlab/issues/383).
 
 ### Whisper (Transcription)
 

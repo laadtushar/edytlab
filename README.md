@@ -132,7 +132,7 @@ crates/
   mcp/                MCP server config, lifecycle and JSON-RPC
   ml-demucs/          Stem separation (inference is a stub, #385)
   ml-whisper/         Transcription (decoder is a stub, #384)
-  ml-pipeline/        Shared ONNX runner + model cache (model download is a stub, #383)
+  ml-pipeline/        Shared ONNX runtime gate, verified model downloader (no callers yet) + inference cache (#383)
 docs/                 Specs, handover, packaging notes
 .github/workflows/    CI, auto-release, unsigned dev/release and signed release pipelines
 tests/                Shared fixture notes and golden-data placeholders

@@ -22,6 +22,9 @@ workspace = true
 ort = { version = "2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "load-dynamic", "api-24"] }
 ndarray = "0.16"
 audio-decoder = { path = "../audio-decoder" }
+# The runtime gate: `ort` hangs, rather than erroring, when the ONNX Runtime
+# library is missing, so `WhisperModel::load` asks ml-pipeline first.
+ml-pipeline = { path = "../ml-pipeline" }
 rubato = "0.16"
 thiserror = "2"
 

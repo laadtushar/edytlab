@@ -12,12 +12,25 @@ workspace = true
 [dependencies]
 # Match ml-whisper's `ort` configuration exactly so the workspace pulls a
 # single ONNX Runtime crate. `load-dynamic` keeps the build offline-friendly:
-# the host process dlopens libonnxruntime.{so,dylib,dll} via ORT_DYLIB_PATH
-# at first session creation. Tests gracefully skip when the runtime is
-# absent. Execution-provider opt-ins (CoreML, CUDA) are dispatched at
-# runtime through `load-dynamic`; nothing here cargo-feature-gates them
-# because the per-target gating happens via `cfg(target_os = ...)`.
+# the host process dlopens libonnxruntime.{so,dylib,dll} at first use, and
+# `runtime::ensure` decides which file that is (`ort` itself deadlocks on a
+# library it cannot load). Tests that need the runtime are `#[ignore]`d.
+# Execution-provider opt-ins (CoreML, CUDA) are dispatched at runtime
+# through `load-dynamic`; nothing here cargo-feature-gates them because the
+# per-target gating happens via `cfg(target_os = ...)`.
 ort = { version = "2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "load-dynamic", "api-24"] }
+# `runtime::ensure` checks a library before `ort` sees it. The version
+# `ort` itself uses, so the workspace builds one copy.
+libloading = "0.9"
+# The model downloader (`download.rs`). `rustls-tls` and `blocking` match
+# the `mcp` crate, so the workspace links one HTTP and TLS stack.
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+sha2 = "0.10"
+# The cross-process lock on an artifact (`download.rs`): `flock` on Unix,
+# `LockFileEx` on Windows, over a plain `std::fs::File`. Its `FileExt`
+# mirrors the `File::try_lock` that std stabilised in Rust 1.89, so this
+# crate can go once the toolchain pin (1.88) moves past that.
+fs4 = "1.1"
 blake3 = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -27,3 +40,6 @@ tracing = "0.1"
 
 [dev-dependencies]
 tempfile = "3"
+# `tests/download.rs` calls the downloader from inside a runtime, as the
+# async Tauri commands do.
+tokio = { version = "1", features = ["rt"] }

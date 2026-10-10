@@ -17,8 +17,11 @@
 //!   to install ONNX Runtime built with CUDA support.
 //!
 //! `ort` is configured with `load-dynamic` (matching `ml-whisper`'s
-//! Phase-1 setup), so session creation will fail with a helpful
-//! `Error::Ort` if `ORT_DYLIB_PATH` is unset or the dylib is missing.
+//! Phase-1 setup). With that, `ort` itself **hangs** (deadlocks) if the
+//! ONNX Runtime library is missing, so [`build_session`] calls
+//! [`runtime::ensure`](crate::runtime::ensure) before it touches any `ort`
+//! API; a missing or unloadable library is [`Error::MissingRuntime`] or
+//! [`Error::RuntimeLoad`].
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -168,6 +171,10 @@ fn build_session(path: &Path, ep: ExecProvider) -> Result<Session> {
             format!("model file not found: {}", path.display()),
         )));
     }
+
+    // Before any `ort` call: `Session::builder()` never returns, rather
+    // than erroring, when the library is missing. See `runtime`.
+    crate::runtime::ensure()?;
 
     let builder = Session::builder()?;
     let mut builder = apply_execution_provider(builder, ep)?;

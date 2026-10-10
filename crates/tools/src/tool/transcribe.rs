@@ -7,15 +7,19 @@
 //! is ever appended. The steps above describe the shape the tool will
 //! have, not what it does today (#233).
 //!
-//! The two failure paths differ only in wording:
+//! The failure paths differ only in wording:
 //!
 //! - no model configured — `WHISPER_MODEL_PATH` unset or naming a file
 //!   that is not there;
+//! - a model configured but no ONNX Runtime library to load it with —
+//!   [`WhisperError::RuntimeUnavailable`] (this used to hang the agent,
+//!   #383);
 //! - a model configured and loaded — [`WhisperError::NotImplemented`].
 //!
-//! Neither is a setup problem, and neither message suggests one. The
-//! first used to be called an "install hint" and to name a fetch-models
-//! script that has never existed in this repository.
+//! None is a setup problem: every message ends by saying no setup makes
+//! transcription work. The first used to be called an "install hint" and
+//! to name a fetch-models script that has never existed in this
+//! repository.
 //!
 //! Side effect, once a decoder lands: the new session head's
 //! `state.transcript` is set to the produced words, and the result JSON
@@ -137,6 +141,14 @@ impl Tool for TranscribeTool {
                 return Ok(ToolResult::Error(format!(
                     "Whisper model not found at {path}; {INSTALL_HINT}"
                 )))
+            }
+            // No ONNX Runtime library. Only the reason goes in: the error's
+            // own text repeats "not implemented in this build" (the hint
+            // already says it) and the agent reads whatever it is given as
+            // something to act on. The hint is the sentence it is told never
+            // to contradict, so it is appended as for a missing model.
+            Err(WhisperError::RuntimeUnavailable(reason)) => {
+                return Ok(ToolResult::Error(format!("{reason}; {INSTALL_HINT}")))
             }
             Err(e) => return Ok(ToolResult::Error(format!("model load failed: {e}"))),
         };
