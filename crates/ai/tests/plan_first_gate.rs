@@ -726,6 +726,42 @@ async fn mashup_without_plan_first_keeps_the_notice_only() {
     assert_eq!(events.last(), Some(&Ev::Done));
 }
 
+/// #494: with Plan first off, only a request the classifier calls a mashup
+/// is planned, and a plan is held at a card. The classifier answered a
+/// plain question with "general" and then a sentence naming the other
+/// labels, and the old `contains` parse read that as a mashup.
+#[tokio::test]
+async fn a_question_whose_classifier_answer_names_the_labels_is_not_planned() {
+    let mut fx = Fixture::new(
+        false,
+        None,
+        vec![
+            ok(classifier_json(
+                "general\n\nThe user asks about mashup, mix and voice edits.",
+            )),
+            ok(sse_text("Trims, fades, EQ and tempo changes.")),
+        ],
+    )
+    .await;
+
+    let (result, events) = fx
+        .turn(
+            "In one sentence, what kinds of edits can you make for me? Don't change anything.",
+            approve,
+        )
+        .await;
+    result.expect("turn");
+
+    assert!(cards(&events).is_empty(), "a question opened a gate");
+    assert!(
+        !events.iter().any(|e| matches!(e, Ev::Unavailable { .. })),
+        "a plan was asked for: {events:#?}"
+    );
+    assert_eq!(events.last(), Some(&Ev::Done));
+    // The classifier, then the answer. A plan request would be a third.
+    assert_eq!(fx.requests().await.len(), 2);
+}
+
 // ---------------------------------------------------------------------
 // Revising the held step
 // ---------------------------------------------------------------------
