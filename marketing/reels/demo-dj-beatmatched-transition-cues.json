@@ -1,0 +1,291 @@
+{
+  "video": "dj-beatmatched-transition.mp4",
+  "duration": 187.733,
+  "audio_dir": "audio/demo-dj-beatmatched-transition",
+  "narration_voice": "Roger - Laid-Back, Casual, Resonant (CwhRBWXzGAHq8TQ4Fs17)",
+  "narration_model": "eleven_v4",
+  "cues": [
+    {
+      "id": "BT01",
+      "kind": "title",
+      "start": 0.0,
+      "end": 2.4,
+      "onscreen": "A DJ blends Midnight Drive (120 BPM) into Neon Rush (128 BPM)",
+      "max_seconds": 2.1,
+      "max_words": 5,
+      "narration": "Blending two tracks.",
+      "narration_spoken": "Blending two tracks.",
+      "narration_display": "Blending two tracks.",
+      "words": 3,
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT01",
+        "start": 0.0,
+        "end": 2.4
+      },
+      "clip": "BT01.mp3",
+      "clip_speech_seconds": 1.68
+    },
+    {
+      "id": "BT02",
+      "kind": "step",
+      "start": 2.4,
+      "end": 10.2,
+      "onscreen": "Open the tracks",
+      "max_seconds": 7.5,
+      "max_words": 18,
+      "narration": "First, open both tracks.",
+      "narration_spoken": "First, open both tracks.",
+      "narration_display": "First, open both tracks.",
+      "words": 4,
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT02",
+        "start": 2.4,
+        "end": 10.2
+      },
+      "clip": "BT02.mp3",
+      "clip_speech_seconds": 2.24
+    },
+    {
+      "id": "BT03",
+      "kind": "listen",
+      "start": 10.2,
+      "end": 22.33,
+      "onscreen": "Before: both tracks from the top, 120 against 128 BPM",
+      "max_seconds": 4.56,
+      "max_words": 10,
+      "narration": "From the top: {120|one twenty} against {128|one twenty-eight}.",
+      "narration_spoken": "From the top: one twenty against one twenty-eight.",
+      "narration_display": "From the top: 120 against 128.",
+      "words": 8,
+      "voice_end": 15.06,
+      "note": "app audio plays after the voice window: the line is only a lead-in, narration stays silent over the music",
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT03",
+        "start": 10.2,
+        "end": 22.33
+      },
+      "audio_window": [
+        15.06,
+        20.68
+      ],
+      "clip": "BT03.mp3",
+      "clip_speech_seconds": 4.0
+    },
+    {
+      "id": "BT04",
+      "kind": "step",
+      "start": 22.33,
+      "end": 35.73,
+      "onscreen": "1 · What am I working with?",
+      "max_seconds": 13.1,
+      "max_words": 31,
+      "narration": "{1|One}: ask what you're working with: tempo and key.",
+      "narration_spoken": "One: ask what you're working with: tempo and key.",
+      "narration_display": "1: ask what you're working with: tempo and key.",
+      "words": 9,
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT04",
+        "start": 22.33,
+        "end": 35.73
+      },
+      "clip": "BT04.mp3",
+      "clip_speech_seconds": 4.24
+    },
+    {
+      "id": "BT05",
+      "kind": "step",
+      "start": 35.73,
+      "end": 48.6,
+      "onscreen": "2 · Beatmatch",
+      "max_seconds": 12.57,
+      "max_words": 30,
+      "narration": "{2|Two}: beatmatch. Neon Rush stretches down to {120|one twenty}.",
+      "narration_spoken": "Two: beatmatch. Neon Rush stretches down to one twenty.",
+      "narration_display": "2: beatmatch. Neon Rush stretches down to 120.",
+      "words": 9,
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT05",
+        "start": 35.73,
+        "end": 48.6
+      },
+      "clip": "BT05.mp3",
+      "clip_speech_seconds": 4.8
+    },
+    {
+      "id": "BT06",
+      "kind": "step",
+      "start": 48.6,
+      "end": 63.87,
+      "onscreen": "3 · Line up the overlap",
+      "max_seconds": 14.97,
+      "max_words": 35,
+      "narration": "{3|Three}: line up the overlap, under the last {8|eight} bars.",
+      "narration_spoken": "Three: line up the overlap, under the last eight bars.",
+      "narration_display": "3: line up the overlap, under the last 8 bars.",
+      "words": 10,
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT06",
+        "start": 48.6,
+        "end": 63.87
+      },
+      "clip": "BT06.mp3",
+      "clip_speech_seconds": 4.32
+    },
+    {
+      "id": "BT07",
+      "kind": "step",
+      "start": 63.87,
+      "end": 87.73,
+      "onscreen": "4 · Blend: crossfade, low-pass on the outgoing track",
+      "max_seconds": 23.56,
+      "max_words": 56,
+      "narration": "{4|Four}: crossfade, with a low-pass on the outgoing track.",
+      "narration_spoken": "Four: crossfade, with a low-pass on the outgoing track.",
+      "narration_display": "4: crossfade, with a low-pass on the outgoing track.",
+      "words": 9,
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT07",
+        "start": 63.87,
+        "end": 87.73
+      },
+      "clip": "BT07.mp3",
+      "clip_speech_seconds": 4.32
+    },
+    {
+      "id": "BT08",
+      "kind": "listen",
+      "start": 87.73,
+      "end": 110.67,
+      "onscreen": "Listen: the transition, from 0:12",
+      "max_seconds": 4.27,
+      "max_words": 10,
+      "narration": "Have a listen.",
+      "narration_spoken": "Have a listen.",
+      "narration_display": "Have a listen.",
+      "words": 3,
+      "voice_end": 92.3,
+      "note": "app audio plays after the voice window: the line is only a lead-in, narration stays silent over the music",
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT08",
+        "start": 87.73,
+        "end": 110.67
+      },
+      "audio_window": [
+        92.3,
+        108.9
+      ],
+      "clip": "BT08.mp3",
+      "clip_speech_seconds": 0.88
+    },
+    {
+      "id": "BT09",
+      "kind": "step",
+      "start": 110.67,
+      "end": 155.93,
+      "onscreen": "5 · Master for streaming",
+      "max_seconds": 44.96,
+      "max_words": 107,
+      "narration": "{5|Five}: master it for streaming.",
+      "narration_spoken": "Five: master it for streaming.",
+      "narration_display": "5: master it for streaming.",
+      "words": 5,
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT09",
+        "start": 110.67,
+        "end": 155.93
+      },
+      "clip": "BT09.mp3",
+      "clip_speech_seconds": 2.64
+    },
+    {
+      "id": "BT10",
+      "kind": "step",
+      "start": 155.93,
+      "end": 167.0,
+      "onscreen": "6 · Export",
+      "max_seconds": 10.77,
+      "max_words": 25,
+      "narration": "{6|Six}: export the file.",
+      "narration_spoken": "Six: export the file.",
+      "narration_display": "6: export the file.",
+      "words": 4,
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT10",
+        "start": 155.93,
+        "end": 167.0
+      },
+      "clip": "BT10.mp3",
+      "clip_speech_seconds": 2.24
+    },
+    {
+      "id": "BT11",
+      "kind": "listen",
+      "start": 167.0,
+      "end": 183.6,
+      "onscreen": "The mastered mix, from 0:20",
+      "max_seconds": 4.01,
+      "max_words": 9,
+      "narration": "Now, the mastered mix.",
+      "narration_spoken": "Now, the mastered mix.",
+      "narration_display": "Now, the mastered mix.",
+      "words": 4,
+      "voice_end": 171.31,
+      "note": "app audio plays after the voice window: the line is only a lead-in, narration stays silent over the music",
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT11",
+        "start": 167.0,
+        "end": 183.6
+      },
+      "audio_window": [
+        171.31,
+        181.95
+      ],
+      "clip": "BT11.mp3",
+      "clip_speech_seconds": 1.84
+    },
+    {
+      "id": "BT12",
+      "kind": "step",
+      "start": 183.6,
+      "end": 187.733,
+      "onscreen": "Done: midnight-into-neon.wav, 0:50, -14 LUFS",
+      "max_seconds": 3.833,
+      "max_words": 9,
+      "narration": "Done: {50|fifty} seconds, {-14|minus fourteen} {LUFS|loofs}.",
+      "narration_spoken": "Done: fifty seconds, minus fourteen loofs.",
+      "narration_display": "Done: 50 seconds, -14 LUFS.",
+      "words": 6,
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT12",
+        "start": 183.6,
+        "end": 187.733
+      },
+      "clip": "BT12.mp3",
+      "clip_speech_seconds": 3.84
+    }
+  ]
+}

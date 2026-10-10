@@ -1,0 +1,1 @@
+Four: crossfade, with a low-pass on the outgoing track.
