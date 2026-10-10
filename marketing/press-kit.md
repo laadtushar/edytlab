@@ -29,13 +29,13 @@ github.com/laadtushar/edytlab.
 ## Fact sheet
 
 Every line below was checked against the repository or the GitHub release on
-2026-10-09.
+2026-10-10.
 
 | | |
 |---|---|
 | Name | edytlab |
 | What it is | Desktop audio editor driven by an AI agent |
-| Latest version | 0.3.0, published 2026-10-09 |
+| Latest version | 0.4.0, published 2026-10-09 |
 | License | MIT |
 | Repository created | 2026-05-05 |
 | Platforms | macOS (one universal build for Apple Silicon and Intel), Windows 10 and 11, Linux |
@@ -47,7 +47,7 @@ Every line below was checked against the repository or the GitHub release on
 | Tools | 93 deterministic tools the agent can call (generated list: `docs/tools-reference.md`) |
 | AI providers | Anthropic, OpenAI, OpenRouter, Groq, Gemini and Ollama (local, no key) |
 | Where audio goes | Nowhere. Processing is local. Only chat text goes to the chosen provider. |
-| Telemetry | None in the app; no analytics on the website |
+| Telemetry | None in the desktop app. The website uses anonymous Vercel analytics (page views and page performance, no cookies) |
 | Keys | Stored in the operating system's credential store |
 | History | Branchable graph of edits with fork, A/B compare and undo |
 | Optional safety | "Plan first" mode shows the agent's steps for approval before they run |

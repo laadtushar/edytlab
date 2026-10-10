@@ -43,7 +43,8 @@ Your audio is never uploaded. The only thing that leaves the machine is the
 chat (your prompts, the agent's context and tool results) going to whichever
 provider you pick: Anthropic, OpenAI, OpenRouter, Groq, Gemini, or Ollama. With
 Ollama there is no key and the chat stays on your machine too. The app has no
-telemetry and the website has no analytics.
+telemetry. The website, which is separate, uses Vercel's anonymous analytics
+(page views and page performance, no cookies); the privacy page says so.
 
 **How it is built.**
 
@@ -92,7 +93,7 @@ Many commits carry a `Co-Authored-By: Claude` trailer, and the repo has a
 3. If you do DSP: the vocoder and the limiter are the two places I expect the
    most justified criticism.
 
-Download (unsigned v0.3.0): https://github.com/laadtushar/edytlab/releases/latest
+Download (unsigned v0.4.0): https://github.com/laadtushar/edytlab/releases/latest
 Source: https://github.com/laadtushar/edytlab
 
 ---
