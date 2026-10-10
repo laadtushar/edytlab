@@ -28,7 +28,7 @@ impl Tool for LimiterTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "limiter",
-            "Peak limiter: turns the gain down just enough that no sample exceeds ceiling_db, then lets it recover smoothly over release_ms. Transients are tamed without the harmonic distortion of hard clipping, and all channels share one gain so the stereo image holds. Zero latency; the ceiling is a sample-peak ceiling, not an inter-sample true-peak one. Prevents digital clipping. Appends a new session node.",
+            "Peak limiter: turns the gain down just enough that no sample exceeds ceiling_db, then lets it recover smoothly over release_ms. Transients are tamed without the harmonic distortion of hard clipping, and all channels share one gain so the stereo image holds. Zero latency; the ceiling is a sample-peak ceiling, not an inter-sample true-peak one. Prevents digital clipping. This edit is baked into one track's audio; to limit the whole mix, and keep it limited as tracks change, use add_effect with scope \"master\" instead. Appends a new session node.",
             serde_json::json!({
                 "type": "object",
                 "properties": {

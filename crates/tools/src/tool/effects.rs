@@ -1,4 +1,4 @@
-//! Per-track effect chain tools (#102).
+//! Effect chain tools: a track's chain (#102) or the master bus's (#460).
 //!
 //! Every other effect in this crate is **baked**: `reverb` decodes the
 //! track, processes it, writes a new content-addressed WAV and repoints
@@ -11,6 +11,24 @@
 //! model rather than a bigger feature, which is why these five tools
 //! exist alongside the destructive ones rather than replacing them.
 //!
+//! ## The master bus
+//!
+//! The same five tools edit the master chain, `SessionState::master_chain`,
+//! when called with `scope: "master"` in place of a `track`. That chain
+//! has rendered since #110 and the diff layer has had `EffectScope::Master`
+//! for as long, but nothing could write to it. "A limiter on the master"
+//! was met by rendering every track into a new "Master" track and muting
+//! the sources: a baked mix, which goes stale the moment a source track is
+//! edited.
+//!
+//! The target is a second argument rather than a second set of tools or a
+//! union-typed `track`. Five more tools would have been five more
+//! descriptions in every request and a second copy of every check, and a
+//! `track` that is sometimes an integer and sometimes `"master"` is a
+//! schema shape no other tool here uses and not every provider accepts.
+//! `track` stays what it always was, so a call written before the scope
+//! existed means what it meant.
+//!
 //! Which kinds actually render is decided by
 //! `audio_engine::effect_chain`, not here. Validating the kind at
 //! add-time would duplicate that registry and the two would drift; a
@@ -20,17 +38,115 @@
 
 use serde::Deserialize;
 use serde_json::{json, Value};
-use session::EffectInstance;
+use session::{EffectInstance, SessionState};
 
 use crate::schema::anthropic_tool;
 use crate::tool::util::{append_state, check_track_index, load_head_state};
 use crate::{Tool, ToolContext, ToolResult};
 
-/// Look up a track's chain, or an actionable error naming the range.
-fn check_effect_index(len: usize, index: usize, track: usize) -> Result<(), String> {
+/// Which chain a call edits, as the model writes it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum Scope {
+    Track,
+    Master,
+}
+
+/// The chain a call edits, once its `scope` and `track` have been read
+/// together.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Target {
+    Track(usize),
+    Master,
+}
+
+impl Target {
+    /// Read the two arguments as one. `track` alone is a track, which is
+    /// every call made before `scope` existed; `scope: "master"` is the
+    /// master bus and has no index to give.
+    ///
+    /// Each mistake gets its own message, because each has its own fix:
+    /// the call that left both out needs to learn the master exists, and
+    /// the one that gave both needs to learn the master has no index.
+    fn resolve(scope: Option<Scope>, track: Option<usize>) -> Result<Self, String> {
+        match (scope, track) {
+            (None | Some(Scope::Track), Some(track)) => Ok(Self::Track(track)),
+            (Some(Scope::Master), None) => Ok(Self::Master),
+            (Some(Scope::Master), Some(track)) => Err(format!(
+                "scope \"master\" edits the master bus, which has no track index; drop `track` \
+                 (got {track}), or drop scope to edit track {track}'s chain"
+            )),
+            (Some(Scope::Track), None) => Err(
+                "scope \"track\" needs `track`, the index of the track whose chain to edit"
+                    .to_string(),
+            ),
+            (None, None) => Err(
+                "say which chain to edit: `track` (a track index) for that track's chain, or \
+                 scope \"master\" for the master bus, which processes the whole mix"
+                    .to_string(),
+            ),
+        }
+    }
+
+    /// For a sentence: "track 2" or "the master bus".
+    fn describe(self) -> String {
+        match self {
+            Self::Track(track) => format!("track {track}"),
+            Self::Master => "the master bus".to_string(),
+        }
+    }
+
+    /// For a node label: "track 2" or "master".
+    fn label(self) -> String {
+        match self {
+            Self::Track(track) => format!("track {track}"),
+            Self::Master => "master".to_string(),
+        }
+    }
+
+    /// The chain this target names in `state`, or the error for a track
+    /// that is not there.
+    fn chain(self, state: &mut SessionState) -> Result<&mut Vec<EffectInstance>, String> {
+        match self {
+            Self::Track(track) => {
+                check_track_index(&state.tracks, track)?;
+                Ok(&mut state.tracks[track].effects)
+            }
+            Self::Master => Ok(&mut state.master_chain),
+        }
+    }
+}
+
+/// The `scope` property, shared so the five tools word it alike.
+fn scope_property() -> Value {
+    json!({
+        "type": "string",
+        "enum": ["track", "master"],
+        "description": "Which chain to edit. \"track\" (the default when `track` is given) is \
+            one track's chain. \"master\" is the master bus, where every track is summed: an \
+            effect there processes the whole mix, and keeps processing it when a track is \
+            edited later. Omit `track` when scope is \"master\"."
+    })
+}
+
+/// The `track` property, optional now that the master bus needs none.
+fn track_property() -> Value {
+    json!({
+        "type": "integer",
+        "minimum": 0,
+        "description": "Zero-based track index. Required unless scope is \"master\"."
+    })
+}
+
+/// Look up an effect in a chain, or an actionable error naming the range.
+fn check_effect_index(len: usize, index: usize, target: Target) -> Result<(), String> {
     if index >= len {
+        let whose = match target {
+            Target::Track(track) => format!("track {track} has"),
+            Target::Master => "the master bus has".to_string(),
+        };
         return Err(format!(
-            "effect index {index} out of range; track {track} has {len} effect{}",
+            "effect index {index} out of range; {whose} {len} effect{}",
             if len == 1 { "" } else { "s" }
         ));
     }
@@ -41,7 +157,10 @@ fn check_effect_index(len: usize, index: usize, track: usize) -> Result<(), Stri
 
 #[derive(Debug, Deserialize)]
 struct AddArgs {
-    track: usize,
+    #[serde(default)]
+    scope: Option<Scope>,
+    #[serde(default)]
+    track: Option<usize>,
     kind: String,
     #[serde(default)]
     params: Option<Value>,
@@ -60,15 +179,21 @@ impl Tool for AddEffectTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "add_effect",
-            "Add a non-destructive effect to a track's chain. Unlike the destructive effect \
-             tools, the parameters stay editable afterwards — set_effect_params can change them \
-             without re-running anything, because the effect is applied at render rather than \
-             baked into a new file. Effects apply in chain order, after track gain and volume \
-             automation and before pan. Appends a new session node.",
+            "Add a non-destructive effect to a track's chain, or to the master bus with scope \
+             \"master\". Unlike the destructive effect tools, the parameters stay editable \
+             afterwards — set_effect_params can change them without re-running anything, because \
+             the effect is applied at render rather than baked into a new file. A track's effects \
+             apply in chain order, after track gain and volume automation and before pan. The \
+             master bus is where every track is summed, after sends: use scope \"master\" for a \
+             limiter, a filter or a gain on the whole mix, for example \"a limiter on the master \
+             at -1 dB\". It stays live when a track is edited later, which a mix rendered into a \
+             new track with mix_to_new_track does not, so prefer it to mixing down. Appends a new \
+             session node.",
             json!({
                 "type": "object",
                 "properties": {
-                    "track": { "type": "integer", "minimum": 0 },
+                    "scope": scope_property(),
+                    "track": track_property(),
                     "kind": {
                         "type": "string",
                         "description": "Effect kind, e.g. gain, limiter, low_pass_filter, high_pass_filter, notch_filter."
@@ -83,7 +208,7 @@ impl Tool for AddEffectTool {
                         "description": "Index in the chain. Appended to the end when omitted."
                     }
                 },
-                "required": ["track", "kind"]
+                "required": ["kind"]
             }),
         )
     }
@@ -93,14 +218,18 @@ impl Tool for AddEffectTool {
             Ok(a) => a,
             Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
         };
+        let target = match Target::resolve(args.scope, args.track) {
+            Ok(t) => t,
+            Err(e) => return Ok(ToolResult::Error(e)),
+        };
         let mut state = match load_head_state(ctx) {
             Ok(s) => s,
             Err(e) => return Ok(ToolResult::Error(e)),
         };
-        if let Err(e) = check_track_index(&state.tracks, args.track) {
-            return Ok(ToolResult::Error(e));
-        }
-        let chain = &mut state.tracks[args.track].effects;
+        let chain = match target.chain(&mut state) {
+            Ok(c) => c,
+            Err(e) => return Ok(ToolResult::Error(e)),
+        };
         let at = args.position.unwrap_or(chain.len()).min(chain.len());
         chain.insert(
             at,
@@ -115,7 +244,7 @@ impl Tool for AddEffectTool {
         let new_id = match append_state(
             ctx,
             state,
-            format!("add_effect track {} {} at {at}", args.track, args.kind),
+            format!("add_effect {} {} at {at}", target.label(), args.kind),
         ) {
             Ok(id) => id,
             Err(e) => return Ok(ToolResult::Error(e)),
@@ -125,8 +254,8 @@ impl Tool for AddEffectTool {
             "position": at,
             "effect_count": total,
             "summary": format!(
-                "Added {} to track {} at position {at}; {total} effect{} in the chain",
-                args.kind, args.track, if total == 1 { "" } else { "s" }
+                "Added {} to {} at position {at}; {total} effect{} in the chain",
+                args.kind, target.describe(), if total == 1 { "" } else { "s" }
             ),
         })))
     }
@@ -136,7 +265,10 @@ impl Tool for AddEffectTool {
 
 #[derive(Debug, Deserialize)]
 struct IndexArgs {
-    track: usize,
+    #[serde(default)]
+    scope: Option<Scope>,
+    #[serde(default)]
+    track: Option<usize>,
     effect_index: usize,
 }
 
@@ -150,15 +282,16 @@ impl Tool for RemoveEffectTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "remove_effect",
-            "Remove one effect from a track's chain by index. The rest keep their order. \
-             Appends a new session node.",
+            "Remove one effect from a track's chain, or from the master bus's with scope \
+             \"master\", by index. The rest keep their order. Appends a new session node.",
             json!({
                 "type": "object",
                 "properties": {
-                    "track": { "type": "integer", "minimum": 0 },
+                    "scope": scope_property(),
+                    "track": track_property(),
                     "effect_index": { "type": "integer", "minimum": 0 }
                 },
-                "required": ["track", "effect_index"]
+                "required": ["effect_index"]
             }),
         )
     }
@@ -168,15 +301,19 @@ impl Tool for RemoveEffectTool {
             Ok(a) => a,
             Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
         };
+        let target = match Target::resolve(args.scope, args.track) {
+            Ok(t) => t,
+            Err(e) => return Ok(ToolResult::Error(e)),
+        };
         let mut state = match load_head_state(ctx) {
             Ok(s) => s,
             Err(e) => return Ok(ToolResult::Error(e)),
         };
-        if let Err(e) = check_track_index(&state.tracks, args.track) {
-            return Ok(ToolResult::Error(e));
-        }
-        let chain = &mut state.tracks[args.track].effects;
-        if let Err(e) = check_effect_index(chain.len(), args.effect_index, args.track) {
+        let chain = match target.chain(&mut state) {
+            Ok(c) => c,
+            Err(e) => return Ok(ToolResult::Error(e)),
+        };
+        if let Err(e) = check_effect_index(chain.len(), args.effect_index, target) {
             return Ok(ToolResult::Error(e));
         }
         let removed = chain.remove(args.effect_index).kind;
@@ -186,8 +323,9 @@ impl Tool for RemoveEffectTool {
             ctx,
             state,
             format!(
-                "remove_effect track {} index {} ({removed})",
-                args.track, args.effect_index
+                "remove_effect {} index {} ({removed})",
+                target.label(),
+                args.effect_index
             ),
         ) {
             Ok(id) => id,
@@ -197,8 +335,8 @@ impl Tool for RemoveEffectTool {
             "node_id": new_id.to_hex(),
             "effect_count": total,
             "summary": format!(
-                "Removed {removed} from track {}; {total} effect{} left",
-                args.track, if total == 1 { "" } else { "s" }
+                "Removed {removed} from {}; {total} effect{} left",
+                target.describe(), if total == 1 { "" } else { "s" }
             ),
         })))
     }
@@ -208,7 +346,10 @@ impl Tool for RemoveEffectTool {
 
 #[derive(Debug, Deserialize)]
 struct ReorderArgs {
-    track: usize,
+    #[serde(default)]
+    scope: Option<Scope>,
+    #[serde(default)]
+    track: Option<usize>,
     /// The chain's new order, as indices into the current chain.
     order: Vec<usize>,
 }
@@ -223,21 +364,22 @@ impl Tool for ReorderEffectsTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "reorder_effects",
-            "Reorder a track's effect chain. `order` is the new sequence given as indices into \
-             the current chain — [2, 0, 1] moves the third effect to the front. Order matters: \
-             a compressor before an EQ is a different sound from one after it. Appends a new \
-             session node.",
+            "Reorder a track's effect chain, or the master bus's with scope \"master\". `order` \
+             is the new sequence given as indices into the current chain — [2, 0, 1] moves the \
+             third effect to the front. Order matters: a compressor before an EQ is a different \
+             sound from one after it. Appends a new session node.",
             json!({
                 "type": "object",
                 "properties": {
-                    "track": { "type": "integer", "minimum": 0 },
+                    "scope": scope_property(),
+                    "track": track_property(),
                     "order": {
                         "type": "array",
                         "items": { "type": "integer", "minimum": 0 },
                         "description": "A permutation of the current indices. Must list every effect exactly once."
                     }
                 },
-                "required": ["track", "order"]
+                "required": ["order"]
             }),
         )
     }
@@ -247,14 +389,18 @@ impl Tool for ReorderEffectsTool {
             Ok(a) => a,
             Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
         };
+        let target = match Target::resolve(args.scope, args.track) {
+            Ok(t) => t,
+            Err(e) => return Ok(ToolResult::Error(e)),
+        };
         let mut state = match load_head_state(ctx) {
             Ok(s) => s,
             Err(e) => return Ok(ToolResult::Error(e)),
         };
-        if let Err(e) = check_track_index(&state.tracks, args.track) {
-            return Ok(ToolResult::Error(e));
-        }
-        let chain = &state.tracks[args.track].effects;
+        let chain = match target.chain(&mut state) {
+            Ok(c) => c,
+            Err(e) => return Ok(ToolResult::Error(e)),
+        };
 
         // A permutation, checked as one. Accepting a partial list would
         // silently drop effects, and accepting a repeat would silently
@@ -288,19 +434,19 @@ impl Tool for ReorderEffectsTool {
         }
 
         let reordered: Vec<EffectInstance> = args.order.iter().map(|&i| chain[i].clone()).collect();
-        state.tracks[args.track].effects = reordered;
+        *chain = reordered;
 
         let new_id = match append_state(
             ctx,
             state,
-            format!("reorder_effects track {} {:?}", args.track, args.order),
+            format!("reorder_effects {} {:?}", target.label(), args.order),
         ) {
             Ok(id) => id,
             Err(e) => return Ok(ToolResult::Error(e)),
         };
         Ok(ToolResult::Ok(json!({
             "node_id": new_id.to_hex(),
-            "summary": format!("Reordered track {}'s effect chain", args.track),
+            "summary": format!("Reordered {}'s effect chain", target.describe()),
         })))
     }
 }
@@ -309,7 +455,10 @@ impl Tool for ReorderEffectsTool {
 
 #[derive(Debug, Deserialize)]
 struct ParamsArgs {
-    track: usize,
+    #[serde(default)]
+    scope: Option<Scope>,
+    #[serde(default)]
+    track: Option<usize>,
     effect_index: usize,
     params: Value,
     /// Replace the whole parameter object rather than merging into it.
@@ -327,15 +476,17 @@ impl Tool for SetEffectParamsTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "set_effect_params",
-            "Change an effect's parameters in place. This is what a non-destructive chain buys: \
-             the audio is not re-processed and nothing is re-rendered until you ask, so tweaking \
-             a cutoff costs nothing and is undoable like any other edit. Keys are merged into the \
-             existing parameters by default; pass replace=true to swap the object wholesale. \
-             Appends a new session node.",
+            "Change an effect's parameters in place, on a track or on the master bus (scope \
+             \"master\"). This is what a non-destructive chain buys: the audio is not \
+             re-processed and nothing is re-rendered until you ask, so tweaking a cutoff costs \
+             nothing and is undoable like any other edit. Keys are merged into the existing \
+             parameters by default; pass replace=true to swap the object wholesale. Appends a \
+             new session node.",
             json!({
                 "type": "object",
                 "properties": {
-                    "track": { "type": "integer", "minimum": 0 },
+                    "scope": scope_property(),
+                    "track": track_property(),
                     "effect_index": { "type": "integer", "minimum": 0 },
                     "params": { "type": "object" },
                     "replace": {
@@ -343,7 +494,7 @@ impl Tool for SetEffectParamsTool {
                         "description": "Replace all parameters instead of merging. Default false."
                     }
                 },
-                "required": ["track", "effect_index", "params"]
+                "required": ["effect_index", "params"]
             }),
         )
     }
@@ -352,6 +503,10 @@ impl Tool for SetEffectParamsTool {
         let args: ParamsArgs = match serde_json::from_value(args) {
             Ok(a) => a,
             Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
+        };
+        let target = match Target::resolve(args.scope, args.track) {
+            Ok(t) => t,
+            Err(e) => return Ok(ToolResult::Error(e)),
         };
         if !args.params.is_object() {
             return Ok(ToolResult::Error(
@@ -362,11 +517,11 @@ impl Tool for SetEffectParamsTool {
             Ok(s) => s,
             Err(e) => return Ok(ToolResult::Error(e)),
         };
-        if let Err(e) = check_track_index(&state.tracks, args.track) {
-            return Ok(ToolResult::Error(e));
-        }
-        let chain = &mut state.tracks[args.track].effects;
-        if let Err(e) = check_effect_index(chain.len(), args.effect_index, args.track) {
+        let chain = match target.chain(&mut state) {
+            Ok(c) => c,
+            Err(e) => return Ok(ToolResult::Error(e)),
+        };
+        if let Err(e) = check_effect_index(chain.len(), args.effect_index, target) {
             return Ok(ToolResult::Error(e));
         }
         let effect = &mut chain[args.effect_index];
@@ -394,8 +549,9 @@ impl Tool for SetEffectParamsTool {
             ctx,
             state,
             format!(
-                "set_effect_params track {} index {} ({kind})",
-                args.track, args.effect_index
+                "set_effect_params {} index {} ({kind})",
+                target.label(),
+                args.effect_index
             ),
         ) {
             Ok(id) => id,
@@ -406,8 +562,8 @@ impl Tool for SetEffectParamsTool {
             "kind": kind,
             "params": params,
             "summary": format!(
-                "Updated {kind} on track {} (effect {})",
-                args.track, args.effect_index
+                "Updated {kind} on {} (effect {})",
+                target.describe(), args.effect_index
             ),
         })))
     }
@@ -417,7 +573,10 @@ impl Tool for SetEffectParamsTool {
 
 #[derive(Debug, Deserialize)]
 struct BypassArgs {
-    track: usize,
+    #[serde(default)]
+    scope: Option<Scope>,
+    #[serde(default)]
+    track: Option<usize>,
     effect_index: usize,
     bypassed: bool,
 }
@@ -432,17 +591,18 @@ impl Tool for SetEffectBypassedTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "set_effect_bypassed",
-            "Bypass or re-enable one effect without removing it, so its settings survive an A/B. \
-             A bypassed effect renders identically to one that is absent. Appends a new session \
-             node.",
+            "Bypass or re-enable one effect on a track or on the master bus (scope \"master\") \
+             without removing it, so its settings survive an A/B. A bypassed effect renders \
+             identically to one that is absent. Appends a new session node.",
             json!({
                 "type": "object",
                 "properties": {
-                    "track": { "type": "integer", "minimum": 0 },
+                    "scope": scope_property(),
+                    "track": track_property(),
                     "effect_index": { "type": "integer", "minimum": 0 },
                     "bypassed": { "type": "boolean" }
                 },
-                "required": ["track", "effect_index", "bypassed"]
+                "required": ["effect_index", "bypassed"]
             }),
         )
     }
@@ -452,15 +612,19 @@ impl Tool for SetEffectBypassedTool {
             Ok(a) => a,
             Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
         };
+        let target = match Target::resolve(args.scope, args.track) {
+            Ok(t) => t,
+            Err(e) => return Ok(ToolResult::Error(e)),
+        };
         let mut state = match load_head_state(ctx) {
             Ok(s) => s,
             Err(e) => return Ok(ToolResult::Error(e)),
         };
-        if let Err(e) = check_track_index(&state.tracks, args.track) {
-            return Ok(ToolResult::Error(e));
-        }
-        let chain = &mut state.tracks[args.track].effects;
-        if let Err(e) = check_effect_index(chain.len(), args.effect_index, args.track) {
+        let chain = match target.chain(&mut state) {
+            Ok(c) => c,
+            Err(e) => return Ok(ToolResult::Error(e)),
+        };
+        if let Err(e) = check_effect_index(chain.len(), args.effect_index, target) {
             return Ok(ToolResult::Error(e));
         }
         chain[args.effect_index].bypassed = args.bypassed;
@@ -470,8 +634,10 @@ impl Tool for SetEffectBypassedTool {
             ctx,
             state,
             format!(
-                "set_effect_bypassed track {} index {} -> {}",
-                args.track, args.effect_index, args.bypassed
+                "set_effect_bypassed {} index {} -> {}",
+                target.label(),
+                args.effect_index,
+                args.bypassed
             ),
         ) {
             Ok(id) => id,
@@ -481,9 +647,9 @@ impl Tool for SetEffectBypassedTool {
             "node_id": new_id.to_hex(),
             "bypassed": args.bypassed,
             "summary": format!(
-                "{} {kind} on track {}",
+                "{} {kind} on {}",
                 if args.bypassed { "Bypassed" } else { "Re-enabled" },
-                args.track
+                target.describe()
             ),
         })))
     }
@@ -491,19 +657,22 @@ impl Tool for SetEffectBypassedTool {
 
 #[cfg(test)]
 mod tests {
-    use super::check_effect_index;
+    use super::{check_effect_index, Scope, Target};
 
     #[test]
     fn an_in_range_index_is_accepted() {
-        assert!(check_effect_index(3, 0, 0).is_ok());
-        assert!(check_effect_index(3, 2, 0).is_ok());
+        assert!(check_effect_index(3, 0, Target::Track(0)).is_ok());
+        assert!(check_effect_index(3, 2, Target::Track(0)).is_ok());
+        assert!(check_effect_index(1, 0, Target::Master).is_ok());
     }
 
     #[test]
     fn an_out_of_range_index_names_the_range() {
-        let e = check_effect_index(2, 5, 1).expect_err("out of range");
+        let e = check_effect_index(2, 5, Target::Track(1)).expect_err("out of range");
         assert!(e.contains("index 5"), "{e}");
-        assert!(e.contains("2 effects"), "{e}");
+        assert!(e.contains("track 1 has 2 effects"), "{e}");
+        let e = check_effect_index(2, 5, Target::Master).expect_err("out of range");
+        assert!(e.contains("the master bus has 2 effects"), "{e}");
     }
 
     /// An empty chain is the case a caller hits first, so its message
@@ -511,9 +680,58 @@ mod tests {
     /// bug.
     #[test]
     fn an_empty_chain_pluralises_correctly() {
-        let e = check_effect_index(0, 0, 0).expect_err("empty");
+        let e = check_effect_index(0, 0, Target::Track(0)).expect_err("empty");
         assert!(e.contains("0 effects"), "{e}");
-        let e = check_effect_index(1, 4, 0).expect_err("one");
+        let e = check_effect_index(1, 4, Target::Track(0)).expect_err("one");
         assert!(e.contains("1 effect;") || e.contains("1 effect"), "{e}");
+        let e = check_effect_index(0, 0, Target::Master).expect_err("empty master");
+        assert!(e.contains("the master bus has 0 effects"), "{e}");
+    }
+
+    /// `track` alone is a track, and that is what every call written
+    /// before the scope existed means.
+    #[test]
+    fn a_track_alone_is_that_tracks_chain() {
+        assert_eq!(Target::resolve(None, Some(2)), Ok(Target::Track(2)));
+        assert_eq!(
+            Target::resolve(Some(Scope::Track), Some(0)),
+            Ok(Target::Track(0))
+        );
+    }
+
+    #[test]
+    fn scope_master_is_the_master_bus() {
+        assert_eq!(
+            Target::resolve(Some(Scope::Master), None),
+            Ok(Target::Master)
+        );
+    }
+
+    /// The three bad combinations each get a message that says what to do
+    /// instead, and none of them is resolved by guessing.
+    #[test]
+    fn the_bad_combinations_say_what_to_pass() {
+        let neither = Target::resolve(None, None).expect_err("no target");
+        assert!(
+            neither.contains("track") && neither.contains("master"),
+            "{neither}"
+        );
+
+        let both = Target::resolve(Some(Scope::Master), Some(1)).expect_err("both");
+        assert!(both.contains("no track index"), "{both}");
+
+        let track_without_index = Target::resolve(Some(Scope::Track), None).expect_err("no index");
+        assert!(
+            track_without_index.contains("needs `track`"),
+            "{track_without_index}"
+        );
+    }
+
+    #[test]
+    fn labels_and_sentences_name_the_chain() {
+        assert_eq!(Target::Track(3).label(), "track 3");
+        assert_eq!(Target::Master.label(), "master");
+        assert_eq!(Target::Track(3).describe(), "track 3");
+        assert_eq!(Target::Master.describe(), "the master bus");
     }
 }

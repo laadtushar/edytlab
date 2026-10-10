@@ -23,7 +23,7 @@ With Plan first on and no plan from the model, the first step that would change 
 
 ## Index
 
-- [`add_effect`](#add_effect) — Add a non-destructive effect to a track's chain.
+- [`add_effect`](#add_effect) — Add a non-destructive effect to a track's chain, or to the master bus with scope "master".
 - [`add_track`](#add_track) — Append a new empty track to the current session.
 - [`align_to_beat`](#align_to_beat) — Warp a track in time so the beats at source_beats land on beat_grid, without changing its pitch.
 - [`analyze_track`](#analyze_track) — Analyse a track in the session, or an audio file, and return BPM, key, beat grid, downbeats, sections, an RMS curve (one bin per ~100 ms), and EBU R128 integrated loudness in LUFS.
@@ -79,14 +79,14 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`plot_spectrum`](#plot_spectrum) — Compute the frequency spectrum of a track region and show the user a chart of it.
 - [`punch_in`](#punch_in) — Replace a region of a track with audio from a file, in place.
 - [`remove_clip`](#remove_clip) — Remove one clip from a track, leaving the other clips where they are.
-- [`remove_effect`](#remove_effect) — Remove one effect from a track's chain by index.
+- [`remove_effect`](#remove_effect) — Remove one effect from a track's chain, or from the master bus's with scope "master", by index.
 - [`remove_fillers`](#remove_fillers) — Find filler words in the session's transcript and, when asked, remove them and their audio in one undoable edit.
 - [`remove_send`](#remove_send) — Stop routing a track to a bus.
 - [`remove_track`](#remove_track) — Remove a track from the session.
 - [`rename_track`](#rename_track) — Rename a track.
 - [`render_final`](#render_final) — Render a session node to a final audio file at the user's chosen path.
 - [`render_preview`](#render_preview) — Render a session node to a temporary WAV file and return its path.
-- [`reorder_effects`](#reorder_effects) — Reorder a track's effect chain.
+- [`reorder_effects`](#reorder_effects) — Reorder a track's effect chain, or the master bus's with scope "master".
 - [`repeat_selection`](#repeat_selection) — Duplicate the audio region [start_sec, end_sec) on a track N additional times, appending copies after the original buffer.
 - [`resample_track`](#resample_track) — Resample a track to a different sample rate using linear interpolation.
 - [`reverb`](#reverb) — Apply Freeverb algorithmic reverb.
@@ -95,8 +95,8 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`select_region`](#select_region) — Resolve a description of a region into a concrete time range, using the session's transcript and tempo map.
 - [`separate_stems`](#separate_stems) — NOT IMPLEMENTED IN THIS BUILD.
 - [`set_clip_envelope`](#set_clip_envelope) — Replace the per-clip volume automation curve.
-- [`set_effect_bypassed`](#set_effect_bypassed) — Bypass or re-enable one effect without removing it, so its settings survive an A/B.
-- [`set_effect_params`](#set_effect_params) — Change an effect's parameters in place.
+- [`set_effect_bypassed`](#set_effect_bypassed) — Bypass or re-enable one effect on a track or on the master bus (scope "master") without removing it, so its settings survive an A/B.
+- [`set_effect_params`](#set_effect_params) — Change an effect's parameters in place, on a track or on the master bus (scope "master").
 - [`set_pan`](#set_pan) — Set the stereo pan of a track.
 - [`set_send`](#set_send) — Route a copy of a track to a bus at the given level.
 - [`set_sync_lock`](#set_sync_lock) — Turn sync-lock on or off.
@@ -121,14 +121,15 @@ With Plan first on and no plan from the model, the first step that would change 
 
 ## `add_effect`
 
-Add a non-destructive effect to a track's chain. Unlike the destructive effect tools, the parameters stay editable afterwards — set_effect_params can change them without re-running anything, because the effect is applied at render rather than baked into a new file. Effects apply in chain order, after track gain and volume automation and before pan. Appends a new session node.
+Add a non-destructive effect to a track's chain, or to the master bus with scope "master". Unlike the destructive effect tools, the parameters stay editable afterwards — set_effect_params can change them without re-running anything, because the effect is applied at render rather than baked into a new file. A track's effects apply in chain order, after track gain and volume automation and before pan. The master bus is where every track is summed, after sends: use scope "master" for a limiter, a filter or a gain on the whole mix, for example "a limiter on the master at -1 dB". It stays live when a track is edited later, which a mix rendered into a new track with mix_to_new_track does not, so prefer it to mixing down. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `kind` | string | yes | Effect kind, e.g. gain, limiter, low_pass_filter, high_pass_filter, notch_filter. |
 | `params` | object | no | Effect parameters, e.g. { "cutoff_hz": 800 }, or { "ceiling_db": -1, "release_ms": 80 } for a limiter. Defaults are used for anything omitted. |
 | `position` | integer | no | Index in the chain. Appended to the end when omitted. |
-| `track` | integer | yes |  |
+| `scope` | one of `track`, `master` | no | Which chain to edit. "track" (the default when `track` is given) is one track's chain. "master" is the master bus, where every track is summed: an effect there processes the whole mix, and keeps processing it when a track is edited later. Omit `track` when scope is "master". |
+| `track` | integer | no | Zero-based track index. Required unless scope is "master". |
 
 ## `add_track`
 
@@ -541,7 +542,7 @@ Apply dynamic leveling: normalise each short window to a target RMS level. Reduc
 
 ## `limiter`
 
-Peak limiter: turns the gain down just enough that no sample exceeds ceiling_db, then lets it recover smoothly over release_ms. Transients are tamed without the harmonic distortion of hard clipping, and all channels share one gain so the stereo image holds. Zero latency; the ceiling is a sample-peak ceiling, not an inter-sample true-peak one. Prevents digital clipping. Appends a new session node.
+Peak limiter: turns the gain down just enough that no sample exceeds ceiling_db, then lets it recover smoothly over release_ms. Transients are tamed without the harmonic distortion of hard clipping, and all channels share one gain so the stereo image holds. Zero latency; the ceiling is a sample-peak ceiling, not an inter-sample true-peak one. Prevents digital clipping. This edit is baked into one track's audio; to limit the whole mix, and keep it limited as tracks change, use add_effect with scope "master" instead. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
@@ -574,7 +575,7 @@ Apply a Butterworth low-pass filter to a track, removing frequencies above cutof
 
 ## `mix_to_new_track`
 
-Offline-render the selected tracks together and add the result as a new mixed track. track_indices selects which tracks to include. Appends a new session node.
+Offline-render the selected tracks together and add the result as a new mixed track. track_indices selects which tracks to include. The result is a baked copy: it does not follow later edits to the tracks it came from. To put an effect such as a limiter on the whole mix, use add_effect with scope "master" instead of mixing down. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
@@ -751,12 +752,13 @@ Remove one clip from a track, leaving the other clips where they are. The gap it
 
 ## `remove_effect`
 
-Remove one effect from a track's chain by index. The rest keep their order. Appends a new session node.
+Remove one effect from a track's chain, or from the master bus's with scope "master", by index. The rest keep their order. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `effect_index` | integer | yes |  |
-| `track` | integer | yes |  |
+| `scope` | one of `track`, `master` | no | Which chain to edit. "track" (the default when `track` is given) is one track's chain. "master" is the master bus, where every track is summed: an effect there processes the whole mix, and keeps processing it when a track is edited later. Omit `track` when scope is "master". |
+| `track` | integer | no | Zero-based track index. Required unless scope is "master". |
 
 ## `remove_fillers`
 
@@ -829,12 +831,13 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `reorder_effects`
 
-Reorder a track's effect chain. `order` is the new sequence given as indices into the current chain — [2, 0, 1] moves the third effect to the front. Order matters: a compressor before an EQ is a different sound from one after it. Appends a new session node.
+Reorder a track's effect chain, or the master bus's with scope "master". `order` is the new sequence given as indices into the current chain — [2, 0, 1] moves the third effect to the front. Order matters: a compressor before an EQ is a different sound from one after it. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `order` | array of integer | yes | A permutation of the current indices. Must list every effect exactly once. |
-| `track` | integer | yes |  |
+| `scope` | one of `track`, `master` | no | Which chain to edit. "track" (the default when `track` is given) is one track's chain. "master" is the master bus, where every track is summed: an effect there processes the whole mix, and keeps processing it when a track is edited later. Omit `track` when scope is "master". |
+| `track` | integer | no | Zero-based track index. Required unless scope is "master". |
 
 ## `repeat_selection`
 
@@ -934,24 +937,26 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `set_effect_bypassed`
 
-Bypass or re-enable one effect without removing it, so its settings survive an A/B. A bypassed effect renders identically to one that is absent. Appends a new session node.
+Bypass or re-enable one effect on a track or on the master bus (scope "master") without removing it, so its settings survive an A/B. A bypassed effect renders identically to one that is absent. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `bypassed` | boolean | yes |  |
 | `effect_index` | integer | yes |  |
-| `track` | integer | yes |  |
+| `scope` | one of `track`, `master` | no | Which chain to edit. "track" (the default when `track` is given) is one track's chain. "master" is the master bus, where every track is summed: an effect there processes the whole mix, and keeps processing it when a track is edited later. Omit `track` when scope is "master". |
+| `track` | integer | no | Zero-based track index. Required unless scope is "master". |
 
 ## `set_effect_params`
 
-Change an effect's parameters in place. This is what a non-destructive chain buys: the audio is not re-processed and nothing is re-rendered until you ask, so tweaking a cutoff costs nothing and is undoable like any other edit. Keys are merged into the existing parameters by default; pass replace=true to swap the object wholesale. Appends a new session node.
+Change an effect's parameters in place, on a track or on the master bus (scope "master"). This is what a non-destructive chain buys: the audio is not re-processed and nothing is re-rendered until you ask, so tweaking a cutoff costs nothing and is undoable like any other edit. Keys are merged into the existing parameters by default; pass replace=true to swap the object wholesale. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `effect_index` | integer | yes |  |
 | `params` | object | yes |  |
 | `replace` | boolean | no | Replace all parameters instead of merging. Default false. |
-| `track` | integer | yes |  |
+| `scope` | one of `track`, `master` | no | Which chain to edit. "track" (the default when `track` is given) is one track's chain. "master" is the master bus, where every track is summed: an effect there processes the whole mix, and keeps processing it when a track is edited later. Omit `track` when scope is "master". |
+| `track` | integer | no | Zero-based track index. Required unless scope is "master". |
 
 ## `set_pan`
 
