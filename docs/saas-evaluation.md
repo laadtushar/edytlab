@@ -125,7 +125,7 @@ Compare [architecture.md §1](./architecture.md#1-high-level-architecture): the 
 - `Workspace` is today's `AppState` minus whatever is process-wide.
 - A `Host` trait replaces what the commands take from Tauri. `AppHandle::emit` becomes an event sink. `allow_assets_in_dir` and `allow_asset_file` (the asset-scope grants in `commands.rs`) become signed URL issuance. The keychain becomes a `KeyStore`. Path resolution, today `edytlab_home()` and absolute paths, becomes a tenant root. About 31 lines of `commands.rs` mention `AppHandle` or `emit(`, so the surface is small.
 - `project.rs` already takes `home` as a parameter in functions such as `recents_path`, so some of this is parametrised.
-- Tests that read `commands.rs` as text have to move with the bodies. `src-tauri/tests/main_thread_commands.rs` scans `#[tauri::command]` bodies, and the free functions in `src/` they call, for lock use; after the move it would see only shims and pass vacuously unless it is retargeted. The e2e fake backend (`e2e/backend.ts`) answers "from the Rust source" and cites `commands.rs` by name.
+- Tests that read `commands.rs` as text have to move with the bodies. `src-tauri/tests/main_thread_commands.rs` scans `#[tauri::command]` bodies, and the free functions and `impl` methods in `src/` they call, for lock use; after the move it would see only shims and pass vacuously unless it is retargeted. The e2e fake backend (`e2e/backend.ts`) answers "from the Rust source" and cites `commands.rs` by name.
 
 **(b) Progress and cancel become per workspace.** Two ways to do it, and the choice is open.
 - Put a reporter and a cancel flag on `ToolContext`. This is explicit, but touches the many construction sites, so a constructor would have to come first.
