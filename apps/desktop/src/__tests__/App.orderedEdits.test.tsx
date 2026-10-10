@@ -133,6 +133,18 @@ class Backend {
         return ["/tmp/other.wav"];
       case "list_tracks":
         return [this.track()];
+      // The history: the node the project began on, and the one after it.
+      case "get_graph":
+        return {
+          nodes: [1, 2].map((n) => ({
+            id: node(n),
+            parent: n === 1 ? null : node(n - 1),
+            label: `step ${n}`,
+            tool: "set_track_gain",
+            created_at: new Date(2026, 0, 1, 0, n).toISOString(),
+          })),
+          head: this.head,
+        };
       default:
         return undefined;
     }
@@ -323,6 +335,46 @@ describe("edits made in quick succession", () => {
     await waitFor(() => expect(gainReadout()).toHaveTextContent("-9.0 dB"));
   });
 
+  // The fader is compared with what the session holds so that a release,
+  // a key-up and a blur carrying one value make one edit, not three. What
+  // the session holds is what the edits ahead of this one leave it with,
+  // not what the last refresh showed: 0 -> -3 -> 0 inside one window ends
+  // on 0, and the 0 must be sent.
+  it("keep the last value when the fader is put back where it started", async () => {
+    const backend = await start("answer");
+
+    dragGain(-3);
+    dragGain(0);
+    await answerNewestFirst(backend);
+
+    expect(backend.sent.map((s) => s.args.gainDb)).toEqual([-3, 0]);
+    expect(backend.gainDb).toBe(0);
+    await waitFor(() => expect(gainReadout()).toHaveTextContent("0.0 dB"));
+  });
+
+  it("send a value once when release and blur both carry it", async () => {
+    const backend = await start("answer");
+
+    dragGain(-3);
+    dragGain(-3);
+    await answerNewestFirst(backend);
+
+    expect(backend.sent.map((s) => s.args.gainDb)).toEqual([-3]);
+    expect(backend.gainDb).toBe(-3);
+
+    // Once the edit is over and the session shows the value, a later
+    // commit of the same value is still not an edit...
+    await waitFor(() => expect(gainReadout()).toHaveTextContent("-3.0 dB"));
+    dragGain(-3);
+    await answerNewestFirst(backend);
+    expect(backend.sent).toHaveLength(1);
+
+    // ...and one that differs is, so nothing is left remembered as pending.
+    dragGain(-9);
+    await answerNewestFirst(backend);
+    expect(backend.sent.map((s) => s.args.gainDb)).toEqual([-3, -9]);
+  });
+
   it("go out one at a time: the second waits for the first to be answered", async () => {
     const backend = await start("answer");
 
@@ -417,5 +469,55 @@ describe("edits made in quick succession", () => {
     await waitFor(() =>
       expect(screen.getByTestId("status-bar-head")).toHaveTextContent(headLabel(1)),
     );
+  });
+});
+
+describe("a head move asked for while another is waiting", () => {
+  // jsdom has no layout, and the history graph measures its nodes.
+  beforeEach(() => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("is answered with a notice in the graph, not dropped without a word", async () => {
+    const backend = await start("answer");
+
+    // An edit still on its way, and an undo pressed behind it: the undo
+    // is a head move that has not finished, and holds the app's one slot
+    // for them until the edit has been answered.
+    dragGain(-3);
+    await settle();
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+    await settle();
+
+    // "Set as head" on the first node, from the graph.
+    fireEvent.click(screen.getByTestId("tab-graph"));
+    const first = await waitFor(() => {
+      const bubble = document.querySelector(`[data-node-id="${node(1)}"]`);
+      expect(bubble).not.toBeNull();
+      return bubble as Element;
+    });
+    fireEvent.contextMenu(first);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Set as head" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("graph-error")).toHaveTextContent(/still running/i),
+    );
+    // It was not sent: only the edit has reached the backend, and the
+    // undo behind it has not.
+    expect(names(backend)).toEqual(["set_track_gain"]);
+
+    // The undo is not lost either.
+    await answerNewestFirst(backend);
+    expect(names(backend)).toEqual(["set_track_gain", "set_head_to"]);
   });
 });

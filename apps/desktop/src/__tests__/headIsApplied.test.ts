@@ -146,3 +146,58 @@ describe("applyEdit adopts a head in the session's line", () => {
     );
   });
 });
+
+describe("a head is adopted inside a turn, and nowhere else", () => {
+  /**
+   * A head adopted after its turn has ended is adopted out of line: the
+   * next edit may already be on its way, and the adoption can put the head
+   * back to a node that edit has left. It holds today only because an IPC
+   * answer is a macrotask, which is not something to build on. So each
+   * place that moves the frontend's head either sits in a handler that is
+   * a turn (`inOrder(`, `applyEdit(`), or is one of the two that are not an
+   * edit:
+   *
+   * - `applyNewHead`, which is what the turns call.
+   * - `handleSelectGraphNode`, a click on a node in the graph, which
+   *   previews it. The head it names was not moved on the backend.
+   *
+   * What it replaced: Record and Timer record adopted the head their take
+   * returned a second time, after `loadInOrder` had adopted it in its
+   * turn, and Accept B adopted its head in a callback that ran after the
+   * command's turn.
+   */
+  const NOT_AN_EDIT = ["applyNewHead", "handleSelectGraphNode"];
+  const IN_A_TURN = /\b(inOrder|applyEdit)\(/;
+  const lines = app.split("\n");
+
+  /** The `const x = useCallback(` a line is in, down to the line. */
+  function handlerSoFar(at: number): { name: string; text: string } {
+    let start = at;
+    while (start > 0 && !/^\s*const \w+ = useCallback\(/.test(lines[start])) start--;
+    const name = /^\s*const (\w+) = useCallback\(/.exec(lines[start])?.[1] ?? "(no handler)";
+    return { name, text: lines.slice(start, at + 1).join("\n") };
+  }
+
+  const moves = lines.flatMap((line, i) => {
+    const text = line.trim();
+    const comment = text.startsWith("//") || text.startsWith("*") || text.startsWith("/*");
+    return !comment && /\b(setHeadLocal|applyNewHead)\(/.test(line) ? [i] : [];
+  });
+
+  it("finds the places that move the head, so the check below is not vacuous", () => {
+    expect(moves.length).toBeGreaterThan(5);
+  });
+
+  it("every one is in a turn", () => {
+    const outside = moves
+      .map((i) => ({ at: i, ...handlerSoFar(i) }))
+      .filter(({ name, text }) => !NOT_AN_EDIT.includes(name) && !IN_A_TURN.test(text))
+      .map(({ name, at }) => `${name}: ${lines[at].trim()}`);
+    expect(
+      outside,
+      `these adopt a head outside the session's line. Move the adoption into ` +
+        `the turn (inOrder() or applyEdit()), or drop it when the turn ` +
+        `already adopts the head, as loadInOrder() does.`,
+    ).toEqual([]);
+  });
+});
