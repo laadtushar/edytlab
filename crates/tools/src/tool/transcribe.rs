@@ -142,12 +142,13 @@ impl Tool for TranscribeTool {
                     "Whisper model not found at {path}; {INSTALL_HINT}"
                 )))
             }
-            // No ONNX Runtime library. The error already says
-            // transcription is not implemented, but the hint is the
-            // sentence the agent is told never to contradict, so it is
-            // appended here as for a missing model.
-            Err(e @ WhisperError::RuntimeUnavailable(_)) => {
-                return Ok(ToolResult::Error(format!("{e}; {INSTALL_HINT}")))
+            // No ONNX Runtime library. Only the reason goes in: the error's
+            // own text repeats "not implemented in this build" (the hint
+            // already says it) and the agent reads whatever it is given as
+            // something to act on. The hint is the sentence it is told never
+            // to contradict, so it is appended as for a missing model.
+            Err(WhisperError::RuntimeUnavailable(reason)) => {
+                return Ok(ToolResult::Error(format!("{reason}; {INSTALL_HINT}")))
             }
             Err(e) => return Ok(ToolResult::Error(format!("model load failed: {e}"))),
         };

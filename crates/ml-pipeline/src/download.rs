@@ -10,10 +10,13 @@
 //!   `.part` behind. The next fetch asks for the rest with a `Range`
 //!   header, after re-hashing what is already there. A server that
 //!   ignores the range (200) or refuses it (416) just means starting over.
-//! - When the byte count reaches the pinned size, the hash is compared
-//!   and only then is the `.part` renamed into place. A mismatch is
-//!   refused and the file is fetched again, once, from scratch; a second
-//!   mismatch is an [`Error::Integrity`].
+//! - When the byte count reaches the pinned size, the hash of the bytes
+//!   that arrived is compared, and then the `.part` is measured and
+//!   hashed again **from disk**, because what is in the file is not
+//!   necessarily what this process wrote to it (see below). Only then is
+//!   it renamed into place. A mismatch is refused and the file is fetched
+//!   again, once, from scratch; a second mismatch is an
+//!   [`Error::Integrity`].
 //! - A file already at its final name is trusted only after it is
 //!   re-hashed. A truncated or tampered one is deleted and fetched again.
 //!
@@ -25,9 +28,26 @@
 //! - **The manifest is validated before any I/O.** An artifact id or file
 //!   path that could leave the store (`..`, an absolute path, a
 //!   backslash, a drive letter) is an [`Error::InvalidManifest`].
-//! - **Fetches of one artifact are single-flight** within the process: a
-//!   second caller waits, then finds the cache already valid. Locking
-//!   across processes is out of scope; edytlab is a single-instance app.
+//! - **Fetches of one artifact are exclusive, across processes too.**
+//!   edytlab is not a single-instance app: nothing stops a second window,
+//!   or the CLI, from running against the same data directory, and two
+//!   fetches writing one `.part` corrupt it. So a fetch holds an OS lock
+//!   (`flock`, or `LockFileEx` on Windows, through the `fs4` crate) on
+//!   `<root>/<id>.lock` from before it touches the artifact until it
+//!   returns; another fetch of the same artifact, in this process or
+//!   another, waits and then finds the cache already valid. In-process
+//!   callers queue on a set of artifact directories first, so the OS lock
+//!   is only ever contended by other processes. Both waits poll, so a
+//!   waiting caller can still be cancelled. The lock file is left in
+//!   place: deleting it would let one process lock the old file while
+//!   another creates a new one. The lock is advisory and only keeps
+//!   cooperating processes apart, which is why the on-disk check before
+//!   the rename exists as well: whatever else touches the `.part`, an
+//!   unverified file is never given its final name.
+//! - **https only.** A manifest URL must be `https://`; `http://` is
+//!   accepted only for this machine (`localhost`, `127.0.0.1`, `[::1]`),
+//!   which is how the tests talk to a local server. The same rule holds
+//!   for every redirect hop, and at most 5 redirects are followed.
 //! - **It is safe to call from async code.** `reqwest::blocking` panics
 //!   when used on a thread that is inside a tokio runtime, and tools run
 //!   inside the async `send_message` command. So the HTTP request runs on
@@ -56,9 +76,13 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
 use std::sync::Mutex;
 use std::time::Duration;
 
+use fs4::{FileExt, TryLockError};
 use sha2::{Digest, Sha256};
 
 use crate::{Error, Result};
+
+/// How many redirects one request follows.
+const MAX_REDIRECTS: usize = 5;
 
 /// How long the HTTP thread waits to establish a connection.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
@@ -88,7 +112,8 @@ pub struct ModelFile {
     /// Path under the artifact's directory: relative, `/`-separated,
     /// no `.` or `..` components.
     pub path: String,
-    /// Where to download it from.
+    /// Where to download it from: `https://`, or `http://` for this
+    /// machine only (`localhost`, `127.0.0.1`, `[::1]`).
     pub url: String,
     /// Expected SHA-256 of the whole file: 64 lowercase hex digits.
     pub sha256: String,
@@ -100,7 +125,8 @@ pub struct ModelFile {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModelArtifact {
     /// Directory name under the store root: lowercase letters, digits,
-    /// `.`, `_` and `-`, starting with a letter or digit.
+    /// `.`, `_` and `-`, starting with a letter or digit, and not ending
+    /// in `.lock` (that is the name of another artifact's lock file).
     pub id: String,
     pub files: Vec<ModelFile>,
 }
@@ -191,7 +217,7 @@ impl ModelStore {
         observer: &mut dyn FetchObserver,
     ) -> Result<PathBuf> {
         let dir = self.artifact_dir(artifact)?;
-        let _single_flight = lock_artifact(&dir, observer)?;
+        let _lock = lock_artifact(&self.root, &dir, &artifact.id, observer)?;
 
         // `validate` has checked that the sizes add up without overflow.
         let total: u64 = artifact.files.iter().map(|f| f.size).sum();
@@ -277,11 +303,13 @@ fn validate(artifact: &ModelArtifact) -> Result<()> {
         && id
             .chars()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '-'))
-        && !id.contains("..");
+        && !id.contains("..")
+        // `<root>/x.lock` is the lock file of artifact `x`.
+        && !id.ends_with(".lock");
     if !id_ok {
         return invalid(format!(
             "artifact id {id:?} must be lowercase letters, digits, '.', '_' or '-', start with a \
-             letter or digit, and not contain \"..\""
+             letter or digit, and neither contain \"..\" nor end in \".lock\""
         ));
     }
     if artifact.files.is_empty() {
@@ -292,9 +320,18 @@ fn validate(artifact: &ModelArtifact) -> Result<()> {
     let mut total = 0u64;
     for file in &artifact.files {
         validate_path(&file.path)?;
-        if !(file.url.starts_with("https://") || file.url.starts_with("http://")) {
+        let url = match reqwest::Url::parse(&file.url) {
+            Ok(url) => url,
+            Err(e) => {
+                return invalid(format!(
+                    "{:?}: url {:?} is not valid: {e}",
+                    file.path, file.url
+                ))
+            }
+        };
+        if !is_allowed_url(&url) {
             return invalid(format!(
-                "{:?}: url must be http or https, got {:?}",
+                "{:?}: url must be https (http is allowed for this machine only), got {:?}",
                 file.path, file.url
             ));
         }
@@ -394,12 +431,82 @@ impl Drop for Flight {
     }
 }
 
+/// What a fetch holds while it works on one artifact: the claim on its
+/// directory in this process, and the OS lock on its lock file, which keeps
+/// other processes out.
+struct ArtifactLock {
+    /// The lock file, open, with the lock held on it. Closing it releases
+    /// the lock.
+    file: File,
+    /// Declared after `file`, so it is released after it: a caller in this
+    /// process is let in only once the OS lock is free again.
+    _flight: Flight,
+}
+
+impl Drop for ArtifactLock {
+    fn drop(&mut self) {
+        // Closing the file releases the lock as well. Asking first makes
+        // the release immediate; on Windows the system may otherwise take
+        // its time over a closed handle's lock.
+        let _ = FileExt::unlock(&self.file);
+    }
+}
+
+/// Wait until no other fetch of this artifact is running, in this process
+/// or in another, then take it.
+///
+/// First the in-process claim on `dir`, then the OS lock on
+/// `<root>/<id>.lock`, always in that order. Both waits poll rather than
+/// block, so a caller waiting behind a long download can still be
+/// cancelled.
+fn lock_artifact(
+    root: &Path,
+    dir: &Path,
+    id: &str,
+    observer: &dyn FetchObserver,
+) -> Result<ArtifactLock> {
+    let flight = claim_in_process(dir, observer)?;
+
+    fs::create_dir_all(root)?;
+    let path = root.join(format!("{id}.lock"));
+    let lock_error = |e: io::Error| {
+        Error::Io(io::Error::new(
+            e.kind(),
+            format!("could not lock {}: {e}", path.display()),
+        ))
+    };
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&path)
+        .map_err(lock_error)?;
+    loop {
+        // Not `file.try_lock()`: std has had a method of that name since
+        // Rust 1.89, with another error type, and it would win the call.
+        match FileExt::try_lock(&file) {
+            Ok(()) => {
+                return Ok(ArtifactLock {
+                    file,
+                    _flight: flight,
+                })
+            }
+            Err(TryLockError::WouldBlock) => {
+                if observer.is_cancelled() {
+                    return Err(Error::Cancelled);
+                }
+                std::thread::sleep(CANCEL_POLL);
+            }
+            Err(TryLockError::Error(e)) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(TryLockError::Error(e)) => return Err(lock_error(e)),
+        }
+    }
+}
+
 /// Wait until no other fetch of `dir` is running in this process, then
 /// claim it.
-///
-/// Polls rather than blocks on a lock, so a caller waiting behind a long
-/// download can still be cancelled.
-fn lock_artifact(dir: &Path, observer: &dyn FetchObserver) -> Result<Flight> {
+fn claim_in_process(dir: &Path, observer: &dyn FetchObserver) -> Result<Flight> {
     loop {
         let claimed = IN_FLIGHT
             .lock()
@@ -684,7 +791,21 @@ fn attempt(job: &FileJob<'_>, observer: &mut dyn FetchObserver, resume: bool) ->
     }
 }
 
-/// Compare the hash of a complete `.part` and move it into place.
+/// Verify a complete `.part` and move it into place.
+///
+/// Two checks, because they answer different questions. The hash of the
+/// bytes this process received says the server sent the right file. It says
+/// nothing about what is in the `.part` now: a second process fetching the
+/// same artifact (one that does not take the artifact lock) can have
+/// truncated, extended or overwritten it, and renaming that would give a
+/// corrupt file its final name while `fetch` reports success. So the file
+/// that is about to be renamed is measured and hashed again, from disk.
+///
+/// That narrows the window rather than closing it: the file is not held
+/// open across the rename (Windows will not rename an open file), so a
+/// writer that ignores the lock could still get in between. The lock is
+/// what keeps cooperating processes out; the next `cached` or `fetch`
+/// hashes the final file again either way.
 fn finish(job: &FileJob<'_>, hasher: Sha256) -> Result<()> {
     let got = hex(&hasher.finalize());
     if got != job.file.sha256 {
@@ -693,7 +814,49 @@ fn finish(job: &FileJob<'_>, hasher: Sha256) -> Result<()> {
             format!("SHA-256 is {got}, expected {}", job.file.sha256),
         ));
     }
+    verify_part_on_disk(job)?;
     fs::rename(&job.part, job.final_path)?;
+    Ok(())
+}
+
+/// The `.part` as it is on disk: a regular file of the pinned size whose
+/// SHA-256 is the pinned one. Anything else is an [`Error::Integrity`], so
+/// the caller starts the file over.
+fn verify_part_on_disk(job: &FileJob<'_>) -> Result<()> {
+    let len = match fs::metadata(&job.part) {
+        Ok(m) if m.is_file() => m.len(),
+        Ok(_) => {
+            return Err(integrity(
+                job,
+                "the partial file on disk is no longer a regular file",
+            ))
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            return Err(integrity(job, "the partial file on disk is gone"))
+        }
+        Err(e) => return Err(e.into()),
+    };
+    if len != job.file.size {
+        return Err(integrity(
+            job,
+            format!(
+                "the partial file on disk is {len} bytes, expected {}; something else wrote to it",
+                job.file.size
+            ),
+        ));
+    }
+    let mut hasher = Sha256::new();
+    hash_file_into(&job.part, &mut hasher)?;
+    let got = hex(&hasher.finalize());
+    if got != job.file.sha256 {
+        return Err(integrity(
+            job,
+            format!(
+                "the partial file on disk has SHA-256 {got}, expected {}; something else wrote to it",
+                job.file.sha256
+            ),
+        ));
+    }
     Ok(())
 }
 
@@ -740,6 +903,11 @@ fn run_request(url: &str, from: u64, tx: &SyncSender<Msg>) -> std::result::Resul
     let mut builder = reqwest::blocking::Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)
         .timeout(STALL_TIMEOUT)
+        // `validate` has already refused a plain-http manifest URL; this
+        // keeps it true for the request itself, and for every hop of a
+        // redirect chain that starts at a remote host.
+        .https_only(!is_loopback(url))
+        .redirect(redirect_policy())
         .user_agent(concat!("edytlab/", env!("CARGO_PKG_VERSION")));
     if is_loopback(url) {
         // Never send a request for this machine through a proxy.
@@ -792,8 +960,49 @@ fn run_request(url: &str, from: u64, tx: &SyncSender<Msg>) -> std::result::Resul
 }
 
 fn is_loopback(url: &str) -> bool {
-    reqwest::Url::parse(url)
-        .is_ok_and(|u| matches!(u.host_str(), Some("127.0.0.1" | "[::1]" | "localhost")))
+    reqwest::Url::parse(url).is_ok_and(|u| is_loopback_host(&u))
+}
+
+/// Whether `url` names this machine: `localhost`, or a loopback address.
+fn is_loopback_host(url: &reqwest::Url) -> bool {
+    match url.host_str() {
+        Some("localhost") => true,
+        // IPv6 hosts come back in brackets.
+        Some(host) => host
+            .trim_matches(['[', ']'])
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback()),
+        None => false,
+    }
+}
+
+/// Whether a model file may be fetched from `url`: https, or plain http to
+/// this machine (which is how the tests talk to a local server).
+fn is_allowed_url(url: &reqwest::Url) -> bool {
+    url.scheme() == "https" || (url.scheme() == "http" && is_loopback_host(url))
+}
+
+/// Follow at most [`MAX_REDIRECTS`] redirects, each to a URL that passes
+/// [`is_allowed_url`].
+///
+/// `https_only` on the client makes the same refusal when the request
+/// starts at a remote host. This is also what stops a download that starts
+/// on this machine, where http is allowed, being sent on to plain http
+/// somewhere else.
+fn redirect_policy() -> reqwest::redirect::Policy {
+    reqwest::redirect::Policy::custom(|attempt| {
+        // `previous` holds every URL requested so far, the first included.
+        if attempt.previous().len() > MAX_REDIRECTS {
+            attempt.error(format!("stopped after {MAX_REDIRECTS} redirects"))
+        } else if !is_allowed_url(attempt.url()) {
+            let to = attempt.url().to_string();
+            attempt.error(format!(
+                "refusing to follow a redirect to {to}: model files are fetched over https only"
+            ))
+        } else {
+            attempt.follow()
+        }
+    })
 }
 
 /// A `reqwest` error with its causes: the top-level message alone is

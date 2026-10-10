@@ -33,15 +33,23 @@
 //! In order, the first file that exists wins:
 //!
 //! 1. `ORT_DYLIB_PATH`, if set and non-empty. An absolute path is used
-//!    as is; a relative one is tried against the executable's directory
-//!    (which is what `ort` does), then the working directory.
+//!    as is; a relative one is resolved against the executable's
+//!    directory and nowhere else.
 //! 2. [`library_file_name`] next to the executable.
 //!
-//! There is deliberately **no bare-name or system-wide search**. Asking
-//! the loader for plain `onnxruntime.dll` can pick up an older copy from
-//! `System32`, and any system library may be the wrong version for the
-//! `ort` we are built against. A library is loaded by absolute path, or
-//! not at all.
+//! The **working directory is never searched**: it is wherever the app
+//! happened to be started from, and often somewhere other users or other
+//! programs can write, so a library found there could be planted
+//! (CWE-427).
+//!
+//! There is deliberately **no bare-name or system-wide search** either.
+//! Asking the loader for plain `onnxruntime.dll` can pick up an older copy
+//! from `System32`, and any system library may be the wrong version for
+//! the `ort` we are built against. A library is loaded by absolute path,
+//! or not at all: [`ensure_with`] refuses a candidate that is not
+//! absolute, because for one the file that is checked (looked up from the
+//! working directory) and the file that loads (found by the loader's own
+//! search) can be two different files.
 //!
 //! A path that exists but fails the checks ends the search with
 //! [`Error::RuntimeLoad`]. Quietly falling through to the next candidate
@@ -81,21 +89,16 @@ pub fn library_file_name() -> &'static str {
 /// Every place [`ensure`] will look, in order. See the module doc.
 pub fn candidate_paths() -> Vec<PathBuf> {
     let exe = std::env::current_exe().ok();
-    let cwd = std::env::current_dir().ok();
     candidates_from(
         std::env::var_os("ORT_DYLIB_PATH").as_deref(),
         exe.as_deref().and_then(Path::parent),
-        cwd.as_deref(),
     )
 }
 
-/// [`candidate_paths`] with its three inputs passed in, so the order can
-/// be tested without touching the process environment.
-fn candidates_from(
-    env_path: Option<&OsStr>,
-    exe_dir: Option<&Path>,
-    cwd: Option<&Path>,
-) -> Vec<PathBuf> {
+/// [`candidate_paths`] with its two inputs passed in, so the order can be
+/// tested without touching the process environment. There is no working
+/// directory among them on purpose; see the module doc.
+fn candidates_from(env_path: Option<&OsStr>, exe_dir: Option<&Path>) -> Vec<PathBuf> {
     let mut out: Vec<PathBuf> = Vec::new();
     let mut push = |p: PathBuf| {
         if !out.contains(&p) {
@@ -107,13 +110,8 @@ fn candidates_from(
         let raw = Path::new(raw);
         if raw.is_absolute() {
             push(raw.to_path_buf());
-        } else {
-            if let Some(dir) = exe_dir {
-                push(dir.join(raw));
-            }
-            if let Some(dir) = cwd {
-                push(dir.join(raw));
-            }
+        } else if let Some(dir) = exe_dir {
+            push(dir.join(raw));
         }
     }
     if let Some(dir) = exe_dir {
@@ -127,6 +125,11 @@ fn candidates_from(
 /// Returns the path it loaded. Cheap after the first success: that is a
 /// lock-free read. After a failure nothing is remembered, so a later
 /// call retries — the user may have put the library in place since.
+///
+/// **Every entry point into `ort` must call this first.** `Session::builder`,
+/// `ort::init*`, `ort::api()` and the rest all load the library on first
+/// use and hang when they cannot, so a caller that skips this brings back
+/// the freeze this module exists to prevent.
 pub fn ensure() -> Result<PathBuf> {
     ensure_with(&candidate_paths())
 }
@@ -134,9 +137,21 @@ pub fn ensure() -> Result<PathBuf> {
 /// [`ensure`] over an explicit candidate list: the first one that is a
 /// file is checked and loaded, or [`Error::MissingRuntime`] if none is.
 ///
+/// Every candidate must be an absolute path. A relative one is refused with
+/// [`Error::RuntimeLoad`] before anything is looked up, whether or not a
+/// library has loaded already: see the module doc for why.
+///
 /// Once any library has loaded, this returns that path whatever
 /// `candidates` says: `ort` holds one library per process.
 pub fn ensure_with(candidates: &[PathBuf]) -> Result<PathBuf> {
+    if let Some(relative) = candidates.iter().find(|p| !p.is_absolute()) {
+        return Err(Error::RuntimeLoad {
+            path: relative.clone(),
+            reason: "not an absolute path, so the system loader could open a different file \
+                     than the one that was checked"
+                .into(),
+        });
+    }
     if let Some(loaded) = LOADED.get() {
         return Ok(loaded.clone());
     }
@@ -166,11 +181,13 @@ pub fn ensure_with(candidates: &[PathBuf]) -> Result<PathBuf> {
         reason,
     })?;
 
-    // It passed every check `ort` makes, so `ort` loads it too: it opens
-    // the same file and the loader hands back the library already open.
-    // (A file swapped between the two opens is the one way left for `ort`
-    // to fail here, and then it blocks rather than erroring; see the
-    // module doc. There is no way to rule that out from outside `ort`.)
+    // The invariant: `library` stays open across `init_from`. While we
+    // hold it, `ort`'s own open of `path` is answered with this very
+    // library, the one that just passed every check `ort` makes, instead
+    // of reading the file a second time. Close it first (move it, drop
+    // it, or reorder these lines) and `ort` loads whatever is at `path`
+    // by then: a file swapped in between would be unchecked, and `ort`
+    // would block on it rather than report it (see the module doc).
     let builder = ort::init_from(path).map_err(|e| Error::RuntimeLoad {
         path: path.clone(),
         reason: e.to_string(),
@@ -216,11 +233,10 @@ fn check_library(path: &Path) -> std::result::Result<libloading::Library, String
             return Err("its OrtGetApiBase returned null".into());
         }
         // SAFETY: `base` is non-null and points at the library's static
-        // `OrtApiBase`, whose `GetVersionString` returns a static,
-        // NUL-terminated string.
-        let version = unsafe { CStr::from_ptr(((*base).GetVersionString)()) }
-            .to_string_lossy()
-            .into_owned();
+        // `OrtApiBase`; its `GetVersionString` takes no arguments.
+        let version_ptr = unsafe { ((*base).GetVersionString)() };
+        let version = version_from_ptr(version_ptr)
+            .ok_or_else(|| "its GetVersionString returned null".to_string())?;
 
         // The same rule `ort` applies: the minor version must be at least
         // the API version it was built for.
@@ -248,6 +264,22 @@ fn check_library(path: &Path) -> std::result::Result<libloading::Library, String
     };
     tracing::info!(path = %path.display(), %version, "ONNX Runtime library checked");
     Ok(library)
+}
+
+/// The text of the C string a library returned, or `None` if it returned
+/// a null pointer (which `CStr::from_ptr` would turn into undefined
+/// behaviour).
+fn version_from_ptr(ptr: *const std::ffi::c_char) -> Option<String> {
+    if ptr.is_null() {
+        return None;
+    }
+    // SAFETY: `ptr` is non-null, and the caller passes what
+    // `GetVersionString` returned: a static, NUL-terminated string.
+    Some(
+        unsafe { CStr::from_ptr(ptr) }
+            .to_string_lossy()
+            .into_owned(),
+    )
 }
 
 #[cfg(test)]
@@ -305,31 +337,94 @@ mod tests {
         // Built from the temp dir so they are absolute on every OS.
         let base = std::env::temp_dir();
         let exe_dir = base.join("app");
-        let cwd = base.join("work");
         let abs = base.join("elsewhere").join("ort.lib");
 
-        let got = candidates_from(Some(abs.as_os_str()), Some(&exe_dir), Some(&cwd));
+        let got = candidates_from(Some(abs.as_os_str()), Some(&exe_dir));
         assert_eq!(got, vec![abs, exe_dir.join(library_file_name())]);
 
-        // A relative ORT_DYLIB_PATH is tried against the executable's
-        // directory first (as `ort` does), then the working directory.
-        let got = candidates_from(Some(OsStr::new("lib/ort.so")), Some(&exe_dir), Some(&cwd));
+        // A relative ORT_DYLIB_PATH is resolved against the executable's
+        // directory.
+        let got = candidates_from(Some(OsStr::new("lib/ort.so")), Some(&exe_dir));
         assert_eq!(
             got,
             vec![
                 exe_dir.join("lib/ort.so"),
-                cwd.join("lib/ort.so"),
-                exe_dir.join(library_file_name()),
+                exe_dir.join(library_file_name())
             ]
         );
 
         // Unset and empty mean the same thing: only the executable's
         // directory. There is no bare-name fallback to the system.
         for env in [None, Some(OsStr::new(""))] {
-            let got = candidates_from(env, Some(&exe_dir), Some(&cwd));
+            let got = candidates_from(env, Some(&exe_dir));
             assert_eq!(got, vec![exe_dir.join(library_file_name())]);
         }
-        assert!(candidates_from(None, None, None).is_empty());
+        assert!(candidates_from(None, None).is_empty());
+    }
+
+    /// B3. `ORT_DYLIB_PATH=lib/ort.so` used to be tried against the working
+    /// directory too, so whoever could write to the directory the app was
+    /// started from could get a library of their choosing loaded (CWE-427).
+    /// The working directory is no longer an input to the search at all.
+    #[test]
+    fn a_relative_env_path_is_resolved_against_the_executable_directory_only() {
+        let exe_dir = std::env::temp_dir().join("app");
+
+        for raw in ["lib/ort.so", "ort.so", "./ort.so", "../ort.so"] {
+            let got = candidates_from(Some(OsStr::new(raw)), Some(&exe_dir));
+            assert_eq!(
+                got,
+                vec![exe_dir.join(raw), exe_dir.join(library_file_name())],
+                "{raw}"
+            );
+        }
+
+        // With no executable directory there is nothing to resolve it
+        // against. It is dropped, not tried against wherever the process
+        // happens to be running.
+        assert!(candidates_from(Some(OsStr::new("lib/ort.so")), None).is_empty());
+    }
+
+    /// B2. A relative candidate is looked for with `is_file` in the working
+    /// directory but opened by the system loader's own search (on Windows
+    /// that includes System32), so the file that is checked and the file
+    /// that loads can differ. It must never get that far.
+    #[test]
+    fn a_relative_candidate_is_refused_not_looked_up() {
+        // `cargo test` runs a package's tests with the package directory as
+        // the working directory, so this file really is there to be found.
+        let there = PathBuf::from("Cargo.toml");
+        assert!(there.is_file(), "tests run from the package directory");
+
+        for relative in [
+            there,
+            PathBuf::from("no/such/dir/libonnxruntime.so"),
+            PathBuf::from(library_file_name()),
+        ] {
+            match ensure_or_fail(vec![relative.clone()]) {
+                Err(Error::RuntimeLoad { path, reason }) => {
+                    assert_eq!(path, relative);
+                    assert!(reason.contains("not an absolute path"), "{reason}");
+                }
+                other => panic!(
+                    "{}: expected RuntimeLoad, got {other:?}",
+                    relative.display()
+                ),
+            }
+        }
+
+        // Not skipped because an absolute candidate came first and was
+        // simply missing.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let missing = dir.path().join("nope").join(library_file_name());
+        let relative = PathBuf::from("lib").join(library_file_name());
+        match ensure_or_fail(vec![missing, relative.clone()]) {
+            Err(Error::RuntimeLoad { path, reason }) => {
+                assert_eq!(path, relative);
+                assert!(reason.contains("not an absolute path"), "{reason}");
+            }
+            other => panic!("expected RuntimeLoad, got {other:?}"),
+        }
     }
 
     #[test]
@@ -347,8 +442,10 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains(&first.display().to_string()), "{msg}");
         assert!(msg.contains(&second.display().to_string()), "{msg}");
-        assert!(msg.contains("ORT_DYLIB_PATH"), "{msg}");
         assert!(msg.contains("#383"), "{msg}");
+        // It reports the fact. A tool passes this text to the agent, which
+        // must not read a remedy into it.
+        assert!(!msg.contains("ORT_DYLIB_PATH"), "{msg}");
 
         let empty = ensure_or_fail(Vec::new()).expect_err("nothing to look in");
         assert!(matches!(empty, Error::MissingRuntime { .. }));
@@ -398,20 +495,56 @@ mod tests {
         }
     }
 
+    /// A shared library that is certainly on this machine, loads fine, and
+    /// is not ONNX Runtime.
+    ///
+    /// On Linux, one this very process has mapped, read from
+    /// `/proc/self/maps`, so where it sits does not matter: Debian keeps
+    /// libm in `/lib/x86_64-linux-gnu`, Fedora in `/lib64`, Arch in
+    /// `/usr/lib`. On Windows, `kernel32.dll` in the system directory.
+    /// `None` where neither works, such as a static musl build, which maps
+    /// no shared library at all.
+    #[cfg(any(target_os = "linux", windows))]
+    fn some_other_shared_library() -> Option<PathBuf> {
+        #[cfg(windows)]
+        {
+            let root = std::env::var_os("SystemRoot")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
+            Some(root.join("System32").join("kernel32.dll"))
+        }
+        #[cfg(not(windows))]
+        {
+            let maps = std::fs::read_to_string("/proc/self/maps").ok()?;
+            maps.lines()
+                // The path is the last column and starts at the first
+                // slash. Anonymous mappings and `[stack]` have none.
+                .filter_map(|line| line.find('/').map(|i| PathBuf::from(&line[i..])))
+                .find(|path| {
+                    let name = path.file_name().and_then(OsStr::to_str).unwrap_or("");
+                    name.contains(".so") && !name.contains("onnxruntime") && path.is_file()
+                })
+        }
+    }
+
     /// A real shared library that loads fine but is not ONNX Runtime: the
     /// check `ort` would make next (`OrtGetApiBase`) is made here instead.
-    /// Only where a system library sits at a path known on CI.
-    #[cfg(any(all(target_os = "linux", target_arch = "x86_64"), windows))]
+    #[cfg(any(target_os = "linux", windows))]
     #[test]
     fn a_real_library_that_is_not_onnxruntime_is_a_load_error() {
-        let other = if cfg!(windows) {
-            PathBuf::from(r"C:\Windows\System32\kernel32.dll")
-        } else {
-            PathBuf::from("/lib/x86_64-linux-gnu/libm.so.6")
+        let Some(other) = some_other_shared_library() else {
+            // Written to stderr directly: the harness hides `eprintln!`
+            // from a test that passes.
+            let _ = writeln!(
+                std::io::stderr(),
+                "skipping a_real_library_that_is_not_onnxruntime_is_a_load_error: no shared \
+                 library to load was found on this machine"
+            );
+            return;
         };
         assert!(
-            other.is_file(),
-            "{} is missing on this machine",
+            other.is_absolute() && other.is_file(),
+            "{}",
             other.display()
         );
 
@@ -422,5 +555,18 @@ mod tests {
             }
             got => panic!("expected RuntimeLoad, got {got:?}"),
         }
+    }
+
+    /// `CStr::from_ptr(null)` is undefined behaviour, and a library we know
+    /// nothing about is what answers `GetVersionString`.
+    #[test]
+    fn a_null_version_string_is_not_read() {
+        assert_eq!(version_from_ptr(std::ptr::null()), None);
+
+        let version = std::ffi::CString::new("1.24.1").unwrap();
+        assert_eq!(
+            version_from_ptr(version.as_ptr()).as_deref(),
+            Some("1.24.1")
+        );
     }
 }

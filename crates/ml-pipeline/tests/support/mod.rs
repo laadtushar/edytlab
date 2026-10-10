@@ -30,6 +30,7 @@ pub struct Route {
     cut_after: Option<usize>,
     chunk_delay: Option<Duration>,
     head_delay: Option<Duration>,
+    location: Option<String>,
 }
 
 impl Route {
@@ -43,7 +44,17 @@ impl Route {
             cut_after: None,
             chunk_delay: None,
             head_delay: None,
+            location: None,
         }
+    }
+
+    /// Answer every request with a `302` to `to` and an empty body. `to`
+    /// is sent as the `Location` header verbatim, so it can be a path on
+    /// this server or an absolute URL anywhere.
+    pub fn redirect(mut self, to: impl Into<String>) -> Self {
+        self.status = 302;
+        self.location = Some(to.into());
+        self
     }
 
     /// Answer every request with this status and an empty body.
@@ -224,7 +235,12 @@ fn handle(mut stream: TcpStream, shared: &Shared) -> std::io::Result<()> {
         thread::sleep(delay);
     }
     if route.status != 200 {
-        return respond(&mut stream, route.status, &[], &[], None, None);
+        let extra: Vec<String> = route
+            .location
+            .iter()
+            .map(|to| format!("Location: {to}"))
+            .collect();
+        return respond(&mut stream, route.status, &extra, &[], None, None);
     }
 
     let len = route.body.len();
@@ -270,6 +286,7 @@ fn respond(
     let reason = match status {
         200 => "OK",
         206 => "Partial Content",
+        302 => "Found",
         404 => "Not Found",
         416 => "Range Not Satisfiable",
         _ => "Status",

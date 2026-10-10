@@ -81,15 +81,20 @@ pub enum Error {
 
     /// No ONNX Runtime library exists at any of the places
     /// [`runtime::ensure`] looks. `searched` lists them all, so the
-    /// message can say where a copy would be picked up.
+    /// message says where a copy would be picked up.
     ///
     /// Distinct from [`Error::Ort`] so callers can tell "this machine
     /// has no runtime" from "the runtime rejected the model".
+    ///
+    /// The message states the fact and offers no remedy. It ends up in
+    /// the text of a tool error, and the agent that reads it must not set
+    /// about installing a library: that would not make transcription or
+    /// stem separation work (#384, #385). How to point the app at a copy
+    /// (`ORT_DYLIB_PATH`, ONNX Runtime 1.x or newer for the `ort` we
+    /// build against) is in the docs.
     #[error(
-        "ONNX Runtime library not found; looked in: {}. edytlab does not ship it yet (#383); \
-         ORT_DYLIB_PATH can point at a local copy (ONNX Runtime 1.{} or newer)",
-        list_paths(.searched),
-        ort::MINOR_VERSION
+        "ONNX Runtime library not found; looked in: {}. edytlab does not ship it yet (#383)",
+        list_paths(.searched)
     )]
     MissingRuntime { searched: Vec<PathBuf> },
 
@@ -136,7 +141,8 @@ fn http_status(status: &Option<u16>) -> String {
 /// Comma-separated paths for [`Error::MissingRuntime`]'s message.
 fn list_paths(paths: &[PathBuf]) -> String {
     if paths.is_empty() {
-        return "nowhere (ORT_DYLIB_PATH is unset and the executable's directory is unknown)"
+        return "nowhere (the executable's directory is unknown, and ORT_DYLIB_PATH is unset or \
+                relative)"
             .to_string();
     }
     paths

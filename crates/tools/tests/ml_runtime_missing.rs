@@ -107,5 +107,16 @@ fn model_tools_report_a_missing_runtime_instead_of_hanging() {
             msg.contains("not implemented in this build"),
             "{name} {args}: the error must not suggest the runtime is the missing piece: {msg}"
         );
+        assert_eq!(
+            msg.matches("not implemented in this build").count(),
+            1,
+            "{name} {args}: it should say so once: {msg}"
+        );
+        // Whatever the agent is told it may act on. Pointing it at a local
+        // copy of the library is a step it would try, and it gets nowhere.
+        assert!(
+            !msg.contains("ORT_DYLIB_PATH"),
+            "{name} {args}: the error offers the agent a setup step: {msg}"
+        );
     }
 }

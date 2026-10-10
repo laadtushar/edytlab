@@ -8,9 +8,12 @@
 
 mod support;
 
+use std::fs::{File, OpenOptions};
+use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use fs4::FileExt;
 use ml_pipeline::{
     fetched_model_path, Error, FetchObserver, FetchProgress, ModelArtifact, ModelFile, ModelStore,
 };
@@ -697,9 +700,29 @@ fn manifest_cannot_escape_the_store() {
     let mut zero = good.clone();
     zero.files[0].size = 0;
     cases.push(("zero size", zero));
-    let mut scheme = good.clone();
-    scheme.files[0].url = "file:///etc/passwd".into();
-    cases.push(("non-http url", scheme));
+    let with_url = |url: &str| {
+        let mut a = good.clone();
+        a.files[0].url = url.into();
+        a
+    };
+    cases.push(("non-http url", with_url("file:///etc/passwd")));
+    // Model files come over https. Plain http is for this machine only.
+    cases.push((
+        "plain http to a remote host",
+        with_url("http://example.com/model.onnx"),
+    ));
+    cases.push((
+        "loopback name as a prefix of a remote host",
+        with_url("http://localhost.example.com/model.onnx"),
+    ));
+    cases.push((
+        "loopback address as the userinfo of a remote host",
+        with_url("http://127.0.0.1@example.com/model.onnx"),
+    ));
+    cases.push(("url with no host", with_url("https://")));
+    // Artifact `x` locks `<root>/x.lock`, so an artifact called `x.lock`
+    // would need that very path for its directory.
+    cases.push(("id that is another artifact's lock file", with_id("x.lock")));
 
     for (name, artifact) in &cases {
         assert!(
@@ -731,6 +754,37 @@ fn manifest_cannot_escape_the_store() {
             "{stray} was created outside the store"
         );
     }
+}
+
+#[test]
+fn only_https_and_loopback_http_urls_are_accepted() {
+    let fx = Fixture::new();
+    let server = fx.server();
+    let store = fx.store();
+    let with_url = |url: &str| {
+        let mut a = fx.artifact(&server);
+        a.files[0].url = url.into();
+        a
+    };
+
+    for ok in [
+        "https://example.com/m.onnx",
+        "https://huggingface.co/a/b/resolve/main/m.onnx?download=true",
+        "http://127.0.0.1:8080/m.onnx",
+        "http://localhost:8080/m.onnx",
+        "http://[::1]:8080/m.onnx",
+    ] {
+        store
+            .artifact_dir(&with_url(ok))
+            .unwrap_or_else(|e| panic!("{ok} was refused: {e}"));
+    }
+    let err = store
+        .artifact_dir(&with_url("http://example.com/m.onnx"))
+        .expect_err("plain http to a remote host");
+    assert!(
+        err.to_string().contains("https"),
+        "the error should say what is allowed: {err}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -806,4 +860,371 @@ fn fetched_model_path_downloads_and_verifies() {
     assert_eq!(dir, fx.dir());
     assert_file_is(&fx.model_path(), &fx.model);
     assert_file_is(&dir.join(TOKENIZER_FILE), &fx.tokenizer);
+}
+
+// ---------------------------------------------------------------------------
+// Redirects
+// ---------------------------------------------------------------------------
+
+const HOPS: [&str; 6] = ["/hop0", "/hop1", "/hop2", "/hop3", "/hop4", "/hop5"];
+
+/// A server where `HOPS[0]` starts a chain of `redirects` redirects, each
+/// hop pointing at the next and the last at the model.
+fn redirect_chain(fx: &Fixture, redirects: usize) -> Server {
+    assert!((1..=HOPS.len()).contains(&redirects));
+    let mut routes: Vec<(&'static str, Route)> = Vec::new();
+    for (i, hop) in HOPS.iter().take(redirects).enumerate() {
+        let to = if i + 1 == redirects {
+            MODEL_ROUTE
+        } else {
+            HOPS[i + 1]
+        };
+        routes.push((*hop, Route::new(Vec::new()).redirect(to)));
+    }
+    routes.push((MODEL_ROUTE, Route::new(fx.model.clone())));
+    routes.push((TOKENIZER_ROUTE, Route::new(fx.tokenizer.clone())));
+    Server::start(routes)
+}
+
+#[test]
+fn a_few_redirects_are_followed() {
+    let fx = Fixture::new();
+    let server = redirect_chain(&fx, 5);
+    let mut artifact = fx.artifact(&server);
+    artifact.files[0].url = server.url(HOPS[0]);
+
+    fx.store().fetch(&artifact, &mut ()).expect("fetch");
+
+    assert_file_is(&fx.model_path(), &fx.model);
+    assert_eq!(server.hits(MODEL_ROUTE).len(), 1);
+}
+
+#[test]
+fn a_redirect_chain_over_the_limit_is_a_download_error() {
+    let fx = Fixture::new();
+    // Six redirects, one more than allowed.
+    let server = redirect_chain(&fx, 6);
+    let mut artifact = fx.artifact(&server);
+    artifact.files[0].url = server.url(HOPS[0]);
+
+    let err = fx
+        .store()
+        .fetch(&artifact, &mut ())
+        .expect_err("too many redirects");
+
+    match &err {
+        Error::Download {
+            status: None,
+            reason,
+            ..
+        } => assert!(reason.contains("redirect"), "{reason}"),
+        other => panic!("expected a Download error, got {other:?}"),
+    }
+    assert_eq!(
+        server.hits(MODEL_ROUTE).len(),
+        0,
+        "the model was never reached"
+    );
+    assert!(!fx.model_path().exists());
+    assert_no_part_files(&fx.dir());
+}
+
+#[test]
+fn a_redirect_to_plain_http_on_another_host_is_refused() {
+    let fx = Fixture::new();
+    // `.invalid` never resolves, so if this were followed the failure would
+    // be a DNS error. The refusal has to come first, and has to say why.
+    let server = Server::start([
+        (
+            MODEL_ROUTE,
+            Route::new(Vec::new()).redirect("http://example.invalid/model.onnx"),
+        ),
+        (TOKENIZER_ROUTE, Route::new(fx.tokenizer.clone())),
+    ]);
+    let artifact = fx.artifact(&server);
+
+    let err = fx
+        .store()
+        .fetch(&artifact, &mut ())
+        .expect_err("a downgrade to http");
+
+    match &err {
+        Error::Download { reason, .. } => assert!(reason.contains("https only"), "{reason}"),
+        other => panic!("expected a Download error, got {other:?}"),
+    }
+    assert!(!fx.model_path().exists());
+}
+
+// ---------------------------------------------------------------------------
+// Another writer on the same files
+// ---------------------------------------------------------------------------
+
+/// What a second writer does to the `.part` file of the model.
+#[derive(Clone, Copy, Debug)]
+enum Tamper {
+    /// Overwrite bytes the download has already written. The length stays
+    /// right, so only a hash can tell.
+    Overwrite,
+    /// Truncate the file to nothing. The download carries on writing at its
+    /// own offset, leaving a hole of zeros behind it.
+    Truncate,
+    /// Extend the file to this many bytes, past the pinned size.
+    Grow(u64),
+}
+
+/// A second writer on the `.part` while `fetch` streams into it, standing in
+/// for another edytlab process fetching the same artifact (open and append on
+/// a resume, or `File::create` on a restart).
+///
+/// Acts part-way through the model, once per download attempt when `repeat`
+/// is set and only on the first attempt otherwise. A fetch that starts a
+/// file over reports progress from zero again, which re-arms it.
+struct SecondWriter {
+    part: PathBuf,
+    how: Tamper,
+    repeat: bool,
+    armed: bool,
+    acted: u32,
+}
+
+impl SecondWriter {
+    fn new(part: PathBuf, how: Tamper, repeat: bool) -> Self {
+        Self {
+            part,
+            how,
+            repeat,
+            armed: true,
+            acted: 0,
+        }
+    }
+}
+
+impl FetchObserver for SecondWriter {
+    fn on_progress(&mut self, p: &FetchProgress<'_>) {
+        if p.file != MODEL_FILE {
+            return;
+        }
+        if p.bytes_done < 400_000 {
+            self.armed = self.repeat || self.acted == 0;
+            return;
+        }
+        if !self.armed {
+            return;
+        }
+        self.armed = false;
+        self.acted += 1;
+        let mut f = OpenOptions::new()
+            .write(true)
+            .open(&self.part)
+            .expect("the partial file is there to be tampered with");
+        match self.how {
+            Tamper::Overwrite => {
+                f.seek(SeekFrom::Start(10)).unwrap();
+                f.write_all(&[0xA5; 64]).unwrap();
+            }
+            Tamper::Truncate => f.set_len(0).unwrap(),
+            Tamper::Grow(to) => f.set_len(to).unwrap(),
+        }
+    }
+}
+
+type TamperFor = fn(u64) -> Tamper;
+
+/// Each way a second writer can leave the `.part`, given the pinned size.
+const TAMPERS: [(&str, TamperFor); 3] = [
+    ("overwritten in place", |_| Tamper::Overwrite),
+    ("truncated", |_| Tamper::Truncate),
+    ("grown past the pinned size", |size| {
+        Tamper::Grow(size + 4096)
+    }),
+];
+
+/// Whatever a second writer does to the `.part`, a fetch that returns `Ok`
+/// has put a verified file at the final name. The hash `finish` checks is
+/// the one of the bytes on disk, not of the bytes this process streamed.
+#[test]
+fn a_second_writer_never_gets_an_unverified_file_renamed_into_place() {
+    for (what, tamper) in TAMPERS {
+        let fx = Fixture::new();
+        let server = fx.server();
+        let artifact = fx.artifact(&server);
+        let store = fx.store();
+        let size = fx.model.len() as u64;
+
+        let mut meddler = SecondWriter::new(fx.model_part(), tamper(size), false);
+        let result = store.fetch(&artifact, &mut meddler);
+
+        assert_eq!(meddler.acted, 1, "{what}: the second writer never ran");
+        let dir = result.unwrap_or_else(|e| panic!("{what}: the second attempt is clean: {e}"));
+        assert_eq!(dir, fx.dir());
+        assert!(
+            store.cached(&artifact).unwrap().is_some(),
+            "{what}: fetch returned Ok but the artifact does not verify"
+        );
+        assert_file_is(&fx.model_path(), &fx.model);
+        assert_eq!(
+            server.hits(MODEL_ROUTE).len(),
+            2,
+            "{what}: the corrupt file is refused and fetched again, once"
+        );
+        assert_no_part_files(&dir);
+    }
+}
+
+#[test]
+fn a_second_writer_that_keeps_interfering_is_an_integrity_error() {
+    for (what, tamper) in TAMPERS {
+        let fx = Fixture::new();
+        let server = fx.server();
+        let artifact = fx.artifact(&server);
+        let store = fx.store();
+        let size = fx.model.len() as u64;
+
+        let mut meddler = SecondWriter::new(fx.model_part(), tamper(size), true);
+        let err = store
+            .fetch(&artifact, &mut meddler)
+            .expect_err("the file is wrong both times");
+
+        match &err {
+            Error::Integrity { file, reason } => {
+                assert_eq!(file, MODEL_FILE, "{what}");
+                assert!(reason.contains("on disk"), "{what}: {reason}");
+            }
+            other => panic!("{what}: expected Integrity, got {other:?}"),
+        }
+        assert!(
+            !fx.model_path().exists(),
+            "{what}: an unverified file was given its final name"
+        );
+        assert_eq!(store.cached(&artifact).unwrap(), None);
+        assert_no_part_files(&fx.dir());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The cross-process lock
+// ---------------------------------------------------------------------------
+
+fn lock_file_path(root: &Path) -> PathBuf {
+    root.join("tiny-model-1.lock")
+}
+
+/// Take the lock another edytlab process would hold while fetching
+/// `tiny-model-1`. A second open of the file is another holder to the OS
+/// (`flock` and `LockFileEx` both lock per open file, not per process), so
+/// this runs into the same thing a second process would. Dropping the
+/// returned file releases it.
+fn hold_the_lock_like_another_process(root: &Path) -> File {
+    std::fs::create_dir_all(root).unwrap();
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(lock_file_path(root))
+        .unwrap();
+    FileExt::try_lock(&file).expect("nobody else holds the lock yet");
+    file
+}
+
+#[test]
+fn a_fetch_waits_while_another_process_holds_the_artifact_lock() {
+    let fx = Fixture::new();
+    let server = fx.server();
+    let artifact = fx.artifact(&server);
+    let store = fx.store();
+
+    std::thread::scope(|s| {
+        // Taken inside the scope so that a failed assertion below releases
+        // it while unwinding. Otherwise the scope would wait for ever on a
+        // fetch that is waiting for the lock.
+        let other = hold_the_lock_like_another_process(&fx.root);
+
+        let fetch = s.spawn(|| store.fetch(&artifact, &mut ()));
+        std::thread::sleep(Duration::from_millis(600));
+        assert!(
+            !fetch.is_finished(),
+            "the fetch did not wait for the lock holder"
+        );
+        assert_eq!(server.total_hits(), 0, "it downloaded while locked out");
+        assert!(!fx.dir().exists(), "it wrote while locked out");
+
+        drop(other);
+        let dir = fetch
+            .join()
+            .unwrap()
+            .expect("the fetch goes ahead once the lock is free");
+        assert_eq!(dir, fx.dir());
+    });
+
+    assert_file_is(&fx.model_path(), &fx.model);
+    assert_eq!(server.hits(MODEL_ROUTE).len(), 1);
+}
+
+#[test]
+fn waiting_for_the_artifact_lock_can_be_cancelled() {
+    let fx = Fixture::new();
+    let server = fx.server();
+    let artifact = fx.artifact(&server);
+    let _other = hold_the_lock_like_another_process(&fx.root);
+
+    struct AfterAWhile(Instant);
+    impl FetchObserver for AfterAWhile {
+        fn is_cancelled(&self) -> bool {
+            self.0.elapsed() > Duration::from_millis(300)
+        }
+    }
+
+    let started = Instant::now();
+    let err = fx
+        .store()
+        .fetch(&artifact, &mut AfterAWhile(started))
+        .expect_err("cancelled while waiting for the lock");
+
+    assert!(matches!(err, Error::Cancelled), "{err:?}");
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "cancel took {:?}: it blocked on the lock",
+        started.elapsed()
+    );
+    assert_eq!(server.total_hits(), 0);
+    assert!(!fx.dir().exists());
+}
+
+#[test]
+fn the_lock_is_released_however_a_fetch_ends() {
+    let fx = Fixture::new();
+    let server = fx.server();
+    let artifact = fx.artifact(&server);
+    let store = fx.store();
+    let lock_is_free = || {
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(lock_file_path(&fx.root))
+            .expect("open the lock file");
+        FileExt::try_lock(&file).is_ok()
+    };
+
+    store.fetch(&artifact, &mut ()).expect("fetch");
+    assert!(
+        lock_file_path(&fx.root).is_file(),
+        "a fetch leaves its lock file behind: removing it would let two processes lock two files"
+    );
+    assert!(lock_is_free(), "still held after a successful fetch");
+
+    // A failure.
+    std::fs::remove_file(fx.model_path()).unwrap();
+    server.set_route(MODEL_ROUTE, Route::new(Vec::new()).status(500));
+    store.fetch(&artifact, &mut ()).expect_err("a 500");
+    assert!(lock_is_free(), "still held after a failed fetch");
+
+    // A cancel.
+    server.set_route(MODEL_ROUTE, Route::new(fx.model.clone()));
+    let mut rec = Recorder::cancelling_at(256 * 1024);
+    let err = store.fetch(&artifact, &mut rec).expect_err("cancelled");
+    assert!(matches!(err, Error::Cancelled), "{err:?}");
+    assert!(lock_is_free(), "still held after a cancelled fetch");
 }

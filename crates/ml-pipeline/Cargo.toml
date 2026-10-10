@@ -26,6 +26,11 @@ libloading = "0.9"
 # the `mcp` crate, so the workspace links one HTTP and TLS stack.
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 sha2 = "0.10"
+# The cross-process lock on an artifact (`download.rs`): `flock` on Unix,
+# `LockFileEx` on Windows, over a plain `std::fs::File`. Its `FileExt`
+# mirrors the `File::try_lock` that std stabilised in Rust 1.89, so this
+# crate can go once the toolchain pin (1.88) moves past that.
+fs4 = "1.1"
 blake3 = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
