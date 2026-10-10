@@ -146,6 +146,44 @@ fn get_session_head_returns_error_when_no_project_open() {
     );
 }
 
+/// The active provider as the frontend asks for it, with `stash` as what
+/// startup found wrong with the keychain (`None` for a clean start).
+fn active_provider_over_ipc(stash: Option<&str>) -> Result<String, String> {
+    let state = AppState::new();
+    state.set_keychain_read_error(stash.map(str::to_string));
+    let app = mock_builder()
+        .manage(state)
+        .invoke_handler(tauri::generate_handler![commands::get_active_provider])
+        .build(mock_context(noop_assets()))
+        .expect("mock app");
+    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .expect("webview");
+    tauri::test::get_ipc_response(&webview, make_request("get_active_provider", json!({})))
+        .map(|r| r.deserialize::<String>().expect("a string"))
+        .map_err(|e| e.as_str().unwrap_or_default().to_string())
+}
+
+/// #497 item 1. After a startup the keychain refused, the active provider
+/// was never read, so `anthropic` is the default and not an answer. Settings
+/// takes it for the stored choice, and its Save writes it back over the
+/// real one.
+#[test]
+fn the_active_provider_is_refused_while_the_keychain_could_not_be_read() {
+    assert_eq!(
+        active_provider_over_ipc(Some("locked")),
+        Err("locked".to_string()),
+        "the reason alone, as `has_api_key` gives it: the banner supplies the rest"
+    );
+}
+
+/// And the same command on a clean start still answers: the default is
+/// an answer when startup read cleanly and found no preference.
+#[test]
+fn the_active_provider_is_answered_when_the_keychain_was_read() {
+    assert_eq!(active_provider_over_ipc(None), Ok("anthropic".to_string()));
+}
+
 /// A mono 16-bit WAV of `frames` frames at 8 kHz, every sample 1000.
 fn write_wav(path: &std::path::Path, frames: u32) {
     let data_len = frames * 2;

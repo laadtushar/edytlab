@@ -664,6 +664,55 @@ describe("Settings", () => {
     expect(select).toHaveValue("");
   });
 
+  /**
+   * The bug (#497 item 1): after a startup the keychain refused, the base
+   * URL and the level read as "nothing stored", and Save then sent a
+   * blank URL and a null level, which delete the stored values. A user
+   * who dismissed the startup prompts and accepted the one Save raises
+   * lost both.
+   */
+  it("leaves a stored base URL and level alone when they could not be read", async () => {
+    getBaseUrlForMock.mockRejectedValue("the system keychain could not be read: locked");
+    getEffortForMock.mockRejectedValue("the system keychain could not be read: locked");
+    const user = userEvent.setup();
+    const onSaved = vi.fn();
+    render(<Settings mode="panel" onSaved={onSaved} onClose={vi.fn()} />);
+    await waitFor(() => expect(getEffortForMock).toHaveBeenCalled());
+    await waitFor(() => expect(getBaseUrlForMock).toHaveBeenCalled());
+
+    await user.type(screen.getByTestId("settings-key-input"), "sk-ant-good");
+    await user.click(screen.getByTestId("settings-save-button"));
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(setApiKeyForMock).toHaveBeenCalledWith("anthropic", "sk-ant-good");
+    expect(setBaseUrlForMock).not.toHaveBeenCalled();
+    expect(setEffortForMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The same hole without a failure: Save before the reads have answered
+   * wrote a blank URL over whatever they were about to say.
+   */
+  it("leaves a stored base URL and level alone when Save comes before they were read", async () => {
+    const url = held<string | null>();
+    const level = held<string | null>();
+    getBaseUrlForMock.mockReturnValue(url.promise);
+    getEffortForMock.mockReturnValue(level.promise);
+    const user = userEvent.setup();
+    const onSaved = vi.fn();
+    render(<Settings mode="panel" onSaved={onSaved} onClose={vi.fn()} />);
+    await waitFor(() => expect(getEffortForMock).toHaveBeenCalled());
+
+    await user.type(screen.getByTestId("settings-key-input"), "sk-ant-good");
+    await user.click(screen.getByTestId("settings-save-button"));
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(setBaseUrlForMock).not.toHaveBeenCalled();
+    expect(setEffortForMock).not.toHaveBeenCalled();
+    await url.resolve("https://gateway.internal/v1");
+    await level.resolve("high");
+  });
+
   it("reports a failure to save the level instead of swallowing it", async () => {
     setEffortForMock.mockRejectedValue("unknown reasoning effort `x`");
     const user = userEvent.setup();
