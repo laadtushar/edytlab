@@ -174,7 +174,7 @@ All session state lives in Rust (`AppState`). The frontend is intentionally thin
 2. Receives Tauri events (`agent://text-delta`, `agent://tool-call`, `agent://node-created`, `agent://done`, …)
 3. Derives local UI state from the command responses
 
-Local React state: `head`, `audioPath`, `rendering`, `leftView`, `compareMode`, `markers`, `tracks`, `showShortcuts`, `selection`. Most of it is not persisted; where you were — head, zoom, selection and playhead — is saved to `<project>/.audiograph/view.json` and restored on open (`src/lib/viewState.ts`, `src-tauri/src/project.rs`).
+Local React state: `head`, `audioPath`, `rendering`, `leftView`, `compareMode`, `markers`, `tracks`, `showShortcuts`, `selection`. Most of it is not persisted; where you were — head, zoom, selection and playhead — is saved to `<project>/.audiograph/view.json`, and the zoom, selection and playhead are restored on open (`src/lib/viewState.ts`, `src-tauri/src/project.rs`). The saved head is not: it can lag the store's `HEAD`, and obeying it would move `HEAD` back on disk, so opening a project (and launching) keeps the head the store reports (#507).
 
 ### Tauri Bridge (`src/lib/tauri-bridge.ts`)
 

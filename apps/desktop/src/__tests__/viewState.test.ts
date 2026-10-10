@@ -21,7 +21,7 @@ describe("viewToApply", () => {
 
   it("restores what is there and stays silent about what is not", () => {
     const out = viewToApply({ head: "abc123", zoom_px_per_sec: 80 });
-    expect(out).toEqual({ head: "abc123", zoomPxPerSec: 80 });
+    expect(out).toEqual({ zoomPxPerSec: 80 });
     // Not `selection: undefined` — the key must be absent, or a caller
     // spreading this would clear the selection it never restored.
     expect("selection" in out).toBe(false);
@@ -73,7 +73,10 @@ describe("viewToApply", () => {
     expect("playheadSec" in viewToApply({ playhead_sec: -3 })).toBe(false);
   });
 
-  it("ignores an empty head rather than restoring a blank one", () => {
+  // The saved head can lag the store's `HEAD`, and obeying it moves `HEAD`
+  // back on disk (#507). The store's own head is the one to show.
+  it("never offers the saved head to apply", () => {
+    expect("head" in viewToApply({ head: "abc123" })).toBe(false);
     expect("head" in viewToApply({ head: "" })).toBe(false);
   });
 });
@@ -108,7 +111,7 @@ describe("viewToSave", () => {
     ).toBeNull();
   });
 
-  it("round-trips through viewToApply", () => {
+  it("round-trips through viewToApply, apart from the head", () => {
     const saved = viewToSave({
       head: "deadbeef",
       zoomPxPerSec: 120,
@@ -116,7 +119,6 @@ describe("viewToSave", () => {
       playheadSec: 4,
     });
     expect(viewToApply(saved)).toEqual({
-      head: "deadbeef",
       zoomPxPerSec: 120,
       selection: { start: 0.5, end: 9 },
       playheadSec: 4,

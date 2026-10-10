@@ -7,11 +7,11 @@
  * loads, templates and recordings that value was simply dropped.
  *
  * The result is data loss rather than a stale label. `persistView`
- * writes the frontend head into `view.json`; `restoreView` feeds it to
- * `set_head_to`, which rewinds the store head *durably*. So labels
- * typed into the lane survive as nodes in the graph and disappear from
- * `list_markers` on the next open, and Ctrl+Z reverts the edit before
- * them instead of the label itself.
+ * writes the frontend head into `view.json`; opening a project used to
+ * feed it to `set_head_to` (it no longer does, #507), which rewinds the
+ * store head *durably*. So labels typed into the lane survived as nodes
+ * in the graph and disappeared from `list_markers` on the next open, and
+ * Ctrl+Z reverts the edit before them instead of the label itself.
  *
  * ## Why this is still a source check
  *

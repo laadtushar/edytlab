@@ -66,10 +66,7 @@ const SESSION_CHANGING = [
  * Calls that are not in a handler of their own with the line in it,
  * because the handler that calls them is itself a turn.
  */
-const INSIDE_ANOTHER_TURN: Record<string, string[]> = {
-  // `restoreView` runs inside `handleOpenRecent`'s turn.
-  setHeadTo: ["await setHeadTo(view.head);"],
-};
+const INSIDE_ANOTHER_TURN: Record<string, string[]> = {};
 
 const IN_LINE = /\b(inOrder|applyEdit|commitTrackChange|commitSlider)\(/;
 

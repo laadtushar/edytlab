@@ -10,10 +10,12 @@
  *   project saved by an older build has a head and no zoom; one that
  *   was never played has no playhead. Applying `undefined` as a value
  *   would reset the very things it failed to restore.
- * * **A stale head must not be forced.** The head in `view.json` can
- *   name a node that no longer exists — a project folder copied without
- *   `.audiograph/`, or a store rebuilt. Restoring a head is a request,
- *   and the caller checks it.
+ * * **The head is saved and never applied.** It is written 500 ms after
+ *   the view settles, so it is the store's `HEAD` or older, and obeying
+ *   it moves `HEAD` back on disk (#507). The store knows its own head:
+ *   at launch the backend restored it, and `open_project` returns it. So
+ *   `viewToApply` does not offer the head at all, and no caller can
+ *   apply it by accident.
  * * **Nonsense is ignored rather than propagated.** A negative zoom or
  *   an inverted selection reads as a corrupt file, and the honest
  *   response is to leave that part of the view alone.
@@ -24,7 +26,6 @@ import type { ViewState } from "./tauri-bridge";
 
 /** What a caller should actually do, with only the parts worth doing. */
 export interface ViewToApply {
-  head?: string;
   zoomPxPerSec?: number;
   selection?: Selection | null;
   playheadSec?: number;
@@ -43,10 +44,6 @@ const MAX_ZOOM_PX_PER_SEC = 2000;
 export function viewToApply(view: ViewState | null | undefined): ViewToApply {
   const out: ViewToApply = {};
   if (!view) return out;
-
-  if (typeof view.head === "string" && view.head.length > 0) {
-    out.head = view.head;
-  }
 
   const zoom = view.zoom_px_per_sec;
   if (typeof zoom === "number" && Number.isFinite(zoom) && zoom >= 0) {

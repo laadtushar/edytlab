@@ -384,6 +384,55 @@ test.describe("a returning user's view", () => {
   });
 
   /**
+   * #507, the other way into a saved view. Opening a project read the same
+   * stale head and obeyed it with `set_head_to`, which moves the project's
+   * `HEAD` back on disk. The head shown, previewed and saved is the one
+   * `open_project` returned, and the rest of the view is still restored.
+   */
+  test("of a project being opened never moves that project's head back to the one it names", async ({
+    app,
+  }) => {
+    const other = "/home/user/Music/interview";
+    const before = nodeId(1);
+    const latest = nodeId(2);
+    await app.boot({
+      ...projectWith([toneTrack()], nodeId(8)),
+      get_view_state: ok({}),
+    });
+    const page = app.page;
+    await expect(page.getByTestId("ruler")).toContainText("0:03");
+
+    await app.become({
+      // The folder picker, answered with the chosen folder.
+      "plugin:dialog|open": ok(other),
+      open_project: ok({ path: other, head: latest }),
+      get_view_state: ok({ head: before, zoom_px_per_sec: 200, selection: [2, 2.5] }),
+      // What the real command would do if asked: move there and say so.
+      set_head_to: ok(before),
+      render_preview: ok(fixturePath("tone3s")),
+    });
+    await page.getByTestId("open-project-button").click();
+
+    await expect(page.getByTestId("timeline-selection-overlay")).toBeVisible();
+    await app.settle();
+    expect(await app.requestsFor("set_head_to"), "opening moved the head").toEqual([]);
+
+    await page.getByTestId("render-preview-button").click();
+    await expect
+      .poll(() => app.requestsFor("render_preview"), {
+        message: "a render of the head the project reported",
+      })
+      .toEqual([{ node: latest }]);
+    // And what is saved from here on names that head, so the stale file
+    // heals itself rather than being read again next time.
+    await expect
+      .poll(async () => (await app.requestsFor("save_view_state")).at(-1), {
+        message: "the view saved after opening",
+      })
+      .toMatchObject({ view: { head: latest, zoom_px_per_sec: 200, selection: [2, 2.5] } });
+  });
+
+  /**
    * Also from the second review. The saved view is read while the timeline
    * is already usable, so a zoom made in that gap was replaced by the one
    * on disk when the read came back — the user's own action, undone.

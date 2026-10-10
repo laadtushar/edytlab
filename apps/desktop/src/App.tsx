@@ -537,10 +537,11 @@ function App() {
    * the frontend head simply stopped moving.
    *
    * That is data loss, not staleness. `persistView` writes this value
-   * into `view.json`, and `restoreView` feeds it to `set_head_to`,
-   * which rewinds the store head *durably* on the next open — so every
-   * label typed since the last agent edit is gone from `list_markers`,
-   * while the nodes themselves sit intact and unreachable in the graph.
+   * into `view.json`, and opening a project used to feed that to
+   * `set_head_to`, which rewinds the store head *durably* — so every
+   * label typed since the last agent edit was gone from `list_markers`,
+   * while the nodes sat intact and unreachable in the graph. (Opening no
+   * longer obeys the saved head, #507; the value is still saved.)
    * Undo reads the same value, so Ctrl+Z after naming a label reverts
    * the edit before it instead.
    *
@@ -825,30 +826,27 @@ function App() {
   );
 
   /**
-   * Put the user back where they were in a project they just opened.
+   * Put the user back where they were in a project they just opened:
+   * zoom, selection and playhead from its saved view, and the head the
+   * store itself reported (`ProjectInfo.head`, its own `HEAD`).
    *
-   * The head is a *request*: `view.json` can name a node that no longer
-   * exists (a folder copied without `.audiograph/`, a rebuilt store),
-   * so a failure there leaves the head the store reported and is not an
-   * error worth showing.
+   * Everything but the saved view's head, as at launch. The view is
+   * written 500 ms after it settles, so its head is the store's `HEAD` or
+   * older: older when an edit landed in the last half-second before the
+   * project was closed, or the head moved in a way the app did not adopt.
+   * Obeying it meant `set_head_to`, which moves `HEAD` back *on disk* and
+   * takes the newer edits off the timeline (#507). The saved head is not
+   * even looked at: a node `view.json` names that the store lacks (a
+   * folder copied without `.audiograph/`) is no longer a case to
+   * tolerate, because nothing is asked of the store.
    */
   const restoreView = useCallback(
-    async (fallbackHead: string | null) => {
-      const view = viewToApply(await getViewState().catch(() => null));
-      applyView(view, "replace");
-      if (view.head) {
-        try {
-          await setHeadTo(view.head);
-          resetHead(view.head);
-          return;
-        } catch {
-          // Stale head: fall through to whatever the store reported.
-        }
-      }
+    async (storeHead: string | null) => {
+      applyView(viewToApply(await getViewState().catch(() => null)), "replace");
       // Always, including `null`: the project just opened has its own
       // head and its own history, and neither the old project's head nor
       // the path taken through it may carry over (#398).
-      resetHead(fallbackHead);
+      resetHead(storeHead);
     },
     [applyView, resetHead],
   );
