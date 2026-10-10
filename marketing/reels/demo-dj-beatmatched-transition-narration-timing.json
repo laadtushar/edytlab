@@ -1,0 +1,472 @@
+{
+ "BT01": {
+  "words": [
+   {
+    "text": "Blending",
+    "start": 0.0,
+    "end": 0.56
+   },
+   {
+    "text": "two",
+    "start": 0.64,
+    "end": 0.8
+   },
+   {
+    "text": "tracks.",
+    "start": 0.96,
+    "end": 1.68
+   }
+  ],
+  "speech_end": 1.68,
+  "tempo": 1.0,
+  "clip": "BT01.mp3",
+  "window": 2.4,
+  "status": "ok",
+  "request_id": "BE2ctc0CBhHS0SGQudSf"
+ },
+ "BT02": {
+  "words": [
+   {
+    "text": "First,",
+    "start": 0.0,
+    "end": 0.72
+   },
+   {
+    "text": "open",
+    "start": 0.8,
+    "end": 1.12
+   },
+   {
+    "text": "both",
+    "start": 1.2,
+    "end": 1.44
+   },
+   {
+    "text": "tracks.",
+    "start": 1.52,
+    "end": 2.24
+   }
+  ],
+  "speech_end": 2.24,
+  "tempo": 1.0,
+  "clip": "BT02.mp3",
+  "window": 7.8,
+  "status": "ok",
+  "request_id": "OqTEWT8FnjzR89WFFI0K"
+ },
+ "BT03": {
+  "words": [
+   {
+    "text": "From",
+    "start": 0.0,
+    "end": 0.24
+   },
+   {
+    "text": "the",
+    "start": 0.28,
+    "end": 0.32
+   },
+   {
+    "text": "top:",
+    "start": 0.4,
+    "end": 1.28
+   },
+   {
+    "text": "120",
+    "start": 1.36,
+    "end": 2.0
+   },
+   {
+    "text": "against",
+    "start": 2.16,
+    "end": 2.56
+   },
+   {
+    "text": "128.",
+    "start": 2.64,
+    "end": 4.0
+   }
+  ],
+  "speech_end": 4.0,
+  "tempo": 1.0,
+  "clip": "BT03.mp3",
+  "window": 4.86,
+  "status": "ok",
+  "request_id": "HKYwWrZUotFJb2Xo9O8D"
+ },
+ "BT04": {
+  "words": [
+   {
+    "text": "1:",
+    "start": 0.0,
+    "end": 0.64
+   },
+   {
+    "text": "ask",
+    "start": 0.88,
+    "end": 1.2
+   },
+   {
+    "text": "what",
+    "start": 1.28,
+    "end": 1.36
+   },
+   {
+    "text": "you're",
+    "start": 1.4,
+    "end": 1.52
+   },
+   {
+    "text": "working",
+    "start": 1.6,
+    "end": 1.92
+   },
+   {
+    "text": "with:",
+    "start": 2.08,
+    "end": 2.64
+   },
+   {
+    "text": "tempo",
+    "start": 2.8,
+    "end": 3.2
+   },
+   {
+    "text": "and",
+    "start": 3.24,
+    "end": 3.28
+   },
+   {
+    "text": "key.",
+    "start": 3.44,
+    "end": 4.24
+   }
+  ],
+  "speech_end": 4.24,
+  "tempo": 1.0,
+  "clip": "BT04.mp3",
+  "window": 13.4,
+  "status": "ok",
+  "request_id": "WsIkKzxPHicQXqwtmtgH"
+ },
+ "BT05": {
+  "words": [
+   {
+    "text": "2:",
+    "start": 0.0,
+    "end": 0.72
+   },
+   {
+    "text": "beatmatch.",
+    "start": 0.8,
+    "end": 1.68
+   },
+   {
+    "text": "Neon",
+    "start": 1.92,
+    "end": 2.24
+   },
+   {
+    "text": "Rush",
+    "start": 2.32,
+    "end": 2.64
+   },
+   {
+    "text": "stretches",
+    "start": 2.72,
+    "end": 3.12
+   },
+   {
+    "text": "down",
+    "start": 3.2,
+    "end": 3.44
+   },
+   {
+    "text": "to",
+    "start": 3.56,
+    "end": 3.68
+   },
+   {
+    "text": "120.",
+    "start": 3.76,
+    "end": 4.8
+   }
+  ],
+  "speech_end": 4.8,
+  "tempo": 1.0,
+  "clip": "BT05.mp3",
+  "window": 12.87,
+  "status": "ok",
+  "request_id": "yPaX6rITQ1BXvJQ5JKGh"
+ },
+ "BT06": {
+  "words": [
+   {
+    "text": "3:",
+    "start": 0.0,
+    "end": 0.88
+   },
+   {
+    "text": "line",
+    "start": 1.04,
+    "end": 1.2
+   },
+   {
+    "text": "up",
+    "start": 1.28,
+    "end": 1.36
+   },
+   {
+    "text": "the",
+    "start": 1.44,
+    "end": 1.52
+   },
+   {
+    "text": "overlap,",
+    "start": 1.6,
+    "end": 2.48
+   },
+   {
+    "text": "under",
+    "start": 2.6,
+    "end": 2.72
+   },
+   {
+    "text": "the",
+    "start": 2.76,
+    "end": 2.8
+   },
+   {
+    "text": "last",
+    "start": 2.96,
+    "end": 3.28
+   },
+   {
+    "text": "8",
+    "start": 3.36,
+    "end": 3.52
+   },
+   {
+    "text": "bars.",
+    "start": 3.6,
+    "end": 4.32
+   }
+  ],
+  "speech_end": 4.32,
+  "tempo": 1.0,
+  "clip": "BT06.mp3",
+  "window": 15.27,
+  "status": "ok",
+  "request_id": "2GRm1fghWscSDdAW2bKB"
+ },
+ "BT07": {
+  "words": [
+   {
+    "text": "4:",
+    "start": 0.0,
+    "end": 0.88
+   },
+   {
+    "text": "crossfade,",
+    "start": 0.96,
+    "end": 2.0
+   },
+   {
+    "text": "with",
+    "start": 2.08,
+    "end": 2.16
+   },
+   {
+    "text": "a",
+    "start": 2.2,
+    "end": 2.24
+   },
+   {
+    "text": "low-pass",
+    "start": 2.32,
+    "end": 2.96
+   },
+   {
+    "text": "on",
+    "start": 3.0,
+    "end": 3.04
+   },
+   {
+    "text": "the",
+    "start": 3.12,
+    "end": 3.2
+   },
+   {
+    "text": "outgoing",
+    "start": 3.28,
+    "end": 3.76
+   },
+   {
+    "text": "track.",
+    "start": 3.84,
+    "end": 4.32
+   }
+  ],
+  "speech_end": 4.32,
+  "tempo": 1.0,
+  "clip": "BT07.mp3",
+  "window": 23.86,
+  "status": "ok",
+  "request_id": "QL3bVAFNCwlOVEHuXErr"
+ },
+ "BT08": {
+  "words": [
+   {
+    "text": "Have",
+    "start": 0.0,
+    "end": 0.16
+   },
+   {
+    "text": "a",
+    "start": 0.2,
+    "end": 0.24
+   },
+   {
+    "text": "listen.",
+    "start": 0.44,
+    "end": 0.88
+   }
+  ],
+  "speech_end": 0.88,
+  "tempo": 1.0,
+  "clip": "BT08.mp3",
+  "window": 4.57,
+  "status": "ok",
+  "request_id": "xr2LtFDYl32pJKLT29m9"
+ },
+ "BT09": {
+  "words": [
+   {
+    "text": "5:",
+    "start": 0.0,
+    "end": 0.96
+   },
+   {
+    "text": "master",
+    "start": 1.12,
+    "end": 1.52
+   },
+   {
+    "text": "it",
+    "start": 1.6,
+    "end": 1.68
+   },
+   {
+    "text": "for",
+    "start": 1.76,
+    "end": 1.84
+   },
+   {
+    "text": "streaming.",
+    "start": 1.92,
+    "end": 2.64
+   }
+  ],
+  "speech_end": 2.64,
+  "tempo": 1.0,
+  "clip": "BT09.mp3",
+  "window": 45.26,
+  "status": "ok",
+  "request_id": "UgZO0ThTsbkg0oj01Ljy"
+ },
+ "BT10": {
+  "words": [
+   {
+    "text": "6:",
+    "start": 0.0,
+    "end": 0.56
+   },
+   {
+    "text": "export",
+    "start": 0.96,
+    "end": 1.44
+   },
+   {
+    "text": "the",
+    "start": 1.52,
+    "end": 1.6
+   },
+   {
+    "text": "file.",
+    "start": 1.68,
+    "end": 2.24
+   }
+  ],
+  "speech_end": 2.24,
+  "tempo": 1.0,
+  "clip": "BT10.mp3",
+  "window": 11.07,
+  "status": "ok",
+  "request_id": "XgCT4IdCsZ5QyGGBp5N7"
+ },
+ "BT11": {
+  "words": [
+   {
+    "text": "Now,",
+    "start": 0.0,
+    "end": 0.64
+   },
+   {
+    "text": "the",
+    "start": 0.72,
+    "end": 0.8
+   },
+   {
+    "text": "mastered",
+    "start": 0.88,
+    "end": 1.28
+   },
+   {
+    "text": "mix.",
+    "start": 1.36,
+    "end": 1.84
+   }
+  ],
+  "speech_end": 1.84,
+  "tempo": 1.0,
+  "clip": "BT11.mp3",
+  "window": 4.31,
+  "status": "ok",
+  "request_id": "fXDstSLiwXvVZCI5z2aI"
+ },
+ "BT12": {
+  "words": [
+   {
+    "text": "Done:",
+    "start": 0.0,
+    "end": 0.88
+   },
+   {
+    "text": "50",
+    "start": 0.96,
+    "end": 1.2
+   },
+   {
+    "text": "seconds,",
+    "start": 1.36,
+    "end": 2.16
+   },
+   {
+    "text": "-14",
+    "start": 2.24,
+    "end": 3.04
+   },
+   {
+    "text": "LUFS.",
+    "start": 3.2,
+    "end": 3.84
+   }
+  ],
+  "speech_end": 3.84,
+  "tempo": 1.0,
+  "clip": "BT12.mp3",
+  "window": 4.133,
+  "status": "tight",
+  "request_id": "uVFUlGjOgxIGfhaQNpiU"
+ }
+}

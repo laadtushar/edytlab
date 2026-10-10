@@ -43,9 +43,24 @@ pub(crate) fn tool_budget_line() -> String {
     )
 }
 
-/// `max_tokens` used in outgoing Anthropic requests. Generous for chat
-/// responses but cheap enough for Phase 1.
-pub const DEFAULT_MAX_TOKENS: u32 = 4096;
+/// `max_tokens` for one model step of a turn.
+///
+/// It caps everything the model writes in the step, *thinking included*,
+/// and Anthropic's 5.x models (Sonnet 5.5, Opus 5.5, Haiku 5.5, Fable 5.1)
+/// think by default, whether or not the request asks. A cap sized for a
+/// model that answers straight away (this was 4096) is spent on reasoning
+/// before the first word of the reply, or before the tool call the step
+/// was for. 8192 is what [`crate::anthropic::Effort::High`] already
+/// raises the cap to for an explicit `high`, and what Sonnet 5.5 does at
+/// its own default. `max_tokens` is a ceiling and not a charge: a step
+/// that needs less pays for less.
+pub const DEFAULT_MAX_TOKENS: u32 = 8192;
+
+/// `max_tokens` for the plan request. The plan is the main model's own
+/// work, so it needs the room a step has: on a model that thinks first, a
+/// cap of 1024 came back as a thinking block with no text, which reads as
+/// "the model returned no plan". See [`DEFAULT_MAX_TOKENS`].
+pub const PLAN_MAX_TOKENS: u32 = 8192;
 
 /// The Phase 1 system prompt. Embedded at compile time; the snapshot
 /// test in `tests/prompt_snapshot.rs` asserts this matches the file
