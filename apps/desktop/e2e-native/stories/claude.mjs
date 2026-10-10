@@ -6,7 +6,7 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { assert, head, K, openAudio, sleep, waitForNewHead } from "./helpers.mjs";
-import { say, toolBadges, waitForReply } from "./agent.mjs";
+import { describePlan, planCard, say, toolBadges, waitForReply } from "./agent.mjs";
 
 const KEY = process.env.ANTHROPIC_E2E_KEY;
 const PROXY = process.env.CLAUDE_PROXY ?? "http://127.0.0.1:8788";
@@ -64,10 +64,18 @@ export async function ready(ctx, ...files) {
   ctx.record();
 }
 
-export async function ask(ctx, text) {
-  await say(ctx, text);
-  await waitForReply(ctx, { timeout: TURN });
-  return toolBadges(ctx);
+/** One turn: send `text`, answer a plan card if the app puts one up, and
+ * wait for the turn to end. Returns the chat's tool badges (every turn's, as
+ * the chat keeps them all).
+ *
+ * The app gates a turn on a plan when Plan first is on, and when it
+ * classifies the turn as one (a mashup, #494), whatever the story meant to
+ * ask; a plan then parks the turn until someone presses Run. A person
+ * would, so this does, and notes it, so a report still shows that a card
+ * appeared. A story that wants to see the card itself, or discard it,
+ * sends the prompt with `say` and waits for the card. */
+export async function ask(ctx, text, label = text.slice(0, 48)) {
+  return askThrough(ctx, text, label);
 }
 
 export const tracks = (ctx) => ctx.d.invoke("list_tracks");
@@ -93,8 +101,20 @@ export const reply = (ctx) =>
     [...document.querySelectorAll("[data-testid='message-bubble'][data-role='assistant']")].map((e) => e.textContent).join("\n"),
   );
 
+/** The assistant's last reply alone, trimmed. */
+export const lastReply = (ctx) =>
+  ctx.d.exec(() => {
+    const b = [...document.querySelectorAll("[data-testid='message-bubble'][data-role='assistant']")];
+    return b.length ? b[b.length - 1].textContent.trim() : "";
+  });
+
+/** Does `text` end in a question, allowing a closing quote, bracket or emphasis mark? */
+export const endsInQuestion = (text) => /\?[\s"')\]*_]*$/.test(text);
+
 /** Send, then wait for the whole turn: the box is disabled until the
- * turn ends, plan approval included. A plan is approved as it appears. */
+ * turn ends, plan approval included. A plan is approved as it appears, and
+ * noted, so a report shows that a card appeared and what it held. A turn
+ * that does not end in time throws, saying what it was waiting on. */
 export async function askThrough(ctx, text, label, { send = say, press = (c, sel) => c.d.click(sel) } = {}) {
   const { d } = ctx;
   await send(ctx, text);
@@ -102,17 +122,30 @@ export async function askThrough(ctx, text, label, { send = say, press = (c, sel
     timeout: 20000,
     label: `${label}: the turn to start`,
   }).catch(() => {});
-  const end = Date.now() + TURN * 2;
+  const limit = TURN * 2;
+  const end = Date.now() + limit;
+  let ended = false;
   while (Date.now() < end) {
-    if (await d.count("[data-testid='plan-approval-card']")) {
-      const steps = await d.exec(() => document.querySelector("[data-testid='plan-approval-card'] ol")?.innerText ?? "");
-      ctx.note(`${label}: Claude proposed a plan: ${steps.replace(/\s+/g, " ").slice(0, 400)}`);
+    const plan = await planCard(ctx);
+    if (plan) {
+      ctx.note(`${label}: a plan card appeared and was approved (Run): ${describePlan(plan).slice(0, 400)}`);
       await ctx.shot(`${label}: Claude's plan`);
       await press(ctx, "[data-testid='plan-run-button']");
     }
     const busy = await d.exec(() => document.querySelector("[data-testid='chat-form'] textarea").disabled);
-    if (!busy && !(await d.count("[data-testid='plan-approval-card']"))) break;
+    if (!busy && !(await d.count("[data-testid='plan-approval-card']"))) {
+      ended = true;
+      break;
+    }
     await sleep(1000);
+  }
+  if (!ended) {
+    const plan = await planCard(ctx);
+    throw new Error(
+      plan
+        ? `${label}: a plan card is still waiting for approval after ${limit / 1000} s: ${describePlan(plan)}`
+        : `${label}: the turn did not end within ${limit / 1000} s (the chat box is still disabled)`,
+    );
   }
   await sleep(1500);
   if (await d.count("[data-testid='chat-error']")) {
@@ -472,7 +505,14 @@ const stories = [
       const dir = join(ctx.out, "exports");
       mkdirSync(dir, { recursive: true });
       const file = join(dir, `dj-transition-${Date.now()}.wav`);
-      used.push(...(await askThrough(ctx, `Normalize the whole mix to -14 LUFS integrated, then export it as a WAV file to ${file}`, "Master")));
+      used.push(...(await ask(ctx, `Normalize the whole mix to -14 LUFS integrated, then export it as a WAV file to ${file}`, "Master")));
+      // Hitting -14 LUFS can mean a limiter, and Claude may ask before it
+      // adds one rather than export. A person would answer; once.
+      if (!existsSync(file) && endsInQuestion(await lastReply(ctx))) {
+        ctx.note("Claude asked before exporting");
+        const seen = (await toolBadges(ctx)).length;
+        used.push(...(await ask(ctx, "Yes, use the limiter, then export.", "Master (confirmed)")).slice(seen));
+      }
       await ctx.shot("Normalized to -14 LUFS and exported");
       assert(existsSync(file), `the export exists (${file})`);
       const bytes = readFileSync(file);
