@@ -332,6 +332,67 @@ impl Clone for OpenAIProvider {
     }
 }
 
+impl OpenAIProvider {
+    /// The chat-completions body for `req`, for the provider `provider_id`
+    /// that is serving it: OpenAI itself, or Groq, Gemini or Ollama, which
+    /// delegate here and say who they are.
+    ///
+    /// The caller's `max_tokens` is lowered to the output limit of the model
+    /// if [`crate::models::max_output_tokens`] knows one for that provider.
+    /// OpenAI answers a request above a model's limit with a 400 and does not
+    /// lower it, and the agent asks every provider for the same number. This
+    /// is the one serializer behind every streamed step and the Settings
+    /// probe, so no caller has to remember to clamp.
+    fn serialize_chat_completions(&self, provider_id: &str, req: &MessagesRequest<'_>) -> Value {
+        // Reset per-stream state for the new turn iteration. The agent
+        // loop constructs one request per round-trip, so resetting here
+        // matches the lifetime of the SSE stream that follows.
+        if let Ok(mut s) = self.state.lock() {
+            *s = OpenAIStreamState::default();
+        }
+
+        let messages = translate_messages(req);
+        let tools = translate_tools(req);
+
+        let mut body = json!({
+            "model": req.model,
+            "messages": messages,
+            "stream": req.stream,
+        });
+
+        // OpenAI's newer reasoning-class models reject `max_tokens` and
+        // require `max_completion_tokens`. We send the latter only —
+        // current `gpt-*` models accept it and it's forward-compatible
+        // with `o1`/`o3`.
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert(
+                "max_completion_tokens".to_string(),
+                Value::from(crate::models::clamp_max_tokens(
+                    provider_id,
+                    req.model,
+                    req.max_tokens,
+                )),
+            );
+            if let Some(t) = tools {
+                obj.insert("tools".to_string(), t);
+                // `tool_choice: "auto"` is OpenAI's shape, and so is
+                // `"none"`, which the loop asks for on the one request
+                // after the tool budget is spent. We only set it when
+                // tools are actually present (OpenAI rejects
+                // `tool_choice` without a `tools` array).
+                let choice = if req.tool_choice == Some(ToolChoice::NONE) {
+                    "none"
+                } else {
+                    "auto"
+                };
+                obj.insert("tool_choice".to_string(), Value::from(choice));
+            }
+        }
+
+        body
+    }
+}
+
 impl LlmProvider for OpenAIProvider {
     fn wire_format(&self) -> WireFormat {
         WireFormat::ChatCompletions
@@ -360,48 +421,7 @@ impl LlmProvider for OpenAIProvider {
         "/v1/chat/completions"
     }
     fn serialize_request(&self, req: &MessagesRequest<'_>) -> Value {
-        // Reset per-stream state for the new turn iteration. The agent
-        // loop constructs one request per round-trip, so resetting here
-        // matches the lifetime of the SSE stream that follows.
-        if let Ok(mut s) = self.state.lock() {
-            *s = OpenAIStreamState::default();
-        }
-
-        let messages = translate_messages(req);
-        let tools = translate_tools(req);
-
-        let mut body = json!({
-            "model": req.model,
-            "messages": messages,
-            "stream": req.stream,
-        });
-
-        // OpenAI's newer reasoning-class models reject `max_tokens` and
-        // require `max_completion_tokens`. We send the latter only —
-        // current `gpt-*` models accept it and it's forward-compatible
-        // with `o1`/`o3`.
-        if let Some(obj) = body.as_object_mut() {
-            obj.insert(
-                "max_completion_tokens".to_string(),
-                Value::from(req.max_tokens),
-            );
-            if let Some(t) = tools {
-                obj.insert("tools".to_string(), t);
-                // `tool_choice: "auto"` is OpenAI's shape, and so is
-                // `"none"`, which the loop asks for on the one request
-                // after the tool budget is spent. We only set it when
-                // tools are actually present (OpenAI rejects
-                // `tool_choice` without a `tools` array).
-                let choice = if req.tool_choice == Some(ToolChoice::NONE) {
-                    "none"
-                } else {
-                    "auto"
-                };
-                obj.insert("tool_choice".to_string(), Value::from(choice));
-            }
-        }
-
-        body
+        self.serialize_chat_completions(OPENAI_ID, req)
     }
     fn parse_stream_chunk(&self, raw: &str) -> Result<Vec<StreamEvent>, ProviderError> {
         // OpenAI's stream terminates with the literal `[DONE]` sentinel
@@ -805,7 +825,7 @@ impl LlmProvider for GroqProvider {
         "/v1/chat/completions"
     }
     fn serialize_request(&self, req: &MessagesRequest<'_>) -> Value {
-        self.inner.serialize_request(req)
+        self.inner.serialize_chat_completions(GROQ_ID, req)
     }
     fn parse_stream_chunk(&self, raw: &str) -> Result<Vec<StreamEvent>, ProviderError> {
         self.inner.parse_stream_chunk(raw)
@@ -867,7 +887,7 @@ impl LlmProvider for GeminiProvider {
         "/models"
     }
     fn serialize_request(&self, req: &MessagesRequest<'_>) -> Value {
-        self.inner.serialize_request(req)
+        self.inner.serialize_chat_completions(GEMINI_ID, req)
     }
     fn parse_stream_chunk(&self, raw: &str) -> Result<Vec<StreamEvent>, ProviderError> {
         self.inner.parse_stream_chunk(raw)
@@ -945,7 +965,7 @@ impl LlmProvider for OllamaProvider {
         "/models"
     }
     fn serialize_request(&self, req: &MessagesRequest<'_>) -> Value {
-        self.inner.serialize_request(req)
+        self.inner.serialize_chat_completions(OLLAMA_ID, req)
     }
     fn parse_stream_chunk(&self, raw: &str) -> Result<Vec<StreamEvent>, ProviderError> {
         self.inner.parse_stream_chunk(raw)
@@ -1719,5 +1739,139 @@ mod tests {
         assert!(!text.contains("private"), "{text}");
         assert!(!text.contains("SIG"), "{text}");
         assert!(!text.contains("DATA"), "{text}");
+    }
+
+    // ------------------------------------------------------------------
+    // Per-model output limit
+    // ------------------------------------------------------------------
+
+    /// A streamed step as the loop builds it: `max_tokens` on `model`, with
+    /// tools attached.
+    fn step_for<'a>(model: &'a str, msgs: &'a [Message], max_tokens: u32) -> MessagesRequest<'a> {
+        MessagesRequest {
+            model,
+            max_tokens,
+            system: vec![SystemBlock {
+                kind: "text",
+                text: "sys",
+                cache_control: None,
+            }],
+            messages: msgs,
+            tools: Some(json!([{
+                "name": "t",
+                "description": "d",
+                "input_schema": {"type": "object"}
+            }])),
+            tool_choice: Some(ToolChoice::AUTO),
+            stream: true,
+            output_config: None,
+        }
+    }
+
+    /// The defect: the 8192 every step asks for went to OpenAI's older
+    /// models, which answer a request above their limit with a 400. Each
+    /// of them now carries the limit OpenAI's page gives.
+    #[test]
+    fn an_openai_request_for_a_legacy_model_carries_its_output_limit() {
+        let msgs = one_user_message();
+        for (model, limit) in [
+            ("gpt-3.5-turbo", 4_096),
+            ("gpt-3.5-turbo-0125", 4_096),
+            ("gpt-4-turbo", 4_096),
+            ("gpt-4-turbo-2024-04-09", 4_096),
+            ("gpt-4-turbo-preview", 4_096),
+            ("gpt-4-0125-preview", 4_096),
+            ("gpt-4-1106-preview", 4_096),
+            ("gpt-4", 8_192),
+            ("gpt-4-0613", 8_192),
+        ] {
+            let req = step_for(model, &msgs, crate::prompt::DEFAULT_MAX_TOKENS);
+            let body = OpenAIProvider::default().serialize_request(&req);
+            assert_eq!(body["max_completion_tokens"], limit, "{model}");
+            assert!(body.get("max_tokens").is_none(), "{model}");
+        }
+    }
+
+    /// The clamp is for the models that need it. A current model keeps the
+    /// 8192, and so does a model nobody has a limit for.
+    #[test]
+    fn an_openai_request_for_a_current_or_unknown_model_keeps_the_cap() {
+        let msgs = one_user_message();
+        for model in [
+            "gpt-4o-mini",
+            "gpt-4o",
+            "gpt-4.1",
+            "o3",
+            "gpt-5",
+            "gpt-4o-2024-05-13",
+            "a-model-nobody-has-heard-of",
+        ] {
+            let req = step_for(model, &msgs, crate::prompt::DEFAULT_MAX_TOKENS);
+            let body = OpenAIProvider::default().serialize_request(&req);
+            assert_eq!(body["max_completion_tokens"], 8192, "{model}");
+        }
+    }
+
+    /// It lowers and does not raise: the Settings probe asks for 256 and
+    /// has to get 256, even on a model whose limit is far above it.
+    #[test]
+    fn a_request_below_the_limit_is_left_as_it_is() {
+        let msgs = one_user_message();
+        for model in ["gpt-4-turbo", "gpt-3.5-turbo", "gpt-4o-mini"] {
+            let body = OpenAIProvider::default().serialize_request(&step_for(model, &msgs, 256));
+            assert_eq!(body["max_completion_tokens"], 256, "{model}");
+        }
+    }
+
+    /// Groq, Gemini and Ollama serialize through OpenAI's, and each says
+    /// who it is, so each gets its own provider's limits and not OpenAI's.
+    #[test]
+    fn the_wrappers_use_their_own_providers_limits() {
+        let msgs = one_user_message();
+        let cap = crate::prompt::DEFAULT_MAX_TOKENS;
+
+        // Their own documented limits are applied.
+        let groq = GroqProvider::default().serialize_request(&step_for(
+            "meta-llama/llama-prompt-guard-2-22m",
+            &msgs,
+            cap,
+        ));
+        assert_eq!(groq["max_completion_tokens"], 512);
+        let gemini = GeminiProvider::default().serialize_request(&step_for(
+            "gemini-3.1-flash-lite-image",
+            &msgs,
+            cap,
+        ));
+        assert_eq!(gemini["max_completion_tokens"], 4_096);
+
+        // OpenAI's are not: the same ids on another provider are not
+        // OpenAI's models.
+        for id in [GROQ_ID, GEMINI_ID, OLLAMA_ID] {
+            let body = provider_from_id(id).serialize_request(&step_for("gpt-4-turbo", &msgs, cap));
+            assert_eq!(body["max_completion_tokens"], 8192, "{id}");
+        }
+        // And the defaults of each stay at the cap.
+        for (id, model) in [
+            (GROQ_ID, "llama-3.3-70b-versatile"),
+            (GEMINI_ID, "gemini-2.0-flash"),
+            (OLLAMA_ID, "llama3.2"),
+        ] {
+            let body = provider_from_id(id).serialize_request(&step_for(model, &msgs, cap));
+            assert_eq!(body["max_completion_tokens"], 8192, "{id} {model}");
+        }
+    }
+
+    /// The Anthropic wire format is serialized as it is: its models allow
+    /// far more than the cap.
+    #[test]
+    fn the_anthropic_wire_format_is_not_clamped() {
+        let msgs = one_user_message();
+        for provider in [
+            provider_from_id(ANTHROPIC_ID),
+            provider_from_id(OPENROUTER_ID),
+        ] {
+            let body = provider.serialize_request(&step_for("gpt-4-turbo", &msgs, 8192));
+            assert_eq!(body["max_tokens"], 8192, "{}", provider.id());
+        }
     }
 }

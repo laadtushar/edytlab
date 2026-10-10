@@ -62,6 +62,7 @@ use crate::anthropic::{
     Message, MessagesRequest, OutputConfig, Role, StreamEvent, SystemBlock, ToolChoice,
 };
 use crate::approval::{self, Approval};
+use crate::models::clamp_max_tokens;
 use crate::prompt::{
     tool_budget_line, DEFAULT_MAX_TOKENS, MAX_TOOL_CALLS_PER_TURN, PLAN_MAX_TOKENS,
 };
@@ -155,9 +156,17 @@ fn one_shot_messages(
 /// current Anthropic models think by default and what they write while
 /// thinking counts toward `max_tokens`, so a short cap can end before any
 /// text. The caller must be on a model that accepts `disabled`, which the
-/// Haiku models do and Sonnet 5.5, Opus 5.5 and Fable 5.1 do not (400):
-/// that is why the plan, the main model's own work, never sets it. Chat
-/// completions bodies are built without it, as without an effort.
+/// Haiku models do at their default effort and Sonnet 5.5, Opus 5.5 and
+/// Fable 5.1 do not (400): that is why the plan, the main model's own work,
+/// never sets it. Chat completions bodies are built without it, as without
+/// an effort.
+///
+/// On a chat-completions body `max_tokens` is lowered to the output limit of
+/// `model` where [`crate::models::max_output_tokens`] knows one, since the
+/// plan asks for [`PLAN_MAX_TOKENS`] of every provider and OpenAI answers a
+/// request above a model's limit with a 400. The Anthropic-format body is
+/// not clamped: the models it is sent for (Anthropic's, and OpenRouter's
+/// defaults) allow 64K and more.
 fn one_shot_body(
     cfg: &LlmConfig,
     model: String,
@@ -176,6 +185,7 @@ fn one_shot_body(
             } else {
                 "max_tokens"
             };
+            let max_tokens = clamp_max_tokens(cfg.provider.id(), &model, max_tokens);
             serde_json::json!({
                 "model": model,
                 limit_key: max_tokens,
@@ -557,7 +567,10 @@ enum Gate {
 /// step, so the thinking a step produced is replayed, unmodified, with the
 /// tool results that follow it. `tests/prior_turn_thinking.rs` pins that;
 /// anything that makes `system` or `tools` change between a turn's steps
-/// has to strip there too.
+/// has to strip there too, and so does editing or removing an earlier
+/// message (compaction, trimming old tool results, rewriting a stored
+/// `tool_use` or `tool_result`), which changes the prefix of every block
+/// after it.
 ///
 /// A provider that does not keep thinking in the first place (everything
 /// but Anthropic's own API) has none of these blocks, so this is a no-op
@@ -1705,6 +1718,136 @@ mod tests {
         ] {
             assert_eq!(body_for(id)["max_tokens"], 7, "{id}");
             assert!(body_for(id).get("max_completion_tokens").is_none(), "{id}");
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Per-model output limit
+    // ------------------------------------------------------------------
+
+    /// The models of OpenAI's that cannot write the 8192 a step asks for,
+    /// with the limit [`crate::models::max_output_tokens`] holds for them.
+    const LEGACY_OPENAI: [(&str, u32); 6] = [
+        ("gpt-3.5-turbo", 4_096),
+        ("gpt-4-turbo", 4_096),
+        ("gpt-4-turbo-preview", 4_096),
+        ("gpt-4-0125-preview", 4_096),
+        ("gpt-4", 8_192),
+        ("gpt-4-0613", 8_192),
+    ];
+
+    /// A model step, built and serialized the way `run_turn` does, carries
+    /// the limit of its model. The 8192 it asks for would be answered with a
+    /// 400 by OpenAI on every one of these.
+    #[test]
+    fn a_step_for_a_legacy_openai_model_asks_for_no_more_than_it_allows() {
+        let conversation = [Message {
+            role: Role::User,
+            content: vec![ContentBlock::Text { text: "hi".into() }],
+        }];
+        let provider = crate::provider::provider_from_id(crate::OPENAI_ID);
+        let cap_for = |model: &str| {
+            let req = build_request(
+                model,
+                "sys",
+                &json!([]),
+                &conversation,
+                ToolChoice::AUTO,
+                None,
+            );
+            provider.serialize_request(&req)["max_completion_tokens"].clone()
+        };
+        for (model, limit) in LEGACY_OPENAI {
+            assert_eq!(cap_for(model), json!(limit), "{model}");
+        }
+        // A current model, and one nobody has a limit for, still ask for
+        // the cap. The literal is deliberate: a lowered constant must not
+        // pass.
+        for model in ["gpt-4o-mini", "gpt-4.1", "gpt-4o-2024-05-13", "unheard-of"] {
+            assert_eq!(cap_for(model), json!(8192), "{model}");
+            assert_eq!(cap_for(model), json!(DEFAULT_MAX_TOKENS), "{model}");
+        }
+    }
+
+    /// The plan is the same request on every provider, and on OpenAI's older
+    /// models it was a 400, so the plan was lost with Plan first on.
+    #[tokio::test]
+    async fn the_plan_request_is_clamped_to_the_models_output_limit() {
+        let plan = r#"<plan>[{"step":1,"tool":"set_track_gain","description":"Louder"}]</plan>"#;
+        for (model, limit) in LEGACY_OPENAI {
+            let (steps, body) = serve_one_shot(crate::OPENAI_ID, plan, |cfg, http| async move {
+                let cfg = cfg.with_model(model);
+                fetch_plan(&cfg, &http, "SYSTEM-PROMPT", &[], "make it louder").await
+            })
+            .await;
+            assert!(steps.is_ok(), "{model}: {steps:?}");
+            assert_eq!(body["model"], model);
+            assert_eq!(body["max_completion_tokens"], limit, "{model}");
+            assert!(body.get("max_tokens").is_none(), "{model}");
+        }
+        for model in ["gpt-4o-mini", "gpt-4o-2024-05-13", "unheard-of"] {
+            let (steps, body) = serve_one_shot(crate::OPENAI_ID, plan, |cfg, http| async move {
+                let cfg = cfg.with_model(model);
+                fetch_plan(&cfg, &http, "SYSTEM-PROMPT", &[], "make it louder").await
+            })
+            .await;
+            assert!(steps.is_ok(), "{model}: {steps:?}");
+            assert_eq!(body["max_completion_tokens"], 8192, "{model}");
+            assert_eq!(body["max_completion_tokens"], PLAN_MAX_TOKENS, "{model}");
+        }
+    }
+
+    /// Neither the classifier nor the plan builds its own body: both go
+    /// through `one_shot_body`, so the clamp is tested there with a request
+    /// above the limit. The classifier asks for 256, under every limit in the
+    /// table, so on a real request it is never lowered; what matters for it is
+    /// that nothing here raises or changes it.
+    #[tokio::test]
+    async fn the_one_shot_body_clamps_a_chat_completions_request_and_no_other() {
+        let openai = LlmConfig::new(crate::provider::provider_from_id(crate::OPENAI_ID), "k");
+        let body = |cfg: &LlmConfig, model: &str, cap: u32| {
+            one_shot_body(cfg, model.into(), cap, &["s"], vec![], None, false)
+        };
+        assert_eq!(
+            body(&openai, "gpt-3.5-turbo", 8192)["max_completion_tokens"],
+            4_096
+        );
+        assert_eq!(
+            body(&openai, "gpt-4o-mini", 8192)["max_completion_tokens"],
+            8192
+        );
+        assert_eq!(
+            body(&openai, "gpt-3.5-turbo", 256)["max_completion_tokens"],
+            256,
+            "a cap under the limit is the caller's own"
+        );
+
+        // Groq's limit is on Groq's models, in the key Groq reads.
+        let groq = LlmConfig::new(
+            crate::provider::provider_from_id(crate::provider::GROQ_ID),
+            "k",
+        );
+        assert_eq!(
+            body(&groq, "meta-llama/llama-prompt-guard-2-22m", 8192)["max_tokens"],
+            512
+        );
+        assert_eq!(body(&groq, "gpt-3.5-turbo", 8192)["max_tokens"], 8192);
+
+        // The Anthropic format is not clamped.
+        let anthropic = LlmConfig::new_anthropic("k");
+        assert_eq!(body(&anthropic, "gpt-3.5-turbo", 8192)["max_tokens"], 8192);
+
+        // And the classifier's own request keeps its 256 for every provider.
+        for id in crate::SUPPORTED_PROVIDER_IDS {
+            let (mode, sent) = serve_one_shot(id, "mashup", |cfg, http| async move {
+                classify_mode(&cfg, &http, "mash these two songs up", &[]).await
+            })
+            .await;
+            assert_eq!(mode, Mode::Mashup, "{id}");
+            let cap = sent
+                .get("max_tokens")
+                .or_else(|| sent.get("max_completion_tokens"));
+            assert_eq!(cap, Some(&json!(CLASSIFIER_MAX_TOKENS)), "{id}");
         }
     }
 
