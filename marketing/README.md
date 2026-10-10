@@ -27,6 +27,8 @@ full releases list on purpose, so they can also reach dev builds.)
 | [`launch/reddit.md`](launch/reddit.md) | Seven separate posts: r/WeAreTheMusicMakers, r/DJs, r/audioengineering, r/podcasting, r/LocalLLaMA, r/rust, r/tauri |
 | [`social/x-thread.md`](social/x-thread.md) | 8-post thread for v0.4.0 and the DJ demo |
 | [`social/linkedin.md`](social/linkedin.md) | One LinkedIn post, same angle |
+| [`social-kit/`](social-kit/README.md) | The 2026-10-10 social set: 5 LinkedIn posts, 5 Instagram reel captions, 6 Reddit posts, X, Bluesky, Mastodon, TikTok, Shorts, YouTube, Show HN and newsletter copy, and a two-week calendar |
+| [`reels/`](reels/README.md) | Vertical reels (1080×1920) cut from the three DJ demos, plain and narrated, with `.srt` captions, cue files, transcripts and the scripts that build them. Read its licence note before posting a narrated file |
 | [`press-kit.md`](press-kit.md) | Boilerplate, fact sheet, asset links |
 | [`awesome-lists.md`](awesome-lists.md) | Lists worth a pull request, exact entry text, and which ones are blocked today |
 
