@@ -61,7 +61,7 @@ use common::{
     SeqResponder,
 };
 use serde_json::{json, Value};
-use tools::ToolDispatcher;
+use tools::{Tool, ToolContext, ToolDispatcher, ToolResult};
 use wiremock::matchers::method;
 use wiremock::{Mock, MockServer};
 
@@ -82,6 +82,15 @@ const BYTES_PER_TOKEN: usize = 3;
 /// A first request must fit in half of an 8,192-token context, leaving
 /// the other half for the reply and the tool round trips.
 const SLIM_FIRST_REQUEST_MAX_BYTES: usize = 4_096 * BYTES_PER_TOKEN;
+
+/// How far under that bound a request must stay when MCP tools are
+/// registered. The names line is what their number can grow, up to its
+/// cap, so this is measured with the cap reached, and with the message
+/// that sends the most tool schemas: 593 B at the time of writing. Without
+/// a margin the bound would hold today and break with the next tool. With
+/// the names budget at 2,000 B instead of 1,600 it was 194 B (40 MCP tools,
+/// found in review), which this fails.
+const MCP_HEADROOM_BYTES: usize = 500;
 
 /// The issue's measured token count for the first request.
 const ISSUE_MEASURED_TOKENS: usize = 15_157;
@@ -159,7 +168,7 @@ async fn run_with(
         responses,
         Options {
             plan_first,
-            whitelist: None,
+            ..Options::default()
         },
     )
     .await
@@ -171,6 +180,64 @@ struct Options {
     plan_first: bool,
     /// The tools the agent profile permits. `None` permits all.
     whitelist: Option<Vec<String>>,
+    /// How many tools an MCP server adds to the registry, on top of the
+    /// built-in ones.
+    mcp_tools: usize,
+}
+
+/// A stand-in for a tool an MCP server adds: it is named
+/// `<server>__<tool>` the way `mcp::namespaced_wire_name` writes it, and
+/// it is registered next to the built-in tools like any other.
+struct FakeMcpTool {
+    name: &'static str,
+}
+
+impl FakeMcpTool {
+    /// The `i`th tool of three servers. The server names sort ahead of
+    /// every built-in tool (`aa` and `ab` come before `add_effect`), as
+    /// some real ones will.
+    fn nth(i: usize) -> Self {
+        const SERVERS: [&str; 3] = ["aafiles", "absearch", "browser"];
+        const TOOLS: [&str; 4] = ["read_file", "search_pages", "list_items", "fetch_url"];
+        let name = format!("{}__{}_{i:02}", SERVERS[i % 3], TOOLS[i % 4]);
+        Self {
+            name: Box::leak(name.into_boxed_str()),
+        }
+    }
+}
+
+impl Tool for FakeMcpTool {
+    fn name(&self) -> &'static str {
+        self.name
+    }
+
+    fn schema(&self) -> Value {
+        json!({
+            "name": self.name,
+            "description": "Does something on a remote server. Takes a query and returns text.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "What to look up" },
+                    "limit": { "type": "integer", "minimum": 1 },
+                },
+                "required": ["query"],
+            },
+        })
+    }
+
+    fn invoke(&self, _: Value, _: &mut ToolContext) -> tools::Result<ToolResult> {
+        Ok(ToolResult::Ok(Value::Null))
+    }
+}
+
+/// The built-in tools and `mcp_tools` fake MCP ones.
+fn dispatcher_with_mcp(mcp_tools: usize) -> ToolDispatcher {
+    let mut dispatcher = ToolDispatcher::default_dispatcher();
+    for i in 0..mcp_tools {
+        dispatcher.register(Box::new(FakeMcpTool::nth(i)));
+    }
+    dispatcher
 }
 
 /// Run `messages` as consecutive turns of one conversation, with the mock
@@ -193,7 +260,7 @@ async fn run_conversation(
     let notify = Arc::new(tokio::sync::Notify::new());
     let mut agent = Agent::new(
         config_for(provider_id, server.uri()),
-        Arc::new(Mutex::new(ToolDispatcher::default_dispatcher())),
+        Arc::new(Mutex::new(dispatcher_with_mcp(options.mcp_tools))),
         Arc::new(Mutex::new(
             session::Store::open(dir.path()).expect("open store"),
         )),
@@ -338,6 +405,20 @@ fn not_implemented_tools() -> BTreeSet<String> {
         })
         .map(|t| t["name"].as_str().expect("a name").to_string())
         .collect()
+}
+
+/// The tools that only work on a transcript of the session. `transcribe`
+/// is the only thing that makes one and does nothing in this build, so a
+/// small model is not offered these either. Mirrors
+/// `NEEDS_TRANSCRIPT_TOOLS` in `tool_selection.rs`.
+const NEEDS_A_TRANSCRIPT: [&str; 3] = ["cut_words", "duck_under_speech", "remove_fillers"];
+
+/// Every tool a small model is offered neither in full nor by name: the
+/// ones that do nothing in this build, and the ones that need a transcript.
+fn tools_not_offered() -> BTreeSet<String> {
+    let mut out = not_implemented_tools();
+    out.extend(NEEDS_A_TRANSCRIPT.iter().map(|name| name.to_string()));
+    out
 }
 
 /// The system prompt as the model reads it, in either wire shape:
@@ -686,13 +767,13 @@ async fn ollama_is_shown_the_tools_its_approved_plan_names() {
 /// message, and the request still fits the bound with the names in it.
 #[tokio::test]
 async fn ollama_every_permitted_tool_is_sent_or_named_and_the_bound_holds() {
-    let stubs = not_implemented_tools();
     assert!(
-        !stubs.is_empty(),
+        !not_implemented_tools().is_empty(),
         "no tool says it is not implemented: has the marker changed?"
     );
+    let not_offered = tools_not_offered();
     let permitted: BTreeSet<String> = registered_tool_names()
-        .difference(&stubs)
+        .difference(&not_offered)
         .cloned()
         .collect();
 
@@ -718,13 +799,100 @@ async fn ollama_every_permitted_tool_is_sent_or_named_and_the_bound_holds() {
         let both: Vec<_> = in_tools.iter().filter(|n| in_line.contains(*n)).collect();
         assert!(both.is_empty(), "{message:?}: sent and listed: {both:?}");
 
-        // A tool that does nothing in this build is offered by neither.
-        for stub in &stubs {
+        // A tool that does nothing in this build, or needs a transcript
+        // this build cannot make, is offered by neither.
+        for tool in &not_offered {
             assert!(
-                !in_tools.contains(stub) && !all_words(&system_text(&sent.body)).contains(stub),
-                "{message:?}: {stub} is not implemented and was offered"
+                !in_tools.contains(tool) && !all_words(&system_text(&sent.body)).contains(tool),
+                "{message:?}: {tool} cannot work in this build and was offered"
             );
         }
+    }
+}
+
+/// How many MCP tools the names line says it left out: the N of its
+/// closing "and N more", or none if it has no such ending.
+fn names_line_more(system: &str) -> usize {
+    let line = system
+        .split("\n\n")
+        .find(|paragraph| paragraph.starts_with(NAMES_LINE_START))
+        .unwrap_or_default();
+    line.rsplit_once(", and ")
+        .and_then(|(_, tail)| tail.split_whitespace().next())
+        .and_then(|n| n.parse().ok())
+        .unwrap_or(0)
+}
+
+/// Tools an MCP server adds share the registry with the built-in ones,
+/// and the names line is capped so that they cannot grow the request
+/// without bound. What the cap cuts must be MCP tools: a built-in tool
+/// that is neither sent nor named is a tool the model does not know it
+/// has, and MCP names sort among the built-in ones (some ahead of all of
+/// them), so a cap that walked the names in order would cut built-in tools
+/// that sort late.
+#[tokio::test]
+async fn ollama_with_many_mcp_tools_every_builtin_is_sent_or_named_and_the_bound_holds() {
+    const MCP_TOOLS: usize = 60;
+    let builtin: BTreeSet<String> = registered_tool_names()
+        .difference(&tools_not_offered())
+        .cloned()
+        .collect();
+    let mcp: BTreeSet<String> = (0..MCP_TOOLS)
+        .map(|i| FakeMcpTool::nth(i).name.to_string())
+        .collect();
+    assert_eq!(mcp.len(), MCP_TOOLS, "the fake names must be distinct");
+    assert!(
+        mcp.first().unwrap() < builtin.first().unwrap(),
+        "some MCP names must sort ahead of every built-in one, or this proves nothing"
+    );
+
+    for message in [CANONICAL, NAMES_MANY_TOOLS] {
+        let turn = run_conversation(
+            "ollama",
+            &[message],
+            chat_script(),
+            Options {
+                mcp_tools: MCP_TOOLS,
+                ..Options::default()
+            },
+        )
+        .await;
+        turn.result.as_ref().expect("the turn succeeds");
+        let sent = &turn.streaming[0];
+        let split = split_chat(sent);
+        report("ollama, 60 MCP tools registered", &split);
+        assert_fits(message, &split);
+        assert!(
+            split.total + MCP_HEADROOM_BYTES <= SLIM_FIRST_REQUEST_MAX_BYTES,
+            "{message:?}: with MCP tools registered the first request is {} B, which leaves under \
+             {MCP_HEADROOM_BYTES} B below the bound of {SLIM_FIRST_REQUEST_MAX_BYTES} B. Lower \
+             SLIM_NAMES_BUDGET_BYTES, or the tool budget, rather than the headroom.",
+            split.total
+        );
+
+        let system = system_text(&sent.body);
+        let in_tools = tool_names_in(&sent.body["tools"]);
+        let in_line = names_line_words(&system);
+
+        let neither: Vec<_> = builtin
+            .iter()
+            .filter(|n| !in_tools.contains(*n) && !in_line.contains(*n))
+            .collect();
+        assert!(
+            neither.is_empty(),
+            "{message:?}: these built-in tools are neither sent nor named: {neither:?}"
+        );
+
+        // The MCP tools that were left out are counted, not lost: the line
+        // ends "and N more" with the N of them it did not name.
+        let unsent_mcp = mcp.iter().filter(|n| !in_tools.contains(*n)).count();
+        let named_mcp = mcp.iter().filter(|n| in_line.contains(*n)).count();
+        assert_eq!(
+            names_line_more(&system),
+            unsent_mcp - named_mcp,
+            "{message:?}: {named_mcp} of {unsent_mcp} unsent MCP tools are named, so the line \
+             should say how many it left out"
+        );
     }
 }
 
@@ -819,8 +987,10 @@ async fn ollama_a_yes_after_a_proposal_is_shown_the_tools_proposed() {
 /// A tool the user asked for stays in the set when the next message is
 /// about something else, so the set does not churn from message to
 /// message (each change costs a local server the prompt it had processed).
+/// What the assistant proposed is not kept like this; the unit test
+/// `a_proposal_is_kept_for_the_next_message_only` pins that.
 #[tokio::test]
-async fn ollama_a_tool_named_earlier_stays_and_the_set_only_grows() {
+async fn ollama_a_tool_named_earlier_stays_when_the_next_message_names_nothing() {
     let turn = run_conversation(
         "ollama",
         &["add some reverb", "now make it a bit louder"],

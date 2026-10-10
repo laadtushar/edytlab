@@ -20,7 +20,8 @@
 //!    approved plan names;
 //! 2. [`SLIM_CORE_TOOLS`], the edits people ask for most;
 //! 3. tools the assistant's latest message names, so "yes, do it" after
-//!    "I could add a limiter or a de-esser" is shown the two it agreed to;
+//!    "I could add a limiter or a de-esser" is shown the two it agreed to
+//!    (its latest message only: see "Why the set can change" below);
 //! 4. tools the system prompt's own text points at in backticks
 //!    (agent profile, matched skills);
 //! 5. tools the model has already called in this conversation, so a
@@ -37,7 +38,8 @@
 //! A tool that describes itself as not implemented in this build (stem
 //! separation, transcription) is never selected, and never listed in the
 //! names line below: a small model that is offered it will call it, and it
-//! can only fail.
+//! can only fail. The same goes for [`NEEDS_TRANSCRIPT_TOOLS`], which work
+//! on a transcript that only `transcribe` makes.
 //!
 //! # The names line
 //!
@@ -49,16 +51,30 @@
 //! tool's own schema and says what is missing. The line is worked out with
 //! the set, once per turn, so it is as stable as the set is.
 //!
+//! The line is capped ([`SLIM_NAMES_BUDGET_BYTES`]) so that a long list of
+//! MCP tools cannot grow the request. The built-in tools are listed first
+//! and in full, and the MCP tools fill what is left of the budget, so the
+//! cap only ever leaves out MCP tools ("and N more").
+//!
 //! # Why the set can change between turns
 //!
 //! It is chosen from the conversation so far, so a message that names a
 //! tool the previous one did not changes it. That costs a local server the
 //! prompt it had processed (everything after the tools), once. What keeps
-//! it from happening on every message is that mentions are sticky: a tool
-//! named by the user earlier, or just named by the assistant, stays in the
-//! set until the budget needs the room for something newer. The set only
-//! grows, then, until it is full, and a message that names nothing new
-//! keeps what the earlier ones named.
+//! it from happening on every message is that what the user named is
+//! sticky, and so is what the model called: such a tool stays in the set
+//! until the budget needs the room for something newer, and a message that
+//! names nothing new keeps what the earlier ones named.
+//!
+//! What the assistant named is not. It is read from the assistant's latest
+//! message that said anything, so a proposal is kept for the next message
+//! and is gone once a later reply does not repeat it. After "I could add a
+//! limiter and a de-esser", a user who asks "what's a de-esser?" and gets
+//! an answer about that alone is no longer shown the limiter when they say
+//! "ok do both" (the de-esser stays: the user named it). Making every
+//! assistant mention sticky would let one reply that lists what the model
+//! can do take the budget for the rest of the conversation, which is the
+//! bloat the slim set is there to avoid.
 //!
 //! # How they are written
 //!
@@ -127,18 +143,36 @@ pub const SLIM_CORE_TOOLS: &[&str] = &[
 /// accounted for there and not here.
 pub const SLIM_TOOLS_BUDGET_BYTES: usize = 8_000;
 
-/// The most the names line may spend on tool names, in bytes. All of the
-/// built-in tools together are about 1,250 B; the room above that is for
-/// MCP tools, which join the registry and so the line. Past it the line
-/// ends "and N more" instead of growing, so the request bound holds
-/// whatever is registered.
-pub const SLIM_NAMES_BUDGET_BYTES: usize = 2_000;
+/// The most the names line may spend on tool names, in bytes. The
+/// built-in tools that can be left out of a request come to about 1,000 B
+/// (1,170 B if every one of them were); they are always listed, first. The
+/// room above that is for MCP tools, which join the registry and so the
+/// line. Past it the line ends "and N more" instead of growing, so the
+/// request bound holds whatever is registered.
+///
+/// Tight on purpose. The request that names a dozen tools sends the most
+/// tool schemas (about 8.5 KB), and the names line adds to that: with
+/// 2,000 here and 40 MCP tools that request was 194 B under the bound.
+/// `tests/request_size.rs` holds the headroom with MCP tools registered.
+pub const SLIM_NAMES_BUDGET_BYTES: usize = 1_600;
 
 /// A tool whose description begins with this does nothing in this build
 /// (`separate_stems`, `transcribe`: their inference is not shipped). The
 /// full list still carries them, with the description saying so; a small
 /// model is better served by not being offered them at all.
 const NOT_IMPLEMENTED_MARKER: &str = "NOT IMPLEMENTED";
+
+/// Tools that only work on a transcript of the session, and have nothing
+/// else to work from: without one they answer "this session has no
+/// transcript; run `transcribe` first". `transcribe` is the only thing
+/// that makes one, and it does nothing in this build (#383-#385), so these
+/// can only fail, and a small model that is offered one calls it. They are
+/// left out like the tools above. (`select_region` also reads a
+/// transcript, but resolves beats without one, so it stays.) Alphabetical.
+///
+/// A test fails when `transcribe` stops saying it is not implemented, and
+/// says to delete this list.
+const NEEDS_TRANSCRIPT_TOOLS: &[&str] = &["cut_words", "duck_under_speech", "remove_fillers"];
 
 /// Words in tool names that say nothing about which tool is meant. A user
 /// who writes "remove the region on this track" has named no tool, and
@@ -483,13 +517,30 @@ fn is_not_implemented(tool: &Value) -> bool {
         .is_some_and(|d| d.trim_start().starts_with(NOT_IMPLEMENTED_MARKER))
 }
 
+/// Whether a small model is better not offered the tool at all: it does
+/// nothing in this build, or it needs a transcript this build cannot make.
+fn is_unusable(tool: &Value) -> bool {
+    is_not_implemented(tool) || name_of(tool).is_some_and(|n| NEEDS_TRANSCRIPT_TOOLS.contains(&n))
+}
+
+/// Whether `name` is an MCP server's tool rather than a built-in one.
+///
+/// Every MCP wire name is `<server>__<tool>` (`mcp::namespaced_wire_name`
+/// writes that, also when it has to shorten the name), and no built-in
+/// name has a double underscore; a test holds the second half. The
+/// selection is handed schemas and nothing else, so the name is all there
+/// is to tell them apart by.
+fn is_mcp_name(name: &str) -> bool {
+    name.contains("__")
+}
+
 /// What a [`crate::ToolSet::Slim`] provider is sent for one turn.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct SlimSelection {
     /// The tools to send, compacted, sorted by name.
     pub tools: Value,
-    /// The permitted tools that are implemented but are not in `tools`,
-    /// sorted by name: what [`SlimSelection::names_note`] lists.
+    /// The permitted tools that can be used in this build but are not in
+    /// `tools`, sorted by name: what [`SlimSelection::names_note`] lists.
     pub unsent: Vec<String>,
 }
 
@@ -497,7 +548,15 @@ impl SlimSelection {
     /// The line to append to the system prompt so the model knows about the
     /// tools it was not sent, or `None` when it was sent all of them.
     ///
-    /// Names only, and no more than [`SLIM_NAMES_BUDGET_BYTES`] of them.
+    /// Names only. The built-in tools come first and are all listed; the
+    /// MCP tools follow, in name order, for as long as the line stays
+    /// within [`SLIM_NAMES_BUDGET_BYTES`], and "and N more" counts the MCP
+    /// tools left out. The built-ins go first because an MCP name can sort
+    /// ahead of any of them: a cap that walked [`SlimSelection::unsent`]
+    /// in name order would cut the built-in tools that sort late to make
+    /// room for MCP tools the user may never use. That the built-ins fit
+    /// the budget with room to spare is a test's to keep.
+    ///
     /// Built from [`SlimSelection::unsent`] alone, so it is as stable as
     /// the selection is: the same within a turn, which keeps the prompt a
     /// local server has processed valid from one round trip to the next.
@@ -505,9 +564,14 @@ impl SlimSelection {
         if self.unsent.is_empty() {
             return None;
         }
-        let mut listed = String::new();
+        let (mcp, builtin): (Vec<&str>, Vec<&str>) = self
+            .unsent
+            .iter()
+            .map(String::as_str)
+            .partition(|name| is_mcp_name(name));
+        let mut listed = builtin.join(", ");
         let mut shown = 0usize;
-        for name in &self.unsent {
+        for name in &mcp {
             let separator = if listed.is_empty() { 0 } else { 2 };
             if listed.len() + separator + name.len() > SLIM_NAMES_BUDGET_BYTES {
                 break;
@@ -518,9 +582,12 @@ impl SlimSelection {
             listed.push_str(name);
             shown += 1;
         }
-        let more = self.unsent.len() - shown;
+        let more = mcp.len() - shown;
         if more > 0 {
-            listed.push_str(&format!(", and {more} more"));
+            if !listed.is_empty() {
+                listed.push_str(", ");
+            }
+            listed.push_str(&format!("and {more} more"));
         }
         Some(format!(
             "More tools you can call by exact name, though their schemas are not shown here (a \
@@ -555,7 +622,7 @@ pub(crate) fn slim_tool_schemas(
     };
     let mut compacted: Vec<(String, Value, usize)> = list
         .iter()
-        .filter(|tool| !is_not_implemented(tool))
+        .filter(|tool| !is_unusable(tool))
         .filter_map(|tool| {
             let name = name_of(tool)?.to_string();
             let tool = compact_tool(tool);
@@ -643,6 +710,10 @@ mod tests {
     // -----------------------------------------------------------------
     // Fixtures
     // -----------------------------------------------------------------
+
+    /// The room the built-in names must leave in the names line for MCP
+    /// names: about sixteen tools of an ordinary server.
+    const MCP_ROOM_BYTES: usize = 400;
 
     fn all_tools() -> Value {
         ToolDispatcher::default_dispatcher().tool_schemas()
@@ -1117,13 +1188,85 @@ mod tests {
         }
     }
 
+    /// `remove_fillers`, `cut_words` and `duck_under_speech` can only answer
+    /// "this session has no transcript" while `transcribe` is a stub, so a
+    /// small model is not offered them, by a message that names them or
+    /// otherwise.
+    #[test]
+    fn a_tool_that_needs_a_transcript_is_never_selected_or_listed() {
+        let registered = names(&all_tools());
+        for tool in NEEDS_TRANSCRIPT_TOOLS {
+            assert!(
+                registered.iter().any(|n| n == tool),
+                "{tool} is not a registered tool: has it been renamed?"
+            );
+        }
+        let mut sorted = NEEDS_TRANSCRIPT_TOOLS.to_vec();
+        sorted.sort_unstable();
+        assert_eq!(NEEDS_TRANSCRIPT_TOOLS, sorted.as_slice(), "alphabetical");
+
+        for text in [
+            "remove the ums and uhs",
+            "remove the filler words",
+            "cut the words from 3 to 9",
+            "duck the music under the speech",
+            "remove_fillers cut_words duck_under_speech",
+            "make it louder",
+        ] {
+            let selection = selection_for(text, &[]);
+            let sent = names(&selection.tools);
+            for tool in NEEDS_TRANSCRIPT_TOOLS {
+                assert!(
+                    !sent.iter().any(|n| n == tool),
+                    "{text:?} sent {tool}: {sent:?}"
+                );
+                assert!(
+                    !selection.unsent.iter().any(|n| n == tool),
+                    "{text:?} lists {tool} as callable: {:?}",
+                    selection.unsent
+                );
+            }
+        }
+        // A whitelist small enough to be sent whole is no exception.
+        let available = Value::Array(
+            all_tools()
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|t| ["gain", "remove_fillers"].contains(&t["name"].as_str().unwrap()))
+                .cloned()
+                .collect(),
+        );
+        let selection = slim_tool_schemas(available, "remove the ums", &[], &[]);
+        assert_eq!(names(&selection.tools), vec!["gain"]);
+    }
+
+    /// The exclusion is for as long as nothing can make a transcript. When
+    /// `transcribe` works, these tools do too, and should be offered again.
+    #[test]
+    fn the_transcript_tools_are_left_out_only_while_transcribe_is_a_stub() {
+        let registry = all_tools();
+        let transcribe = registry
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == "transcribe")
+            .expect("transcribe is registered");
+        assert!(
+            is_not_implemented(transcribe),
+            "`transcribe` no longer says it is not implemented, so a transcript can be made. \
+             Delete NEEDS_TRANSCRIPT_TOOLS from tool_selection.rs, its use in `is_unusable`, and \
+             this test, and take the transcript tools out of the docs that say they are left out."
+        );
+    }
+
     #[test]
     fn every_permitted_tool_is_sent_or_listed_and_none_is_both() {
         let implemented: Vec<String> = all_tools()
             .as_array()
             .unwrap()
             .iter()
-            .filter(|t| !is_not_implemented(t))
+            .filter(|t| !is_unusable(t))
             .map(|t| t["name"].as_str().unwrap().to_string())
             .collect();
         for text in ["Make track 0 louder by 6 dB.", "add reverb and echo", ""] {
@@ -1202,13 +1345,36 @@ mod tests {
         );
     }
 
+    /// What an MCP server's tool is called on the wire: `<server>__<tool>`.
+    fn mcp_name(i: usize) -> String {
+        format!("aaa__tool_number_{i:03}")
+    }
+
+    /// A descriptor for such a tool, for the tests that run the selection.
+    fn mcp_schema(name: &str) -> Value {
+        json!({
+            "name": name,
+            "description": "Does something on a remote server. Takes a query.",
+            "input_schema": {
+                "type": "object",
+                "properties": { "query": { "type": "string" } },
+                "required": ["query"],
+            },
+        })
+    }
+
+    /// The words of a names line.
+    fn line_words(note: &str) -> HashSet<&str> {
+        note.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+            .filter(|w| !w.is_empty())
+            .collect()
+    }
+
     #[test]
     fn the_names_line_is_capped_and_says_how_many_it_left_out() {
         let selection = SlimSelection {
             tools: json!([]),
-            unsent: (0..400)
-                .map(|i| format!("mcp_tool_number_{i:03}"))
-                .collect(),
+            unsent: (0..400).map(mcp_name).collect(),
         };
         let note = selection.names_note().unwrap();
         assert!(
@@ -1216,7 +1382,7 @@ mod tests {
             "{} B is too long",
             note.len()
         );
-        let listed = note.matches("mcp_tool_number_").count();
+        let listed = note.matches("aaa__tool_number_").count();
         assert!(listed > 50 && listed < 400, "{listed} names listed");
         assert!(
             note.contains(&format!(", and {} more.", 400 - listed)),
@@ -1224,15 +1390,118 @@ mod tests {
         );
     }
 
+    /// The line tells a built-in tool from an MCP tool by `__`, which every
+    /// MCP wire name has (`mcp::namespaced_wire_name` writes
+    /// `<server>__<tool>`, also when it has to shorten the name). So no
+    /// built-in may have one, or the cap would treat it as droppable.
+    #[test]
+    fn no_builtin_tool_name_contains_a_double_underscore() {
+        for name in names(&all_tools()) {
+            assert!(
+                !is_mcp_name(&name),
+                "{name} looks like an MCP tool's wire name, so the names line would let its cap \
+                 cut it. Rename the tool, or carry an explicit built-in flag instead of `__`."
+            );
+        }
+        assert!(is_mcp_name("github__create_issue"));
+        assert!(is_mcp_name(&mcp_name(0)));
+    }
+
+    /// MCP names sort anywhere among the built-in ones. The cap must cut
+    /// them, not the built-in tools they happen to sort ahead of.
+    #[test]
+    fn the_names_line_keeps_every_builtin_whatever_the_mcp_names_sort_as() {
+        let builtin = names(&all_tools());
+        let mut unsent: Vec<String> = builtin.clone();
+        unsent.extend((0..400).map(mcp_name));
+        unsent.sort();
+        assert_eq!(
+            unsent[0],
+            mcp_name(0),
+            "the MCP names must sort ahead of the built-in ones, or this proves nothing"
+        );
+        let selection = SlimSelection {
+            tools: json!([]),
+            unsent,
+        };
+        let note = selection.names_note().unwrap();
+        let words = line_words(&note);
+        let missing: Vec<_> = builtin
+            .iter()
+            .filter(|n| !words.contains(n.as_str()))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "built-in tools were cut from the names line: {missing:?}"
+        );
+        // "and N more" counts the MCP names that were left out, and only
+        // those.
+        let listed = note.matches("aaa__tool_number_").count();
+        assert!(listed < 400, "the cap cut nothing, so this proves nothing");
+        assert!(
+            note.contains(&format!(", and {} more.", 400 - listed)),
+            "{note}"
+        );
+        assert!(
+            note.len() <= SLIM_NAMES_BUDGET_BYTES + 400,
+            "{} B is too long",
+            note.len()
+        );
+    }
+
+    /// The same through the selection: messages that name few tools and
+    /// many (so the fewest and the most built-ins are sent), with more MCP
+    /// tools registered than any real setup has.
+    #[test]
+    fn with_many_mcp_tools_every_permitted_builtin_is_sent_or_named() {
+        let implemented: Vec<String> = all_tools()
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|t| !is_unusable(t))
+            .map(|t| t["name"].as_str().unwrap().to_string())
+            .collect();
+        let mut available = all_tools().as_array().unwrap().clone();
+        available.extend((0..200).map(|i| mcp_schema(&mcp_name(i))));
+        for text in [
+            "Make track 0 louder by 6 dB.",
+            "add reverb, echo, tremolo, phaser and distortion, pitch shift it, time stretch it, \
+             reverse it, split by speaker, add a noise gate, a stereo widener and a de-esser",
+            "",
+        ] {
+            let selection = slim_tool_schemas(Value::Array(available.clone()), text, &[], &[]);
+            let sent: HashSet<String> = names(&selection.tools).into_iter().collect();
+            let note = selection.names_note().expect("some tools were not sent");
+            let words = line_words(&note);
+            let lost: Vec<_> = implemented
+                .iter()
+                .filter(|n| !sent.contains(*n) && !words.contains(n.as_str()))
+                .collect();
+            assert!(
+                lost.is_empty(),
+                "{text:?}: built-in tools neither sent nor named: {lost:?}"
+            );
+        }
+    }
+
     #[test]
     fn all_the_builtin_names_fit_the_names_budget() {
-        // The built-ins must never be what the cap cuts: only MCP tools,
-        // added on top of them, are.
-        let total: usize = names(&all_tools()).iter().map(|n| n.len() + 2).sum();
+        // The built-ins are listed whatever the cap, and only the MCP
+        // tools are cut. So they have to leave the MCP tools some room, or
+        // a registered MCP server is named by "and N more" and nothing else.
+        let registry = all_tools();
+        let total: usize = registry
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|t| !is_unusable(t))
+            .map(|t| t["name"].as_str().unwrap().len() + 2)
+            .sum();
         assert!(
-            total <= SLIM_NAMES_BUDGET_BYTES - 500,
-            "the built-in tool names add up to {total} B; leave room for MCP tools in \
-             SLIM_NAMES_BUDGET_BYTES ({SLIM_NAMES_BUDGET_BYTES} B)"
+            total + MCP_ROOM_BYTES <= SLIM_NAMES_BUDGET_BYTES,
+            "the built-in tool names add up to {total} B, which leaves under {MCP_ROOM_BYTES} B \
+             of SLIM_NAMES_BUDGET_BYTES ({SLIM_NAMES_BUDGET_BYTES} B) for MCP tools. Raise the \
+             budget, and check the headroom test in tests/request_size.rs still holds."
         );
     }
 
@@ -1264,6 +1533,44 @@ mod tests {
         ];
         let sent = names(&slim_tools(all_tools(), "yes", &[], &history));
         assert!(sent.iter().any(|n| n == "limiter"), "{sent:?}");
+    }
+
+    /// What the assistant proposed is kept for the next message, not for
+    /// the rest of the conversation: it is read from its latest message
+    /// only. What the user named is kept (see the next tests). The docs say
+    /// both, so this pins the first half.
+    #[test]
+    fn a_proposal_is_kept_for_the_next_message_only() {
+        let proposal = "I could add a limiter and a de-esser. Want me to?";
+        let wanted = ["limiter", "de_esser"];
+
+        // Straight after the proposal, both are shown.
+        let history = [
+            user_said("how could this voice sound more professional?"),
+            assistant_said(proposal),
+            user_said("ok do both"),
+        ];
+        let sent = names(&slim_tools(all_tools(), "ok do both", &[], &history));
+        for tool in wanted {
+            assert!(sent.iter().any(|n| n == tool), "{tool}: {sent:?}");
+        }
+
+        // After a detour the assistant's latest message is the answer to
+        // it, which says nothing of the limiter.
+        let history = [
+            user_said("how could this voice sound more professional?"),
+            assistant_said(proposal),
+            user_said("what's a de-esser?"),
+            assistant_said("It softens the harsh s and sh sounds in a voice."),
+            user_said("ok do both"),
+        ];
+        let sent = names(&slim_tools(all_tools(), "ok do both", &[], &history));
+        assert!(
+            !sent.iter().any(|n| n == "limiter"),
+            "the proposal outlived the reply that did not repeat it: {sent:?}"
+        );
+        // The de-esser stays: the user asked about it by name.
+        assert!(sent.iter().any(|n| n == "de_esser"), "{sent:?}");
     }
 
     #[test]

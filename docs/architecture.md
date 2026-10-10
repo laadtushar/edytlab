@@ -348,7 +348,7 @@ At the time of writing:
 |---------|---------------|--------------|-------|
 | Anthropic (every tool) | 1.2 KB | 54 KB | 55.5 KB |
 | A chat-completions provider sent every tool | 1.2 KB | 57 KB | 58 KB |
-| Ollama (slim set, with the names line) | 2.4 KB | 6.3 KB | 8.8 KB |
+| Ollama (slim set, with the names line) | 2.3 KB | 6.3 KB | 8.7 KB |
 
 The system prompt is a kilobyte, so the fix is fewer and terser tools, and only
 for the provider that needs it. `LlmProvider::tool_set()` says which:
@@ -389,29 +389,48 @@ for the provider that needs it. `LlmProvider::tool_set()` says which:
   names, types, enums, bounds and `required` are kept. A tool whose
   description says it is not implemented in this build (`separate_stems`,
   `transcribe`) is never selected and never listed: a small model that is
-  offered one calls it, and it can only fail.
+  offered one calls it, and it can only fail. The same goes for the tools
+  that only work on a transcript (`NEEDS_TRANSCRIPT_TOOLS`: `cut_words`,
+  `duck_under_speech`, `remove_fillers`), because the only thing that makes
+  a transcript is `transcribe`. A test fails when `transcribe` stops being a
+  stub, and says to delete that list.
 
   **The names line.** A model that is not shown a tool does not know it
   exists, so the permitted tools that were not sent are named, names only, in
   one line at the end of the system prompt ("More tools you can call by exact
   name…"). It comes from the same whitelist-filtered list as the selection, so
-  a tool the profile or the Capabilities menu took away is in neither. With the
-  built-in tools it is about 1.2 KB; it is capped at `SLIM_NAMES_BUDGET_BYTES`
-  and ends "and N more" past that, which only MCP tools can reach. When
-  everything was sent there is no line. A call to a listed tool by name works:
-  the dispatcher validates it against the tool's full schema and the error says
-  what is missing.
+  a tool the profile or the Capabilities menu took away is in neither. The
+  built-in tools come first and are always all listed (they come to about
+  1 KB). The MCP tools follow, in name order, while the names stay within
+  `SLIM_NAMES_BUDGET_BYTES` (1,600 B), and the line then ends "and N more",
+  which counts MCP tools only. The order matters: an MCP wire name is
+  `<server>__<tool>` and can sort ahead of every built-in name, so a cap that
+  walked the names alphabetically would cut built-in tools that sort late to
+  make room for MCP tools the user may never use (with sixty MCP tools that
+  left 35 built-ins neither sent nor named). The line tells the two apart by
+  the `__`, and a test fails if a built-in name ever has one. The budget is
+  tight on purpose: the request that names a dozen tools sends the most
+  schemas, and `request_size.rs` holds it 500 B under the bound with MCP
+  tools registered. When everything was sent there is no line. A call to a
+  listed tool by name works: the dispatcher validates it against the tool's
+  full schema and the error says what is missing.
 
-  **The set can change between turns.** It is chosen from the conversation so
-  far, so a message that names a tool the earlier ones did not changes it, and
-  a local server then has to process the prompt again from the tools on.
-  Mentions are sticky (items 3 and 6) so that this happens only when something
-  new is named: a tool asked for earlier, or just proposed by the assistant,
-  stays in the set until the budget needs the room for something newer, and a
-  message that names nothing new keeps what the earlier ones named. Without
-  that, a tool would drop out at the next message that did not repeat its name
-  and come back at the next that did. The names line follows the set, so it
-  changes with it and only then.
+  **The set can change between turns.** It is chosen from the conversation
+  so far, so a message that names a tool the earlier ones did not changes it,
+  and a local server then has to process the prompt again from the tools on.
+  What the user named is sticky (item 6) and so is what the model called
+  (item 5): such a tool stays in the set until the budget needs the room for
+  something newer, so a message that names nothing new keeps what the earlier
+  ones named, and a tool does not drop out at the next message that does not
+  repeat its name and come back at the next that does. What the assistant
+  named is not: item 3 reads only its latest message, so a proposal is kept
+  for the next message and is gone once a later reply does not repeat it. If
+  it proposes a limiter and a de-esser, the user asks "what's a de-esser?"
+  and the answer is about that alone, then "ok do both" is no longer shown the
+  limiter (the de-esser stays, because the user named it). Making every
+  assistant mention sticky would let a reply that lists what the model can do
+  take the budget for the rest of the conversation. The names line follows the
+  set, so it changes with it and only then.
 
   MCP tools are part of the registry, so the selection applies to them on
   Ollama like any other tool: one is sent in full when a message names it
@@ -944,7 +963,7 @@ edytlab supports the Model Context Protocol for extending the agent with externa
 
 Transport types: `stdio` (JSON-RPC over stdin/stdout; `command`/`args`/`env`, as above) and `sse` (HTTP Server-Sent Events; `url` and `headers` instead). The transport is inferred from which fields are present (`McpServerConfig` in `crates/mcp/src/config.rs` is untagged). A `<keychain:slot>` value in `env` is replaced with that keychain secret when the server launches.
 
-The MCP layer starts registered servers at app launch, discovers available tools via `tools/list`, and injects them into the agent's tool list alongside built-in tools. On Ollama the slim selection applies to them like any built-in tool (see [Request size](#request-size-and-small-context-models)): an MCP tool is sent in full when a message names it and otherwise only listed by name, and a long MCP tool list ends the names line with "and N more".
+The MCP layer starts registered servers at app launch, discovers available tools via `tools/list`, and injects them into the agent's tool list alongside built-in tools. On Ollama the slim selection applies to them like any built-in tool (see [Request size](#request-size-and-small-context-models)): an MCP tool is sent in full when a message names it and otherwise only listed by name, after the built-in tools, and a long MCP tool list ends the names line with "and N more" (the built-in tools are never what it leaves out).
 
 ---
 
