@@ -320,8 +320,10 @@ all three platforms. Only claim things you hit.
 >   lesson: don't take a lock a background worker might hold inside a sync
 >   command.
 > - **Keyring on Linux.** `keyring`'s `linux-native` backend is the kernel
->   keyring: in-memory, gone after a reboot (#394, open). If you ship
->   credentials on Linux, read the backend's docs before you rely on it.
+>   keyring: in-memory, gone after a reboot. That is what v0.4.0 and earlier
+>   use (#394); the next release stores credentials in the Secret Service and
+>   warns when there is none. If you ship credentials on Linux, read the
+>   backend's docs before you rely on it.
 > - **Testing.** Playwright runs the production front end in Chromium with only
 >   the IPC boundary replaced, and the fake backend answers from the Rust
 >   source. A separate native suite drives the real binary with WebDriver for

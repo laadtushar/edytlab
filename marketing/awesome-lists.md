@@ -96,8 +96,9 @@ one, is a better place; it was not checked.
   Debian).
 - **Fit:** it is a list of Linux audio production software, and edytlab is a
   cross-platform editor with Linux builds (`.deb`, AppImage). Linux caveat to
-  know before submitting: API keys do not survive a reboot
-  ([#394](https://github.com/laadtushar/edytlab/issues/394)).
+  know before submitting: v0.4.0 and earlier keep API keys only until reboot;
+  the next release stores them in the Secret Service and warns when there is
+  none ([#394](https://github.com/laadtushar/edytlab/issues/394)).
 
 Entry:
 

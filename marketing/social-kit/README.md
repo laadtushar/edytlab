@@ -17,5 +17,4 @@ The videos the copy refers to are in [`../reels/`](../reels/README.md).
 - The "good first issue" offer: no issue carries the label yet.
 - Mentioning Claude Code.
 - The hosted-option line in the r/opensource post.
-- The Linux-keyring line in LinkedIn post 4, which goes stale when #394 lands.
 - The ElevenLabs licence for the narrated reels.

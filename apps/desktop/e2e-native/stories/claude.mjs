@@ -5,7 +5,7 @@
 // the model's wording, because the wording is not deterministic.
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { assert, head, K, openAudio, sleep, waitForNewHead } from "./helpers.mjs";
+import { assert, dismissKeychainNotice, head, K, openAudio, sleep, waitForNewHead } from "./helpers.mjs";
 import { describePlan, planCard, say, toolBadges, waitForReply } from "./agent.mjs";
 
 const KEY = process.env.ANTHROPIC_E2E_KEY;
@@ -59,6 +59,7 @@ export async function ready(ctx, ...files) {
   await onboardClaude(ctx, { model: MODEL, effort: EFFORT });
   ctx.note(`model: ${MODEL ?? "the app's default"}, effort: ${EFFORT ?? "the app's default"}`);
   await d.until(async () => (await d.count("[data-testid='settings']")) === 0, { timeout: 60000, label: "the welcome to close" });
+  await dismissKeychainNotice(ctx);
   assert((await d.invoke("get_active_provider")) === "anthropic", "Anthropic is the active provider");
   if (files.length) await openAudio(ctx, ...files);
   ctx.record();
@@ -211,6 +212,7 @@ const stories = [
       await onboardClaude(ctx, { key: "sk-ant-api03-this-key-is-not-real-000000000000000000000000" });
       await d.until(async () => (await d.count("[data-testid='settings']")) === 0, { timeout: 60000, label: "the welcome to close" });
       ctx.note("Save accepted the key without checking it");
+      await dismissKeychainNotice(ctx);
       await openAudio(ctx, ctx.fixtures.tone);
       await say(ctx, "Make track 0 louder by 3 dB.");
       await d.waitFor("[data-testid='chat-error']", { timeout: 60000 });

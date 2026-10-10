@@ -230,9 +230,21 @@ Check whether the active provider has a key configured.
 const ready = await bridge.hasApiKey();
 ```
 
+**Throws:** Error string when the system keychain could not be read (a locked keyring, a dismissed unlock prompt, no service). That is not the same as resolving `false`: `false` means no key is stored and the app asks for one, while a rejection means a key may well be stored and could not be looked up, so the app says so instead.
+
 ### `hasApiKeyFor(provider: ProviderId) → boolean`
 
 Check whether a specific provider has a key.
+
+**Throws:** Error string when the keychain could not be read, as `hasApiKey` does.
+
+### `getKeychainPersistence() → KeychainPersistence`
+
+Whether keys and settings saved now survive a reboot. Always `persistent: true` on macOS and Windows. On Linux they live in the Secret Service (GNOME Keyring, KWallet or KeePassXC), and `persistent: false` means none is running, so they are kept in the kernel keyring until the machine restarts. `reason` is why the Secret Service could not be used. It looks up an account nothing ever stores, so it never raises an unlock prompt.
+
+```typescript
+const { persistent, reason } = await bridge.getKeychainPersistence();
+```
 
 ### `clearApiKey() → void`
 
@@ -1193,6 +1205,11 @@ Full type definitions are in `apps/desktop/src/lib/tauri-bridge.ts`.
 type NodeId = string;
 type ProviderId = "anthropic" | "openrouter" | "openai" | "groq" | "gemini" | "ollama";
 type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
+
+interface KeychainPersistence {
+  persistent: boolean;      // false: Linux with no Secret Service, kept until reboot only
+  reason: string | null;    // why the Secret Service could not be used
+}
 
 interface ProjectInfo {
   path: string;

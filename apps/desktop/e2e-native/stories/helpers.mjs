@@ -12,6 +12,23 @@ export async function onboard(ctx) {
   await sleep(600);
   await d.click("[data-testid='settings-provider-ollama']");
   await d.until(async () => (await d.count("[data-testid='settings']")) === 0, { label: "welcome to close" });
+  await dismissKeychainNotice(ctx);
+}
+
+/**
+ * Close the "no Secret Service" warning, if the app is showing it.
+ *
+ * The harness has no Secret Service, so the app keeps settings in the
+ * kernel keyring and says so once (#394); stories about something else
+ * should not have it on screen. Dismissal is remembered in localStorage,
+ * so a restart within a story does not show it again.
+ */
+export async function dismissKeychainNotice(ctx) {
+  const p = await ctx.d.invoke("get_keychain_persistence");
+  if (p?.persistent !== false) return;
+  await ctx.d.waitFor("[data-testid='keychain-session-only']");
+  await ctx.d.click("[data-testid='keychain-session-only'] button[aria-label='Dismiss warning']");
+  await ctx.d.until(async () => (await ctx.d.count("[data-testid='keychain-session-only']")) === 0, { label: "keychain notice to close" });
 }
 
 /** Open Audio through the real file chooser, selecting `paths`. */

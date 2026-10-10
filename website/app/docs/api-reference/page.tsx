@@ -71,12 +71,17 @@ const commands = [
       {
         name: "hasApiKey()",
         returns: "boolean",
-        desc: "Check whether the active provider has a key configured.",
+        desc: "Check whether the active provider has a key configured. Rejects when the keychain could not be read (a locked keyring, say), which is not the same as false: a key may be stored and could not be looked up.",
       },
       {
         name: "hasApiKeyFor(provider)",
         returns: "boolean",
-        desc: "Check whether a specific provider has a key.",
+        desc: "Check whether a specific provider has a key. Rejects when the keychain could not be read, as hasApiKey does.",
+      },
+      {
+        name: "getKeychainPersistence()",
+        returns: "KeychainPersistence",
+        desc: "Whether keys and settings saved now survive a reboot. persistent is false on Linux with no Secret Service running, where they are kept in the kernel keyring until restart; reason says why.",
       },
       {
         name: "clearApiKeyFor(provider)",
