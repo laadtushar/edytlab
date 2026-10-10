@@ -13,6 +13,7 @@ pub mod node;
 pub mod relocate;
 pub mod state;
 pub mod store;
+pub mod trail;
 
 pub use annotation::{Annotation, AnnotationId, AnnotationKind};
 pub use diff::{

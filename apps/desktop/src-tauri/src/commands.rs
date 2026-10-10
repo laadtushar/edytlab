@@ -373,6 +373,47 @@ pub fn save_view_state(
     Ok(())
 }
 
+/// The path the user took through the history, as it was last saved with
+/// the project (#453).
+///
+/// The frontend reads it as a project opens and hands undo and redo the
+/// steps in it, so that after a restart undo retraces what the user did
+/// instead of falling back on each node's first parent (#398). Never an
+/// error because of the file: none, an unreadable one and one naming nodes
+/// the project no longer has all answer with a shorter, or empty, trail
+/// (see `session::trail`). On the blocking pool because it reads files,
+/// and a few hundred of them: an `async` command that did so itself would
+/// hold one of the runtime's few workers for the reads.
+#[tauri::command]
+pub async fn get_head_trail(state: State<'_, AppState>) -> CmdResult<session::trail::HeadTrail> {
+    blocking(&state, |state| {
+        let dir = current_project_dir(state)?;
+        Ok(session::trail::read_trail(&dir))
+    })
+    .await
+}
+
+/// Keep the path the user has taken with the project, replacing the last.
+///
+/// Called after every head move, without waiting for the answer, and
+/// never from inside the session's line of edits (`lib/sessionQueue.ts`):
+/// it writes a file and fsyncs it, and an edit must not wait on that. A
+/// trail that does not belong to the open project (its head is not one of
+/// its nodes: a save sent for the project that was just left) is dropped
+/// and answered as success; see `session::trail::write_trail`.
+#[tauri::command]
+pub async fn save_head_trail(
+    state: State<'_, AppState>,
+    trail: session::trail::HeadTrail,
+) -> CmdResult<()> {
+    blocking(&state, move |state| {
+        let dir = current_project_dir(state)?;
+        session::trail::write_trail(&dir, &trail).map_err(CommandError::from)?;
+        Ok(())
+    })
+    .await
+}
+
 /// Copy the open project to `dest` and continue in the copy.
 ///
 /// Save As, in the sense a DAW means it: the work carries on in the new
