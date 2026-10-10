@@ -290,7 +290,7 @@ const earlierPosts: BlogPost[] = [
       },
       {
         type: "p",
-        text: 'This step is not available yet: the on-device Whisper decoder has not shipped, so today the transcribe tool returns an error, and ducking the music under the speech in step 4, which is keyed on the transcript, waits on it too. Once it ships, the step is one sentence, "transcribe track 1": the agent runs Whisper locally, with no upload and no API key for transcription, and returns a word-level transcript with timestamps, so you can see where filler words, long silences and retakes are without scrubbing the waveform. Until then, find them by listening.',
+        text: 'This step is not available yet: the on-device Whisper decoder has not shipped, so today the transcribe tool returns an error. Ducking the music under the speech in step 4 does not wait on it: with no transcript, it keys on the voice track\'s audio instead. Once it ships, the step is one sentence, "transcribe track 1": the agent runs Whisper locally, with no upload and no API key for transcription, and returns a word-level transcript with timestamps, so you can see where filler words, long silences and retakes are without scrubbing the waveform. Until then, find them by listening.',
       },
       {
         type: "callout",

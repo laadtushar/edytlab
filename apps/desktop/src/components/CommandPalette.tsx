@@ -60,7 +60,7 @@ export const COMMANDS: Command[] = [
 
   // Music under voice (#168 §1). The headline reason to use this over
   // a sidechain compressor, and it was undiscoverable.
-  { category: "Volume", label: "Duck music under speech", prompt: "duck the music on track 1 under the speech on track 0", description: "Keyed on the transcript, not on level — a breath won't trigger it", tags: ["duck", "ducking", "music", "sidechain", "under", "voice", "bed"] },
+  { category: "Volume", label: "Duck music under speech", prompt: "duck the music on track 1 under the speech on track 0", description: "Keyed on voiced speech, not on level — a breath won't trigger it", tags: ["duck", "ducking", "music", "sidechain", "under", "voice", "bed"] },
 
   // Fades
   // Fades
