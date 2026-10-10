@@ -55,7 +55,10 @@ use std::sync::{Arc, Mutex};
 use anthropic::Message;
 
 pub use anthropic::Effort;
-pub use models::{list_models_for, list_models_for_at, ModelInfo};
+pub use models::{
+    anthropic_fallback_models, list_models_for, list_models_for_at, Catalogue, CatalogueSource,
+    ModelInfo,
+};
 pub use prompt::{DEFAULT_BASE_URL, DEFAULT_MODEL, MAX_TOOL_CALLS_PER_TURN};
 pub use provider::{
     AnthropicProvider, LlmProvider, OpenAIProvider, OpenRouterProvider, ToolSet, WireFormat,

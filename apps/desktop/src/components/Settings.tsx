@@ -11,8 +11,10 @@
  * The model picker is a combo (text input + `<datalist>`) populated
  * from the Rust catalogue command for the active provider. The user
  * can type a free-form id (so brand-new models work the moment the
- * user knows their id), and the suggestion list shows curated entries
- * pulled from the live catalogue. Per-provider selections are
+ * user knows their id), and the suggestion list shows entries pulled
+ * from the live catalogue, or, for Anthropic without a key, a built-in
+ * fallback list, and the hint under the field says which. Per-provider
+ * selections are
  * persisted in localStorage under `edytlab.model.<provider>` so
  * switching provider preserves each side's choice.
  */
@@ -282,6 +284,12 @@ export function Settings({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [models, setModels] = useState<ModelInfo[]>([]);
+  // Which list `models` is: the provider's own, or edytlab's built-in one,
+  // and why. Null until a fetch has answered, and after one has failed.
+  const [catalogueSource, setCatalogueSource] = useState<
+    "live" | "fallback" | null
+  >(null);
+  const [catalogueNotice, setCatalogueNotice] = useState<string | null>(null);
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [tab, setTab] = useState<SettingsTab>("account");
 
@@ -506,11 +514,15 @@ export function Settings({
   const fetchCatalogue = useCallback(
     async (p: ProviderId, k: string | undefined) => {
       try {
-        const list = await listModelsFor(p, k);
-        setModels(list);
+        const catalogue = await listModelsFor(p, k);
+        setModels(catalogue.models);
+        setCatalogueSource(catalogue.source);
+        setCatalogueNotice(catalogue.notice);
         setModelsError(null);
       } catch (err) {
         setModels([]);
+        setCatalogueSource(null);
+        setCatalogueNotice(null);
         setModelsError(String(err));
       }
     },
@@ -740,10 +752,26 @@ export function Settings({
     return { id: m.id, label };
   });
 
-  const modelHint =
+  const providerLabel = activeProviderEntry.label;
+  // In order: the fetch failed; the list is edytlab's own and not the
+  // provider's (the person should know that before trusting it as complete);
+  // the provider's list.
+  const modelHintKind: "error" | "fallback" | "live" | null =
     modelsError !== null
-      ? `Couldn't fetch model list (${modelsError}); type the model id manually.`
+      ? "error"
+      : catalogueSource === "fallback"
+      ? "fallback"
       : models.length > 0
+      ? "live"
+      : null;
+  const modelHint =
+    modelHintKind === "error"
+      ? `Couldn't fetch model list (${modelsError}); type the model id manually.`
+      : modelHintKind === "fallback"
+      ? `Showing edytlab's built-in list${
+          catalogueNotice ? ` (${catalogueNotice})` : ""
+        }. Save your key to load ${providerLabel}'s current models, or type any model id.`
+      : modelHintKind === "live"
       ? `${models.length} model${models.length === 1 ? "" : "s"} available — start typing for suggestions.`
       : "";
 
@@ -1186,13 +1214,15 @@ export function Settings({
           {modelHint ? (
             <p
               data-testid={
-                modelsError !== null
+                modelHintKind === "error"
                   ? "settings-model-error"
+                  : modelHintKind === "fallback"
+                  ? "settings-model-fallback"
                   : "settings-model-hint"
               }
               className={
                 "mb-4 text-xs " +
-                (modelsError !== null
+                (modelHintKind === "error" || modelHintKind === "fallback"
                   ? "text-[var(--warning)]"
                   : "text-[var(--text-faint)]")
               }

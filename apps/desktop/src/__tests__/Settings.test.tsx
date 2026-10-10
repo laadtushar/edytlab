@@ -87,7 +87,9 @@ describe("Settings", () => {
     setActiveModelMock.mockReset().mockResolvedValue(undefined);
     getActiveModelMock.mockReset().mockResolvedValue("");
     getActiveProviderMock.mockReset().mockResolvedValue("");
-    listModelsForMock.mockReset().mockResolvedValue([]);
+    listModelsForMock
+      .mockReset()
+      .mockResolvedValue({ models: [], source: "live", notice: null });
     getBaseUrlForMock.mockReset().mockResolvedValue(null);
     defaultBaseUrlForMock
       .mockReset()
