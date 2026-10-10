@@ -75,7 +75,7 @@ const groups = [
       {
         name: "mix_to_new_track",
         prompt: "mix tracks 1 and 2 into a new track",
-        what: "Offline-render the selected tracks together and add the result as a new mixed track. track_indices selects which tracks to include.",
+        what: "Offline-render the selected tracks together and add the result as a new mixed track. track_indices selects which tracks to include. The new track is a copy: it does not follow later edits to the tracks it came from. To put an effect such as a limiter on the whole mix, use add_effect with scope \"master\" instead of mixing down.",
         output: "node_id",
       }
     ],
@@ -240,7 +240,7 @@ const groups = [
       {
         name: "limiter",
         prompt: "limit track 1 to -1 dBFS",
-        what: "Peak limiter: turns the gain down just enough that no sample exceeds ceiling_db, then lets it recover smoothly over release_ms (default 80). Transients are tamed without the harmonic distortion of hard clipping, and all channels share one gain so the stereo image holds. Zero latency; a sample-peak ceiling, not an inter-sample true-peak one.",
+        what: "Peak limiter: turns the gain down just enough that no sample exceeds ceiling_db, then lets it recover smoothly over release_ms (default 80). Transients are tamed without the harmonic distortion of hard clipping, and all channels share one gain so the stereo image holds. Zero latency; a sample-peak ceiling, not an inter-sample true-peak one. This edit is baked into one track; to limit the whole mix and keep it limited as tracks change, use add_effect with scope \"master\".",
         output: "node_id",
       },
       {
@@ -363,33 +363,33 @@ const groups = [
     tools: [
       {
         name: "add_effect",
-        prompt: 'put a low-pass at 4 kHz on the guitar track',
-        what: "Append an effect to a track's chain. The chain is applied at render time and the source audio is never rewritten, so the parameters stay editable — unlike the destructive effect tools above, which bake their result into a new node.",
+        prompt: 'put a limiter on the master at -1 dB',
+        what: "Append an effect to a track's chain, or pass scope \"master\" to put it on the master bus, where every track is summed. The chain is applied at render time and the source audio is never rewritten, so the parameters stay editable — unlike the destructive effect tools above, which bake their result into a new node.",
         output: "node_id, effect_index",
-        note: "Effects run in the order they appear in the chain. Not every effect can stream yet; ones that cannot are rejected at render time with a message naming them.",
+        note: "An effect on the master bus processes the whole mix and keeps doing so when a track is edited later, which a mix rendered down into a new track does not. Effects run in the order they appear in the chain. Not every effect can stream yet; ones that cannot are rejected at render time with a message naming them.",
       },
       {
         name: "set_effect_params",
         prompt: 'change that low-pass to 2 kHz',
-        what: "Edit an effect already in a chain. Given parameters are merged into the existing ones by default; pass replace to swap the whole set instead.",
+        what: "Edit an effect already in a chain, on a track or on the master bus. Given parameters are merged into the existing ones by default; pass replace to swap the whole set instead.",
         output: "node_id",
       },
       {
         name: "set_effect_bypassed",
         prompt: 'bypass the compressor on track 1',
-        what: "Turn an effect off without removing it. A bypassed effect renders byte-identically to one that is not there, so it is an A/B switch rather than an approximation.",
+        what: "Turn an effect off without removing it, on a track or on the master bus. A bypassed effect renders byte-identically to one that is not there, so it is an A/B switch rather than an approximation.",
         output: "node_id",
       },
       {
         name: "reorder_effects",
         prompt: 'put the EQ before the compressor',
-        what: "Reorder a track's chain. Takes a full permutation of the existing indices — a partial list is rejected rather than silently dropping effects.",
+        what: "Reorder a track's chain, or the master bus's. Takes a full permutation of the existing indices — a partial list is rejected rather than silently dropping effects.",
         output: "node_id",
       },
       {
         name: "remove_effect",
         prompt: 'take the reverb off the drums',
-        what: "Remove an effect from a track's chain by index.",
+        what: "Remove an effect from a track's chain, or from the master bus's, by index.",
         output: "node_id",
       }
     ],
