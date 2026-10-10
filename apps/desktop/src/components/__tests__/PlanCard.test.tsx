@@ -30,7 +30,8 @@ const sendMessageMock = vi.fn();
 
 vi.mock("../../lib/tauri-bridge", () => ({
   sendMessage: (text: string) => sendMessageMock(text),
-  approvePlan: (steps?: string[]) => approvePlanMock(steps),
+  approvePlan: (steps?: Array<{ tool: string; description: string }>) =>
+    approvePlanMock(steps),
   rejectPlan: () => rejectPlanMock(),
   getPlanFirst: () => getPlanFirstMock(),
   setPlanFirst: (on: boolean) => setPlanFirstMock(on),
@@ -175,7 +176,7 @@ describe("PlanCard (inside Chat)", () => {
     expect(approvePlanMock).toHaveBeenCalledWith(undefined);
   });
 
-  it("clicking Run after editing a step forwards the updated descriptions", async () => {
+  it("clicking Run after editing a step forwards each step's tool and its updated description", async () => {
     const user = userEvent.setup();
     render(<Chat />);
     await act(async () => {
@@ -194,14 +195,25 @@ describe("PlanCard (inside Chat)", () => {
     await user.type(editor, "Revised first step");
     await user.click(screen.getByTestId("plan-step-save"));
 
-    // Click Run — should forward the edited descriptions
+    // Click Run — should forward the edited descriptions, each with the
+    // tool it belongs to (the tool itself is not editable).
     await user.click(screen.getByTestId("plan-run-button"));
     expect(approvePlanMock).toHaveBeenCalledTimes(1);
-    const calledWith: string[] = approvePlanMock.mock.calls[0][0];
-    expect(calledWith[0]).toBe("Revised first step");
+    const calledWith: Array<{ tool: string; description: string }> =
+      approvePlanMock.mock.calls[0][0];
+    expect(calledWith[0]).toEqual({
+      tool: "analyze_track",
+      description: "Revised first step",
+    });
     // Other steps unchanged
-    expect(calledWith[1]).toBe("Analyse B BPM and key");
-    expect(calledWith[2]).toBe("Separate A into 4 stems");
+    expect(calledWith[1]).toEqual({
+      tool: "analyze_track",
+      description: "Analyse B BPM and key",
+    });
+    expect(calledWith[2]).toEqual({
+      tool: "separate_stems",
+      description: "Separate A into 4 stems",
+    });
   });
 
   it("Save button is disabled when the textarea is empty", async () => {

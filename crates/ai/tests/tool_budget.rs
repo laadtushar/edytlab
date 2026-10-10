@@ -92,6 +92,9 @@ enum Ev {
     Text(String),
     ToolStart(String),
     ToolEnd(String, bool),
+    /// Announced and never dispatched: refused for the budget, or called
+    /// during the tools-off summary. Not a failure; nothing ran.
+    NotRun(String),
     Done,
     /// The approval card, with how many edits had run when it was shown.
     Card {
@@ -169,6 +172,7 @@ impl Fixture {
                 AgentEvent::TextDelta(t) => events.push(Ev::Text(t)),
                 AgentEvent::ToolCallStart { id, .. } => events.push(Ev::ToolStart(id)),
                 AgentEvent::ToolCallEnd { id, ok, .. } => events.push(Ev::ToolEnd(id, ok)),
+                AgentEvent::ToolCallNotRun { id } => events.push(Ev::NotRun(id)),
                 AgentEvent::Done => events.push(Ev::Done),
                 AgentEvent::PlanRejected => events.push(Ev::PlanRejected),
                 AgentEvent::PlanUnavailable {
@@ -273,7 +277,7 @@ fn assert_every_badge_resolves(events: &[Ev]) {
     for id in started {
         let ends = events
             .iter()
-            .filter(|e| matches!(e, Ev::ToolEnd(i, _) if i == id))
+            .filter(|e| matches!(e, Ev::ToolEnd(i, _) | Ev::NotRun(i) if i == id))
             .count();
         assert_eq!(ends, 1, "{id} was ended {ends} times in {events:#?}");
     }
@@ -389,11 +393,11 @@ async fn a_turn_that_keeps_calling_tools_past_the_cap_ends_with_a_summary() {
     );
 
     // The refused step's badges were started as they streamed and are
-    // resolved as not ok.
+    // resolved as not run, which is not the same as failed.
     for id in ["over0", "over1"] {
         assert!(events.contains(&Ev::ToolStart(id.into())), "{events:#?}");
         assert!(
-            events.contains(&Ev::ToolEnd(id.into(), false)),
+            events.contains(&Ev::NotRun(id.into())),
             "{id} was left running: {events:#?}"
         );
     }
@@ -469,8 +473,8 @@ async fn a_step_that_would_cross_the_cap_runs_none_of_its_calls() {
         CAP - 1,
         "the refused step ran part of itself"
     );
-    assert!(events.contains(&Ev::ToolEnd("over0".into(), false)));
-    assert!(events.contains(&Ev::ToolEnd("over1".into(), false)));
+    assert!(events.contains(&Ev::NotRun("over0".into())));
+    assert!(events.contains(&Ev::NotRun("over1".into())));
     assert_every_badge_resolves(&events);
     assert_eq!(events.last(), Some(&Ev::Done));
 }
@@ -513,7 +517,7 @@ async fn a_tool_call_in_the_summary_request_is_not_run() {
 
     assert_eq!(fx.edits_run().len(), CAP, "the late call ran");
     assert!(events.contains(&Ev::ToolStart("late0".into())));
-    assert!(events.contains(&Ev::ToolEnd("late0".into(), false)));
+    assert!(events.contains(&Ev::NotRun("late0".into())));
     assert_every_badge_resolves(&events);
     assert_eq!(events.last(), Some(&Ev::Done));
     assert_history_is_valid(fx.agent.conversation());
@@ -613,7 +617,7 @@ async fn with_plan_first_a_step_over_the_cap_is_never_shown_for_approval() {
         "an edit ran without approval: {:?}",
         fx.edits_run()
     );
-    assert!(events.contains(&Ev::ToolEnd("over0".into(), false)));
+    assert!(events.contains(&Ev::NotRun("over0".into())));
     assert!(!events.contains(&Ev::PlanRejected), "nobody declined");
     assert_every_badge_resolves(&events);
     assert_eq!(events.last(), Some(&Ev::Done));
