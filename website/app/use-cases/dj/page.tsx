@@ -7,9 +7,9 @@ import { demos } from "@/lib/demos";
 import { DEFAULT_OG_IMAGE, pageAlternates } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 
-const title = "AI audio editor for DJs";
+const title = "AI audio editor for DJs: beatmatch, blend and master";
 const description =
-  "Prep blends by describing them. edytlab's AI agent beatmatches two tracks, crossfades, masters to a loudness target and exports a file. Free, open source, runs locally.";
+  "Prep blends by describing them. edytlab's AI agent beatmatches two tracks, crossfades, masters to a loudness target and exports a file. Free and open source.";
 const url = `${siteConfig.url}/use-cases/dj`;
 
 export const metadata: Metadata = {

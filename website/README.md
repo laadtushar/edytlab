@@ -55,9 +55,12 @@ standalone project:
 2. Set the **Root Directory** to `website/`.
 3. Framework preset is detected automatically (Next.js).
 4. No environment variables are required.
-5. Set the canonical domain (`edytlab.com`, which redirects to `www.edytlab.com`)
-   under **Settings → Domains**; `siteConfig.url` in `lib/site.ts` should match
-   it, since `app/layout.tsx` builds `metadataBase` from it.
+5. Set the canonical domain (`www.edytlab.com`, with the apex `edytlab.com`
+   redirecting to it) under **Settings → Domains**; `siteConfig.url` in
+   `lib/site.ts` is that `https://www.edytlab.com` host and must match it, since
+   `app/layout.tsx` builds `metadataBase` from it and every canonical, `og:url`,
+   sitemap URL and structured-data URL starts from it. `lib/seo.test.ts` fails
+   if the apex turns up in the site's own URLs.
 
 > Why the dashboard setting and not a root `vercel.json`: Vercel's Next.js
 > framework detection runs against the `package.json` it finds at the project

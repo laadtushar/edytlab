@@ -5,7 +5,7 @@ import { PageLinks, PageShell, Prose } from "@/components/landing/page-shell";
 import { DEFAULT_OG_IMAGE, pageAlternates } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 
-const title = "Local-first AI audio editor";
+const title = "Local-first AI audio editor: audio stays local";
 const description =
   "An AI audio editor that keeps your audio on your machine. DSP runs locally in Rust, only the chat leaves, and with Ollama it needs no cloud and no API key.";
 const url = `${siteConfig.url}/use-cases/local-ai-audio-editor`;
