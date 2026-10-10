@@ -289,11 +289,13 @@ src/
 ├── lib.rs          # Agent, LlmConfig, AgentEvent, TurnResult
 ├── agent_loop.rs   # Tool-calling state machine
 ├── anthropic.rs    # Canonical message/stream types
+├── context_window.rs  # "The model's context is too small" error (#395)
 ├── keychain.rs     # OS credential storage via keyring
 ├── models.rs       # Model catalogue + 10-min TTL cache
 ├── prompt.rs       # System prompt construction
 ├── provider.rs     # LlmProvider trait + 6 implementations
 ├── session_context.rs  # Selection/marker context for turns
+├── tool_selection.rs   # The slim tool set sent to small-context models
 └── validate.rs     # API key validation (1-token probe)
 ```
 
