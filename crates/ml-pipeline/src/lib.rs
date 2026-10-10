@@ -22,6 +22,10 @@
 //!   CUDA where the user opts in, CPU otherwise. Non-supported EPs fall
 //!   back to CPU with a `tracing::warn!` rather than panicking, which
 //!   keeps the dev sandbox (Linux, no GPU) building cleanly.
+//! - [`ModelStore`] downloads a pinned [`ModelArtifact`] (URL, size and
+//!   SHA-256 per file) into a local directory, resumably, and never
+//!   gives a file its final name until it verifies. It has no callers
+//!   yet and no model is pinned; see the `download` module.
 //!
 //! ## Runtime requirements
 //!
@@ -47,7 +51,9 @@ mod onnx_session;
 pub mod runtime;
 
 pub use cache::{ContentHash, InferenceCache};
-pub use download::fetched_model_path;
+pub use download::{
+    fetched_model_path, FetchObserver, FetchProgress, ModelArtifact, ModelFile, ModelStore,
+};
 pub use onnx_session::{ExecProvider, ModelRegistry};
 
 /// Crate-wide error type. One enum, lives at the crate root so callers
@@ -93,6 +99,38 @@ pub enum Error {
     /// fails is reported, never skipped in favour of another one.
     #[error("ONNX Runtime at {} could not be loaded: {reason}", .path.display())]
     RuntimeLoad { path: PathBuf, reason: String },
+
+    /// A model file could not be downloaded: the network failed, the
+    /// connection closed early, or the server answered with an error
+    /// status (`status`). Whatever had arrived is kept for a resume.
+    #[error("downloading {url} failed{}: {reason}", http_status(.status))]
+    Download {
+        url: String,
+        status: Option<u16>,
+        reason: String,
+    },
+
+    /// A model file's bytes are not the ones its manifest pins: the
+    /// wrong SHA-256, or more bytes than the pinned size. Nothing that
+    /// fails this is ever given its final name.
+    #[error("model file {file} failed verification: {reason}")]
+    Integrity { file: String, reason: String },
+
+    /// The fetch was cancelled through its
+    /// [`FetchObserver`](crate::FetchObserver). A partial file is kept
+    /// for a resume.
+    #[error("model download cancelled")]
+    Cancelled,
+
+    /// A model manifest that is malformed, or that would write outside
+    /// the model store. Reported before any file or network access.
+    #[error("invalid model manifest: {0}")]
+    InvalidManifest(String),
+}
+
+/// " (HTTP 404)" for [`Error::Download`]'s message, or nothing.
+fn http_status(status: &Option<u16>) -> String {
+    status.map(|s| format!(" (HTTP {s})")).unwrap_or_default()
 }
 
 /// Comma-separated paths for [`Error::MissingRuntime`]'s message.

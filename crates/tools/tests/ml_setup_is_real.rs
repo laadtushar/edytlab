@@ -9,8 +9,9 @@
 //!   `scripts/fetch-models.sh`. That file has never been in this
 //!   repository. Two tests pinned the dangling name in place.
 //! * The automatic download the docs promised was
-//!   `fetched_model_path`, which unconditionally errors and has no
-//!   callers.
+//!   `fetched_model_path`, which then errored unconditionally and had no
+//!   callers. (It now downloads and verifies a pinned artifact, #383, but
+//!   still has no callers and no model is pinned.)
 //! * `EDYTLAB_MODEL_DIR`, documented as the cache override, was read by
 //!   no code in the tree.
 //! * Supplying a correct model file anyway produced `Ok(vec![])` from
