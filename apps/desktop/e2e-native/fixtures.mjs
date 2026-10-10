@@ -79,6 +79,30 @@ function song({ bpm, rootHz }) {
   };
 }
 
+/** A voice-like take: a 140 Hz source with a little vibrato and two
+ * vowel-like formants, in eight syllables whose loudness swings by about
+ * 10 dB. Its top end is soft and its level uneven, so "brighter" and "more
+ * even" are both measurable on the audio. */
+function voice() {
+  const f0 = 140;
+  const levels = [1, 0.34, 0.8, 0.28, 1, 0.4, 0.7, 0.32];
+  const amps = Array.from({ length: 100 }, (_, i) => {
+    const f = f0 * (i + 1);
+    const formant = 1 + 2.2 * Math.exp(-(((f - 700) / 260) ** 2)) + 1.4 * Math.exp(-(((f - 1800) / 380) ** 2));
+    return formant / (i + 1) ** 1.4;
+  });
+  return (t) => {
+    const syllable = Math.floor(t / 0.7);
+    const p = t - syllable * 0.7;
+    if (syllable >= levels.length || p >= 0.5) return 0;
+    const env = Math.min(1, p / 0.04, (0.5 - p) / 0.08);
+    const phase = 2 * Math.PI * f0 * (t + (0.012 / (2 * Math.PI * 5)) * (1 - Math.cos(2 * Math.PI * 5 * t)));
+    let sum = 0;
+    for (let h = 1; h <= amps.length; h++) sum += amps[h - 1] * Math.sin(h * phase + 0.35 * h * h);
+    return sum * env * levels[syllable] * 0.2;
+  };
+}
+
 export function writeFixtures(dir) {
   mkdirSync(dir, { recursive: true });
   const tone = (hz, amp) => (t) => Math.sin(2 * Math.PI * hz * t) * amp;
@@ -105,6 +129,8 @@ export function writeFixtures(dir) {
     midnightDrive: ["midnight-drive-120bpm.wav", wav({ seconds: 32, channels: 2, sample: song({ bpm: 120, rootHz: 110 }) })],
     solarFlare: ["solar-flare-124bpm.wav", wav({ seconds: 32, channels: 2, sample: song({ bpm: 124, rootHz: 98 }) })],
     neonRush: ["neon-rush-128bpm.wav", wav({ seconds: 32, channels: 2, sample: song({ bpm: 128, rootHz: 123.47 }) })],
+    // A voice-like mono take, for the EQ and dynamics stories.
+    voice: ["voice-6s.wav", wav({ seconds: 6, sample: voice() })],
     // Not audio, for the refusal story.
     notAudio: ["notes.wav", Buffer.from("this is not a wav file\n")],
   };

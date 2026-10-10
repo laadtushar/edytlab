@@ -8,6 +8,7 @@ import assistant from "./assistant.mjs";
 import playback from "./playback.mjs";
 import clips from "./clips.mjs";
 import claude from "./claude.mjs";
+import claudeMore from "./claude-more.mjs";
 import demos from "./demos.mjs";
 
-export const stories = [...onboarding, ...projects, ...timeline, ...agent, ...plan, ...undo, ...assistant, ...playback, ...clips, ...claude, ...demos];
+export const stories = [...onboarding, ...projects, ...timeline, ...agent, ...plan, ...undo, ...assistant, ...playback, ...clips, ...claude, ...claudeMore, ...demos];

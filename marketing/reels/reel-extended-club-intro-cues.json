@@ -1,0 +1,225 @@
+{
+  "video": "reel-extended-club-intro.mp4",
+  "duration": 40.267,
+  "audio_dir": "audio/reel-extended-club-intro",
+  "narration_voice": "Roger - Laid-Back, Casual, Resonant (CwhRBWXzGAHq8TQ4Fs17)",
+  "narration_model": "eleven_v4",
+  "cues": [
+    {
+      "id": "E01",
+      "kind": "hook",
+      "start": 0.0,
+      "end": 3.0,
+      "onscreen": "Extend an intro. Just ask.",
+      "max_seconds": 2.7,
+      "max_words": 6,
+      "narration": "Extend an intro. Just ask.",
+      "narration_spoken": "Extend an intro. Just ask.",
+      "narration_display": "Extend an intro. Just ask.",
+      "words": 5,
+      "title": [
+        "Extend an intro.",
+        "Just ask."
+      ],
+      "sub": "Solar Flare, 124 BPM",
+      "speech_seconds": 2.64,
+      "clip": "E01.mp3",
+      "clip_speech_seconds": 2.64
+    },
+    {
+      "id": "E02",
+      "kind": "step",
+      "start": 3.0,
+      "end": 7.2,
+      "onscreen": "1 · Tempo and bar length",
+      "max_seconds": 3.9,
+      "max_words": 9,
+      "narration": "{1|One}: check the tempo and bar length.",
+      "narration_spoken": "One: check the tempo and bar length.",
+      "narration_display": "1: check the tempo and bar length.",
+      "words": 7,
+      "source": {
+        "demo": "dj-extended-club-intro",
+        "code": "EI",
+        "caption": "EI04",
+        "start": 25.0,
+        "end": 29.2
+      },
+      "speech_seconds": 3.28,
+      "clip": "E02.mp3",
+      "clip_speech_seconds": 3.28
+    },
+    {
+      "id": "E03",
+      "kind": "step",
+      "start": 7.2,
+      "end": 12.2,
+      "onscreen": "2 · Extend the intro",
+      "max_seconds": 4.7,
+      "max_words": 11,
+      "narration": "{2|Two}: extend the intro. Copy the first {8|eight} bars.",
+      "narration_spoken": "Two: extend the intro. Copy the first eight bars.",
+      "narration_display": "2: extend the intro. Copy the first 8 bars.",
+      "words": 9,
+      "source": {
+        "demo": "dj-extended-club-intro",
+        "code": "EI",
+        "caption": "EI05",
+        "start": 40.0,
+        "end": 45.0
+      },
+      "speech_seconds": 4.32,
+      "clip": "E03.mp3",
+      "clip_speech_seconds": 4.32
+    },
+    {
+      "id": "E04",
+      "kind": "step",
+      "start": 12.2,
+      "end": 16.4,
+      "onscreen": "3 · A filter that opens into the drop",
+      "max_seconds": 3.9,
+      "max_words": 9,
+      "narration": "{3|Three}: a filter that opens into the drop.",
+      "narration_spoken": "Three: a filter that opens into the drop.",
+      "narration_display": "3: a filter that opens into the drop.",
+      "words": 8,
+      "source": {
+        "demo": "dj-extended-club-intro",
+        "code": "EI",
+        "caption": "EI06",
+        "start": 59.5,
+        "end": 63.7
+      },
+      "speech_seconds": 3.2,
+      "clip": "E04.mp3",
+      "clip_speech_seconds": 3.2
+    },
+    {
+      "id": "E05",
+      "kind": "step",
+      "start": 16.4,
+      "end": 20.6,
+      "onscreen": "4 · Fade in and export",
+      "max_seconds": 3.9,
+      "max_words": 9,
+      "narration": "{4|Four}: fade it in, and export.",
+      "narration_spoken": "Four: fade it in, and export.",
+      "narration_display": "4: fade it in, and export.",
+      "words": 6,
+      "source": {
+        "demo": "dj-extended-club-intro",
+        "code": "EI",
+        "caption": "EI07",
+        "start": 69.5,
+        "end": 73.7
+      },
+      "speech_seconds": 2.96,
+      "clip": "E05.mp3",
+      "clip_speech_seconds": 2.96
+    },
+    {
+      "id": "E06",
+      "kind": "listen",
+      "start": 20.6,
+      "end": 33.1,
+      "onscreen": "Listen: the low end arrives at the drop (0:31)",
+      "max_seconds": 1.7,
+      "max_words": 4,
+      "narration": "Wait for the drop.",
+      "narration_spoken": "Wait for the drop.",
+      "narration_display": "Wait for the drop.",
+      "words": 4,
+      "voice_end": 22.6,
+      "note": "app audio plays after the voice window: the line is only a lead-in, narration stays silent over the music",
+      "source": {
+        "demo": "dj-extended-club-intro",
+        "code": "EI",
+        "caption": "EI09",
+        "start": 97.51,
+        "end": 110.01
+      },
+      "speech_seconds": 1.28,
+      "clip": "E06.mp3",
+      "clip_speech_seconds": 1.28
+    },
+    {
+      "id": "E07",
+      "kind": "step",
+      "start": 33.1,
+      "end": 37.267,
+      "onscreen": "Done: solar-flare-extended-intro.wav, a 16-bar intro",
+      "max_seconds": 3.867,
+      "max_words": 9,
+      "narration": "Done: a {16|sixteen}-bar intro, exported.",
+      "narration_spoken": "Done: a sixteen-bar intro, exported.",
+      "narration_display": "Done: a 16-bar intro, exported.",
+      "words": 5,
+      "source": {
+        "demo": "dj-extended-club-intro",
+        "code": "EI",
+        "caption": "EI10",
+        "start": 111.67,
+        "end": 115.837
+      },
+      "speech_seconds": 3.52,
+      "clip": "E07.mp3",
+      "clip_speech_seconds": 3.52
+    },
+    {
+      "id": "E08",
+      "kind": "end",
+      "start": 37.267,
+      "end": 40.267,
+      "onscreen": "edytlab · Free, open source · edytlab.com · macOS · Windows · Linux",
+      "max_seconds": 2.7,
+      "max_words": 6,
+      "narration": "{edytlab|edit lab}. Free and open source.",
+      "narration_spoken": "edit lab. Free and open source.",
+      "narration_display": "edytlab. Free and open source.",
+      "words": 6,
+      "speech_seconds": 2.96,
+      "clip": "E08.wav",
+      "clip_speech_seconds": 2.7,
+      "clip_tempo": 1.0963
+    }
+  ],
+  "fps": 30,
+  "sfx": [
+    {
+      "file": "sfx/hit.mp3",
+      "at": 0.0,
+      "gain_db": 9.5
+    },
+    {
+      "file": "sfx/whoosh.mp3",
+      "at": 2.9,
+      "gain_db": 2.1
+    },
+    {
+      "file": "sfx/whoosh.mp3",
+      "at": 7.1,
+      "gain_db": 2.1
+    },
+    {
+      "file": "sfx/whoosh.mp3",
+      "at": 12.1,
+      "gain_db": 2.1
+    },
+    {
+      "file": "sfx/whoosh.mp3",
+      "at": 16.3,
+      "gain_db": 2.1
+    },
+    {
+      "file": "sfx/whoosh.mp3",
+      "at": 33.0,
+      "gain_db": 2.1
+    },
+    {
+      "file": "sfx/ding.mp3",
+      "at": 37.267,
+      "gain_db": -16.4
+    }
+  ]
+}
