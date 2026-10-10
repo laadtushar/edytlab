@@ -68,7 +68,7 @@ const headLabel = (n: number): string => `head ${node(n).slice(0, 7)}`;
 interface Edit {
   cmd: string;
   args: Args;
-  reply: Held<string>;
+  reply: Held<unknown>;
   /** What the backend does to the session when it applies the edit. */
   apply: () => void;
   /** The node it created, once applied. */
@@ -82,9 +82,12 @@ const EDITS = new Set([
   "set_sync_lock",
   "add_marker",
   "set_head_to",
+  "batch_load",
 ]);
 
 class Backend {
+  /** How many commands of any kind have been received. */
+  calls = 0;
   /** Every edit command received, in the order it arrived. */
   readonly sent: { cmd: string; args: Args }[] = [];
   /** What the backend did, in the order it did it. */
@@ -99,6 +102,7 @@ class Backend {
 
   /** The IPC boundary. */
   handle = (cmd: string, args: Args = {}): unknown => {
+    this.calls++;
     if (EDITS.has(cmd)) return this.edit(cmd, args);
     switch (cmd) {
       case "has_api_key":
@@ -124,6 +128,9 @@ class Backend {
       case "save_view_state":
       case "set_selection_context":
         return null;
+      // The file picker, answered with one file.
+      case "plugin:dialog|open":
+        return ["/tmp/other.wav"];
       case "list_tracks":
         return [this.track()];
       default:
@@ -146,11 +153,11 @@ class Backend {
     };
   }
 
-  private edit(cmd: string, args: Args): Promise<string> {
+  private edit(cmd: string, args: Args): Promise<unknown> {
     const edit: Edit = {
       cmd,
       args,
-      reply: held<string>(),
+      reply: held<unknown>(),
       node: null,
       apply: () => {
         if (cmd === "set_track_gain") this.gainDb = args.gainDb as number;
@@ -183,7 +190,12 @@ class Backend {
   async answer(edit: Edit): Promise<void> {
     this.take(edit);
     if (this.appliesOn === "answer") this.run(edit);
-    await edit.reply.resolve(edit.node as string);
+    // `batch_load` answers with a report; every other edit with the head.
+    await edit.reply.resolve(
+      edit.cmd === "batch_load"
+        ? { tracks_loaded: 1, last_node_id: edit.node, failures: [] }
+        : edit.node,
+    );
   }
 
   async refuse(edit: Edit, message: string): Promise<void> {
@@ -201,6 +213,25 @@ const settle = () =>
   act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
+
+/**
+ * Wait until the app has stopped asking for things.
+ *
+ * Boot is not over when the first lane is drawn: the head arriving makes
+ * the app read the transcript, the labels and the sync-lock, and each
+ * answer re-renders it. The timeline puts its lanes back to what the
+ * session holds whenever it is handed a new track list, which every
+ * render of the app does, so a fader dragged just as one of those lands
+ * is put back before it is let go of, and the drag is lost.
+ */
+async function quiet(backend: Backend): Promise<void> {
+  for (let guard = 0; guard < 20; guard++) {
+    const before = backend.calls;
+    await settle();
+    if (backend.calls === before) return;
+  }
+  throw new Error("the app never stopped asking");
+}
 
 /**
  * Answer the newest edit first, until nothing is waiting and nothing more
@@ -243,11 +274,21 @@ async function start(appliesOn: "send" | "answer"): Promise<Backend> {
   mockIPC((cmd, args) => backend.handle(cmd, args as Args | undefined), {
     shouldMockEvents: true,
   });
-  render(<App />);
+  const { rerender } = render(<App />);
   await screen.findByTestId("timeline-lane-gain");
   await waitFor(() =>
     expect(screen.getByTestId("status-bar-head")).toHaveTextContent(headLabel(1)),
   );
+  await quiet(backend);
+  // The answers to boot's reads landed outside `act`, so React may still
+  // owe the timeline an effect that puts its lanes back to the session's
+  // values: queued behind a scheduler that can be late, it would run at
+  // the first fader move and undo it. A render inside `act` pays all that
+  // is owed before it starts, and what it queues is paid on the way out.
+  await act(async () => {
+    rerender(<App />);
+  });
+  await quiet(backend);
   return backend;
 }
 
@@ -334,20 +375,27 @@ describe("edits made in quick succession", () => {
     await waitFor(() => expect(gainReadout()).toHaveTextContent("-9.0 dB"));
   });
 
-  it("share one line across kinds: a label and a mute go out in the order made", async () => {
+  // One line for every kind of edit, not one per kind: each of these goes
+  // through a different handler, and each has to wait for the fader move
+  // made before it.
+  it.each([
+    ["a label", "add_marker", () => fireEvent.doubleClick(screen.getByTestId("label-lane-track"))],
+    ["a mute", "set_track_muted", () => fireEvent.click(screen.getByTestId("timeline-lane-mute"))],
+    ["the sync-lock toggle", "set_sync_lock", () => fireEvent.click(screen.getByTestId("sync-lock-btn"))],
+    ["a file opened from the toolbar", "batch_load", () => fireEvent.click(screen.getByTestId("open-audio-button"))],
+  ])("%s waits for the edit made before it", async (_what, command, act_) => {
     const backend = await start("answer");
 
-    // A label added in the label lane, then the track muted.
-    fireEvent.doubleClick(screen.getByTestId("label-lane-track"));
-    fireEvent.click(screen.getByTestId("timeline-lane-mute"));
+    dragGain(-3);
+    await settle();
+    act_();
     await settle();
 
-    expect(names(backend)).toEqual(["add_marker"]);
+    expect(names(backend)).toEqual(["set_track_gain"]);
 
     await answerNewestFirst(backend);
 
-    expect(names(backend)).toEqual(["add_marker", "set_track_muted"]);
-    expect(backend.muted).toBe(true);
+    expect(names(backend)).toEqual(["set_track_gain", command]);
   });
 
   it("are undone from where they leave the head, not from where it was when Ctrl+Z was pressed", async () => {

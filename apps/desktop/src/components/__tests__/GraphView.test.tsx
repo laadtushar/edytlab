@@ -293,6 +293,38 @@ describe("GraphView", () => {
     expect(getGraphMock).toHaveBeenCalledTimes(1);
   });
 
+  it("hands a rename to the parent, which puts it in line with the other edits (#498)", async () => {
+    const summary = makeGraph(3);
+    getGraphMock.mockResolvedValue(summary);
+    const onRenameNode = vi.fn().mockResolvedValue(undefined);
+    render(
+      <GraphView
+        head={summary.head}
+        onSelectNode={vi.fn()}
+        onSetHead={vi.fn(async () => undefined)}
+        onRenameNode={onRenameNode}
+        refreshKey={0}
+      />,
+    );
+    await act(async () => {
+      await flush();
+    });
+    const bubbles = screen.getAllByTestId("graph-bubble");
+    fireEvent.contextMenu(bubbles[1]);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Rename" }));
+    fireEvent.change(screen.getByPlaceholderText("new label"), {
+      target: { value: "chorus" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+    await act(async () => {
+      await flush();
+    });
+
+    expect(onRenameNode).toHaveBeenCalledWith(bubbles[1].dataset.nodeId, "chorus");
+    // The graph is read again once the rename is done.
+    expect(getGraphMock).toHaveBeenCalledTimes(2);
+  });
+
   it("computes layout + colours for a 200-node graph in under 500ms", async () => {
     // Acceptance criterion #3 measures the work *we* control —
     // dagre layout, lineage colouring, and React Flow node/edge

@@ -44,6 +44,10 @@ if (app.trim().length === 0) {
  * absent: they are passed as thunks to `commitTrackChange`, which
  * applies the head for them. `cutTranscriptWords` is absent because it
  * already calls `setHeadLocal` directly.
+ *
+ * A call passed as a thunk to `applyEdit` has its head adopted too:
+ * `applyEdit` sends the command in the session's line and applies what it
+ * returns inside the same turn (#498), which the last test below holds it to.
  */
 const HEAD_RETURNING = [
   "addMarker",
@@ -70,7 +74,7 @@ function callSites(name: string): string[] {
  * adopts still fails.
  */
 function adopted(name: string, line: string): boolean {
-  if (line.includes("applyNewHead")) return true;
+  if (line.includes("applyNewHead") || line.includes("applyEdit(")) return true;
   const bound = line.match(new RegExp(`\\b(?:const|let)\\s+(\\w+)\\s*=\\s*await\\s+${name}\\(`));
   return bound !== null && new RegExp(`applyNewHead\\(\\s*${bound[1]}\\.`).test(app);
 }
@@ -123,5 +127,22 @@ describe("applyNewHead does the two things a new head requires", () => {
     // `batch_load` returns `last_node_id: string | null` — a load that
     // appended nothing must leave the head where it is.
     expect(body).toMatch(/if\s*\(!newHead\)\s*return/);
+  });
+});
+
+describe("applyEdit adopts a head in the session's line", () => {
+  /**
+   * `applyEdit` is what stands in for `applyNewHead(await command())` at
+   * the call sites that pass a thunk. It has to adopt the head *inside*
+   * the session's line: adopted after the turn, the next edit could be sent
+   * and answered before the head from this one was applied, and the head
+   * would go back (#498).
+   */
+  it("applies what the command returns inside the turn", () => {
+    const body = app.match(/const applyEdit = useCallback\(([\s\S]*?)\n {2}\);/)?.[1];
+    expect(body, "applyEdit is not defined as a useCallback").toBeTruthy();
+    expect(body).toMatch(
+      /inOrder\(\s*async \(\) => \{\s*applyNewHead\(await command\(\)\);\s*\}\)/,
+    );
   });
 });

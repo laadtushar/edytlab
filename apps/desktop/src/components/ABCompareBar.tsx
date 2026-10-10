@@ -25,6 +25,12 @@ export interface ABCompareBarProps {
   bNodeId: string | null;
   /** Called whenever the user switches sides; receives the WAV path. */
   onAudioPathChange: (path: string) => void;
+  /**
+   * Move the session head to the B node. The parent puts it in line with
+   * the session's other edits (#498); without it the bridge is called
+   * directly.
+   */
+  acceptB?: (bNodeId: string) => Promise<string>;
   /** Called after `acceptB` resolves successfully. */
   onAcceptB: () => void;
   /** Dismiss the compare bar without accepting. */
@@ -37,6 +43,7 @@ export function ABCompareBar({
   aNodeId,
   bNodeId,
   onAudioPathChange,
+  acceptB = bridgeAcceptB,
   onAcceptB,
   onClose,
 }: ABCompareBarProps) {
@@ -89,7 +96,7 @@ export function ABCompareBar({
     if (!bNodeId || accepting) return;
     setAccepting(true);
     try {
-      await bridgeAcceptB(bNodeId);
+      await acceptB(bNodeId);
       onAcceptB();
     } catch (err) {
       // Surface briefly — the parent may handle this differently in the

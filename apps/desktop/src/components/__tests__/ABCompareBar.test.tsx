@@ -148,6 +148,35 @@ describe("ABCompareBar", () => {
     expect(onAcceptB).toHaveBeenCalled();
   });
 
+  it("accepts through the parent's acceptB when it gives one, and not the bridge (#498)", async () => {
+    // The parent puts the move in line with the session's other edits;
+    // going round it would send the head move out of turn.
+    prepareCompareMock.mockResolvedValue({ a_path: A_PATH, b_path: B_PATH });
+    const acceptB = vi.fn().mockResolvedValue(B_NODE);
+    const onAcceptB = vi.fn();
+
+    render(
+      <ABCompareBar
+        aNodeId={A_NODE}
+        bNodeId={B_NODE}
+        onAudioPathChange={vi.fn()}
+        acceptB={acceptB}
+        onAcceptB={onAcceptB}
+        onClose={vi.fn()}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("ab-accept-b")).not.toBeDisabled(),
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("ab-accept-b"));
+    });
+
+    expect(acceptB).toHaveBeenCalledWith(B_NODE);
+    expect(acceptBMock).not.toHaveBeenCalled();
+    expect(onAcceptB).toHaveBeenCalled();
+  });
+
   it("Close button calls onClose", async () => {
     prepareCompareMock.mockResolvedValue({ a_path: A_PATH, b_path: B_PATH });
     const onClose = vi.fn();

@@ -88,6 +88,11 @@ export interface GraphViewProps {
    * graph's error banner.
    */
   onSetHead: (id: NodeId) => Promise<void>;
+  /**
+   * Name or un-name a node. The parent puts it in line with the session's
+   * other edits (#498); without it the bridge is called directly.
+   */
+  onRenameNode?: (id: NodeId, label: string) => Promise<void>;
   /** Bumping this number forces a refetch of `get_graph`. The parent
    *  bumps it on `node-created` events so the graph stays in sync
    *  with the agent's edits. */
@@ -175,6 +180,7 @@ export function GraphView({
   onSelectNode,
   onCompareNodes,
   onSetHead,
+  onRenameNode = bridgeRenameNode,
   refreshKey = 0,
   path,
 }: GraphViewProps) {
@@ -222,13 +228,13 @@ export function GraphView({
   const handleRename = useCallback(
     async (nodeId: string, label: string) => {
       try {
-        await bridgeRenameNode(nodeId, label);
+        await onRenameNode(nodeId, label);
         refetch();
       } catch (e) {
         setError(String(e));
       }
     },
-    [refetch],
+    [onRenameNode, refetch],
   );
 
   const handleContextMenu = useCallback(
