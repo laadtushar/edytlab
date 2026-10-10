@@ -85,22 +85,28 @@ function providerCommands(): Backend {
     // clean startup, `AppState::new` starts on `ai::ANTHROPIC_ID`. After a
     // startup the keychain refused it rejects with the reason instead.
     get_active_provider: ok("anthropic"),
-    // `model_for(..).unwrap_or_default()`: nothing chosen yet.
+    // `active_model_answer(models_unread_reason(..), model_for(..))`: with
+    // a clean startup and nothing chosen yet, the empty string. After a
+    // startup the keychain refused it rejects with the reason instead.
     get_active_model: ok(""),
-    // `stored_setting(ai::keychain::try_load_base_url(..))`: no override
-    // stored, so `None`. A keychain that cannot be read rejects with the
-    // reason instead.
+    // `stored_setting_unless_refused(.., try_load_base_url(..))`: no
+    // override stored, so `None`. A keychain that cannot be read rejects
+    // with the reason instead, and so does one that refused at launch,
+    // without being asked.
     get_base_url_for: ok(null),
     // `ANTHROPIC_DEFAULT_BASE_URL` in `crates/ai/src/provider.rs`.
     default_base_url_for: ok("https://api.anthropic.com"),
-    // `stored_setting(ai::keychain::try_load_effort(..))` mapped through
-    // `e.as_str()`: no slot stored, so `None` (the model's own default).
-    // An unreadable keychain rejects with the reason.
+    // `stored_setting_unless_refused(.., try_load_effort(..))` mapped
+    // through `e.as_str()`: no slot stored, so `None` (the model's own
+    // default). An unreadable keychain rejects with the reason, and so
+    // does one that refused at launch, without being asked.
     get_effort_for: ok(null),
     // `list_models_at`'s Anthropic arm with no key saved, which is what a
     // fresh profile has: `anthropic_fallback_models()` in
     // `crates/ai/src/models.rs`, uncached, with the reason as the notice.
-    // Serialised through `ModelCatalogueDto` (`commands.rs`).
+    // Serialised through `ModelCatalogueDto` (`commands.rs`). After a
+    // startup the keychain refused, `catalogue_inputs` rejects with the
+    // refusal's note before any of that.
     list_models_for: ok({
       models: [
         {

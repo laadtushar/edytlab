@@ -185,11 +185,7 @@ fn the_active_provider_is_answered_when_the_keychain_was_read() {
 }
 
 /// A command over IPC, answered from `state`: what the frontend sees.
-fn ipc(
-    state: AppState,
-    cmd: &str,
-    body: serde_json::Value,
-) -> Result<serde_json::Value, String> {
+fn ipc(state: AppState, cmd: &str, body: serde_json::Value) -> Result<serde_json::Value, String> {
     let app = mock_builder()
         .manage(state)
         .invoke_handler(tauri::generate_handler![
@@ -245,7 +241,11 @@ fn a_model_that_is_known_is_answered_after_a_refused_startup() {
     let state = refused_state(Some("locked"));
     state.set_model_for("anthropic".into(), "claude-opus-5".into());
     assert_eq!(
-        ipc(state, "get_active_model", json!({ "provider": "anthropic" })),
+        ipc(
+            state,
+            "get_active_model",
+            json!({ "provider": "anthropic" })
+        ),
         Ok(json!("claude-opus-5"))
     );
 }
