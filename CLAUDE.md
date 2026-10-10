@@ -27,6 +27,10 @@ Project-level instructions for Claude Code sessions in this repository. These pe
   ```
   where `<id>` is the current session id (substituted by the harness at write time).
 
+### Research
+
+- Browse the web freely for any research: library and API docs, platform behaviour, prior art, model pricing, bug reports upstream. Prefer primary sources (official docs, specs, source code, release notes) and cite the URLs in the PR or issue that relies on them.
+
 ## Shell / path conventions
 
 This repo lives at `C:\Users\tusha\Work\Playground\Edytlab\edytlab` on Windows 11.
@@ -90,3 +94,26 @@ Before merging anything:
 - `pnpm --filter @edytlab/desktop typecheck:e2e` clean
 - Website changes: `pnpm test`, `pnpm typecheck` and `pnpm build` inside `website/` (see above).
 - `pnpm --filter @edytlab/desktop test:e2e` passes — for anything that changes what mounts, draws, scrolls or decodes. jsdom cannot see those; `apps/desktop/e2e/` runs the real frontend in Chromium with only the IPC boundary replaced. Its fake backend answers from the Rust source (`e2e/backend.ts`), so a new command the app calls needs an answer there, taken from the command's own body.
+
+## Staleness sweep
+
+Facts in this repo are copied by hand into many files, and most copies have no test. Run this sweep at the end of every working day, and for any trigger below inside the PR that causes it. Where a test already guards a copy, it is named, so the sweep covers the unguarded ones.
+
+**Every day, before stopping:**
+- Tracking issue #366: rewrite it to the current state (released, in flight, queued, blocked, needs the owner) and bump its "Last updated" date.
+- Issues: confirm merged PRs closed what they fixed (a "Refs" PR leaves its issue open on purpose), post a plan comment on anything paused, and file what the day turned up.
+- Leftovers: remove worktrees of merged branches, list any `claude/backup/*` branch in #366 until its work lands, and scan every diff for API keys (`sk-ant-`, `sk_`) before pushing.
+
+**When a change lands, update its copies in the same PR:**
+- A tool added, renamed or removed: regenerate `docs/tools-reference.md` (`UPDATE_TOOLS_REFERENCE=1 cargo test -p tools --test tools_reference_doc`); the site copy is guarded by `website_tool_docs.rs`. The hand-written "93 tools" counts are not: `README.md` (architecture box and crate list), `docs/README.md`, `docs/architecture.md`, `marketing/press-kit.md`, `marketing/launch/*`, `marketing/social/*`.
+- A crate added, removed or renamed: the `README.md` crate list and architecture box, the workspace layout in `docs/architecture.md`, its mirror in `website/app/docs/developer-guide/page.tsx`, and "Repo specifics" above.
+- A Tauri command added or changed: `docs/api-reference.md` and `website/app/docs/api-reference/page.tsx` (the fake backend in `e2e/backend.ts` is already an acceptance gate).
+- A provider or keychain slot added or changed: `README.md`, the keychain bullet above, `docs/development-guide.md`, and the site's getting-started, user-guide and privacy pages.
+- A provider ships a new model generation or retires one: the default in `crates/ai/src/prompt.rs` (`DEFAULT_MODEL`), the curated Anthropic list in `crates/ai/src/models.rs`, `CLASSIFIER_MODEL` in `crates/ai/src/lib.rs`, the OpenAI ranking in `models.rs`, and every doc or site line that names a model. Check ids against the provider's own models endpoint or docs; a retired id answers 404.
+- A caveat resolved (something documented as not shipped, unused or lost on reboot, such as #383–#385 or #394): `git grep` the issue number and rewrite every line that cites it, here included.
+- A new outbound network request from the app (a downloader, an updater, a new provider host): the "Network traffic" and "Updates" sections of `website/app/privacy/page.tsx`, the local-first table on `website/app/use-cases/local-ai-audio-editor/page.tsx`, and the privacy lines in `marketing/press-kit.md`.
+- A UI change: the `apps/desktop/e2e-native` stories that drive it, and any README or site screenshot that shows it.
+- A new site page: `website/app/sitemap.ts`, plus `lib/seo.test.ts` and `lib/marketing-pages.test.ts`.
+- A demo re-recorded: `website/lib/demos.ts` (guarded by `lib/demos.test.ts`) and the hand-written durations in the `README.md` demo list, `website/app/press/page.tsx`, `website/lib/blog-posts-*.ts`, `marketing/press-kit.md`, `marketing/launch/show-hn.md` and `marketing/social/x-thread.md`.
+
+**When a release ships:** follow "CI / release" above, then check the live site shows the new version (`website/lib/releases.ts` reads GitHub, cached up to an hour), update version mentions in `marketing/`, and note new stale draft releases on #387.
