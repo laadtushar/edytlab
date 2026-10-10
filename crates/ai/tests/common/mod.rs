@@ -128,6 +128,102 @@ pub fn sse_tool_step(calls: &[(&str, &str, &str)]) -> String {
     encode_sse(&events)
 }
 
+/// A `thinking` block as the stream delivers it: opened empty, its text
+/// in a delta, its signature in another.
+fn thinking_block(index: usize, text: &str, signature: &str) -> Vec<(&'static str, Value)> {
+    vec![
+        (
+            "content_block_start",
+            json!({
+                "type": "content_block_start",
+                "index": index,
+                "content_block": { "type": "thinking", "thinking": "", "signature": "" }
+            }),
+        ),
+        (
+            "content_block_delta",
+            json!({
+                "type": "content_block_delta",
+                "index": index,
+                "delta": { "type": "thinking_delta", "thinking": text }
+            }),
+        ),
+        (
+            "content_block_delta",
+            json!({
+                "type": "content_block_delta",
+                "index": index,
+                "delta": { "type": "signature_delta", "signature": signature }
+            }),
+        ),
+        (
+            "content_block_stop",
+            json!({ "type": "content_block_stop", "index": index }),
+        ),
+    ]
+}
+
+/// A `redacted_thinking` block, which arrives whole.
+fn redacted_block(index: usize, data: &str) -> Vec<(&'static str, Value)> {
+    vec![
+        (
+            "content_block_start",
+            json!({
+                "type": "content_block_start",
+                "index": index,
+                "content_block": { "type": "redacted_thinking", "data": data }
+            }),
+        ),
+        (
+            "content_block_stop",
+            json!({ "type": "content_block_stop", "index": index }),
+        ),
+    ]
+}
+
+/// A model step on a model that thinks by default, ending in one tool
+/// call `(id, name, arguments as JSON text)`: a thinking block signed
+/// `signature`, a redacted one carrying `redacted`, a sentence, the call.
+pub fn sse_thinking_tool_step(signature: &str, redacted: &str, call: (&str, &str, &str)) -> String {
+    let (id, name, args_json) = call;
+    let mut events = vec![message_start()];
+    events.extend(thinking_block(0, "Reasoning before the call.", signature));
+    events.extend(redacted_block(1, redacted));
+    events.extend(text_block(2, "Working on it."));
+    events.push((
+        "content_block_start",
+        json!({
+            "type": "content_block_start",
+            "index": 3,
+            "content_block": { "type": "tool_use", "id": id, "name": name, "input": {} }
+        }),
+    ));
+    events.push((
+        "content_block_delta",
+        json!({
+            "type": "content_block_delta",
+            "index": 3,
+            "delta": { "type": "input_json_delta", "partial_json": args_json }
+        }),
+    ));
+    events.push((
+        "content_block_stop",
+        json!({ "type": "content_block_stop", "index": 3 }),
+    ));
+    events.extend(finish("tool_use"));
+    encode_sse(&events)
+}
+
+/// A model step on a model that thinks by default, ending the turn: a
+/// thinking block signed `signature`, then `text`.
+pub fn sse_thinking_text(signature: &str, text: &str) -> String {
+    let mut events = vec![message_start()];
+    events.extend(thinking_block(0, "Reasoning before the answer.", signature));
+    events.extend(text_block(1, text));
+    events.extend(finish("end_turn"));
+    encode_sse(&events)
+}
+
 /// A non-streaming reply whose text is `text`.
 fn reply_json(text: &str) -> String {
     json!({

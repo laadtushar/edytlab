@@ -330,7 +330,7 @@ async fn a_turn_with_no_effort_adds_nothing_to_any_request() {
         assert!(!text.contains("output_config"), "{text}");
         assert!(!text.contains("\"effort\""), "{text}");
     }
-    assert_eq!(r.requests[1]["max_tokens"], 4096);
+    assert_eq!(r.requests[1]["max_tokens"], ai::prompt::DEFAULT_MAX_TOKENS);
     assert_eq!(
         block_types(&r.requests[2]["messages"][1]),
         ["thinking", "redacted_thinking", "text", "tool_use"]
@@ -352,7 +352,7 @@ async fn openrouter_never_gets_the_effort_and_keeps_no_thinking() {
         assert!(!text.contains("output_config"), "{text}");
         assert!(!text.contains("\"effort\""), "{text}");
     }
-    assert_eq!(r.requests[1]["max_tokens"], 4096);
+    assert_eq!(r.requests[1]["max_tokens"], ai::prompt::DEFAULT_MAX_TOKENS);
     assert_eq!(
         block_types(&r.requests[2]["messages"][1]),
         ["text", "tool_use"]

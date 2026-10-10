@@ -30,6 +30,14 @@
 //! either showed `unsupported provider id: groq` where the model list
 //! belongs.
 //!
+//! # Output limits
+//!
+//! Besides the catalogues, this module holds the one table of per-model
+//! output limits ([`max_output_tokens`]). The agent asks every provider
+//! for the same `max_tokens`, and a request above what a model can write is
+//! answered with a 400 by OpenAI, so [`clamp_max_tokens`] lowers it for the
+//! models in the table. It is the only place a limit is written down.
+//!
 //! # Cache
 //!
 //! Cached entries live in a process-global `Mutex<HashMap<String,
@@ -462,6 +470,134 @@ fn openai_rank(id: &str) -> u8 {
     }
 }
 
+/// The most output tokens one request may ask `model` for on `provider_id`,
+/// for the models whose limit is below the caps the agent sends
+/// ([`DEFAULT_MAX_TOKENS`](crate::prompt::DEFAULT_MAX_TOKENS) and
+/// [`PLAN_MAX_TOKENS`](crate::prompt::PLAN_MAX_TOKENS), both 8192).
+///
+/// `None` means this table does not know a limit, not that there is none: the
+/// request goes out as built. Every figure comes from the provider's own
+/// documentation, cited at its arm, and an id nobody has sourced is left out
+/// rather than guessed. The arms also say which ids were looked at and left
+/// out, and why.
+///
+/// There is no arm for the other providers, each for its own reason.
+/// Anthropic's models in the curated list and OpenRouter's defaults
+/// (`anthropic/claude-sonnet-4-6`, and `anthropic/claude-haiku-4-5-20251001`
+/// for its classifier) allow 128K and 64K of output
+/// (<https://platform.claude.com/docs/en/models/sonnet-4-6/overview>,
+/// <https://platform.claude.com/docs/en/models/haiku-4-5/overview>). Ollama's
+/// OpenAI-compatible API lists `max_tokens` as supported
+/// (<https://docs.ollama.com/api/openai-compatibility>) and neither that page
+/// nor `llama3.2`'s (<https://ollama.com/library/llama3.2>) states an output
+/// limit.
+pub fn max_output_tokens(provider_id: &str, model: &str) -> Option<u32> {
+    match provider_id {
+        OPENAI_ID => openai_max_output_tokens(model),
+        GROQ_ID => groq_max_output_tokens(model),
+        GEMINI_ID => gemini_max_output_tokens(model),
+        _ => None,
+    }
+}
+
+/// `requested`, lowered to the limit [`max_output_tokens`] knows for `model`.
+/// It never raises a request, and it leaves one alone where no limit is
+/// known.
+pub fn clamp_max_tokens(provider_id: &str, model: &str, requested: u32) -> u32 {
+    max_output_tokens(provider_id, model).map_or(requested, |limit| requested.min(limit))
+}
+
+/// OpenAI's models with an output limit of 8192 or less.
+///
+/// Sources, OpenAI's model pages, which give one context window and one
+/// maximum output for a model and list the snapshots and aliases they cover:
+///
+/// * <https://developers.openai.com/api/docs/models/gpt-3.5-turbo>: 16,385
+///   context, 4,096 output; snapshots `gpt-3.5-turbo-0125`, `-1106` and
+///   `-instruct`.
+/// * <https://developers.openai.com/api/docs/models/gpt-4-turbo>: 128,000
+///   context, 4,096 output; snapshots `gpt-4-turbo-2024-04-09`,
+///   `gpt-4-turbo-preview`, `gpt-4-0125-preview` and `gpt-4-1106-vision-preview`.
+/// * <https://developers.openai.com/api/docs/models/gpt-4-turbo-preview>:
+///   128,000 context, 4,096 output; default snapshot `gpt-4-0125-preview`.
+/// * <https://developers.openai.com/api/docs/models/gpt-4>: 8,192 context and
+///   8,192 output; snapshots `gpt-4-0613` and `gpt-4-0314`.
+///
+/// The 4,096 arm is the three prefix rules below. They are the families the
+/// pages name; the ids they match that no page names verbatim
+/// (`gpt-4-1106-preview`, `gpt-4-vision-preview`, `gpt-3.5-turbo-16k`) take
+/// their family's figure.
+///
+/// `gpt-4` is a different case. Its 8,192 output is also its whole context
+/// window, and a context window is shared by input and output
+/// (<https://developers.openai.com/api/docs/guides/conversation-state>), so
+/// what a request may actually ask for is 8,192 minus its prompt. That changes
+/// with every request and a table cannot say it; 8,192 is the one figure that
+/// can be sourced, and it never lowers a request of 8192. The agent cannot
+/// run on these models in any case: the tool definitions sent with each step
+/// (93 tools, 54 KB of JSON when this was written) are well over 8,192
+/// tokens, so the request fails on the context length whatever the output
+/// cap is.
+///
+/// Left out: `gpt-4o-2024-05-13`. Its page,
+/// <https://developers.openai.com/api/docs/models/gpt-4o>, gives 16,384, but as
+/// the figure of the default snapshot (`gpt-4o-2024-08-06`); it gives none for
+/// `2024-05-13` and that snapshot has no page of its own. Third parties put it
+/// at 4,096, which is not a source, so it stays unclamped until OpenAI's
+/// documentation gives a number.
+///
+/// The current models need no arm: their pages give `gpt-4o`, `gpt-4o-mini`
+/// and `chatgpt-4o-latest` 16,384, `gpt-4.1` 32,768, the o-series 32,768 to
+/// 100,000 and `gpt-5` 128,000. Any other id is as unknown here as
+/// `gpt-4o-2024-05-13` is.
+fn openai_max_output_tokens(model: &str) -> Option<u32> {
+    if model.starts_with("gpt-3.5-turbo")
+        || model.starts_with("gpt-4-turbo")
+        || (model.starts_with("gpt-4-") && model.ends_with("-preview"))
+    {
+        Some(4_096)
+    } else if matches!(model, "gpt-4" | "gpt-4-0613" | "gpt-4-0314") {
+        Some(8_192)
+    } else {
+        None
+    }
+}
+
+/// Groq's models with an output limit under 8192.
+///
+/// <https://console.groq.com/docs/models> gives 512 for the two Llama Prompt
+/// Guard 2 models, as do their pages
+/// (<https://console.groq.com/docs/model/meta-llama/llama-prompt-guard-2-22m>
+/// and `…-86m`). They classify prompts and are not chat models, but Groq's
+/// catalogue is not filtered here (see [`fetch_groq_models`]), so they reach
+/// the dropdown. The defaults are well above: `llama-3.3-70b-versatile` writes
+/// up to 32,768 and `llama-3.1-8b-instant` up to 131,072.
+fn groq_max_output_tokens(model: &str) -> Option<u32> {
+    match model {
+        "meta-llama/llama-prompt-guard-2-22m" | "meta-llama/llama-prompt-guard-2-86m" => Some(512),
+        _ => None,
+    }
+}
+
+/// Gemini's models with an output limit under 8192.
+///
+/// Google's page for each model in <https://ai.google.dev/gemini-api/docs/models>
+/// states an output token limit. The only one under 8192 is
+/// <https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-lite-image>,
+/// 4,096, an image generation model that the agent cannot use; it is here for
+/// the same reason as Groq's. `gemini-2.0-flash`, the default and the
+/// classifier, is exactly 8,192
+/// (<https://ai.google.dev/gemini-api/docs/models/gemini-2.0-flash>) and so
+/// takes the cap as it is. The embedding models state an output dimension and
+/// no output limit, and nor do the pages of `gemini-3.5-transcribe` and
+/// `gemini-omni-flash`; those stay unclamped.
+fn gemini_max_output_tokens(model: &str) -> Option<u32> {
+    match model {
+        "gemini-3.1-flash-lite-image" => Some(4_096),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -513,6 +649,144 @@ mod tests {
         assert!(openai_rank("gpt-4.1") < openai_rank("gpt-4-turbo"));
         assert!(openai_rank("o3-mini") < openai_rank("o1-preview"));
         assert!(openai_rank("gpt-4o") < openai_rank("o1-preview"));
+    }
+
+    // ------------------------------------------------------------------
+    // Output limits
+    // ------------------------------------------------------------------
+
+    /// The older OpenAI models that cannot write the 8192 the agent asks
+    /// of every provider, with the limit their pages give.
+    #[test]
+    fn legacy_openai_models_have_their_published_output_limit() {
+        for id in [
+            "gpt-3.5-turbo",
+            "gpt-3.5-turbo-0125",
+            "gpt-3.5-turbo-1106",
+            "gpt-4-turbo",
+            "gpt-4-turbo-2024-04-09",
+            "gpt-4-turbo-preview",
+            "gpt-4-0125-preview",
+            "gpt-4-1106-preview",
+            "gpt-4-1106-vision-preview",
+        ] {
+            assert_eq!(max_output_tokens(OPENAI_ID, id), Some(4_096), "{id}");
+            assert_eq!(clamp_max_tokens(OPENAI_ID, id, 8192), 4_096, "{id}");
+        }
+        for id in ["gpt-4", "gpt-4-0613", "gpt-4-0314"] {
+            assert_eq!(max_output_tokens(OPENAI_ID, id), Some(8_192), "{id}");
+            assert_eq!(clamp_max_tokens(OPENAI_ID, id, 16_384), 8_192, "{id}");
+        }
+    }
+
+    /// A model that can write more than the caps has no entry, and an id
+    /// nobody has sourced goes out as built. `gpt-4o-2024-05-13` is the
+    /// second kind on purpose: OpenAI's page gives 16,384 for the default
+    /// snapshot of `gpt-4o` and nothing for it. If its documentation ever
+    /// gives a figure, this is the test to change with the table.
+    #[test]
+    fn current_and_unsourced_models_are_not_clamped() {
+        for id in [
+            "gpt-4o",
+            "gpt-4o-mini",
+            "gpt-4o-2024-08-06",
+            "gpt-4o-2024-05-13",
+            "chatgpt-4o-latest",
+            "gpt-4.1",
+            "gpt-4.5-preview",
+            "gpt-4o-audio-preview",
+            "o1",
+            "o3-mini",
+            "gpt-5",
+            "a-model-nobody-has-heard-of",
+            "",
+        ] {
+            assert_eq!(max_output_tokens(OPENAI_ID, id), None, "{id}");
+            assert_eq!(clamp_max_tokens(OPENAI_ID, id, 8192), 8192, "{id}");
+        }
+    }
+
+    /// A clamp lowers a request and does nothing else.
+    #[test]
+    fn a_clamp_never_raises_a_request() {
+        assert_eq!(clamp_max_tokens(OPENAI_ID, "gpt-4-turbo", 256), 256);
+        assert_eq!(clamp_max_tokens(OPENAI_ID, "gpt-4-turbo", 4_096), 4_096);
+        assert_eq!(clamp_max_tokens(OPENAI_ID, "gpt-4-turbo", 4_097), 4_096);
+        assert_eq!(clamp_max_tokens(OPENAI_ID, "gpt-4-turbo", 0), 0);
+        assert_eq!(clamp_max_tokens(OPENAI_ID, "gpt-4o-mini", 100_000), 100_000);
+    }
+
+    /// A limit belongs to the provider whose documentation gave it. The
+    /// same id on another provider is another model, or none we know.
+    #[test]
+    fn a_limit_is_not_borrowed_across_providers() {
+        for provider in [
+            ANTHROPIC_ID,
+            OPENROUTER_ID,
+            GROQ_ID,
+            GEMINI_ID,
+            OLLAMA_ID,
+            "not-a-provider",
+        ] {
+            assert_eq!(
+                max_output_tokens(provider, "gpt-4-turbo"),
+                None,
+                "{provider}"
+            );
+            assert_eq!(
+                max_output_tokens(provider, "gpt-3.5-turbo"),
+                None,
+                "{provider}"
+            );
+        }
+        assert_eq!(
+            max_output_tokens(OPENROUTER_ID, "openai/gpt-4-turbo"),
+            None,
+            "OpenRouter's catalogue is out of this table"
+        );
+        assert_eq!(
+            max_output_tokens(OPENAI_ID, "meta-llama/llama-prompt-guard-2-22m"),
+            None
+        );
+        assert_eq!(
+            max_output_tokens(GROQ_ID, "gemini-3.1-flash-lite-image"),
+            None
+        );
+        assert_eq!(max_output_tokens(GEMINI_ID, "gpt-4"), None);
+    }
+
+    /// The Groq and Gemini models found under 8192, and the defaults the
+    /// app names for every provider, which are not.
+    #[test]
+    fn groq_and_gemini_have_only_the_limits_their_docs_give() {
+        for id in [
+            "meta-llama/llama-prompt-guard-2-22m",
+            "meta-llama/llama-prompt-guard-2-86m",
+        ] {
+            assert_eq!(max_output_tokens(GROQ_ID, id), Some(512), "{id}");
+            assert_eq!(clamp_max_tokens(GROQ_ID, id, 8192), 512, "{id}");
+        }
+        assert_eq!(
+            clamp_max_tokens(GEMINI_ID, "gemini-3.1-flash-lite-image", 8192),
+            4_096
+        );
+
+        for (provider, id) in [
+            (GROQ_ID, "llama-3.3-70b-versatile"),
+            (GROQ_ID, "llama-3.1-8b-instant"),
+            (GEMINI_ID, "gemini-2.0-flash"),
+            (OLLAMA_ID, "llama3.2"),
+            (OPENAI_ID, "gpt-4o-mini"),
+            (OPENROUTER_ID, "anthropic/claude-sonnet-4-6"),
+            (OPENROUTER_ID, "anthropic/claude-haiku-4-5-20251001"),
+            (ANTHROPIC_ID, "claude-sonnet-4-6"),
+        ] {
+            assert_eq!(
+                clamp_max_tokens(provider, id, 8192),
+                8192,
+                "{provider} {id}"
+            );
+        }
     }
 
     #[tokio::test]
