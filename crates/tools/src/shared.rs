@@ -13,11 +13,11 @@
 //!    is held for a hash lookup and a schema check, never while waiting on
 //!    another lock, which is also what removes the order inversion with the
 //!    commands that lock the store, then the engine, then the dispatcher.
-//! 2. A tool that does not say [`crate::Tool::runs_off_the_lock`] takes the store,
-//!    engine and clipboard locks, in that order, for the whole call. This
-//!    is what every tool did before, and what a new tool does until
+//! 2. A tool that does not say [`crate::Tool::runs_off_the_lock`] takes the
+//!    store, engine and clipboard locks, in that order, for the whole call.
+//!    This is what every tool did before, and what a new tool does until
 //!    someone opts it in.
-//! 3. A tool that does says so is run on a staged store handle
+//! 3. A tool that says so is run on a staged store handle
 //!    (`session::Store::stage`) with no lock held, a fresh engine and an
 //!    empty clipboard of its own. Whatever it appends stays in memory. Then
 //!    the store's lock is taken for [`session::Store::commit`], which

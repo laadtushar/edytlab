@@ -161,10 +161,15 @@ pub fn flattened_track_wav(project_dir: &Path, clips: &[Clip]) -> Result<PathBuf
     let (file, tmp_path) = tmp.into_parts();
     write_track_timeline(clips, file, TIMELINE_CHUNK_FRAMES)
         .map_err(|e| format!("failed to write {}: {e}", cas_path.display()))?;
-    tmp_path
-        .persist(&cas_path)
-        .map_err(|e| format!("failed to write {}: {e}", cas_path.display()))?;
-    Ok(cas_path)
+    match tmp_path.persist(&cas_path) {
+        Ok(()) => Ok(cas_path),
+        // Another writer of the same clip list got there first — `list_tracks`
+        // and an analysis tool running off the store lock can (#421). The
+        // name is the hash of the clip list, so what is there is what this
+        // would have put there.
+        Err(_) if cas_path.is_file() => Ok(cas_path),
+        Err(e) => Err(format!("failed to write {}: {e}", cas_path.display())),
+    }
 }
 
 /// The file a timeline lane draws for a track: its audio on the

@@ -205,10 +205,11 @@ impl Store {
     /// Anything that deletes files from the project has to wait while this
     /// is not zero: a staged edit writes its output before it is
     /// committed, and until then no node names it. It is incremented in
-    /// [`Store::stage`] and decremented when the handle goes — in
-    /// [`Store::commit`] on the normal path — and both happen under the
-    /// store's lock, so a caller holding that lock reads a count that
-    /// cannot change under it.
+    /// [`Store::stage`], which needs the store, so only under the store's
+    /// lock; and decremented when the handle goes — in [`Store::commit`]
+    /// on the normal path, or as a panicking tool unwinds. So a caller
+    /// holding the lock that reads zero knows no staged run can start until
+    /// it lets go, and one that reads more than zero waits.
     pub fn staged_in_flight(&self) -> usize {
         self.in_flight.load(Ordering::SeqCst)
     }
