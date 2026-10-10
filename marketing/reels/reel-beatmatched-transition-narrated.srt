@@ -1,0 +1,44 @@
+1
+00:00:00,000 --> 00:00:02,970
+Beatmatch two tracks. Just ask.
+
+2
+00:00:03,000 --> 00:00:07,490
+1: ask what you're working
+with: tempo and key.
+
+3
+00:00:07,900 --> 00:00:12,950
+2: beatmatch. Neon Rush
+stretches down to 120.
+
+4
+00:00:13,300 --> 00:00:17,870
+3: line up the overlap,
+under the last 8 bars.
+
+5
+00:00:18,300 --> 00:00:22,870
+4: crossfade, with a low-pass
+on the outgoing track.
+
+6
+00:00:23,300 --> 00:00:24,430
+Have a listen.
+
+7
+00:00:35,300 --> 00:00:38,190
+5: master it for streaming.
+
+8
+00:00:39,500 --> 00:00:41,590
+Now, the mastered mix.
+
+9
+00:00:47,900 --> 00:00:51,980
+Done: 50 seconds, -14 LUFS.
+
+10
+00:00:52,000 --> 00:00:54,950
+edytlab. Free and open source.
+
