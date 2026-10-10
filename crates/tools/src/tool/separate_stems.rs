@@ -242,6 +242,12 @@ fn run_separation(
                 "Demucs model not found at {path}; {INSTALL_HINT}"
             )));
         }
+        // No ONNX Runtime library. Not `Oom`, and not "model load
+        // failed": the hint is the sentence the agent is told never to
+        // contradict, so it is appended here as for a missing model.
+        Err(e @ DemucsError::RuntimeUnavailable(_)) => {
+            return Err(SeparateError::Tool(format!("{e}; {INSTALL_HINT}")));
+        }
         Err(e) => return Err(SeparateError::Tool(format!("model load failed: {e}"))),
     };
 

@@ -25,16 +25,26 @@
 //!
 //! ## Runtime requirements
 //!
-//! `ort` is configured with `load-dynamic`, so the binary needs
-//! `ORT_DYLIB_PATH` set (or `libonnxruntime.{so,dylib,dll}` next to the
-//! binary). Tests that build sessions check the env var and skip with a
-//! printed notice when it's absent — see `tests/cache_smoke.rs`.
+//! `ort` is configured with `load-dynamic`, so the process needs an ONNX
+//! Runtime library to load: the file `ORT_DYLIB_PATH` names, or
+//! `libonnxruntime.{so,dylib}` / `onnxruntime.dll` next to the
+//! executable. Nothing ships that library yet (#383).
+//!
+//! Left alone, `ort` **hangs** when it cannot load the library: it
+//! deadlocks inside its own initialisation, and the calling thread never
+//! returns. So every caller that builds an `ort` session goes through
+//! [`runtime::ensure`] first, which turns a missing or unloadable
+//! library into [`Error::MissingRuntime`] / [`Error::RuntimeLoad`]. See
+//! the [`runtime`] module for why that matters. Tests that build real
+//! sessions are `#[ignore]`d — see `tests/cache_smoke.rs`.
 
 use std::io;
+use std::path::PathBuf;
 
 mod cache;
 mod download;
 mod onnx_session;
+pub mod runtime;
 
 pub use cache::{ContentHash, InferenceCache};
 pub use download::fetched_model_path;
@@ -63,11 +73,39 @@ pub enum Error {
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
 
-    /// `ORT_DYLIB_PATH` was unset or the dylib couldn't be opened. This
-    /// is distinct from a generic ORT error so callers can present a
-    /// structured install-script hint.
-    #[error("onnxruntime dynamic library not available; set ORT_DYLIB_PATH")]
-    MissingRuntime,
+    /// No ONNX Runtime library exists at any of the places
+    /// [`runtime::ensure`] looks. `searched` lists them all, so the
+    /// message can say where a copy would be picked up.
+    ///
+    /// Distinct from [`Error::Ort`] so callers can tell "this machine
+    /// has no runtime" from "the runtime rejected the model".
+    #[error(
+        "ONNX Runtime library not found; looked in: {}. edytlab does not ship it yet (#383); \
+         ORT_DYLIB_PATH can point at a local copy (ONNX Runtime 1.{} or newer)",
+        list_paths(.searched),
+        ort::MINOR_VERSION
+    )]
+    MissingRuntime { searched: Vec<PathBuf> },
+
+    /// A library file exists where [`runtime::ensure`] looked, but it
+    /// could not be loaded: not an ONNX Runtime, the wrong architecture,
+    /// or older than the version `ort` needs. An explicit path that
+    /// fails is reported, never skipped in favour of another one.
+    #[error("ONNX Runtime at {} could not be loaded: {reason}", .path.display())]
+    RuntimeLoad { path: PathBuf, reason: String },
+}
+
+/// Comma-separated paths for [`Error::MissingRuntime`]'s message.
+fn list_paths(paths: &[PathBuf]) -> String {
+    if paths.is_empty() {
+        return "nowhere (ORT_DYLIB_PATH is unset and the executable's directory is unknown)"
+            .to_string();
+    }
+    paths
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 impl From<ort::Error> for Error {

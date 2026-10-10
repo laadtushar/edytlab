@@ -12,10 +12,10 @@
 //! both stubs, so there is no model file that produces output. The env
 //! vars above are the *intended* mechanism, not a working one.
 //!
-//! Currently always returns [`Error::MissingRuntime`], and has no
-//! callers. Callers should read that as "this feature is unavailable",
-//! not as "the model has not been fetched yet" — there is nothing to
-//! fetch it with, and a fetched model would change nothing.
+//! Currently always returns an error, and has no callers. Callers
+//! should read that as "this feature is unavailable", not as "the model
+//! has not been fetched yet" — there is nothing to fetch it with, and a
+//! fetched model would change nothing.
 //!
 //! In particular, do not fall back to an install hint. That is the
 //! advice this module used to give, and it is what sent people looking
@@ -28,5 +28,7 @@ use crate::{Error, Result};
 /// Resolve `model_id` to a local on-disk path, fetching from a registry
 /// if necessary. Stub: always errors today.
 pub fn fetched_model_path(_model_id: &str) -> Result<PathBuf> {
-    Err(Error::MissingRuntime)
+    Err(Error::Cache(
+        "model download is not implemented yet (#383)".into(),
+    ))
 }

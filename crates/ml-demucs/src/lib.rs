@@ -108,6 +108,24 @@ pub enum DemucsError {
     #[error("ONNX runtime error: {0}")]
     Ort(String),
 
+    /// No usable ONNX Runtime library (see
+    /// [`ml_pipeline::runtime::ensure`]). Reported instead of building a
+    /// session, because `ort` hangs (deadlocks) when it cannot load the
+    /// library.
+    ///
+    /// Deliberately not [`DemucsError::Ort`]: [`is_oom_error`] reads
+    /// that variant's text, and a missing library is not an
+    /// out-of-memory condition to retry with a smaller model.
+    ///
+    /// The message says what the feature does today too: a user who
+    /// goes and installs the runtime on the strength of this error would
+    /// otherwise reach the next one believing they were nearly done.
+    #[error(
+        "{0}. Stem separation is not implemented in this build either, so installing ONNX \
+         Runtime will not yet produce stems (#385)"
+    )]
+    RuntimeUnavailable(String),
+
     #[error("WAV writer error: {0}")]
     Wav(String),
 
@@ -183,8 +201,9 @@ impl DemucsModel {
     /// Returns [`DemucsError::ModelMissing`] if the path does not
     /// exist (so callers can surface the install-script hint instead
     /// of an opaque ORT error), [`DemucsError::UnsupportedModelId`]
-    /// for unknown ids, and propagates any other ORT failure as
-    /// [`DemucsError::Ort`].
+    /// for unknown ids, [`DemucsError::RuntimeUnavailable`] if there is
+    /// no ONNX Runtime library to load, and propagates any other ORT
+    /// failure as [`DemucsError::Ort`].
     pub fn load(model_id: &str, path: &Path) -> Result<Self> {
         if !SUPPORTED_MODEL_IDS.contains(&model_id) {
             return Err(DemucsError::UnsupportedModelId(model_id.to_string()));
@@ -194,6 +213,12 @@ impl DemucsModel {
                 path: path.display().to_string(),
             });
         }
+        // Before any `ort` call, and before reading the model: a missing
+        // library is known without hashing a file that cannot be used.
+        // `Session::builder()` never returns, rather than erroring, without
+        // the library.
+        ml_pipeline::runtime::ensure()
+            .map_err(|e| DemucsError::RuntimeUnavailable(e.to_string()))?;
 
         // Hash the model bytes so the cache key invalidates when the
         // file changes (swapped community export, retrain, …). We
