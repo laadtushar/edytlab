@@ -68,11 +68,18 @@ if [ "${LLM:-fake}" != real ]; then
   }
 fi
 # The app keeps its provider, keys and base URLs through the `keyring`
-# crate, which on Linux is the kernel keyring: an entry lives in the
-# *session* keyring and is linked into the user's *persistent* one, so a
-# run is isolated by neither a fresh HOME nor a fresh process. A first
-# launch clears both; a restart within a story passes KEEP_KEYRING=1 to
-# find its settings again.
+# crate. On Linux its primary store is the Secret Service, but this
+# harness has no session bus, so the app uses its fallback, the kernel
+# keyring (#394), and that is what this script clears: an entry lives in
+# the *session* keyring and is linked into the user's *persistent* one,
+# so a run is isolated by neither a fresh HOME nor a fresh process. A
+# first launch clears both; a restart within a story passes KEEP_KEYRING=1
+# to find its settings again.
+#
+# If the harness ever runs where a session bus with a Secret Service is
+# reachable, the first-launch clear must also remove those items
+# (`secret-tool clear service app.edytlab.desktop`), or a run would start
+# from the last one's settings.
 #
 # Both need a session keyring that every process of the run shares, which
 # a desktop login provides (pam_keyinit) and a bare container does not:
