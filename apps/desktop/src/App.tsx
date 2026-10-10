@@ -686,19 +686,45 @@ function App() {
 
   // Release, key-up and blur all commit a slider, and most carry the value
   // the session already holds: see `isSessionValue` for the undo it broke.
-  const handleTrackGainChange = useCallback(
-    (index: number, gainDb: number) => {
-      if (isSessionValue(tracksRef.current[index]?.gain_db, gainDb)) return;
-      void commitTrackChange(() => setTrackGain(index, gainDb));
+  //
+  // "Already what the session holds" means what it will hold once the
+  // commits ahead of this one in the line have been applied, not what the
+  // last refresh showed (#498). Against the refresh alone, 0 -> -3 -> 0
+  // made in one window drops the final 0, because it matches the 0 on
+  // screen, and the session keeps -3. A control's pending value is the
+  // last one sent for it; it is forgotten once that commit's own refresh
+  // is in, so the track list is the truth again.
+  const pendingValues = useRef(new Map<string, { value: number; commit: number }>());
+  const commitCount = useRef(0);
+  const commitSlider = useCallback(
+    (control: string, shown: number | undefined, value: number, apply: () => Promise<string>) => {
+      const pending = pendingValues.current.get(control);
+      if (isSessionValue(pending ? pending.value : shown, value)) return;
+      const commit = ++commitCount.current;
+      pendingValues.current.set(control, { value, commit });
+      void commitTrackChange(apply).finally(() => {
+        // Only the latest commit of a control clears it; an earlier one
+        // finishing must not forget the value a later one is still sending.
+        if (pendingValues.current.get(control)?.commit === commit) {
+          pendingValues.current.delete(control);
+        }
+      });
     },
     [commitTrackChange],
   );
+  const handleTrackGainChange = useCallback(
+    (index: number, gainDb: number) =>
+      commitSlider(`gain:${index}`, tracksRef.current[index]?.gain_db, gainDb, () =>
+        setTrackGain(index, gainDb),
+      ),
+    [commitSlider],
+  );
   const handleTrackPanChange = useCallback(
-    (index: number, pan: number) => {
-      if (isSessionValue(tracksRef.current[index]?.pan, pan)) return;
-      void commitTrackChange(() => setTrackPan(index, pan));
-    },
-    [commitTrackChange],
+    (index: number, pan: number) =>
+      commitSlider(`pan:${index}`, tracksRef.current[index]?.pan, pan, () =>
+        setTrackPan(index, pan),
+      ),
+    [commitSlider],
   );
   const handleTrackMuteChange = useCallback(
     (index: number, muted: boolean) =>
@@ -1251,13 +1277,15 @@ function App() {
     // presents exactly like a successful stop.
     setIsRecording(false);
 
+    // The head of the take is adopted by `loadInOrder`, inside its turn.
+    // Adopting it again here would be outside any turn, and could put the
+    // head back to a node a later edit has left.
     if (outcome.kind === "loaded") {
-      applyNewHead(outcome.nodeId);
       void refreshTracks().catch((err) => setRenderError(String(err)));
     } else {
       setRenderError(outcome.message);
     }
-  }, [applyNewHead, loadInOrder]);
+  }, [loadInOrder]);
 
   /**
    * Arm an unattended take (#225 §4).
@@ -1280,8 +1308,8 @@ function App() {
         loadInOrder,
       ).then((outcome) => {
         setIsRecording(false);
+        // Its head is adopted by `loadInOrder`, in its turn.
         if (outcome.kind === "loaded") {
-          applyNewHead(outcome.nodeId);
           void refreshTracks().catch((err) => setRenderError(String(err)));
         } else if (outcome.kind !== "cancelled") {
           // Cancelling is the user's own doing and needs no banner.
@@ -1289,7 +1317,7 @@ function App() {
         }
       });
     },
-    [applyNewHead, loadInOrder],
+    [loadInOrder],
   );
 
   const handleRenderPreview = useCallback(async () => {
@@ -1339,14 +1367,24 @@ function App() {
    */
   const handleGraphSetHead = useCallback(
     async (nodeId: string): Promise<void> => {
-      await runHeadMove(async () => {
+      const moved = await runHeadMove(async () => {
         // In line, like undo: it moves the head the edits before it made.
         await inOrder(async () => {
           await setHeadTo(nodeId);
           setHeadLocal(nodeId);
         });
         await refreshTracks();
+        return true;
       });
+      // One head move at a time: an undo or redo that is still waiting its
+      // turn behind an edit holds the slot, and the click would be dropped
+      // in silence. Said in the graph's own banner, like a refused move,
+      // so the user knows to click again.
+      if (!moved) {
+        throw new Error(
+          "An undo, redo or head move is still running. Set the head again once it has finished.",
+        );
+      }
     },
     [runHeadMove, setHeadLocal, refreshTracks, inOrder],
   );
@@ -1362,10 +1400,20 @@ function App() {
     [inOrder],
   );
 
-  /** A/B compare's "Accept B" moves the session head, so it is in line too. */
+  /**
+   * A/B compare's "Accept B" moves the session head, so it is in line too,
+   * and the head it names is adopted inside the turn like any edit's. The
+   * bar calls `onAcceptB` only after the turn has ended, which is too late
+   * to adopt anything (#498).
+   */
   const handleCompareAcceptB = useCallback(
-    (b: string): Promise<string> => inOrder(() => bridgeAcceptB(b)),
-    [inOrder],
+    (b: string): Promise<string> =>
+      inOrder(async () => {
+        const accepted = await bridgeAcceptB(b);
+        setHeadLocal(accepted);
+        return accepted;
+      }),
+    [inOrder, setHeadLocal],
   );
 
   const handleCompareNodes = useCallback(
@@ -1376,11 +1424,11 @@ function App() {
     [head],
   );
 
+  // The head moved in `handleCompareAcceptB`'s turn; this only leaves the
+  // comparison.
   const handleAcceptB = useCallback(() => {
-    if (!compareMode) return;
-    setHeadLocal(compareMode.b);
     setCompareMode(null);
-  }, [compareMode, setHeadLocal]);
+  }, []);
 
   // The path taken, for the history graph to draw (#398).
   const historyPath = useMemo(() => (head ? [...trail, head] : trail), [trail, head]);

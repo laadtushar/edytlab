@@ -12,12 +12,13 @@
  * Two checks, both on source text:
  *
  * - In `App.tsx`, each call to one of these commands is inside a handler
- *   that sends it through the line: `inOrder(`, `applyEdit(` or
- *   `commitTrackChange(` appears between the `useCallback` the handler
- *   starts with and the call.
+ *   that sends it through the line: `inOrder(`, `applyEdit(`,
+ *   `commitTrackChange(` or `commitSlider(` (which wraps the last) appears
+ *   between the `useCallback` the handler starts with and the call.
  * - Nothing else calls them. Components are handed the line's version as
- *   a prop; `useSession`, which owns the line, calls the bridge only from
- *   inside it.
+ *   a prop, and `useSession`, which owns the line, calls none of them: a
+ *   hook method that queued one would deadlock when called from inside a
+ *   turn.
  *
  * What it cannot see: a command called through another name, or a handler
  * that is not a `const x = useCallback(`.
@@ -70,7 +71,7 @@ const INSIDE_ANOTHER_TURN: Record<string, string[]> = {
   setHeadTo: ["await setHeadTo(view.head);"],
 };
 
-const IN_LINE = /\b(inOrder|applyEdit|commitTrackChange)\(/;
+const IN_LINE = /\b(inOrder|applyEdit|commitTrackChange|commitSlider)\(/;
 
 function callsTo(lines: string[], name: string): number[] {
   const call = new RegExp(`\\b${name}\\(`);

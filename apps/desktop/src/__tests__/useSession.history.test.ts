@@ -13,12 +13,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const bridge = vi.hoisted(() => ({
   nodeCreated: [] as ((nodeId: string) => void)[],
   getSessionHead: vi.fn(),
-  openProject: vi.fn(),
 }));
 
 vi.mock("../lib/tauri-bridge", () => ({
   getSessionHead: bridge.getSessionHead,
-  openProject: bridge.openProject,
   renderPreview: vi.fn(() => Promise.resolve("/tmp/mix.wav")),
   onNodeCreated: vi.fn((cb: (n: string) => void) => {
     bridge.nodeCreated.push(cb);
@@ -40,7 +38,6 @@ async function mountOnA() {
 beforeEach(() => {
   bridge.nodeCreated = [];
   bridge.getSessionHead.mockReset().mockResolvedValue("A");
-  bridge.openProject.mockReset();
 });
 
 describe("useSession: the path taken", () => {
@@ -142,16 +139,12 @@ describe("useSession: the path taken", () => {
     expect(result.current.peekUndo()).toBeNull();
   });
 
-  it("opening a project through the hook resets the path too", async () => {
+  // `App` opens a project as a turn in the line and calls `resetHead` (the
+  // test above). A method here that opened one in the line would deadlock
+  // when called from inside a turn (#498).
+  it("does not open projects itself", async () => {
     const { result } = await mountOnA();
-    act(() => result.current.setHeadLocal("B"));
-    bridge.openProject.mockResolvedValue({ path: "/p/other", head: "X" });
-
-    await act(async () => {
-      await result.current.openProject("/p/other");
-    });
-
-    expect(result.current.peekUndo()).toEqual({ from: "X", to: null });
+    expect(result.current).not.toHaveProperty("openProject");
   });
 
   it("exposes the trail and head for the graph to draw", async () => {

@@ -1,8 +1,7 @@
 /**
- * useSession — owns project lifecycle + head-node tracking.
+ * useSession — owns head-node tracking and the session's line of edits.
  *
  * Responsibilities:
- *  - holds the currently opened {@link ProjectInfo} (path + head node).
  *  - subscribes to `agent://node-created` so the head pointer follows
  *    every agent-produced edit without an explicit `getSessionHead`
  *    round-trip after each turn — and reads `getSessionHead` once at
@@ -15,6 +14,11 @@
  *  - holds the one line every session-changing command goes through
  *    (`lib/sessionQueue.ts`, #498), so edits reach the backend, and their
  *    heads are adopted, in the order the user made them.
+ *
+ * It does not open projects. `App` does, as a turn in the line (it also
+ * restores the view in the same turn), and tells the hook through
+ * `resetHead`. A hook method that opened one in the line would deadlock
+ * when called from inside a turn, and nothing needed it (#498).
  *
  * Pure: the hook only schedules effects in `useEffect` and never
  * mutates state during render. The single `useEffect` that wires the
@@ -38,18 +42,14 @@ import { createSessionQueue, type InSessionOrder } from "../lib/sessionQueue";
 import {
   getSessionHead,
   onNodeCreated,
-  openProject as bridgeOpenProject,
   renderPreview as bridgeRenderPreview,
   type NodeId,
-  type ProjectInfo,
 } from "../lib/tauri-bridge";
 
 export interface UseSessionResult {
-  project: ProjectInfo | null;
   /** Latest known head node id: read once at mount (a returning user's
    * restored head), then kept current off the event stream. */
   head: NodeId | null;
-  openProject: (path: string) => Promise<void>;
   /** Render the latest head node to a temp WAV. Throws if no head. */
   renderHead: () => Promise<string>;
   /**
@@ -100,12 +100,9 @@ export interface UseSessionResult {
    * A turn that fails does not stop the ones behind it.
    */
   inOrder: InSessionOrder;
-  /** Last error to bubble up from a session command, for surface in UI. */
-  error: string | null;
 }
 
 export function useSession(): UseSessionResult {
-  const [project, setProject] = useState<ProjectInfo | null>(null);
   // The head, the undo trail and the redo list, in one reducer. Held in a
   // ref as well as in state: undo and redo read it through `peekUndo` /
   // `peekRedo`, which must see a move made a moment ago even if React has
@@ -119,7 +116,6 @@ export function useSession(): UseSessionResult {
     historyRef.current = next;
     setHistory(next);
   }, []);
-  const [error, setError] = useState<string | null>(null);
   // One per mounted session, made once: the line is state, so it must not
   // be rebuilt by a render.
   const [queue] = useState(createSessionQueue);
@@ -161,25 +157,6 @@ export function useSession(): UseSessionResult {
     };
   }, [dispatchHead]);
 
-  // In the session's line like any command that changes it: an edit made
-  // before this goes to the project being left, one made after it to the
-  // project being opened (#498).
-  const openProject = useCallback(
-    (path: string) =>
-      queue.run(async () => {
-        try {
-          const info = await bridgeOpenProject(path);
-          setProject(info);
-          dispatchHead({ type: "reset", head: info.head });
-          setError(null);
-        } catch (e) {
-          setError(String(e));
-          throw e;
-        }
-      }),
-    [dispatchHead, queue],
-  );
-
   const renderHead = useCallback(async (): Promise<string> => {
     if (!head) {
       throw new Error("no node to render");
@@ -215,9 +192,7 @@ export function useSession(): UseSessionResult {
   }, []);
 
   return {
-    project,
     head,
-    openProject,
     renderHead,
     setHeadLocal,
     resetHead,
@@ -227,6 +202,5 @@ export function useSession(): UseSessionResult {
     stepBack,
     stepForward,
     inOrder: queue.run,
-    error,
   };
 }
