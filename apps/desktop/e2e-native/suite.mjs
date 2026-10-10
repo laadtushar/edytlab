@@ -3,6 +3,10 @@
 //
 //   OUT=/tmp/edytlab-native node suite.mjs [story-id-substring ...]
 //
+// A story that talks to a model also leaves $OUT/shots/<id>-tool-calls.json:
+// every turn's tool calls, with their arguments and the result the model
+// read (tool-calls.mjs). A failing story's notes name it.
+//
 // Each story group starts the app fresh (a new HOME, so a first launch),
 // except where a story is about what survives a restart.
 import { execFileSync, spawn, spawnSync } from "node:child_process";
@@ -12,10 +16,15 @@ import { Driver } from "./webdriver.mjs";
 import { chooseThrough, screenshotRoot } from "./native.mjs";
 import { writeFixtures } from "./fixtures.mjs";
 import { stories } from "./stories/index.mjs";
+import { fakeSource, markSources, proxySource, recordStory } from "./tool-calls.mjs";
 
 const APP = process.env.APP ?? "/home/user/edytlab/target/debug/edytlab-desktop";
 const OUT = process.env.OUT ?? "/tmp/edytlab-native";
 const LLM = "http://127.0.0.1:11434";
+// Where a story's tool calls are read from once it ends: the scripted model
+// always (it is simply absent under LLM=real), and claude-proxy.mjs when the
+// Claude stories are registered. See tool-calls.mjs for why those two.
+const toolCallSources = [fakeSource(LLM), ...(process.env.ANTHROPIC_E2E_KEY ? [proxySource(process.env.CLAUDE_PROXY ?? "http://127.0.0.1:8788")] : [])];
 const only = process.argv.slice(2);
 mkdirSync(join(OUT, "shots"), { recursive: true });
 const fixtures = writeFixtures(join(OUT, "fixtures"));
@@ -70,11 +79,15 @@ for (const story of stories) {
   if (only.length && !only.some((o) => story.id.includes(o))) continue;
   const result = { id: story.id, area: story.area, title: story.title, steps: [], status: "pass" };
   const started = Date.now();
+  let toolCallMarks = null;
   let session;
   let recorder = null;
   let recordedFrom = 0;
   try {
     session = await boot(story.home);
+    // After the boot, not before: run-env.sh starts the scripted model afresh
+    // with every boot, which empties its request log.
+    toolCallMarks = await markSources(toolCallSources);
     const ctx = {
       d: session.d,
       home: session.home,
@@ -184,6 +197,14 @@ for (const story of stories) {
       await Promise.race([done, new Promise((r) => setTimeout(r, 10000))]);
     }
     await session?.d.quit();
+  }
+  // What the model called and was told back, kept with the screenshots. A
+  // failing story's notes name the file; a story that never asked a model
+  // anything leaves nothing. This does not throw.
+  if (toolCallMarks) {
+    const toolCalls = await recordStory({ out: OUT, id: story.id, sources: toolCallSources, marks: toolCallMarks, failed: result.status !== "pass" });
+    if (toolCalls?.file) result.toolCalls = toolCalls.file;
+    if (toolCalls?.note) result.steps.push({ caption: toolCalls.note });
   }
   result.ms = Date.now() - started;
   // A passing recording is kept aside with its captions: a later failing

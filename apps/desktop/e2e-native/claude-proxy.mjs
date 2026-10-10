@@ -2,21 +2,32 @@
 // spends and stops it at a budget.
 //
 //   BUDGET_USD=12 PORT=8788 node claude-proxy.mjs
-//   GET /__usage  the totals so far
+//   GET /__usage      the totals so far
+//   GET /__toolcalls  { seen, turns }: the tool calls of the latest agent
+//                     conversation, turn by turn (see tool-calls.mjs)
 //
 // The app is pointed at it through Settings' base URL, and sends its own
-// x-api-key. Nothing here reads, stores or logs a header or a body: only
-// token counts, the model and the status are kept, in $OUT/claude-usage.jsonl.
+// x-api-key, which is forwarded and never stored or logged. Usage is kept as
+// token counts, the model and the status, in $OUT/claude-usage.jsonl.
+//
+// The one thing kept of a body is the conversation of the agent's latest
+// streaming request, in memory only, cut down to the person's words and each
+// tool call's name, arguments and result, with anything shaped like a key
+// masked. The stories read it to leave a record of what Claude called and
+// was told back (#508). It is served on 127.0.0.1 only, as the proxy is.
 //
 // Cost is an upper bound. Every input token, cached or not, is priced as
 // fresh input at the rate of the model the request named, and a model not
 // in the table at the highest rate in it, so the real bill is lower.
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { createServer } from "node:http";
+import { isAgentLoopRequest, turnsFromMessages } from "./tool-calls.mjs";
 
 const PORT = Number(process.env.PORT ?? 8788);
 const BUDGET = Number(process.env.BUDGET_USD ?? 12);
 const OUT = process.env.OUT ?? "/tmp/edytlab-native";
+// Where requests go. Only a test of this file points it anywhere else.
+const UPSTREAM = process.env.ANTHROPIC_UPSTREAM ?? "https://api.anthropic.com";
 // $ per million tokens, input and output, by model id. A flat rate priced
 // Fable at half its cost, which let a Fable run spend twice its budget.
 const RATES = [
@@ -52,6 +63,11 @@ if (existsSync(`${OUT}/claude-usage.jsonl`)) {
 }
 const cost = () => totals.usd;
 
+// The agent's latest conversation, as its tool calls. Each request carries
+// the whole conversation, so the latest one is all of it; `seen` counts the
+// requests that carried one, so a reader can tell whether a story added any.
+let conversation = { seen: 0, turns: [] };
+
 function record(entry) {
   appendFileSync(`${OUT}/claude-usage.jsonl`, `${JSON.stringify(entry)}\n`);
 }
@@ -67,6 +83,10 @@ function addUsage(u, into) {
 const server = createServer(async (req, res) => {
   if (req.url === "/__usage") {
     res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ ...totals, usd_upper_bound: Number(cost().toFixed(4)), budget: BUDGET }));
+    return;
+  }
+  if (req.url === "/__toolcalls") {
+    res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(conversation));
     return;
   }
   const chunks = [];
@@ -87,6 +107,7 @@ const server = createServer(async (req, res) => {
     const parsed = JSON.parse(body.toString() || "{}");
     model = parsed.model ?? "";
     stream = parsed.stream === true;
+    if (isAgentLoopRequest(parsed)) conversation = { seen: conversation.seen + 1, turns: turnsFromMessages(parsed.messages) };
   } catch {}
 
   const headers = {};
@@ -99,7 +120,7 @@ const server = createServer(async (req, res) => {
   const used = { input: 0, output: 0, cache_read: 0, cache_create: 0 };
   let status = 0;
   try {
-    const up = await fetch(`https://api.anthropic.com${req.url}`, {
+    const up = await fetch(`${UPSTREAM}${req.url}`, {
       method: req.method,
       headers,
       body: ["GET", "HEAD"].includes(req.method) ? undefined : body,
