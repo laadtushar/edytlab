@@ -10,6 +10,7 @@
  */
 
 import type { LeftView } from "../lib/views";
+import { LogoMark } from "./LogoMark";
 import { TimerRecord } from "./TimerRecord";
 
 export interface AppHeaderProps {
@@ -105,13 +106,10 @@ export function AppHeader({
             onClick={onNewProject}
             title="Start a new project in an empty folder"
             className="
-              inline-flex items-center gap-2
-              rounded-md border border-[var(--border-strong)]
-              bg-[var(--surface)]
-              px-3 py-1.5
-              font-mono text-[11px] uppercase tracking-wider text-[var(--text-dim)]
+              btn-tool inline-flex items-center gap-2
+              rounded-md px-3 py-1.5
+              font-mono text-[11px] uppercase tracking-wider
               transition
-              hover:border-[var(--accent)]/50 hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]
             "
           >
             New project…
@@ -124,13 +122,10 @@ export function AppHeader({
             onClick={onOpenProject}
             title="Open an existing project folder"
             className="
-              inline-flex items-center gap-2
-              rounded-md border border-[var(--border-strong)]
-              bg-[var(--surface)]
-              px-3 py-1.5
-              font-mono text-[11px] uppercase tracking-wider text-[var(--text-dim)]
+              btn-tool inline-flex items-center gap-2
+              rounded-md px-3 py-1.5
+              font-mono text-[11px] uppercase tracking-wider
               transition
-              hover:border-[var(--accent)]/50 hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]
             "
           >
             Open project…
@@ -143,13 +138,10 @@ export function AppHeader({
             onClick={onSaveAs}
             title="Copy this project to a new folder and continue there"
             className="
-              inline-flex items-center gap-2
-              rounded-md border border-[var(--border-strong)]
-              bg-[var(--surface)]
-              px-3 py-1.5
-              font-mono text-[11px] uppercase tracking-wider text-[var(--text-dim)]
+              btn-tool inline-flex items-center gap-2
+              rounded-md px-3 py-1.5
+              font-mono text-[11px] uppercase tracking-wider
               transition
-              hover:border-[var(--accent)]/50 hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]
             "
           >
             Save as…
@@ -160,13 +152,10 @@ export function AppHeader({
           data-testid="open-audio-button"
           onClick={onOpen}
           className="
-            inline-flex items-center gap-2
-            rounded-md border border-[var(--border-strong)]
-            bg-[var(--surface)]
-            px-3 py-1.5
-            font-mono text-[11px] uppercase tracking-wider text-[var(--text-dim)]
+            btn-tool inline-flex items-center gap-2
+            rounded-md px-3 py-1.5
+            font-mono text-[11px] uppercase tracking-wider
             transition
-            hover:border-[var(--accent)]/50 hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]
           "
         >
           <svg
@@ -189,13 +178,21 @@ export function AppHeader({
           type="button"
           data-testid="record-btn"
           onClick={onRecord}
-          className={`px-3 py-1 text-sm rounded font-medium ${
+          // 11px / 3px, not 12 / 4: the 1px border is new, and the
+          // button keeps the box it had.
+          className={`rounded-md px-[11px] py-[3px] text-sm font-medium ${
             isRecording
-              ? "bg-red-600 text-white animate-pulse"
-              : "bg-neutral-700 text-neutral-300 hover:bg-neutral-600"
+              ? "border border-[var(--danger)] bg-[var(--danger)] text-[var(--accent-fg)] animate-pulse"
+              : "btn-secondary"
           }`}
         >
-          {isRecording ? "⏹ Stop" : "⏺ Record"}
+          {isRecording ? (
+            "⏹ Stop"
+          ) : (
+            <>
+              <span className="text-[var(--danger)]">⏺</span> Record
+            </>
+          )}
         </button>
 
         {onTimerRecord ? (
@@ -208,12 +205,9 @@ export function AppHeader({
           data-testid="open-settings-button"
           aria-label="Open settings"
           className="
-            inline-flex h-8 w-8 items-center justify-center
-            rounded-md border border-[var(--border-strong)]
-            bg-[var(--surface)]
-            text-[var(--text-dim)]
+            btn-tool inline-flex h-8 w-8 items-center justify-center
+            rounded-md
             transition
-            hover:border-[var(--accent)]/50 hover:bg-[var(--surface-elev-2)] hover:text-[var(--text)]
           "
         >
           <svg
@@ -232,29 +226,33 @@ export function AppHeader({
           </svg>
         </button>
       </div>
+      {/* The site header's accent hairline, over the bottom border. */}
+      <span aria-hidden="true" className="rule-accent -bottom-px" />
     </header>
   );
 }
 
+/**
+ * The site's header lockup: the mark, then "edytlab" in semibold sans.
+ * The mark is decorative (`aria-hidden`), so the name is still just the
+ * text.
+ */
 function Wordmark() {
   return (
     <div
       className="
-        flex items-baseline gap-1
-        text-[15px] font-medium leading-none
+        flex items-center gap-2
+        text-[15px] leading-none
         text-[var(--text)]
       "
     >
-      <span className="font-[family-name:var(--font-serif)] italic text-[var(--accent)] text-[18px]">
-        edyt
-      </span>
-      <span>lab</span>
+      <LogoMark size={20} />
+      <span className="font-semibold tracking-tight">edytlab</span>
       <span
         className="
-          ml-2 rounded
-          bg-[var(--surface-elev-2)]
+          pill ml-1
           px-1.5 py-0.5
-          font-mono text-[9px] uppercase tracking-[0.18em] text-[var(--text-faint)]
+          font-mono text-[9px] uppercase tracking-[0.18em] text-[var(--text-dim)]
         "
       >
         studio
@@ -279,10 +277,13 @@ function TabButton({ label, testId, active, onClick }: TabButtonProps) {
       onClick={onClick}
       aria-pressed={active}
       className={
-        "rounded px-3 py-1 text-xs font-medium transition " +
+        // The accent bar is `.tab-indicator`'s pseudo-element: it takes no
+        // room, so the tabs are the width they were. `overflow-hidden`
+        // keeps the bar inside the tab's rounded corners.
+        "tab-indicator overflow-hidden rounded px-3 py-1 text-xs font-medium transition " +
         (active
-          ? "bg-[var(--surface-elev-2)] text-[var(--text)] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]"
-          : "text-[var(--text-faint)] hover:bg-[var(--surface-elev-2)]/60 hover:text-[var(--text-dim)]")
+          ? "bg-[var(--surface-elev-2)] text-[var(--text)]"
+          : "text-[var(--text-dim)] hover:bg-[var(--surface-elev-2)]/60 hover:text-[var(--text)]")
       }
     >
       {label}

@@ -1,7 +1,7 @@
 /**
  * MessageBubble — single chat row (Studio Onyx).
  *
- * Asymmetric bubbles: the user side is a soft amber-tinted card that
+ * Asymmetric bubbles: the user side is a soft accent-tinted card that
  * reads as outgoing intent; the assistant side is a flat onyx card
  * with no border so the transcript reads more like a conversation
  * than a form. Streaming bubbles reuse this with `pending` so the
@@ -99,12 +99,12 @@ export function MessageBubble({
               data-chip-id={c.id}
               onClick={() => onChipClick!(c.prompt)}
               className="
-                inline-flex items-center gap-1.5
-                rounded-full border border-[var(--border-strong)]
+                pill inline-flex items-center gap-1.5
+                border-[var(--border-strong)]
                 bg-[var(--surface-elev)]
                 px-2.5 py-1 text-xs text-[var(--text-dim)]
                 transition
-                hover:border-[var(--accent)]/45 hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]
+                hover:border-[var(--accent-border)] hover:bg-[var(--accent-soft)] hover:text-[var(--accent-text)]
               "
             >
               <ChipGlyph icon={c.icon} />

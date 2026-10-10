@@ -29,7 +29,7 @@ export function TemplatePickerModal({
       onAnimationEnd={onAnimationEnd}
     >
       <div
-        className={`${leaving ? "overlay-out" : "overlay-in"} bg-[var(--surface-elev)] border border-[var(--border-strong)] rounded-xl shadow-2xl w-80 p-6`}
+        className={`${leaving ? "overlay-out" : "overlay-in"} bg-[var(--surface-elev)] border border-[var(--border-strong)] rounded-xl shadow-(--shadow-dialog) w-80 p-6`}
         onClick={e => e.stopPropagation()}
       >
         <h2 className="text-sm font-semibold text-[var(--text)] tracking-wide uppercase mb-4">
@@ -40,7 +40,7 @@ export function TemplatePickerModal({
             <li key={t.name}>
               <button
                 type="button"
-                className="w-full text-left px-3 py-2 rounded-lg border border-[var(--border-strong)] hover:border-[var(--accent)]/60 hover:bg-[var(--accent-soft)] transition-colors"
+                className="w-full text-left px-3 py-2 rounded-lg border border-[var(--border-strong)] hover:border-[var(--accent-border)] hover:bg-[var(--accent-soft)] transition-colors"
                 onClick={() => onSelect(t.name)}
               >
                 <div className="text-sm text-[var(--text)] font-medium">{t.name}</div>

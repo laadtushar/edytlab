@@ -5,8 +5,10 @@
  * `@import "tailwindcss"`. Tailwind expands its import inline, which left
  * the font import behind thousands of rules — and CSS ignores an
  * `@import` that is not at the top. The build dropped it, so Geist,
- * Geist Mono and Instrument Serif never loaded, in dev or in a release,
- * and the brand type fell back to system fonts. Moving the import up
+ * Geist Mono and the display serif never loaded, in dev or in a release,
+ * and the brand type fell back to system fonts. (The serif has since gone:
+ * the site has none, and the app's wordmark is now the logo mark plus
+ * Geist, as the site's is. So the faces below are Geist and Geist Mono.) Moving the import up
  * would have loaded them from Google on every launch: failing offline,
  * and sending each user's address to a third party.
  *
@@ -25,8 +27,6 @@ const FACES = [
   '700 16px "Geist Variable"',
   '400 16px "Geist Mono Variable"',
   '600 16px "Geist Mono Variable"',
-  'normal 400 16px "Instrument Serif"',
-  'italic 400 16px "Instrument Serif"',
 ];
 
 test("every typeface the design uses loads from the app itself", async ({ app }) => {
@@ -52,7 +52,7 @@ test("every typeface the design uses loads from the app itself", async ({ app })
   // And the tokens name them, so the loaded faces are the ones drawn.
   const heading = page.getByTestId("empty-state").getByRole("heading", { level: 1 });
   expect(await heading.evaluate((el) => getComputedStyle(el).fontFamily)).toContain(
-    "Instrument Serif",
+    "Geist Variable",
   );
   expect(await page.evaluate(() => getComputedStyle(document.body).fontFamily)).toContain(
     "Geist Variable",

@@ -109,7 +109,7 @@ export function TimerRecord({ busy, onArm }: TimerRecordProps) {
           onChange={(e) => setMin(e.target.value)}
           aria-label={`${label} minutes`}
           data-testid={`${testid}-min`}
-          className="w-12 rounded border border-[var(--border-strong)] bg-[var(--surface)] px-1.5 py-1 text-right text-xs text-[var(--text)]"
+          className="field w-12 px-1.5 py-1 text-right text-xs"
         />
         <span className="text-[10px] text-[var(--text-faint)]">m</span>
         <input
@@ -120,7 +120,7 @@ export function TimerRecord({ busy, onArm }: TimerRecordProps) {
           onChange={(e) => setSec(e.target.value)}
           aria-label={`${label} seconds`}
           data-testid={`${testid}-sec`}
-          className="w-12 rounded border border-[var(--border-strong)] bg-[var(--surface)] px-1.5 py-1 text-right text-xs text-[var(--text)]"
+          className="field w-12 px-1.5 py-1 text-right text-xs"
         />
         <span className="text-[10px] text-[var(--text-faint)]">s</span>
       </span>
@@ -137,11 +137,12 @@ export function TimerRecord({ busy, onArm }: TimerRecordProps) {
         title="Record unattended — start after a delay, stop after a duration"
         disabled={busy}
         onClick={() => setOpen((v) => !v)}
+        // 7px / 3px, not 8 / 4: the recipe's 1px border is new, and the
+        // button keeps the box it had.
         className="
-          rounded px-2 py-1 text-sm font-medium
-          bg-neutral-700 text-neutral-300
+          btn-secondary
+          rounded-md px-[7px] py-[3px] text-sm font-medium
           transition
-          hover:bg-neutral-600
           disabled:cursor-not-allowed disabled:opacity-40
         "
       >
@@ -155,7 +156,7 @@ export function TimerRecord({ busy, onArm }: TimerRecordProps) {
             absolute right-0 top-full z-50 mt-1 w-64
             rounded-md border border-[var(--border-strong)]
             bg-[var(--surface-elev)] p-3
-            shadow-[0_10px_30px_-10px_rgba(0,0,0,0.6)]
+            shadow-(--shadow-pop)
           "
         >
           <p className="mb-2 font-mono text-[9px] uppercase tracking-[0.18em] text-[var(--text-faint)]">
@@ -186,12 +187,10 @@ export function TimerRecord({ busy, onArm }: TimerRecordProps) {
             disabled={!armed}
             onClick={arm}
             className="
-              mt-3 w-full rounded-md
-              bg-[var(--accent)] px-3 py-1.5
-              text-sm font-medium text-[var(--onyx-0,#07080b)]
+              btn-primary
+              mt-3 w-full px-3 py-1.5
+              text-sm
               transition
-              hover:bg-[#ffa05f]
-              disabled:cursor-not-allowed disabled:opacity-40
             "
           >
             Arm

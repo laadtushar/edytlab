@@ -195,7 +195,7 @@ export function TranscriptPane({
               padding: "1px 2px",
               borderRadius: 2,
               background: selected ? "var(--accent)" : "transparent",
-              color: selected ? "var(--onyx-0, #07080b)" : "inherit",
+              color: selected ? "var(--accent-fg)" : "inherit",
               // A word the model was unsure of is worth seeing before
               // you cut around it.
               opacity: w.confidence < 0.5 ? 0.55 : 1,

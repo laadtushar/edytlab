@@ -7,8 +7,6 @@ import App from "./App";
 // Tailwind's expanded rules and is dropped.
 import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
-import "@fontsource/instrument-serif/400.css";
-import "@fontsource/instrument-serif/400-italic.css";
 import "./styles.css";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

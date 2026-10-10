@@ -1,8 +1,8 @@
 /**
  * The empty state is the first thing a new user reads, and it made three
- * claims: which formats load, which key opens a file, and (visually) that
- * the wordmark is set in the display serif. Two were wrong and the third
- * never took effect.
+ * claims: which formats load, which key opens a file, and (visually) what
+ * the wordmark is. The first two were wrong; the third was a display
+ * serif that never took effect and is now the site's own lockup.
  */
 
 import { render, screen } from "@testing-library/react";
@@ -79,17 +79,26 @@ describe("EmptyState", () => {
   });
 
   /**
-   * A class assertion rather than a visual one, deliberately: jsdom
-   * applies no CSS, so the rendered font cannot be observed here.
-   *
-   * `font-[var(--x)]` is ambiguous in Tailwind — it cannot infer whether
-   * an arbitrary value is a family or a weight, and resolved it as a
-   * weight, so the wordmark silently rendered in the body face. The
-   * `family-name:` hint is what disambiguates it, and this pins it.
+   * The wordmark is the logo mark and the name, as on the site. The name
+   * of the heading must stay "edytlab" (the mark is decorative, so it is
+   * `aria-hidden` and sits beside the heading, not in it), and "edyt" is
+   * the brand gradient. A structural assertion rather than a visual one,
+   * deliberately: jsdom applies no CSS. The face the heading is drawn in
+   * is checked in a real browser, by `e2e/fonts.spec.ts`.
    */
-  it("uses the family-name hint so the serif face actually applies", () => {
+  it("is named edytlab, with the decorative logo mark outside the heading", () => {
     const { container } = render(<EmptyState onOpen={() => {}} />);
-    const h1 = container.querySelector("h1");
-    expect(h1?.className).toContain("font-[family-name:var(--font-serif)]");
+    const h1 = screen.getByRole("heading", { level: 1, name: "edytlab" });
+
+    // Found by its own hook: the folder icon on the Open Audio button is
+    // also an `svg[aria-hidden]`, and would satisfy a looser selector.
+    const mark = container.querySelector("[data-logo-bar]")?.closest("svg") ?? null;
+    expect(mark, "the logo mark").not.toBeNull();
+    expect(mark?.getAttribute("aria-hidden")).toBe("true");
+    expect(mark?.getAttribute("focusable")).toBe("false");
+    expect(h1.contains(mark), "the mark must not be part of the heading's name").toBe(false);
+
+    const emphasis = h1.querySelector(".gradient-text");
+    expect(emphasis?.textContent).toBe("edyt");
   });
 });

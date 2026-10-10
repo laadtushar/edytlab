@@ -131,7 +131,7 @@ export function LabelLane({
         alignItems: "stretch",
         height: 28,
         borderTop: "1px solid var(--border)",
-        background: "var(--surface-elev, rgba(255,255,255,0.02))",
+        background: "var(--surface-elev)",
         flexShrink: 0,
       }}
     >
@@ -248,7 +248,7 @@ export function LabelLane({
                       fontFamily: "var(--font-mono)",
                       padding: "1px 5px",
                       background: "var(--accent)",
-                      color: "var(--onyx-0, #07080b)",
+                      color: "var(--accent-fg)",
                       border: "none",
                       borderRadius: 2,
                       whiteSpace: "nowrap",

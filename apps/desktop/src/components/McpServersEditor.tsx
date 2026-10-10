@@ -177,7 +177,7 @@ export function McpServersEditor() {
             type="button"
             data-testid="mcp-new"
             onClick={newServer}
-            className="rounded border border-[var(--border-strong)] px-2 py-0.5 text-[10px] uppercase tracking-wider text-[var(--text-dim)] transition hover:border-[var(--accent)]/50 hover:text-[var(--accent)]"
+            className="btn-secondary rounded px-2 py-0.5 text-[10px] uppercase tracking-wider transition"
           >
             New
           </button>
@@ -216,7 +216,7 @@ export function McpServersEditor() {
                     className={
                       "block w-full truncate px-2 py-1.5 text-left text-xs transition " +
                       (isEditingRow
-                        ? "text-[var(--accent)]"
+                        ? "text-[var(--accent-text)]"
                         : "text-[var(--text-dim)] hover:text-[var(--text)]")
                     }
                   >
@@ -235,7 +235,7 @@ export function McpServersEditor() {
                     type="button"
                     data-testid={`mcp-restart-${s.id}`}
                     onClick={() => void handleRestart(s.id)}
-                    className="ml-2 mb-1 rounded border border-[var(--border-strong)] px-1.5 py-0 text-[9px] uppercase tracking-wider text-[var(--text-dim)] transition hover:border-[var(--accent)]/50 hover:text-[var(--accent)]"
+                    className="ml-2 mb-1 btn-secondary rounded px-1.5 py-0 text-[9px] uppercase tracking-wider transition"
                   >
                     Restart
                   </button>
@@ -287,7 +287,7 @@ export function McpServersEditor() {
                 type="button"
                 data-testid="mcp-delete"
                 onClick={() => void handleDelete()}
-                className="rounded-md border border-[var(--danger)]/40 px-3 py-1 text-xs text-[var(--danger)] transition hover:bg-[var(--danger)]/10"
+                className="btn-danger rounded-md px-3 py-1 text-xs transition"
               >
                 Delete
               </button>
@@ -302,7 +302,7 @@ export function McpServersEditor() {
                 editor.entry.id.trim() === ""
               }
               onClick={() => void handleSave()}
-              className="rounded-md bg-[var(--accent)] px-3 py-1 text-xs font-medium text-[var(--bg)] shadow-[0_4px_12px_-4px_var(--accent-glow)] transition hover:bg-[#ffa05f] disabled:cursor-not-allowed disabled:bg-[var(--surface-elev-2)] disabled:text-[var(--text-faint)] disabled:shadow-none"
+              className="btn-primary px-3 py-1 text-xs transition"
             >
               {saving ? "Saving…" : "Save"}
             </button>
@@ -362,7 +362,7 @@ function McpServerForm({ entry, isNew, onChange }: FormProps) {
           disabled={!isNew}
           onChange={(e) => onChange({ ...entry, id: e.target.value })}
           placeholder="github"
-          className="w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1 font-mono text-xs text-[var(--text)] outline-none transition focus:border-[var(--accent)]/55 focus:shadow-[0_0_0_3px_var(--accent-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+          className="field w-full px-2 py-1 font-mono text-xs outline-none transition disabled:cursor-not-allowed disabled:opacity-60"
         />
       </Row>
       <Row label="Transport">
@@ -375,7 +375,7 @@ function McpServerForm({ entry, isNew, onChange }: FormProps) {
               transport: e.target.value as McpTransport,
             })
           }
-          className="w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--text)] outline-none transition focus:border-[var(--accent)]/55"
+          className="field w-full px-2 py-1 text-xs outline-none transition"
         >
           <option value="stdio">stdio (local subprocess)</option>
           <option value="sse">remote (HTTP)</option>
@@ -392,7 +392,7 @@ function McpServerForm({ entry, isNew, onChange }: FormProps) {
                 onChange({ ...entry, command: e.target.value })
               }
               placeholder="npx"
-              className="w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1 font-mono text-xs text-[var(--text)] outline-none transition focus:border-[var(--accent)]/55"
+              className="field w-full px-2 py-1 font-mono text-xs outline-none transition"
             />
           </Row>
           <Row label="Args (one per line)">
@@ -405,7 +405,7 @@ function McpServerForm({ entry, isNew, onChange }: FormProps) {
               }}
               rows={3}
               placeholder="-y\n@modelcontextprotocol/server-github"
-              className="w-full resize-y rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1 font-mono text-xs text-[var(--text)] outline-none transition focus:border-[var(--accent)]/55"
+              className="field w-full resize-y px-2 py-1 font-mono text-xs outline-none transition"
             />
           </Row>
           <Row label="Env (KEY=value per line; secrets as <keychain:slot>)">
@@ -418,7 +418,7 @@ function McpServerForm({ entry, isNew, onChange }: FormProps) {
               }}
               rows={3}
               placeholder="GITHUB_TOKEN=<keychain:github_token>"
-              className="w-full resize-y rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1 font-mono text-xs text-[var(--text)] outline-none transition focus:border-[var(--accent)]/55"
+              className="field w-full resize-y px-2 py-1 font-mono text-xs outline-none transition"
             />
           </Row>
         </>
@@ -431,7 +431,7 @@ function McpServerForm({ entry, isNew, onChange }: FormProps) {
               value={entry.url}
               onChange={(e) => onChange({ ...entry, url: e.target.value })}
               placeholder="https://mcp.example.com/mcp"
-              className="w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1 font-mono text-xs text-[var(--text)] outline-none transition focus:border-[var(--accent)]/55"
+              className="field w-full px-2 py-1 font-mono text-xs outline-none transition"
             />
           </Row>
           <Row label="Headers (Name: value per line)">
@@ -443,7 +443,7 @@ function McpServerForm({ entry, isNew, onChange }: FormProps) {
                 onChange({ ...entry, headers: parseKv(e.target.value, ":") });
               }}
               rows={3}
-              className="w-full resize-y rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1 font-mono text-xs text-[var(--text)] outline-none transition focus:border-[var(--accent)]/55"
+              className="field w-full resize-y px-2 py-1 font-mono text-xs outline-none transition"
             />
           </Row>
         </>

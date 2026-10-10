@@ -36,7 +36,7 @@ export function ErrorBanner({
         app-fade-in
         flex items-center gap-3
         border-b border-[var(--border-strong)]
-        bg-[linear-gradient(180deg,rgba(239,111,114,0.10),rgba(239,111,114,0.04))]
+        bg-[var(--danger-soft)]
         px-4 py-2.5
         text-sm
       "
@@ -45,7 +45,7 @@ export function ErrorBanner({
         aria-hidden="true"
         className="
           flex h-6 w-6 shrink-0 items-center justify-center
-          rounded-full border border-[var(--danger)]/40 bg-[var(--danger)]/15
+          rounded-full border border-[var(--danger-border)] bg-[var(--danger)]/15
           font-mono text-[var(--danger)] text-[11px] font-semibold
         "
       >
@@ -57,14 +57,11 @@ export function ErrorBanner({
           type="button"
           onClick={action.onClick}
           className="
-            shrink-0 rounded-md
-            border border-[var(--accent)]/45
-            bg-[var(--accent-soft)]
+            btn-secondary shrink-0 rounded-md
             px-3 py-1
             font-mono text-[11px] uppercase tracking-wider
-            text-[var(--accent)]
+            text-[var(--accent-text)]
             transition
-            hover:bg-[var(--accent)]/22 hover:border-[var(--accent)]/70
           "
         >
           {action.label}

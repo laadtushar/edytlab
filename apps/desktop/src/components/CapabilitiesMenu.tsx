@@ -148,7 +148,7 @@ export function CapabilitiesMenu({ open, onClose }: CapabilitiesMenuProps) {
         w-72 max-h-80 overflow-y-auto
         rounded-lg border border-[var(--border-strong)]
         bg-[var(--surface-elev)]
-        p-2 shadow-[0_10px_30px_-10px_rgba(0,0,0,0.6)]
+        p-2 shadow-(--shadow-pop)
       "
     >
       {error ? (

@@ -879,15 +879,15 @@ export function Settings({
           relative flex max-h-[calc(100vh-2rem)] w-[30rem] max-w-[90vw] flex-col overflow-hidden
           rounded-xl border border-[var(--border-strong)]
           bg-[var(--surface-elev)]
-          shadow-[0_30px_80px_-20px_rgba(0,0,0,0.7),0_0_0_1px_rgba(255,255,255,0.02)_inset]
+          shadow-(--shadow-dialog)
         "
       >
         <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-5 py-4">
           <div className="flex items-baseline gap-2">
-            <h2 className="font-[family-name:var(--font-serif)] text-2xl leading-none text-[var(--text)]">
+            <h2 className="text-lg font-semibold leading-none tracking-tight text-[var(--text)]">
               {mode === "blocking" ? (
                 <>
-                  <span className="italic text-[var(--accent)]">Welcome</span>{" "}
+                  <span className="gradient-text">Welcome</span>{" "}
                   to edytlab
                 </>
               ) : (
@@ -901,12 +901,7 @@ export function Settings({
               onClick={onClose}
               data-testid="settings-close"
               aria-label="Close settings"
-              className="
-                rounded-md p-1.5
-                text-[var(--text-dim)]
-                hover:bg-[var(--surface-elev-2)] hover:text-[var(--text)]
-                transition
-              "
+              className="btn-ghost rounded-md p-1.5 transition"
             >
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
                 <path d="M3 3l8 8M11 3l-8 8" />
@@ -1029,15 +1024,12 @@ export function Settings({
                   onChange={e => setPluginSource(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && void handleInstallPlugin()}
                   className="
+                    field
                     w-full
-                    rounded-md border border-[var(--border-strong)]
-                    bg-[var(--surface)]
-                    px-3 py-2 text-sm font-mono text-[var(--text)]
+                    px-3 py-2 text-sm font-mono
                     outline-none
                     transition
-                    placeholder:text-[var(--text-faint)] placeholder:font-sans
-                    focus:border-[var(--accent)]/55
-                    focus:shadow-[0_0_0_3px_var(--accent-soft)]
+                    placeholder:font-sans
                   "
                 />
                 <button
@@ -1045,17 +1037,7 @@ export function Settings({
                   data-testid="plugin-install-btn"
                   onClick={() => void handleInstallPlugin()}
                   disabled={pluginInstalling || !pluginSource.trim()}
-                  className="
-                    rounded-md
-                    bg-[var(--accent)]
-                    px-4 py-1.5
-                    text-sm font-medium text-[var(--bg)]
-                    shadow-[0_4px_12px_-4px_var(--accent-glow)]
-                    transition
-                    hover:bg-[#ffa05f]
-                    disabled:cursor-not-allowed disabled:bg-[var(--surface-elev-2)] disabled:text-[var(--text-faint)] disabled:shadow-none
-                    whitespace-nowrap
-                  "
+                  className="btn-primary whitespace-nowrap px-4 py-1.5 text-sm transition"
                 >
                   {pluginInstalling ? 'Installing…' : 'Install'}
                 </button>
@@ -1109,7 +1091,7 @@ export function Settings({
                   className={
                     "flex cursor-pointer items-center justify-center gap-2 rounded-md border px-2 py-2 text-sm transition " +
                     (provider === p.id
-                      ? "border-[var(--accent)]/55 bg-[var(--accent-soft)] text-[var(--accent)]"
+                      ? "border-[var(--accent-border)] bg-[var(--accent-soft)] text-[var(--accent-text)]"
                       : "border-[var(--border-strong)] text-[var(--text-dim)] hover:border-[var(--text-faint)] hover:text-[var(--text)]")
                   }
                 >
@@ -1148,15 +1130,12 @@ export function Settings({
             data-testid="settings-key-input"
             aria-label={`${activeProviderEntry.label} API key`}
             className="
+              field
               mb-2 w-full
-              rounded-md border border-[var(--border-strong)]
-              bg-[var(--surface)]
-              px-3 py-2 text-sm font-mono text-[var(--text)]
+              px-3 py-2 text-sm font-mono
               outline-none
               transition
-              placeholder:text-[var(--text-faint)] placeholder:font-sans
-              focus:border-[var(--accent)]/55
-              focus:shadow-[0_0_0_3px_var(--accent-soft)]
+              placeholder:font-sans
             "
           />
 
@@ -1183,7 +1162,7 @@ export function Settings({
               href={activeProviderEntry.keysUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[var(--accent)] hover:underline"
+              className="link-accent"
             >
               How to get a key →
             </a>
@@ -1193,12 +1172,10 @@ export function Settings({
               disabled={testDisabled}
               data-testid="settings-test-button"
               className="
-                rounded border border-[var(--border-strong)]
-                bg-[var(--surface)]
+                btn-tool rounded
                 px-2.5 py-1
-                font-mono text-[10px] uppercase tracking-wider text-[var(--text-dim)]
+                font-mono text-[10px] uppercase tracking-wider
                 transition
-                hover:border-[var(--accent)]/50 hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]
                 disabled:cursor-not-allowed disabled:opacity-50
               "
             >
@@ -1286,15 +1263,11 @@ export function Settings({
             autoComplete="off"
             placeholder={defaultBaseUrl}
             className="
+              field
               mb-1 w-full
-              rounded-md border border-[var(--border-strong)]
-              bg-[var(--surface)]
-              px-3 py-2 text-sm font-mono text-[var(--text)]
+              px-3 py-2 text-sm font-mono
               outline-none
               transition
-              placeholder:text-[var(--text-faint)]
-              focus:border-[var(--accent)]/55
-              focus:shadow-[0_0_0_3px_var(--accent-soft)]
             "
           />
           {baseUrlUnread !== null && !baseUrlKnown ? (
@@ -1332,15 +1305,11 @@ export function Settings({
             aria-label="Model"
             placeholder={DEFAULT_MODEL_BY_PROVIDER[provider]}
             className="
+              field
               mb-1 w-full
-              rounded-md border border-[var(--border-strong)]
-              bg-[var(--surface)]
-              px-3 py-2 text-sm font-mono text-[var(--text)]
+              px-3 py-2 text-sm font-mono
               outline-none
               transition
-              placeholder:text-[var(--text-faint)]
-              focus:border-[var(--accent)]/55
-              focus:shadow-[0_0_0_3px_var(--accent-soft)]
             "
           />
           <datalist id="settings-model-suggestions" data-testid="settings-model-datalist">
@@ -1413,14 +1382,11 @@ export function Settings({
                 data-testid="settings-effort-select"
                 aria-label="Reasoning effort"
                 className="
+                  field
                   mb-1 w-full
-                  rounded-md border border-[var(--border-strong)]
-                  bg-[var(--surface)]
-                  px-3 py-2 text-sm text-[var(--text)]
+                  px-3 py-2 text-sm
                   outline-none
                   transition
-                  focus:border-[var(--accent)]/55
-                  focus:shadow-[0_0_0_3px_var(--accent-soft)]
                 "
               >
                 {EFFORT_OPTIONS.map((o) => (
@@ -1476,12 +1442,7 @@ export function Settings({
                   type="button"
                   onClick={handleClear}
                   data-testid="settings-clear-button"
-                  className="
-                    rounded-md border border-[var(--danger)]/40
-                    px-3 py-1.5 text-sm text-[var(--danger)]
-                    transition
-                    hover:bg-[var(--danger)]/10
-                  "
+                  className="btn-danger rounded-md px-3 py-1.5 text-sm transition"
                 >
                   Clear key
                 </button>
@@ -1493,16 +1454,7 @@ export function Settings({
                 onClick={handleSave}
                 disabled={saveDisabled}
                 data-testid="settings-save-button"
-                className="
-                  rounded-md
-                  bg-[var(--accent)]
-                  px-4 py-1.5
-                  text-sm font-medium text-[var(--bg)]
-                  shadow-[0_4px_12px_-4px_var(--accent-glow)]
-                  transition
-                  hover:bg-[#ffa05f]
-                  disabled:cursor-not-allowed disabled:bg-[var(--surface-elev-2)] disabled:text-[var(--text-faint)] disabled:shadow-none
-                "
+                className="btn-primary px-4 py-1.5 text-sm transition"
               >
                 {saving ? "Saving…" : "Save & Continue"}
               </button>
@@ -1554,10 +1506,14 @@ function SettingsTabButton({
         onClick();
       }}
       className={
-        "shrink-0 whitespace-nowrap rounded-t-md border-b-2 px-2 py-1.5 text-sm transition " +
+        // The selected bar is `.tab-indicator`'s pseudo-element, not a
+        // border, so it adds no height: `pb-2` is the old `py-1.5` plus
+        // the 2px the border took, and the strip is the size it was. No
+        // weight change either, which would move every tab beside it.
+        "tab-indicator shrink-0 whitespace-nowrap rounded-t-md px-2 pb-2 pt-1.5 text-sm transition " +
         (active
-          ? "border-[var(--accent)] text-[var(--text)]"
-          : "border-transparent text-[var(--text-dim)] hover:text-[var(--text)]")
+          ? "text-[var(--text)]"
+          : "text-[var(--text-dim)] hover:text-[var(--text)]")
       }
     >
       {label}

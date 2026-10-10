@@ -164,7 +164,7 @@ export function AgentProfilesEditor() {
             type="button"
             data-testid="profiles-new"
             onClick={newProfile}
-            className="rounded border border-[var(--border-strong)] px-2 py-0.5 text-[10px] uppercase tracking-wider text-[var(--text-dim)] transition hover:border-[var(--accent)]/50 hover:text-[var(--accent)]"
+            className="btn-secondary rounded px-2 py-0.5 text-[10px] uppercase tracking-wider transition"
           >
             New
           </button>
@@ -198,7 +198,7 @@ export function AgentProfilesEditor() {
                     className={
                       "block w-full truncate px-2 py-1.5 text-left text-xs transition " +
                       (isEditingRow
-                        ? "bg-[var(--accent-soft)] text-[var(--accent)]"
+                        ? "bg-[var(--accent-soft)] text-[var(--accent-text)]"
                         : "text-[var(--text-dim)] hover:bg-[var(--surface-elev-2)] hover:text-[var(--text)]")
                     }
                   >
@@ -209,7 +209,7 @@ export function AgentProfilesEditor() {
                       {isActiveRow ? (
                         <span
                           data-testid={`profiles-active-badge-${p.name}`}
-                          className="rounded bg-[var(--accent)]/20 px-1 text-[9px] uppercase tracking-wider text-[var(--accent)]"
+                          className="rounded bg-[var(--accent)]/20 px-1 text-[9px] uppercase tracking-wider text-[var(--accent-text)]"
                         >
                           active
                         </span>
@@ -272,7 +272,7 @@ export function AgentProfilesEditor() {
                 type="button"
                 data-testid="profiles-delete"
                 onClick={() => void handleDelete()}
-                className="rounded-md border border-[var(--danger)]/40 px-3 py-1 text-xs text-[var(--danger)] transition hover:bg-[var(--danger)]/10"
+                className="btn-danger rounded-md px-3 py-1 text-xs transition"
               >
                 Delete
               </button>
@@ -287,7 +287,7 @@ export function AgentProfilesEditor() {
                 editor.content.name.trim() === ""
               }
               onClick={() => void handleSave()}
-              className="rounded-md bg-[var(--accent)] px-3 py-1 text-xs font-medium text-[var(--bg)] shadow-[0_4px_12px_-4px_var(--accent-glow)] transition hover:bg-[#ffa05f] disabled:cursor-not-allowed disabled:bg-[var(--surface-elev-2)] disabled:text-[var(--text-faint)] disabled:shadow-none"
+              className="btn-primary px-3 py-1 text-xs transition"
             >
               {saving ? "Saving…" : "Save"}
             </button>
@@ -362,7 +362,7 @@ function ProfileForm({
           disabled={!isNew}
           onChange={(e) => onChange({ ...content, name: e.target.value })}
           placeholder="precision-editor"
-          className="w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1 font-mono text-xs text-[var(--text)] outline-none transition focus:border-[var(--accent)]/55 focus:shadow-[0_0_0_3px_var(--accent-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+          className="field w-full px-2 py-1 font-mono text-xs outline-none transition disabled:cursor-not-allowed disabled:opacity-60"
         />
       </Row>
       <Row label="Description">
@@ -373,7 +373,7 @@ function ProfileForm({
           onChange={(e) =>
             onChange({ ...content, description: e.target.value })
           }
-          className="w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--text)] outline-none transition focus:border-[var(--accent)]/55"
+          className="field w-full px-2 py-1 text-xs outline-none transition"
         />
       </Row>
       <Row label="Model override (optional)">
@@ -388,7 +388,7 @@ function ProfileForm({
               setModelProvider(provider);
               onChange({ ...content, model: coerceModel(provider, modelId) });
             }}
-            className="rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1 font-mono text-xs text-[var(--text)] outline-none transition focus:border-[var(--accent)]/55"
+            className="field px-2 py-1 font-mono text-xs outline-none transition"
           />
           <input
             type="text"
@@ -400,7 +400,7 @@ function ProfileForm({
               setModelId(id);
               onChange({ ...content, model: coerceModel(modelProvider, id) });
             }}
-            className="rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1 font-mono text-xs text-[var(--text)] outline-none transition focus:border-[var(--accent)]/55"
+            className="field px-2 py-1 font-mono text-xs outline-none transition"
           />
         </div>
       </Row>
@@ -427,7 +427,7 @@ function ProfileForm({
             onChange({ ...content, tools: parsed.length === 0 ? null : parsed });
           }}
           placeholder="load, gain, normalize"
-          className="w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1 font-mono text-xs text-[var(--text)] outline-none transition focus:border-[var(--accent)]/55"
+          className="field w-full px-2 py-1 font-mono text-xs outline-none transition"
         />
       </Row>
       <Row label="Active">
@@ -449,7 +449,7 @@ function ProfileForm({
           onChange={(e) => onChange({ ...content, body: e.target.value })}
           rows={10}
           placeholder="You are a precision audio editor. Confirm any destructive operation…"
-          className="w-full resize-y rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1 font-mono text-xs text-[var(--text)] outline-none transition focus:border-[var(--accent)]/55"
+          className="field w-full resize-y px-2 py-1 font-mono text-xs outline-none transition"
         />
       </Row>
     </div>

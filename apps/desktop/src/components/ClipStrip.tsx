@@ -339,7 +339,7 @@ export function ClipStrip({
                   ? "var(--accent)"
                   : "var(--border-strong)",
                 borderRadius: 3,
-                color: selected ? "var(--accent)" : "var(--text-dim)",
+                color: selected ? "var(--accent-text)" : "var(--text-dim)",
                 fontFamily: "var(--font-mono)",
                 fontSize: 9,
                 textAlign: "left",

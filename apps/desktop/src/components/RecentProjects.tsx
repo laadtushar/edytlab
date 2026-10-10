@@ -75,9 +75,9 @@ export function RecentProjects({
           key={p.path}
           data-testid="recent-project-row"
           className="
-            group flex items-center gap-3 rounded-md
+            group flex items-center gap-3 rounded-lg
             border border-transparent px-3 py-2 text-left
-            transition hover:border-[var(--border-strong)] hover:bg-[var(--surface-elev)]
+            transition hover:border-[var(--accent-border)] hover:bg-[var(--surface-elev)]
           "
         >
           <button

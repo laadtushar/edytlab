@@ -112,7 +112,7 @@ export function ToolProgressBar() {
           gap: 10,
           padding: "6px 12px",
           borderBottom: "1px solid var(--border)",
-          background: "var(--surface-elev, rgba(255,255,255,0.03))",
+          background: "var(--surface-elev)",
           fontSize: 12,
         }}
       >
@@ -140,7 +140,7 @@ export function ToolProgressBar() {
         {refused > 0 ? (
           <span
             data-testid="tool-progress-refused"
-            style={{ color: "var(--warn, #e0a03a)" }}
+            style={{ color: "var(--warning)" }}
           >
             {refused} refused
           </span>
@@ -160,7 +160,8 @@ export function ToolProgressBar() {
             style={{
               width: `${pct}%`,
               height: "100%",
-              background: "var(--accent)",
+              // The site's scroll-progress bar: the brand gradient.
+              background: "var(--gradient-brand)",
               // Was a hard-coded 200ms/ease. Same timing, named — this
               // is the vocabulary's "something arriving", which is what
               // a bar advancing to a new position is.

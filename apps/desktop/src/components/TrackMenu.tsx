@@ -123,7 +123,7 @@ export function TrackMenu({
             background: "var(--surface-elev-2)",
             border: "1px solid var(--border-strong)",
             borderRadius: 6,
-            boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
+            boxShadow: "var(--shadow-pop)",
             zIndex: 20,
             padding: 4,
           }}
@@ -186,7 +186,7 @@ export function TrackMenu({
             type="button"
             role="menuitem"
             data-testid={`track-remove-${trackIndex}`}
-            style={{ ...itemStyle, color: "var(--danger, #ff6b6b)" }}
+            style={{ ...itemStyle, color: "var(--danger)" }}
             onClick={() => {
               onRemove(trackIndex);
               close();

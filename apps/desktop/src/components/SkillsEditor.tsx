@@ -144,7 +144,7 @@ export function SkillsEditor() {
             type="button"
             data-testid="skills-new"
             onClick={newSkill}
-            className="rounded border border-[var(--border-strong)] px-2 py-0.5 text-[10px] uppercase tracking-wider text-[var(--text-dim)] transition hover:border-[var(--accent)]/50 hover:text-[var(--accent)]"
+            className="btn-secondary rounded px-2 py-0.5 text-[10px] uppercase tracking-wider transition"
           >
             New
           </button>
@@ -177,7 +177,7 @@ export function SkillsEditor() {
                     className={
                       "block w-full truncate px-2 py-1.5 text-left text-xs transition " +
                       (active
-                        ? "bg-[var(--accent-soft)] text-[var(--accent)]"
+                        ? "bg-[var(--accent-soft)] text-[var(--accent-text)]"
                         : "text-[var(--text-dim)] hover:bg-[var(--surface-elev-2)] hover:text-[var(--text)]")
                     }
                   >
@@ -237,7 +237,7 @@ export function SkillsEditor() {
                 type="button"
                 data-testid="skills-delete"
                 onClick={() => void handleDelete()}
-                className="rounded-md border border-[var(--danger)]/40 px-3 py-1 text-xs text-[var(--danger)] transition hover:bg-[var(--danger)]/10"
+                className="btn-danger rounded-md px-3 py-1 text-xs transition"
               >
                 Delete
               </button>
@@ -252,7 +252,7 @@ export function SkillsEditor() {
                 editor.content.name.trim() === ""
               }
               onClick={() => void handleSave()}
-              className="rounded-md bg-[var(--accent)] px-3 py-1 text-xs font-medium text-[var(--bg)] shadow-[0_4px_12px_-4px_var(--accent-glow)] transition hover:bg-[#ffa05f] disabled:cursor-not-allowed disabled:bg-[var(--surface-elev-2)] disabled:text-[var(--text-faint)] disabled:shadow-none"
+              className="btn-primary px-3 py-1 text-xs transition"
             >
               {saving ? "Saving…" : "Save"}
             </button>
@@ -280,7 +280,7 @@ function SkillForm({ content, isNew, onChange }: SkillFormProps) {
           disabled={!isNew}
           onChange={(e) => onChange({ ...content, name: e.target.value })}
           placeholder="mixing-glossary"
-          className="w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1 font-mono text-xs text-[var(--text)] outline-none transition focus:border-[var(--accent)]/55 focus:shadow-[0_0_0_3px_var(--accent-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+          className="field w-full px-2 py-1 font-mono text-xs outline-none transition disabled:cursor-not-allowed disabled:opacity-60"
         />
       </Row>
       <Row label="Description">
@@ -291,7 +291,7 @@ function SkillForm({ content, isNew, onChange }: SkillFormProps) {
           onChange={(e) =>
             onChange({ ...content, description: e.target.value })
           }
-          className="w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--text)] outline-none transition focus:border-[var(--accent)]/55 focus:shadow-[0_0_0_3px_var(--accent-soft)]"
+          className="field w-full px-2 py-1 text-xs outline-none transition"
         />
       </Row>
       <Row label="Trigger">
@@ -304,7 +304,7 @@ function SkillForm({ content, isNew, onChange }: SkillFormProps) {
               trigger: e.target.value as SkillContent["trigger"],
             })
           }
-          className="w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--text)] outline-none transition focus:border-[var(--accent)]/55"
+          className="field w-full px-2 py-1 text-xs outline-none transition"
         >
           <option value="always">always</option>
           <option value="keywords">keywords</option>
@@ -327,7 +327,7 @@ function SkillForm({ content, isNew, onChange }: SkillFormProps) {
               })
             }
             placeholder="mix, sidechain, bus"
-            className="w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1 font-mono text-xs text-[var(--text)] outline-none transition focus:border-[var(--accent)]/55"
+            className="field w-full px-2 py-1 font-mono text-xs outline-none transition"
           />
         </Row>
       ) : null}
@@ -341,7 +341,7 @@ function SkillForm({ content, isNew, onChange }: SkillFormProps) {
               onChange({ ...content, pattern: e.target.value })
             }
             placeholder="[0-9]+\\s*db"
-            className="w-full rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1 font-mono text-xs text-[var(--text)] outline-none transition focus:border-[var(--accent)]/55"
+            className="field w-full px-2 py-1 font-mono text-xs outline-none transition"
           />
         </Row>
       ) : null}
@@ -364,7 +364,7 @@ function SkillForm({ content, isNew, onChange }: SkillFormProps) {
           value={content.body}
           onChange={(e) => onChange({ ...content, body: e.target.value })}
           rows={10}
-          className="w-full resize-y rounded-md border border-[var(--border-strong)] bg-[var(--surface)] px-2 py-1 font-mono text-xs text-[var(--text)] outline-none transition focus:border-[var(--accent)]/55"
+          className="field w-full resize-y px-2 py-1 font-mono text-xs outline-none transition"
         />
       </Row>
     </div>
