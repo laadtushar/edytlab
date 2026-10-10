@@ -184,6 +184,66 @@ fn the_active_provider_is_answered_when_the_keychain_was_read() {
     assert_eq!(active_provider_over_ipc(None), Ok("anthropic".to_string()));
 }
 
+/// #497 item 4. A restart from Settings after a startup the keychain
+/// refused would read the keychain for each reference the server has, and
+/// each is an unlock prompt. The server is not started, says why, and
+/// Settings' list shows it as an error with that reason.
+#[test]
+fn restarting_a_keychain_server_after_a_refused_startup_is_refused_with_a_reason() {
+    let state = AppState::new();
+    state.mcp_config.lock().unwrap().servers.insert(
+        "github".into(),
+        mcp::McpServerConfig::Stdio {
+            command: "/nonexistent/edytlab-test-no-such-command".into(),
+            args: vec![],
+            env: [(
+                "GITHUB_TOKEN".to_string(),
+                "<keychain:github_token>".to_string(),
+            )]
+            .into(),
+            enabled: true,
+        },
+    );
+    state.set_keychain_refused(true);
+    state.set_keychain_read_error(Some("locked".into()));
+    let app = mock_builder()
+        .manage(state)
+        .invoke_handler(tauri::generate_handler![
+            commands::restart_mcp_server,
+            commands::list_mcp_servers,
+        ])
+        .build(mock_context(noop_assets()))
+        .expect("mock app");
+    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .expect("webview");
+
+    let err = tauri::test::get_ipc_response(
+        &webview,
+        make_request("restart_mcp_server", json!({ "id": "github" })),
+    )
+    .expect_err("refused");
+    let err = err.as_str().expect("a string").to_string();
+    assert!(
+        err.contains("refused access") && err.contains("locked"),
+        "says why: {err}"
+    );
+
+    let list = tauri::test::get_ipc_response(&webview, make_request("list_mcp_servers", json!({})))
+        .expect("list")
+        .deserialize::<serde_json::Value>()
+        .expect("json");
+    assert_eq!(list[0]["id"], "github");
+    assert_eq!(list[0]["status"], "error", "the Settings badge");
+    assert!(
+        list[0]["last_error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("refused access"),
+        "{list}"
+    );
+}
+
 /// A mono 16-bit WAV of `frames` frames at 8 kHz, every sample 1000.
 fn write_wav(path: &std::path::Path, frames: u32) {
     let data_len = frames * 2;

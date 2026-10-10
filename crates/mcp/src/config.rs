@@ -88,6 +88,22 @@ impl McpServerConfig {
         }
     }
 
+    /// Whether starting this server reads the OS keychain: a stdio `env`
+    /// value, or a remote header value, that is a `<keychain:slot>`
+    /// placeholder. Those are the only places a placeholder is resolved
+    /// (see [`SecretRef`]).
+    ///
+    /// Each such value is a keychain read, and on a locked keyring each is
+    /// an unlock prompt, which is why a caller that knows the keychain
+    /// just refused access asks this before starting the server.
+    pub fn references_keychain(&self) -> bool {
+        let (McpServerConfig::Stdio { env: values, .. }
+        | McpServerConfig::Sse {
+            headers: values, ..
+        }) = self;
+        values.values().any(|v| SecretRef::parse(v).is_some())
+    }
+
     /// The same server with `enabled` forced off.
     ///
     /// A server config is a command line, and enabled servers are
@@ -213,6 +229,37 @@ mod tests {
         assert_eq!(SecretRef::parse("<keychain:slot>"), Some(SecretRef("slot")));
         assert_eq!(SecretRef::parse("plain"), None);
         assert_eq!(SecretRef::parse("<keychain:>"), None);
+    }
+
+    /// Only a value that is wholly a placeholder is resolved (see
+    /// `SecretRef::parse`), in a stdio `env` and in a remote header, and
+    /// nowhere else: not in `args`, not in the command or the URL.
+    #[test]
+    fn references_keychain_looks_where_secrets_are_resolved() {
+        let env = |v: &str| HashMap::from([("TOKEN".to_string(), v.to_string())]);
+        let stdio = |env: HashMap<String, String>, args: Vec<String>| McpServerConfig::Stdio {
+            command: "npx".into(),
+            args,
+            env,
+            enabled: true,
+        };
+        assert!(stdio(env("<keychain:github_token>"), vec![]).references_keychain());
+        assert!(!stdio(env("plain"), vec![]).references_keychain());
+        assert!(!stdio(HashMap::new(), vec![]).references_keychain());
+        // The placeholder syntax anywhere else is just text.
+        assert!(
+            !stdio(HashMap::new(), vec!["<keychain:github_token>".into()]).references_keychain()
+        );
+        assert!(!stdio(env("Bearer <keychain:github_token>"), vec![]).references_keychain());
+
+        let sse = |headers: HashMap<String, String>| McpServerConfig::Sse {
+            url: "https://mcp.example/<keychain:slot>".into(),
+            headers,
+            enabled: true,
+        };
+        assert!(sse(env("<keychain:remote_token>")).references_keychain());
+        assert!(!sse(env("plain")).references_keychain());
+        assert!(!sse(HashMap::new()).references_keychain());
     }
 
     /// The whole point of `disabled()`: a config arriving from an

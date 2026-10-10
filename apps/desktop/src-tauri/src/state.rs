@@ -59,6 +59,14 @@ pub struct AppState {
     /// reason rather than a first-run prompt for a key that is already
     /// there (#394). Cleared by the next successful key or provider save.
     pub keychain_read_error: Arc<Mutex<Option<String>>>,
+    /// Whether startup was *refused* by the keychain (locked, or an unlock
+    /// prompt dismissed), as opposed to merely failing a read. Every further
+    /// read would raise its own unlock prompt, so what would otherwise read
+    /// the keychain on its own, the autostart of MCP servers whose config
+    /// refers to it, skips instead (#497). Cleared with
+    /// [`Self::keychain_read_error`] by the next successful save, and
+    /// false again on every launch.
+    pub keychain_refused: Arc<std::sync::atomic::AtomicBool>,
     /// Stable id of the active provider (e.g. `"anthropic"` or
     /// `"openrouter"`). Defaults to `"anthropic"` when no preference is
     /// recorded — matches the pre-multi-provider behaviour.
@@ -158,6 +166,7 @@ impl AppState {
             project_dir: Arc::new(Mutex::new(None)),
             api_key: Arc::new(Mutex::new(None)),
             keychain_read_error: Arc::new(Mutex::new(None)),
+            keychain_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             active_provider: Arc::new(Mutex::new(ai::ANTHROPIC_ID.to_string())),
             active_model_by_provider: Arc::new(Mutex::new(std::collections::HashMap::new())),
             plan_notify: Arc::new(tokio::sync::Notify::new()),
@@ -456,6 +465,20 @@ impl AppState {
             .lock()
             .expect("keychain_read_error mutex poisoned")
             .clone()
+    }
+
+    /// Record whether the keychain refused access at startup. See
+    /// [`AppState::keychain_refused`].
+    pub fn set_keychain_refused(&self, refused: bool) {
+        self.keychain_refused
+            .store(refused, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Whether the keychain refused access at startup and nothing has
+    /// worked since.
+    pub fn keychain_refused(&self) -> bool {
+        self.keychain_refused
+            .load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// Replace the open store with `handle`. Pass `None` to clear it.

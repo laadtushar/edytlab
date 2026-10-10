@@ -713,6 +713,101 @@ describe("Settings", () => {
     await level.resolve("high");
   });
 
+  /** The field says why it is blank, so an empty box is not read as "none". */
+  it("says which settings could not be read, and why", async () => {
+    getBaseUrlForMock.mockRejectedValue("locked");
+    getEffortForMock.mockRejectedValue("locked");
+    render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
+
+    const url = await screen.findByTestId("settings-base-url-unread");
+    expect(url).toHaveTextContent("Save leaves it as it is");
+    expect(url).toHaveTextContent("locked");
+    expect(await screen.findByTestId("settings-effort-unread")).toHaveTextContent(
+      "locked",
+    );
+  });
+
+  it("shows no such note when both were read", async () => {
+    getBaseUrlForMock.mockResolvedValue("https://gateway.internal/v1");
+    getEffortForMock.mockResolvedValue("high");
+    render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("settings-effort-select")).toHaveValue("high"),
+    );
+    expect(screen.queryByTestId("settings-base-url-unread")).toBeNull();
+    expect(screen.queryByTestId("settings-effort-unread")).toBeNull();
+  });
+
+  /**
+   * Typing over a field that could not be read is a decision, not an
+   * accident: Save writes it, and the note about leaving it alone goes.
+   */
+  it("still saves a base URL and level the user set after their read failed", async () => {
+    getBaseUrlForMock.mockRejectedValue("locked");
+    getEffortForMock.mockRejectedValue("locked");
+    const user = userEvent.setup();
+    const onSaved = vi.fn();
+    render(<Settings mode="panel" onSaved={onSaved} onClose={vi.fn()} />);
+    await screen.findByTestId("settings-base-url-unread");
+
+    await user.type(
+      screen.getByTestId("settings-base-url-input"),
+      "http://localhost:1234/v1",
+    );
+    await user.selectOptions(screen.getByTestId("settings-effort-select"), "low");
+    expect(screen.queryByTestId("settings-base-url-unread")).toBeNull();
+    expect(screen.queryByTestId("settings-effort-unread")).toBeNull();
+    await user.type(screen.getByTestId("settings-key-input"), "sk-ant-good");
+    await user.click(screen.getByTestId("settings-save-button"));
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(setBaseUrlForMock).toHaveBeenCalledWith(
+      "anthropic",
+      "http://localhost:1234/v1",
+    );
+    expect(setEffortForMock).toHaveBeenCalledWith("anthropic", "low");
+  });
+
+  /** A read that worked and found nothing is "no override": clearing it is a write. */
+  it("still clears a base URL that was read and then emptied", async () => {
+    getBaseUrlForMock.mockResolvedValue("https://gateway.internal/v1");
+    const user = userEvent.setup();
+    const onSaved = vi.fn();
+    render(<Settings mode="panel" onSaved={onSaved} onClose={vi.fn()} />);
+    const input = await screen.findByTestId("settings-base-url-input");
+    await waitFor(() => expect(input).toHaveValue("https://gateway.internal/v1"));
+
+    await user.clear(input);
+    await user.type(screen.getByTestId("settings-key-input"), "sk-ant-good");
+    await user.click(screen.getByTestId("settings-save-button"));
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(setBaseUrlForMock).toHaveBeenCalledWith("anthropic", "");
+  });
+
+  /** Another provider's URL must not be saved under this one while its own is being read. */
+  it("does not carry a base URL across a provider switch before the new one is read", async () => {
+    getBaseUrlForMock.mockImplementation((p: string) =>
+      p === "anthropic"
+        ? Promise.resolve("https://gateway.internal/v1")
+        : new Promise(() => undefined),
+    );
+    const user = userEvent.setup();
+    const onSaved = vi.fn();
+    render(<Settings mode="panel" onSaved={onSaved} onClose={vi.fn()} />);
+    const input = await screen.findByTestId("settings-base-url-input");
+    await waitFor(() => expect(input).toHaveValue("https://gateway.internal/v1"));
+
+    await user.click(screen.getByTestId("settings-provider-groq"));
+    await waitFor(() => expect(input).toHaveValue(""));
+    await user.type(screen.getByTestId("settings-key-input"), "gsk_good");
+    await user.click(screen.getByTestId("settings-save-button"));
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(setBaseUrlForMock).not.toHaveBeenCalled();
+  });
+
   it("reports a failure to save the level instead of swallowing it", async () => {
     setEffortForMock.mockRejectedValue("unknown reasoning effort `x`");
     const user = userEvent.setup();

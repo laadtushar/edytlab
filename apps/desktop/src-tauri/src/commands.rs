@@ -455,9 +455,22 @@ pub async fn set_api_key_for(
 
 /// Read a provider's base-URL override, or `None` when it uses the
 /// built-in one.
+///
+/// Rejects when the keychain could not be read, which is not the same as
+/// `None`: Settings saves what it showed, and a blank it took for "no
+/// override" is sent back as a delete (#497).
 #[tauri::command]
 pub async fn get_base_url_for(provider: String) -> CmdResult<Option<String>> {
-    Ok(ai::keychain::load_base_url(&provider))
+    stored_setting(ai::keychain::try_load_base_url(&provider))
+}
+
+/// A stored setting as the frontend sees it: the value, or the reason the
+/// keychain could not be read, never `None` for a failure.
+///
+/// The reason alone, as [`has_key_answer`] gives it: Settings says the
+/// rest.
+fn stored_setting<T>(read: Result<Option<T>, ai::keychain::KeychainError>) -> CmdResult<Option<T>> {
+    read.map_err(|e| e.reason().to_string())
 }
 
 /// The URL a provider ships with, so the UI can show it as a placeholder
@@ -514,9 +527,13 @@ pub async fn set_base_url_for(
 /// Read a provider's reasoning effort as its wire string (`"low"`,
 /// `"medium"`, `"high"`, `"xhigh"` or `"max"`), or `None` for the
 /// model's own default.
+///
+/// Rejects when the keychain could not be read, for the reason
+/// [`get_base_url_for`] gives (#497).
 #[tauri::command]
 pub async fn get_effort_for(provider: String) -> CmdResult<Option<String>> {
-    Ok(ai::keychain::load_effort(&provider).map(|e| e.as_str().to_string()))
+    stored_setting(ai::keychain::try_load_effort(&provider))
+        .map(|level| level.map(|e| e.as_str().to_string()))
 }
 
 /// Validate a requested effort for `provider`. `None` (or blank) means
@@ -797,9 +814,25 @@ pub async fn list_providers() -> CmdResult<Vec<String>> {
 
 /// The active provider id. Defaults to `"anthropic"` for back-compat
 /// when no preference has been recorded yet.
+///
+/// Rejects while startup's keychain read is still unaccounted for
+/// ([`AppState::keychain_read_error`]): the default is then what was
+/// never read, not an answer. Settings would show it as the stored choice
+/// and its Save would write it over the real one (#497).
 #[tauri::command]
 pub async fn get_active_provider(state: State<'_, AppState>) -> CmdResult<String> {
-    Ok(state.active_provider_id())
+    active_provider_answer(state.keychain_read_error(), state.active_provider_id())
+}
+
+/// The answer to [`get_active_provider`], given what startup found.
+///
+/// The reason alone, as [`has_key_answer`] gives it: the banner that shows
+/// it already says the keychain could not be read.
+fn active_provider_answer(startup_error: Option<String>, active: String) -> CmdResult<String> {
+    match startup_error {
+        Some(e) => Err(e),
+        None => Ok(active),
+    }
 }
 
 /// Switch the active provider. Persists the choice and rebuilds the
@@ -3689,6 +3722,13 @@ pub async fn restart_mcp_server(state: State<'_, AppState>, id: String) -> CmdRe
             .cloned()
             .ok_or_else(|| CommandError::InvalidMcpServer(format!("server `{id}` not found")))?
     };
+    // Not while the keychain is refusing us (#497): starting it would be
+    // another unlock prompt per reference. The Save that makes the
+    // keychain readable again lifts this.
+    if let Some(reason) = mcp_skip_reason(&state, &server) {
+        state.mcp.record_failure(&id, &reason);
+        return Err(CommandError::InvalidMcpServer(reason).into());
+    }
     let resolve = |slot: &str| ai::keychain::load_api_key(slot);
     state
         .mcp
@@ -3708,13 +3748,51 @@ pub async fn restart_mcp_server(state: State<'_, AppState>, id: String) -> CmdRe
     Ok(())
 }
 
+/// Why `server` must not be started now, if it must not.
+///
+/// After a startup the keychain refused ([`AppState::keychain_refused`]),
+/// a server whose config refers to it (`<keychain:slot>`, see
+/// `McpServerConfig::references_keychain`) would read it again, and on a
+/// locked keyring that is another unlock prompt per reference, right
+/// after the user dismissed the first. Servers that do not refer to the
+/// keychain are unaffected.
+///
+/// The text is what Settings shows beside the server's `error` badge.
+fn mcp_skip_reason(state: &AppState, server: &mcp::McpServerConfig) -> Option<String> {
+    if !state.keychain_refused() || !server.references_keychain() {
+        return None;
+    }
+    let why = state
+        .keychain_read_error()
+        .map(|reason| format!(" ({reason})"))
+        .unwrap_or_default();
+    Some(format!(
+        "not started: the system keychain refused access at launch{why}, and this \
+         server takes a secret from it. Unlock your keyring and restart edytlab, or \
+         save your settings and restart this server."
+    ))
+}
+
 /// Start every enabled MCP server and register its tools.
 ///
 /// Called once at startup from `lib.rs::run`, off the setup thread.
 /// Failures are logged and recorded on the registry (so the Settings
 /// list shows an `error` badge with the reason) but never abort the
 /// sweep — one misconfigured server must not stop the others.
+///
+/// Servers that need the keychain are skipped, with the reason on the
+/// registry, when startup found it refusing access (see
+/// [`mcp_skip_reason`]).
 pub fn start_enabled_mcp_servers(state: &AppState) {
+    start_enabled_mcp_servers_with(state, ai::keychain::load_api_key);
+}
+
+/// [`start_enabled_mcp_servers`], with the keychain read passed in so the
+/// test can tell whether it was asked.
+pub(crate) fn start_enabled_mcp_servers_with(
+    state: &AppState,
+    resolve: impl Fn(&str) -> Option<String>,
+) {
     let servers = {
         let Ok(cfg) = state.mcp_config.lock() else {
             tracing::warn!("mcp_config mutex poisoned; skipping MCP autostart");
@@ -3728,7 +3806,12 @@ pub fn start_enabled_mcp_servers(state: &AppState) {
     };
 
     for (id, config) in servers {
-        match state.mcp.restart(&id, &config, ai::keychain::load_api_key) {
+        if let Some(reason) = mcp_skip_reason(state, &config) {
+            tracing::warn!(server = %id, %reason, "mcp: autostart skipped");
+            state.mcp.record_failure(&id, &reason);
+            continue;
+        }
+        match state.mcp.restart(&id, &config, |slot| resolve(slot)) {
             Ok(()) => match state.dispatcher.lock() {
                 Ok(mut dispatcher) => {
                     crate::mcp_tool::refresh_dispatcher_for_server(
@@ -3881,8 +3964,11 @@ pub(crate) fn load_startup_settings(
     }
     state.set_keychain_read_error(first_error);
     if !refused {
-        restore_models(state, load_model);
+        refused = restore_models(state, load_model);
     }
+    // What the MCP autostart asks before it reads the keychain for a
+    // server of its own (#497).
+    state.set_keychain_refused(refused);
 }
 
 /// A key or provider save went through, so the keychain is readable and
@@ -3896,14 +3982,18 @@ pub(crate) fn load_startup_settings(
 ///
 /// With nothing kept this reads nothing, so an ordinary save costs no
 /// extra keychain round trips.
+///
+/// The refusal startup recorded goes with the failure: MCP servers that
+/// were skipped for it can be restarted from Settings now.
 fn keychain_readable_again(
     state: &AppState,
     load_model: impl Fn(&str) -> Result<Option<String>, ai::keychain::KeychainError>,
 ) {
-    if state.keychain_read_error().is_none() {
+    if state.keychain_read_error().is_none() && !state.keychain_refused() {
         return;
     }
     state.set_keychain_read_error(None);
+    state.set_keychain_refused(false);
     restore_models(state, |id| {
         if state.model_for(id).is_some() {
             Ok(None)
@@ -3939,11 +4029,11 @@ fn note_startup_failure(
 ///
 /// A slot that cannot be read is skipped, except that a keychain which
 /// refused access ends the loop: the rest would be refused too, each
-/// with an unlock prompt of its own.
+/// with an unlock prompt of its own. Returns whether it did.
 pub(crate) fn restore_models(
     state: &AppState,
     load: impl Fn(&str) -> Result<Option<String>, ai::keychain::KeychainError>,
-) {
+) -> bool {
     for id in ai::SUPPORTED_PROVIDER_IDS {
         match load(id) {
             Ok(Some(model)) => state.set_model_for((*id).to_string(), model),
@@ -3951,11 +4041,12 @@ pub(crate) fn restore_models(
             Err(e) => {
                 tracing::warn!(provider = %id, error = %e, "could not read the chosen model from the keychain at startup");
                 if e.is_access_denied() {
-                    break;
+                    return true;
                 }
             }
         }
     }
+    false
 }
 
 // ---------------------------------------------------------------------------
@@ -5674,6 +5765,233 @@ mod tests {
         state.set_keychain_read_error(Some("locked".to_string()));
         load_startup_settings(&state, || Ok(None), |_| Ok(None), |_| Ok(None));
         assert_eq!(state.keychain_read_error(), None);
+    }
+
+    // ---- MCP servers after a refused startup (#497) ---------------------
+
+    use std::cell::RefCell;
+
+    fn stdio_server(command: &str, env: &[(&str, &str)]) -> mcp::McpServerConfig {
+        mcp::McpServerConfig::Stdio {
+            command: command.to_string(),
+            args: Vec::new(),
+            env: env
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            enabled: true,
+        }
+    }
+
+    /// A state with these servers registered, as `install_mcp` leaves it
+    /// after reading `mcp.json`.
+    fn state_with_servers(servers: &[(&str, mcp::McpServerConfig)]) -> AppState {
+        let state = AppState::default();
+        {
+            let mut cfg = state.mcp_config.lock().unwrap();
+            for (id, server) in servers {
+                cfg.servers.insert((*id).to_string(), server.clone());
+            }
+        }
+        state
+    }
+
+    /// Never run: the command does not exist, so a server that is
+    /// attempted fails to spawn, and a server that is skipped says why.
+    const NO_SUCH_COMMAND: &str = "/nonexistent/edytlab-test-no-such-command";
+
+    fn registry_view(state: &AppState, id: &str) -> mcp::McpServerSummary {
+        let cfg = state.mcp_config.lock().unwrap().servers[id].clone();
+        state.mcp.summary(id, &cfg)
+    }
+
+    /// The bug: a user who dismissed startup's unlock prompt got another
+    /// one for each MCP server whose env or headers refer to the keychain,
+    /// as the autostart resolved them. A server that does not refer to it
+    /// is not affected, and the skipped one shows its reason as an error.
+    #[test]
+    fn after_a_refused_startup_servers_that_need_the_keychain_are_not_started() {
+        let state = state_with_servers(&[
+            (
+                "github",
+                stdio_server(
+                    NO_SUCH_COMMAND,
+                    &[("GITHUB_TOKEN", "<keychain:github_token>")],
+                ),
+            ),
+            ("plain", stdio_server(NO_SUCH_COMMAND, &[("MODE", "fast")])),
+        ]);
+        load_startup_settings(
+            &state,
+            || Err(KeychainError::access_denied("locked")),
+            |_| Ok(None),
+            |_| Ok(None),
+        );
+        assert!(state.keychain_refused(), "precondition");
+
+        let asked = RefCell::new(Vec::new());
+        start_enabled_mcp_servers_with(&state, |slot| {
+            asked.borrow_mut().push(slot.to_string());
+            None
+        });
+
+        assert!(
+            asked.borrow().is_empty(),
+            "the keychain was not asked for {:?}",
+            asked.borrow()
+        );
+        let skipped = registry_view(&state, "github");
+        assert_eq!(skipped.status, mcp::McpServerStatus::Error);
+        let reason = skipped.last_error.expect("the reason is on the registry");
+        assert!(
+            reason.contains("refused access") && reason.contains("locked"),
+            "{reason}"
+        );
+
+        let tried = registry_view(&state, "plain");
+        assert_eq!(tried.status, mcp::McpServerStatus::Error);
+        assert!(
+            !tried.last_error.unwrap().contains("refused access"),
+            "a server with no reference to the keychain is started as ever; \
+             here that fails at the missing command"
+        );
+    }
+
+    /// And with a keychain that was read, nothing changes: the reference
+    /// is resolved, here to nothing, which is the server's own failure.
+    #[test]
+    fn after_a_clean_startup_servers_resolve_their_keychain_references() {
+        let state = state_with_servers(&[(
+            "github",
+            stdio_server(
+                NO_SUCH_COMMAND,
+                &[("GITHUB_TOKEN", "<keychain:github_token>")],
+            ),
+        )]);
+        load_startup_settings(&state, || Ok(None), |_| Ok(None), |_| Ok(None));
+        assert!(!state.keychain_refused());
+
+        let asked = RefCell::new(Vec::new());
+        start_enabled_mcp_servers_with(&state, |slot| {
+            asked.borrow_mut().push(slot.to_string());
+            None
+        });
+
+        assert_eq!(*asked.borrow(), vec!["github_token".to_string()]);
+        let reason = registry_view(&state, "github").last_error.unwrap();
+        assert!(!reason.contains("refused access"), "{reason}");
+    }
+
+    /// Only a refusal skips them. A read that failed for another reason
+    /// raises no prompt, so the servers go on as before.
+    #[test]
+    fn only_a_refusal_not_any_failed_read_is_recorded() {
+        let failed = AppState::default();
+        load_startup_settings(
+            &failed,
+            || Err(KeychainError::new("no secret service")),
+            |_| Ok(None),
+            |_| Ok(None),
+        );
+        assert!(failed.keychain_read_error().is_some(), "it did fail");
+        assert!(!failed.keychain_refused(), "but it was not a refusal");
+
+        let key_refused = AppState::default();
+        load_startup_settings(
+            &key_refused,
+            || Ok(None),
+            |_| Err(KeychainError::access_denied("dismissed")),
+            |_| Ok(None),
+        );
+        assert!(key_refused.keychain_refused());
+
+        // Refused only at the models, with the provider and key read: the
+        // keychain is refusing all the same, though there is no stash.
+        let models_refused = AppState::default();
+        load_startup_settings(
+            &models_refused,
+            || Ok(None),
+            |_| Ok(None),
+            |_| Err(KeychainError::access_denied("dismissed")),
+        );
+        assert_eq!(models_refused.keychain_read_error(), None);
+        assert!(models_refused.keychain_refused());
+    }
+
+    /// The flag clears with the stash, on the save that proves the
+    /// keychain works, and a launch starts without it.
+    #[test]
+    fn a_save_that_worked_lifts_the_refusal_and_a_new_launch_starts_clean() {
+        let state = AppState::default();
+        load_startup_settings(
+            &state,
+            || Err(KeychainError::access_denied("locked")),
+            |_| Ok(None),
+            |_| Ok(None),
+        );
+        assert!(state.keychain_refused());
+
+        keychain_readable_again(&state, |_| Ok(None));
+        assert!(!state.keychain_refused());
+        assert_eq!(state.keychain_read_error(), None);
+
+        // Without a stash, too (refused at the models only).
+        state.set_keychain_refused(true);
+        keychain_readable_again(&state, |_| Ok(None));
+        assert!(!state.keychain_refused());
+
+        assert!(!AppState::default().keychain_refused());
+    }
+
+    /// When a server is skipped: only while the refusal stands, only for a
+    /// server that refers to the keychain, and the reason says why.
+    #[test]
+    fn the_skip_reason_names_the_refusal_and_only_applies_to_keychain_servers() {
+        let github = stdio_server("npx", &[("GITHUB_TOKEN", "<keychain:github_token>")]);
+        let plain = stdio_server("npx", &[]);
+        let state = AppState::default();
+
+        assert_eq!(mcp_skip_reason(&state, &github), None, "not refused");
+        state.set_keychain_refused(true);
+        assert_eq!(mcp_skip_reason(&state, &plain), None, "no reference");
+        let reason = mcp_skip_reason(&state, &github).expect("skipped");
+        assert!(
+            !reason.contains("()"),
+            "no empty reason in brackets: {reason}"
+        );
+        state.set_keychain_read_error(Some("dismissed the prompt".into()));
+        assert!(mcp_skip_reason(&state, &github)
+            .unwrap()
+            .contains("(dismissed the prompt)"));
+        state.set_keychain_refused(false);
+        assert_eq!(mcp_skip_reason(&state, &github), None, "lifted");
+    }
+
+    // ---- Settings' reads after a refused startup (#497) ----------------
+
+    /// The bug: a read that failed came back as `None`, which Settings
+    /// shows as an empty field and saves as "delete the override".
+    #[test]
+    fn a_stored_setting_that_could_not_be_read_is_an_error_not_none() {
+        let err = stored_setting::<String>(Err(KeychainError::new("locked")))
+            .expect_err("a failed read must reject");
+        assert_eq!(err, "locked", "the reason alone: Settings says the rest");
+        assert_eq!(stored_setting::<String>(Ok(None)), Ok(None));
+        assert_eq!(
+            stored_setting(Ok(Some("http://localhost:1234".to_string()))),
+            Ok(Some("http://localhost:1234".to_string()))
+        );
+    }
+
+    #[test]
+    fn the_active_provider_is_not_answered_while_startup_was_unreadable() {
+        let err = active_provider_answer(Some("locked".into()), "anthropic".into())
+            .expect_err("the default is not what is stored");
+        assert_eq!(err, "locked");
+        assert_eq!(
+            active_provider_answer(None, "openrouter".into()),
+            Ok("openrouter".to_string())
+        );
     }
 
     #[test]

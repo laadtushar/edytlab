@@ -192,6 +192,15 @@ impl McpRegistry {
         }
     }
 
+    /// Mark `id` as not started, for a reason found before trying: stop it
+    /// if it is running and keep `reason` for the Settings list to show as
+    /// its `Error` badge, the same state a failed [`Self::restart`] leaves.
+    pub fn record_failure(&self, id: &str, reason: &str) {
+        self.stop(id);
+        let mut inner = self.inner.lock().expect("registry mutex poisoned");
+        inner.errors.insert(id.to_string(), reason.to_string());
+    }
+
     /// Invoke `tool_name` on the named server. The call is synchronous
     /// (the underlying transport is sync stdio) and routes through the
     /// long-lived child process opened by [`Self::start`]. Returns the
@@ -329,5 +338,34 @@ mod tests {
         let a = namespaced_wire_name(&format!("{big}1"), "tool");
         let b = namespaced_wire_name(&format!("{big}2"), "tool");
         assert_ne!(a, b);
+    }
+
+    /// A server that was not started for a reason found beforehand shows
+    /// what a failed start shows: the `Error` badge, with the reason.
+    #[test]
+    fn a_recorded_failure_shows_as_an_error_with_its_reason() {
+        let registry = McpRegistry::new();
+        let cfg = McpServerConfig::Stdio {
+            command: "npx".into(),
+            args: vec![],
+            env: Default::default(),
+            enabled: true,
+        };
+        assert_eq!(
+            registry.summary("github", &cfg).status,
+            McpServerStatus::Stopped
+        );
+
+        registry.record_failure("github", "keychain is locked");
+
+        let summary = registry.summary("github", &cfg);
+        assert_eq!(summary.status, McpServerStatus::Error);
+        assert_eq!(summary.last_error.as_deref(), Some("keychain is locked"));
+        assert_eq!(summary.tools_count, 0);
+        assert_eq!(
+            registry.summary("other", &cfg).status,
+            McpServerStatus::Stopped,
+            "only that server"
+        );
     }
 }
