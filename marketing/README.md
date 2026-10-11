@@ -103,10 +103,14 @@ getting caught.
   (`docs/architecture.md`, "Request size and small-context models"). That is
   bytes, not tokens, and nobody has run a local model through a full job on
   it, so do not say "works with local models".
-- Master bus: in v0.5.0 no tool targets the master effect chain, which is why
-  the recordings show a baked "Master" track. `add_effect` with scope
-  `master` ([#460](https://github.com/laadtushar/edytlab/issues/460), PR #516)
-  is merged but not released. Say "coming in the next release", not "has".
+- Master bus: in v0.5.0 no tool targets the master effect chain, so the agent
+  renders a baked "Master" track. `add_effect` with scope `master`
+  ([#460](https://github.com/laadtushar/edytlab/issues/460), PR #516) is merged
+  but not released. Say "coming in the next release", not "has". The website
+  recordings were re-made on a build that has it, so their limiter sits on the
+  master bus; in the beatmatch the agent still mixes the two tracks to a new
+  one to compress them, because a compressor cannot go in an effect chain yet
+  ([#520](https://github.com/laadtushar/edytlab/issues/520)).
 - Save As leaves the assistant editing the original project, and opening a
   project can restore an older head (v0.5.0's own known issues,
   [#506](https://github.com/laadtushar/edytlab/issues/506) and
