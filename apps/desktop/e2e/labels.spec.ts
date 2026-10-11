@@ -49,18 +49,21 @@ async function openProject(app: App): Promise<void> {
 }
 
 /**
- * Double-click the label lane and name the label, as a user does. The
- * backend answers as `add_marker` does: the new head, then the
- * `marker-changed` event, after which `list_markers` holds the label.
- * Returns the time the app asked for.
+ * Double-click the label lane and type the label's name into the box
+ * that opens there, as a user does. The backend answers as `add_marker`
+ * does: the new head, then the `marker-changed` event, after which
+ * `list_markers` holds the label. Returns the time the app asked for.
  */
 async function addLabel(app: App, name: string): Promise<number> {
   const page = app.page;
   await app.become({ add_marker: ok(LABELLED) });
-  page.once("dialog", (d) => void d.accept(name));
   const lane = page.getByTestId("label-lane-track");
   const box = (await lane.boundingBox())!;
   await lane.dblclick({ position: { x: box.width / 2, y: box.height / 2 } });
+  const input = page.getByTestId("label-draft-input");
+  await expect(input).toBeFocused();
+  await input.fill(name);
+  await input.press("Enter");
 
   await expect.poll(() => app.requestsFor("add_marker")).toHaveLength(1);
   const [{ time }] = (await app.requestsFor("add_marker")) as { time: number; name: string }[];
@@ -171,5 +174,128 @@ test.describe("a label added in the lane", () => {
     // And the head the app works from is the label's again.
     await app.page.getByTestId("render-preview-button").click();
     await expect.poll(() => app.requestsFor("render_preview")).toEqual([{ node: LABELLED }]);
+  });
+});
+
+/**
+ * The name is typed in the lane. It used to be asked for with
+ * `window.prompt`, which a macOS webview answers with `null`, so there a
+ * double-click on the lane did nothing at all. A dialog here would be the
+ * same bug waiting to come back, so the test fails on any.
+ */
+test.describe("naming a label in the lane", () => {
+  test("is done in the lane itself, with no dialog", async ({ app }) => {
+    await openProject(app);
+    const dialogs: string[] = [];
+    app.page.on("dialog", (d) => {
+      dialogs.push(d.message());
+      void d.dismiss();
+    });
+
+    await addLabel(app, "verse");
+
+    expect(dialogs).toEqual([]);
+    expect(await app.requestsFor("add_marker")).toEqual([
+      { time: expect.any(Number), name: "verse" },
+    ]);
+  });
+
+  test("is abandoned with Escape, and adds nothing", async ({ app }) => {
+    await openProject(app);
+    const lane = app.page.getByTestId("label-lane-track");
+    const box = (await lane.boundingBox())!;
+    await lane.dblclick({ position: { x: box.width / 3, y: box.height / 2 } });
+    const input = app.page.getByTestId("label-draft-input");
+    await input.fill("nope");
+    await input.press("Escape");
+
+    await expect(input).toHaveCount(0);
+    await app.settle();
+    expect(await app.requestsFor("add_marker")).toEqual([]);
+  });
+});
+
+/** A region label is drawn with its extent, on the ruler's axis. */
+test.describe("a region label in the lane", () => {
+  const region = {
+    id: "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+    name: "verse",
+    kind: "region",
+    start_sec: 0.75,
+    end_sec: 2.25,
+  };
+
+  test("is drawn from its start to its end", async ({ app }) => {
+    await app.boot({
+      ...projectWith([toneTrack()], BEFORE),
+      ...selecting(),
+      list_markers: ok([region]),
+      render_preview: ok(fixturePath("tone3s")),
+    });
+    await expect(app.page.getByTestId("ruler")).toContainText("0:03");
+
+    const lane = (await app.page.getByTestId("label-lane-track").boundingBox())!;
+    const bar = app.page.getByTestId("label-extent");
+    await expect(bar).toHaveCount(1);
+    const b = (await bar.boundingBox())!;
+    // 3 s of audio across the lane: 0.75 s in, 1.5 s long.
+    expect(Math.abs((b.x - lane.x) / lane.width - 0.25)).toBeLessThan(0.01);
+    expect(Math.abs(b.width / lane.width - 0.5)).toBeLessThan(0.01);
+  });
+
+  test("is moved whole: the lane sends one time and the backend keeps the length", async ({
+    app,
+  }) => {
+    await app.boot({
+      ...projectWith([toneTrack()], BEFORE),
+      ...selecting(),
+      list_markers: ok([region]),
+      render_preview: ok(fixturePath("tone3s")),
+      update_marker: ok(LABELLED),
+    });
+    await expect(app.page.getByTestId("ruler")).toContainText("0:03");
+
+    const chip = app.page.getByTestId("label-chip-button");
+    const from = (await chip.boundingBox())!;
+    const lane = (await app.page.getByTestId("label-lane-track").boundingBox())!;
+    await app.page.mouse.move(from.x + 4, from.y + from.height / 2);
+    await app.page.mouse.down();
+    await app.page.mouse.move(lane.x + lane.width * 0.6, from.y + from.height / 2, { steps: 5 });
+    await app.page.mouse.up();
+
+    await expect.poll(() => app.requestsFor("update_marker")).toHaveLength(1);
+    const [sent] = (await app.requestsFor("update_marker")) as { id: string; time: number }[];
+    // One time, never start and end: a region is moved by its start.
+    expect(Object.keys(sent).sort()).toEqual(["id", "time"]);
+    expect(sent.id).toBe(region.id);
+    expect(Math.abs(sent.time - 1.8)).toBeLessThan(0.1);
+  });
+});
+
+/** Rename and delete in the lane reach the session as the edits they are. */
+test.describe("a label in the lane", () => {
+  test("is renamed in place and deleted with a right-click", async ({ app }) => {
+    await app.boot({
+      ...projectWith([toneTrack()], BEFORE),
+      ...selecting(),
+      list_markers: ok([verse(1.5)]),
+      render_preview: ok(fixturePath("tone3s")),
+      update_marker: ok(LABELLED),
+      remove_marker: ok(nodeId(8)),
+    });
+    await expect(app.page.getByTestId("ruler")).toContainText("0:03");
+
+    await app.page.getByTestId("label-chip-button").dblclick();
+    const input = app.page.getByTestId("label-chip-input");
+    await input.fill("chorus");
+    await input.press("Enter");
+    await expect
+      .poll(() => app.requestsFor("update_marker"))
+      .toEqual([{ id: verse(1.5).id, name: "chorus" }]);
+
+    await app.page.getByTestId("label-chip-button").click({ button: "right" });
+    await expect
+      .poll(() => app.requestsFor("remove_marker"))
+      .toEqual([{ id: verse(1.5).id }]);
   });
 });

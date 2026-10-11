@@ -1084,17 +1084,29 @@ function App() {
     };
   }, [handleSelectionChange]);
 
-  const handleAddMarker = useCallback(async (timeSec: number) => {
-    const name = window.prompt("Marker name:", `marker ${markers.length + 1}`) ?? "";
-    if (!name.trim()) return;
-    try {
-      await applyEdit(() => addMarker(timeSec, name.trim()));
-      // The lane re-reads on the `marker-changed` event and on the head
-      // change this adoption makes (`useMarkers`).
-    } catch (err) {
-      setRenderError(String(err));
-    }
-  }, [markers.length, applyEdit]);
+  // A label with its name already typed: what the lane's box hands over.
+  const handleAddLabel = useCallback(
+    async (timeSec: number, name: string) => {
+      try {
+        await applyEdit(() => addMarker(timeSec, name));
+        // The lane re-reads on the `marker-changed` event and on the head
+        // change this adoption makes (`useMarkers`).
+      } catch (err) {
+        setRenderError(String(err));
+      }
+    },
+    [applyEdit],
+  );
+
+  // The ruler hands over a time and no name, so this one asks.
+  const handleAddMarker = useCallback(
+    async (timeSec: number) => {
+      const name = window.prompt("Marker name:", `marker ${markers.length + 1}`) ?? "";
+      if (!name.trim()) return;
+      await handleAddLabel(timeSec, name.trim());
+    },
+    [markers.length, handleAddLabel],
+  );
 
   const handleRemoveMarker = useCallback(async (id: string) => {
     try {
@@ -1639,7 +1651,7 @@ function App() {
                       labels={markers}
                       duration={sessionDuration}
                       view={view}
-                      onAdd={handleAddMarker}
+                      onAdd={handleAddLabel}
                       onRename={handleRenameMarker}
                       onMove={handleMoveMarker}
                       onRemove={handleRemoveMarker}

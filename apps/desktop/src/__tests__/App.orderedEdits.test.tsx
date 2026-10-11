@@ -81,6 +81,8 @@ const EDITS = new Set([
   "set_track_muted",
   "set_sync_lock",
   "add_marker",
+  "update_marker",
+  "remove_marker",
   "set_head_to",
   "batch_load",
 ]);
@@ -95,6 +97,8 @@ class Backend {
   head = node(1);
   gainDb = 0;
   muted = false;
+  /** The labels in the lane: what `list_markers` answers. */
+  labels: unknown[] = [];
   private nodes = 1;
   private waiting: Edit[] = [];
 
@@ -113,9 +117,10 @@ class Backend {
         return 0;
       case "list_templates":
       case "list_recent_projects":
-      case "list_markers":
       case "get_transcript":
         return [];
+      case "list_markers":
+        return this.labels;
       case "get_view_state":
         return {};
       case "get_plan_first":
@@ -278,11 +283,20 @@ function dragGain(db: number) {
   fireEvent.pointerUp(fader);
 }
 
+/** Add a label in the lane the way a user does: double-click, type a name, Enter. */
+function typeLabel() {
+  fireEvent.doubleClick(screen.getByTestId("label-lane-track"));
+  const box = screen.getByTestId("label-draft-input");
+  fireEvent.change(box, { target: { value: "verse" } });
+  fireEvent.keyDown(box, { key: "Enter" });
+}
+
 const gainReadout = () => screen.getByTestId("timeline-lane-gain-readout");
 const names = (backend: Backend) => backend.sent.map((s) => s.cmd);
 
-async function start(appliesOn: "send" | "answer"): Promise<Backend> {
+async function start(appliesOn: "send" | "answer", labels: unknown[] = []): Promise<Backend> {
   const backend = new Backend(appliesOn);
+  backend.labels = labels;
   mockIPC((cmd, args) => backend.handle(cmd, args as Args | undefined), {
     shouldMockEvents: true,
   });
@@ -305,6 +319,7 @@ async function start(appliesOn: "send" | "answer"): Promise<Backend> {
 }
 
 beforeEach(() => {
+  // The ruler asks for a marker's name with a prompt; the lane does not.
   vi.spyOn(window, "prompt").mockReturnValue("verse");
 });
 
@@ -431,7 +446,7 @@ describe("edits made in quick succession", () => {
   // through a different handler, and each has to wait for the fader move
   // made before it.
   it.each([
-    ["a label", "add_marker", () => fireEvent.doubleClick(screen.getByTestId("label-lane-track"))],
+    ["a label", "add_marker", typeLabel],
     ["a mute", "set_track_muted", () => fireEvent.click(screen.getByTestId("timeline-lane-mute"))],
     ["the sync-lock toggle", "set_sync_lock", () => fireEvent.click(screen.getByTestId("sync-lock-btn"))],
     ["a file opened from the toolbar", "batch_load", () => fireEvent.click(screen.getByTestId("open-audio-button"))],
@@ -448,6 +463,52 @@ describe("edits made in quick succession", () => {
     await answerNewestFirst(backend);
 
     expect(names(backend)).toEqual(["set_track_gain", command]);
+  });
+
+  // The other three gestures of the label lane (#203 §1). Each is a
+  // command that changes the session, so each takes its turn in the same
+  // line as the fader: sent after the edit made before it is answered,
+  // and with the head it returns adopted.
+  describe("in the label lane", () => {
+    const LABEL = { id: "7c1d4a52-3b7e-4f0a-9d21-5e8a6b0c9f13", name: "intro", kind: "marker", time_sec: 2 };
+
+    const chip = () => screen.findByTestId("label-chip-button");
+    const rename = async () => {
+      fireEvent.doubleClick(await chip());
+      const box = screen.getByTestId("label-chip-input");
+      fireEvent.change(box, { target: { value: "cold open" } });
+      fireEvent.keyDown(box, { key: "Enter" });
+    };
+    const move = async () => {
+      fireEvent.mouseDown(await chip(), { button: 0, clientX: 0 });
+      fireEvent.mouseMove(window, { clientX: 5000 });
+      fireEvent.mouseUp(window, { clientX: 5000 });
+    };
+    const remove = async () => fireEvent.contextMenu(await chip());
+
+    it.each([
+      ["renamed", "update_marker", { id: LABEL.id, name: "cold open" }, rename],
+      ["moved", "update_marker", { id: LABEL.id, time: expect.any(Number) }, move],
+      ["deleted", "remove_marker", { id: LABEL.id }, remove],
+    ])("a label %s waits for the edit made before it", async (_what, command, args, gesture) => {
+      const backend = await start("answer", [LABEL]);
+
+      dragGain(-3);
+      await settle();
+      await gesture();
+      await settle();
+
+      expect(names(backend)).toEqual(["set_track_gain"]);
+
+      await answerNewestFirst(backend);
+
+      expect(backend.sent).toEqual([
+        { cmd: "set_track_gain", args: { track: 0, gainDb: -3 } },
+        { cmd: command, args },
+      ]);
+      // And its head is the one the app ends on.
+      expect(screen.getByTestId("status-bar-head")).toHaveTextContent(headLabel(3));
+    });
   });
 
   it("are undone from where they leave the head, not from where it was when Ctrl+Z was pressed", async () => {
