@@ -189,14 +189,19 @@ const commands = [
         desc: "Render the session to a WAV for playback. Cached by node id under .audiograph/previews/, so repeating a head — undo, redo — costs nothing.",
       },
       {
+        name: "getRenderWarnings(node)",
+        returns: "RenderWarning[]",
+        desc: "What a render of the node leaves out: every switched-on effect in a stored chain (a track's, a bus's, the master's) that the renderer cannot run in a chain yet. Read from the stored chains, so nothing is rendered. Empty when nothing is left out; the window shows each one above the timeline.",
+      },
+      {
         name: "renderRange(node, startSec, endSec, outPath)",
-        returns: "void",
-        desc: "Render a time range to a specific output file.",
+        returns: "{ warnings }",
+        desc: "Render a time range to a specific output file. warnings is what the file was written without (getRenderWarnings' list for the node), [] when nothing was left out.",
       },
       {
         name: "prepareCompare(a, b)",
-        returns: "{ a_path, b_path }",
-        desc: "Pre-render two nodes for A/B comparison.",
+        returns: "{ a_path, b_path, a_warnings, b_warnings }",
+        desc: "Pre-render two nodes for A/B comparison, with what each side's render leaves out.",
       },
       {
         name: "acceptB(b)",
@@ -590,6 +595,7 @@ interface SessionNode  { id: NodeId; parent: NodeId | null; label: string | null
 interface GraphSummary { nodes: GraphNode[]; head: NodeId | null }
 interface GraphNode    { id: NodeId; parent: NodeId | null; label: string | null; tool: string | null }
 interface TrackSummary { id: string; name: string; muted: boolean; gain_db: number; audio_path: string | null }
+interface RenderWarning { scope: { type: "track"; index: number; name: string } | { type: "bus"; name: string } | { type: "master" }; effect_index: number; kind: string; reason: "not_yet_streamable" | "unknown" }
 interface ModelInfo    { id: string; display_name: string; context_length: number | null }
 interface ModelCatalogue { models: ModelInfo[]; source: "live" | "fallback"; notice: string | null }
 interface Marker       { id: string; name: string; kind: "marker" | "region"; time_sec?: number; start_sec?: number; end_sec?: number }`}</code>

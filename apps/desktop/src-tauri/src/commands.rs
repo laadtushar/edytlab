@@ -2118,6 +2118,103 @@ pub async fn render_preview(state: State<'_, AppState>, node: String) -> CmdResu
 }
 
 // ---------------------------------------------------------------------------
+// get_render_warnings
+// ---------------------------------------------------------------------------
+
+/// Where in the session a stored effect sits, as the window names it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum RenderWarningScope {
+    /// A track's own chain: its index in the session (what the tools'
+    /// `track` argument takes) and its name.
+    Track { index: usize, name: String },
+    /// A bus's chain.
+    Bus { name: String },
+    /// The master bus.
+    Master,
+}
+
+/// Why the render leaves a stored effect out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RenderWarningReason {
+    /// The effect exists, but this build cannot run it in a chain yet.
+    NotYetStreamable,
+    /// No effect of that kind exists.
+    Unknown,
+}
+
+/// One switched-on effect in a stored chain that the render leaves out
+/// (#520, #532).
+///
+/// The same finding as `audio_engine::effect_chain::SkippedEffect`, the one
+/// the agent's render tools report, in a shape the window phrases for
+/// itself: it names the place, the kind and the reason, and leaves the
+/// sentence to the frontend.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct RenderWarning {
+    pub scope: RenderWarningScope,
+    /// Position in the stored chain, bypassed entries counted: the index
+    /// `remove_effect` and `set_effect_bypassed` take.
+    pub effect_index: usize,
+    pub kind: String,
+    pub reason: RenderWarningReason,
+}
+
+/// What a render of `state` leaves out, from the stored chains alone: no
+/// render and no audio, so it answers for a render served from the cache
+/// as well as for one just made.
+fn render_warnings_of(state: &session::SessionState) -> Vec<RenderWarning> {
+    use audio_engine::effect_chain::{ChainScope, KindSupport};
+    audio_engine::effect_chain::skipped_effects(state)
+        .into_iter()
+        .map(|skipped| RenderWarning {
+            scope: match skipped.scope {
+                ChainScope::Track { index, name } => RenderWarningScope::Track { index, name },
+                ChainScope::Bus { name } => RenderWarningScope::Bus { name },
+                ChainScope::Master => RenderWarningScope::Master,
+            },
+            effect_index: skipped.index,
+            kind: skipped.kind,
+            reason: match skipped.support {
+                KindSupport::Unknown => RenderWarningReason::Unknown,
+                // `Streamable` is never skipped; the engine's own sentence
+                // folds everything else into "cannot run it yet" too.
+                _ => RenderWarningReason::NotYetStreamable,
+            },
+        })
+        .collect()
+}
+
+/// The effects a render of `node` leaves out, so the window can say so.
+///
+/// A stored effect the renderer cannot run no longer fails a render (#531):
+/// it is left out and reported. `render_preview` answers a bare path, and a
+/// cached preview has no report at all, so the window asks for the warnings
+/// by node instead, whenever the node it shows changes. A node id hashes the
+/// state, so the answer for an id never changes; after the effect is
+/// removed or bypassed the head is another node and the answer is empty.
+///
+/// Reads the node and nothing else: no render, no audio, no engine lock.
+#[tauri::command]
+pub async fn get_render_warnings(
+    state: State<'_, AppState>,
+    node: String,
+) -> CmdResult<Vec<RenderWarning>> {
+    blocking(&state, move |state| {
+        let store_handle = state.store_handle().ok_or(CommandError::NoSession)?;
+        let node_id =
+            NodeId::from_hex(&node).map_err(|_| CommandError::InvalidNodeId(node.clone()))?;
+        let session_node = {
+            let store = lock_std(&store_handle, "store")?;
+            store.get(node_id).map_err(CommandError::from)?
+        };
+        Ok(render_warnings_of(&session_node.state))
+    })
+    .await
+}
+
+// ---------------------------------------------------------------------------
 // prepare_compare
 // ---------------------------------------------------------------------------
 
@@ -2127,9 +2224,12 @@ pub async fn render_preview(state: State<'_, AppState>, node: String) -> CmdResu
 /// - `<tempdir>/compare_a.wav`
 /// - `<tempdir>/compare_b.wav`
 ///
-/// Returns `{ "a_path": "…", "b_path": "…" }` — the caller feeds these
-/// paths to the audio engine on each A/B button click so the switch is
-/// instant (no render latency on toggle).
+/// Returns `{ "a_path": "…", "b_path": "…", "a_warnings": […],
+/// "b_warnings": […] }` — the caller feeds the paths to the audio engine on
+/// each A/B button click so the switch is instant (no render latency on
+/// toggle). The warnings are what each side's render leaves out
+/// (`get_render_warnings`' list for that node), so a comparison can say that
+/// one side is missing an effect it stores (#532).
 #[tauri::command]
 pub async fn prepare_compare<R: Runtime>(
     a: String,
@@ -2151,6 +2251,8 @@ pub async fn prepare_compare<R: Runtime>(
             materialize(&store, b_id)?;
             (a_node.state, b_node.state)
         };
+        let a_warnings = render_warnings_of(&a_state);
+        let b_warnings = render_warnings_of(&b_state);
 
         let mut a_path = std::env::temp_dir();
         a_path.push(format!("edytlab-compare-a-{}.wav", a_id.to_hex()));
@@ -2184,6 +2286,8 @@ pub async fn prepare_compare<R: Runtime>(
         Ok(serde_json::json!({
             "a_path": a_path_str,
             "b_path": b_path_str,
+            "a_warnings": a_warnings,
+            "b_warnings": b_warnings,
         }))
     })
     .await
@@ -4701,6 +4805,9 @@ fn selection_frames(start_sec: f64, end_sec: f64, sample_rate: u32) -> audio_eng
 /// The frontend calls this when the user clicks "Export Selection" in the
 /// chat header. Frame conversion is done here (seconds × sample_rate) so the
 /// frontend never has to know the session's sample rate.
+///
+/// The answer carries `warnings`: the stored effects the file was written
+/// without, the same list `get_render_warnings` gives for the node.
 #[tauri::command]
 pub async fn render_range(
     state: State<'_, AppState>,
@@ -4759,6 +4866,9 @@ fn render_range_inner(
             "Exported selection ({:.2}s–{:.2}s) → {}",
             start_sec, end_sec, out_path
         ),
+        // What the file was written without (#532): `get_render_warnings`'
+        // list for this node, `[]` when nothing was left out.
+        "warnings": render_warnings_of(&session_node.state),
     }))
 }
 

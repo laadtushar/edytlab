@@ -195,3 +195,51 @@ describe("ABCompareBar", () => {
     expect(onClose).toHaveBeenCalled();
   });
 });
+
+describe("ABCompareBar render warnings (#532)", () => {
+  const reverb = {
+    scope: { type: "track", index: 0, name: "Voice" },
+    effect_index: 1,
+    kind: "reverb",
+    reason: "not_yet_streamable",
+  };
+
+  const bar = () => (
+    <ABCompareBar
+      aNodeId={A_NODE}
+      bNodeId={B_NODE}
+      onAudioPathChange={vi.fn()}
+      onAcceptB={vi.fn()}
+      onClose={vi.fn()}
+    />
+  );
+
+  it("lists what the A side leaves out, and marks it A", async () => {
+    prepareCompareMock.mockResolvedValue({
+      a_path: A_PATH,
+      b_path: B_PATH,
+      a_warnings: [reverb],
+      b_warnings: [],
+    });
+
+    render(bar());
+
+    const notice = await screen.findByTestId("ab-render-warnings");
+    expect(notice).toHaveTextContent('A · Reverb on track 0 "Voice"');
+    expect(notice).not.toHaveTextContent("B ·");
+  });
+
+  it("says nothing when neither side leaves anything out", async () => {
+    prepareCompareMock.mockResolvedValue({
+      a_path: A_PATH,
+      b_path: B_PATH,
+      a_warnings: [],
+      b_warnings: [],
+    });
+
+    render(bar());
+
+    await waitFor(() => expect(screen.getByTestId("ab-side-a")).not.toBeDisabled());
+    expect(screen.queryByTestId("ab-render-warnings")).not.toBeInTheDocument();
+  });
+});

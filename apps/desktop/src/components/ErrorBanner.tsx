@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 /**
  * ErrorBanner — inline, dismissable, optionally actionable error row.
  *
@@ -7,10 +9,30 @@
  * (e.g. "Open Settings") so a recoverable error has a one-click path
  * out — most common case is the "no agent configured" / "set_api_key"
  * error that previously left users with a toast and no next step.
+ *
+ * `tone="warning"` is the same row for something that did not fail but
+ * the user should know (an effect the render leaves out, #532): amber
+ * rather than red, and a status rather than an alert, so a screen reader
+ * does not announce it as an error.
  */
 
+/** Whole class strings, so Tailwind can see them. */
+const TONES = {
+  error: {
+    role: "alert",
+    row: "bg-[var(--danger-soft)]",
+    badge: "border-[var(--danger-border)] bg-[var(--danger)]/15 text-[var(--danger)]",
+  },
+  warning: {
+    role: "status",
+    row: "bg-[var(--warning-soft)]",
+    badge: "border-[var(--warning-border)] bg-[var(--warning)]/15 text-[var(--warning)]",
+  },
+} as const;
+
 interface ErrorBannerProps {
-  message: string;
+  message: ReactNode;
+  tone?: keyof typeof TONES;
   onDismiss?: () => void;
   action?: {
     label: string;
@@ -27,31 +49,33 @@ export function ErrorBanner({
   action,
   testId,
   dismissLabel = "Dismiss error",
+  tone = "error",
 }: ErrorBannerProps) {
+  const t = TONES[tone];
   return (
     <div
-      role="alert"
+      role={t.role}
       data-testid={testId}
-      className="
+      className={`
         banner-in
         flex items-center gap-3
         border-b border-[var(--border-strong)]
-        bg-[var(--danger-soft)]
+        ${t.row}
         px-4 py-2.5
         text-sm
-      "
+      `}
     >
       <span
         aria-hidden="true"
-        className="
+        className={`
           flex h-6 w-6 shrink-0 items-center justify-center
-          rounded-full border border-[var(--danger-border)] bg-[var(--danger)]/15
-          font-mono text-[var(--danger)] text-[11px] font-semibold
-        "
+          rounded-full border ${t.badge}
+          font-mono text-[11px] font-semibold
+        `}
       >
         !
       </span>
-      <span className="flex-1 text-[var(--text)]">{message}</span>
+      <div className="min-w-0 flex-1 text-[var(--text)]">{message}</div>
       {action ? (
         <button
           type="button"
