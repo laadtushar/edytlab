@@ -70,13 +70,13 @@ const commands = [
     items: [
       {
         name: "setApiKey(key)",
-        returns: "void",
-        desc: "Store the API key for the active provider in the OS keychain.",
+        returns: "KeychainPersistence",
+        desc: "Store the API key for the active provider in the OS keychain. Resolves with where it landed, as setApiKeyFor does.",
       },
       {
         name: "setApiKeyFor(provider, key)",
-        returns: "void",
-        desc: "Store the API key for a specific provider.",
+        returns: "KeychainPersistence",
+        desc: "Store the API key for a specific provider and make it the active one. Resolves with where the save landed: persistent is false when it fell back to the kernel keyring because no Secret Service could be reached, so it lasts only until restart. The key is saved and used either way. The other setters that write to the keychain answer the same way.",
       },
       {
         name: "hasApiKey()",
@@ -91,7 +91,7 @@ const commands = [
       {
         name: "getKeychainPersistence()",
         returns: "KeychainPersistence",
-        desc: "Whether keys and settings saved now survive a reboot. persistent is false on Linux with no Secret Service running, where they are kept in the kernel keyring until restart; reason says why.",
+        desc: "Whether keys and settings saved now survive a reboot. persistent is false on Linux with no Secret Service running, where they are kept in the kernel keyring until restart; reason says why. The setters answer the same shape for the save they just made.",
       },
       {
         name: "clearApiKeyFor(provider)",
@@ -130,8 +130,8 @@ const commands = [
       },
       {
         name: "setActiveProvider(provider)",
-        returns: "void",
-        desc: "Switch the active provider. Rebuilds the agent.",
+        returns: "KeychainPersistence",
+        desc: "Switch the active provider. Rebuilds the agent. Resolves with where the choice was saved, as setApiKeyFor does.",
       },
       {
         name: "listModelsFor(provider, apiKey?)",
@@ -145,8 +145,8 @@ const commands = [
       },
       {
         name: "setActiveModel(provider, model)",
-        returns: "void",
-        desc: "Set the active model for a provider.",
+        returns: "KeychainPersistence",
+        desc: "Set the active model for a provider. Resolves with where the choice was saved, as setApiKeyFor does.",
       },
     ],
   },

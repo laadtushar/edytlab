@@ -643,7 +643,7 @@ On macOS, the first `keyring::Entry::get_password()` call triggers a system dial
 
 ### Linux: settings gone after a restart, or the "No Secret Service" banner
 
-On Linux edytlab keeps keys and settings in the **Secret Service** (GNOME Keyring, KWallet or KeePassXC), which survives a reboot. The banner "No Secret Service … is running" means nothing answered on the session D-Bus, so the app fell back to the kernel keyring, and what you save lasts only until the machine restarts (`get_keychain_persistence` reports `persistent: false` and why). This is common in a bare window manager, a container, an SSH session or a CI box.
+On Linux edytlab keeps keys and settings in the **Secret Service** (GNOME Keyring, KWallet or KeePassXC), which survives a reboot. The banner "No Secret Service … is running" means nothing answered on the session D-Bus, so the app fell back to the kernel keyring, and what you save lasts only until the machine restarts (`get_keychain_persistence` reports `persistent: false` and why). This is common in a bare window manager, a container, an SSH session or a CI box. A Secret Service that goes away *after* launch is not in the banner; the save commands report it instead (each answers `persistent: false` and why for a value that fell back), and Settings shows the same words after the Save that did, then waits for Continue.
 
 To get a persistent store on a machine without a desktop, start a throwaway Secret Service for one session and run the app inside it:
 
@@ -653,7 +653,7 @@ dbus-run-session -- sh -c 'echo -n dev | XDG_DATA_HOME="$(mktemp -d)" gnome-keyr
 
 The `XDG_DATA_HOME` on the daemon matters: `gnome-keyring-daemon --unlock` writes `$XDG_DATA_HOME/keyrings/login.keyring`, so without it the daemon works in your real `~/.local/share/keyrings` and can create a `login.keyring` there that outlives the session. With it, the keyring lives in a temporary directory and goes when you delete that. (It is set for the daemon only, so the app keeps its usual data directory.) For a permanent store, run GNOME Keyring, KWallet or KeePassXC with its Secret Service integration turned on in your normal session. (A KeePassXC with no database exposed does not work: both reading and saving fail.)
 
-If the banner is "Couldn't read your saved settings from the system keychain", the Secret Service is there but locked or the unlock prompt was dismissed: unlock it and restart edytlab.
+If the banner is "Couldn't read your saved settings from the system keychain", the Secret Service is there but locked or the unlock prompt was dismissed: unlock it and restart edytlab. Until then the keychain is not asked again, so no agent is built (a chat message says "no agent configured: the keychain refused access at launch …"); pressing Save in Settings tries again, and a save that goes through builds it.
 
 The real-keychain tests in `crates/ai/tests/keychain_secret_service.rs` are `#[ignore]`: they write to the keychain of whoever runs them, and CI has no Secret Service. Run them inside the same kind of session, with its own `XDG_DATA_HOME`:
 
