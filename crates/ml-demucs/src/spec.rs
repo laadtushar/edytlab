@@ -53,8 +53,9 @@
 //!   `[1536, ceil(length / hop) * hop - 1536)`.
 //!
 //! Both are what the upstream code does, and what the model was trained
-//! with, so they are kept. The segment pipeline fades each segment's ends
-//! out with its overlap weights, so the ends do not reach the output.
+//! with, so they are kept: the network's output near the ends of a segment
+//! already allows for them, and a "fix" here would put it out of step with
+//! its own weights.
 
 use std::sync::Arc;
 
