@@ -731,12 +731,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = recipe_file(dir.path(), &["normalize", "low_pass_filter", "fade"]);
         let out = describe(None, "apply_recipe", &json!({ "path": path }).to_string());
-        assert_eq!(
-            out,
-            format!(
-                "path: {}; recipe steps (3): normalize → low_pass_filter → fade",
-                serde_json::to_string(&path).unwrap()
-            )
+        // The path is cut to the value cap like any argument, and a temp
+        // dir's length depends on the OS (macOS's is past the cap), so only
+        // its start is pinned; the steps after it are never cut.
+        assert!(out.starts_with("path: \""), "{out}");
+        assert!(
+            out.ends_with("; recipe steps (3): normalize → low_pass_filter → fade"),
+            "{out}"
         );
     }
 
