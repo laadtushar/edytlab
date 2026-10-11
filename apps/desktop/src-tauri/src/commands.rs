@@ -1232,7 +1232,9 @@ pub async fn set_active_model(
     let persisted = ai::keychain::save_model(&provider, &model);
     state.set_model_for(provider, model);
     rebuild_agent(&state).await?;
-    persisted.map_err(|e| format!("model selected for this session, but could not be saved: {e}"))
+    persisted
+        .map(|_| ())
+        .map_err(|e| format!("model selected for this session, but could not be saved: {e}"))
 }
 
 /// Read the model id currently selected for `provider`. Empty string
