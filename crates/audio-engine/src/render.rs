@@ -168,11 +168,28 @@ pub fn render(
 ) -> Result<RenderReport, Error> {
     let graph = graph::build(state)?;
 
-    if is_unity_passthrough(state, &graph, range) {
-        return render_unity_copy(&graph, out);
-    }
+    let mut report = if is_unity_passthrough(state, &graph, range) {
+        render_unity_copy(&graph, out)?
+    } else {
+        render_streaming(state, &graph, out, range)?
+    };
+    report.warnings = render_warnings(state);
+    Ok(report)
+}
 
-    render_streaming(state, &graph, out, range)
+/// What a render of `state` leaves out, as the sentences
+/// [`RenderReport::warnings`] carries.
+///
+/// A stored effect the renderer cannot run does not fail the render
+/// (#520): [`effect_chain::build`](crate::effect_chain::build) skips it,
+/// and this says which. It reads the stored chains and nothing else, so a
+/// caller holding a cached render, which has audio but no report, gets the
+/// same sentences the render that made it did, without rendering again.
+pub fn render_warnings(state: &SessionState) -> Vec<String> {
+    crate::effect_chain::skipped_effects(state)
+        .iter()
+        .map(ToString::to_string)
+        .collect()
 }
 
 /// Resolve a caller-supplied [`TimeRange`] into `(start_frame, end_frame)` in
@@ -957,12 +974,13 @@ fn render_streaming(
     let mut track_mixes: Vec<TrackMix> = Vec::with_capacity(groups.len());
     for (track_index, entries) in groups {
         // A group with no live streamer is a track that does not reach
-        // the mix — muted, un-soloed, or zero-length. Its chain must not
-        // be built, and not merely as an optimisation: `build` rejects
-        // an unknown or non-streamable effect kind, and that error fails
-        // the whole render. Before the clips were grouped, the chain was
-        // built inside `TrackStreamer::open`, which these plans never
-        // reached — so building one here would newly break a render over
+        // the mix — muted, un-soloed, or zero-length. Its chain is not
+        // built, which is an optimisation now and was more than that
+        // before #520: `build` used to reject an unknown or
+        // non-streamable effect kind, and that error failed the whole
+        // render. Before the clips were grouped, the chain was built
+        // inside `TrackStreamer::open`, which these plans never reached
+        // — so building one here would have newly broken a render over
         // an effect on a track nobody can hear. Caught in review on
         // #312.
         if !entries.iter().any(|&pi| streamers[pi].is_some()) {
@@ -971,7 +989,7 @@ fn render_streaming(
         let plan = &graph.tracks[entries[0]];
         track_mixes.push(TrackMix {
             track_index,
-            effects: crate::effect_chain::build(&plan.effects, project_rate, chans)?,
+            effects: crate::effect_chain::build(&plan.effects, project_rate, chans),
             pan: pan_gains(plan.pan),
             entries,
         });
@@ -1027,7 +1045,7 @@ fn render_streaming(
         .buses
         .iter()
         .map(|b| crate::effect_chain::build(&b.effects, project_rate, chans))
-        .collect::<Result<_, _>>()?;
+        .collect();
     let mut bus_chunks: Vec<Vec<f32>> = vec![vec![0.0; chunk_frames * chans]; bus_ids.len()];
 
     // Per-track send levels, resolved to bus indices once rather than
@@ -1053,10 +1071,12 @@ fn render_streaming(
     // for exactly that reason — a chain rebuilt per chunk would reset
     // every filter's delay line at each seam.
     //
-    // An unusable chain fails the render here. It used to be ignored
-    // outright, so a session with master effects rendered as though they
-    // were absent and said nothing.
-    let mut master = crate::effect_chain::build(&state.master_chain, project_rate, chans)?;
+    // An entry the renderer cannot run is left out of the chain, and
+    // `render` reports it. A master chain used to be ignored outright, so
+    // a session with master effects rendered as though they were absent
+    // and said nothing; then an unusable entry failed the render, which
+    // made the whole mix unrenderable over one stored effect (#520).
+    let mut master = crate::effect_chain::build(&state.master_chain, project_rate, chans);
 
     // Master chunk loop. Emits exactly `frames_to_write` project-rate
     // frames in total; the final chunk may be partial.
@@ -1157,6 +1177,7 @@ fn render_streaming(
         sample_rate: project_rate,
         channels: max_channels,
         peak_dbfs: peak_to_dbfs(peak),
+        warnings: Vec::new(),
     })
 }
 
@@ -1285,6 +1306,7 @@ fn report_from_decoded(decoded: &DecodedAudio) -> RenderReport {
         sample_rate: decoded.sample_rate,
         channels: decoded.channels,
         peak_dbfs: peak_to_dbfs(peak),
+        warnings: Vec::new(),
     }
 }
 

@@ -238,19 +238,29 @@ fn a_chain_renders_deterministically() {
     assert_eq!(render(chain()), render(chain()));
 }
 
-/// An unknown kind fails the render with a message naming it, rather
-/// than rendering silently without it.
+/// An unknown kind no longer fails the render (#520): it is left out of
+/// the chain and the report names it, rather than rendering silently
+/// without it. It used to be an error, and one stored entry made the
+/// track, and with it the project, unrenderable until it was removed.
 #[test]
-fn an_unknown_effect_kind_is_an_error() {
+fn an_unknown_effect_kind_is_left_out_and_named() {
     let tmp = TempDir::new().expect("tempdir");
     let src = write_tone(tmp.path());
     let out = tmp.path().join("out.wav");
     let state = state_with_effects(&src, vec![effect("sparkle", serde_json::json!({}))]);
 
-    let err = render_state_to_wav(&state, &out, None).expect_err("unknown kind");
-    let msg = err.to_string();
-    assert!(msg.contains("sparkle"), "the error should name it: {msg}");
-    assert!(msg.contains("unknown effect"), "got: {msg}");
+    let report = render_state_to_wav(&state, &out, None)
+        .expect("an unknown track effect must not fail the render");
+    assert_eq!(report.warnings.len(), 1, "{:?}", report.warnings);
+    let msg = &report.warnings[0];
+    assert!(msg.contains("sparkle"), "the warning should name it: {msg}");
+    assert!(msg.contains("track 0"), "and say where: {msg}");
+    assert!(msg.contains("not an effect kind"), "got: {msg}");
+    assert_eq!(
+        render(vec![effect("sparkle", serde_json::json!({}))]),
+        render(Vec::new()),
+        "the entry must leave no trace in the audio"
+    );
 }
 
 /// An effect that exists but cannot stream says so, distinctly from one
@@ -262,16 +272,22 @@ fn a_non_streaming_effect_says_so_distinctly() {
     let out = tmp.path().join("out.wav");
     let state = state_with_effects(&src, vec![effect("reverb", serde_json::json!({}))]);
 
-    let err = render_state_to_wav(&state, &out, None).expect_err("not streamable");
-    let msg = err.to_string();
+    let report = render_state_to_wav(&state, &out, None)
+        .expect("a not-yet-streamable track effect must not fail the render");
+    assert_eq!(report.warnings.len(), 1, "{:?}", report.warnings);
+    let msg = &report.warnings[0];
     assert!(msg.contains("reverb"), "{msg}");
     assert!(
-        msg.contains("cannot run at render time yet"),
+        msg.contains("cannot run") && msg.contains("yet"),
         "should distinguish 'not yet' from 'no such effect': {msg}"
     );
     assert!(
-        msg.contains("destructively"),
-        "the message should say what to do instead: {msg}"
+        !msg.contains("not an effect kind"),
+        "a kind that exists must not be called unknown: {msg}"
+    );
+    assert!(
+        msg.contains("remove or bypass"),
+        "the warning should say what to do: {msg}"
     );
 }
 

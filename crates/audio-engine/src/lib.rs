@@ -13,6 +13,7 @@ pub use encode::{
     write_flac, write_mp3, write_wav, write_wav_f32, WavChunkWriter, MP3_DEFAULT_KBPS,
 };
 pub use metadata::{read_flac_tags, tag_flac, tag_mp3, Chapter, Tags};
+pub use render::render_warnings;
 
 use std::path::Path;
 
@@ -24,13 +25,6 @@ pub enum Error {
     NoTrack,
     #[error("track has no clips")]
     NoClip,
-    #[error(
-        "effect '{0}' exists but cannot run at render time yet — it needs \
-         state that survives a chunk boundary. Apply it destructively instead."
-    )]
-    EffectNotStreamable(String),
-    #[error("unknown effect '{0}'")]
-    UnknownEffect(String),
     #[error("a track sends to bus '{0}', which the session does not define")]
     UnknownBus(String),
     #[error("render range end is before start")]
@@ -66,6 +60,17 @@ pub struct RenderReport {
     pub sample_rate: u32,
     pub channels: u16,
     pub peak_dbfs: f32,
+    /// Things the render did that its caller should hear about, one
+    /// sentence each; empty when there is nothing to say.
+    ///
+    /// Today that is one thing: a stored effect the renderer cannot run
+    /// (a kind that is not streamable yet, or one that does not exist) is
+    /// left out of its chain, and the render succeeds without it (#520).
+    /// Each such entry gets a warning naming the chain it is in (a track
+    /// by index and name, a bus, or the master), its position in that
+    /// chain and its kind. The same list is available without rendering
+    /// from [`render_warnings`].
+    pub warnings: Vec<String>,
 }
 
 /// Render `state` to a 16-bit PCM WAV at `out`. Always uses the source

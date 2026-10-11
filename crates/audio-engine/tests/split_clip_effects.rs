@@ -274,9 +274,12 @@ fn a_ranged_render_matches_the_same_slice_of_a_full_one() {
 ///
 /// Grouping clips by track moved chain construction out of
 /// `TrackStreamer::open`, and muted tracks never open a streamer. Built
-/// unconditionally, `effect_chain::build` would reject an unknown kind
-/// on a muted track and fail a render that used to succeed — a session
-/// made unrenderable by an effect nobody can hear.
+/// unconditionally, `effect_chain::build` would then have rejected an
+/// unknown kind on a muted track and failed a render that used to
+/// succeed. Since #520 no stored kind fails a render at all, audible or
+/// not, so this holds either way; it stays as the case that first named
+/// the hazard. The warning is about the stored chain, so it is reported
+/// even though the track is not in the mix.
 #[test]
 fn an_unusable_effect_on_a_muted_track_does_not_fail_the_render() {
     let tmp = TempDir::new().expect("tempdir");
@@ -297,15 +300,19 @@ fn an_unusable_effect_on_a_muted_track_does_not_fail_the_render() {
     }];
     st.tracks.push(muted);
 
-    render_state_to_wav(&st, &out, None)
+    let report = render_state_to_wav(&st, &out, None)
         .expect("a muted track's unusable effect must not fail the render");
+    assert_eq!(report.warnings.len(), 1, "{:?}", report.warnings);
+    assert!(report.warnings[0].contains("no_such_effect_kind"));
 }
 
-/// The premise of the test above: that effect kind really is one the
-/// chain builder rejects. Otherwise it passes for the wrong reason and
-/// guards nothing.
+/// An unusable effect on an audible track no longer fails the render
+/// (#520): the entry is left out and the report names it. The old form of
+/// this test asserted the failure, to prove the muted-track test above was
+/// guarding something; the kind is still genuinely unusable, which is
+/// what the warning proves.
 #[test]
-fn the_unusable_effect_kind_is_genuinely_unusable() {
+fn the_unusable_effect_kind_is_skipped_and_reported_on_an_audible_track() {
     let tmp = TempDir::new().expect("tempdir");
     let src = write_tone(tmp.path());
     let out = tmp.path().join("out.wav");
@@ -317,9 +324,12 @@ fn the_unusable_effect_kind_is_genuinely_unusable() {
         bypassed: false,
     }];
 
-    assert!(
-        render_state_to_wav(&st, &out, None).is_err(),
-        "`no_such_effect_kind` renders fine on an audible track, so the muted-track test above \
-         proves nothing"
+    let report = render_state_to_wav(&st, &out, None)
+        .expect("a stored effect the renderer cannot run must not fail the render");
+    assert_eq!(
+        report.warnings.len(),
+        1,
+        "`no_such_effect_kind` should be skipped with a warning: {:?}",
+        report.warnings
     );
 }

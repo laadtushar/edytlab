@@ -61,7 +61,7 @@ use serde_json::{json, Value};
 
 use crate::preview_cache::PreviewCache;
 use crate::schema::anthropic_tool;
-use crate::tool::util::check_track_index;
+use crate::tool::util::{attach_render_warnings, check_effect_kind, check_track_index};
 use crate::{Tool, ToolContext, ToolResult};
 
 /// Cache directory for auditions, under `.audiograph/`.
@@ -137,6 +137,15 @@ impl Tool for AuditionEffectTool {
             Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
         };
 
+        // First, before the session is read. The renderer leaves out a kind
+        // it cannot run (#520), so an audition of one would render the
+        // session as it already is and hand back a clip that sounds like
+        // nothing happened: a no-op that looks like a result. Refused here
+        // with the kinds that work instead, as `add_effect` refuses it.
+        if let Err(msg) = check_effect_kind(&args.kind) {
+            return Ok(ToolResult::Error(msg));
+        }
+
         let Some(head) = ctx.store.head() else {
             return Ok(ToolResult::Error(
                 "no session loaded; call `load` first".to_string(),
@@ -200,7 +209,7 @@ impl Tool for AuditionEffectTool {
             Err(e) => return Ok(ToolResult::Error(format!("audition render failed: {e}"))),
         };
 
-        Ok(ToolResult::Ok(json!({
+        let mut out = json!({
             // Opts this result into `ai::ToolView`, which is what
             // carries the excerpt to a player in the transcript (#258).
             // Without the tag the render still happens and the path is
@@ -219,7 +228,13 @@ impl Tool for AuditionEffectTool {
                  session — call add_effect with the same arguments to keep it.",
                 args.kind, args.track, start, end,
             ),
-        })))
+        });
+        // The audition renders the whole session around the effect, so an
+        // entry stored elsewhere in it that the renderer cannot run is left
+        // out of this clip too. Read from the amended state rather than the
+        // report, so a cached clip says the same as the render that made it.
+        attach_render_warnings(&mut out, &audio_engine::render_warnings(&state));
+        Ok(ToolResult::Ok(out))
     }
 }
 

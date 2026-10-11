@@ -12,6 +12,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
+use crate::tool::util::attach_render_warnings;
 use crate::{Tool, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
@@ -343,6 +344,9 @@ impl Tool for RenderFinalTool {
                 out["summary"].as_str().unwrap_or_default()
             ));
         }
+        // What the render left out (#520). `warning` above is the tagging
+        // failure, a single sentence kept as it was; these are the render's.
+        attach_render_warnings(&mut out, &report.warnings);
         Ok(ToolResult::Ok(out))
     }
 }

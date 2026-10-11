@@ -5,8 +5,9 @@
 //! entirely — a session with master effects rendered as though they
 //! were absent, and said nothing about it. These tests pin that it now
 //! reaches the samples, that an empty chain is byte-identical to before,
-//! and that a chain the renderer cannot honour fails instead of
-//! producing quietly wrong audio.
+//! and that an entry the renderer cannot honour is left out *and
+//! reported*, never quietly dropped and never a reason the render fails
+//! (#520; see `stored_unstreamable_effects.rs` for the full set).
 
 use std::path::{Path, PathBuf};
 
@@ -233,18 +234,31 @@ fn a_filter_in_the_master_chain_attenuates() {
     );
 }
 
-/// Silent wrong output is the failure mode this ticket exists to
-/// remove, so an effect the renderer cannot honour must stop the render.
+/// An effect the renderer cannot run used to fail the render, on the
+/// reasoning that silent wrong output is the failure this ticket exists to
+/// remove. #520 reversed that: one stored effect made the whole mix
+/// unrenderable, preview, playback and export included, and only
+/// `remove_effect` on the right index got it back. The render now succeeds
+/// without the entry. What stays of the old rule is that it is not silent:
+/// the report names it.
 #[test]
-fn an_unknown_effect_fails_the_render_rather_than_being_skipped() {
+fn an_unknown_effect_is_left_out_and_reported_rather_than_failing_the_render() {
     let tmp = TempDir::new().expect("tempdir");
     let src = write_tone(tmp.path());
     let out = tmp.path().join("out.wav");
     let state = state_with_chain(&src, vec![effect("wobbulator", serde_json::json!({}))]);
 
-    let err = render_state_to_wav(&state, &out, None)
-        .expect_err("an unknown master effect must fail the render");
-    assert!(err.to_string().contains("wobbulator"), "got {err}");
+    let report = render_state_to_wav(&state, &out, None)
+        .expect("an unknown master effect must not fail the render");
+    assert_eq!(report.warnings.len(), 1, "{:?}", report.warnings);
+    let w = &report.warnings[0];
+    assert!(w.contains("wobbulator"), "got {w}");
+    assert!(w.contains("master"), "should say where: {w}");
+    assert!(w.contains("effect 0"), "should say which entry: {w}");
+
+    let (plain, _) = render(Vec::new());
+    let (skipped, _) = render(vec![effect("wobbulator", serde_json::json!({}))]);
+    assert_eq!(skipped, plain, "the entry must leave no trace in the audio");
 }
 
 /// An algorithm that exists but cannot run on a stream gets a different
@@ -256,12 +270,22 @@ fn a_known_but_unstreamable_effect_explains_itself() {
     let src = write_tone(tmp.path());
     let out = tmp.path().join("out.wav");
     let state = state_with_chain(&src, vec![effect("reverb", serde_json::json!({}))]);
+    let unknown = state_with_chain(&src, vec![effect("wobbulator", serde_json::json!({}))]);
 
-    let err = render_state_to_wav(&state, &out, None).expect_err("reverb is not streamable yet");
-    let msg = err.to_string();
+    let report = render_state_to_wav(&state, &out, None)
+        .expect("a not-yet-streamable master effect must not fail the render");
+    assert_eq!(report.warnings.len(), 1, "{:?}", report.warnings);
+    let msg = &report.warnings[0];
     assert!(msg.contains("reverb"), "got {msg}");
     assert!(
-        msg.contains("destructively"),
-        "the message should point at the workaround that does work: {msg}"
+        msg.contains("cannot run"),
+        "should say it is the renderer that cannot, not that the effect is wrong: {msg}"
+    );
+
+    let other = render_state_to_wav(&unknown, &out, None).unwrap().warnings;
+    assert_ne!(
+        msg.replace("reverb", "wobbulator"),
+        other[0],
+        "an unimplemented effect and an unknown one must not read the same"
     );
 }

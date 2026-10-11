@@ -4,7 +4,10 @@
 //! `add_effect` used to store any kind it was given. The renderer streams
 //! a chain a chunk at a time, and eleven kinds that exist as destructive
 //! tools (reverb, echo, eq, compressor...) cannot run that way yet, so a
-//! chain holding one failed every render until it was removed. These tests
+//! chain holding one failed every render until it was removed. (A stored
+//! one is now left out of the render with a warning instead, which
+//! `stored_effect_render_tools.rs` pins; an effect that is left out does
+//! nothing, so it is still refused here.) These tests
 //! pin that the refusal comes at the edit, names the kinds that do work so
 //! the model can choose, and leaves the session exactly as it was.
 //!
@@ -121,6 +124,20 @@ impl Session {
         self.store.append(node).expect("append");
     }
 
+    /// The master bus's chain at the head.
+    fn master_chain(&self) -> Vec<EffectInstance> {
+        let node = self.store.get(self.store.head().expect("a head")).unwrap();
+        node.state.master_chain.clone()
+    }
+
+    /// Put `effect` on the master bus the way a project saved by an older
+    /// build holds one.
+    fn plant_master(&mut self, effect: EffectInstance) {
+        let mut node = self.store.get(self.store.head().expect("a head")).unwrap();
+        node.state.master_chain.push(effect);
+        self.store.append(node).expect("append");
+    }
+
     /// The session renders: the question a stored effect decides.
     fn renders(&mut self) -> Result<Value, String> {
         let node_id = self.head();
@@ -196,7 +213,7 @@ fn the_destructive_tool_a_refusal_names_exists() {
 
 /// A kind that exists nowhere is a different mistake from one that is not
 /// ready yet, and gets its own message. It is refused too: stored, it would
-/// fail every render exactly as an unstreamable one does.
+/// be left out of every render exactly as an unstreamable one is.
 #[test]
 fn add_effect_refuses_an_unknown_kind_and_lists_what_works() {
     let mut s = Session::new();
@@ -347,4 +364,168 @@ fn the_kind_description_names_exactly_the_kinds_that_work() {
             "kind description offers `{kind}`, which the renderer cannot run: {text}"
         );
     }
+}
+
+// --- the master bus ----------------------------------------------------------
+//
+// The master bus (`scope: "master"`, #516) is where one unrunnable effect
+// used to break the whole mix, preview, playback and export included. The
+// refusal is the same call on both targets; these tests drive it there.
+
+/// **Acceptance item 1, on the master.** Every kind the renderer cannot
+/// stream is refused with `scope: "master"`, with the kinds that work in
+/// the message, and nothing is written.
+#[test]
+fn add_effect_on_the_master_refuses_each_kind_the_renderer_cannot_stream() {
+    let mut s = Session::new();
+    let head = s.head();
+    let nodes = s.node_count();
+
+    for kind in NOT_YET_STREAMABLE {
+        let msg = err(s.call("add_effect", json!({ "scope": "master", "kind": kind })));
+
+        assert!(msg.contains(kind), "{kind}: should name the kind: {msg}");
+        for works in STREAMABLE {
+            assert!(
+                msg.contains(works),
+                "{kind}: should list `{works}` among the kinds that work: {msg}"
+            );
+        }
+        assert!(
+            msg.contains(&format!("`{kind}` tool")),
+            "{kind}: should point at the destructive tool of that name: {msg}"
+        );
+
+        assert_eq!(s.head(), head, "{kind}: a refusal must not move the head");
+        assert_eq!(
+            s.node_count(),
+            nodes,
+            "{kind}: a refusal must write no node"
+        );
+        assert!(
+            s.master_chain().is_empty(),
+            "{kind}: the master chain must stay empty"
+        );
+        assert!(
+            s.chain().is_empty(),
+            "{kind}: nor may a track's chain gain it"
+        );
+    }
+
+    s.renders()
+        .expect("a refused master effect leaves a session that renders");
+}
+
+/// A kind that exists nowhere is refused on the master as unknown, with
+/// the kinds that work, and is matched exactly as the renderer matches.
+#[test]
+fn add_effect_on_the_master_refuses_an_unknown_kind_and_lists_what_works() {
+    let mut s = Session::new();
+    let head = s.head();
+
+    for kind in ["wobbulator", "Reverb", "GAIN", " gain", "gain ", ""] {
+        let msg = err(s.call("add_effect", json!({ "scope": "master", "kind": kind })));
+        assert!(
+            msg.contains("unknown effect kind"),
+            "{kind:?}: an unknown kind should read as unknown: {msg}"
+        );
+        for works in STREAMABLE {
+            assert!(
+                msg.contains(works),
+                "{kind:?}: should list `{works}`: {msg}"
+            );
+        }
+        assert_eq!(s.head(), head, "{kind:?}: a refusal must not move the head");
+        assert!(s.master_chain().is_empty(), "{kind:?}");
+    }
+}
+
+/// The guard on the other side: the refusal does not reach what works. Each
+/// working kind is accepted on the master, and the chain of all of them
+/// renders.
+#[test]
+fn every_kind_add_effect_accepts_on_the_master_renders() {
+    let mut s = Session::new();
+    for kind in STREAMABLE {
+        ok(s.call("add_effect", json!({ "scope": "master", "kind": kind })));
+    }
+    assert_eq!(s.master_chain().len(), STREAMABLE.len());
+    s.renders()
+        .unwrap_or_else(|e| panic!("a master chain of accepted kinds failed to render: {e}"));
+}
+
+/// **A stored master reverb cannot be switched on.** A project from before
+/// the refusal can hold a bypassed one, which renders only because bypassed
+/// entries are skipped. Switching it back on is a way into the chain, so it
+/// is refused on the master as it is on a track, and the entry stays
+/// bypassed. Bypassing it, or leaving it bypassed, still works.
+#[test]
+fn a_stored_master_unstreamable_effect_cannot_be_switched_back_on() {
+    for kind in NOT_YET_STREAMABLE.iter().copied().chain(["wobbulator"]) {
+        let mut s = Session::new();
+        s.plant_master(EffectInstance {
+            kind: kind.into(),
+            params: json!({}),
+            bypassed: true,
+        });
+        s.renders()
+            .expect("a bypassed master effect is skipped, so the session renders");
+        let head = s.head();
+        let nodes = s.node_count();
+
+        let msg = err(s.call(
+            "set_effect_bypassed",
+            json!({ "scope": "master", "effect_index": 0, "bypassed": false }),
+        ));
+        assert!(msg.contains(kind), "{kind}: should name the kind: {msg}");
+        for works in STREAMABLE {
+            assert!(msg.contains(works), "{kind}: should list `{works}`: {msg}");
+        }
+        assert_eq!(s.head(), head, "{kind}: a refusal must not move the head");
+        assert_eq!(
+            s.node_count(),
+            nodes,
+            "{kind}: a refusal must write no node"
+        );
+        assert!(
+            s.master_chain()[0].bypassed,
+            "{kind}: the effect must stay bypassed"
+        );
+
+        // Bypassing what is already bypassed changes nothing the renderer
+        // sees, and is allowed.
+        ok(s.call(
+            "set_effect_bypassed",
+            json!({ "scope": "master", "effect_index": 0, "bypassed": true }),
+        ));
+        s.renders().expect("still renders");
+    }
+}
+
+/// Bypass stays a two-way switch for what can be bypassed: a streamable
+/// master effect goes off and on, next to a stored bypassed reverb.
+#[test]
+fn bypass_on_the_master_still_works_for_a_kind_that_can_be_bypassed() {
+    let mut s = Session::new();
+    s.plant_master(EffectInstance {
+        kind: "reverb".into(),
+        params: json!({}),
+        bypassed: true,
+    });
+    ok(s.call(
+        "add_effect",
+        json!({ "scope": "master", "kind": "limiter" }),
+    ));
+
+    ok(s.call(
+        "set_effect_bypassed",
+        json!({ "scope": "master", "effect_index": 1, "bypassed": true }),
+    ));
+    ok(s.call(
+        "set_effect_bypassed",
+        json!({ "scope": "master", "effect_index": 1, "bypassed": false }),
+    ));
+    let chain = s.master_chain();
+    assert!(chain[0].bypassed && !chain[1].bypassed, "{chain:?}");
+    s.renders().expect("renders");
 }
