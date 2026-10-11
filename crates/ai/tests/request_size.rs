@@ -92,11 +92,12 @@ const SLIM_FIRST_REQUEST_MAX_BYTES: usize = 4_096 * BYTES_PER_TOKEN;
 /// found in review), which this fails.
 const MCP_HEADROOM_BYTES: usize = 500;
 
-/// What three buses, eight sends and four chain entries may add to the
-/// first request (#552). Measured at the time of writing: see the line
-/// the buses test prints. A bus costs its 36-character id, its sends and
-/// its chain, so a session with many buses costs more.
-const BUSES_MAX_BYTES: usize = 900;
+/// What the three buses of `mix_with_buses` (eight sends, four chain
+/// entries) may add to the first request (#552): measured 534 B, with the
+/// headroom of one more send or two. A bus costs its 36-character id, its
+/// sends and its chain, so a session with many buses costs more; raise
+/// this deliberately, and say why, if the section grows.
+const BUSES_MAX_BYTES: usize = 600;
 
 /// The issue's measured token count for the first request.
 const ISSUE_MEASURED_TOKENS: usize = 15_157;
@@ -690,65 +691,59 @@ fn mix_with_buses() -> SessionContext {
     }
 }
 
+/// The first request of `message` against Ollama, with `context` as the
+/// session.
+async fn ollama_first_request(message: &str, context: SessionContext) -> (Sent, Split) {
+    let mut turn = run_conversation(
+        "ollama",
+        &[message],
+        chat_script(),
+        Options {
+            context: Some(context),
+            ..Options::default()
+        },
+    )
+    .await;
+    turn.result.as_ref().expect("the turn succeeds");
+    let sent = turn.streaming.remove(0);
+    let split = split_chat(&sent);
+    (sent, split)
+}
+
 /// The buses reach the model, and the slim request still fits (#552).
 ///
 /// Tracks, the master chain and markers were already in the prompt; a bus
 /// the model could not see cost a refused tool call to learn. This is the
 /// check that telling it does not cost Ollama the room it needs: the whole
 /// first request, with three buses and their sends, stays under the same
-/// bound as one with none, with the MCP headroom left over.
+/// bound as one with none, for the message that sends the most tools too.
 #[tokio::test]
 async fn ollama_is_told_about_buses_and_the_bound_holds() {
-    let ctx = mix_with_buses();
-    let turn = run_conversation(
-        "ollama",
-        &[CANONICAL],
-        chat_script(),
-        Options {
-            context: Some(ctx.clone()),
-            ..Options::default()
-        },
-    )
-    .await;
-    turn.result.as_ref().expect("the turn succeeds");
-    let sent = &turn.streaming[0];
-    let split = split_chat(sent);
-    report("ollama, three buses", &split);
+    for message in [CANONICAL, NAMES_MANY_TOOLS] {
+        let ctx = mix_with_buses();
+        let bare_ctx = SessionContext {
+            buses: vec![],
+            ..ctx.clone()
+        };
+        let (sent, split) = ollama_first_request(message, ctx.clone()).await;
+        let (_, bare) = ollama_first_request(message, bare_ctx).await;
+        report("ollama, three buses", &split);
 
-    let system = system_text(&sent.body);
-    assert!(system.contains("## buses"), "{system}");
-    for bus in &ctx.buses {
-        assert!(system.contains(&bus.id), "{} not in {system}", bus.id);
+        let system = system_text(&sent.body);
+        assert!(system.contains("## buses"), "{system}");
+        for bus in &ctx.buses {
+            assert!(system.contains(&bus.id), "{} not in {system}", bus.id);
+        }
+        assert_fits(message, &split);
+
+        let cost = split.total - bare.total;
+        println!("three buses cost {cost} B of the first request ({message:?})");
+        assert!(
+            cost <= BUSES_MAX_BYTES,
+            "{message:?}: three buses with eight sends add {cost} B to the first request, over \
+             {BUSES_MAX_BYTES} B. A bus costs its id, its sends and its chain every turn."
+        );
     }
-    assert_fits("three buses", &split);
-
-    // What the buses cost, against the same session without them.
-    let bare = run_conversation(
-        "ollama",
-        &[CANONICAL],
-        chat_script(),
-        Options {
-            context: Some(SessionContext {
-                buses: vec![],
-                ..ctx
-            }),
-            ..Options::default()
-        },
-    )
-    .await;
-    let bare_split = split_chat(&bare.streaming[0]);
-    let cost = split.total - bare_split.total;
-    println!("three buses cost {cost} B of the first request");
-    assert!(
-        cost <= BUSES_MAX_BYTES,
-        "three buses with eight sends add {cost} B to the first request, over {BUSES_MAX_BYTES} B"
-    );
-    assert!(
-        split.total + MCP_HEADROOM_BYTES <= SLIM_FIRST_REQUEST_MAX_BYTES,
-        "with three buses the first request is {} B, which leaves under {MCP_HEADROOM_BYTES} B \
-         below the bound of {SLIM_FIRST_REQUEST_MAX_BYTES} B",
-        split.total
-    );
 }
 
 /// Every request of a turn carries the same tools, in the same order.

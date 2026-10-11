@@ -144,8 +144,33 @@ impl BusBrief {
     ///
     /// A send to a bus the session does not hold is dropped: it names
     /// nothing the model could use.
-    pub fn from_state(_state: &SessionState) -> Vec<BusBrief> {
-        Vec::new()
+    pub fn from_state(state: &SessionState) -> Vec<BusBrief> {
+        state
+            .bus_routing
+            .buses
+            .iter()
+            .map(|bus| BusBrief {
+                name: bus.name.clone(),
+                id: bus.id.to_string(),
+                sends: state
+                    .tracks
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(index, track)| {
+                        track
+                            .sends
+                            .iter()
+                            .filter(|send| send.bus_id == bus.id)
+                            .map(move |send| SendBrief {
+                                track: index,
+                                track_name: track.name.clone(),
+                                level_db: send.level_db,
+                            })
+                    })
+                    .collect(),
+                effects: effect_labels(&bus.effects),
+            })
+            .collect()
     }
 }
 
@@ -161,6 +186,7 @@ pub fn render_block(ctx: &SessionContext) -> String {
         && ctx.markers.is_empty()
         && ctx.head.is_none()
         && ctx.tracks.is_empty()
+        && ctx.buses.is_empty()
         && ctx.master_effects.is_empty()
     {
         return String::new();
@@ -214,6 +240,30 @@ pub fn render_block(ctx: &SessionContext) -> String {
             ));
             if !t.effects.is_empty() {
                 out.push_str(&format!("; effects: {}", t.effects.join(", ")));
+            }
+            out.push('\n');
+        }
+        out.push('\n');
+    }
+    if !ctx.buses.is_empty() {
+        out.push_str("## buses\n");
+        out.push_str(
+            "Tracks send a parallel copy to a bus; `set_send` and `remove_send` take its id.\n",
+        );
+        for b in &ctx.buses {
+            out.push_str(&format!("- \"{}\" (id {}): ", b.name, b.id));
+            if b.sends.is_empty() {
+                out.push_str("no sends");
+            } else {
+                let sends: Vec<String> = b
+                    .sends
+                    .iter()
+                    .map(|s| format!("{} \"{}\" ({:+.1} dB)", s.track, s.track_name, s.level_db))
+                    .collect();
+                out.push_str(&format!("from {}", sends.join(", ")));
+            }
+            if !b.effects.is_empty() {
+                out.push_str(&format!("; effects: {}", b.effects.join(", ")));
             }
             out.push('\n');
         }
