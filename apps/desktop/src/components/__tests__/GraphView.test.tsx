@@ -175,6 +175,24 @@ describe("GraphView", () => {
     }
   });
 
+  it("fades in when the tab is chosen, on its root and nowhere else", async () => {
+    // Opacity only: React Flow measures its container, and a box that
+    // moves while it measures is a graph laid out in the wrong place.
+    getGraphMock.mockResolvedValue({ nodes: [], head: null });
+    render(
+      <GraphView
+        head={null}
+        onSelectNode={vi.fn()}
+        onSetHead={vi.fn(async () => undefined)}
+        refreshKey={0}
+      />,
+    );
+    await act(async () => {
+      await flush();
+    });
+    expect(screen.getByTestId("graph-view-root").className).toContain("fade-in");
+  });
+
   it("calls onSelectNode when a node bubble is clicked", async () => {
     const summary = makeGraph(3);
     getGraphMock.mockResolvedValue(summary);

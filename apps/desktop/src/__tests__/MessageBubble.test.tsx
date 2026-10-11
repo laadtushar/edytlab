@@ -19,6 +19,27 @@ import { describe, expect, it } from "vitest";
 import { MessageBubble } from "../components/MessageBubble";
 
 describe("MessageBubble", () => {
+  it("staggers its chips by place, three steps at most", () => {
+    const chips = [0, 1, 2, 3, 4, 5].map((n) => ({
+      id: `c${n}`,
+      label: `chip ${n}`,
+      icon: "play" as const,
+      prompt: `do ${n}`,
+    }));
+    render(<MessageBubble role="assistant" text="Done." chips={chips} onChipClick={() => {}} />);
+    const found = screen.getAllByTestId("message-chip");
+    expect(found).toHaveLength(6);
+    expect(found.map((c) => c.style.getPropertyValue("--i"))).toEqual([
+      "0", "1", "2", "3", "3", "3",
+    ]);
+    for (const chip of found) expect(chip.className).toContain("stagger-in");
+  });
+
+  it("fades in as a bubble, once, when it mounts", () => {
+    render(<MessageBubble role="assistant" text="Done." />);
+    expect(screen.getByTestId("message-bubble").className).toContain("app-fade-in");
+  });
+
   it("drops leading newlines the model opened with", () => {
     render(<MessageBubble role="assistant" text={"\n\n\n\nDone! Speed is 2x."} />);
     const bubble = screen.getByTestId("message-bubble");

@@ -8,7 +8,7 @@
  * never reached the button.
  */
 
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -87,6 +87,56 @@ describe("Timeline mixer controls", () => {
       "aria-pressed",
       "true",
     );
+  });
+
+  it("lets mute and solo dip when pressed, and ease between their states", () => {
+    // `data-press` is what the stylesheet's press rule keys on. The
+    // transition is inline (the state is a style), so it has to list
+    // `scale` itself or it would replace the one that animates the dip.
+    render(<Timeline tracks={TRACKS} audioPath="/tmp/drums.wav" />);
+    for (const id of ["timeline-lane-mute", "timeline-lane-solo"]) {
+      for (const button of screen.getAllByTestId(id)) {
+        expect(button).toHaveAttribute("data-press");
+        const transition = button.style.transition;
+        for (const property of ["background-color", "border-color", "color", "scale"]) {
+          expect(transition).toContain(`${property} var(--dur-1) var(--ease-out)`);
+        }
+      }
+    }
+  });
+
+  it("lights a fader's readout while its slider is held, and only that one", async () => {
+    // `data-held` is the readout's colour (`--accent-text`) while the
+    // thumb is down. Set from pointer handlers, so it lands a render
+    // later: wait for it, as the slow-scheduler run needs.
+    render(<Timeline tracks={TRACKS} audioPath="/tmp/drums.wav" />);
+    const lane = within(lanes()[0]);
+    const gain = lane.getByTestId("timeline-lane-gain");
+    const pan = lane.getByTestId("timeline-lane-pan");
+    const gainReadout = lane.getByTestId("timeline-lane-gain-readout");
+    const panReadout = lane.getByTestId("timeline-lane-pan-readout");
+    expect(gainReadout).not.toHaveAttribute("data-held");
+
+    fireEvent.pointerDown(gain);
+    await waitFor(() => expect(gainReadout).toHaveAttribute("data-held", "true"));
+    expect(panReadout).not.toHaveAttribute("data-held");
+    // The other lane's readout is its own.
+    expect(
+      within(lanes()[1]).getByTestId("timeline-lane-gain-readout"),
+    ).not.toHaveAttribute("data-held");
+
+    fireEvent.pointerUp(gain);
+    await waitFor(() => expect(gainReadout).not.toHaveAttribute("data-held"));
+
+    fireEvent.pointerDown(pan);
+    await waitFor(() => expect(panReadout).toHaveAttribute("data-held", "true"));
+    fireEvent.pointerCancel(pan);
+    await waitFor(() => expect(panReadout).not.toHaveAttribute("data-held"));
+
+    fireEvent.pointerDown(pan);
+    await waitFor(() => expect(panReadout).toHaveAttribute("data-held", "true"));
+    fireEvent.blur(pan);
+    await waitFor(() => expect(panReadout).not.toHaveAttribute("data-held"));
   });
 
   it("commits mute against the session track index, not the lane index", async () => {

@@ -148,6 +148,7 @@ export function TranscriptPane({
   return (
     <div
       data-testid="transcript-pane"
+      className="fade-in"
       tabIndex={0}
       onKeyDown={handleKeyDown}
       style={{
@@ -213,6 +214,7 @@ export function TranscriptPane({
 function Empty({ children }: { children: React.ReactNode }) {
   return (
     <div
+      className="fade-in"
       style={{
         height: "100%",
         display: "flex",

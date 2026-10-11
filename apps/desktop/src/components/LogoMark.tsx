@@ -14,9 +14,16 @@
  * state's `h1` are still just "edytlab".
  */
 
+import type { CSSProperties } from "react";
+
+const BAR_0 = { "--i": 0 } as CSSProperties;
+const BAR_1 = { "--i": 1 } as CSSProperties;
+const BAR_2 = { "--i": 2 } as CSSProperties;
+
 interface LogoMarkProps {
   /** Rendered width and height in px. */
   size?: number;
+  /** `logo-build` makes the bars grow and the strokes draw on, once. */
   className?: string;
 }
 
@@ -31,9 +38,10 @@ export function LogoMark({ size = 20, className }: LogoMarkProps) {
       focusable="false"
     >
       <g fill="var(--logo-violet)">
-        <rect data-logo-bar x="5" y="26" width="6" height="12" rx="3" />
-        <rect data-logo-bar x="14" y="20" width="6" height="24" rx="3" />
-        <rect data-logo-bar x="23" y="25" width="6" height="14" rx="3" />
+        {/* `--i` is each bar's place, for `.logo-build`'s stagger. */}
+        <rect data-logo-bar style={BAR_0} x="5" y="26" width="6" height="12" rx="3" />
+        <rect data-logo-bar style={BAR_1} x="14" y="20" width="6" height="24" rx="3" />
+        <rect data-logo-bar style={BAR_2} x="23" y="25" width="6" height="14" rx="3" />
       </g>
       <path
         data-logo-line

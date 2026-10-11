@@ -127,6 +127,9 @@
   --shadow-pop: 0 12px 32px -8px rgb(0 0 0 / 0.7);
   --shadow-dialog: 0 30px 80px -20px rgb(0 0 0 / 0.7), inset 0 0 0 1px hsl(0 0% 100% / 0.02);
   --shadow-accent: 0 6px 18px -8px hsl(270 95% 60% / 0.55);
+  /* The same glow a little wider, for the primary action under the
+     pointer: the site's `.glow`, scaled to a dense tool. */
+  --shadow-accent-hover: 0 8px 26px -8px hsl(270 95% 60% / 0.75);
 
   /* The site's `ring-2 ring-offset-2`: a 2px gap in the page colour,
      then 2px of accent. 6:1 against the page, so it clears 1.4.11. */
@@ -154,12 +157,24 @@
    *
    * --ease-in-out is Tailwind's default kept on purpose, so migrating
    * the existing call sites changes no timing that was already right.
+   *
+   * Two more, for the motion pass that brought the site's feel across
+   * (docs/motion-audit.md, "Phase 3"):
+   *   --ease-spring  the site's `back.out`: a curve with a small
+   *                  overshoot, for things that *land* (a tool badge
+   *                  settling, the logo's bars).
+   *   --stagger      a gap between siblings, not a duration. The site
+   *                  uses .04-.07s; this is tightened for a tool.
+   * --dur-3 stays for explaining motion only (a clip travelling, a
+   * curve drawing on), never for a thing entering or leaving.
    */
   --dur-1: 120ms;
   --dur-2: 200ms;
   --dur-3: 320ms;
   --ease-out: cubic-bezier(0.2, 0.65, 0.3, 1);
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --stagger: 30ms;
 }
 
 /*
@@ -170,10 +185,23 @@
  * adds a component, and the failure mode is silent — the person who
  * needs this setting is the last to be told it was missed.
  *
- * 0.01ms rather than 0 so `transitionend` and `animationend` still
- * fire. Anything sequencing off those keeps working instead of
+ * Animations are flattened to 0.01ms rather than 0, so `animationend`
+ * still fires. Anything sequencing off it keeps working instead of
  * waiting for an event that will never arrive, which is how a
  * reduced-motion setting turns into a hang.
+ *
+ * Transitions are switched off (`transition: none`), not flattened to
+ * 0.01ms. An element's `transition-property` is `all` unless it says
+ * otherwise, so a 0.01ms duration on every element turns *every*
+ * property change on *every* element into a transition, and a
+ * transition holds the old value until the next frame. Layout read in
+ * the same tick then sees the old box: zoom-to-selection sets the
+ * timeline scrollbar's `scrollLeft` straight after its content's width
+ * changes, the width has not changed yet, the assignment is clamped to
+ * the old range, and for a person who asked for less motion the
+ * scrollbar and the lanes disagree (`zoom.spec.ts` and
+ * `timeline-axis.spec.ts` caught it). Nothing listens for
+ * `transitionend`, so nothing is lost by there being none.
  */
 /*
  * An automation curve a tool has just written draws itself left to
@@ -198,8 +226,12 @@
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    /* Delays go too: a staggered reveal flattened to 0.01ms would still
+       hold each item back (a backwards fill) and pop them in one by one,
+       which is motion, only jerkier. */
+    animation-delay: 0s !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    transition: none !important;
     scroll-behavior: auto !important;
   }
 }
@@ -358,7 +390,16 @@ input[type="range"]:active::-moz-range-thumb {
   transform: scale(1.3);
 }
 
-/* App-wide entry animation — staggered fade for first paint. */
+/*
+ * Entry animations for things that mount.
+ *
+ * `app-fade-in` is the app's oldest: a message, a tool badge, a divider
+ * arriving in the chat. It was --dur-3 (320ms) for a first paint and is
+ * now --dur-2, because nothing that merely arrives is being explained
+ * (see docs/motion-audit.md, "Phase 3"). Vertical only, 4px: the chat
+ * scroller is measured for overflow, and a bubble that slides sideways
+ * is a bubble outside it.
+ */
 @keyframes app-fade-in {
   from {
     opacity: 0;
@@ -370,19 +411,8 @@ input[type="range"]:active::-moz-range-thumb {
   }
 }
 
-/* Unused since the empty-state glyph became the static logo mark; the
-   motion pass deletes it. */
-@keyframes wave-pulse {
-  0%, 100% {
-    transform: scaleY(0.4);
-  }
-  50% {
-    transform: scaleY(1);
-  }
-}
-
 .app-fade-in {
-  animation: app-fade-in var(--dur-3) var(--ease-out) both;
+  animation: app-fade-in var(--dur-2) var(--ease-out) both;
 }
 
 /*
@@ -551,6 +581,213 @@ input[type="range"]:active::-moz-range-thumb {
 
 .node-in {
   animation: node-in var(--dur-2) var(--ease-out) both;
+}
+
+/*
+ * Phase 3: the site's feel, in CSS (docs/motion-audit.md).
+ *
+ * Everything below is a mount-driven CSS animation or a transition. No
+ * script decides when it plays: a class is on an element when it mounts,
+ * so jsdom (which computes none of it) and the slow-scheduler run cannot
+ * see it, and nothing asynchronous was added. Only `opacity`,
+ * `translate` / `scale` / `transform` and colours are animated. The
+ * reduced-motion block above flattens every one of them.
+ *
+ * NEVER animate, in any form:
+ *   - anything WaveSurfer draws, or any ancestor of it while it can be
+ *     drawing: `timeline-lane-waveform`, `-surface`, `-lane`,
+ *     `timeline-body`, `timeline-root`, `<main>`. An animated ancestor
+ *     promotes the canvases into a layer that is composited, resized and
+ *     repainted under them. That is why `<main>` and `timeline-root` no
+ *     longer carry `app-fade-in`.
+ *   - the playhead, a selection's `left` / `width`, the ruler, the
+ *     spectrum, marker positions, clip and label drags, an automation
+ *     point being dragged. They are moved by data, and an easing is a
+ *     lag behind the audio.
+ *   - a lane as a unit. Never key, remount or hold a lane open to
+ *     animate it: the leaving lane would keep its WaveSurfer and its
+ *     `<audio>` alive beside the new one, which is the shape of the
+ *     Linux freeze (#455). And add no media element for a UI effect.
+ *   - `filter`, `backdrop-filter`, or a layout property (`width`,
+ *     `height`, `top`, `left`). `strip-in` / `strip-out` and the clip
+ *     travel were there first and stay as they are.
+ *   - anything infinite on an idle screen. A spinner or a pulse is for
+ *     something that is actually busy.
+ * `e2e/motion.spec.ts` checks the first of these in a real browser.
+ *
+ * Fill mode is `backwards`, not `both`: the first frame holds through a
+ * delay (a staggered item is not visible early), and the last frame is
+ * the element's own resting style, so there is nothing for a forwards
+ * fill to hold. A forwards fill is not free. It keeps the animation "in
+ * effect" for as long as the element lives, and in Chromium an element
+ * that finished a `both` entrance still renders differently from one
+ * that never animated (194 of the pixels in one row of text, measured:
+ * its text keeps the antialiasing it had in motion). `backwards` leaves
+ * it pixel-identical to an element that never moved. (`app-fade-in` and
+ * the older overlay keyframes keep `both`; they are not changed here.)
+ */
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* A view arriving (Transcript, Graph). Opacity only: React Flow and the
+   transcript measure themselves, and must not see a moving box. */
+.fade-in {
+  animation: fade-in var(--dur-2) var(--ease-out) backwards;
+}
+
+/* Feedback-sized: a Settings tab's content, a selection arriving. */
+.fade-in-quick {
+  animation: fade-in var(--dur-1) var(--ease-out) backwards;
+}
+
+/* The plan card: "this needs you". Vertical, 6px, nothing sideways. */
+@keyframes plan-in {
+  from {
+    opacity: 0;
+    translate: 0 6px;
+  }
+  to {
+    opacity: 1;
+    translate: none;
+  }
+}
+
+.plan-in {
+  animation: plan-in var(--dur-2) var(--ease-out) backwards;
+}
+
+/*
+ * Siblings arriving in reading order. `--i` is the item's index, set
+ * inline; the delay is capped at five steps (150ms), so a long list is
+ * not a long wait: the card's total stays under 300ms however many
+ * steps it has. Keyed by place by the caller, so editing an item does
+ * not replay its entrance.
+ */
+@keyframes stagger-in {
+  from {
+    opacity: 0;
+    translate: 0 3px;
+  }
+  to {
+    opacity: 1;
+    translate: none;
+  }
+}
+
+.stagger-in {
+  animation: stagger-in var(--dur-1) var(--ease-out) backwards;
+  animation-delay: calc(min(var(--i, 0), 5) * var(--stagger));
+}
+
+/* The same, sized as an entrance (--dur-2) with a three-step cap: the
+   empty state's groups, 90ms of delay at most. */
+.reveal-in {
+  animation: stagger-in var(--dur-2) var(--ease-out) backwards;
+  animation-delay: calc(min(var(--i, 0), 3) * var(--stagger));
+}
+
+/*
+ * A tool badge's glyph landing (running -> done / error). The caller keys
+ * the glyph by status, so a new status is a new element and plays this.
+ * Not for the running glyph, whose `animate-spin` is its own `animation`.
+ * `--ease-spring` overshoots a little, which is what "landed" looks like.
+ */
+@keyframes badge-settle {
+  from {
+    opacity: 0;
+    scale: 0.6;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+.badge-settle {
+  display: inline-block;
+  animation: badge-settle var(--dur-2) var(--ease-spring) backwards;
+}
+
+/* ...and the badge's own tint following the status. The class strings
+   that choose the colours are unchanged; this is only their transition. */
+.badge-tone {
+  transition:
+    color var(--dur-2) var(--ease-out),
+    background-color var(--dur-2) var(--ease-out),
+    border-color var(--dur-2) var(--ease-out);
+}
+
+/* A banner hangs from the edge above it, so it drops in from there.
+   Leaving stays instant: tests assert the banner is gone. */
+@keyframes banner-in {
+  from {
+    opacity: 0;
+    translate: 0 -4px;
+  }
+  to {
+    opacity: 1;
+    translate: none;
+  }
+}
+
+.banner-in {
+  animation: banner-in var(--dur-2) var(--ease-out) backwards;
+}
+
+/*
+ * The logo building itself, as on the site: bars grow from their middle
+ * (`logo-bar-in`, 40ms apart, with a little overshoot), then the two
+ * strokes draw on (`pathLength` is 1, so a dash of 1 is the whole path).
+ * Once, on the empty state. The header's copy is not `.logo-build` and
+ * stays still: it mounts once per launch, and a mark that moves in the
+ * corner of a tool is decoration.
+ */
+@keyframes logo-bar-in {
+  from {
+    transform: scaleY(0.15);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes logo-line-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.logo-build [data-logo-bar] {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  animation: logo-bar-in var(--dur-2) var(--ease-spring) backwards;
+  animation-delay: calc(var(--i, 0) * 40ms);
+}
+
+.logo-build [data-logo-line] {
+  stroke-dasharray: 1;
+  animation: logo-line-draw var(--dur-2) var(--ease-in-out) backwards;
+  animation-delay: 80ms;
+}
+
+/* A fader's readout, lit while its slider is held: which number is
+   moving. The value itself is never animated. */
+.fader-readout {
+  transition: color var(--dur-1) var(--ease-out);
+}
+
+.fader-readout[data-held="true"] {
+  color: var(--accent-text);
 }
 
 /*
@@ -726,8 +963,11 @@ input[type="range"]:active::-moz-range-thumb {
  *
  * Colour, edge, radius and weight only. Size stays with each call
  * site's own padding and text classes, because the layout does not
- * change here, and no recipe adds a transition or an animation (a bare
- * Tailwind `transition` on the element still supplies the 120ms).
+ * change here. A recipe carries its own hover transition (the next
+ * block), so a button that forgot to say `transition` still eases; the
+ * Tailwind `transition` on most call sites is a superset of it and wins
+ * where it is written. `transition-colors` is not a superset (it has no
+ * `scale`), so a recipe button does not use it: the press would snap.
  *
  * In `@layer components` on purpose: a Tailwind utility on the same
  * element (`rounded`, `disabled:opacity-40`, `hover:...`) is in a later
@@ -738,6 +978,22 @@ input[type="range"]:active::-moz-range-thumb {
  * `microInteractions.test.tsx` forbids the other.
  */
 @layer components {
+  /*
+   * Feedback: a control echoes the pointer in --dur-1. Colours and the
+   * shadow ease on hover; `scale` is the press (below).
+   */
+  .btn-primary,
+  .btn-secondary,
+  .btn-tool,
+  .btn-ghost,
+  .btn-danger,
+  .pill,
+  .ring-hover {
+    transition-property: color, background-color, border-color, box-shadow, scale;
+    transition-duration: var(--dur-1);
+    transition-timing-function: var(--ease-out);
+  }
+
   /* The one primary action on a surface. */
   .btn-primary {
     background: var(--accent);
@@ -746,8 +1002,10 @@ input[type="range"]:active::-moz-range-thumb {
     font-weight: 500;
     box-shadow: var(--shadow-accent);
   }
+  /* Hover brightens the fill and widens the glow: the site's CTA. */
   .btn-primary:hover:not(:disabled) {
     background: var(--accent-hover);
+    box-shadow: var(--shadow-accent-hover);
   }
   .btn-primary:disabled {
     background: var(--surface-elev-2);
@@ -852,12 +1110,43 @@ input[type="range"]:active::-moz-range-thumb {
     padding: 0 0.04em 0.05em;
   }
 
+  /*
+   * A text link. The underline is a pseudo-element that sweeps in from
+   * the left on hover or focus and out to the right on leave (the
+   * site's `data-sweep`). Under reduced motion it still appears, as a
+   * snap: it is the hover state, not decoration.
+   */
   .link-accent {
+    position: relative;
     color: var(--accent-text);
-    text-underline-offset: 3px;
   }
-  .link-accent:hover {
-    text-decoration-line: underline;
+  .link-accent::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -2px;
+    height: 1px;
+    background: currentColor;
+    scale: 0 1;
+    transform-origin: right;
+    transition: scale var(--dur-2) var(--ease-out);
+    pointer-events: none;
+  }
+  .link-accent:hover::after,
+  .link-accent:focus-visible::after {
+    scale: 1 1;
+    transform-origin: left;
+  }
+
+  /* A card that lights its edge under the pointer (the site's
+     `.ring-hover`). It does not lift: a target that moves under the
+     pointer is worse in a tool. A call site that sets its own `border-*`
+     utility (which beats this layer) says its hover border itself, and
+     gets the ring and the easing from here. */
+  .ring-hover:hover {
+    border-color: var(--accent-border);
+    box-shadow: 0 0 0 1px var(--accent-soft);
   }
 
   /*
@@ -879,6 +1168,8 @@ input[type="range"]:active::-moz-range-thumb {
     border-radius: 2px;
     background: var(--accent);
     scale: 0 1;
+    transform-origin: left;
+    transition: scale var(--dur-2) var(--ease-out);
     pointer-events: none;
   }
   .tab-indicator[aria-selected="true"]::after,
@@ -897,5 +1188,38 @@ input[type="range"]:active::-moz-range-thumb {
     height: 1px;
     background: linear-gradient(to right, transparent, var(--accent-border) 50%, transparent);
     pointer-events: none;
+  }
+}
+
+/*
+ * The press. A held button dips to .96 (the site's `data-press`) and
+ * springs back on release.
+ *
+ * This is a state, not an animation, so it is declared only where motion
+ * is welcome: inside the media query it is simply absent under reduced
+ * motion, where the global block would otherwise leave a 0.96 that snaps
+ * on and off. It uses the individual `scale` property, which composes
+ * with a `translate` or `transform` an element already has. In the
+ * components layer, so a Tailwind `transition` on the element (which
+ * lists `scale`) takes over its timing without losing it.
+ *
+ * Excluded by construction: range inputs, clip and label chips, the
+ * automation points, React Flow nodes and menu items carry none of these
+ * classes. A drag handle that shrinks under the pointer mid-drag moves
+ * its own hit target. A disabled button does not press.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  @layer components {
+    :is(
+        .btn-primary,
+        .btn-secondary,
+        .btn-tool,
+        .btn-ghost,
+        .btn-danger,
+        button.pill,
+        [data-press]
+      ):not(:disabled):active {
+      scale: 0.96;
+    }
   }
 }

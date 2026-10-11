@@ -40,6 +40,46 @@ describe("ToolBadge", () => {
     expect(badge.textContent).toContain("✗");
   });
 
+  it("settles its glyph when the tool lands, and spins it only while running", () => {
+    // The glyph is keyed by status, so running -> ok is a new element
+    // (which mounts and plays `badge-settle`), not the old one restyled.
+    // The running glyph keeps `animate-spin` and must not carry the
+    // settle: both set `animation`, and the settle would stop the spin.
+    const { rerender } = render(<ToolBadge name="normalize" status="running" />);
+    const running = screen.getByTestId("tool-badge").querySelector("[aria-hidden]")!;
+    expect(running.className).toContain("animate-spin");
+    expect(running.className).not.toContain("badge-settle");
+
+    rerender(<ToolBadge name="normalize" status="ok" />);
+    const done = screen.getByTestId("tool-badge").querySelector("[aria-hidden]")!;
+    expect(done).not.toBe(running);
+    expect(done.className).toContain("badge-settle");
+    expect(done.className).not.toContain("animate-spin");
+
+    rerender(<ToolBadge name="normalize" status="error" />);
+    const failed = screen.getByTestId("tool-badge").querySelector("[aria-hidden]")!;
+    expect(failed).not.toBe(done);
+    expect(failed.className).toContain("badge-settle");
+  });
+
+  it("is the same badge across a status change, so its tint can ease", () => {
+    // Only the classes change, so `badge-tone`'s transition has
+    // something to transition from.
+    const { rerender } = render(<ToolBadge name="normalize" status="running" />);
+    const badge = screen.getByTestId("tool-badge");
+    expect(badge.className).toContain("badge-tone");
+
+    rerender(<ToolBadge name="normalize" status="ok" />);
+    expect(screen.getByTestId("tool-badge")).toBe(badge);
+    expect(badge.className).toContain("--success");
+    expect(badge.className).toContain("badge-tone");
+  });
+
+  it("fades in when it mounts", () => {
+    render(<ToolBadge name="normalize" status="running" />);
+    expect(screen.getByTestId("tool-badge").className).toContain("app-fade-in");
+  });
+
   it("renders not_run as neither success nor failure", () => {
     render(<ToolBadge name="normalize" status="not_run" />);
     const badge = screen.getByTestId("tool-badge");

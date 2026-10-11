@@ -33,7 +33,7 @@ export function ErrorBanner({
       role="alert"
       data-testid={testId}
       className="
-        app-fade-in
+        banner-in
         flex items-center gap-3
         border-b border-[var(--border-strong)]
         bg-[var(--danger-soft)]

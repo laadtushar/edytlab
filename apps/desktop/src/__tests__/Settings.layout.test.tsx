@@ -106,6 +106,38 @@ describe("Settings layout", () => {
     },
   );
 
+  it.each(["blocking", "panel"] as const)(
+    "%s: enters like the other overlays, and its scrim has no blur to animate",
+    async (mode) => {
+      // The scrim's opacity is animated (`backdrop-in`); a backdrop blur
+      // on a layer whose opacity animates makes WebKitGTK re-blur the
+      // window every frame, so there is none. It also stopped using
+      // `app-fade-in`, which translated the full-screen scrim by 4px.
+      await renderSettings(mode);
+      const dialog = screen.getByTestId("settings");
+      expect(dialog.className).toContain("backdrop-in");
+      expect(dialog.className).not.toContain("backdrop-blur");
+      expect(dialog.className).not.toContain("app-fade-in");
+      expect(screen.getByTestId("settings-card").className).toContain("overlay-in");
+    },
+  );
+
+  it("fades each tab's content in as a fresh element, and only the content", async () => {
+    await renderSettings("panel");
+    const body = screen.getByTestId("settings-body");
+    const first = body.firstElementChild as HTMLElement;
+    expect(first.className).toContain("fade-in-quick");
+    // Content only: the strip and the body stay where they are.
+    expect(screen.getByTestId("settings-tabs").className).not.toContain("fade-in");
+    expect(body.className).not.toContain("fade-in");
+
+    await userEvent.click(screen.getByTestId("settings-tab-plugins"));
+    const second = screen.getByTestId("settings-body").firstElementChild as HTMLElement;
+    expect(second).not.toBe(first);
+    expect(second.className).toContain("fade-in-quick");
+    expect(second.contains(screen.getByTestId("plugins-panel"))).toBe(true);
+  });
+
   it("panel: Clear key is in the footer with Save", async () => {
     await renderSettings("panel");
 

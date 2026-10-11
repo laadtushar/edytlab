@@ -329,6 +329,21 @@ describe("a drag on a lane", () => {
     expect(mix!.setTime).not.toHaveBeenCalled();
   });
 
+  it("fades its selection in when it mounts, and never eases its position", async () => {
+    // The overlay sits over the canvas, not in it, and follows the
+    // pointer: `left` and `width` are data, so only its arrival is eased.
+    // (jsdom computes no animation; this is the class, not the motion.)
+    await mount();
+
+    fireEvent.mouseDown(surface(0), { button: 0, clientX: 0, clientY: 40 });
+    fireEvent.mouseMove(window, { clientX: 300, clientY: 40 });
+
+    const overlay = screen.getByTestId("timeline-selection-overlay");
+    expect(overlay.className).toContain("fade-in-quick");
+    expect(overlay.style.transition).toBe("");
+    fireEvent.mouseUp(window, { clientX: 300, clientY: 40 });
+  });
+
   it("on a lane that cannot select, draws no selection and seeks nowhere", async () => {
     const { mix, onSelectionChange } = await mount();
 

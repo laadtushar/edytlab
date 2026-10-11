@@ -32,6 +32,15 @@ export default defineConfig({
   use: {
     baseURL: `http://127.0.0.1:${PORT}`,
     trace: "retain-on-failure",
+    // Motion is off for the whole suite, so no spec waits on an entrance
+    // or races a 120ms transition for actionability, and a screenshot is
+    // of the final state. The app honours the setting through one global
+    // block in `styles.css`. The specs where motion is the subject opt
+    // back in with `test.use({ contextOptions: { reducedMotion:
+    // "no-preference" } })`: `motion.spec.ts` and `automation.spec.ts`.
+    // (`reducedMotion` is a context option; Playwright Test has no
+    // top-level `use.reducedMotion`.)
+    contextOptions: { reducedMotion: "reduce" },
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {

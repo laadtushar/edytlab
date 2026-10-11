@@ -9,6 +9,8 @@
  * users don't sit and wonder what to do.
  */
 
+import type { CSSProperties } from "react";
+
 import { LogoMark } from "./LogoMark";
 import { RecentProjects } from "./RecentProjects";
 import type { RecentProject } from "../lib/tauri-bridge";
@@ -47,6 +49,9 @@ function modifierKey(): string {
   return /Mac|iPhone|iPad/i.test(platform) ? "\u2318" : "Ctrl";
 }
 
+/** A reveal group's place in the order, for `.reveal-in`'s delay. */
+const group = (i: number) => ({ "--i": i }) as CSSProperties;
+
 export function EmptyState({
   onOpen,
   onOpenProject,
@@ -62,30 +67,39 @@ export function EmptyState({
       className="
         relative flex h-full w-full flex-col items-center justify-center
         gap-6 px-12 text-center
-        app-fade-in
       "
     >
-      {/* The logo mark: decorative (it is aria-hidden), and still. */}
+      {/* The logo mark: decorative (it is aria-hidden). It builds itself
+          once as the screen arrives (`logo-build`: bars, then strokes),
+          and then it is still. The groups below follow it, top to
+          bottom, by `--i`. The root has no fade of its own, so the two
+          do not stack, and nothing here loops: an endless animation on
+          an idle screen keeps the webview repainting. */}
       <div className="flex h-12 items-center justify-center">
-        <LogoMark size={44} />
+        <LogoMark size={44} className="logo-build" />
       </div>
 
       <div className="flex flex-col items-center gap-2">
         <h1
+          style={group(0)}
           className="
+            reveal-in
             text-4xl font-semibold tracking-tight text-[var(--text)]
             leading-none
           "
         >
           <span className="gradient-text">edyt</span>lab
         </h1>
-        <p className="max-w-md text-sm leading-relaxed text-[var(--text-dim)]">
+        <p
+          style={group(1)}
+          className="reveal-in max-w-md text-sm leading-relaxed text-[var(--text-dim)]"
+        >
           Conversational audio editor. Drop a file or pick one to begin —
           the assistant takes over from there.
         </p>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div style={group(2)} className="reveal-in flex items-center gap-3">
         {onNewProject ? (
           <button
             type="button"
@@ -186,30 +200,38 @@ export function EmptyState({
         </span>
       </div>
 
+      {/* Everything below the buttons arrives together, as the last group. */}
       {recents && recents.length > 0 && onOpenRecent && onForgetRecent ? (
         <RecentProjects
           projects={recents}
           onOpen={onOpenRecent}
           onForget={onForgetRecent}
+          style={group(3)}
         />
       ) : null}
 
-      <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--text-faint)]">
+      <p
+        style={group(3)}
+        className="reveal-in font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--text-faint)]"
+      >
         wav · mp3 · flac · ogg
       </p>
 
-      <p className="max-w-sm text-xs text-[var(--text-faint)]">
+      <p style={group(3)} className="reveal-in max-w-sm text-xs text-[var(--text-faint)]">
         Drop an audio file anywhere on this window to load it.
       </p>
 
-      <div className="mt-2 flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
+      <div
+        style={group(3)}
+        className="reveal-in mt-2 flex flex-wrap items-center justify-center gap-x-5 gap-y-2"
+      >
         <Shortcut keys={["Space"]} label="play / pause" />
         <Shortcut keys={["←", "→"]} label="seek 5s" />
         <Shortcut keys={["Home", "End"]} label="jump" />
         <Shortcut keys={["Drag"]} label="select region" />
       </div>
 
-      <div className="card mt-4 max-w-xs px-4 py-3 text-left">
+      <div style={group(3)} className="reveal-in card mt-4 max-w-xs px-4 py-3 text-left">
         <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-dim)]">
           Then tell the assistant →
         </p>

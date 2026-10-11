@@ -199,13 +199,19 @@ export function ToolBadge({ name, status, result }: ToolBadgeProps) {
       data-testid="tool-badge"
       data-status={status}
       className={
-        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-wider " +
+        "app-fade-in badge-tone inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-wider " +
         STATUS_CLASS[status]
       }
     >
+      {/* Keyed by status: a new status is a new glyph, which mounts and
+          settles (`badge-settle`) where the old one was. The running
+          glyph spins instead (`animate-spin` is its own `animation`, and
+          covers the wait). The badge's own tint eases between statuses
+          through `badge-tone`; the status class strings are unchanged. */}
       <span
+        key={status}
         aria-hidden="true"
-        className={status === "running" ? "animate-spin" : ""}
+        className={status === "running" ? "animate-spin" : "badge-settle"}
       >
         {STATUS_GLYPH[status]}
       </span>

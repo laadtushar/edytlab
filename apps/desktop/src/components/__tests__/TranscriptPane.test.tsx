@@ -40,6 +40,24 @@ function dragWords(a: number, b: number) {
 }
 
 describe("the transcript pane", () => {
+  it("fades in whichever of its three faces it shows", () => {
+    // A view arriving, like the Graph: opacity only.
+    const { container, rerender } = render(
+      <TranscriptPane words={WORDS} onSelectRange={vi.fn()} onCutWords={vi.fn()} onSeek={vi.fn()} />,
+    );
+    expect(screen.getByTestId("transcript-pane").className).toContain("fade-in");
+
+    rerender(
+      <TranscriptPane words={[]} onSelectRange={vi.fn()} onCutWords={vi.fn()} onSeek={vi.fn()} />,
+    );
+    expect((container.firstElementChild as HTMLElement).className).toContain("fade-in");
+
+    rerender(
+      <TranscriptPane words={[]} busy onSelectRange={vi.fn()} onCutWords={vi.fn()} onSeek={vi.fn()} />,
+    );
+    expect((container.firstElementChild as HTMLElement).className).toContain("fade-in");
+  });
+
   it("shows every transcribed word", () => {
     setup();
     expect(screen.getAllByTestId("transcript-word")).toHaveLength(4);

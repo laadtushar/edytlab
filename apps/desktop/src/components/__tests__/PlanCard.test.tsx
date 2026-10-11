@@ -119,6 +119,45 @@ describe("PlanCard (inside Chat)", () => {
    * one edit the agent is about to make, as its tool and its arguments
    * (#415). It is neither a mashup nor several steps.
    */
+  it("enters with the card, and its steps stagger by place", async () => {
+    // Class and `--i` only: both are decided in the render that shows
+    // the card, so nothing here is asynchronous. The delay itself is
+    // capped in the stylesheet (see motion.test.tsx).
+    render(<Chat />);
+    await act(async () => {
+      await flush();
+    });
+    await act(async () => {
+      cbs.plan[0](sampleSteps);
+    });
+
+    const card = screen.getByTestId("plan-approval-card");
+    expect(card.className).toContain("plan-in");
+    const steps = screen.getAllByTestId("plan-step");
+    expect(steps).toHaveLength(5);
+    steps.forEach((step, i) => {
+      expect(step.className).toContain("stagger-in");
+      expect(step.style.getPropertyValue("--i")).toBe(String(i));
+    });
+  });
+
+  it("does not replay a step's entrance when it is edited", async () => {
+    const user = userEvent.setup();
+    render(<Chat />);
+    await act(async () => {
+      await flush();
+    });
+    await act(async () => {
+      cbs.plan[0](sampleSteps);
+    });
+
+    const before = screen.getAllByTestId("plan-step")[1];
+    await user.click(screen.getAllByTestId("plan-edit-button")[1]);
+    // The same <li>, so the animation that already ran does not restart.
+    expect(screen.getAllByTestId("plan-step")[1]).toBe(before);
+    expect(screen.getByTestId("plan-step-editor")).toBeInTheDocument();
+  });
+
   it("renders a held one-step edit with its tool and arguments", async () => {
     render(<Chat />);
     await act(async () => {

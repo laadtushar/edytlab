@@ -31,6 +31,40 @@ describe("EmptyState", () => {
     expect(onOpen).not.toHaveBeenCalled();
   });
 
+  /**
+   * The empty state arrives once: the logo builds, then its groups
+   * follow top to bottom. Nothing loops (the old ten pulsing bars kept
+   * an idle window repainting), and the root has no fade of its own, or
+   * the two would stack.
+   */
+  it("reveals itself once: the logo builds, then the groups arrive in order", () => {
+    render(
+      <EmptyState
+        onOpen={() => {}}
+        onOpenProject={() => {}}
+        recents={[{ path: "/p/one", name: "one", last_opened_at: null }]}
+        onOpenRecent={() => {}}
+        onForgetRecent={() => {}}
+      />,
+    );
+    const root = screen.getByTestId("empty-state");
+    expect(root.className).not.toContain("app-fade-in");
+    expect(root.querySelector("svg.logo-build")).not.toBeNull();
+    // Nothing infinite on an idle screen.
+    expect(root.querySelector('[class*="animate-"]')).toBeNull();
+
+    const places = Array.from(root.querySelectorAll<HTMLElement>(".reveal-in")).map(
+      (el) => Number(el.style.getPropertyValue("--i")),
+    );
+    // Heading, lead, buttons, then the rest together; never out of order.
+    expect(places.slice(0, 3)).toEqual([0, 1, 2]);
+    expect(places.length).toBeGreaterThan(3);
+    expect([...places].sort((a, b) => a - b)).toEqual(places);
+    expect(Math.max(...places)).toBe(3);
+    // The recents list is one of the last group.
+    expect(screen.getByTestId("recent-projects").className).toContain("reveal-in");
+  });
+
   it("hides the project button when the caller cannot open one", () => {
     render(<EmptyState onOpen={() => {}} />);
     expect(screen.queryByTestId("empty-state-open-project-button")).toBeNull();

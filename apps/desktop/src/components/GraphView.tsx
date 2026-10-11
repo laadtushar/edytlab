@@ -369,7 +369,9 @@ export function GraphView({
     <div
       ref={containerRef}
       data-testid="graph-view-root"
-      className="relative h-full w-full bg-[var(--surface)]"
+      // Fades in when the tab is chosen. Opacity only: React Flow
+      // measures its container and must not see it move.
+      className="fade-in relative h-full w-full bg-[var(--surface)]"
     >
       {error ? (
         <div

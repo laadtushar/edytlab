@@ -1466,7 +1466,10 @@ function App() {
   }, [renderError]);
 
   return (
-    <main className="grid h-screen w-screen grid-rows-[auto_1fr_auto] bg-[var(--bg)] text-[var(--text)] app-fade-in">
+    // No entry animation on `<main>`, or on anything else above the
+    // timeline: it is an ancestor of every WaveSurfer canvas, and an
+    // animated ancestor re-composites them (docs/motion-audit.md).
+    <main className="grid h-screen w-screen grid-rows-[auto_1fr_auto] bg-[var(--bg)] text-[var(--text)]">
       <AppHeader
         leftView={leftView}
         onSelectView={setLeftView}

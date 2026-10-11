@@ -40,7 +40,7 @@ export function TemplatePickerModal({
             <li key={t.name}>
               <button
                 type="button"
-                className="w-full text-left px-3 py-2 rounded-lg border border-[var(--border-strong)] hover:border-[var(--accent-border)] hover:bg-[var(--accent-soft)] transition-colors"
+                className="ring-hover w-full text-left px-3 py-2 rounded-lg border border-[var(--border-strong)] hover:border-[var(--accent-border)] hover:bg-[var(--accent-soft)] transition"
                 onClick={() => onSelect(t.name)}
               >
                 <div className="text-sm text-[var(--text)] font-medium">{t.name}</div>

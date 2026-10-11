@@ -11,6 +11,8 @@
  * with something" are the same view — which is what they are.
  */
 
+import type { CSSProperties } from "react";
+
 import type { RecentProject } from "../lib/tauri-bridge";
 
 export interface RecentProjectsProps {
@@ -18,6 +20,11 @@ export interface RecentProjectsProps {
   onOpen: (path: string) => void;
   /** Drop a row without touching the project it points at. */
   onForget: (path: string) => void;
+  /**
+   * The list arrives with the empty state's other groups (`reveal-in`),
+   * and this carries its `--i`, its place in that order.
+   */
+  style?: CSSProperties;
 }
 
 /**
@@ -59,13 +66,15 @@ export function RecentProjects({
   projects,
   onOpen,
   onForget,
+  style,
 }: RecentProjectsProps) {
   if (projects.length === 0) return null;
 
   return (
     <div
       data-testid="recent-projects"
-      className="mt-2 flex w-full max-w-lg flex-col gap-1"
+      style={style}
+      className="reveal-in mt-2 flex w-full max-w-lg flex-col gap-1"
     >
       <span className="px-1 pb-1 font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-faint)]">
         Recent
@@ -75,7 +84,7 @@ export function RecentProjects({
           key={p.path}
           data-testid="recent-project-row"
           className="
-            group flex items-center gap-3 rounded-lg
+            group ring-hover flex items-center gap-3 rounded-lg
             border border-transparent px-3 py-2 text-left
             transition hover:border-[var(--accent-border)] hover:bg-[var(--surface-elev)]
           "

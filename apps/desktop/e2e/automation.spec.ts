@@ -13,6 +13,11 @@ import { fixturePath, fixtureSeconds, SAMPLE_RATE } from "./audio-fixtures";
 import { deferred, nodeId, projectWith, sessionWith, trackFor } from "./backend";
 import { expect, test, type App } from "./fixtures";
 
+// Motion is the subject here: "draws itself on" reads `getAnimations()` on
+// a 320ms animation that, under the suite's global reduced motion, would
+// already be gone. The last test still forces `reduce` for itself.
+test.use({ contextOptions: { reducedMotion: "no-preference" } });
+
 const SECONDS = fixtureSeconds("tone3s");
 type Point = ClipSummary["volume_envelope"][number];
 

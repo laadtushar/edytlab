@@ -440,7 +440,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
               <div
                 key={entry.id}
                 data-testid="node-divider"
-                className="flex items-center gap-2 py-1 text-xs"
+                className="app-fade-in flex items-center gap-2 py-1 text-xs"
               >
                 <div className="h-px flex-1 bg-[var(--border)]" />
                 <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-faint)]">
@@ -455,7 +455,10 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
               <div
                 key={entry.id}
                 data-testid="plan-history-entry"
+                // The card leaves at once on Run / Discard (a test holds
+                // it to that), so this arriving is the motion.
                 className="
+                  app-fade-in
                   rounded-md border border-[var(--border)]
                   bg-[var(--surface-elev)]
                   px-3 py-2 text-xs text-[var(--text-dim)]
@@ -489,6 +492,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
                 key={entry.id}
                 data-testid="chat-notice"
                 className="
+                  banner-in
                   rounded-md border border-[var(--warning-border)]
                   bg-[var(--warning-soft)]
                   px-3 py-2 text-xs text-[var(--text-dim)]
@@ -514,6 +518,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
             role="alert"
             data-testid="chat-error"
             className="
+              banner-in
               rounded-md
               border border-[var(--danger-border)]
               bg-[var(--danger-soft)]
@@ -569,6 +574,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
         <div
           data-testid="plan-approval-card"
           className="
+            plan-in
             mx-3 mb-3 overflow-hidden
             rounded-lg border border-[var(--accent-border)]
             bg-[linear-gradient(180deg,var(--accent-soft),transparent)]
@@ -648,6 +654,11 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
                 key={idx}
                 data-testid="plan-step"
                 data-unavailable={s.unavailable ? "true" : undefined}
+                // The steps arrive in reading order after the card; the
+                // delay is capped in the stylesheet. Keyed by place, so
+                // editing a step does not replay its entrance.
+                className="stagger-in"
+                style={{ "--i": idx } as React.CSSProperties}
               >
                 {editingStepIdx === idx ? (
                   <span className="flex flex-col gap-1 mt-0.5">
@@ -1014,7 +1025,7 @@ function ChatHeader({
             data-testid="export-selection-btn"
             onClick={onExportSelection}
             disabled={!!exporting}
-            className="btn-tool text-xs rounded px-2 py-1 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+            className="btn-tool text-xs rounded px-2 py-1 transition disabled:cursor-not-allowed disabled:opacity-60"
           >
             Export Selection
           </button>
@@ -1075,7 +1086,7 @@ function ChatEmptyHints({ onPick }: ChatEmptyHintsProps) {
               key={h}
               type="button"
               onClick={() => onPick(h)}
-              className="pill bg-[var(--surface-elev)] px-2.5 py-1 text-xs text-[var(--text-dim)] transition hover:border-[var(--accent-border)] hover:bg-[var(--accent-soft)] hover:text-[var(--accent-text)]"
+              className="pill ring-hover bg-[var(--surface-elev)] px-2.5 py-1 text-xs text-[var(--text-dim)] transition hover:bg-[var(--accent-soft)] hover:text-[var(--accent-text)]"
             >
               &quot;{h}&quot;
             </button>

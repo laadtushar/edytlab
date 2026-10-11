@@ -795,10 +795,14 @@ export function Settings({
   const saveDisabled = (needsKey && !key.trim()) || saving;
   const testDisabled = (needsKey && !key.trim()) || test.kind === "running";
 
+  // The scrim fades in like the other overlays' (`backdrop-in`), and has
+  // no `backdrop-blur`: animating the opacity of a layer that blurs what
+  // is behind it makes WebKitGTK re-blur the whole window every frame.
+  // The darker fill does the blur's job of pushing the app back.
   const containerClass =
     mode === "blocking"
-      ? "fixed inset-0 z-50 flex items-center justify-center bg-[radial-gradient(ellipse_at_center,rgba(0,0,0,0.85),rgba(0,0,0,0.97))] backdrop-blur-sm app-fade-in"
-      : "fixed inset-0 z-40 flex items-center justify-center bg-black/55 backdrop-blur-sm app-fade-in";
+      ? "fixed inset-0 z-50 flex items-center justify-center bg-[radial-gradient(ellipse_at_center,rgba(0,0,0,0.85),rgba(0,0,0,0.97))] backdrop-in"
+      : "fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-in";
 
   const suggestions = models.map((m) => {
     const label =
@@ -876,6 +880,7 @@ export function Settings({
       <div
         data-testid="settings-card"
         className="
+          overlay-in
           relative flex max-h-[calc(100vh-2rem)] w-[30rem] max-w-[90vw] flex-col overflow-hidden
           rounded-xl border border-[var(--border-strong)]
           bg-[var(--surface-elev)]
@@ -994,6 +999,11 @@ export function Settings({
             (tab === "account" ? "pb-0" : "pb-4")
           }
         >
+          {/* One tab's content, replaced whole when the tab changes: the
+              key remounts it and it fades in over --dur-1. Opacity only,
+              so no box moves (`settings-tabs.spec` measures them), and the
+              editors already remount per tab. */}
+          <div key={tab} className="fade-in-quick">
           {tab === "project" && mode === "panel" ? <ProjectEditor /> : null}
           {tab === "memory" && mode === "panel" ? <MemoryEditor /> : null}
           {tab === "skills" && mode === "panel" ? <SkillsEditor /> : null}
@@ -1416,6 +1426,7 @@ export function Settings({
 
           </>
           ) : null}
+          </div>
         </div>
 
         {tab === "account" ? (

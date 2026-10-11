@@ -91,14 +91,18 @@ export function MessageBubble({
           data-testid="message-chips"
           className="flex max-w-[85%] flex-wrap gap-1.5"
         >
-          {chips!.map((c) => (
+          {chips!.map((c, i) => (
             <button
               key={c.id}
               type="button"
               data-testid="message-chip"
               data-chip-id={c.id}
               onClick={() => onChipClick!(c.prompt)}
+              // Arrive one after another at the end of the turn, three
+              // steps at most (90ms), so a long row is not a long wait.
+              style={{ "--i": Math.min(i, 3) } as React.CSSProperties}
               className="
+                stagger-in
                 pill inline-flex items-center gap-1.5
                 border-[var(--border-strong)]
                 bg-[var(--surface-elev)]

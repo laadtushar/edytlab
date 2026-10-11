@@ -278,6 +278,11 @@ const toggleStyle = (on: boolean): React.CSSProperties => ({
   textTransform: "uppercase",
   padding: "2px 6px",
   cursor: "pointer",
+  // Inline, so it must list `scale` itself: an inline `transition`
+  // replaces the press transition the stylesheet gives `[data-press]`.
+  // The reduced-motion block's `!important` still beats it.
+  transition:
+    "background-color var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out), scale var(--dur-1) var(--ease-out)",
 });
 
 const faderLabelStyle: React.CSSProperties = {
@@ -432,6 +437,10 @@ function TrackLane({
   const wsRef = useRef<WaveSurfer | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  // Which fader's slider is held down, for the readout's colour. Two
+  // state changes per drag (down, up); the value being dragged is never
+  // animated, and nothing here is read by the audio.
+  const [heldFader, setHeldFader] = useState<"gain" | "pan" | null>(null);
   const [duration, setDuration] = useState(0);
   // Bumped on every decode, so the zoom below runs once the new audio is
   // in even when it is as long as the old (same duration, no new render).
@@ -959,6 +968,7 @@ function isAbort(err: unknown): boolean {
           <button
             type="button"
             data-testid="timeline-lane-mute"
+            data-press
             onClick={onToggleMute}
             aria-label={muted ? `Unmute ${name}` : `Mute ${name}`}
             aria-pressed={muted}
@@ -969,6 +979,7 @@ function isAbort(err: unknown): boolean {
           <button
             type="button"
             data-testid="timeline-lane-solo"
+            data-press
             onClick={onToggleSolo}
             aria-label={soloed ? `Un-solo ${name}` : `Solo ${name}`}
             aria-pressed={soloed}
@@ -983,7 +994,11 @@ function isAbort(err: unknown): boolean {
             one undoable node rather than one per pixel. */}
         <label style={faderLabelStyle}>
           <span>gain</span>
-          <span data-testid="timeline-lane-gain-readout">
+          <span
+            data-testid="timeline-lane-gain-readout"
+            className="fader-readout"
+            data-held={heldFader === "gain" ? "true" : undefined}
+          >
             {gainDb > 0 ? `+${gainDb.toFixed(1)}` : gainDb.toFixed(1)} dB
           </span>
         </label>
@@ -996,15 +1011,29 @@ function isAbort(err: unknown): boolean {
           step={0.5}
           value={gainDb}
           onChange={(e) => onGainInput(Number(e.target.value))}
-          onPointerUp={(e) => onGainCommit(Number(e.currentTarget.value))}
+          onPointerDown={() => setHeldFader("gain")}
+          onPointerUp={(e) => {
+            setHeldFader(null);
+            onGainCommit(Number(e.currentTarget.value));
+          }}
+          onPointerCancel={() => setHeldFader(null)}
           onKeyUp={(e) => onGainCommit(Number(e.currentTarget.value))}
-          onBlur={(e) => onGainCommit(Number(e.currentTarget.value))}
+          onBlur={(e) => {
+            setHeldFader(null);
+            onGainCommit(Number(e.currentTarget.value));
+          }}
           style={{ width: "100%", accentColor: "var(--accent)" }}
         />
 
         <label style={faderLabelStyle}>
           <span>pan</span>
-          <span data-testid="timeline-lane-pan-readout">{panLabel(pan)}</span>
+          <span
+            data-testid="timeline-lane-pan-readout"
+            className="fader-readout"
+            data-held={heldFader === "pan" ? "true" : undefined}
+          >
+            {panLabel(pan)}
+          </span>
         </label>
         <input
           type="range"
@@ -1015,9 +1044,17 @@ function isAbort(err: unknown): boolean {
           step={0.02}
           value={pan}
           onChange={(e) => onPanInput(Number(e.target.value))}
-          onPointerUp={(e) => onPanCommit(Number(e.currentTarget.value))}
+          onPointerDown={() => setHeldFader("pan")}
+          onPointerUp={(e) => {
+            setHeldFader(null);
+            onPanCommit(Number(e.currentTarget.value));
+          }}
+          onPointerCancel={() => setHeldFader(null)}
           onKeyUp={(e) => onPanCommit(Number(e.currentTarget.value))}
-          onBlur={(e) => onPanCommit(Number(e.currentTarget.value))}
+          onBlur={(e) => {
+            setHeldFader(null);
+            onPanCommit(Number(e.currentTarget.value));
+          }}
           // Double-click returns to centre. A 0.02 step cannot always
           // land exactly on 0 from a drag, and "almost centred" is a
           // real mixing annoyance.
@@ -1104,6 +1141,9 @@ function isAbort(err: unknown): boolean {
         {overlay ? (
           <div
             data-testid="timeline-selection-overlay"
+            // Fades in when it mounts and nothing else: its `left` and
+            // `width` follow the pointer and are never eased.
+            className="fade-in-quick"
             style={{
               position: "absolute",
               top: 4,
@@ -1940,7 +1980,9 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
       <div
         ref={rootRef}
         data-testid="timeline-root"
-        className="app-fade-in"
+        // Never animated: this is an ancestor of every lane's WaveSurfer
+        // canvas (it carried `app-fade-in` once). See the "never animate"
+        // list in styles.css.
         style={{
           display: "flex",
           flexDirection: "column",
@@ -2011,7 +2053,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
               aria-busy={pendingPlay}
               aria-label={pendingPlay ? "Rendering…" : transportPlaying ? "Pause" : "Play"}
               data-active={transportPlaying || pendingPlay ? "true" : "false"}
-              className="btn-tool text-xs px-2 py-1 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="btn-tool text-xs px-2 py-1 rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
               title={playTitle}
             >
               {pendingPlay ? (
@@ -2057,7 +2099,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
                   Math.max(10, Math.round(effectivePxPerSec() / 1.5)),
                 )
               }
-              className="btn-tool text-xs px-1.5 py-1 rounded transition-colors"
+              className="btn-tool text-xs px-1.5 py-1 rounded transition"
               title="Zoom out (Ctrl+scroll)"
             >
               −
@@ -2078,7 +2120,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
                   Math.min(500, Math.round(effectivePxPerSec() * 1.5)),
                 )
               }
-              className="btn-tool text-xs px-1.5 py-1 rounded transition-colors"
+              className="btn-tool text-xs px-1.5 py-1 rounded transition"
               title="Zoom in (Ctrl+scroll)"
             >
               +
@@ -2096,7 +2138,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
                 )
               }
               disabled={(verticalZoom ?? 1) <= MIN_VERTICAL_ZOOM}
-              className="btn-tool text-xs px-1.5 py-1 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="btn-tool text-xs px-1.5 py-1 rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
               title="Shrink the waveform vertically"
             >
               ↕−
@@ -2114,7 +2156,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
                 )
               }
               disabled={(verticalZoom ?? 1) >= MAX_VERTICAL_ZOOM}
-              className="btn-tool text-xs px-1.5 py-1 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="btn-tool text-xs px-1.5 py-1 rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
               title="Magnify the waveform vertically — makes a quiet passage readable"
             >
               ↕+
@@ -2124,7 +2166,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
               data-testid="zoom-to-selection-btn"
               onClick={zoomToSelection}
               disabled={!selection}
-              className="btn-tool text-xs px-1.5 py-1 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="btn-tool text-xs px-1.5 py-1 rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
               title="Zoom to selection (Ctrl+E)"
             >
               ⇱⇲
@@ -2133,7 +2175,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
               type="button"
               data-testid="fit-to-window-btn"
               onClick={fitToWindow}
-              className="btn-tool text-xs px-1.5 py-1 rounded transition-colors"
+              className="btn-tool text-xs px-1.5 py-1 rounded transition"
               title="Fit to window (Ctrl+F)"
             >
               ⇤⇥
@@ -2144,7 +2186,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
               onClick={() => onSyncLockChange?.(!syncLock)}
               aria-pressed={syncLock ? "true" : "false"}
               aria-label={syncLock ? "Turn sync-lock off" : "Turn sync-lock on"}
-              className="btn-tool text-xs px-2 py-1 rounded transition-colors"
+              className="btn-tool text-xs px-2 py-1 rounded transition"
               title="Sync-lock — cuts and inserts move every track together, so a multitrack recording stays aligned"
             >
               ⛓
@@ -2154,7 +2196,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
               data-testid="snap-zero-btn"
               onClick={() => onSnapToZeroChange?.(!snapToZero)}
               aria-pressed={snapToZero ? "true" : "false"}
-              className="btn-tool text-xs px-2 py-1 rounded transition-colors"
+              className="btn-tool text-xs px-2 py-1 rounded transition"
               title="Snap selection to zero crossings — avoids clicks at cut boundaries"
             >
               ⌇
@@ -2164,7 +2206,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
               data-testid="loop-btn"
               onClick={() => onLoopChange?.(!loop)}
               data-active={loop ? "true" : "false"}
-              className="btn-tool text-xs px-2 py-1 rounded transition-colors"
+              className="btn-tool text-xs px-2 py-1 rounded transition"
               title="Toggle loop (L)"
             >
               ↺
@@ -2174,7 +2216,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
               data-testid="spectrogram-btn"
               onClick={() => onSpectrogramChange?.(!spectrogramEnabled)}
               data-active={spectrogramEnabled ? "true" : "false"}
-              className="btn-tool text-xs px-2 py-1 rounded transition-colors"
+              className="btn-tool text-xs px-2 py-1 rounded transition"
               title="Toggle spectrogram"
             >
               Spec
