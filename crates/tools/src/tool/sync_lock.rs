@@ -6,9 +6,9 @@
 //! apart, and nothing about the edit says it will.
 //!
 //! Sync-lock is the mode that says an edit to one track is an edit to
-//! the timeline. `cut_range` and `insert_silence` read it; both apply
-//! the same time change to every track in the *same* node, so undo puts
-//! the whole thing back rather than half of it.
+//! the timeline. `cut_range`, `insert_silence` and `paste_region` read it;
+//! each applies the same time change to every track in the *same* node, so
+//! undo puts the whole thing back rather than half of it.
 //!
 //! ## Why it is a node
 //!
@@ -43,8 +43,9 @@ impl Tool for SetSyncLockTool {
             "Turn sync-lock on or off. With it on, an edit that shifts time on one track shifts \
              every track, so a multitrack recording stays aligned — cutting a sentence from one \
              speaker's track in an interview moves the other speaker's track by the same amount \
-             rather than desynchronising the conversation. Affects `cut_range` and \
-             `insert_silence`; each is still one undoable node covering every track it moved.",
+             rather than desynchronising the conversation. Affects `cut_range`, \
+             `insert_silence` and `paste_region`; each is still one undoable node covering every \
+             track it moved.",
             json!({
                 "type": "object",
                 "properties": {
