@@ -820,8 +820,8 @@ export function Settings({
     }
   }, [onCleared, provider]);
 
-  // Going on after a Save that fell back: the save happened, so this is
-  // what `onSaved` would have been had there been nothing to read first.
+  // Going on after a Save that fell back: the save happened, and this is the
+  // `onSaved` that Save held back until the note had been read.
   const handleContinue = useCallback(() => {
     setSavedSessionOnly(null);
     onSaved();
