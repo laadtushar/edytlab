@@ -20,6 +20,7 @@ vi.mock("../../lib/tauri-bridge", () => ({
   deleteSkill: (name: string) => deleteSkillMock(name),
 }));
 
+import { describeDeleteConfirmation } from "../../__tests__/deleteConfirmation";
 import { SkillsEditor } from "../SkillsEditor";
 
 const STUB = {
@@ -97,5 +98,17 @@ describe("SkillsEditor", () => {
     await waitFor(() => {
       expect(deleteSkillMock).toHaveBeenCalledWith("mix");
     });
+  });
+
+  describeDeleteConfirmation("SkillsEditor", {
+    openDeleteButton: async () => {
+      render(<SkillsEditor />);
+      await waitFor(() => expect(listSkillsMock).toHaveBeenCalled());
+      await userEvent.setup().click(await screen.findByTestId("skills-row-mix"));
+      return screen.findByTestId("skills-delete");
+    },
+    deleteCommand: deleteSkillMock,
+    deleteArgs: ["mix"],
+    statusTestId: "skills-status",
   });
 });

@@ -11,6 +11,7 @@
 
 import { useEffect, useState } from "react";
 
+import { confirmAction } from "../lib/confirmAction";
 import {
   deleteSkill,
   listSkills,
@@ -116,11 +117,13 @@ export function SkillsEditor() {
 
   const handleDelete = async () => {
     if (editor.kind !== "draft" || editor.isNew) return;
-    if (
-      !window.confirm(`Delete skill "${editor.content.name}"? This cannot be undone.`)
-    )
-      return;
     try {
+      if (
+        !(await confirmAction(
+          `Delete skill "${editor.content.name}"? This cannot be undone.`,
+        ))
+      )
+        return;
       await deleteSkill(editor.content.name);
       setEditor({ kind: "empty" });
       await refresh();

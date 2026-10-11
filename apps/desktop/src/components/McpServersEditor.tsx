@@ -12,6 +12,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { confirmAction } from "../lib/confirmAction";
 import {
   deleteMcpServer,
   listMcpServers,
@@ -139,13 +140,13 @@ export function McpServersEditor() {
 
   const handleDelete = async () => {
     if (editor.kind !== "draft" || editor.isNew) return;
-    if (
-      !window.confirm(
-        `Delete server "${editor.entry.id}"? This cannot be undone.`,
-      )
-    )
-      return;
     try {
+      if (
+        !(await confirmAction(
+          `Delete server "${editor.entry.id}"? This cannot be undone.`,
+        ))
+      )
+        return;
       await deleteMcpServer(editor.entry.id);
       setEditor({ kind: "empty" });
       await refresh();

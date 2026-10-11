@@ -27,6 +27,7 @@ vi.mock("../lib/tauri-bridge", () => ({
 }));
 
 import { AgentProfilesEditor } from "../components/AgentProfilesEditor";
+import { describeDeleteConfirmation } from "./deleteConfirmation";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -164,5 +165,16 @@ describe("AgentProfilesEditor", () => {
       provider: "anthropic",
       id: "claude-opus-4-7",
     });
+  });
+
+  describeDeleteConfirmation("AgentProfilesEditor", {
+    openDeleteButton: async () => {
+      render(<AgentProfilesEditor />);
+      fireEvent.click(await screen.findByText("precision"));
+      return screen.findByTestId("profiles-delete");
+    },
+    deleteCommand: deleteAgentProfile,
+    deleteArgs: ["precision"],
+    statusTestId: "profiles-status",
   });
 });

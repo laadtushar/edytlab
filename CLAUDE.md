@@ -68,6 +68,7 @@ This repo lives at `C:\Users\tusha\Work\Playground\Edytlab\edytlab` on Windows 1
 
 - Playback runs in the webview: WaveSurfer plays the rendered preview mix through an HTML media element (WebKitGTK's GStreamer on Linux). There is no native playback path — #388 removed the unused `audio-io` crate and `play_state`; the only native audio I/O is microphone capture in `crates/recorder` (cpal input).
 
+- In the packaged app `window.confirm` is async (tauri-plugin-dialog's init script), so `if (!window.confirm(...)) return;` never returns and Cancel is ignored (#544). Always `if (!(await confirmAction(...))) return;` (`src/lib/confirmAction.ts`): it asks the plugin's `confirm()` inside Tauri and awaits `window.confirm` elsewhere, because in 2.7.x the swapped-in `confirm` asks for a `plugin:dialog|confirm` command the crate no longer registers. `window.prompt` is not polyfilled and macOS webviews return null.
 - `wsRef.current.zoom()` throws "No audio loaded" when WaveSurfer has no decoded data — always guard with `if (!wsRef.current || duration === 0) return` and include `duration` in the useEffect dep array.
 - React's `onWheel` is passive in Chromium/Tauri — Ctrl+scroll requires `el.addEventListener("wheel", handler, { passive: false })` via useEffect, not the `onWheel` JSX prop.
 - Window-level `keydown` listeners do NOT stop each other via `e.stopPropagation()` — guard with a state variable (e.g., `!showShortcuts`) instead.

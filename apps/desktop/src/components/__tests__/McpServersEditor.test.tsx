@@ -29,6 +29,7 @@ vi.mock("../../lib/tauri-bridge", () => ({
   restartMcpServer: (id: string) => restartMcpServerMock(id),
 }));
 
+import { describeDeleteConfirmation } from "../../__tests__/deleteConfirmation";
 import { McpServersEditor } from "../McpServersEditor";
 
 const LIST_ENTRY = {
@@ -223,5 +224,17 @@ describe("McpServersEditor", () => {
     await waitFor(() =>
       expect(deleteMcpServerMock).toHaveBeenCalledWith("github"),
     );
+  });
+
+  describeDeleteConfirmation("McpServersEditor", {
+    openDeleteButton: async () => {
+      render(<McpServersEditor />);
+      await waitFor(() => expect(listMcpServersMock).toHaveBeenCalled());
+      await userEvent.setup().click(await screen.findByTestId("mcp-row-github"));
+      return screen.findByTestId("mcp-delete");
+    },
+    deleteCommand: deleteMcpServerMock,
+    deleteArgs: ["github"],
+    statusTestId: "mcp-status",
   });
 });

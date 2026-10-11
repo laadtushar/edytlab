@@ -11,6 +11,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { confirmAction } from "../lib/confirmAction";
 import {
   deleteAgentProfile,
   getActiveAgentProfile,
@@ -128,13 +129,13 @@ export function AgentProfilesEditor() {
 
   const handleDelete = async () => {
     if (editor.kind !== "draft" || editor.isNew) return;
-    if (
-      !window.confirm(
-        `Delete profile "${editor.content.name}"? This cannot be undone.`,
-      )
-    )
-      return;
     try {
+      if (
+        !(await confirmAction(
+          `Delete profile "${editor.content.name}"? This cannot be undone.`,
+        ))
+      )
+        return;
       await deleteAgentProfile(editor.content.name);
       setEditor({ kind: "empty" });
       await refresh();
