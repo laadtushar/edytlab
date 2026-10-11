@@ -76,7 +76,7 @@ export const COMMANDS: Command[] = [
   { category: "Effects", label: "Gentle compression", prompt: "apply gentle compression: threshold -18 dB, ratio 2:1, attack 10 ms, release 200 ms, makeup gain 3 dB", description: "Subtle levelling compressor", tags: ["compress", "compressor", "gentle", "level", "dynamics"] },
   { category: "Effects", label: "Add a live effect to a track", prompt: "add a low-pass filter at 4000 Hz to track 1's effect chain", description: "Non-destructive — applied at render, stays editable", tags: ["effect", "chain", "live", "non-destructive", "add"] },
   { category: "Effects", label: "Bypass a live effect", prompt: "bypass effect 0 on track 1", description: "A/B a chain effect without removing it", tags: ["effect", "chain", "bypass", "off", "ab"] },
-  { category: "Effects", label: "Reorder a track's effects", prompt: "reorder track 1's effects so the EQ runs before the compressor", description: "Chain order changes the sound", tags: ["effect", "chain", "reorder", "order"] },
+  { category: "Effects", label: "Reorder a track's effects", prompt: "reorder track 1's effects so the high-pass filter runs before the limiter", description: "Chain order changes the sound", tags: ["effect", "chain", "reorder", "order"] },
   { category: "Effects", label: "Remove a live effect", prompt: "remove effect 0 from track 1", description: "Delete an effect from the chain", tags: ["effect", "chain", "remove", "delete"] },
 
   // Repair — the tools people go looking for by symptom.
@@ -159,7 +159,7 @@ export const COMMANDS: Command[] = [
   { category: "Tracks", label: "Pan a track", prompt: "pan track 1 hard left", description: "Position a track in the stereo field", tags: ["pan", "stereo", "left", "right", "width"] },
   { category: "Tracks", label: "Duplicate a track", prompt: "duplicate track 0", description: "Copy a track and its clips", tags: ["duplicate", "copy", "clone"] },
   { category: "Tracks", label: "Mix tracks together", prompt: "mix tracks 0 and 1 into a new track", description: "Render selected tracks down to one", tags: ["mix", "bounce", "combine", "flatten"] },
-  { category: "Tracks", label: "Send tracks to a bus", prompt: "create a reverb bus and send track 1 to it at -6 dB", description: "Shared processing for several tracks", tags: ["bus", "send", "aux", "routing", "group"] },
+  { category: "Tracks", label: "Send tracks to a bus", prompt: "create a bus called Air with a high-pass filter at 4000 Hz and +3 dB of gain, then send track 1 to it at -6 dB", description: "Shared processing for several tracks", tags: ["bus", "send", "aux", "routing", "group"] },
 
   // Generators and format.
   { category: "Tracks", label: "Generate a tone", prompt: "generate a 440 Hz tone for 5 seconds", description: "A reference tone as a new track", tags: ["tone", "sine", "generate", "test", "reference"] },
