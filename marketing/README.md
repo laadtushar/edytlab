@@ -28,6 +28,7 @@ full releases list on purpose, so they can also reach dev builds.)
 | [`social/x-thread.md`](social/x-thread.md) | 8-post thread for v0.5.0 and the DJ demo |
 | [`social/linkedin.md`](social/linkedin.md) | One LinkedIn post, same angle |
 | [`social-kit/`](social-kit/README.md) | The 2026-10-10 social set: 5 LinkedIn posts, 5 Instagram reel captions, 6 Reddit posts, X, Bluesky, Mastodon, TikTok, Shorts, YouTube, Show HN and newsletter copy, and a two-week calendar |
+| [`social-kit/linkedin/`](social-kit/linkedin/README.md) | The LinkedIn visuals in the website's design: five 1200x1200 images (one per post in `social-kit/linkedin-posts.md`), a seven-page carousel PDF for post 3, the HTML templates, staged screenshots of the real app and the script that renders them |
 | [`reels/`](reels/README.md) | Vertical reels (1080×1920) cut from the three DJ demos, plain and narrated, with `.srt` captions, cue files, transcripts and the scripts that build them. Read its licence note before posting a narrated file |
 | [`launch-video/`](launch-video/README.md) | The launch video, cut three ways from the real demo recordings: LinkedIn 1:1, Reddit 16:9 and Instagram 9:16, plain and narrated, with `.srt` captions, contact sheets, silent picture-only masters, the narration clips, the script, the research and the code that renders them. Read its licence note before posting a narrated file |
 | [`press-kit.md`](press-kit.md) | Boilerplate, fact sheet, asset links |
@@ -141,7 +142,7 @@ getting caught.
       `after-*` set is the violet look that ships next.
 - [ ] Capture the Product Hunt screenshots listed in
       [`launch/product-hunt.md`](launch/product-hunt.md) from the v0.5.0 build.
-      The only UI screenshots in the repo are the `docs/brand/` pair above.
+      The only UI screenshots in the repo are the `docs/brand/` pair above and the staged ones in `social-kit/linkedin/shots/` (fake data, retaken by `social-kit/linkedin/render.mjs --shots`).
 - [ ] Decide how you will answer "was this written by AI?". The commit history
       shows `Co-Authored-By: Claude` trailers on many commits, and the repo has a
       `CLAUDE.md`. The drafts disclose it once, briefly. Keep that line.
