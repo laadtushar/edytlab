@@ -29,13 +29,13 @@ github.com/laadtushar/edytlab.
 ## Fact sheet
 
 Every line below was checked against the repository or the GitHub release on
-2026-10-10.
+2026-10-11.
 
 | | |
 |---|---|
 | Name | edytlab |
 | What it is | Desktop audio editor driven by an AI agent |
-| Latest version | 0.4.0, published 2026-10-09 |
+| Latest version | 0.5.0, published 2026-10-10 |
 | License | MIT |
 | Repository created | 2026-05-05 |
 | Platforms | macOS (one universal build for Apple Silicon and Intel), Windows 10 and 11, Linux |

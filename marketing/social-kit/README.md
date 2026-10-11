@@ -1,6 +1,6 @@
 # Social kit, 2026-10-10
 
-Copy for launching edytlab v0.4.0. It was written from the repository and checked line by line against it on 2026-10-10. The same rules apply as in [`../README.md`](../README.md): no claim that stem separation or transcription works, the installers are called unsigned wherever a download is mentioned, and the demo tracks are described as synthetic loops.
+Copy for launching edytlab v0.5.0. It was written from the repository and checked line by line against it on 2026-10-10, and the version, release-note and issue-state lines were updated for v0.5.0 on 2026-10-11 (the reels and recordings it refers to were made on the v0.4.0 build). The same rules apply as in [`../README.md`](../README.md): no claim that stem separation or transcription works, the installers are called unsigned wherever a download is mentioned, and the demo tracks are described as synthetic loops.
 
 | File | What it is |
 |---|---|
