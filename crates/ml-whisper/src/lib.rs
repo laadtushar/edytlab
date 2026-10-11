@@ -34,6 +34,8 @@
 //!   not a CI gate. See `tests/transcribe_smoke.rs` for the contract the
 //!   real decoder must uphold.
 
+pub mod timing;
+
 use std::path::Path;
 
 use rubato::{FftFixedInOut, Resampler};
