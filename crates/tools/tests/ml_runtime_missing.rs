@@ -72,7 +72,6 @@ fn model_tools_report_a_missing_runtime_instead_of_hanging() {
         std::env::remove_var("ORT_DYLIB_PATH");
         std::env::set_var("WHISPER_MODEL_PATH", &model);
         std::env::set_var("DEMUCS_MODEL_PATH", &model);
-        std::env::set_var("DEMUCS_FT_MODEL_PATH", &model);
     }
 
     let mut store = session::Store::open(tmp.path()).expect("open store");

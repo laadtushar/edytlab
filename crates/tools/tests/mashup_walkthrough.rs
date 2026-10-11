@@ -561,8 +561,7 @@ fn separate_stems_returns_model_missing_gracefully() {
     let _lock = ENV_MUTEX.lock().expect("env mutex");
 
     // Save original values and unset; Drop restores them even if the test panics.
-    let _g1 = EnvGuard::remove("DEMUCS_MODEL_PATH");
-    let _g2 = EnvGuard::remove("DEMUCS_FT_MODEL_PATH");
+    let _guard = EnvGuard::remove("DEMUCS_MODEL_PATH");
 
     let (tmp, mut store, mut engine, dispatcher) = fresh();
     let src = write_sine_wav(tmp.path(), "stem_input.wav", 440.0, 1.0, 0.25);
@@ -579,7 +578,7 @@ fn separate_stems_returns_model_missing_gracefully() {
     let msg = err(dispatcher
         .invoke(
             "separate_stems",
-            json!({ "path": src.to_string_lossy(), "model": "htdemucs_ft" }),
+            json!({ "path": src.to_string_lossy(), "model": "htdemucs" }),
             &mut ctx,
         )
         .unwrap());

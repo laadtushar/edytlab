@@ -29,19 +29,20 @@
 //! The caching path and tool dispatch are fully wired, so the decoder
 //! lands into a shape that already works.
 //!
-//! ## OOM fallback (acceptance criterion #4)
+//! ## Out of memory
 //!
-//! On `out of memory` from ORT we retry once with the smaller
-//! `htdemucs` model and log a `tracing::warn!`. Detection lives in
-//! [`ml_demucs::is_oom_error`] so the policy and the matcher stay in
-//! one crate.
+//! On `out of memory` from ORT the tool says so. It does not retry with
+//! another model: `htdemucs` is the only one (`htdemucs_ft`, four
+//! models with no pinned ONNX export, is not offered — #385), so there
+//! is nothing smaller to fall back to. Detection lives in
+//! [`ml_demucs::is_oom_error`].
 
 use std::path::{Path, PathBuf};
 use std::sync::{OnceLock, RwLock};
 
 use ml_demucs::{
     is_oom_error, read_cached_stems, stem_dir_for, write_stems_to_dir, DemucsError, DemucsModel,
-    StemPaths, StemSeparationResult, DEFAULT_MODEL_ID, OOM_FALLBACK_MODEL_ID, SUPPORTED_MODEL_IDS,
+    StemPaths, StemSeparationResult, DEFAULT_MODEL_ID, SUPPORTED_MODEL_IDS,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -56,12 +57,11 @@ use crate::{Tool, ToolContext, ToolResult};
 /// anyway — `DemucsModel::separate` is a stub that always returns
 /// `NotImplemented`, so no model file produces stems.
 const INSTALL_HINT: &str = "stem separation is not implemented in this build: Demucs inference is \
-     a stub, so no DEMUCS_MODEL_PATH or DEMUCS_FT_MODEL_PATH setting will produce stems. There is \
-     no setup that makes this work today; it is tracked post-v1 (#233)";
+     a stub, so no DEMUCS_MODEL_PATH setting will produce stems. There is no setup that makes \
+     this work today; it is tracked post-v1 (#233)";
 
 /// Process-wide cache of `(model_path, &'static DemucsModel)`. One
-/// entry per loaded model id; we hold up to two at a time
-/// (`htdemucs_ft` + `htdemucs` for the OOM fallback path).
+/// entry per loaded model path.
 type ModelCache = RwLock<Vec<(PathBuf, &'static DemucsModel)>>;
 
 fn model_cache() -> &'static ModelCache {
@@ -101,7 +101,6 @@ fn get_or_load_model(model_id: &str, path: &Path) -> Result<&'static DemucsModel
 /// Returns `Err(message)` shaped for `ToolResult::Error` on failure.
 fn resolve_model_path(model_id: &str) -> std::result::Result<PathBuf, String> {
     let env_var = match model_id {
-        "htdemucs_ft" => "DEMUCS_FT_MODEL_PATH",
         "htdemucs" => "DEMUCS_MODEL_PATH",
         other => return Err(format!("unsupported model: {other:?}")),
     };
@@ -132,8 +131,8 @@ impl Tool for SeparateStemsTool {
              and return paths to the four output stems (vocals/drums/bass/other) as WAVs, cached \
              by content hash. Inference is a stub, so this always returns an error and there is \
              no setup that changes that — do not suggest installing a model or setting \
-             DEMUCS_MODEL_PATH or DEMUCS_FT_MODEL_PATH. Tell the user stem separation is \
-             unavailable in this build instead.",
+             DEMUCS_MODEL_PATH. Tell the user stem separation is unavailable in this build \
+             instead.",
             json!({
                 "type": "object",
                 "properties": {
@@ -181,47 +180,23 @@ impl Tool for SeparateStemsTool {
             .join(".audiograph")
             .join("stem-cache");
 
-        // Try the requested model. On OOM, fall back to htdemucs.
         match run_separation(&model_id, &audio_path, &decoded, &stem_cache_root) {
             Ok(result) => Ok(ToolResult::Ok(stem_result_json(&result, &model_id))),
             Err(SeparateError::Tool(msg)) => Ok(ToolResult::Error(msg)),
-            Err(SeparateError::Oom) if model_id != OOM_FALLBACK_MODEL_ID => {
-                tracing::warn!(
-                    requested_model = %model_id,
-                    fallback_model = OOM_FALLBACK_MODEL_ID,
-                    "Demucs OOM on {model_id}; retrying with {OOM_FALLBACK_MODEL_ID}",
-                );
-                match run_separation(
-                    OOM_FALLBACK_MODEL_ID,
-                    &audio_path,
-                    &decoded,
-                    &stem_cache_root,
-                ) {
-                    Ok(result) => Ok(ToolResult::Ok(stem_result_json(
-                        &result,
-                        OOM_FALLBACK_MODEL_ID,
-                    ))),
-                    Err(SeparateError::Tool(msg)) => Ok(ToolResult::Error(format!(
-                        "OOM fallback to {OOM_FALLBACK_MODEL_ID} also failed: {msg}"
-                    ))),
-                    Err(SeparateError::Oom) => Ok(ToolResult::Error(format!(
-                        "OOM fallback to {OOM_FALLBACK_MODEL_ID} also reported out-of-memory"
-                    ))),
-                }
-            }
             Err(SeparateError::Oom) => Ok(ToolResult::Error(format!(
-                "Demucs reported out-of-memory on {OOM_FALLBACK_MODEL_ID}; no smaller fallback available"
+                "Demucs reported out-of-memory on {model_id}; there is no smaller model to fall \
+                 back to"
             ))),
         }
     }
 }
 
-/// Internal error vocabulary for the tool's two-tier OOM fallback.
+/// Internal error vocabulary for [`run_separation`].
 enum SeparateError {
     /// Plain `ToolResult::Error` text — pass through to the caller.
     Tool(String),
-    /// ORT reported an out-of-memory condition; the dispatcher should
-    /// retry with a smaller model.
+    /// ORT reported an out-of-memory condition. Reported as such; there
+    /// is no smaller model to retry with.
     Oom,
 }
 

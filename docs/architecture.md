@@ -920,12 +920,15 @@ because the ORT decode loop is what is missing. The diagram is the
 intended design, not current behaviour.
 
 Model variants available (`SUPPORTED_MODEL_IDS`):
-- `htdemucs_ft` (default) — fine-tuned, best quality
-- `htdemucs` — the OOM fallback
+- `htdemucs` (default)
 
-`htdemucs_6s`, with guitar and piano stems, is **not** supported: the
-tool rejects any id outside the two above. This section used to list it
-(#233).
+`htdemucs_ft` is **not** supported: it is a bag of four fine-tuned
+models, one per stem (four times the download and four times the
+inference), and there is no pinned ONNX export of it ([#385](https://github.com/laadtushar/edytlab/issues/385)).
+So there is no out-of-memory fallback to a smaller model either.
+`htdemucs_6s`, with guitar and piano stems, is **not** supported
+either: the tool rejects any id outside the list above. This section
+used to list it (#233).
 
 ---
 

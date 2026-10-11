@@ -41,15 +41,21 @@
 //! shape (rather than a single archive) is deliberate so users can
 //! inspect / play the stems out of band.
 //!
-//! ## OOM fallback
+//! ## Models
 //!
-//! Acceptance criterion #4 calls for falling back from `htdemucs_ft`
-//! to `htdemucs` when the ORT runtime reports out-of-memory. The
-//! detection helper [`is_oom_error`] lives here so both the crate's
-//! unit tests and the tool can use the same matcher. The fallback
-//! itself is policy that lives in the tool (it's the level that knows
-//! how to re-load a different model and warn the user) — see
-//! `crates/tools/src/tool/separate_stems.rs`.
+//! Only `htdemucs` is recognised ([`SUPPORTED_MODEL_IDS`]). `htdemucs_ft`
+//! used to be the default, with `htdemucs` as the out-of-memory
+//! fallback, but it is a bag of four fine-tuned models, one per stem:
+//! four times the download and four times the inference, and there is
+//! no authoritative ONNX export of it to pin (#385). With no second
+//! model there is nothing smaller to fall back to, so there is no
+//! fallback either.
+//!
+//! ## Out of memory
+//!
+//! [`is_oom_error`] recognises an out-of-memory failure from the ORT
+//! runtime so the tool can report it as such. It does not retry:
+//! `htdemucs` is the smallest model there is.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -85,8 +91,8 @@ pub struct StemBuffer {
 ///
 /// Tool callers should turn [`DemucsError::ModelMissing`] into a
 /// [`tools::ToolResult::Error`] carrying the install-script hint, and
-/// inspect [`is_oom_error`] on [`DemucsError::Ort`] before retrying
-/// with the smaller `htdemucs` model.
+/// inspect [`is_oom_error`] on [`DemucsError::Ort`] to report an
+/// out-of-memory failure as one.
 #[derive(Debug, thiserror::Error)]
 pub enum DemucsError {
     #[error(
@@ -96,7 +102,7 @@ pub enum DemucsError {
     )]
     ModelMissing { path: String },
 
-    #[error("unsupported model id: {0:?}; expected \"htdemucs_ft\" or \"htdemucs\"")]
+    #[error("unsupported model id: {0:?}; expected \"htdemucs\"")]
     UnsupportedModelId(String),
 
     #[error("invalid audio buffer: {0}")]
@@ -159,8 +165,10 @@ pub struct DemucsModel {
     // #[allow(dead_code)]: intentionally unused until Phase-2 stem-separation inference is wired up
     #[allow(dead_code)]
     session: Arc<ort::session::Session>,
-    /// Canonical model identifier: `"htdemucs"` or `"htdemucs_ft"`.
-    /// Folded into the cache key via [`Self::cache_key`].
+    /// Canonical model identifier: `"htdemucs"`, the only one in
+    /// [`SUPPORTED_MODEL_IDS`]. Kept as a string, not implied, so a
+    /// second model needs no change to the cache key. Folded into the
+    /// cache key via [`Self::cache_key`].
     model_id: String,
     /// Content hash of the ONNX file on disk. Fold this (rather than
     /// the model_id string) into the cache key so swapping the file
@@ -185,15 +193,16 @@ impl std::fmt::Debug for DemucsModel {
 /// The tool layer accepts these as strings (Anthropic schema enum).
 /// Keeping the list here means the tool layer's schema and the
 /// crate's validation can never drift apart.
-pub const SUPPORTED_MODEL_IDS: &[&str] = &["htdemucs_ft", "htdemucs"];
+///
+/// `htdemucs_ft` is deliberately absent: it is four models, not one, and
+/// has no pinned ONNX export (#385). Adding it back needs a pinned,
+/// reproducible export of all four.
+pub const SUPPORTED_MODEL_IDS: &[&str] = &["htdemucs"];
 
-/// Default model when the caller doesn't specify one. `htdemucs_ft` is
-/// best-quality but ~5x slower than `htdemucs`; the plan picks the
-/// quality side for the default and lets users opt down for speed.
-pub const DEFAULT_MODEL_ID: &str = "htdemucs_ft";
-
-/// The smaller / faster model we fall back to on OOM.
-pub const OOM_FALLBACK_MODEL_ID: &str = "htdemucs";
+/// Default model when the caller doesn't specify one: the only one
+/// there is. It must be a member of [`SUPPORTED_MODEL_IDS`], which a
+/// test holds it to.
+pub const DEFAULT_MODEL_ID: &str = "htdemucs";
 
 impl DemucsModel {
     /// Open the ONNX model at `path`.
@@ -410,6 +419,34 @@ mod tests {
             DemucsError::ModelMissing { path } => assert!(path.contains("demucs.onnx")),
             other => panic!("expected ModelMissing, got {other:?}"),
         }
+    }
+
+    /// The default is the only model there is a plan to ship (#385):
+    /// `htdemucs_ft` is a bag of four models, four times the download and
+    /// four times the inference, and there is no pinned ONNX export of it.
+    #[test]
+    fn default_model_is_htdemucs_and_is_supported() {
+        assert_eq!(DEFAULT_MODEL_ID, "htdemucs");
+        assert!(SUPPORTED_MODEL_IDS.contains(&DEFAULT_MODEL_ID));
+    }
+
+    #[test]
+    fn htdemucs_is_the_only_supported_model() {
+        assert_eq!(SUPPORTED_MODEL_IDS, &["htdemucs"]);
+    }
+
+    #[test]
+    fn load_rejects_htdemucs_ft_and_names_only_what_is_supported() {
+        let err = DemucsModel::load("htdemucs_ft", Path::new("/nope.onnx")).unwrap_err();
+        match &err {
+            DemucsError::UnsupportedModelId(id) => assert_eq!(id, "htdemucs_ft"),
+            other => panic!("expected UnsupportedModelId, got {other:?}"),
+        }
+        let text = err.to_string();
+        // The id is quoted back once, as the one that was refused; the
+        // expectation that follows must not offer it again.
+        assert_eq!(text.matches("htdemucs_ft").count(), 1, "{text}");
+        assert!(text.contains("expected \"htdemucs\""), "{text}");
     }
 
     #[test]

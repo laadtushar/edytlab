@@ -523,7 +523,7 @@ const groups = [
         prompt: 'separate the stems on track 1',
         what: "Not implemented in this build. Would run Demucs stem separation on-device, producing 4 tracks: vocals, drums, bass, other.",
         output: "node_id, stem track IDs",
-        note: "Inference ships as a stub, so this currently returns an error whatever you configure — there is no model download or environment variable that changes that. Only htdemucs and htdemucs_ft are recognised model ids.",
+        note: "Inference ships as a stub, so this currently returns an error whatever you configure — there is no model download or environment variable that changes that. Only htdemucs is a recognised model id.",
       },
       {
         name: "split_by_speaker",

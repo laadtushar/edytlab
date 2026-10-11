@@ -883,7 +883,6 @@ fn separate_stems_returns_actionable_error_when_model_missing() {
     // env vars, and we never spawn subprocesses below.
     unsafe {
         std::env::remove_var("DEMUCS_MODEL_PATH");
-        std::env::remove_var("DEMUCS_FT_MODEL_PATH");
     }
 
     let (tmp, mut store, mut engine, dispatcher) = fresh();
@@ -897,8 +896,8 @@ fn separate_stems_returns_actionable_error_when_model_missing() {
         allowed_tools: None,
     };
 
-    // Default model (htdemucs_ft) → looks at DEMUCS_FT_MODEL_PATH.
-    let msg = err(dispatcher
+    // Default model (htdemucs) → looks at DEMUCS_MODEL_PATH.
+    let default_msg = err(dispatcher
         .invoke(
             "separate_stems",
             json!({ "path": src.to_string_lossy() }),
@@ -906,11 +905,17 @@ fn separate_stems_returns_actionable_error_when_model_missing() {
         )
         .unwrap());
     assert!(
-        msg.contains("DEMUCS_FT_MODEL_PATH") && msg.contains("not implemented in this build"),
-        "expected DEMUCS_FT_MODEL_PATH install hint, got: {msg}"
+        default_msg.contains("DEMUCS_MODEL_PATH")
+            && default_msg.contains("not implemented in this build"),
+        "expected DEMUCS_MODEL_PATH install hint, got: {default_msg}"
+    );
+    // The fine-tuned bag has no variable any more: nothing reads it.
+    assert!(
+        !default_msg.contains("DEMUCS_FT_MODEL_PATH"),
+        "the error names a variable nothing reads: {default_msg}"
     );
 
-    // Explicit htdemucs → DEMUCS_MODEL_PATH instead.
+    // Naming the model explicitly reads the same variable.
     let msg = err(dispatcher
         .invoke(
             "separate_stems",
@@ -921,6 +926,48 @@ fn separate_stems_returns_actionable_error_when_model_missing() {
     assert!(
         msg.contains("DEMUCS_MODEL_PATH") && msg.contains("not implemented in this build"),
         "expected DEMUCS_MODEL_PATH install hint, got: {msg}"
+    );
+}
+
+/// `htdemucs_ft` is a bag of four fine-tuned models with no pinned ONNX
+/// export, so it is not offered (#385). The schema's enum is what the
+/// agent reads to choose a model, and the dispatcher validates against it.
+#[test]
+fn separate_stems_offers_only_htdemucs() {
+    let (tmp, mut store, mut engine, dispatcher) = fresh();
+    let src = write_sine_wav(tmp.path(), "in.wav", 0.25);
+
+    let schema = dispatcher
+        .get("separate_stems")
+        .expect("separate_stems is registered")
+        .schema();
+    assert_eq!(
+        schema["input_schema"]["properties"]["model"]["enum"],
+        json!(["htdemucs"])
+    );
+    let description = schema["description"].as_str().expect("description");
+    assert!(
+        !description.contains("DEMUCS_FT_MODEL_PATH"),
+        "the description names a variable nothing reads: {description}"
+    );
+
+    let mut clipboard: Option<tools::Clipboard> = None;
+    let mut ctx = ToolContext {
+        store: &mut store,
+        engine: &mut engine,
+        user_message: "",
+        clipboard: &mut clipboard,
+        allowed_tools: None,
+    };
+    let result = dispatcher.invoke(
+        "separate_stems",
+        json!({ "path": src.to_string_lossy(), "model": "htdemucs_ft" }),
+        &mut ctx,
+    );
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("htdemucs_ft") || msg.contains("enum"),
+        "expected schema validation error, got: {msg}"
     );
 }
 
@@ -956,10 +1003,7 @@ fn separate_stems_rejects_unknown_model_via_schema() {
 fn separate_stems_rejects_missing_input_file() {
     // SAFETY: see the env-var note above.
     unsafe {
-        std::env::set_var(
-            "DEMUCS_FT_MODEL_PATH",
-            "/some/path/that/does/not/exist.onnx",
-        );
+        std::env::set_var("DEMUCS_MODEL_PATH", "/some/path/that/does/not/exist.onnx");
     }
 
     let (_tmp, mut store, mut engine, dispatcher) = fresh();
@@ -986,7 +1030,7 @@ fn separate_stems_rejects_missing_input_file() {
 
     // Cleanup so other tests in this file aren't affected.
     unsafe {
-        std::env::remove_var("DEMUCS_FT_MODEL_PATH");
+        std::env::remove_var("DEMUCS_MODEL_PATH");
     }
 }
 

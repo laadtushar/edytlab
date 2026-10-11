@@ -95,12 +95,12 @@ never in the repository, the download path was never wired up, and
 rather than corrected, because the honest instruction is "wait".
 <!-- historical:end -->
 
-`WHISPER_MODEL_PATH`, `DEMUCS_FT_MODEL_PATH` and `DEMUCS_MODEL_PATH`
-*are* read — they are how the model file will be located once the
-decoders land — but setting them today only changes which error you get.
-Which Demucs variable applies depends on the model id: `htdemucs_ft`,
-the default, reads `DEMUCS_FT_MODEL_PATH`, and `htdemucs` reads
-`DEMUCS_MODEL_PATH`.
+`WHISPER_MODEL_PATH` and `DEMUCS_MODEL_PATH` *are* read — they are how
+the model file will be located once the decoders land — but setting them
+today only changes which error you get. `htdemucs` is the one Demucs
+model id, and the default, so `DEMUCS_MODEL_PATH` is the one Demucs
+variable. `htdemucs_ft` and its `DEMUCS_FT_MODEL_PATH` are gone: it is a
+bag of four models with no pinned ONNX export ([#385](https://github.com/laadtushar/edytlab/issues/385)).
 
 ---
 
@@ -593,7 +593,7 @@ Replaced the earlier `release-mac.yml` / `release-win.yml` pair, which raced eac
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `ORT_DYLIB_PATH` | unset | Path to `libonnxruntime.{so,dylib,dll}`; a relative path is resolved against the executable's directory, never the working directory. Read by `ml_pipeline::runtime::ensure`, which also looks for the library next to the executable and never searches the working directory or the system; nothing in the app sets it or ships the library yet ([#383](https://github.com/laadtushar/edytlab/issues/383)) |
-| `WHISPER_MODEL_PATH`, `DEMUCS_FT_MODEL_PATH`, `DEMUCS_MODEL_PATH` | unset | Model file locations — see [ML Model Files](#ml-model-files-whisperdemucs--not-usable-yet) |
+| `WHISPER_MODEL_PATH`, `DEMUCS_MODEL_PATH` | unset | Model file locations — see [ML Model Files](#ml-model-files-whisperdemucs--not-usable-yet) |
 
 `RUST_LOG` is not listed because nothing reads it (see [Rust Debugging](#rust-debugging)). Skills, agent profiles and the MCP config live under `~/.edytlab/`, which is not configurable.
 

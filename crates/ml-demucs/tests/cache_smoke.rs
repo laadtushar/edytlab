@@ -33,8 +33,8 @@ fn cache_key_combines_input_and_model() {
     // Acceptance criterion #2: same input + same model -> same key.
     // Different model -> different key.
     let input_hash = hash_decoded_audio(&audio());
-    let model_a = ContentHash::from_bytes(b"htdemucs_ft-export-v1");
-    let model_b = ContentHash::from_bytes(b"htdemucs-export-v1");
+    let model_a = ContentHash::from_bytes(b"htdemucs-export-v1");
+    let model_b = ContentHash::from_bytes(b"htdemucs-export-v2");
 
     let key_a = ContentHash::combine(&[input_hash, model_a]);
     let key_b = ContentHash::combine(&[input_hash, model_b]);
@@ -171,15 +171,16 @@ fn read_cached_stems_returns_some_only_when_all_present() {
 }
 
 #[test]
-fn oom_detection_drives_fallback_policy() {
-    // Acceptance criterion #4 contract: the OOM detection helper is
-    // what the tool uses to decide "retry with htdemucs". A unit test
-    // here is the closest we can get without a contrived ONNX
+fn oom_detection_tells_out_of_memory_from_other_failures() {
+    // The OOM detection helper is what the tool uses to report an
+    // out-of-memory failure as one. There is no retry: htdemucs is the
+    // only model, so there is nothing smaller to fall back to. A unit
+    // test here is the closest we can get without a contrived ONNX
     // fixture that synthesises an OOM at runtime.
     let oom = DemucsError::Ort("CUDA out of memory: tried to allocate 1.5 GiB".into());
     assert!(is_oom_error(&oom));
 
-    // A non-OOM ORT error must NOT trigger the fallback.
+    // A non-OOM ORT error must NOT be reported as one.
     let other = DemucsError::Ort("graph optimization failed: shape mismatch".into());
     assert!(!is_oom_error(&other));
 
