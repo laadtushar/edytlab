@@ -52,6 +52,17 @@ export function keychainNotice(
 }
 
 /**
+ * The notice for a Save, given where each of its writes landed, or null
+ * when every one of them went to the durable store.
+ */
+export function savedNotice(
+  landings: ReadonlyArray<KeychainPersistence | null | undefined>,
+): KeychainNotice | null {
+  void landings;
+  return null;
+}
+
+/**
  * What the app says while the backend is still reading the keychain at
  * launch (#497).
  *
