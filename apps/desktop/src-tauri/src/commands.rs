@@ -2627,8 +2627,8 @@ fn session_context_for(
         markers,
         head,
         tracks,
+        buses: state.map(ai::BusBrief::from_state).unwrap_or_default(),
         master_effects,
-        ..ai::SessionContext::default()
     }
 }
 
