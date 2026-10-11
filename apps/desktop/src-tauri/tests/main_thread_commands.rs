@@ -60,9 +60,16 @@ const TURN_LOCK_FIELDS: [&str; 3] = ["engine", "dispatcher", "clipboard"];
 /// `AppState::store` holds only the outer `Option` that is swapped when a
 /// project opens, and the lock a tool holds is the inner `Arc<Mutex<Store>>`
 /// inside it. `store_handle()` takes the outer lock for an instant and
-/// returns that inner handle, which the caller then locks; the other two
-/// are the locks themselves.
-const STORE_LOCKS: [&str; 3] = ["store_handle()", "lock_std(&*store", "lock_std(&store"];
+/// returns that inner handle, which the caller then locks; so does the
+/// registry of live stores (`state.live_stores.find(..)` / `.register(..)`,
+/// #501), which is how opening a project reaches the store without going
+/// through `AppState::store` first. The other two are the locks themselves.
+const STORE_LOCKS: [&str; 4] = [
+    "store_handle()",
+    ".live_stores.",
+    "lock_std(&*store",
+    "lock_std(&store",
+];
 
 fn is_ident_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
@@ -697,6 +704,13 @@ pub fn engine_lock_through_lock_std(state: State<'_, AppState>) -> CmdResult<()>
 }
 
 #[tauri::command]
+pub fn store_lock_through_the_registry(state: State<'_, AppState>) -> CmdResult<()> {
+    let handle = state.live_stores.find(&dir).ok_or("no live store")?;
+    let _store = lock_std(&handle, "store")?;
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn fine_because_it_is_async(state: State<'_, AppState>) -> Vec<String> {
     state.all_tool_names()
 }
@@ -718,6 +732,7 @@ fn the_scan_names_every_way_of_reaching_a_lock_that_it_once_missed() {
         "clipboard_lock_called_directly",
         "engine_lock_through_a_binding",
         "engine_lock_through_lock_std",
+        "store_lock_through_the_registry",
     ] {
         assert!(
             named
@@ -728,7 +743,7 @@ fn the_scan_names_every_way_of_reaching_a_lock_that_it_once_missed() {
     }
     assert_eq!(
         named.len(),
-        6,
+        7,
         "the scan names a command that takes no such lock, or is async: {named:?}"
     );
 }

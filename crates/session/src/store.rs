@@ -123,19 +123,21 @@ struct Staged {
 /// directory in the process, shared by every [`Store`] opened on it.
 ///
 /// A counter per `Store::open` would be wrong, because opening is not rare
-/// and not owned by one place: the app builds a new `Store` each time a
-/// project is opened, including the one already open, and sweeps the
-/// derived audio with it before anything else; the background reclaimer
-/// opens a reader of its own. Each would start at zero and delete the
-/// output of a tool another handle has running without the lock (#421, N1).
-/// The alternative, skipping the sweep when the project being opened is the
-/// one already open, would protect that one call site and none of the
-/// others.
+/// and not owned by one place: the app reads the folder into a new `Store`
+/// each time a project is opened (into the live handle's place, if the
+/// project already has one) and sweeps the derived audio with it; the
+/// background reclaimer opens a reader of its own. Each would start at zero
+/// and delete the output of a tool another handle has running without the
+/// lock (#421, N1). The alternative, skipping the sweep when a store for the
+/// project is already alive, would protect that one call site and none of
+/// the others.
 ///
-/// Keyed by the canonical path, so `a/../a`, a symlink and a different case
-/// on a case-insensitive disk are one project; the directory exists by the
-/// time this is called (`open` creates it), and if it cannot be resolved the
-/// path as given is the key. The map holds weak references, so a project
+/// Keyed by the canonical path, so `a/../a` and a symlink are one project;
+/// the directory exists by the time this is called (`open` creates it), and
+/// if it cannot be resolved the path as given is the key. A canonical path
+/// does not fold case on Linux, and two paths to one folder through a bind
+/// mount stay two keys (the same limits as the desktop app's registry of live
+/// stores, which says more). The map holds weak references, so a project
 /// nobody has open any more is forgotten rather than counted forever, and a
 /// live handle keeps its project's counter alive.
 fn in_flight_counter(project_dir: &Path) -> Arc<AtomicUsize> {
@@ -268,10 +270,10 @@ impl Store {
     ///
     /// The count is the project's, not this `Store`'s: every `Store::open`
     /// on the same directory in this process shares it (see
-    /// [`in_flight_counter`]). The app builds a new `Store` whenever a
-    /// project is opened, including one that is already open, and the
-    /// background reclaimer reads through a handle of its own, so a count
-    /// per `Store` would read zero for exactly the sweeps that can run
+    /// [`in_flight_counter`]). The app reads the folder into a new `Store`
+    /// whenever a project is opened, including one that is already open,
+    /// and the background reclaimer reads through a handle of its own, so a
+    /// count per `Store` would read zero for exactly the sweeps that can run
     /// during a tool. What is not shared is the lock: two `Store`s opened
     /// on one directory are two writers, and holding one's lock does not
     /// stop the other from staging a new run between a sweep's check and

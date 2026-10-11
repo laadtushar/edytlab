@@ -37,18 +37,43 @@ pub struct LiveStores {
     stores: Arc<Mutex<HashMap<PathBuf, Weak<Mutex<Store>>>>>,
 }
 
-/// The key a folder is known by: its canonical path, so `a/../a`, a
-/// symlink and a different case on a case-insensitive disk are one
-/// project, as for the in-flight count (`session::store`). A folder that
-/// cannot be resolved is keyed by the path as given; opening it creates it,
-/// so by the time a store is registered it can.
+/// The key a folder is known by: its canonical path (`std::fs::canonicalize`,
+/// as for the in-flight count in `session::store`), so `a/../a` and a
+/// symlink to `a` are one project. A folder that cannot be resolved is keyed
+/// by the path as given; opening it creates it, so by the time a store is
+/// registered it can.
+///
+/// What a canonical path does not do, so two keys can still be one folder:
+///
+/// - It does not fold case on Linux. On a disk that is case-insensitive
+///   there (vfat, exFAT, CIFS, a casefolded directory) `Music` and `music`
+///   are one folder under two keys. Whether another platform's
+///   canonicalisation normalises case is that platform's business, and is
+///   not relied on here.
+/// - Two paths to one folder through a bind mount stay two keys.
+///
+/// Either way the outcome is the one this registry exists to prevent, two
+/// live stores for a folder, and only for a user who opens one folder under
+/// two such spellings while a turn holds the first. Keying by the folder's
+/// identity (device and inode) would close both; it is the possible
+/// follow-up, and is not done here because the in-flight count would then
+/// want the same key.
 fn key_of(dir: &Path) -> PathBuf {
     std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf())
+}
+
+/// Whether two spellings reach one folder, by the registry's own key.
+pub(crate) fn same_folder(a: &Path, b: &Path) -> bool {
+    key_of(a) == key_of(b)
 }
 
 /// Whether a store can still be locked. A tool that panicked with the lock
 /// held poisons it for good, and every command on it then fails; such a
 /// store is not one to hand to the next open, which builds a working one.
+///
+/// That only happens in a dev or test build. The release profile aborts on
+/// panic (`[profile.release] panic = "abort"`), so a panicking tool takes
+/// the process with it and no store is left poisoned.
 fn usable(handle: &Arc<Mutex<Store>>) -> bool {
     !handle.is_poisoned()
 }

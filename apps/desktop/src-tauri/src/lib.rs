@@ -142,8 +142,7 @@ pub fn run() {
                             let store = app_state
                                 .live_stores
                                 .register(&project_dir, Arc::new(Mutex::new(store)));
-                            app_state.set_store(Some(store));
-                            app_state.set_project_dir(Some(project_dir.clone()));
+                            app_state.set_open_project(store, project_dir.clone());
                             // If a key was loaded by the startup reads,
                             // kick a rebuild so the agent is ready for the
                             // very first chat turn — no manual save

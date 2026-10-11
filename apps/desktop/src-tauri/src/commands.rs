@@ -204,10 +204,11 @@ where
 
 /// Remove derived audio no node names, as a project opens (#98).
 ///
-/// Run on the store before it is shared, or, when the project being
-/// opened is the one already open, with that store's lock held (see
-/// [`open_project_with`]): either way no edit can be half-way through
-/// writing a file that its node does not name yet. Only orphans:
+/// Every open runs it with the project's live store's lock held (see
+/// [`open_project_with`]): no edit can be half-way through writing a file
+/// that its node does not name yet. The one exception is the default project
+/// at startup (`lib.rs`), swept before it is shared because no turn can
+/// exist yet. Only orphans:
 /// audio that older history still names stays, because a replay cannot
 /// yet be trusted to rebuild it. A failure costs disk, not work, so it is
 /// logged.
@@ -512,10 +513,21 @@ fn live_or_new_store(
     state: &AppState,
     path: &Path,
 ) -> Result<(Arc<Mutex<Store>>, bool), CommandError> {
+    live_or_new_store_with(state, path, |dir| Ok(Store::open(dir)?))
+}
+
+/// [`live_or_new_store`] with the building of a new store handed in, so a
+/// test can run a competing open between the registry saying "none" and
+/// this one registering its own.
+fn live_or_new_store_with(
+    state: &AppState,
+    path: &Path,
+    build: impl FnOnce(&Path) -> Result<Store, CommandError>,
+) -> Result<(Arc<Mutex<Store>>, bool), CommandError> {
     if let Some(live) = state.live_stores.find(path) {
         return Ok((live, false));
     }
-    let built = Arc::new(Mutex::new(Store::open(path)?));
+    let built = Arc::new(Mutex::new(build(path)?));
     let registered = state.live_stores.register(path, Arc::clone(&built));
     let is_new = Arc::ptr_eq(&registered, &built);
     Ok((registered, is_new))
@@ -547,8 +559,9 @@ fn live_or_new_store(
 /// `live_stores.find` / `register` and nowhere else. The store's lock is
 /// then taken alone, before the sweep and kept until the store is in place,
 /// and nothing in between takes the registry, the engine or the dispatcher.
-/// `AppState`'s own `store` and `project_dir` slots are set after it is
-/// released.
+/// `AppState::set_open_project` then writes the `store` and `project_dir`
+/// slots together (the `store` slot's lock, then `project_dir`'s), after the
+/// store's is released.
 fn open_project_with(
     state: &AppState,
     path: PathBuf,
@@ -566,13 +579,24 @@ fn open_project_with(
         .to_string();
     let (handle, is_new) = live_or_new_store(state, &path)?;
     let mut held = lock_std(&handle, "store")?;
-    // Under the live store's own spelling of the folder: a staged edit
-    // refuses to commit into a store whose `project_dir` differs from the
-    // one it was staged from. A store built just now has read the folder.
+    // A store built just now has read the folder. A live one is read again,
+    // under its own spelling of the folder where that still reaches it: a
+    // staged edit refuses to commit into a store whose `project_dir` differs
+    // from the one it was staged from. A spelling that has stopped reaching
+    // the folder (a symlink removed since, or pointed elsewhere) is not read
+    // through: that would make an empty folder there and hand the project an
+    // empty history. The spelling given is read instead, into the same store,
+    // so the turn and the window stay one writer on the real folder, and an
+    // edit staged under the old spelling is refused at its commit.
     let reread = if is_new {
         None
     } else {
-        Some(Store::open(held.project_dir())?)
+        let dir = if crate::live_stores::same_folder(held.project_dir(), &path) {
+            held.project_dir().to_path_buf()
+        } else {
+            path.clone()
+        };
+        Some(Store::open(&dir)?)
     };
     let store: &Store = reread.as_ref().unwrap_or(&held);
     sweep(store);
@@ -598,8 +622,7 @@ fn open_project_with(
     }
     let dir = held.project_dir().to_path_buf();
     drop(held);
-    state.set_store(Some(handle));
-    state.set_project_dir(Some(dir));
+    state.set_open_project(handle, dir);
 
     Ok(ProjectInfo {
         path: path_str,
@@ -5998,6 +6021,115 @@ mod tests {
                 "a symlink to the folder `a` is a second store for it"
             );
         }
+    }
+
+    /// Two opens of a folder nothing has open can both find no live store and
+    /// both build one. The registry keeps whichever registers first, and the
+    /// other open must take that one instead of putting its own into
+    /// `AppState`: its own would be a second live store for the folder.
+    ///
+    /// The build step is handed in so the competing open can run exactly
+    /// there, after the registry has said "none" and before this one has
+    /// registered.
+    #[test]
+    fn an_open_that_loses_the_race_to_register_takes_the_winners_store() {
+        let tmp = tempdir().unwrap();
+        let state = AppState::new();
+        let competitor = Arc::new(Mutex::new(Store::open(tmp.path()).unwrap()));
+
+        let (got, is_new) = live_or_new_store_with(&state, tmp.path(), |dir| {
+            let won = state.live_stores.register(dir, Arc::clone(&competitor));
+            assert!(
+                Arc::ptr_eq(&won, &competitor),
+                "the competitor registers first"
+            );
+            Ok(Store::open(dir)?)
+        })
+        .unwrap();
+
+        assert!(
+            Arc::ptr_eq(&got, &competitor),
+            "the open that lost the race went on with a store of its own"
+        );
+        assert!(
+            !is_new,
+            "a store another open registered is not new: it has to be read"
+        );
+        assert!(Arc::ptr_eq(
+            &state.live_stores.find(tmp.path()).unwrap(),
+            &competitor
+        ));
+    }
+
+    /// A live store keeps the spelling of the folder it was made with, and
+    /// a spelling can stop reaching the folder while the store lives: open A
+    /// through a symlink, let a turn hold the store, open B, remove the
+    /// symlink, open A by its real path. Reading the folder again through the
+    /// store's own spelling would create an empty folder where the symlink was
+    /// and hand the window and the turn a project with no history.
+    ///
+    /// The folder is read through the spelling the user gave instead, into the
+    /// same store, so the turn and the window stay one writer on the real
+    /// folder. An edit staged before that carries the old spelling, and its
+    /// commit is refused ("another project") rather than landing in a folder
+    /// that is not the project.
+    #[cfg(unix)]
+    #[test]
+    fn a_live_store_whose_spelling_no_longer_resolves_is_read_through_the_one_given() {
+        let tmp = tempdir().unwrap();
+        let (real, other, link) = (
+            tmp.path().join("a"),
+            tmp.path().join("b"),
+            tmp.path().join("l"),
+        );
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let state = AppState::new();
+
+        open_project_for_test(&state, &link).unwrap();
+        let turns = state.store_handle().expect("store");
+        let first = turns.lock().unwrap().append(an_edit(1)).unwrap();
+        // A tool the turn has running, staged under the symlink's spelling.
+        let running = turns.lock().unwrap().stage().unwrap();
+
+        open_project_for_test(&state, &other).unwrap();
+        std::fs::remove_file(&link).unwrap();
+        let reopened = open_project_for_test(&state, &real).unwrap();
+
+        assert!(
+            !link.exists(),
+            "the folder was read through a spelling that no longer reaches it, which made a new \
+             folder there"
+        );
+        let windows = state.store_handle().expect("store");
+        assert!(
+            Arc::ptr_eq(&turns, &windows),
+            "the turn and the window are two writers"
+        );
+        assert_eq!(
+            reopened.head,
+            Some(first.to_hex()),
+            "the project opened with no history"
+        );
+        assert_eq!(windows.lock().unwrap().head(), Some(first));
+        assert_eq!(windows.lock().unwrap().project_dir(), real);
+        assert_eq!(
+            state.project_dir.lock().unwrap().as_deref(),
+            Some(real.as_path())
+        );
+        assert!(
+            matches!(
+                turns.lock().unwrap().commit(running),
+                Err(session::Error::Staged(_))
+            ),
+            "an edit staged under the old spelling must be refused, not written to it"
+        );
+
+        // From here the turn writes to the real folder.
+        let second = turns.lock().unwrap().append(an_edit(2)).unwrap();
+        assert_eq!(Store::open(&real).unwrap().head(), Some(second));
+        assert!(!link.exists());
     }
 
     #[test]
