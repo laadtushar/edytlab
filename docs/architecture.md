@@ -576,6 +576,17 @@ Results are cached for 10 minutes, per provider, endpoint and a hash of the key 
 
 The same file holds the one table of per-model output limits (`max_output_tokens`, applied by `clamp_max_tokens`): the OpenAI models with an output limit of 8192 or less (the `gpt-3.5-turbo` and `gpt-4-turbo` families and the `gpt-4-*-preview` snapshots at 4,096, and `gpt-4` at 8,192, which lowers nothing and is there so the figure is written down), and the Groq and Gemini models with a documented limit under it. The OpenAI rows are for models OpenAI is retiring (the last of them on 2026-10-23, dates in the table's doc), so they can be pruned as the dates pass. Each figure is taken from the provider's own documentation, cited next to it; a model nobody has sourced is left out, so its requests go out as built. When the caps in `prompt.rs` are raised, check this table first.
 
+### OAuth client
+
+`crates/ai/src/oauth/` is a generic OAuth 2.0 and OpenID Connect client for signing in through the system browser (#474): the authorization-code flow with PKCE for a public client (no secret), redirected to a loopback listener. Nothing in it names a provider. The issuer, endpoints, client id, scopes, callback host and path, and extra parameters such as `resource` all come from the caller or from the issuer's discovery document; Sign in with ChatGPT (and later, perhaps, OpenRouter) is a layer on top. No provider uses it yet.
+
+- `pkce.rs`: the S256 challenge of a verifier of 86 unreserved characters, and 256-bit `state` and `nonce`, all from the OS random generator (`ring::rand::SystemRandom`).
+- `loopback.rs`: binds `127.0.0.1` (preferred port, else an ephemeral one) before the caller's `open_url` opens the browser, without `SO_REUSEADDR`, and with `SO_EXCLUSIVEADDRUSE` on Windows. It accepts one `GET` of the configured path with a `Host` header naming the bound host and port; anything else gets a 404 or 400 and it keeps waiting, until a five-minute timeout or a `CancelHandle`. `state` is compared in constant time and checked before anything else; `access_denied` is its own error. The browser gets a fixed page that echoes nothing, with `Cache-Control: no-store` and no CORS headers.
+- `oidc.rs`: discovery (its `issuer` must match), a JWKS cache with one rate-limited refetch for an unknown `kid`, and ID-token verification: RS256 only (with `ring`), exact `iss`, `aud` exactly the client id, `exp`, `nbf` and `iat` with 60 s of skew, the attempt's `nonce`, and every claim typed strictly so a wrong JSON type fails rather than skips a check.
+- `token.rs`: the code exchange, refresh and revocation as form POSTs, with typed success and error bodies.
+
+Tokens, codes and the verifier are `SecretString`: `Debug` prints `<redacted>`, and it has no `Display` or `Serialize`, so it cannot reach a log, an error or an IPC reply. The HTTP client never follows redirects (a 307 would resend the form, refresh token included), caps what it reads, and sends only to `https` or a loopback address.
+
 ### Constants
 
 ```rust
