@@ -84,8 +84,7 @@ pub enum WhisperError {
 
     /// No usable ONNX Runtime library (see
     /// [`ml_pipeline::runtime::ensure`]). Reported instead of building a
-    /// session, because `ort` hangs (deadlocks) when it cannot load the
-    /// library.
+    /// session, because `ort` panics when it cannot load the library.
     ///
     /// The message says what the feature does today too: a user who
     /// goes and installs the runtime on the strength of this error would
@@ -158,8 +157,8 @@ impl WhisperModel {
                 path: model_path.display().to_string(),
             });
         }
-        // Before any `ort` call: `Session::builder()` never returns, rather
-        // than erroring, when the library is missing.
+        // Before any `ort` call: `Session::builder()` panics, rather than
+        // erroring, when the library is missing.
         ml_pipeline::runtime::ensure()
             .map_err(|e| WhisperError::RuntimeUnavailable(e.to_string()))?;
         let session = ort::session::Session::builder()?.commit_from_file(model_path)?;

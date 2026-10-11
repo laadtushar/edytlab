@@ -1,10 +1,10 @@
-//! A missing ONNX Runtime library is an error, not a hang (#383).
+//! A missing ONNX Runtime library is an error, not a hang or a panic (#383).
 //!
 //! `DemucsModel::load` used to call `Session::builder()` for any model
-//! file that existed, and `ort` deadlocks when it cannot load the runtime
-//! (see `ml_pipeline::runtime`). This test never returned before
-//! `ml_pipeline::runtime::ensure` was put in front of it; the watchdog
-//! turns that into a failure.
+//! file that existed, and `ort` 2.0.0-rc.12 deadlocked when it could not
+//! load the runtime (rc.13 panics; see `ml_pipeline::runtime`). This test
+//! never returned before `ml_pipeline::runtime::ensure` was put in front
+//! of it; the watchdog turns a stall into a failure.
 //!
 //! One test per binary on purpose: it edits the process environment
 //! (`ORT_DYLIB_PATH`), which nothing else here may observe, and the
@@ -26,8 +26,8 @@ fn watchdog() {
         std::thread::sleep(Duration::from_secs(60));
         let _ = writeln!(
             std::io::stderr(),
-            "loading a Demucs model without ONNX Runtime did not return within 60 s: `ort` \
-             deadlocks on a library it cannot load"
+            "loading a Demucs model without ONNX Runtime did not return within 60 s: a library \
+             that cannot be loaded must be answered with an error (`ort` rc.12 deadlocked here)"
         );
         std::process::abort();
     });
