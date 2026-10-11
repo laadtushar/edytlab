@@ -613,23 +613,34 @@ fn open_project_with(
 /// [`set_api_key_for`] with the active provider id; preserved as a thin
 /// shim so existing tests / front-end callers that only know about
 /// "the API key" continue to work.
+///
+/// Answers where the save landed, as [`set_api_key_for`] does.
 #[tauri::command]
-pub async fn set_api_key(state: State<'_, AppState>, key: String) -> CmdResult<()> {
+pub async fn set_api_key(
+    state: State<'_, AppState>,
+    key: String,
+) -> CmdResult<KeychainPersistenceDto> {
     state.startup_reads_settled().await;
     let provider_id = state.active_provider_id();
-    set_api_key_for_inner(&state, &provider_id, &key).await
+    set_api_key_for_inner(&state, &provider_id, &key, &OsKeychain).await
 }
 
 /// Persist `key` for `provider`, mark `provider` as active, and rebuild
 /// the agent. The frontend uses this when the user picks a provider in
 /// the Settings picker and saves a key against it.
+///
+/// Answers where the save landed (see [`KeychainPersistenceDto`]): the key
+/// and the active provider are two writes, and the answer is session-only
+/// if either fell back to the kernel keyring because no Secret Service
+/// could be reached, so it will not survive a reboot. The values are saved
+/// either way. Settings says so after Save (#497).
 #[tauri::command]
 pub async fn set_api_key_for(
     state: State<'_, AppState>,
     provider: String,
     key: String,
-) -> CmdResult<()> {
-    set_api_key_for_inner(&state, &provider, &key).await
+) -> CmdResult<KeychainPersistenceDto> {
+    set_api_key_for_inner(&state, &provider, &key, &OsKeychain).await
 }
 
 // ---------------------------------------------------------------------------
@@ -698,15 +709,31 @@ pub async fn default_base_url_for(provider: String) -> CmdResult<String> {
 /// The URL is validated here rather than at request time. A typo saved
 /// now would otherwise surface much later as a connection error with no
 /// hint that the cause was a malformed setting.
+///
+/// Answers where the save landed, as [`set_api_key_for`] does. Clearing the
+/// override writes nothing, so it is always durable: there is no value to
+/// lose.
 #[tauri::command]
 pub async fn set_base_url_for(
     state: State<'_, AppState>,
     provider: String,
     base_url: String,
-) -> CmdResult<()> {
+) -> CmdResult<KeychainPersistenceDto> {
+    set_base_url_for_with(&state, &provider, &base_url, &OsKeychain).await
+}
+
+async fn set_base_url_for_with(
+    state: &AppState,
+    provider: &str,
+    base_url: &str,
+    keychain: &impl KeychainWrites,
+) -> CmdResult<KeychainPersistenceDto> {
     let trimmed = base_url.trim();
-    if trimmed.is_empty() {
-        ai::keychain::delete_base_url(&provider).map_err(CommandError::from)?;
+    let landed = if trimmed.is_empty() {
+        keychain
+            .delete_base_url(provider)
+            .map_err(CommandError::from)?;
+        KeychainPersistenceDto::landed([])
     } else {
         let rest = trimmed
             .strip_prefix("http://")
@@ -720,13 +747,15 @@ pub async fn set_base_url_for(
         // A trailing slash turns `{base}/v1/models` into `{base}//v1/models`
         // on some servers. Normalising once here beats every call site
         // remembering.
-        ai::keychain::save_base_url(&provider, trimmed.trim_end_matches('/'))
+        let at = keychain
+            .save_base_url(provider, trimmed.trim_end_matches('/'))
             .map_err(CommandError::from)?;
-    }
+        KeychainPersistenceDto::landed([at])
+    };
     // The agent holds its endpoint for the life of the config, so a
     // saved URL that never reaches it looks like the setting was ignored.
-    rebuild_agent(state.inner()).await?;
-    Ok(())
+    rebuild_agent(state).await?;
+    Ok(landed)
 }
 
 // ---------------------------------------------------------------------------
@@ -780,25 +809,49 @@ fn parse_effort_setting(
 /// Set a provider's reasoning effort, or clear it with `None` (or a
 /// blank string) so the model's default applies again, which is what the
 /// UI sends for "Default".
+///
+/// Answers where the save landed, as [`set_base_url_for`] does.
 #[tauri::command]
 pub async fn set_effort_for(
     state: State<'_, AppState>,
     provider: String,
     effort: Option<String>,
-) -> CmdResult<()> {
-    match parse_effort_setting(&provider, effort.as_deref())? {
-        Some(level) => {
-            ai::keychain::save_effort(&provider, level).map_err(CommandError::from)?;
-        }
-        None => ai::keychain::delete_effort(&provider).map_err(CommandError::from)?,
-    }
-    // The agent holds its config for its lifetime, so a saved level
-    // that never reaches it looks like the setting was ignored.
-    rebuild_agent(state.inner()).await?;
-    Ok(())
+) -> CmdResult<KeychainPersistenceDto> {
+    set_effort_for_with(&state, &provider, effort.as_deref(), &OsKeychain).await
 }
 
-async fn set_api_key_for_inner(state: &AppState, provider_id: &str, key: &str) -> CmdResult<()> {
+async fn set_effort_for_with(
+    state: &AppState,
+    provider: &str,
+    effort: Option<&str>,
+    keychain: &impl KeychainWrites,
+) -> CmdResult<KeychainPersistenceDto> {
+    let landed = match parse_effort_setting(provider, effort)? {
+        Some(level) => {
+            let at = keychain
+                .save_effort(provider, level)
+                .map_err(CommandError::from)?;
+            KeychainPersistenceDto::landed([at])
+        }
+        None => {
+            keychain
+                .delete_effort(provider)
+                .map_err(CommandError::from)?;
+            KeychainPersistenceDto::landed([])
+        }
+    };
+    // The agent holds its config for its lifetime, so a saved level
+    // that never reaches it looks like the setting was ignored.
+    rebuild_agent(state).await?;
+    Ok(landed)
+}
+
+async fn set_api_key_for_inner(
+    state: &AppState,
+    provider_id: &str,
+    key: &str,
+    keychain: &impl KeychainWrites,
+) -> CmdResult<KeychainPersistenceDto> {
     // Startup's reads fill the cache this writes over, and would write
     // over this in turn if they finished after it.
     state.startup_reads_settled().await;
@@ -808,18 +861,22 @@ async fn set_api_key_for_inner(state: &AppState, provider_id: &str, key: &str) -
     if ai::validate::provider_for(provider_id).requires_api_key() && key.trim().is_empty() {
         return Err("api key must not be empty".into());
     }
-    ai::keychain::save_api_key(provider_id, key).map_err(CommandError::from)?;
+    let key_at = keychain
+        .save_api_key(provider_id, key)
+        .map_err(CommandError::from)?;
     // Saving a key for a provider implicitly makes it active — that
     // matches the user's intent and avoids a second "switch provider"
     // step in the settings UI.
-    ai::keychain::save_active_provider(provider_id).map_err(CommandError::from)?;
+    let provider_at = keychain
+        .save_active_provider(provider_id)
+        .map_err(CommandError::from)?;
     // Both writes went through, so the keychain is readable and writable
     // now whatever it was at launch.
     keychain_readable_again(state, ai::keychain::try_load_model);
     state.set_active_provider(provider_id.to_string());
     state.set_api_key_cache(Some(key.to_string()));
     rebuild_agent(state).await?;
-    Ok(())
+    Ok(KeychainPersistenceDto::landed([key_at, provider_at]))
 }
 
 // ---------------------------------------------------------------------------
@@ -906,6 +963,17 @@ pub struct KeychainPersistenceDto {
     pub reason: Option<String>,
 }
 
+impl KeychainPersistenceDto {
+    /// Where a command's saves landed, taken together: session-only if any
+    /// of them was (with the reason of the first), durable otherwise, and
+    /// durable for a command that wrote nothing (a clear).
+    fn landed(saves: impl IntoIterator<Item = ai::keychain::Persistence>) -> Self {
+        // Not implemented yet.
+        let _ = saves.into_iter().count();
+        ai::keychain::Persistence::Durable.into()
+    }
+}
+
 impl From<ai::keychain::Persistence> for KeychainPersistenceDto {
     fn from(p: ai::keychain::Persistence) -> Self {
         match p {
@@ -918,6 +986,85 @@ impl From<ai::keychain::Persistence> for KeychainPersistenceDto {
                 reason: Some(reason),
             },
         }
+    }
+}
+
+/// The keychain writes the save commands make, as a trait so a test can say
+/// where each one landed without an OS keychain. [`OsKeychain`] is the real
+/// one: `ai::keychain`'s own functions, whose `Persistence` is what the
+/// commands report.
+pub(crate) trait KeychainWrites: Sync {
+    fn save_api_key(
+        &self,
+        provider: &str,
+        key: &str,
+    ) -> Result<ai::keychain::Persistence, keyring::Error>;
+    fn save_active_provider(
+        &self,
+        provider: &str,
+    ) -> Result<ai::keychain::Persistence, keyring::Error>;
+    fn save_base_url(
+        &self,
+        provider: &str,
+        base_url: &str,
+    ) -> Result<ai::keychain::Persistence, keyring::Error>;
+    fn delete_base_url(&self, provider: &str) -> Result<(), keyring::Error>;
+    fn save_effort(
+        &self,
+        provider: &str,
+        effort: ai::Effort,
+    ) -> Result<ai::keychain::Persistence, keyring::Error>;
+    fn delete_effort(&self, provider: &str) -> Result<(), keyring::Error>;
+    fn save_model(
+        &self,
+        provider: &str,
+        model: &str,
+    ) -> Result<ai::keychain::Persistence, keyring::Error>;
+}
+
+/// The OS keychain.
+pub(crate) struct OsKeychain;
+
+impl KeychainWrites for OsKeychain {
+    fn save_api_key(
+        &self,
+        provider: &str,
+        key: &str,
+    ) -> Result<ai::keychain::Persistence, keyring::Error> {
+        ai::keychain::save_api_key(provider, key)
+    }
+    fn save_active_provider(
+        &self,
+        provider: &str,
+    ) -> Result<ai::keychain::Persistence, keyring::Error> {
+        ai::keychain::save_active_provider(provider)
+    }
+    fn save_base_url(
+        &self,
+        provider: &str,
+        base_url: &str,
+    ) -> Result<ai::keychain::Persistence, keyring::Error> {
+        ai::keychain::save_base_url(provider, base_url)
+    }
+    fn delete_base_url(&self, provider: &str) -> Result<(), keyring::Error> {
+        ai::keychain::delete_base_url(provider)
+    }
+    fn save_effort(
+        &self,
+        provider: &str,
+        effort: ai::Effort,
+    ) -> Result<ai::keychain::Persistence, keyring::Error> {
+        ai::keychain::save_effort(provider, effort)
+    }
+    fn delete_effort(&self, provider: &str) -> Result<(), keyring::Error> {
+        ai::keychain::delete_effort(provider)
+    }
+    fn save_model(
+        &self,
+        provider: &str,
+        model: &str,
+    ) -> Result<ai::keychain::Persistence, keyring::Error> {
+        ai::keychain::save_model(provider, model)
     }
 }
 
@@ -1069,22 +1216,44 @@ fn active_provider_answer(startup_error: Option<String>, active: String) -> CmdR
 /// agent against the new provider's stored key (if any). Does NOT
 /// require a key to already be present; the frontend uses this when the
 /// user toggles the picker before saving a key.
+///
+/// Answers where the choice landed, as [`set_api_key_for`] does.
 #[tauri::command]
-pub async fn set_active_provider(state: State<'_, AppState>, provider: String) -> CmdResult<()> {
+pub async fn set_active_provider(
+    state: State<'_, AppState>,
+    provider: String,
+) -> CmdResult<KeychainPersistenceDto> {
+    set_active_provider_with(
+        &state,
+        &provider,
+        &OsKeychain,
+        ai::keychain::try_load_api_key,
+    )
+    .await
+}
+
+async fn set_active_provider_with(
+    state: &AppState,
+    provider: &str,
+    keychain: &impl KeychainWrites,
+    load_key: impl FnOnce(&str) -> Result<Option<String>, ai::keychain::KeychainError>,
+) -> CmdResult<KeychainPersistenceDto> {
     if !ai::SUPPORTED_PROVIDER_IDS.iter().any(|p| *p == provider) {
         return Err(format!("unsupported provider id: {provider}"));
     }
     state.startup_reads_settled().await;
-    ai::keychain::save_active_provider(&provider).map_err(CommandError::from)?;
-    keychain_readable_again(&state, ai::keychain::try_load_model);
-    state.set_active_provider(provider.clone());
+    let at = keychain
+        .save_active_provider(provider)
+        .map_err(CommandError::from)?;
+    keychain_readable_again(state, ai::keychain::try_load_model);
+    state.set_active_provider(provider.to_string());
     // Re-cache the key for the now-active provider (if any) so the
     // next `rebuild_agent` picks the right credentials up. When the read
     // fails the cache is emptied rather than left holding the previous
     // provider's key, which the new provider would be sent.
-    let read = key_for_switch(&provider, ai::keychain::try_load_api_key);
+    let read = key_for_switch(provider, load_key);
     state.set_api_key_cache(read.as_ref().ok().cloned().flatten());
-    rebuild_agent(&state).await?;
+    rebuild_agent(state).await?;
     // The switch itself worked, so say what did not instead of
     // failing it: the agent is built for the new provider with no key.
     if let Err(e) = read {
@@ -1093,7 +1262,7 @@ pub async fn set_active_provider(state: State<'_, AppState>, provider: String) -
             e.reason()
         ));
     }
-    Ok(())
+    Ok(KeychainPersistenceDto::landed([at]))
 }
 
 /// The key to cache when switching to `provider`.
@@ -1254,12 +1423,23 @@ pub async fn list_models_for(
 /// Persist the chosen model id for `provider`. The next agent rebuild
 /// reads this slot and constructs the [`ai::LlmConfig`] with the
 /// chosen model overlaid on the provider's default.
+///
+/// Answers where the choice landed, as [`set_api_key_for`] does.
 #[tauri::command]
 pub async fn set_active_model(
     state: State<'_, AppState>,
     provider: String,
     model: String,
-) -> CmdResult<()> {
+) -> CmdResult<KeychainPersistenceDto> {
+    set_active_model_with(&state, provider, model, &OsKeychain).await
+}
+
+async fn set_active_model_with(
+    state: &AppState,
+    provider: String,
+    model: String,
+    keychain: &impl KeychainWrites,
+) -> CmdResult<KeychainPersistenceDto> {
     if !ai::SUPPORTED_PROVIDER_IDS.iter().any(|p| *p == provider) {
         return Err(format!("unsupported provider id: {provider}"));
     }
@@ -1279,11 +1459,11 @@ pub async fn set_active_model(
     // A failed write is reported rather than swallowed: the choice
     // still applies to this session, but the user should know it will
     // not survive a restart.
-    let persisted = ai::keychain::save_model(&provider, &model);
+    let persisted = keychain.save_model(&provider, &model);
     state.set_model_for(provider, model);
-    rebuild_agent(&state).await?;
+    rebuild_agent(state).await?;
     persisted
-        .map(|_| ())
+        .map(|at| KeychainPersistenceDto::landed([at]))
         .map_err(|e| format!("model selected for this session, but could not be saved: {e}"))
 }
 
@@ -7524,5 +7704,313 @@ mod tests {
         state.set_keychain_read_error(Some("no secret service".into()));
         let text: String = no_agent_error(&state).into();
         assert_eq!(text, "no agent configured; call set_api_key first");
+    }
+
+    // ---- The save commands report where they landed (#497) -------------
+
+    use ai::keychain::Persistence;
+
+    fn fell_back(reason: &str) -> Persistence {
+        Persistence::SessionOnly {
+            reason: reason.to_string(),
+        }
+    }
+
+    /// A keychain that answers each save as told, and records what was
+    /// written. `session_only` names the saves that fall back to the kernel
+    /// keyring ("api_key", "active_provider", "base_url", "effort",
+    /// "model"), `failing` the ones that fail outright. The reason a
+    /// fallback gives is `no secret service for <what>`, so a test can tell
+    /// whose it got.
+    #[derive(Default)]
+    struct FakeKeychain {
+        session_only: Vec<&'static str>,
+        failing: Vec<&'static str>,
+        wrote: Mutex<Vec<String>>,
+    }
+
+    impl FakeKeychain {
+        fn saving_session_only(what: &[&'static str]) -> Self {
+            Self {
+                session_only: what.to_vec(),
+                ..Self::default()
+            }
+        }
+
+        fn failing(what: &[&'static str]) -> Self {
+            Self {
+                failing: what.to_vec(),
+                ..Self::default()
+            }
+        }
+
+        fn save(&self, what: &'static str) -> Result<Persistence, keyring::Error> {
+            self.wrote.lock().unwrap().push(format!("save {what}"));
+            if self.failing.contains(&what) {
+                return Err(keyring::Error::PlatformFailure("the store is gone".into()));
+            }
+            Ok(if self.session_only.contains(&what) {
+                fell_back(&format!("no secret service for {what}"))
+            } else {
+                Persistence::Durable
+            })
+        }
+
+        fn clear(&self, what: &'static str) -> Result<(), keyring::Error> {
+            self.wrote.lock().unwrap().push(format!("clear {what}"));
+            Ok(())
+        }
+
+        fn wrote(&self) -> Vec<String> {
+            self.wrote.lock().unwrap().clone()
+        }
+    }
+
+    impl KeychainWrites for FakeKeychain {
+        fn save_api_key(&self, _: &str, _: &str) -> Result<Persistence, keyring::Error> {
+            self.save("api_key")
+        }
+        fn save_active_provider(&self, _: &str) -> Result<Persistence, keyring::Error> {
+            self.save("active_provider")
+        }
+        fn save_base_url(&self, _: &str, _: &str) -> Result<Persistence, keyring::Error> {
+            self.save("base_url")
+        }
+        fn delete_base_url(&self, _: &str) -> Result<(), keyring::Error> {
+            self.clear("base_url")
+        }
+        fn save_effort(&self, _: &str, _: ai::Effort) -> Result<Persistence, keyring::Error> {
+            self.save("effort")
+        }
+        fn delete_effort(&self, _: &str) -> Result<(), keyring::Error> {
+            self.clear("effort")
+        }
+        fn save_model(&self, _: &str, _: &str) -> Result<Persistence, keyring::Error> {
+            self.save("model")
+        }
+    }
+
+    /// What a command answered, reduced to what the frontend reads.
+    fn landing(answer: CmdResult<KeychainPersistenceDto>) -> (bool, Option<String>) {
+        let dto = answer.expect("the command succeeded");
+        (dto.persistent, dto.reason)
+    }
+
+    fn durable() -> (bool, Option<String>) {
+        (true, None)
+    }
+
+    fn session_only(reason: &str) -> (bool, Option<String>) {
+        (false, Some(reason.to_string()))
+    }
+
+    /// Saves taken together: durable when nothing fell back (and for a
+    /// command that saved nothing), else session-only with the reason of
+    /// the first that did.
+    #[test]
+    fn saves_taken_together_are_durable_unless_one_fell_back() {
+        let durable_dto = |saves: Vec<Persistence>| {
+            let dto = KeychainPersistenceDto::landed(saves);
+            (dto.persistent, dto.reason)
+        };
+        assert_eq!(durable_dto(vec![]), durable());
+        assert_eq!(durable_dto(vec![Persistence::Durable]), durable());
+        assert_eq!(
+            durable_dto(vec![Persistence::Durable, Persistence::Durable]),
+            durable()
+        );
+        assert_eq!(
+            durable_dto(vec![Persistence::Durable, fell_back("second")]),
+            session_only("second")
+        );
+        assert_eq!(
+            durable_dto(vec![fell_back("first"), Persistence::Durable]),
+            session_only("first")
+        );
+        assert_eq!(
+            durable_dto(vec![fell_back("first"), fell_back("second")]),
+            session_only("first"),
+            "the first reason, not the last"
+        );
+    }
+
+    /// The bug: the `save_*` functions return where a value landed and no
+    /// command passed it on, so a save that fell back to the kernel keyring
+    /// (a Secret Service that went away after launch) looked like any other.
+    /// A key and the active provider are two writes; either falling back
+    /// makes the save session-only.
+    #[test]
+    fn saving_a_key_reports_where_it_landed() {
+        let save = |keychain: &FakeKeychain| {
+            let state = AppState::default();
+            let answer = tauri::async_runtime::block_on(set_api_key_for_inner(
+                &state, "openai", "sk-test", keychain,
+            ));
+            (landing(answer), state.api_key_snapshot())
+        };
+
+        let (answer, cached) = save(&FakeKeychain::default());
+        assert_eq!(answer, durable());
+        assert_eq!(cached.as_deref(), Some("sk-test"));
+
+        let (answer, cached) = save(&FakeKeychain::saving_session_only(&["api_key"]));
+        assert_eq!(answer, session_only("no secret service for api_key"));
+        assert_eq!(
+            cached.as_deref(),
+            Some("sk-test"),
+            "the key is saved and used all the same"
+        );
+
+        let (answer, _) = save(&FakeKeychain::saving_session_only(&["active_provider"]));
+        assert_eq!(
+            answer,
+            session_only("no secret service for active_provider")
+        );
+
+        let (answer, _) = save(&FakeKeychain::saving_session_only(&[
+            "active_provider",
+            "api_key",
+        ]));
+        assert_eq!(
+            answer,
+            session_only("no secret service for api_key"),
+            "the key is written first, so its reason leads"
+        );
+    }
+
+    /// A save that fails is still an error, with nothing reported.
+    #[test]
+    fn a_failed_save_is_still_an_error() {
+        let state = AppState::default();
+        let keychain = FakeKeychain::failing(&["api_key"]);
+        let err = tauri::async_runtime::block_on(set_api_key_for_inner(
+            &state, "openai", "sk-test", &keychain,
+        ))
+        .expect_err("the save failed");
+        assert!(err.contains("keychain error"), "{err}");
+        assert_eq!(keychain.wrote(), ["save api_key"], "and went no further");
+        assert_eq!(state.api_key_snapshot(), None);
+    }
+
+    #[test]
+    fn saving_a_base_url_reports_where_it_landed() {
+        let state = AppState::default();
+        let run = |keychain: &FakeKeychain, url: &str| {
+            tauri::async_runtime::block_on(set_base_url_for_with(&state, "ollama", url, keychain))
+        };
+
+        assert_eq!(
+            landing(run(&FakeKeychain::default(), "http://localhost:1234/v1")),
+            durable()
+        );
+        let fallen = FakeKeychain::saving_session_only(&["base_url"]);
+        assert_eq!(
+            landing(run(&fallen, "http://localhost:1234/v1/")),
+            session_only("no secret service for base_url")
+        );
+
+        // Clearing the override writes nothing, so there is nothing that
+        // could be lost: durable, whatever the service is doing.
+        assert_eq!(landing(run(&fallen, "  ")), durable());
+        assert_eq!(fallen.wrote(), ["save base_url", "clear base_url"]);
+
+        // A URL that is refused is refused before anything is written.
+        let untouched = FakeKeychain::saving_session_only(&["base_url"]);
+        assert!(run(&untouched, "localhost:1234").is_err());
+        assert!(untouched.wrote().is_empty());
+    }
+
+    #[test]
+    fn saving_an_effort_reports_where_it_landed() {
+        let state = AppState::default();
+        let run = |keychain: &FakeKeychain, level: Option<&str>| {
+            tauri::async_runtime::block_on(set_effort_for_with(
+                &state,
+                "anthropic",
+                level,
+                keychain,
+            ))
+        };
+
+        assert_eq!(
+            landing(run(&FakeKeychain::default(), Some("high"))),
+            durable()
+        );
+        let fallen = FakeKeychain::saving_session_only(&["effort"]);
+        assert_eq!(
+            landing(run(&fallen, Some("xhigh"))),
+            session_only("no secret service for effort")
+        );
+        // "Default" clears the slot: nothing written, nothing to report.
+        assert_eq!(landing(run(&fallen, None)), durable());
+        assert_eq!(fallen.wrote(), ["save effort", "clear effort"]);
+
+        // A level the provider cannot take is refused before any write.
+        let untouched = FakeKeychain::saving_session_only(&["effort"]);
+        assert!(tauri::async_runtime::block_on(set_effort_for_with(
+            &state,
+            "openai",
+            Some("high"),
+            &untouched,
+        ))
+        .is_err());
+        assert!(untouched.wrote().is_empty());
+    }
+
+    #[test]
+    fn switching_provider_reports_where_the_choice_landed() {
+        let run = |keychain: &FakeKeychain, provider: &str| {
+            let state = AppState::default();
+            tauri::async_runtime::block_on(set_active_provider_with(
+                &state,
+                provider,
+                keychain,
+                |_| panic!("a provider that needs no key reads none"),
+            ))
+        };
+
+        assert_eq!(landing(run(&FakeKeychain::default(), "ollama")), durable());
+        assert_eq!(
+            landing(run(
+                &FakeKeychain::saving_session_only(&["active_provider"]),
+                "ollama"
+            )),
+            session_only("no secret service for active_provider")
+        );
+
+        let untouched = FakeKeychain::saving_session_only(&["active_provider"]);
+        assert!(run(&untouched, "no-such-provider").is_err());
+        assert!(untouched.wrote().is_empty());
+    }
+
+    #[test]
+    fn choosing_a_model_reports_where_the_choice_landed() {
+        let state = AppState::default();
+        let run = |keychain: &FakeKeychain| {
+            tauri::async_runtime::block_on(set_active_model_with(
+                &state,
+                "anthropic".to_string(),
+                " claude-opus-5 ".to_string(),
+                keychain,
+            ))
+        };
+
+        assert_eq!(landing(run(&FakeKeychain::default())), durable());
+        assert_eq!(
+            landing(run(&FakeKeychain::saving_session_only(&["model"]))),
+            session_only("no secret service for model")
+        );
+        assert_eq!(
+            state.model_for("anthropic").as_deref(),
+            Some("claude-opus-5"),
+            "chosen for this session either way"
+        );
+
+        // A failed write keeps its own, older, message.
+        let err = run(&FakeKeychain::failing(&["model"])).expect_err("not saved");
+        assert!(
+            err.starts_with("model selected for this session, but could not be saved"),
+            "{err}"
+        );
     }
 }
