@@ -908,7 +908,14 @@ NOT IMPLEMENTED IN THIS BUILD. `WhisperModel::transcribe` returns
 loaded. The diagram is the intended design, not current behaviour.
 ```
 
-Two of its pieces exist ahead of the rest. They need no ONNX Runtime and no model, they are checked in CI, and nothing calls either: the log-mel spectrogram (`crates/ml-whisper/src/mel.rs`, compared with OpenAI's `log_mel_spectrogram`, [#554](https://github.com/laadtushar/edytlab/pull/554)) and the decoding of token ids to text from the export's `tokenizer.json` (`tokenizer.rs`, byte-level BPE, [#555](https://github.com/laadtushar/edytlab/pull/555)). The encoder, the decoder loop and the timestamp alignment are not written.
+Four of its pieces exist ahead of the rest. They need no ONNX Runtime and no model, they are checked in CI, and nothing calls any of them:
+
+- the log-mel spectrogram (`crates/ml-whisper/src/mel.rs`, compared with OpenAI's `log_mel_spectrogram`, [#554](https://github.com/laadtushar/edytlab/pull/554));
+- the decoding of token ids to text from the export's `tokenizer.json` (`tokenizer.rs`, byte-level BPE, [#555](https://github.com/laadtushar/edytlab/pull/555));
+- the greedy decoding loop (`decode.rs`, a port of `whisper/decoding.py`'s main loop, language detection, token suppression and timestamp rules, [#556](https://github.com/laadtushar/edytlab/pull/556)), with every model call behind a `DecoderStep` trait that the tests drive with fixed logits;
+- word timing from the decoder's cross-attention (`timing.rs`, a port of `whisper/timing.py`'s median filter, DTW and punctuation merge, [#557](https://github.com/laadtushar/edytlab/pull/557)), tested on made-up attention weights.
+
+What is not written is everything that needs the runtime and the model: the ONNX encoder and decoder behind `DecoderStep`, loading the model, chunking long audio into 30-second windows, and the tool wiring.
 
 Designed to run entirely on-device. There is no transcription speed to quote until the decoder exists ([#384](https://github.com/laadtushar/edytlab/issues/384)).
 
