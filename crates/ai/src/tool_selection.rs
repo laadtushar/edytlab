@@ -270,10 +270,12 @@ const CUES: &[Cue] = &[
     // "a limiter on the master at -1 dB" (#460). The effect's own name
     // brings `limiter`, which limits one track; only `add_effect` with
     // scope "master" reaches the master bus, and nothing in the message is
-    // a word of its name.
+    // a word of its name. A bus (#533) is the same: "a low-pass on the
+    // drum bus" is `add_effect` with scope "bus". "bus" is three letters,
+    // so it must be the whole word, and "business" is not a request.
     Cue {
         tool: "add_effect",
-        any: &["master"],
+        any: &["master", "bus"],
         with: EFFECT_WORDS,
     },
     Cue {
@@ -1112,6 +1114,8 @@ mod tests {
             ("a limiter on the master bus", "add_effect"),
             ("compress the master a little", "add_effect"),
             ("add a low-pass filter to the master", "add_effect"),
+            ("put a limiter on the drum bus", "add_effect"),
+            ("a high-pass filter on the Drums bus", "add_effect"),
         ] {
             let sent = sent_for(text);
             assert!(
@@ -1131,6 +1135,10 @@ mod tests {
             "the master looks fine",
             "the reverb is lovely",
             "fix each typo in the notes",
+            // The bus half of the cue: a bus with no effect, an effect
+            // with no bus, and a word that only starts with "bus".
+            "the bus is late",
+            "my business wants a limiter at -1 dB",
         ] {
             let sent = sent_for(text);
             assert!(
