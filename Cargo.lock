@@ -3019,6 +3019,7 @@ dependencies = [
  "ml-pipeline",
  "ndarray 0.16.1",
  "ort",
+ "realfft",
  "serde",
  "serde_json",
  "tempfile",

@@ -24,6 +24,11 @@
 //!    [`DemucsModel::separate`] is invoked the crate returns
 //!    [`DemucsError::NotImplemented`] instead of panicking.
 //!
+//! One piece of the decoder exists ahead of the rest: [`spec`], the STFT
+//! and iSTFT that htdemucs runs outside its ONNX graph, checked against
+//! PyTorch. Nothing calls it yet, so [`DemucsModel::separate`] is as
+//! unimplemented as before (#385).
+//!
 //! **Supplying a model does not enable separation.** What is missing is
 //! the decoder, not the file: a valid `.onnx` loads and then `separate`
 //! still returns `NotImplemented`. The crate says so rather than naming
@@ -59,6 +64,7 @@ use ml_pipeline::ContentHash;
 use serde::{Deserialize, Serialize};
 
 mod cache;
+pub mod spec;
 
 pub use cache::{stem_dir_for, write_stems_to_dir, StemPaths, STEM_FILENAMES, STEM_NAMES};
 
