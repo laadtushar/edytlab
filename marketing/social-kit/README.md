@@ -9,6 +9,7 @@ Copy for launching edytlab v0.5.0. It was written from the repository and checke
 | [`reddit.md`](reddit.md) | Six posts: r/DJs, r/WeAreTheMusicMakers, r/edmproduction, r/opensource, r/LocalLLaMA, r/rust, each with a note on that subreddit's self-promotion rules |
 | [`more.md`](more.md) | X thread and single post, Bluesky, Mastodon, TikTok and Shorts captions, a YouTube description with chapters, Show HN, and a newsletter and Discord announcement |
 | [`calendar.md`](calendar.md) | A two-week posting plan from Monday 12 October |
+| [`linkedin/`](linkedin/README.md) | The visuals for the five LinkedIn posts, in the website's design: a 1200x1200 image for each post, a seven-page carousel PDF for post 3, the templates, the staged app screenshots and the scripts that render them |
 | [`artifact/`](artifact/) | The source of the copy-and-paste page: `node artifact/build.mjs` writes `artifact/social-kit.html` from the five files above, with a copy button and a platform-limit meter on every post |
 
 The videos the copy refers to are in [`../reels/`](../reels/README.md).

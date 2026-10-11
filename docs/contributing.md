@@ -452,13 +452,14 @@ Documentation lives in:
 **Update the docs in the same PR as the code.** A PR that adds a new tool without regenerating `tools-reference.md` is incomplete — and now fails CI rather than shipping a reference that quietly omits it.
 
 When adding a new Tauri command:
-1. Document it in `api-reference.md` with signature, description, error cases, example
+1. Document it in `api-reference.md` with signature, description, error cases, example, and add its row to `website/app/docs/api-reference/page.tsx`
 2. Add the TypeScript wrapper to `tauri-bridge.ts` before the PR
+3. Give the fake backend (`apps/desktop/e2e/backend.ts`) an answer for it, taken from the command's own body
 
 When changing an existing command's signature:
 1. Update the Rust type
 2. Update the TypeScript type in `tauri-bridge.ts`
-3. Update `api-reference.md`
+3. Update `api-reference.md` and the site's `website/app/docs/api-reference/page.tsx`, and the fake backend's answer if the shape changed
 4. Run `pnpm --filter @edytlab/desktop typecheck` to catch any downstream type errors
 
 ---
@@ -481,4 +482,4 @@ Be direct, technical, and respectful. Assume good intent. Focus feedback on code
 
 ---
 
-*Last updated: 2026-05-17. Reflects edytlab v0.1.0-dev.*
+*Kept current by the staleness sweep in `CLAUDE.md`; it describes `main`, not a release.*

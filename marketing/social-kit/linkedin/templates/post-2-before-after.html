@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<title>LinkedIn post 2: before and after (1200x1200)</title>
+{{tokens}}
+{{base}}
+<style>
+  .title { margin-top: 40px; font-size: 72px; }
+  /* Two columns, three rows: the labels, the cards (the list stretches to the chat's height), the note. */
+  .cols { display: grid; grid-template-columns: 1fr 580px; grid-template-rows: auto auto auto; column-gap: 36px; row-gap: 18px; margin-top: 40px; }
+  .muted-label { color: hsl(var(--muted-foreground)); }
+
+  .chores { display: flex; flex-direction: column; justify-content: space-around; padding: 6px 26px; list-style: none; }
+  .chores li { flex: 1; display: flex; align-items: center; gap: 18px; padding: 0; font-size: 28px; line-height: 1.25; font-weight: 500; }
+  .chores li + li { border-top: 2px solid hsl(var(--border) / 0.6); }
+  .chores .n { flex: none; width: 44px; height: 44px; border-radius: 9999px; display: grid; place-items: center; background: hsl(var(--secondary)); color: hsl(var(--muted-foreground)); font-family: var(--font-mono); font-size: 26px; font-weight: 500; }
+  .shotcard { --crop: 12.5%; }
+</style>
+</head>
+<body>
+<div class="canvas square">
+  <div class="aurora strong" data-bleed></div>
+  <div class="frame">
+    <div class="brandbar">
+      <div class="wordmark">{{logo}} edytlab</div>
+      <div class="pill">DJ prep</div>
+    </div>
+
+    <h1 class="display title">One blend is <span class="gradient-text">seven small chores.</span></h1>
+
+    <div class="cols">
+      <p class="eyebrow muted-label">Before: by hand</p>
+      <p class="eyebrow">After: one request</p>
+      <ol class="card chores" data-safe="chore list">
+        <li><span class="n">1</span>Find both tempos</li>
+        <li><span class="n">2</span>Stretch one to match</li>
+        <li><span class="n">3</span>Line up the downbeats</li>
+        <li><span class="n">4</span>Draw the fades</li>
+        <li><span class="n">5</span>Filter the outgoing track</li>
+        <li><span class="n">6</span>Check the loudness</li>
+        <li><span class="n">7</span>Export a file</li>
+      </ol>
+      <div class="shotcard crop" data-crops data-safe="chat screenshot"><img src="../shots/chat.png" alt="A scripted example conversation in the edytlab chat: one request to match Track B's tempo to Track A and crossfade them, four tool calls, and the agent's reply." /></div>
+      <span></span>
+      <p class="sample">The real app's chat, with a scripted example conversation</p>
+    </div>
+  </div>
+</div>
+</body>
+</html>

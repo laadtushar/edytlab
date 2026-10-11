@@ -1,0 +1,2 @@
+# Composed pages (templates + tokens), rewritten on every render.
+.build/

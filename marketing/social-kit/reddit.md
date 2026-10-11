@@ -193,7 +193,7 @@ edytlab is a desktop audio editor for macOS, Windows and Linux. You describe an 
 
 Where I'd like help:
 
-- Master bus and bus effects (issue 520). A tool can now put an effect on the master bus (merged after v0.5.0, so unreleased). Still missing: tools for a bus's own effect chain, and streaming versions of eleven effects the renderer can't run on a chain yet (reverb, echo, EQ, compressor and others). Rust, in the audio-engine and tools crates.
+- Master bus and bus effects (issue 520, closed). A tool can now put an effect on the master bus and on a bus (merged after v0.5.0, so unreleased). Still missing: streaming versions of eleven effects the renderer can't run on a chain yet (reverb, echo, EQ, compressor and others). Rust, in the audio-engine and tools crates.
 - macOS microphone (issue 464). v0.5.0 adds the entitlement and the usage text, but it hasn't been checked on a signed, notarized macOS build. That needs a Mac.
 - A real pass on Linux with a locked Secret Service (issue 497). The code is tested against fakes only.
 - Shipping the ML pieces (issues 383 to 385). Stem separation (Demucs) and transcription (Whisper) are wired in as tools, but their inference is not shipped. That means onnxruntime and model delivery inside a Tauri app.

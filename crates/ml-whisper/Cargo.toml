@@ -10,16 +10,14 @@ publish = false
 workspace = true
 
 [dependencies]
-# `ort 2.0` is still in RC; pin to the latest rc to keep the build reproducible.
+# `ort 2.0` is still in RC; the root `Cargo.toml` pins it exactly and holds
+# the features (including why `load-dynamic`, and the `api-23` level).
 #
-# We use `load-dynamic` instead of the default `download-binaries`:
-#   * the crate compiles without network access at build time;
-#   * the host process dlopens ONNX Runtime at first use;
-#   * the smoke test naturally skips when the runtime / model is absent.
-# Operators set `ORT_DYLIB_PATH` (or place libonnxruntime.{so,dylib,dll}
-# next to the binary) before launching. Execution-provider opt-ins
-# (CoreML, CUDA) arrive in Phase 2 as cargo features on this crate.
-ort = { version = "2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "load-dynamic", "api-24"] }
+# The runtime is opened by `ml_pipeline::runtime::ensure` at first use, from
+# `ORT_DYLIB_PATH` or next to the executable. Tests that need it are
+# `#[ignore]`d. Execution-provider opt-ins (CoreML, CUDA)
+# arrive in Phase 2 as cargo features on this crate.
+ort.workspace = true
 ndarray = "0.16"
 audio-decoder = { path = "../audio-decoder" }
 # The runtime gate: `ort` hangs, rather than erroring, when the ONNX Runtime

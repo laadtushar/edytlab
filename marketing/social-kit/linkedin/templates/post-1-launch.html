@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<title>LinkedIn post 1: launch (1200x1200)</title>
+{{tokens}}
+{{base}}
+<style>
+  .main { display: grid; grid-template-columns: 1fr 548px; gap: 40px; margin-top: 52px; align-items: start; }
+  .hero { font-size: 86px; }
+  .lead { margin-top: 28px; font-size: 34px; }
+  .row { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 30px; }
+  .shotcard { --crop: 12.5%; }
+  .sample { margin-top: 14px; }
+  .stats { margin-top: auto; }
+</style>
+</head>
+<body>
+<div class="canvas square">
+  <div class="aurora strong" data-bleed></div>
+  <div class="frame">
+    <div class="brandbar">
+      <div class="wordmark">{{logo}} edytlab</div>
+      <div class="pill">v{{version}} · open source</div>
+    </div>
+
+    <div class="main">
+      <div>
+        <h1 class="display hero">An audio editor <span class="gradient-text">you talk to.</span></h1>
+        <p class="lead">Describe the edit in plain English. An AI agent turns it into calls to audio tools.</p>
+        <div class="row">
+          <span class="pill">Free, MIT</span>
+          <span class="pill quiet">macOS · Windows · Linux</span>
+        </div>
+      </div>
+      <div>
+        <div class="shotcard crop" data-crops data-safe="chat screenshot"><img src="../shots/chat.png" alt="A scripted example conversation in the edytlab chat: a request to match Track B's tempo to Track A and crossfade them, four tool calls, and the agent's reply." /></div>
+        <p class="sample">The real app's chat, with a scripted example conversation</p>
+      </div>
+    </div>
+
+    <div class="rule-fade" style="margin-top:auto"></div>
+    <dl class="stats" style="margin-top:36px">
+      <div class="stat"><div class="stat__value"><dd class="stat__figure">0</dd><span class="stat__unit">bytes</span></div><dt class="stat__label">of your audio uploaded: the DSP runs on your machine</dt></div>
+      <div class="stat"><div class="stat__value"><dd class="stat__figure">6</dd><span class="stat__unit">providers</span></div><dt class="stat__label">bring your own key, or run a local model</dt></div>
+      <div class="stat"><div class="stat__value"><dd class="stat__figure">{{tools}}</dd><span class="stat__unit">tools</span></div><dt class="stat__label">the agent can call, from fade to beat-warp</dt></div>
+    </dl>
+  </div>
+</div>
+</body>
+</html>

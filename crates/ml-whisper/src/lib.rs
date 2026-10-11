@@ -42,6 +42,7 @@
 
 pub mod decode;
 pub mod mel;
+pub mod timing;
 pub mod tokenizer;
 
 use std::path::Path;

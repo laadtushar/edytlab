@@ -28,6 +28,32 @@ license = "MIT"
 repository = "https://github.com/laadtushar/edytlab"
 publish = false
 
+[workspace.dependencies]
+# One declaration of `ort` for ml-pipeline, ml-whisper and ml-demucs, so the
+# workspace builds a single copy with a single set of features.
+#
+# `=` pins it exactly. A caret requirement on 2.0.0-rc.12 also matches
+# rc.13, so a plain `cargo update` would take it, and rc.13 does not build
+# here: it gates the CoreML and CUDA providers behind features and drops
+# the `CoreMLExecutionProvider` / `CUDAExecutionProvider` names. Move to it
+# on purpose, in a PR of its own.
+#
+# `api-23` is the ONNX Runtime API level `ort` is built for, and `ort`
+# refuses any library older than that level (`ort::MINOR_VERSION`). The
+# installers pin ONNX Runtime 1.23.2, the newest release with a macOS build
+# for Intel Macs (1.24 and later are arm64 only), so the level must not go
+# above 23. `ml-pipeline`'s `runtime.rs` has a test for it. A newer
+# library still loads: 1.31.0 does with `api-23`. See #383.
+#
+# `load-dynamic` keeps the build offline-friendly: the host process opens
+# libonnxruntime.{so,dylib,dll} at first use, and
+# `ml_pipeline::runtime::ensure` decides which file that is, because `ort`
+# itself deadlocks on a library it cannot load. Tests that need the runtime
+# are `#[ignore]`d. The CoreML and CUDA providers are chosen at run time
+# through `load-dynamic`; nothing cargo-feature-gates them because the
+# per-target choice is made with `cfg(target_os = ...)`.
+ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "load-dynamic", "api-23"] }
+
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "warn"
 
