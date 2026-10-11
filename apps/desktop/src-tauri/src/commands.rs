@@ -968,9 +968,11 @@ impl KeychainPersistenceDto {
     /// of them was (with the reason of the first), durable otherwise, and
     /// durable for a command that wrote nothing (a clear).
     fn landed(saves: impl IntoIterator<Item = ai::keychain::Persistence>) -> Self {
-        // Not implemented yet.
-        let _ = saves.into_iter().count();
-        ai::keychain::Persistence::Durable.into()
+        saves
+            .into_iter()
+            .find(|at| matches!(at, ai::keychain::Persistence::SessionOnly { .. }))
+            .unwrap_or(ai::keychain::Persistence::Durable)
+            .into()
     }
 }
 
@@ -1217,7 +1219,10 @@ fn active_provider_answer(startup_error: Option<String>, active: String) -> CmdR
 /// require a key to already be present; the frontend uses this when the
 /// user toggles the picker before saving a key.
 ///
-/// Answers where the choice landed, as [`set_api_key_for`] does.
+/// Answers where the choice landed, as [`set_api_key_for`] does. (When the
+/// switch worked but the new provider's saved key could not be read, it
+/// rejects with that instead: the choice is saved, and the message is the
+/// one that matters.)
 #[tauri::command]
 pub async fn set_active_provider(
     state: State<'_, AppState>,
@@ -7831,6 +7836,20 @@ mod tests {
             durable_dto(vec![fell_back("first"), fell_back("second")]),
             session_only("first"),
             "the first reason, not the last"
+        );
+    }
+
+    /// What the frontend's `KeychainPersistence` reads, the same shape
+    /// `get_keychain_persistence` answers with.
+    #[test]
+    fn a_landing_serialises_as_persistent_and_reason() {
+        assert_eq!(
+            serde_json::to_value(KeychainPersistenceDto::landed([fell_back("no bus")])).unwrap(),
+            serde_json::json!({ "persistent": false, "reason": "no bus" })
+        );
+        assert_eq!(
+            serde_json::to_value(KeychainPersistenceDto::landed([])).unwrap(),
+            serde_json::json!({ "persistent": true, "reason": null })
         );
     }
 
