@@ -237,7 +237,14 @@ pub enum ToolView {
         path: String,
         /// The effect being auditioned, and where.
         kind: String,
-        track: usize,
+        /// The track, when the audition is on one. Absent for the master
+        /// bus and for a bus, which have no index; `target` says where.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        track: Option<usize>,
+        /// Where the effect was heard, in words: "track 1", "the master
+        /// bus" or `bus "Drums"`. This is what the player shows.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target: Option<String>,
         start_sec: f64,
         end_sec: f64,
         #[serde(default)]

@@ -23,13 +23,13 @@ With Plan first on and no plan from the model, the first step that would change 
 
 ## Index
 
-- [`add_effect`](#add_effect) — Add a non-destructive effect to a track's chain, or to the master bus with scope "master".
+- [`add_effect`](#add_effect) — Add a non-destructive effect to a track's chain, to the master bus with scope "master", or to a bus with scope "bus" and its name.
 - [`add_track`](#add_track) — Append a new empty track to the current session.
 - [`align_to_beat`](#align_to_beat) — Warp a track in time so the beats at source_beats land on beat_grid, without changing its pitch.
 - [`analyze_track`](#analyze_track) — Analyse a track in the session, or an audio file, and return BPM, key, beat grid, downbeats, sections, an RMS curve (one bin per ~100 ms), and EBU R128 integrated loudness in LUFS.
 - [`apply_diff`](#apply_diff) — Apply one or more SessionDiff specs to a parent node, producing one new sibling node per spec.
 - [`apply_recipe`](#apply_recipe) — Replay an exported edit chain.
-- [`audition_effect`](#audition_effect) — Hear what an effect would sound like on a track without applying it.
+- [`audition_effect`](#audition_effect) — Hear what an effect would sound like on a track, on the master bus (scope "master") or on a bus (scope "bus") without applying it.
 - [`batch_apply`](#batch_apply) — Run an exported edit chain across every audio file in a folder.
 - [`change_speed`](#change_speed) — Resample a track to change playback speed without pitch preservation.
 - [`click_removal`](#click_removal) — Remove clicks and pops by detecting sample spikes (via median filter) and replacing them with interpolated values.
@@ -79,14 +79,14 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`plot_spectrum`](#plot_spectrum) — Compute the frequency spectrum of a track region and show the user a chart of it.
 - [`punch_in`](#punch_in) — Replace a region of a track with audio from a file, in place.
 - [`remove_clip`](#remove_clip) — Remove one clip from a track, leaving the other clips where they are.
-- [`remove_effect`](#remove_effect) — Remove one effect from a track's chain, or from the master bus's with scope "master", by index.
+- [`remove_effect`](#remove_effect) — Remove one effect, by index, from a track's chain, the master bus's (scope "master") or a bus's (scope "bus").
 - [`remove_fillers`](#remove_fillers) — Find filler words in the session's transcript and, when asked, remove them and their audio in one undoable edit.
 - [`remove_send`](#remove_send) — Stop routing a track to a bus.
 - [`remove_track`](#remove_track) — Remove a track from the session.
 - [`rename_track`](#rename_track) — Rename a track.
 - [`render_final`](#render_final) — Render a session node to a final audio file at the user's chosen path.
 - [`render_preview`](#render_preview) — Render a session node to a temporary WAV file and return its path.
-- [`reorder_effects`](#reorder_effects) — Reorder a track's effect chain, or the master bus's with scope "master".
+- [`reorder_effects`](#reorder_effects) — Reorder a track's effect chain, the master bus's (scope "master") or a bus's (scope "bus").
 - [`repeat_selection`](#repeat_selection) — Duplicate the audio region [start_sec, end_sec) on a track N additional times, appending copies after the original buffer.
 - [`resample_track`](#resample_track) — Resample a track to a different sample rate using linear interpolation.
 - [`reverb`](#reverb) — Apply Freeverb algorithmic reverb.
@@ -95,8 +95,8 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`select_region`](#select_region) — Resolve a description of a region into a concrete time range, using the session's transcript, a voice track's audio, or its tempo map.
 - [`separate_stems`](#separate_stems) — NOT IMPLEMENTED IN THIS BUILD.
 - [`set_clip_envelope`](#set_clip_envelope) — Replace the per-clip volume automation curve.
-- [`set_effect_bypassed`](#set_effect_bypassed) — Bypass or re-enable one effect on a track or on the master bus (scope "master") without removing it, so its settings survive an A/B.
-- [`set_effect_params`](#set_effect_params) — Change an effect's parameters in place, on a track or on the master bus (scope "master").
+- [`set_effect_bypassed`](#set_effect_bypassed) — Bypass or re-enable one effect on a track, on the master bus (scope "master") or on a bus (scope "bus") without removing it, so its settings survive an A/B.
+- [`set_effect_params`](#set_effect_params) — Change an effect's parameters in place, on a track, on the master bus (scope "master") or on a bus (scope "bus").
 - [`set_pan`](#set_pan) — Set the stereo pan of a track.
 - [`set_send`](#set_send) — Route a copy of a track to a bus at the given level.
 - [`set_sync_lock`](#set_sync_lock) — Turn sync-lock on or off.
@@ -121,15 +121,16 @@ With Plan first on and no plan from the model, the first step that would change 
 
 ## `add_effect`
 
-Add a non-destructive effect to a track's chain, or to the master bus with scope "master". Unlike the destructive effect tools, the parameters stay editable afterwards — set_effect_params can change them without re-running anything, because the effect is applied at render rather than baked into a new file. A track's effects apply in chain order, after track gain and volume automation and before pan. The master bus is where every track is summed, after sends: use scope "master" for a limiter, a filter or a gain on the whole mix, for example "a limiter on the master at -1 dB". It stays live when a track is edited later, which a mix rendered into a new track with mix_to_new_track does not, so prefer it to mixing down. Appends a new session node.
+Add a non-destructive effect to a track's chain, to the master bus with scope "master", or to a bus with scope "bus" and its name. Unlike the destructive effect tools, the parameters stay editable afterwards — set_effect_params can change them without re-running anything, because the effect is applied at render rather than baked into a new file. A track's effects apply in chain order, after track gain and volume automation and before pan. The master bus is where every track is summed, after sends: use scope "master" for a limiter, a filter or a gain on the whole mix, for example "a limiter on the master at -1 dB". It stays live when a track is edited later, which a mix rendered into a new track with mix_to_new_track does not, so prefer it to mixing down. A bus (from create_bus) processes what tracks send it with set_send, so an effect on a bus nothing sends to is not heard. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
+| `bus` | string | no | Name of the bus to edit, as given to create_bus. Required when scope is "bus". The id create_bus returned works too, and is the only way to pick between two buses that share a name. |
 | `kind` | string | yes | Effect kind, e.g. gain, limiter, low_pass_filter, high_pass_filter, notch_filter. |
 | `params` | object | no | Effect parameters, e.g. { "cutoff_hz": 800 }, or { "ceiling_db": -1, "release_ms": 80 } for a limiter. Defaults are used for anything omitted. |
 | `position` | integer | no | Index in the chain. Appended to the end when omitted. |
-| `scope` | one of `track`, `master` | no | Which chain to edit. "track" (the default when `track` is given) is one track's chain. "master" is the master bus, where every track is summed: an effect there processes the whole mix, and keeps processing it when a track is edited later. Omit `track` when scope is "master". |
-| `track` | integer | no | Zero-based track index. Required unless scope is "master". |
+| `scope` | one of `track`, `master`, `bus` | no | Which chain to edit. "track" (the default when `track` is given) is one track's chain. "master" is the master bus, where every track is summed: an effect there processes the whole mix, and keeps processing it when a track is edited later. "bus" (the default when `bus` is given) is a bus made with create_bus. Omit `track` when scope is "master" or "bus". |
+| `track` | integer | no | Zero-based track index. Required unless scope is "master" or "bus". |
 
 ## `add_track`
 
@@ -191,16 +192,18 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `audition_effect`
 
-Hear what an effect would sound like on a track without applying it. Renders a few seconds of the session with the effect added to that track's chain and returns a WAV to play. Appends no session node, so there is nothing to undo — call `add_effect` with the same arguments to keep it. The audition includes gain, pan, mute, solo, sends and the master chain, so it sounds like the result will.
+Hear what an effect would sound like on a track, on the master bus (scope "master") or on a bus (scope "bus") without applying it. Renders a few seconds of the session with the effect added to that chain and returns a WAV to play. Appends no session node, so there is nothing to undo — call `add_effect` with the same arguments to keep it. The audition includes gain, pan, mute, solo, sends and the master chain, so it sounds like the result will.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `at` | integer | no | Position in the chain; defaults to the end, as add_effect does. |
+| `bus` | string | no | Name of the bus to edit, as given to create_bus. Required when scope is "bus". The id create_bus returned works too, and is the only way to pick between two buses that share a name. |
 | `end_sec` | number | no | End of the region to hear |
 | `kind` | string | yes | Effect kind, e.g. gain, limiter, low_pass_filter, high_pass_filter, notch_filter. |
 | `params` | object | no | Effect parameters, the same shape add_effect takes. |
+| `scope` | one of `track`, `master`, `bus` | no | Which chain to edit. "track" (the default when `track` is given) is one track's chain. "master" is the master bus, where every track is summed: an effect there processes the whole mix, and keeps processing it when a track is edited later. "bus" (the default when `bus` is given) is a bus made with create_bus. Omit `track` when scope is "master" or "bus". |
 | `start_sec` | number | no | Start of the region to hear |
-| `track` | integer | yes | Zero-based track index |
+| `track` | integer | no | Zero-based track index. Required unless scope is "master" or "bus". |
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 
@@ -289,7 +292,7 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `create_bus`
 
-Create an effects bus. Tracks send a scaled copy of themselves to a bus with `set_send`, the bus processes that sum, and the result is added to the master mix. Use this for a shared reverb or delay: one instance fed by several tracks, rather than the same effect applied destructively to each. Returns the bus id. Appends a new session node.
+Create an effects bus. Tracks send a scaled copy of themselves to a bus with `set_send`, the bus processes that sum, and the result is added to the master mix. Use this for one chain of effects fed by several tracks, rather than the same effect applied destructively to each. A new bus has no effects: add them with `add_effect` (scope "bus", bus = this name). Returns the bus id. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
@@ -752,13 +755,14 @@ Remove one clip from a track, leaving the other clips where they are. The gap it
 
 ## `remove_effect`
 
-Remove one effect from a track's chain, or from the master bus's with scope "master", by index. The rest keep their order. Appends a new session node.
+Remove one effect, by index, from a track's chain, the master bus's (scope "master") or a bus's (scope "bus"). The rest keep their order. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
+| `bus` | string | no | Name of the bus to edit, as given to create_bus. Required when scope is "bus". The id create_bus returned works too, and is the only way to pick between two buses that share a name. |
 | `effect_index` | integer | yes |  |
-| `scope` | one of `track`, `master` | no | Which chain to edit. "track" (the default when `track` is given) is one track's chain. "master" is the master bus, where every track is summed: an effect there processes the whole mix, and keeps processing it when a track is edited later. Omit `track` when scope is "master". |
-| `track` | integer | no | Zero-based track index. Required unless scope is "master". |
+| `scope` | one of `track`, `master`, `bus` | no | Which chain to edit. "track" (the default when `track` is given) is one track's chain. "master" is the master bus, where every track is summed: an effect there processes the whole mix, and keeps processing it when a track is edited later. "bus" (the default when `bus` is given) is a bus made with create_bus. Omit `track` when scope is "master" or "bus". |
+| `track` | integer | no | Zero-based track index. Required unless scope is "master" or "bus". |
 
 ## `remove_fillers`
 
@@ -831,13 +835,14 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `reorder_effects`
 
-Reorder a track's effect chain, or the master bus's with scope "master". `order` is the new sequence given as indices into the current chain — [2, 0, 1] moves the third effect to the front. Order matters: a compressor before an EQ is a different sound from one after it. Appends a new session node.
+Reorder a track's effect chain, the master bus's (scope "master") or a bus's (scope "bus"). `order` is the new sequence given as indices into the current chain — [2, 0, 1] moves the third effect to the front. Order matters: a compressor before an EQ is a different sound from one after it. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
+| `bus` | string | no | Name of the bus to edit, as given to create_bus. Required when scope is "bus". The id create_bus returned works too, and is the only way to pick between two buses that share a name. |
 | `order` | array of integer | yes | A permutation of the current indices. Must list every effect exactly once. |
-| `scope` | one of `track`, `master` | no | Which chain to edit. "track" (the default when `track` is given) is one track's chain. "master" is the master bus, where every track is summed: an effect there processes the whole mix, and keeps processing it when a track is edited later. Omit `track` when scope is "master". |
-| `track` | integer | no | Zero-based track index. Required unless scope is "master". |
+| `scope` | one of `track`, `master`, `bus` | no | Which chain to edit. "track" (the default when `track` is given) is one track's chain. "master" is the master bus, where every track is summed: an effect there processes the whole mix, and keeps processing it when a track is edited later. "bus" (the default when `bus` is given) is a bus made with create_bus. Omit `track` when scope is "master" or "bus". |
+| `track` | integer | no | Zero-based track index. Required unless scope is "master" or "bus". |
 
 ## `repeat_selection`
 
@@ -938,26 +943,28 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `set_effect_bypassed`
 
-Bypass or re-enable one effect on a track or on the master bus (scope "master") without removing it, so its settings survive an A/B. A bypassed effect renders identically to one that is absent. Appends a new session node.
+Bypass or re-enable one effect on a track, on the master bus (scope "master") or on a bus (scope "bus") without removing it, so its settings survive an A/B. A bypassed effect renders identically to one that is absent. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
+| `bus` | string | no | Name of the bus to edit, as given to create_bus. Required when scope is "bus". The id create_bus returned works too, and is the only way to pick between two buses that share a name. |
 | `bypassed` | boolean | yes |  |
 | `effect_index` | integer | yes |  |
-| `scope` | one of `track`, `master` | no | Which chain to edit. "track" (the default when `track` is given) is one track's chain. "master" is the master bus, where every track is summed: an effect there processes the whole mix, and keeps processing it when a track is edited later. Omit `track` when scope is "master". |
-| `track` | integer | no | Zero-based track index. Required unless scope is "master". |
+| `scope` | one of `track`, `master`, `bus` | no | Which chain to edit. "track" (the default when `track` is given) is one track's chain. "master" is the master bus, where every track is summed: an effect there processes the whole mix, and keeps processing it when a track is edited later. "bus" (the default when `bus` is given) is a bus made with create_bus. Omit `track` when scope is "master" or "bus". |
+| `track` | integer | no | Zero-based track index. Required unless scope is "master" or "bus". |
 
 ## `set_effect_params`
 
-Change an effect's parameters in place, on a track or on the master bus (scope "master"). This is what a non-destructive chain buys: the audio is not re-processed and nothing is re-rendered until you ask, so tweaking a cutoff costs nothing and is undoable like any other edit. Keys are merged into the existing parameters by default; pass replace=true to swap the object wholesale. Appends a new session node.
+Change an effect's parameters in place, on a track, on the master bus (scope "master") or on a bus (scope "bus"). This is what a non-destructive chain buys: the audio is not re-processed and nothing is re-rendered until you ask, so tweaking a cutoff costs nothing and is undoable like any other edit. Keys are merged into the existing parameters by default; pass replace=true to swap the object wholesale. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
+| `bus` | string | no | Name of the bus to edit, as given to create_bus. Required when scope is "bus". The id create_bus returned works too, and is the only way to pick between two buses that share a name. |
 | `effect_index` | integer | yes |  |
 | `params` | object | yes |  |
 | `replace` | boolean | no | Replace all parameters instead of merging. Default false. |
-| `scope` | one of `track`, `master` | no | Which chain to edit. "track" (the default when `track` is given) is one track's chain. "master" is the master bus, where every track is summed: an effect there processes the whole mix, and keeps processing it when a track is edited later. Omit `track` when scope is "master". |
-| `track` | integer | no | Zero-based track index. Required unless scope is "master". |
+| `scope` | one of `track`, `master`, `bus` | no | Which chain to edit. "track" (the default when `track` is given) is one track's chain. "master" is the master bus, where every track is summed: an effect there processes the whole mix, and keeps processing it when a track is edited later. "bus" (the default when `bus` is given) is a bus made with create_bus. Omit `track` when scope is "master" or "bus". |
+| `track` | integer | no | Zero-based track index. Required unless scope is "master" or "bus". |
 
 ## `set_pan`
 

@@ -3197,17 +3197,10 @@ mod tests {
     // extract_tool_view
     // ------------------------------------------------------------------
 
-    /// `audition_effect` renders an excerpt and used to return only its
-    /// path, as JSON, into the chat — a full render nobody could hear
-    /// without leaving the app (#258).
-    ///
-    /// This drives the real tool for the same reason the spectrum test
-    /// below does: the tool's result and this enum are declared in two
-    /// different crates, and a JSON literal here would keep passing
-    /// after the tool stopped emitting the tag. That is precisely how
-    /// the audition shipped unreachable in the first place.
-    #[test]
-    fn audition_result_becomes_a_playable_view() {
+    /// A one-track session, and the result of `audition_effect` run on it
+    /// with `args`, through the real dispatcher. The temp dir is returned
+    /// so the excerpt the result names is still there to check.
+    fn audition_through_the_dispatcher(args: Value) -> (tempfile::TempDir, Value) {
         use hound::{SampleFormat, WavSpec, WavWriter};
 
         let tmp = tempfile::TempDir::new().expect("tempdir");
@@ -3244,22 +3237,32 @@ mod tests {
         assert!(matches!(load, ToolResult::Ok(_)), "load failed: {load:?}");
 
         let result = dispatcher
-            .invoke(
-                "audition_effect",
-                json!({
-                    "track": 0,
-                    "kind": "low_pass_filter",
-                    "params": { "cutoff_hz": 1_000.0 },
-                    "start_sec": 0.0,
-                    "end_sec": 0.5,
-                }),
-                &mut ctx,
-            )
+            .invoke("audition_effect", args, &mut ctx)
             .expect("audition_effect dispatches");
-        let mut value = match result {
-            ToolResult::Ok(v) => v,
+        match result {
+            ToolResult::Ok(v) => (tmp, v),
             ToolResult::Error(msg) => panic!("audition_effect errored: {msg}"),
-        };
+        }
+    }
+
+    /// `audition_effect` renders an excerpt and used to return only its
+    /// path, as JSON, into the chat — a full render nobody could hear
+    /// without leaving the app (#258).
+    ///
+    /// This drives the real tool for the same reason the spectrum test
+    /// below does: the tool's result and this enum are declared in two
+    /// different crates, and a JSON literal here would keep passing
+    /// after the tool stopped emitting the tag. That is precisely how
+    /// the audition shipped unreachable in the first place.
+    #[test]
+    fn audition_result_becomes_a_playable_view() {
+        let (_tmp, mut value) = audition_through_the_dispatcher(json!({
+            "track": 0,
+            "kind": "low_pass_filter",
+            "params": { "cutoff_hz": 1_000.0 },
+            "start_sec": 0.0,
+            "end_sec": 0.5,
+        }));
 
         let view = extract_tool_view(&value)
             .expect("audition_effect's result must survive the trip to the UI as a ToolView");
@@ -3267,6 +3270,7 @@ mod tests {
             path,
             kind,
             track,
+            target,
             start_sec,
             end_sec,
             summary,
@@ -3286,7 +3290,8 @@ mod tests {
             "the view names {path:?}, which does not exist — the excerpt was never rendered"
         );
         assert_eq!(kind, "low_pass_filter");
-        assert_eq!(track, 0);
+        assert_eq!(track, Some(0));
+        assert_eq!(target.as_deref(), Some("track 0"));
         assert_eq!(start_sec, 0.0);
         assert_eq!(end_sec, 0.5);
         assert!(
@@ -3306,6 +3311,43 @@ mod tests {
             value.get("summary").is_some(),
             "the model must keep the summary — it is how it learns nothing was committed"
         );
+    }
+
+    /// A master audition has no track to name, and `ToolView::Audition`
+    /// used to require one: the parse failed, `extract_tool_view` returned
+    /// `None`, and the excerpt rendered without a player (#533). The same
+    /// drive through the real tool as above, for the master bus.
+    #[test]
+    fn a_master_audition_becomes_a_playable_view_without_a_track() {
+        let (_tmp, value) = audition_through_the_dispatcher(json!({
+            "scope": "master",
+            "kind": "limiter",
+            "params": { "ceiling_db": -6.0 },
+            "start_sec": 0.0,
+            "end_sec": 0.5,
+        }));
+
+        let view = extract_tool_view(&value)
+            .expect("a master audition's result must survive the trip to the UI as a ToolView");
+        // On the wire the view carries no `track` key at all, so the UI
+        // reads an absent field rather than a `null` it would print.
+        let wire = serde_json::to_value(&view).expect("serialises");
+        let crate::ToolView::Audition {
+            path,
+            kind,
+            track,
+            target,
+            ..
+        } = view
+        else {
+            panic!("a master audition must project to an Audition view, got {view:?}");
+        };
+        assert!(std::path::Path::new(&path).exists());
+        assert_eq!(kind, "limiter");
+        assert_eq!(track, None, "the master bus is not a track");
+        assert_eq!(target.as_deref(), Some("the master bus"));
+        assert!(wire.get("track").is_none(), "{wire}");
+        assert_eq!(wire["target"], "the master bus");
     }
 
     /// The shape `plot_spectrum` emits and the shape the UI draws are

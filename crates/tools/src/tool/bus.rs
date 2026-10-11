@@ -8,6 +8,9 @@
 //! Shipping the engine without them would repeat #108, where the
 //! spectrum chart worked and no call site could produce one.
 //!
+//! A bus's own effects are the chain tools' (`add_effect` and the rest, with
+//! `scope: "bus"`, #533); these tools make the bus and feed it.
+//!
 //! A send is **parallel**: the track still goes to master at full level
 //! and the bus receives an additional scaled copy. That is what reverb
 //! and delay want. It is not a sub-mix group — for that the track's
@@ -44,9 +47,10 @@ impl Tool for CreateBusTool {
             "create_bus",
             "Create an effects bus. Tracks send a scaled copy of themselves to a bus with \
              `set_send`, the bus processes that sum, and the result is added to the master \
-             mix. Use this for a shared reverb or delay: one instance fed by several tracks, \
-             rather than the same effect applied destructively to each. Returns the bus id. \
-             Appends a new session node.",
+             mix. Use this for one chain of effects fed by several tracks, rather than the same \
+             effect applied destructively to each. A new bus has no effects: add them with \
+             `add_effect` (scope \"bus\", bus = this name). Returns the bus id. Appends a new \
+             session node.",
             json!({
                 "type": "object",
                 "properties": {
