@@ -24,12 +24,16 @@ use tools::{
 
 /// Every tool that never needs approval, alphabetical.
 ///
+/// `audition_effect` and `render_preview` are here although they render
+/// audio and write files (#535). Every file they write is a named entry in
+/// a content-addressed, size-capped, rebuildable cache under `.audiograph/`
+/// (`auditions/`, `previews/`), which is the kind of write `Tool::mutates`
+/// does not count; a ranged render and a failed one used to leave an
+/// uncapped temp file behind, and that was the reason they were held. The
+/// read-only test below checks what they leave.
+///
 /// Deliberately **not** on this list, though they look harmless:
 ///
-/// * `audition_effect` and `render_preview` render audio and write files
-///   (the preview cache, and an OS temp file for a ranged render).
-///   Holding a preview costs one click; flipping either later is a
-///   reviewed one-line change to this list.
 /// * `copy_region` overwrites the user's clipboard and writes a CAS blob.
 /// * `transcribe` and `split_by_speaker` append nodes.
 /// * `separate_stems`, `export_multiple`, `export_recipe` and
@@ -39,11 +43,13 @@ use tools::{
 /// * `mute_track`, `solo_track` and `set_sync_lock` append state.
 /// * `apply_recipe` and `batch_apply` run nested edits.
 /// * `load` appends a node.
-const READ_ONLY: [&str; 7] = [
+const READ_ONLY: [&str; 9] = [
     "analyze_track",
+    "audition_effect",
     "compare_nodes",
     "export_labels",
     "plot_spectrum",
+    "render_preview",
     "select_region",
     "silence_finder",
     "storage_report",
@@ -140,11 +146,33 @@ fn files_under(dir: &Path) -> BTreeMap<String, u64> {
     out
 }
 
+/// The app's own caches, which `Tool::mutates` documents as not counting:
+/// content-addressed, bounded and rebuildable. Each is a folder of finished
+/// `.wav` entries and nothing else. A staging file left in one, or a file
+/// of any other kind, is not a cache entry and is not allowed.
+const CACHE_FOLDERS: [&str; 3] = [
+    "derived/track-",
+    ".audiograph/previews/",
+    ".audiograph/auditions/",
+];
+
+/// Whether `path` (relative to the project, `/`-separated) is an entry in
+/// one of [`CACHE_FOLDERS`].
+fn is_cache_entry(path: &str) -> bool {
+    CACHE_FOLDERS.iter().any(|prefix| {
+        path.starts_with(prefix)
+            && path.ends_with(".wav")
+            // `derived/track-<hash>.wav` is a prefix of a name; the other
+            // two are folders, whose entries sit directly in them.
+            && (prefix.ends_with('-') || !path[prefix.len()..].contains('/'))
+    })
+}
+
 /// "Read-only" is a claim about what a call leaves behind, so check what
 /// it leaves behind: the head, the number of nodes, and every file in the
-/// project. The one allowance is `derived/track-*.wav`, the
-/// content-addressed flattened-track cache that `Tool::mutates` documents
-/// as not counting.
+/// project. The one allowance is the app's own caches (see
+/// [`CACHE_FOLDERS`]): the flattened-track cache in `derived/`, and the
+/// preview and audition caches.
 #[test]
 fn every_read_only_tool_leaves_the_session_untouched() {
     let dir = TempDir::new().expect("tempdir");
@@ -175,13 +203,24 @@ fn every_read_only_tool_leaves_the_session_untouched() {
 
     let head = store.head().expect("a head after load");
     let hex = head.to_hex();
-    let calls: [(&str, Value); 7] = [
+    let calls: [(&str, Value); 10] = [
         ("analyze_track", json!({ "track": 0 })),
+        (
+            "audition_effect",
+            json!({ "track": 0, "kind": "gain", "params": { "db": 3.0 } }),
+        ),
         ("compare_nodes", json!({ "a": hex, "b": hex })),
         ("export_labels", json!({})),
         (
             "plot_spectrum",
             json!({ "track": 0, "start_sec": 0.0, "end_sec": 0.5 }),
+        ),
+        // The whole mix, then an excerpt of it: the second used to leave an
+        // OS temp file, which is outside the project and so not seen below.
+        ("render_preview", json!({ "node_id": hex })),
+        (
+            "render_preview",
+            json!({ "node_id": hex, "range": [0, 4_000] }),
         ),
         ("select_region", json!({ "from_beat": 1, "to_beat": 2 })),
         (
@@ -194,6 +233,7 @@ fn every_read_only_tool_leaves_the_session_untouched() {
     // be added to one and never exercised.
     let mut named: Vec<&str> = calls.iter().map(|(n, _)| *n).collect();
     named.sort_unstable();
+    named.dedup();
     assert_eq!(named, READ_ONLY.to_vec());
 
     let nodes_before = store.list_nodes().expect("list nodes").len();
@@ -219,6 +259,27 @@ fn every_read_only_tool_leaves_the_session_untouched() {
             clipboard.is_none(),
             "{name} wrote to the clipboard, so it mutates"
         );
+
+        // A file written outside the project is invisible to the comparison
+        // below, so check the one place such a file would be named: the
+        // result. Any path a read-only tool hands back must be a cache entry
+        // inside this project (a ranged `render_preview` used to name an OS
+        // temp file).
+        if let ToolResult::Ok(value) = &result {
+            if let Some(named) = value.get("path").and_then(Value::as_str) {
+                let relative = Path::new(named)
+                    .strip_prefix(dir.path())
+                    .unwrap_or_else(|_| {
+                        panic!("{name} wrote {named}, which is outside the project")
+                    })
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                assert!(
+                    is_cache_entry(&relative),
+                    "{name} wrote {relative}, which is not an entry in one of the app's caches"
+                );
+            }
+        }
     }
 
     assert_eq!(store.head(), Some(head), "a read-only tool moved the head");
@@ -229,12 +290,9 @@ fn every_read_only_tool_leaves_the_session_untouched() {
     );
 
     let mut files_after = files_under(dir.path());
-    // The flattened-track cache is the one thing a read is allowed to
-    // leave. Everything else must be exactly as it was.
-    files_after.retain(|path, _| {
-        files_before.contains_key(path)
-            || !(path.starts_with("derived/track-") && path.ends_with(".wav"))
-    });
+    // A cache entry is the one thing a read is allowed to leave.
+    // Everything else must be exactly as it was.
+    files_after.retain(|path, _| files_before.contains_key(path) || !is_cache_entry(path));
     assert_eq!(
         files_after, files_before,
         "a read-only tool changed the project's files"

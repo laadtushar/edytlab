@@ -50,6 +50,9 @@ pub const CACHE_DIR: &str = "previews";
 /// letting a long session quietly consume the disk.
 pub const DEFAULT_CAP_BYTES: u64 = 1024 * 1024 * 1024;
 
+/// How old a staging file must be before the next render may sweep it.
+pub const STALE_STAGING: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
 /// Environment override for the cap, in bytes. Exists so tests can use
 /// a cap measured in kilobytes instead of writing a gigabyte of audio.
 pub const CAP_ENV: &str = "EDYTLAB_PREVIEW_CACHE_BYTES";
@@ -373,6 +376,125 @@ mod tests {
             !cache.path_for(middle).exists(),
             "the least recently used entry survived"
         );
+    }
+
+    /// Everything in the cache folder that is not a finished entry.
+    fn staging_files(cache: &PreviewCache) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(cache.dir())
+            .map(|read| {
+                read.flatten()
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .filter(|n| !n.ends_with(".wav"))
+                    .collect()
+            })
+            .unwrap_or_default();
+        names.sort();
+        names
+    }
+
+    /// The half-written file of a render that failed used to stay where it
+    /// was: uncounted by the cap, and never looked at again.
+    #[test]
+    fn a_failed_render_leaves_no_staging_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = PreviewCache::new(tmp.path());
+
+        cache
+            .get_or_render::<_, io::Error>(node_id(20), |p| {
+                write(p, 32)?;
+                Err(io::Error::other("render blew up halfway"))
+            })
+            .unwrap_err();
+
+        assert_eq!(staging_files(&cache), Vec::<String>::new());
+    }
+
+    /// A panic in the renderer unwinds through the cache the same way.
+    #[test]
+    fn a_render_that_panics_leaves_no_staging_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = PreviewCache::new(tmp.path());
+
+        let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = cache.get_or_render::<_, io::Error>(node_id(21), |p| {
+                write(p, 32)?;
+                panic!("the renderer panicked halfway");
+            });
+        }));
+        assert!(unwound.is_err(), "the panic should reach the caller");
+
+        assert_eq!(staging_files(&cache), Vec::<String>::new());
+    }
+
+    /// The render succeeded and moving it into place did not: the file is
+    /// still not the cache's to keep.
+    #[test]
+    fn a_render_that_cannot_be_moved_into_place_leaves_no_staging_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = PreviewCache::new(tmp.path());
+        let id = node_id(22);
+        // A folder with something in it where the entry belongs: a file
+        // cannot be renamed over it.
+        std::fs::create_dir_all(cache.path_for(id)).unwrap();
+        std::fs::write(cache.path_for(id).join("in-the-way"), b"x").unwrap();
+
+        cache
+            .get_or_render::<_, io::Error>(id, |p| write(p, 32))
+            .unwrap_err();
+
+        assert_eq!(staging_files(&cache), Vec::<String>::new());
+    }
+
+    /// A render killed with the process (a crash, a power cut) cannot
+    /// clean up after itself. Its file is in the cache folder but is not
+    /// an entry, so nothing counts it against the cap; the next render
+    /// sweeps it once it is too old to be one still being written.
+    #[test]
+    fn a_staging_file_left_by_a_crashed_render_is_swept() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = PreviewCache::new(tmp.path());
+        std::fs::create_dir_all(cache.dir()).unwrap();
+
+        let old = cache.dir().join(".dead.partial");
+        let recent = cache.dir().join(".alive.partial");
+        write(&old, 64).unwrap();
+        write(&recent, 64).unwrap();
+        let long_ago = SystemTime::now() - STALE_STAGING * 2;
+        std::fs::File::options()
+            .write(true)
+            .open(&old)
+            .unwrap()
+            .set_modified(long_ago)
+            .unwrap();
+
+        cache
+            .get_or_render::<_, io::Error>(node_id(23), |p| write(p, 64))
+            .unwrap();
+
+        assert!(!old.exists(), "a stale staging file was kept");
+        assert!(
+            recent.exists(),
+            "a staging file that may still be being written was removed"
+        );
+    }
+
+    /// An entry too big for the cap cannot be kept without breaking the
+    /// cap, and a path to a file that was just evicted is no use to the
+    /// caller. Say so instead.
+    #[test]
+    fn an_entry_larger_than_the_cap_is_an_error_not_a_dangling_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cache = PreviewCache::new(tmp.path());
+        cache.cap_bytes = 50;
+        let id = node_id(24);
+
+        let e = cache
+            .get_or_render::<_, io::Error>(id, |p| write(p, 100))
+            .unwrap_err();
+
+        assert!(e.to_string().contains("cap"), "unhelpful error: {e}");
+        assert!(!cache.path_for(id).exists());
+        assert_eq!(cache.size_bytes(), 0);
     }
 
     #[test]
