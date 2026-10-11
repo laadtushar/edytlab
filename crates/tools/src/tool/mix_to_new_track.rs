@@ -23,7 +23,7 @@ impl Tool for MixToNewTrackTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "mix_to_new_track",
-            "Offline-render the selected tracks together and add the result as a new mixed track. track_indices selects which tracks to include. Appends a new session node.",
+            "Offline-render the selected tracks together and add the result as a new mixed track. track_indices selects which tracks to include. The result is a baked copy: it does not follow later edits to the tracks it came from. To put an effect such as a limiter on the whole mix, use add_effect with scope \"master\" instead of mixing down. Appends a new session node.",
             json!({
                 "type": "object",
                 "properties": {

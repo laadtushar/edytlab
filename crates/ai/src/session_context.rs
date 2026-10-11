@@ -1,9 +1,9 @@
 //! `SessionContext` — what the agent loop sees about the session and the
 //! user's current focus on the timeline. Built per turn from the
 //! frontend-pushed selection, the store head's annotations, and the
-//! head's tracks.
+//! head's tracks and master chain.
 
-use session::{Annotation, AnnotationKind, SessionState};
+use session::{Annotation, AnnotationKind, EffectInstance, SessionState};
 use tools::Range;
 
 #[derive(Debug, Clone, Default)]
@@ -16,6 +16,36 @@ pub struct SessionContext {
     pub head: Option<String>,
     /// The tracks at the head, in the order the tools index them.
     pub tracks: Vec<TrackBrief>,
+    /// The master bus's effects at the head, in chain order, bypassed ones
+    /// marked (#460). The same words a track's `effects` use. Empty when
+    /// the bus has none, and then nothing about it is said at all.
+    pub master_effects: Vec<String>,
+}
+
+impl SessionContext {
+    /// The master chain of `state`, as [`SessionContext::master_effects`]
+    /// holds it.
+    ///
+    /// Without this the model could put an effect on the master but not
+    /// see one an earlier turn had put there, so `effect_index` would be
+    /// a guess. A track's chain is shown for the same reason.
+    pub fn master_effects_from_state(state: &SessionState) -> Vec<String> {
+        effect_labels(&state.master_chain)
+    }
+}
+
+/// Effect kinds in chain order, bypassed ones marked.
+fn effect_labels(chain: &[EffectInstance]) -> Vec<String> {
+    chain
+        .iter()
+        .map(|e| {
+            if e.bypassed {
+                format!("{} (bypassed)", e.kind)
+            } else {
+                e.kind.clone()
+            }
+        })
+        .collect()
 }
 
 /// One track as the model needs to see it to act on it: which index it
@@ -68,17 +98,7 @@ impl TrackBrief {
                 pan: t.pan,
                 muted: t.muted,
                 soloed: t.soloed,
-                effects: t
-                    .effects
-                    .iter()
-                    .map(|e| {
-                        if e.bypassed {
-                            format!("{} (bypassed)", e.kind)
-                        } else {
-                            e.kind.clone()
-                        }
-                    })
-                    .collect(),
+                effects: effect_labels(&t.effects),
             })
             .collect()
     }
@@ -100,6 +120,7 @@ pub fn render_block(ctx: &SessionContext) -> String {
         && ctx.markers.is_empty()
         && ctx.head.is_none()
         && ctx.tracks.is_empty()
+        && ctx.master_effects.is_empty()
     {
         return String::new();
     }
@@ -156,6 +177,13 @@ pub fn render_block(ctx: &SessionContext) -> String {
             out.push('\n');
         }
         out.push('\n');
+    }
+    if !ctx.master_effects.is_empty() {
+        out.push_str("## master\n");
+        out.push_str(
+            "The master bus sums every track. The effect tools edit its chain with scope \"master\" and no `track`; `effect_index` counts from 0 in this order.\n",
+        );
+        out.push_str(&format!("effects: {}\n\n", ctx.master_effects.join(", ")));
     }
     if let Some(sel) = ctx.selection {
         out.push_str("## current_selection\n");
@@ -274,6 +302,83 @@ mod tests {
             ),
             "{text}"
         );
+    }
+
+    /// The model can edit the master chain only if it can see it: the
+    /// index it passes is a position in this list (#460).
+    #[test]
+    fn the_block_lists_the_master_chain_and_how_to_edit_it() {
+        let ctx = SessionContext {
+            tracks: vec![brief("drums", &[(0.0, 4.0)])],
+            master_effects: vec!["gain".into(), "limiter (bypassed)".into()],
+            ..Default::default()
+        };
+
+        let text = render_block(&ctx);
+
+        assert!(text.contains("## master\n"), "{text}");
+        assert!(text.contains("scope \"master\""), "{text}");
+        assert!(
+            text.contains("effects: gain, limiter (bypassed)\n"),
+            "{text}"
+        );
+        // After the tracks, so the track lines the model already reads do
+        // not move.
+        assert!(text.find("## tracks").unwrap() < text.find("## master").unwrap());
+    }
+
+    /// A session with nothing on the master says nothing about it: the
+    /// block, and so the request, is exactly what it was.
+    #[test]
+    fn an_empty_master_chain_adds_nothing() {
+        let ctx = SessionContext {
+            tracks: vec![brief("drums", &[(0.0, 4.0)])],
+            ..Default::default()
+        };
+        assert!(!render_block(&ctx).contains("master"));
+    }
+
+    /// A session that is only a master chain still has something to say.
+    #[test]
+    fn a_master_chain_alone_is_not_an_empty_context() {
+        let ctx = SessionContext {
+            master_effects: vec!["limiter".into()],
+            ..Default::default()
+        };
+        assert!(render_block(&ctx).contains("effects: limiter"));
+    }
+
+    #[test]
+    fn the_master_chain_is_read_from_the_state_with_bypass_marked() {
+        let mut state = SessionState {
+            tracks: vec![],
+            bus_routing: session::BusGraph::default(),
+            master_chain: vec![
+                session::EffectInstance {
+                    kind: "gain".into(),
+                    params: serde_json::json!({ "db": -3.0 }),
+                    bypassed: false,
+                },
+                session::EffectInstance {
+                    kind: "limiter".into(),
+                    params: serde_json::json!({}),
+                    bypassed: true,
+                },
+            ],
+            tempo_map: session::TempoMap::default(),
+            key_map: None,
+            transcript: None,
+            sample_rate: 48_000,
+            length_samples: 0,
+            annotations: Vec::new(),
+            sync_lock: false,
+        };
+        assert_eq!(
+            SessionContext::master_effects_from_state(&state),
+            ["gain", "limiter (bypassed)"]
+        );
+        state.master_chain.clear();
+        assert!(SessionContext::master_effects_from_state(&state).is_empty());
     }
 
     #[test]
