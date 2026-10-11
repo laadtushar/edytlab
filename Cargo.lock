@@ -3054,6 +3054,7 @@ dependencies = [
  "ml-pipeline",
  "ndarray 0.16.1",
  "ort",
+ "realfft",
  "rubato",
  "tempfile",
  "thiserror 2.0.18",

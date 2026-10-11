@@ -26,6 +26,9 @@ audio-decoder = { path = "../audio-decoder" }
 # library is missing, so `WhisperModel::load` asks ml-pipeline first.
 ml-pipeline = { path = "../ml-pipeline" }
 rubato = "0.16"
+# The 400-point real FFT behind the log-mel spectrogram (`mel.rs`). The
+# workspace-blessed FFT path, as in audio-time, audio-analysis and ml-demucs.
+realfft = "3"
 thiserror = "2"
 
 [dev-dependencies]

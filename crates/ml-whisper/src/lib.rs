@@ -29,10 +29,18 @@
 //!   resampler hears about the mistake they can fix rather than about
 //!   the missing decoder.
 //!
+//! - The pieces that need no runtime are landing one module at a time
+//!   (plan on #384): [`mel`] is the log-mel spectrogram the encoder takes,
+//!   checked against OpenAI's own implementation. None of it is wired to
+//!   [`WhisperModel::transcribe`] yet, which still returns
+//!   [`WhisperError::NotImplemented`].
+//!
 //! - Real speech support is gated on (a) committing to a specific Whisper
 //!   ONNX export and (b) wiring a decode loop. That is a manual gate,
 //!   not a CI gate. See `tests/transcribe_smoke.rs` for the contract the
 //!   real decoder must uphold.
+
+pub mod mel;
 
 use std::path::Path;
 
