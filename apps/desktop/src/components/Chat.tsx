@@ -426,7 +426,12 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
                   <AuditionPlayer
                     path={entry.view.path}
                     kind={entry.view.kind}
-                    track={entry.view.track}
+                    target={
+                      entry.view.target ??
+                      (entry.view.track != null
+                        ? `track ${entry.view.track}`
+                        : "the session")
+                    }
                     startSec={entry.view.start_sec}
                     endSec={entry.view.end_sec}
                     caption={entry.view.summary ?? undefined}

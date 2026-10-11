@@ -3,7 +3,8 @@
  * (#258).
  *
  * `audition_effect` renders the session as it *would* sound with an
- * effect added to a track's chain, and appends nothing to the store.
+ * effect added to a track's chain (or the master bus's, or a bus's: it
+ * names where in `target`), and appends nothing to the store.
  * The render already worked; what was missing was any way to hear it.
  * The tool returned an absolute path, the path was printed into the
  * chat as JSON, and listening meant leaving the app and opening the
@@ -35,7 +36,11 @@ interface AuditionPlayerProps {
   path: string;
   /** The effect kind being auditioned, e.g. `low_pass_filter`. */
   kind: string;
-  track: number;
+  /**
+   * Where it was heard, in words: "track 1", "the master bus" or
+   * `bus "Drums"`. Not a track index, because only a track has one.
+   */
+  target: string;
   startSec: number;
   endSec: number;
   /** The tool's own summary line, shown as a caption. */
@@ -48,7 +53,7 @@ const secs = (n: number): string => `${n.toFixed(2)}s`;
 export function AuditionPlayer({
   path,
   kind,
-  track,
+  target,
   startSec,
   endSec,
   caption,
@@ -58,7 +63,7 @@ export function AuditionPlayer({
   // the element reload rather than replay the previous audio.
   const src = useMemo(() => convertFileSrc(path), [path]);
 
-  const label = `Audition of ${kind} on track ${track}, ${secs(startSec)} to ${secs(endSec)}`;
+  const label = `Audition of ${kind} on ${target}, ${secs(startSec)} to ${secs(endSec)}`;
 
   return (
     <figure
@@ -68,7 +73,7 @@ export function AuditionPlayer({
       <figcaption className="flex items-baseline justify-between gap-2 text-[10px] text-[var(--text-faint)]">
         <span className="font-mono uppercase tracking-[0.14em]">{kind}</span>
         <span>
-          track {track} · {secs(startSec)}–{secs(endSec)}
+          {target} · {secs(startSec)}–{secs(endSec)}
         </span>
       </figcaption>
       {/* eslint-disable-next-line jsx-a11y/media-has-caption --
