@@ -39,7 +39,7 @@
 ┌─────────────────────────────────▼───────────────────────────────────────────┐
 │  APPLICATION LAYER  (apps/desktop/src-tauri — Rust)                        │
 │                                                                             │
-│  commands.rs (~86 commands)  ·  state.rs (AppState)  ·  events.rs          │
+│  commands.rs (~90 commands)  ·  state.rs (AppState)  ·  events.rs          │
 └───────────┬──────────┬────────────────────┬──────────────┬──────────────────┘
             │          │                    │              │
      ┌──────▼──┐  ┌────▼────┐  ┌──────────▼───┐  ┌──────▼──────┐
