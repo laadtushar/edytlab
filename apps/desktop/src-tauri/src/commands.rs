@@ -373,6 +373,47 @@ pub fn save_view_state(
     Ok(())
 }
 
+/// The path the user took through the history, as it was last saved with
+/// the project (#453).
+///
+/// The frontend reads it as a project opens and hands undo and redo the
+/// steps in it, so that after a restart undo retraces what the user did
+/// instead of falling back on each node's first parent (#398). Never an
+/// error because of the file: none, an unreadable one and one naming nodes
+/// the project no longer has all answer with a shorter, or empty, trail
+/// (see `session::trail`). On the blocking pool because it reads files,
+/// and a few hundred of them: an `async` command that did so itself would
+/// hold one of the runtime's few workers for the reads.
+#[tauri::command]
+pub async fn get_head_trail(state: State<'_, AppState>) -> CmdResult<session::trail::HeadTrail> {
+    blocking(&state, |state| {
+        let dir = current_project_dir(state)?;
+        Ok(session::trail::read_trail(&dir))
+    })
+    .await
+}
+
+/// Keep the path the user has taken with the project, replacing the last.
+///
+/// Called after every head move, without waiting for the answer, and
+/// never from inside the session's line of edits (`lib/sessionQueue.ts`):
+/// it writes a file and fsyncs it, and an edit must not wait on that. A
+/// trail that does not belong to the open project (its head is not one of
+/// its nodes: a save sent for the project that was just left) is dropped
+/// and answered as success; see `session::trail::write_trail`.
+#[tauri::command]
+pub async fn save_head_trail(
+    state: State<'_, AppState>,
+    trail: session::trail::HeadTrail,
+) -> CmdResult<()> {
+    blocking(&state, move |state| {
+        let dir = current_project_dir(state)?;
+        session::trail::write_trail(&dir, &trail).map_err(CommandError::from)?;
+        Ok(())
+    })
+    .await
+}
+
 /// Copy the open project to `dest` and continue in the copy.
 ///
 /// Save As, in the sense a DAW means it: the work carries on in the new
@@ -592,9 +633,17 @@ pub async fn set_api_key_for(
 /// Rejects when the keychain could not be read, which is not the same as
 /// `None`: Settings saves what it showed, and a blank it took for "no
 /// override" is sent back as a delete (#497).
+///
+/// Also rejects, without reading, after a startup the keychain refused
+/// (see [`stored_setting_unless_refused`]). Settings asks for this when it
+/// opens, and on a locked keyring a read is another unlock prompt.
 #[tauri::command]
-pub async fn get_base_url_for(provider: String) -> CmdResult<Option<String>> {
-    stored_setting(ai::keychain::try_load_base_url(&provider))
+pub async fn get_base_url_for(
+    state: State<'_, AppState>,
+    provider: String,
+) -> CmdResult<Option<String>> {
+    state.startup_reads_settled().await;
+    stored_setting_unless_refused(&state, || ai::keychain::try_load_base_url(&provider))
 }
 
 /// A stored setting as the frontend sees it: the value, or the reason the
@@ -604,6 +653,24 @@ pub async fn get_base_url_for(provider: String) -> CmdResult<Option<String>> {
 /// rest.
 fn stored_setting<T>(read: Result<Option<T>, ai::keychain::KeychainError>) -> CmdResult<Option<T>> {
     read.map_err(|e| e.reason().to_string())
+}
+
+/// [`stored_setting`], except that `read` is not made at all once startup
+/// found the keychain refusing access ([`AppState::keychain_refused`]):
+/// the answer is then the refusal's own note ([`refusal_note`]).
+///
+/// What Settings reads when it opens would otherwise raise another unlock
+/// prompt for each field, on a keyring the user has just declined to
+/// unlock. The prompts end with the refusal, which the first save that
+/// goes through lifts ([`keychain_readable_again`]).
+fn stored_setting_unless_refused<T>(
+    state: &AppState,
+    read: impl FnOnce() -> Result<Option<T>, ai::keychain::KeychainError>,
+) -> CmdResult<Option<T>> {
+    match refusal_note(state) {
+        Some(why) => Err(why),
+        None => stored_setting(read()),
+    }
 }
 
 /// The URL a provider ships with, so the UI can show it as a placeholder
@@ -662,10 +729,15 @@ pub async fn set_base_url_for(
 /// model's own default.
 ///
 /// Rejects when the keychain could not be read, for the reason
-/// [`get_base_url_for`] gives (#497).
+/// [`get_base_url_for`] gives (#497), and without reading it after a
+/// startup the keychain refused, for the reason it gives.
 #[tauri::command]
-pub async fn get_effort_for(provider: String) -> CmdResult<Option<String>> {
-    stored_setting(ai::keychain::try_load_effort(&provider))
+pub async fn get_effort_for(
+    state: State<'_, AppState>,
+    provider: String,
+) -> CmdResult<Option<String>> {
+    state.startup_reads_settled().await;
+    stored_setting_unless_refused(&state, || ai::keychain::try_load_effort(&provider))
         .map(|level| level.map(|e| e.as_str().to_string()))
 }
 
@@ -1085,6 +1157,32 @@ impl From<ai::Catalogue> for ModelCatalogueDto {
     }
 }
 
+/// What the catalogue is fetched with: the key, and the endpoint the agent
+/// will use.
+///
+/// Both come from the keychain unless the key was typed into the form, and
+/// after a startup the keychain refused neither is read: that is two more
+/// unlock prompts every time Settings opens or the provider changes
+/// (#497). The list is refused with [`refusal_note`] instead. Reading
+/// only the key would leave the endpoint unknown, and a list from the
+/// built-in endpoint is not the list of the server chat talks to, so a
+/// key typed for a gateway would go to the wrong host.
+fn catalogue_inputs(
+    state: &AppState,
+    provider: &str,
+    typed: Option<String>,
+    load_key: impl Fn(&str) -> Option<String>,
+    load_base_url: impl Fn(&str) -> Option<String>,
+) -> CmdResult<(Option<String>, Option<String>)> {
+    if let Some(why) = refusal_note(state) {
+        return Err(why);
+    }
+    Ok((
+        catalogue_key(provider, typed, load_key),
+        load_base_url(provider),
+    ))
+}
+
 /// The key the catalogue is fetched with: the one typed into the form if
 /// there is one, else the one saved for `provider`.
 ///
@@ -1115,15 +1213,25 @@ fn catalogue_key(
 /// The Rust layer caches live results for 10 minutes, per provider,
 /// endpoint and key; repeated calls within that window return cached
 /// entries without hitting the network.
+///
+/// Rejects, without reading the keychain, after a startup the keychain
+/// refused (see [`catalogue_inputs`]).
 #[tauri::command]
 pub async fn list_models_for(
+    state: State<'_, AppState>,
     provider: String,
     api_key: Option<String>,
 ) -> CmdResult<ModelCatalogueDto> {
-    let key = catalogue_key(&provider, api_key, ai::keychain::load_api_key);
+    state.startup_reads_settled().await;
     // Follow the same endpoint the agent will use. Listing one server's
     // catalogue while chat talks to another is worse than not listing.
-    let base = ai::keychain::load_base_url(&provider);
+    let (key, base) = catalogue_inputs(
+        &state,
+        &provider,
+        api_key,
+        ai::keychain::load_api_key,
+        ai::keychain::load_base_url,
+    )?;
     let catalogue = ai::list_models_for_at(&provider, key.as_deref(), base.as_deref())
         .await
         .map_err(|e| e.to_string())?;
@@ -1165,15 +1273,69 @@ pub async fn set_active_model(
     let persisted = ai::keychain::save_model(&provider, &model);
     state.set_model_for(provider, model);
     rebuild_agent(&state).await?;
-    persisted.map_err(|e| format!("model selected for this session, but could not be saved: {e}"))
+    persisted
+        .map(|_| ())
+        .map_err(|e| format!("model selected for this session, but could not be saved: {e}"))
 }
 
 /// Read the model id currently selected for `provider`. Empty string
 /// when nothing has been chosen yet.
+///
+/// Rejects when startup could not read the keychain and nothing is known
+/// for `provider` (see [`active_model_answer`]): "nothing chosen" is then
+/// what the map lacks, not what the keychain says, and Settings would save
+/// what its field shows over the stored model (#497).
 #[tauri::command]
 pub async fn get_active_model(state: State<'_, AppState>, provider: String) -> CmdResult<String> {
     state.startup_reads_settled().await;
-    Ok(state.model_for(&provider).unwrap_or_default())
+    active_model_answer(models_unread_reason(&state), state.model_for(&provider))
+}
+
+/// The answer to [`get_active_model`]: the model known for the provider,
+/// else "none chosen" if startup read the keychain cleanly, else the
+/// reason it could not.
+///
+/// A model that is known is an answer whatever startup found. It was
+/// restored before the refusal ended the reads, or chosen since.
+fn active_model_answer(unread: Option<String>, known: Option<String>) -> CmdResult<String> {
+    match (known, unread) {
+        (Some(model), _) => Ok(model),
+        (None, Some(why)) => Err(why),
+        (None, None) => Ok(String::new()),
+    }
+}
+
+/// Why startup's keychain reads left the chosen models unrestored, if
+/// they did. Startup stops at the first refusal, so the models after it
+/// were never read; a read that failed some other way (the stash) may have
+/// been one of the models'. Either way an empty map entry proves nothing.
+fn models_unread_reason(state: &AppState) -> Option<String> {
+    refusal_note(state).or_else(|| {
+        state
+            .keychain_read_error()
+            .map(|reason| format!("the keychain could not be read at launch ({reason})"))
+    })
+}
+
+/// Why the keychain is not asked, if startup found it refusing access
+/// ([`AppState::keychain_refused`]); `None` while it is not known to.
+///
+/// Each further read of a locked Secret Service raises its own unlock
+/// prompt, right after the user dismissed the first, so what is read on
+/// the user's behalf only because a panel opened is refused up front with
+/// this instead (#497). The reason alone, in words for Settings' "Save
+/// leaves it as it is" note.
+fn refusal_note(state: &AppState) -> Option<String> {
+    if !state.keychain_refused() {
+        return None;
+    }
+    let why = state
+        .keychain_read_error()
+        .map(|reason| format!(" ({reason})"))
+        .unwrap_or_default();
+    Some(format!(
+        "the keychain refused access at launch{why}, so it was not asked again"
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -2103,28 +2265,33 @@ pub async fn send_message<R: Runtime>(
     disabled_tools: Vec<String>,
 ) -> CmdResult<()> {
     // Build the per-turn SessionContext from the current selection, the
-    // annotations on the store head, and the head's tracks (#408). We
-    // snapshot these before acquiring the agent lock to minimise the lock
-    // hold time.
+    // annotations on the store head, and the head's tracks (#408) and
+    // master chain (#460). We snapshot these before acquiring the agent
+    // lock to minimise the lock hold time.
     let selection = state.selection_snapshot();
     // On the blocking pool: a message sent while a tool holds the store
     // would otherwise park a worker here for as long as the tool runs.
-    let (head, markers, tracks) = blocking(&state, |state| {
+    let (head, markers, tracks, master_effects) = blocking(&state, |state| {
         Ok(match state.store_handle() {
-            None => (None, vec![], vec![]),
+            None => (None, vec![], vec![], vec![]),
             Some(store_arc) => {
                 let store = lock_std(&*store_arc, "store")?;
                 match store.head() {
-                    None => (None, vec![], vec![]),
+                    None => (None, vec![], vec![], vec![]),
                     Some(head) => {
                         let markers = store.annotations_for(head).unwrap_or_default();
                         // A head that cannot be read still gets its selection
                         // and markers; the turn is not the place to fail.
-                        let tracks = store
+                        let (tracks, master_effects) = store
                             .get(head)
-                            .map(|node| ai::TrackBrief::from_state(&node.state))
+                            .map(|node| {
+                                (
+                                    ai::TrackBrief::from_state(&node.state),
+                                    ai::SessionContext::master_effects_from_state(&node.state),
+                                )
+                            })
                             .unwrap_or_default();
-                        (Some(head.to_hex()), markers, tracks)
+                        (Some(head.to_hex()), markers, tracks, master_effects)
                     }
                 }
             }
@@ -2136,6 +2303,7 @@ pub async fn send_message<R: Runtime>(
         markers,
         head,
         tracks,
+        master_effects,
     });
 
     // Hold the agent lock for the duration of the turn. Phase 1 has a
@@ -6573,6 +6741,129 @@ mod tests {
 
     // ---- Settings' reads after a refused startup (#497) ----------------
 
+    /// A keychain that was asked and answered. The tests below pass it as
+    /// the read, and count how often it ran.
+    fn stored_url(asked: &Cell<u32>) -> Result<Option<String>, KeychainError> {
+        asked.set(asked.get() + 1);
+        Ok(Some("http://localhost:1234/v1".to_string()))
+    }
+
+    /// The bug: opening Settings read the base URL and the level from the
+    /// keychain whatever startup had found, and on a locked keyring each
+    /// read is an unlock prompt the user had just declined. After a refused
+    /// startup the read is not made, and the answer says why.
+    #[test]
+    fn a_stored_setting_is_not_read_after_a_refused_startup() {
+        let state = AppState::default();
+        state.set_keychain_refused(true);
+        state.set_keychain_read_error(Some("locked".into()));
+        let asked = Cell::new(0);
+
+        let err = stored_setting_unless_refused(&state, || stored_url(&asked))
+            .expect_err("a keychain that refused is not asked again");
+
+        assert_eq!(asked.get(), 0, "the keychain was not asked");
+        assert!(
+            err.contains("refused access") && err.contains("locked") && err.contains("not asked"),
+            "{err}"
+        );
+    }
+
+    /// Everything else reads as before: a clean startup, a failed read that
+    /// was not a refusal (no prompt to avoid, and the read may well work),
+    /// and the read after the refusal was lifted.
+    #[test]
+    fn a_stored_setting_is_read_unless_startup_was_refused() {
+        let asked = Cell::new(0);
+        let state = AppState::default();
+        assert_eq!(
+            stored_setting_unless_refused(&state, || stored_url(&asked)),
+            Ok(Some("http://localhost:1234/v1".to_string()))
+        );
+
+        state.set_keychain_read_error(Some("no secret service".into()));
+        assert!(stored_setting_unless_refused(&state, || stored_url(&asked)).is_ok());
+        assert_eq!(asked.get(), 2);
+
+        state.set_keychain_refused(true);
+        assert!(stored_setting_unless_refused(&state, || stored_url(&asked)).is_err());
+        keychain_readable_again(&state, |_| Ok(None));
+        assert!(stored_setting_unless_refused(&state, || stored_url(&asked)).is_ok());
+        assert_eq!(asked.get(), 3, "asked again once a save went through");
+
+        // And a read that fails when it is made is still the keychain's reason.
+        let failing = AppState::default();
+        assert_eq!(
+            stored_setting_unless_refused::<String>(&failing, || Err(KeychainError::new(
+                "ambiguous"
+            ))),
+            Err("ambiguous".to_string())
+        );
+    }
+
+    /// The model list reads two things (the saved key and the saved base
+    /// URL), so two more prompts. After a refused startup it reads neither,
+    /// even though a key typed into the form would make the first read
+    /// unnecessary: the base URL would still be a guess.
+    #[test]
+    fn the_model_list_reads_neither_key_nor_base_url_after_a_refused_startup() {
+        let state = AppState::default();
+        state.set_keychain_refused(true);
+        let asked = RefCell::new(Vec::new());
+        let load = |what: &'static str| {
+            let asked = &asked;
+            move |provider: &str| {
+                asked.borrow_mut().push(format!("{what}:{provider}"));
+                Some(what.to_string())
+            }
+        };
+
+        for typed in [None, Some("sk-typed".to_string())] {
+            let err = catalogue_inputs(&state, "anthropic", typed, load("key"), load("base"))
+                .expect_err("refused");
+            assert!(err.contains("refused access"), "{err}");
+        }
+        assert!(asked.borrow().is_empty(), "asked {:?}", asked.borrow());
+    }
+
+    /// Without a refusal the inputs are what they were: the typed key wins
+    /// and spares the keychain read of the key, and the base URL is read.
+    #[test]
+    fn the_model_list_reads_its_inputs_when_startup_was_not_refused() {
+        let state = AppState::default();
+        let asked = RefCell::new(Vec::new());
+        let load = |what: &'static str| {
+            let asked = &asked;
+            move |provider: &str| {
+                asked.borrow_mut().push(format!("{what}:{provider}"));
+                Some(format!("stored-{what}"))
+            }
+        };
+
+        assert_eq!(
+            catalogue_inputs(&state, "groq", None, load("key"), load("base")),
+            Ok((Some("stored-key".into()), Some("stored-base".into())))
+        );
+        assert_eq!(*asked.borrow(), ["key:groq", "base:groq"]);
+
+        asked.borrow_mut().clear();
+        assert_eq!(
+            catalogue_inputs(
+                &state,
+                "groq",
+                Some(" gsk-typed ".into()),
+                load("key"),
+                load("base")
+            ),
+            Ok((Some("gsk-typed".into()), Some("stored-base".into())))
+        );
+        assert_eq!(
+            *asked.borrow(),
+            ["base:groq"],
+            "the typed key is not looked up"
+        );
+    }
+
     /// The bug: a read that failed came back as `None`, which Settings
     /// shows as an empty field and saves as "delete the override".
     #[test]
@@ -6596,6 +6887,54 @@ mod tests {
             active_provider_answer(None, "openrouter".into()),
             Ok("openrouter".to_string())
         );
+    }
+
+    /// The bug: after a startup the keychain refused, the models were never
+    /// restored, and "no model" came back as the empty answer Settings reads
+    /// as "none chosen". A model that is known is an answer all the same.
+    #[test]
+    fn a_model_is_not_answered_as_none_chosen_while_startup_left_it_unread() {
+        let why = || Some("the keychain refused access at launch".to_string());
+        assert_eq!(
+            active_model_answer(why(), None),
+            Err("the keychain refused access at launch".to_string())
+        );
+        assert_eq!(
+            active_model_answer(why(), Some("claude-opus-5".into())),
+            Ok("claude-opus-5".to_string()),
+            "restored before the refusal, or chosen since"
+        );
+        assert_eq!(active_model_answer(None, None), Ok(String::new()));
+        assert_eq!(
+            active_model_answer(None, Some("claude-opus-5".into())),
+            Ok("claude-opus-5".to_string())
+        );
+    }
+
+    /// Both ways startup can leave the models unread count: a refusal ends
+    /// the reads, and a failed read may have been a model's own.
+    #[test]
+    fn the_models_are_unread_after_a_refusal_or_after_any_failed_read() {
+        let clean = AppState::default();
+        assert_eq!(models_unread_reason(&clean), None);
+
+        let failed = AppState::default();
+        failed.set_keychain_read_error(Some("ambiguous".into()));
+        let reason = models_unread_reason(&failed).expect("a failed read");
+        assert!(
+            reason.contains("could not be read") && reason.contains("ambiguous"),
+            "{reason}"
+        );
+
+        let refused = AppState::default();
+        refused.set_keychain_refused(true);
+        let reason = models_unread_reason(&refused).expect("a refusal");
+        assert!(
+            reason.contains("refused access") && !reason.contains("()"),
+            "{reason}"
+        );
+        refused.set_keychain_read_error(Some("locked".into()));
+        assert!(models_unread_reason(&refused).unwrap().contains("(locked)"));
     }
 
     #[test]

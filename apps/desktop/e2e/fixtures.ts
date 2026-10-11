@@ -34,6 +34,15 @@ export interface App {
   page: Page;
   /** Load the app with the backend answering as `backend` says. */
   boot(backend: Backend): Promise<void>;
+  /**
+   * Close the app and open it again, with the backend answering as
+   * `backend` says from the start. The webview keeps nothing across it,
+   * so what the test carries over (a saved path, the head the project
+   * ended on) is what it passes in. Calls made before are forgotten:
+   * `requestsFor` sees only the run that follows, as a window opened
+   * afresh would.
+   */
+  restart(backend: Backend): Promise<void>;
   /** Raise a backend event, as the Rust side would. */
   emit(event: string, payload?: unknown): Promise<void>;
   /**
@@ -115,6 +124,15 @@ export const test = base.extend<{ app: App }>({
         await page.goto("/e2e/harness.html");
         await page.waitForFunction(() => window.__E2E_READY__ === true);
         booted = true;
+      },
+      async restart(backend) {
+        // Init scripts run in the order they were added, on every load of
+        // the page, so this one's backend replaces the one `boot` set.
+        await page.addInitScript((b) => {
+          window.__E2E__ = { backend: b };
+        }, backend);
+        await page.reload();
+        await page.waitForFunction(() => window.__E2E_READY__ === true);
       },
       requestsFor: (cmd) =>
         page.evaluate(

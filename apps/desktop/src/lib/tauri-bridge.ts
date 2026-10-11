@@ -17,6 +17,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
+import type { SavedTrail } from "./headTrail";
+
+export type { SavedTrail };
+
 export type NodeId = string;
 
 export interface ProjectInfo {
@@ -871,6 +875,28 @@ export const getViewState = (): Promise<ViewState> =>
 
 export const saveViewState = (view: ViewState): Promise<void> =>
   invoke<void>("save_view_state", { view });
+
+/**
+ * The path the user took through the history, as the project kept it
+ * (#453): the heads left behind (`trail`, oldest first) and where undo
+ * came from (`redo`, most recent last), ending at `head`. A project with
+ * nothing saved answers `{ head: null, trail: [], redo: [] }`; so does
+ * one whose file is corrupt, and the call does not fail because of it.
+ * Entries naming nodes the project no longer has are already gone.
+ * `lib/headTrail.ts` decides whether the path applies to the head the
+ * project opened on.
+ */
+export const getHeadTrail = (): Promise<SavedTrail> =>
+  invoke<SavedTrail>("get_head_trail");
+
+/**
+ * Keep the path with the project, replacing the last one saved. Bounded
+ * to the last 500 steps each way. A path whose `head` is not a node of
+ * the open project is ignored and answered as success. Called without
+ * waiting, outside the session's line of edits: see `lib/trailWriter.ts`.
+ */
+export const saveHeadTrail = (trail: SavedTrail): Promise<void> =>
+  invoke<void>("save_head_trail", { trail });
 
 /** Most recent first; folders that have gone are pruned on read. */
 export const listRecentProjects = (): Promise<RecentProject[]> =>

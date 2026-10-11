@@ -271,8 +271,8 @@ export default function GettingStartedPage() {
       <p>
         Undo retraces the steps you took, even when an edit returned to an
         earlier state (mute, then unmute), and the Graph view marks that
-        path. After a restart, undo steps back through the parent of each
-        node.
+        path. The path is saved with the project, so it is still there
+        after a restart: undo retraces the same steps it would have before.
       </p>
 
       <h2>Keyboard shortcuts</h2>

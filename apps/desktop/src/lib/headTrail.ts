@@ -25,10 +25,17 @@
  * different project. A head moved any other way is a head the path does
  * not know about, and undo would go to the wrong place.
  *
- * It lives for the session. After a restart it is empty and undo falls
- * back to the node's parent, which is right whenever the history has not
- * revisited a state. Persisting the path belongs in the store (the view
- * file is disposable by design), so it is a follow-up.
+ * The path is kept with the project (#453), so it survives a restart.
+ * `useSession` saves it (`saveHeadTrail`, through `lib/trailWriter.ts`)
+ * after every move the user makes, and reads it back as a project opens.
+ * The backend keeps it in the store's directory, not the webview, so
+ * every client agrees; this reducer stays the one place that decides what
+ * a move does to it. `restore`, and the optional `saved` of `reset`, take
+ * a saved path only if it ends at the head the project opened on. A path
+ * that ends anywhere else (a save lost to a crash, a store edited by
+ * another client) is not the path to this head, and is not used: undo
+ * then falls back to the node's parent, as it did before the path was
+ * kept, which is right whenever the history has not revisited a state.
  */
 
 /** Long histories are bounded; the oldest steps fall off the far end. */
@@ -40,13 +47,49 @@ export interface HeadTrail {
   redo: string[];
 }
 
+/**
+ * The path as the backend keeps it with the project: the same three
+ * fields. `get_head_trail` answers with it and `save_head_trail` takes
+ * it. The backend has already dropped what it cannot vouch for (ids that
+ * are not node ids, nodes the project no longer has), and a project with
+ * nothing saved answers with a null head and two empty lists.
+ */
+export type SavedTrail = HeadTrail;
+
+/**
+ * Read an answer from `get_head_trail`, whatever it is, as a saved path
+ * or as nothing. A reply that is not the shape (a backend that does not
+ * know the command, a mock that answers `undefined`) is no path, not an
+ * error: the path is a convenience, and opening a project must not
+ * depend on it.
+ */
+export function readSavedTrail(raw: unknown): SavedTrail | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const { head, trail, redo } = raw as Record<string, unknown>;
+  if (typeof head !== "string" || head === "") return null;
+  const ids = (list: unknown): string[] =>
+    Array.isArray(list)
+      ? list.filter((id): id is string => typeof id === "string" && id !== "")
+      : [];
+  return { head, trail: bounded(ids(trail)), redo: bounded(ids(redo)) };
+}
+
 export type HeadAction =
   /** An edit, an agent step, a jump in the graph: the head moved on. */
   | { type: "advance"; head: string }
   /** The head the backend already had, read once at mount. Fills a gap, never overrides. */
   | { type: "fill"; head: string | null }
-  /** A different project: nothing of the old path applies. */
-  | { type: "reset"; head: string | null }
+  /**
+   * A different project: nothing of the old path applies, except the one
+   * saved with the project being opened, if it ends at `head`.
+   */
+  | { type: "reset"; head: string | null; saved?: SavedTrail | null }
+  /**
+   * The path saved with the project, read after its head was. Used only
+   * if it ends at the head this state has and this state has no steps of
+   * its own yet: an edit that landed first is newer than anything saved.
+   */
+  | { type: "restore"; saved: SavedTrail }
   /** Undo moved from `from` to `to`: the trail's top, or the node's parent. */
   | { type: "stepBack"; from: string; to: string }
   /** Redo moved from `from` to `to`; `from` is where undo returns to. */
@@ -54,9 +97,19 @@ export type HeadAction =
 
 export const initialHeadTrail: HeadTrail = { head: null, trail: [], redo: [] };
 
+function bounded(stack: string[]): string[] {
+  return stack.length > MAX_TRAIL ? stack.slice(stack.length - MAX_TRAIL) : stack;
+}
+
 function push(stack: string[], id: string): string[] {
-  const next = [...stack, id];
-  return next.length > MAX_TRAIL ? next.slice(next.length - MAX_TRAIL) : next;
+  return bounded([...stack, id]);
+}
+
+/** `head` with `saved` as its path, if `saved` is the path to that head. */
+function adopt(head: string | null, saved: SavedTrail | null | undefined): HeadTrail {
+  return head !== null && saved?.head === head
+    ? { head, trail: bounded(saved.trail), redo: bounded(saved.redo) }
+    : { head, trail: [], redo: [] };
 }
 
 /**
@@ -91,7 +144,14 @@ export function headTrailReducer(state: HeadTrail, action: HeadAction): HeadTrai
         ? state
         : { head: action.head, trail: [], redo: [] };
     case "reset":
-      return { head: action.head, trail: [], redo: [] };
+      return adopt(action.head, action.saved);
+    case "restore":
+      return state.head === null ||
+        state.trail.length > 0 ||
+        state.redo.length > 0 ||
+        action.saved.head !== state.head
+        ? state
+        : adopt(state.head, action.saved);
     case "stepBack":
       // `set_head_to` already succeeded, so the head is `to` whatever
       // this state believed the head was: the frontend mirrors the

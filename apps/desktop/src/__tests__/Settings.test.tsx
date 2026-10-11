@@ -828,4 +828,133 @@ describe("Settings", () => {
     );
     expect(onSaved).not.toHaveBeenCalled();
   });
+
+  // ---- The model field, same class as the base URL and level (#497) ----
+
+  /**
+   * The bug: after a startup the keychain refused, the chosen model was
+   * never restored, `get_active_model` answered "" as if none were chosen,
+   * and the field showed what this browser remembered or the provider's
+   * default. Save wrote that over the model that is stored.
+   */
+  it("leaves the stored model alone when it could not be read", async () => {
+    window.localStorage.setItem("edytlab.model.anthropic", "remembered-here");
+    getActiveModelMock.mockRejectedValue("the keychain refused access at launch");
+    const user = userEvent.setup();
+    const onSaved = vi.fn();
+    render(<Settings mode="panel" onSaved={onSaved} onClose={vi.fn()} />);
+    await screen.findByTestId("settings-model-unread");
+
+    await user.type(screen.getByTestId("settings-key-input"), "sk-ant-good");
+    await user.click(screen.getByTestId("settings-save-button"));
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(setApiKeyForMock).toHaveBeenCalledWith("anthropic", "sk-ant-good");
+    expect(setActiveModelMock).not.toHaveBeenCalled();
+  });
+
+  /** The same hole without a failure: Save before the read has answered. */
+  it("leaves the stored model alone when Save comes before it was read", async () => {
+    const read = held<string>();
+    getActiveModelMock.mockReturnValue(read.promise);
+    const user = userEvent.setup();
+    const onSaved = vi.fn();
+    render(<Settings mode="panel" onSaved={onSaved} onClose={vi.fn()} />);
+    await waitFor(() => expect(getActiveModelMock).toHaveBeenCalled());
+
+    await user.type(screen.getByTestId("settings-key-input"), "sk-ant-good");
+    await user.click(screen.getByTestId("settings-save-button"));
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(setActiveModelMock).not.toHaveBeenCalled();
+    await read.resolve("claude-opus-5");
+  });
+
+  it("says the model could not be read, and why", async () => {
+    getActiveModelMock.mockRejectedValue("locked");
+    render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
+
+    const note = await screen.findByTestId("settings-model-unread");
+    expect(note).toHaveTextContent("Save leaves it as it is");
+    expect(note).toHaveTextContent("locked");
+  });
+
+  it("shows no such note when the model was read, or none was chosen", async () => {
+    getActiveModelMock.mockResolvedValue("claude-opus-5");
+    const { unmount } = render(
+      <Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("settings-model-input")).toHaveValue("claude-opus-5"),
+    );
+    expect(screen.queryByTestId("settings-model-unread")).toBeNull();
+    unmount();
+
+    getActiveModelMock.mockReset().mockResolvedValue("");
+    render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
+    await waitFor(() => expect(getActiveModelMock).toHaveBeenCalled());
+    expect(screen.queryByTestId("settings-model-unread")).toBeNull();
+  });
+
+  /**
+   * A read that worked and found nothing chosen is not a failure: what the
+   * field shows is the user's to save, as it always was.
+   */
+  it("still saves the model on screen when none was chosen yet", async () => {
+    window.localStorage.setItem("edytlab.model.anthropic", "remembered-here");
+    const user = userEvent.setup();
+    const onSaved = vi.fn();
+    render(<Settings mode="panel" onSaved={onSaved} onClose={vi.fn()} />);
+    await waitFor(() => expect(getActiveModelMock).toHaveBeenCalled());
+
+    await user.type(screen.getByTestId("settings-key-input"), "sk-ant-good");
+    await user.click(screen.getByTestId("settings-save-button"));
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(setActiveModelMock).toHaveBeenCalledWith("anthropic", "remembered-here");
+  });
+
+  /**
+   * Typing over a field that could not be read is a decision, not an
+   * accident: it is written, and the note about leaving it alone goes.
+   */
+  it("still saves a model the user typed after its read failed", async () => {
+    getActiveModelMock.mockRejectedValue("locked");
+    const user = userEvent.setup();
+    const onSaved = vi.fn();
+    render(<Settings mode="panel" onSaved={onSaved} onClose={vi.fn()} />);
+    await screen.findByTestId("settings-model-unread");
+
+    await user.clear(screen.getByTestId("settings-model-input"));
+    await user.type(screen.getByTestId("settings-model-input"), "my-model");
+    expect(screen.queryByTestId("settings-model-unread")).toBeNull();
+    setActiveModelMock.mockClear();
+    await user.type(screen.getByTestId("settings-key-input"), "sk-ant-good");
+    await user.click(screen.getByTestId("settings-save-button"));
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(setActiveModelMock).toHaveBeenCalledWith("anthropic", "my-model");
+  });
+
+  /** Another provider's model is not this one's, and neither is its read. */
+  it("does not carry a model read across a provider switch before the new one is read", async () => {
+    getActiveModelMock.mockImplementation((p: string) =>
+      p === "anthropic"
+        ? Promise.resolve("claude-opus-5")
+        : new Promise(() => undefined),
+    );
+    const user = userEvent.setup();
+    const onSaved = vi.fn();
+    render(<Settings mode="panel" onSaved={onSaved} onClose={vi.fn()} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("settings-model-input")).toHaveValue("claude-opus-5"),
+    );
+
+    await user.click(screen.getByTestId("settings-provider-groq"));
+    await user.type(screen.getByTestId("settings-key-input"), "gsk_good");
+    await user.click(screen.getByTestId("settings-save-button"));
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(setActiveModelMock).not.toHaveBeenCalled();
+  });
 });
