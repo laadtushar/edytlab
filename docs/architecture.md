@@ -503,6 +503,8 @@ pub trait LlmProvider: Send + Sync + Debug {
 
 Every provider's base URL can be overridden per provider from Settings (`<provider>_base_url` in the keychain).
 
+`wire_format()` names the shape of a provider's requests and replies. `AnthropicMessages` is the default, `ChatCompletions` is what OpenAI, Groq, Gemini and Ollama speak, and `Responses` (`crates/ai/src/responses.rs`, #474) is OpenAI's Responses API, the only route Sign in with ChatGPT's plan tokens are accepted on. The Responses format differs throughout: the system prompt is `instructions`, the conversation is `input` items (`function_call` and `function_call_output` joined by `call_id`), function tools sit in one `namespace` tool, `store` is `false` and `stream` is `true` always, and the fields the preview refuses (`UNSUPPORTED_FIELDS`) are never sent. A turn succeeds only at `response.completed`; `response.failed`, `response.incomplete`, `error` and a stream that ends first are errors. Its one-shot calls (the classifier, the plan) are streamed too. No provider uses it yet: a provider that will holds a `ResponsesCodec` and hands it `serialize_request` and `parse_stream_chunk`.
+
 ### Reasoning Effort
 
 Anthropic's Messages API takes `output_config: {"effort": "low" | "medium" | "high" | "xhigh" | "max"}`; Settings exposes it for Anthropic only (`<provider>_effort` in the keychain, `get_effort_for` / `set_effort_for`). `LlmConfig::effective_effort()` drops it for any provider whose `supports_effort()` is false, so OpenRouter and the chat-completions providers never receive the field. Three consequences are handled in `agent_loop.rs`:
