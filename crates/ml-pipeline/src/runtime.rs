@@ -320,6 +320,26 @@ mod tests {
         }
     }
 
+    /// `ort` refuses a library older than the API level it was built for
+    /// (`ort::MINOR_VERSION`, set by its `api-NN` feature), so that level
+    /// is the oldest runtime the app can ever load. It is pinned to 23
+    /// because the runtime the installers ship is 1.23.2, and 1.23.2 is
+    /// the newest release with a macOS build for Intel Macs.
+    #[test]
+    fn ort_is_built_for_the_runtime_the_installers_pin() {
+        assert_eq!(
+            ort::MINOR_VERSION,
+            23,
+            "`ort` is built for ONNX Runtime API level {} (1.{}.x or newer), but the runtime \
+             the app pins is 1.23.2. 1.23.2 is the last release with a macOS build for Intel \
+             Macs (1.24 and later are arm64 only), and `ort` rejects a library older than its \
+             API level, so raising the level strands them. Keep the `api-23` feature on `ort` \
+             in the workspace Cargo.toml, and see #383 before changing the pin.",
+            ort::MINOR_VERSION,
+            ort::MINOR_VERSION,
+        );
+    }
+
     #[test]
     fn library_file_name_matches_platform() {
         let name = library_file_name();
