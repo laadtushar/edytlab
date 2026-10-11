@@ -3054,7 +3054,10 @@ dependencies = [
  "ml-pipeline",
  "ndarray 0.16.1",
  "ort",
+ "realfft",
  "rubato",
+ "serde",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.18",
 ]

@@ -2,5 +2,13 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "installCommand": "pnpm install --ignore-workspace --frozen-lockfile",
+  "git": {
+    "deploymentEnabled": {
+      "**": false,
+      "main": true,
+      "*website*": true,
+      "**/*website*": true
+    }
+  },
   "ignoreCommand": "git diff --quiet HEAD^ HEAD -- ."
 }
