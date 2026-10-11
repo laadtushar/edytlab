@@ -696,12 +696,13 @@ await bridge.setSelectionContext({ start_sec: 5.0, end_sec: 20.0 });
 await bridge.setSelectionContext();
 ```
 
-### `addMarker(timeSec: number, name: string) → string`
+### `addMarker(timeSec: number, name: string) → NodeId`
 
-Add a named marker annotation at a specific time. Returns the marker's annotation ID.
+Add a named marker annotation at a specific time. Appends one node and returns
+the new head. The label's own ID is in `listMarkers()`.
 
 ```typescript
-const markerId = await bridge.addMarker(30.5, "chorus starts");
+const newHead = await bridge.addMarker(30.5, "chorus starts");
 ```
 
 ### `removeMarker(id: string) → NodeId`
@@ -709,7 +710,8 @@ const markerId = await bridge.addMarker(30.5, "chorus starts");
 Remove a marker by annotation ID. Returns the new head node ID.
 
 ```typescript
-const newHead = await bridge.removeMarker(markerId);
+const [{ id }] = await bridge.listMarkers();
+const newHead = await bridge.removeMarker(id);
 ```
 
 ### `listMarkers() → Marker[]`
@@ -734,10 +736,16 @@ interface Marker {
 
 Edit an existing marker in place. Only the fields present in `patch` change.
 
-`time` moves a point marker; `start` and `end` move a region's bounds. Returns
-the new head.
+`time` moves the label to that time: a point marker sits there, and a region
+starts there and keeps its length, so dragging a region in the label lane does
+not turn it into a point. `start` and `end` set a region's bounds outright and
+are sent together; they are not mixed with `time`. A change that changes nothing
+(a label dragged back to where it was, renamed to the name it has) appends no
+node and returns the head unchanged. Otherwise one node, and the new head.
 
-**Errors:** no marker with that id.
+**Errors:** `time` below 0 or not finite; `start`/`end` not both given, or
+`end <= start`; `time` together with `start`/`end`. An id that matches no label
+changes nothing.
 
 ---
 
