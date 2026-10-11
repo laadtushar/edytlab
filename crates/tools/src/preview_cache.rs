@@ -723,8 +723,9 @@ mod tests {
     /// and its rename. On Unix the rename just replaces it; where it cannot
     /// (a Windows volume without POSIX rename) it is an error, but the
     /// entry is there and is the same bytes, so that is a hit, not a
-    /// failure. The seam: a staging path that is a folder cannot be renamed
-    /// over a file, on any platform.
+    /// failure. The seam: a render that leaves no staging file makes the
+    /// rename fail on every platform (a folder does not: Windows renames
+    /// one over a file), while the winner's entry is already in place.
     #[test]
     fn a_rename_that_loses_a_race_is_a_hit_on_the_winner() {
         let tmp = tempfile::tempdir().unwrap();
@@ -732,10 +733,7 @@ mod tests {
         let id = node_id(46);
 
         let (path, hit) = cache
-            .get_or_render::<_, io::Error>(id, |staging| {
-                write(&cache.path_for(id), 64)?;
-                std::fs::create_dir(staging)
-            })
+            .get_or_render::<_, io::Error>(id, |_staging| write(&cache.path_for(id), 64))
             .expect("the entry is there, so this is not an error");
 
         assert_eq!(hit, Hit::Cached);
