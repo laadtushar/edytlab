@@ -55,7 +55,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use ai::provider::provider_from_id;
-use ai::{Agent, AgentEvent, Error, LlmConfig, SessionContext, TrackBrief};
+use ai::{Agent, AgentEvent, BusBrief, Error, LlmConfig, SendBrief, SessionContext, TrackBrief};
 use common::{
     chat_reply_json, chat_sse_text, chat_sse_tool_call, classifier_json, ok, sse_text, Entry,
     SeqResponder,
@@ -91,6 +91,15 @@ const SLIM_FIRST_REQUEST_MAX_BYTES: usize = 4_096 * BYTES_PER_TOKEN;
 /// the names budget at 2,000 B instead of 1,600 it was 194 B (40 MCP tools,
 /// found in review), which this fails.
 const MCP_HEADROOM_BYTES: usize = 500;
+
+/// What the three buses of `mix_with_buses` (eight sends, four chain
+/// entries) may add to the first request (#552): measured 659 B, with the
+/// headroom of one more send or two. 125 B of that is the header line that
+/// says how to edit a bus chain (it was 534 B before that clause, and the
+/// cap 600 B). A bus costs its 36-character id, its sends and its chain, so
+/// a session with many buses costs more; raise this deliberately, and say
+/// why, if the section grows.
+const BUSES_MAX_BYTES: usize = 720;
 
 /// The issue's measured token count for the first request.
 const ISSUE_MEASURED_TOKENS: usize = 15_157;
@@ -183,6 +192,9 @@ struct Options {
     /// How many tools an MCP server adds to the registry, on top of the
     /// built-in ones.
     mcp_tools: usize,
+    /// What the session looks like to the model. `None` is
+    /// [`native_run_context`].
+    context: Option<SessionContext>,
 }
 
 /// A stand-in for a tool an MCP server adds: it is named
@@ -275,7 +287,7 @@ async fn run_conversation(
         agent = agent.with_tool_whitelist(whitelist);
     }
 
-    let ctx = native_run_context();
+    let ctx = options.context.unwrap_or_else(native_run_context);
     let mut result = None;
     for message in messages {
         result = Some(
@@ -618,6 +630,120 @@ async fn ollama_stays_within_the_bound_when_the_message_names_many_tools() {
         assert!(
             names.contains(wanted),
             "{wanted} was named in the message but not sent: {names:?}"
+        );
+    }
+}
+
+/// A mix with six tracks and three buses, the shape a reverb, a delay and
+/// a parallel compressor give it (#552). Each bus line carries a full
+/// 36-character id, so this is the long case: a bus costs its id, its
+/// sends and its chain every turn.
+fn mix_with_buses() -> SessionContext {
+    let track = |name: &str, effects: &[&str]| TrackBrief {
+        name: name.into(),
+        clips: vec![(0.0, 184.5)],
+        gain_db: -2.5,
+        pan: 0.0,
+        muted: false,
+        soloed: false,
+        effects: effects.iter().map(|e| e.to_string()).collect(),
+    };
+    let send = |index: usize, name: &str, level_db: f32| SendBrief {
+        track: index,
+        track_name: name.into(),
+        level_db,
+    };
+    SessionContext {
+        head: Some("a".repeat(64)),
+        tracks: vec![
+            track("drums", &["compressor", "eq"]),
+            track("bass", &["compressor"]),
+            track("guitar", &[]),
+            track("vocal", &["de_esser", "eq (bypassed)"]),
+            track("keys", &[]),
+            track("fx", &[]),
+        ],
+        buses: vec![
+            BusBrief {
+                name: "Reverb".into(),
+                id: "3f2a8c10-5b7e-4d21-9a6c-0e1d2f3a4b5c".into(),
+                sends: vec![
+                    send(0, "drums", -9.0),
+                    send(2, "guitar", -12.0),
+                    send(3, "vocal", -6.0),
+                    send(4, "keys", -10.5),
+                ],
+                effects: vec!["reverb".into(), "eq".into()],
+            },
+            BusBrief {
+                name: "Delay".into(),
+                id: "9c4e1b72-0a3d-4f58-8b26-7d1e5c9a2f40".into(),
+                sends: vec![send(3, "vocal", -14.0), send(5, "fx", -8.0)],
+                effects: vec!["delay (bypassed)".into()],
+            },
+            BusBrief {
+                name: "Parallel comp".into(),
+                id: "c81d6f04-92ab-4e37-b5d0-1a7f3e8c6d92".into(),
+                sends: vec![send(0, "drums", -3.0), send(1, "bass", -6.0)],
+                effects: vec!["compressor".into()],
+            },
+        ],
+        master_effects: vec!["limiter".into()],
+        ..SessionContext::default()
+    }
+}
+
+/// The first request of `message` against Ollama, with `context` as the
+/// session.
+async fn ollama_first_request(message: &str, context: SessionContext) -> (Sent, Split) {
+    let mut turn = run_conversation(
+        "ollama",
+        &[message],
+        chat_script(),
+        Options {
+            context: Some(context),
+            ..Options::default()
+        },
+    )
+    .await;
+    turn.result.as_ref().expect("the turn succeeds");
+    let sent = turn.streaming.remove(0);
+    let split = split_chat(&sent);
+    (sent, split)
+}
+
+/// The buses reach the model, and the slim request still fits (#552).
+///
+/// Tracks, the master chain and markers were already in the prompt; a bus
+/// the model could not see cost a refused tool call to learn. This is the
+/// check that telling it does not cost Ollama the room it needs: the whole
+/// first request, with three buses and their sends, stays under the same
+/// bound as one with none, for the message that sends the most tools too.
+#[tokio::test]
+async fn ollama_is_told_about_buses_and_the_bound_holds() {
+    for message in [CANONICAL, NAMES_MANY_TOOLS] {
+        let ctx = mix_with_buses();
+        let bare_ctx = SessionContext {
+            buses: vec![],
+            ..ctx.clone()
+        };
+        let (sent, split) = ollama_first_request(message, ctx.clone()).await;
+        let (_, bare) = ollama_first_request(message, bare_ctx).await;
+        report("ollama, three buses", &split);
+
+        let system = system_text(&sent.body);
+        assert!(system.contains("## buses"), "{system}");
+        for bus in &ctx.buses {
+            assert!(system.contains(&bus.id), "{} not in {system}", bus.id);
+        }
+        assert_fits(message, &split);
+
+        let cost = split.total - bare.total;
+        println!("three buses cost {cost} B of the first request ({message:?})");
+        assert!(
+            cost <= BUSES_MAX_BYTES,
+            "{message:?}: three buses with eight sends add {cost} B to the first request, over \
+             {BUSES_MAX_BYTES} B. A bus costs its id, its sends and its chain every turn."
         );
     }
 }

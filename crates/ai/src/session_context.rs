@@ -1,7 +1,7 @@
 //! `SessionContext` — what the agent loop sees about the session and the
 //! user's current focus on the timeline. Built per turn from the
 //! frontend-pushed selection, the store head's annotations, and the
-//! head's tracks and master chain.
+//! head's tracks, buses and master chain.
 
 use session::{Annotation, AnnotationKind, EffectInstance, SessionState};
 use tools::Range;
@@ -16,6 +16,10 @@ pub struct SessionContext {
     pub head: Option<String>,
     /// The tracks at the head, in the order the tools index them.
     pub tracks: Vec<TrackBrief>,
+    /// The effects buses at the head, in the order the session holds them
+    /// (#552). Empty when there are none, and then nothing about buses is
+    /// said at all.
+    pub buses: Vec<BusBrief>,
     /// The master bus's effects at the head, in chain order, bypassed ones
     /// marked (#460). The same words a track's `effects` use. Empty when
     /// the bus has none, and then nothing about it is said at all.
@@ -108,6 +112,68 @@ impl TrackBrief {
     }
 }
 
+/// One effects bus as the model needs to see it to use it (#552): its
+/// name, the id `set_send` and `remove_send` take, which tracks feed it,
+/// and its effect chain.
+///
+/// Without this a conversation learned a bus only from its own
+/// `create_bus` result, or from the error an unknown name got, and two
+/// buses sharing a name cost a second refused call.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BusBrief {
+    pub name: String,
+    /// The bus id, in full: a name may be shared, the id never is.
+    pub id: String,
+    /// The tracks that send to this bus, in track order.
+    pub sends: Vec<SendBrief>,
+    /// Effect kinds in chain order, bypassed ones marked, as a track's.
+    pub effects: Vec<String>,
+}
+
+/// One track's send to a bus.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SendBrief {
+    /// The sending track's index, which is what a tool's `track` takes.
+    pub track: usize,
+    pub track_name: String,
+    pub level_db: f32,
+}
+
+impl BusBrief {
+    /// The buses of `state`, in the order it holds them.
+    ///
+    /// A send to a bus the session does not hold is dropped: it names
+    /// nothing the model could use.
+    pub fn from_state(state: &SessionState) -> Vec<BusBrief> {
+        state
+            .bus_routing
+            .buses
+            .iter()
+            .map(|bus| BusBrief {
+                name: bus.name.clone(),
+                id: bus.id.to_string(),
+                sends: state
+                    .tracks
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(index, track)| {
+                        track
+                            .sends
+                            .iter()
+                            .filter(|send| send.bus_id == bus.id)
+                            .map(move |send| SendBrief {
+                                track: index,
+                                track_name: track.name.clone(),
+                                level_db: send.level_db,
+                            })
+                    })
+                    .collect(),
+                effects: effect_labels(&bus.effects),
+            })
+            .collect()
+    }
+}
+
 /// How many clips a track lists before the rest are summarised. A track
 /// cut into hundreds of pieces would otherwise fill the prompt.
 const MAX_CLIPS_LISTED: usize = 8;
@@ -120,6 +186,7 @@ pub fn render_block(ctx: &SessionContext) -> String {
         && ctx.markers.is_empty()
         && ctx.head.is_none()
         && ctx.tracks.is_empty()
+        && ctx.buses.is_empty()
         && ctx.master_effects.is_empty()
     {
         return String::new();
@@ -173,6 +240,30 @@ pub fn render_block(ctx: &SessionContext) -> String {
             ));
             if !t.effects.is_empty() {
                 out.push_str(&format!("; effects: {}", t.effects.join(", ")));
+            }
+            out.push('\n');
+        }
+        out.push('\n');
+    }
+    if !ctx.buses.is_empty() {
+        out.push_str("## buses\n");
+        out.push_str(
+            "Tracks send a parallel copy to a bus; `set_send` and `remove_send` take its id. The effect tools edit its chain with scope \"bus\" and `bus` (name or id); `effect_index` counts from 0 in the order listed.\n",
+        );
+        for b in &ctx.buses {
+            out.push_str(&format!("- \"{}\" (id {}): ", b.name, b.id));
+            if b.sends.is_empty() {
+                out.push_str("no sends");
+            } else {
+                let sends: Vec<String> = b
+                    .sends
+                    .iter()
+                    .map(|s| format!("{} \"{}\" ({:+.1} dB)", s.track, s.track_name, s.level_db))
+                    .collect();
+                out.push_str(&format!("from {}", sends.join(", ")));
+            }
+            if !b.effects.is_empty() {
+                out.push_str(&format!("; effects: {}", b.effects.join(", ")));
             }
             out.push('\n');
         }
@@ -444,5 +535,315 @@ mod tests {
         );
         assert!(tracks[0].soloed);
         assert_eq!(pan_text(tracks[0].pan), "25% right");
+    }
+
+    // ---------------------------------------------------------------
+    // Buses (#552)
+    // ---------------------------------------------------------------
+
+    const REVERB_ID: &str = "3f2a8c10-5b7e-4d21-9a6c-0e1d2f3a4b5c";
+    const DELAY_ID: &str = "9c4e1b72-0a3d-4f58-8b26-7d1e5c9a2f40";
+
+    fn bus_brief(name: &str, id: &str) -> BusBrief {
+        BusBrief {
+            name: name.into(),
+            id: id.into(),
+            sends: vec![],
+            effects: vec![],
+        }
+    }
+
+    fn send_brief(track: usize, name: &str, level_db: f32) -> SendBrief {
+        SendBrief {
+            track,
+            track_name: name.into(),
+            level_db,
+        }
+    }
+
+    /// A bus built the way the session file holds it, so the test needs
+    /// no `uuid` of its own.
+    fn state_bus(id: &str, name: &str, effects: Vec<EffectInstance>) -> session::Bus {
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "name": name,
+            "effects": effects,
+        }))
+        .expect("a bus")
+    }
+
+    fn state_send(bus_id: &str, level_db: f32) -> session::Send {
+        serde_json::from_value(serde_json::json!({
+            "bus_id": bus_id,
+            "level_db": level_db,
+        }))
+        .expect("a send")
+    }
+
+    fn state_effect(kind: &str, bypassed: bool) -> EffectInstance {
+        EffectInstance {
+            kind: kind.into(),
+            params: serde_json::json!({}),
+            bypassed,
+        }
+    }
+
+    fn state_track(name: &str, sends: Vec<session::Send>) -> session::Track {
+        session::Track {
+            id: session::TrackId::new(),
+            name: name.into(),
+            clips: vec![],
+            gain_db: 0.0,
+            pan: 0.0,
+            muted: false,
+            soloed: false,
+            effects: vec![],
+            sends,
+        }
+    }
+
+    fn state_with(tracks: Vec<session::Track>, buses: Vec<session::Bus>) -> SessionState {
+        SessionState {
+            tracks,
+            bus_routing: session::BusGraph { buses },
+            master_chain: Vec::new(),
+            tempo_map: session::TempoMap::default(),
+            key_map: None,
+            transcript: None,
+            sample_rate: 48_000,
+            length_samples: 0,
+            annotations: Vec::new(),
+            sync_lock: false,
+        }
+    }
+
+    /// The model names a bus by what it reads here: a bus it was never
+    /// told about costs a refused tool call to find (#552).
+    #[test]
+    fn the_block_lists_each_bus_with_its_id_its_sends_and_its_chain() {
+        let mut reverb = bus_brief("Reverb", REVERB_ID);
+        reverb.sends = vec![send_brief(0, "drums", -6.0), send_brief(2, "vocal", 0.0)];
+        reverb.effects = vec!["reverb".into(), "eq (bypassed)".into()];
+        let ctx = SessionContext {
+            tracks: vec![
+                brief("drums", &[(0.0, 4.0)]),
+                brief("bass", &[(0.0, 4.0)]),
+                brief("vocal", &[(0.0, 4.0)]),
+            ],
+            buses: vec![reverb],
+            ..Default::default()
+        };
+
+        let text = render_block(&ctx);
+
+        assert!(text.contains("## buses\n"), "{text}");
+        assert!(
+            text.contains(&format!(
+                "- \"Reverb\" (id {REVERB_ID}): from 0 \"drums\" (-6.0 dB), 2 \"vocal\" (+0.0 dB); effects: reverb, eq (bypassed)\n"
+            )),
+            "{text}"
+        );
+        // The tools the id is for are named, so the model knows what to do
+        // with it.
+        assert!(text.contains("set_send"), "{text}");
+    }
+
+    /// Two buses may share a name; the id is what tells them apart, so
+    /// both are shown in full.
+    #[test]
+    fn two_buses_with_one_name_are_told_apart_by_id() {
+        let ctx = SessionContext {
+            buses: vec![bus_brief("Verb", REVERB_ID), bus_brief("Verb", DELAY_ID)],
+            ..Default::default()
+        };
+
+        let text = render_block(&ctx);
+
+        assert!(text.contains(&format!("(id {REVERB_ID})")), "{text}");
+        assert!(text.contains(&format!("(id {DELAY_ID})")), "{text}");
+    }
+
+    /// A bus nobody sends to, with nothing on it, is still a bus the model
+    /// can name; it is said once and briefly.
+    #[test]
+    fn a_bus_with_no_sends_and_no_effects_says_only_that() {
+        let ctx = SessionContext {
+            tracks: vec![brief("drums", &[(0.0, 4.0)])],
+            buses: vec![bus_brief("Delay", DELAY_ID)],
+            ..Default::default()
+        };
+
+        let text = render_block(&ctx);
+
+        assert!(
+            text.contains(&format!("- \"Delay\" (id {DELAY_ID}): no sends\n")),
+            "{text}"
+        );
+        assert!(!text.contains("effects:"), "{text}");
+    }
+
+    /// The header says how to edit a bus's chain, in the words `## master`
+    /// uses for the master's: the scope, the argument that picks the bus,
+    /// and what `effect_index` counts (#552, #533).
+    #[test]
+    fn the_buses_header_says_how_to_edit_a_bus_chain() {
+        let ctx = SessionContext {
+            buses: vec![bus_brief("Reverb", REVERB_ID)],
+            ..Default::default()
+        };
+
+        let text = render_block(&ctx);
+
+        let header = text
+            .lines()
+            .skip_while(|l| *l != "## buses")
+            .nth(1)
+            .expect("a header line under ## buses");
+        assert!(header.contains("scope \"bus\""), "{header}");
+        assert!(header.contains("`bus`"), "{header}");
+        assert!(header.contains("name or id"), "{header}");
+        assert!(header.contains("`effect_index`"), "{header}");
+        assert!(header.contains("in the order listed"), "{header}");
+        // The id tools are still named.
+        assert!(
+            header.contains("`set_send`") && header.contains("`remove_send`"),
+            "{header}"
+        );
+    }
+
+    /// The header words are the tools' own: if the effect tools stop taking
+    /// `scope: "bus"` with a `bus` argument, this fails instead of the model
+    /// being told a call that is refused.
+    #[test]
+    fn the_buses_header_matches_what_the_effect_tools_take() {
+        let schemas = tools::ToolDispatcher::default_dispatcher().tool_schemas();
+        for name in ["add_effect", "remove_effect", "set_effect_params"] {
+            let schema = schemas
+                .as_array()
+                .and_then(|all| all.iter().find(|t| t["name"] == name))
+                .unwrap_or_else(|| panic!("{name} is a registered tool"));
+            let props = &schema["input_schema"]["properties"];
+            let scopes = props["scope"]["enum"].as_array().expect("a scope enum");
+            assert!(scopes.iter().any(|v| v == "bus"), "{name}: {scopes:?}");
+            assert!(props.get("bus").is_some(), "{name}: no `bus` argument");
+            if name != "add_effect" {
+                assert!(
+                    props.get("effect_index").is_some(),
+                    "{name}: no effect_index"
+                );
+            }
+        }
+    }
+
+    /// A session with no buses says nothing about them: the block, and so
+    /// the request, is exactly what it was.
+    #[test]
+    fn no_buses_adds_no_section() {
+        let ctx = SessionContext {
+            head: Some("ab12".into()),
+            tracks: vec![brief("drums", &[(0.0, 4.0)])],
+            master_effects: vec!["limiter".into()],
+            ..Default::default()
+        };
+
+        let text = render_block(&ctx);
+
+        assert!(!text.contains("## buses"), "{text}");
+        assert!(!text.contains("set_send"), "{text}");
+        assert!(!text.contains("scope \"bus\""), "{text}");
+    }
+
+    /// A session that is only a bus still has something to say.
+    #[test]
+    fn a_bus_alone_is_not_an_empty_context() {
+        let ctx = SessionContext {
+            buses: vec![bus_brief("Reverb", REVERB_ID)],
+            ..Default::default()
+        };
+        assert!(render_block(&ctx).contains(REVERB_ID));
+    }
+
+    /// Signal flow order: tracks, then the buses they feed, then the
+    /// master that sums it all. The track lines the model already reads do
+    /// not move.
+    #[test]
+    fn the_buses_come_after_the_tracks_and_before_the_master() {
+        let ctx = SessionContext {
+            tracks: vec![brief("drums", &[(0.0, 4.0)])],
+            buses: vec![bus_brief("Reverb", REVERB_ID)],
+            master_effects: vec!["limiter".into()],
+            ..Default::default()
+        };
+
+        let text = render_block(&ctx);
+
+        let tracks = text.find("## tracks").unwrap();
+        let buses = text.find("## buses").unwrap();
+        let master = text.find("## master").unwrap();
+        assert!(tracks < buses && buses < master, "{text}");
+    }
+
+    #[test]
+    fn the_buses_are_read_from_the_state_with_their_sends_and_bypass_marked() {
+        let state = state_with(
+            vec![
+                state_track("drums", vec![state_send(REVERB_ID, -6.0)]),
+                state_track("bass", vec![]),
+                state_track(
+                    "vocal",
+                    vec![state_send(DELAY_ID, -12.0), state_send(REVERB_ID, 0.0)],
+                ),
+            ],
+            vec![
+                state_bus(
+                    REVERB_ID,
+                    "Reverb",
+                    vec![state_effect("reverb", false), state_effect("eq", true)],
+                ),
+                state_bus(DELAY_ID, "Delay", vec![]),
+            ],
+        );
+
+        let buses = BusBrief::from_state(&state);
+
+        assert_eq!(
+            buses,
+            vec![
+                BusBrief {
+                    name: "Reverb".into(),
+                    id: REVERB_ID.into(),
+                    sends: vec![send_brief(0, "drums", -6.0), send_brief(2, "vocal", 0.0)],
+                    effects: vec!["reverb".into(), "eq (bypassed)".into()],
+                },
+                BusBrief {
+                    name: "Delay".into(),
+                    id: DELAY_ID.into(),
+                    sends: vec![send_brief(2, "vocal", -12.0)],
+                    effects: vec![],
+                },
+            ]
+        );
+    }
+
+    /// A send whose bus the session does not hold names nothing the model
+    /// could use, so it is not listed under a bus it does not belong to.
+    #[test]
+    fn a_send_to_a_bus_the_session_does_not_hold_is_left_out() {
+        let state = state_with(
+            vec![state_track("drums", vec![state_send(DELAY_ID, -3.0)])],
+            vec![state_bus(REVERB_ID, "Reverb", vec![])],
+        );
+
+        let buses = BusBrief::from_state(&state);
+
+        assert_eq!(buses.len(), 1);
+        assert!(buses[0].sends.is_empty(), "{:?}", buses[0].sends);
+    }
+
+    #[test]
+    fn a_state_without_buses_has_no_bus_briefs() {
+        assert!(
+            BusBrief::from_state(&state_with(vec![state_track("a", vec![])], vec![])).is_empty()
+        );
     }
 }

@@ -1,0 +1,51 @@
+{
+ "version": "1.0",
+ "truncation": null,
+ "padding": null,
+ "added_tokens": [
+  {"id": 11, "content": "<|endoftext|>", "single_word": false, "lstrip": false, "rstrip": false, "normalized": false, "special": true},
+  {"id": 12, "content": "<|startoftranscript|>", "single_word": false, "lstrip": false, "rstrip": false, "normalized": false, "special": true},
+  {"id": 13, "content": "<|en|>", "single_word": false, "lstrip": false, "rstrip": false, "normalized": false, "special": true},
+  {"id": 14, "content": "<|de|>", "single_word": false, "lstrip": false, "rstrip": false, "normalized": false, "special": true},
+  {"id": 15, "content": "<|translate|>", "single_word": false, "lstrip": false, "rstrip": false, "normalized": false, "special": true},
+  {"id": 16, "content": "<|transcribe|>", "single_word": false, "lstrip": false, "rstrip": false, "normalized": false, "special": true},
+  {"id": 17, "content": "<|startoflm|>", "single_word": false, "lstrip": false, "rstrip": false, "normalized": false, "special": true},
+  {"id": 18, "content": "<|startofprev|>", "single_word": false, "lstrip": false, "rstrip": false, "normalized": false, "special": true},
+  {"id": 19, "content": "<|nocaptions|>", "single_word": false, "lstrip": false, "rstrip": false, "normalized": false, "special": true},
+  {"id": 20, "content": "<|notimestamps|>", "single_word": false, "lstrip": false, "rstrip": false, "normalized": false, "special": true},
+  {"id": 21, "content": "<|0.00|>", "single_word": false, "lstrip": false, "rstrip": false, "normalized": true, "special": false},
+  {"id": 22, "content": "<|0.02|>", "single_word": false, "lstrip": false, "rstrip": false, "normalized": true, "special": false},
+  {"id": 23, "content": "<|0.04|>", "single_word": false, "lstrip": false, "rstrip": false, "normalized": true, "special": false},
+  {"id": 24, "content": "<|0.06|>", "single_word": false, "lstrip": false, "rstrip": false, "normalized": true, "special": false},
+  {"id": 25, "content": "<|0.08|>", "single_word": false, "lstrip": false, "rstrip": false, "normalized": true, "special": false},
+  {"id": 26, "content": "<|0.10|>", "single_word": false, "lstrip": false, "rstrip": false, "normalized": true, "special": false}
+ ],
+ "normalizer": null,
+ "pre_tokenizer": {"type": "ByteLevel", "add_prefix_space": false, "trim_offsets": true, "use_regex": true},
+ "post_processor": null,
+ "decoder": {"type": "ByteLevel", "add_prefix_space": true, "trim_offsets": true, "use_regex": true},
+ "model": {
+  "type": "BPE",
+  "dropout": null,
+  "unk_token": null,
+  "continuing_subword_prefix": "",
+  "end_of_word_suffix": "",
+  "fuse_unk": false,
+  "byte_fallback": false,
+  "vocab": {
+   "H": 0,
+   "ello": 1,
+   "Ġworld": 2,
+   ".": 3,
+   "Ġ": 4,
+   "Ã": 5,
+   "©": 6,
+   "Ġcaf": 7,
+   "Ċ": 8,
+   "æĹ": 9,
+   "¥": 10,
+   "<|endoftext|>": 11
+  },
+  "merges": []
+ }
+}

@@ -2600,6 +2600,38 @@ fn apply_blacklist(
     }
 }
 
+/// What the model is told about the session at the start of a turn: the
+/// user's selection, the head's markers, and what the head itself holds.
+///
+/// `state` is the head node's state, or `None` when there is no head or it
+/// cannot be read, in which case the turn still gets its selection and
+/// markers. Tracks (#408) and the master chain (#460) are read from it,
+/// and so are the buses (#552): without them the model learned a bus only
+/// from its own `create_bus` result, or from the error an unknown name got.
+fn session_context_for(
+    selection: Option<Range>,
+    markers: Vec<session::Annotation>,
+    head: Option<String>,
+    state: Option<&session::SessionState>,
+) -> ai::SessionContext {
+    let (tracks, master_effects) = state
+        .map(|state| {
+            (
+                ai::TrackBrief::from_state(state),
+                ai::SessionContext::master_effects_from_state(state),
+            )
+        })
+        .unwrap_or_default();
+    ai::SessionContext {
+        selection,
+        markers,
+        head,
+        tracks,
+        buses: state.map(ai::BusBrief::from_state).unwrap_or_default(),
+        master_effects,
+    }
+}
+
 #[tauri::command]
 pub async fn send_message<R: Runtime>(
     app: AppHandle<R>,
@@ -2608,46 +2640,39 @@ pub async fn send_message<R: Runtime>(
     disabled_tools: Vec<String>,
 ) -> CmdResult<()> {
     // Build the per-turn SessionContext from the current selection, the
-    // annotations on the store head, and the head's tracks (#408) and
-    // master chain (#460). We snapshot these before acquiring the agent
-    // lock to minimise the lock hold time.
+    // annotations on the store head, and the head's tracks (#408), buses
+    // (#552) and master chain (#460). We snapshot these before acquiring
+    // the agent lock to minimise the lock hold time.
     let selection = state.selection_snapshot();
     // On the blocking pool: a message sent while a tool holds the store
-    // would otherwise park a worker here for as long as the tool runs.
-    let (head, markers, tracks, master_effects) = blocking(&state, |state| {
-        Ok(match state.store_handle() {
-            None => (None, vec![], vec![], vec![]),
-            Some(store_arc) => {
-                let store = lock_std(&*store_arc, "store")?;
-                match store.head() {
-                    None => (None, vec![], vec![], vec![]),
-                    Some(head) => {
-                        let markers = store.annotations_for(head).unwrap_or_default();
-                        // A head that cannot be read still gets its selection
-                        // and markers; the turn is not the place to fail.
-                        let (tracks, master_effects) = store
-                            .get(head)
-                            .map(|node| {
-                                (
-                                    ai::TrackBrief::from_state(&node.state),
-                                    ai::SessionContext::master_effects_from_state(&node.state),
-                                )
-                            })
-                            .unwrap_or_default();
-                        (Some(head.to_hex()), markers, tracks, master_effects)
+    // would otherwise park a worker here for as long as the tool runs, and
+    // reading a track's clip rates opens its source files.
+    let session_ctx = Some(
+        blocking(&state, move |state| {
+            Ok(match state.store_handle() {
+                None => session_context_for(selection, vec![], None, None),
+                Some(store_arc) => {
+                    let store = lock_std(&*store_arc, "store")?;
+                    match store.head() {
+                        None => session_context_for(selection, vec![], None, None),
+                        Some(head) => {
+                            let markers = store.annotations_for(head).unwrap_or_default();
+                            // A head that cannot be read still gets its selection
+                            // and markers; the turn is not the place to fail.
+                            let node = store.get(head).ok();
+                            session_context_for(
+                                selection,
+                                markers,
+                                Some(head.to_hex()),
+                                node.as_ref().map(|node| &node.state),
+                            )
+                        }
                     }
                 }
-            }
+            })
         })
-    })
-    .await?;
-    let session_ctx = Some(ai::SessionContext {
-        selection,
-        markers,
-        head,
-        tracks,
-        master_effects,
-    });
+        .await?,
+    );
 
     // Hold the agent lock for the duration of the turn. Phase 1 has a
     // single chat thread, so serialised turns are correct (the user
@@ -6268,6 +6293,102 @@ mod tests {
             annotations: Vec::new(),
             sync_lock: false,
         }
+    }
+
+    /// A head with a bus and a track that sends to it, as the session holds
+    /// them.
+    fn state_with_a_reverb_bus() -> (SessionState, uuid::Uuid) {
+        let bus_id = uuid::Uuid::new_v4();
+        let mut state = empty_session_state();
+        state.bus_routing.buses.push(session::Bus {
+            id: bus_id,
+            name: "Reverb".into(),
+            effects: vec![session::EffectInstance {
+                kind: "reverb".into(),
+                params: serde_json::json!({}),
+                bypassed: true,
+            }],
+        });
+        state.tracks.push(session::Track {
+            id: session::TrackId::new(),
+            name: "vocal".into(),
+            clips: vec![],
+            gain_db: 0.0,
+            pan: 0.0,
+            muted: false,
+            soloed: false,
+            effects: vec![],
+            sends: vec![session::Send {
+                bus_id,
+                level_db: -6.0,
+            }],
+        });
+        (state, bus_id)
+    }
+
+    /// The turn's context names the head's buses (#552). It used to carry
+    /// the tracks and the master chain and nothing of the buses, so the
+    /// model could name a bus only after a refused tool call.
+    #[test]
+    fn the_turn_context_carries_the_heads_buses() {
+        let (state, bus_id) = state_with_a_reverb_bus();
+
+        let ctx = session_context_for(None, vec![], Some("ab12".into()), Some(&state));
+
+        assert_eq!(ctx.buses.len(), 1, "{:?}", ctx.buses);
+        assert_eq!(ctx.buses[0].name, "Reverb");
+        assert_eq!(ctx.buses[0].id, bus_id.to_string());
+        assert_eq!(ctx.buses[0].effects, ["reverb (bypassed)"]);
+        assert_eq!(ctx.buses[0].sends.len(), 1);
+        assert_eq!(ctx.buses[0].sends[0].track, 0);
+        assert_eq!(ctx.buses[0].sends[0].track_name, "vocal");
+
+        // And it reaches the text the model reads.
+        let text = ai::render_session_block(&ctx);
+        assert!(text.contains("## buses"), "{text}");
+        assert!(text.contains(&bus_id.to_string()), "{text}");
+    }
+
+    /// Everything else the context held is still there, and a session with
+    /// no buses has none in it.
+    #[test]
+    fn the_turn_context_keeps_the_tracks_the_master_and_the_selection() {
+        let (mut state, _) = state_with_a_reverb_bus();
+        state.bus_routing.buses.clear();
+        state.tracks[0].sends.clear();
+        state.master_chain.push(session::EffectInstance {
+            kind: "limiter".into(),
+            params: serde_json::json!({}),
+            bypassed: false,
+        });
+        let selection = Some(Range {
+            start_sec: 1.0,
+            end_sec: 2.0,
+        });
+
+        let ctx = session_context_for(selection, vec![], Some("ab12".into()), Some(&state));
+
+        assert!(ctx.buses.is_empty(), "{:?}", ctx.buses);
+        assert_eq!(ctx.tracks.len(), 1);
+        assert_eq!(ctx.master_effects, ["limiter"]);
+        assert_eq!(ctx.selection, selection);
+        assert_eq!(ctx.head.as_deref(), Some("ab12"));
+        assert!(!ai::render_session_block(&ctx).contains("## buses"));
+    }
+
+    /// A head that cannot be read still gets its selection and markers.
+    #[test]
+    fn an_unreadable_head_still_gets_its_selection() {
+        let selection = Some(Range {
+            start_sec: 0.5,
+            end_sec: 1.5,
+        });
+
+        let ctx = session_context_for(selection, vec![], Some("ab12".into()), None);
+
+        assert_eq!(ctx.selection, selection);
+        assert!(ctx.tracks.is_empty() && ctx.buses.is_empty());
+        assert!(ctx.master_effects.is_empty());
     }
 
     #[test]
