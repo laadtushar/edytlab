@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<title>LinkedIn post 4: privacy and local-first (1200x1200)</title>
+{{tokens}}
+{{base}}
+<style>
+  .ask { margin-top: 28px; font-size: 62px; }
+  .no { font-size: 136px; line-height: 1; margin-top: 2px; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin-top: 18px; }
+  .cols .card { padding: 22px 28px; }
+  .cols h3 { font-size: 34px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.2; }
+  .cols p { margin-top: 6px; font-size: 28px; line-height: 1.32; color: hsl(var(--muted-foreground)); }
+  .panel { margin-top: 24px; flex: none; }
+  .panel__body { background: hsl(var(--card)); }
+  .panel__body img { width: 100%; height: auto; }
+</style>
+</head>
+<body>
+<div class="canvas square">
+  <div class="aurora strong" data-bleed></div>
+  <div class="frame">
+    <div class="brandbar">
+      <div class="wordmark">{{logo}} edytlab</div>
+      <div class="pill">Local-first</div>
+    </div>
+
+    <h1 class="display ask">Does my audio get uploaded?</h1>
+    <div class="display no"><span class="gradient-text">No.</span></div>
+
+    <div class="cols">
+      <div class="card lit" data-safe="stays">
+        <h3>Stays on your machine</h3>
+        <p>Your audio: decoding, editing, mixing and export.</p>
+      </div>
+      <div class="card" data-safe="leaves">
+        <h3>Leaves: the chat</h3>
+        <p>Your messages and tool results, to the provider you pick.</p>
+      </div>
+    </div>
+
+    <div class="panel" data-safe="settings screenshot">
+      <div class="panel__bar">Settings · Ollama selected</div>
+      <div class="panel__body"><img src="../shots/ollama.png" alt="edytlab's Settings with six providers; Ollama (local) is selected and the dialog says it runs on your machine and needs no API key." /></div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

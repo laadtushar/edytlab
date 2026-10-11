@@ -1,8 +1,14 @@
 # Sign in with ChatGPT: running edytlab's agent on a ChatGPT subscription
 
-- **Date:** 2026-10-10
-- **Status:** Research and implementation plan. No code has changed.
+- **Date:** 2026-10-10. Corrected, with the decision and the PR plan added, on 2026-10-11.
+- **Status:** Decided (below). Research and implementation plan. No code has changed; the code starts at PR 1 of §4.7.
 - **Question:** Can a user sign in with their ChatGPT account (Plus, Pro, Team) and have edytlab's agent bill its LLM requests to that subscription instead of an API key? If so, exactly how?
+
+## Decision (2026-10-11)
+
+**Go, on the official *Sign in with ChatGPT* "ChatGPT plan usage" track only, as a preview, for Plus and Pro.** The work is tracked in #474 and split into the PRs of §4.7.
+
+**Codex-client reuse is out.** Reusing Codex CLI's client id or its saved session means sending tokens to ChatGPT's `backend-api`, which the plan-usage docs tell integrators not to do [INF], under another product's identity and scopes (§2.5). The documented flow registers edytlab as its own client, which the user can review and disconnect in ChatGPT settings [SESS].
 
 ## Verdict
 
@@ -12,10 +18,23 @@
 - **Responses API only, under preview rules.** The existing `openai` provider speaks Chat Completions and cannot carry these tokens.
 - **Becoming a paid or hosted app changes the track.** That would mean joining OpenAI's waitlist first.
 - **Codex's own route is off limits.** Borrowing Codex CLI's sign-in or ChatGPT's `backend-api` endpoints is not the documented path, and this plan does not use it.
+- **It is a rough preview.** Refresh is refused upstream today and there is no quota API. See [Known preview problems](#known-preview-problems).
 
-The rest of this document gives the evidence (§1–§2), the protocol (§3), the fit with edytlab's code (§4), alternatives for users who are not eligible (§5) and what to watch (§6).
+The rest of this document lists the known preview problems, then gives the evidence (§1–§2), the protocol (§3), the fit with edytlab's code (§4), alternatives for users who are not eligible (§5) and what to watch (§6).
 
-> **How to read the citations.** Each factual claim carries a quote and a source tag, and the tags resolve to URLs in [Sources](#sources). The developers.openai.com pages were read in full from their Markdown versions. openai.com and help.openai.com answered every direct request from this environment with HTTP 403. Quotes from those pages, marked **†**, are excerpts as indexed by web search, not a direct read. Check them before relying on exact wording. Secondary press coverage was used only to find the primary sources, never as evidence.
+> **How to read the citations.** Each factual claim carries a quote and a source tag, and the tags resolve to URLs in [Sources](#sources). The developers.openai.com pages were read in full from their Markdown versions. openai.com and help.openai.com answered every direct request from this environment with HTTP 403. Quotes from those pages, marked **†**, are excerpts as indexed by web search, not a direct read. Check them before relying on exact wording. Secondary press coverage was used only to find the primary sources, never as evidence. The 2026-10-11 corrections were checked against the same developers.openai.com pages and the live discovery document [DISCO].
+
+## Known preview problems
+
+Open on 2026-10-11. Build around them; do not wait for them.
+
+1. **Refresh is currently refused upstream.** devkit#5 [DEVKIT-5] (opened 2026-10-04, still open) reports that a refresh answers `400 invalid_grant` or `refresh_token_invalidated`, although the docs promise 30-day refresh tokens (§3.6). Codegraff's workaround is to reopen browser sign-in after about an hour. Until OpenAI fixes it, expect a session to end at about the one-hour mark and to need a new browser sign-in. Both error codes are on the docs' list of unusable-refresh-token errors, whose recovery is to "repeat OAuth with the saved issued client ID" [ERR], and a returning sign-in has no consent screen (§3.6). So the "Session ended" card of §4.5 is the planned recovery and not a special case. A failed refresh must never switch the request to another provider (§2.5).
+2. **There is no quota API.** devkit#3 [DEVKIT-3] was answered "not supported at the moment". edytlab cannot show how much allowance is left. It links to ChatGPT Settings → Usage (§3.8) and reacts to `subscription_sharing_usage_limit_exceeded` (§3.9), and it does not infer a reset time, as [ERR] says.
+3. **Plus limits are shared and tight.**
+   - The five-hour limit is shared across every app and Codex, and the user sets a weekly cap for each app from 10% to 100%. The five-hour limit does not apply to Pro [SESS].
+   - The pricing page gives Plus estimates in "local messages per five-hour period" that run from 5-45 to 350-3,000 depending on the model. It calls them estimates, "not fixed message limits", and says model choice, context and tool use all change what a message costs [PRICING].
+   - No numeric limits are published for this flow itself (§3.8).
+   - Every agent round trip, and the mode classifier, draws on the allowance (§4.8).
 
 ---
 
@@ -114,12 +133,15 @@ The app opens the **system browser** at `https://auth.openai.com/api/accounts/au
 | `resource` | `https://api.openai.com/v1` |
 | `state`, `nonce` | fresh random values for each attempt |
 | `code_challenge_method` / `code_challenge` | `S256` / "The base64url-encoded SHA-256 digest of the PKCE verifier, without padding." |
+| `prompt` | `consent`, only when the user re-enables plan use after declining it (§3.9). Never on an ordinary sign-in. |
 
-All values are from [SIGNIN].
+All values are from [SIGNIN], except `prompt`, which is from [ERR].
 
 ### 3.3 Redirect: an HTTP loopback listener, not a custom scheme
 
 "Use an HTTP loopback callback on `127.0.0.1` from initial registration onward, for example `http://127.0.0.1:1455/auth/callback`. Start the listener before opening the browser. Later sign-ins may use another available port … only the port may vary. Keep the scheme, host, and path unchanged … Do not substitute with `localhost`." [SIGNIN]
+
+The port: edytlab tries `127.0.0.1:1455` and falls back to an ephemeral port if 1455 is taken. The docs give 1455 only as an example and say that "Later sign-ins may use another available port", so whether the **first** registration accepts a port other than 1455 is not documented. It is on the real-account checklist (§4.10). The host and the path never change.
 
 What this means for Tauri 2:
 
@@ -131,6 +153,7 @@ What this means for Tauri 2:
 - "Validate `state` against the pending authorization attempt and handle an OAuth `error` before using the result." [SIGNIN]
 - On `error=access_denied`, "stop the attempt, and do not exchange a code." [SIGNIN]
 - New registration: "If a new-registration callback does not include an issued ID, treat registration as incomplete." On reauthorization: "If the callback supplies a different client ID, reject the result" [SIGNIN].
+- **Persist the issued `client_id` before the code is exchanged.** Never save `dynamic_agent_client` in its place [SIGNIN].
 - Exchange: "POST a form-encoded `authorization_code` grant to `https://auth.openai.com/api/accounts/oauth/token` with the issued `client_id`, `code`, `code_verifier`, the same `redirect_uri`, and the same `resource`. No client secret is required." [SIGNIN]
 - "If code exchange returns `invalid_grant`, discard that code and start a fresh authorization" [SIGNIN].
 
@@ -138,16 +161,21 @@ What this means for Tauri 2:
 
 - **ID token:** "Verify its signature against OpenAI's published JWKS. Check the issuer, audience against the issued client ID, expiration, and the nonce saved for this attempt. Use its validated `sub` as the account identity." [SIGNIN]
 - **Discovery:** "OpenAI publishes its production OpenID Connect discovery document at `https://auth.openai.com/.well-known/openid-configuration`. Load the `issuer`, `authorization_endpoint`, `token_endpoint`, and `jwks_uri` values from that document." The example configuration on that page gives "Authorization endpoint: https://auth.openai.com/api/accounts/authorize", "Token endpoint: https://auth.openai.com/api/accounts/oauth/token" and "JWKS URI: https://auth.openai.com/.well-known/jwks.json". These are the same endpoints the open-source flow names [WEB].
-- **Plan permission:** "Check the token response's granted scopes for `chatgpt.tokens.use.direct` before proceeding to inference. A valid ID token alone does not authorize ChatGPT plan usage." [SIGNIN]
+- **Concretely,** the checks are: RS256 only, with keys from `https://auth.openai.com/.well-known/jwks.json`; `iss` equal to `https://auth.openai.com`; `aud` equal to the issued `client_id`; `exp`; and the saved `nonce`. The live discovery document lists `RS256` as its only ID-token signing algorithm, and also gives `"revocation_endpoint": "https://auth.openai.com/api/accounts/oauth/revoke"` [DISCO].
+- **Plan permission:** "Check the token response's granted scopes for `chatgpt.tokens.use.direct` before proceeding to inference. A valid ID token alone does not authorize ChatGPT plan usage." [SIGNIN] If the scope is missing, the state is "plan disabled" (§3.9).
 
 ### 3.6 Tokens: lifetime, refresh and revocation
 
 - **Token response:** "includes `access_token`, `refresh_token`, `id_token`, `token_type`, `expires_in`, `scope`, and `earliest_refresh_at`." [TOK]
 - **Lifetimes:** "Access tokens are valid for one hour (`expires_in: 3600`). Refresh tokens are valid for 30 days. Each successful refresh returns a replacement refresh token with a fresh 30-day lifetime." [TOK]
-- **Refresh:** "POST form-encoded `grant_type=refresh_token`, the issued `client_id` … the saved `refresh_token`, and `resource=https://api.openai.com/v1` to `https://auth.openai.com/api/accounts/oauth/token`; omit `scope` to retain the grant." And: "serialize refreshes for the same session so two processes do not race a rotating token." [SESS]
-- **`earliest_refresh_at`:** returned but not defined further [TOK]. Treat it as the earliest time to refresh, and confirm against a real response.
+- **Refresh:** "POST form-encoded `grant_type=refresh_token`, the issued `client_id` … the saved `refresh_token`, and `resource=https://api.openai.com/v1` to `https://auth.openai.com/api/accounts/oauth/token`; omit `scope` to retain the grant." And: "serialize refreshes for the same session so two processes do not race a rotating token." [SESS] Save the rotated refresh token, and serialize refreshes within the process and across processes (§4.3, §4.9). A raced refresh answers `refresh_token_reused`. Refresh is currently refused upstream (devkit#5, [Known preview problems](#known-preview-problems)).
+- **`earliest_refresh_at`:** returned but not defined further [TOK]. Treat it as the earliest time to refresh, honour it, and confirm against a real response.
 - **Refresh failures:** on "`invalid_grant` on refresh, `invalid_refresh_token`, `token_expired`, `refresh_token_expired`, `refresh_token_invalidated`, or `refresh_token_reused`. Clear unusable tokens and repeat OAuth with the saved issued client ID." [ERR]
 - **Sign-out:** "revoke the renewable session using the `revocation_endpoint` from `https://auth.openai.com/.well-known/openid-configuration`. Send a form-encoded `POST` with `token=<REFRESH_TOKEN>`, `token_type_hint=refresh_token`, and the issued `client_id`." Then: "Retain its account/client mapping and this host's ID for a later sign-in." [SESS]
+  - **The endpoint** is `https://auth.openai.com/api/accounts/oauth/revoke` today [DISCO]. Read it from the discovery document rather than hard-coding it (§4.3).
+  - **Success** is an empty HTTP `200`, "including for an already-invalid token" [SESS].
+  - **Not confirmed:** on a network failure or `5xx`, retry with backoff while the refresh token is still there. If sign-out finishes locally without a confirmed revocation, clear the tokens and tell the user that remote revocation was not confirmed [SESS]. Point them to ChatGPT Settings → Security and login → Sign in with ChatGPT → select the app → Disconnect [LEARN].
+  - **The client stays.** "Revoking this session does not delete the registered client" [SESS], so the registration and the host ID are kept.
 - **Disconnects are silent:** "OpenAI does not currently notify your tool when a user disconnects the app in ChatGPT settings." [ERR]
 - **Returning sign-in is light:** with an issued client ID, "the user sees the account selector screen, then redirects, with no workspace selection or consent screen." [SIGNIN]
 
@@ -160,16 +188,16 @@ Preview rules that matter for edytlab [PREV]:
 - **Request shape:** "Send `input` as an array containing the context needed for each request. Use `instructions` or developer messages; explicit `{type: "message", role: "system"}` items are rejected."
 - **Unsupported fields:** "Omit `background`, `conversation`, `max_output_tokens`, `max_tool_calls`, `metadata`, `moderation`, `multi_agent`, `prompt`, `prompt_cache_retention`, `safety_identifier`, `temperature`, `top_logprobs`, `top_p`, `truncation`, and `user`."
 - **Conversation state:** "Omit `previous_response_id` over HTTP and send the required history in `input`." edytlab already resends history every round trip.
-- **Tools:** "Group function/custom tools in namespaces or supply them through `additional_tools` input items." A namespace is `{"type": "namespace", "name": …, "description": …, "tools": [{"type": "function", …}]}` [FC].
-- **Unsupported tools:** "Image generation, file search, Code Interpreter, native computer use, hosted MCP/connectors, and Responses `tool_search`." edytlab uses none of these. Its tools are client-side functions.
-- **Inputs:** "Audio/video input, the Files upload API, and the transcription API are not supported by this flow." edytlab sends the model text only. Audio stays in the local engine.
+- **Tools:** "Group function/custom tools in namespaces or supply them through `additional_tools` input items." A namespace is `{"type": "namespace", "name": …, "description": …, "tools": [{"type": "function", …}]}` [FC]. "Web search remains subject to model and account/workspace policy." edytlab does not use web search.
+- **Unsupported tools:** "Image generation, file search, Code Interpreter, native computer use, hosted MCP/connectors, and Responses `tool_search`. Client-side execution does not make `tool_search` supported. `programmatic_tool_calling` is not accepted in top-level `tools` on this route." edytlab uses none of these. Its tools are client-side functions.
+- **Inputs:** "Text, images, and files are supported when the selected model accepts them. Audio/video input, the Files upload API, and the transcription API are not supported by this flow." edytlab sends the model text only. Audio stays in the local engine, and nothing in the plan sends images or files.
 - **Completion:** "Treat inference as successful only after receiving `response.completed` … A usage-limit error can arrive as `response.failed` with `subscription_sharing_usage_limit_exceeded` or `subscription_sharing_usage_unavailable` after streaming has begun." [INF]
 - **Stream events for tool calls:** `response.output_item.added` carries a `function_call` item with `call_id` and `name`, then `response.function_call_arguments.delta` events, then `…arguments.done` and `response.output_item.done` [FC]. Tool results go back as `function_call_output` items with the same `call_id` [FC].
 
 ### 3.8 Models, limits and attribution
 
 - **Models are per account.** "request the selected ChatGPT account's model catalog with the same access token you will use for inference: `GET https://api.openai.com/v1/models` … The model-list response contains a `models` array … Show `display_name` in your UI and pass the selected `slug` as `model`" [INF]. Keep entries with `visibility == "list"`. This envelope differs from the API-key catalogue's `{"data": [{"id": …}]}`, which `crates/ai/src/models.rs` parses today. No model should be hard-coded as the default.
-- **Rate limits:** "For ChatGPT Plus users, the five-hour usage limit is shared across all apps where they use their ChatGPT plan, including private and open-source clients … The five-hour usage limit does not apply for Pro users." [SESS] Per-app weekly caps are user-set (§2.4). No numeric limits are published for this flow.
+- **Rate limits:** "For ChatGPT Plus users, the five-hour usage limit is shared across all apps where they use their ChatGPT plan, including private and open-source clients … The five-hour usage limit does not apply for Pro users." [SESS] Per-app weekly caps are user-set (§2.4). No numeric limits are published for this flow. The Plus estimates on the pricing page are in [Known preview problems](#known-preview-problems).
 - **Attribution:** "Its issued `client_id` identifies that registration, its security boundaries, and its ChatGPT plan usage settings." "Send the stable, opaque `ext_agent_host_id` so ChatGPT plan usage can be associated with its host" [OSS]. Users review usage at ChatGPT Settings → Usage, and apps should "Link from your tool's usage-tracking pages to ChatGPT Settings → Usage" (`https://chatgpt.com/settings/usage`) [SESS].
 
 ### 3.9 Errors and how to recover
@@ -199,8 +227,8 @@ From [ERR]:
 | `crates/ai/src/provider.rs` | `LlmProvider` owns auth, endpoint, serialisation and stream parsing. `OpenAIProvider::endpoint_path()` is `"/v1/chat/completions"`. `WireFormat` is `AnthropicMessages` or `ChatCompletions`. | Plan tokens are accepted only on `/v1/responses` (§2.5). A third wire format is needed. |
 | `crates/ai/src/lib.rs` | `LlmConfig { provider, api_key: String, … }` is built once by `rebuild_agent` and held "for its lifetime" (`commands.rs`). | Access tokens expire hourly (§3.6), so the bearer must be fetched, and refreshed if needed, per request. |
 | `crates/ai/src/agent_loop.rs` | Three request sites call `cfg.provider.apply_auth(req, &cfg.api_key)`. `one_shot_body` sends `"stream": false` for the classifier and plan. `extract_response_text` knows two reply shapes. | One-shot calls must stream (§3.7). `max_completion_tokens` and `max_tokens` must not be sent. The system prompt moves to `instructions`. |
-| `crates/ai/src/keychain.rs` | Per-provider slots `<id>_api_key`, `<id>_model`, `<id>_base_url`, `<id>_effort`, plus `active_provider`. On Linux it is the Secret Service (GNOME Keyring, KWallet or KeePassXC), and with none running the kernel keyring, which does not survive a reboot (#394). | A rotating refresh token fits a slot. The **registration** (issued `client_id`, host ID) must survive reboots even where the slot does not (Linux with no Secret Service), or every reboot there registers a *new* client in the user's ChatGPT settings. |
-| Windows Credential Manager via `keyring` 3.6.3 | Secrets are stored UTF-16: "Password strings are converted to UTF-16" [KEYRING]. The blob "cannot be larger than CRED_MAX_CREDENTIAL_BLOB_SIZE (5*512) bytes" [WINCRED]. | So a slot holds at most 1280 ASCII characters. Access and ID tokens are JWTs carrying `encrypted_auth_metadata` [TOK] and may not fit. |
+| `crates/ai/src/keychain.rs` | Per-provider slots `<id>_api_key`, `<id>_model`, `<id>_base_url`, `<id>_effort`, plus `active_provider`. On Linux it is the Secret Service (GNOME Keyring, KWallet or KeePassXC), and with none running the kernel keyring, which does not survive a reboot. #394 is largely fixed by #477: only a system with no Secret Service loses the token on reboot. | A rotating refresh token fits a slot. The **registration** (issued `client_id`, host ID) must survive reboots even where the slot does not (Linux with no Secret Service), or every reboot there registers a *new* client in the user's ChatGPT settings. |
+| Windows Credential Manager via `keyring` 3.6.3 | `set_password` stores UTF-16: "Password strings are converted to UTF-16" [KEYRING]. The blob "cannot be larger than CRED_MAX_CREDENTIAL_BLOB_SIZE (5*512) bytes" [WINCRED]. `keychain.rs` uses `set_password` today. | So a password slot holds at most 1,280 characters. `set_secret` stores raw bytes, which allows 2,560 bytes (checked in keyring-3.6.3/src/windows.rs [KEYRING]). The refresh token goes in with `set_secret`. Access and ID tokens are JWTs carrying `encrypted_auth_metadata` [TOK] and may not fit either, so they stay in memory. |
 | `crates/ai/src/models.rs` | Parses `{"data":[{"id":…}]}`. | The plan catalogue is `{"models":[{"slug","display_name","visibility"}]}` (§3.8). |
 | `apps/desktop/src-tauri` | Capability `default.json` allows `core:default`, `dialog:default` and `dialog:allow-open`. The CSP `connect-src` is `'self' ipc: http://ipc.localhost asset: http://asset.localhost`. There is no opener plugin. | Nothing blocks. All HTTP happens in Rust, and the callback page renders in the system browser, so **the CSP and capabilities need no change** (§3.3). |
 | `list_models_for(provider, api_key)` (Tauri) | The webview passes the key in. | For `chatgpt` the token must never reach the webview. The command reads it from the Rust session instead. |
@@ -234,27 +262,29 @@ Label it **"ChatGPT plan"** in the picker. Later, the API-key `openai` provider 
      - Thinking blocks are dropped, as the Chat Completions path already does.
    - `parse_stream_chunk`: a state machine that maps `response.output_text.delta`, `response.output_item.added`, `response.function_call_arguments.delta`, `response.output_item.done`, `response.completed`, `response.failed`, `response.incomplete` and `error` to the canonical `StreamEvent`s. A stream that ends without `response.completed` is an error, not a success.
    - One-shot calls (classifier, plan) build a streamed body and collect text until `response.completed`. `one_shot_body` and `extract_response_text` gain a `Responses` arm, and the `a_provider_on_chat_completions_declares_it` test learns a third shape.
-2. **`ChatGptProvider` in `provider.rs`.** It has `CHATGPT_ID = "chatgpt"`, base URL `https://api.openai.com`, `endpoint_path() = "/v1/responses"`, `wire_format() = Responses`, `supports_effort() = false`, and `list_models_path() = "/v1/models"`. Add it to `provider_from_id` and `SUPPORTED_PROVIDER_IDS`. Replace the boolean `requires_api_key()` with `fn credential_kind(&self) -> CredentialKind { ApiKey | None | ChatGptOAuth }`, and keep `requires_api_key()` as a default derived from it, so no existing call site changes meaning.
+2. **`ChatGptProvider` in `provider.rs`.** It has `CHATGPT_ID = "chatgpt"`, base URL `https://api.openai.com`, `endpoint_path() = "/v1/responses"`, `wire_format() = Responses`, `supports_effort() = false`, and `list_models_path() = "/v1/models"`. Add it to `provider_from_id` and `SUPPORTED_PROVIDER_IDS`. Replace the boolean `requires_api_key()` with `fn credential_kind(&self) -> CredentialKind { ApiKey | None | OAuth }`, and keep `requires_api_key()` as a default derived from it, so no existing call site changes meaning. **The provider ignores any base-URL override** (`base_url_override` and the `<id>_base_url` keychain slot): a bearer is sent only to `api.openai.com` and `auth.openai.com` (§4.9).
 3. **Bearer per request.** Add `pub enum Credential { ApiKey(String), ChatGpt(Arc<ChatGptSession>) }` to `LlmConfig` next to `api_key`, or replacing it. Each request site calls `cfg.bearer().await?` and then `apply_auth(req, &token)`. An enum avoids pulling in async-trait. On a `401`, a `ChatGpt` credential forces one refresh and the request is retried **once**.
-4. **`crates/ai/src/chatgpt/` (new), with no Tauri dependency:**
-   - `oauth.rs`:
-     - PKCE (S256), `state` and `nonce`;
-     - the authorize-URL builder (§3.2);
-     - a loopback listener on `127.0.0.1`: try 1455, then an ephemeral port, fixed path `/auth/callback`, one request, a timeout, a cancel handle, and a small "You can close this tab and return to edytlab" page;
-     - the code exchange, refresh and revocation.
-     - It takes `open_url: impl FnOnce(&str) -> Result<()>` from the caller, so Tauri passes the opener and tests pass a closure that drives the callback.
+4. **Two module trees in `crates/ai`, neither with a Tauri dependency.** A generic OAuth client with nothing ChatGPT-specific in it (PR 2), and the ChatGPT layer on top of it (PR 3). The split lets a later Sign in with OpenRouter reuse the generic part.
+   - **`crates/ai/src/oauth/` (new, generic):**
+     - `pkce.rs`: PKCE (S256), `state` and `nonce`.
+     - `loopback.rs`: the listener. The host (`127.0.0.1` or `localhost`) and the path are configurable. It accepts one request, with a timeout and a cancel handle, and serves a small "You can close this tab and return to edytlab" page. ChatGPT passes `127.0.0.1`, port 1455 then an ephemeral port, and `/auth/callback` (§3.3). The security rules are in §4.9.
+     - `oidc.rs`: the discovery document, the cached JWKS, and the ID-token checks (signature, `iss`, `aud`, `exp` with small skew, `nonce`).
+     - `token.rs`: the code exchange, refresh and revocation, as form POSTs.
+     - The browser opener is an injected `open_url: impl FnOnce(&str) -> Result<()>`, so Tauri passes the opener and tests pass a closure that drives the callback.
      - It uses the explicitly documented `…/api/accounts/authorize` and `…/api/accounts/oauth/token` endpoints. It uses the discovery document only for `jwks_uri` and `revocation_endpoint`, and the issuer is overridable for tests.
-   - `id_token.rs`: fetch and cache the JWKS, and verify signature, `iss`, `aud` (the issued client id), `exp` with small skew, and `nonce`. A maintained JWT crate such as `jsonwebtoken` is a new dependency to vet.
-   - `session.rs`: the access token, expiry, ID token and scopes in memory. `bearer()` refreshes within about five minutes of expiry, not before `earliest_refresh_at`, behind a `tokio::sync::Mutex` so concurrent agent, classifier and model-list calls refresh once. It writes the rotated refresh token back before returning.
-   - `store.rs`, with this split:
+     - New dependencies to vet: `sha2` (already in the workspace), `base64`, `getrandom`, `jsonwebtoken`, `url`, and `windows-sys` or `socket2` for the Windows socket option (§4.9).
+   - **`crates/ai/src/chatgpt/` (new, ChatGPT-specific):**
+     - `spec.rs`: the ChatGPT parameters and rules, which are the authorize URL (§3.2), dynamic registration and the callback rules (§3.4), the scope check (§3.5) and the classification of refresh errors (§3.6).
+     - `session.rs`: the access token, expiry, ID token and scopes in memory. `bearer()` refreshes within about five minutes of expiry, not before `earliest_refresh_at`. Refreshes are single-flight in the process, behind a `tokio::sync::Mutex`, so concurrent agent, classifier and model-list calls refresh once. A cross-process file lock covers a second app process, because there is no single-instance plugin (§4.9). It writes the rotated refresh token back before the new access token is used. It never erases credentials on a network error. Sign-out revokes the session (§3.6).
+     - `store.rs`, with this split:
 
-     | Data | Where | Why |
-     |---|---|---|
-     | host ID, issued `client_id`, issuer, verified `sub`, email (as a label and `login_hint`), granted scopes, `saved_at` | `<app config dir>/chatgpt/registration.json`, atomic write, `0600` on Unix | Not secret: the client is "a public client without a secret" [SIGNIN], and "A host ID is not an authentication credential" [OSS]. It must survive reboots even where the keychain does not (Linux with no Secret Service, #394), or each sign-in re-registers. |
-     | refresh token | keychain slot `chatgpt_refresh_token` | Secret, rotated on every refresh. On save, check it fits the Windows limit; if `keyring` returns `TooLong`, keep the session in memory and tell the user they will sign in again next launch. |
-     | access token, ID token | memory only | One-hour lifetime. Avoids the 1280-character slot limit. Reauthorization uses `login_hint` rather than a stored `id_token_hint`. |
+       | Data | Where | Why |
+       |---|---|---|
+       | host ID, issued `client_id`, issuer, verified `sub`, email (as a label and `login_hint`), granted scopes, `saved_at` | `<app config dir>/chatgpt/registration.json`, atomic write, `0600` on Unix | Not secret: the client is "a public client without a secret" [SIGNIN], and "A host ID is not an authentication credential" [OSS]. It must survive reboots even where the keychain does not (Linux with no Secret Service), or each sign-in re-registers. Email is PII: keep it out of logs. |
+       | refresh token | keychain slot `chatgpt_refresh_token`, written with `keyring`'s `set_secret` (raw bytes) | Secret, rotated on every refresh. `set_secret` allows 2,560 bytes on Windows, where `set_password` (UTF-16) allows 1,280 characters (§4.1). If `keyring` still returns `TooLong`, keep the session in memory and tell the user they will sign in again next launch. |
+       | access token, ID token | memory only | One-hour lifetime. Avoids the Windows blob limit. Reauthorization uses `login_hint` rather than a stored `id_token_hint`. |
 
-     **On Linux with no Secret Service running (#394),** a reboot drops the refresh token but keeps the registration. Settings then shows "Session ended — Continue with ChatGPT", and the returning sign-in skips consent (§3.6). Where a Secret Service runs, the refresh token survives the reboot and this step does not arise.
+       **On Linux with no Secret Service running,** a reboot drops the refresh token but keeps the registration. #477 moved storage to the Secret Service and largely fixed #394, so only a system with no Secret Service loses the token on reboot. Settings then shows "Session ended — Continue with ChatGPT", and the returning sign-in skips consent (§3.6). Where a Secret Service runs, the refresh token survives the reboot and this step does not arise.
    - **One account to start.** The docs say "Your app needs to manage multiple account registrations", and also "Within your OSS app, you may choose to offer an account picker" [SESS]. v1 keeps one active account but keys stored registrations by (`sub`, `client_id`), so a picker is additive later.
 5. **`models.rs`:** a `chatgpt` arm that calls `GET /v1/models` with the session bearer, filters `visibility == "list"`, keeps server order, and maps `slug` to `id` and `display_name` to `display_name`.
 6. **`validate.rs`:** for `chatgpt`, "Test" is the models call plus a tiny streamed Responses request carrying one dummy tool, so `tools_ok` stays meaningful. It reports the mapped error, never the raw token.
@@ -270,7 +300,7 @@ Label it **"ChatGPT plan"** in the picker. Later, the API-key `openai` provider 
   - `chatgpt_enable_plan_usage()`: reauthorizes with the full scope set and `prompt=consent`
   - `chatgpt_sign_out()`: revokes, clears tokens, keeps the registration, and reports whether revocation was confirmed
   - `open_chatgpt_usage()`: opens the fixed URL `https://chatgpt.com/settings/usage` and nothing else
-- **Existing commands:** `provider_is_configured`, `rebuild_agent`, `set_active_provider` and `list_models_for` learn `CredentialKind::ChatGptOAuth`. For it, "configured" means "signed in with plan usage", and the models list reads the session in Rust and ignores any key from the webview.
+- **Existing commands:** `provider_is_configured`, `rebuild_agent`, `set_active_provider` and `list_models_for` learn `CredentialKind::OAuth`. For it, "configured" means "signed in with plan usage", and the models list reads the session in Rust and ignores any key from the webview.
 - Keep the store and engine locks in separate scopes as usual. The OAuth wait (up to minutes in the browser) must hold **no** `AppState` lock.
 - **`apps/desktop/e2e/backend.ts`:** an answer for each new command, taken from the command bodies, per the repo's e2e rule.
 
@@ -282,7 +312,7 @@ Label it **"ChatGPT plan"** in the picker. Later, the API-key `openai` provider 
   - **Signing in:** "Finish signing in in your browser…" with **Cancel**.
   - **Signed in:** the account email, a **Using ChatGPT plan** badge, **Manage usage** (calls `open_chatgpt_usage`) and **Sign out**. The model picker is filled from the plan catalogue. There is no base-URL field and no effort control.
   - **Plan disabled:** "Signed in, but this app isn't allowed to use your ChatGPT plan", with **Enable ChatGPT plan usage** and **Use an API key instead**, which switches to the `openai` provider.
-  - **Session ended** (refresh failed, or a reboot on Linux with no Secret Service): "Your ChatGPT session ended" with **Continue with ChatGPT**.
+  - **Session ended** (refresh failed, which devkit#5 makes likely for now, or a reboot on Linux with no Secret Service): "Your ChatGPT session ended" with **Continue with ChatGPT**.
 - **First use:** a one-time modal "You're using your ChatGPT plan" with **Got it**, as [UX] says: "Show a welcome modal only the first time".
 - **In use:** a "Using ChatGPT plan · Manage usage" line near the composer or model selector, per [UX]: "display **Using ChatGPT plan** near the composer or model selector".
 - **Usage limit:** a "Usage limit reached" modal or compact card with **Manage usage** as the primary action, and no automatic fallback.
@@ -294,11 +324,12 @@ Label it **"ChatGPT plan"** in the picker. Later, the API-key `openai` provider 
   - PKCE against the RFC 7636 appendix-B vector.
   - Authorize-URL contents: the exact scope string, `resource`, `127.0.0.1`, the `/auth/callback` path, `agent_name_hint` only on first registration, and `ext_agent_host_id` always.
   - Callback rules: state mismatch, `access_denied` (no exchange), missing `client_id` on registration, differing `client_id` on reauth.
+  - Loopback listener: a wrong path or `Host` header is rejected, and a timeout and a cancel both end the wait.
   - `registration.json` written atomically with `0600`.
   - Error-code mapping for every row of §3.9.
 - **Mock OAuth and API server (`wiremock`, already a dev-dependency):**
   - It serves discovery, a JWKS, the token endpoint (code and refresh grants, `invalid_grant`, `refresh_token_reused`), revocation, `/v1/models` and `/v1/responses` SSE.
-  - ID tokens are signed at test time with a key pair generated inside the test, so nothing secret is committed. Wrong `iss`, `aud`, `exp` or `nonce` must each be rejected.
+  - ID tokens are signed at test time with a key pair generated inside the test, so nothing secret is committed. Wrong `iss`, `aud`, `exp`, `nonce` or `alg` must each be rejected.
   - The loopback test drives the callback with a real `GET http://127.0.0.1:<port>/auth/callback?…` from the test's `open_url` closure.
   - Refresh: rotation replaces the stored refresh token, and two concurrent `bearer()` calls make exactly one token request.
   - Sign-out sends `token_type_hint=refresh_token` with the issued `client_id`.
@@ -308,26 +339,111 @@ Label it **"ChatGPT plan"** in the picker. Later, the API-key `openai` provider 
 - **Agent-loop integration (`wiremock`):** a full tool round trip on `chatgpt`; `401` → refresh → single retry; `429` usage limit surfaced with no retry and no provider fallback.
 - **Frontend (vitest, plus `test:slow-scheduler`):** each Settings state, the welcome modal shown once, the usage-limit modal action, and that no bridge response or prop ever carries a token.
 - **e2e (Playwright):** the Settings ChatGPT card renders from the fake backend, and sign-in switches to the signed-in state.
-- **Manual pre-release check with a real Plus account** (not in CI): first registration, returning sign-in, refresh after an hour, sign-out and revocation, disconnect from ChatGPT settings, hitting a per-app weekly cap, and a Linux reboot (with and without a Secret Service).
+- **Manual pre-release check with a real Plus or Pro account** (not in CI): the checklist in §4.10.
 
-### 4.7 Suggested PR sequence (one concern each)
+### 4.7 PR plan (one concern each)
 
-1. `feat(ai): Responses wire format` (`responses.rs` with serializer, parser and tests; no user-visible change).
-2. `feat(ai): ChatGPT OAuth session` (`chatgpt/` with oauth, id_token, session and store; mock-server tests).
-3. `feat(ai): chatgpt provider` (the provider, `Credential`, agent-loop wiring, models, validate, error mapping).
-4. `feat(desktop): ChatGPT sign-in commands` (Tauri commands, opener, e2e backend answers).
-5. `feat(desktop): ChatGPT plan in Settings` (the card, indicator, welcome and usage-limit modals).
-6. `docs:` updates to `api-reference.md`, `architecture.md`, `contributing.md` §7 and any site provider list. The site copy must still not overstate anything: plan usage is in preview, for Plus and Pro.
+0. **`docs(spec):` errata.** This document: the corrections of 2026-10-11, the decision, the plan and the checklist.
+1. **`feat(ai): Responses wire format`.**
+   - New `crates/ai/src/responses.rs` and `WireFormat::Responses` in `provider.rs`.
+   - The serializer, and the SSE state machine covering `output_text.delta`, `output_item.added/done`, `function_call_arguments.delta/done`, `completed`, `failed`, `incomplete` and `error`.
+   - One-shot calls rewritten to stream (`agent_loop.rs`: `one_shot_body`, `extract_response_text`).
+   - Tests: the body has `store:false` and `stream:true`, has none of the unsupported fields, has no system-role item, and wraps tools in a namespace; a stream cut off before `completed` is an error.
+2. **`feat(ai): generic OAuth client`.**
+   - New `crates/ai/src/oauth/{pkce,loopback,oidc,token}.rs`, with nothing ChatGPT-specific (§4.3).
+   - The host (`127.0.0.1` or `localhost`) and the path are configurable, so OpenRouter can reuse it. The browser opener is an injected `open_url` closure.
+   - New dependencies to vet: `sha2` (already in the workspace), `base64`, `getrandom`, `jsonwebtoken`, `url`, and `windows-sys` or `socket2` for the Windows socket option.
+   - Tests:
+     - the RFC 7636 Appendix B vector;
+     - a real loopback GET;
+     - a wrong path or `Host` rejected;
+     - `state` mismatch and `access_denied`;
+     - timeout and cancel;
+     - the ID token rejected for each bad `iss`, `aud`, `exp`, `nonce` or `alg`, using an RSA key generated inside the test;
+     - token and revoke calls against `wiremock`.
+3. **`feat(ai): ChatGPT plan session`.**
+   - New `crates/ai/src/chatgpt/{spec,session,store}.rs`, covering:
+     - dynamic registration and the callback rules;
+     - the scope check;
+     - single-flight refresh that honours `earliest_refresh_at`;
+     - a cross-process lock;
+     - the rotated token saved before it is used;
+     - classification of refresh errors;
+     - revocation.
+4. **`feat(ai): chatgpt provider`.**
+   - `ChatGptProvider` (`CHATGPT_ID = "chatgpt"`) in `provider.rs`, plus `provider_from_id` and `SUPPORTED_PROVIDER_IDS`.
+   - `fn credential_kind() -> ApiKey | None | OAuth`, with `requires_api_key()` derived from it so no existing call site changes meaning. The provider ignores any base-URL override (§4.9).
+   - A `Credential` enum on `LlmConfig` (`lib.rs`). Each of the three `apply_auth` sites in `agent_loop.rs` (~302, 713, 1097) fetches a bearer per request. A `401` forces one refresh and one retry.
+   - `models.rs` learns the `models[]` envelope, and `validate.rs` gets a ChatGPT test.
+   - An error kind for each `subscription_sharing_*` code, and no silent fallback to another provider.
+   - On this provider, skip the classifier or run it on the cheapest listed model.
+   - If 93 tools in one namespace are rejected, fall back to `ToolSet::Slim` (#395).
+5. **`feat(desktop): ChatGPT sign-in commands`** in `apps/desktop/src-tauri`.
+   - `tauri-plugin-opener`, used from Rust only, so `capabilities/default.json` and the CSP do not change.
+   - The commands of §4.4, all returning `CmdResult<T>` and none returning a token: `chatgpt_status`, `chatgpt_sign_in`, `chatgpt_cancel_sign_in`, `chatgpt_enable_plan_usage`, `chatgpt_sign_out`, and `open_chatgpt_usage` (a fixed URL).
+   - Update `provider_is_configured`, `rebuild_agent`, `set_active_provider` and `list_models_for`.
+   - Hold no `AppState` lock while waiting for the browser.
+   - Add an answer for each command in `apps/desktop/e2e/backend.ts`.
+6. **`feat(desktop): ChatGPT plan in Settings`** in `Settings.tsx` and `tauri-bridge.ts`.
+   - Card states: signed out, signing in, signed in, plan disabled, session ended.
+   - "Using ChatGPT plan · Manage usage" near the composer.
+   - A welcome modal, shown once.
+   - A usage-limit modal with **Manage usage** as the primary action.
+   - A text-only **Continue with ChatGPT** button until the brand rules are checked (§4.8).
+   - Tests: vitest, `test:slow-scheduler` and e2e.
+7. **`docs:`** `api-reference.md`, `architecture.md`, `contributing.md` §7 and the site's provider copy. The copy must not overstate anything: plan usage is in preview, for Plus and Pro.
+8. **Optional follow-ups.**
+   - Sign in with OpenRouter, reusing the PR 2 client and storing the minted key in `openrouter_api_key`.
+   - Move the API-key `openai` provider onto the Responses format (§4.2).
 
 ### 4.8 Risks and open questions
 
 - **The preview can change under us.** Endpoints, required fields and the namespaced-tools rule are all marked preview [PREV]. Keep the protocol code in one module, and pin behaviour with the mock-server tests so a change shows up as one failing test.
-- **Namespaced tools at edytlab's scale.** The agent offers about 93 tools (`docs/README.md`). The preview says to group them in namespaces, and `tool_search` (deferred loading) is unsupported. Verify early with a real account that one namespace of that size is accepted, and whether returned `function_call` items carry a `namespace` field that has to be echoed back.
+- **Namespaced tools at edytlab's scale.** The agent offers about 93 tools (`docs/README.md`). The preview says to group them in namespaces, and `tool_search` (deferred loading) is unsupported. Verify early with a real account that one namespace of that size is accepted, and whether returned `function_call` items carry a `namespace` field that has to be echoed back. If a namespace of that size is rejected, fall back to `ToolSet::Slim` (#395).
 - **Reasoning continuity with `store: false`.** The plan-usage pages do not say how a reasoning model's state carries across stateless turns. Test tool-heavy sessions, and check whether `include: ["reasoning.encrypted_content"]` is accepted, since it is not on the unsupported list.
-- **Users' allowance.** Every agent round trip, and the mode classifier, spends the user's Plus or Pro allowance, which their Codex use also draws on [HELP]†. Consider skipping the classifier on `chatgpt`, and say plainly in the UI where usage goes.
-- **Keychain limits.** The Windows 1280-character slot limit and the non-durable kernel-keyring fallback on Linux with no Secret Service (#394) are handled by the split in §4.3. Measure real refresh-token lengths.
+- **Users' allowance.** Every agent round trip, and the mode classifier, spends the user's Plus or Pro allowance, which their Codex use also draws on [HELP]†. Skip the classifier on `chatgpt`, or run it on the cheapest listed model, and say plainly in the UI where usage goes. The Plus figures are in [Known preview problems](#known-preview-problems).
+- **Refresh may not work yet.** devkit#5 is open (see [Known preview problems](#known-preview-problems)), so a session may end at about the one-hour mark. The "Session ended" card (§4.5) is the recovery.
+- **Keychain limits.** The Windows limits (1,280 characters for `set_password`, 2,560 bytes for `set_secret`) and the non-durable kernel-keyring fallback on Linux with no Secret Service (#394, largely fixed by #477) are handled by the split in §4.3. Measure real refresh-token lengths.
 - **Brand assets.** openai.com/brand could not be read from this environment. Check the logo and button rules there before shipping the branded button.
 - **If edytlab goes paid or hosted** (FAQ roadmap), file the interest form before offering plan usage in that product (§2.2).
+
+### 4.9 Security requirements (must hold)
+
+- **Token handling.** The refresh token is kept only in the OS keychain. Tokens never cross IPC and never reach the webview, logs, `Debug` output or URLs. This follows [SESS]: "Keep tokens out of browser storage, source control, logs, analytics, and support transcripts. Never put access or refresh tokens in URLs." Email is PII: keep it out of logs.
+- **Exfiltration guard.** The ChatGPT provider ignores any base-URL override. Bearers go only to `api.openai.com` and `auth.openai.com`. Tests that point the provider at a mock server need a seam the app cannot reach, and PR 3 and PR 4 decide it.
+- **Scopes.** Request exactly the documented set (§3.2), with no connector scopes. Check the granted scope, and check `aud` against the issued client id.
+- **PKCE and token checks.**
+  - S256, with a CSPRNG verifier of 43–128 characters. `state` and `nonce` of 128 bits or more.
+  - RS256 only.
+  - A JWKS cache that refetches on an unknown `kid`.
+  - Exact `iss`, and a small clock skew.
+- **Loopback.**
+  - Bind `127.0.0.1` only, before opening the browser.
+  - Accept a single `GET /auth/callback`, check the `Host` header, and time out after about 5 minutes.
+  - Serve a static page that echoes nothing and sets no CORS headers.
+  - On Windows, set `SO_EXCLUSIVEADDRUSE`.
+  - Codex CLI uses port 1455 too. PKCE plus `state` cover a squatter on the port.
+- **Browser.** The system browser (RFC 8252), never an embedded webview.
+- **Refresh races.** Single-flight within the process, plus a cross-process file lock, because there is no single-instance plugin. Never erase credentials on a network error. A raced refresh gives `refresh_token_reused`.
+- **Sign-out.** Revoke, and tell the user if revocation was not confirmed. Point them to ChatGPT Settings → Security and login → Sign in with ChatGPT → Disconnect (§3.6).
+- **Licensing.** Copy nothing from OpenAI's DevKit; it is under a noncommercial licence (§2.4).
+
+### 4.10 Needs a real Plus/Pro account
+
+Manual, not CI. A PR that checks an item ticks it here and records what it saw.
+
+- [ ] First registration on each OS.
+- [ ] Whether the first registration accepts a port other than 1455.
+- [ ] A returning sign-in without the consent screen.
+- [ ] What `/v1/models` lists.
+- [ ] Whether 93 tools in one namespace are accepted, and the namespace echo on `function_call`.
+- [ ] `include: ["reasoning.encrypted_content"]` with `store: false`.
+- [ ] Refresh at the one-hour mark, and what `earliest_refresh_at` says (devkit#5).
+- [ ] Token lengths.
+- [ ] A `429` at the cap, or `response.failed` mid-stream.
+- [ ] Decline and re-enable with `prompt=consent`.
+- [ ] Disconnect, revocation, and the error a Business workspace gets.
+- [ ] A Linux reboot, with and without a Secret Service.
 
 ---
 
@@ -344,6 +460,7 @@ For Team, Business, Enterprise, Edu and Free users, users in an unserved region,
 
 ## 6. What to watch
 
+- devkit#5 [DEVKIT-5] closing (refresh works), and a quota API appearing (devkit#3 [DEVKIT-3]).
 - Changes to the [PREV] and [ERR] pages: unsupported fields, tool rules, and the `force_reconsent=true` rollout.
 - Disconnect notifications, if OpenAI adds them ("OpenAI does not currently notify your tool" [ERR]).
 - Plan eligibility widening to Go or Business for open-source clients, and any published numeric limits.
@@ -353,7 +470,7 @@ For Team, Business, Enterprise, Edu and Free users, users in an unserved region,
 
 ## Sources
 
-Read on 2026-10-10. **†** marks pages that answered HTTP 403 to direct fetches from this environment; their quotes are search-index excerpts.
+Read on 2026-10-10, and corrected against the same pages on 2026-10-11. **†** marks pages that answered HTTP 403 to direct fetches from this environment; their quotes are search-index excerpts.
 
 | Tag | Source |
 |---|---|
@@ -373,6 +490,11 @@ Read on 2026-10-10. **†** marks pages that answered HTTP 403 to direct fetches
 | [FC] | https://developers.openai.com/api/docs/guides/function-calling |
 | [DEVKIT] | https://github.com/openai/sign-in-with-chatgpt-devkit (README) |
 | [DKLIC] | https://github.com/openai/sign-in-with-chatgpt-devkit/blob/main/LICENSE |
+| [DEVKIT-5] | https://github.com/openai/sign-in-with-chatgpt-devkit/issues/5 |
+| [DEVKIT-3] | https://github.com/openai/sign-in-with-chatgpt-devkit/issues/3 |
+| [DISCO] | https://auth.openai.com/.well-known/openid-configuration |
+| [LEARN] | https://learn.chatgpt.com/docs/sign-in-with-chatgpt |
+| [PRICING] | https://learn.chatgpt.com/docs/pricing |
 | [CODEX-LOGIN] | https://github.com/openai/codex/blob/main/codex-rs/login/src/server.rs |
 | [CODEX-PROV] | https://github.com/openai/codex/blob/main/codex-rs/model-provider-info/src/lib.rs |
 | [RECAP] † | https://openai.com/index/devday-2026-recap/ |
@@ -387,4 +509,4 @@ Read on 2026-10-10. **†** marks pages that answered HTTP 403 to direct fetches
 
 edytlab facts are cited by path in this repository at the commit this document was branched from.
 
-**Not verified here:** no live sign-in or inference was attempted, since no credentials are available or appropriate. Everything in §3 is OpenAI's documented contract, not observed behaviour.
+**Not verified here:** no live sign-in or inference was attempted, since no credentials are available or appropriate. Everything in §3 is OpenAI's documented contract, not observed behaviour. What needs a real account to confirm is the checklist in §4.10.

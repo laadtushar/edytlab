@@ -175,7 +175,8 @@ fn undo_then_redo_hits_in_both_directions() {
 
 /// A ranged render is an excerpt, not the mix, and must never be stored
 /// under the node's name — serving one as a whole-session preview would
-/// be a cache hit that returns the wrong audio.
+/// be a cache hit that returns the wrong audio. It is stored (#535), in
+/// the same bounded cache, under a key that names its range.
 #[test]
 fn a_ranged_render_is_not_cached_as_the_whole_mix() {
     let mut h = Harness::new();
@@ -187,10 +188,16 @@ fn a_ranged_render_is_not_cached_as_the_whole_mix() {
     );
     let excerpt_path = PathBuf::from(excerpt["path"].as_str().unwrap());
     let cache_dir = h.project.join(".audiograph").join("previews");
-    assert!(
-        !excerpt_path.starts_with(&cache_dir),
-        "a ranged render was written into the preview cache: {}",
+    assert_eq!(
+        excerpt_path.parent(),
+        Some(cache_dir.as_path()),
+        "a ranged render was written outside the preview cache: {}",
         excerpt_path.display(),
+    );
+    assert_ne!(
+        excerpt_path,
+        cache_dir.join(format!("{node}.wav")),
+        "an excerpt was stored under the node's name, where the mix belongs",
     );
 
     // The full render that follows is a genuine miss rather than a hit
@@ -201,6 +208,13 @@ fn a_ranged_render_is_not_cached_as_the_whole_mix() {
         full["frames_written"].as_u64().unwrap() > 1000,
         "the whole-session render returned an excerpt",
     );
+    // And the excerpt is still there, and is still an excerpt.
+    assert!(excerpt_path.is_file(), "the mix evicted the excerpt");
+    let excerpt_bytes = std::fs::metadata(&excerpt_path).unwrap().len();
+    let mix_bytes = std::fs::metadata(full["path"].as_str().unwrap())
+        .unwrap()
+        .len();
+    assert!(excerpt_bytes < mix_bytes, "the excerpt file is the mix");
 }
 
 /// `storage_report` has to be able to see the cache, or a bounded cache

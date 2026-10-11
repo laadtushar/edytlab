@@ -76,3 +76,8 @@ assets/demos/*.mov
 # several MB of PNGs, so it stays local — what a run *found* belongs in
 # a commit message or an issue, not in a binary nobody diffs.
 .e2e/
+
+# ONNX Runtime fetched by scripts/fetch-ml-runtime.sh (the library and its
+# licence notices, one folder per platform). The pin is
+# apps/desktop/src-tauri/ml-runtime.json; the download is never committed.
+ml-runtime/

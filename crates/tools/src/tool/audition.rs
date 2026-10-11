@@ -43,6 +43,14 @@
 //! preview cache: serving one in place of a whole mix would be a hit
 //! that returns the wrong audio (#164).
 //!
+//! ## Why Plan first does not hold it
+//!
+//! It appends nothing and moves nothing. Its only file is an entry in that
+//! cache (`.audiograph/auditions/`): content-addressed, size-capped and
+//! rebuildable, which is the kind of write `Tool::mutates` does not count.
+//! The cache removes its own staging file when a render fails (#535), so
+//! there is no other file.
+//!
 //! ## Hearing it
 //!
 //! The result is tagged `type: "audition"`, which opts it into
@@ -70,7 +78,7 @@
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::preview_cache::PreviewCache;
+use crate::preview_cache::{excerpt_key, PreviewCache};
 use crate::schema::anthropic_tool;
 use crate::tool::effects::{bus_property, scope_property, track_property, Scope, Target};
 use crate::tool::util::{attach_render_warnings, check_effect_kind};
@@ -149,6 +157,13 @@ impl Tool for AuditionEffectTool {
                 "additionalProperties": false,
             }),
         )
+    }
+
+    // Read-only: it appends no node and moves no head. Its one file is an
+    // entry in the bounded audition cache, which `Tool::mutates` does not
+    // count.
+    fn mutates(&self) -> bool {
+        false
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
@@ -277,12 +292,6 @@ impl Tool for AuditionEffectTool {
 /// deliberately never becomes a node. Hashing the range in as well is
 /// what keeps two excerpts of the same settings apart.
 fn audition_key(state: &session::SessionState, start: u64, end: u64) -> session::NodeId {
-    let base = session::NodeId::from_state(state)
-        .map(|id| id.0)
-        .unwrap_or([0u8; 32]);
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(&base);
-    hasher.update(&start.to_le_bytes());
-    hasher.update(&end.to_le_bytes());
-    session::NodeId(*hasher.finalize().as_bytes())
+    let base = session::NodeId::from_state(state).unwrap_or(session::NodeId([0u8; 32]));
+    excerpt_key(base, start, end)
 }

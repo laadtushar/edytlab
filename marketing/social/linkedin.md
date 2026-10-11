@@ -16,7 +16,7 @@ The demo is a DJ transition. The request: get both tracks' tempos, time-stretch 
 
 Three design choices I'd like feedback on:
 
-1. The model never touches the audio. It chooses and orders 93 deterministic tools; the DSP runs locally in Rust. Your audio is not uploaded. Only the chat goes to the AI provider you pick: Anthropic, OpenAI, OpenRouter, Groq, Gemini, or Ollama for a fully local setup.
+1. The model never touches the audio. It chooses and orders 93 tools; the DSP runs locally in Rust, with no model in the audio path. Your audio is not uploaded. Only the chat goes to the AI provider you pick: Anthropic, OpenAI, OpenRouter, Groq, Gemini, or Ollama, which keeps the chat on your machine too.
 
 2. Every edit is a node in a branching history. You can fork a take, A/B it against the original, and go back. An optional "plan first" mode shows the agent's steps for your approval before it runs them.
 
@@ -32,10 +32,19 @@ If you work with audio, which edit would you ask for first?
 ## First comment
 
 ```
-Download (macOS universal, Windows, Linux): https://github.com/laadtushar/edytlab/releases/latest
+Download (macOS universal, Windows, Linux; the installers are unsigned, so macOS and Windows warn on first launch): https://github.com/laadtushar/edytlab/releases/latest
 Demo, docs and the DJ walkthrough: https://edytlab.com
 Source (MIT): https://github.com/laadtushar/edytlab
 ```
+
+## Image
+
+`../social-kit/linkedin/out/post-1-launch.png` (1200x1200): the app's chat panel
+with a scripted example conversation (the image says so) and the three numbers
+from the site. Use it as the video's cover if the uploader
+offers a custom thumbnail, or post it on its own if you skip the video. How it
+is made, and what each number is read from, is in
+[`../social-kit/linkedin/README.md`](../social-kit/linkedin/README.md).
 
 ## Optional second post
 

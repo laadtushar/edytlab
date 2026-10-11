@@ -10,15 +10,10 @@ publish = false
 workspace = true
 
 [dependencies]
-# Match ml-whisper's `ort` configuration exactly so the workspace pulls a
-# single ONNX Runtime crate. `load-dynamic` keeps the build offline-friendly:
-# the host process dlopens libonnxruntime.{so,dylib,dll} at first use, and
-# `runtime::ensure` decides which file that is (`ort` itself deadlocks on a
-# library it cannot load). Tests that need the runtime are `#[ignore]`d.
-# Execution-provider opt-ins (CoreML, CUDA) are dispatched at runtime
-# through `load-dynamic`; nothing here cargo-feature-gates them because the
-# per-target gating happens via `cfg(target_os = ...)`.
-ort = { version = "2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "load-dynamic", "api-24"] }
+# The ONNX Runtime binding, declared once in the root `Cargo.toml` (the
+# exact version, the `api-23` level and why). `runtime::ensure` picks the
+# library file, because `ort` itself deadlocks on one it cannot load.
+ort.workspace = true
 # `runtime::ensure` checks a library before `ort` sees it. The version
 # `ort` itself uses, so the workspace builds one copy.
 libloading = "0.9"

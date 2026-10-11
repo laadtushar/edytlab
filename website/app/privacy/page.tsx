@@ -45,7 +45,7 @@ export default function PrivacyPage() {
         secure credential store: macOS Keychain on Mac, Credential Manager on
         Windows, and the Secret Service (GNOME Keyring, KWallet or KeePassXC) on Linux; on a Linux
         desktop with no Secret Service running, keys are held in the kernel keyring until you restart your computer, and
-        the app tells you so. Keys are never written to plain-text files and never sent
+        the app tells you so, at launch and again at Save if the service went away after the app started. Keys are never written to plain-text files and never sent
         anywhere except directly to the provider whose key it is.
       </p>
 
