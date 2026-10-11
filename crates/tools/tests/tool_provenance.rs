@@ -10,9 +10,9 @@
 //!
 //! * `provenance_is_recorded_without_the_tool_knowing` — recording lives
 //!   in `ToolDispatcher::invoke`, the one place every edit passes
-//!   through, so all 81 tools are covered by one code path and a tool
-//!   added tomorrow is covered without being touched. If someone moves it
-//!   into the tools, this fails.
+//!   through, so every tool is covered by one code path and a tool added
+//!   tomorrow is covered without being touched. If someone moves it into
+//!   the tools, this fails.
 //! * `tools_reading_outside_the_session_are_marked_unreproducible` — the
 //!   list of tools with hidden inputs is hand-maintained, and a rename
 //!   would quietly drop one. That is the same drift `tool_badge_labels.rs`

@@ -1,5 +1,18 @@
 // Replicates make-demo-videos.mjs timing: raw caption/pace times -> final mp4 timeline.
-import { readFileSync, writeFileSync } from "node:fs";
+//
+//   node map-captions.mjs <native-run-dir>      (or OUT=<native-run-dir>)
+//
+// <native-run-dir> is the OUT directory of the native e2e run that recorded the
+// demos (apps/desktop/e2e-native; its default is set in run-env.sh).
+// It holds videos/passed/8-demo-<slug>.json, which is not in the repo.
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+const runDir = process.argv[2] ?? process.env.OUT;
+if (!runDir) {
+  console.error("map-captions.mjs: pass the native run's OUT directory as the first argument (or set OUT). It must contain videos/passed/8-demo-<slug>.json.");
+  process.exit(1);
+}
 const SPEED = 1.25;
 const slugs = ["dj-beatmatched-transition", "dj-extended-club-intro", "dj-mini-mix"];
 const v0s = { "dj-beatmatched-transition": 1791577463.867, "dj-extended-club-intro": 1791577874.667, "dj-mini-mix": 1791579088.533 };
@@ -27,7 +40,12 @@ function segments(paces, length) {
 }
 const result = {};
 for (const slug of slugs) {
-  const r = JSON.parse(readFileSync(`/tmp/edytlab-native/videos/passed/8-demo-${slug}.json`, "utf8"));
+  const file = join(runDir, "videos", "passed", `8-demo-${slug}.json`);
+  if (!existsSync(file)) {
+    console.error(`map-captions.mjs: ${file} does not exist. Pass the OUT directory of the native run that recorded the demos.`);
+    process.exit(1);
+  }
+  const r = JSON.parse(readFileSync(file, "utf8"));
   const v0 = v0s[slug];
   const at = (m) => m.at / 1000 - v0;
   const caps = r.captions.map((c) => ({ ...c, raw: at(c) }));

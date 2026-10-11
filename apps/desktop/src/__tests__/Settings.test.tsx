@@ -72,6 +72,7 @@ vi.mock("../lib/tauri-bridge", () => ({
 }));
 
 import { PROVIDER_STORAGE_KEY, Settings } from "../components/Settings";
+import { keychainNotice } from "../lib/keychainNotice";
 import { held } from "./held";
 
 describe("Settings", () => {
@@ -956,5 +957,158 @@ describe("Settings", () => {
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
     expect(setActiveModelMock).not.toHaveBeenCalled();
+  });
+
+  // ---- Where a save landed (#497) ---------------------------------------
+  //
+  // Each command that writes to the keychain answers where its value went.
+  // A save that fell back to the kernel keyring (the Secret Service went
+  // away after launch) lasts until the next reboot, and the form says so
+  // where the person pressed Save, in the words of the launch banner.
+
+  const DURABLE = { persistent: true, reason: null };
+  const FELL_BACK = { persistent: false, reason: "the Secret Service went away" };
+  /** The launch banner's text for a keychain that is not durable. */
+  const BANNER = keychainNotice(null, FELL_BACK)!.message;
+
+  /** Type a key and press Save. */
+  async function saveWithKey(user: ReturnType<typeof userEvent.setup>) {
+    await user.type(screen.getByTestId("settings-key-input"), "sk-ant-good");
+    await user.click(screen.getByTestId("settings-save-button"));
+  }
+
+  it("shows nothing new after a save that went to the durable store", async () => {
+    setBaseUrlForMock.mockResolvedValue(DURABLE);
+    setApiKeyForMock.mockResolvedValue(DURABLE);
+    setActiveModelMock.mockResolvedValue(DURABLE);
+    const onSaved = vi.fn();
+    const user = userEvent.setup();
+    render(<Settings mode="blocking" onSaved={onSaved} />);
+    await user.type(screen.getByTestId("settings-base-url-input"), "http://x/v1");
+    window.localStorage.setItem("edytlab.model.anthropic", "claude-opus-5");
+
+    await saveWithKey(user);
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId("settings-save-session-only")).toBeNull();
+    expect(screen.queryByTestId("settings-continue-button")).toBeNull();
+  });
+
+  it("says so after a save that fell back, and waits for Continue", async () => {
+    setApiKeyForMock.mockResolvedValue(FELL_BACK);
+    const onSaved = vi.fn();
+    const user = userEvent.setup();
+    render(<Settings mode="blocking" onSaved={onSaved} />);
+
+    await saveWithKey(user);
+
+    const note = await screen.findByTestId("settings-save-session-only");
+    expect(note).toHaveTextContent(BANNER);
+    expect(note).toHaveTextContent("the Secret Service went away");
+    // The dialog stays up: closing it on `onSaved` would remove the note
+    // in the same breath, and the person would never see it.
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("settings-save-button")).toBeNull();
+
+    await user.click(screen.getByTestId("settings-continue-button"));
+    expect(onSaved).toHaveBeenCalledTimes(1);
+  });
+
+  /** Any field counts, not only the key. */
+  it("says so when only the base URL, the level or the model fell back", async () => {
+    window.localStorage.setItem("edytlab.model.anthropic", "claude-opus-5");
+    for (const [label, mock] of [
+      ["base URL", setBaseUrlForMock],
+      ["level", setEffortForMock],
+      ["model", setActiveModelMock],
+    ] as const) {
+      setBaseUrlForMock.mockResolvedValue(DURABLE);
+      setEffortForMock.mockResolvedValue(DURABLE);
+      setActiveModelMock.mockResolvedValue(DURABLE);
+      setApiKeyForMock.mockResolvedValue(DURABLE);
+      mock.mockResolvedValue(FELL_BACK);
+      const onSaved = vi.fn();
+      const user = userEvent.setup();
+      const { unmount } = render(<Settings mode="panel" onSaved={onSaved} onClose={vi.fn()} />);
+      await waitFor(() => expect(getEffortForMock).toHaveBeenCalled());
+      await user.type(screen.getByTestId("settings-base-url-input"), "http://x/v1");
+      await user.selectOptions(screen.getByTestId("settings-effort-select"), "high");
+
+      await saveWithKey(user);
+
+      expect(
+        await screen.findByTestId("settings-save-session-only"),
+        label,
+      ).toHaveTextContent(BANNER);
+      expect(onSaved, label).not.toHaveBeenCalled();
+      unmount();
+      getEffortForMock.mockClear();
+    }
+  });
+
+  it("says so for a provider that needs no key", async () => {
+    window.localStorage.setItem(PROVIDER_STORAGE_KEY, "ollama");
+    setActiveProviderMock.mockResolvedValue(FELL_BACK);
+    const onSaved = vi.fn();
+    const user = userEvent.setup();
+    render(<Settings mode="blocking" onSaved={onSaved} />);
+
+    await user.click(await screen.findByTestId("settings-save-button"));
+
+    expect(await screen.findByTestId("settings-save-session-only")).toHaveTextContent(
+      BANNER,
+    );
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The save happened, so closing the panel is the same as continuing:
+   * the app has to hear that it was saved, or it keeps the errors the save
+   * has just cleared.
+   */
+  it("treats Close after a save that fell back as Continue", async () => {
+    setApiKeyForMock.mockResolvedValue(FELL_BACK);
+    const onSaved = vi.fn();
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    render(<Settings mode="panel" onSaved={onSaved} onClose={onClose} />);
+    await saveWithKey(user);
+    await screen.findByTestId("settings-save-session-only");
+
+    await user.click(screen.getByTestId("settings-close"));
+
+    expect(onSaved).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("goes back to Save when another provider is picked", async () => {
+    setApiKeyForMock.mockResolvedValue(FELL_BACK);
+    const user = userEvent.setup();
+    render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
+    await saveWithKey(user);
+    await screen.findByTestId("settings-save-session-only");
+
+    await user.click(screen.getByTestId("settings-provider-groq"));
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("settings-save-session-only")).toBeNull(),
+    );
+    expect(screen.getByTestId("settings-save-button")).toBeInTheDocument();
+  });
+
+  /** A save that fails is an error, as before, and not a notice. */
+  it("shows the error and no notice when the save itself fails", async () => {
+    setApiKeyForMock.mockRejectedValue("the store is gone");
+    const onSaved = vi.fn();
+    const user = userEvent.setup();
+    render(<Settings mode="blocking" onSaved={onSaved} />);
+
+    await saveWithKey(user);
+
+    expect(await screen.findByTestId("settings-save-error")).toHaveTextContent(
+      "the store is gone",
+    );
+    expect(screen.queryByTestId("settings-save-session-only")).toBeNull();
+    expect(onSaved).not.toHaveBeenCalled();
   });
 });

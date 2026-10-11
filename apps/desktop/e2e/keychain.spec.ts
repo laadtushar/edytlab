@@ -16,7 +16,16 @@
  * false`. The Rust half is in `commands.rs` and `keychain.rs`.
  */
 
-import { deferred, firstRun, ok, readyToLoad, reject } from "./backend";
+import {
+  DURABLE_SAVE,
+  deferred,
+  firstRun,
+  ok,
+  readyToLoad,
+  reject,
+  savingSettings,
+  savingSettingsSessionOnly,
+} from "./backend";
 import { expect, test } from "./fixtures";
 
 const DISMISSED_KEY = "edytlab.keychainSessionOnlyDismissed";
@@ -114,9 +123,9 @@ test.describe("Settings after a startup the keychain refused", () => {
       get_effort_for: refused,
       get_active_model: refused,
       list_models_for: refused,
-      // `CmdResult<()>` serialises as `null`.
-      set_api_key_for: ok(null),
-      set_active_model: ok(null),
+      // Both answer where the save landed (`DURABLE_SAVE`).
+      set_api_key_for: ok(DURABLE_SAVE),
+      set_active_model: ok(DURABLE_SAVE),
     });
     const page = app.page;
 
@@ -215,5 +224,52 @@ test.describe("a keychain that works", () => {
     await expect(app.page.getByTestId("keychain-error")).toHaveCount(0);
     await expect(app.page.getByTestId("keychain-session-only")).toHaveCount(0);
     await expect(app.page.getByTestId("settings-storage-warning")).toHaveCount(0);
+  });
+});
+
+test.describe("a save that fell back to the kernel keyring", () => {
+  /**
+   * #497. The launch banner covers a machine with no Secret Service at
+   * launch. One whose service goes away after launch looked fine and then
+   * saved the key somewhere a reboot wipes, with nothing said. Here the
+   * launch probe is durable and the save is not (the save commands answer
+   * where each write landed), so the only place to hear of it is the
+   * dialog the person pressed Save in, which has to stay up to say it.
+   */
+  test("says so in the dialog, which waits for Continue", async ({ app }) => {
+    await app.boot({ ...firstRun(), ...savingSettingsSessionOnly() });
+    const page = app.page;
+    const dialog = page.getByRole("dialog", { name: "Settings" });
+    await expect(dialog).toHaveAttribute("data-mode", "blocking");
+    await expect(page.getByTestId("settings-storage-warning")).toHaveCount(0);
+
+    await page.getByTestId("settings-key-input").fill("sk-ant-test");
+    await page.getByTestId("settings-save-button").click();
+
+    const note = page.getByTestId("settings-save-session-only");
+    await expect(note).toBeVisible();
+    await expect(note).toContainText("kept only until you restart your computer");
+    await expect(note).toContainText("/nonexistent");
+    await expect(dialog).toBeVisible();
+    expect(await app.requestsFor("set_api_key_for")).toEqual([
+      { provider: "anthropic", key: "sk-ant-test" },
+    ]);
+
+    await page.getByTestId("settings-continue-button").click();
+    await expect(dialog).toHaveCount(0);
+  });
+
+  test("a save that went to the durable store closes the dialog as before", async ({
+    app,
+  }) => {
+    await app.boot({ ...firstRun(), ...savingSettings() });
+    const page = app.page;
+    const dialog = page.getByRole("dialog", { name: "Settings" });
+
+    await page.getByTestId("settings-key-input").fill("sk-ant-test");
+    await page.getByTestId("settings-save-button").click();
+
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByTestId("settings-save-session-only")).toHaveCount(0);
   });
 });

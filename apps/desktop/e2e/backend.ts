@@ -229,17 +229,48 @@ export function sessionOnlyKeychain(): Backend {
 }
 
 /**
- * What Settings' Save sends, answered as the backend does: each of these
- * is a `CmdResult<()>`, which serialises as `null`. Save writes the base
- * URL and the reasoning level once their reads have answered (the
- * defaults here do), then the key, then the model.
+ * Where a save landed, as the save commands answer: a
+ * `KeychainPersistenceDto` (`commands.rs`), which `landed(..)` builds from
+ * the `Persistence` that `ai::keychain::save_*` return. `Durable` is
+ * `{ persistent: true, reason: null }`, a save that fell back to the
+ * kernel keyring `{ persistent: false, reason }`, with the reason of the
+ * first write that did. A clear writes nothing and is always durable.
+ */
+export const DURABLE_SAVE = { persistent: true, reason: null } as const;
+
+/**
+ * What Settings' Save sends, answered as the backend does when the
+ * keychain keeps what it is given: each of these is a
+ * `CmdResult<KeychainPersistenceDto>` (see {@link DURABLE_SAVE}). Save
+ * writes the base URL and the reasoning level once their reads have
+ * answered (the defaults here do), then the key, then the model.
  */
 export function savingSettings(): Backend {
   return {
-    set_base_url_for: ok(null),
-    set_effort_for: ok(null),
-    set_api_key_for: ok(null),
-    set_active_model: ok(null),
+    set_base_url_for: ok(DURABLE_SAVE),
+    set_effort_for: ok(DURABLE_SAVE),
+    set_api_key_for: ok(DURABLE_SAVE),
+    set_active_model: ok(DURABLE_SAVE),
+  };
+}
+
+/**
+ * The same saves on a keychain that lost its Secret Service after launch:
+ * every write falls back to the kernel keyring. The reason is the text
+ * `write_to` gives (`e.to_string()` of the keyring's `PlatformFailure`), the
+ * same a real run of {@link sessionOnlyKeychain}'s probe produced.
+ */
+export function savingSettingsSessionOnly(): Backend {
+  const fellBack = {
+    persistent: false,
+    reason:
+      "Platform secure storage failure: DBus error: Failed to connect to socket /nonexistent: No such file or directory",
+  };
+  return {
+    set_base_url_for: ok(fellBack),
+    set_effort_for: ok(fellBack),
+    set_api_key_for: ok(fellBack),
+    set_active_model: ok(fellBack),
   };
 }
 

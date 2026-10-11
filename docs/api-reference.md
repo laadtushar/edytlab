@@ -246,20 +246,31 @@ part way (the report is not written and `dest` is left for inspection).
 
 ## API Key Management
 
-### `setApiKey(key: string) → void`
+### `setApiKey(key: string) → KeychainPersistence`
 
-Set the API key for the active provider. Stored in the OS keychain.
+Set the API key for the active provider. Stored in the OS keychain. Resolves
+as `setApiKeyFor` does.
 
 ```typescript
 await bridge.setApiKey("sk-ant-api...");
 ```
 
-### `setApiKeyFor(provider: ProviderId, key: string) → void`
+### `setApiKeyFor(provider: ProviderId, key: string) → KeychainPersistence`
 
-Set the API key for a specific provider.
+Set the API key for a specific provider, and make it the active one.
+
+Resolves with where the save landed, in the shape `getKeychainPersistence`
+answers with: `persistent: false` is a save that fell back to the kernel
+keyring because no Secret Service could be reached (it went away after launch,
+say), so it lasts only until the machine restarts, and `reason` is why. The key
+is saved and used all the same. The key and the active provider are two writes;
+the answer is `persistent: false` if either fell back, with the first reason.
+Settings shows the launch banner's words for it after Save. The other `set*`
+functions that write to the keychain (`setActiveProvider`, `setBaseUrlFor`,
+`setEffortFor`, `setActiveModel`) answer the same way.
 
 ```typescript
-await bridge.setApiKeyFor("openrouter", "sk-or-...");
+const { persistent, reason } = await bridge.setApiKeyFor("openrouter", "sk-or-...");
 ```
 
 ### `hasApiKey() → boolean`
@@ -285,8 +296,15 @@ Check whether a specific provider has a key.
 Whether keys and settings saved now survive a reboot. Always `persistent: true` on macOS and Windows. On Linux they live in the Secret Service (GNOME Keyring, KWallet or KeePassXC), and `persistent: false` means none is running, so they are kept in the kernel keyring until the machine restarts. `reason` is why the Secret Service could not be used. It looks up an account nothing ever stores, so it never raises an unlock prompt.
 
 ```typescript
+interface KeychainPersistence {
+  persistent: boolean;
+  reason: string | null; // why the Secret Service could not be used
+}
+
 const { persistent, reason } = await bridge.getKeychainPersistence();
 ```
+
+This is where saves go *now*, and the app shows it once at launch. The `set*` functions answer the same shape for the save they just made.
 
 ### `clearApiKey() → void`
 
@@ -358,9 +376,11 @@ Returns the currently active provider.
 
 **Throws:** Error string (the reason alone) after a startup the system keychain could not be read in, until a save goes through. The default provider is then what was never read, not an answer: a caller that saved it would overwrite the stored choice. Pending, like `hasApiKey`, while the app's launch-time keychain reads are still going.
 
-### `setActiveProvider(provider: ProviderId) → void`
+### `setActiveProvider(provider: ProviderId) → KeychainPersistence`
 
-Switch the active provider. Rebuilds the agent with the new provider configuration.
+Switch the active provider. Rebuilds the agent with the new provider configuration. Resolves with where the choice was saved, as `setApiKeyFor` does.
+
+**Throws:** If the switch worked but the new provider's saved key could not be read, it rejects with that reason instead of resolving. The choice is saved.
 
 ```typescript
 await bridge.setActiveProvider("openrouter");
@@ -393,10 +413,13 @@ can see what "empty" means.
 
 ---
 
-### `setBaseUrlFor(provider: ProviderId, baseUrl: string) → void`
+### `setBaseUrlFor(provider: ProviderId, baseUrl: string) → KeychainPersistence`
 
 Point a provider somewhere else — a proxy, a gateway, a local server. **An
 empty string restores the default**, which is how the field is cleared.
+
+Resolves with where the URL was saved, as `setApiKeyFor` does. Clearing writes
+nothing, so it always resolves `persistent: true`: there is no value to lose.
 
 ---
 
@@ -412,12 +435,15 @@ without reading after a startup the keychain refused.
 
 ---
 
-### `setEffortFor(provider: ProviderId, effort: ReasoningEffort | null) → void`
+### `setEffortFor(provider: ProviderId, effort: ReasoningEffort | null) → KeychainPersistence`
 
 Set how hard the model works on a response: sent to the Anthropic API as
 `output_config.effort`. Higher effort is slower and uses more tokens, and the
 model may think before it answers. **`null` (or an empty value) restores the
 model's default**, which is how the setting is cleared. Rebuilds the agent.
+
+Resolves with where the level was saved, as `setBaseUrlFor` does (clearing it
+is always `persistent: true`).
 
 Rejects a level that is not one of the five in `ReasoningEffort`, and rejects
 any level for a provider other than Anthropic (OpenRouter and the
@@ -484,9 +510,11 @@ that saved the model it showed would overwrite the stored one. A model chosen
 since, or restored before the refusal, is still answered. Pending, like
 `hasApiKey`, while the launch-time reads are still going.
 
-### `setActiveModel(provider: ProviderId, model: string) → void`
+### `setActiveModel(provider: ProviderId, model: string) → KeychainPersistence`
 
-Set the active model for a provider. Persisted in the keychain as `<provider>_model` (e.g. `anthropic_model`).
+Set the active model for a provider. Persisted in the keychain as `<provider>_model` (e.g. `anthropic_model`). Resolves with where the choice was saved, as `setApiKeyFor` does.
+
+**Throws:** If the keychain refused the write, `"model selected for this session, but could not be saved: …"`: the choice applies until the app closes.
 
 ```typescript
 await bridge.setActiveModel("anthropic", "claude-opus-5-5");
@@ -620,7 +648,7 @@ Send a user message to the agent. The agent turn runs asynchronously and emits e
 
 **Side effects:** Emits `agent://text-delta`, `agent://tool-call`, `agent://tool-call-end`, `agent://node-created`, and `agent://done` events during processing (plus `agent://plan*` when a plan, or the first edit, needs approval: see `setPlanFirst`). The promise settles when the turn does, so it stays pending while the turn waits on a plan card.
 
-**Throws:** If no API key is configured or no project is open.
+**Throws:** If no API key is configured or no project is open. After a startup the system keychain refused (a locked keyring, a dismissed unlock prompt) there is no agent either, and the message says why: `no agent configured: the keychain refused access at launch (…), so it was not asked again. Press Save in Settings to try the keychain again, or unlock your keyring and restart edytlab.` The agent is not built from guesses, since building it reads the stored base URL and reasoning level; the first key or provider save that goes through builds it.
 
 ```typescript
 await bridge.sendMessage("cut the silence at the start and normalize to -14 LUFS");

@@ -11,7 +11,7 @@
  * with the notice "no API key saved" (see `providerCommands`).
  */
 
-import { ok, readyToLoad } from "./backend";
+import { DURABLE_SAVE, ok, readyToLoad } from "./backend";
 import { expect, test, type App } from "./fixtures";
 
 /** The built-in list, in the order `anthropic_fallback_models()` has it. */
@@ -100,7 +100,7 @@ test("a saved model missing from Anthropic's list is flagged, and the default is
   await app.boot({
     ...readyToLoad(),
     get_active_model: ok("claude-opus-4-1-20250805"),
-    set_active_model: ok(null),
+    set_active_model: ok(DURABLE_SAVE),
     list_models_for: ok({
       models: [
         {

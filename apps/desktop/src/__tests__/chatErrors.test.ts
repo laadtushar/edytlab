@@ -137,6 +137,19 @@ describe("needsSettings", () => {
     );
   });
 
+  // `CommandError::NoAgentKeychainRefused`: after a startup the keychain
+  // refused, the agent is left unbuilt and the send says why (#497). It
+  // still starts "no agent configured", which is what the banner reads.
+  it("offers Settings when no agent is configured because the keychain refused access (#497)", () => {
+    const message =
+      "no agent configured: the keychain refused access at launch (locked), so it was not asked again. " +
+      "Press Save in Settings to try the keychain again, or unlock your keyring and restart edytlab.";
+    expect(needsSettings(message)).toBe(true);
+    expect(isCredentialError(message), "no key was sent, so none was refused").toBe(
+      false,
+    );
+  });
+
   for (const [label, message] of Object.entries(REFUSED_KEY)) {
     it(`offers Settings for ${label}`, () => {
       expect(needsSettings(message), message).toBe(true);
