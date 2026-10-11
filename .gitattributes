@@ -33,3 +33,12 @@ crates/ai/prompts/*.md                text eol=lf
 *.icns binary
 *.dmg  binary
 *.msi  binary
+
+# --- The ONNX Runtime fetch script and its fixture. ---
+#
+# The script runs under bash on every CI runner, Windows included, where
+# autocrlf would put a "\r" on every line and bash would stop at the first.
+# The fixture is a binary protobuf, compared by what an ONNX Runtime does
+# with its bytes, so no line-ending conversion may touch it.
+scripts/fetch-ml-runtime.sh                 text eol=lf
+crates/ml-pipeline/tests/fixtures/*.onnx    binary

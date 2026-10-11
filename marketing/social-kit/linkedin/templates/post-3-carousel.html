@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<title>LinkedIn post 3 carousel: how the AI stays away from the audio (1080x1350, 7 pages)</title>
+{{tokens}}
+{{base}}
+<style>
+  @page { size: 1080px 1350px; margin: 0; }
+  html, body { margin: 0; }
+  body { width: 1080px; }
+
+  /* Page chrome: the brand bar, and a counter in the site's mono eyebrow style. */
+  /* A page is read at about a third of its size on a phone: the base sizes are raised. */
+  .page .pill { font-size: 28px; }
+  .page .panel__bar { font-size: 28px; }
+  .page .panel, .page .shotcard { flex: none; }
+
+  .count { font-family: var(--font-mono); font-size: 30px; letter-spacing: 0.1em; color: hsl(var(--muted-foreground)); }
+  .count b { color: hsl(var(--primary)); font-weight: 500; }
+
+  .h { margin-top: 44px; font-size: 76px; }
+  .page .lead { margin-top: 24px; font-size: 40px; }
+  .sample { font-size: 28px; margin-top: 18px; }
+  .body { flex: 1; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
+
+  /* cover */
+  .cover .eyebrow { margin-top: 56px; font-size: 30px; }
+  .cover .h { margin-top: 18px; font-size: 112px; }
+  .cover .lead { margin-top: 26px; }
+  .cover .panel { margin-top: auto; }
+  .cover .panel__body img { width: 100%; height: auto; }
+  .swipe { display: inline-flex; align-items: center; gap: 12px; }
+  .swipe svg { width: 30px; height: 30px; }
+  .swipe svg path { stroke: hsl(var(--primary)); }
+
+  /* the pipeline */
+  .flow { margin-top: 28px; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  .node { padding: 18px 32px; }
+  .node h3 { font-size: 40px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.2; }
+  .node p { margin-top: 8px; font-size: 31px; line-height: 1.35; color: hsl(var(--muted-foreground)); }
+  .ask { font-size: 34px; line-height: 1.3; padding: 16px 32px; align-self: flex-end; max-width: 880px; }
+  .link svg path { stroke: hsl(var(--primary)); }
+  .link { display: flex; align-items: center; gap: 18px; height: 54px; padding-left: 52px; font-family: var(--font-mono); font-size: 30px; color: hsl(var(--muted-foreground)); }
+  .machine { padding: 18px 22px 22px; border: 2px dashed hsl(var(--primary) / 0.45); border-radius: var(--r-card); background: hsl(var(--primary) / 0.05); }
+  .machine > .eyebrow { font-size: 28px; margin: 0 10px 12px; }
+  .machine .node { background: hsl(var(--card)); }
+  .machine .link { height: 46px; }
+  .where { float: right; margin-left: 20px; font-size: 28px; padding: 5px 18px; }
+
+  /* screenshots */
+  .shot { margin-top: 0; align-self: center; }
+  .shot.chat { width: 760px; --crop: 12.5%; }
+  .shot.graph { width: 860px; }
+  .shot.plan { width: 936px; align-self: stretch; }
+  .caption { margin-top: 20px; font-size: 34px; line-height: 1.35; color: hsl(var(--muted-foreground)); }
+
+  /* the trade */
+  .trade { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 32px; }
+  .trade .card { padding: 30px 32px; }
+  .trade h3 { font-size: 40px; font-weight: 600; line-height: 1.2; }
+  .trade p { margin-top: 12px; font-size: 33px; line-height: 1.35; color: hsl(var(--muted-foreground)); }
+  .stretch { margin-top: 30px; }
+  .stretch .row { display: flex; align-items: center; gap: 22px; }
+  .stretch .tag { flex: none; width: 150px; font-family: var(--font-mono); font-size: 28px; color: hsl(var(--muted-foreground)); }
+  .stretch .bars { display: flex; align-items: center; gap: 7px; height: 80px; }
+  .stretch .bars i { display: block; width: 10px; border-radius: 9999px; background: hsl(var(--primary)); }
+  .stretch .bars.long i { width: 13px; background: hsl(var(--primary) / 0.75); }
+  .stretch .row + .row { margin-top: 18px; }
+
+  /* the close */
+  .close .h { font-size: 112px; }
+  .urlbtn { align-self: flex-start; margin-top: 56px; }
+  .page .stat__label { font-size: 28px; }
+  .page .stat__figure { font-size: 88px; }
+  .ask2 { margin-top: 40px; align-self: flex-start; max-width: 860px; font-size: 44px; line-height: 1.3; padding: 24px 36px; }
+  .fine { margin-top: auto; font-size: 30px; line-height: 1.4; color: hsl(var(--muted-foreground)); }
+</style>
+</head>
+<body>
+
+<!-- 1 -->
+<section class="canvas page cover">
+  <div class="aurora strong" data-bleed></div>
+  <div class="frame">
+    <div class="brandbar">
+      <div class="wordmark">{{logo}} edytlab</div>
+      <div class="pill swipe">Swipe <svg viewBox="0 0 30 30" aria-hidden="true"><path d="M5 15h19M16 7l8 8-8 8" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+    </div>
+    <p class="eyebrow">How it is built</p>
+    <h1 class="display h">The model<br />never touches<br /><span class="gradient-text">a sample.</span></h1>
+    <p class="lead">An AI audio editor where the AI never receives the audio.</p>
+    <div class="panel" data-safe="timeline screenshot">
+      <div class="panel__bar">The real app's timeline · example data</div>
+      <div class="panel__body"><img src="../shots/timeline.png" alt="The edytlab timeline: two tracks, the second starting under the end of the first, each with a volume envelope that crosses over." /></div>
+    </div>
+  </div>
+</section>
+
+<!-- 2 -->
+<section class="canvas page">
+  <div class="aurora strong" data-bleed></div>
+  <div class="frame">
+    <div class="brandbar"><div class="wordmark">{{logo}} edytlab</div><div class="count"><b>02</b> / 07</div></div>
+    <h2 class="display h">The agent chooses. <span class="gradient-text">Tools do the work.</span></h2>
+    <div class="flow">
+      <div class="bubble ask">Match B's tempo to A and crossfade them.</div>
+      <div class="link"><svg width="22" height="46" viewBox="0 0 22 46" aria-hidden="true"><path d="M11 0v34M3 28l8 10 8-10" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>text about the session</div>
+      <div class="card node">
+        <h3>The model <span class="pill quiet where">your provider, or Ollama</span></h3>
+        <p>Reads text: tempo, key, loudness. Answers with tool calls. Never receives the audio.</p>
+      </div>
+      <div class="link"><svg width="22" height="46" viewBox="0 0 22 46" aria-hidden="true"><path d="M11 0v34M3 28l8 10 8-10" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>tool calls</div>
+      <div class="machine" data-safe="on your machine">
+        <p class="eyebrow">On your machine</p>
+        <div class="card node">
+          <h3>{{tools}} tools</h3>
+          <p>Fade, EQ, time-stretch, loudness, export. Rust functions, no model in the audio path.</p>
+        </div>
+        <div class="link"><svg width="22" height="46" viewBox="0 0 22 46" aria-hidden="true"><path d="M11 0v34M3 28l8 10 8-10" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>edits</div>
+        <div class="card node lit">
+          <h3>Your audio</h3>
+          <p>Decoded, edited, mixed and exported here, in the Rust engine.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 3 -->
+<section class="canvas page">
+  <div class="aurora strong" data-bleed></div>
+  <div class="frame">
+    <div class="brandbar"><div class="wordmark">{{logo}} edytlab</div><div class="count"><b>03</b> / 07</div></div>
+    <h2 class="display h">Every change is <span class="gradient-text">a tool call.</span></h2>
+    <div class="body">
+      <div class="shotcard crop shot chat" data-crops data-safe="chat screenshot"><img src="../shots/chat.png" alt="A scripted example conversation in the edytlab chat: a request, four tool calls and the agent's reply." /></div>
+      <p class="sample" style="align-self:center">The real app's chat, with a scripted example conversation</p>
+    </div>
+  </div>
+</section>
+
+<!-- 4 -->
+<section class="canvas page">
+  <div class="aurora strong" data-bleed></div>
+  <div class="frame">
+    <div class="brandbar"><div class="wordmark">{{logo}} edytlab</div><div class="count"><b>04</b> / 07</div></div>
+    <h2 class="display h">Every edit is <span class="gradient-text">a node.</span></h2>
+    <p class="lead">Fork a take, A/B it against the original, go back. Undo follows the path you actually took.</p>
+    <div class="body">
+      <div class="shotcard shot graph" data-safe="graph screenshot"><img src="../shots/graph.png" alt="The edytlab history graph: a tempo match, then a fork into a crossfade with a low-pass and a hard cut; the head is the low-pass." /></div>
+      <p class="sample" style="align-self:center">The real app's history graph, with example data</p>
+      <p class="caption">Right-click a node to compare it with another, or to set it as the head.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 5 -->
+<section class="canvas page">
+  <div class="aurora strong" data-bleed></div>
+  <div class="frame">
+    <div class="brandbar"><div class="wordmark">{{logo}} edytlab</div><div class="count"><b>05</b> / 07</div></div>
+    <h2 class="display h">Plan first, <span class="gradient-text">if you want it.</span></h2>
+    <p class="lead">Turn it on and the agent's steps wait for you. No edit runs until you press Run.</p>
+    <div class="body">
+      <div class="shotcard shot plan" data-safe="plan screenshot"><img src="../shots/plan.png" alt="A plan card with five steps: analyze audio, time stretch, move clip, volume envelope, normalize loudness, and Run and Discard buttons." /></div>
+      <p class="sample" style="align-self:center">The real app's plan card, with a scripted example plan</p>
+      <p class="caption">Discard it and nothing runs. Reword a step and the agent proposes again.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 6 -->
+<section class="canvas page">
+  <div class="aurora strong" data-bleed></div>
+  <div class="frame">
+    <div class="brandbar"><div class="wordmark">{{logo}} edytlab</div><div class="count"><b>06</b> / 07</div></div>
+    <h2 class="display h">Time-stretch, <span class="gradient-text">no C++ library.</span></h2>
+    <p class="lead">Rubber Band was the plan. It needs a different native package on each of three CI targets, the kind of dependency that breaks every build at once. So the phase vocoder is written here, in pure Rust.</p>
+    <div class="stretch" aria-hidden="true">
+      <div class="row"><span class="tag">before</span><div class="bars" id="bars-a"></div></div>
+      <div class="row"><span class="tag">after</span><div class="bars long" id="bars-b"></div></div>
+    </div>
+    <div class="trade">
+      <div class="card lit"><h3>What it buys</h3><p>The same build on macOS, Windows and Linux.</p></div>
+      <div class="card"><h3>What it costs</h3><p>Dense material can sound smeared at large changes.</p></div>
+    </div>
+    <p class="caption" style="margin-top:auto;padding-top:20px">The reasoning is in the module docs of <span class="chip" style="font-size:28px">crates/audio-time/src/vocoder.rs</span></p>
+  </div>
+</section>
+
+<!-- 7 -->
+<section class="canvas page close">
+  <div class="aurora strong" data-bleed></div>
+  <div class="frame">
+    <div class="brandbar"><div class="wordmark">{{logo}} edytlab</div><div class="count"><b>07</b> / 07</div></div>
+    <h2 class="display h"><span class="gradient-text">Read the source.</span></h2>
+    <p class="lead">MIT-licensed. A Tauri 2 shell, a React front end and a Rust workspace behind it.</p>
+    <div class="rule-fade" style="margin-top:44px"></div>
+    <dl class="stats" style="margin-top:36px">
+      <div class="stat"><div class="stat__value"><dd class="stat__figure">0</dd><span class="stat__unit">bytes</span></div><dt class="stat__label">of your audio uploaded</dt></div>
+      <div class="stat"><div class="stat__value"><dd class="stat__figure">6</dd><span class="stat__unit">providers</span></div><dt class="stat__label">one runs locally</dt></div>
+      <div class="stat"><div class="stat__value"><dd class="stat__figure">{{tools}}</dd><span class="stat__unit">tools</span></div><dt class="stat__label">the agent can call</dt></div>
+    </dl>
+    <div class="button urlbtn">github.com/laadtushar/edytlab</div>
+    <div class="bubble ask2">What would you want to review first?</div>
+    <p class="fine">v{{version}} for macOS, Windows and Linux. The installers are unsigned, so macOS and Windows warn on first launch. edytlab.com</p>
+  </div>
+</section>
+
+<script>
+  // Two rows of bars: the same phrase, and the phrase made a quarter longer.
+  // Decoration for the stretch idea; the heights are one fixed pattern, no data.
+  const pattern = [0.35, 0.8, 0.5, 1, 0.45, 0.7, 0.3, 0.9, 0.6, 0.4, 0.85, 0.55, 0.75, 0.35, 0.95, 0.5, 0.65, 0.3, 0.8, 0.45];
+  const fill = (id, times) => {
+    const host = document.getElementById(id);
+    for (let i = 0; i < pattern.length * times; i++) {
+      const bar = document.createElement("i");
+      bar.style.height = `${Math.round(pattern[Math.floor(i / times) % pattern.length] * 80)}px`;
+      host.appendChild(bar);
+    }
+  };
+  fill("bars-a", 1);
+  fill("bars-b", 1.25);
+</script>
+</body>
+</html>

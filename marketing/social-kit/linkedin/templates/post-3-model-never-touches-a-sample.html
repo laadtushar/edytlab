@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<title>LinkedIn post 3: the model never touches a sample (1200x1200)</title>
+{{tokens}}
+{{base}}
+<style>
+  .title { margin-top: 28px; font-size: 84px; }
+  .flow { margin-top: 22px; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+
+  .node { padding: 18px 30px; }
+  .node h3 { font-size: 36px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.2; }
+  .node p { margin-top: 8px; font-size: 29px; line-height: 1.35; color: hsl(var(--muted-foreground)); }
+  .node .where { float: right; margin-left: 20px; }
+  .ask { font-size: 32px; line-height: 1.3; padding: 18px 30px; align-self: flex-end; max-width: 780px; }
+
+  /* The arrow between steps: a rail, a head and what travels along it. */
+  .link svg path { stroke: hsl(var(--primary)); }
+  .link { display: flex; align-items: center; gap: 18px; height: 46px; padding-left: 44px; font-family: var(--font-mono); font-size: 26px; color: hsl(var(--muted-foreground)); }
+  .link svg { flex: none; }
+
+  .machine { margin-top: 0; padding: 18px 20px 20px; border: 2px dashed hsl(var(--primary) / 0.45); border-radius: var(--r-card); background: hsl(var(--primary) / 0.05); }
+  .machine > .eyebrow { font-size: 24px; margin: 0 10px 14px; }
+  .machine .node { background: hsl(var(--card)); }
+  .machine .node + .link { height: 40px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+  .chip { font-size: 24px; padding: 6px 16px; }
+</style>
+</head>
+<body>
+<div class="canvas square">
+  <div class="aurora strong" data-bleed></div>
+  <div class="frame">
+    <div class="brandbar">
+      <div class="wordmark">{{logo}} edytlab</div>
+      <div class="pill">How it is built</div>
+    </div>
+
+    <h1 class="display title">The model never <span class="gradient-text">touches a sample.</span></h1>
+
+    <div class="flow">
+      <div class="bubble ask">Match B's tempo to A and crossfade them.</div>
+
+      <div class="link"><svg width="22" height="46" viewBox="0 0 22 46" style="margin-top:2px" aria-hidden="true"><path d="M11 0v34M3 28l8 10 8-10" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>text about the session</div>
+
+      <div class="card node">
+        <h3>The model <span class="pill quiet where" style="font-size:24px;padding:4px 16px">your provider, or Ollama</span></h3>
+        <p>Reads text: tempo, key, loudness. Answers with tool calls. Never receives the audio.</p>
+      </div>
+
+      <div class="link"><svg width="22" height="46" viewBox="0 0 22 46" style="margin-top:2px" aria-hidden="true"><path d="M11 0v34M3 28l8 10 8-10" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>tool calls</div>
+
+      <div class="machine" data-safe="on your machine">
+        <p class="eyebrow">On your machine</p>
+        <div class="card node">
+          <h3>{{tools}} tools</h3>
+          <p>Fade, EQ, time-stretch, loudness, export. Rust functions, no model in the audio path.</p>
+        </div>
+        <div class="link"><svg width="22" height="38" viewBox="0 0 22 38" aria-hidden="true"><path d="M11 0v26M3 20l8 10 8-10" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>edits</div>
+        <div class="card node lit">
+          <h3>Your audio</h3>
+          <p>Decoded, edited, mixed and exported here, in the Rust engine.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

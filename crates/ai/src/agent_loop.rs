@@ -78,6 +78,7 @@ use crate::prompt::{
     tool_budget_line, DEFAULT_MAX_TOKENS, MAX_TOOL_CALLS_PER_TURN, PLAN_MAX_TOKENS,
 };
 use crate::provider::ToolSet;
+use crate::responses;
 use crate::session_context::{render_block, SessionContext};
 use crate::tool_selection::is_not_implemented;
 use crate::{context_window, tool_selection};
@@ -144,9 +145,12 @@ fn one_shot_messages(
         .collect()
 }
 
-/// A non-streaming request in the shape `cfg.provider` speaks, so the
-/// provider reads its system prompt and its reply can be read back by
-/// [`extract_response_text`].
+/// A one-shot request in the shape `cfg.provider` speaks, so the provider
+/// reads its system prompt and its reply can be read back by
+/// [`read_one_shot_text`]. It is a single JSON reply on the first two wire
+/// formats; the Responses API takes no non-streaming request at all, so on
+/// that one the body asks for a stream and carries no output cap, effort or
+/// `thinking` (see [`responses::one_shot_body`]).
 ///
 /// This used to branch on the provider being OpenAI itself. Groq, Gemini
 /// and Ollama speak the same chat-completions API but got Anthropic's
@@ -250,6 +254,7 @@ fn one_shot_body(
             }
             body
         }
+        WireFormat::Responses => responses::one_shot_body(&model, system, &messages),
     }
 }
 
@@ -309,12 +314,10 @@ pub(crate) async fn classify_mode(
         return Mode::General;
     }
 
-    let body: Value = match resp.json().await {
-        Ok(v) => v,
+    let answer = match read_one_shot_text(cfg, resp).await {
+        Ok(text) => text.unwrap_or_default(),
         Err(_) => return Mode::General,
     };
-
-    let answer = extract_response_text(cfg, &body).unwrap_or_default();
     let mode = parse_mode(&answer);
 
     // The answer is the model's label (or its attempt at one), never the
@@ -649,9 +652,13 @@ pub(crate) enum PlanUnavailable {
     Transport(String),
     /// The server answered, but not with success.
     Status(u16),
-    /// A 2xx whose body would not parse as JSON.
+    /// A 2xx whose reply could not be read: a body that would not parse as
+    /// JSON, or, on the Responses format, a stream that failed, was cut off
+    /// before `response.completed`, or could not be parsed. The string says
+    /// which.
     BodyParse(String),
-    /// Valid JSON with no text content where the provider puts it.
+    /// A reply that read cleanly (valid JSON, or a stream that completed)
+    /// with no text content where the provider puts it.
     NoResponseText,
     /// Text that carried no well-formed `<plan>` block.
     NoPlanBlock,
@@ -673,9 +680,10 @@ impl std::fmt::Display for PlanUnavailable {
     }
 }
 
-/// Request a plan from the model in a single non-streaming call and
-/// return the parsed steps. Includes conversation history so follow-up
-/// requests can be planned in context.
+/// Request a plan from the model in a single one-shot call (a streamed one on
+/// the Responses format, which takes no other) and return the parsed steps.
+/// Includes conversation history so follow-up requests can be planned in
+/// context.
 ///
 /// `tool_schemas` is the turn's permitted tools. They are named to the
 /// model, and the steps it writes are checked against them
@@ -722,11 +730,10 @@ async fn fetch_plan(
         return Err(PlanUnavailable::Status(status.as_u16()));
     }
 
-    let body: Value = resp
-        .json()
+    let text = read_one_shot_text(cfg, resp)
         .await
-        .map_err(|e| PlanUnavailable::BodyParse(e.to_string()))?;
-    let text = extract_response_text(cfg, &body).ok_or(PlanUnavailable::NoResponseText)?;
+        .map_err(PlanUnavailable::BodyParse)?
+        .ok_or(PlanUnavailable::NoResponseText)?;
 
     let steps = vet_plan(
         parse_plan(&text).ok_or(PlanUnavailable::NoPlanBlock)?,
@@ -1247,6 +1254,12 @@ where
                     }
                     StreamEvent::Ping | StreamEvent::Other => {}
                     StreamEvent::Error { error } => {
+                        // Only the message survives this arm. The error's
+                        // `kind` (on the Responses format, the API's code,
+                        // such as `subscription_sharing_usage_limit_exceeded`)
+                        // and `param` are dropped here, and a provider whose
+                        // codes call for different handling must carry them
+                        // through to a typed `Error` before it ships.
                         return Err(Error::ApiStream(error_message(&error)));
                     }
                 }
@@ -1254,6 +1267,12 @@ where
             if stream_finished {
                 break;
             }
+        }
+        // A stream that ran out without its end marker. The Responses
+        // format succeeds only at `response.completed`; a step cut short is
+        // an error, not a shorter reply, and nothing of it is kept or run.
+        if !stream_finished && cfg.provider.wire_format().needs_terminal_event() {
+            return Err(responses::cut_off_error());
         }
 
         // 4. Append the assistant turn (with all its blocks) to history
@@ -1781,27 +1800,49 @@ fn error_message(err: &ApiError) -> String {
     err.message.clone()
 }
 
+/// The text of a one-shot reply (`resp` is a success), read the way
+/// `cfg.provider`'s wire format sends it.
+///
+/// `Ok(None)` is a reply that is there and has no text. `Err` is one that
+/// could not be read: on the first two formats a body that is not JSON, on
+/// Responses a stream that failed or stopped before `response.completed`.
+async fn read_one_shot_text(
+    cfg: &LlmConfig,
+    resp: reqwest::Response,
+) -> std::result::Result<Option<String>, String> {
+    if cfg.provider.wire_format() == WireFormat::Responses {
+        return responses::collect_text(resp).await;
+    }
+    let body: Value = resp.json().await.map_err(|e| e.to_string())?;
+    Ok(extract_response_text(cfg, &body))
+}
+
 /// Extract the assistant's text reply from a non-streaming response
 /// body, handling both Anthropic-shape (`content[0].text`) and
 /// OpenAI-shape (`choices[0].message.content`).
+///
+/// A Responses reply is never one body: it is read from its stream by
+/// [`responses::collect_text`], so this finds nothing in one.
 fn extract_response_text(cfg: &LlmConfig, body: &Value) -> Option<String> {
-    if cfg.provider.wire_format() == WireFormat::ChatCompletions {
-        body.get("choices")
+    match cfg.provider.wire_format() {
+        WireFormat::ChatCompletions => body
+            .get("choices")
             .and_then(|c| c.as_array())
             .and_then(|a| a.first())
             .and_then(|c| c.get("message"))
             .and_then(|m| m.get("content"))
             .and_then(|t| t.as_str())
-            .map(|s| s.to_string())
-    } else {
+            .map(|s| s.to_string()),
         // The first block carrying text, not the first block: a reply to
         // a request with a reasoning effort leads with a `thinking`
         // block, which has no `text`.
-        body.get("content")
+        WireFormat::AnthropicMessages => body
+            .get("content")
             .and_then(|c| c.as_array())
             .and_then(|arr| arr.iter().find_map(|b| b.get("text")))
             .and_then(|t| t.as_str())
-            .map(|s| s.to_string())
+            .map(|s| s.to_string()),
+        WireFormat::Responses => None,
     }
 }
 
@@ -1965,6 +2006,13 @@ mod tests {
         }
     }
 
+    /// The tests that walk every supported provider match on its wire
+    /// format. None speaks Responses yet; the ChatGPT provider will, and
+    /// each of those matches then needs the assertions for its shape.
+    fn no_provider_speaks_responses_yet(id: &str) -> ! {
+        unreachable!("{id}: a supported provider speaks Responses; give this test its arm")
+    }
+
     #[test]
     fn a_provider_on_chat_completions_declares_it() {
         for id in crate::SUPPORTED_PROVIDER_IDS {
@@ -2006,6 +2054,200 @@ mod tests {
         assert_eq!(sent.len(), 1, "{provider_id}: exactly one request");
         let body: Value = serde_json::from_slice(&sent[0].body).expect("a JSON body");
         (out, body)
+    }
+
+    // ------------------------------------------------------------------
+    // One-shot calls on the Responses format (#474)
+    //
+    // The route takes only streamed requests, so the classifier and the plan
+    // ask for a stream and read their text from it. No supported provider
+    // speaks the format yet, so these use the stand-in in
+    // `responses::testing`.
+    // ------------------------------------------------------------------
+
+    /// A server whose every answer is the event stream `reply`, and a config
+    /// for a provider on the Responses format pointed at it.
+    async fn serve_responses(reply: &str) -> (wiremock::MockServer, LlmConfig) {
+        use wiremock::matchers::method;
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(reply.to_string()),
+            )
+            .mount(&server)
+            .await;
+        let cfg = LlmConfig::new(
+            Arc::new(crate::responses::testing::ResponsesProvider::new()),
+            "token",
+        )
+        .with_base_url(server.uri());
+        (server, cfg)
+    }
+
+    #[test]
+    fn a_responses_one_shot_body_streams_and_carries_nothing_the_route_refuses() {
+        let cfg = LlmConfig::new(
+            Arc::new(crate::responses::testing::ResponsesProvider::new()),
+            "k",
+        );
+        // Everything the other formats would use is offered, and none of it
+        // is taken: the cap, the effort and thinking.
+        let body = one_shot_body(
+            &cfg,
+            "m".into(),
+            1024,
+            &["first", "second"],
+            vec![json!({ "role": "user", "content": "make it louder" })],
+            Some(Effort::High),
+            true,
+        );
+        assert_eq!(body["stream"], json!(true));
+        assert_eq!(body["store"], json!(false));
+        assert_eq!(body["instructions"], "first\n\nsecond");
+        assert_eq!(body["input"][0]["role"], "user");
+        assert_eq!(body["input"][0]["content"][0]["text"], "make it louder");
+        let object = body.as_object().expect("an object");
+        for field in crate::responses::UNSUPPORTED_FIELDS {
+            assert!(!object.contains_key(*field), "{field}: {body}");
+        }
+        for field in [
+            "max_tokens",
+            "max_completion_tokens",
+            "thinking",
+            "output_config",
+            "system",
+            "messages",
+        ] {
+            assert!(!object.contains_key(field), "{field}: {body}");
+        }
+    }
+
+    #[tokio::test]
+    async fn the_classifier_reads_its_answer_from_the_stream() {
+        let (server, cfg) =
+            serve_responses(&crate::responses::testing::text_stream(&["mash", "up"])).await;
+        let mode = classify_mode(&cfg, &reqwest::Client::new(), "mash these up", &[]).await;
+        assert_eq!(mode, Mode::Mashup);
+
+        let sent = server.received_requests().await.expect("recorded");
+        assert_eq!(sent.len(), 1);
+        let body: Value = serde_json::from_slice(&sent[0].body).expect("JSON");
+        assert_eq!(body["stream"], json!(true), "{body}");
+        assert_eq!(body["store"], json!(false), "{body}");
+        assert!(body["instructions"].as_str().unwrap().contains("Classify"));
+        assert_eq!(
+            sent[0]
+                .headers
+                .get("authorization")
+                .map(|v| v.to_str().unwrap()),
+            Some("Bearer token")
+        );
+    }
+
+    /// Classifying never fails a turn: a stream that dies, or stops short,
+    /// is `general`, as an unreadable body is on the other formats.
+    #[tokio::test]
+    async fn a_classifier_stream_that_fails_or_is_cut_off_is_general() {
+        use crate::responses::testing::{completed, sse};
+        let cut = {
+            let full = crate::responses::testing::text_stream(&["mashup"]);
+            // Everything but the `completed` event.
+            full[..full.find("event: response.completed").unwrap()].to_string()
+        };
+        let failed = sse(&[
+            json!({ "type": "response.output_text.delta", "delta": "mashup" }),
+            json!({ "type": "response.failed", "response": { "error": { "message": "no" } } }),
+        ]);
+        let junk = "data: not json\n\n".to_string();
+        let empty = sse(&[completed()]);
+        for (what, reply) in [
+            ("cut off", cut),
+            ("failed", failed),
+            ("junk", junk),
+            ("empty", empty),
+        ] {
+            let (_server, cfg) = serve_responses(&reply).await;
+            let mode = classify_mode(&cfg, &reqwest::Client::new(), "mash these up", &[]).await;
+            assert_eq!(mode, Mode::General, "{what}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_plan_is_read_from_a_streamed_reply() {
+        let (server, cfg) = serve_responses(&crate::responses::testing::text_stream(&[
+            "<plan>[{\"step\":1,",
+            "\"tool\":\"set_track_gain\",",
+            "\"description\":\"Louder\"}]</plan>",
+        ]))
+        .await;
+        let steps = fetch_plan(
+            &cfg,
+            &reqwest::Client::new(),
+            "SYSTEM-PROMPT",
+            &[],
+            "make it louder",
+            &registry(&["set_track_gain"]),
+        )
+        .await
+        .expect("a plan is read back");
+        assert_eq!(steps.len(), 1);
+
+        let sent = server.received_requests().await.expect("recorded");
+        let body: Value = serde_json::from_slice(&sent[0].body).expect("JSON");
+        assert_eq!(body["stream"], json!(true));
+        let instructions = body["instructions"].as_str().unwrap();
+        assert!(instructions.contains("SYSTEM-PROMPT"), "{instructions}");
+        assert!(instructions.contains("<plan>"), "{instructions}");
+    }
+
+    /// With Plan first on, a plan that did not arrive holds the first edit
+    /// for approval, so the failure class has to say which it was.
+    #[tokio::test]
+    async fn a_plan_stream_that_fails_or_stops_short_is_unavailable_and_says_why() {
+        use crate::responses::testing::{completed, sse, text_stream};
+        let plan = |reply: String| async move {
+            let (_server, cfg) = serve_responses(&reply).await;
+            fetch_plan(
+                &cfg,
+                &reqwest::Client::new(),
+                "SYSTEM-PROMPT",
+                &[],
+                "make it louder",
+                &registry(&["set_track_gain"]),
+            )
+            .await
+        };
+
+        let failed = sse(
+            &[json!({ "type": "response.failed", "response": { "error": {
+                "code": "subscription_sharing_usage_limit_exceeded",
+                "message": "You have reached your usage limit." } } })],
+        );
+        match plan(failed).await {
+            Err(PlanUnavailable::BodyParse(why)) => {
+                assert!(why.contains("You have reached your usage limit."), "{why}")
+            }
+            other => panic!("expected the failure's words, got {other:?}"),
+        }
+
+        let full = text_stream(&["<plan>[]</plan>"]);
+        let cut = full[..full.find("event: response.completed").unwrap()].to_string();
+        match plan(cut).await {
+            Err(PlanUnavailable::BodyParse(why)) => {
+                assert!(why.contains("ended before the response completed"), "{why}")
+            }
+            other => panic!("expected a stream that stopped short, got {other:?}"),
+        }
+
+        // Completed, and had nothing to say: the same class as an empty body.
+        assert!(matches!(
+            plan(sse(&[completed()])).await,
+            Err(PlanUnavailable::NoResponseText)
+        ));
     }
 
     /// Every provider, so a new one is covered the day it is added: its
@@ -2052,6 +2294,7 @@ mod tests {
                     assert_eq!(body["system"].as_array().map(Vec::len), Some(2), "{id}");
                     assert_eq!(body["messages"][0]["role"], "user", "{id}");
                 }
+                WireFormat::Responses => no_provider_speaks_responses_yet(id),
             }
         }
     }
@@ -2683,6 +2926,7 @@ mod tests {
                         .or_else(|| body.get("max_completion_tokens"));
                     assert_eq!(cap, Some(&json!(1024)), "{id}");
                 }
+                WireFormat::Responses => no_provider_speaks_responses_yet(id),
             }
         }
     }
@@ -2919,6 +3163,7 @@ mod tests {
                 WireFormat::ChatCompletions => {
                     assert!(body.get("thinking").is_none(), "{id}: {body}");
                 }
+                WireFormat::Responses => no_provider_speaks_responses_yet(id),
             }
             // Room for a model that thinks before its one word. The
             // literal is deliberate: a lowered constant must not pass.
@@ -2945,6 +3190,7 @@ mod tests {
                     assert_eq!(off["thinking"], json!({ "type": "disabled" }), "{id}")
                 }
                 WireFormat::ChatCompletions => assert!(off.get("thinking").is_none(), "{id}"),
+                WireFormat::Responses => no_provider_speaks_responses_yet(id),
             }
         }
     }

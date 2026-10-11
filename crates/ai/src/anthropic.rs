@@ -348,6 +348,10 @@ pub struct ApiError {
     // populated by serde from the API error envelope; message is what callers display
     pub kind: String,
     pub message: String,
+    /// The request field the error is about, where the provider names one
+    /// (the Responses API's `error.param`).
+    #[serde(default)]
+    pub param: Option<String>,
 }
 
 #[cfg(test)]

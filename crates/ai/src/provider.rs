@@ -229,10 +229,12 @@ pub enum ProviderError {
     Parse(String),
 }
 
-/// How a provider's one-shot (non-streaming) requests are shaped and its
-/// replies read. Streaming has its own per-provider hooks
+/// How a provider's one-shot requests are shaped and its replies read.
+/// Streaming has its own per-provider hooks
 /// ([`LlmProvider::serialize_request`], [`LlmProvider::parse_stream_chunk`]);
 /// this is the other half, used by the classifier and the plan request.
+/// Those are single JSON replies on the first two formats and a stream on
+/// [`WireFormat::Responses`], which takes nothing else.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WireFormat {
     /// Anthropic's Messages API (also OpenRouter's passthrough): a
@@ -242,6 +244,26 @@ pub enum WireFormat {
     /// also speak: the system prompt is the first message, replies in
     /// `choices[0].message.content`.
     ChatCompletions,
+    /// OpenAI's Responses API ([`crate::responses`]): the system prompt is
+    /// `instructions`, the conversation an array of `input` items, and the
+    /// reply a stream of typed events that succeeds only at
+    /// `response.completed`. It has no non-streaming mode here, so one-shot
+    /// requests (the classifier, the plan) are streamed and read from the
+    /// stream. No provider speaks it yet.
+    Responses,
+}
+
+impl WireFormat {
+    /// Whether a stream on this format has an end marker of its own that a
+    /// step must reach, so that running out of events without it is an error
+    /// and not a shorter reply.
+    ///
+    /// Only the Responses format does: its turn succeeds at
+    /// `response.completed` and nowhere else. The other two have always taken
+    /// the end of the stream as the end of the step, and keep doing so.
+    pub fn needs_terminal_event(self) -> bool {
+        self == WireFormat::Responses
+    }
 }
 
 /// How much of the tool list a provider is sent with each request (#395).
@@ -625,7 +647,11 @@ impl LlmProvider for OpenAIProvider {
                 .unwrap_or("error")
                 .to_string();
             return Ok(vec![StreamEvent::Error {
-                error: ApiError { kind, message },
+                error: ApiError {
+                    kind,
+                    message,
+                    param: None,
+                },
             }]);
         }
 

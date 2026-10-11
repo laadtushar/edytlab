@@ -2,7 +2,10 @@
 
 Five posts with different angles, written in your voice. Post one a few days
 apart, not back to back (see `calendar.md`). Each has a video to attach as
-native video and a one-line comment to pin right after you publish.
+native video and a one-line comment to pin right after you publish. Each also
+has a square image, and post 3 has a carousel PDF to post in place of its reel;
+both are in the new design of the site, under `linkedin/` (see
+[`linkedin/README.md`](linkedin/README.md)).
 
 **Videos:** `reel-highlights.mp4`, `reel-beatmatched-transition.mp4`,
 `reel-mini-mix.mp4`, `reel-extended-club-intro.mp4`, `reel-teaser.mp4`. If
@@ -12,7 +15,9 @@ LinkedIn's uploader offers a captions option, upload the matching `.srt`
 **Links:**
 site <https://edytlab.com> ·
 source <https://github.com/laadtushar/edytlab> ·
-v0.5.0 <https://github.com/laadtushar/edytlab/releases/tag/v0.5.0>
+download <https://github.com/laadtushar/edytlab/releases/latest> (the newest
+release, v0.5.0 on 2026-10-11; check before each post that the version a post
+names is still the newest)
 
 **Conventions used in every post:** no emoji; 3 to 5 hashtags at the end;
 only post 1 has a link in the body, the others carry the link in the pinned
@@ -48,8 +53,13 @@ Demos and downloads: https://edytlab.com
 **Pin this comment:**
 
 ```
-Source (MIT) and installers for macOS, Windows and Linux: https://github.com/laadtushar/edytlab/releases/tag/v0.5.0 (unsigned, so expect a first-launch warning).
+Source (MIT) and installers for macOS, Windows and Linux: https://github.com/laadtushar/edytlab/releases/latest (unsigned, so expect a first-launch warning).
 ```
+
+**Image:** `linkedin/out/post-1-launch.png` (1200x1200). Use it as the video's
+cover if LinkedIn's uploader offers a custom thumbnail, or post it alone. The
+chat in it is the app's real chat panel with a scripted example conversation (the
+numbers are fixture values, not a model's output), and the image says so.
 
 **Shorter version (under 90 words), same video:**
 
@@ -97,6 +107,9 @@ Which step of your own prep would you hand off first?
 The DJ walkthrough, with all three recordings and the full list of what it can't do: https://edytlab.com/use-cases/dj
 ```
 
+**Image:** `linkedin/out/post-2-before-after.png` (1200x1200), same use, and the
+same scripted example conversation, captioned as one.
+
 ---
 
 ## 3. The build story (attach `reel-mini-mix.mp4`)
@@ -130,25 +143,34 @@ Source is MIT, if you want to read how any of it works. What would you want to r
 Every tool, with its parameters, generated from the tool registry: https://github.com/laadtushar/edytlab/blob/main/docs/tools-reference.md
 ```
 
+**Image and carousel:** `linkedin/out/post-3-model-never-touches-a-sample.png`
+(1200x1200), and `linkedin/out/post-3-carousel.pdf`, seven 1080x1350 pages
+that walk through the same four points with screenshots of the app (the real
+interface; the conversation, plan and history in them are scripted examples, and
+each page says so). LinkedIn
+takes a PDF as a document post, so post it instead of the reel. If you do,
+delete the sentence in the post's second paragraph that says what the video
+shows: there is no video in that version.
+
 ---
 
 ## 4. Privacy and local-first, with the Ollama option (attach `reel-extended-club-intro.mp4`)
 
 Angle: answer the first question people ask about AI audio tools, precisely,
-including the part that does not work well yet. About 250 words.
+including the part that does not work well yet. About 310 words.
 
 ```
 "Does my audio get uploaded?" is the first question about any AI audio tool, so here is the exact answer for edytlab.
 
 Your audio files: no. Decoding, editing, mixing and export all run on your computer, in a Rust engine. The extended intro in the video was built that way.
 
-What does leave: the chat. Your messages, plus the text the agent works from (a track's tempo, key and loudness, and the results of its tool calls), go to the AI provider you picked: Anthropic, OpenAI, OpenRouter, Groq or Gemini, using your own API key. The model never receives the audio.
+What does leave: the chat. Your messages, plus the text the agent works from (a track's tempo, key and loudness, and the results of its tool calls), go to the AI provider you picked: Anthropic, OpenAI, OpenRouter, Groq or Gemini, using your own API key. The model never receives the audio. When you open Settings, the app also asks that provider for its list of models, with your key and no prompt or audio.
 
 With Ollama there's no key, and the chat stays on your machine too.
 
 Two honest caveats about that last part:
 
-- Local models have small context windows. In v0.4.0 one measured first request was about 15,000 tokens, and a model with an 8,192-token context refused it. v0.5.0 sends Ollama a core set of tools plus the ones your message names, which makes that request several times smaller, but I haven't re-run that model on it.
+- Local models have small context windows. In v0.4.0 one measured first request was about 15,000 tokens, and a model with an 8,192-token context refused it. v0.5.0 sends Ollama a core set of tools plus the ones your message names, which takes that request from about 58 KB to about 8.7 KB in the test suite (bytes, not tokens), but I haven't re-run that model on it.
 - The recordings were made with Claude as the agent. I haven't confirmed which local models can finish a job like these.
 
 The desktop app sends no telemetry. API keys live in your operating system's credential store. On Linux, v0.4.0 and earlier kept them in the kernel keyring only until you reboot; v0.5.0 uses the Secret Service (GNOME Keyring, KWallet or KeePassXC) and warns when none is running. I haven't checked that across a real reboot yet.
@@ -164,24 +186,25 @@ The numbers are in the repo's issues and tests. If you run local models, I'd lik
 What stays on your machine, what leaves, and how to run it with Ollama: https://edytlab.com/use-cases/local-ai-audio-editor
 ```
 
+**Image:** `linkedin/out/post-4-privacy.png` (1200x1200), same use.
+
 ---
 
 ## 5. Open source: help wanted (attach `reel-teaser.mp4`)
 
 Angle: specific, honest invitations, including the big unshipped piece. About
-250 words.
+300 words.
 
 ```
 edytlab is MIT-licensed and I'd like help with it. Here is where, specifically.
 
-It's a desktop audio editor in Tauri 2, Rust and React, where an AI agent calls 93 deterministic audio tools. v0.5.0 is out for macOS, Windows and Linux (unsigned installers).
+It's a desktop audio editor in Tauri 2, Rust and React, where an AI agent calls 93 audio tools. v0.5.0 is out for macOS, Windows and Linux (unsigned installers).
 
 Places a contributor could make a real difference:
 
 - Master bus and bus effects. A tool can now put an effect on the master bus, and on a bus of its own (pull requests 516 and 551, merged after v0.5.0, so not in the release yet). Until it ships, the agent works around it by rendering a baked "Master" track and muting the originals, which the beatmatch and mini-mix recordings both show. Still missing: streaming versions of eleven effects the renderer can't run on a chain yet (reverb, echo, EQ, compressor and others). A stored effect it can't run is now left out of the render with a warning instead of failing it (merged, not released); issue 520, now closed, has the details, in the audio-engine and tools crates.
 - macOS microphone access. v0.5.0 adds the entitlement and the usage text, but nobody has recorded on a signed, notarized macOS build to confirm it. That check is issue 464, and it needs a Mac.
 - A real pass on Linux with a locked keyring. The Secret Service code is tested against fakes only. Issue 497.
-- Follow-ups to Plan first: issue 438.
 - New audio tools and new LLM providers. Each is one registered implementation, and docs/contributing.md walks through both.
 - The big one: stem separation and transcription are not shipped. The Demucs and Whisper tools are wired in, but their inference is not (issues 383 to 385). If you've shipped ONNX Runtime inside a Tauri app, I'd like to talk.
 
@@ -197,6 +220,8 @@ Bug reports with your OS, version and provider are welcome too.
 ```
 Contributing guide: https://github.com/laadtushar/edytlab/blob/main/docs/contributing.md · open issues: https://github.com/laadtushar/edytlab/issues
 ```
+
+**Image:** `linkedin/out/post-5-help-wanted.png` (1200x1200), same use.
 
 ---
 
@@ -226,8 +251,8 @@ Decisions for you:
   `CLAUDE.md`) and `marketing/README.md` recommends disclosing once. Delete
   the line if you prefer, but decide before someone asks.
 - Post 5 promises to write up a starter task on request, and says no open
-  issue carries the `good first issue` label (true when checked: 17 open issues,
-  none labelled). If you label two issues first, replace that paragraph with
+  issue carries the `good first issue` label (true when checked on 2026-10-11: 15 open
+  issues, none labelled). If you label two issues first, replace that paragraph with
   their numbers.
 - Post 1 says the agent in the recordings is Claude. That is what the demo
   captions say. No model version is named anywhere.

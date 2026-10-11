@@ -44,6 +44,7 @@ pub mod keychain;
 pub mod models;
 pub mod prompt;
 pub mod provider;
+pub mod responses;
 pub mod session_context;
 pub mod tool_selection;
 pub mod validate;
