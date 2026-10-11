@@ -446,10 +446,10 @@ const groups = [
       },
       {
         name: "select_region",
-        prompt: "select the bit where he talks about latency",
-        what: "Resolve a description of a region into a concrete time range, using the session's transcript and tempo map. Give a phrase to find, a passage of speech (1 is the first, -1 the last), or a beat range. Returns start_sec and end_sec for any tool that takes a range. Phrases and speech passages need a transcript, which this build cannot produce yet (see transcribe); beat ranges do not.",
-        output: "start_sec, end_sec, duration_sec, matched",
-        note: "It refuses rather than approximating: a phrase that is not in the transcript selects nothing, because the next call is usually a destructive edit and a range that is nearly right is worse than none. Every range-taking tool became describable without any of them changing.",
+        prompt: "select the last thing said on the voice track",
+        what: "Resolve a description of a region into a concrete time range, using the session's transcript, a voice track's audio, or its tempo map. Give a phrase to find, a passage of speech (1 is the first, -1 the last), or a beat range. Returns start_sec and end_sec for any tool that takes a range. A phrase needs a transcript, which this build cannot produce yet (see transcribe), because finding it needs the words. A passage of speech does not: name the voice_tracks and it finds the passages where those tracks' audio has voiced (pitched) sound, so -1 is the last thing said on them, and a breath, a click or hiss is not a passage. Beat ranges need neither. A voice track that carries music reads as speech throughout, so name the voice alone; loud low rumble reads as speech too, and a fan that runs for part of a track counts as speech while it runs. The detector's thresholds were set on synthetic recordings and have not been checked on real takes, so check the range it reports before a destructive edit.",
+        output: "start_sec, end_sec, duration_sec, matched, keyed_on, voice_tracks (when keyed on audio)",
+        note: "It refuses rather than approximating: a phrase that is not in the transcript selects nothing, and a track with no speech has no last passage, because the next call is usually a destructive edit and a range that is nearly right is worse than none. Passages are joined by the rule duck_under_speech uses (a pause under a second stays inside one), so the third thing said is the same in both. Every range-taking tool became describable without any of them changing.",
       },
       {
         name: "silence_finder",
@@ -537,7 +537,7 @@ const groups = [
         prompt: 'transcribe track 1',
         what: "Not implemented in this build. Would transcribe spoken audio on-device with an ONNX Whisper-base export, storing word-level timestamps in the session.",
         output: "node_id, word_count, language",
-        note: "The decoder ships as a stub, so this currently returns an error whatever you configure. Everything that reads a transcript — cut_words, remove_fillers, and select_region's phrase and speech-passage modes — is unavailable for the same reason. duck_under_speech does not wait on it: it can key on a voice track's audio instead.",
+        note: "The decoder ships as a stub, so this currently returns an error whatever you configure. Everything that reads a transcript — cut_words, remove_fillers, and select_region's phrase mode — is unavailable for the same reason. duck_under_speech and select_region's speech-passage mode do not wait on it: they can key on a voice track's audio instead.",
       },
     ],
   },

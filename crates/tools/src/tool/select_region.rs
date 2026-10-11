@@ -18,6 +18,30 @@
 //! Putting the language understanding in here instead would mean
 //! reimplementing, badly, the thing calling it.
 //!
+//! ## Where the speech comes from
+//!
+//! `text` needs the words: finding a phrase means knowing what was said,
+//! and only a transcript has that. `speech_passage` needs less. "The
+//! last thing said" is a place, not a phrase, so it can come from the
+//! transcript or, with `voice_tracks`, from the audio of the tracks that
+//! hold the voice, through the detector `duck_under_speech` uses
+//! ([`speech_detect`](crate::tool::speech_detect)) and the same rule for
+//! joining speech into passages. That matters while `transcribe` is a
+//! stub (#384): no session in a shipped build has a transcript, so
+//! without it `speech_passage` could only fail.
+//!
+//! A track named in `voice_tracks` wins over a transcript, because the
+//! transcript is session-level and cannot say which track it belongs to.
+//! `voice_tracks` with `text` or a beat range is refused: there is no
+//! sensible reading of the audio for either, and ignoring it would
+//! silently answer a different question.
+//!
+//! The audio route tells pitched sound from unpitched sound, not a voice
+//! from an instrument, so a voice track that carries music reads as
+//! speech throughout; `speech_detect` lists the other limits. Every
+//! result says what it keyed on, so the choice can be checked before the
+//! next call acts on it.
+//!
 //! ## Why it refuses rather than approximates
 //!
 //! A selection that is nearly right is worse than none: the next tool
@@ -29,14 +53,23 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
-use crate::tool::ducking::speech_passages;
-use crate::tool::util::load_head_state;
+use crate::tool::ducking::{join_passages, speech_passages, Passage, DEFAULT_JOIN_GAP_S};
+use crate::tool::speech_detect::{speech_in_track, track_list, unique_tracks};
+use crate::tool::util::{check_track_index, load_head_state};
 use crate::{Tool, ToolContext, ToolResult};
 
-/// Gaps shorter than this are inside one passage of speech rather than
-/// between two — the same threshold `duck_under_speech` uses, so "the
-/// third thing he said" means the same in both.
-const JOIN_GAP_S: f32 = 1.0;
+/// What a selector resolved to, and what it was found from.
+struct Resolved {
+    start_s: f64,
+    end_s: f64,
+    /// What was matched, in words, for the caller to check.
+    matched: String,
+    /// `"transcript"`, `"audio"` or `"tempo_map"`.
+    keyed_on: &'static str,
+    /// The tracks the audio was read from. Empty unless `keyed_on` is
+    /// `"audio"`.
+    voice_tracks: Vec<usize>,
+}
 
 #[derive(Debug, Deserialize)]
 struct Args {
@@ -50,6 +83,10 @@ struct Args {
     /// (-1 is the last thing said).
     #[serde(default)]
     speech_passage: Option<i64>,
+    /// Find the passages in these tracks' audio instead of in the
+    /// transcript. Only for `speech_passage`.
+    #[serde(default)]
+    voice_tracks: Option<Vec<usize>>,
     /// A beat range from the session's tempo map, 1-based.
     #[serde(default)]
     from_beat: Option<u64>,
@@ -72,10 +109,14 @@ impl Tool for SelectRegionTool {
         anthropic_tool(
             "select_region",
             "Resolve a description of a region into a concrete time range, using the session's \
-             transcript and tempo map. Give exactly one of: `text` (a phrase to find in the \
-             transcript), `speech_passage` (1-based, or negative from the end — -1 is the last \
-             thing said), or `from_beat`/`to_beat`. Returns start_sec and end_sec for any tool \
-             that takes a range, and reports what it matched so the choice can be checked before \
+             transcript, a voice track's audio, or its tempo map. Give exactly one of: `text` (a \
+             phrase to find in the transcript), `speech_passage` (1-based, or negative from the \
+             end — -1 is the last thing said), or `from_beat`/`to_beat`. `speech_passage` reads \
+             the transcript; with no transcript, pass `voice_tracks` and it finds the speech in \
+             those tracks' audio instead, so -1 is the last thing said on them. `text` always \
+             needs the transcript, because finding a phrase needs the words. Returns start_sec \
+             and end_sec for any tool that takes a range, and reports what it matched and what \
+             it keyed on (transcript, audio or tempo_map), so the choice can be checked before \
              acting on it. Refuses rather than guessing when the description does not resolve.",
             json!({
                 "type": "object",
@@ -93,6 +134,12 @@ impl Tool for SelectRegionTool {
                         "type": "integer",
                         "description":
                             "A stretch of continuous speech. 1 is the first, -1 the last.",
+                    },
+                    "voice_tracks": {
+                        "type": "array",
+                        "items": { "type": "integer", "minimum": 0 },
+                        "minItems": 1,
+                        "description": "Track(s) with the speech, for `speech_passage` when the session has no transcript. Finds the passages where their audio has voiced (pitched) sound instead of in the transcript, so a breath, click or hiss is not a passage; not for `text` or a beat range. The voice alone: a track with music in it reads as speech throughout, and loud low rumble, or a fan that runs for part of the track, reads as speech while it lasts. The detector's thresholds were set on synthetic recordings and not yet checked on real takes, so check the range before a destructive edit.",
                     },
                     "from_beat": { "type": "integer", "minimum": 1 },
                     "to_beat": { "type": "integer", "minimum": 1 },
@@ -144,31 +191,49 @@ impl Tool for SelectRegionTool {
             ));
         }
 
+        // `voice_tracks` answers where speech is, so it is for the
+        // selector that asks for a place. Refused rather than ignored for
+        // the others: a phrase needs the words, which audio does not
+        // have, and a beat range has no audio in it.
+        if args.voice_tracks.is_some() && args.speech_passage.is_none() {
+            return Ok(ToolResult::Error(if args.text.is_some() {
+                "`voice_tracks` goes with `speech_passage`, not `text`. Finding a phrase needs the \
+                 words, which only a transcript has: audio says where speech is, not what was \
+                 said. Drop `voice_tracks` and use a transcript, or ask for a `speech_passage`"
+                    .to_string()
+            } else {
+                "`voice_tracks` goes with `speech_passage`, not a beat range: beats come from the \
+                 tempo map and there is no speech to look for. Drop `voice_tracks`"
+                    .to_string()
+            }));
+        }
+
         let state = match load_head_state(ctx) {
             Ok(s) => s,
             Err(msg) => return Ok(ToolResult::Error(msg)),
         };
 
-        let (start, end, matched) = if let Some(text) = args.text.as_deref() {
-            match resolve_text(&state, text, args.occurrence.unwrap_or(1)) {
-                Ok(v) => v,
-                Err(msg) => return Ok(ToolResult::Error(msg)),
-            }
+        let resolved = if let Some(text) = args.text.as_deref() {
+            resolve_text(&state, text, args.occurrence.unwrap_or(1))
         } else if let Some(n) = args.speech_passage {
-            match resolve_passage(&state, n) {
-                Ok(v) => v,
-                Err(msg) => return Ok(ToolResult::Error(msg)),
-            }
+            resolve_passage(&state, n, args.voice_tracks)
         } else {
-            match resolve_beats(&state, args.from_beat, args.to_beat) {
-                Ok(v) => v,
-                Err(msg) => return Ok(ToolResult::Error(msg)),
-            }
+            resolve_beats(&state, args.from_beat, args.to_beat)
+        };
+        let Resolved {
+            start_s,
+            end_s,
+            matched,
+            keyed_on,
+            voice_tracks,
+        } = match resolved {
+            Ok(r) => r,
+            Err(msg) => return Ok(ToolResult::Error(msg)),
         };
 
         let pad = args.pad_sec.unwrap_or(0.0).max(0.0);
-        let start = (start - pad).max(0.0);
-        let end = end + pad;
+        let start = (start_s - pad).max(0.0);
+        let end = end_s + pad;
 
         // Reported, not applied. The acceptance is that a described
         // region becomes something the user can *check* before a
@@ -180,17 +245,30 @@ impl Tool for SelectRegionTool {
             "matched": matched,
         }));
 
-        Ok(ToolResult::Ok(json!({
+        // Found from sound, not from the words: said where the caller
+        // reads it, since the next call is usually a destructive edit.
+        let caveat = if keyed_on == "audio" {
+            " This came from the audio (voiced sound), not from the words, so check it before a \
+             destructive edit."
+        } else {
+            ""
+        };
+        let mut out = json!({
             "start_sec": start,
             "end_sec": end,
             "duration_sec": end - start,
             "matched": matched,
+            "keyed_on": keyed_on,
             "summary": format!(
                 "Selected {start:.2}s–{end:.2}s ({:.2}s): {matched}. Pass these as the range to \
-                 any tool that takes one.",
+                 any tool that takes one.{caveat}",
                 end - start
             ),
-        })))
+        });
+        if !voice_tracks.is_empty() {
+            out["voice_tracks"] = json!(voice_tracks);
+        }
+        Ok(ToolResult::Ok(out))
     }
 }
 
@@ -204,7 +282,7 @@ fn resolve_text(
     state: &session::SessionState,
     phrase: &str,
     occurrence: usize,
-) -> Result<(f64, f64, String), String> {
+) -> Result<Resolved, String> {
     let Some(transcript) = &state.transcript else {
         return Err(
             "this session has no transcript; run `transcribe` first — selecting by what was said \
@@ -231,11 +309,13 @@ fn resolve_text(
             if found == occurrence {
                 let first = &words[i];
                 let last = &words[i + needle.len() - 1];
-                return Ok((
-                    first.start_s as f64,
-                    last.end_s as f64,
-                    format!("\"{phrase}\" (occurrence {occurrence} of ...)"),
-                ));
+                return Ok(Resolved {
+                    start_s: first.start_s as f64,
+                    end_s: last.end_s as f64,
+                    matched: format!("\"{phrase}\" (occurrence {occurrence} of ...)"),
+                    keyed_on: "transcript",
+                    voice_tracks: Vec::new(),
+                });
             }
         }
     }
@@ -260,21 +340,40 @@ fn normalise(w: &str) -> String {
         .to_lowercase()
 }
 
+/// The `which`-th passage of speech, from the audio of `voice_tracks` when
+/// they are given and from the transcript when they are not.
+///
+/// Both routes join speech into passages by [`DEFAULT_JOIN_GAP_S`] and
+/// count them the same way, so a passage number means the same from
+/// either, and the same as in `duck_under_speech`.
 fn resolve_passage(
     state: &session::SessionState,
     which: i64,
-) -> Result<(f64, f64, String), String> {
-    let Some(transcript) = &state.transcript else {
-        return Err(
-            "this session has no transcript; run `transcribe` first — selecting a passage of \
-             speech needs to know where the speech is"
-                .to_string(),
-        );
+    voice_tracks: Option<Vec<usize>>,
+) -> Result<Resolved, String> {
+    let (passages, keyed_on, voice_tracks) = match voice_tracks {
+        // A named track wins over a transcript: the transcript is
+        // session-level and cannot say which track it belongs to.
+        Some(requested) => {
+            let tracks = unique_tracks(requested);
+            let passages = passages_in_audio(state, &tracks)?;
+            (passages, "audio", tracks)
+        }
+        None => {
+            let Some(transcript) = &state.transcript else {
+                return Err(
+                    "this session has no transcript; pass `voice_tracks` (the track(s) with the \
+                     speech) to find the passage in that audio instead"
+                        .to_string(),
+                );
+            };
+            let passages = speech_passages(&transcript.words, DEFAULT_JOIN_GAP_S);
+            if passages.is_empty() {
+                return Err("the transcript has no words, so there are no passages".to_string());
+            }
+            (passages, "transcript", Vec::new())
+        }
     };
-    let passages = speech_passages(&transcript.words, JOIN_GAP_S);
-    if passages.is_empty() {
-        return Err("the transcript has no words, so there are no passages".to_string());
-    }
 
     let n = passages.len() as i64;
     // Negative counts from the end, so -1 is "the last thing he said"
@@ -282,23 +381,67 @@ fn resolve_passage(
     let index = if which < 0 { n + which } else { which - 1 };
     if index < 0 || index >= n {
         return Err(format!(
-            "there are {n} passage(s) of speech, so {which} does not exist"
+            "there are {n} passage(s) of speech, so passage {which} does not exist (1 is the \
+             first and {n} the last; -1 counts back from the end)"
         ));
     }
 
     let p = passages[index as usize];
-    Ok((
-        p.start_s as f64,
-        p.end_s as f64,
-        format!("passage {} of {n} of speech", index + 1),
-    ))
+    let matched = if voice_tracks.is_empty() {
+        format!("passage {} of {n} of speech", index + 1)
+    } else {
+        format!(
+            "passage {} of {n} of speech found in the audio of track(s) {} (voiced sound, so \
+             breaths and clicks are ignored)",
+            index + 1,
+            track_list(&voice_tracks)
+        )
+    };
+    Ok(Resolved {
+        start_s: p.start_s as f64,
+        end_s: p.end_s as f64,
+        matched,
+        keyed_on,
+        voice_tracks,
+    })
+}
+
+/// The passages of speech in the audio of `tracks`, in time order.
+///
+/// Several tracks are one timeline: two voices that overlap are one
+/// passage, as they are to `duck_under_speech`.
+fn passages_in_audio(
+    state: &session::SessionState,
+    tracks: &[usize],
+) -> Result<Vec<Passage>, String> {
+    if tracks.is_empty() {
+        return Err("voice_tracks is empty; name the track(s) with the speech".to_string());
+    }
+    // Every name checked before any audio is read: decoding and analysing
+    // a long take is the expensive part, and a typo should not wait on it.
+    for &t in tracks {
+        check_track_index(&state.tracks, t)?;
+    }
+    let mut found = Vec::new();
+    for &t in tracks {
+        found.extend(speech_in_track(&state.tracks[t].clips, t)?);
+    }
+    let passages = join_passages(found, DEFAULT_JOIN_GAP_S);
+    if passages.is_empty() {
+        return Err(format!(
+            "found no speech on track(s) {}: nothing voiced stands above that audio's own noise \
+             floor, so there is no passage to select",
+            track_list(tracks)
+        ));
+    }
+    Ok(passages)
 }
 
 fn resolve_beats(
     state: &session::SessionState,
     from: Option<u64>,
     to: Option<u64>,
-) -> Result<(f64, f64, String), String> {
+) -> Result<Resolved, String> {
     let (Some(from), Some(to)) = (from, to) else {
         return Err("a beat range needs both `from_beat` and `to_beat`".to_string());
     };
@@ -319,5 +462,11 @@ fn resolve_beats(
     let start = (from - 1) as f64 * per_beat;
     let end = (to - 1) as f64 * per_beat;
 
-    Ok((start, end, format!("beats {from}–{to} at {bpm:.1} BPM")))
+    Ok(Resolved {
+        start_s: start,
+        end_s: end,
+        matched: format!("beats {from}–{to} at {bpm:.1} BPM"),
+        keyed_on: "tempo_map",
+        voice_tracks: Vec::new(),
+    })
 }

@@ -92,7 +92,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`reverb`](#reverb) — Apply Freeverb algorithmic reverb.
 - [`reverse`](#reverse) — Reverse the sample order of a track, optionally within a sub-range.
 - [`revert_to`](#revert_to) — Move the head back to an earlier node, such as a checkpoint before an edit the user wants to undo.
-- [`select_region`](#select_region) — Resolve a description of a region into a concrete time range, using the session's transcript and tempo map.
+- [`select_region`](#select_region) — Resolve a description of a region into a concrete time range, using the session's transcript, a voice track's audio, or its tempo map.
 - [`separate_stems`](#separate_stems) — NOT IMPLEMENTED IN THIS BUILD.
 - [`set_clip_envelope`](#set_clip_envelope) — Replace the per-clip volume automation curve.
 - [`set_effect_bypassed`](#set_effect_bypassed) — Bypass or re-enable one effect on a track or on the master bus (scope "master") without removing it, so its settings survive an A/B.
@@ -897,7 +897,7 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `select_region`
 
-Resolve a description of a region into a concrete time range, using the session's transcript and tempo map. Give exactly one of: `text` (a phrase to find in the transcript), `speech_passage` (1-based, or negative from the end — -1 is the last thing said), or `from_beat`/`to_beat`. Returns start_sec and end_sec for any tool that takes a range, and reports what it matched so the choice can be checked before acting on it. Refuses rather than guessing when the description does not resolve.
+Resolve a description of a region into a concrete time range, using the session's transcript, a voice track's audio, or its tempo map. Give exactly one of: `text` (a phrase to find in the transcript), `speech_passage` (1-based, or negative from the end — -1 is the last thing said), or `from_beat`/`to_beat`. `speech_passage` reads the transcript; with no transcript, pass `voice_tracks` and it finds the speech in those tracks' audio instead, so -1 is the last thing said on them. `text` always needs the transcript, because finding a phrase needs the words. Returns start_sec and end_sec for any tool that takes a range, and reports what it matched and what it keyed on (transcript, audio or tempo_map), so the choice can be checked before acting on it. Refuses rather than guessing when the description does not resolve.
 
 _Read-only — never held for approval._
 
@@ -909,6 +909,7 @@ _Read-only — never held for approval._
 | `speech_passage` | integer | no | A stretch of continuous speech. 1 is the first, -1 the last. |
 | `text` | string | no | Phrase to find in the transcript, case-insensitive. |
 | `to_beat` | integer | no |  |
+| `voice_tracks` | array of integer | no | Track(s) with the speech, for `speech_passage` when the session has no transcript. Finds the passages where their audio has voiced (pitched) sound instead of in the transcript, so a breath, click or hiss is not a passage; not for `text` or a beat range. The voice alone: a track with music in it reads as speech throughout, and loud low rumble, or a fan that runs for part of the track, reads as speech while it lasts. The detector's thresholds were set on synthetic recordings and not yet checked on real takes, so check the range before a destructive edit. |
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 

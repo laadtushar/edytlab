@@ -646,7 +646,7 @@ The derived-audio sweep waits while a staged handle is alive (`Store::staged_in_
 
 There are 93, registered in `ToolDispatcher::default_dispatcher()` with their implementations under `crates/tools/src/tool/`. The full list, with every parameter, is [tools-reference.md](./tools-reference.md) — generated from the registry, so it cannot drift from what the agent can call.
 
-Two of them are stubs: `separate_stems` (Demucs, [#385](https://github.com/laadtushar/edytlab/issues/385)) and `transcribe` (Whisper, [#384](https://github.com/laadtushar/edytlab/issues/384)) return an error in this build. `cut_words`, `remove_fillers` and the phrase/speech modes of `select_region` need a transcript, which only `transcribe` produces, so they cannot run yet either. `duck_under_speech` does not wait on it: with no transcript it keys on a voice track's audio (`voice_tracks`, found by `speech_detect.rs` from voiced sound, not level).
+Two of them are stubs: `separate_stems` (Demucs, [#385](https://github.com/laadtushar/edytlab/issues/385)) and `transcribe` (Whisper, [#384](https://github.com/laadtushar/edytlab/issues/384)) return an error in this build. `cut_words`, `remove_fillers` and the `text` mode of `select_region` need a transcript, which only `transcribe` produces, so they cannot run yet either. `duck_under_speech` and `select_region`'s `speech_passage` do not wait on it: with no transcript they key on a voice track's audio (`voice_tracks`, found by `speech_detect.rs` from voiced sound, not level, and joined into passages by the same rule in both). A phrase needs the words, so `select_region` refuses `voice_tracks` with `text`.
 
 ### Tool Input/Output Contract
 

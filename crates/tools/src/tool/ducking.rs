@@ -29,16 +29,12 @@
 //! visible and editable rather than a black box, and the render path
 //! needed no changes at all.
 
-use std::ops::Range;
-
 use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
-use crate::tool::speech_detect::detect_speech;
-use crate::tool::util::{
-    append_state, check_track_index, clip_source_rate, flatten_track, load_head_state,
-};
+use crate::tool::speech_detect::{speech_in_track, track_list, unique_tracks};
+use crate::tool::util::{append_state, check_track_index, clip_source_rate, load_head_state};
 use crate::{Tool, ToolContext, ToolResult};
 
 /// How much to drop the music under speech, in dB.
@@ -54,8 +50,9 @@ const DEFAULT_RELEASE_MS: f32 = 400.0;
 const DEFAULT_PRE_ROLL_MS: f32 = 150.0;
 /// Gaps shorter than this are inside one passage of speech rather than
 /// between two. Ducking back up for a quarter-second comma is a pump,
-/// not an edit.
-const DEFAULT_JOIN_GAP_S: f32 = 1.0;
+/// not an edit. `select_region` joins by the same rule, so "the third
+/// thing he said" means the same in both.
+pub(crate) const DEFAULT_JOIN_GAP_S: f32 = 1.0;
 
 #[derive(Debug, Deserialize)]
 struct Args {
@@ -164,14 +161,7 @@ impl Tool for DuckUnderSpeechTool {
         // other tracks of the same state.
         let (passages, keyed_on, voice_tracks) = match args.voice_tracks {
             Some(requested) => {
-                // First-seen order, so the label and summary read the
-                // way the caller wrote them.
-                let mut voice_tracks: Vec<usize> = Vec::with_capacity(requested.len());
-                for t in requested {
-                    if !voice_tracks.contains(&t) {
-                        voice_tracks.push(t);
-                    }
-                }
+                let voice_tracks = unique_tracks(requested);
                 if voice_tracks.is_empty() {
                     return Ok(ToolResult::Error(
                         "voice_tracks is empty; name the track(s) with the speech".to_string(),
@@ -188,38 +178,12 @@ impl Tool for DuckUnderSpeechTool {
                              ducks under"
                         )));
                     }
-                    let clips = &state.tracks[t].clips;
-                    if clips.is_empty() {
-                        return Ok(ToolResult::Error(format!("voice track {t} has no clips")));
-                    }
-                    // The timeline as it plays, not the source file:
-                    // speech sits where the clip sits, and a cut or a
-                    // moved clip changes where. No track gain or effects
-                    // are applied, which is right for where speech is.
-                    let audio = match flatten_track(clips) {
-                        Ok(a) => a,
+                    // Where the clips sit on the timeline, as they play;
+                    // shared with `select_region`.
+                    match speech_in_track(&state.tracks[t].clips, t) {
+                        Ok(passages) => found.extend(passages),
                         Err(msg) => return Ok(ToolResult::Error(msg)),
-                    };
-                    // Only the frames a clip sits on are the voice's
-                    // audio. The rest of the window is the silence
-                    // `flatten_track` lays down before and between
-                    // clips, and it must not set the noise floor.
-                    let channels = audio.channels as usize;
-                    let frames = audio.window.len() / channels.max(1);
-                    let covered: Vec<Range<usize>> = clips
-                        .iter()
-                        .map(|c| {
-                            let from = usize::try_from(c.start_in_track).unwrap_or(usize::MAX);
-                            let len = usize::try_from(c.length).unwrap_or(usize::MAX);
-                            from.min(frames)..from.saturating_add(len).min(frames)
-                        })
-                        .collect();
-                    found.extend(detect_speech(
-                        &audio.window,
-                        audio.sample_rate,
-                        channels,
-                        &covered,
-                    ));
+                    }
                 }
                 let passages = join_passages(found, join_gap_s);
                 if passages.is_empty() {
@@ -346,15 +310,6 @@ impl Tool for DuckUnderSpeechTool {
         }
         Ok(ToolResult::Ok(out))
     }
-}
-
-/// `1, 3` — the track numbers as the caller would write them.
-fn track_list(tracks: &[usize]) -> String {
-    tracks
-        .iter()
-        .map(usize::to_string)
-        .collect::<Vec<_>>()
-        .join(", ")
 }
 
 /// A stretch of speech, in seconds.

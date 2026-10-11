@@ -4,7 +4,10 @@
 //! but the transcript needs `transcribe`, and the Whisper decoder has
 //! not shipped (#384). Most of what ducking needs is *where* the speech
 //! is, not *what was said*, and the audio can answer that without a
-//! model.
+//! model. So does `select_region`'s `speech_passage`: "the last thing
+//! said" is a place, not a phrase. Both read it through
+//! [`speech_in_track`], so a duck and a selection agree on where a line
+//! is.
 //!
 //! ## Why level alone is not enough
 //!
@@ -68,6 +71,7 @@ use std::ops::Range;
 use audio_dsp::{Biquad, BiquadCoeffs, Processor};
 
 use crate::tool::ducking::Passage;
+use crate::tool::util::flatten_track;
 
 /// Level and voicing are measured once per hop. Fine enough that a
 /// passage's edges land within a hop of the real onset, coarse enough
@@ -383,6 +387,66 @@ fn voicing(x: &[f32], p: usize, win: usize, lag_min: usize, lag_max: usize) -> f
         }
     }
     best
+}
+
+/// The passages of speech in one track's audio, in seconds on the
+/// session timeline.
+///
+/// `track` is only the number the errors name. The timeline as it plays,
+/// not the source file: speech sits where the clip sits, and a cut or a
+/// moved clip changes where. No track gain or effects are applied, which
+/// is right for where speech is. Gaps between the passages are not
+/// joined here; see [`join_passages`](crate::tool::ducking::join_passages).
+///
+/// The caller has already checked that `track` exists.
+pub(crate) fn speech_in_track(
+    clips: &[session::Clip],
+    track: usize,
+) -> Result<Vec<Passage>, String> {
+    if clips.is_empty() {
+        return Err(format!("voice track {track} has no clips"));
+    }
+    let audio = flatten_track(clips)?;
+    // Only the frames a clip sits on are the voice's audio. The rest of
+    // the window is the silence `flatten_track` lays down before and
+    // between clips, and it must not set the noise floor.
+    let channels = audio.channels as usize;
+    let frames = audio.window.len() / channels.max(1);
+    let covered: Vec<Range<usize>> = clips
+        .iter()
+        .map(|c| {
+            let from = usize::try_from(c.start_in_track).unwrap_or(usize::MAX);
+            let len = usize::try_from(c.length).unwrap_or(usize::MAX);
+            from.min(frames)..from.saturating_add(len).min(frames)
+        })
+        .collect();
+    Ok(detect_speech(
+        &audio.window,
+        audio.sample_rate,
+        channels,
+        &covered,
+    ))
+}
+
+/// `requested` without repeats, in the order it was first written, so a
+/// label or a summary reads the way the caller wrote it.
+pub(crate) fn unique_tracks(requested: Vec<usize>) -> Vec<usize> {
+    let mut unique: Vec<usize> = Vec::with_capacity(requested.len());
+    for t in requested {
+        if !unique.contains(&t) {
+            unique.push(t);
+        }
+    }
+    unique
+}
+
+/// `1, 3` — the track numbers as the caller would write them.
+pub(crate) fn track_list(tracks: &[usize]) -> String {
+    tracks
+        .iter()
+        .map(usize::to_string)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 #[cfg(test)]

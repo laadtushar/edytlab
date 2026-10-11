@@ -172,7 +172,8 @@ pub(crate) const NOT_IMPLEMENTED_MARKER: &str = "NOT IMPLEMENTED";
 /// that makes one, and it does nothing in this build (#383-#385), so these
 /// can only fail, and a small model that is offered one calls it. They are
 /// left out like the tools above. (`select_region` also reads a
-/// transcript, but resolves beats without one, so it stays. So does
+/// transcript, but resolves beats without one, and a speech passage from
+/// the audio of the tracks named in `voice_tracks`, so it stays. So does
 /// `duck_under_speech`: it keys on a transcript when there is one, and on
 /// the audio of the tracks named in `voice_tracks` when there is not.
 /// A test fails if a tool with a `voice_tracks` property is listed here.)
