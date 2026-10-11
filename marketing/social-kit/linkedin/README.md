@@ -13,8 +13,8 @@ kind of media per post.
 
 | File | Size | Goes with | What it shows |
 |---|---|---|---|
-| `out/post-1-launch.png` | 1200x1200, 592 KB | Post 1, launch | "An audio editor you talk to": the app's assistant after one request, and the site's three numbers (0 bytes of audio uploaded, 6 providers, 93 tools) |
-| `out/post-2-before-after.png` | 1200x1200, 390 KB | Post 2, DJ workflow | The seven chores of one blend, beside the same request in the assistant |
+| `out/post-1-launch.png` | 1200x1200, 592 KB | Post 1, launch | "An audio editor you talk to": the app's chat panel with a scripted example conversation, and the site's three numbers (0 bytes of audio uploaded, 6 providers, 93 tools) |
+| `out/post-2-before-after.png` | 1200x1200, 390 KB | Post 2, DJ workflow | The seven chores of one blend, beside the same scripted example conversation in the app's chat panel |
 | `out/post-3-model-never-touches-a-sample.png` | 1200x1200, 189 KB | Post 3, build story | The model reads text and answers with tool calls; the tools and the audio are on your machine |
 | `out/post-4-privacy.png` | 1200x1200, 221 KB | Post 4, privacy | "Does my audio get uploaded? No." What stays, what leaves, and Settings with Ollama selected |
 | `out/post-5-help-wanted.png` | 1200x1200, 249 KB | Post 5, open source | Four places a contributor would make a difference, with issue numbers |
@@ -89,10 +89,14 @@ so a command the app calls that nothing answers fails the run.
   stylesheet, in the violet look that came with #515 and #528.
 - **What is staged:** the data. The session is two synthetic 16-bar loops at
   120 BPM that [`loops.ts`](loops.ts) writes from arithmetic (nothing is
-  committed as audio, and nothing has a licence), the chat is a request, four tool
-  calls and a reply written for the slide, and the graph is six nodes. The slides
-  say "Sample session in the real app" wherever one of these shows. None of it is
-  a recording of a real run and none of it is a result of one.
+  committed as audio, and nothing has a licence), the chat is a scripted example
+  conversation (a request, four tool calls and a reply written for the slide:
+  "126 BPM" and "16.0 s" are fixture values, not a model's output), the plan is a
+  scripted example plan, and the graph is six nodes. Each slide says so under the
+  screenshot: "The real app's chat, with a scripted example conversation", "...
+  plan card, with a scripted example plan", "... history graph, with example data",
+  "... timeline, example data". None of it is a recording of a real run and none of
+  it is a result of one.
 - **The window and the crops:** 1280 wide as Tauri opens it, 840 tall, at 2x or 3x
   pixels depending on how large the crop is shown. Each crop is cut to what the
   slide needs and is shown at 1.5x to 2.9x its size on screen, so the interface
@@ -103,10 +107,10 @@ so a command the app calls that nothing answers fails the run.
 
 | File | What it is |
 |---|---|
-| `shots/chat.png` | the assistant after one request: four tool calls and the reply |
-| `shots/timeline.png` | the two lanes, with the crossfade drawn as volume envelopes |
-| `shots/graph.png` | the history graph at a fork: tempo match, then crossfade with a low-pass, or a hard cut |
-| `shots/plan.png` | Plan first's card, held for approval |
+| `shots/chat.png` | the assistant after one request: four tool calls and the reply (a scripted example conversation) |
+| `shots/timeline.png` | the two lanes, with the crossfade drawn as volume envelopes (example data) |
+| `shots/graph.png` | the history graph at a fork: tempo match, then crossfade with a low-pass, or a hard cut (example data) |
+| `shots/plan.png` | Plan first's card, held for approval (a scripted example plan) |
 | `shots/ollama.png` | Settings with Ollama selected, and the dialog's own note that it needs no key |
 
 ## What the slides claim, and where each claim comes from
@@ -117,7 +121,7 @@ count, a quote or a benchmark.
 
 | Claim on a slide | Source |
 |---|---|
-| 93 tools, "deterministic", fade / EQ / time-stretch / loudness / export | `docs/tools-reference.md` (read at render time) |
+| 93 tools; fade / EQ / time-stretch / loudness / export are among them; they are Rust functions with no model in the audio path. The slides do not call the 93 "deterministic": two of them (`separate_stems`, `transcribe`) only return an error today, and tools an MCP server adds are not part of the 93 | `docs/tools-reference.md` (read at render time), `crates/tools/src/tool/` |
 | 6 providers, one local; 0 bytes of audio uploaded | `website/components/landing/stats-strip.tsx`, `website/app/privacy/page.tsx` |
 | The model reads text (tempo, key, loudness), never receives the audio; the DSP runs in Rust on your machine | marketing `README.md` accuracy table; `docs/architecture.md` |
 | Only the chat leaves; Ollama needs no key and runs on your machine | `website/app/privacy/page.tsx`; the dialog's own text in `shots/ollama.png` |

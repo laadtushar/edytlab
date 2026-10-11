@@ -6,8 +6,8 @@
 {{tokens}}
 {{base}}
 <style>
-  .title { margin-top: 34px; font-size: 84px; }
-  .flow { margin-top: 30px; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  .title { margin-top: 28px; font-size: 84px; }
+  .flow { margin-top: 22px; display: flex; flex-direction: column; flex: 1; min-height: 0; }
 
   .node { padding: 18px 30px; }
   .node h3 { font-size: 36px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.2; }
@@ -17,13 +17,13 @@
 
   /* The arrow between steps: a rail, a head and what travels along it. */
   .link svg path { stroke: hsl(var(--primary)); }
-  .link { display: flex; align-items: center; gap: 18px; height: 52px; padding-left: 44px; font-family: var(--font-mono); font-size: 26px; color: hsl(var(--muted-foreground)); }
+  .link { display: flex; align-items: center; gap: 18px; height: 46px; padding-left: 44px; font-family: var(--font-mono); font-size: 26px; color: hsl(var(--muted-foreground)); }
   .link svg { flex: none; }
 
   .machine { margin-top: 0; padding: 18px 20px 20px; border: 2px dashed hsl(var(--primary) / 0.45); border-radius: var(--r-card); background: hsl(var(--primary) / 0.05); }
   .machine > .eyebrow { font-size: 24px; margin: 0 10px 14px; }
   .machine .node { background: hsl(var(--card)); }
-  .machine .node + .link { height: 44px; }
+  .machine .node + .link { height: 40px; }
   .chips { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
   .chip { font-size: 24px; padding: 6px 16px; }
 </style>
@@ -54,8 +54,8 @@
       <div class="machine" data-safe="on your machine">
         <p class="eyebrow">On your machine</p>
         <div class="card node">
-          <h3>{{tools}} deterministic tools</h3>
-          <p>Fade, EQ, time-stretch, loudness, export. Plain Rust functions.</p>
+          <h3>{{tools}} tools</h3>
+          <p>Fade, EQ, time-stretch, loudness, export. Rust functions, no model in the audio path.</p>
         </div>
         <div class="link"><svg width="22" height="38" viewBox="0 0 22 38" aria-hidden="true"><path d="M11 0v26M3 20l8 10 8-10" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>edits</div>
         <div class="card node lit">

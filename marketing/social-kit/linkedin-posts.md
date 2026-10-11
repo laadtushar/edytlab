@@ -57,7 +57,9 @@ Source (MIT) and installers for macOS, Windows and Linux: https://github.com/laa
 ```
 
 **Image:** `linkedin/out/post-1-launch.png` (1200x1200). Use it as the video's
-cover if LinkedIn's uploader offers a custom thumbnail, or post it alone.
+cover if LinkedIn's uploader offers a custom thumbnail, or post it alone. The
+chat in it is the app's real chat panel with a scripted example conversation (the
+numbers are fixture values, not a model's output), and the image says so.
 
 **Shorter version (under 90 words), same video:**
 
@@ -105,7 +107,8 @@ Which step of your own prep would you hand off first?
 The DJ walkthrough, with all three recordings and the full list of what it can't do: https://edytlab.com/use-cases/dj
 ```
 
-**Image:** `linkedin/out/post-2-before-after.png` (1200x1200), same use.
+**Image:** `linkedin/out/post-2-before-after.png` (1200x1200), same use, and the
+same scripted example conversation, captioned as one.
 
 ---
 
@@ -142,7 +145,9 @@ Every tool, with its parameters, generated from the tool registry: https://githu
 
 **Image and carousel:** `linkedin/out/post-3-model-never-touches-a-sample.png`
 (1200x1200), and `linkedin/out/post-3-carousel.pdf`, seven 1080x1350 pages
-that walk through the same four points with screenshots of the app. LinkedIn
+that walk through the same four points with screenshots of the app (the real
+interface; the conversation, plan and history in them are scripted examples, and
+each page says so). LinkedIn
 takes a PDF as a document post, so post it instead of the reel. If you do,
 delete the sentence in the post's second paragraph that says what the video
 shows: there is no video in that version.
@@ -193,7 +198,7 @@ Angle: specific, honest invitations, including the big unshipped piece. About
 ```
 edytlab is MIT-licensed and I'd like help with it. Here is where, specifically.
 
-It's a desktop audio editor in Tauri 2, Rust and React, where an AI agent calls 93 deterministic audio tools. v0.5.0 is out for macOS, Windows and Linux (unsigned installers).
+It's a desktop audio editor in Tauri 2, Rust and React, where an AI agent calls 93 audio tools. v0.5.0 is out for macOS, Windows and Linux (unsigned installers).
 
 Places a contributor could make a real difference:
 

@@ -10,6 +10,7 @@
   .hero { font-size: 86px; }
   .lead { margin-top: 28px; font-size: 34px; }
   .row { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 30px; }
+  .shotcard { --crop: 12.5%; }
   .sample { margin-top: 14px; }
   .stats { margin-top: auto; }
 </style>
@@ -33,8 +34,8 @@
         </div>
       </div>
       <div>
-        <div class="shotcard" data-safe="chat screenshot"><img src="../shots/chat.png" alt="The edytlab chat: a request to match Track B's tempo to Track A and crossfade them, four tool calls, and the agent's reply." /></div>
-        <p class="sample">Sample session in the real app</p>
+        <div class="shotcard crop" data-crops data-safe="chat screenshot"><img src="../shots/chat.png" alt="A scripted example conversation in the edytlab chat: a request to match Track B's tempo to Track A and crossfade them, four tool calls, and the agent's reply." /></div>
+        <p class="sample">The real app's chat, with a scripted example conversation</p>
       </div>
     </div>
 
