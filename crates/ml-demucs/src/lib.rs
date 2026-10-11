@@ -24,12 +24,6 @@
 //!    [`DemucsModel::separate`] is invoked the crate returns
 //!    [`DemucsError::NotImplemented`] instead of panicking.
 //!
-//! One piece of the decoder exists ahead of the rest: [`separate`], the
-//! segment and overlap-add pipeline around the network, behind a
-//! [`separate::SegmentModel`] trait and tested with a fake model. Nothing
-//! implements that trait with ONNX Runtime yet, so
-//! [`DemucsModel::separate`] is as unimplemented as before (#385).
-//!
 //! **Supplying a model does not enable separation.** What is missing is
 //! the decoder, not the file: a valid `.onnx` loads and then `separate`
 //! still returns `NotImplemented`. The crate says so rather than naming
@@ -38,6 +32,12 @@
 //! `ml-whisper` is in the same state, and now reports it the same way.
 //! It used to return `Ok(Vec::new())` — an empty transcript reported as
 //! success — which was worse, and is gone.
+//!
+//! One piece of the decoder exists ahead of the rest: [`separate`], the
+//! segment and overlap-add pipeline around the network, behind a
+//! [`separate::SegmentModel`] trait and tested with a fake model. Nothing
+//! implements that trait with ONNX Runtime yet, so
+//! [`DemucsModel::separate`] is as unimplemented as before (#385).
 //!
 //! ## Cache layout
 //!
@@ -65,9 +65,10 @@ use ml_pipeline::ContentHash;
 use serde::{Deserialize, Serialize};
 
 mod cache;
-pub mod separate;
 
 pub use cache::{stem_dir_for, write_stems_to_dir, StemPaths, STEM_FILENAMES, STEM_NAMES};
+
+pub mod separate;
 
 /// One separated stem in the same shape as [`DecodedAudio`].
 ///
