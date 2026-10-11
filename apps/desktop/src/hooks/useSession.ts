@@ -68,10 +68,12 @@ export interface UseSessionResult {
    * head it already has changes nothing.
    *
    * This only changes the frontend's idea of the head; commands that
-   * made the move on the backend have already done so, and the graph's
-   * click is a preview. Every head move in the frontend must come
-   * through here (or `resetHead`): a head moved any other way is one
-   * undo does not know about (`lib/headTrail.ts`).
+   * made the move on the backend have already done so. A click on a node
+   * in the graph is not one: it is a preview, kept apart from the head
+   * (`useGraphPreview`, #522), because the store did not move and the
+   * saved path must end where the store does. Every head move in the
+   * frontend must come through here (or `resetHead`): a head moved any
+   * other way is one undo does not know about (`lib/headTrail.ts`).
    */
   setHeadLocal: (nodeId: NodeId) => void;
   /**
