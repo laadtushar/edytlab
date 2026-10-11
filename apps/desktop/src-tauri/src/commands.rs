@@ -1317,6 +1317,11 @@ fn models_unread_reason(state: &AppState) -> Option<String> {
     })
 }
 
+/// The error for a turn with no agent to run it.
+fn no_agent_error(_state: &AppState) -> CommandError {
+    CommandError::NoAgent
+}
+
 /// Why the keychain is not asked, if startup found it refusing access
 /// ([`AppState::keychain_refused`]); `None` while it is not known to.
 ///
@@ -2311,7 +2316,7 @@ pub async fn send_message<R: Runtime>(
     // cannot race themselves). The lock is `tokio::sync::Mutex` because
     // we hold it across `.await`.
     let mut agent_guard = state.agent.lock().await;
-    let agent = agent_guard.as_mut().ok_or(CommandError::NoAgent)?;
+    let agent = agent_guard.as_mut().ok_or_else(|| no_agent_error(&state))?;
 
     // The closure must be `FnMut` and synchronous (per `Agent::turn`'s
     // signature). We capture the AppHandle by clone so each emit is
@@ -4089,6 +4094,26 @@ fn rebuild_agent_soon(state: &AppState) {
 /// is the agent's mutex, held by the caller. Nothing here waits for a
 /// turn; see [`rebuild_agent`] and [`rebuild_agent_soon`] for the callers.
 fn rebuild_agent_into(state: &AppState, slot: &mut Option<ai::Agent>) {
+    rebuild_agent_from(
+        state,
+        slot,
+        ai::keychain::load_api_key,
+        ai::keychain::load_base_url,
+        ai::keychain::load_effort,
+    );
+}
+
+/// [`rebuild_agent_into`] with the three keychain reads it makes passed in,
+/// so a test can count them without an OS keychain: another provider's key
+/// (for a profile that pins one), and the base URL and the level of the
+/// provider the agent is built for.
+fn rebuild_agent_from(
+    state: &AppState,
+    slot: &mut Option<ai::Agent>,
+    load_key: impl Fn(&str) -> Option<String>,
+    load_base_url: impl Fn(&str) -> Option<String>,
+    load_effort: impl Fn(&str) -> Option<ai::Effort>,
+) {
     let store_handle = state.store_handle();
     let global_provider_id = state.active_provider_id();
     let global_chosen_model = state.model_for(&global_provider_id);
@@ -4099,7 +4124,7 @@ fn rebuild_agent_into(state: &AppState, slot: &mut Option<ai::Agent>) {
         state.api_key_snapshot(),
         global_chosen_model,
         profile_model,
-        ai::keychain::load_api_key,
+        load_key,
     );
     let provider = ai::validate::provider_for(&effective_provider_id);
 
@@ -4123,12 +4148,12 @@ fn rebuild_agent_into(state: &AppState, slot: &mut Option<ai::Agent>) {
             }
             // Point at a local server, a gateway, or a proxy. Absent, the
             // provider's own URL applies.
-            if let Some(base) = ai::keychain::load_base_url(&effective_provider_id) {
+            if let Some(base) = load_base_url(&effective_provider_id) {
                 cfg = cfg.with_base_url(base);
             }
             // Absent, the model's own default applies. A provider that
             // cannot take one drops it in `effective_effort`.
-            if let Some(effort) = ai::keychain::load_effort(&effective_provider_id) {
+            if let Some(effort) = load_effort(&effective_provider_id) {
                 cfg = cfg.with_effort(effort);
             }
             let plan_first = state.plan_first.load(std::sync::atomic::Ordering::SeqCst);
@@ -7302,5 +7327,170 @@ mod tests {
         let json = serde_json::to_value(&dto).unwrap();
         assert_eq!(json["source"], "live");
         assert!(json["notice"].is_null());
+    }
+
+    // ---- The agent after a refused startup (#497) ----------------------
+
+    /// A state an agent can be built in: the default project's store is
+    /// open, as `run` leaves it. Without one nothing is ever built whatever
+    /// the keychain says, and the tests below would prove nothing about it.
+    fn state_with_a_store(dir: &std::path::Path) -> AppState {
+        let state = AppState::default();
+        let store = Store::open(dir).expect("store");
+        state.set_store(Some(Arc::new(Mutex::new(store))));
+        state
+    }
+
+    /// An agent profile that pins `openai`'s model, active in `state`.
+    fn pin_openai_profile(state: &AppState, dir: &std::path::Path) {
+        std::fs::write(
+            dir.join("pinned.md"),
+            "---\ndescription: pins another provider\nmodel:\n  provider: openai\n  id: gpt-4o-mini\n---\nbody\n",
+        )
+        .expect("profile");
+        state.install_agent_profile_library(dir.to_path_buf());
+        state
+            .set_active_agent_profile(Some("pinned".to_string()))
+            .expect("select it");
+    }
+
+    /// What one rebuild asked the keychain for ("key:openai",
+    /// "base_url:ollama", "effort:ollama"), and whether it built an agent.
+    fn rebuild_and_record(state: &AppState) -> (Vec<String>, bool) {
+        let asked = RefCell::new(Vec::new());
+        let mut slot = None;
+        rebuild_agent_from(
+            state,
+            &mut slot,
+            |provider| {
+                asked.borrow_mut().push(format!("key:{provider}"));
+                Some("stored-key".to_string())
+            },
+            |provider| {
+                asked.borrow_mut().push(format!("base_url:{provider}"));
+                None
+            },
+            |provider| {
+                asked.borrow_mut().push(format!("effort:{provider}"));
+                None
+            },
+        );
+        (asked.into_inner(), slot.is_some())
+    }
+
+    /// The bug: `rebuild_agent_into` reads the base URL and the level of
+    /// whatever provider it builds for, and it runs at startup right after
+    /// the reads. After a startup the keychain refused, a keyless active
+    /// provider (a local Ollama) was therefore built, and read the
+    /// keychain twice more, each an unlock prompt on a keyring the user had
+    /// just declined to unlock.
+    ///
+    /// The agent is left unbuilt instead. It cannot be built from guesses:
+    /// the stored URL may be a gateway's, and the built-in one is not.
+    #[test]
+    fn a_refused_startup_leaves_the_agent_unbuilt_and_the_keychain_unasked() {
+        let dir = tempdir().unwrap();
+        let state = state_with_a_store(dir.path());
+        state.set_active_provider("ollama".to_string());
+        state.set_keychain_refused(true);
+        state.set_keychain_read_error(Some("locked".into()));
+
+        let (asked, built) = rebuild_and_record(&state);
+
+        assert!(asked.is_empty(), "the keychain was asked for {asked:?}");
+        assert!(!built, "an agent built without its stored endpoint");
+    }
+
+    /// The same for a profile that pins another provider's model, which
+    /// reads that provider's key as well.
+    #[test]
+    fn a_refused_startup_does_not_read_the_key_of_a_provider_a_profile_pins() {
+        let dir = tempdir().unwrap();
+        let agents = tempdir().unwrap();
+        let state = state_with_a_store(dir.path());
+        state.set_api_key_cache(Some("anthropic-key".to_string()));
+        pin_openai_profile(&state, agents.path());
+        state.set_keychain_refused(true);
+
+        let (asked, built) = rebuild_and_record(&state);
+
+        assert!(asked.is_empty(), "the keychain was asked for {asked:?}");
+        assert!(!built);
+    }
+
+    /// And it is the refusal that does it, not the setup: the same states,
+    /// readable, build an agent and read what they always read. Without
+    /// this the two tests above would pass for a rebuild that never built
+    /// anything.
+    #[test]
+    fn without_a_refusal_the_rebuild_reads_the_keychain_and_builds() {
+        let dir = tempdir().unwrap();
+        let state = state_with_a_store(dir.path());
+        state.set_active_provider("ollama".to_string());
+        let (asked, built) = rebuild_and_record(&state);
+        assert_eq!(asked, ["base_url:ollama", "effort:ollama"]);
+        assert!(built, "a keyless provider needs no key to be built");
+
+        let agents = tempdir().unwrap();
+        let state = state_with_a_store(dir.path());
+        state.set_api_key_cache(Some("anthropic-key".to_string()));
+        pin_openai_profile(&state, agents.path());
+        let (asked, built) = rebuild_and_record(&state);
+        assert_eq!(asked, ["key:openai", "base_url:openai", "effort:openai"]);
+        assert!(built);
+
+        // A failed read that was not a refusal raises no prompt to avoid,
+        // so it does not stop the build either.
+        let state = state_with_a_store(dir.path());
+        state.set_active_provider("ollama".to_string());
+        state.set_keychain_read_error(Some("no secret service".into()));
+        assert!(rebuild_and_record(&state).1);
+    }
+
+    /// The refusal ends with the first save that goes through, and the
+    /// rebuild after it reads and builds again.
+    #[test]
+    fn the_rebuild_after_a_lifted_refusal_builds_the_agent() {
+        let dir = tempdir().unwrap();
+        let state = state_with_a_store(dir.path());
+        state.set_active_provider("ollama".to_string());
+        state.set_keychain_refused(true);
+        assert!(!rebuild_and_record(&state).1, "precondition");
+
+        keychain_readable_again(&state, |_| Ok(None));
+
+        let (asked, built) = rebuild_and_record(&state);
+        assert_eq!(asked, ["base_url:ollama", "effort:ollama"]);
+        assert!(built);
+    }
+
+    /// Where a chat turn finds no agent, it says why. After a refused
+    /// startup that is the keychain, and the person is told what undoes it,
+    /// in words that still read as "no agent" to the frontend (which offers
+    /// Settings for those).
+    #[test]
+    fn no_agent_after_a_refused_startup_says_the_keychain_refused() {
+        let state = AppState::default();
+        state.set_keychain_refused(true);
+        state.set_keychain_read_error(Some("locked".into()));
+
+        let text: String = no_agent_error(&state).into();
+
+        assert!(
+            text.starts_with("no agent configured")
+                && text.contains("refused access")
+                && text.contains("locked")
+                && text.contains("Settings"),
+            "{text}"
+        );
+    }
+
+    /// Without a refusal it is the error it always was.
+    #[test]
+    fn no_agent_without_a_refusal_is_the_plain_error() {
+        let state = AppState::default();
+        state.set_keychain_read_error(Some("no secret service".into()));
+        let text: String = no_agent_error(&state).into();
+        assert_eq!(text, "no agent configured; call set_api_key first");
     }
 }
