@@ -314,17 +314,27 @@ depends on whether the model wrote a plan:
 | The model writes a plan | The plan card is shown; the turn waits. Approving lets every edit run, as before. |
 | No plan, with Plan first on (the model did not write one, or planning failed in any way) | `PlanUnavailable { first_edit_held: true }`, then the turn goes on. The first model step with a call that would change the session is **held before any of it dispatches**, and its concrete tool calls are shown on the same card. Approve: that step runs and the rest of the turn is ungated. Decline: nothing runs, each held call reads "not run" (`ToolCallNotRun`), the model is told the user declined, and the turn ends with `PlanRejected`. Edit the descriptions: nothing runs, each held call reads "not run", and the model is given the revision (each step as `tool — description`) and proposes again, which is held in turn. |
 | No plan, mashup request, Plan first off | `PlanUnavailable { first_edit_held: false }` and the turn proceeds with no gate. |
-| A turn whose calls only read the session | Never held. |
+| A turn whose calls only read the session, or only fill the app's caches (`audition_effect`, `render_preview`) | Never held. |
 
 With no answer within five minutes nothing runs, each held call is answered "not
 run" (`ToolCallNotRun`), and the turn ends with `PlanTimeout`.
 
 "Would change the session" is `Tool::mutates()`, which defaults to `true`: a new
 tool, and every MCP tool, is held unless it is deliberately marked read-only.
+A tool that writes only the app's own caches is not a mutation, where a cache is
+content-addressed, bounded (size-capped, evicting itself) and rebuildable:
+`derived/track-<hash>.wav`, `.audiograph/previews/` and `.audiograph/auditions/`
+(both `PreviewCache`). That is why `audition_effect` and `render_preview` run
+without a card. A tool that leaves any other file, such as a temp file that
+outlives the call, is on the other side of the line, so `render_preview` stores
+even a ranged render in the cache (under a key that names the range) and fails
+rather than write elsewhere (#535).
 `crates/tools/tests/read_only_tools.rs` pins the read-only list by name, so
-widening it is a reviewed change. `ToolDispatcher::would_mutate` answers for a
-specific call and shares its pre-dispatch checks with `invoke`, so a call that
-would be refused (turned off, unknown, invalid arguments) is not held.
+widening it is a reviewed change, and checks that each tool on it leaves nothing
+but cache entries in the project and names only cache entries in its result.
+`ToolDispatcher::would_mutate` answers for a specific call and shares its
+pre-dispatch checks with `invoke`, so a call that would be refused (turned off,
+unknown, invalid arguments) is not held.
 
 The shared approval path (arming the gate, the five-minute timeout, the card's
 steps, the bookkeeping for a step that does not run) is
@@ -784,7 +794,8 @@ Nodes are stored as content-addressed JSON files under `<project-dir>/.audiograp
     view.json      # where you were: head, zoom, selection, playhead
     derived/       # audio written by destructive edits, named by content hash
     clipboard/     # copy_region blobs
-    previews/      # cached preview renders, keyed by node id
+    previews/      # cached preview renders, keyed by node id (a ranged render by node id and range)
+    auditions/     # cached audition_effect excerpts, keyed by content
 ```
 
 Annotations (markers, regions, labels) are part of `SessionState`, so they live inside each node's JSON rather than in a directory of their own.

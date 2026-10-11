@@ -62,9 +62,29 @@ pub trait Tool: Send + Sync {
     ///
     /// A call "mutates" if it can append a session node, move the head,
     /// label or rename a version, overwrite the clipboard, or write or
-    /// delete any file other than the app's own content-addressed,
-    /// rebuildable caches (the `derived/track-<hash>.wav` that the app's
-    /// `list_tracks` command also writes).
+    /// delete any file other than the app's own caches.
+    ///
+    /// **A tool that writes only the app's own caches does not mutate.** A
+    /// cache is that when all of these hold:
+    ///
+    /// * content-addressed: a file is named by what it holds, so asking
+    ///   again is a hit and nothing a person made is ever overwritten;
+    /// * bounded: it is size-capped and evicts itself, so no number of
+    ///   calls can grow it without limit;
+    /// * rebuildable: an evicted entry is derived again, byte for byte,
+    ///   from the project;
+    /// * and the tool leaves no *other* file. A temp or staging file that
+    ///   outlives the call is a write somewhere a cap does not reach, which
+    ///   is what this exemption does not cover (#535).
+    ///
+    /// Today those are `derived/track-<hash>.wav` (which the app's
+    /// `list_tracks` command also writes), `.audiograph/previews/` and
+    /// `.audiograph/auditions/` (`PreviewCache`). That is why
+    /// `render_preview` and `audition_effect` are read-only although they
+    /// render and write files. A new preview-like tool that stores its
+    /// output through `PreviewCache` is on the same side of the line, and
+    /// the read-only test already allows what it writes; naming it in that
+    /// test's list is the review that it does only that.
     ///
     /// Plan first relies on this flag (#415): with it on and no plan from
     /// the model, the first step that includes a mutating call is shown

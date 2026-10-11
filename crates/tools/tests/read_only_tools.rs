@@ -146,26 +146,23 @@ fn files_under(dir: &Path) -> BTreeMap<String, u64> {
     out
 }
 
-/// The app's own caches, which `Tool::mutates` documents as not counting:
-/// content-addressed, bounded and rebuildable. Each is a folder of finished
-/// `.wav` entries and nothing else. A staging file left in one, or a file
-/// of any other kind, is not a cache entry and is not allowed.
-const CACHE_FOLDERS: [&str; 3] = [
-    "derived/track-",
-    ".audiograph/previews/",
-    ".audiograph/auditions/",
-];
-
 /// Whether `path` (relative to the project, `/`-separated) is an entry in
-/// one of [`CACHE_FOLDERS`].
+/// one of the app's own caches, which `Tool::mutates` documents as not
+/// counting: content-addressed, bounded and rebuildable.
+///
+/// The preview and audition caches are folders of finished `.wav` entries
+/// and nothing else. A staging file left in one, or a file of any other
+/// kind, is not a cache entry and is not allowed. The flattened-track cache
+/// is `derived/track-<hash>.wav`.
 fn is_cache_entry(path: &str) -> bool {
-    CACHE_FOLDERS.iter().any(|prefix| {
-        path.starts_with(prefix)
-            && path.ends_with(".wav")
-            // `derived/track-<hash>.wav` is a prefix of a name; the other
-            // two are folders, whose entries sit directly in them.
-            && (prefix.ends_with('-') || !path[prefix.len()..].contains('/'))
-    })
+    let in_folder = |folder: &str| {
+        let prefix = format!("{}/{folder}/", session::STORE_DIR);
+        path.strip_prefix(&prefix)
+            .is_some_and(|name| !name.contains('/') && name.ends_with(".wav"))
+    };
+    in_folder(tools::preview_cache::CACHE_DIR)
+        || in_folder(tools::tool::audition::AUDITION_DIR)
+        || (path.starts_with("derived/track-") && path.ends_with(".wav"))
 }
 
 /// "Read-only" is a claim about what a call leaves behind, so check what

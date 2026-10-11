@@ -22,10 +22,12 @@ use tools::{Tool, ToolContext, ToolDispatcher, ToolResult};
 ///
 /// * `copy_region` and `paste_region` use the clipboard, which an off-lock
 ///   run does not have.
-/// * `render_preview`, `audition_effect` and `render_final` stage their
-///   output in the preview cache under `.{node}.partial`, a fixed name
-///   shared with the `render_preview` command, which only the engine lock
-///   serialises today. Follow-up: unique staging names, then opt in.
+/// * `render_preview`, `audition_effect` and `render_final` render with
+///   the app's engine (`ctx.engine`), which an off-lock run replaces with
+///   a fresh one. `render_preview` and `audition_effect` stage their
+///   output in the preview caches under unique names (#535), so the shared
+///   `.{node}.partial` name that used to be the other reason is gone; the
+///   engine is what is left. Follow-up: one reviewed decision each.
 /// * `batch_apply` and `apply_recipe` build nested dispatchers and report
 ///   `progress`; they would need a commit per step.
 /// * `compact_session`, `storage_report`, `fork_node`, `revert_to`,
