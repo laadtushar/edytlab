@@ -11,6 +11,17 @@
 //! to the store. Accepting is `add_effect`, which is one node exactly
 //! as applying it directly would be.
 //!
+//! ## Which chain
+//!
+//! The effect is added to the chain the call names, with the same
+//! `scope`, `track` and `bus` arguments the five chain tools take (#533):
+//! a track's, the master bus's, or a bus's. It was a track only, so the
+//! model could not let anyone hear "a limiter on the master" before adding
+//! it. The three are read by the same `Target` the chain tools use, so a
+//! call that one accepts or refuses the other does too, and the amended
+//! state is built by the same lookup, with the same errors for a track
+//! that is not there or a bus that is not.
+//!
 //! ## Why chain effects and not destructive tools
 //!
 //! Chain effects (#102) are already applied at render time, so an
@@ -61,7 +72,8 @@ use serde_json::{json, Value};
 
 use crate::preview_cache::PreviewCache;
 use crate::schema::anthropic_tool;
-use crate::tool::util::{attach_render_warnings, check_effect_kind, check_track_index};
+use crate::tool::effects::{bus_property, scope_property, track_property, Scope, Target};
+use crate::tool::util::{attach_render_warnings, check_effect_kind};
 use crate::{Tool, ToolContext, ToolResult};
 
 /// Cache directory for auditions, under `.audiograph/`.
@@ -75,7 +87,12 @@ const DEFAULT_WINDOW_SEC: f64 = 6.0;
 
 #[derive(Debug, Deserialize)]
 struct Args {
-    track: usize,
+    #[serde(default)]
+    scope: Option<Scope>,
+    #[serde(default)]
+    track: Option<usize>,
+    #[serde(default)]
+    bus: Option<String>,
     kind: String,
     #[serde(default)]
     params: Option<Value>,
@@ -101,15 +118,18 @@ impl Tool for AuditionEffectTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "audition_effect",
-            "Hear what an effect would sound like on a track without applying it. Renders a few \
-             seconds of the session with the effect added to that track's chain and returns a WAV \
-             to play. Appends no session node, so there is nothing to undo — call `add_effect` \
-             with the same arguments to keep it. The audition includes gain, pan, mute, solo, \
-             sends and the master chain, so it sounds like the result will.",
+            "Hear what an effect would sound like on a track, on the master bus (scope \
+             \"master\") or on a bus (scope \"bus\") without applying it. Renders a few \
+             seconds of the session with the effect added to that chain and returns a WAV to \
+             play. Appends no session node, so there is nothing to undo — call `add_effect` with \
+             the same arguments to keep it. The audition includes gain, pan, mute, solo, sends \
+             and the master chain, so it sounds like the result will.",
             json!({
                 "type": "object",
                 "properties": {
-                    "track": { "type": "integer", "description": "Zero-based track index" },
+                    "scope": scope_property(),
+                    "track": track_property(),
+                    "bus": bus_property(),
                     "kind": {
                         "type": "string",
                         "description": "Effect kind, e.g. gain, limiter, low_pass_filter, high_pass_filter, notch_filter.",
@@ -125,7 +145,7 @@ impl Tool for AuditionEffectTool {
                         "description": "Position in the chain; defaults to the end, as add_effect does.",
                     },
                 },
-                "required": ["track", "kind"],
+                "required": ["kind"],
                 "additionalProperties": false,
             }),
         )
@@ -137,7 +157,12 @@ impl Tool for AuditionEffectTool {
             Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
         };
 
-        // First, before the session is read. The renderer leaves out a kind
+        let target = match Target::resolve(args.scope, args.track, args.bus.as_deref()) {
+            Ok(t) => t,
+            Err(msg) => return Ok(ToolResult::Error(msg)),
+        };
+
+        // Before the session is read. The renderer leaves out a kind
         // it cannot run (#520), so an audition of one would render the
         // session as it already is and hand back a clip that sounds like
         // nothing happened: a no-op that looks like a result. Refused here
@@ -157,9 +182,6 @@ impl Tool for AuditionEffectTool {
         };
 
         let mut state = node.state.clone();
-        if let Err(msg) = check_track_index(&state.tracks, args.track) {
-            return Ok(ToolResult::Error(msg));
-        }
 
         // The amended chain. This state is never appended — it exists
         // to be rendered and then forgotten.
@@ -168,7 +190,10 @@ impl Tool for AuditionEffectTool {
             params: args.params.clone().unwrap_or_else(|| json!({})),
             bypassed: false,
         };
-        let chain = &mut state.tracks[args.track].effects;
+        let chain = match target.chain(&mut state) {
+            Ok(c) => c,
+            Err(msg) => return Ok(ToolResult::Error(msg)),
+        };
         let at = args.at.unwrap_or(chain.len()).min(chain.len());
         chain.insert(at, effect);
 
@@ -221,14 +246,21 @@ impl Tool for AuditionEffectTool {
             "cached": hit.is_cached(),
             "start_sec": start,
             "end_sec": end,
-            "track": args.track,
             "kind": args.kind,
+            // Which chain, in words ("track 1", "the master bus", `bus
+            // "Drums"`), for the player's caption: a master or bus
+            // audition has no track to name.
+            "target": target.describe(),
             "summary": format!(
-                "Auditioning {} on track {} over {:.2}s–{:.2}s. Nothing was added to the \
+                "Auditioning {} on {} over {:.2}s–{:.2}s. Nothing was added to the \
                  session — call add_effect with the same arguments to keep it.",
-                args.kind, args.track, start, end,
+                args.kind, target.describe(), start, end,
             ),
         });
+        // A track audition has always carried its index; it still does.
+        if let Target::Track(track) = &target {
+            out["track"] = json!(track);
+        }
         // The audition renders the whole session around the effect, so an
         // entry stored elsewhere in it that the renderer cannot run is left
         // out of this clip too. Read from the amended state rather than the

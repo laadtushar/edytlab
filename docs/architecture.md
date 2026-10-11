@@ -853,7 +853,7 @@ There is no native playback path. All playback happens in the webview — WaveSu
 
 ### What the Render Processes
 
-Every track and every clip, with per-clip volume automation, per-track effect chains, sends into buses with their own chains, and the master chain (`crates/audio-engine/src/render.rs`, `effect_chain.rs`). The effect-chain tools edit a track's chain, or the master chain with `scope: "master"`. `tempo_map` is read by tools — `select_region`'s beat ranges, for one — not by the renderer.
+Every track and every clip, with per-clip volume automation, per-track effect chains, sends into buses with their own chains, and the master chain (`crates/audio-engine/src/render.rs`, `effect_chain.rs`). The effect-chain tools edit a track's chain, the master chain with `scope: "master"`, or a bus's chain with `scope: "bus"` and the bus's name (a bus effect is heard only when a track sends to it); `audition_effect` takes the same three targets and stores nothing. `tempo_map` is read by tools — `select_region`'s beat ranges, for one — not by the renderer.
 
 ### Fast Path
 

@@ -150,6 +150,47 @@ describe("an audition result", () => {
   });
 
   /**
+   * A master or bus audition has no track to name (#533): the result
+   * carries no `track`, only `target`, and the player says where in
+   * words. It used to print "track undefined", or no player at all.
+   */
+  it("names the master bus for an audition that has no track", async () => {
+    await fire({
+      type: "audition",
+      path: "/tmp/proj/.audiograph/auditions/def456.wav",
+      kind: "limiter",
+      target: "the master bus",
+      start_sec: 0,
+      end_sec: 6,
+      summary:
+        "Auditioning limiter on the master bus over 0.00s–6.00s. Nothing was added to the session.",
+    });
+    const player = screen.getByTestId("audition-player");
+    expect(player.textContent).toMatch(/limiter/);
+    expect(player.textContent).toMatch(/the master bus/);
+    expect(player.textContent).not.toMatch(/track|undefined|null/i);
+    expect(screen.getByTestId("audition-audio")).toHaveAttribute(
+      "aria-label",
+      expect.stringContaining("on the master bus"),
+    );
+  });
+
+  /** A bus is named by what the tool says, quotes and all. */
+  it("names a bus for a bus audition", async () => {
+    await fire({
+      type: "audition",
+      path: "/tmp/proj/.audiograph/auditions/789abc.wav",
+      kind: "gain",
+      target: 'bus "Drums"',
+      start_sec: 1,
+      end_sec: 4,
+    });
+    expect(screen.getByTestId("audition-player").textContent).toMatch(
+      /bus "Drums"/,
+    );
+  });
+
+  /**
    * The converse, so the branch cannot pass by rendering a player for
    * every tool call. Most tool results have no view at all.
    */

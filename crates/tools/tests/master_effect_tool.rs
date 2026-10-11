@@ -453,12 +453,13 @@ fn scope_track_needs_a_track() {
 }
 
 /// The scope is an enum in the schema, so a scope the tools do not have
-/// (a bus, a typo) is turned away by the dispatcher before any tool runs.
+/// (a typo) is turned away by the dispatcher before any tool runs. (`bus`
+/// was one until #533; `bus_effect_tool.rs` covers it.)
 #[test]
 fn an_unknown_scope_is_rejected_by_the_schema() {
     let mut s = Session::two_loud_tracks();
     let nodes = s.node_count();
-    for scope in ["bus", "Master", "mix", ""] {
+    for scope in ["Master", "mix", ""] {
         match s.try_call("add_effect", json!({ "scope": scope, "kind": "limiter" })) {
             Err(DispatchError::SchemaValidation(m)) => {
                 assert!(m.contains("scope"), "scope {scope:?}: {m}")

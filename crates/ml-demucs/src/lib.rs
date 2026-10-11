@@ -24,6 +24,11 @@
 //!    [`DemucsModel::separate`] is invoked the crate returns
 //!    [`DemucsError::NotImplemented`] instead of panicking.
 //!
+//! One piece of the decoder exists ahead of the rest: [`spec`], the STFT
+//! and iSTFT that htdemucs runs outside its ONNX graph, checked against
+//! PyTorch. Nothing calls it yet, so [`DemucsModel::separate`] is as
+//! unimplemented as before (#385).
+//!
 //! **Supplying a model does not enable separation.** What is missing is
 //! the decoder, not the file: a valid `.onnx` loads and then `separate`
 //! still returns `NotImplemented`. The crate says so rather than naming
@@ -32,6 +37,12 @@
 //! `ml-whisper` is in the same state, and now reports it the same way.
 //! It used to return `Ok(Vec::new())` — an empty transcript reported as
 //! success — which was worse, and is gone.
+//!
+//! One piece of the decoder exists ahead of the rest: [`separate`], the
+//! segment and overlap-add pipeline around the network, behind a
+//! [`separate::SegmentModel`] trait and tested with a fake model. Nothing
+//! implements that trait with ONNX Runtime yet, so
+//! [`DemucsModel::separate`] is as unimplemented as before (#385).
 //!
 //! ## Cache layout
 //!
@@ -65,8 +76,11 @@ use ml_pipeline::ContentHash;
 use serde::{Deserialize, Serialize};
 
 mod cache;
+pub mod spec;
 
 pub use cache::{stem_dir_for, write_stems_to_dir, StemPaths, STEM_FILENAMES, STEM_NAMES};
+
+pub mod separate;
 
 /// One separated stem in the same shape as [`DecodedAudio`].
 ///
@@ -134,6 +148,12 @@ pub enum DemucsError {
 
     #[error("WAV writer error: {0}")]
     Wav(String),
+
+    /// The segment pipeline ([`separate`]) was given a [`separate::SegmentModel`]
+    /// it cannot use: no segment size or sources, or a result of the wrong
+    /// shape. A bug in the model wrapper, not in the audio or the runtime.
+    #[error("stem separation pipeline: {0}")]
+    Pipeline(String),
 
     /// Real inference is gated on M28 wiring the ORT decode loop. The
     /// tool layer surfaces this as a `ToolResult::Error`.

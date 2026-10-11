@@ -529,7 +529,12 @@ export type ToolView =
       type: "audition";
       path: string;
       kind: string;
-      track: number;
+      /** The track, when the audition is on one; absent for the master
+       * bus and for a bus, which have no index. */
+      track?: number;
+      /** Where it was heard, in words: "track 1", "the master bus" or
+       * `bus "Drums"`. What the player shows. */
+      target?: string;
       start_sec: number;
       end_sec: number;
       summary?: string | null;
