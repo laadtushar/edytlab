@@ -283,12 +283,37 @@ function dragGain(db: number) {
   fireEvent.pointerUp(fader);
 }
 
-/** Add a label in the lane the way a user does: double-click, type a name, Enter. */
-function typeLabel() {
-  fireEvent.doubleClick(screen.getByTestId("label-lane-track"));
+/** Name the label in the box that is open, and press Enter. */
+function nameLabel() {
   const box = screen.getByTestId("label-draft-input");
   fireEvent.change(box, { target: { value: "verse" } });
   fireEvent.keyDown(box, { key: "Enter" });
+}
+
+/** Add a label in the lane the way a user does: double-click, type a name, Enter. */
+function typeLabel() {
+  fireEvent.doubleClick(screen.getByTestId("label-lane-track"));
+  nameLabel();
+}
+
+/** The ruler's tick area sits past the 132px spacer; jsdom reports zeroes. */
+function layOutRuler() {
+  const real = HTMLElement.prototype.getBoundingClientRect;
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    if (this.parentElement?.dataset.testid !== "ruler" || !this.previousElementSibling) {
+      return real.call(this);
+    }
+    return { left: 132, top: 0, width: 400, height: 20, right: 532, bottom: 20, x: 132, y: 0, toJSON: () => ({}) } as DOMRect;
+  });
+}
+
+/** Add a marker from the ruler: click it half way along, type a name, Enter. */
+function typeRulerMarker() {
+  layOutRuler();
+  fireEvent.click(screen.getByTestId("ruler"), { clientX: 132 + 200 });
+  nameLabel();
 }
 
 const gainReadout = () => screen.getByTestId("timeline-lane-gain-readout");
@@ -319,8 +344,9 @@ async function start(appliesOn: "send" | "answer", labels: unknown[] = []): Prom
 }
 
 beforeEach(() => {
-  // The ruler asks for a marker's name with a prompt; the lane does not.
-  vi.spyOn(window, "prompt").mockReturnValue("verse");
+  // A macOS webview answers `window.prompt` with null. Nothing in the app
+  // asks for text that way, and a call that did would find nothing here.
+  vi.spyOn(window, "prompt").mockReturnValue(null);
 });
 
 afterEach(() => {
@@ -447,6 +473,7 @@ describe("edits made in quick succession", () => {
   // made before it.
   it.each([
     ["a label", "add_marker", typeLabel],
+    ["a marker from the ruler", "add_marker", typeRulerMarker],
     ["a mute", "set_track_muted", () => fireEvent.click(screen.getByTestId("timeline-lane-mute"))],
     ["the sync-lock toggle", "set_sync_lock", () => fireEvent.click(screen.getByTestId("sync-lock-btn"))],
     ["a file opened from the toolbar", "batch_load", () => fireEvent.click(screen.getByTestId("open-audio-button"))],

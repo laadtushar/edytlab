@@ -215,6 +215,77 @@ test.describe("naming a label in the lane", () => {
   });
 });
 
+/**
+ * The ruler adds a marker too, and used to ask for its name with
+ * `window.prompt` as well (#546): in a macOS webview, which answers a
+ * prompt with `null`, a click on the ruler did nothing. Now the name is
+ * typed into the lane's own box, opened at the point clicked. Any dialog
+ * is dismissed, which is the answer that webview gives, and recorded.
+ */
+test.describe("a marker added from the ruler", () => {
+  /** Click the ruler `fraction` of the way across its ticks. */
+  async function clickRuler(app: App, fraction: number): Promise<{ x: number }> {
+    const box = (await app.page.getByTestId("ruler").boundingBox())!;
+    // The strip begins with a 132px spacer; the ticks are the rest.
+    const x = 132 + (box.width - 132) * fraction;
+    await app.page.getByTestId("ruler").click({ position: { x, y: box.height / 2 } });
+    return { x: box.x + x };
+  }
+
+  test("is named in the lane's box where it was clicked, with no dialog", async ({ app }) => {
+    await openProject(app);
+    const dialogs: string[] = [];
+    app.page.on("dialog", (d) => {
+      dialogs.push(d.message());
+      void d.dismiss();
+    });
+    await app.become({ add_marker: ok(LABELLED) });
+
+    const { x } = await clickRuler(app, 0.5);
+
+    // The box is open and focused, over the point clicked, and nothing has
+    // been added: the name is still to be typed.
+    const input = app.page.getByTestId("label-draft-input");
+    await expect(input).toBeFocused();
+    const draft = (await app.page.getByTestId("label-draft").boundingBox())!;
+    expect(Math.abs(draft.x - x)).toBeLessThan(4);
+    expect(await app.requestsFor("add_marker")).toEqual([]);
+
+    await input.fill("verse");
+    await input.press("Enter");
+
+    // One `add_marker`, at the point clicked: half way across 3 seconds.
+    await expect.poll(() => app.requestsFor("add_marker")).toHaveLength(1);
+    const [sent] = (await app.requestsFor("add_marker")) as { time: number; name: string }[];
+    expect(sent.name).toBe("verse");
+    expect(Math.abs(sent.time - 1.5)).toBeLessThan(0.1);
+
+    // Its node is the head the next edit starts from.
+    await app.become({ ...sessionWith([toneTrack()]), list_markers: ok([verse(sent.time)]) });
+    await app.emit("marker-changed");
+    await expect(app.page.getByTestId("label-chip")).toHaveAttribute("data-label-name", "verse");
+    await app.page.getByTestId("render-preview-button").click();
+    await expect.poll(() => app.requestsFor("render_preview")).toEqual([{ node: LABELLED }]);
+
+    expect(dialogs).toEqual([]);
+  });
+
+  test("is abandoned with Escape, and adds nothing", async ({ app }) => {
+    await openProject(app);
+    app.page.on("dialog", (d) => void d.dismiss());
+
+    await clickRuler(app, 0.3);
+    const input = app.page.getByTestId("label-draft-input");
+    await expect(input).toBeFocused();
+    await input.fill("nope");
+    await input.press("Escape");
+
+    await expect(input).toHaveCount(0);
+    await app.settle();
+    expect(await app.requestsFor("add_marker")).toEqual([]);
+  });
+});
+
 /** A region label is drawn with its extent, on the ruler's axis. */
 test.describe("a region label in the lane", () => {
   const region = {
