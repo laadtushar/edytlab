@@ -682,6 +682,59 @@ mod tests {
         assert!(!text.contains("effects:"), "{text}");
     }
 
+    /// The header says how to edit a bus's chain, in the words `## master`
+    /// uses for the master's: the scope, the argument that picks the bus,
+    /// and what `effect_index` counts (#552, #533).
+    #[test]
+    fn the_buses_header_says_how_to_edit_a_bus_chain() {
+        let ctx = SessionContext {
+            buses: vec![bus_brief("Reverb", REVERB_ID)],
+            ..Default::default()
+        };
+
+        let text = render_block(&ctx);
+
+        let header = text
+            .lines()
+            .skip_while(|l| *l != "## buses")
+            .nth(1)
+            .expect("a header line under ## buses");
+        assert!(header.contains("scope \"bus\""), "{header}");
+        assert!(header.contains("`bus`"), "{header}");
+        assert!(header.contains("name or id"), "{header}");
+        assert!(header.contains("`effect_index`"), "{header}");
+        assert!(header.contains("in the order listed"), "{header}");
+        // The id tools are still named.
+        assert!(
+            header.contains("`set_send`") && header.contains("`remove_send`"),
+            "{header}"
+        );
+    }
+
+    /// The header words are the tools' own: if the effect tools stop taking
+    /// `scope: "bus"` with a `bus` argument, this fails instead of the model
+    /// being told a call that is refused.
+    #[test]
+    fn the_buses_header_matches_what_the_effect_tools_take() {
+        let schemas = tools::ToolDispatcher::default_dispatcher().tool_schemas();
+        for name in ["add_effect", "remove_effect", "set_effect_params"] {
+            let schema = schemas
+                .as_array()
+                .and_then(|all| all.iter().find(|t| t["name"] == name))
+                .unwrap_or_else(|| panic!("{name} is a registered tool"));
+            let props = &schema["input_schema"]["properties"];
+            let scopes = props["scope"]["enum"].as_array().expect("a scope enum");
+            assert!(scopes.iter().any(|v| v == "bus"), "{name}: {scopes:?}");
+            assert!(props.get("bus").is_some(), "{name}: no `bus` argument");
+            if name != "add_effect" {
+                assert!(
+                    props.get("effect_index").is_some(),
+                    "{name}: no effect_index"
+                );
+            }
+        }
+    }
+
     /// A session with no buses says nothing about them: the block, and so
     /// the request, is exactly what it was.
     #[test]
@@ -697,6 +750,7 @@ mod tests {
 
         assert!(!text.contains("## buses"), "{text}");
         assert!(!text.contains("set_send"), "{text}");
+        assert!(!text.contains("scope \"bus\""), "{text}");
     }
 
     /// A session that is only a bus still has something to say.
