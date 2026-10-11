@@ -311,6 +311,31 @@ fn ranged_renders_stay_within_the_cache_cap() {
     assert_eq!(staging_in(&s.cache("previews")), Vec::<String>::new());
 }
 
+/// A mix too big for the cap cannot be kept. Finding that out used to cost
+/// the cache everything in it, so every Play of a session past the cap
+/// emptied the cache before it failed. It fails now with the cache as it
+/// was.
+#[test]
+fn a_mix_over_the_cap_is_an_error_that_costs_the_cache_nothing() {
+    let mut s = Sandbox::new();
+    // Each excerpt is about 9 kB, the whole one-second mix 96 kB.
+    s.cap(40_000);
+    let a = path_of(&ok(s.preview(Some([0, 4_000]))));
+    std::thread::sleep(std::time::Duration::from_millis(15));
+    let b = path_of(&ok(s.preview(Some([0, 4_500]))));
+    std::thread::sleep(std::time::Duration::from_millis(15));
+
+    let msg = err(s.preview(None));
+    assert!(msg.contains("cap"), "should say why: {msg}");
+
+    assert!(
+        a.is_file() && b.is_file(),
+        "a preview that could not fit emptied the cache"
+    );
+    assert_eq!(s.leaked_into_os_tmp(), Vec::<String>::new());
+    assert_eq!(staging_in(&s.cache("previews")), Vec::<String>::new());
+}
+
 // ---------------------------------------------------------------------
 // A render that fails
 // ---------------------------------------------------------------------

@@ -613,6 +613,100 @@ mod tests {
         assert_eq!(cache.size_bytes(), 0);
     }
 
+    /// A preview too big for the cap cannot be kept, and used to cost the
+    /// cache everything else before that was found out: eviction ran with
+    /// the new entry in place, oldest first, and took every older entry
+    /// before it reached the one that could never fit.
+    #[test]
+    fn a_preview_over_the_cap_leaves_the_cache_as_it_was() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cache = PreviewCache::new(tmp.path());
+        cache.cap_bytes = 100;
+        let (a, b) = (node_id(40), node_id(41));
+        for id in [a, b] {
+            cache
+                .get_or_render::<_, io::Error>(id, |p| write(p, 40))
+                .unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+
+        let big = node_id(42);
+        let e = cache
+            .get_or_render::<_, io::Error>(big, |p| write(p, 200))
+            .unwrap_err();
+
+        assert!(e.to_string().contains("cap"), "unhelpful error: {e}");
+        assert!(!cache.path_for(big).exists());
+        assert!(
+            cache.path_for(a).is_file() && cache.path_for(b).is_file(),
+            "an entry that fit was evicted to make room for one that could not"
+        );
+        assert_eq!(cache.size_bytes(), 80);
+        assert_eq!(staging_files(&cache), Vec::<String>::new());
+    }
+
+    /// `rename` keeps the render's modified time, which is when the file
+    /// was last written, not when it entered the cache. On a filesystem
+    /// whose clock is coarse (exFAT keeps two seconds), or after a copy
+    /// that preserves times, that can be older than entries already there;
+    /// eviction would then take the entry just asked for and report an
+    /// error for a preview that fits.
+    #[test]
+    fn a_new_entry_is_not_evicted_for_having_an_old_modified_time() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cache = PreviewCache::new(tmp.path());
+        cache.cap_bytes = 250;
+        let (oldest, newer, fresh) = (node_id(43), node_id(44), node_id(45));
+        for id in [oldest, newer] {
+            cache
+                .get_or_render::<_, io::Error>(id, |p| write(p, 100))
+                .unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+
+        cache
+            .get_or_render::<_, io::Error>(fresh, |p| {
+                write(p, 100)?;
+                std::fs::File::options()
+                    .write(true)
+                    .open(p)?
+                    .set_modified(SystemTime::now() - Duration::from_secs(3600))
+            })
+            .expect("a 100-byte preview fits a 250-byte cache");
+
+        assert!(cache.path_for(fresh).is_file(), "the new entry was evicted");
+        assert!(cache.path_for(newer).is_file());
+        assert!(
+            !cache.path_for(oldest).exists(),
+            "the entry evicted should be the least recently used one"
+        );
+        assert!(cache.size_bytes() <= 250);
+    }
+
+    /// Another render of the same key can finish between this one's lookup
+    /// and its rename. On Unix the rename just replaces it; where it cannot
+    /// (a Windows volume without POSIX rename) it is an error, but the
+    /// entry is there and is the same bytes, so that is a hit, not a
+    /// failure. The seam: a staging path that is a folder cannot be renamed
+    /// over a file, on any platform.
+    #[test]
+    fn a_rename_that_loses_a_race_is_a_hit_on_the_winner() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = PreviewCache::new(tmp.path());
+        let id = node_id(46);
+
+        let (path, hit) = cache
+            .get_or_render::<_, io::Error>(id, |staging| {
+                write(&cache.path_for(id), 64)?;
+                std::fs::create_dir(staging)
+            })
+            .expect("the entry is there, so this is not an error");
+
+        assert_eq!(hit, Hit::Cached);
+        assert_eq!(path, cache.path_for(id));
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), 64);
+    }
+
     /// Two renders of one key must not share a staging file: when one
     /// fails and cleans up, the other's half-finished work has to survive
     /// it. With one fixed name per key, the failure deleted the file the

@@ -146,6 +146,27 @@ fn files_under(dir: &Path) -> BTreeMap<String, u64> {
     out
 }
 
+/// One tool call against a store, for setup that is not under test.
+fn invoke(
+    dispatcher: &ToolDispatcher,
+    store: &mut session::Store,
+    engine: &mut audio_engine::Engine,
+    clipboard: &mut Option<tools::Clipboard>,
+    name: &str,
+    args: Value,
+) -> ToolResult {
+    let mut ctx = ToolContext {
+        store,
+        engine,
+        user_message: "",
+        clipboard,
+        allowed_tools: None,
+    };
+    dispatcher
+        .invoke(name, args, &mut ctx)
+        .unwrap_or_else(|e| panic!("{name} was refused: {e}"))
+}
+
 /// Whether `path` (relative to the project, `/`-separated) is an entry in
 /// one of the app's own caches, which `Tool::mutates` documents as not
 /// counting: content-addressed, bounded and rebuildable.
@@ -198,9 +219,39 @@ fn every_read_only_tool_leaves_the_session_untouched() {
         );
     }
 
+    // History for the swept-node call below: four edits that each write a
+    // derived file, then the history sweep at cap 0, which removes the audio
+    // all but the head names (as `tests/materialize.rs` does). The head's
+    // parent is then a node whose audio is gone.
+    for start in [0.0, 1.0, 2.0, 3.0] {
+        let edited = invoke(
+            &dispatcher,
+            &mut store,
+            &mut engine,
+            &mut clipboard,
+            "silence_region",
+            json!({ "track": 0, "start_sec": start, "end_sec": start + 0.2 }),
+        );
+        assert!(
+            matches!(edited, ToolResult::Ok(_)),
+            "edit failed: {edited:?}"
+        );
+    }
     let head = store.head().expect("a head after load");
     let hex = head.to_hex();
-    let calls: [(&str, Value); 10] = [
+    let swept = store
+        .get(head)
+        .expect("head node")
+        .parent
+        .expect("the head has a parent");
+    tools::reclaim::sweep(&store, 0).expect("sweep");
+    assert!(
+        !tools::rederive::missing_paths(&store, swept).is_empty(),
+        "the sweep removed none of the node's audio, or the swept-node call checks nothing"
+    );
+    let swept_hex = swept.to_hex();
+
+    let calls: [(&str, Value); 11] = [
         ("analyze_track", json!({ "track": 0 })),
         (
             "audition_effect",
@@ -219,6 +270,9 @@ fn every_read_only_tool_leaves_the_session_untouched() {
             "render_preview",
             json!({ "node_id": hex, "range": [0, 4_000] }),
         ),
+        // A node whose audio the sweep took: rendering it puts that audio
+        // back first (`rederive::materialize`).
+        ("render_preview", json!({ "node_id": swept_hex })),
         ("select_region", json!({ "from_beat": 1, "to_beat": 2 })),
         (
             "silence_finder",
