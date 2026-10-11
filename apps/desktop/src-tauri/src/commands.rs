@@ -1243,7 +1243,7 @@ async fn set_active_provider_with(
     keychain: &impl KeychainWrites,
     load_key: impl FnOnce(&str) -> Result<Option<String>, ai::keychain::KeychainError>,
 ) -> CmdResult<KeychainPersistenceDto> {
-    if !ai::SUPPORTED_PROVIDER_IDS.iter().any(|p| *p == provider) {
+    if !ai::SUPPORTED_PROVIDER_IDS.contains(&provider) {
         return Err(format!("unsupported provider id: {provider}"));
     }
     state.startup_reads_settled().await;
