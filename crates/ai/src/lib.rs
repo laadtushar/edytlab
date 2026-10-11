@@ -48,7 +48,9 @@ pub mod session_context;
 pub mod tool_selection;
 pub mod validate;
 
-pub use session_context::{render_block as render_session_block, SessionContext, TrackBrief};
+pub use session_context::{
+    render_block as render_session_block, BusBrief, SendBrief, SessionContext, TrackBrief,
+};
 
 use std::sync::{Arc, Mutex};
 
