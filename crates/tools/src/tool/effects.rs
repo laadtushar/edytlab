@@ -61,6 +61,21 @@
 //! rather than keeping a list here, is what keeps the two from drifting. A
 //! refused kind names the ones that work. The check is the same for every
 //! chain, because it is made before the chain is looked at.
+//!
+//! ## Which parameters
+//!
+//! The renderer reads a parameter by name and uses the default when the
+//! name is absent, so a name it never reads is not an error to it: a
+//! `{"gain_db": 4.9}` on a gain, whose level is `db`, was stored, reported
+//! as done and heard as 0 dB (#579). `add_effect` and `set_effect_params`
+//! now ask the same registry for the kind's parameters
+//! (`check_effect_params`) and refuse a name that is not one, naming it and
+//! the ones that are. `set_effect_params` checks the keys of the call
+//! against the kind of the effect it edits, in merge and in replace alike.
+//! It does not look at what is stored: a project written before the check
+//! can hold such a name, and it must still load, render and be edited. A
+//! stored effect whose kind the renderer cannot run has no list to check
+//! against, and its parameters are accepted as they always were.
 
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -68,7 +83,9 @@ use session::{Bus, EffectInstance, SessionState};
 use uuid::Uuid;
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{append_state, check_effect_kind, check_track_index, load_head_state};
+use crate::tool::util::{
+    append_state, check_effect_kind, check_effect_params, check_track_index, load_head_state,
+};
 use crate::{Tool, ToolContext, ToolResult};
 
 /// Which chain a call edits, as the model writes it.
@@ -364,6 +381,13 @@ impl Tool for AddEffectTool {
         };
         if let Err(e) = check_effect_kind(&args.kind) {
             return Ok(ToolResult::Error(e));
+        }
+        // The names, too (#579): a key the renderer does not read is
+        // stored and reported as done, and the effect then does nothing.
+        if let Some(params) = &args.params {
+            if let Err(e) = check_effect_params(&args.kind, params) {
+                return Ok(ToolResult::Error(e));
+            }
         }
         let mut state = match load_head_state(ctx) {
             Ok(s) => s,
@@ -678,6 +702,13 @@ impl Tool for SetEffectParamsTool {
             return Ok(ToolResult::Error(e));
         }
         let effect = &mut chain[args.effect_index];
+        // The keys of this call, against the effect's own kind. What is
+        // already stored is not looked at (#579): an older project can hold
+        // a name that is not a parameter, and merging a good key into it,
+        // or replacing the lot, must still work.
+        if let Err(e) = check_effect_params(&effect.kind, &args.params) {
+            return Ok(ToolResult::Error(e));
+        }
         if args.replace {
             effect.params = args.params.clone();
         } else {

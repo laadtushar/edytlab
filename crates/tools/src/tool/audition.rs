@@ -73,7 +73,7 @@ use serde_json::{json, Value};
 use crate::preview_cache::PreviewCache;
 use crate::schema::anthropic_tool;
 use crate::tool::effects::{bus_property, scope_property, track_property, Scope, Target};
-use crate::tool::util::{attach_render_warnings, check_effect_kind};
+use crate::tool::util::{attach_render_warnings, check_effect_kind, check_effect_params};
 use crate::{Tool, ToolContext, ToolResult};
 
 /// Cache directory for auditions, under `.audiograph/`.
@@ -169,6 +169,16 @@ impl Tool for AuditionEffectTool {
         // with the kinds that work instead, as `add_effect` refuses it.
         if let Err(msg) = check_effect_kind(&args.kind) {
             return Ok(ToolResult::Error(msg));
+        }
+        // The names too (#579). The renderer uses the default for a name it
+        // does not read, so an audition of `{"gain_db": 4.9}` would sound
+        // exactly like the session as it is, and the tool promises that
+        // `add_effect` with the same arguments keeps what was heard, which
+        // refuses them.
+        if let Some(params) = &args.params {
+            if let Err(msg) = check_effect_params(&args.kind, params) {
+                return Ok(ToolResult::Error(msg));
+            }
         }
 
         let Some(head) = ctx.store.head() else {

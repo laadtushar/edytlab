@@ -307,6 +307,9 @@ fn bypass_still_works_for_every_kind_that_can_be_bypassed() {
 
 /// `set_effect_params` edits the parameter object, never the kind, so it
 /// cannot be a way to turn a good effect into one the renderer cannot run.
+/// A `kind` key in `params` is not a parameter of any effect (#579), so it is
+/// refused outright, which is how a good effect stays a good effect; a
+/// patch of real parameters beside it is not applied either.
 #[test]
 fn set_effect_params_cannot_change_an_effects_kind() {
     let mut s = Session::new();
@@ -314,9 +317,10 @@ fn set_effect_params_cannot_change_an_effects_kind() {
         "add_effect",
         json!({ "track": 0, "kind": "gain", "params": { "db": -3.0 } }),
     ));
+    let head = s.head();
 
     for replace in [false, true] {
-        let out = ok(s.call(
+        let msg = err(s.call(
             "set_effect_params",
             json!({
                 "track": 0,
@@ -325,8 +329,14 @@ fn set_effect_params_cannot_change_an_effects_kind() {
                 "replace": replace,
             }),
         ));
-        assert_eq!(out["kind"], "gain", "replace={replace}: {out}");
+        assert!(msg.contains("'kind'"), "replace={replace}: {msg}");
+        assert_eq!(s.head(), head, "replace={replace}: no node");
         assert_eq!(s.chain()[0].kind, "gain", "replace={replace}");
+        assert_eq!(
+            s.chain()[0].params,
+            json!({ "db": -3.0 }),
+            "replace={replace}"
+        );
     }
     s.renders().expect("renders");
 }
