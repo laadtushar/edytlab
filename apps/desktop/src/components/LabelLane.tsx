@@ -16,7 +16,7 @@
  *   each is absurd. Double rather than single because a single click in
  *   an empty lane is how you deselect, and a label per stray click
  *   would be maddening. The name is typed in the lane rather than asked
- *   for with `window.prompt`: a macOS webview answers a prompt with
+ *   for with the browser's prompt dialog: a macOS webview answers it with
  *   `null` (WKWebView only shows one when the host implements the
  *   panel, and neither wry nor the dialog plugin does), so there the
  *   double-click would have done nothing. A click on the ruler opens the
@@ -147,9 +147,9 @@ export function LabelLane({
   }
 
   // The ruler asks for the same box (#546). It used to ask for the name
-  // with `window.prompt`, which a macOS webview answers with `null`, so
-  // there a click on the ruler did nothing. The box opens where the
-  // double-click would have put it: over the point on the ruler.
+  // with the browser's prompt dialog, which a macOS webview answers with
+  // `null`, so there a click on the ruler did nothing. The box opens
+  // where the double-click would have put it: over the point on the ruler.
   useEffect(() => {
     if (!nameRequest) return;
     onNameRequestHandled?.();

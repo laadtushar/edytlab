@@ -1120,9 +1120,9 @@ function App() {
 
   // The ruler hands over a time and no name. The name is typed into the
   // label lane's own box, opened at that time, and comes back through
-  // `handleAddLabel` like any label's. It was asked for with
-  // `window.prompt`, which a macOS webview answers with `null`, so there
-  // a click on the ruler did nothing (#546).
+  // `handleAddLabel` like any label's. It was asked for with the
+  // browser's prompt dialog, which a macOS webview answers with `null`,
+  // so there a click on the ruler did nothing (#546).
   const [nameRequest, setNameRequest] = useState<{ time: number } | null>(null);
   const handleRulerAdd = useCallback((timeSec: number) => {
     setNameRequest({ time: timeSec });
