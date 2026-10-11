@@ -322,16 +322,24 @@ run" (`ToolCallNotRun`), and the turn ends with `PlanTimeout`.
 "Would change the session" is `Tool::mutates()`, which defaults to `true`: a new
 tool, and every MCP tool, is held unless it is deliberately marked read-only.
 A tool that writes only the app's own caches is not a mutation, where a cache is
-content-addressed, bounded (size-capped, evicting itself) and rebuildable:
-`derived/track-<hash>.wav`, `.audiograph/previews/` and `.audiograph/auditions/`
-(both `PreviewCache`). That is why `audition_effect` and `render_preview` run
-without a card. A tool that leaves any other file, such as a temp file that
-outlives the call, is on the other side of the line, so `render_preview` stores
-even a ranged render in the cache (under a key that names the range) and fails
-rather than write elsewhere (#535).
+content-addressed, bounded and rebuildable: `.audiograph/previews/` and
+`.audiograph/auditions/` (both `PreviewCache`, size-capped, evicting their least
+recently used entries) and `derived/track-<hash>.wav` (no size cap; at most one
+per clip list a node holds, and the reclaim sweep removes the ones only history
+holds). That is why `audition_effect` and `render_preview` run without a card. A
+tool that leaves any other file, such as a temp file that outlives the call, is on
+the other side of the line, so `render_preview` stores even a ranged render in the
+cache (under a key that names the range) and fails rather than write elsewhere
+(#535). One more thing a read-only tool may write is audio put back:
+`render_preview` of a node whose audio a history sweep removed first rebuilds it
+(`rederive::materialize`), which writes `derived/<hash>.wav` files for that node
+and the history it is rebuilt from. Each is byte-identical to the file that was
+there, under the name the node already references, so the project holds nothing it
+did not already name; the reclaim sweep bounds them, not a cap.
 `crates/tools/tests/read_only_tools.rs` pins the read-only list by name, so
 widening it is a reviewed change, and checks that each tool on it leaves nothing
-but cache entries in the project and names only cache entries in its result.
+in the project but cache entries and audio put back (exactly the files a swept
+node names), and names only cache entries in its result.
 `ToolDispatcher::would_mutate` answers for a specific call and shares its
 pre-dispatch checks with `invoke`, so a call that would be refused (turned off,
 unknown, invalid arguments) is not held.

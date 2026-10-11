@@ -156,7 +156,8 @@ impl PreviewCache {
     ///
     /// An entry that is larger than the cap cannot be kept, and a path to a
     /// file that was evicted as it was written is no use to a caller, so
-    /// that is an error rather than an `Ok`.
+    /// that is an error rather than an `Ok`. It is refused before anything
+    /// is evicted: the cache is left as it was.
     pub fn get_or_render<F, E>(&self, node: session::NodeId, render: F) -> Result<(PathBuf, Hit), E>
     where
         F: FnOnce(&Path) -> Result<(), E>,
@@ -174,22 +175,47 @@ impl PreviewCache {
         // is not atomic, and the tempdir is frequently a different one.
         let staging = Staging(self.staging_path(node));
         render(&staging.0)?;
-        std::fs::rename(&staging.0, &final_path).map_err(E::from)?;
+        match std::fs::rename(&staging.0, &final_path) {
+            Ok(()) => {}
+            // Another render of this key finished first. The name is the
+            // content, so what is there is what this would have put there,
+            // and a platform whose rename will not replace a file (a Windows
+            // volume without POSIX rename) reports a race it lost as an
+            // error. The staging file is removed on the way out.
+            Err(_) if final_path.is_file() => {
+                let _ = touch(&final_path);
+                return Ok((final_path, Hit::Cached));
+            }
+            Err(e) => return Err(E::from(e)),
+        }
+
+        // An entry bigger than the whole cache cannot be kept. Finding that
+        // out by evicting would cost the cache everything older first, so
+        // look before evicting.
         let bytes = std::fs::metadata(&final_path).map(|m| m.len()).unwrap_or(0);
-
-        // Evict after inserting rather than before: the entry that was
-        // just asked for is the one entry that must survive, and it is
-        // now the most recently used.
-        self.evict_to_cap();
-
-        if !final_path.is_file() {
-            // Everything older went first and it was still over: it is
-            // bigger than the cache.
+        if bytes > self.cap_bytes {
+            let _ = std::fs::remove_file(&final_path);
             return Err(E::from(io::Error::other(format!(
                 "the rendered preview ({bytes} bytes) does not fit in the preview cache, \
                  whose cap is {} bytes",
                 self.cap_bytes
             ))));
+        }
+
+        // `rename` keeps the render's modified time, which is when the file
+        // was written and not when it entered the cache, and a coarse clock
+        // (exFAT keeps two seconds) can make that no newer than entries
+        // already here. The entry just asked for is the one entry that must
+        // survive, and it is the most recently used: say so first, and
+        // evict around it.
+        let _ = touch(&final_path);
+        self.evict(Some(&final_path));
+
+        if !final_path.is_file() {
+            // Something else removed it as it was written.
+            return Err(E::from(io::Error::other(
+                "the rendered preview was removed from the preview cache as it was written",
+            )));
         }
 
         Ok((final_path, Hit::Rendered))
@@ -249,6 +275,13 @@ impl PreviewCache {
     /// Drop least-recently-used entries until the directory fits the
     /// cap. Public so a caller can enforce the cap after changing it.
     pub fn evict_to_cap(&self) {
+        self.evict(None);
+    }
+
+    /// [`Self::evict_to_cap`], never taking `keep`. An entry that fits the
+    /// cap on its own is always safe to keep: once everything else is gone
+    /// the directory holds only it.
+    fn evict(&self, keep: Option<&Path>) {
         let mut entries = self.entries();
         let mut total: u64 = entries.iter().map(|e| e.bytes).sum();
         if total <= self.cap_bytes {
@@ -261,6 +294,9 @@ impl PreviewCache {
         for entry in entries {
             if total <= self.cap_bytes {
                 break;
+            }
+            if keep == Some(entry.path.as_path()) {
+                continue;
             }
             if std::fs::remove_file(&entry.path).is_ok() {
                 total = total.saturating_sub(entry.bytes);

@@ -2,14 +2,27 @@
 //! project's preview cache.
 //!
 //! Does NOT mutate the session graph; the rendered file is meant to be
-//! played back or inspected. Every file it writes is an entry in the
-//! bounded, content-addressed preview cache (`.audiograph/previews/`, see
-//! [`crate::preview_cache`]) and nowhere else: the whole mix under the
-//! node's id, an excerpt under a key that names its range. It used to
-//! render into an OS temp file and leave an excerpt there for the caller
-//! to clean up, uncapped and outside the project (#535), which is why it
-//! was held for approval under Plan first. It is not now, so a render that
-//! cannot be stored in the cache fails instead of landing somewhere else.
+//! played back or inspected. Every file it writes for the render is an
+//! entry in the bounded, content-addressed preview cache
+//! (`.audiograph/previews/`, see [`crate::preview_cache`]) and nowhere
+//! else: the whole mix under the node's id, an excerpt under a key that
+//! names its range. It used to render into an OS temp file and leave an
+//! excerpt there for the caller to clean up, uncapped and outside the
+//! project (#535), which is why it was held for approval under Plan first.
+//! It is not now, so a render that cannot be stored in the cache fails
+//! instead of landing somewhere else.
+//!
+//! ## The one other thing it may write
+//!
+//! Like every tool that renders a node, it first puts back that node's
+//! audio if a history sweep removed it (`rederive::materialize`). That
+//! writes `derived/<hash>.wav` files: the node's, and those of the history
+//! it is rebuilt from. They are not new files. Each is the same bytes under
+//! the content-addressed name the node already references, so the project
+//! ends up holding nothing it did not already name. The preview cap does
+//! not bound them; the reclaim sweep does, and it takes them out again when
+//! the derived audio is over its own cap. `Tool::mutates` states this
+//! exemption, and `tests/read_only_tools.rs` checks it is exactly this.
 
 use std::path::Path;
 

@@ -30,7 +30,11 @@ use tools::{
 /// (`auditions/`, `previews/`), which is the kind of write `Tool::mutates`
 /// does not count; a ranged render and a failed one used to leave an
 /// uncapped temp file behind, and that was the reason they were held. The
-/// read-only test below checks what they leave.
+/// one other thing `render_preview` may write is audio put back: for a node
+/// whose audio a history sweep removed it rebuilds the missing
+/// `derived/<hash>.wav` files first, the same bytes under the names the node
+/// already references (`Tool::mutates` states this). The read-only test
+/// below checks what they leave, and that it is exactly that.
 ///
 /// Deliberately **not** on this list, though they look harmless:
 ///
@@ -183,14 +187,52 @@ fn is_cache_entry(path: &str) -> bool {
     };
     in_folder(tools::preview_cache::CACHE_DIR)
         || in_folder(tools::tool::audition::AUDITION_DIR)
-        || (path.starts_with("derived/track-") && path.ends_with(".wav"))
+        || (path.starts_with(&format!("{}/derived/track-", session::STORE_DIR))
+            && path.ends_with(".wav"))
+}
+
+/// Project-relative, `/`-separated.
+fn relative(dir: &Path, path: &Path) -> String {
+    path.strip_prefix(dir)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+/// The files `node` names, and those of the history before it, with what
+/// each holds now. This is what a rebuild of `node` may write (the parent's
+/// audio is rebuilt first, so a node several edits past audio that is on
+/// disk brings its ancestors' back too).
+fn audio_of_history(
+    store: &session::Store,
+    dir: &Path,
+    node: session::NodeId,
+) -> BTreeMap<String, Vec<u8>> {
+    let mut out = BTreeMap::new();
+    let mut next = Some(node);
+    while let Some(id) = next {
+        let n = store.get(id).expect("node");
+        for clip in n.state.tracks.iter().flat_map(|t| t.clips.iter()) {
+            if let Ok(bytes) = std::fs::read(&clip.source_path) {
+                out.insert(relative(dir, &clip.source_path), bytes);
+            }
+        }
+        next = n.parent;
+    }
+    out
 }
 
 /// "Read-only" is a claim about what a call leaves behind, so check what
 /// it leaves behind: the head, the number of nodes, and every file in the
-/// project. The one allowance is the app's own caches (see
-/// [`CACHE_FOLDERS`]): the flattened-track cache in `derived/`, and the
-/// preview and audition caches.
+/// project. Two things a read may leave, and nothing else:
+///
+/// * an entry in one of the app's own caches (see [`is_cache_entry`]): the
+///   flattened-track cache in `derived/`, and the preview and audition
+///   caches;
+/// * audio put back: `render_preview` of a node whose audio a history sweep
+///   removed rebuilds it first, which writes the `derived/<hash>.wav` files
+///   that node and its history name. Each must hold exactly the bytes it
+///   held before the sweep.
 #[test]
 fn every_read_only_tool_leaves_the_session_untouched() {
     let dir = TempDir::new().expect("tempdir");
@@ -244,9 +286,16 @@ fn every_read_only_tool_leaves_the_session_untouched() {
         .expect("head node")
         .parent
         .expect("the head has a parent");
+    let audio_before_sweep = audio_of_history(&store, dir.path(), swept);
     tools::reclaim::sweep(&store, 0).expect("sweep");
+    // What the sweep took of it, and so what a rebuild may put back: no
+    // other file is allowed to appear, and these must come back as they were.
+    let put_back: BTreeMap<String, Vec<u8>> = audio_before_sweep
+        .into_iter()
+        .filter(|(path, _)| !dir.path().join(path).exists())
+        .collect();
     assert!(
-        !tools::rederive::missing_paths(&store, swept).is_empty(),
+        !tools::rederive::missing_paths(&store, swept).is_empty() && !put_back.is_empty(),
         "the sweep removed none of the node's audio, or the swept-node call checks nothing"
     );
     let swept_hex = swept.to_hex();
@@ -318,16 +367,14 @@ fn every_read_only_tool_leaves_the_session_untouched() {
         // temp file).
         if let ToolResult::Ok(value) = &result {
             if let Some(named) = value.get("path").and_then(Value::as_str) {
-                let relative = Path::new(named)
-                    .strip_prefix(dir.path())
-                    .unwrap_or_else(|_| {
-                        panic!("{name} wrote {named}, which is outside the project")
-                    })
-                    .to_string_lossy()
-                    .replace('\\', "/");
                 assert!(
-                    is_cache_entry(&relative),
-                    "{name} wrote {relative}, which is not an entry in one of the app's caches"
+                    Path::new(named).starts_with(dir.path()),
+                    "{name} wrote {named}, which is outside the project"
+                );
+                let rel = relative(dir.path(), Path::new(named));
+                assert!(
+                    is_cache_entry(&rel),
+                    "{name} wrote {rel}, which is not an entry in one of the app's caches"
                 );
             }
         }
@@ -340,10 +387,21 @@ fn every_read_only_tool_leaves_the_session_untouched() {
         "a read-only tool appended a node"
     );
 
+    // The bytes the sweep took come back as they were.
+    for (path, bytes) in &put_back {
+        assert_eq!(
+            std::fs::read(dir.path().join(path)).ok().as_ref(),
+            Some(bytes),
+            "{path} was not put back as it was"
+        );
+    }
+
     let mut files_after = files_under(dir.path());
-    // A cache entry is the one thing a read is allowed to leave.
-    // Everything else must be exactly as it was.
-    files_after.retain(|path, _| files_before.contains_key(path) || !is_cache_entry(path));
+    // A cache entry and audio put back are the two things a read is allowed
+    // to leave. Everything else must be exactly as it was.
+    files_after.retain(|path, _| {
+        files_before.contains_key(path) || !(is_cache_entry(path) || put_back.contains_key(path))
+    });
     assert_eq!(
         files_after, files_before,
         "a read-only tool changed the project's files"
