@@ -77,6 +77,15 @@ pub enum CommandError {
     #[error("no agent configured; call set_api_key first")]
     NoAgent,
 
+    /// No agent, because the keychain refused access at launch and was not
+    /// asked again. Starts like [`CommandError::NoAgent`] so the frontend,
+    /// which reads the text, still offers Settings for it.
+    #[error(
+        "no agent configured: {0}. Press Save in Settings to try the keychain again, \
+         or unlock your keyring and restart edytlab."
+    )]
+    NoAgentKeychainRefused(String),
+
     #[error("invalid path: {0}")]
     InvalidPath(String),
 
@@ -1317,9 +1326,14 @@ fn models_unread_reason(state: &AppState) -> Option<String> {
     })
 }
 
-/// The error for a turn with no agent to run it.
-fn no_agent_error(_state: &AppState) -> CommandError {
-    CommandError::NoAgent
+/// The error for a turn with no agent to run it: the plain one, unless the
+/// keychain refused access at launch, which is why the agent was left
+/// unbuilt ([`rebuild_agent_from`]) and what undoes it.
+fn no_agent_error(state: &AppState) -> CommandError {
+    match refusal_note(state) {
+        Some(why) => CommandError::NoAgentKeychainRefused(why),
+        None => CommandError::NoAgent,
+    }
 }
 
 /// Why the keychain is not asked, if startup found it refusing access
@@ -4093,6 +4107,9 @@ fn rebuild_agent_soon(state: &AppState) {
 /// Build the agent from the state as it is now and put it in `slot`, which
 /// is the agent's mutex, held by the caller. Nothing here waits for a
 /// turn; see [`rebuild_agent`] and [`rebuild_agent_soon`] for the callers.
+///
+/// After a startup the keychain refused, nothing is built and the keychain
+/// is not read ([`rebuild_agent_from`]).
 fn rebuild_agent_into(state: &AppState, slot: &mut Option<ai::Agent>) {
     rebuild_agent_from(
         state,
@@ -4114,6 +4131,21 @@ fn rebuild_agent_from(
     load_base_url: impl Fn(&str) -> Option<String>,
     load_effort: impl Fn(&str) -> Option<ai::Effort>,
 ) {
+    // After a startup the keychain refused (#497), no agent can be built
+    // without asking it again: every agent reads its provider's base URL and
+    // level, and a profile that pins another provider reads that provider's
+    // key. On a locked Secret Service each read is an unlock prompt, raised
+    // right after the user declined the first, and this runs at startup
+    // behind the reads. Building without them would be a guess, an agent
+    // pointed at the provider's own host when the stored URL is a gateway's
+    // (the reason `list_models_for` is refused as well). So the agent is
+    // left unbuilt, and `send_message` says why ([`no_agent_error`]). The
+    // first key or provider save that goes through lifts the refusal
+    // ([`keychain_readable_again`]) and builds it.
+    if state.keychain_refused() {
+        *slot = None;
+        return;
+    }
     let store_handle = state.store_handle();
     let global_provider_id = state.active_provider_id();
     let global_chosen_model = state.model_for(&global_provider_id);

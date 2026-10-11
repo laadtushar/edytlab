@@ -326,7 +326,8 @@ fn main_thread_offenders(sources: &[(String, String)]) -> Vec<String> {
 
 /// Functions that name the engine, the dispatcher and the store only to
 /// clone their `Arc`s into a new agent, and wait on none of the locks a
-/// tool holds. `rebuild_agent_into` hands the handles to `Agent::new`. The
+/// tool holds. `rebuild_agent_from` (which `rebuild_agent_into` calls with the
+/// real keychain reads) hands the handles to `Agent::new`. The
 /// commands that rebuild the agent (a key, a model, a profile) reach them,
 /// and are not waiting on a tool for it.
 ///
@@ -340,11 +341,12 @@ fn main_thread_offenders(sources: &[(String, String)]) -> Vec<String> {
 /// worker it runs on. So a command in the session's line must not call
 /// `rebuild_agent`: `open_project` calls `rebuild_agent_soon`, which never
 /// waits for a turn, and `tests/blocking_commands.rs` holds it to that.
-const HANDLE_ONLY: [&str; 4] = [
+const HANDLE_ONLY: [&str; 5] = [
     "rebuild_agent",
     "rebuild_agent_public",
     "rebuild_agent_soon",
     "rebuild_agent_into",
+    "rebuild_agent_from",
 ];
 
 /// Where a call to a function whose name ends in `blocking` starts in
