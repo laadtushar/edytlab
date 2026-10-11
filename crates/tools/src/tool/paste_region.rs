@@ -4,7 +4,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{destructive_edit, track_channels};
+use crate::tool::util::{destructive_edit_then, remap_after_insert, timeline_end, track_channels};
 use crate::{Tool, ToolContext, ToolResult};
 
 /// Splice `clipboard` into `samples` at `at_sec`. The insertion point is
@@ -200,12 +200,43 @@ impl Tool for PasteRegionTool {
         )
         .ok();
 
-        let result = destructive_edit(
+        // What the paste puts in, in the clipboard's own terms. A splice
+        // keeps the frame count whatever the channel conversion does
+        // (`conform` duplicates or averages within a frame), and it only
+        // succeeds when the clipboard's rate is the track's, so these two
+        // numbers are also the length of the gap it opens.
+        let (clip_rate, clip_frames) = (
+            pasted.sample_rate.max(1),
+            pasted.samples.len() / pasted.channels.max(1) as usize,
+        );
+
+        let result = destructive_edit_then(
             ctx,
             track,
-            move |samples, sample_rate| {
-                // Ignore error: already validated clipboard is Some above.
-                let _ = apply(samples, sample_rate, channels, at, &clipboard_snap);
+            move |samples, sample_rate, chans| {
+                // A refused paste (another rate, a channel layout with no
+                // unambiguous conversion) ends the edit here. It used to
+                // be dropped, which left a new node holding the track
+                // unchanged under the summary "paste clipboard at …" —
+                // and would now have moved the labels for audio that never
+                // went in.
+                apply(samples, sample_rate, channels, at, &clipboard_snap)
+                    .map_err(|e| e.to_string())?;
+                Ok((sample_rate, chans))
+            },
+            move |state, edited| {
+                // A paste is an insert: everything after the point is
+                // later by the clipboard's length, and the labels and
+                // words that name those moments have to be too (#203).
+                // `apply` clamps the point to the end of the track, so
+                // the same clamp is applied here; the track is already
+                // the longer one, hence the subtraction.
+                let rate = f64::from(clip_rate);
+                let old_end =
+                    timeline_end(&state.tracks[edited].clips).saturating_sub(clip_frames as u64);
+                let at_frames = ((at.max(0.0) * rate) as u64).min(old_end);
+                remap_after_insert(state, at_frames as f64 / rate, clip_frames as f64 / rate);
+                Default::default()
             },
             format!("paste clipboard at {at:.2}s on track {track}"),
         );

@@ -751,3 +751,156 @@ fn repeat_selection_appends_and_so_moves_nothing() {
     );
     assert!((s.words()[0].1 - 12.0).abs() < 1e-4);
 }
+
+// =============================================================================
+// Paste splices audio in (#203)
+// =============================================================================
+//
+// `paste_region` is an insert: its own description says "samples after
+// the insertion point are shifted right". It was left out of the list of
+// length-changing tools (#231), so after a paste the chapter marks after
+// the insertion point named moments that had moved.
+
+/// Copy `[from, to)` of track 0 and paste it at `at`: the clipboard's
+/// length is `to - from` seconds.
+fn copy_then_paste(s: &mut Session, from: f64, to: f64, at: f64) -> Value {
+    ok(s.call(
+        "copy_region",
+        json!({ "track": 0, "range": { "start_sec": from, "end_sec": to } }),
+    ));
+    ok(s.call("paste_region", json!({ "track": 0, "at": at })))
+}
+
+#[test]
+fn a_paste_pushes_the_later_chapters_along() {
+    let mut s = Session::new();
+    s.mark("intro", 1.0);
+    s.mark("chapter two", 10.0);
+
+    // Three seconds of clipboard go in at 5s.
+    copy_then_paste(&mut s, 2.0, 5.0, 5.0);
+
+    assert_eq!(s.at("intro"), 1.0, "before the splice");
+    assert_eq!(
+        s.at("chapter two"),
+        13.0,
+        "after it, by the clipboard's length"
+    );
+}
+
+/// A mark exactly at the insertion point is the first instant of what
+/// follows, so it moves with it — the same boundary `insert_silence`
+/// pins.
+#[test]
+fn a_mark_at_the_paste_point_moves_with_the_audio_after_it() {
+    let mut s = Session::new();
+    s.mark("at the point", 5.0);
+
+    copy_then_paste(&mut s, 0.0, 2.0, 5.0);
+
+    assert_eq!(s.at("at the point"), 7.0);
+}
+
+#[test]
+fn a_region_spanning_the_paste_point_grows_to_hold_it() {
+    let mut s = Session::new();
+    ok(s.call(
+        "import_labels",
+        json!({ "labels_text": "3.0\t9.0\tthe long segment\n1.0\t4.0\tends at the point" }),
+    ));
+
+    copy_then_paste(&mut s, 0.0, 2.0, 4.0);
+
+    let labels = s.labels();
+    let long = labels.iter().find(|l| l.0 == "the long segment").unwrap();
+    assert_eq!(
+        (long.1, long.2),
+        (3.0, 11.0),
+        "spans the point, so two seconds longer"
+    );
+    let ends = labels.iter().find(|l| l.0 == "ends at the point").unwrap();
+    assert_eq!(
+        (ends.1, ends.2),
+        (1.0, 4.0),
+        "ends where the paste begins, so it does not stretch"
+    );
+}
+
+#[test]
+fn a_paste_pushes_the_later_words_along() {
+    let mut s = Session::new();
+    s.seed_transcript(&[("alpha", 0.0, 0.5), ("omega", 8.0, 8.5)]);
+
+    copy_then_paste(&mut s, 0.0, 3.0, 5.0);
+
+    let words = s.words();
+    assert_eq!(words[0].1, 0.0, "before the splice");
+    assert!(
+        (words[1].1 - 11.0).abs() < 1e-4 && (words[1].2 - 11.5).abs() < 1e-4,
+        "omega should read 11.0-11.5s, reads {}-{}",
+        words[1].1,
+        words[1].2
+    );
+}
+
+/// A point past the end appends (the tool's own contract), so nothing
+/// that exists is later than it.
+#[test]
+fn a_paste_past_the_end_appends_and_moves_nothing_before_it() {
+    let mut s = Session::new();
+    s.mark("chapter two", 12.0);
+
+    copy_then_paste(&mut s, 0.0, 2.0, 500.0);
+
+    assert_eq!(s.at("chapter two"), 12.0);
+}
+
+/// A paste that was refused put nothing in, so it is an error, writes no
+/// node, and moves no label. The clipboard here is at another rate than
+/// the track, which `paste_region` refuses by name.
+///
+/// It used to be reported as a success with a new node holding the track
+/// unchanged; with the labels now following a paste, it would have moved
+/// them for audio that never went in.
+#[test]
+fn a_refused_paste_is_an_error_and_moves_no_label() {
+    let mut s = Session::new();
+    s.mark("chapter two", 12.0);
+    s.clipboard = Some(tools::Clipboard {
+        samples: vec![0.5; 44_100 * 2],
+        sample_rate: 44_100,
+        channels: 1,
+    });
+
+    let before = s.store.head();
+    match s.call("paste_region", json!({ "track": 0, "at": 5.0 })) {
+        ToolResult::Error(m) => assert!(m.contains("44100") && m.contains("48000"), "{m}"),
+        ToolResult::Ok(v) => panic!("a refused paste reported success: {v}"),
+    }
+
+    assert_eq!(s.store.head(), before, "a refused paste writes no node");
+    assert_eq!(
+        s.at("chapter two"),
+        12.0,
+        "nothing was pasted, so nothing moved"
+    );
+}
+
+/// The gap a paste opens is its frames, not its samples: a stereo
+/// clipboard has twice as many samples as frames, and it goes into a
+/// mono track as one second of audio, not two.
+#[test]
+fn a_stereo_clipboard_opens_a_gap_of_its_frames_not_its_samples() {
+    let mut s = Session::new();
+    s.mark("chapter two", 12.0);
+    s.clipboard = Some(tools::Clipboard {
+        // One second at 48 kHz, two channels interleaved.
+        samples: vec![0.25; SAMPLE_RATE as usize * 2],
+        sample_rate: SAMPLE_RATE,
+        channels: 2,
+    });
+
+    ok(s.call("paste_region", json!({ "track": 0, "at": 5.0 })));
+
+    assert_eq!(s.at("chapter two"), 13.0);
+}
