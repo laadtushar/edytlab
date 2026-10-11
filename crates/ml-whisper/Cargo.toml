@@ -26,6 +26,9 @@ audio-decoder = { path = "../audio-decoder" }
 # library is missing, so `WhisperModel::load` asks ml-pipeline first.
 ml-pipeline = { path = "../ml-pipeline" }
 rubato = "0.16"
+# Reading `tokenizer.json` (`tokenizer.rs`).
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 thiserror = "2"
 
 [dev-dependencies]
