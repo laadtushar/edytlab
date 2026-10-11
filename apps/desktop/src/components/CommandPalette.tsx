@@ -296,7 +296,7 @@ export function CommandPalette({ open, onClose, onSelect }: CommandPaletteProps)
       onAnimationEnd={onAnimationEnd}
     >
       <div
-        className={`${leaving ? "overlay-out" : "overlay-in"} flex w-full max-w-xl flex-col overflow-hidden rounded-xl border border-[var(--border-strong)] bg-[var(--surface-elev)] shadow-[0_24px_60px_-12px_rgba(0,0,0,0.8)]`}
+        className={`${leaving ? "overlay-out" : "overlay-in"} flex w-full max-w-xl flex-col overflow-hidden rounded-xl border border-[var(--border-strong)] bg-[var(--surface-elev)] shadow-(--shadow-dialog)`}
         style={{ maxHeight: "60vh" }}
       >
         {/* Search input */}
@@ -374,7 +374,7 @@ export function CommandPalette({ open, onClose, onSelect }: CommandPaletteProps)
                           {cmd.description}
                         </span>
                         {cmd.unavailable ? (
-                          <span className="mt-0.5 block text-[11px] leading-snug text-[var(--warn,#d0913a)]">
+                          <span className="mt-0.5 block text-[11px] leading-snug text-[var(--warning)]">
                             {cmd.unavailable}
                           </span>
                         ) : null}
@@ -384,7 +384,7 @@ export function CommandPalette({ open, onClose, onSelect }: CommandPaletteProps)
                           Unavailable
                         </span>
                       ) : isActive ? (
-                        <span className="shrink-0 font-mono text-[10px] text-[var(--accent)]">
+                        <span className="shrink-0 font-mono text-[10px] text-[var(--accent-text)]">
                           Enter
                         </span>
                       ) : null}

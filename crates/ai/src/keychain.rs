@@ -21,6 +21,10 @@
 //! not tried again until edytlab restarts, since each try is another
 //! prompt; the value is still read from the kernel keyring meanwhile.
 //!
+//! A durable save removes the kernel copy, so a kernel copy next to a
+//! durable one is the newer: it was saved while the Secret Service could
+//! not be reached. A read prefers it and moves it across the same way.
+//!
 //! A locked or refused store is an error, never a silent "nothing
 //! stored": the `try_` readers return it, and the `Option` readers log
 //! it. All I/O is serialized behind one lock, because the Secret Service
@@ -202,7 +206,15 @@ fn unreachable(e: &keyring::Error) -> bool {
 
 /// Read a value from `primary`, falling back to `legacy`.
 ///
-/// - `primary` has it: that is the answer.
+/// - `primary` has it: that is the answer, unless `legacy` holds a
+///   different one. [`write_to`] removes the `legacy` copy on every durable
+///   save, so a copy that sits next to a durable one was written after it:
+///   while `primary` could not be reached (a brief outage), or by a build
+///   that only knew the kernel keyring. It is the newer value. It is
+///   answered and moved across like any other (below), and a copy equal to
+///   the durable one is just dropped. A `legacy` that cannot be read, or
+///   holds nothing, changes nothing. (This read is a keyutils call, not a
+///   Secret Service one: no prompt.)
 /// - `primary` answers "not found" and `legacy` has it: a value an
 ///   earlier build left behind. Move it into `primary`, and drop the
 ///   `legacy` copy only once `primary` took it. The value is returned
@@ -239,7 +251,7 @@ fn read_from(
         unreachable_confirmed.store(false, Ordering::Relaxed);
     }
     match first {
-        Ok(v) => Ok(Some(v)),
+        Ok(v) => Ok(Some(newer_of(primary, legacy, v, move_refused))),
         Err(keyring::Error::NoEntry) => {
             let Some(legacy) = legacy else {
                 return Ok(None);
@@ -278,6 +290,35 @@ fn read_from(
     }
 }
 
+/// The value a read answers when `primary` holds `durable`: a different
+/// value in `legacy` is newer (see [`read_from`]), so it is that one, moved
+/// into `primary` as [`move_across`] does it, whether or not the move works.
+///
+/// A copy that is blank is not a value, and one that cannot be read is no
+/// copy: `durable` stands.
+fn newer_of(
+    primary: &dyn Slot,
+    legacy: Option<&dyn Slot>,
+    durable: String,
+    move_refused: &AtomicBool,
+) -> String {
+    let Some(legacy) = legacy else {
+        return durable;
+    };
+    match legacy.get() {
+        Ok(kernel) if kernel == durable => {
+            // Two copies of one value: only the durable one is wanted.
+            let _ = legacy.delete();
+            durable
+        }
+        Ok(kernel) if !kernel.trim().is_empty() => {
+            move_across(primary, legacy, &kernel, move_refused);
+            kernel
+        }
+        _ => durable,
+    }
+}
+
 /// Move `value` from `legacy` into `primary`, unless an earlier move was
 /// refused. `legacy` loses its copy only once `primary` has taken it.
 ///
@@ -305,6 +346,9 @@ fn move_across(primary: &dyn Slot, legacy: &dyn Slot, value: &str, move_refused:
 
 /// Write a value to `primary`.
 ///
+/// A durable save leaves no `legacy` copy: [`read_from`] takes one that
+/// sits next to a durable copy for the newer value.
+///
 /// Only a `primary` that cannot be reached at all degrades to `legacy`,
 /// and then only after a second look confirms it: `keyring` reports a
 /// failed `create_item` as `PlatformFailure` even when the service is
@@ -319,8 +363,17 @@ fn write_to(
         Ok(()) => {
             if let Some(legacy) = legacy {
                 // The durable copy is the only one now. A stale kernel
-                // copy would be read back if the service went away.
-                let _ = legacy.delete();
+                // copy would be read back if the service went away, and
+                // taken for a newer one while it is there ([`read_from`]).
+                match legacy.delete() {
+                    Ok(()) | Err(keyring::Error::NoEntry) => {}
+                    // It stays, so make it say what the durable copy says:
+                    // left as it was, it would win over the value just
+                    // saved. If this fails too there is nothing more to do.
+                    Err(_) => {
+                        let _ = legacy.set(value);
+                    }
+                }
             }
             Ok(Persistence::Durable)
         }
@@ -543,8 +596,13 @@ pub fn try_load_api_key(provider_id: &str) -> Result<Option<String>, KeychainErr
 /// are expected to surface a generic "could not save key" message
 /// rather than the platform-specific reason, again to avoid leaking
 /// the key in logs.
-pub fn save_api_key(provider_id: &str, key: &str) -> Result<(), keyring::Error> {
-    write_account(&account_for(provider_id), key).map(|_| ())
+///
+/// Returns where the key ended up: [`Persistence::SessionOnly`] is a save
+/// that fell back to the kernel keyring because no Secret Service could be
+/// reached, and will not survive a reboot. (The same goes for every
+/// `save_*` below.)
+pub fn save_api_key(provider_id: &str, key: &str) -> Result<Persistence, keyring::Error> {
+    write_account(&account_for(provider_id), key)
 }
 
 /// Remove the stored API key for `provider_id`, if any. Used by the
@@ -581,8 +639,8 @@ fn active_provider_from(raw: Option<String>) -> Option<String> {
 /// Persist the active-provider preference. The provider id is stored
 /// alongside API keys so it survives app restarts without leaking into
 /// any plaintext settings file.
-pub fn save_active_provider(provider_id: &str) -> Result<(), keyring::Error> {
-    write_account(ACTIVE_PROVIDER_ACCOUNT, provider_id).map(|_| ())
+pub fn save_active_provider(provider_id: &str) -> Result<Persistence, keyring::Error> {
+    write_account(ACTIVE_PROVIDER_ACCOUNT, provider_id)
 }
 
 /// Account slot for a provider's base-URL override.
@@ -623,8 +681,8 @@ fn base_url_from(raw: Option<String>) -> Option<String> {
 }
 
 /// Store a provider's base-URL override.
-pub fn save_base_url(provider_id: &str, base_url: &str) -> Result<(), keyring::Error> {
-    write_account(&base_url_account_for(provider_id), base_url).map(|_| ())
+pub fn save_base_url(provider_id: &str, base_url: &str) -> Result<Persistence, keyring::Error> {
+    write_account(&base_url_account_for(provider_id), base_url)
 }
 
 /// Forget a provider's override so the built-in URL applies again.
@@ -670,8 +728,8 @@ pub fn try_load_model(provider_id: &str) -> Result<Option<String>, KeychainError
 }
 
 /// Store a provider's chosen model.
-pub fn save_model(provider_id: &str, model: &str) -> Result<(), keyring::Error> {
-    write_account(&model_account_for(provider_id), model).map(|_| ())
+pub fn save_model(provider_id: &str, model: &str) -> Result<Persistence, keyring::Error> {
+    write_account(&model_account_for(provider_id), model)
 }
 
 /// Forget a provider's choice so its default applies again.
@@ -716,8 +774,8 @@ fn effort_from(raw: Option<String>) -> Option<Effort> {
 }
 
 /// Store a provider's reasoning effort.
-pub fn save_effort(provider_id: &str, effort: Effort) -> Result<(), keyring::Error> {
-    write_account(&effort_account_for(provider_id), effort.as_str()).map(|_| ())
+pub fn save_effort(provider_id: &str, effort: Effort) -> Result<Persistence, keyring::Error> {
+    write_account(&effort_account_for(provider_id), effort.as_str())
 }
 
 /// Forget a provider's choice so the model's default applies again.
@@ -829,6 +887,9 @@ mod tests {
         /// that was never moved in), but creating an item is refused:
         /// the unlock prompt for it was dismissed.
         WriteRefused,
+        /// Reads and writes work, but an item cannot be removed: a kernel
+        /// keyring copy that stays after a durable save.
+        DeleteFails,
     }
 
     struct Fake {
@@ -885,7 +946,7 @@ mod tests {
                 Mode::Unreachable => Err(no_service()),
                 Mode::Locked => Err(locked()),
                 Mode::Garbled => Err(keyring::Error::BadEncoding(b"sk-secret".to_vec())),
-                Mode::Works | Mode::WriteFails | Mode::WriteRefused => {
+                Mode::Works | Mode::WriteFails | Mode::WriteRefused | Mode::DeleteFails => {
                     self.value.borrow().clone().ok_or(keyring::Error::NoEntry)
                 }
             }
@@ -899,7 +960,7 @@ mod tests {
                     Err(keyring::Error::PlatformFailure("create_item failed".into()))
                 }
                 Mode::Garbled => Err(keyring::Error::BadEncoding(b"sk-secret".to_vec())),
-                Mode::Works => {
+                Mode::Works | Mode::DeleteFails => {
                     *self.value.borrow_mut() = Some(v.to_string());
                     Ok(())
                 }
@@ -910,6 +971,7 @@ mod tests {
                 Mode::Unreachable => Err(no_service()),
                 Mode::Locked => Err(locked()),
                 Mode::Garbled => Err(keyring::Error::BadEncoding(b"sk-secret".to_vec())),
+                Mode::DeleteFails => Err(keyring::Error::PlatformFailure("cannot unlink".into())),
                 Mode::Works | Mode::WriteFails | Mode::WriteRefused => self
                     .value
                     .borrow_mut()
@@ -1273,7 +1335,197 @@ mod tests {
         );
     }
 
+    // --- a kernel copy next to a durable one is the newer (#497) ---
+    //
+    // `write_to` drops the kernel copy on every durable save, so one that
+    // sits next to a durable copy was written after it: while the Secret
+    // Service could not be reached, or by a build that only knew the
+    // kernel keyring.
+
+    /// The bug: during a brief outage a new key goes to the kernel keyring.
+    /// Once the service is back the read returned the older durable copy
+    /// and never looked at the kernel one, so the key the user saved last
+    /// was ignored and the one they had replaced was used.
+    #[test]
+    fn a_key_saved_during_an_outage_wins_over_the_older_durable_one_when_the_service_is_back() {
+        let durable = Fake::holding(Mode::Works, "sk-old");
+        let kernel = Fake::empty(Mode::Works);
+
+        // The service is down for the save, so it lands in the kernel keyring.
+        let down = Fake::empty(Mode::Unreachable);
+        assert!(matches!(
+            write_to(&down, some(&kernel), "sk-new").unwrap(),
+            Persistence::SessionOnly { .. }
+        ));
+
+        // Back again, and still holding what it held before.
+        assert_eq!(
+            read(&durable, some(&kernel)).unwrap().as_deref(),
+            Some("sk-new")
+        );
+        assert_eq!(durable.value().as_deref(), Some("sk-new"), "moved across");
+        assert_eq!(kernel.value(), None, "and the kernel copy is gone");
+        assert_eq!(
+            read(&durable, some(&kernel)).unwrap().as_deref(),
+            Some("sk-new"),
+            "the next read is just a read"
+        );
+    }
+
+    /// The same copy twice (a move whose last step, dropping the kernel
+    /// copy, did not happen) is not news: nothing is written to the
+    /// Secret Service, which on a locked one is an unlock prompt, and the
+    /// duplicate goes.
+    #[test]
+    fn a_kernel_copy_equal_to_the_durable_one_is_dropped_without_a_write() {
+        let primary = Fake::holding(Mode::Works, "sk-a");
+        let kernel = Fake::holding(Mode::Works, "sk-a");
+        assert_eq!(
+            read(&primary, some(&kernel)).unwrap().as_deref(),
+            Some("sk-a")
+        );
+        assert_eq!(primary.sets.get(), 0, "nothing was rewritten");
+        assert_eq!(kernel.value(), None);
+    }
+
+    /// With nothing in the kernel keyring a read is a read, and writes
+    /// nothing, as before.
+    #[test]
+    fn a_durable_value_with_no_kernel_copy_is_read_and_nothing_is_written() {
+        let primary = Fake::holding(Mode::Works, "sk-a");
+        let kernel = Fake::empty(Mode::Works);
+        assert_eq!(
+            read(&primary, some(&kernel)).unwrap().as_deref(),
+            Some("sk-a")
+        );
+        assert_eq!(primary.sets.get(), 0);
+        assert_eq!(kernel.value(), None);
+    }
+
+    /// The newer copy is the answer even when the Secret Service will not
+    /// take it: a dismissed unlock prompt. It stays where it is, and the
+    /// refusal is remembered so no later slot asks again.
+    #[test]
+    fn a_newer_kernel_copy_is_returned_and_kept_when_the_move_is_refused() {
+        let (refused, gone) = (AtomicBool::new(false), AtomicBool::new(false));
+        let primary = Fake::holding(Mode::WriteRefused, "sk-old");
+        let kernel = Fake::holding(Mode::Works, "sk-new");
+        assert_eq!(
+            read_from(&primary, some(&kernel), &refused, &gone)
+                .unwrap()
+                .as_deref(),
+            Some("sk-new")
+        );
+        assert_eq!(kernel.value().as_deref(), Some("sk-new"), "kept");
+        assert_eq!(primary.value().as_deref(), Some("sk-old"), "untouched");
+        assert!(refused.load(Ordering::Relaxed), "and remembered");
+
+        let (later, later_kernel) = (
+            Fake::holding(Mode::WriteRefused, "a-model"),
+            Fake::holding(Mode::Works, "a-newer-model"),
+        );
+        assert_eq!(
+            read_from(&later, some(&later_kernel), &refused, &gone)
+                .unwrap()
+                .as_deref(),
+            Some("a-newer-model"),
+            "still the newer one"
+        );
+        assert_eq!(later.sets.get(), 0, "without asking again");
+    }
+
+    /// A move that failed for a reason of its own keeps the kernel copy
+    /// too, and stops nothing.
+    #[test]
+    fn a_newer_kernel_copy_is_returned_and_kept_when_the_move_fails() {
+        let (refused, gone) = (AtomicBool::new(false), AtomicBool::new(false));
+        let primary = Fake::holding(Mode::WriteFails, "sk-old");
+        let kernel = Fake::holding(Mode::Works, "sk-new");
+        assert_eq!(
+            read_from(&primary, some(&kernel), &refused, &gone)
+                .unwrap()
+                .as_deref(),
+            Some("sk-new")
+        );
+        assert_eq!(kernel.value().as_deref(), Some("sk-new"));
+        assert!(!refused.load(Ordering::Relaxed));
+    }
+
+    /// A kernel keyring that cannot be read says nothing about a value the
+    /// Secret Service holds: the read does not fail for it.
+    #[test]
+    fn a_kernel_keyring_that_cannot_be_read_hides_nothing() {
+        for mode in [Mode::Unreachable, Mode::Locked, Mode::Garbled] {
+            let primary = Fake::holding(Mode::Works, "sk-durable");
+            let kernel = Fake::holding(mode, "sk-kernel");
+            assert_eq!(
+                read(&primary, some(&kernel)).unwrap().as_deref(),
+                Some("sk-durable")
+            );
+            assert_eq!(primary.sets.get(), 0);
+        }
+    }
+
+    /// A blank kernel copy is not a newer value: it would put an empty key
+    /// over a real one.
+    #[test]
+    fn a_blank_kernel_copy_never_overrules_a_durable_value() {
+        let primary = Fake::holding(Mode::Works, "sk-durable");
+        let kernel = Fake::holding(Mode::Works, "  ");
+        assert_eq!(
+            read(&primary, some(&kernel)).unwrap().as_deref(),
+            Some("sk-durable")
+        );
+        assert_eq!(primary.sets.get(), 0);
+    }
+
+    /// A store that is locked or garbled answers with an error, and the
+    /// kernel copy is not consulted to get round it, as before.
+    #[test]
+    fn a_secret_service_that_errors_is_not_overruled_by_the_kernel_copy() {
+        for mode in [Mode::Locked, Mode::Garbled] {
+            let primary = Fake::empty(mode);
+            let kernel = Fake::holding(Mode::Works, "sk-kernel");
+            assert!(read(&primary, some(&kernel)).is_err());
+            assert_eq!(kernel.gets.get(), 0);
+            assert_eq!(kernel.value().as_deref(), Some("sk-kernel"));
+        }
+    }
+
     // --- write ---
+
+    /// The other half of the rule above: a durable save leaves no kernel
+    /// copy behind, so the one that is read back is the one just saved.
+    #[test]
+    fn a_durable_save_is_what_is_read_back_whatever_the_kernel_held() {
+        let primary = Fake::holding(Mode::Works, "sk-older");
+        let kernel = Fake::holding(Mode::Works, "sk-stale");
+        write_to(&primary, some(&kernel), "sk-new").unwrap();
+        assert_eq!(
+            read(&primary, some(&kernel)).unwrap().as_deref(),
+            Some("sk-new")
+        );
+    }
+
+    /// If the kernel copy cannot be removed after a durable save, it is
+    /// overwritten with the new value instead. Left as it was, the read
+    /// rule above would take the stale copy for a newer one and put it
+    /// over the key that was just saved.
+    #[test]
+    fn a_kernel_copy_that_cannot_be_dropped_after_a_save_is_overwritten_not_left_stale() {
+        let primary = Fake::holding(Mode::Works, "sk-older");
+        let kernel = Fake::holding(Mode::DeleteFails, "sk-stale");
+        assert_eq!(
+            write_to(&primary, some(&kernel), "sk-new").unwrap(),
+            Persistence::Durable
+        );
+        assert_eq!(kernel.value().as_deref(), Some("sk-new"));
+        assert_eq!(
+            read(&primary, some(&kernel)).unwrap().as_deref(),
+            Some("sk-new")
+        );
+        assert_eq!(primary.value().as_deref(), Some("sk-new"));
+    }
 
     #[test]
     fn saving_to_a_reachable_store_is_durable_and_drops_the_old_copy() {

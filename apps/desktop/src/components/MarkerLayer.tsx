@@ -95,7 +95,7 @@ export function MarkerLayer({
                 top: 2,
                 left: 3,
                 background: "var(--accent)",
-                color: "var(--onyx-0, #07080b)",
+                color: "var(--accent-fg)",
                 fontSize: 9,
                 fontFamily: "var(--font-mono)",
                 padding: "1px 4px",

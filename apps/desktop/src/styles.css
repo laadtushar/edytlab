@@ -1,37 +1,31 @@
 @import "tailwindcss";
 
 /*
- * Studio Onyx — design tokens.
+ * Brand tokens, mirrored from `website/app/globals.css` `.dark`; change
+ * both together (`brandTokens.test.ts` fails if they drift).
  *
- * Single source for color, typography, motion. Components reference
- * these via Tailwind arbitrary-value classes (`bg-[var(--bg)]`) so
- * the whole app re-themes from this one block. Stick to the
- * grayscale + warm-amber accent system; new colors should be added
- * here, not inline.
+ * Single source for color, typography, shape and motion. Components
+ * reference these via Tailwind arbitrary-value classes
+ * (`bg-[var(--bg)]`) so the whole app re-themes from the `:root` block
+ * below. The system is a zinc ground with one violet accent, the same
+ * as the site; new colors belong here, not inline.
+ *
+ * Dark only, like the site.
  */
 @theme {
-  --color-onyx-0: #07080b;
-  --color-onyx-1: #0b0c11;
-  --color-onyx-2: #11131a;
-  --color-onyx-3: #181b25;
-  --color-onyx-4: #20232f;
-  --color-onyx-5: #2a2e3d;
-  --color-onyx-6: #3a3f51;
-  --color-text: #ecedf2;
-  --color-text-dim: #a4a7b3;
-  --color-text-faint: #5e6373;
-  --color-amber: #ff8a3d;
-  --color-amber-soft: rgba(255, 138, 61, 0.14);
-  --color-amber-glow: rgba(255, 138, 61, 0.32);
-  --color-success: #6ad19c;
-  --color-warning: #f5b941;
-  --color-danger: #ef6f72;
-
   /* Faces bundled from @fontsource (see main.tsx); the variable builds
      register under these names. */
   --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Geist Mono Variable", ui-monospace, "JetBrains Mono", monospace;
-  --font-serif: "Instrument Serif", "Iowan Old Style", "Apple Garamond", serif;
+
+  /*
+   * The site's radius scale (`--radius: .625rem`): buttons and inputs
+   * 8px, cards 10px. Tailwind's `rounded-md` and `rounded-lg` are
+   * remapped rather than rewritten at ninety-odd call sites. `rounded`
+   * (4px: kbd, lane toggles) and `rounded-xl` (12px: dialogs) stay.
+   */
+  --radius-md: 0.5rem;
+  --radius-lg: 0.625rem;
 
   /*
    * What a bare Tailwind `transition` means in this app.
@@ -55,22 +49,88 @@
 }
 
 :root {
-  --bg: #07080b;
-  --surface: #0b0c11;
-  --surface-elev: #11131a;
-  --surface-elev-2: #181b25;
-  --border: #20232f;
-  --border-strong: #2a2e3d;
-  --text: #ecedf2;
-  --text-dim: #a4a7b3;
-  --text-faint: #5e6373;
-  --accent: #ff8a3d;
-  --accent-soft: rgba(255, 138, 61, 0.14);
-  --accent-glow: rgba(255, 138, 61, 0.32);
+  /* Native controls (select popups, datalists, scrollbars on engines that
+     honour it) draw dark, like the site (`colorScheme: "dark"`). */
+  color-scheme: dark;
+
+  /* Surfaces, darkest to lightest. The site's zinc scale (hue 240). */
+  --bg: hsl(240 10% 4%); /* #09090b, site --background */
+  --surface: hsl(240 10% 6%); /* #0e0e11, site --card */
+  --surface-elev: hsl(240 8% 9%); /* #151519, between card and secondary */
+  --surface-elev-2: hsl(240 6% 12%); /* #1d1d20, site --secondary / --muted */
+
+  /*
+   * Edges. `--border` is the hairline, `--border-strong` a control's
+   * edge. `--border-input` is the one for text inputs, selects and
+   * textareas: WCAG 1.4.11 wants a field's boundary at 3:1, and the
+   * site's own input edge (#26262b) is about 1.4:1, so the app's is
+   * lighter than the site's. Buttons are named by their labels, so
+   * their edges may stay quiet.
+   */
+  --border: hsl(240 6% 16%); /* #26262b, site --border */
+  --border-strong: hsl(240 5% 22%); /* #35353b */
+  --border-input: hsl(240 4% 43%); /* #696972, >= 3:1 on every surface */
+
+  /*
+   * Text. `--text-faint` is the AA floor (>= 4.5:1 on every surface; it
+   * was #5e6373, 2.9:1 on the raised inset, and is used by 111 sites).
+   * It stays visibly below `--text-dim`, so the hierarchy survives.
+   */
+  --text: hsl(0 0% 98%); /* #fafafa, site --foreground */
+  --text-dim: hsl(240 5% 65%); /* #a1a1aa, site --muted-foreground */
+  --text-faint: hsl(240 4% 56%); /* #8a8a93 */
+
+  /*
+   * The accent: the site's `--primary`, and the colour of the logo.
+   * A signal, not a fill: selection, the playhead, the active state,
+   * the primary action and focus.
+   *
+   * Raw `--accent` as text on a tinted background is 4.2:1 and fails,
+   * so text on `--accent-soft` and friends uses `--accent-text`. Text
+   * on the accent itself is `--accent-fg`.
+   */
+  --accent: hsl(270 95% 70%); /* #b26afb, site --primary */
+  --accent-fg: hsl(240 10% 4%); /* site --primary-foreground */
+  --accent-hover: hsl(270 95% 75%); /* #bf83fc, the gradient's start */
+  --accent-text: hsl(270 95% 78%); /* #c792fc */
+  --accent-soft: hsl(270 95% 70% / 0.14);
+  --accent-glow: hsl(270 95% 60% / 0.35);
+  --accent-border: hsl(270 95% 70% / 0.45);
+  --accent-selection: hsl(270 95% 70% / 0.18); /* the time selection */
+  --accent-2: hsl(290 90% 60%); /* #d63df5, the gradient's end */
+  --gradient-brand: linear-gradient(135deg, hsl(270 95% 75%), hsl(290 90% 60%));
+
+  /* The logo mark's two fills (`website/components/motion/logo.tsx`). */
+  --logo-violet: #9d4ef5;
+  --logo-indigo: #6248e8;
+
+  /*
+   * Status keeps its own hues: the site's `--destructive` is only 3.9:1
+   * as text on the page, so the app's red stays. A running badge is
+   * amber and reads as such, apart from the accent now.
+   */
   --success: #6ad19c;
   --warning: #f5b941;
   --danger: #ef6f72;
-  --ring-focus: 0 0 0 1px rgba(255, 138, 61, 0.55), 0 0 0 4px rgba(255, 138, 61, 0.18);
+  --warning-soft: color-mix(in srgb, var(--warning) 10%, transparent);
+  --warning-border: color-mix(in srgb, var(--warning) 35%, transparent);
+  --danger-soft: color-mix(in srgb, var(--danger) 12%, transparent);
+  --danger-border: color-mix(in srgb, var(--danger) 40%, transparent);
+
+  /* The site's `.surface`: a card is very slightly lit from above. */
+  --surface-lift: linear-gradient(to bottom, hsl(0 0% 98% / 0.035), transparent 60%);
+
+  /*
+   * Elevation. Menus and popovers, dialogs, and the one primary action
+   * on a surface (the site's `.glow`, scaled down). No other glows.
+   */
+  --shadow-pop: 0 12px 32px -8px rgb(0 0 0 / 0.7);
+  --shadow-dialog: 0 30px 80px -20px rgb(0 0 0 / 0.7), inset 0 0 0 1px hsl(0 0% 100% / 0.02);
+  --shadow-accent: 0 6px 18px -8px hsl(270 95% 60% / 0.55);
+
+  /* The site's `ring-2 ring-offset-2`: a 2px gap in the page colour,
+     then 2px of accent. 6:1 against the page, so it clears 1.4.11. */
+  --ring-focus: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
 
   /*
    * Motion vocabulary. Three durations and two easings, named — see
@@ -162,8 +222,14 @@ body,
 
 /*
  * Subtle film-grain overlay. Keeps the dark UI from feeling flat —
- * pure-black panels read as "missing texture" on OLED displays.
- * Pointer-events disabled so it never intercepts clicks.
+ * pure-black panels read as "missing texture" on OLED displays, and a
+ * flat dark gradient bands on wide-gamut ones. The site's grain,
+ * exactly: fractal noise 0.9, three octaves, a 120px tile at 0.035.
+ *
+ * No `mix-blend-mode`. The old one made the compositor blend a
+ * full-window layer against everything under it, the timeline
+ * included; at this opacity a plain layer looks the same and costs far
+ * less. Pointer-events disabled so it never intercepts clicks.
  */
 body::before {
   content: "";
@@ -171,9 +237,8 @@ body::before {
   inset: 0;
   pointer-events: none;
   z-index: 1;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.4 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.65'/></svg>");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
   opacity: 0.035;
-  mix-blend-mode: overlay;
 }
 
 /* Custom scrollbar — visible enough to find, restrained enough to ignore. */
@@ -195,9 +260,9 @@ body::before {
   background-clip: padding-box;
 }
 
-/* Selection — warm amber tint to keep the accent reading. */
+/* Selection — the site's `primary / .3`. */
 ::selection {
-  background: var(--accent-glow);
+  background: hsl(270 95% 70% / 0.3);
   color: var(--text);
 }
 
@@ -228,11 +293,15 @@ button {
  * does not leave a ring behind — that is the reason the pseudo-class
  * exists, and using `:focus` here is what makes people remove focus
  * styling altogether.
+ *
+ * No `border-radius` here. This rule used to square every focused
+ * element to 3px, which flattened a focused pill or rounded button
+ * into a different shape for as long as it held focus. The ring
+ * follows the element's own radius.
  */
 :focus-visible {
   outline: none;
   box-shadow: var(--ring-focus);
-  border-radius: 3px;
 }
 
 /*
@@ -301,6 +370,8 @@ input[type="range"]:active::-moz-range-thumb {
   }
 }
 
+/* Unused since the empty-state glyph became the static logo mark; the
+   motion pass deletes it. */
 @keyframes wave-pulse {
   0%, 100% {
     transform: scaleY(0.4);
@@ -642,4 +713,189 @@ input[type="range"]:active::-moz-range-thumb {
 .chat-md th {
   font-weight: 600;
   background: var(--surface-elev-2);
+}
+
+/*
+ * Component recipes.
+ *
+ * The brand drifted in exactly the strings that were pasted around: one
+ * hand-typed hover colour sat at ten call sites, and the timeline's
+ * twelve toolbar buttons each carried their own copy of a grey border
+ * and an amber active state, from Tailwind's default palette. A recipe
+ * is the one place a button is allowed to look like a button.
+ *
+ * Colour, edge, radius and weight only. Size stays with each call
+ * site's own padding and text classes, because the layout does not
+ * change here, and no recipe adds a transition or an animation (a bare
+ * Tailwind `transition` on the element still supplies the 120ms).
+ *
+ * In `@layer components` on purpose: a Tailwind utility on the same
+ * element (`rounded`, `disabled:opacity-40`, `hover:...`) is in a later
+ * layer and so still wins, whatever the specificity.
+ *
+ * Plain CSS on tokens, no `@apply`. And no `:focus` selector anywhere
+ * below: the focus ring is `:focus-visible` above, and
+ * `microInteractions.test.tsx` forbids the other.
+ */
+@layer components {
+  /* The one primary action on a surface. */
+  .btn-primary {
+    background: var(--accent);
+    color: var(--accent-fg);
+    border-radius: var(--radius-md);
+    font-weight: 500;
+    box-shadow: var(--shadow-accent);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: var(--accent-hover);
+  }
+  .btn-primary:disabled {
+    background: var(--surface-elev-2);
+    color: var(--text-faint);
+    box-shadow: none;
+    cursor: not-allowed;
+  }
+
+  /*
+   * A control's resting state is quiet; its hover is the app's tinted
+   * accent edge, which reads as the site's `.ring-hover`. `.btn-tool`
+   * is the same control for the toolbars and header, with a pressed
+   * state: it takes `aria-pressed` where the control has one and
+   * `data-active` where it does not. It does not set a font, so a
+   * button keeps the face and width it already had.
+   */
+  .btn-secondary,
+  .btn-tool {
+    border: 1px solid var(--border-strong);
+    background: var(--surface);
+    color: var(--text-dim);
+  }
+  .btn-secondary:hover:not(:disabled),
+  .btn-tool:hover:not(:disabled) {
+    border-color: var(--accent-border);
+    background: var(--accent-soft);
+    color: var(--accent-text);
+  }
+  .btn-tool[aria-pressed="true"],
+  .btn-tool[data-active="true"] {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent-text);
+  }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--text-dim);
+  }
+  .btn-ghost:hover:not(:disabled) {
+    background: var(--surface-elev-2);
+    color: var(--text);
+  }
+
+  .btn-danger {
+    border: 1px solid var(--danger-border);
+    background: transparent;
+    color: var(--danger);
+  }
+  .btn-danger:hover:not(:disabled) {
+    background: var(--danger-soft);
+  }
+
+  /*
+   * A text field. Its edge is `--border-input`, the one border in the
+   * app held to 3:1 (WCAG 1.4.11). Focus is the global ring; the edge
+   * only joins it in the accent.
+   */
+  .field {
+    background: var(--surface);
+    border: 1px solid var(--border-input);
+    border-radius: var(--radius-md);
+    color: var(--text);
+  }
+  .field::placeholder {
+    color: var(--text-faint);
+  }
+  .field:focus-visible {
+    border-color: var(--accent);
+  }
+
+  /* The site's `.surface` card. */
+  .card {
+    background: var(--surface-lift), var(--surface-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+  }
+
+  /* Chips and filters. `.pill-accent` is the lit one (the site's
+     version pill); a toggle takes it from `aria-pressed` / `data-active`. */
+  .pill {
+    border: 1px solid var(--border);
+    border-radius: 9999px;
+  }
+  .pill-accent,
+  .pill[aria-pressed="true"],
+  .pill[data-active="true"] {
+    border-color: var(--accent-border);
+    background: var(--accent-soft);
+    color: var(--accent-text);
+  }
+
+  /* The site's `.gradient-text`: hero emphasis only. In the app that is
+     the empty-state wordmark and the Welcome title, and (as
+     `--gradient-brand` directly) the tool progress fill. Nowhere else,
+     and never behind a block of text. */
+  .gradient-text {
+    background: var(--gradient-brand);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    padding: 0 0.04em 0.05em;
+  }
+
+  .link-accent {
+    color: var(--accent-text);
+    text-underline-offset: 3px;
+  }
+  .link-accent:hover {
+    text-decoration-line: underline;
+  }
+
+  /*
+   * A tab's selected bar. The box never changes size: the bar is a
+   * pseudo-element, so choosing a tab cannot move a neighbour, and a
+   * weight change (which would) is not needed to show which is chosen.
+   * `settings-tabs.spec` measures this.
+   */
+  .tab-indicator {
+    position: relative;
+  }
+  .tab-indicator::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--accent);
+    scale: 0 1;
+    pointer-events: none;
+  }
+  .tab-indicator[aria-selected="true"]::after,
+  .tab-indicator[data-active="true"]::after,
+  .tab-indicator[aria-pressed="true"]::after {
+    scale: 1 1;
+  }
+
+  /* The site header's hairline, laid over the bottom edge of a
+     `position: relative` bar so it takes no room. */
+  .rule-accent {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 1px;
+    background: linear-gradient(to right, transparent, var(--accent-border) 50%, transparent);
+    pointer-events: none;
+  }
 }

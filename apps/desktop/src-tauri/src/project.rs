@@ -116,8 +116,9 @@ pub fn write_view(project_dir: &Path, view: &ViewState) -> std::io::Result<()> {
 /// * `project.json` — the copy is the same project, under a new name on
 ///   disk. Renaming it is a separate verb and doing it here silently
 ///   would be a surprise.
-/// * `.audiograph/nodes/`, `head`, `view.json` — the history and where
-///   you were in it.
+/// * `.audiograph/nodes/`, `head`, `trail.json`, `view.json` — the
+///   history, the path taken through it (what undo follows, #453) and
+///   where you were in it.
 /// * `.audiograph/derived/` and `clipboard/` — the audio. Without these
 ///   the copy is a list of edits pointing at nothing.
 ///
@@ -494,6 +495,57 @@ mod tests {
             "and it must be the copy's file, not something else on disk: {}",
             path.display()
         );
+    }
+
+    /// Undo follows the path taken (#453), so a copy that carried the
+    /// history and not the path would undo differently from the project it
+    /// was made from. `trail.json` is in `.audiograph/`, which the copy
+    /// takes whole.
+    #[test]
+    fn a_copy_keeps_the_path_taken() {
+        use session::trail::{read_trail, write_trail, HeadTrail};
+        use session::{SessionNode, SessionState, Store};
+
+        let node = |length_samples: u64| SessionNode {
+            id: session::NodeId([0u8; 32]),
+            parent: None,
+            created_at: chrono::Utc::now(),
+            label: None,
+            reasoning: None,
+            state: SessionState {
+                tracks: Vec::new(),
+                bus_routing: Default::default(),
+                master_chain: Vec::new(),
+                tempo_map: Default::default(),
+                key_map: None,
+                transcript: None,
+                sample_rate: 48_000,
+                length_samples,
+                annotations: Vec::new(),
+                sync_lock: false,
+            },
+            op: None,
+        };
+
+        let tmp = TempDir::new().unwrap();
+        let src = tmp.path().join("original");
+        let mut store = Store::open(&src).unwrap();
+        let a = store.append(node(1_000)).unwrap().to_hex();
+        let b = store.append(node(2_000)).unwrap().to_hex();
+        // Unmuted: back on `a`, having been on `b`.
+        let saved = HeadTrail {
+            head: Some(a.clone()),
+            trail: vec![a.clone(), b.clone()],
+            redo: vec![b],
+        };
+        assert!(write_trail(&src, &saved).unwrap());
+        drop(store);
+
+        let dest = tmp.path().join("copy");
+        copy_project(&src, &dest).expect("copy");
+        std::fs::remove_dir_all(&src).expect("the original is gone");
+
+        assert_eq!(read_trail(&dest), saved);
     }
 
     /// Copying into somebody's existing folder would merge two projects

@@ -7,6 +7,9 @@
 //!   after thousands of edits.
 //! - `head` — single-line file containing the hex id of the current head,
 //!   or absent / empty when the store has no nodes yet.
+//! - `trail.json` — the path the user took to reach the head, which undo
+//!   follows (see [`crate::trail`]). Not the store's own state: the store
+//!   never reads it, and the project opens the same without it.
 //!
 //! Durability strategy: every write goes to a sibling `*.tmp` file inside
 //! the same directory, then `tempfile::persist` does an atomic rename. The
@@ -66,17 +69,28 @@ const HEAD_FILE: &str = "head";
 /// which `std::fs::File::open` does not pass. We treat this as a no-op
 /// there; reaching parity will require the `winapi` crate or `windows`.
 #[cfg(unix)]
-fn fsync_dir(path: &Path) -> io::Result<()> {
+pub(crate) fn fsync_dir(path: &Path) -> io::Result<()> {
     let dir = fs::File::open(path)?;
     dir.sync_all()
 }
 
 #[cfg(not(unix))]
-fn fsync_dir(_path: &Path) -> io::Result<()> {
+pub(crate) fn fsync_dir(_path: &Path) -> io::Result<()> {
     // See module-level note: directory fsync needs platform-specific
     // open flags on Windows. NTFS rename metadata is journaled, so the
     // practical durability gap is small, but we should revisit this.
     Ok(())
+}
+
+/// Where the file for the node with this 64-character hex id is, in the
+/// project at `project_dir`. The one place the layout in the module
+/// documentation is spelt out as a path.
+pub(crate) fn node_path(project_dir: &Path, hex: &str) -> PathBuf {
+    project_dir
+        .join(STORE_DIR)
+        .join(NODES_DIR)
+        .join(&hex[0..2])
+        .join(format!("{hex}.json"))
 }
 
 pub struct Store {

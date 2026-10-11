@@ -266,6 +266,15 @@ const CUES: &[Cue] = &[
         ],
         with: EFFECT_WORDS,
     },
+    // "a limiter on the master at -1 dB" (#460). The effect's own name
+    // brings `limiter`, which limits one track; only `add_effect` with
+    // scope "master" reaches the master bus, and nothing in the message is
+    // a word of its name.
+    Cue {
+        tool: "add_effect",
+        any: &["master"],
+        with: EFFECT_WORDS,
+    },
     Cue {
         tool: "vocal_reduction",
         any: &["karaoke", "instrumental"],
@@ -1098,11 +1107,34 @@ mod tests {
             ("save every track as its own file", "export_multiple"),
             ("remove the vocals", "vocal_reduction"),
             ("make a karaoke version", "vocal_reduction"),
+            ("put a limiter on the master at -1 dB", "add_effect"),
+            ("a limiter on the master bus", "add_effect"),
+            ("compress the master a little", "add_effect"),
+            ("add a low-pass filter to the master", "add_effect"),
         ] {
             let sent = sent_for(text);
             assert!(
                 sent.iter().any(|n| n == wanted),
                 "{text:?} should send {wanted}: {sent:?}"
+            );
+        }
+    }
+
+    /// "Master" with no effect in the message, or an effect with no
+    /// master, is not a request for a master-bus effect. The effect alone
+    /// reaches its own tool; the master alone reaches nothing.
+    #[test]
+    fn the_master_cue_needs_an_effect_and_an_effect_needs_the_master() {
+        for text in [
+            "who mastered this song",
+            "the master looks fine",
+            "the reverb is lovely",
+            "fix each typo in the notes",
+        ] {
+            let sent = sent_for(text);
+            assert!(
+                !sent.iter().any(|n| n == "add_effect"),
+                "{text:?} must not send add_effect: {sent:?}"
             );
         }
     }

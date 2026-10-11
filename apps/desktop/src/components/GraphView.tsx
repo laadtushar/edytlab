@@ -104,8 +104,21 @@ export interface GraphViewProps {
   path?: readonly NodeId[];
 }
 
-/** The head ring's blue-500, so the path and the head read as one thing. */
-const PATH_STROKE = "#3b82f6";
+/**
+ * The head ring's accent, so the path and the head read as one thing.
+ * An inline `style.stroke` resolves `var()`, which a canvas colour (the
+ * background below) would not.
+ */
+const PATH_STROKE = "var(--accent)";
+
+/** An edge the user has not walked. */
+const EDGE_STROKE = "var(--border-strong)";
+
+/**
+ * The background's dots: `--border`'s value, as a literal, because React
+ * Flow takes the colour as a prop and not through the cascade.
+ */
+const GRID_COLOUR = "#26262b";
 
 interface NodeData extends Record<string, unknown> {
   bubble: GraphNode;
@@ -144,30 +157,39 @@ const GraphBubble = memo(function GraphBubble({ data }: NodeProps) {
       // head moving reads as a move rather than as two separate
       // redraws.
       className={
-        "node-in transition min-w-[160px] max-w-[200px] rounded-lg border bg-neutral-900 px-3 py-2 text-xs text-neutral-100 shadow " +
+        "node-in transition min-w-[160px] max-w-[200px] rounded-lg border bg-[var(--surface-elev)] px-3 py-2 text-xs text-[var(--text)] shadow " +
         (isHead
-          ? "ring-2 ring-blue-500 border-blue-500"
-          : "border-neutral-700")
+          ? "ring-2 ring-[color:var(--accent)] border-[var(--accent)]"
+          : "border-[var(--border-strong)]")
       }
       style={{ borderLeft: `4px solid ${colour}` }}
     >
-      <Handle type="target" position={Position.Top} className="!bg-neutral-600" />
+      <Handle type="target" position={Position.Top} className="!bg-[var(--border-input)]" />
       <div
-        className="truncate font-medium text-neutral-100"
+        className="truncate font-medium text-[var(--text)]"
         title={label}
       >
         {label}
       </div>
-      <div className="mt-0.5 flex items-center justify-between gap-2 text-[10px] text-neutral-400">
+      <div className="mt-0.5 flex items-center justify-between gap-2 text-[10px] text-[var(--text-dim)]">
         <span className="truncate font-mono">{tool}</span>
         <span className="shrink-0">{when}</span>
       </div>
-      <Handle type="source" position={Position.Bottom} className="!bg-neutral-600" />
+      <Handle type="source" position={Position.Bottom} className="!bg-[var(--border-input)]" />
     </div>
   );
 });
 
 const NODE_TYPES = { graphBubble: GraphBubble };
+
+/** The zoom controls, through the variables React Flow reads them from. */
+const CONTROLS_STYLE = {
+  "--xy-controls-button-background-color": "var(--surface-elev-2)",
+  "--xy-controls-button-background-color-hover": "var(--border-strong)",
+  "--xy-controls-button-color": "var(--text-dim)",
+  "--xy-controls-button-color-hover": "var(--text)",
+  "--xy-controls-button-border-color": "var(--border-strong)",
+} as React.CSSProperties;
 
 interface ContextMenuState {
   x: number;
@@ -291,7 +313,7 @@ export function GraphView({
         const edge = { id, source: n.parent as string, target: n.id, markerEnd };
         return walked.has(id)
           ? { ...edge, className: "graph-path-step", style: { stroke: PATH_STROKE } }
-          : { ...edge, style: { stroke: "#52525b" } };
+          : { ...edge, style: { stroke: EDGE_STROKE } };
       });
     // A step the parent edges do not hold: an edit that came back to a
     // state reached before.
@@ -347,13 +369,13 @@ export function GraphView({
     <div
       ref={containerRef}
       data-testid="graph-view-root"
-      className="relative h-full w-full bg-neutral-900"
+      className="relative h-full w-full bg-[var(--surface)]"
     >
       {error ? (
         <div
           role="alert"
           data-testid="graph-error"
-          className="absolute left-3 top-3 z-20 rounded-md border border-red-800 bg-red-900/60 px-3 py-2 text-xs text-red-100"
+          className="absolute left-3 top-3 z-20 rounded-md border border-[var(--danger-border)] bg-[var(--danger-soft)] px-3 py-2 text-xs text-[var(--danger)]"
         >
           {error}
         </div>
@@ -361,7 +383,7 @@ export function GraphView({
       {graph && graph.nodes.length === 0 ? (
         <div
           data-testid="graph-empty"
-          className="flex h-full w-full items-center justify-center text-sm text-neutral-400"
+          className="flex h-full w-full items-center justify-center text-sm text-[var(--text-dim)]"
         >
           No nodes yet — start a chat turn to build the session graph.
         </div>
@@ -376,11 +398,12 @@ export function GraphView({
           maxZoom={2}
           proOptions={{ hideAttribution: true }}
         >
-          <Background gap={24} color="#27272a" />
+          <Background gap={24} color={GRID_COLOUR} />
           <Controls
             position="bottom-right"
             showInteractive={false}
-            className="!bg-neutral-800 !text-neutral-100"
+            // React Flow draws these buttons light unless told otherwise.
+            style={CONTROLS_STYLE}
           />
         </ReactFlow>
       )}
@@ -452,7 +475,7 @@ function ContextMenu({ x, y, onClose, onSetHead, onRename, onCompare }: ContextM
         onClick();
         onClose();
       }}
-      className="block w-full px-3 py-1.5 text-left text-xs text-neutral-100 hover:bg-neutral-800 disabled:cursor-not-allowed disabled:text-neutral-500"
+      className="block w-full px-3 py-1.5 text-left text-xs text-[var(--text)] hover:bg-[var(--surface-elev-2)] disabled:cursor-not-allowed disabled:text-[var(--text-faint)]"
     >
       {label}
     </button>
@@ -463,7 +486,7 @@ function ContextMenu({ x, y, onClose, onSetHead, onRename, onCompare }: ContextM
       data-testid="graph-context-menu"
       role="menu"
       style={{ left: x, top: y }}
-      className="absolute z-30 w-44 overflow-hidden rounded-md border border-neutral-700 bg-neutral-900 py-1 shadow-lg"
+      className="absolute z-30 w-44 overflow-hidden rounded-md border border-[var(--border-strong)] bg-[var(--surface-elev)] py-1 shadow-(--shadow-pop)"
     >
       {item("Set as head", true, onSetHead)}
       {item(
@@ -509,7 +532,7 @@ export function RenameOverlay({ nodeId, onSubmit, onClose }: RenameOverlayProps)
       }}
     >
       <form
-        className="flex flex-col gap-2 rounded-md border border-neutral-700 bg-neutral-900 p-3 text-xs text-neutral-100"
+        className="flex flex-col gap-2 rounded-md border border-[var(--border-strong)] bg-[var(--surface-elev)] p-3 text-xs text-[var(--text)] shadow-(--shadow-pop)"
         onSubmit={(e) => {
           e.preventDefault();
           const name = value.trim();
@@ -519,7 +542,7 @@ export function RenameOverlay({ nodeId, onSubmit, onClose }: RenameOverlayProps)
       >
         <label
           htmlFor="rename-input"
-          className="font-mono text-[10px] text-neutral-400"
+          className="font-mono text-[10px] text-[var(--text-dim)]"
         >
           rename {nodeId.slice(0, 7)}
         </label>
@@ -529,13 +552,13 @@ export function RenameOverlay({ nodeId, onSubmit, onClose }: RenameOverlayProps)
           value={value}
           onChange={(e) => setValue(e.target.value)}
           placeholder="new label"
-          className="rounded border border-neutral-700 bg-neutral-950 px-2 py-1 text-xs outline-none focus:border-blue-600"
+          className="field px-2 py-1 text-xs outline-none"
         />
         <div className="flex justify-end gap-2">
           <button
             type="button"
             onClick={onClose}
-            className="rounded border border-neutral-700 px-2 py-1 hover:bg-neutral-800"
+            className="btn-secondary rounded px-2 py-1"
           >
             Cancel
           </button>
@@ -559,7 +582,7 @@ export function RenameOverlay({ nodeId, onSubmit, onClose }: RenameOverlayProps)
             title={
               value.trim() ? undefined : "enter a name first"
             }
-            className="rounded bg-blue-600 px-2 py-1 text-white disabled:cursor-not-allowed disabled:opacity-50"
+            className="btn-primary px-2 py-1"
           >
             Save
           </button>

@@ -175,15 +175,12 @@ function Pane({ scope, label, helper, pane, setPane, onSave }: PaneProps) {
             : "Notes specific to this project…"
         }
         className="
+          field
           w-full resize-y
-          rounded-md border border-[var(--border-strong)]
-          bg-[var(--surface)]
-          px-3 py-2 font-mono text-xs text-[var(--text)]
+          px-3 py-2 font-mono text-xs
           outline-none
           transition
-          placeholder:text-[var(--text-faint)] placeholder:font-sans
-          focus:border-[var(--accent)]/55
-          focus:shadow-[0_0_0_3px_var(--accent-soft)]
+          placeholder:font-sans
           disabled:cursor-not-allowed disabled:opacity-50
         "
       />
@@ -207,16 +204,7 @@ function Pane({ scope, label, helper, pane, setPane, onSave }: PaneProps) {
           data-testid={`memory-save-${scope}`}
           disabled={!dirty || pane.saving}
           onClick={() => void onSave(scope, pane, setPane)}
-          className="
-            rounded-md
-            bg-[var(--accent)]
-            px-3 py-1
-            text-xs font-medium text-[var(--bg)]
-            shadow-[0_4px_12px_-4px_var(--accent-glow)]
-            transition
-            hover:bg-[#ffa05f]
-            disabled:cursor-not-allowed disabled:bg-[var(--surface-elev-2)] disabled:text-[var(--text-faint)] disabled:shadow-none
-          "
+          className="btn-primary px-3 py-1 text-xs transition"
         >
           {pane.saving ? "Saving…" : "Save"}
         </button>

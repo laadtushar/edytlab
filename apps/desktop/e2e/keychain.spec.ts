@@ -89,13 +89,17 @@ test.describe("a keychain that is still being read", () => {
 
 test.describe("Settings after a startup the keychain refused", () => {
   /**
-   * #497. The base URL and the reasoning level read as "nothing stored",
-   * and Save sent a blank URL and no level, which delete the stored ones.
-   * The user who dismissed the startup prompts and accepted the one Save
-   * raises lost both. Here every read is refused the way the backend
-   * refuses it, and Save must write the key and nothing else.
+   * #497. The base URL, the reasoning level and the model read as "nothing
+   * stored", and Save sent a blank URL, no level and the model the field
+   * happened to show, which delete or overwrite the stored ones. The user
+   * who dismissed the startup prompts and accepted the one Save raises
+   * lost all three. Here every read is refused the way the backend refuses
+   * it (opening Settings asks the keychain for none of them again), and
+   * Save must write the key and nothing else.
    */
-  test("saves the key and leaves the stored base URL and level alone", async ({ app }) => {
+  test("saves the key and leaves the stored base URL, level and model alone", async ({
+    app,
+  }) => {
     const refused = reject("Couldn't access platform secure storage: locked");
     await app.boot({
       ...firstRun(),
@@ -103,12 +107,14 @@ test.describe("Settings after a startup the keychain refused", () => {
       // `active_provider_answer`: the default is not an answer while
       // startup's read is unaccounted for.
       get_active_provider: refused,
-      // `stored_setting(try_load_base_url(..))` and `try_load_effort`.
+      // `stored_setting_unless_refused(..)` for the base URL and the level,
+      // `active_model_answer(..)` for the model, and `catalogue_inputs`
+      // for the model list: all rejected, none read.
       get_base_url_for: refused,
       get_effort_for: refused,
-      // `CmdResult<()>` serialises as `null`. Save also writes the model
-      // field, which comes from the page's own storage and the backend's
-      // memory rather than from a keychain read.
+      get_active_model: refused,
+      list_models_for: refused,
+      // `CmdResult<()>` serialises as `null`.
       set_api_key_for: ok(null),
       set_active_model: ok(null),
     });
@@ -122,6 +128,8 @@ test.describe("Settings after a startup the keychain refused", () => {
     await expect(settings).toHaveAttribute("data-mode", "panel");
     await expect(settings.getByTestId("settings-base-url-unread")).toContainText("locked");
     await expect(settings.getByTestId("settings-effort-unread")).toContainText("locked");
+    await expect(settings.getByTestId("settings-model-unread")).toContainText("locked");
+    await expect(settings.getByTestId("settings-model-error")).toContainText("locked");
 
     await settings.getByTestId("settings-key-input").fill("sk-ant-test");
     await settings.getByTestId("settings-save-button").click();
@@ -133,6 +141,7 @@ test.describe("Settings after a startup the keychain refused", () => {
     ]);
     expect(await app.requestsFor("set_base_url_for")).toEqual([]);
     expect(await app.requestsFor("set_effort_for")).toEqual([]);
+    expect(await app.requestsFor("set_active_model")).toEqual([]);
   });
 });
 

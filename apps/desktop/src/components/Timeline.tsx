@@ -268,9 +268,10 @@ export interface TimelineProps {
 const toggleStyle = (on: boolean): React.CSSProperties => ({
   background: on ? "var(--accent-soft)" : "var(--surface-elev-2)",
   border: "1px solid",
-  borderColor: on ? "rgba(255,138,61,0.45)" : "var(--border-strong)",
+  borderColor: on ? "var(--accent-border)" : "var(--border-strong)",
   borderRadius: 4,
-  color: on ? "var(--accent)" : "var(--text-dim)",
+  // Text on the accent tint, so `--accent-text`: the raw accent is 4.2:1.
+  color: on ? "var(--accent-text)" : "var(--text-dim)",
   fontFamily: "var(--font-mono)",
   fontSize: 10,
   letterSpacing: "0.05em",
@@ -477,7 +478,11 @@ function TrackLane({
     const ws = WaveSurfer.create({
       container: containerRef.current,
       media,
-      waveColor: "rgba(236, 237, 242, 0.35)",
+      // Neutral, and resolved: WaveSurfer paints a canvas, which takes no
+      // `var()`. 0.42 over the raised surface is about 4:1 (it was 3.1).
+      // The violet is the selection and playhead drawn over it, and a
+      // violet waveform would sink under its own selection.
+      waveColor: "rgba(250, 250, 250, 0.42)",
       progressColor: "var(--accent)",
       // No cursor of its own: it is drawn on this lane's duration,
        // which is not the axis the ruler, the clips or the selection
@@ -1091,7 +1096,7 @@ function isAbort(err: unknown): boolean {
               bottom: 4,
               left: playhead,
               width: 1,
-              background: "rgba(255, 138, 61, 0.85)",
+              background: "var(--accent)",
               pointerEvents: "none",
             }}
           />
@@ -1105,7 +1110,7 @@ function isAbort(err: unknown): boolean {
               bottom: 4,
               left: overlay.left,
               width: overlay.width,
-              background: "rgba(255, 138, 61, 0.18)",
+              background: "var(--accent-selection)",
               borderLeft: "1.5px solid var(--accent)",
               borderRight: "1.5px solid var(--accent)",
               pointerEvents: "none",
@@ -1141,8 +1146,8 @@ function isAbort(err: unknown): boolean {
               bottom: 6,
               left: 6,
               right: 6,
-              background: "rgba(239,111,114,0.12)",
-              border: "1px solid rgba(239,111,114,0.4)",
+              background: "var(--danger-soft)",
+              border: "1px solid var(--danger-border)",
               borderRadius: 6,
               padding: "4px 10px",
               fontSize: 10,
@@ -1951,8 +1956,8 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
             role="alert"
             style={{
               margin: "8px 16px 0",
-              background: "rgba(239,111,114,0.12)",
-              border: "1px solid rgba(239,111,114,0.4)",
+              background: "var(--danger-soft)",
+              border: "1px solid var(--danger-border)",
               borderRadius: 6,
               padding: "6px 10px",
               fontSize: 11,
@@ -2005,11 +2010,8 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
               disabled={!canPlay && !pendingPlay}
               aria-busy={pendingPlay}
               aria-label={pendingPlay ? "Rendering…" : transportPlaying ? "Pause" : "Play"}
-              className={`text-xs px-2 py-1 rounded border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                transportPlaying || pendingPlay
-                  ? "border-amber-400 text-amber-400 bg-amber-400/10"
-                  : "border-neutral-600 text-neutral-400 hover:border-neutral-400"
-              }`}
+              data-active={transportPlaying || pendingPlay ? "true" : "false"}
+              className="btn-tool text-xs px-2 py-1 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               title={playTitle}
             >
               {pendingPlay ? (
@@ -2055,7 +2057,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
                   Math.max(10, Math.round(effectivePxPerSec() / 1.5)),
                 )
               }
-              className="text-xs px-1.5 py-1 rounded border border-neutral-600 text-neutral-400 hover:border-neutral-400 transition-colors"
+              className="btn-tool text-xs px-1.5 py-1 rounded transition-colors"
               title="Zoom out (Ctrl+scroll)"
             >
               −
@@ -2076,7 +2078,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
                   Math.min(500, Math.round(effectivePxPerSec() * 1.5)),
                 )
               }
-              className="text-xs px-1.5 py-1 rounded border border-neutral-600 text-neutral-400 hover:border-neutral-400 transition-colors"
+              className="btn-tool text-xs px-1.5 py-1 rounded transition-colors"
               title="Zoom in (Ctrl+scroll)"
             >
               +
@@ -2094,7 +2096,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
                 )
               }
               disabled={(verticalZoom ?? 1) <= MIN_VERTICAL_ZOOM}
-              className="text-xs px-1.5 py-1 rounded border border-neutral-600 text-neutral-400 hover:border-neutral-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="btn-tool text-xs px-1.5 py-1 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               title="Shrink the waveform vertically"
             >
               ↕−
@@ -2112,7 +2114,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
                 )
               }
               disabled={(verticalZoom ?? 1) >= MAX_VERTICAL_ZOOM}
-              className="text-xs px-1.5 py-1 rounded border border-neutral-600 text-neutral-400 hover:border-neutral-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="btn-tool text-xs px-1.5 py-1 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               title="Magnify the waveform vertically — makes a quiet passage readable"
             >
               ↕+
@@ -2122,7 +2124,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
               data-testid="zoom-to-selection-btn"
               onClick={zoomToSelection}
               disabled={!selection}
-              className="text-xs px-1.5 py-1 rounded border border-neutral-600 text-neutral-400 hover:border-neutral-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="btn-tool text-xs px-1.5 py-1 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               title="Zoom to selection (Ctrl+E)"
             >
               ⇱⇲
@@ -2131,7 +2133,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
               type="button"
               data-testid="fit-to-window-btn"
               onClick={fitToWindow}
-              className="text-xs px-1.5 py-1 rounded border border-neutral-600 text-neutral-400 hover:border-neutral-400 transition-colors"
+              className="btn-tool text-xs px-1.5 py-1 rounded transition-colors"
               title="Fit to window (Ctrl+F)"
             >
               ⇤⇥
@@ -2142,11 +2144,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
               onClick={() => onSyncLockChange?.(!syncLock)}
               aria-pressed={syncLock ? "true" : "false"}
               aria-label={syncLock ? "Turn sync-lock off" : "Turn sync-lock on"}
-              className={`text-xs px-2 py-1 rounded border transition-colors ${
-                syncLock
-                  ? "border-amber-400 text-amber-400 bg-amber-400/10"
-                  : "border-neutral-600 text-neutral-400 hover:border-neutral-400"
-              }`}
+              className="btn-tool text-xs px-2 py-1 rounded transition-colors"
               title="Sync-lock — cuts and inserts move every track together, so a multitrack recording stays aligned"
             >
               ⛓
@@ -2156,11 +2154,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
               data-testid="snap-zero-btn"
               onClick={() => onSnapToZeroChange?.(!snapToZero)}
               aria-pressed={snapToZero ? "true" : "false"}
-              className={`text-xs px-2 py-1 rounded border transition-colors ${
-                snapToZero
-                  ? "border-amber-400 text-amber-400 bg-amber-400/10"
-                  : "border-neutral-600 text-neutral-400 hover:border-neutral-400"
-              }`}
+              className="btn-tool text-xs px-2 py-1 rounded transition-colors"
               title="Snap selection to zero crossings — avoids clicks at cut boundaries"
             >
               ⌇
@@ -2169,11 +2163,8 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
               type="button"
               data-testid="loop-btn"
               onClick={() => onLoopChange?.(!loop)}
-              className={`text-xs px-2 py-1 rounded border transition-colors ${
-                loop
-                  ? "border-amber-400 text-amber-400 bg-amber-400/10"
-                  : "border-neutral-600 text-neutral-400 hover:border-neutral-400"
-              }`}
+              data-active={loop ? "true" : "false"}
+              className="btn-tool text-xs px-2 py-1 rounded transition-colors"
               title="Toggle loop (L)"
             >
               ↺
@@ -2182,11 +2173,8 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
               type="button"
               data-testid="spectrogram-btn"
               onClick={() => onSpectrogramChange?.(!spectrogramEnabled)}
-              className={`text-xs px-2 py-1 rounded border transition-colors ${
-                spectrogramEnabled
-                  ? "border-amber-400 text-amber-400 bg-amber-400/10"
-                  : "border-neutral-600 text-neutral-400 hover:border-neutral-400"
-              }`}
+              data-active={spectrogramEnabled ? "true" : "false"}
+              className="btn-tool text-xs px-2 py-1 rounded transition-colors"
               title="Toggle spectrogram"
             >
               Spec

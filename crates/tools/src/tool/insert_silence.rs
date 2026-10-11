@@ -79,6 +79,9 @@ impl Tool for InsertSilenceTool {
             "insert_silence",
             "Insert a region of silence at a time offset in a track. \
              Extends the track length by `duration` seconds. \
+             With sync-lock on (see `set_sync_lock`) the gap opens on every other track too, \
+             so the tracks stay aligned: the call then moves clips on tracks it does not name, \
+             and a clip that straddles `at` is split in two. \
              Appends a new session node.",
             serde_json::json!({
                 "type": "object",

@@ -44,6 +44,16 @@ const commands = [
         desc: "Remember where you are. Disposable by design: losing it costs a scroll, not work.",
       },
       {
+        name: "getHeadTrail()",
+        returns: "SavedTrail",
+        desc: "The path you took through the history, saved with the project so undo retraces it after a restart. A missing or corrupt file answers an empty path rather than failing. Entries for nodes the project no longer has are dropped.",
+      },
+      {
+        name: "saveHeadTrail(trail)",
+        returns: "void",
+        desc: "Keep the path with the project, replacing the last. Written atomically and bounded to the last 500 steps each way. A path that does not end at a node of the open project is ignored.",
+      },
+      {
         name: "listRecentProjects()",
         returns: "RecentProject[]",
         desc: "Projects this machine has opened, most recent first, one row each, capped at 10. Folders that have gone are pruned on read and the pruning is written back.",

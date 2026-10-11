@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss";
+import defaultTheme from "tailwindcss/defaultTheme";
 
 const config: Config = {
   darkMode: ["class"],
@@ -16,6 +17,15 @@ const config: Config = {
       },
     },
     extend: {
+      // `app/layout.tsx` loads Inter with `next/font` and declares it as
+      // `--font-sans` on <html>. That only defines the variable: unless
+      // `font-sans` names it, <body> renders Tailwind's default
+      // `ui-sans-serif, system-ui` and Inter is downloaded for nothing.
+      // The default stack stays behind it for the swap period and for
+      // any glyph Inter lacks. `lib/fonts.test.ts` pins this.
+      fontFamily: {
+        sans: ["var(--font-sans)", ...defaultTheme.fontFamily.sans],
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",

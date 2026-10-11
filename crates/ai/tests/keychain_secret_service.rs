@@ -95,7 +95,11 @@ mod secret_service {
         let id = test_provider("saved");
         let account = format!("{id}_api_key");
 
-        keychain::save_api_key(&id, "sk-test-value").expect("save");
+        assert_eq!(
+            keychain::save_api_key(&id, "sk-test-value").expect("save"),
+            Persistence::Durable,
+            "the save says where it went"
+        );
         assert_eq!(
             keychain::persistence(),
             Persistence::Durable,
@@ -138,6 +142,36 @@ mod secret_service {
             keychain::try_load_api_key(&id).expect("read").as_deref(),
             Some("sk-from-before"),
             "and the value is now in the Secret Service"
+        );
+
+        keychain::delete_api_key(&id).expect("clear");
+    }
+
+    /// A key saved while the Secret Service was unreachable sits in the
+    /// kernel keyring next to the older one the service holds. Once the
+    /// service is back, the newer one is the key, and it moves across.
+    #[test]
+    #[ignore = "needs a running, unlocked Secret Service"]
+    fn a_newer_kernel_keyring_copy_wins_over_an_older_durable_one() {
+        let id = test_provider("newer-kernel");
+        let account = format!("{id}_api_key");
+
+        keychain::save_api_key(&id, "sk-older").expect("save");
+        let kernel = kernel_copy(&account).expect("kernel keyring");
+        kernel.set_password("sk-newer").expect("seed");
+
+        assert_eq!(
+            keychain::try_load_api_key(&id).expect("read").as_deref(),
+            Some("sk-newer")
+        );
+        assert!(
+            matches!(kernel.get_password(), Err(keyring::Error::NoEntry)),
+            "the kernel copy is gone once moved"
+        );
+        assert_eq!(
+            keychain::try_load_api_key(&id).expect("read").as_deref(),
+            Some("sk-newer"),
+            "and the Secret Service holds it now"
         );
 
         keychain::delete_api_key(&id).expect("clear");

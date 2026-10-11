@@ -18,19 +18,27 @@
  * draws the path the user took. "Set as head" in the graph is a step on
  * that path too (#453): it goes through the app, so undo comes back from
  * it.
+ *
+ * The path is saved with the project (#453), so it survives a restart.
+ * A restart here is `app.restart`: the page is loaded again and the
+ * backend is told what the project holds, which is the head it ended on
+ * and the path the app asked it to keep. Nothing else carries over.
  */
 
 import { fixturePath, fixtureSeconds } from "./audio-fixtures";
+import type { SavedTrail } from "../src/lib/headTrail";
+
 import {
   nodeId,
   ok,
   projectWith,
+  reject,
   sessionNode,
   sessionWith,
   toneTrack,
   trackFor,
 } from "./backend";
-import { expect, test } from "./fixtures";
+import { expect, test, type App } from "./fixtures";
 
 const BEFORE_LOAD = nodeId(1); // the parent the store recorded for START
 const START = nodeId(2); // two tracks loaded
@@ -339,4 +347,191 @@ test("Set as head in the graph is a step: undo comes back from it, redo goes aga
   await expect
     .poll(() => app.requestsFor("set_head_to"))
     .toEqual([{ nodeId: BEFORE_LOAD }, { nodeId: MUTED }, { nodeId: BEFORE_LOAD }]);
+});
+
+/** What the app asked `save_head_trail` to keep, newest last. */
+async function savedPaths(app: App): Promise<SavedTrail[]> {
+  const calls = (await app.requestsFor("save_head_trail")) as { trail: SavedTrail }[];
+  return calls.map((c) => c.trail);
+}
+
+test("the path survives a restart: mute, unmute, close, open, undo brings the mute back (#453)", async ({
+  app,
+}) => {
+  // The path used to live in the webview alone. After a restart undo asked
+  // the node for its parent, which skips the mute (#398).
+  await app.boot({
+    ...projectWith([toneTrack()], START),
+    render_preview: ok(fixturePath("tone3s")),
+    set_track_muted: ok(MUTED),
+  });
+  const page = app.page;
+  await expect(page.getByTestId("ruler")).toContainText("0:03");
+
+  await page.getByTestId("timeline-lane-mute").click();
+  await expect.poll(() => app.requestsFor("set_track_muted")).toHaveLength(1);
+  await app.become({ set_track_muted: ok(START) });
+  await page.getByTestId("timeline-lane-mute").click();
+  await expect.poll(() => app.requestsFor("set_track_muted")).toHaveLength(2);
+  await app.settle();
+
+  // Each move saved the whole path with the project; the last one ends at
+  // the head the project is on.
+  const saves = await savedPaths(app);
+  expect(saves).toEqual([
+    { head: MUTED, trail: [START], redo: [] },
+    { head: START, trail: [START, MUTED], redo: [] },
+  ]);
+
+  // The app is closed and opened again. The project is as it was left:
+  // the same head, and the file the app saved.
+  await app.restart({
+    ...projectWith([toneTrack()], START),
+    render_preview: ok(fixturePath("tone3s")),
+    get_head_trail: ok(saves.at(-1)),
+    // The store's answer for the node undo leaves, for a build that asks.
+    get_node: ok(sessionNode(START, BEFORE_LOAD)),
+    set_head_to: ok(MUTED),
+  });
+  await expect(page.getByTestId("ruler")).toContainText("0:03");
+  await app.settle();
+
+  // First undo: the mute, from the saved path, with no need to ask the
+  // graph for a parent.
+  await page.keyboard.press("Control+z");
+  await expect.poll(() => app.requestsFor("set_head_to")).toEqual([{ nodeId: MUTED }]);
+  await app.settle();
+  expect(await app.requestsFor("get_node")).toEqual([]);
+
+  // Second undo: the state before the mute, which is START again.
+  await app.become({ set_head_to: ok(START) });
+  await page.keyboard.press("Control+z");
+  await expect
+    .poll(() => app.requestsFor("set_head_to"))
+    .toEqual([{ nodeId: MUTED }, { nodeId: START }]);
+  await app.settle();
+  expect(await app.requestsFor("get_node")).toEqual([]);
+
+  // The path is spent: now the stored parent is the right answer.
+  await app.become({ set_head_to: ok(BEFORE_LOAD) });
+  await page.keyboard.press("Control+z");
+  await expect
+    .poll(() => app.requestsFor("set_head_to"))
+    .toEqual([{ nodeId: MUTED }, { nodeId: START }, { nodeId: BEFORE_LOAD }]);
+  expect(await app.requestsFor("get_node")).toEqual([{ id: START }]);
+});
+
+test("the redo list survives a restart too (#453)", async ({ app }) => {
+  await app.boot({
+    ...projectWith([toneTrack()], START),
+    render_preview: ok(fixturePath("tone3s")),
+    set_track_muted: ok(MUTED),
+    set_head_to: ok(START),
+  });
+  const page = app.page;
+  await expect(page.getByTestId("ruler")).toContainText("0:03");
+
+  await page.getByTestId("timeline-lane-mute").click();
+  await expect.poll(() => app.requestsFor("set_track_muted")).toHaveLength(1);
+  await app.settle();
+  await page.keyboard.press("Control+z"); // back to START, with the mute to redo
+  await expect.poll(() => app.requestsFor("set_head_to")).toEqual([{ nodeId: START }]);
+  await app.settle();
+
+  const saved = (await savedPaths(app)).at(-1);
+  expect(saved).toEqual({ head: START, trail: [], redo: [MUTED] });
+
+  await app.restart({
+    ...projectWith([toneTrack()], START),
+    render_preview: ok(fixturePath("tone3s")),
+    get_head_trail: ok(saved),
+    set_head_to: ok(MUTED),
+  });
+  await expect(page.getByTestId("ruler")).toContainText("0:03");
+  await app.settle();
+
+  await page.keyboard.press("Control+y");
+  await expect.poll(() => app.requestsFor("set_head_to")).toEqual([{ nodeId: MUTED }]);
+});
+
+test("a saved path that ends at another head is not used (#453)", async ({ app }) => {
+  // The save for the last move was lost: the file ends one move behind
+  // the store. It is not the way to this head, so undo asks for the parent.
+  await app.boot({
+    ...projectWith([toneTrack()], START),
+    render_preview: ok(fixturePath("tone3s")),
+    get_head_trail: ok({ head: MUTED, trail: [START], redo: [] }),
+    get_node: ok(sessionNode(START, BEFORE_LOAD)),
+    set_head_to: ok(BEFORE_LOAD),
+  });
+  const page = app.page;
+  await expect(page.getByTestId("ruler")).toContainText("0:03");
+  await app.settle();
+
+  await page.keyboard.press("Control+z");
+  await expect.poll(() => app.requestsFor("set_head_to")).toEqual([{ nodeId: BEFORE_LOAD }]);
+  expect(await app.requestsFor("get_node")).toEqual([{ id: START }]);
+});
+
+test("a project that cannot read its path still opens, and undo uses the parent (#453)", async ({
+  app,
+}) => {
+  await app.boot({
+    ...projectWith([toneTrack()], START),
+    render_preview: ok(fixturePath("tone3s")),
+    get_head_trail: reject("could not read the project"),
+    get_node: ok(sessionNode(START, BEFORE_LOAD)),
+    set_head_to: ok(BEFORE_LOAD),
+  });
+  const page = app.page;
+  await expect(page.getByTestId("ruler")).toContainText("0:03");
+  await app.settle();
+
+  await page.keyboard.press("Control+z");
+  await expect.poll(() => app.requestsFor("set_head_to")).toEqual([{ nodeId: BEFORE_LOAD }]);
+});
+
+test("opening another project takes the path saved with that project (#453)", async ({ app }) => {
+  const B0 = nodeId(0xb0);
+  const B1 = nodeId(0xb1);
+  const BM = nodeId(0xb2); // B1 muted
+  const other = "/home/user/Music/other";
+  await app.boot({
+    ...projectWith([toneTrack()], START),
+    render_preview: ok(fixturePath("tone3s")),
+  });
+  const page = app.page;
+  await expect(page.getByTestId("ruler")).toContainText("0:03");
+  await app.settle();
+
+  // Project B was closed after a mute and an unmute: B1 again, with BM on
+  // its path and B0 as its stored parent.
+  await app.become({
+    "plugin:dialog|open": ok(other),
+    open_project: ok({ path: other, head: B1 }),
+    get_view_state: ok({}),
+    get_head_trail: ok({ head: B1, trail: [B1, BM], redo: [] }),
+    ...sessionWith([toneTrack()]),
+    get_node: ok(sessionNode(B1, B0)),
+    set_head_to: ok(BM),
+  });
+  await page.getByTestId("open-project-button").click();
+  await expect.poll(() => app.requestsFor("open_project")).toEqual([{ path: other }]);
+  await app.settle();
+
+  await page.keyboard.press("Control+z");
+  await expect.poll(() => app.requestsFor("set_head_to")).toEqual([{ nodeId: BM }]);
+  expect(await app.requestsFor("get_node")).toEqual([]);
+});
+
+test("opening a project saves nothing: the path is only read (#453)", async ({ app }) => {
+  await app.boot({
+    ...projectWith([toneTrack()], START),
+    render_preview: ok(fixturePath("tone3s")),
+    get_head_trail: ok({ head: START, trail: [START, MUTED], redo: [] }),
+  });
+  await expect(app.page.getByTestId("ruler")).toContainText("0:03");
+  await app.settle();
+
+  expect(await app.requestsFor("save_head_trail")).toEqual([]);
 });

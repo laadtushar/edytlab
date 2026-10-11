@@ -489,8 +489,8 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
                 key={entry.id}
                 data-testid="chat-notice"
                 className="
-                  rounded-md border border-[var(--warning-border,var(--border-strong))]
-                  bg-[var(--warning-soft,var(--surface-elev-2))]
+                  rounded-md border border-[var(--warning-border)]
+                  bg-[var(--warning-soft)]
                   px-3 py-2 text-xs text-[var(--text-dim)]
                 "
               >
@@ -515,8 +515,8 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
             data-testid="chat-error"
             className="
               rounded-md
-              border border-[var(--danger)]/40
-              bg-[var(--danger)]/10
+              border border-[var(--danger-border)]
+              bg-[var(--danger-soft)]
               px-3 py-2 text-xs text-[var(--danger)]
             "
           >
@@ -528,9 +528,8 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
                   onClick={onOpenSettings}
                   data-testid="chat-error-open-settings"
                   className="
-                    shrink-0 rounded border border-[var(--danger)]/40
+                    btn-danger shrink-0 rounded
                     px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider
-                    hover:bg-[var(--danger)]/20
                   "
                 >
                   Open Settings
@@ -542,9 +541,8 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
                   onClick={() => void useDefaultModel()}
                   data-testid="chat-error-use-default"
                   className="
-                    shrink-0 rounded border border-[var(--danger)]/40
+                    btn-danger shrink-0 rounded
                     px-2 py-0.5 font-mono text-[10px] tracking-wider
-                    hover:bg-[var(--danger)]/20
                   "
                 >
                   Use {modelGone.defaultModel}
@@ -555,9 +553,8 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
                   type="button"
                   onClick={retryLast}
                   className="
-                    shrink-0 rounded border border-[var(--danger)]/40
+                    btn-danger shrink-0 rounded
                     px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider
-                    hover:bg-[var(--danger)]/20
                   "
                 >
                   Retry
@@ -573,7 +570,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
           data-testid="plan-approval-card"
           className="
             mx-3 mb-3 overflow-hidden
-            rounded-md border border-[var(--accent)]/35
+            rounded-lg border border-[var(--accent-border)]
             bg-[linear-gradient(180deg,var(--accent-soft),transparent)]
           "
         >
@@ -592,10 +589,10 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
                 type="button"
                 data-testid="plan-discard-button"
                 className="
-                  rounded border border-[var(--border-strong)]
+                  btn-secondary rounded-md
                   px-2.5 py-0.5
-                  text-xs text-[var(--text-dim)]
-                  hover:border-[var(--danger)]/50 hover:text-[var(--danger)]
+                  text-xs
+                  hover:border-[var(--danger-border)] hover:bg-[var(--danger-soft)] hover:text-[var(--danger)]
                 "
                 onClick={() => {
                   // The card comes down either way, but a failed reject
@@ -619,16 +616,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
                 // A plan of steps that can only fail is not one to run
                 // (#482). Discard is how the user leaves it.
                 disabled={nothingCanRun(localPlanSteps ?? pendingPlan.steps)}
-                className="
-                  rounded
-                  bg-[var(--accent)]
-                  px-2.5 py-0.5
-                  text-xs font-medium text-[var(--bg)]
-                  shadow-[0_4px_10px_-4px_var(--accent-glow)]
-                  hover:bg-[#ffa05f]
-                  disabled:cursor-not-allowed disabled:opacity-40
-                  disabled:shadow-none disabled:hover:bg-[var(--accent)]
-                "
+                className="btn-primary px-2.5 py-0.5 text-xs"
                 onClick={() => {
                   // Only forward edited steps to the backend when at least
                   // one description differs from the original plan.
@@ -678,12 +666,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
                           setEditDraft("");
                         }
                       }}
-                      className="
-                        w-full resize-none rounded border border-[var(--accent)]/45
-                        bg-[var(--surface)] px-2 py-1
-                        text-xs text-[var(--text)]
-                        outline-none focus:border-[var(--accent)]/70
-                      "
+                      className="field w-full resize-none px-2 py-1 text-xs outline-none"
                     />
                     <span className="flex gap-1">
                       <button
@@ -704,8 +687,8 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
                           setEditDraft("");
                         }}
                         className="
-                          rounded border border-[var(--accent)]/45
-                          px-2 py-0.5 text-[10px] font-medium text-[var(--accent)]
+                          rounded border border-[var(--accent-border)]
+                          px-2 py-0.5 text-[10px] font-medium text-[var(--accent-text)]
                           hover:bg-[var(--accent-soft)]
                           disabled:opacity-40 disabled:cursor-not-allowed
                         "
@@ -778,13 +761,13 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
             data-testid="chat-selection-pill"
             className="
               mb-2 flex items-center justify-between gap-2
-              rounded-md border border-[var(--accent)]/40
+              rounded-md border border-[var(--accent-border)]
               bg-[var(--accent-soft)]
               px-2.5 py-1.5
               font-mono text-[10px] uppercase tracking-wider
             "
           >
-            <span className="flex items-center gap-1.5 text-[var(--accent)]">
+            <span className="flex items-center gap-1.5 text-[var(--accent-text)]">
               <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)] shadow-[0_0_6px_var(--accent-glow)]" />
               applies to {fmtTime(selection.start)} → {fmtTime(selection.end)}
             </span>
@@ -793,8 +776,8 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
               onClick={onClearSelection}
               aria-label="Clear selection"
               className="
-                rounded p-0.5 text-[var(--accent)]/80
-                hover:bg-[var(--accent)]/20 hover:text-[var(--accent)]
+                rounded p-0.5 text-[var(--accent-text)]
+                hover:bg-[var(--accent)]/20
               "
             >
               <svg
@@ -813,7 +796,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
           </div>
         ) : null}
         {slashOpen && slashFiltered.length > 0 && (
-          <div className="mb-1 overflow-hidden rounded-lg border border-[var(--border-strong)] bg-[var(--surface-elev)] shadow-[0_8px_24px_-4px_rgba(0,0,0,0.6)]">
+          <div className="mb-1 overflow-hidden rounded-lg border border-[var(--border-strong)] bg-[var(--surface-elev)] shadow-(--shadow-pop)">
             <div className="px-3 py-1.5 border-b border-[var(--border)]">
               <span className="font-mono text-[9px] uppercase tracking-[0.2em] text-[var(--text-faint)]">Commands</span>
             </div>
@@ -843,11 +826,11 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
           className="
             relative
             flex items-end gap-2
-            rounded-lg border border-[var(--border-strong)]
+            rounded-lg border border-[var(--border-input)]
             bg-[var(--surface)]
             p-2
             transition
-            focus-within:border-[var(--accent)]/45
+            focus-within:border-[var(--accent)]
             focus-within:shadow-[0_0_0_3px_var(--accent-soft)]
           "
         >
@@ -867,13 +850,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
             }
             onMouseDown={(e) => e.stopPropagation()}
             onClick={() => void togglePlanFirst()}
-            className={
-              "flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 " +
-              "font-mono text-[10px] uppercase tracking-[0.14em] transition " +
-              (planFirst
-                ? "bg-[var(--accent-soft)] text-[var(--accent)] border border-[var(--accent)]/40"
-                : "border border-[var(--border-strong)] text-[var(--text-faint)] hover:text-[var(--text-dim)]")
-            }
+            className="btn-tool flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] transition"
           >
             Plan
           </button>
@@ -886,14 +863,10 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
             onMouseDown={(e) => e.stopPropagation()}
             onClick={() => setCapsOpen((v) => !v)}
             className="
-              inline-flex h-8 shrink-0 items-center gap-1.5
+              btn-tool inline-flex h-8 shrink-0 items-center gap-1.5
               rounded-md
-              border border-[var(--border-strong)]
-              bg-[var(--surface-elev)]
               px-2
-              text-[var(--text-dim)]
               transition
-              hover:border-[var(--accent)]/45 hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]
             "
           >
             <svg
@@ -973,14 +946,8 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
             disabled={busy || input.trim().length === 0}
             aria-label="Send message"
             className="
-              inline-flex h-8 w-8 shrink-0 items-center justify-center
-              rounded-md
-              bg-[var(--accent)]
-              text-[var(--bg)]
-              shadow-[0_4px_10px_-4px_var(--accent-glow)]
+              btn-primary inline-flex h-8 w-8 shrink-0 items-center justify-center
               transition
-              hover:bg-[#ffa05f]
-              disabled:cursor-not-allowed disabled:bg-[var(--surface-elev-2)] disabled:text-[var(--text-faint)] disabled:shadow-none
             "
           >
             {busy ? (
@@ -1047,7 +1014,7 @@ function ChatHeader({
             data-testid="export-selection-btn"
             onClick={onExportSelection}
             disabled={!!exporting}
-            className="text-xs text-amber-400 border border-amber-400/40 rounded px-2 py-1 hover:bg-amber-400/10 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+            className="btn-tool text-xs rounded px-2 py-1 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
           >
             Export Selection
           </button>
@@ -1058,15 +1025,12 @@ function ChatHeader({
           disabled={!!rendering}
           onClick={onRequestRenderPreview}
           className="
-            inline-flex items-center gap-1.5
+            btn-tool inline-flex items-center gap-1.5
             rounded-md
-            border border-[var(--border-strong)]
-            bg-[var(--surface)]
             px-2.5 py-1
-            font-mono text-[10px] uppercase tracking-wider text-[var(--text-dim)]
+            font-mono text-[10px] uppercase tracking-wider
             transition
-            hover:border-[var(--accent)]/50 hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]
-            disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-[var(--surface)] disabled:hover:text-[var(--text-dim)]
+            disabled:cursor-not-allowed disabled:opacity-60
           "
         >
           <svg
@@ -1111,7 +1075,7 @@ function ChatEmptyHints({ onPick }: ChatEmptyHintsProps) {
               key={h}
               type="button"
               onClick={() => onPick(h)}
-              className="rounded-full border border-[var(--border)] bg-[var(--surface-elev)] px-2.5 py-1 text-xs text-[var(--text-dim)] transition hover:border-[var(--accent)]/45 hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]"
+              className="pill bg-[var(--surface-elev)] px-2.5 py-1 text-xs text-[var(--text-dim)] transition hover:border-[var(--accent-border)] hover:bg-[var(--accent-soft)] hover:text-[var(--accent-text)]"
             >
               &quot;{h}&quot;
             </button>
@@ -1156,10 +1120,10 @@ function isWhisperError(text: string): boolean {
 function WhisperSetupCard() {
   return (
     <div
-      className="rounded-md border border-amber-500/30 bg-amber-500/8 px-3 py-2.5 text-xs"
+      className="rounded-md border border-[var(--warning-border)] bg-[var(--warning-soft)] px-3 py-2.5 text-xs"
       data-testid="whisper-unavailable-card"
     >
-      <p className="mb-1.5 font-medium text-amber-400">
+      <p className="mb-1.5 font-medium text-[var(--warning)]">
         Transcription isn&apos;t available in this build
       </p>
       <p className="text-[var(--text-dim)]">

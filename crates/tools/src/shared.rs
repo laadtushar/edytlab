@@ -44,12 +44,14 @@
 //!    on, each named track's id and clips, and every later run — the
 //!    re-run and the locked run alike — begins only if each named position
 //!    still holds that track with those clips. Otherwise nothing is applied
-//!    and the call returns a [`ToolResult::Error`] saying what changed and
-//!    what the tracks are now, for the model to read and call again. The
-//!    user's edit stays. A track added or removed elsewhere, a fader, a
-//!    marker or a clip moved on another track does not stop a re-run: it
-//!    does not change which audio the call was about. A call that names no
-//!    track (`load`) is always re-run.
+//!    and the call returns a [`ToolResult::Error`] saying what changed,
+//!    where each track it named is now if that track is still in the
+//!    session (`"vocals" is now track 0`, so the model does not send the
+//!    same position again), and what the tracks are now, for the model to
+//!    read and call again. The user's edit stays. A track added or removed
+//!    elsewhere, a fader, a marker or a clip moved on another track does
+//!    not stop a re-run: it does not change which audio the call was
+//!    about. A call that names no track (`load`) is always re-run.
 //!
 //! A run that loses leaves only files under their content-addressed names
 //! (see [`session::Store::staged_in_flight`] for why the sweep waits).
@@ -73,8 +75,12 @@ use crate::{Clipboard, Result, ToolContext, ToolDispatcher, ToolResult};
 /// listing those names, this reads every top-level argument whose name
 /// contains `track` and whose value is a whole number or a list of them, so
 /// an argument called `source_track` is covered the day a tool adds one.
-/// `off_lock_tools.rs` checks that every tool that runs off the lock names
-/// its tracks in a way this reads. Ascending, without repeats.
+/// Nothing else is read: not a track inside an object or a list of objects
+/// (`segments: [{track}]`), and not a whole number whose name lacks `track`.
+/// `off_lock_tools.rs` checks every tool that runs off the lock, at every
+/// depth of its schema, for both: it names its tracks in a way this reads,
+/// or the argument is listed there as not being one. Ascending, without
+/// repeats.
 pub fn addressed_tracks(args: &Value) -> Vec<usize> {
     let Some(map) = args.as_object() else {
         return Vec::new();
@@ -177,18 +183,57 @@ impl Named {
             %what,
             "the session changed what the call names; not running it again"
         );
+        let moved = self.moved(&state);
+        let (where_now, again) = match moved.len() {
+            0 => (String::new(), ""),
+            1 => (
+                format!(" The track you named has moved: {}.", moved[0]),
+                " with the track's new position",
+            ),
+            _ => (
+                format!(" The tracks you named have moved: {}.", moved.join(", ")),
+                " with the tracks' new positions",
+            ),
+        };
         Some(format!(
-            "{tool} was not applied. While it ran, {what}. The call names tracks by their \
-             position and times by their seconds, and the session has changed since you chose \
-             them, so running it again could edit different audio than you meant. Nothing was \
-             changed by this call; the change that was made is kept. The tracks are now: {}. If \
-             the edit is still wanted, call {tool} again.",
+            "{tool} was not applied. While it ran, {what}.{where_now} The call names tracks by \
+             their position and times by their seconds, and the session has changed since you \
+             chose them, so running it again could edit different audio than you meant. Nothing \
+             was changed by this call; the change that was made is kept. The tracks are now: {}. \
+             If the edit is still wanted, call {tool} again{again}.",
             if now.is_empty() {
                 "none".to_string()
             } else {
                 now.join(", ")
             }
         ))
+    }
+
+    /// Where each named track that is no longer at its position is now, as
+    /// the words to tell the model: `"vocals" is now track 0`. Found by the
+    /// track's id, so a track the user renamed is still found, and named
+    /// with both names, since the model knows it by the first. A track that
+    /// is gone from `state` is not listed: it is not anywhere.
+    fn moved(&self, state: &session::SessionState) -> Vec<String> {
+        self.tracks
+            .iter()
+            .filter_map(|seen| {
+                let (at, now) = state
+                    .tracks
+                    .iter()
+                    .enumerate()
+                    .find(|(_, t)| t.id == seen.id)?;
+                if at == seen.index {
+                    return None;
+                }
+                let renamed = if now.name == seen.name {
+                    String::new()
+                } else {
+                    format!(" (now named \"{}\")", now.name)
+                };
+                Some(format!("\"{}\"{renamed} is now track {at}", seen.name))
+            })
+            .collect()
     }
 }
 

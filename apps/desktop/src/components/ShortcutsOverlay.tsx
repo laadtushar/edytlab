@@ -63,17 +63,17 @@ export function ShortcutsOverlay({ open, onClose }: ShortcutsOverlayProps) {
       aria-labelledby="shortcuts-heading"
     >
       <div
-        className={`${leaving ? "overlay-out" : "overlay-in"} bg-neutral-900 border border-neutral-700 rounded-xl shadow-2xl w-96 p-6`}
+        className={`${leaving ? "overlay-out" : "overlay-in"} bg-[var(--surface-elev)] border border-[var(--border-strong)] rounded-xl shadow-(--shadow-dialog) w-96 p-6`}
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
-          <h2 id="shortcuts-heading" className="text-sm font-semibold text-neutral-200 tracking-wide uppercase">
+          <h2 id="shortcuts-heading" className="text-sm font-semibold text-[var(--text)] tracking-wide uppercase">
             Keyboard Shortcuts
           </h2>
           <button
             type="button"
             onClick={onClose}
-            className="text-neutral-500 hover:text-neutral-300 text-lg leading-none"
+            className="text-[var(--text-dim)] hover:text-[var(--text)] text-lg leading-none"
             aria-label="Close"
           >
             ×
@@ -82,11 +82,11 @@ export function ShortcutsOverlay({ open, onClose }: ShortcutsOverlayProps) {
         <table className="w-full text-sm">
           <tbody>
             {SHORTCUTS.map(({ keys, description }) => (
-              <tr key={keys} className="border-b border-neutral-800 last:border-0">
-                <td className="py-2 pr-4 font-mono text-amber-400 whitespace-nowrap">
+              <tr key={keys} className="border-b border-[var(--border)] last:border-0">
+                <td className="py-2 pr-4 font-mono text-[var(--accent-text)] whitespace-nowrap">
                   {keys}
                 </td>
-                <td className="py-2 text-neutral-300">{description}</td>
+                <td className="py-2 text-[var(--text-dim)]">{description}</td>
               </tr>
             ))}
           </tbody>

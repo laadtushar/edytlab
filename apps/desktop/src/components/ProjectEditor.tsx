@@ -135,11 +135,7 @@ export function ProjectEditor() {
         data-testid={testid}
         placeholder={extra?.placeholder}
         maxLength={extra?.maxLength}
-        className="
-          rounded-md border border-[var(--border-strong)]
-          bg-[var(--surface)] px-2 py-1.5
-          text-sm text-[var(--text)]
-        "
+        className="field px-2 py-1.5 text-sm"
       />
       <span className="text-[11px] leading-snug text-[var(--text-faint)]">
         {hint}
@@ -167,11 +163,7 @@ export function ProjectEditor() {
             onChange={(e) => setNotes(e.target.value)}
             data-testid="project-notes"
             rows={3}
-            className="
-              rounded-md border border-[var(--border-strong)]
-              bg-[var(--surface)] px-2 py-1.5
-              text-sm text-[var(--text)]
-            "
+            className="field px-2 py-1.5 text-sm"
           />
           <span className="text-[11px] leading-snug text-[var(--text-faint)]">
             Yours, not the listener&apos;s — notes stay in the project and
@@ -216,12 +208,7 @@ export function ProjectEditor() {
           onClick={save}
           disabled={!nameOk || saving}
           data-testid="project-save"
-          className="
-            rounded-md bg-[var(--accent)] px-3 py-1.5
-            text-sm font-medium text-[var(--onyx-0,#07080b)]
-            transition hover:bg-[#ffa05f]
-            disabled:cursor-not-allowed disabled:opacity-40
-          "
+          className="btn-primary px-3 py-1.5 text-sm transition"
         >
           {saving ? "Saving…" : "Save"}
         </button>

@@ -293,9 +293,14 @@ export function Settings({
   // the startup prompts (#497).
   const [baseUrlKnown, setBaseUrlKnown] = useState(false);
   const [effortKnown, setEffortKnown] = useState(false);
+  // The model field is the same case. It starts as what this browser
+  // remembers or the provider's default, which is a thing to show, not a
+  // thing that was read; the backend's answer is what makes it known.
+  const [modelKnown, setModelKnown] = useState(false);
   // Why a read failed, per field, for the note that says Save leaves it be.
   const [baseUrlUnread, setBaseUrlUnread] = useState<string | null>(null);
   const [effortUnread, setEffortUnread] = useState<string | null>(null);
+  const [modelUnread, setModelUnread] = useState<string | null>(null);
   const [test, setTest] = useState<TestState>({ kind: "idle" });
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -474,21 +479,34 @@ export function Settings({
   // localStorage stays the immediate value so the control is never
   // blank while the IPC is in flight, and remains the answer when the
   // backend has no opinion yet (nothing chosen for this provider).
+  //
+  // An answer, empty or not, is what makes the field known (see
+  // `modelKnown`). A rejection is not one: after a startup the keychain
+  // refused, the chosen model was never restored, and the backend says so
+  // instead of answering "none chosen" (#497). The stored value stays on
+  // screen then, and Save leaves the model alone.
   useEffect(() => {
     setModel(readStoredModel(provider));
+    // Another provider's model is not this one's, and until this one's
+    // read answers there is nothing here to save.
+    setModelKnown(false);
+    setModelUnread(null);
 
     let cancelled = false;
     void getActiveModel(provider)
       .then((active) => {
-        if (cancelled || !active.trim()) return;
+        if (cancelled) return;
+        setModelKnown(true);
+        if (!active.trim()) return;
         setModel(active);
         if (typeof window !== "undefined") {
           window.localStorage.setItem(modelStorageKey(provider), active);
         }
       })
-      .catch(() => {
-        // Not worth an error banner: the stored value is still a
-        // reasonable thing to show, and saving will reconcile them.
+      .catch((err) => {
+        // No error banner: the stored value is still a reasonable thing
+        // to show, and a note under the field says why Save skips it.
+        if (!cancelled) setModelUnread(String(err));
       });
     return () => {
       cancelled = true;
@@ -629,6 +647,8 @@ export function Settings({
   const handleModelChange = useCallback(
     (next: string) => {
       setModel(next);
+      // Typed over: the user means this, whatever was stored.
+      setModelKnown(true);
       if (typeof window !== "undefined") {
         window.localStorage.setItem(modelStorageKey(provider), next);
       }
@@ -687,7 +707,9 @@ export function Settings({
       } else {
         await setActiveProvider(provider);
       }
-      if (model.trim()) {
+      // Only a model this form knows (see `modelKnown`): the field of a
+      // read that was refused is the browser's memory or the default.
+      if (modelKnown && model.trim()) {
         try {
           await setActiveModel(provider, model);
         } catch {
@@ -707,6 +729,7 @@ export function Settings({
     needsKey,
     provider,
     model,
+    modelKnown,
     baseUrl,
     baseUrlKnown,
     effort,
@@ -879,15 +902,15 @@ export function Settings({
           relative flex max-h-[calc(100vh-2rem)] w-[30rem] max-w-[90vw] flex-col overflow-hidden
           rounded-xl border border-[var(--border-strong)]
           bg-[var(--surface-elev)]
-          shadow-[0_30px_80px_-20px_rgba(0,0,0,0.7),0_0_0_1px_rgba(255,255,255,0.02)_inset]
+          shadow-(--shadow-dialog)
         "
       >
         <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-5 py-4">
           <div className="flex items-baseline gap-2">
-            <h2 className="font-[family-name:var(--font-serif)] text-2xl leading-none text-[var(--text)]">
+            <h2 className="text-lg font-semibold leading-none tracking-tight text-[var(--text)]">
               {mode === "blocking" ? (
                 <>
-                  <span className="italic text-[var(--accent)]">Welcome</span>{" "}
+                  <span className="gradient-text">Welcome</span>{" "}
                   to edytlab
                 </>
               ) : (
@@ -901,12 +924,7 @@ export function Settings({
               onClick={onClose}
               data-testid="settings-close"
               aria-label="Close settings"
-              className="
-                rounded-md p-1.5
-                text-[var(--text-dim)]
-                hover:bg-[var(--surface-elev-2)] hover:text-[var(--text)]
-                transition
-              "
+              className="btn-ghost rounded-md p-1.5 transition"
             >
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
                 <path d="M3 3l8 8M11 3l-8 8" />
@@ -1029,15 +1047,12 @@ export function Settings({
                   onChange={e => setPluginSource(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && void handleInstallPlugin()}
                   className="
+                    field
                     w-full
-                    rounded-md border border-[var(--border-strong)]
-                    bg-[var(--surface)]
-                    px-3 py-2 text-sm font-mono text-[var(--text)]
+                    px-3 py-2 text-sm font-mono
                     outline-none
                     transition
-                    placeholder:text-[var(--text-faint)] placeholder:font-sans
-                    focus:border-[var(--accent)]/55
-                    focus:shadow-[0_0_0_3px_var(--accent-soft)]
+                    placeholder:font-sans
                   "
                 />
                 <button
@@ -1045,17 +1060,7 @@ export function Settings({
                   data-testid="plugin-install-btn"
                   onClick={() => void handleInstallPlugin()}
                   disabled={pluginInstalling || !pluginSource.trim()}
-                  className="
-                    rounded-md
-                    bg-[var(--accent)]
-                    px-4 py-1.5
-                    text-sm font-medium text-[var(--bg)]
-                    shadow-[0_4px_12px_-4px_var(--accent-glow)]
-                    transition
-                    hover:bg-[#ffa05f]
-                    disabled:cursor-not-allowed disabled:bg-[var(--surface-elev-2)] disabled:text-[var(--text-faint)] disabled:shadow-none
-                    whitespace-nowrap
-                  "
+                  className="btn-primary whitespace-nowrap px-4 py-1.5 text-sm transition"
                 >
                   {pluginInstalling ? 'Installing…' : 'Install'}
                 </button>
@@ -1109,7 +1114,7 @@ export function Settings({
                   className={
                     "flex cursor-pointer items-center justify-center gap-2 rounded-md border px-2 py-2 text-sm transition " +
                     (provider === p.id
-                      ? "border-[var(--accent)]/55 bg-[var(--accent-soft)] text-[var(--accent)]"
+                      ? "border-[var(--accent-border)] bg-[var(--accent-soft)] text-[var(--accent-text)]"
                       : "border-[var(--border-strong)] text-[var(--text-dim)] hover:border-[var(--text-faint)] hover:text-[var(--text)]")
                   }
                 >
@@ -1148,15 +1153,12 @@ export function Settings({
             data-testid="settings-key-input"
             aria-label={`${activeProviderEntry.label} API key`}
             className="
+              field
               mb-2 w-full
-              rounded-md border border-[var(--border-strong)]
-              bg-[var(--surface)]
-              px-3 py-2 text-sm font-mono text-[var(--text)]
+              px-3 py-2 text-sm font-mono
               outline-none
               transition
-              placeholder:text-[var(--text-faint)] placeholder:font-sans
-              focus:border-[var(--accent)]/55
-              focus:shadow-[0_0_0_3px_var(--accent-soft)]
+              placeholder:font-sans
             "
           />
 
@@ -1183,7 +1185,7 @@ export function Settings({
               href={activeProviderEntry.keysUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[var(--accent)] hover:underline"
+              className="link-accent"
             >
               How to get a key →
             </a>
@@ -1193,12 +1195,10 @@ export function Settings({
               disabled={testDisabled}
               data-testid="settings-test-button"
               className="
-                rounded border border-[var(--border-strong)]
-                bg-[var(--surface)]
+                btn-tool rounded
                 px-2.5 py-1
-                font-mono text-[10px] uppercase tracking-wider text-[var(--text-dim)]
+                font-mono text-[10px] uppercase tracking-wider
                 transition
-                hover:border-[var(--accent)]/50 hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]
                 disabled:cursor-not-allowed disabled:opacity-50
               "
             >
@@ -1286,15 +1286,11 @@ export function Settings({
             autoComplete="off"
             placeholder={defaultBaseUrl}
             className="
+              field
               mb-1 w-full
-              rounded-md border border-[var(--border-strong)]
-              bg-[var(--surface)]
-              px-3 py-2 text-sm font-mono text-[var(--text)]
+              px-3 py-2 text-sm font-mono
               outline-none
               transition
-              placeholder:text-[var(--text-faint)]
-              focus:border-[var(--accent)]/55
-              focus:shadow-[0_0_0_3px_var(--accent-soft)]
             "
           />
           {baseUrlUnread !== null && !baseUrlKnown ? (
@@ -1332,15 +1328,11 @@ export function Settings({
             aria-label="Model"
             placeholder={DEFAULT_MODEL_BY_PROVIDER[provider]}
             className="
+              field
               mb-1 w-full
-              rounded-md border border-[var(--border-strong)]
-              bg-[var(--surface)]
-              px-3 py-2 text-sm font-mono text-[var(--text)]
+              px-3 py-2 text-sm font-mono
               outline-none
               transition
-              placeholder:text-[var(--text-faint)]
-              focus:border-[var(--accent)]/55
-              focus:shadow-[0_0_0_3px_var(--accent-soft)]
             "
           />
           <datalist id="settings-model-suggestions" data-testid="settings-model-datalist">
@@ -1348,6 +1340,16 @@ export function Settings({
               <option key={s.id} value={s.id} label={s.label} />
             ))}
           </datalist>
+          {modelUnread !== null && !modelKnown ? (
+            <p
+              data-testid="settings-model-unread"
+              role="status"
+              className="mb-1 text-xs text-[var(--warning)]"
+            >
+              Couldn&apos;t read the saved model from the system keychain, so
+              Save leaves it as it is. ({modelUnread})
+            </p>
+          ) : null}
           {modelHint ? (
             <p
               data-testid={
@@ -1413,14 +1415,11 @@ export function Settings({
                 data-testid="settings-effort-select"
                 aria-label="Reasoning effort"
                 className="
+                  field
                   mb-1 w-full
-                  rounded-md border border-[var(--border-strong)]
-                  bg-[var(--surface)]
-                  px-3 py-2 text-sm text-[var(--text)]
+                  px-3 py-2 text-sm
                   outline-none
                   transition
-                  focus:border-[var(--accent)]/55
-                  focus:shadow-[0_0_0_3px_var(--accent-soft)]
                 "
               >
                 {EFFORT_OPTIONS.map((o) => (
@@ -1476,12 +1475,7 @@ export function Settings({
                   type="button"
                   onClick={handleClear}
                   data-testid="settings-clear-button"
-                  className="
-                    rounded-md border border-[var(--danger)]/40
-                    px-3 py-1.5 text-sm text-[var(--danger)]
-                    transition
-                    hover:bg-[var(--danger)]/10
-                  "
+                  className="btn-danger rounded-md px-3 py-1.5 text-sm transition"
                 >
                   Clear key
                 </button>
@@ -1493,16 +1487,7 @@ export function Settings({
                 onClick={handleSave}
                 disabled={saveDisabled}
                 data-testid="settings-save-button"
-                className="
-                  rounded-md
-                  bg-[var(--accent)]
-                  px-4 py-1.5
-                  text-sm font-medium text-[var(--bg)]
-                  shadow-[0_4px_12px_-4px_var(--accent-glow)]
-                  transition
-                  hover:bg-[#ffa05f]
-                  disabled:cursor-not-allowed disabled:bg-[var(--surface-elev-2)] disabled:text-[var(--text-faint)] disabled:shadow-none
-                "
+                className="btn-primary px-4 py-1.5 text-sm transition"
               >
                 {saving ? "Saving…" : "Save & Continue"}
               </button>
@@ -1554,10 +1539,14 @@ function SettingsTabButton({
         onClick();
       }}
       className={
-        "shrink-0 whitespace-nowrap rounded-t-md border-b-2 px-2 py-1.5 text-sm transition " +
+        // The selected bar is `.tab-indicator`'s pseudo-element, not a
+        // border, so it adds no height: `pb-2` is the old `py-1.5` plus
+        // the 2px the border took, and the strip is the size it was. No
+        // weight change either, which would move every tab beside it.
+        "tab-indicator shrink-0 whitespace-nowrap rounded-t-md px-2 pb-2 pt-1.5 text-sm transition " +
         (active
-          ? "border-[var(--accent)] text-[var(--text)]"
-          : "border-transparent text-[var(--text-dim)] hover:text-[var(--text)]")
+          ? "text-[var(--text)]"
+          : "text-[var(--text-dim)] hover:text-[var(--text)]")
       }
     >
       {label}

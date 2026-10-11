@@ -1215,6 +1215,122 @@ fn a_track_removed_while_a_tool_ran_does_not_send_the_rerun_to_another_track() {
     );
 }
 
+/// The refusal says where the track the call named is now, so that the
+/// model does not send the same index again: it was told `track 1` was
+/// vocals, and after drums were removed vocals is track 0.
+#[test]
+fn a_refusal_says_where_the_named_track_is_now() {
+    let studio = Studio::new(Box::new(tools::tool::TimeStretchTool));
+    studio.then_the_user(UserEdit::Tool("remove_track", json!({ "track": 0 })));
+
+    let result = studio.dispatch("time_stretch", json!({ "track": 1, "factor": 0.5 }), "");
+
+    let said = error_text(&result);
+    assert!(said.contains("not applied"), "{said}");
+    assert!(
+        said.contains("\"vocals\" is now track 0"),
+        "the model is told the new position of the track it named: {said}"
+    );
+    assert!(
+        said.contains("with the track's new position"),
+        "and what to do with it: {said}"
+    );
+    assert!(
+        !said.contains("\"bass\" is now"),
+        "bass was not named by the call: {said}"
+    );
+}
+
+/// By undo the track moves down: [vocals, bass] was the session when the
+/// call named bass at 1, and undoing the removal makes it track 2.
+#[test]
+fn a_refusal_after_an_undo_says_where_the_track_went() {
+    let studio = Studio::new(Box::new(tools::tool::TimeStretchTool));
+    let before_removal = studio.head();
+    studio.user_now("remove_track", json!({ "track": 0 }));
+    studio.then_the_user(UserEdit::SetHead(before_removal));
+
+    let result = studio.dispatch("time_stretch", json!({ "track": 1, "factor": 0.5 }), "");
+
+    let said = error_text(&result);
+    assert!(said.contains("\"bass\" is now track 2"), "{said}");
+}
+
+/// A track that is gone is not somewhere else. The model is told what is
+/// at the position now, and not that the track it named moved.
+#[test]
+fn a_refusal_for_a_removed_track_does_not_invent_a_new_position() {
+    let studio = Studio::new(Box::new(tools::tool::TimeStretchTool));
+    studio.then_the_user(UserEdit::Tool("remove_track", json!({ "track": 1 })));
+
+    let result = studio.dispatch("time_stretch", json!({ "track": 1, "factor": 0.5 }), "");
+
+    let said = error_text(&result);
+    assert!(
+        said.contains("became \"bass\""),
+        "what is at the position now: {said}"
+    );
+    assert!(!said.contains("is now track"), "{said}");
+    assert!(!said.contains("new position"), "{said}");
+}
+
+/// Every named track that moved is placed, and one that did not is not
+/// said to have: the call named drums and bass, and the user removed
+/// vocals between them.
+#[test]
+fn a_refusal_places_each_named_track_that_moved_and_only_those() {
+    let studio = Studio::new(Box::new(tools::tool::MixToNewTrackTool));
+    studio.then_the_user(UserEdit::Tool("remove_track", json!({ "track": 1 })));
+
+    let result = studio.dispatch("mix_to_new_track", json!({ "track_indices": [0, 2] }), "");
+
+    let said = error_text(&result);
+    assert!(said.contains("\"bass\" is now track 1"), "{said}");
+    assert!(
+        !said.contains("\"drums\" is now"),
+        "drums did not move: {said}"
+    );
+    assert!(said.contains("The track you named has moved"), "{said}");
+
+    // And with two that moved: drums removed, vocals and bass named.
+    let studio = Studio::new(Box::new(tools::tool::MixToNewTrackTool));
+    studio.then_the_user(UserEdit::Tool("remove_track", json!({ "track": 0 })));
+
+    let result = studio.dispatch("mix_to_new_track", json!({ "track_indices": [1, 2] }), "");
+
+    let said = error_text(&result);
+    assert!(
+        said.contains("\"vocals\" is now track 0, \"bass\" is now track 1"),
+        "{said}"
+    );
+    assert!(said.contains("The tracks you named have moved"), "{said}");
+    assert!(said.contains("with the tracks' new positions"), "{said}");
+}
+
+/// A renamed track is found by what it is, not by what it is called, and
+/// the model is told both names: it knows the track as "vocals".
+#[test]
+fn a_refusal_finds_a_track_the_user_renamed() {
+    let studio = Studio::new(Box::new(tools::tool::TimeStretchTool));
+    // First run: the rename, which moves no clip and so lets the call run
+    // again. Second run: drums are removed.
+    studio
+        .then_the_user(UserEdit::Tool(
+            "rename_track",
+            json!({ "track": 1, "name": "lead" }),
+        ))
+        .then_the_user(UserEdit::Tool("remove_track", json!({ "track": 0 })));
+
+    let result = studio.dispatch("time_stretch", json!({ "track": 1, "factor": 0.5 }), "");
+
+    let said = error_text(&result);
+    assert!(
+        said.contains("\"vocals\" (now named \"lead\") is now track 0"),
+        "{said}"
+    );
+    assert_eq!(studio.runs(), 2, "the rename alone did not stop the call");
+}
+
 /// The same hazard by undo. The tracks are [vocals, bass] after the user
 /// removed drums; the agent stretches bass (`track: 1`); the user undoes the
 /// removal. On [drums, vocals, bass], `track: 1` is vocals.

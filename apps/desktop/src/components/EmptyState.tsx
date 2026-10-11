@@ -3,12 +3,13 @@
  * loaded yet.
  *
  * Replaces the tiny "Drop an audio file or use the file menu" hint
- * with something the user actually sees on first launch: a serif
- * headline, the supported file types, the keyboard shortcut, and a
- * primary "Open Audio…" CTA. Visually anchors the empty state so
+ * with something the user actually sees on first launch: the logo
+ * mark and wordmark, the supported file types, the keyboard shortcut,
+ * and a primary "Open Audio…" CTA. Visually anchors the empty state so
  * users don't sit and wonder what to do.
  */
 
+import { LogoMark } from "./LogoMark";
 import { RecentProjects } from "./RecentProjects";
 import type { RecentProject } from "../lib/tauri-bridge";
 
@@ -64,36 +65,19 @@ export function EmptyState({
         app-fade-in
       "
     >
-      {/* Decorative animated waveform glyph */}
-      <div
-        aria-hidden="true"
-        className="flex items-end gap-1 h-12"
-      >
-        {WAVE_BARS.map((delay, i) => (
-          <span
-            key={i}
-            className="
-              block w-[3px] origin-bottom rounded-full
-              bg-[var(--accent)]
-            "
-            style={{
-              height: "100%",
-              opacity: 0.65,
-              animation: `wave-pulse 1.8s ease-in-out ${delay}ms infinite`,
-            }}
-          />
-        ))}
+      {/* The logo mark: decorative (it is aria-hidden), and still. */}
+      <div className="flex h-12 items-center justify-center">
+        <LogoMark size={44} />
       </div>
 
       <div className="flex flex-col items-center gap-2">
         <h1
           className="
-            text-5xl font-normal tracking-tight text-[var(--text)]
-            font-[family-name:var(--font-serif)]
-            leading-[1.05]
+            text-4xl font-semibold tracking-tight text-[var(--text)]
+            leading-none
           "
         >
-          <span className="italic text-[var(--accent)]">edyt</span>lab
+          <span className="gradient-text">edyt</span>lab
         </h1>
         <p className="max-w-md text-sm leading-relaxed text-[var(--text-dim)]">
           Conversational audio editor. Drop a file or pick one to begin —
@@ -109,14 +93,13 @@ export function EmptyState({
             data-testid="empty-state-new-project-button"
             title="Pick an empty folder — the project is created there"
             className="
+              btn-secondary
               inline-flex items-center gap-2
-              rounded-md
-              border border-[var(--border-strong)]
               bg-[var(--surface-elev)]
               px-4 py-2
-              text-sm font-medium text-[var(--text-dim)]
+              text-sm font-medium
+              rounded-md
               transition
-              hover:border-[var(--accent)]/60 hover:text-[var(--text)]
             "
           >
             New project…
@@ -129,14 +112,13 @@ export function EmptyState({
             data-testid="empty-state-open-project-button"
             title="Pick a folder that already contains a project"
             className="
+              btn-secondary
               inline-flex items-center gap-2
-              rounded-md
-              border border-[var(--border-strong)]
               bg-[var(--surface-elev)]
               px-4 py-2
-              text-sm font-medium text-[var(--text-dim)]
+              text-sm font-medium
+              rounded-md
               transition
-              hover:border-[var(--accent)]/60 hover:text-[var(--text)]
             "
           >
             Open project…
@@ -148,14 +130,13 @@ export function EmptyState({
             onClick={onShowTemplates}
             data-testid="empty-state-templates-button"
             className="
+              btn-secondary
               inline-flex items-center gap-2
-              rounded-md
-              border border-[var(--border-strong)]
               bg-[var(--surface-elev)]
               px-4 py-2
-              text-sm font-medium text-[var(--text-dim)]
+              text-sm font-medium
+              rounded-md
               transition
-              hover:border-[var(--accent)]/60 hover:text-[var(--text)]
             "
           >
             Start from template
@@ -166,15 +147,12 @@ export function EmptyState({
           onClick={onOpen}
           data-testid="empty-state-open-button"
           className="
+            btn-primary
             inline-flex items-center gap-2
-            rounded-md
-            border border-[var(--accent)]/45
-            bg-[var(--accent)]
+            border border-transparent
             px-4 py-2
-            text-sm font-medium text-[var(--onyx-0,#07080b)]
-            shadow-[0_8px_20px_-8px_rgba(255,138,61,0.55)]
+            text-sm
             transition
-            hover:bg-[#ffa05f] hover:shadow-[0_10px_24px_-6px_rgba(255,138,61,0.7)]
           "
         >
           <svg
@@ -231,7 +209,7 @@ export function EmptyState({
         <Shortcut keys={["Drag"]} label="select region" />
       </div>
 
-      <div className="mt-4 max-w-xs rounded-md border border-[var(--border)] bg-[var(--surface-elev)] px-4 py-3 text-left">
+      <div className="card mt-4 max-w-xs px-4 py-3 text-left">
         <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--text-dim)]">
           Then tell the assistant →
         </p>
@@ -241,7 +219,7 @@ export function EmptyState({
               key={ex}
               className="flex items-center gap-2 text-xs text-[var(--text-faint)]"
             >
-              <span className="text-[var(--accent)] opacity-60">›</span>
+              <span className="text-[var(--accent)]">›</span>
               <span>{ex}</span>
             </li>
           ))}
@@ -271,8 +249,6 @@ function Shortcut({ keys, label }: ShortcutProps) {
     </span>
   );
 }
-
-const WAVE_BARS = [0, 90, 180, 60, 240, 30, 150, 210, 75, 195];
 
 /**
  * Four things worth trying first.

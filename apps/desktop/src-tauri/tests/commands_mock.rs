@@ -184,6 +184,109 @@ fn the_active_provider_is_answered_when_the_keychain_was_read() {
     assert_eq!(active_provider_over_ipc(None), Ok("anthropic".to_string()));
 }
 
+/// A command over IPC, answered from `state`: what the frontend sees.
+fn ipc(state: AppState, cmd: &str, body: serde_json::Value) -> Result<serde_json::Value, String> {
+    let app = mock_builder()
+        .manage(state)
+        .invoke_handler(tauri::generate_handler![
+            commands::get_active_model,
+            commands::get_base_url_for,
+            commands::get_effort_for,
+            commands::list_models_for,
+        ])
+        .build(mock_context(noop_assets()))
+        .expect("mock app");
+    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .expect("webview");
+    tauri::test::get_ipc_response(&webview, make_request(cmd, body))
+        .map(|r| r.deserialize::<serde_json::Value>().expect("json"))
+        .map_err(|e| e.as_str().unwrap_or_default().to_string())
+}
+
+/// What startup leaves when the keychain refused access: the flag, and
+/// the stash the reads kept if they got as far as one. A refusal at the
+/// models alone leaves no stash.
+fn refused_state(stash: Option<&str>) -> AppState {
+    let state = AppState::new();
+    state.set_keychain_refused(true);
+    state.set_keychain_read_error(stash.map(str::to_string));
+    state
+}
+
+/// #497, the model field. After a startup the keychain refused, the
+/// chosen model was never restored, so "nothing chosen" is not what the
+/// map says, it is what the map lacks. Settings shows the answer in its
+/// model field and its Save writes the field back over the stored model.
+#[test]
+fn the_active_model_is_not_answered_as_none_chosen_after_a_refused_startup() {
+    for stash in [Some("locked"), None] {
+        let err = ipc(
+            refused_state(stash),
+            "get_active_model",
+            json!({ "provider": "anthropic" }),
+        )
+        .expect_err("what was never read is not an empty answer");
+        assert!(err.contains("refused access"), "says why: {err}");
+        if let Some(reason) = stash {
+            assert!(err.contains(reason), "and the reason it kept: {err}");
+        }
+    }
+}
+
+/// A model that is there is an answer whatever startup found: it was
+/// restored before the refusal, or chosen in this session since.
+#[test]
+fn a_model_that_is_known_is_answered_after_a_refused_startup() {
+    let state = refused_state(Some("locked"));
+    state.set_model_for("anthropic".into(), "claude-opus-5".into());
+    assert_eq!(
+        ipc(
+            state,
+            "get_active_model",
+            json!({ "provider": "anthropic" })
+        ),
+        Ok(json!("claude-opus-5"))
+    );
+}
+
+/// And after a clean start, "no model chosen" is an answer: the empty
+/// string Settings has always read it as.
+#[test]
+fn no_model_chosen_is_answered_empty_after_a_clean_startup() {
+    assert_eq!(
+        ipc(
+            AppState::new(),
+            "get_active_model",
+            json!({ "provider": "anthropic" })
+        ),
+        Ok(json!(""))
+    );
+}
+
+/// #497, the unlock prompts. Opening Settings reads the stored base URL,
+/// the level, and (for the model list) the key and the base URL again.
+/// After a startup the keychain refused, each is another unlock prompt
+/// the moment Settings opens. They are refused up front, with the
+/// reason, and the keychain is not asked.
+#[test]
+fn settings_reads_after_a_refused_startup_do_not_ask_the_keychain_again() {
+    for stash in [Some("locked"), None] {
+        for (cmd, body) in [
+            ("get_base_url_for", json!({ "provider": "anthropic" })),
+            ("get_effort_for", json!({ "provider": "anthropic" })),
+            ("list_models_for", json!({ "provider": "anthropic" })),
+        ] {
+            let err = ipc(refused_state(stash), cmd, body)
+                .expect_err(&format!("{cmd} must not read a keychain that refused"));
+            assert!(
+                err.contains("refused access") && err.contains("not asked again"),
+                "{cmd}: {err}"
+            );
+        }
+    }
+}
+
 /// How long the reads are held in these tests. The checks are one-sided
 /// (a call cannot answer before they are released), so a slow machine can
 /// only make them wait longer, never fail.
@@ -249,7 +352,7 @@ fn has_api_key_is_pending_until_the_startup_reads_finish() {
 }
 
 /// The default provider is not an answer while it is still being read,
-/// and neither is "no model chosen yet".
+/// and neither is "no model chosen yet", once it is known why none is.
 #[test]
 fn the_active_provider_and_model_wait_for_the_startup_reads_too() {
     let (waited, answer) = call_while_startup_reads_are_pending("get_active_provider", json!({}));
@@ -261,7 +364,10 @@ fn the_active_provider_and_model_wait_for_the_startup_reads_too() {
         json!({ "provider": "anthropic" }),
     );
     assert_held(waited);
-    assert_eq!(answer, Ok(json!("")), "nothing chosen, once it may say so");
+    // The stash is "locked", so no model is known for lack of a read, and
+    // that is what it says rather than "none chosen".
+    let reason = answer.expect_err("the models were never read");
+    assert!(reason.contains("locked"), "{reason}");
 }
 
 /// #497 item 4. A restart from Settings after a startup the keychain

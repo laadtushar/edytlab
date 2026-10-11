@@ -25,6 +25,26 @@ interface Entry {
 // GitHub Releases — link below.
 const entries: Entry[] = [
   {
+    version: "v0.5.0",
+    date: "2026-10",
+    bullets: [
+      "Current models by default. Anthropic's chat model is now Claude Sonnet 5.5 and its classifier Claude Haiku 5.5, and the list of Anthropic models in Settings is fetched live from Anthropic instead of being written into the app. OpenAI, OpenRouter and Gemini defaults move to current models too; Gemini's old default was shut down in June. A saved model that its provider has retired now says so and points to Settings, instead of failing with a raw 404.",
+      "Chats keep working on models that think by default. The second message of a chat on a 5.x model could fail with \"Invalid signature in thinking block\", because earlier thinking was sent back under a changed system prompt. Earlier turns' thinking is no longer sent back, and each model's output is capped at that model's own limit.",
+      "Edits you make while the assistant is working are kept, in the order you made them. A long tool such as a time-stretch no longer locks the session, so the faders, mute, markers and undo answer while it runs. If you change a track the tool is working on, the tool notices and stops rather than editing the wrong track. Edits from the timeline, mixer, markers, undo and file loads go out one after another, so two quick fader moves cannot land in the wrong order.",
+      "The window no longer freezes on track edits. Twelve track commands, from gain and mute to rename and remove, waited on the session on the app's main thread.",
+      "Plan cards say what each step does. A step showed only a tool name, sometimes a dangling dash, and could name a tool that does not exist. Steps now read as sentences with their values, steps naming unknown tools are dropped, and steps for tools that are not shipped yet are marked \"not available in this build\".",
+      "A question is never held at a plan gate. The request classifier could read a question as an edit and hold it for approval.",
+      "After a failed tool call, the next message works. A turn that ended on a tool-argument error left a tool call unanswered, and the provider then refused every later message in the chat.",
+      "Local models (Ollama) get a request they can take. A small-context model was sent every tool's full description, about 15,000 tokens before the first word; it now gets a core set plus the tools the message asks for, with the rest listed by name.",
+      "Ducking music under speech works without a transcript. Name the voice track and the music ducks under its audio.",
+      "On Linux, API keys survive a reboot. They are stored in the Secret Service (GNOME Keyring, KWallet or KeePassXC); with none running, the app says the key lasts only until restart. A keychain that cannot be read says so, Settings no longer erases what it could not read, and the window opens while the keyring asks to be unlocked.",
+      "Settings fits small windows. The tab strip scrolls when the window is narrow, and when it is short the dialog scrolls while Save stays in view.",
+      "Signed macOS builds can record from the microphone.",
+      "Speech models are downloaded and checked before use, and a missing ONNX Runtime is an error instead of a hang. Stem separation and transcription are still not shipped.",
+      "Set as head in the graph is a step undo can return from, and the label lane follows undo and redo.",
+    ],
+  },
+  {
     version: "v0.4.0",
     date: "2026-10",
     bullets: [

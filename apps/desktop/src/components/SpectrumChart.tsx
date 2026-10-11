@@ -76,10 +76,10 @@ export function SpectrumChart({
     canvas.height = Math.round(height * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    const surface = token(canvas, "--surface-elev", "#11131a");
-    const grid = token(canvas, "--border", "#20232f");
-    const faint = token(canvas, "--text-faint", "#5e6373");
-    const accent = token(canvas, "--accent", "#ff8a3d");
+    const surface = token(canvas, "--surface-elev", "#151519");
+    const grid = token(canvas, "--border", "#26262b");
+    const faint = token(canvas, "--text-faint", "#8a8a93");
+    const accent = token(canvas, "--accent", "#b26afb");
 
     ctx.clearRect(0, 0, width, height);
     ctx.fillStyle = surface;
