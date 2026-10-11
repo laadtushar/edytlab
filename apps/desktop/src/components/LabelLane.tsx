@@ -19,7 +19,8 @@
  *   for with `window.prompt`: a macOS webview answers a prompt with
  *   `null` (WKWebView only shows one when the host implements the
  *   panel, and neither wry nor the dialog plugin does), so there the
- *   double-click would have done nothing.
+ *   double-click would have done nothing. A click on the ruler opens the
+ *   same box at that point (`nameRequest`), for the same reason.
  * * **Rename** — double-click the chip, type, Enter. Escape reverts.
  * * **Move** — drag the chip. It moves by how far the pointer travelled
  *   from where the chip was grabbed, so it lands where it is shown
@@ -52,6 +53,17 @@ export interface LabelLaneProps {
   sidebarWidth?: number;
   /** A label named `name`, at `timeSec`. The name is trimmed and not empty. */
   onAdd: (timeSec: number, name: string) => void;
+  /**
+   * A box for a label's name is wanted at `time`, on the session axis,
+   * as if the lane had been double-clicked there: the ruler's click
+   * (#546). Hand over a new object for each request, so asking for the
+   * same time twice is two requests. The lane opens the box and then
+   * calls `onNameRequestHandled`, which is the cue to hand over `null`;
+   * a request left in place would open the box again whenever the lane
+   * is mounted afresh.
+   */
+  nameRequest?: { time: number } | null;
+  onNameRequestHandled?: () => void;
   onRename: (id: string, name: string) => void;
   onMove: (id: string, timeSec: number) => void;
   onRemove: (id: string) => void;
@@ -75,6 +87,8 @@ export function LabelLane({
   view,
   sidebarWidth = 132,
   onAdd,
+  nameRequest,
+  onNameRequestHandled,
   onRename,
   onMove,
   onRemove,
@@ -120,6 +134,34 @@ export function LabelLane({
   // Drawn on the lanes' axis: at fit, the whole session; zoomed, only
   // what is on screen.
   const shown: TimeSpan = view ?? { start: 0, end: duration };
+
+  /**
+   * Open the box for a new label's name, `px` from the lane's left edge
+   * and at `time`. A box already open is replaced; what was typed into
+   * it was added, or abandoned, when it lost focus.
+   */
+  function openAdding(time: number, px: number, width: number) {
+    setEditing(null);
+    addingDone.current = false;
+    setAdding({ time, name: "", flip: px + ADD_BOX_PX > width });
+  }
+
+  // The ruler asks for the same box (#546). It used to ask for the name
+  // with `window.prompt`, which a macOS webview answers with `null`, so
+  // there a click on the ruler did nothing. The box opens where the
+  // double-click would have put it: over the point on the ruler.
+  useEffect(() => {
+    if (!nameRequest) return;
+    onNameRequestHandled?.();
+    if (duration <= 0) return;
+    const time = Math.min(duration, Math.max(0, nameRequest.time));
+    const width = laneRef.current?.getBoundingClientRect().width ?? 0;
+    openAdding(time, (pctOf(time, shown) / 100) * width, width);
+    // Once per request. The rest is read as it stands when the request
+    // arrives, and `onNameRequestHandled` clears the request, so running
+    // again for any of them would only find nothing to do.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nameRequest]);
 
   /** Pointer x → seconds on the session axis. */
   function secondsAt(clientX: number): number {
@@ -225,14 +267,8 @@ export function LabelLane({
           // lane is how you *deselect*, and creating a label every time
           // someone clicks past a chip would be maddening.
           if (e.target !== e.currentTarget) return;
-          setEditing(null);
-          addingDone.current = false;
           const r = e.currentTarget.getBoundingClientRect();
-          setAdding({
-            time: secondsAt(e.clientX),
-            name: "",
-            flip: e.clientX - r.left + ADD_BOX_PX > r.width,
-          });
+          openAdding(secondsAt(e.clientX), e.clientX - r.left, r.width);
         }}
         title="Double-click to add a label"
         style={{ position: "relative", flex: 1, cursor: "copy", overflow: "hidden" }}

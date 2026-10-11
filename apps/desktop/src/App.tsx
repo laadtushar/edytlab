@@ -1118,15 +1118,16 @@ function App() {
     [applyEdit],
   );
 
-  // The ruler hands over a time and no name, so this one asks.
-  const handleAddMarker = useCallback(
-    async (timeSec: number) => {
-      const name = window.prompt("Marker name:", `marker ${markers.length + 1}`) ?? "";
-      if (!name.trim()) return;
-      await handleAddLabel(timeSec, name.trim());
-    },
-    [markers.length, handleAddLabel],
-  );
+  // The ruler hands over a time and no name. The name is typed into the
+  // label lane's own box, opened at that time, and comes back through
+  // `handleAddLabel` like any label's. It was asked for with
+  // `window.prompt`, which a macOS webview answers with `null`, so there
+  // a click on the ruler did nothing (#546).
+  const [nameRequest, setNameRequest] = useState<{ time: number } | null>(null);
+  const handleRulerAdd = useCallback((timeSec: number) => {
+    setNameRequest({ time: timeSec });
+  }, []);
+  const handleNameRequestHandled = useCallback(() => setNameRequest(null), []);
 
   const handleRemoveMarker = useCallback(async (id: string) => {
     try {
@@ -1652,7 +1653,7 @@ function App() {
                   selection={selection}
                   onSelectionChange={handleSelectionChange}
                   markers={markers}
-                  onAddMarker={handleAddMarker}
+                  onAddMarker={handleRulerAdd}
                   onRemoveMarker={handleRemoveMarker}
                   onSeekToMarker={handleSeekToMarker}
                   zoom={zoomPxPerSec}
@@ -1684,6 +1685,8 @@ function App() {
                       duration={sessionDuration}
                       view={view}
                       onAdd={handleAddLabel}
+                      nameRequest={nameRequest}
+                      onNameRequestHandled={handleNameRequestHandled}
                       onRename={handleRenameMarker}
                       onMove={handleMoveMarker}
                       onRemove={handleRemoveMarker}

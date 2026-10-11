@@ -13,7 +13,6 @@
  */
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { emit } from "@tauri-apps/api/event";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -293,8 +292,8 @@ describe("adding a marker from the ruler, in a webview that cannot prompt", () =
     fireEvent.keyDown(screen.getByTestId("label-draft-input"), { key: "Escape" });
     await settle();
 
-    // Away to the graph and back unmounts the timeline and its lane.
-    fireEvent.click(screen.getByTestId("tab-graph"));
+    // Away to the transcript and back unmounts the timeline and its lane.
+    fireEvent.click(screen.getByTestId("tab-transcript"));
     await settle();
     fireEvent.click(screen.getByTestId("tab-timeline"));
     await screen.findByTestId("label-lane");
