@@ -2635,18 +2635,12 @@ pub async fn add_marker(
     time: f64,
     name: String,
 ) -> CmdResult<String> {
-    blocking(&state, move |state| {
-        add_marker_inner(&app, state, time, name)
-    })
-    .await
+    let head = blocking(&state, move |state| add_marker_inner(state, time, name)).await?;
+    let _ = app.emit("marker-changed", ());
+    Ok(head)
 }
 
-fn add_marker_inner(
-    app: &AppHandle,
-    state: &AppState,
-    time: f64,
-    name: String,
-) -> CmdResult<String> {
+fn add_marker_inner(state: &AppState, time: f64, name: String) -> CmdResult<String> {
     // A marker outside the timeline cannot be rendered, selected or
     // removed — it is simply stuck in the session. The ruler used to
     // send negative times for a click on its sidebar spacer; that is
@@ -2668,8 +2662,6 @@ fn add_marker_inner(
     let new_head = store
         .add_annotation(head, annotation)
         .map_err(CommandError::from)?;
-    drop(store);
-    let _ = app.emit("marker-changed", ());
     Ok(new_head.to_hex())
 }
 
@@ -2687,10 +2679,12 @@ pub async fn remove_marker(
     state: State<'_, AppState>,
     id: String,
 ) -> CmdResult<String> {
-    blocking(&state, move |state| remove_marker_inner(&app, state, id)).await
+    let head = blocking(&state, move |state| remove_marker_inner(state, id)).await?;
+    let _ = app.emit("marker-changed", ());
+    Ok(head)
 }
 
-fn remove_marker_inner(app: &AppHandle, state: &AppState, id: String) -> CmdResult<String> {
+fn remove_marker_inner(state: &AppState, id: String) -> CmdResult<String> {
     let annotation_id = session::AnnotationId(
         uuid::Uuid::parse_str(&id).map_err(|e| CommandError::InvalidNodeId(e.to_string()))?,
     );
@@ -2700,8 +2694,6 @@ fn remove_marker_inner(app: &AppHandle, state: &AppState, id: String) -> CmdResu
     let new_head = store
         .remove_annotation(head, annotation_id)
         .map_err(CommandError::from)?;
-    drop(store);
-    let _ = app.emit("marker-changed", ());
     Ok(new_head.to_hex())
 }
 
@@ -2724,6 +2716,10 @@ pub fn cancel_long_running_tool() -> CmdResult<()> {
 /// each would otherwise be a separate undo step for what the user did
 /// once. Omitted fields are left alone; a change that changes nothing
 /// appends no node.
+///
+/// `time` moves the label to that time: a marker sits there, a region
+/// starts there and keeps its length. `start` and `end` set a region's
+/// bounds outright. The two are not mixed in one call.
 // The store lock can be held by a running tool for its whole length, so
 // the wait is on the blocking pool, off the main thread (#421) and off the
 // runtime's workers (#498).
@@ -2737,14 +2733,15 @@ pub async fn update_marker(
     start: Option<f64>,
     end: Option<f64>,
 ) -> CmdResult<String> {
-    blocking(&state, move |state| {
-        update_marker_inner(&app, state, id, name, time, start, end)
+    let head = blocking(&state, move |state| {
+        update_marker_inner(state, id, name, time, start, end)
     })
-    .await
+    .await?;
+    let _ = app.emit("marker-changed", ());
+    Ok(head)
 }
 
 fn update_marker_inner(
-    app: &AppHandle,
     state: &AppState,
     id: String,
     name: Option<String>,
@@ -2778,7 +2775,10 @@ fn update_marker_inner(
     // upper bound — the session length is not known here, and a label
     // past the end stays addressable and is pulled back by the next
     // edit rather than being lost.
-    let kind = match (time, start, end) {
+    //
+    // `time` moves the label, whatever shape it is; it is resolved
+    // against the label itself below, once the store is locked.
+    let mut kind = match (time, start, end) {
         (Some(t), _, _) => {
             if !t.is_finite() || t < 0.0 {
                 return Err(CommandError::InvalidMarker(format!(
@@ -2786,7 +2786,7 @@ fn update_marker_inner(
                 ))
                 .into());
             }
-            Some(session::AnnotationKind::Marker { time_sec: t })
+            None
         }
         (None, Some(s), Some(e)) => {
             if !s.is_finite() || !e.is_finite() || s < 0.0 || e <= s {
@@ -2806,11 +2806,22 @@ fn update_marker_inner(
     let store_arc = state.store_handle().ok_or(CommandError::NoSession)?;
     let mut store = lock_std(&*store_arc, "store")?;
     let head = store.head().ok_or(CommandError::NoSession)?;
+    if let Some(t) = time {
+        // A drag names one time. A marker goes there; a region goes
+        // there with its length, so its end is not dropped (it used to
+        // come back a point marker, and `export_labels` then wrote a
+        // label the user never made). A label that is not there is left
+        // for `update_annotation` to ignore, as before.
+        kind = store
+            .annotations_for(head)
+            .map_err(CommandError::from)?
+            .iter()
+            .find(|a| a.id == annotation_id)
+            .map(|a| a.kind.starting_at(t));
+    }
     let new_head = store
         .update_annotation(head, annotation_id, name, kind)
         .map_err(CommandError::from)?;
-    drop(store);
-    let _ = app.emit("marker-changed", ());
     Ok(new_head.to_hex())
 }
 
@@ -5486,6 +5497,307 @@ mod batch_load_tests {
         assert_eq!(out.tracks_loaded, 1);
         assert!(out.failures.is_empty());
         assert!(out.last_node_id.is_some());
+    }
+}
+
+// The label lane's commands (#203 §1).
+//
+// The lane adds, renames, moves and deletes labels through `add_marker`,
+// `update_marker` and `remove_marker`. What it promises is that each
+// gesture is one node the user can undo, and that what `export_labels`
+// then writes is what the lane shows. Both are checked here against the
+// commands' own bodies, with the real store and the real tools.
+#[cfg(test)]
+mod label_lane_tests {
+    use super::*;
+    use serde_json::json;
+    use tempfile::tempdir;
+
+    /// Run one tool against `store`, as the agent does, and return its answer.
+    fn run_tool(
+        store: &mut session::Store,
+        tool: &str,
+        args: serde_json::Value,
+    ) -> serde_json::Value {
+        let mut engine = audio_engine::Engine::new();
+        let mut clipboard = None;
+        let mut ctx = tools::ToolContext {
+            store,
+            engine: &mut engine,
+            user_message: "",
+            clipboard: &mut clipboard,
+            allowed_tools: None,
+        };
+        match tools::ToolDispatcher::default_dispatcher()
+            .invoke(tool, args, &mut ctx)
+            .expect("invoke")
+        {
+            tools::ToolResult::Ok(v) => v,
+            tools::ToolResult::Error(m) => panic!("{tool} failed: {m}"),
+        }
+    }
+
+    /// A one-second mono WAV, written by hand so the test needs no audio
+    /// dependency.
+    fn write_wav(path: &std::path::Path) {
+        let data_len = 8_000u32 * 2;
+        let mut b = Vec::new();
+        b.extend_from_slice(b"RIFF");
+        b.extend_from_slice(&(36 + data_len).to_le_bytes());
+        b.extend_from_slice(b"WAVEfmt ");
+        b.extend_from_slice(&16u32.to_le_bytes());
+        b.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        b.extend_from_slice(&1u16.to_le_bytes()); // mono
+        b.extend_from_slice(&8_000u32.to_le_bytes());
+        b.extend_from_slice(&16_000u32.to_le_bytes());
+        b.extend_from_slice(&2u16.to_le_bytes());
+        b.extend_from_slice(&16u16.to_le_bytes());
+        b.extend_from_slice(b"data");
+        b.extend_from_slice(&data_len.to_le_bytes());
+        b.resize(b.len() + data_len as usize, 0);
+        std::fs::write(path, b).unwrap();
+    }
+
+    /// A project holding one track and the labels in `labels_text`
+    /// (Audacity format), opened the way the app opens one at launch.
+    struct Lane {
+        dir: tempfile::TempDir,
+        state: AppState,
+    }
+
+    impl Lane {
+        fn open(labels_text: &str) -> Self {
+            let dir = tempdir().unwrap();
+            let take = dir.path().join("take.wav");
+            write_wav(&take);
+            {
+                let mut store = session::Store::open(dir.path()).unwrap();
+                run_tool(&mut store, "load", json!({ "path": take }));
+                if !labels_text.is_empty() {
+                    run_tool(
+                        &mut store,
+                        "import_labels",
+                        json!({ "labels_text": labels_text }),
+                    );
+                }
+            }
+            let state = AppState::new();
+            open_project_for_test(&state, dir.path()).unwrap();
+            Self { dir, state }
+        }
+
+        /// What the lane draws: `list_markers`.
+        fn lane(&self) -> Vec<serde_json::Value> {
+            list_markers_inner(&self.state).unwrap()
+        }
+
+        fn id_of(&self, name: &str) -> String {
+            self.lane()
+                .iter()
+                .find(|m| m["name"] == name)
+                .unwrap_or_else(|| panic!("no label called {name} in {:?}", self.lane()))["id"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        }
+
+        fn add(&self, time: f64, name: &str) -> String {
+            add_marker_inner(&self.state, time, name.into()).unwrap()
+        }
+
+        fn rename(&self, id: &str, name: &str) -> String {
+            update_marker_inner(&self.state, id.into(), Some(name.into()), None, None, None)
+                .unwrap()
+        }
+
+        /// What a drag in the lane sends: one time.
+        fn drag(&self, id: &str, time: f64) -> String {
+            update_marker_inner(&self.state, id.into(), None, Some(time), None, None).unwrap()
+        }
+
+        fn delete(&self, id: &str) -> String {
+            remove_marker_inner(&self.state, id.into()).unwrap()
+        }
+
+        fn head(&self) -> String {
+            let handle = self.state.store_handle().unwrap();
+            let head = handle.lock().unwrap().head().unwrap();
+            head.to_hex()
+        }
+
+        fn nodes(&self) -> usize {
+            session::Store::open(self.dir.path())
+                .unwrap()
+                .list_nodes()
+                .unwrap()
+                .len()
+        }
+
+        /// The text `export_labels` writes for the project as it stands.
+        fn export(&self) -> String {
+            let handle = self.state.store_handle().unwrap();
+            let mut store = handle.lock().unwrap();
+            run_tool(&mut store, "export_labels", json!({}))["labels"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        }
+
+        /// `name@time` for each marker, the way the lane places a chip.
+        fn chips(&self) -> Vec<String> {
+            self.lane()
+                .iter()
+                .map(|m| format!("{}@{}", m["name"].as_str().unwrap(), m["time_sec"]))
+                .collect()
+        }
+    }
+
+    /// Each gesture in the lane is one node appended to the head, so Ctrl+Z
+    /// takes back exactly one gesture and the lane then shows the labels the
+    /// earlier head had.
+    ///
+    /// The last gesture deletes the label that was there to begin with. A
+    /// delete of the label just added would land on the state the history
+    /// started from, and nodes are named by their state (#398), so that one
+    /// returns to an existing node rather than appending a new one.
+    #[test]
+    fn each_lane_gesture_is_one_node_and_undo_takes_back_one() {
+        let p = Lane::open("1.5\t1.5\tintro");
+        let mut heads = vec![p.head()];
+        let n0 = p.nodes();
+
+        heads.push(p.add(10.0, "chapter two"));
+        let id = p.id_of("chapter two");
+        heads.push(p.rename(&id, "Chapter 2"));
+        heads.push(p.drag(&id, 12.0));
+        heads.push(p.delete(&p.id_of("intro")));
+
+        assert_eq!(p.nodes(), n0 + 4, "four gestures, four nodes");
+        let mut distinct = heads.clone();
+        distinct.dedup();
+        assert_eq!(distinct, heads, "every gesture moved the head");
+        assert_eq!(p.head(), heads[4]);
+        assert_eq!(p.chips(), ["Chapter 2@12.0"]);
+
+        // Undo walks them back, one gesture at a time. The app does it
+        // with `set_head_to`, and the lane re-reads on the head moving.
+        set_head_to_inner(&p.state, heads[3].clone()).unwrap();
+        assert_eq!(
+            p.chips(),
+            ["intro@1.5", "Chapter 2@12.0"],
+            "the delete is undone"
+        );
+        set_head_to_inner(&p.state, heads[2].clone()).unwrap();
+        assert_eq!(
+            p.chips(),
+            ["intro@1.5", "Chapter 2@10.0"],
+            "the move is undone"
+        );
+        set_head_to_inner(&p.state, heads[1].clone()).unwrap();
+        assert_eq!(
+            p.chips(),
+            ["intro@1.5", "chapter two@10.0"],
+            "the rename is undone"
+        );
+        set_head_to_inner(&p.state, heads[0].clone()).unwrap();
+        assert_eq!(p.chips(), ["intro@1.5"], "and the add");
+    }
+
+    /// A label dragged back to where it started, or renamed to the name it
+    /// has, is not an edit and costs no undo step.
+    #[test]
+    fn a_gesture_that_changes_nothing_appends_no_node() {
+        let p = Lane::open("1.5\t1.5\tintro");
+        let id = p.id_of("intro");
+        let (head, n0) = (p.head(), p.nodes());
+
+        assert_eq!(p.drag(&id, 1.5), head);
+        assert_eq!(p.rename(&id, "intro"), head);
+
+        assert_eq!(p.nodes(), n0);
+    }
+
+    /// A region label moved in the lane keeps its length. The lane shows a
+    /// label at its start and a drag sends one time, so the region has to
+    /// travel as a whole: it used to come back a point marker at the new
+    /// time, its end dropped without a word, and `export_labels` then wrote
+    /// a label the user never made.
+    #[test]
+    fn moving_a_region_label_keeps_its_length() {
+        let p = Lane::open("3\t9\tverse");
+        let id = p.id_of("verse");
+
+        p.drag(&id, 20.0);
+
+        assert_eq!(
+            p.lane(),
+            [json!({
+                "id": id, "name": "verse", "kind": "region",
+                "start_sec": 20.0, "end_sec": 26.0,
+            })],
+            "six seconds long before, six seconds long after"
+        );
+        assert_eq!(p.export(), "20\t26\tverse\n");
+    }
+
+    /// Dragging a region back to its own start changes nothing, as it
+    /// does for a marker.
+    #[test]
+    fn dragging_a_region_label_to_where_it_is_appends_no_node() {
+        let p = Lane::open("3\t9\tverse");
+        let id = p.id_of("verse");
+        let (head, n0) = (p.head(), p.nodes());
+
+        assert_eq!(p.drag(&id, 3.0), head);
+        assert_eq!(p.nodes(), n0);
+    }
+
+    #[test]
+    fn renaming_a_region_label_leaves_its_extent_alone() {
+        let p = Lane::open("3\t9\tverse");
+        let id = p.id_of("verse");
+
+        p.rename(&id, "first verse");
+
+        assert_eq!(p.export(), "3\t9\tfirst verse\n");
+    }
+
+    /// The acceptance: what is typed in the lane is what `export_labels`
+    /// writes, and writing it out and reading it back changes nothing.
+    #[test]
+    fn lane_edits_come_out_of_export_labels_unchanged() {
+        let p = Lane::open("3\t9\tverse");
+
+        p.add(0.5, "cold open");
+        p.add(40.25, "chapter two");
+        p.add(99.0, "to delete");
+        let id = p.id_of("chapter two");
+        p.rename(&id, "Chapter 2: the sequel");
+        p.drag(&id, 41.5);
+        p.delete(&p.id_of("to delete"));
+        p.drag(&p.id_of("verse"), 4.0);
+
+        let exported = p.export();
+        assert_eq!(
+            exported,
+            "4\t10\tverse\n0.5\t0.5\tcold open\n41.5\t41.5\tChapter 2: the sequel\n"
+        );
+
+        // Into a project of its own and out again: the same text.
+        let dir = tempdir().unwrap();
+        let take = dir.path().join("take.wav");
+        write_wav(&take);
+        let mut store = session::Store::open(dir.path()).unwrap();
+        run_tool(&mut store, "load", json!({ "path": take }));
+        run_tool(
+            &mut store,
+            "import_labels",
+            json!({ "labels_text": exported }),
+        );
+        assert_eq!(
+            run_tool(&mut store, "export_labels", json!({}))["labels"],
+            json!(exported)
+        );
     }
 }
 

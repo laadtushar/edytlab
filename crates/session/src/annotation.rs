@@ -34,6 +34,41 @@ pub enum AnnotationKind {
     Region { start_sec: f64, end_sec: f64 },
 }
 
+impl AnnotationKind {
+    /// This label moved so that it starts at `start_sec`, keeping its
+    /// shape: a marker sits at the new time, a region keeps its length
+    /// and its end moves with its start.
+    ///
+    /// What dragging a label means. A drag names one time, and turning a
+    /// region into a point marker at that time would drop its end
+    /// silently, so a label that was `3..9` and was moved to 20 is
+    /// `20..26`, not `20`.
+    pub fn starting_at(&self, start_sec: f64) -> AnnotationKind {
+        match *self {
+            AnnotationKind::Marker { .. } => AnnotationKind::Marker {
+                time_sec: start_sec,
+            },
+            // Put back where it is, the region is the one it was: adding
+            // the length back on to the start would not always give the
+            // same end in floating point, and that would read as an edit.
+            AnnotationKind::Region {
+                start_sec: s,
+                end_sec: e,
+            } if s == start_sec => AnnotationKind::Region {
+                start_sec: s,
+                end_sec: e,
+            },
+            AnnotationKind::Region {
+                start_sec: s,
+                end_sec: e,
+            } => AnnotationKind::Region {
+                start_sec,
+                end_sec: start_sec + (e - s),
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Annotation {
     pub id: AnnotationId,
@@ -62,6 +97,46 @@ mod tests {
         // `#[serde(transparent)]` / `#[serde(flatten)]` attributes.
         let back: Annotation = serde_json::from_value(json).unwrap();
         assert_eq!(back, a);
+    }
+
+    #[test]
+    fn a_marker_moves_to_the_new_time() {
+        let k = AnnotationKind::Marker { time_sec: 4.0 };
+        assert_eq!(k.starting_at(7.5), AnnotationKind::Marker { time_sec: 7.5 });
+    }
+
+    #[test]
+    fn a_region_moves_with_its_length_and_stays_a_region() {
+        let k = AnnotationKind::Region {
+            start_sec: 3.0,
+            end_sec: 9.0,
+        };
+        assert_eq!(
+            k.starting_at(20.0),
+            AnnotationKind::Region {
+                start_sec: 20.0,
+                end_sec: 26.0
+            },
+            "six seconds before, six seconds after"
+        );
+        assert_eq!(
+            k.starting_at(0.0),
+            AnnotationKind::Region {
+                start_sec: 0.0,
+                end_sec: 6.0
+            },
+            "and it can be moved to the start"
+        );
+    }
+
+    #[test]
+    fn a_region_put_back_where_it_is_is_the_region_it_was() {
+        // 0.3 - 0.1 + 0.1 is not 0.3 in floating point.
+        let k = AnnotationKind::Region {
+            start_sec: 0.1,
+            end_sec: 0.3,
+        };
+        assert_eq!(k.starting_at(0.1), k);
     }
 
     #[test]
