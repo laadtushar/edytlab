@@ -1,16 +1,41 @@
 //! Smoke tests for `ml-pipeline`.
 //!
-//! Tests that build a real ORT session need two things this repo does
-//! not currently have: `ORT_DYLIB_PATH` (load-dynamic) and a fixture
-//! model at `tests/fixtures/identity.onnx`. No workflow sets the first
-//! and the second is not committed, so they are `#[ignore]`d and run
-//! with `cargo test -p ml-pipeline -- --ignored`.
+//! Tests that build a real ORT session need an ONNX Runtime library:
+//! `ort` is linked `load-dynamic`, so `ORT_DYLIB_PATH` has to name one.
+//! They are `#[ignore]`d, and `cargo test -p ml-pipeline -- --ignored`
+//! runs them. The model is committed: `tests/fixtures/identity.onnx`, 91
+//! bytes, one `Identity` node (`Y = X`, float32 `[1, 3]`), written by
+//! `tests/fixtures/make_identity_onnx.py` beside it with no `onnx` package.
 //!
-//! They used to check both at runtime and `return` early, which
-//! `cargo test` counts as **passed** — the run printed `6 passed` while
-//! two of the six had exited on their first line. `#[ignore]` says so in
-//! the output instead, and asking for them explicitly now fails on the
-//! missing prerequisite rather than passing quietly.
+//! **In CI** the Linux `build` job runs them against the runtime the app
+//! pins. `apps/desktop/src-tauri/ml-runtime.json` names ONNX Runtime
+//! 1.23.2 and its SHA-256; `scripts/fetch-ml-runtime.sh linux-x64
+//! ml-runtime/linux-x64` downloads it (the job caches that directory on the
+//! manifest's hash), and the job then runs
+//!
+//! ```text
+//! ORT_DYLIB_PATH=<workspace>/ml-runtime/linux-x64/libonnxruntime.so \
+//!     cargo test -p ml-pipeline --test cache_smoke -- --ignored --test-threads=1
+//! ```
+//!
+//! The workspace `cargo test` step does not set the variable and does not
+//! pass `--ignored`, so there these tests are listed as ignored. The macOS
+//! and Windows jobs do not run them yet.
+//!
+//! **Locally**, the same two commands:
+//!
+//! ```text
+//! export ORT_DYLIB_PATH="$(scripts/fetch-ml-runtime.sh linux-x64 ml-runtime/linux-x64)"
+//! cargo test -p ml-pipeline --test cache_smoke -- --ignored
+//! ```
+//!
+//! (`win-x64` and `osx-universal2` fetch the other platforms' libraries.)
+//!
+//! They used to check the library and the model at runtime and `return`
+//! early, which `cargo test` counts as **passed** — the run printed `6
+//! passed` while two of the six had exited on their first line. `#[ignore]`
+//! says so in the output instead, and asking for them explicitly fails on
+//! a missing library rather than passing quietly.
 //!
 //! Pure-cache tests run unconditionally — they don't touch ORT.
 
@@ -140,33 +165,36 @@ fn content_hash_hex_is_lowercase_64_chars() {
 }
 
 /// The fixture ONNX model these tests load, or a panic naming what is
-/// missing.
+/// missing: the library `ORT_DYLIB_PATH` should name, or the model.
 ///
-/// M17 shipped without one — generating a real ONNX export is M18+
-/// territory — so today this always panics, which is why its callers are
-/// `#[ignore]`d. It panics rather than returning `None` because it is
-/// only reached when someone asked for these tests by name.
+/// It panics rather than returning `None` because it is only reached when
+/// someone asked for these tests by name, and a test that returns early
+/// counts as passed.
 fn fixture_model() -> std::path::PathBuf {
+    let library = env::var("ORT_DYLIB_PATH").unwrap_or_else(|_| {
+        panic!(
+            "ORT_DYLIB_PATH is not set; ml-pipeline links ORT load-dynamic, so the ignored \
+             tests need it to point at the ONNX Runtime shared library. \
+             scripts/fetch-ml-runtime.sh <platform> <dir> fetches the pinned one."
+        )
+    });
     assert!(
-        env::var("ORT_DYLIB_PATH").is_ok(),
-        "ORT_DYLIB_PATH is not set; ml-pipeline links ORT load-dynamic, so the \
-         ignored tests need it to point at the ONNX Runtime shared library"
+        Path::new(&library).is_file(),
+        "ORT_DYLIB_PATH={library} is not a file; scripts/fetch-ml-runtime.sh <platform> <dir> \
+         fetches the pinned ONNX Runtime"
     );
-    // Convention: `crates/ml-pipeline/tests/fixtures/identity.onnx`.
+    // `crates/ml-pipeline/tests/fixtures/identity.onnx`, made by
+    // `make_identity_onnx.py` in the same directory.
     let p = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("fixtures")
         .join("identity.onnx");
-    assert!(
-        p.exists(),
-        "no fixture ONNX model at {} (not committed yet; M18+)",
-        p.display()
-    );
+    assert!(p.is_file(), "no fixture ONNX model at {}", p.display());
     p
 }
 
 #[test]
-#[ignore = "needs ORT_DYLIB_PATH and a fixture ONNX model; run with --ignored"]
+#[ignore = "needs ORT_DYLIB_PATH (an ONNX Runtime library); run with --ignored"]
 fn model_registry_caches_arcs() {
     let model_path = fixture_model();
 
@@ -185,7 +213,7 @@ fn model_registry_caches_arcs() {
 }
 
 #[test]
-#[ignore = "needs ORT_DYLIB_PATH and a fixture ONNX model; run with --ignored"]
+#[ignore = "needs ORT_DYLIB_PATH (an ONNX Runtime library); run with --ignored"]
 fn coreml_ep_falls_back_to_cpu_on_non_mac() {
     let model_path = fixture_model();
 
@@ -209,4 +237,31 @@ fn coreml_ep_falls_back_to_cpu_on_non_mac() {
         std::sync::Arc::ptr_eq(&s, &again),
         "a second load rebuilt the session instead of returning the cached Arc"
     );
+}
+
+#[test]
+#[ignore = "needs ORT_DYLIB_PATH (an ONNX Runtime library); run with --ignored"]
+fn identity_model_returns_its_input() {
+    // Loading a model proves the library opens; running it proves the
+    // library computes. Y = Identity(X), so what comes out must be exactly
+    // what went in, bit for bit, including a negative, a fraction and zero.
+    let model_path = fixture_model();
+    ml_pipeline::runtime::ensure().expect("the ONNX Runtime library ORT_DYLIB_PATH names");
+
+    let mut session = ort::session::Session::builder()
+        .expect("session builder")
+        .commit_from_file(&model_path)
+        .expect("load identity.onnx");
+    let input = [1.0f32, -2.5, 0.0];
+    let tensor =
+        ort::value::Tensor::from_array(([1usize, 3], input.to_vec())).expect("input tensor");
+    let outputs = session
+        .run(ort::inputs!["X" => tensor])
+        .expect("run identity.onnx");
+    let (shape, data) = outputs["Y"]
+        .try_extract_tensor::<f32>()
+        .expect("Y is a float tensor");
+
+    assert_eq!(&shape[..], &[1, 3], "Identity keeps the shape");
+    assert_eq!(data, &input[..], "Identity must return its input");
 }

@@ -153,6 +153,44 @@ jobs:
         # that calls `clear_cache()`.
         run: cargo test --workspace --no-fail-fast -- --test-threads=1
 
+      # A model run on the real ONNX Runtime, the version the app pins
+      # (#383). `ml-pipeline`'s `cache_smoke` tests build a session from
+      # `tests/fixtures/identity.onnx` and run it, but they are `#[ignore]`d
+      # because `ort` is linked `load-dynamic` and the workspace step above
+      # has no library to give it, so until this step nothing in CI ever
+      # executed a model. `apps/desktop/src-tauri/ml-runtime.json` is the
+      # single source of the version, URL and SHA-256, and the script checks
+      # the archive against it, so a corrupt or swapped download fails here
+      # and never reaches the test.
+      #
+      # One Linux leg: it checks that the pinned runtime and the `ort`
+      # binding agree. The macOS and Windows libraries are not run here;
+      # the installers will carry their own checks (#383).
+      #
+      # The cache holds the unpacked library (22 MB) under a key made from
+      # the manifest, so a changed pin misses it. The script runs either
+      # way: on a hit it only re-checks the restored files against what it
+      # recorded, and on a miss it downloads.
+      - name: Cache ONNX Runtime
+        if: matrix.platform.name == 'linux-x86_64'
+        uses: actions/cache@v6
+        with:
+          path: ml-runtime/linux-x64
+          key: ml-runtime-linux-x64-${{ hashFiles('apps/desktop/src-tauri/ml-runtime.json') }}
+
+      - name: Fetch ONNX Runtime
+        if: matrix.platform.name == 'linux-x86_64'
+        run: bash scripts/fetch-ml-runtime.sh linux-x64 ml-runtime/linux-x64
+
+      - name: cargo test (ONNX Runtime smoke)
+        if: matrix.platform.name == 'linux-x86_64'
+        env:
+          ORT_DYLIB_PATH: ${{ github.workspace }}/ml-runtime/linux-x64/libonnxruntime.so
+        # `--ignored` runs only the ignored tests, and they fail rather
+        # than skip when the library is missing, so this step cannot go
+        # green without having run a model.
+        run: cargo test -p ml-pipeline --test cache_smoke -- --ignored --test-threads=1
+
       # The frontend test suite was not run by CI at all.
       #
       # `cargo test` covers the Rust side and `pnpm build` proves the
