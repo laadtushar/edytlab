@@ -43,10 +43,12 @@ import {
   getEffortFor,
   setEffortFor,
   testApiKeyFor,
+  type KeychainPersistence,
   type ModelInfo,
   type ProviderId,
   type ReasoningEffort,
 } from "../lib/tauri-bridge";
+import { savedNotice } from "../lib/keychainNotice";
 import {
   MODEL_STORAGE_KEY_PREFIX,
   modelStorageKey,
@@ -303,6 +305,13 @@ export function Settings({
   const [modelUnread, setModelUnread] = useState<string | null>(null);
   const [test, setTest] = useState<TestState>({ kind: "idle" });
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Set when the last Save went through but some of it fell back to the
+  // kernel keyring, so it lasts only until the next reboot (#497): the
+  // launch banner's words for it. While it is set the form has done its
+  // job and is waiting to be dismissed, so the dialog stays up for the
+  // person to read it; closing it on `onSaved` would remove the note in
+  // the same breath.
+  const [savedSessionOnly, setSavedSessionOnly] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [models, setModels] = useState<ModelInfo[]>([]);
   // Which list `models` is: the provider's own, or edytlab's built-in one,
@@ -615,6 +624,8 @@ export function Settings({
       setKey("");
       setTest({ kind: "idle" });
       setSaveError(null);
+      // Another provider is another form; the note was about the last Save.
+      setSavedSessionOnly(null);
       try {
         await setActiveProvider(next);
 
@@ -670,6 +681,10 @@ export function Settings({
     if ((needsKey && !key.trim()) || saving) return;
     setSaving(true);
     setSaveError(null);
+    setSavedSessionOnly(null);
+    // Where each write landed. A Save is several: a field that fell back
+    // to the kernel keyring is lost at the next reboot whichever one it is.
+    const landings: Array<KeychainPersistence | null | undefined> = [];
     try {
       // Saved first: `set_api_key_for` rebuilds the agent, and the
       // rebuild reads this. The other order builds an agent pointing at
@@ -678,13 +693,13 @@ export function Settings({
       // Only a URL this form knows (see `baseUrlKnown`): an empty field
       // that stands for "not read" would be sent as a delete.
       if (baseUrlKnown) {
-        await setBaseUrlFor(provider, baseUrl);
+        landings.push(await setBaseUrlFor(provider, baseUrl));
       }
       // Same reason, same place: the rebuild reads the stored effort.
       // "Default" is sent as null, which clears the slot. Same condition
       // too.
       if (supportsEffort && effortKnown) {
-        await setEffortFor(provider, effort === "" ? null : effort);
+        landings.push(await setEffortFor(provider, effort === "" ? null : effort));
       }
       // A keyless provider is activated, not written.
       //
@@ -703,22 +718,29 @@ export function Settings({
       // the only button on a modal with no Close is one that cannot
       // succeed. Found on the second launch of the real app.
       if (needsKey) {
-        await setApiKeyFor(provider, key);
+        landings.push(await setApiKeyFor(provider, key));
       } else {
-        await setActiveProvider(provider);
+        landings.push(await setActiveProvider(provider));
       }
       // Only a model this form knows (see `modelKnown`): the field of a
       // read that was refused is the browser's memory or the default.
       if (modelKnown && model.trim()) {
         try {
-          await setActiveModel(provider, model);
+          landings.push(await setActiveModel(provider, model));
         } catch {
           /* non-fatal */
         }
       }
       setKey("");
       setTest({ kind: "idle" });
-      onSaved();
+      // A durable save shows nothing new. One that fell back stays on
+      // screen until the person goes on (`handleContinue`).
+      const notice = savedNotice(landings);
+      if (notice) {
+        setSavedSessionOnly(notice.message);
+      } else {
+        onSaved();
+      }
     } catch (err) {
       setSaveError(String(err));
     } finally {
@@ -797,6 +819,13 @@ export function Settings({
       setSaveError(String(err));
     }
   }, [onCleared, provider]);
+
+  // Going on after a Save that fell back: the save happened, and this is the
+  // `onSaved` that Save held back until the note had been read.
+  const handleContinue = useCallback(() => {
+    setSavedSessionOnly(null);
+    onSaved();
+  }, [onSaved]);
 
   const handleInstallPlugin = useCallback(async () => {
     if (!pluginSource.trim()) return;
@@ -926,7 +955,9 @@ export function Settings({
           {mode === "panel" && onClose ? (
             <button
               type="button"
-              onClick={onClose}
+              // After a Save that fell back, Close is Continue: the save
+              // happened, and the app has to hear of it.
+              onClick={savedSessionOnly !== null ? handleContinue : onClose}
               data-testid="settings-close"
               aria-label="Close settings"
               className="btn-ghost rounded-md p-1.5 transition"
@@ -1479,6 +1510,15 @@ export function Settings({
                 {saveError}
               </p>
             ) : null}
+            {savedSessionOnly !== null ? (
+              <p
+                data-testid="settings-save-session-only"
+                role="status"
+                className="mb-3 rounded-md border border-[var(--warning)]/40 bg-[var(--warning)]/10 px-3 py-1.5 text-xs text-[var(--warning)]"
+              >
+                {savedSessionOnly}
+              </p>
+            ) : null}
 
             <div className="flex items-center justify-between gap-2">
               {mode === "panel" ? (
@@ -1493,15 +1533,26 @@ export function Settings({
               ) : (
                 <span />
               )}
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={saveDisabled}
-                data-testid="settings-save-button"
-                className="btn-primary px-4 py-1.5 text-sm transition"
-              >
-                {saving ? "Saving…" : "Save & Continue"}
-              </button>
+              {savedSessionOnly !== null ? (
+                <button
+                  type="button"
+                  onClick={handleContinue}
+                  data-testid="settings-continue-button"
+                  className="btn-primary px-4 py-1.5 text-sm transition"
+                >
+                  Continue
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={saveDisabled}
+                  data-testid="settings-save-button"
+                  className="btn-primary px-4 py-1.5 text-sm transition"
+                >
+                  {saving ? "Saving…" : "Save & Continue"}
+                </button>
+              )}
             </div>
           </div>
         ) : null}

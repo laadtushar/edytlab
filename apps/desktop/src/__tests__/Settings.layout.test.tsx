@@ -81,10 +81,13 @@ describe("Settings layout", () => {
       source: "live",
       notice: null,
     });
-    vi.mocked(setEffortFor).mockResolvedValue(undefined);
-    vi.mocked(setBaseUrlFor).mockResolvedValue(undefined);
-    vi.mocked(setActiveModel).mockResolvedValue(undefined);
-    vi.mocked(setApiKeyFor).mockResolvedValue(undefined);
+    // Saves answer where they landed (#497); these all went to the
+    // durable store.
+    const durable = { persistent: true, reason: null };
+    vi.mocked(setEffortFor).mockResolvedValue(durable);
+    vi.mocked(setBaseUrlFor).mockResolvedValue(durable);
+    vi.mocked(setActiveModel).mockResolvedValue(durable);
+    vi.mocked(setApiKeyFor).mockResolvedValue(durable);
   });
 
   it.each(["blocking", "panel"] as const)(

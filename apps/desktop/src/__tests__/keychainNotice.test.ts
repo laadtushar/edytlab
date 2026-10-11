@@ -12,6 +12,7 @@ import {
   SESSION_ONLY_DISMISSED_KEY,
   keychainNotice,
   readSessionOnlyDismissed,
+  savedNotice,
   writeSessionOnlyDismissed,
 } from "../lib/keychainNotice";
 
@@ -57,6 +58,38 @@ describe("keychainNotice", () => {
   it("puts a read error ahead of the persistence warning", () => {
     const n = keychainNotice("locked", { persistent: false, reason: "X" });
     expect(n?.kind).toBe("read-error");
+  });
+});
+
+describe("savedNotice", () => {
+  const durable = { persistent: true, reason: null };
+  const fellBack = (reason: string | null) => ({ persistent: false, reason });
+
+  it("says nothing when every write went to the durable store", () => {
+    expect(savedNotice([])).toBeNull();
+    expect(savedNotice([durable, durable])).toBeNull();
+  });
+
+  it("treats an answer that is missing as durable: there is nothing to report", () => {
+    expect(savedNotice([undefined, null, durable])).toBeNull();
+  });
+
+  it("says it in the launch banner's words when any write fell back", () => {
+    const banner = keychainNotice(null, fellBack("no bus"));
+    expect(banner?.kind).toBe("session-only");
+    for (const landings of [
+      [fellBack("no bus")],
+      [durable, fellBack("no bus")],
+      [fellBack("no bus"), durable, undefined],
+    ]) {
+      expect(savedNotice(landings), JSON.stringify(landings)).toEqual(banner);
+    }
+  });
+
+  it("gives the reason of the first write that fell back", () => {
+    const n = savedNotice([durable, fellBack("first"), fellBack("second")]);
+    expect(n?.message).toContain("(first)");
+    expect(n?.message).not.toContain("second");
   });
 });
 

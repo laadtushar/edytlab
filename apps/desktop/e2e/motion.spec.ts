@@ -76,6 +76,31 @@ test.beforeEach(async ({ page }) => {
             if (!["offset", "easing", "composite", "computedOffset"].includes(key)) props.add(key);
           }
         }
+        // The event is dispatched after the frame the animation started in,
+        // and on a slow runner a 120ms animation can be over by then, so it
+        // is no longer listed. Read its keyframes from the stylesheet instead,
+        // which does not depend on timing.
+        if (!own) {
+          const camel = (name: string) => name.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
+          const walk = (rules: CSSRuleList) => {
+            for (const rule of Array.from(rules)) {
+              if (rule instanceof CSSKeyframesRule && rule.name === e.animationName) {
+                for (const frame of Array.from(rule.cssRules) as CSSKeyframeRule[]) {
+                  for (let i = 0; i < frame.style.length; i++) props.add(camel(frame.style[i]));
+                }
+              } else if ("cssRules" in rule) {
+                walk((rule as CSSGroupingRule).cssRules);
+              }
+            }
+          };
+          for (const sheet of Array.from(document.styleSheets)) {
+            try {
+              walk(sheet.cssRules);
+            } catch {
+              // A cross-origin sheet cannot be read; the app has none.
+            }
+          }
+        }
         window.__STARTED__.push({ el, name: e.animationName, props: [...props] });
       },
       true,

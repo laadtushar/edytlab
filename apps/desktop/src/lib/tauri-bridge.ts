@@ -94,22 +94,36 @@ export const listModelsFor = (
     apiKey: apiKey ?? null,
   });
 
+/**
+ * Choose a provider's model. Resolves with where the choice was saved
+ * ({@link KeychainPersistence}); see {@link setApiKeyFor}.
+ */
 export const setActiveModel = (
   provider: ProviderId,
   model: string,
-): Promise<void> =>
-  invoke<void>("set_active_model", { provider, model });
+): Promise<KeychainPersistence> =>
+  invoke<KeychainPersistence>("set_active_model", { provider, model });
 
 export const getActiveModel = (provider: ProviderId): Promise<string> =>
   invoke<string>("get_active_model", { provider });
 
-export const setApiKey = (key: string): Promise<void> =>
-  invoke<void>("set_api_key", { key });
+/** {@link setApiKeyFor} for the active provider. */
+export const setApiKey = (key: string): Promise<KeychainPersistence> =>
+  invoke<KeychainPersistence>("set_api_key", { key });
 
+/**
+ * Save a provider's key and make it the active provider. Resolves with
+ * where it was saved, as {@link getKeychainPersistence} says where saves go
+ * now: `persistent: false` is a save that fell back to the kernel keyring
+ * because no Secret Service could be reached, and will not survive a reboot.
+ * The key is saved and used all the same. The other `set*` functions that
+ * write to the keychain answer the same way.
+ */
 export const setApiKeyFor = (
   provider: ProviderId,
   key: string,
-): Promise<void> => invoke<void>("set_api_key_for", { provider, key });
+): Promise<KeychainPersistence> =>
+  invoke<KeychainPersistence>("set_api_key_for", { provider, key });
 
 /**
  * Whether the active provider has what it needs (a stored key, or none
@@ -129,10 +143,11 @@ export const hasApiKeyFor = (provider: ProviderId): Promise<boolean> =>
   invoke<boolean>("has_api_key_for", { provider });
 
 /**
- * Whether keys and settings saved now survive a reboot. `persistent:
- * false` is Linux with no Secret Service running: they are kept in the
- * kernel keyring until the machine restarts. `reason` is why the Secret
- * Service could not be used, when there is one to give.
+ * Whether keys and settings saved now survive a reboot, or, as the answer
+ * of a save, whether that one did. `persistent: false` is Linux with no
+ * Secret Service running: they are kept in the kernel keyring until the
+ * machine restarts. `reason` is why the Secret Service could not be used,
+ * when there is one to give.
  */
 export interface KeychainPersistence {
   persistent: boolean;
@@ -193,8 +208,10 @@ export const listProviders = (): Promise<ProviderId[]> =>
 export const getActiveProvider = (): Promise<ProviderId> =>
   invoke<ProviderId>("get_active_provider");
 
-export const setActiveProvider = (provider: ProviderId): Promise<void> =>
-  invoke<void>("set_active_provider", { provider });
+export const setActiveProvider = (
+  provider: ProviderId,
+): Promise<KeychainPersistence> =>
+  invoke<KeychainPersistence>("set_active_provider", { provider });
 
 /** A provider's base-URL override, or null when it uses the built-in one. */
 export const getBaseUrlFor = (provider: ProviderId): Promise<string | null> =>
@@ -204,11 +221,15 @@ export const getBaseUrlFor = (provider: ProviderId): Promise<string | null> =>
 export const defaultBaseUrlFor = (provider: ProviderId): Promise<string> =>
   invoke<string>("default_base_url_for", { provider });
 
-/** Point a provider elsewhere. An empty string restores the default. */
+/**
+ * Point a provider elsewhere. An empty string restores the default, which
+ * writes nothing and so always resolves durable.
+ */
 export const setBaseUrlFor = (
   provider: ProviderId,
   baseUrl: string,
-): Promise<void> => invoke<void>("set_base_url_for", { provider, baseUrl });
+): Promise<KeychainPersistence> =>
+  invoke<KeychainPersistence>("set_base_url_for", { provider, baseUrl });
 
 /**
  * How hard the model works on a response — Anthropic's
@@ -231,7 +252,8 @@ export const getEffortFor = (
 export const setEffortFor = (
   provider: ProviderId,
   effort: ReasoningEffort | null,
-): Promise<void> => invoke<void>("set_effort_for", { provider, effort });
+): Promise<KeychainPersistence> =>
+  invoke<KeychainPersistence>("set_effort_for", { provider, effort });
 
 export const getSessionHead = (): Promise<NodeId> =>
   invoke<NodeId>("get_session_head");

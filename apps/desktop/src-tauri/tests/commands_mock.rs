@@ -287,6 +287,39 @@ fn settings_reads_after_a_refused_startup_do_not_ask_the_keychain_again() {
     }
 }
 
+/// #497. After a startup the keychain refused, the agent is left unbuilt
+/// (it cannot be built without reading the keychain again), and a chat
+/// message says why instead of "call set_api_key first", which sends the
+/// person to a key they may already have saved.
+#[test]
+fn a_message_after_a_refused_startup_says_the_keychain_refused() {
+    let app = mock_builder()
+        .manage(refused_state(Some("locked")))
+        .invoke_handler(tauri::generate_handler![commands::send_message])
+        .build(mock_context(noop_assets()))
+        .expect("mock app");
+    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .expect("webview");
+
+    let err = tauri::test::get_ipc_response(
+        &webview,
+        make_request(
+            "send_message",
+            json!({ "text": "trim the silence", "disabledTools": [] }),
+        ),
+    )
+    .expect_err("there is no agent to answer");
+    let err = err.as_str().expect("a string").to_string();
+
+    assert!(
+        err.starts_with("no agent configured")
+            && err.contains("refused access")
+            && err.contains("locked"),
+        "{err}"
+    );
+}
+
 /// How long the reads are held in these tests. The checks are one-sided
 /// (a call cannot answer before they are released), so a slow machine can
 /// only make them wait longer, never fail.

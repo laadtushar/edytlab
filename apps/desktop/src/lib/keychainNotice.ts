@@ -52,6 +52,27 @@ export function keychainNotice(
 }
 
 /**
+ * The notice for a Save, given where each of its writes landed (what
+ * `setBaseUrlFor`, `setEffortFor`, `setApiKeyFor`, `setActiveProvider` and
+ * `setActiveModel` resolve with), or null when every one of them went to
+ * the durable store (#497).
+ *
+ * The launch banner's words, because the cause is the same: no Secret
+ * Service answering. The banner covers a machine that has none at launch;
+ * this is for one whose service went away after, where a value saved just
+ * now sits in the kernel keyring until the next reboot, and nothing else
+ * would say so. The reason is that of the first write that fell back.
+ *
+ * An answer that is missing counts as durable: there is nothing to report.
+ */
+export function savedNotice(
+  landings: ReadonlyArray<KeychainPersistence | null | undefined>,
+): KeychainNotice | null {
+  const fellBack = landings.find((at) => at != null && !at.persistent);
+  return fellBack ? keychainNotice(null, fellBack) : null;
+}
+
+/**
  * What the app says while the backend is still reading the keychain at
  * launch (#497).
  *
