@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import type {
   EnvelopePoint,
+  RenderWarning,
   TrackSummary,
   TranscriptWord,
 } from "./lib/tauri-bridge";
@@ -64,6 +65,7 @@ import { CommandPalette } from "./components/CommandPalette";
 import { AppHeader } from "./components/AppHeader";
 import { EmptyState } from "./components/EmptyState";
 import { ErrorBanner } from "./components/ErrorBanner";
+import { RenderWarningsNotice } from "./components/RenderWarningsNotice";
 import { GraphView } from "./components/GraphView";
 import { Settings } from "./components/Settings";
 import { ShortcutsOverlay } from "./components/ShortcutsOverlay";
@@ -115,6 +117,8 @@ import { readSavedTrail } from "./lib/headTrail";
 import type { LeftView } from "./lib/views";
 import { useHeadMove } from "./hooks/useHeadMove";
 import { useGraphPreview } from "./hooks/useGraphPreview";
+import { useRenderWarnings } from "./hooks/useRenderWarnings";
+import { exportNotice as exportWarningNotice, mixNotice } from "./lib/renderWarnings";
 
 interface CompareMode {
   a: string;
@@ -203,6 +207,22 @@ function App() {
   // The label lane's labels: re-read when a label changes and whenever
   // the head moves, since undo does not announce itself (#453).
   const markers = useMarkers(head);
+  // What a render of the node shown leaves out: a stored effect this build
+  // cannot run (#532). Read off the node, so Play and Export need not
+  // render first to learn of it, and it clears when a head move lands on a
+  // state without the effect. A/B compare plays renders of its own two
+  // nodes and says what they leave out itself.
+  const renderWarnings = useRenderWarnings(compareMode === null ? shownNode : null);
+  // What the last export was written without, until dismissed or the head
+  // moves on (#532): it is about a file made from the head it was exported
+  // at, and means nothing next to another project's.
+  const [exportedWithout, setExportedWithout] = useState<{
+    file: string;
+    warnings: readonly RenderWarning[];
+  } | null>(null);
+  useEffect(() => {
+    setExportedWithout(null);
+  }, [head]);
   const [tracks, setTracks] = useState<TrackSummary[]>([]);
   // The latest list, for handlers that must compare against what the
   // session holds now rather than what they closed over.
@@ -1258,6 +1278,7 @@ function App() {
     if (!head || !selection || exporting) return;
     setExporting(true);
     setRenderError(null);
+    setExportedWithout(null);
     try {
       const outPath = await save({
         title: "Export Selection",
@@ -1265,7 +1286,10 @@ function App() {
         defaultPath: "export.wav",
       });
       if (!outPath) { setExporting(false); return; }
-      await renderRange(head, selection.start, selection.end, outPath);
+      const { warnings } = await renderRange(head, selection.start, selection.end, outPath);
+      // The file is written either way; when it is missing something the
+      // user stored, the one place they look for the result says so.
+      if (warnings.length > 0) setExportedWithout({ file: trimPath(outPath), warnings });
     } catch (e) {
       setRenderError(String(e));
     } finally {
@@ -1554,6 +1578,14 @@ function App() {
               message={renderError}
               action={errorAction}
               onDismiss={() => setRenderError(null)}
+            />
+          ) : null}
+          <RenderWarningsNotice notice={mixNotice(renderWarnings)} />
+          {exportedWithout ? (
+            <RenderWarningsNotice
+              testId="export-warnings"
+              notice={exportWarningNotice(exportedWithout.file, exportedWithout.warnings)}
+              onDismiss={() => setExportedWithout(null)}
             />
           ) : null}
 

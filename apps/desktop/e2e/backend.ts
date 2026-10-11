@@ -21,7 +21,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { TrackSummary } from "../src/lib/tauri-bridge";
+import type { RenderWarning, TrackSummary } from "../src/lib/tauri-bridge";
 
 import { fixturePath, fixtureSeconds } from "./audio-fixtures";
 
@@ -327,7 +327,32 @@ export function sessionWith(tracks: TrackSummary[]): Backend {
     // `save_view_state` returns `CmdResult<()>`, which serialises as
     // `null`. The app calls it, debounced, once there is a head.
     save_view_state: ok(null),
+    // `render_warnings_of(&node.state)`: the effects in the node's stored
+    // chains that a render leaves out. A project this build saved holds
+    // only effects the renderer runs (`add_effect` refuses the rest), so
+    // none. A test of a project an older build saved overrides it with
+    // `leftOut(..)`. The app asks for the node it shows, whenever it
+    // changes.
+    get_render_warnings: ok([]),
   };
+}
+
+/**
+ * One entry of `get_render_warnings`' answer: a switched-on effect in a
+ * stored chain that the render leaves out (`RenderWarning`,
+ * `commands.rs`).
+ *
+ * `reason` is `not_yet_streamable` for the kinds `NOT_YET_STREAMING` lists
+ * in `effect_chain.rs` (reverb, echo, eq, ...) and `unknown` for a kind
+ * nobody knows. `effect_index` counts the stored chain, bypassed entries
+ * included.
+ */
+export function leftOut(
+  scope: RenderWarning["scope"],
+  kind: string,
+  { effectIndex = 0, reason = "not_yet_streamable" as RenderWarning["reason"] } = {},
+): RenderWarning {
+  return { scope, effect_index: effectIndex, kind, reason };
 }
 
 /**

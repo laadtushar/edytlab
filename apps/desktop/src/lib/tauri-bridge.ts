@@ -421,25 +421,69 @@ export const getGraph = (): Promise<GraphSummary> =>
 export const renderPreview = (node: NodeId): Promise<string> =>
   invoke<string>("render_preview", { node });
 
+/**
+ * Where a stored effect sits (`RenderWarningScope`, `commands.rs`). A
+ * track's `index` is the one the agent's tools take, counted from 0.
+ */
+export type RenderWarningScope =
+  | { type: "track"; index: number; name: string }
+  | { type: "bus"; name: string }
+  | { type: "master" };
+
+/**
+ * A switched-on effect in a stored chain that a render leaves out
+ * (`RenderWarning`, `commands.rs`; #532). `not_yet_streamable` is an effect
+ * this build knows but cannot run in a chain yet; `unknown` is a kind it
+ * has never heard of. `effect_index` counts the stored chain, bypassed
+ * entries included.
+ */
+export interface RenderWarning {
+  scope: RenderWarningScope;
+  effect_index: number;
+  kind: string;
+  reason: "not_yet_streamable" | "unknown";
+}
+
+/**
+ * What a render of `node` leaves out, answered from the node's stored
+ * chains with no render (#532). Empty when nothing is. `render_preview`
+ * answers a bare path, so this is how the window learns of a skipped
+ * effect before and after Play.
+ */
+export const getRenderWarnings = (node: NodeId): Promise<RenderWarning[]> =>
+  invoke<RenderWarning[]>("get_render_warnings", { node });
+
+/** What `render_range` answers that the window reads. */
+export interface RangeExport {
+  /** What the file was written without; `[]` when nothing was left out. */
+  warnings: RenderWarning[];
+}
+
 export async function renderRange(
   nodeId: string,
   startSec: number,
   endSec: number,
   outPath: string,
-): Promise<void> {
-  await invoke("render_range", {
+): Promise<RangeExport> {
+  const answer = await invoke<Partial<RangeExport> | undefined>("render_range", {
     nodeId,
     startSec,
     endSec,
     outPath,
   });
+  return { warnings: answer?.warnings ?? [] };
 }
 
-export const prepareCompare = (
-  a: NodeId,
-  b: NodeId,
-): Promise<{ a_path: string; b_path: string }> =>
-  invoke<{ a_path: string; b_path: string }>("prepare_compare", { a, b });
+/** What `prepare_compare` answers: both renders, and what each left out. */
+export interface PreparedCompare {
+  a_path: string;
+  b_path: string;
+  a_warnings: RenderWarning[];
+  b_warnings: RenderWarning[];
+}
+
+export const prepareCompare = (a: NodeId, b: NodeId): Promise<PreparedCompare> =>
+  invoke<PreparedCompare>("prepare_compare", { a, b });
 
 export const acceptB = (b: NodeId): Promise<string> =>
   invoke<string>("accept_b", { b });

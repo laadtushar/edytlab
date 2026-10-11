@@ -12,11 +12,22 @@
  * to pre-render both WAVs so the toggle is gapless. It shows a
  * "Preparing…" indicator while the render runs and an error banner if
  * it fails.
+ *
+ * A side whose session stores an effect the renderer cannot run plays
+ * without it. The two sides then sound alike for the very thing being
+ * compared, so what each side leaves out is listed under the bar (#532).
  */
 
 import { useEffect, useRef, useState } from "react";
 
-import { acceptB as bridgeAcceptB, prepareCompare } from "../lib/tauri-bridge";
+import { compareNotice } from "../lib/renderWarnings";
+import {
+  acceptB as bridgeAcceptB,
+  prepareCompare,
+  type RenderWarning,
+} from "../lib/tauri-bridge";
+
+import { RenderWarningsNotice } from "./RenderWarningsNotice";
 
 export interface ABCompareBarProps {
   /** A-side node id (parent / before). */
@@ -51,6 +62,10 @@ export function ABCompareBar({
   const [preparing, setPreparing] = useState(true);
   const [prepareError, setPrepareError] = useState<string | null>(null);
   const [accepting, setAccepting] = useState(false);
+  const [left, setLeft] = useState<{ a: readonly RenderWarning[]; b: readonly RenderWarning[] }>({
+    a: [],
+    b: [],
+  });
 
   // Stable refs so the effect closure captures the latest paths without
   // re-running the pre-render on every render.
@@ -63,12 +78,14 @@ export function ABCompareBar({
     let cancelled = false;
     setPreparing(true);
     setPrepareError(null);
+    setLeft({ a: [], b: [] });
 
     prepareCompare(aNodeId, bNodeId)
-      .then(({ a_path, b_path }) => {
+      .then(({ a_path, b_path, a_warnings, b_warnings }) => {
         if (cancelled) return;
         aPathRef.current = a_path;
         bPathRef.current = b_path;
+        setLeft({ a: a_warnings ?? [], b: b_warnings ?? [] });
         setPreparing(false);
         // Default to the A side on first load.
         onAudioPathChange(a_path);
@@ -107,7 +124,7 @@ export function ABCompareBar({
     }
   };
 
-  return (
+  const bar = (
     <div
       data-testid="ab-compare-bar"
       style={{
@@ -271,5 +288,15 @@ export function ABCompareBar({
         </div>
       ) : null}
     </div>
+  );
+
+  return (
+    <>
+      {bar}
+      <RenderWarningsNotice
+        testId="ab-render-warnings"
+        notice={compareNotice(left.a, left.b)}
+      />
+    </>
   );
 }

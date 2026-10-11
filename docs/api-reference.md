@@ -482,6 +482,16 @@ interface ModelCatalogue {
   notice: string | null; // why the fallback is shown; null for a live list
 }
 
+interface RenderWarning {
+  scope:
+    | { type: "track"; index: number; name: string }  // index as the tools' `track` takes it
+    | { type: "bus"; name: string }
+    | { type: "master" };
+  effect_index: number;     // in the stored chain, bypassed entries counted
+  kind: string;
+  reason: "not_yet_streamable" | "unknown";
+}
+
 interface ModelInfo {
   id: string;
   display_name: string;
@@ -608,7 +618,36 @@ const wavPath = await bridge.renderPreview(nodeId);
 // Use path with WaveSurfer or audio element
 ```
 
-### `renderRange(node: NodeId, startSec: number, endSec: number, outPath: string) → void`
+A render never fails because of a stored effect: one the renderer cannot run in
+a chain (reverb, echo, eq and the other not-yet-streamable kinds, or a kind it
+has never heard of) is left out of the mix, and `getRenderWarnings` says which.
+The path is all this command answers, and a cached preview has no report, so the
+warnings are asked for by node rather than returned here.
+
+### `getRenderWarnings(node: NodeId) → RenderWarning[]`
+
+What a render of `node` leaves out: every switched-on effect in a stored chain
+(a track's, a bus's, the master's) that the renderer cannot run. Read from the
+node's chains alone, so it renders nothing and takes no audio or engine lock.
+Empty when nothing is left out.
+
+A node id hashes the state, so the answer for an id never changes. After the
+effect is removed or bypassed the head is a different node, whose answer is
+empty. The window asks for the node it shows whenever that changes (an edit,
+undo, a click in the graph) and shows each warning above the timeline, naming
+the track (by the index the tools take, and its name), bus or master and the
+effect: "Reverb on track 0 "Vocals" is left out: this build can't run it in a
+chain yet. Remove or bypass it to clear this."
+
+**Throws:** `NoSession` with no project open; an invalid or unknown node id.
+
+```typescript
+const warnings = await bridge.getRenderWarnings(head);
+// [{ scope: { type: "track", index: 0, name: "Vocals" },
+//    effect_index: 1, kind: "reverb", reason: "not_yet_streamable" }]
+```
+
+### `renderRange(node: NodeId, startSec: number, endSec: number, outPath: string) → { warnings: RenderWarning[] }`
 
 Render a time range from the session at `node` to a specific output file.
 
@@ -618,16 +657,31 @@ Render a time range from the session at `node` to a specific output file.
 - `endSec` — end of range in seconds
 - `outPath` — absolute path for the output WAV
 
+**Returns:** `warnings`, what the file was written without: the same list
+`getRenderWarnings(node)` gives, `[]` when nothing was left out. The file is
+written either way; the window says so after the export.
+
 ```typescript
-await bridge.renderRange(nodeId, 10.0, 45.5, "/Users/alice/export.wav");
+const { warnings } = await bridge.renderRange(nodeId, 10.0, 45.5, "/Users/alice/export.wav");
 ```
 
-### `prepareCompare(a: NodeId, b: NodeId) → { a_path: string, b_path: string }`
+### `prepareCompare(a: NodeId, b: NodeId) → PreparedCompare`
 
-Pre-render two nodes for A/B comparison. Returns paths to both rendered WAV files.
+Pre-render two nodes for A/B comparison. Returns paths to both rendered WAV
+files, and what each side's render leaves out (`getRenderWarnings`' list for
+that node). A side that stores an effect the renderer cannot run sounds the
+same with or without it, which is what a comparison cannot afford, so the
+window lists both sides' warnings under the compare bar.
 
 ```typescript
-const { a_path, b_path } = await bridge.prepareCompare(nodeA, nodeB);
+interface PreparedCompare {
+  a_path: string;
+  b_path: string;
+  a_warnings: RenderWarning[];
+  b_warnings: RenderWarning[];
+}
+
+const { a_path, b_path, a_warnings, b_warnings } = await bridge.prepareCompare(nodeA, nodeB);
 ```
 
 ### `acceptB(b: NodeId) → NodeId`
