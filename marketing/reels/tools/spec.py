@@ -8,10 +8,31 @@ the narration lines, and the edit lists (EDLs) of every reel.
 Times are seconds on the final (sped-up) demo mp4 timeline unless noted.
 """
 import math
+import os
 import re
+import sys
+from pathlib import Path
 
-ROOT = "/tmp/claude-0/-home-user-edytlab/f8840b24-655e-5052-a297-05770f1c9451/scratchpad/social/reel"
-DEMO_DIR = "/home/user/edytlab/website/public/demos"
+# Where things are. This file is <repo>/marketing/reels/tools/spec.py, so the
+# parents are tools/, then reels/, then marketing/, then the repo itself.
+REELS_DIR = Path(__file__).resolve().parents[1]   # <repo>/marketing/reels: tools/, add-narration.sh and the published files
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _need_env(name, what):
+    value = os.environ.get(name)
+    if not value:
+        sys.exit(f"{name} is not set. It must name {what}.")
+    return value
+
+
+# The app's demo recordings the reels are cut from. Same variable and default
+# as marketing/launch-video/tools: <repo>/website/public/demos.
+DEMO_DIR = os.environ.get("EDYTLAB_DEMO_DIR") or str(REPO_ROOT / "website" / "public" / "demos")
+# The scratch working directory, which is not in the repo: work/ holds the
+# text-to-speech cache, the character ledger and speech.json, and out/ the
+# files a run writes (their copies are what is committed in marketing/reels).
+ROOT = _need_env("EDYTLAB_REEL_ROOT", "the working directory that holds work/ and out/ (create it empty for a first run)")
 SITE_URL = "edytlab.com"
 WORDS_PER_SECOND = 2.4          # the brief's conservative narration rate
 BREATHING_ROOM = 0.3            # seconds kept free at the end of a cue

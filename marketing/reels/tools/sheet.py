@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """sheet.py out.png cols width demo:t demo:t ...   -> labelled contact sheet of exact frames (accurate seek)."""
-import subprocess, sys, io
+import subprocess, sys, io, os
+from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
-DEMOS = "/home/user/edytlab/website/public/demos"
+# <repo>/website/public/demos (this file is <repo>/marketing/reels/tools/sheet.py); EDYTLAB_DEMO_DIR overrides it.
+DEMOS = os.environ.get("EDYTLAB_DEMO_DIR") or str(Path(__file__).resolve().parents[3] / "website" / "public" / "demos")
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 def frame(src, t):
     p = subprocess.run(["nice","-n","10","ffmpeg","-nostdin","-v","error","-ss",f"{t:.3f}","-i",src,"-frames:v","1","-f","image2pipe","-vcodec","png","-"],capture_output=True)

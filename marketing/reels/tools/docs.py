@@ -79,7 +79,7 @@ def usage_text():
 
 
 _u, _spent = usage_text()
-INTRO = open(f"{ROOT}/tools/intro.md").read().replace("@@USAGE@@", _u).replace("@@CHARS@@", f"{_spent:,}")
+INTRO = open(f"{REELS_DIR}/tools/intro.md").read().replace("@@USAGE@@", _u).replace("@@CHARS@@", f"{_spent:,}")
 
 
 def main():

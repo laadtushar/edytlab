@@ -11,4 +11,8 @@ Python 3 scripts that built everything in this folder (they need `ffmpeg`/`ffpro
   segment logic drifts by up to 3.4 s (every concat segment boundary adds about 0.1 s), so the times in `spec.py` are measured on the final mp4 (frame where the lower third changes).
 - `rms_listen_regions.py`: RMS profile used to find where the drop lands inside the Listen moments.
 
-Paths inside the scripts point at the original working directory; adjust `ROOT` in `spec.py` to re-run elsewhere.
+Paths: the scripts find the repo from their own location, so they run from a checkout in any directory.
+
+- The demo recordings are read from `website/public/demos/`; set `EDYTLAB_DEMO_DIR` to read them from somewhere else.
+- `spec.py` (so every script except `sheet.py`, `rms_listen_regions.py`, `detect_captions.py` and `map-captions.mjs`) needs `EDYTLAB_REEL_ROOT`: a scratch working directory outside the repo with `work/` (the text-to-speech cache, `ledger.json`, `speech.json`) and `out/` (what a run writes). It stops with a message if the variable is not set.
+- `map-captions.mjs` takes the native e2e run's `OUT` directory (the one holding `videos/passed/8-demo-<slug>.json`) as its first argument, or from `OUT`.
