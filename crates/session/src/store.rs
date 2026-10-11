@@ -272,11 +272,13 @@ impl Store {
     /// project is opened, including one that is already open, and the
     /// background reclaimer reads through a handle of its own, so a count
     /// per `Store` would read zero for exactly the sweeps that can run
-    /// during a tool. What is not shared is the lock: a run staged from an
-    /// older `Store` of the same project, after the app has swapped in a
-    /// newer one, is counted by both, but holding the newer store's lock
-    /// does not stop that older store from staging a new run between a
-    /// sweep's check and its delete.
+    /// during a tool. What is not shared is the lock: two `Store`s opened
+    /// on one directory are two writers, and holding one's lock does not
+    /// stop the other from staging a new run between a sweep's check and
+    /// its delete. The app therefore keeps one live `Store` per project
+    /// folder behind one lock (`LiveStores` in the desktop crate, #501),
+    /// and opening a project reads it into that one rather than building
+    /// another.
     pub fn staged_in_flight(&self) -> usize {
         self.in_flight.load(Ordering::SeqCst)
     }

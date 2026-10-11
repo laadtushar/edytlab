@@ -29,6 +29,8 @@ use session::Store;
 use skills::SkillLibrary;
 use tools::{Range, ToolDispatcher};
 
+use crate::live_stores::LiveStores;
+
 /// Shared, mutex-guarded application state. Cloning is cheap (`Arc`).
 #[derive(Clone)]
 pub struct AppState {
@@ -42,6 +44,12 @@ pub struct AppState {
     /// `Arc<Mutex<Store>>` so the same handle can be shared with the
     /// agent (which expects a non-`Option` `Arc<Mutex<Store>>`).
     pub store: Arc<Mutex<Option<Arc<Mutex<Store>>>>>,
+    /// Every store that is still alive, by project folder (#501). The one
+    /// in [`AppState::store`] is among them, and so is the one a running
+    /// turn holds after the window has moved to another project. A store
+    /// put in `store` must come from here (`LiveStores::register`), or an
+    /// open of its folder could not find it and would build a second.
+    pub live_stores: LiveStores,
     /// Audio engine. Stateless in Phase 1 but wrapped in `Arc<Mutex<_>>`
     /// to match the type the agent and tools expect.
     pub engine: Arc<Mutex<Engine>>,
@@ -173,6 +181,7 @@ impl AppState {
             agent: Arc::new(tokio::sync::Mutex::new(None)),
             dispatcher: Arc::new(Mutex::new(ToolDispatcher::default_dispatcher())),
             store: Arc::new(Mutex::new(None)),
+            live_stores: LiveStores::default(),
             engine: Arc::new(Mutex::new(Engine::new())),
             project_dir: Arc::new(Mutex::new(None)),
             api_key: Arc::new(Mutex::new(None)),
@@ -522,6 +531,9 @@ impl AppState {
     }
 
     /// Replace the open store with `handle`. Pass `None` to clear it.
+    ///
+    /// A `handle` is the project's live store: the one
+    /// [`AppState::live_stores`] gave out or took in for its folder.
     pub fn set_store(&self, handle: Option<Arc<Mutex<Store>>>) {
         *self.store.lock().expect("store mutex poisoned") = handle;
     }

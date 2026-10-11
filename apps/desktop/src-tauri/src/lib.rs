@@ -7,6 +7,7 @@
 
 pub mod commands;
 pub mod events;
+pub mod live_stores;
 pub mod mcp_tool;
 pub mod project;
 pub mod reclaimer;
@@ -136,7 +137,12 @@ pub fn run() {
                         Ok(store) => {
                             crate::commands::sweep_orphaned_audio(&store);
                             crate::commands::allow_assets_in_dir(app.handle(), &project_dir);
-                            app_state.set_store(Some(Arc::new(Mutex::new(store))));
+                            // Registered, so a project opened again later
+                            // finds this store while anything still holds it.
+                            let store = app_state
+                                .live_stores
+                                .register(&project_dir, Arc::new(Mutex::new(store)));
+                            app_state.set_store(Some(store));
                             app_state.set_project_dir(Some(project_dir.clone()));
                             // If a key was loaded by the startup reads,
                             // kick a rebuild so the agent is ready for the
