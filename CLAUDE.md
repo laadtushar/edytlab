@@ -87,6 +87,7 @@ This repo lives at `C:\Users\tusha\Work\Playground\Edytlab\edytlab` on Windows 1
 - Animation is GSAP (`gsap`, `@gsap/react`); framer-motion is not installed. Components that animate need the `"use client"` directive, must respect `prefers-reduced-motion`, and must render their content visible without JavaScript.
 - Demo videos: `website/lib/demos.ts` lists them, the files live in `website/public/demos/` (`<slug>.mp4` + `<slug>.jpg`), and `lib/demos.test.ts` fails if the list and the folder drift.
 - `crates/tools/tests/website_tool_docs.rs` checks tool names and counts in the site copy, so a tool rename or a new tool needs the site updated in the same PR.
+- Vercel deploys only `main` and branches with `website` in their name (`website/vercel.json` → `git.deploymentEnabled`, pinned by `lib/vercelConfig.test.ts`). The Hobby plan allows 100 deployments a day and counts every one Vercel creates, including those the `ignoreCommand` cancels, so app-only branches must not create any. Put `website` in the name of a branch that changes `website/` to get a preview; CI's `website (test)` job builds the site either way.
 
 ## Acceptance gates
 
