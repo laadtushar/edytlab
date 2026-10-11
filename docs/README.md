@@ -16,6 +16,8 @@ Long-form technical documentation for contributors and integrators. Marketing co
 | [**HANDOVER.md**](./HANDOVER.md) | One-page product brief and phase recap. |
 | [**packaging-windows.md**](./packaging-windows.md) | Windows signing, WebView2 bootstrapper, Authenticode, SmartScreen reputation. Read before touching the Windows leg of `release-signed.yml`. |
 | [**saas-evaluation.md**](./saas-evaluation.md) | Whether and how edytlab could run as a browser-based SaaS: what ties it to the desktop, options, costs, privacy, risks, phased plan (#389). |
+| [**motion-audit.md**](./motion-audit.md) | The desktop app's motion: the bar a piece of motion has to clear, the shared duration and easing vocabulary, reduced-motion rules, a verdict on every component (animated, left still, or deferred, each with its reason), and what each phase shipped (#211, #528). Read before adding any animation. |
+| [**brand/**](./brand/) | Before and after screenshots of the app's brand alignment with the website (violet on zinc, #515): empty state, first-run welcome, two-track session, plan card, chat after a run, Settings and the graph view. Images only. |
 
 ## Quick Links
 

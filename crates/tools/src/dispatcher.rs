@@ -540,12 +540,11 @@ impl ToolDispatcher {
 
         // Provenance is recorded here rather than in each tool, and that
         // is the whole reason it is feasible: this is the one place every
-        // edit passes through, so all 81 tools are covered by one code
-        // path and a tool added tomorrow is covered without being
-        // touched. Threading it through the tools instead would mean
-        // editing sixty-odd files and would drift the first time someone
-        // forgot — the failure mode this repo already keeps guard tests
-        // for.
+        // edit passes through, so every tool is covered by one code path
+        // and a tool added tomorrow is covered without being touched.
+        // Threading it through the tools instead would mean editing every
+        // tool's file and would drift the first time someone forgot — the
+        // failure mode this repo already keeps guard tests for.
         let head_before = ctx.store.head();
         let result = prepared.tool.invoke(args.clone(), ctx)?;
 
@@ -559,7 +558,7 @@ impl ToolDispatcher {
                 // `paste_region` names the CAS blob its clipboard went
                 // to. Only those few do; everything else is covered by
                 // the default below, which is the point of recording
-                // here rather than in sixty-odd tools.
+                // here rather than in every tool.
                 let already_recorded = ctx
                     .store
                     .get(new_head)
