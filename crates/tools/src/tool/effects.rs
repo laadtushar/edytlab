@@ -35,9 +35,11 @@
 //! kind unchecked on the grounds that a second list would drift from the
 //! registry; the cost was that an effect the renderer cannot stream
 //! (reverb, echo, eq, compressor...) was accepted and then failed every
-//! render until removed (#520). Asking the registry, rather than keeping
-//! a list here, is what keeps the two from drifting. A refused kind names
-//! the ones that work.
+//! render until removed (#520). The render no longer fails over a stored
+//! one, it leaves the entry out and warns, but an effect that is left out
+//! does nothing, so it is still refused at the door. Asking the registry,
+//! rather than keeping a list here, is what keeps the two from drifting. A
+//! refused kind names the ones that work.
 
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -636,9 +638,9 @@ impl Tool for SetEffectBypassedTool {
         let kind = chain[args.effect_index].kind.clone();
         // Switching an effect on is a way into the chain, like adding one.
         // A project saved before `add_effect` checked its kind can hold a
-        // bypassed effect the renderer cannot stream; it renders because
-        // bypassed entries are skipped, and would stop rendering the
-        // moment it was switched back on.
+        // bypassed effect the renderer cannot stream; it is skipped without
+        // comment because it is bypassed, and switched back on it would be
+        // skipped with a warning and do nothing.
         if !args.bypassed {
             if let Err(e) = check_effect_kind(&kind) {
                 return Ok(ToolResult::Error(format!(

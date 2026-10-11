@@ -114,6 +114,7 @@ import { readSavedTrail } from "./lib/headTrail";
 
 import type { LeftView } from "./lib/views";
 import { useHeadMove } from "./hooks/useHeadMove";
+import { useGraphPreview } from "./hooks/useGraphPreview";
 
 interface CompareMode {
   a: string;
@@ -149,6 +150,14 @@ function App() {
     stepForward,
     inOrder,
   } = useSession();
+  // The node the history graph is previewing, apart from `head` (#522): a
+  // click there shows a node, and only "Set as head" moves the head, so the
+  // undo path and the file it is saved to follow real moves alone.
+  const { previewId, preview: previewNode, clearPreview } = useGraphPreview(head);
+  // The node the loaded mix should be a render of: the one being
+  // previewed, else the head. Everything that shows or plays the mix asks
+  // about this; everything that is about the session asks about `head`.
+  const shownNode = previewId ?? head;
   // Two different things used to share one variable, and the collision
   // is why the mixer is inaudible (#155).
   //
@@ -859,12 +868,15 @@ function App() {
           .catch(() => null),
       ]);
       applyView(viewToApply(view), "replace");
+      // A preview of the project that was left is nothing in this one, even
+      // when both happen to be on the same head (#522).
+      clearPreview();
       // Always, including `null`: the project just opened has its own
       // head and its own history, and neither the old project's head nor
       // the path taken through it may carry over (#398).
       resetHead(storeHead, path);
     },
-    [applyView, resetHead],
+    [applyView, resetHead, clearPreview],
   );
 
   /**
@@ -1334,24 +1346,32 @@ function App() {
     [loadInOrder],
   );
 
+  // Renders what is shown: the previewed node when the graph has one, else
+  // the head. Play asks for this when the mix is not a render of it.
   const handleRenderPreview = useCallback(async () => {
-    if (!head || rendering) return;
+    if (!shownNode || rendering) return;
     setRendering(true);
     setRenderError(null);
     try {
-      const path = await renderHead();
+      const path = previewId ? await bridgeRenderPreview(previewId) : await renderHead();
       setMixPath(path);
-      setMixNodeId(head);
+      setMixNodeId(shownNode);
     } catch (err) {
       setRenderError(String(err));
     } finally {
       setRendering(false);
     }
-  }, [head, rendering, renderHead]);
+  }, [shownNode, previewId, rendering, renderHead]);
 
+  /**
+   * A click on a bubble in the history graph (#522): look at that node, do
+   * not go there. It renders the node's mix and marks it as the preview;
+   * the head, the undo path and the saved path stay where they were, and a
+   * real head move (an edit, undo, "Set as head") ends the preview.
+   */
   const handleSelectGraphNode = useCallback(
     async (nodeId: string) => {
-      setHeadLocal(nodeId);
+      previewNode(nodeId);
       setRendering(true);
       setRenderError(null);
       try {
@@ -1364,7 +1384,7 @@ function App() {
         setRendering(false);
       }
     },
-    [setHeadLocal],
+    [previewNode],
   );
 
   /**
@@ -1375,9 +1395,10 @@ function App() {
    *
    * `setHeadLocal` runs only once `setHeadTo` has resolved, so a refused
    * move is not recorded. It is a no-op when the head already is
-   * `nodeId` (a preview click on the same node), which is right. The mix
-   * needs no clearing: `mixIsCurrent` / `mixIsStale` compare `mixNodeId`
-   * with `head`.
+   * `nodeId`, which is right. This is the only way the graph moves the
+   * head: a click on a bubble is a preview (`handleSelectGraphNode`, #522),
+   * and the head move ends it. The mix needs no clearing: `mixIsCurrent` /
+   * `mixIsStale` compare `mixNodeId` with the node shown.
    */
   const handleGraphSetHead = useCallback(
     async (nodeId: string): Promise<void> => {
@@ -1459,9 +1480,11 @@ function App() {
 
   // Whether Play can start what is loaded as it is. A/B compare puts its
   // own renders in `mixPath` — they belong to no head — and Play there
-  // plays the side that is chosen, never a render of the head.
-  const mixMatchesHead =
-    compareMode !== null || mixIsCurrent({ mixPath, mixNodeId }, head);
+  // plays the side that is chosen, never a render of the head. A node the
+  // graph is previewing is what is shown, so its render is the current one
+  // (#522).
+  const mixMatchesShown =
+    compareMode !== null || mixIsCurrent({ mixPath, mixNodeId }, shownNode);
 
   const notice = keychainNotice(keychainError, keychainPersistence);
   // The same words in Settings: the blocking dialog covers the banner,
@@ -1592,10 +1615,11 @@ function App() {
                   onZoomChange={setZoomPxPerSec}
                   onLoadErrorChange={setAudioLoadError}
                   mixPath={mixPath}
-                  // Play renders the head's preview when this is false,
-                  // then plays it (#431). A/B compare supplies its own
-                  // mixes, which belong to no head, so it never asks.
-                  mixCurrent={mixMatchesHead}
+                  // Play renders the shown node's preview (the graph's
+                  // preview, else the head) when this is false, then plays
+                  // it (#431). A/B compare supplies its own mixes, which
+                  // belong to no head, so it never asks.
+                  mixCurrent={mixMatchesShown}
                   rendering={rendering}
                   onRequestRender={handleRenderPreview}
                   snapToZero={snapToZero}
@@ -1645,6 +1669,7 @@ function App() {
             ) : (
               <GraphView
                 head={head}
+                preview={previewId}
                 onSelectNode={handleSelectGraphNode}
                 onCompareNodes={handleCompareNodes}
                 onSetHead={handleGraphSetHead}
@@ -1677,9 +1702,10 @@ function App() {
         audioPath={timelineSource}
         trackName={sourceTrack?.name}
         head={head}
+        previewId={previewId}
         rendering={rendering}
         selection={selection}
-        mixStale={mixIsStale({ mixPath, mixNodeId }, head)}
+        mixStale={mixIsStale({ mixPath, mixNodeId }, shownNode)}
         mixMissing={compareMode === null && mixIsMissing({ mixPath, mixNodeId })}
         loadError={audioLoadError}
         restoringHistory={headMove.pending}
@@ -1742,6 +1768,12 @@ interface StatusBarProps {
    */
   trackName?: string | null;
   head: string | null;
+  /**
+   * The node the history graph is previewing, when it is not the head
+   * (#522). The head label keeps saying where the session is; this says
+   * that what is loaded to play is a render of another node.
+   */
+  previewId?: string | null;
   rendering: boolean;
   selection: Selection | null;
   /**
@@ -1786,6 +1818,7 @@ export function StatusBar({
   audioPath,
   trackName,
   head,
+  previewId = null,
   rendering,
   selection,
   mixStale,
@@ -1880,6 +1913,18 @@ export function StatusBar({
       </span>
       <span className="text-[var(--text-faint)]/80">·</span>
       <span data-testid="status-bar-head">{headLabel}</span>
+      {previewId ? (
+        <>
+          <span className="text-[var(--text-faint)]/80">·</span>
+          <span
+            data-testid="status-bar-preview"
+            className="text-[var(--accent)]"
+            title="The graph is previewing this node. The head has not moved; Set as head in the graph moves it."
+          >
+            previewing {previewId.slice(0, 7)}
+          </span>
+        </>
+      ) : null}
       {selection ? (
         <>
           <span className="text-[var(--text-faint)]/80">·</span>

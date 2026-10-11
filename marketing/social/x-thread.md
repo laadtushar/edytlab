@@ -1,4 +1,4 @@
-# X thread: v0.4.0 and the DJ demo
+# X thread: v0.5.0 and the DJ demo
 
 **Links:** site <https://edytlab.com> · download
 <https://github.com/laadtushar/edytlab/releases/latest>
@@ -54,7 +54,7 @@ It's for prep, not live use. And in the demo, the agent itself flags a spot wher
 **6/8**
 
 ```
-v0.4.0 is out. Highlights: Play works straight after opening a file or making an edit, the assistant's replies render lists, bold and tables, a request with many steps finishes instead of ending in an error, and the limiter limits instead of hard-clipping.
+v0.5.0 is out. Highlights: edits you make while the assistant works are kept, in order. Plan cards say what each step does. Ducking music under speech works without a transcript. On Linux, API keys go in the Secret Service. Ollama is sent a smaller tool list.
 ```
 
 **7/8**
@@ -81,6 +81,6 @@ Another demo: https://edytlab.com/demos/dj-extended-club-intro.mp4
 
 - If you pin one post, pin post 1.
 - Reply to questions with the issue number when one exists.
-- Post 6 repeats the v0.4.0 release notes. Check them against
+- Post 6 repeats the v0.5.0 release notes. Check them against
   <https://github.com/laadtushar/edytlab/releases/latest> before posting; if
   there is a newer release, rewrite that post.

@@ -52,7 +52,9 @@ export default [
       assert(Math.abs((await at()) - paused) < 0.05, `Space paused: the playhead held at ${paused}`);
       await ctx.shot(`Paused at ${paused}`);
 
-      const loopOn = () => d.attr("[data-testid='loop-btn']", "class").then((c) => /amber/.test(c));
+      // The button's state is its `data-active` attribute (Timeline.tsx), not
+      // a colour class: the brand restyle (#515) took the amber class away.
+      const loopOn = () => d.attr("[data-testid='loop-btn']", "data-active").then((v) => v === "true");
       assert(!(await loopOn()), "loop starts off");
       await d.keys("l");
       await d.until(loopOn, { label: "L to turn loop on" });

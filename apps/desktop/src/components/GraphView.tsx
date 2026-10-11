@@ -7,8 +7,10 @@
  *    opened, etc.).
  *  - Lay nodes out top→bottom with dagre, colour-code lineages, and
  *    render via @xyflow/react.
- *  - Click a node → call the parent's `onSelectNode(id)` so the canvas
- *    pane re-renders that node's audio.
+ *  - Click a node → call the parent's `onSelectNode(id)`, which previews
+ *    that node's audio. A click does not move the head (#522): the head
+ *    ring stays on the head and the previewed node is marked apart from
+ *    it. Only "Set as head" moves the head.
  *  - Right-click a node → context menu with Set-as-head / Compare /
  *    Rename / Delete. Set-as-head is handed to the parent's
  *    `onSetHead`, because moving the head is the parent's to do and to
@@ -19,8 +21,8 @@
  *
  * The component doesn't own any session-level state — that lives in
  * the parent's `useSession` hook. We expose only what the parent
- * needs to wire up: a `head` for highlighting and an `onSelectNode`
- * for click handling.
+ * needs to wire up: a `head` and a `preview` for highlighting and an
+ * `onSelectNode` for click handling.
  *
  * The graph is content-addressed, so it records which states exist, not
  * the order the user visited them. The parent can pass that order as
@@ -69,10 +71,19 @@ import {
 } from "../lib/tauri-bridge";
 
 export interface GraphViewProps {
-  /** Currently-selected head node id; rendered with a highlight ring. */
+  /** The session's head node id; rendered with a highlight ring. */
   head: NodeId | null;
-  /** Called when the user clicks a node. The parent should update
-   *  its head pointer and re-render the canvas. */
+  /**
+   * The node being previewed, if it is not the head: drawn with a dashed
+   * outline of its own, so it reads as "looking at" and not as "on" (#522).
+   * The head keeps its ring either way.
+   */
+  preview?: NodeId | null;
+  /**
+   * Called when the user clicks a node. The parent previews it. This is
+   * not a head move and must not become one: the head, and the path undo
+   * follows, change only through `onSetHead` (#522).
+   */
   onSelectNode: (id: NodeId) => void;
   /**
    * M26: called when the user chooses "Compare with…" from the context
@@ -124,6 +135,8 @@ interface NodeData extends Record<string, unknown> {
   bubble: GraphNode;
   colour: string;
   isHead: boolean;
+  /** Previewed, and not the head: the head ring is the head's alone. */
+  isPreview: boolean;
   onContextMenu: (e: React.MouseEvent, id: string) => void;
 }
 
@@ -132,7 +145,7 @@ interface NodeData extends Record<string, unknown> {
  * react-flow don't re-render every node body.
  */
 const GraphBubble = memo(function GraphBubble({ data }: NodeProps) {
-  const { bubble, colour, isHead, onContextMenu } = data as NodeData;
+  const { bubble, colour, isHead, isPreview, onContextMenu } = data as NodeData;
   const label = nodeLabel(bubble);
   const tool = bubble.tool ?? "—";
   const when = formatRelative(bubble.created_at);
@@ -142,6 +155,7 @@ const GraphBubble = memo(function GraphBubble({ data }: NodeProps) {
       data-testid="graph-bubble"
       data-node-id={bubble.id}
       data-is-head={isHead ? "true" : "false"}
+      data-is-preview={isPreview ? "true" : "false"}
       onContextMenu={(e) => onContextMenu(e, bubble.id)}
       // Motion (#211). Branching is the product's core idea and this
       // view was silent about it: a new node appeared fully formed and
@@ -160,7 +174,11 @@ const GraphBubble = memo(function GraphBubble({ data }: NodeProps) {
         "node-in transition min-w-[160px] max-w-[200px] rounded-lg border bg-[var(--surface-elev)] px-3 py-2 text-xs text-[var(--text)] shadow " +
         (isHead
           ? "ring-2 ring-[color:var(--accent)] border-[var(--accent)]"
-          : "border-[var(--border-strong)]")
+          : isPreview
+            ? // Dashed, so it differs from the head's solid ring by shape
+              // and not by colour alone (#522).
+              "outline-2 outline-dashed outline-offset-2 outline-[color:var(--accent)] border-[var(--accent-border)]"
+            : "border-[var(--border-strong)]")
       }
       style={{ borderLeft: `4px solid ${colour}` }}
     >
@@ -199,6 +217,7 @@ interface ContextMenuState {
 
 export function GraphView({
   head,
+  preview = null,
   onSelectNode,
   onCompareNodes,
   onSetHead,
@@ -290,6 +309,7 @@ export function GraphView({
         bubble: n,
         colour: colours.get(n.id) ?? "#888",
         isHead: head === n.id,
+        isPreview: preview === n.id && head !== n.id,
         onContextMenu: handleContextMenu,
       };
       return {
@@ -330,7 +350,7 @@ export function GraphView({
     }
 
     return { nodes: rfNodes, edges: rfEdges };
-  }, [graph, head, handleContextMenu, path]);
+  }, [graph, head, preview, handleContextMenu, path]);
 
   const handleNodeClick = useCallback<NodeMouseHandler>(
     (_e, node) => {

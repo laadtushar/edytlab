@@ -218,20 +218,31 @@ any model works unless you have tried it.
 >
 > What I've actually measured, which is not much:
 >
-> - A one-line request produced a first request of about 15,000 tokens (system
->   prompt plus about 80 tool schemas; I haven't split the total between the
->   two yet).
+> - In v0.4.0 a one-line request produced a first request of about 15,000
+>   tokens (system prompt plus every tool schema).
 > - With a llama.cpp `llama-server` and Qwen2.5-3B at an 8,192 context, that
->   request was refused outright. Details and the plan to shrink it are in
+>   request was refused outright. The numbers are in
 >   https://github.com/laadtushar/edytlab/issues/395.
-> - On CPU, prompt processing at ~100 tokens/s means minutes to the first reply.
+> - On CPU, prompt processing at ~100 tokens/s means minutes to the first reply
+>   for a request that size.
 >
-> So today you need a model with reliable tool calling and a context well above
-> 16k. I haven't benchmarked models against the tool list, and I'd rather ask
-> than guess. If you try it: which model and quantisation, what context
-> setting, and did it keep to the tool schemas? Reports of failures are as
-> useful as successes. A tool-filtering step so small models see fewer tools is
-> the next thing I'd build; opinions welcome.
+> What changed in v0.5.0: Ollama is sent a core set of 15 tools plus the ones
+> your message names, with shortened descriptions, and the names of the rest go
+> in one line of the system prompt so the model knows they exist. Hosted
+> providers still get every tool. The test that measures it
+> (`crates/ai/tests/request_size.rs`, against a mock server) puts the one-line
+> request at about 8.7 KB of text, against about 58 KB with every tool. That is
+> bytes, not tokens, I have not run a tokenizer, and I have not re-run
+> llama-server with Qwen2.5-3B on the new request. If the server still refuses
+> a request as too long, the app now says so and what to change (llama.cpp does
+> refuse; Ollama trims silently, and the app shows nothing).
+>
+> I haven't benchmarked models against the tool list, and I'd rather ask than
+> guess. If you try it: which model and quantisation, what context setting, and
+> did it keep to the tool schemas? A tool is sent in full only when the message
+> names it or it is in the core, so a request described by effect ("make it
+> sound like a cathedral") may not carry the reverb schema; I don't know how
+> often that matters. Reports of failures are as useful as successes.
 >
 > Optional "plan first" mode makes the agent show its steps for your approval
 > before any edit runs, which helps with smaller models that make odd choices.
@@ -284,7 +295,9 @@ truth.
 >
 > Two things I'd particularly like reviewed: the vocoder's transient handling,
 > and the lock discipline in the agent loop (long tools used to hold the store
-> lock and freeze the window, #421).
+> lock and freeze the window, #421; since v0.5.0 a tool that opts in runs
+> without the lock and commits only if the head hasn't moved, and re-runs
+> otherwise).
 >
 > What is not built: ONNX stem separation and transcription are stubs.
 >
@@ -315,15 +328,15 @@ all three platforms. Only claim things you hit.
 >   run on Linux. Fixed in v0.3.0.
 > - **Sync commands run on the main thread.** A few synchronous commands took
 >   the same store lock a long-running tool held, so the whole window froze
->   during a long edit (#421). v0.3.0 moves those commands off the main thread
->   (#423); not holding the lock across the DSP at all is still open. The
->   lesson: don't take a lock a background worker might hold inside a sync
->   command.
+>   during a long edit (#421). v0.3.0 moved those commands off the main thread
+>   (#423), and v0.5.0 moved the rest (#489) and lets long tools run without
+>   holding the lock at all (#487). The lesson: don't take a lock a background
+>   worker might hold inside a sync command.
 > - **Keyring on Linux.** `keyring`'s `linux-native` backend is the kernel
 >   keyring: in-memory, gone after a reboot. That is what v0.4.0 and earlier
->   use (#394); the next release stores credentials in the Secret Service and
->   warns when there is none. If you ship credentials on Linux, read the
->   backend's docs before you rely on it.
+>   use (#394); v0.5.0 stores credentials in the Secret Service and warns when
+>   there is none. I haven't checked that across a real reboot yet. If you ship
+>   credentials on Linux, read the backend's docs before you rely on it.
 > - **Testing.** Playwright runs the production front end in Chromium with only
 >   the IPC boundary replaced, and the fake backend answers from the Rust
 >   source. A separate native suite drives the real binary with WebDriver for

@@ -1,6 +1,6 @@
 # Two-week posting plan
 
-Starts Monday 12 October 2026, two days after v0.4.0 was published (9 October).
+Starts Monday 12 October 2026, two days after v0.5.0 was published (10 October; v0.4.0 was 9 October, and the reels and recordings were made on that build).
 Every piece is in this folder: `linkedin-posts.md`, `instagram.md`,
 `reddit.md`, `more.md`. Videos are the `reel-*.mp4` files (and their
 `-narrated` versions and `.srt` captions).
@@ -30,7 +30,7 @@ choices for Show HN and Reddit are conventional wisdom, not measurements.
       `.srt` files exist, play with sound, and match the captions (see the
       note at the bottom of `instagram.md`: trim any caption detail the final
       edit cuts).
-- [ ] Install v0.4.0 on one machine per OS you will claim. Check the macOS
+- [ ] Install v0.5.0 on one machine per OS you will claim. Check the macOS
       `xattr` step in the release notes works as written.
 - [ ] Set the Instagram bio link and bio line (`instagram.md`).
 - [ ] Decide the Claude Code disclosure (`linkedin-posts.md` post 3 and the
@@ -41,10 +41,6 @@ choices for Show HN and Reddit are conventional wisdom, not measurements.
       r/opensource, r/edmproduction and r/WeAreTheMusicMakers. Write down
       which of them restrict self-promotion; move or drop those posts.
 - [ ] Open <https://edytlab.com/#demos> on a phone and play a demo.
-- [ ] Fix the analytics contradiction before anyone quotes it:
-      `website/app/privacy/page.tsx` says the website uses anonymous Vercel
-      analytics, while `marketing/` drafts say it has none. The new posts
-      avoid the claim.
 
 ## Week 1
 

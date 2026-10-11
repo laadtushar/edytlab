@@ -13,6 +13,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
+use crate::tool::util::attach_render_warnings;
 use crate::{Tool, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
@@ -165,7 +166,7 @@ impl Tool for RenderPreviewTool {
                     let _ = cache.get_or_render::<_, std::io::Error>(node_id, |_| {
                         unreachable!("the file was just checked to exist")
                     });
-                    return Ok(ToolResult::Ok(json!({
+                    let mut out = json!({
                         "path": cached.to_string_lossy(),
                         "frames_written": probe.frames,
                         "sample_rate": probe.sample_rate,
@@ -176,7 +177,14 @@ impl Tool for RenderPreviewTool {
                             probe.frames, probe.channels, probe.sample_rate,
                             cached.display(),
                         ),
-                    })));
+                    });
+                    // The cache holds the audio and not the report, and a
+                    // hit that said less than the render before it would
+                    // look like the problem had gone away. The warnings
+                    // are a function of the node's stored chains, so they
+                    // are read from the state, not stored beside the file.
+                    attach_render_warnings(&mut out, &audio_engine::render_warnings(&node.state));
+                    return Ok(ToolResult::Ok(out));
                 }
             }
         }
@@ -219,7 +227,7 @@ impl Tool for RenderPreviewTool {
             staged_path.clone()
         };
 
-        Ok(ToolResult::Ok(json!({
+        let mut out = json!({
             "path": out_path.to_string_lossy(),
             "frames_written": report.frames_written,
             "sample_rate": report.sample_rate,
@@ -231,6 +239,8 @@ impl Tool for RenderPreviewTool {
                 report.frames_written, report.channels, report.sample_rate,
                 out_path.display(),
             ),
-        })))
+        });
+        attach_render_warnings(&mut out, &report.warnings);
+        Ok(ToolResult::Ok(out))
     }
 }

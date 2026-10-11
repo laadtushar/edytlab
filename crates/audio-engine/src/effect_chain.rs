@@ -11,7 +11,20 @@
 //! while the render path ignored one and hard-errored on the other. A
 //! session with master effects rendered as if they were not there, with
 //! no error at all — silent wrong output, which is worse than a
-//! rejection, and why an unusable chain now fails the render.
+//! rejection. So an unusable chain used to fail the render.
+//!
+//! That fixed the silence and created the opposite problem (#520): a
+//! project that already held an effect the renderer cannot run, written
+//! by an older build or by hand, could not be rendered at all. On the
+//! master bus that is the whole mix, preview, playback and export
+//! included, until someone finds the entry and removes it. The rule is
+//! now that **a stored effect never fails a render**: an un-bypassed
+//! entry the renderer cannot run is left out, the rest of the chain
+//! runs, and the entry is reported (see [`skipped_effects`]), which is
+//! what keeps it from being the silent wrong output the first rule was
+//! written against. The tools that put effects in a chain refuse such
+//! kinds up front (`add_effect`, #526), so this is for what is already
+//! stored.
 //!
 //! ## Why the registry is short
 //!
@@ -34,9 +47,10 @@
 //!   problem, even though its waveshaper is memoryless.
 //!
 //! Rather than run them and produce audio that is subtly wrong in a way
-//! nobody would attribute to chunking, they are rejected with a message
-//! that says what is missing. They become available as each is
-//! converted to a `Processor` — see #101's note on the streaming shape.
+//! nobody would attribute to chunking, they are left out and reported,
+//! with a message that says what is missing. They become available as
+//! each is converted to a `Processor` — see #101's note on the streaming
+//! shape.
 //!
 //! Registered today: `gain`, `limiter`, and the three filters, which are
 //! either memoryless or already have a streaming form.
@@ -48,14 +62,14 @@
 //! the same table. Anything that decides whether a kind may be put in a
 //! chain (the `add_effect` tool, #520) asks here instead of keeping its
 //! own list, because a second list is how a tool comes to accept what the
-//! renderer then fails on: a chain holding one such effect fails every
-//! render until it is removed, and on the master bus that is the whole mix.
+//! renderer then leaves out: a chain holding one such effect renders
+//! without it, and on the master bus that is the whole mix.
+
+use std::fmt;
 
 use audio_dsp::dynamics::DEFAULT_RELEASE_MS;
 use audio_dsp::{Biquad, BiquadCoeffs, Gain, Limiter, Processor};
-use session::EffectInstance;
-
-use crate::{Error, Result};
+use session::{EffectInstance, SessionState};
 
 /// How to make one streamable effect: the arguments are its parameters,
 /// the project rate and the channel count.
@@ -191,27 +205,145 @@ fn param(params: &serde_json::Value, name: &str, default: f32) -> f32 {
 ///
 /// Bypassed entries are skipped entirely rather than instantiated and
 /// stepped over, so a bypassed effect costs nothing and — more
-/// importantly — is byte-identical to an absent one.
+/// importantly — is byte-identical to an absent one. An entry of a kind
+/// the renderer cannot run is skipped the same way (#520), and so is
+/// exactly as absent; it never fails the build. That it was left out is
+/// not lost: [`skipped_effects`] names every such entry, and the render
+/// reports them.
 pub fn build(
     chain: &[EffectInstance],
     sample_rate: u32,
     channels: usize,
-) -> Result<Vec<Box<dyn Processor>>> {
-    let mut out: Vec<Box<dyn Processor>> = Vec::new();
-    for effect in chain {
+) -> Vec<Box<dyn Processor>> {
+    chain
+        .iter()
+        .filter(|effect| !effect.bypassed)
+        .filter_map(|effect| {
+            let streamable = STREAMABLE.iter().find(|s| s.kind == effect.kind)?;
+            Some((streamable.make)(&effect.params, sample_rate, channels))
+        })
+        .collect()
+}
+
+/// Which chain an entry sits in, as a person would name it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChainScope {
+    /// A track's chain: its index in the session, and its name.
+    Track { index: usize, name: String },
+    /// A bus's chain.
+    Bus { name: String },
+    /// The master bus.
+    Master,
+}
+
+impl fmt::Display for ChainScope {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ChainScope::Track { index, name } if name.is_empty() => write!(f, "track {index}"),
+            ChainScope::Track { index, name } => write!(f, "track {index} \"{name}\""),
+            ChainScope::Bus { name } if name.is_empty() => write!(f, "a bus"),
+            ChainScope::Bus { name } => write!(f, "bus \"{name}\""),
+            ChainScope::Master => write!(f, "the master bus"),
+        }
+    }
+}
+
+/// A chain entry the render leaves out because the renderer cannot run
+/// its kind (#520).
+///
+/// Only entries that are switched on: a bypassed entry is left out by
+/// design and is not a finding.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkippedEffect {
+    pub scope: ChainScope,
+    /// Position in the stored chain, bypassed entries counted: the index
+    /// `remove_effect` and `set_effect_bypassed` take.
+    pub index: usize,
+    pub kind: String,
+    /// Why: [`KindSupport::NotYetStreamable`] or [`KindSupport::Unknown`].
+    pub support: KindSupport,
+}
+
+impl fmt::Display for SkippedEffect {
+    /// The sentence the render report carries: where it is, which entry,
+    /// what happened and why, and what to do about it.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            scope, index, kind, ..
+        } = self;
+        write!(
+            f,
+            "{scope}, effect {index} ({kind}): left out of the render, "
+        )?;
+        match self.support {
+            KindSupport::Unknown => write!(
+                f,
+                "because '{kind}' is not an effect kind the renderer knows"
+            )?,
+            _ => write!(f, "because the renderer cannot run '{kind}' in a chain yet")?,
+        }
+        write!(
+            f,
+            ". The rest of the chain is rendered; remove or bypass the effect to clear this warning."
+        )
+    }
+}
+
+/// Whether the render runs `effect`: switched on, and of a kind the
+/// renderer can stream.
+pub fn is_rendered(effect: &EffectInstance) -> bool {
+    !effect.bypassed && support(&effect.kind) == KindSupport::Streamable
+}
+
+/// Every switched-on entry in `state` the render leaves out because it
+/// cannot run its kind, in the order the signal meets them: tracks, then
+/// buses, then the master.
+///
+/// A function of the stored chains alone, so it answers without
+/// rendering, and answers the same for a render served from a cache. It
+/// does not ask whether the track can be heard: a muted track's entry is
+/// reported too, because the chain is what is stored and the warning is
+/// about the chain.
+pub fn skipped_effects(state: &SessionState) -> Vec<SkippedEffect> {
+    let mut out = Vec::new();
+    for (index, track) in state.tracks.iter().enumerate() {
+        scan(
+            &track.effects,
+            &ChainScope::Track {
+                index,
+                name: track.name.clone(),
+            },
+            &mut out,
+        );
+    }
+    for bus in &state.bus_routing.buses {
+        scan(
+            &bus.effects,
+            &ChainScope::Bus {
+                name: bus.name.clone(),
+            },
+            &mut out,
+        );
+    }
+    scan(&state.master_chain, &ChainScope::Master, &mut out);
+    out
+}
+
+fn scan(chain: &[EffectInstance], scope: &ChainScope, out: &mut Vec<SkippedEffect>) {
+    for (index, effect) in chain.iter().enumerate() {
         if effect.bypassed {
             continue;
         }
-        let Some(streamable) = STREAMABLE.iter().find(|s| s.kind == effect.kind) else {
-            return Err(if NOT_YET_STREAMING.contains(&effect.kind.as_str()) {
-                Error::EffectNotStreamable(effect.kind.clone())
-            } else {
-                Error::UnknownEffect(effect.kind.clone())
+        let how = support(&effect.kind);
+        if how != KindSupport::Streamable {
+            out.push(SkippedEffect {
+                scope: scope.clone(),
+                index,
+                kind: effect.kind.clone(),
+                support: how,
             });
-        };
-        out.push((streamable.make)(&effect.params, sample_rate, channels));
+        }
     }
-    Ok(out)
 }
 
 #[cfg(test)]
@@ -226,9 +358,16 @@ mod tests {
         }
     }
 
+    /// What [`skipped_effects`] reports for `chain` as a master chain.
+    fn skipped_in(chain: &[EffectInstance]) -> Vec<SkippedEffect> {
+        let mut out = Vec::new();
+        scan(chain, &ChainScope::Master, &mut out);
+        out
+    }
+
     #[test]
     fn an_empty_chain_builds_to_nothing() {
-        assert!(build(&[], 44_100, 2).unwrap().is_empty());
+        assert!(build(&[], 44_100, 2).is_empty());
     }
 
     #[test]
@@ -236,33 +375,117 @@ mod tests {
         let mut e = effect("gain", serde_json::json!({ "db": -6.0 }));
         e.bypassed = true;
         assert!(
-            build(&[e], 44_100, 2).unwrap().is_empty(),
+            build(&[e], 44_100, 2).is_empty(),
             "a bypassed effect must be absent, not a no-op step"
         );
     }
 
-    /// The bug this ticket exists to fix was silence: a master chain the
-    /// renderer ignored. An effect it cannot run must say so.
+    /// The bug #110 exists to fix was silence: a master chain the
+    /// renderer ignored. The answer then was to fail the render, and #520
+    /// reversed it, because a stored effect that fails every render makes
+    /// the whole project unrenderable. What survives of that rule is that
+    /// the omission is never silent: the entry is left out of the chain,
+    /// and [`skipped_effects`] says so.
     #[test]
-    fn an_unknown_kind_fails_the_render() {
-        let err = build(&[effect("wobbulator", serde_json::json!({}))], 44_100, 2).unwrap_err();
-        let msg = err.to_string();
-        assert!(msg.contains("wobbulator"), "got {msg}");
+    fn an_unknown_kind_is_left_out_and_reported() {
+        let chain = [
+            effect("gain", serde_json::json!({ "db": -3.0 })),
+            effect("wobbulator", serde_json::json!({})),
+        ];
+        assert_eq!(
+            build(&chain, 44_100, 2).len(),
+            1,
+            "only the gain should have been built"
+        );
+
+        let skipped = skipped_in(&chain);
+        assert_eq!(skipped.len(), 1, "{skipped:?}");
+        assert_eq!(skipped[0].index, 1);
+        assert_eq!(skipped[0].kind, "wobbulator");
+        assert_eq!(skipped[0].support, KindSupport::Unknown);
+        assert!(skipped[0].to_string().contains("wobbulator"));
     }
 
     /// "Not implemented on the stream yet" and "no such effect" are
     /// different mistakes and want different fixes, so they get
-    /// different errors.
+    /// different words.
     #[test]
     fn a_known_but_unstreamable_effect_says_so() {
-        let err = build(&[effect("reverb", serde_json::json!({}))], 44_100, 2).unwrap_err();
-        let msg = err.to_string();
+        let known = skipped_in(&[effect("reverb", serde_json::json!({}))]);
+        let unknown = skipped_in(&[effect("nope", serde_json::json!({}))]);
+        assert_eq!(known[0].support, KindSupport::NotYetStreamable);
+        assert_eq!(unknown[0].support, KindSupport::Unknown);
+
+        let msg = known[0].to_string();
         assert!(msg.contains("reverb"), "got {msg}");
-        assert!(
-            msg != build(&[effect("nope", serde_json::json!({}))], 44_100, 2)
-                .unwrap_err()
-                .to_string(),
+        assert!(msg.contains("cannot run"), "got {msg}");
+        assert_ne!(
+            msg.replace("reverb", "nope"),
+            unknown[0].to_string(),
             "an unimplemented effect and an unknown one must not read the same"
+        );
+    }
+
+    /// A chain made only of entries the renderer cannot run builds to
+    /// nothing rather than failing.
+    #[test]
+    fn a_chain_of_nothing_runnable_builds_to_nothing() {
+        let chain: Vec<_> = ["reverb", "echo", "wobbulator"]
+            .iter()
+            .map(|k| effect(k, serde_json::json!({})))
+            .collect();
+        assert!(build(&chain, 44_100, 2).is_empty());
+        assert_eq!(skipped_in(&chain).len(), 3);
+    }
+
+    /// The index in a report is the entry's place in the stored chain, so
+    /// `remove_effect` with it removes the entry named. A bypassed neighbour
+    /// still counts as a place and is not itself reported.
+    #[test]
+    fn the_index_counts_the_stored_chain_not_the_runnable_one() {
+        let mut off = effect("echo", serde_json::json!({}));
+        off.bypassed = true;
+        let chain = [
+            effect("gain", serde_json::json!({})),
+            off,
+            effect("reverb", serde_json::json!({})),
+            effect("eq", serde_json::json!({})),
+        ];
+        let skipped = skipped_in(&chain);
+        let at: Vec<(usize, &str)> = skipped.iter().map(|s| (s.index, s.kind.as_str())).collect();
+        assert_eq!(at, vec![(2, "reverb"), (3, "eq")]);
+    }
+
+    /// [`is_rendered`] is the question the report answers per entry.
+    #[test]
+    fn is_rendered_is_switched_on_and_streamable() {
+        assert!(is_rendered(&effect("gain", serde_json::json!({}))));
+        assert!(!is_rendered(&effect("reverb", serde_json::json!({}))));
+        assert!(!is_rendered(&effect("wobbulator", serde_json::json!({}))));
+        let mut off = effect("gain", serde_json::json!({}));
+        off.bypassed = true;
+        assert!(!is_rendered(&off));
+    }
+
+    #[test]
+    fn the_scope_is_named_the_way_a_person_names_it() {
+        let track = ChainScope::Track {
+            index: 2,
+            name: "Vocals".into(),
+        };
+        assert_eq!(track.to_string(), "track 2 \"Vocals\"");
+        let unnamed = ChainScope::Track {
+            index: 2,
+            name: String::new(),
+        };
+        assert_eq!(unnamed.to_string(), "track 2");
+        assert_eq!(ChainScope::Master.to_string(), "the master bus");
+        assert_eq!(
+            ChainScope::Bus {
+                name: "Room".into()
+            }
+            .to_string(),
+            "bus \"Room\""
         );
     }
 
@@ -286,9 +509,8 @@ mod tests {
             ),
         ];
         for (kind, params) in cases.iter().cloned() {
-            let built = build(&[effect(kind, params)], 44_100, 2)
-                .unwrap_or_else(|e| panic!("{kind} failed to build: {e}"));
-            assert_eq!(built.len(), 1, "{kind}");
+            let built = build(&[effect(kind, params)], 44_100, 2);
+            assert_eq!(built.len(), 1, "{kind} was not built");
         }
         // A kind added to the table without a case above would build
         // untested; make that an edit to this test.
@@ -303,31 +525,31 @@ mod tests {
     /// The table, [`support`] and [`build`] are one list seen three ways;
     /// this is the check that they stay so (#520). The `add_effect` tool
     /// asks [`support`] before storing a kind, so a disagreement here is a
-    /// tool that accepts what the renderer then fails on.
+    /// tool that accepts what the renderer then leaves out.
     #[test]
-    fn support_agrees_with_what_build_accepts() {
+    fn support_agrees_with_what_build_runs() {
         for kind in streamable_kinds() {
             assert_eq!(support(kind), KindSupport::Streamable, "{kind}");
-            build(&[effect(kind, serde_json::json!({}))], 44_100, 2)
-                .unwrap_or_else(|e| panic!("{kind} is streamable but failed to build: {e}"));
+            let chain = [effect(kind, serde_json::json!({}))];
+            assert_eq!(build(&chain, 44_100, 2).len(), 1, "{kind} was not built");
+            assert!(skipped_in(&chain).is_empty(), "{kind} was reported skipped");
         }
         for kind in NOT_YET_STREAMING {
             assert_eq!(support(kind), KindSupport::NotYetStreamable, "{kind}");
-            let err = build(&[effect(kind, serde_json::json!({}))], 44_100, 2)
-                .err()
-                .unwrap_or_else(|| panic!("{kind} is not streamable but built"));
-            assert!(
-                matches!(err, Error::EffectNotStreamable(_)),
-                "{kind}: {err}"
-            );
+            let chain = [effect(kind, serde_json::json!({}))];
+            assert!(build(&chain, 44_100, 2).is_empty(), "{kind} was built");
+            let skipped = skipped_in(&chain);
+            assert_eq!(skipped.len(), 1, "{kind} was not reported");
+            assert_eq!(skipped[0].support, KindSupport::NotYetStreamable, "{kind}");
         }
         // Kinds are matched exactly: a case or a space makes a new kind.
         for kind in ["wobbulator", "Gain", "GAIN", " gain", "gain ", ""] {
             assert_eq!(support(kind), KindSupport::Unknown, "{kind:?}");
-            let err = build(&[effect(kind, serde_json::json!({}))], 44_100, 2)
-                .err()
-                .unwrap_or_else(|| panic!("{kind:?} is unknown but built"));
-            assert!(matches!(err, Error::UnknownEffect(_)), "{kind:?}: {err}");
+            let chain = [effect(kind, serde_json::json!({}))];
+            assert!(build(&chain, 44_100, 2).is_empty(), "{kind:?} was built");
+            let skipped = skipped_in(&chain);
+            assert_eq!(skipped.len(), 1, "{kind:?} was not reported");
+            assert_eq!(skipped[0].support, KindSupport::Unknown, "{kind:?}");
         }
     }
 
@@ -348,19 +570,21 @@ mod tests {
     }
 
     /// A bypassed effect is not built, so the renderer never has to run
-    /// it: an unsupported kind that is switched off is harmless.
+    /// it: an unsupported kind that is switched off is harmless, and not
+    /// worth a warning.
     #[test]
-    fn a_bypassed_unstreamable_effect_does_not_fail_the_build() {
+    fn a_bypassed_unstreamable_effect_is_neither_built_nor_reported() {
         let mut e = effect("reverb", serde_json::json!({}));
         e.bypassed = true;
-        assert!(build(&[e], 44_100, 2).unwrap().is_empty());
+        assert!(build(std::slice::from_ref(&e), 44_100, 2).is_empty());
+        assert!(skipped_in(&[e]).is_empty());
     }
 
     /// Missing parameters must fall back to something inert rather than
     /// to zero, which for a gain would silence the master bus.
     #[test]
     fn a_gain_with_no_parameters_is_unity() {
-        let mut chain = build(&[effect("gain", serde_json::json!({}))], 44_100, 1).unwrap();
+        let mut chain = build(&[effect("gain", serde_json::json!({}))], 44_100, 1);
         let mut buf = vec![0.5f32; 8];
         chain[0].process(&mut buf, 1);
         assert_eq!(buf, vec![0.5f32; 8]);
@@ -373,7 +597,7 @@ mod tests {
     /// `Limiter`, so what is under test is that `build` passes the
     /// parameters and the rate on.
     fn recovery_curve(params: serde_json::Value, sample_rate: u32, frames: usize) -> Vec<f32> {
-        let mut chain = build(&[effect("limiter", params)], sample_rate, 1).unwrap();
+        let mut chain = build(&[effect("limiter", params)], sample_rate, 1);
         let mut buf = vec![0.1f32; frames + 1];
         // Ceiling is 0 dBFS, so a 2.0 must be halved.
         buf[0] = 2.0;

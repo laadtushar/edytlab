@@ -512,8 +512,9 @@ pub(crate) fn check_track_index(tracks: &[Track], track_index: usize) -> Result<
 ///
 /// The answer comes from `audio_engine::effect_chain`, the registry the
 /// renderer builds chains from, and not from a list kept here: a chain
-/// holding a kind it cannot stream fails every render until the effect is
-/// removed, so the two must not be able to disagree. Every way an effect
+/// holding a kind it cannot stream renders without it (with a warning,
+/// since a stored one must not fail the render), so an effect added that
+/// way would do nothing, and the two must not be able to disagree. Every way an effect
 /// gets into a chain goes through this: `add_effect`, and
 /// `set_effect_bypassed` when it switches an effect back on.
 /// `set_effect_params` cannot change a kind and does not need it.
@@ -525,8 +526,9 @@ pub(crate) fn check_effect_kind(kind: &str) -> Result<(), String> {
         KindSupport::Streamable => Ok(()),
         KindSupport::NotYetStreamable => Err(format!(
             "'{kind}' can't go in an effect chain yet: the renderer streams a chain, and \
-             '{kind}' needs state it can't carry across the stream, so a chain holding it would \
-             fail every render. Kinds that work in a chain: {works}. To use '{kind}' now, call \
+             '{kind}' needs state it can't carry across the stream, so the renderer would leave it \
+             out and the mix would sound as if it were not there. Kinds that work in a chain: \
+             {works}. To use '{kind}' now, call \
              the `{kind}` tool, which applies it to the audio directly (undoable, but its \
              parameters can't be edited afterwards)."
         )),
@@ -534,6 +536,50 @@ pub(crate) fn check_effect_kind(kind: &str) -> Result<(), String> {
             "unknown effect kind '{kind}'. Kinds that work in a chain: {works}."
         )),
     }
+}
+
+/// Put a render's warnings in a tool's result (#520).
+///
+/// A stored effect the renderer cannot run is left out of the render, not
+/// a reason to fail it, so the render reports it instead, and whoever asked
+/// for the render has to be told or the omission is the silent wrong output
+/// the old failure existed to prevent. The sentences go in a `warnings`
+/// array for anything reading the JSON, and onto the end of `summary`,
+/// which is what the model reads first. A render with nothing to say adds
+/// nothing: no key, and the summary as it always was.
+pub(crate) fn attach_render_warnings(out: &mut Value, warnings: &[String]) {
+    if warnings.is_empty() {
+        return;
+    }
+    out["warnings"] = serde_json::json!(warnings);
+    if let Some(summary) = out["summary"].as_str() {
+        let note = warnings
+            .iter()
+            .map(|w| format!("Warning: {w}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        out["summary"] = Value::String(format!("{summary} {note}"));
+    }
+}
+
+/// The render warnings of `state` that bear on a render of only `tracks`
+/// (indices into `state.tracks`): their own, the buses' and the master's.
+///
+/// For the tools that render a selection by building a smaller state, where
+/// the report's warnings would number the tracks by their place in the
+/// smaller one. This asks the state the model knows, so a track is named by
+/// the index it has in the session.
+pub(crate) fn render_warnings_for_tracks(state: &SessionState, tracks: &[usize]) -> Vec<String> {
+    use audio_engine::effect_chain::{skipped_effects, ChainScope};
+
+    skipped_effects(state)
+        .into_iter()
+        .filter(|skipped| match &skipped.scope {
+            ChainScope::Track { index, .. } => tracks.contains(index),
+            ChainScope::Bus { .. } | ChainScope::Master => true,
+        })
+        .map(|skipped| skipped.to_string())
+        .collect()
 }
 
 /// Write `samples` to the content-addressed WAV `path`, unless it is

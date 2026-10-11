@@ -4,7 +4,9 @@ use session::{Clip, Track, TrackId};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{append_state, load_head_state};
+use crate::tool::util::{
+    append_state, attach_render_warnings, load_head_state, render_warnings_for_tracks,
+};
 use crate::{Tool, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
@@ -148,6 +150,14 @@ impl Tool for MixToNewTrackTool {
             return Ok(ToolResult::Error(format!("failed to store wav: {e}")));
         }
 
+        // What the mix left out. Asked of the original state rather than
+        // read from the report, because the render was of a smaller state
+        // whose tracks are numbered by their place in the selection, and the
+        // model knows them by their place in the session. The audio is baked
+        // into the new track, so an effect left out here is left out of it
+        // for good, which is why this has to be said.
+        let warnings = render_warnings_for_tracks(&state, &args.track_indices);
+
         // Add a new track pointing at the rendered WAV to the ORIGINAL state.
         let mut new_state = state;
         let track_idx = new_state.tracks.len();
@@ -186,7 +196,7 @@ impl Tool for MixToNewTrackTool {
             Err(e) => return Ok(ToolResult::Error(e)),
         };
 
-        Ok(ToolResult::Ok(json!({
+        let mut out = json!({
             "node_id": new_id.to_hex(),
             "track_index": track_idx,
             "frames_written": n_frames,
@@ -198,7 +208,9 @@ impl Tool for MixToNewTrackTool {
                 name,
                 n_frames,
             )
-        })))
+        });
+        attach_render_warnings(&mut out, &warnings);
+        Ok(ToolResult::Ok(out))
     }
 }
 

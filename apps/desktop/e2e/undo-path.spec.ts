@@ -535,3 +535,79 @@ test("opening a project saves nothing: the path is only read (#453)", async ({ a
 
   expect(await app.requestsFor("save_head_trail")).toEqual([]);
 });
+
+test("a preview click in the graph leaves the head and the saved path alone, and undo still retraces the path after a restart (#522)", async ({
+  app,
+}) => {
+  // A click used to move the window's head and not the store's, so the file
+  // ended at the node that was only looked at, the next launch ignored it,
+  // and undo skipped the mute.
+  await app.boot({
+    ...projectWith([toneTrack()], START),
+    render_preview: ok(fixturePath("tone3s")),
+    set_track_muted: ok(MUTED),
+  });
+  const page = app.page;
+  await expect(page.getByTestId("ruler")).toContainText("0:03");
+
+  // Mute, unmute: the head is START again, with [START, MUTED] behind it.
+  await page.getByTestId("timeline-lane-mute").click();
+  await expect.poll(() => app.requestsFor("set_track_muted")).toHaveLength(1);
+  await app.become({ set_track_muted: ok(START) });
+  await page.getByTestId("timeline-lane-mute").click();
+  await expect.poll(() => app.requestsFor("set_track_muted")).toHaveLength(2);
+  await app.settle();
+  const saved = await savedPaths(app);
+  expect(saved.at(-1)).toEqual({ head: START, trail: [START, MUTED], redo: [] });
+
+  const at = (n: number) => `2026-10-09T00:0${n}:00Z`;
+  await app.become({
+    get_graph: ok({
+      nodes: [
+        { id: BEFORE_LOAD, parent: null, label: "load", tool: "load", created_at: at(0) },
+        { id: START, parent: BEFORE_LOAD, label: "load", tool: "load", created_at: at(1) },
+        { id: MUTED, parent: START, label: "mute", tool: "set_track_muted", created_at: at(2) },
+      ],
+      head: START,
+    }),
+  });
+  await page.getByTestId("tab-graph").click();
+  await expect(page.getByTestId("graph-bubble")).toHaveCount(3);
+
+  // Look at the muted state.
+  const bubbleFor = (id: string) =>
+    page.locator(`[data-testid="graph-bubble"][data-node-id="${id}"]`);
+  await bubbleFor(MUTED).click();
+  await expect.poll(() => app.requestsFor("render_preview")).toContainEqual({ node: MUTED });
+  await app.settle();
+
+  // The head ring stays on the head, and the preview has a mark of its own
+  // that is drawn differently (dashed), not only coloured.
+  await expect(bubbleFor(START)).toHaveAttribute("data-is-head", "true");
+  await expect(bubbleFor(MUTED)).toHaveAttribute("data-is-head", "false");
+  await expect(bubbleFor(MUTED)).toHaveAttribute("data-is-preview", "true");
+  await expect(bubbleFor(MUTED)).toHaveCSS("outline-style", "dashed");
+  await expect(bubbleFor(START)).not.toHaveCSS("outline-style", "dashed");
+  await expect(page.getByTestId("status-bar-head")).toContainText(START.slice(0, 7));
+  await expect(page.getByTestId("status-bar-preview")).toContainText(MUTED.slice(0, 7));
+
+  // Nothing moved: no save, no `set_head_to`.
+  expect(await savedPaths(app)).toEqual(saved);
+  expect(await app.requestsFor("set_head_to")).toEqual([]);
+
+  // The app is closed and opened again; the project is as it was left.
+  await app.restart({
+    ...projectWith([toneTrack()], START),
+    render_preview: ok(fixturePath("tone3s")),
+    get_head_trail: ok(saved.at(-1)),
+    get_node: ok(sessionNode(START, BEFORE_LOAD)),
+    set_head_to: ok(MUTED),
+  });
+  await expect(page.getByTestId("ruler")).toContainText("0:03");
+  await app.settle();
+
+  // Undo is the mute, which only the saved path knows of.
+  await page.keyboard.press("Control+z");
+  await expect.poll(() => app.requestsFor("set_head_to")).toEqual([{ nodeId: MUTED }]);
+  expect(await app.requestsFor("get_node")).toEqual([]);
+});

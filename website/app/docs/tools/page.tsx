@@ -125,7 +125,7 @@ const groups = [
       {
         name: "insert_silence",
         prompt: 'add 2 seconds of silence at 0:30',
-        what: "Insert a gap of silence at a position. Audio shifts right.",
+        what: "Insert a gap of silence at a position. Audio shifts right. With sync-lock on, the gap opens on every other track too so the tracks stay aligned, which moves clips on tracks the call does not name and splits a clip that straddles the position.",
         output: "node_id",
       },
       {
@@ -366,7 +366,7 @@ const groups = [
         prompt: 'put a limiter on the master at -1 dB',
         what: "Append an effect to a track's chain, or pass scope \"master\" to put it on the master bus, where every track is summed. The chain is applied at render time and the source audio is never rewritten, so the parameters stay editable — unlike the destructive effect tools above, which bake their result into a new node.",
         output: "node_id, effect_index",
-        note: "An effect on the master bus processes the whole mix and keeps doing so when a track is edited later, which a mix rendered down into a new track does not. Effects run in the order they appear in the chain. Not every effect can stream yet; ones that cannot are rejected at render time with a message naming them.",
+        note: "An effect on the master bus processes the whole mix and keeps doing so when a track is edited later, which a mix rendered down into a new track does not. Effects run in the order they appear in the chain. Only five kinds can stream today: gain, limiter, low_pass_filter, high_pass_filter and notch_filter. add_effect refuses any other kind, on a track or on the master bus, with a message that lists the five and, for a kind that exists as a destructive tool (reverb, echo, eq, compressor and others), names that tool to call instead.",
       },
       {
         name: "set_effect_params",

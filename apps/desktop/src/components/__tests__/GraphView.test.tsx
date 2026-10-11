@@ -223,6 +223,64 @@ describe("GraphView", () => {
     expect(onSelect).toHaveBeenCalledWith(bubbles[0].dataset.nodeId);
   });
 
+  it("marks the previewed node apart from the head (#522)", async () => {
+    // A click previews a node and leaves the head where it was, so the two
+    // can be different bubbles and each needs its own mark. The head ring
+    // is the head's alone.
+    const summary = makeGraph(4);
+    getGraphMock.mockResolvedValue(summary);
+    const [first, second, , last] = summary.nodes.map((n) => n.id);
+    render(
+      <GraphView
+        head={last}
+        preview={first}
+        onSelectNode={vi.fn()}
+        onSetHead={vi.fn(async () => undefined)}
+        refreshKey={0}
+      />,
+    );
+    await act(async () => {
+      await flush();
+    });
+    const byId = (id: string) =>
+      screen.getAllByTestId("graph-bubble").find((b) => b.dataset.nodeId === id) as HTMLElement;
+
+    expect(byId(last).dataset.isHead).toBe("true");
+    expect(byId(last).dataset.isPreview).toBe("false");
+    expect(byId(first).dataset.isHead).toBe("false");
+    expect(byId(first).dataset.isPreview).toBe("true");
+    expect(byId(second).dataset.isHead).toBe("false");
+    expect(byId(second).dataset.isPreview).toBe("false");
+    // The head ring is not on the previewed node, and the preview's mark
+    // is not the head ring.
+    expect(byId(first).className).not.toContain("ring-2");
+    expect(byId(last).className).toContain("ring-2");
+    expect(byId(first).className).not.toBe(byId(second).className);
+  });
+
+  it("a node that is both the head and the preview shows the head ring only", async () => {
+    const summary = makeGraph(3);
+    getGraphMock.mockResolvedValue(summary);
+    const head = summary.head as string;
+    render(
+      <GraphView
+        head={head}
+        preview={head}
+        onSelectNode={vi.fn()}
+        onSetHead={vi.fn(async () => undefined)}
+        refreshKey={0}
+      />,
+    );
+    await act(async () => {
+      await flush();
+    });
+    const bubble = screen
+      .getAllByTestId("graph-bubble")
+      .find((b) => b.dataset.nodeId === head) as HTMLElement;
+    expect(bubble.dataset.isHead).toBe("true");
+    expect(bubble.dataset.isPreview).toBe("false");
+  });
+
   it("opens a context menu on right-click — Set-as-head + Rename enabled, Compare + Delete disabled without onCompareNodes", async () => {
     const summary = makeGraph(3);
     getGraphMock.mockResolvedValue(summary);

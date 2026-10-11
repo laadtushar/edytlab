@@ -12,7 +12,7 @@ import cues as C
 import narrate as N
 
 OUT = f"{ROOT}/out"
-ADD = f"{ROOT}/add-narration.sh"
+ADD = f"{REELS_DIR}/add-narration.sh"
 SFX_RMS = {"whoosh": -31.0, "hit": -30.0, "ding": -33.0}      # target mean level of each effect before the final normalisation
 
 

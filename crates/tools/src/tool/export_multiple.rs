@@ -2,7 +2,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::load_head_state;
+use crate::tool::util::{attach_render_warnings, load_head_state, render_warnings_for_tracks};
 use crate::{Tool, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
@@ -160,7 +160,7 @@ impl Tool for ExportMultipleTool {
         }
 
         let count = exported.len();
-        Ok(ToolResult::Ok(json!({
+        let mut out = json!({
             "exported": exported,
             "count": count,
             "summary": format!(
@@ -168,7 +168,16 @@ impl Tool for ExportMultipleTool {
                 if count == 1 { "" } else { "s" },
                 out_dir.display()
             )
-        })))
+        });
+        // Each file is a render of one track, so the reports' warnings
+        // would repeat the master's once per file and number the track 0
+        // every time. Asked of the session instead: each exported track by
+        // its own index, the master and the buses once.
+        attach_render_warnings(
+            &mut out,
+            &render_warnings_for_tracks(&state, &args.track_indices),
+        );
+        Ok(ToolResult::Ok(out))
     }
 }
 
