@@ -125,7 +125,7 @@ const groups = [
       {
         name: "insert_silence",
         prompt: 'add 2 seconds of silence at 0:30',
-        what: "Insert a gap of silence at a position. Audio shifts right.",
+        what: "Insert a gap of silence at a position. Audio shifts right. With sync-lock on, the gap opens on every other track too so the tracks stay aligned, which moves clips on tracks the call does not name and splits a clip that straddles the position.",
         output: "node_id",
       },
       {
