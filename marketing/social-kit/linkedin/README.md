@@ -13,9 +13,9 @@ kind of media per post.
 
 | File | Size | Goes with | What it shows |
 |---|---|---|---|
-| `out/post-1-launch.png` | 1200x1200, 592 KB | Post 1, launch | "An audio editor you talk to": the app's chat panel with a scripted example conversation, and the site's three numbers (0 bytes of audio uploaded, 6 providers, 93 tools) |
-| `out/post-2-before-after.png` | 1200x1200, 390 KB | Post 2, DJ workflow | The seven chores of one blend, beside the same scripted example conversation in the app's chat panel |
-| `out/post-3-model-never-touches-a-sample.png` | 1200x1200, 189 KB | Post 3, build story | The model reads text and answers with tool calls; the tools and the audio are on your machine |
+| `out/post-1-launch.png` | 1200x1200, 564 KB | Post 1, launch | "An audio editor you talk to": the app's chat panel with a scripted example conversation, and the site's three numbers (0 bytes of audio uploaded, 6 providers, 93 tools) |
+| `out/post-2-before-after.png` | 1200x1200, 396 KB | Post 2, DJ workflow | The seven chores of one blend, beside the same scripted example conversation in the app's chat panel |
+| `out/post-3-model-never-touches-a-sample.png` | 1200x1200, 188 KB | Post 3, build story | The model reads text and answers with tool calls; the tools and the audio are on your machine |
 | `out/post-4-privacy.png` | 1200x1200, 221 KB | Post 4, privacy | "Does my audio get uploaded? No." What stays, what leaves, and Settings with Ollama selected |
 | `out/post-5-help-wanted.png` | 1200x1200, 249 KB | Post 5, open source | Four places a contributor would make a difference, with issue numbers |
 | `out/post-3-carousel.pdf` | 7 pages of 1080x1350, 5.2 MB | Post 3, **instead of the reel** | The build story as a document: cover, the pipeline, a tool call, the history graph, Plan first, why the time-stretch is in Rust, the source |
