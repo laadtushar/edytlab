@@ -178,7 +178,7 @@ It's a desktop audio editor in Tauri 2, Rust and React, where an AI agent calls 
 
 Places a contributor could make a real difference:
 
-- Master bus and bus effects. A tool can now put an effect on the master bus (pull request 516, merged after v0.5.0, so not in the release yet). Until it ships, the agent works around it by rendering a baked "Master" track and muting the originals, which the beatmatch and mini-mix recordings both show. Still missing: tools for a bus's own effect chain, and streaming versions of eleven effects the renderer can't run on a chain yet (reverb, echo, EQ, compressor and others). Issue 520 has the details, in the audio-engine and tools crates.
+- Master bus and bus effects. A tool can now put an effect on the master bus, and on a bus of its own (pull requests 516 and 551, merged after v0.5.0, so not in the release yet). Until it ships, the agent works around it by rendering a baked "Master" track and muting the originals, which the beatmatch and mini-mix recordings both show. Still missing: streaming versions of eleven effects the renderer can't run on a chain yet (reverb, echo, EQ, compressor and others). A stored effect it can't run is now left out of the render with a warning instead of failing it (merged, not released); issue 520, now closed, has the details, in the audio-engine and tools crates.
 - macOS microphone access. v0.5.0 adds the entitlement and the usage text, but nobody has recorded on a signed, notarized macOS build to confirm it. That check is issue 464, and it needs a Mac.
 - A real pass on Linux with a locked keyring. The Secret Service code is tested against fakes only. Issue 497.
 - Follow-ups to Plan first: issue 438.

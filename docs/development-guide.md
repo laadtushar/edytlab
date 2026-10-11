@@ -219,7 +219,7 @@ Allowed prefixes: `feat`, `fix`, `ci`, `chore`, `docs`, `test`, `refactor`.
    Whatever edits the session also has to be sent in order by the frontend. Send it through the session's line (`inOrder` from `useSession`, `src/lib/sessionQueue.ts`), with its head adopted inside the turn, so two edits made in quick succession cannot apply or be answered the wrong way round (#498).
 3. Register in `tauri::Builder::invoke_handler` in `lib.rs`
 4. Add a matching TypeScript wrapper in `apps/desktop/src/lib/tauri-bridge.ts`
-5. Update [API Reference](./api-reference.md)
+5. Update [API Reference](./api-reference.md) and the site's `website/app/docs/api-reference/page.tsx`, and give the fake backend (`apps/desktop/e2e/backend.ts`) an answer for it, taken from the command's own body
 
 ---
 
@@ -239,10 +239,12 @@ src/
 │   ├── EmptyState.tsx         # No-audio-loaded state
 │   ├── ErrorBanner.tsx        # Error display with recovery CTA
 │   ├── GraphView.tsx          # DAG visualization (@xyflow)
+│   ├── LabelLane.tsx          # The lane labels are typed into, below the tracks
 │   ├── MarkerLayer.tsx        # Timeline annotations overlay
 │   ├── McpServersEditor.tsx
 │   ├── MemoryEditor.tsx
 │   ├── MessageBubble.tsx      # Single chat message + tool badges
+│   ├── RenderWarningsNotice.tsx # Stored effects a render leaves out (ErrorBanner, warning tone)
 │   ├── Ruler.tsx              # Timeline ruler (time markers)
 │   ├── Settings.tsx           # Settings modal (all config)
 │   ├── ShortcutsOverlay.tsx   # ? key shortcut display
@@ -252,9 +254,12 @@ src/
 │   └── ToolBadge.tsx          # Tool call badge in messages
 ├── lib/
 │   ├── tauri-bridge.ts        # Type-safe IPC + event wrappers
+│   ├── confirmAction.ts       # Confirm dialog that works in the packaged app (never window.confirm)
 │   ├── file-open.ts           # Audio file picker + drag-drop
 │   ├── graph.ts               # Graph layout (dagre), path steps for the graph
 │   ├── headTrail.ts           # The path taken through history: undo/redo targets
+│   ├── keychainNotice.ts      # The banner's words, for the launch banner and a Save that fell back
+│   ├── renderWarnings.ts      # The words for a render's left-out effects
 │   └── undoRedo.ts            # Undo/redo chords, text-entry check
 └── __tests__/
     ├── App.undoRedo.test.ts
@@ -266,9 +271,10 @@ src/
 
 ```
 src/
-├── commands.rs    # The #[tauri::command] functions (~86 of them)
+├── commands.rs    # The #[tauri::command] functions (~90 of them)
 ├── events.rs      # agent://… event names and payloads
 ├── lib.rs         # Builder, command registration, startup
+├── live_stores.rs # The stores that are alive, by project folder (#534)
 ├── main.rs        # Entry point
 ├── mcp_tool.rs    # Wraps MCP server tools as `tools::Tool`
 ├── project.rs     # Project metadata, view state, recents
@@ -282,6 +288,7 @@ pub struct AppState {
     pub agent:                    Arc<tokio::sync::Mutex<Option<Agent>>>,
     pub dispatcher:               Arc<Mutex<ToolDispatcher>>,
     pub store:                    Arc<Mutex<Option<Arc<Mutex<Store>>>>>,
+    pub live_stores:              LiveStores,   // every live Store by folder; AppState's comes from here
     pub engine:                   Arc<Mutex<Engine>>,
     pub project_dir:              Arc<Mutex<Option<PathBuf>>>,
     pub api_key:                  Arc<Mutex<Option<String>>>,
@@ -311,7 +318,7 @@ src/
 ├── models.rs       # Model catalogue + 10-min TTL cache
 ├── prompt.rs       # System prompt construction
 ├── provider.rs     # LlmProvider trait + 6 implementations
-├── session_context.rs  # Selection/marker context for turns
+├── session_context.rs  # Per-turn context: head, tracks, buses, master chain, selection, markers
 ├── tool_selection.rs   # The slim tool set sent to small-context models
 └── validate.rs     # API key validation (1-token probe)
 ```
@@ -705,4 +712,4 @@ All eight must pass. CI blocks merge on any failure.
 
 ---
 
-*Last updated: 2026-05-17. Reflects edytlab v0.1.0-dev.*
+*Kept current by the staleness sweep in `CLAUDE.md`; it describes `main`, not a release.*

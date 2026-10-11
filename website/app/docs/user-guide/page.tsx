@@ -72,6 +72,53 @@ export default function UserGuidePage() {
         </li>
       </ul>
 
+      <h2>Effects, Buses and the Master</h2>
+      <p>
+        Ask for an effect on a track and it goes into that track&apos;s effect
+        chain. The chain is applied when the session is rendered and your
+        source audio is never rewritten, so you can change an effect&apos;s
+        settings, switch it off or take it out later. Effects run in the order
+        they appear in the chain.
+      </p>
+      <ul>
+        <li>
+          <strong>The master bus</strong> — every track is summed there, so an
+          effect on it processes the whole mix and keeps doing so when you
+          edit a track later: <code>put a limiter on the master at -1 dB</code>.
+        </li>
+        <li>
+          <strong>Buses</strong> — a bus is a shared chain that tracks send
+          into. Ask for one with <code>create a bus called Drums</code>, send
+          tracks to it, and put effects on it:{" "}
+          <code>put a low-pass at 8 kHz on the Drums bus</code>. A bus effect
+          is heard only when a track sends to the bus.
+        </li>
+        <li>
+          <strong>Hear it first</strong> — <code>what would a 1 kHz low-pass
+          sound like on the vocal?</code> plays a few seconds in the chat with
+          the effect added, on a track, the master or a bus, and changes
+          nothing. Ask for the same effect to keep it.
+        </li>
+        <li>
+          <strong>Five effects work in a chain today</strong> — gain, limiter
+          and the low-pass, high-pass and notch filters. Reverb, echo, EQ,
+          the compressor and the rest are separate edits that bake their
+          result into a new version of the track instead, and the agent says
+          so if you ask for one of them in a chain.
+        </li>
+      </ul>
+      <p>
+        A project saved by an older build can still hold an effect in a chain
+        that this build cannot run. Rendering leaves it out rather than
+        failing, and the window says so: a notice above the timeline names the
+        effect and where it sits, and stays while the version on screen holds
+        it. Export Selection adds a note naming the file and what it was
+        written without, and the A/B compare bar lists each side&apos;s left-out
+        effects, marked A or B, because a side with a reverb it cannot play
+        sounds the same as one without. Remove or bypass the effect and the
+        notice goes.
+      </p>
+
       <h2>Session Templates</h2>
       <p>
         When no audio is loaded, click <strong>Start from template</strong> to
@@ -208,6 +255,19 @@ export default function UserGuidePage() {
         </li>
         <li>
           Use <strong>Esc</strong> to clear the selection.
+        </li>
+        <li>
+          <strong>The label lane</strong> — the lane under the tracks is
+          where you name chapters and regions yourself, without a round trip
+          through the agent. Double-click empty space in it, type a name where
+          the label will sit and press Enter (Esc cancels); clicking the ruler
+          opens the same name box at that point. Double-click a label to
+          rename it, drag it to move it (a region moves whole and keeps its
+          length), and right-click it to delete it. Each one is a single step
+          in the history, so undo takes it back. Labels stay with the audio
+          when an edit shifts time — a cut, a trim, an inserted silence, a
+          paste, a speed change or a stretch — and you can ask the agent to
+          export them as Audacity label text, or import some.
         </li>
       </ul>
 

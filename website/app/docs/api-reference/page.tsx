@@ -24,6 +24,11 @@ const commands = [
         desc: "Open or create a project directory. Returns the current head node ID (null if empty), stamps last-opened into project.json, and moves the project to the top of the recents list.",
       },
       {
+        name: "saveProjectAs(dest)",
+        returns: "CopyReport",
+        desc: "Copy the open project to dest and carry on in the copy. Refuses a dest that exists and is not empty, and a copy that fails part way leaves dest for inspection. Resolves with { files, bytes, dest }.",
+      },
+      {
         name: "getProjectMeta()",
         returns: "ProjectMeta",
         desc: "The open project's name, when it was created, and its notes. A missing or corrupt project.json returns a folder-named default rather than failing — the audio and its history are not in that file.",
@@ -148,6 +153,31 @@ const commands = [
         returns: "KeychainPersistence",
         desc: "Set the active model for a provider. Resolves with where the choice was saved, as setApiKeyFor does.",
       },
+      {
+        name: "getBaseUrlFor(provider)",
+        returns: "string | null",
+        desc: "The base URL the provider has been pointed at, or null when it is on its default. Rejects when the keychain could not be read, which is not the same as null, and rejects without reading after a startup the keychain refused.",
+      },
+      {
+        name: "defaultBaseUrlFor(provider)",
+        returns: "string",
+        desc: "The URL the provider ships with. Shown as the field's placeholder.",
+      },
+      {
+        name: "setBaseUrlFor(provider, baseUrl)",
+        returns: "KeychainPersistence",
+        desc: "Point a provider at a proxy, a gateway or a local server. An empty string restores the default. Resolves with where the URL was saved, as setApiKeyFor does; clearing writes nothing and is always persistent.",
+      },
+      {
+        name: "getEffortFor(provider)",
+        returns: "ReasoningEffort | null",
+        desc: "The reasoning effort saved for the provider, or null when the model's own default applies. Only Anthropic has the setting; any other provider answers null. Rejects when the keychain could not be read, as getBaseUrlFor does.",
+      },
+      {
+        name: "setEffortFor(provider, effort)",
+        returns: "KeychainPersistence",
+        desc: "Set how hard the model works on a response: low, medium, high, xhigh or max, sent as output_config.effort. null restores the model's default. Anthropic only; any other provider is refused. Rebuilds the agent, and resolves with where the level was saved, as setBaseUrlFor does.",
+      },
     ],
   },
   {
@@ -231,7 +261,17 @@ const commands = [
       {
         name: "setPlanFirst(enabled)",
         returns: "void",
-        desc: "With Plan first on, no edit runs without your approval: the plan is shown, or, with no plan, the first step that would change the session. Calls that only read the session are never held.",
+        desc: "With Plan first on, no edit runs without your approval: the plan is shown, or, with no plan, the first step that would change the session. Calls that only read the session are never held. The setting is kept through the agent rebuilds a key, model or base-URL change causes, and is off again at every launch.",
+      },
+      {
+        name: "getPlanFirst()",
+        returns: "boolean",
+        desc: "Whether Plan first is on. The chat box reads it when it opens, so its toggle shows the right state.",
+      },
+      {
+        name: "cancelLongRunningTool()",
+        returns: "void",
+        desc: "Ask the running tool to stop. Cooperative: batch_apply checks between files and timer_record between polls, so it lands at the next boundary, and a tool that does not check is unaffected. Resolves when the request is recorded, not when the tool stops; watch the tool-progress event for that.",
       },
     ],
   },
@@ -245,13 +285,18 @@ const commands = [
       },
       {
         name: "addMarker(timeSec, name)",
-        returns: "string (annotation_id)",
-        desc: "Add a named point marker.",
+        returns: "NodeId",
+        desc: "Add a named point marker. Appends one node and returns the new head; the label's own ID is in listMarkers().",
+      },
+      {
+        name: "updateMarker(id, patch)",
+        returns: "NodeId",
+        desc: "Rename and/or move a label in one call. patch is { name?, time?, start?, end? }: time moves a point marker there, and a region starts there and keeps its length; start and end set a region's bounds outright and are sent together, never with time. A change that changes nothing appends no node and returns the head unchanged. Refuses a time below 0 or not finite, a start without an end, and end <= start.",
       },
       {
         name: "removeMarker(id)",
         returns: "NodeId",
-        desc: "Remove a marker by annotation ID.",
+        desc: "Remove a marker by annotation ID. Returns the new head.",
       },
       {
         name: "listMarkers()",
@@ -261,17 +306,92 @@ const commands = [
     ],
   },
   {
+    group: "Transcript",
+    items: [
+      {
+        name: "getTranscript()",
+        returns: "TranscriptWord[]",
+        desc: "The transcript at the current head, as { text, start_sec, end_sec, confidence } words. Empty until transcribe has run, which it cannot in this build (its inference is not shipped), so the list is empty today.",
+      },
+      {
+        name: "cutTranscriptWords(track, fromWord, toWord)",
+        returns: "NodeId",
+        desc: "Cut the half-open word range [fromWord, toWord) and the audio underneath it, closing the gap. Indices are into the array getTranscript() returned; re-read it afterwards, since the words after the cut renumber. Refuses a track out of range, no transcript, and an empty range or one past the end.",
+      },
+    ],
+  },
+  {
     group: "Tracks",
     items: [
       {
         name: "batchLoad(paths)",
-        returns: "LoadReport",
-        desc: "Load several audio files in one call, each as its own track.",
+        returns: "BatchLoadResult",
+        desc: "Load several audio files in one call, each as its own track. Each file is its own node, so undo takes back one at a time. Resolves with { tracks_loaded, last_node_id, failures }: a file the load tool refuses lands in failures with its reason, leaves no node behind, and does not stop the rest.",
       },
       {
         name: "listTracks()",
         returns: "TrackSummary[]",
-        desc: "List all tracks in the current session head.",
+        desc: "List all tracks in the current session head. A project with no history yet rejects with NoSession, which is not a fault: the app (isNoSession) reads it as an empty list.",
+      },
+      {
+        name: "renameTrack(track, name)",
+        returns: "NodeId",
+        desc: "Rename a track. Returns the new head.",
+      },
+      {
+        name: "removeTrack(track)",
+        returns: "NodeId",
+        desc: "Delete a track and everything on it. An ordinary session node, so it undoes like any other edit, which is why the window does not confirm first.",
+      },
+      {
+        name: "duplicateTrack(track)",
+        returns: "NodeId",
+        desc: "Copy a track, with its clips, gain, pan and effects, as a new track at the end.",
+      },
+      {
+        name: "setTrackGain(track, gainDb)",
+        returns: "NodeId",
+        desc: "Set a track's gain in dB. Absolute, not relative.",
+      },
+      {
+        name: "setTrackPan(track, pan)",
+        returns: "NodeId",
+        desc: "Set a track's pan: -1 hard left, 0 centre, 1 hard right.",
+      },
+      {
+        name: "setTrackMuted(track, muted)",
+        returns: "NodeId",
+        desc: "Mute or unmute a track. Returns the new head.",
+      },
+      {
+        name: "setTrackSoloed(track, soloed)",
+        returns: "NodeId",
+        desc: "Solo or unsolo a track. Soloing silences the others at render time without changing their muted flags, so un-soloing puts everything back as it was.",
+      },
+      {
+        name: "getSyncLock()",
+        returns: "boolean",
+        desc: "Whether an edit that shifts time on one track shifts them all. It belongs to the session, not to a track, so the toggle can show the right state the moment a project opens.",
+      },
+      {
+        name: "setSyncLock(enabled)",
+        returns: "NodeId",
+        desc: "Turn sync lock on or off. Resolves to the new head, or to the unchanged one when the value did not change.",
+      },
+      {
+        name: "moveClip(track, clip, startSec)",
+        returns: "NodeId",
+        desc: "Move one clip to a new start, in seconds from the top of the timeline; the other clips stay put. Clips are re-sorted by start afterwards, so a clip dragged past its neighbour comes back at a different index: re-read listTracks() before addressing it again.",
+      },
+      {
+        name: "removeClip(track, clip)",
+        returns: "NodeId",
+        desc: "Remove one clip, leaving a silent gap where it was. The other clips do not move.",
+      },
+      {
+        name: "setClipEnvelope(track, clip, points)",
+        returns: "NodeId",
+        desc: "Replace a clip's volume automation curve with points of { time_samples, gain_db }, the time relative to the clip's own start. An empty array clears it; the points need not be sorted.",
       },
     ],
   },
@@ -375,7 +495,7 @@ const commands = [
     items: [
       {
         name: "installPlugin(source)",
-        returns: "PluginInstallReport",
+        returns: "PluginInstallResult",
         desc: "Install skills and agent profiles from github:org/repo or a local path. Existing files are never overwritten, and any MCP servers the plugin declares are registered disabled.",
       },
       {
@@ -395,7 +515,7 @@ const commands = [
       },
       {
         name: "applyTemplate(name)",
-        returns: "nodeId",
+        returns: "NodeId",
         desc: "Apply a template to the current session.",
       },
     ],
@@ -410,8 +530,13 @@ const commands = [
       },
       {
         name: "stopRecording(outputPath)",
-        returns: "{ path, duration_sec }",
-        desc: "Stop capture and write the take to a WAV file.",
+        returns: "RecordingResult",
+        desc: "Stop capture and write the take to a WAV file at outputPath. Resolves with { path, sample_rate, channels }. The take is not added to the session: load it with batchLoad([path]). A failed write means the take is gone; a failed import means it is on disk at the path this returned.",
+      },
+      {
+        name: "timerRecord(outputPath, schedule)",
+        returns: "{ path?, cancelled }",
+        desc: "Record on a timer: wait startAfterSec, then capture for durationSec. Both are optional; omitting startAfterSec starts now, and omitting durationSec records until stopped. cancelled is true when cancelLongRunningTool() ended it early, and path may then be absent. Emits tool-progress events throughout.",
       },
     ],
   },
@@ -446,7 +571,7 @@ const events = [
   {
     name: "onToolCallEnd(cb)",
     payload: "{ id, ok: boolean, not_run: boolean, view? }",
-    desc: "Tool execution completed. ok = false if the tool returned an error. not_run = true (with ok = false) when the call was announced but never dispatched (declined, reworded, unanswered, or over the tool budget): show it as not run, not as a failure.",
+    desc: "Tool execution completed. ok = false if the tool returned an error. not_run = true (with ok = false) when the call was announced but never dispatched (declined, reworded, unanswered, or over the tool budget): show it as not run, not as a failure. view is set for the few tools that return something to draw or play: plot_spectrum's chart, and audition_effect's excerpt with a target caption (track 1, the master bus, or bus \"Drums\").",
   },
   {
     name: "onNodeCreated(cb)",
@@ -476,7 +601,7 @@ const events = [
   {
     name: "onMarkerChanged(cb)",
     payload: "none",
-    desc: "Marker or region annotation added or removed. Refresh the marker list.",
+    desc: "Marker or region annotation added, renamed, moved or removed. Refresh the marker list.",
   },
 ];
 

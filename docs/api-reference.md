@@ -209,20 +209,21 @@ Removes the row. Does not touch the project.
 
 ### `batchLoad(paths: string[]) → BatchLoadResult`
 
-Load several files in one call, each as its own track. One node for the whole
-batch, so it undoes as one action rather than as N.
+Load several files in one call, each as its own track. Every file goes through
+the same `load` tool the agent uses, one after another, so each appends its own
+node: undo takes back one file at a time, not the whole batch.
 
 **Returns:**
 ```typescript
 interface BatchLoadResult {
-  loaded: string[];      // Paths that became tracks
-  failed: string[];      // Paths that could not be decoded
-  last_node_id: string | null;
+  tracks_loaded: number;                          // Files that became tracks
+  last_node_id: string | null;                    // The head after the last of them; null with no session yet
+  failures: { path: string; error: string }[];    // Files the load tool refused, with its reason
 }
 ```
 
-A file that fails to decode does not fail the call — it lands in `failed` and
-the rest still load.
+A file the tool refuses (not audio, missing, unreadable) does not fail the call
+and leaves no node behind — it lands in `failures` and the rest still load.
 
 ---
 
@@ -739,7 +740,9 @@ fired, or the turn stays suspended.
 ### `setPlanFirst(enabled: boolean) → void` · `getPlanFirst() → boolean`
 
 Ask for a plan before **every** turn, rather than only the ones the classifier
-calls mashups. Persisted, so it survives a restart.
+calls mashups. Held in `AppState`, not on disk: it survives the agent rebuilds
+that a key, model or base-URL change causes, and it is off again at every
+launch. The chat box reads it with `getPlanFirst()` when it opens.
 
 **With it on, no edit runs without your approval.** If the model writes a plan,
 you approve the plan. If it does not (it chose not to, or planning failed for any
@@ -1013,7 +1016,7 @@ interface RecordingResult {
 }
 ```
 
-The WAV is written but **not** added to the session — call `loadFiles([path])`
+The WAV is written but **not** added to the session — call `batchLoad([path])`
 to import it. The two steps fail separately, and the distinction matters: a
 failed write means the take is gone, while a failed import means it is on disk
 at the path this returned.
@@ -1275,7 +1278,7 @@ Emitted when the agent starts executing a tool. Use to show tool badge in the UI
 
 ### `onToolCallEnd(cb: (id: string, ok: boolean, view: ToolView | undefined, notRun: boolean) => void) → Promise<UnlistenFn>`
 
-Emitted when tool execution completes. `ok = false` if the tool returned an error. `view` is set for the few tools that return something to draw, such as `plot_spectrum`'s chart.
+Emitted when tool execution completes. `ok = false` if the tool returned an error. `view` is set for the few tools that return something to draw or play, such as `plot_spectrum`'s chart or `audition_effect`'s excerpt (`type: "audition"`, with `path`, `kind` and a `target` caption such as `track 1`, `the master bus` or `bus "Drums"`; `track` is there only for a track).
 
 `notRun` is `true` (with `ok = false`) when the call was announced but never
 dispatched: the user declined or reworded the held step, did not answer within
@@ -1321,7 +1324,7 @@ too: approving runs all of them.
 
 ### `onMarkerChanged(cb: () => void) → Promise<UnlistenFn>`
 
-Emitted when a marker or region annotation is added or removed. Refresh the marker list.
+Emitted when a marker or region annotation is added, renamed, moved or removed (`addMarker`, `updateMarker`, `removeMarker`). Refresh the marker list.
 
 ---
 

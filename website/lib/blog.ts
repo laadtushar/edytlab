@@ -133,6 +133,7 @@ const earlierPosts: BlogPost[] = [
     slug: "stem-separation-explained-demucs",
     title: "Stem Separation Explained: How AI Isolates Vocals and Instruments",
     date: "2026-05-12",
+    dateModified: "2026-10-11",
     description:
       "How Demucs splits a mix into vocals, drums, bass and other, what each stem is good for, and where stem separation stands in edytlab (it has not shipped yet).",
     coverAlt:
@@ -219,7 +220,7 @@ const earlierPosts: BlogPost[] = [
       },
       {
         type: "p",
-        text: "Demucs offers several model variants. htdemucs is the recommended default — it offers the best quality-to-speed ratio on modern hardware. mdx_extra gives slightly better vocal quality at the cost of more VRAM. htdemucs_6s adds guitar and piano as separate stems, which is useful for complex arrangements but takes longer to run.",
+        text: "Demucs offers several model variants. htdemucs is the recommended default — it offers the best quality-to-speed ratio on modern hardware. mdx_extra gives slightly better vocal quality at the cost of more VRAM. htdemucs_6s adds guitar and piano as separate stems, which is useful for complex arrangements but takes longer to run. That is Demucs in general: edytlab's separate_stems recognises only htdemucs, and rejects any other model id.",
       },
       {
         type: "p",

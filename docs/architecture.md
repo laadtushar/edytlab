@@ -149,8 +149,9 @@ App.tsx
 ├── MainContent (split pane)
 │   ├── LeftPane (one view at a time — `LeftView` in src/lib/views.ts)
 │   │   ├── Timeline (wavesurfer, tracks, markers, playhead)
-│   │   │   ├── Ruler
-│   │   │   └── MarkerLayer
+│   │   │   ├── Ruler (a click opens the label lane's name box)
+│   │   │   ├── MarkerLayer
+│   │   │   └── LabelLane (below the tracks, passed in as `belowLanes`)
 │   │   ├── TranscriptPane
 │   │   └── GraphView (xyflow DAG visualization)
 │   └── RightPane
@@ -160,9 +161,10 @@ App.tsx
 │           ├── ThinkingIndicator
 │           ├── EmptyState (no audio loaded)
 │           └── ChatInput + CapabilitiesMenu
-├── ABCompareBar (when compareMode active)
+├── ABCompareBar (when compareMode active; lists what each side's render leaves out)
 ├── ShortcutsOverlay (? key)
-└── ErrorBanner (API key / render errors)
+├── ErrorBanner (API key / render errors)
+└── RenderWarningsNotice (stored effects a render leaves out: an ErrorBanner in its warning tone)
 ```
 
 The tree is conceptual: `PlaybackControls`, `MainContent`, `LeftPane`/`RightPane` and `ChatInput` are regions of `App.tsx`, `AppHeader.tsx` and `Chat.tsx`, not components of their own.
@@ -513,7 +515,7 @@ Anthropic's Messages API takes `output_config: {"effort": "low" | "medium" | "hi
 
 On Anthropic's 5.x models (Fable 5.1, Opus 5.5, Sonnet 5.5, Haiku 5.5) a `thinking` block's signature is bound to the request that produced it: the top-level `system`, the `tools` set, and every message before it. Replayed under a different prefix it is a 400 `invalid_request_error` ("Invalid `signature` in `thinking` block. The block is bound to a different conversation"). The API enforces this by default for accounts created on or after 2026-08-31, and for any request that sets `thinking.block_binding.prefix_mismatch_behavior`.
 
-edytlab changes the prefix between user turns: `system` is rebuilt every turn (the classifier's mode, matched skills, memory, the agent profile, and the session context with the head node id and the selection), and `tools` follows that turn's whitelist (the per-turn disabled-tools list) and, for a provider sent `ToolSet::Slim` (Ollama), the tools that turn's message names (see [Request size](#request-size-and-small-context-models)). So `run_turn` calls `strip_thinking` once at the start of every turn, removing every `thinking` and `redacted_thinking` block from the history before the new user message is added. The docs list removing all of them as valid; the model only loses that reasoning. Text, `tool_use` and `tool_result` blocks, and their pairing, are untouched.
+edytlab changes the prefix between user turns: `system` is rebuilt every turn (the classifier's mode, matched skills, memory, the agent profile, and the session context: the head node id, the tracks, the buses and the master chain with their effects, the selection and the markers), and `tools` follows that turn's whitelist (the per-turn disabled-tools list) and, for a provider sent `ToolSet::Slim` (Ollama), the tools that turn's message names (see [Request size](#request-size-and-small-context-models)). So `run_turn` calls `strip_thinking` once at the start of every turn, removing every `thinking` and `redacted_thinking` block from the history before the new user message is added. The docs list removing all of them as valid; the model only loses that reasoning. Text, `tool_use` and `tool_result` blocks, and their pairing, are untouched.
 
 Within a turn nothing changes: `system` and `tools` are built once before the request loop and sent unchanged on every step, so the thinking a step produced is replayed, signature intact, with the tool results that follow it. The slim tool set and the names line it adds to `system` are chosen at that same point, once per turn and after `strip_thinking`, so they sit inside this rule (and a local server keeps the prompt it has processed only while they stay put). That is the one case where replaying is valid, and it holds only while that stays true: **a change that rebuilds `system` or `tools` between a turn's steps must strip there too, and so must one that edits or removes an earlier message** (client-side compaction, trimming old tool results, rewriting a stored `tool_use` or `tool_result`), because that changes the prefix of every block after it. Anthropic's server-side compaction and context editing are documented as valid, since the check compares the conversation as it was sent. `tests/prior_turn_thinking.rs` pins both halves with a mock provider (a changed `system`, a changed tool set, and a fixed prefix inside a turn), and `tests/live_thinking_binding.rs` is the `#[ignore]`d check against the real API with the strict check switched on (`ANTHROPIC_E2E_KEY`).
 
@@ -539,11 +541,11 @@ OpenAI uses a different request/response format. `OpenAIProvider` translates bid
 // crates/ai/src/keychain.rs — every entry lives under the service "app.edytlab.desktop"
 pub fn load_api_key(provider_id: &str) -> Option<String>        // logs an unreadable keychain, reads as None
 pub fn try_load_api_key(provider_id: &str) -> Result<Option<String>, KeychainError>
-pub fn save_api_key(provider_id: &str, key: &str) -> Result<(), keyring::Error>
+pub fn save_api_key(provider_id: &str, key: &str) -> Result<Persistence, keyring::Error>   // where the save landed
 pub fn delete_api_key(provider_id: &str) -> Result<(), keyring::Error>
 pub fn load_active_provider() -> Option<String>
 pub fn try_load_active_provider() -> Result<Option<String>, KeychainError>
-pub fn save_active_provider(provider_id: &str) -> Result<(), keyring::Error>
+pub fn save_active_provider(provider_id: &str) -> Result<Persistence, keyring::Error>
 pub fn persistence() -> Persistence                              // Durable | SessionOnly { reason }
 // plus load_/save_/delete_ for `base_url`, `model` and `effort`, keyed the same way
 ```
@@ -761,7 +763,7 @@ A node's id is the hash of its state alone, so an edit that returns to an earlie
 
 The frontend keeps the path instead: `apps/desktop/src/lib/headTrail.ts`, held by `useSession`, is one reducer for the head, the undo trail and the redo list. Every head move in the frontend goes through it (`setHeadLocal` for a head that moved on, `resetHead` for a different project); a new head clears redo. Undo goes to the last head on the trail and asks the node for its `parent` only once the trail is spent. The History graph draws the path over the parent edges.
 
-The History graph's "Set as head" is one of those moves. `GraphView` hands the choice to App (`onSetHead`), which calls `set_head_to` and then records the step with `setHeadLocal`, so undo returns from the jump (#453). A plain click on a bubble is not one: it previews the node (its mix is rendered and the bubble is marked with a dashed outline, the status bar says `previewing …`) and leaves `head`, the trail and the saved path alone, because the store did not move (#522). The preview is `useGraphPreview` in App, apart from `useSession`'s head, and it ends on any head move; the head ring stays on the head. `set_head_to` emits no event of its own, so the views of session state do not wait to be told: the track list is refreshed by the move itself, and the label lane (`useMarkers`), the transcript and the sync-lock toggle re-read when `head` changes.
+The History graph's "Set as head" is one of those moves. `GraphView` hands the choice to App (`onSetHead`), which calls `set_head_to` and then records the step with `setHeadLocal`, so undo returns from the jump (#453). A plain click on a bubble is not one: it previews the node (its mix is rendered and the bubble is marked with a dashed outline, the status bar says `previewing …`) and leaves `head`, the trail and the saved path alone, because the store did not move (#522). The preview is `useGraphPreview` in App, apart from `useSession`'s head, and it ends on any head move; the head ring stays on the head. `set_head_to` emits no event of its own, so the views of session state do not wait to be told: the track list is refreshed by the move itself, and the label lane (`useMarkers`), the transcript, the sync-lock toggle and the render-warnings notice (`useRenderWarnings`, which asks for the node on screen) re-read when `head` changes.
 
 The path is kept with the project, so it survives a restart (#453). It is `<project-dir>/.audiograph/trail.json` (`session::trail`), beside `head`, not in `view.json`: the view is disposable by design, and losing the path makes undo skip steps. The file holds `{ head, trail, redo }`, each list bounded to the last 500 heads (`MAX_TRAIL`, the same bound the reducer keeps).
 
@@ -788,6 +790,8 @@ Nodes are stored as content-addressed JSON files under `<project-dir>/.audiograp
 ```
 
 Annotations (markers, regions, labels) are part of `SessionState`, so they live inside each node's JSON rather than in a directory of their own.
+
+The label lane (`LabelLane`, below the tracks) edits them directly: double-click the lane to add a label, typing its name in a box where it will sit (a click on the ruler opens the same box at that point); double-click a label to rename it; drag it to move it, and a region moves whole, keeping its length; right-click to delete it. The app asks for text in the page and never with `window.prompt`, which a macOS webview answers with `null` (`noWindowPrompt.test.ts` guards it). Each gesture goes through the session's line (`inOrder`) as `add_marker`, `update_marker` or `remove_marker`: one node each, and a gesture that changes nothing (a label dragged back to where it was) appends none. Labels, and the transcript's words, stay with the audio across the tools that shift time: `remap_after_cut`, `remap_after_insert` and `remap_after_scale` (`crates/tools/src/tool/util.rs`) are called by `cut_range`, `insert_silence`, `paste_region`, `trim`, `change_speed`, `time_stretch`, `truncate_silence`, `cut_words` and `remove_fillers` (`labels_follow_edits.rs`); `repeat_selection` appends at the end and moves nothing. `export_labels` writes them as Audacity label text and `import_labels` reads that back.
 
 ---
 
@@ -846,6 +850,7 @@ pub struct RenderReport {
     pub sample_rate:    u32,
     pub channels:       u16,
     pub peak_dbfs:      f32,
+    pub warnings:       Vec<String>,  // what the render left out; empty when nothing was
 }
 ```
 
@@ -854,6 +859,11 @@ There is no native playback path. All playback happens in the webview — WaveSu
 ### What the Render Processes
 
 Every track and every clip, with per-clip volume automation, per-track effect chains, sends into buses with their own chains, and the master chain (`crates/audio-engine/src/render.rs`, `effect_chain.rs`). The effect-chain tools edit a track's chain, the master chain with `scope: "master"`, or a bus's chain with `scope: "bus"` and the bus's name (a bus effect is heard only when a track sends to it); `audition_effect` takes the same three targets and stores nothing. `tempo_map` is read by tools — `select_region`'s beat ranges, for one — not by the renderer.
+
+**A stored effect the renderer cannot run does not fail the render** (#520, #531). Only five kinds stream in a chain: `gain`, `limiter`, `low_pass_filter`, `high_pass_filter` and `notch_filter` (`STREAMABLE` in `effect_chain.rs`), and `add_effect`, `set_effect_bypassed` (switching on) and `audition_effect` refuse any other. A project saved by an older build can still hold one, on a track, a bus or the master. `effect_chain::build` leaves such an entry out, as it does a bypassed one, and renders the rest; `skipped_effects` lists every switched-on entry it left out, in signal order (tracks, then buses, then master), each with its scope, its index in the **stored** chain, its kind and why (`NotYetStreamable` or `Unknown`), and `render_warnings` turns each into a sentence. Both read the stored chains, so neither needs a render. Where the list goes:
+
+- `RenderReport.warnings` carries the sentences. The tools that render (`render_preview`, `render_final`, `mix_to_new_track`, `export_multiple`, `audition_effect`) add a `warnings` array and a `Warning: …` line in `summary` when there are any and nothing when there are none. A cached preview has no report, so a hit recomputes them from the node's chains.
+- The window gets the same findings as data, not as sentences. `get_render_warnings(node)` returns `RenderWarning[]` (`{ scope, effect_index, kind, reason }`) for any node, `render_range` returns `warnings`, and `prepare_compare` returns `a_warnings` and `b_warnings`; `render_preview` still answers a bare path. The window words them (`lib/renderWarnings.ts`): a notice above the timeline for the node on screen (`useRenderWarnings` asks again whenever that node changes, since a head move emits no event), a note after Export Selection naming the file and what it was written without, and each side's list under the A/B bar. A node id hashes the state, so the answer for an id never changes.
 
 ### Fast Path
 
@@ -898,6 +908,8 @@ NOT IMPLEMENTED IN THIS BUILD. `WhisperModel::transcribe` returns
 loaded. The diagram is the intended design, not current behaviour.
 ```
 
+Two of its pieces exist ahead of the rest. They need no ONNX Runtime and no model, they are checked in CI, and nothing calls either: the log-mel spectrogram (`crates/ml-whisper/src/mel.rs`, compared with OpenAI's `log_mel_spectrogram`, [#554](https://github.com/laadtushar/edytlab/pull/554)) and the decoding of token ids to text from the export's `tokenizer.json` (`tokenizer.rs`, byte-level BPE, [#555](https://github.com/laadtushar/edytlab/pull/555)). The encoder, the decoder loop and the timestamp alignment are not written.
+
 Designed to run entirely on-device. There is no transcription speed to quote until the decoder exists ([#384](https://github.com/laadtushar/edytlab/issues/384)).
 
 ### Demucs (Stem Separation)
@@ -918,6 +930,15 @@ NOT IMPLEMENTED IN THIS BUILD. `DemucsModel::separate` returns
 `NotImplemented`; a valid model loads and separation still fails,
 because the ORT decode loop is what is missing. The diagram is the
 intended design, not current behaviour.
+
+Two of its pieces exist ahead of the rest, are checked in CI without a
+model, and are called by nothing: the STFT and iSTFT that htdemucs runs
+outside its ONNX graph (`crates/ml-demucs/src/spec.rs`, compared with
+PyTorch, [#549](https://github.com/laadtushar/edytlab/pull/549)), and the
+cut, pad, weight and overlap-add of a track into the network's 7.8-second
+segments (`separate.rs`, behind a `SegmentModel` trait and tested with a
+fake model, [#550](https://github.com/laadtushar/edytlab/pull/550)).
+Nothing implements `SegmentModel` with ONNX Runtime yet.
 
 Model variants available (`SUPPORTED_MODEL_IDS`):
 - `htdemucs` (default)
@@ -1051,7 +1072,7 @@ The agent turn emits events via Tauri's event system (names in `apps/desktop/src
 | `agent://plan-rejected` | none | The user declined the plan or the held edit; the turn ended with no `done` |
 | `agent://plan-unavailable` | `{ reason: string, first_edit_held: boolean }` | A plan was asked for and none arrived; `first_edit_held` says whether the first edit will be held for approval or the turn proceeds with no gate |
 | `tool-progress` | `ToolProgress` | Progress from a long-running tool (and `select_region`'s match) |
-| `marker-changed` | none | Marker/annotation added or removed |
+| `marker-changed` | none | Marker/annotation added, renamed, moved or removed |
 
 ### Lock Ordering (Deadlock Prevention)
 
@@ -1077,6 +1098,8 @@ The agent's tool dispatch (`tools::Shared::dispatch`) follows the same order:
 1. The dispatcher lock is taken alone, to admit the call and clone the tool, and released before any other lock is taken. (The agent used to take dispatcher then store, while `run_track_tool` and `batch_load` take store, engine, then dispatcher: two orders, a deadlock waiting for the right timing.) This is a rule about the agent's dispatch, not about the dispatcher everywhere: `refresh_dispatcher_for_server` holds the dispatcher while it takes the MCP registry's lock, and dispatcher then registry is the order in use, so the reverse must not be added.
 2. A tool that runs off the lock (see [Off-lock tools](#off-lock-tools)) takes only the store lock, twice and briefly: to stage a handle, and to commit it. Nothing is locked while it runs.
 3. Any other tool takes store, engine, then clipboard, and keeps them for the call.
+
+The registry of live stores (`AppState::live_stores`, [#534](https://github.com/laadtushar/edytlab/pull/534)) is a leaf: its lock is taken alone, to look a folder up or register a store, and dropped before the store, engine, dispatcher, agent or `AppState` locks are taken, and none of those is taken while it is held. In `open_project_with` the order is registry (alone), then the store's lock (held across the re-read, the sweep and the swap), then, with the store lock dropped, `AppState::set_open_project`, which takes the store slot's lock and then the project directory's.
 
 A command that reads the session while an off-lock tool runs gets the head as it was when the tool started. The tool's node appears when it commits, and `agent://node-created` is emitted after that, so a refresh triggered by the event sees it.
 
@@ -1192,4 +1215,4 @@ Edit `~/.edytlab/mcp.json` via Settings → MCP, or directly. Tools from the ser
 
 ---
 
-*Last updated: 2026-05-17. Reflects edytlab v0.1.0-dev.*
+*Kept current by the staleness sweep in `CLAUDE.md`; it describes `main`, not a release.*

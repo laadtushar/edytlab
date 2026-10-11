@@ -52,8 +52,10 @@ These are the claims that are easy to get wrong. Each has bitten a draft once.
   and `remove_fillers` need a transcript. They are built and untestable end to
   end until it exists. `duck_under_speech` does not wait on it: with no
   transcript it keys on a voice track's audio (voiced sound, not what was
-  said), so say that, not "keyed on the words". The README's older mashup
-  example predates this; do not reuse it.
+  said), so say that, not "keyed on the words". From the next release
+  `select_region`'s `speech_passage` ("the last thing said") does the same
+  ([#540](https://github.com/laadtushar/edytlab/pull/540)). The README's older
+  mashup example predates this; do not reuse it.
 - A user count, download count, star count, testimonial, press quote or
   benchmark. None exists in the repo to cite.
 - That the website has no analytics. The desktop app sends no telemetry, but
@@ -106,7 +108,11 @@ getting caught.
 - Master bus: in v0.5.0 no tool targets the master effect chain, which is why
   the recordings show a baked "Master" track. `add_effect` with scope
   `master` ([#460](https://github.com/laadtushar/edytlab/issues/460), PR #516)
-  is merged but not released. Say "coming in the next release", not "has".
+  is merged but not released. So are effect tools for a bus (`scope: "bus"`)
+  and `audition_effect` on the master and on a bus (PR #551). Say "coming in
+  the next release", not "has". Only gain, the limiter and the low-pass,
+  high-pass and notch filters run in a chain; do not promise a shared reverb
+  on a bus.
 - Save As leaves the assistant editing the original project, and opening a
   project can restore an older head (v0.5.0's own known issues,
   [#506](https://github.com/laadtushar/edytlab/issues/506) and
