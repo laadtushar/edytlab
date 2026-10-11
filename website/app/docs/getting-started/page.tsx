@@ -195,7 +195,7 @@ export default function GettingStartedPage() {
         Keys are stored using your OS native keychain (macOS Keychain,
         Windows Credential Manager, the Secret Service on Linux). On a Linux
         desktop with no Secret Service running they are kept in memory until
-        you restart, and the app tells you so. They are never written to disk
+        you restart your computer, and the app tells you so. They are never written to disk
         or sent to any edytlab server.
       </p>
 

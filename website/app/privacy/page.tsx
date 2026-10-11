@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <LegalShell title="Privacy" updated="2026-10-10">
+    <LegalShell title="Privacy" updated="2026-10-11">
       <p>
         edytlab is a local-first desktop application. This page describes what
         data the app handles and how it handles it, and what the website you
@@ -44,20 +44,24 @@ export default function PrivacyPage() {
         When you add an API key, it is stored in your operating system&apos;s
         secure credential store: macOS Keychain on Mac, Credential Manager on
         Windows, and the Secret Service (GNOME Keyring, KWallet or KeePassXC) on Linux; on a Linux
-        desktop with no Secret Service running, keys are held in the kernel keyring until you restart, and
+        desktop with no Secret Service running, keys are held in the kernel keyring until you restart your computer, and
         the app tells you so. Keys are never written to plain-text files and never sent
         anywhere except directly to the provider whose key it is.
       </p>
 
       <h2>Network traffic</h2>
       <p>
-        The only outbound network traffic the app makes during normal use is
-        chat requests to the LLM provider you have selected. These requests
-        contain your prompt text, agent context, and tool-call results — never
-        your raw audio. Beyond that, the app connects only where you tell it
-        to: a plugin you install from a URL is downloaded from that URL, and an
-        MCP server you add is contacted at the address you gave it. You can
-        inspect the full set of requests in your OS network tools at any time.
+        The only outbound network traffic the app makes during normal use goes
+        to the LLM provider you have selected. Chat requests contain your
+        prompt text, agent context, and tool-call results — never your raw
+        audio. When you open Settings, the app also asks the provider shown
+        there for its list of models; that request carries your API key (the
+        saved one, or one you have typed) but no prompt and no audio, and for
+        Ollama it goes to the address you gave it. Beyond that, the app connects only
+        where you tell it to: a plugin you install from a URL is downloaded
+        from that URL, and an MCP server you add is contacted at the address
+        you gave it. You can inspect the full set of requests in your OS
+        network tools at any time.
       </p>
 
       <h2>Telemetry and analytics</h2>

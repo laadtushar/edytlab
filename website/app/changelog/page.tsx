@@ -40,7 +40,7 @@ const entries: Entry[] = [
       "On Linux, API keys survive a reboot. They are stored in the Secret Service (GNOME Keyring, KWallet or KeePassXC); with none running, the app says the key lasts only until restart. A keychain that cannot be read says so, Settings no longer erases what it could not read, and the window opens while the keyring asks to be unlocked.",
       "Settings fits small windows. The tab strip scrolls when the window is narrow, and when it is short the dialog scrolls while Save stays in view.",
       "Signed macOS builds can record from the microphone.",
-      "Speech models are downloaded and checked before use, and a missing ONNX Runtime is an error instead of a hang. Stem separation and transcription are still not shipped.",
+      "A missing ONNX Runtime is an error instead of a hang. The code that downloads a speech model and checks it against a pinned checksum is in the app, but nothing calls it yet and no model is pinned, so nothing is downloaded. Stem separation and transcription are still not shipped.",
       "Set as head in the graph is a step undo can return from, and the label lane follows undo and redo.",
     ],
   },

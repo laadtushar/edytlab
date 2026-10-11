@@ -104,7 +104,7 @@ crates/
   recorder/           Microphone capture to WAV
   ml-demucs/          Stem separation (ONNX Demucs; inference not shipped)
   ml-whisper/         Transcription (ONNX Whisper; decoder not shipped)
-  ml-pipeline/        Shared ONNX runtime + model cache
+  ml-pipeline/        Shared ONNX runtime gate, model downloader (not called yet), inference cache
   memory/             Global/project markdown memory
   skills/             User skill library
   agent_profiles/     Per-session model + tool profiles
@@ -144,7 +144,7 @@ pnpm --filter @edytlab/desktop test:watch # vitest watch mode`}</code>
           WebView. Thin UI layer; all state lives in Rust.
         </li>
         <li>
-          <strong>Rust application layer</strong> — about 86 Tauri commands in{" "}
+          <strong>Rust application layer</strong> — about 90 Tauri commands in{" "}
           <code>commands.rs</code>. Manages <code>AppState</code>: Store,
           Engine, Agent, Clipboard.
         </li>
