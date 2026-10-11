@@ -36,7 +36,12 @@ import { TemplatePickerModal } from "../TemplatePickerModal";
 //
 // `process.cwd()` rather than `import.meta.url`, which is not a file:
 // URL once Vite has transformed the module.
-const css = readFileSync(join(process.cwd(), "src", "styles.css"), "utf8");
+//
+// Line endings are normalised because a Windows checkout has CRLF, and
+// the reduced-motion block below is found by its `\n}\n` ending.
+const readSource = (...path: string[]) =>
+  readFileSync(join(process.cwd(), "src", ...path), "utf8").replace(/\r\n/g, "\n");
+const css = readSource("styles.css");
 
 // Fail loudly on an empty read. Without this, the whole suite below
 // degrades into asserting things about "" — which is the exact failure
@@ -554,8 +559,8 @@ describe("never animate what WaveSurfer draws, or anything above it", () => {
   // lane's canvases are in App.tsx and Timeline.tsx, and a class on one of
   // them is not a type error. `e2e/motion.spec.ts` checks the same thing
   // against computed style in a real browser.
-  const app = readFileSync(join(process.cwd(), "src", "App.tsx"), "utf8");
-  const timeline = readFileSync(join(process.cwd(), "src", "components", "Timeline.tsx"), "utf8");
+  const app = readSource("App.tsx");
+  const timeline = readSource("components", "Timeline.tsx");
   const MOTION_CLASS =
     /\b(app-fade-in|fade-in|fade-in-quick|plan-in|stagger-in|reveal-in|banner-in|badge-settle|overlay-in|backdrop-in|node-in|strip-in|logo-build)\b/;
 
@@ -596,7 +601,7 @@ describe("never animate what WaveSurfer draws, or anything above it", () => {
     // and the timeline's mix players, both there before this pass.
     const files = ["Settings", "Chat", "EmptyState", "ToolBadge", "MessageBubble", "ErrorBanner", "AppHeader"];
     for (const f of files) {
-      const src = readFileSync(join(process.cwd(), "src", "components", `${f}.tsx`), "utf8");
+      const src = readSource("components", `${f}.tsx`);
       expect(src, f).not.toMatch(/<(audio|video)\b|new Audio\(/);
     }
   });
