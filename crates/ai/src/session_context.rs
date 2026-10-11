@@ -248,7 +248,7 @@ pub fn render_block(ctx: &SessionContext) -> String {
     if !ctx.buses.is_empty() {
         out.push_str("## buses\n");
         out.push_str(
-            "Tracks send a parallel copy to a bus; `set_send` and `remove_send` take its id.\n",
+            "Tracks send a parallel copy to a bus; `set_send` and `remove_send` take its id. The effect tools edit its chain with scope \"bus\" and `bus` (name or id); `effect_index` counts from 0 in the order listed.\n",
         );
         for b in &ctx.buses {
             out.push_str(&format!("- \"{}\" (id {}): ", b.name, b.id));

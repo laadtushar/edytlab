@@ -93,11 +93,13 @@ const SLIM_FIRST_REQUEST_MAX_BYTES: usize = 4_096 * BYTES_PER_TOKEN;
 const MCP_HEADROOM_BYTES: usize = 500;
 
 /// What the three buses of `mix_with_buses` (eight sends, four chain
-/// entries) may add to the first request (#552): measured 534 B, with the
-/// headroom of one more send or two. A bus costs its 36-character id, its
-/// sends and its chain, so a session with many buses costs more; raise
-/// this deliberately, and say why, if the section grows.
-const BUSES_MAX_BYTES: usize = 600;
+/// entries) may add to the first request (#552): measured 659 B, with the
+/// headroom of one more send or two. 125 B of that is the header line that
+/// says how to edit a bus chain (it was 534 B before that clause, and the
+/// cap 600 B). A bus costs its 36-character id, its sends and its chain, so
+/// a session with many buses costs more; raise this deliberately, and say
+/// why, if the section grows.
+const BUSES_MAX_BYTES: usize = 720;
 
 /// The issue's measured token count for the first request.
 const ISSUE_MEASURED_TOKENS: usize = 15_157;
