@@ -7920,7 +7920,7 @@ mod tests {
     fn state_with_a_store(dir: &std::path::Path) -> AppState {
         let state = AppState::default();
         let store = Store::open(dir).expect("store");
-        state.set_store(Some(Arc::new(Mutex::new(store))));
+        state.set_open_project(Arc::new(Mutex::new(store)), dir.to_path_buf());
         state
     }
 
