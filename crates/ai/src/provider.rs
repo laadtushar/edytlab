@@ -253,6 +253,19 @@ pub enum WireFormat {
     Responses,
 }
 
+impl WireFormat {
+    /// Whether a stream on this format has an end marker of its own that a
+    /// step must reach, so that running out of events without it is an error
+    /// and not a shorter reply.
+    ///
+    /// Only the Responses format does: its turn succeeds at
+    /// `response.completed` and nowhere else. The other two have always taken
+    /// the end of the stream as the end of the step, and keep doing so.
+    pub fn needs_terminal_event(self) -> bool {
+        self == WireFormat::Responses
+    }
+}
+
 /// How much of the tool list a provider is sent with each request (#395).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolSet {
@@ -634,7 +647,11 @@ impl LlmProvider for OpenAIProvider {
                 .unwrap_or("error")
                 .to_string();
             return Ok(vec![StreamEvent::Error {
-                error: ApiError { kind, message },
+                error: ApiError {
+                    kind,
+                    message,
+                    param: None,
+                },
             }]);
         }
 

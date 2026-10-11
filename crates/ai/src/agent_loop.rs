@@ -652,9 +652,13 @@ pub(crate) enum PlanUnavailable {
     Transport(String),
     /// The server answered, but not with success.
     Status(u16),
-    /// A 2xx whose body would not parse as JSON.
+    /// A 2xx whose reply could not be read: a body that would not parse as
+    /// JSON, or, on the Responses format, a stream that failed, was cut off
+    /// before `response.completed`, or could not be parsed. The string says
+    /// which.
     BodyParse(String),
-    /// Valid JSON with no text content where the provider puts it.
+    /// A reply that read cleanly (valid JSON, or a stream that completed)
+    /// with no text content where the provider puts it.
     NoResponseText,
     /// Text that carried no well-formed `<plan>` block.
     NoPlanBlock,
@@ -1250,6 +1254,12 @@ where
                     }
                     StreamEvent::Ping | StreamEvent::Other => {}
                     StreamEvent::Error { error } => {
+                        // Only the message survives this arm. The error's
+                        // `kind` (on the Responses format, the API's code,
+                        // such as `subscription_sharing_usage_limit_exceeded`)
+                        // and `param` are dropped here, and a provider whose
+                        // codes call for different handling must carry them
+                        // through to a typed `Error` before it ships.
                         return Err(Error::ApiStream(error_message(&error)));
                     }
                 }
@@ -1261,10 +1271,8 @@ where
         // A stream that ran out without its end marker. The Responses
         // format succeeds only at `response.completed`; a step cut short is
         // an error, not a shorter reply, and nothing of it is kept or run.
-        if !stream_finished {
-            if let Some(cut_off) = responses::unfinished_stream_error(cfg.provider.wire_format()) {
-                return Err(cut_off);
-            }
+        if !stream_finished && cfg.provider.wire_format().needs_terminal_event() {
+            return Err(responses::cut_off_error());
         }
 
         // 4. Append the assistant turn (with all its blocks) to history

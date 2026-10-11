@@ -368,6 +368,65 @@ async fn a_function_call_with_arguments_in_pieces_comes_out_whole_and_is_answere
     assert!(at("function_call") < at("function_call_output"));
 }
 
+/// The guide's field table puts the finished call in an `item` on
+/// `arguments.done`, where its example has `arguments` on the event. A call
+/// finished in the table's shape must run with its whole arguments, not the
+/// prefix the pieces made.
+#[tokio::test]
+async fn a_call_finished_in_the_item_shape_runs_with_its_whole_arguments() {
+    let whole = "{\"track\": 0, \"db\": -3.5}";
+    let events = vec![
+        created(),
+        json!({
+            "type": "response.output_item.added", "output_index": 0,
+            "item": { "type": "function_call", "id": "fc_1", "call_id": "call_5",
+                      "name": "set_track_gain", "arguments": "" }
+        }),
+        json!({ "type": "response.function_call_arguments.delta",
+                "item_id": "fc_1", "output_index": 0, "delta": "{\"track\": 0, " }),
+        json!({
+            "type": "response.function_call_arguments.done",
+            "item_id": "fc_1", "output_index": 0,
+            "item": { "type": "function_call", "id": "fc_1", "call_id": "call_5",
+                      "name": "set_track_gain", "arguments": whole }
+        }),
+        json!({
+            "type": "response.output_item.done", "output_index": 0,
+            "item": { "type": "function_call", "id": "fc_1", "call_id": "call_5",
+                      "name": "set_track_gain", "arguments": whole }
+        }),
+        completed(),
+    ];
+    let run = run(vec![
+        classifier_says_general(),
+        ok(sse(&events)),
+        ok(text_reply(&["Done."])),
+    ])
+    .await;
+    run.result.as_ref().expect("the turn succeeds");
+
+    let input = run.requests[2]["input"].as_array().expect("input");
+    let call = input
+        .iter()
+        .find(|i| i["type"] == "function_call")
+        .expect("the call is echoed back");
+    let echoed: Value = serde_json::from_str(call["arguments"].as_str().unwrap()).unwrap();
+    assert_eq!(echoed, json!({ "track": 0, "db": -3.5 }));
+    // The call ran: an unparseable argument string would have been answered
+    // as malformed JSON.
+    let output = input
+        .iter()
+        .find(|i| i["type"] == "function_call_output")
+        .expect("answered");
+    assert!(
+        !output["output"]
+            .as_str()
+            .unwrap()
+            .contains("not valid JSON"),
+        "{output}"
+    );
+}
+
 #[tokio::test]
 async fn text_and_two_calls_in_one_step_all_arrive() {
     let mut events = text_events(&["Raising both."]);
@@ -542,7 +601,7 @@ async fn an_error_event_is_an_error_that_keeps_the_apis_message() {
             "type": "error",
             "code": "server_error",
             "message": "The server had an error while processing your request.",
-            "param": null
+            "param": "input"
         }),
     ];
     let run = run(vec![classifier_says_general(), ok(sse(&events))]).await;
@@ -552,6 +611,8 @@ async fn an_error_event_is_an_error_that_keeps_the_apis_message() {
         message.contains("The server had an error while processing your request."),
         "{message}"
     );
+    // The errors page says to use `error.param` too.
+    assert!(message.contains("(param: input)"), "{message}");
 }
 
 // ---------------------------------------------------------------------
@@ -559,9 +620,13 @@ async fn an_error_event_is_an_error_that_keeps_the_apis_message() {
 // ---------------------------------------------------------------------
 
 /// A classifier whose stream fails is no reason to fail the turn: the mode
-/// is `general`, as on every other format.
+/// is `general`, as on every other format. The turn's own request says which
+/// mode it ran in: it is the one a classifier that answered `general` gets,
+/// instruction for instruction, and a mashup would have asked for a plan
+/// first.
 #[tokio::test]
 async fn a_classifier_stream_that_fails_leaves_the_turn_on_general() {
+    let general = run(vec![classifier_says_general(), ok(text_reply(&["Fine."]))]).await;
     let failed = sse(&[
         created(),
         json!({
@@ -573,4 +638,13 @@ async fn a_classifier_stream_that_fails_leaves_the_turn_on_general() {
 
     assert_eq!(run.result.as_ref().expect("the turn goes on").text, "Fine.");
     assert_eq!(run.requests[0]["stream"], json!(true));
+    assert_eq!(
+        run.requests.len(),
+        2,
+        "the classifier, then the step: no plan"
+    );
+    assert_eq!(
+        run.requests[1]["instructions"], general.requests[1]["instructions"],
+        "the general prompt, as when the classifier says general"
+    );
 }

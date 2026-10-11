@@ -46,7 +46,7 @@ use crate::anthropic::{
     ApiError, ContentBlock, ContentBlockDelta, ContentBlockStart, Message, MessageDeltaInner,
     MessageMeta, MessagesRequest, Role, StreamEvent, ToolChoice,
 };
-use crate::provider::{ProviderError, WireFormat};
+use crate::provider::ProviderError;
 use crate::Error;
 
 /// The top-level request fields the plan-usage preview refuses.
@@ -80,27 +80,36 @@ pub const UNSUPPORTED_FIELDS: &[&str] = &[
     "previous_response_id",
 ];
 
-/// What a namespace says it is. The tool names are the model's to choose by.
-const NAMESPACE_DESCRIPTION: &str = "Tools for reading and editing the open audio project.";
+/// What a namespace says it is. The name is a parameter and what the tools do
+/// is in each tool's own description, so this says only what they are.
+const NAMESPACE_DESCRIPTION: &str = "Functions the assistant can call.";
 
 /// Said when a stream stops without a terminal event.
 const CUT_OFF: &str = "the stream ended before the response completed";
 
 /// How function tools are laid out in the request's `tools`.
 ///
-/// The preview says to "group function/custom tools in namespaces or supply
-/// them through `additional_tools` input items". The agent has about ninety
-/// tools and the route does not take `tool_search`, so one namespace holds
-/// them all. Whether an account accepts a namespace of that size is for a
-/// real account to say, which is why the grouping is a parameter and
-/// [`ToolGrouping::Flat`] is there to fall back to.
+/// On the Sign in with ChatGPT route the preview page allows two ways to
+/// offer function tools and no other: "group function/custom tools in
+/// namespaces or supply them through `additional_tools` input items". It does
+/// not take `tool_search`. The agent has about ninety tools, so
+/// [`ToolGrouping::Namespace`] puts them all in one namespace, and whether an
+/// account accepts a namespace of that size is for a real account to say.
+///
+/// If it does not, [`ToolGrouping::Flat`] is **not** the way out on that
+/// route: top-level function tools are not among the two the page allows. The
+/// allowed fallbacks are `additional_tools` input items, which this module
+/// does not build, and a smaller list in the namespace (`ToolSet::Slim`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ToolGrouping {
     /// One `{"type":"namespace","name":<this>,"tools":[...]}` holds every
     /// function. A call the model makes from it is echoed back in `input`
     /// with the same `namespace`.
     Namespace(String),
-    /// Plain `{"type":"function"}` tools at the top level.
+    /// Plain `{"type":"function"}` tools at the top level: the ordinary
+    /// Responses shape, for a provider on the API-key Responses endpoint
+    /// (moving the `openai` provider onto this format is a candidate). Not
+    /// for the plan route, as above.
     Flat,
 }
 
@@ -119,10 +128,17 @@ pub enum ToolGrouping {
 ///   `output_text`; a `tool_use` is a `function_call` and a `tool_result` a
 ///   `function_call_output` of the same `call_id` (a failed one is prefixed
 ///   `error: `, as on Chat Completions). A user turn's results come before
-///   its words. Thinking is dropped: it is another provider's, and a
-///   reasoning item this route would take back needs
-///   `include: ["reasoning.encrypted_content"]`, which no request here asks
-///   for.
+///   its words. Thinking blocks are dropped: they are Anthropic's, signed for
+///   its own server.
+/// * **Reasoning items are not handled, and that is an open question.** The
+///   function-calling guide says that for reasoning models "any reasoning
+///   items returned in model responses with tool calls must also be passed
+///   back with tool call outputs". With `store: false` that takes
+///   `include: ["reasoning.encrypted_content"]` on the request and echoing the
+///   returned `reasoning` items in `input` within the turn. This does neither:
+///   the parser ignores `reasoning` items and the body has no `include`. A
+///   provider on this format that serves reasoning models must settle it, and
+///   test it on a real account, before it ships.
 /// * Tools are grouped as `grouping` says, each with `strict: false`: the
 ///   Responses API otherwise tries to turn a schema strict, which these
 ///   schemas are not written for. `tool_choice` is `"auto"`, or `"none"` for
@@ -360,10 +376,11 @@ struct Text {
 /// by the first delta. A function call is a `tool_use` block opened by its
 /// `response.output_item.added` and given its arguments **whole**, in one
 /// `input_json_delta`, once the API says they are complete
-/// (`response.function_call_arguments.done`, or the finished item): the
-/// loop reads arguments only when a step ends, so nothing is lost by not
-/// forwarding the pieces, and the call is never run on a prefix of them. The
-/// finished event is the authority over the deltas if the two disagree.
+/// (`response.function_call_arguments.done` in either of its shapes, or the
+/// finished item): the loop reads arguments only when a step ends, so nothing
+/// is lost by not forwarding the pieces, and the call is never run on a
+/// prefix of them. The finished event is the authority over the deltas if the
+/// two disagree; the pieces are used only when no event brings the whole.
 ///
 /// The stream ends the turn successfully at `response.completed` and
 /// nowhere else (`MessageStop`). `response.failed`, `response.incomplete`
@@ -407,25 +424,31 @@ impl ResponsesStream {
     /// Take one SSE `data:` payload and return the canonical events it
     /// stands for.
     pub fn feed(&mut self, raw: &str) -> Result<Vec<StreamEvent>, ProviderError> {
+        // Once a terminal event has been seen nothing else is read, so data
+        // that would not parse is no error either.
+        if self.terminated {
+            return Ok(Vec::new());
+        }
         let raw = raw.trim();
         if raw.is_empty() || raw == "[DONE]" {
             return Ok(Vec::new());
         }
         let event: Value =
             serde_json::from_str(raw).map_err(|e| ProviderError::Parse(e.to_string()))?;
-        if self.terminated {
-            return Ok(Vec::new());
-        }
 
         let mut out = Vec::new();
         if !self.started {
             self.started = true;
             out.push(StreamEvent::MessageStart {
                 message: MessageMeta {
-                    id: str_at(&event, &["response", "id"])
+                    id: event
+                        .pointer("/response/id")
+                        .and_then(Value::as_str)
                         .unwrap_or("responses-msg")
                         .to_string(),
-                    model: str_at(&event, &["response", "model"])
+                    model: event
+                        .pointer("/response/model")
+                        .and_then(Value::as_str)
                         .unwrap_or("responses")
                         .to_string(),
                 },
@@ -450,18 +473,22 @@ impl ResponsesStream {
                     (_, Some(code)) => format!("the response failed ({code})"),
                     _ => "the response failed".to_string(),
                 };
-                self.fail(code.unwrap_or("response_failed"), message, &mut out);
+                let param = error.and_then(|e| e.get("param")).and_then(Value::as_str);
+                self.fail(code.unwrap_or("response_failed"), message, param, &mut out);
             }
             "response.incomplete" => {
-                let message = match str_at(&event, &["response", "incomplete_details", "reason"]) {
+                let message = match event
+                    .pointer("/response/incomplete_details/reason")
+                    .and_then(Value::as_str)
+                {
                     Some(reason) => format!("the response ended early: {reason}"),
                     None => "the response ended early".to_string(),
                 };
-                self.fail("incomplete", message, &mut out);
+                self.fail("incomplete", message, None, &mut out);
             }
             "error" => {
-                // The API puts `code` and `message` on the event itself; an
-                // `error` object is the shape of every other error.
+                // The API puts `code`, `message` and `param` on the event
+                // itself; an `error` object is the shape of every other error.
                 let source = event.get("error").unwrap_or(&event);
                 let code = source.get("code").and_then(Value::as_str);
                 let message = source
@@ -470,7 +497,8 @@ impl ResponsesStream {
                     .filter(|m| !m.is_empty())
                     .unwrap_or("the API sent an error")
                     .to_string();
-                self.fail(code.unwrap_or("error"), message, &mut out);
+                let param = source.get("param").and_then(Value::as_str);
+                self.fail(code.unwrap_or("error"), message, param, &mut out);
             }
             _ => {}
         }
@@ -483,12 +511,28 @@ impl ResponsesStream {
         block
     }
 
-    fn fail(&mut self, kind: &str, message: String, out: &mut Vec<StreamEvent>) {
+    /// End the stream in one error. The errors page says to use the exact
+    /// `error.code` and `error.param`: they are the error's `kind` and
+    /// `param`, and the param is also in the message, because the message is
+    /// all that reaches the user today.
+    fn fail(
+        &mut self,
+        kind: &str,
+        message: String,
+        param: Option<&str>,
+        out: &mut Vec<StreamEvent>,
+    ) {
         self.terminated = true;
+        let param = param.filter(|p| !p.is_empty());
+        let message = match param {
+            Some(param) => format!("{message} (param: {param})"),
+            None => message,
+        };
         out.push(StreamEvent::Error {
             error: ApiError {
                 kind: kind.to_string(),
                 message,
+                param: param.map(str::to_string),
             },
         });
     }
@@ -626,7 +670,19 @@ impl ResponsesStream {
         out: &mut Vec<StreamEvent>,
     ) -> Result<(), ProviderError> {
         let index = self.call_index(event).ok_or_else(unknown_call)?;
-        self.finish_call(index, event.get("arguments").and_then(Value::as_str), out);
+        // The guide's example puts `arguments` on the event; its field table
+        // says the event carries the call as an `item`. Either is the whole.
+        let whole = event
+            .get("arguments")
+            .or_else(|| event.pointer("/item/arguments"))
+            .and_then(Value::as_str)
+            .filter(|arguments| !arguments.is_empty());
+        // An event with neither leaves the call open: the finished item may
+        // still bring the whole, and `response.completed` closes the call on
+        // the pieces if nothing does.
+        if let Some(whole) = whole {
+            self.finish_call(index, Some(whole), out);
+        }
         Ok(())
     }
 
@@ -768,22 +824,13 @@ fn output_index(event: &Value) -> Result<u64, ProviderError> {
         .ok_or_else(|| ProviderError::Parse("an output_item event has no output_index".into()))
 }
 
-/// The string at `path` in `value`, if there is one.
-fn str_at<'a>(value: &'a Value, path: &[&str]) -> Option<&'a str> {
-    let mut at = value;
-    for key in path {
-        at = at.get(key)?;
-    }
-    at.as_str()
-}
-
 // ---------------------------------------------------------------------
 // The two hooks a provider needs
 // ---------------------------------------------------------------------
 
 /// A provider's half of the format: the tool grouping it was set up with and
 /// the parser state for the response in flight. A provider speaking
-/// [`WireFormat::Responses`] holds one and hands it
+/// [`WireFormat::Responses`](crate::provider::WireFormat::Responses) holds one and hands it
 /// [`LlmProvider::serialize_request`](crate::LlmProvider::serialize_request)
 /// and [`LlmProvider::parse_stream_chunk`](crate::LlmProvider::parse_stream_chunk).
 ///
@@ -820,6 +867,13 @@ impl ResponsesCodec {
             .map_err(|_| ProviderError::Parse("responses stream state poisoned".into()))?
             .feed(raw)
     }
+
+    /// The usage the response in flight reported at `response.completed`, if
+    /// it has and did (see [`ResponsesStream::usage`]). The canonical stream
+    /// carries none, so this is where a provider reads it from.
+    pub fn usage(&self) -> Option<Usage> {
+        self.stream.lock().ok().and_then(|stream| stream.usage())
+    }
 }
 
 impl Clone for ResponsesCodec {
@@ -833,12 +887,12 @@ impl Clone for ResponsesCodec {
 // What the agent loop asks of the format
 // ---------------------------------------------------------------------
 
-/// The error for a step's stream that ran out before `response.completed`,
-/// for a stream on `format` that needs it: only this one does. The other
-/// two formats end a step at their own marker and have always tolerated its
-/// absence, and keep doing so.
-pub(crate) fn unfinished_stream_error(format: WireFormat) -> Option<Error> {
-    (format == WireFormat::Responses).then(|| Error::ApiStream(CUT_OFF.to_string()))
+/// The error for a step's stream that ran out before `response.completed`.
+/// Only a format that [`needs_terminal_event`](crate::provider::WireFormat::needs_terminal_event)
+/// ends a step in it; the other two have always taken the end of the stream
+/// as the end of the step.
+pub(crate) fn cut_off_error() -> Error {
+    Error::ApiStream(CUT_OFF.to_string())
 }
 
 /// The text of a one-shot reply, read from its stream: every text delta, in
@@ -866,6 +920,10 @@ pub(crate) async fn collect_text(resp: reqwest::Response) -> Result<Option<Strin
                     delta: ContentBlockDelta::TextDelta { text: more },
                     ..
                 } => text.push_str(&more),
+                // Only the message is kept: the error's `kind` (the API's
+                // code) and `param` are dropped here, as in the agent loop,
+                // and a provider that must tell a usage limit from any other
+                // failure has to carry them through before it ships.
                 StreamEvent::Error { error } => return Err(error.message),
                 _ => {}
             }
@@ -883,6 +941,7 @@ pub(crate) mod testing {
     //! for the tests of the pieces that sit above the parser.
 
     use super::*;
+    use crate::provider::WireFormat;
     use crate::LlmProvider;
 
     /// What a provider on this format looks like to the agent loop.
@@ -971,6 +1030,7 @@ pub(crate) mod testing {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::provider::WireFormat;
 
     /// One line per canonical event, so a sequence reads at a glance.
     fn render(events: &[StreamEvent]) -> Vec<String> {
@@ -1158,6 +1218,106 @@ mod tests {
             ],
         );
         assert_eq!(out[2], "args 0 {\"a\":1}");
+    }
+
+    /// The guide's field table says `arguments.done` carries the call as an
+    /// `item`, and its example puts `arguments` on the event. Both shapes are
+    /// the whole, and either beats the pieces.
+    #[test]
+    fn the_finished_arguments_win_in_the_item_shape_too() {
+        let mut stream = ResponsesStream::new();
+        let out = feed_all(
+            &mut stream,
+            &[
+                call_added(0, "c", "t"),
+                args_delta(0, "{\"a\":1"),
+                json!({
+                    "type": "response.function_call_arguments.done",
+                    "item_id": "fc_0", "output_index": 0,
+                    "item": { "type": "function_call", "id": "fc_0", "call_id": "c",
+                              "name": "t", "arguments": "{\"a\":1}" }
+                }),
+                // And the finished item that follows adds nothing.
+                json!({ "type": "response.output_item.done", "output_index": 0,
+                        "item": { "type": "function_call", "id": "fc_0", "call_id": "c",
+                                  "name": "t", "arguments": "{\"a\":1}" } }),
+            ],
+        );
+        assert_eq!(
+            out[1..],
+            ["tool# 0 c t", "args 0 {\"a\":1}", "stop 0"],
+            "the whole, once, and not the prefix the pieces made"
+        );
+    }
+
+    /// An `arguments.done` that says nothing about the arguments does not
+    /// close the call on the pieces: the whole may still come in the finished
+    /// item, and that is the one to run with.
+    #[test]
+    fn a_done_event_with_no_arguments_leaves_the_call_for_its_finished_item() {
+        let mut stream = ResponsesStream::new();
+        let out = feed_all(
+            &mut stream,
+            &[
+                call_added(0, "c", "t"),
+                args_delta(0, "{\"a\":1"),
+                json!({ "type": "response.function_call_arguments.done",
+                        "item_id": "fc_0", "output_index": 0 }),
+            ],
+        );
+        assert_eq!(out[1..], ["tool# 0 c t"], "nothing is closed yet");
+
+        let out = feed_all(
+            &mut stream,
+            &[
+                json!({ "type": "response.output_item.done", "output_index": 0,
+                      "item": { "type": "function_call", "call_id": "c", "name": "t",
+                                "arguments": "{\"a\":1}" } }),
+            ],
+        );
+        assert_eq!(out, ["args 0 {\"a\":1}", "stop 0"]);
+    }
+
+    /// Two calls whose argument pieces arrive mixed together each keep their
+    /// own, whether the events name them by `output_index` or by `item_id`.
+    #[test]
+    fn interleaved_argument_deltas_stay_with_their_own_call() {
+        let by_item = |index: u64, delta: &str| {
+            json!({
+                "type": "response.function_call_arguments.delta",
+                "item_id": format!("fc_{index}"), "delta": delta
+            })
+        };
+        let mut stream = ResponsesStream::new();
+        let out = feed_all(
+            &mut stream,
+            &[
+                call_added(0, "call_a", "one"),
+                call_added(1, "call_b", "two"),
+                args_delta(0, "{\"a\":"),
+                args_delta(1, "{\"b\":"),
+                by_item(1, "2}"),
+                args_delta(0, "1}"),
+                json!({ "type": "response.output_item.done", "output_index": 1,
+                        "item": { "type": "function_call", "call_id": "call_b", "name": "two" } }),
+                json!({ "type": "response.output_item.done", "output_index": 0,
+                        "item": { "type": "function_call", "call_id": "call_a", "name": "one" } }),
+                completed(),
+            ],
+        );
+        assert_eq!(
+            out[1..],
+            [
+                "tool# 0 call_a one",
+                "tool# 1 call_b two",
+                "args 1 {\"b\":2}",
+                "stop 1",
+                "args 0 {\"a\":1}",
+                "stop 0",
+                "reason tool_use",
+                "message_stop",
+            ]
+        );
     }
 
     #[test]
@@ -1355,12 +1515,51 @@ mod tests {
             let out = feed_all(&mut stream, &[event.clone()]);
             assert_eq!(out, ["start responses-msg", expected], "{event}");
             assert!(!stream.is_complete(), "{event}");
-            // Nothing after a terminal event counts, a `completed` included.
+            // Nothing after a terminal event counts, a `completed` included,
+            // and not even data that would not parse.
             assert!(
                 feed_all(&mut stream, &[text_delta(0, 0, "late"), completed()]).is_empty(),
                 "{event}"
             );
+            assert!(stream.feed("not json").expect("ignored").is_empty());
             assert!(!stream.is_complete(), "{event}");
+        }
+    }
+
+    /// The errors page says to use the exact `error.code` and `error.param`;
+    /// the message is all that reaches the user today, so the param is in it.
+    #[test]
+    fn an_errors_param_is_kept_in_its_message() {
+        let cases = [
+            (
+                json!({ "type": "response.failed", "response": { "error": {
+                    "code": "subscription_sharing_unsupported_capability",
+                    "message": "Unsupported input.", "param": "input[3].type" } } }),
+                "error subscription_sharing_unsupported_capability: Unsupported input. (param: input[3].type)",
+            ),
+            (
+                json!({ "type": "response.failed", "response": { "error": {
+                    "code": "server_error", "param": "tools" } } }),
+                "error server_error: the response failed (server_error) (param: tools)",
+            ),
+            (
+                json!({ "type": "error", "code": "invalid_value", "message": "Bad value.", "param": "model" }),
+                "error invalid_value: Bad value. (param: model)",
+            ),
+            (
+                json!({ "type": "error", "error": { "code": "x", "message": "Nested.", "param": "p" } }),
+                "error x: Nested. (param: p)",
+            ),
+            // A null or empty param is none.
+            (
+                json!({ "type": "error", "code": "x", "message": "Plain.", "param": "" }),
+                "error x: Plain.",
+            ),
+        ];
+        for (event, expected) in cases {
+            let mut stream = ResponsesStream::new();
+            let out = feed_all(&mut stream, &[event.clone()]);
+            assert_eq!(out[1], expected, "{event}");
         }
     }
 
@@ -1481,8 +1680,74 @@ mod tests {
 
     #[test]
     fn only_this_format_needs_a_terminal_event() {
-        assert!(unfinished_stream_error(WireFormat::Responses).is_some());
-        assert!(unfinished_stream_error(WireFormat::ChatCompletions).is_none());
-        assert!(unfinished_stream_error(WireFormat::AnthropicMessages).is_none());
+        assert!(WireFormat::Responses.needs_terminal_event());
+        assert!(!WireFormat::ChatCompletions.needs_terminal_event());
+        assert!(!WireFormat::AnthropicMessages.needs_terminal_event());
+    }
+
+    /// For whoever maps the error to something typed (the `subscription_sharing_*`
+    /// codes): the code is the `kind` and the param is a field, not only text.
+    #[test]
+    fn an_errors_code_and_param_are_fields_as_well_as_words() {
+        let mut stream = ResponsesStream::new();
+        let events = stream
+            .feed(
+                &json!({ "type": "response.failed", "response": { "error": {
+                    "code": "subscription_sharing_unsupported_capability",
+                    "message": "Unsupported.", "param": "tools" } } })
+                .to_string(),
+            )
+            .unwrap();
+        let Some(StreamEvent::Error { error }) = events.last() else {
+            panic!("an error event: {events:?}");
+        };
+        assert_eq!(error.kind, "subscription_sharing_unsupported_capability");
+        assert_eq!(error.param.as_deref(), Some("tools"));
+
+        let events = stream
+            .feed(&json!({ "type": "error", "message": "m" }).to_string())
+            .unwrap();
+        assert!(events.is_empty(), "the stream had ended");
+        let mut stream = ResponsesStream::new();
+        let events = stream
+            .feed(&json!({ "type": "error", "code": "c", "message": "m" }).to_string())
+            .unwrap();
+        let Some(StreamEvent::Error { error }) = events.last() else {
+            panic!("an error event: {events:?}");
+        };
+        assert_eq!(error.param, None);
+    }
+
+    #[test]
+    fn the_codec_reports_the_usage_of_the_response_in_flight() {
+        let codec = ResponsesCodec::new(ToolGrouping::Flat);
+        assert_eq!(codec.usage(), None);
+        codec
+            .parse_stream_chunk(
+                &json!({ "type": "response.completed", "response": {
+                    "usage": { "input_tokens": 7, "output_tokens": 3 } } })
+                .to_string(),
+            )
+            .unwrap();
+        assert_eq!(
+            codec.usage(),
+            Some(Usage {
+                input_tokens: 7,
+                output_tokens: 3
+            })
+        );
+        // The next request starts a new response, with none yet.
+        let messages: [Message; 0] = [];
+        codec.serialize_request(&MessagesRequest {
+            model: "m",
+            max_tokens: 1,
+            system: Vec::new(),
+            messages: &messages,
+            tools: None,
+            tool_choice: None,
+            stream: true,
+            output_config: None,
+        });
+        assert_eq!(codec.usage(), None);
     }
 }

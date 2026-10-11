@@ -160,14 +160,35 @@ fn none_of_the_previews_unsupported_fields_is_sent() {
     }
 }
 
-/// Not a second copy of the names, only a guard against the list being
-/// emptied, which would let the check above pass with nothing to check: the
-/// preview page lists fifteen fields, and `previous_response_id` is sixteenth.
-/// A change to the list changes this number, and is the moment to re-read the
-/// page.
+/// The list is the one on the preview page, name for name: fifteen fields
+/// from "Unsupported fields" and `previous_response_id` from "Conversation
+/// state". This is the one deliberate second copy, so that a change to the
+/// constant, or to the page, is a test failure to look at.
 #[test]
 fn the_unsupported_list_is_the_one_the_preview_page_gives() {
-    assert_eq!(UNSUPPORTED_FIELDS.len(), 16);
+    let page = [
+        "background",
+        "conversation",
+        "max_output_tokens",
+        "max_tool_calls",
+        "metadata",
+        "moderation",
+        "multi_agent",
+        "prompt",
+        "prompt_cache_retention",
+        "safety_identifier",
+        "temperature",
+        "top_logprobs",
+        "top_p",
+        "truncation",
+        "user",
+        "previous_response_id",
+    ];
+    let mut ours = UNSUPPORTED_FIELDS.to_vec();
+    ours.sort_unstable();
+    let mut theirs = page.to_vec();
+    theirs.sort_unstable();
+    assert_eq!(ours, theirs);
 }
 
 #[test]
@@ -273,11 +294,13 @@ fn anthropics_cache_marker_never_reaches_the_body() {
     }
 }
 
-/// In case an account rejects the namespace, the grouping is a parameter:
-/// flat function tools are the fallback, and then nothing mentions a
-/// namespace, not even the calls echoed back in `input`.
+/// The grouping is a parameter. `Flat` is the ordinary Responses shape, for
+/// a provider on the API-key endpoint; it is not a fallback on the plan
+/// route, which allows only namespaces or `additional_tools` input items.
+/// With it nothing mentions a namespace, not even the calls echoed back in
+/// `input`.
 #[test]
-fn the_grouping_can_be_turned_off() {
+fn flat_grouping_has_no_namespace_anywhere() {
     let body = body_of(&conversation(), &ToolGrouping::Flat);
     let tools = body["tools"].as_array().expect("tools");
     assert_eq!(tools.len(), 2);
@@ -452,8 +475,9 @@ fn tool_choice_follows_the_request_and_is_only_sent_with_tools() {
         with_choice(Some(tools()), Some(ToolChoice::NONE))["tool_choice"],
         "none"
     );
-    // The loop's request after the budget keeps the tools on and the choice
-    // off, as the other formats do.
+    // No tool to offer is no tool_choice either (the API rejects an empty
+    // `tools`); the request after the tool budget is spent is the `"none"`
+    // above, with the tools still there.
     assert!(with_choice(Some(json!([])), Some(ToolChoice::AUTO))
         .get("tool_choice")
         .is_none());
