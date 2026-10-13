@@ -130,8 +130,7 @@ pub enum DemucsError {
 
     /// No usable ONNX Runtime library (see
     /// [`ml_pipeline::runtime::ensure`]). Reported instead of building a
-    /// session, because `ort` hangs (deadlocks) when it cannot load the
-    /// library.
+    /// session, because `ort` panics when it cannot load the library.
     ///
     /// Deliberately not [`DemucsError::Ort`]: [`is_oom_error`] reads
     /// that variant's text, and a missing library is not an
@@ -244,8 +243,8 @@ impl DemucsModel {
         }
         // Before any `ort` call, and before reading the model: a missing
         // library is known without hashing a file that cannot be used.
-        // `Session::builder()` never returns, rather than erroring, without
-        // the library.
+        // `Session::builder()` panics, rather than erroring, without the
+        // library.
         ml_pipeline::runtime::ensure()
             .map_err(|e| DemucsError::RuntimeUnavailable(e.to_string()))?;
 

@@ -17,8 +17,8 @@
 //!   to install ONNX Runtime built with CUDA support.
 //!
 //! `ort` is configured with `load-dynamic` (matching `ml-whisper`'s
-//! Phase-1 setup). With that, `ort` itself **hangs** (deadlocks) if the
-//! ONNX Runtime library is missing, so [`build_session`] calls
+//! Phase-1 setup). With that, `ort` itself **panics** if the ONNX Runtime
+//! library is missing, so [`build_session`] calls
 //! [`runtime::ensure`](crate::runtime::ensure) before it touches any `ort`
 //! API; a missing or unloadable library is [`Error::MissingRuntime`] or
 //! [`Error::RuntimeLoad`].
@@ -172,8 +172,8 @@ fn build_session(path: &Path, ep: ExecProvider) -> Result<Session> {
         )));
     }
 
-    // Before any `ort` call: `Session::builder()` never returns, rather
-    // than erroring, when the library is missing. See `runtime`.
+    // Before any `ort` call: `Session::builder()` panics, rather than
+    // erroring, when the library is missing. See `runtime`.
     crate::runtime::ensure()?;
 
     let builder = Session::builder()?;
@@ -190,13 +190,13 @@ fn apply_execution_provider(builder: SessionBuilder, ep: ExecProvider) -> Result
         ExecProvider::CoreML => {
             #[cfg(target_os = "macos")]
             {
-                use ort::execution_providers::CoreMLExecutionProvider;
+                use ort::ep::CoreML;
                 // `with_execution_providers` returns an `ort::Error<R>`
                 // (recoverable error carrying the builder back) rather
                 // than a plain `ort::Error`, so we can't use `?` here —
                 // map it through our `Error::Ort(String)` wrapper.
                 builder
-                    .with_execution_providers([CoreMLExecutionProvider::default().build()])
+                    .with_execution_providers([CoreML::default().build()])
                     .map_err(|e| Error::Ort(e.to_string()))
             }
             #[cfg(not(target_os = "macos"))]
@@ -210,9 +210,9 @@ fn apply_execution_provider(builder: SessionBuilder, ep: ExecProvider) -> Result
         ExecProvider::Cuda => {
             #[cfg(not(target_os = "macos"))]
             {
-                use ort::execution_providers::CUDAExecutionProvider;
+                use ort::ep::CUDA;
                 builder
-                    .with_execution_providers([CUDAExecutionProvider::default().build()])
+                    .with_execution_providers([CUDA::default().build()])
                     .map_err(|e| Error::Ort(e.to_string()))
             }
             #[cfg(target_os = "macos")]

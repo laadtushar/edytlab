@@ -316,17 +316,35 @@ depends on whether the model wrote a plan:
 | The model writes a plan | The plan card is shown; the turn waits. Approving lets every edit run, as before. |
 | No plan, with Plan first on (the model did not write one, or planning failed in any way) | `PlanUnavailable { first_edit_held: true }`, then the turn goes on. The first model step with a call that would change the session is **held before any of it dispatches**, and its concrete tool calls are shown on the same card. Approve: that step runs and the rest of the turn is ungated. Decline: nothing runs, each held call reads "not run" (`ToolCallNotRun`), the model is told the user declined, and the turn ends with `PlanRejected`. Edit the descriptions: nothing runs, each held call reads "not run", and the model is given the revision (each step as `tool — description`) and proposes again, which is held in turn. |
 | No plan, mashup request, Plan first off | `PlanUnavailable { first_edit_held: false }` and the turn proceeds with no gate. |
-| A turn whose calls only read the session | Never held. |
+| A turn whose calls only read the session, or only fill the app's caches (`audition_effect`, `render_preview`) | Never held. |
 
 With no answer within five minutes nothing runs, each held call is answered "not
 run" (`ToolCallNotRun`), and the turn ends with `PlanTimeout`.
 
 "Would change the session" is `Tool::mutates()`, which defaults to `true`: a new
 tool, and every MCP tool, is held unless it is deliberately marked read-only.
+A tool that writes only the app's own caches is not a mutation, where a cache is
+content-addressed, bounded and rebuildable: `.audiograph/previews/` and
+`.audiograph/auditions/` (both `PreviewCache`, size-capped, evicting their least
+recently used entries) and `derived/track-<hash>.wav` (no size cap; at most one
+per clip list a node holds, and the reclaim sweep removes the ones only history
+holds). That is why `audition_effect` and `render_preview` run without a card. A
+tool that leaves any other file, such as a temp file that outlives the call, is on
+the other side of the line, so `render_preview` stores even a ranged render in the
+cache (under a key that names the range) and fails rather than write elsewhere
+(#535). One more thing a read-only tool may write is audio put back:
+`render_preview` of a node whose audio a history sweep removed first rebuilds it
+(`rederive::materialize`), which writes `derived/<hash>.wav` files for that node
+and the history it is rebuilt from. Each is byte-identical to the file that was
+there, under the name the node already references, so the project holds nothing it
+did not already name; the reclaim sweep bounds them, not a cap.
 `crates/tools/tests/read_only_tools.rs` pins the read-only list by name, so
-widening it is a reviewed change. `ToolDispatcher::would_mutate` answers for a
-specific call and shares its pre-dispatch checks with `invoke`, so a call that
-would be refused (turned off, unknown, invalid arguments) is not held.
+widening it is a reviewed change, and checks that each tool on it leaves nothing
+in the project but cache entries and audio put back (exactly the files a swept
+node names), and names only cache entries in its result.
+`ToolDispatcher::would_mutate` answers for a specific call and shares its
+pre-dispatch checks with `invoke`, so a call that would be refused (turned off,
+unknown, invalid arguments) is not held.
 
 The shared approval path (arming the gate, the five-minute timeout, the card's
 steps, the bookkeeping for a step that does not run) is
@@ -788,7 +806,8 @@ Nodes are stored as content-addressed JSON files under `<project-dir>/.audiograp
     view.json      # where you were: head, zoom, selection, playhead
     derived/       # audio written by destructive edits, named by content hash
     clipboard/     # copy_region blobs
-    previews/      # cached preview renders, keyed by node id
+    previews/      # cached preview renders, keyed by node id (a ranged render by node id and range)
+    auditions/     # cached audition_effect excerpts, keyed by content
 ```
 
 Annotations (markers, regions, labels) are part of `SessionState`, so they live inside each node's JSON rather than in a directory of their own.
@@ -879,16 +898,16 @@ A whole-session render that reduces to one track playing one source untouched is
 
 ```rust
 // crates/ml-pipeline/src/lib.rs
-// Uses ort 2.0.0-rc.12 (pinned with `=`) with load-dynamic feature, built for ONNX Runtime API level 23
-// Execution providers: CoreML (macOS) → CUDA (if available) → CPU
+// Uses ort 2.0.0-rc.13 (pinned with `=`) with load-dynamic feature, built for ONNX Runtime API level 23
+// Execution providers: CoreML (macOS) → CUDA (if available) → CPU, behind ort's `coreml` and `cuda` features
 // Model files: loaded from disk, cached by blake3 hash
 ```
 
 The runtime is loaded dynamically from `ORT_DYLIB_PATH` (or a `libonnxruntime` next to the binary). This avoids linking ONNX into the binary (reduces binary size; allows model updates without recompilation).
 
-`ort` is built for ONNX Runtime API level 23 (its `api-23` feature, declared once in the root `Cargo.toml` together with the exact `=2.0.0-rc.12` pin), and it refuses a library older than its API level, so any runtime from 1.23 on loads (1.31.0 was tried). The level is 23 and not 24 because the runtime to ship is 1.23.2, the newest release with a macOS build for Intel Macs (1.24 and later are arm64 only), so raising the level would strand them. A unit test in `ml-pipeline/src/runtime.rs` fails if it is raised. The reasoning is in the [decision on #383](https://github.com/laadtushar/edytlab/issues/383#issuecomment-6106785529).
+`ort` is built for ONNX Runtime API level 23 (its `api-23` feature, declared once in the root `Cargo.toml` together with the exact `=2.0.0-rc.13` pin), and it refuses a library older than its API level, so any runtime from 1.23 on loads (1.31.0 was tried). The level is 23 and not 24 because the runtime to ship is 1.23.2, the newest release with a macOS build for Intel Macs (1.24 and later are arm64 only), so raising the level would strand them. A unit test in `ml-pipeline/src/runtime.rs` fails if it is raised. The reasoning is in the [decision on #383](https://github.com/laadtushar/edytlab/issues/383#issuecomment-6106785529).
 
-`ml_pipeline::runtime::ensure()` does the loading, and every code path that builds an `ort` session (`ModelRegistry::load`, `WhisperModel::load`, `DemucsModel::load`) calls it first. It looks at `ORT_DYLIB_PATH` (a relative path is resolved against the executable's directory only), then the library file name next to the executable. There is no working-directory, bare-name or system search: a library found in the directory the app was started from could have been planted there (CWE-427), and a system copy may be the wrong version. A candidate that is not an absolute path is refused outright, because the file that was checked and the file the system loader then opens could be two different files. `ort` 2.0.0-rc.12 cannot report a library it fails to load: building the error re-enters its own initialisation and the thread blocks forever (through `ort::init_from` too). So `ensure()` opens the library itself and makes the checks `ort` would (the `OrtGetApiBase` entry point, version 1.23 or newer, the C API version), and hands it to `ort::init_from` only once they pass. A missing library is `Error::MissingRuntime { searched }` and one that fails the checks is `Error::RuntimeLoad`, where a model load used to hang while the agent held the dispatcher, store and engine locks. The tools turn either into a tool error that still says the feature is not implemented.
+`ml_pipeline::runtime::ensure()` does the loading, and every code path that builds an `ort` session (`ModelRegistry::load`, `WhisperModel::load`, `DemucsModel::load`) calls it first. It looks at `ORT_DYLIB_PATH` (a relative path is resolved against the executable's directory only), then the library file name next to the executable. There is no working-directory, bare-name or system search: a library found in the directory the app was started from could have been planted there (CWE-427), and a system copy may be the wrong version. A candidate that is not an absolute path is refused outright, because the file that was checked and the file the system loader then opens could be two different files. `ort` 2.0.0-rc.12 could not report a library it failed to load: building the error re-entered its own initialisation and the thread blocked forever (through `ort::init_from` too). rc.13 fixed that, and `ort::init_from` now returns an error, but `ort`'s own load on first use (`Session::builder`, `ort::api()`) still panics when it fails, which aborts a release build, and it hands a bare or relative path to the system loader to search. So `ensure()` opens the library itself by absolute path and makes the checks `ort` would (the `OrtGetApiBase` entry point, version 1.23 or newer, the C API version), and hands it to `ort::init_from` only once they pass. A missing library is `Error::MissingRuntime { searched }` and one that fails the checks is `Error::RuntimeLoad`, where a model load used to hang while the agent held the dispatcher, store and engine locks. The tools turn either into a tool error that still says the feature is not implemented.
 
 `ml_pipeline::fetched_model_path` downloads, verifies and caches a pinned artifact (URL, size and SHA-256 per file): it streams to a `.part` file, resumes with `Range`, re-hashes the `.part` from disk before renaming it into place, refuses a truncated or wrong-hash file and fetches it again once, can be cancelled, and runs its HTTP request on its own thread so it is safe to call from async code. It holds an OS lock on `<root>/<id>.lock` for the length of a fetch, so a second edytlab process (or the CLI) on the same data directory waits instead of writing into the same `.part`, and the re-hash means a writer that ignores the lock still cannot get an unverified file given its final name. Only https URLs are accepted (plain http only for localhost), and at most five redirects are followed. It has no callers and no model is pinned, so nothing is downloaded today. Nothing ships the runtime library or sets `ORT_DYLIB_PATH` yet, so no model can load in a user's install. Shipping the runtime and the download UI is the rest of [#383](https://github.com/laadtushar/edytlab/issues/383).
 

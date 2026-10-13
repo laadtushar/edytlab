@@ -2,10 +2,10 @@
 //!
 //! Point the model variables at any file that exists and the tool loads
 //! it. With `ort`'s `load-dynamic`, that used to hang inside
-//! `ToolDispatcher::invoke` when the library was missing (`ort` deadlocks
-//! on a library it cannot load), and the agent loop calls `invoke`
-//! holding the dispatcher, store and engine mutexes, so one `transcribe`
-//! call froze the agent.
+//! `ToolDispatcher::invoke` when the library was missing (`ort` 2.0.0-rc.12
+//! deadlocked on a library it cannot load; rc.13 panics instead), and the
+//! agent loop calls `invoke` holding the dispatcher, store and engine
+//! mutexes, so one `transcribe` call froze the agent.
 //!
 //! Both tools must answer with a `ToolResult::Error` instead, and the
 //! error must still say the feature is not implemented: installing the
@@ -49,8 +49,9 @@ fn watchdog() {
         std::thread::sleep(Duration::from_secs(60));
         let _ = writeln!(
             std::io::stderr(),
-            "a model tool did not return within 60 s without ONNX Runtime: `ort` deadlocks on a \
-             library it cannot load, which ml_pipeline::runtime::ensure exists to prevent"
+            "a model tool did not return within 60 s without ONNX Runtime: a library that cannot \
+             be loaded must be answered with an error by ml_pipeline::runtime::ensure (`ort` rc.12 \
+             deadlocked here)"
         );
         std::process::abort();
     });

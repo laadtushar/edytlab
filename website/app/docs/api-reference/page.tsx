@@ -216,7 +216,7 @@ const commands = [
       {
         name: "renderPreview(node)",
         returns: "string (path)",
-        desc: "Render the session to a WAV for playback. Cached by node id under .audiograph/previews/, so repeating a head — undo, redo — costs nothing.",
+        desc: "Render the session to a WAV for playback. Cached by node id under .audiograph/previews/, so repeating a head — undo, redo — costs nothing. The cache is capped; a mix bigger than the cap is an error.",
       },
       {
         name: "getRenderWarnings(node)",
@@ -261,7 +261,7 @@ const commands = [
       {
         name: "setPlanFirst(enabled)",
         returns: "void",
-        desc: "With Plan first on, no edit runs without your approval: the plan is shown, or, with no plan, the first step that would change the session. Calls that only read the session are never held. The setting is kept through the agent rebuilds a key, model or base-URL change causes, and is off again at every launch.",
+        desc: "With Plan first on, no edit runs without your approval: the plan is shown, or, with no plan, the first step that would change the session. Calls that only read the session, audition an effect or render a preview are never held. The setting is kept through the agent rebuilds a key, model or base-URL change causes, and is off again at every launch.",
       },
       {
         name: "getPlanFirst()",

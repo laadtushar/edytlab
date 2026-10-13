@@ -106,7 +106,8 @@ sits outside the store because the store is an implementation detail.
 path taken through that history; losing it makes undo skip steps, so it sits
 beside `head` and is written the same way. `previews/` is a
 cache: every entry re-derives byte-identically from the node it is named
-for, so it is the one directory a copy of a project can safely skip.
+for (a whole mix by the node's id, a ranged render by a hash of the node's id
+and the range), so it is the one directory a copy of a project can safely skip.
 
 Derived audio lives **inside** the project. It used to be written beside
 whichever source file was opened, which meant a project folder held the
@@ -612,7 +613,9 @@ id. A node id is a hash of the session state, so asking for the same head
 twice does no work and undo/redo replay renders that already exist. The cache
 is bounded (1 GiB by default, overridable with `EDYTLAB_PREVIEW_CACHE_BYTES`)
 and evicts least-recently-used entries; an evicted entry is re-rendered
-byte-identically on demand. `storage_report` reports what it is holding.
+byte-identically on demand. `storage_report` reports what it is holding. A mix
+bigger than the cap cannot be kept, so the call fails (the cache is left as it
+was) instead of returning a path to a file that is already gone.
 
 ```typescript
 const wavPath = await bridge.renderPreview(nodeId);
@@ -748,7 +751,9 @@ launch. The chat box reads it with `getPlanFirst()` when it opens.
 you approve the plan. If it does not (it chose not to, or planning failed for any
 reason), the first step that would change the session is shown for approval
 before it runs, as the exact tool calls and arguments. A turn whose tool calls
-only read the session (tempo, loudness, spectrum, listing) is never held.
+only read the session (tempo, loudness, spectrum, listing), or only audition an
+effect or render a preview, is never held: those write nothing but the app's
+bounded preview caches.
 
 With it off, only a request the classifier calls a mashup is planned, and if no
 plan arrives that turn proceeds with a notice and no gate.

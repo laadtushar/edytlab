@@ -1,17 +1,35 @@
-//! `render_preview` — render a node's session state to a temp WAV.
+//! `render_preview` — render a node's session state to a WAV in the
+//! project's preview cache.
 //!
 //! Does NOT mutate the session graph; the rendered file is meant to be
-//! played back or inspected. The temp file is materialised inside the
-//! OS tempdir and its path returned to the caller; the caller (or the
-//! agent) is responsible for cleanup. We intentionally do not return a
-//! `tempfile::TempPath` because the `ToolResult` payload crosses a
-//! JSON boundary.
+//! played back or inspected. Every file it writes for the render is an
+//! entry in the bounded, content-addressed preview cache
+//! (`.audiograph/previews/`, see [`crate::preview_cache`]) and nowhere
+//! else: the whole mix under the node's id, an excerpt under a key that
+//! names its range. It used to render into an OS temp file and leave an
+//! excerpt there for the caller to clean up, uncapped and outside the
+//! project (#535), which is why it was held for approval under Plan first.
+//! It is not now, so a render that cannot be stored in the cache fails
+//! instead of landing somewhere else.
+//!
+//! ## The one other thing it may write
+//!
+//! Like every tool that renders a node, it first puts back that node's
+//! audio if a history sweep removed it (`rederive::materialize`). That
+//! writes `derived/<hash>.wav` files: the node's, and those of the history
+//! it is rebuilt from. They are not new files. Each is the same bytes under
+//! the content-addressed name the node already references, so the project
+//! ends up holding nothing it did not already name. The preview cap does
+//! not bound them; the reclaim sweep does, and it takes them out again when
+//! the derived audio is over its own cap. `Tool::mutates` states this
+//! exemption, and `tests/read_only_tools.rs` checks it is exactly this.
 
-use std::path::PathBuf;
+use std::path::Path;
 
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::preview_cache::{excerpt_key, PreviewCache};
 use crate::schema::anthropic_tool;
 use crate::tool::util::attach_render_warnings;
 use crate::{Tool, ToolContext, ToolResult};
@@ -87,6 +105,45 @@ fn wav_header(path: &std::path::Path) -> Option<WavProbe> {
     })
 }
 
+/// Why a preview was not produced: the render, or storing it.
+enum Failure {
+    Render(audio_engine::Error),
+    Cache(std::io::Error),
+}
+
+impl From<std::io::Error> for Failure {
+    fn from(e: std::io::Error) -> Self {
+        Failure::Cache(e)
+    }
+}
+
+/// What a cached preview reports, read from the file: its frames, rate and
+/// channels are properties of the file rather than of the session. `None`
+/// if the file cannot be read, which is a miss and not a preview with
+/// made-up numbers.
+///
+/// The cache holds the audio and not the report, and a hit that said less
+/// than the render before it would look like the problem had gone away.
+/// The warnings are a function of the node's stored chains, so they are
+/// read from the state, not stored beside the file.
+fn cached_result(path: &Path, state: &session::SessionState) -> Option<Value> {
+    let probe = wav_header(path)?;
+    let mut out = json!({
+        "path": path.to_string_lossy(),
+        "frames_written": probe.frames,
+        "sample_rate": probe.sample_rate,
+        "channels": probe.channels,
+        "cached": true,
+        "summary": format!(
+            "Reused cached preview ({} frames, {} ch, {} Hz) at {}",
+            probe.frames, probe.channels, probe.sample_rate,
+            path.display(),
+        ),
+    });
+    attach_render_warnings(&mut out, &audio_engine::render_warnings(state));
+    Some(out)
+}
+
 pub struct RenderPreviewTool;
 
 impl Tool for RenderPreviewTool {
@@ -97,7 +154,7 @@ impl Tool for RenderPreviewTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "render_preview",
-            "Render a session node to a temporary WAV file and return its path. Does not create a new session node. Optional `range` is a [start_sample, end_sample) pair into the rendered output.",
+            "Render a session node to a WAV file in the project's preview cache and return its path. Does not create a new session node. Optional `range` is a [start_sample, end_sample) pair into the rendered output. The same node (and range) is rendered once and reused; the cache is size-capped, so an old preview may be rendered again.",
             json!({
                 "type": "object",
                 "properties": {
@@ -113,6 +170,13 @@ impl Tool for RenderPreviewTool {
                 "additionalProperties": false,
             }),
         )
+    }
+
+    // Read-only: it appends no node and moves no head. What it writes is an
+    // entry in the app's bounded, content-addressed preview cache, which
+    // `Tool::mutates` does not count.
+    fn mutates(&self) -> bool {
+        false
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
@@ -149,82 +213,56 @@ impl Tool for RenderPreviewTool {
             }
         }
 
-        // A whole-session render is cached by node id (#164): the id is
-        // a hash of the state, so undo and redo land on renders that
-        // already exist. A ranged render is not — the range is not part
-        // of the key, and caching one under the node's name would serve
-        // an excerpt as if it were the mix.
-        if range.is_none() {
-            let cache = crate::PreviewCache::new(ctx.store.project_dir());
-            let cached = cache.path_for(node_id);
-            if cached.is_file() {
-                // Re-read the header rather than storing a sidecar: the
-                // numbers are a property of the file, and a file that
-                // cannot be read is a miss, not a report of nothing.
-                if let Some(probe) = wav_header(&cached) {
-                    // Touch through the cache so LRU counts this play.
-                    let _ = cache.get_or_render::<_, std::io::Error>(node_id, |_| {
-                        unreachable!("the file was just checked to exist")
-                    });
-                    let mut out = json!({
-                        "path": cached.to_string_lossy(),
-                        "frames_written": probe.frames,
-                        "sample_rate": probe.sample_rate,
-                        "channels": probe.channels,
-                        "cached": true,
-                        "summary": format!(
-                            "Reused cached preview ({} frames, {} ch, {} Hz) at {}",
-                            probe.frames, probe.channels, probe.sample_rate,
-                            cached.display(),
-                        ),
-                    });
-                    // The cache holds the audio and not the report, and a
-                    // hit that said less than the render before it would
-                    // look like the problem had gone away. The warnings
-                    // are a function of the node's stored chains, so they
-                    // are read from the state, not stored beside the file.
-                    attach_render_warnings(&mut out, &audio_engine::render_warnings(&node.state));
-                    return Ok(ToolResult::Ok(out));
-                }
+        // The whole mix is cached by node id (#164): the id is a hash of
+        // the state, so undo and redo land on renders that already exist.
+        // An excerpt is cached too, under a key that names its range, so it
+        // is never served in place of the mix and is not left anywhere a
+        // cap does not reach (#535).
+        let key = match range {
+            None => node_id,
+            Some(r) => excerpt_key(node_id, r.start_frame, r.end_frame),
+        };
+        let cache = PreviewCache::new(ctx.store.project_dir());
+
+        if let Some(cached) = cache.lookup(key) {
+            if let Some(out) = cached_result(&cached, &node.state) {
+                return Ok(ToolResult::Ok(out));
             }
+            // A file that cannot be read is a miss: render over it below.
+            let _ = std::fs::remove_file(&cached);
         }
 
-        // Miss, or a ranged render. Render into the cache when it is a
-        // whole-session preview, and into a temp file when it is not.
-        let staging = match tempfile::Builder::new()
-            .prefix("edytlab-preview-")
-            .suffix(".wav")
-            .tempfile()
-        {
-            Ok(t) => t,
-            Err(e) => return Ok(ToolResult::Error(format!("tempfile creation failed: {e}"))),
-        };
-        let staged_path: PathBuf = staging.path().to_path_buf();
-        // Keep the file on disk after the handle drops; the caller now
-        // owns cleanup.
-        let _ = staging.into_temp_path().keep();
-
-        let report = match ctx.engine.render_to_wav(&node.state, &staged_path, range) {
-            Ok(r) => r,
-            Err(e) => return Ok(ToolResult::Error(format!("render failed: {e}"))),
-        };
-
-        let out_path = if range.is_none() {
-            let cache = crate::PreviewCache::new(ctx.store.project_dir());
-            match cache.get_or_render::<_, std::io::Error>(node_id, |dest| {
-                std::fs::rename(&staged_path, dest).or_else(|_| {
-                    // A rename across filesystems fails; the tempdir is
-                    // often on a different one from the project.
-                    std::fs::copy(&staged_path, dest).map(|_| ())
-                })
-            }) {
-                Ok((path, _)) => path,
-                // A cache that cannot be written is not a reason to
-                // throw away a render that succeeded.
-                Err(_) => staged_path.clone(),
+        let engine = &mut *ctx.engine;
+        let mut report = None;
+        let stored = cache.get_or_render::<_, Failure>(key, |staged| {
+            report = Some(
+                engine
+                    .render_to_wav(&node.state, staged, range)
+                    .map_err(Failure::Render)?,
+            );
+            Ok(())
+        });
+        let (out_path, _) = match stored {
+            Ok(v) => v,
+            Err(Failure::Render(e)) => return Ok(ToolResult::Error(format!("render failed: {e}"))),
+            Err(Failure::Cache(e)) => {
+                return Ok(ToolResult::Error(format!(
+                    "could not store the preview in the project's preview cache ({}): {e}",
+                    cache.dir().display()
+                )))
             }
-        } else {
-            staged_path.clone()
+        };
+
+        // Another render of the same key finished first: its file is the
+        // one in the cache, and ours was never made.
+        let Some(report) = report else {
+            return Ok(match cached_result(&out_path, &node.state) {
+                Some(out) => ToolResult::Ok(out),
+                None => ToolResult::Error(format!(
+                    "the cached preview at {} cannot be read",
+                    out_path.display()
+                )),
+            });
         };
 
         let mut out = json!({

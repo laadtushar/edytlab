@@ -517,7 +517,8 @@ pub(crate) fn check_track_index(tracks: &[Track], track_index: usize) -> Result<
 /// way would do nothing, and the two must not be able to disagree. Every way an effect
 /// gets into a chain goes through this: `add_effect`, and
 /// `set_effect_bypassed` when it switches an effect back on.
-/// `set_effect_params` cannot change a kind and does not need it.
+/// `set_effect_params` cannot change a kind and does not need it, but it
+/// does write parameters, and [`check_effect_params`] is its check.
 pub(crate) fn check_effect_kind(kind: &str) -> Result<(), String> {
     use audio_engine::effect_chain::{streamable_kinds, support, KindSupport};
 
@@ -536,6 +537,65 @@ pub(crate) fn check_effect_kind(kind: &str) -> Result<(), String> {
             "unknown effect kind '{kind}'. Kinds that work in a chain: {works}."
         )),
     }
+}
+
+/// Refuse a parameter name the effect `kind` does not read (#579), with a
+/// message that names the key and lists the ones that work so the model can
+/// correct itself.
+///
+/// The renderer reads a parameter by name and falls back to its default when
+/// the name is not there, so a name it never reads is not an error to it:
+/// `{"gain_db": 4.9}` on a gain, whose level is `db`, was stored, reported as
+/// done and heard as 0 dB. The names come from
+/// `audio_engine::effect_chain::params_of`, the table the renderer reads
+/// them through, so the two cannot disagree.
+///
+/// This is for a call that writes parameters (`add_effect`, `audition_effect`
+/// and `set_effect_params`) and for the keys that call carries, not for what
+/// is already stored: a project saved by an older build can hold a name that
+/// is not a parameter, and it still opens, renders and is edited.
+///
+/// A kind the renderer cannot run (a stored `reverb`, say) has no list of
+/// names, so there is nothing to check against and its parameters are
+/// accepted as given. `add_effect` and `audition_effect` refuse such a kind
+/// before they get here.
+pub(crate) fn check_effect_params(kind: &str, params: &Value) -> Result<(), String> {
+    use audio_engine::effect_chain::params_of;
+
+    let Some(object) = params.as_object() else {
+        return Err("params must be an object of parameter names to values".to_string());
+    };
+    let Some(known) = params_of(kind) else {
+        return Ok(());
+    };
+    let unknown: Vec<String> = object
+        .keys()
+        .filter(|key| !known.iter().any(|p| p.name == key.as_str()))
+        .map(|key| format!("'{key}'"))
+        .collect();
+    if unknown.is_empty() {
+        return Ok(());
+    }
+    let takes = if known.is_empty() {
+        "no parameters".to_string()
+    } else {
+        known
+            .iter()
+            .map(|p| format!("{} (default {})", p.name, p.default))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let (s, it) = if unknown.len() == 1 {
+        ("", "it")
+    } else {
+        ("s", "them")
+    };
+    Err(format!(
+        "unknown parameter{s} {} for '{kind}': the renderer does not read {it}, so the effect \
+         would ignore {it} and run on its defaults. '{kind}' takes: {takes}. Names are exact. \
+         Nothing was changed; send the call again with only those names.",
+        unknown.join(", "),
+    ))
 }
 
 /// Put a render's warnings in a tool's result (#520).

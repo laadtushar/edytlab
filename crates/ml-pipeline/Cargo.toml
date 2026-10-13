@@ -12,7 +12,7 @@ workspace = true
 [dependencies]
 # The ONNX Runtime binding, declared once in the root `Cargo.toml` (the
 # exact version, the `api-23` level and why). `runtime::ensure` picks the
-# library file, because `ort` itself deadlocks on one it cannot load.
+# library file, because `ort`'s own load panics when it fails.
 ort.workspace = true
 # `runtime::ensure` checks a library before `ort` sees it. The version
 # `ort` itself uses, so the workspace builds one copy.

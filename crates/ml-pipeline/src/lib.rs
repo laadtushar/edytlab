@@ -34,13 +34,14 @@
 //! `libonnxruntime.{so,dylib}` / `onnxruntime.dll` next to the
 //! executable. Nothing ships that library yet (#383).
 //!
-//! Left alone, `ort` **hangs** when it cannot load the library: it
-//! deadlocks inside its own initialisation, and the calling thread never
-//! returns. So every caller that builds an `ort` session goes through
-//! [`runtime::ensure`] first, which turns a missing or unloadable
-//! library into [`Error::MissingRuntime`] / [`Error::RuntimeLoad`]. See
-//! the [`runtime`] module for why that matters. Tests that build real
-//! sessions are `#[ignore]`d — see `tests/cache_smoke.rs`.
+//! Left alone, `ort` **panics** when it cannot load the library (and, with
+//! no path given, searches the system for it by bare name); in 2.0.0-rc.12
+//! it deadlocked instead. So every caller that builds an `ort` session
+//! goes through [`runtime::ensure`] first, which turns a missing or
+//! unloadable library into [`Error::MissingRuntime`] /
+//! [`Error::RuntimeLoad`]. See the [`runtime`] module for why that
+//! matters. Tests that build real sessions are `#[ignore]`d — see
+//! `tests/cache_smoke.rs`.
 
 use std::io;
 use std::path::PathBuf;

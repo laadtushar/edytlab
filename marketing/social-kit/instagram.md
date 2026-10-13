@@ -74,11 +74,11 @@ A 128 BPM track, matched to 120 and blended in.
 ```
 A 128 BPM track, matched to 120 and blended in.
 
-The agent time-stretches it to 120 BPM, keeping the pitch, and starts it under the last 8 bars of the other track. One fades out under a 2 kHz low-pass while the other fades in.
+The agent time-stretches it to 120 BPM, keeping the pitch, and starts it under the last 8 bars of the other track. One fades out under a 1 kHz low-pass while the other fades in.
 
-Then the mix is mastered and exported as a WAV at -14 LUFS.
+Then the mix is mastered and exported as a WAV at about -14 LUFS.
 
-It also tells the DJ the first downbeat sits half a second into the file, and offers to nudge it.
+It also tells the DJ the bars run a beat behind at that start, and offers to start the track at 15.5 s instead.
 
 Link in bio to try it, free and open source. Demo tracks are synthetic loops, and it's for prep, not live sets.
 
@@ -110,9 +110,9 @@ Need a longer intro to mix over?
 ```
 Need a longer intro to mix over?
 
-Here the drums-only first 8 bars are copied and spliced in, so the intro runs 16 bars. A 150 Hz high-pass holds the low end back until the drop, and the first 4 bars fade in.
+Here the drums-only first 8 bars are copied and spliced in, so the intro runs 16 bars. A 200 Hz high-pass holds the low end back until the drop, and the first 4 bars fade in.
 
-The agent exports a WAV and warns that it peaks at 0 dBFS, with no headroom.
+The agent exports a WAV and warns that it peaks right at full scale.
 
 Link in bio for the demos and downloads. The demo track is a synthetic loop, and the installers are unsigned (first-launch warning on Mac and Windows).
 
@@ -129,7 +129,7 @@ Link in bio for the demos and downloads. The demo track is a synthetic loop, and
 **Alt text:**
 
 ```
-Screen recording of the edytlab app: an AI agent copies a track's drums-only first 8 bars to make a 16-bar intro, adds a 150 Hz high-pass until the drop, and exports a WAV.
+Screen recording of the edytlab app: an AI agent copies a track's drums-only first 8 bars to make a 16-bar intro, adds a 200 Hz high-pass until the drop, and exports a WAV.
 ```
 
 ---
@@ -137,16 +137,16 @@ Screen recording of the edytlab app: an AI agent copies a track's drums-only fir
 ## 4. `reel-mini-mix.mp4`
 
 **Hook line:**
-Three tracks, one 80-second warm-up mix.
+Three tracks, one 79-second warm-up mix.
 
 **Caption:**
 
 ```
-Three tracks, one 80-second warm-up mix.
+Three tracks, one 79-second warm-up mix.
 
-Two of them are time-stretched to 124 BPM, keeping their pitch. Then all three are sequenced with 4-bar overlaps and crossfades, each brought to about -14 LUFS, with a limiter at -1 dBFS on the result.
+Two of them are time-stretched to 124 BPM, keeping their pitch. Then all three are sequenced with overlaps of about 4 bars and crossfades, each brought to about -14 LUFS, with a limiter at -1 dBFS on the result.
 
-The agent flags that the last entry lands half a bar off the beat grid, because one track is 16 and a half bars long.
+The agent brings the last track in on the bar line before it, rather than at the exact 4-bar mark.
 
 Link in bio. Free, open source, Mac / Windows / Linux. It preps files; it doesn't play live.
 
@@ -156,14 +156,14 @@ Link in bio. Free, open source, Mac / Windows / Linux. It preps files; it doesn'
 ```
 
 **On-screen hook text (pick one):**
-1. Three tracks, one 80-second mix
+1. Three tracks, one 79-second mix
 2. A 124 BPM mini-mix, built from a chat
-3. The agent flagged a half-bar offset
+3. The agent moved an entry onto the bar
 
 **Alt text:**
 
 ```
-Screen recording of the edytlab app: an AI agent lines up three tracks at 124 BPM with 4-bar overlaps and crossfades, limits the result, and exports an 80-second WAV.
+Screen recording of the edytlab app: an AI agent lines up three tracks at 124 BPM with overlaps of about 4 bars and crossfades, limits the result, and exports a 79-second WAV.
 ```
 
 ---
@@ -216,8 +216,8 @@ Short screen recording of the edytlab desktop audio editor, with a chat panel ne
 ## Notes (not part of the captions)
 
 Where the details come from: the captions in `website/lib/demos.ts` (tempos,
-8 and 16 bars, 150 Hz, 2 kHz, -14 LUFS, -1 dBFS, 80-second WAV, the three
-flagged edge cases); the demo tracks being synthetic comes from
+8 and 16 bars, 200 Hz, 1 kHz, -14 LUFS, -1 dBFS, 79-second WAV, the edge
+cases the agent flags); the demo tracks being synthetic comes from
 `apps/desktop/e2e-native/fixtures.mjs`.
 
 - The mini-mix and highlights captions say "an AI agent runs the audio tools"
@@ -227,6 +227,6 @@ flagged edge cases); the demo tracks being synthetic comes from
   privacy, the full answer is: audio files are not uploaded; the chat text goes
   to the AI provider you pick, or stays local with Ollama.
 - The reels are vertical edits made separately from the website videos. If a
-  detail in a caption (for example the 150 Hz high-pass) is cut from your
+  detail in a caption (for example the 200 Hz high-pass) is cut from your
   final edit, trim that line so the caption describes only what the viewer
   sees.

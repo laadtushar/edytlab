@@ -20,8 +20,9 @@ workspace = true
 ort.workspace = true
 ndarray = "0.16"
 audio-decoder = { path = "../audio-decoder" }
-# The runtime gate: `ort` hangs, rather than erroring, when the ONNX Runtime
-# library is missing, so `WhisperModel::load` asks ml-pipeline first.
+# The runtime gate: `ort` panics, rather than erroring, when its own load of
+# the ONNX Runtime library fails, so `WhisperModel::load` asks ml-pipeline
+# first.
 ml-pipeline = { path = "../ml-pipeline" }
 rubato = "0.16"
 # The 400-point real FFT behind the log-mel spectrogram (`mel.rs`). The

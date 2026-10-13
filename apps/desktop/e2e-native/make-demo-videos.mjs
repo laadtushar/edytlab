@@ -25,9 +25,15 @@ const AV_SKEW = Number(process.env.AV_SKEW ?? 0.65);
 // The app window on the 1440x900 virtual display (openbox decorations
 // included in the grab are cropped away).
 const CROP = process.env.CROP ?? "1280:776:80:82";
-const FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
+// The captions are set in the website's Inter: Ubuntu's `fonts-inter`, or
+// FONT= any Inter SemiBold, such as the TTF from Google Fonts, the copy
+// next/font self-hosts on the site.
+const FONT = process.env.FONT ?? "/usr/share/fonts/opentype/inter/Inter-SemiBold.otf";
+// The site's dark --card, --foreground and --primary (website/app/globals.css).
+const CARD = "0x0e0e11", TEXT = "0xfafafa", ACCENT = "0xb36afb";
 const ONLY = process.env.ONLY;
 if (!DEST) throw new Error("set DEST to the directory the videos go to");
+if (!existsSync(FONT)) throw new Error(`no caption font at ${FONT}: install fonts-inter, or set FONT`);
 mkdirSync(DEST, { recursive: true });
 
 // Every output is capped at 4 GB (`-fs`): an encode that runs away fills
@@ -101,9 +107,14 @@ for (const r of results.filter((r) => r.id.startsWith("8-demo-"))) {
     const file = join(work, `cap${i}.txt`);
     writeFileSync(file, c.text);
     const to = i + 1 < caps.length ? caps[i + 1].t : 1e6;
+    const text = `fontfile=${FONT}:textfile=${file}:fontsize=30:y_align=font:x=(w-text_w)/2:y=h-text_h-40`;
+    const when = `enable='between(t,${c.t.toFixed(2)},${to.toFixed(2)})'`;
+    // A card with a violet edge: an opaque accent box, 6 px wider on the
+    // left, under the card's, so the text's contrast never depends on the
+    // frame behind it.
     return (
-      `drawtext=fontfile=${FONT}:textfile=${file}:fontsize=26:fontcolor=white:` +
-      `box=1:boxcolor=black@0.62:boxborderw=14:x=(w-text_w)/2:y=h-text_h-36:enable='between(t,${c.t.toFixed(2)},${to.toFixed(2)})'`
+      `drawtext=${text}:fontcolor=${ACCENT}@0:box=1:boxcolor=${ACCENT}:boxborderw=16|24|16|30:${when},` +
+      `drawtext=${text}:fontcolor=${TEXT}:box=1:boxcolor=${CARD}@0.94:boxborderw=16|24|16|24:${when}`
     );
   });
   const video = `[0:v]setpts=PTS-STARTPTS,crop=${CROP}${draws.length ? "," + draws.join(",") : ""}[v]`;
