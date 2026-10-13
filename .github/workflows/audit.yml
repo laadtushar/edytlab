@@ -89,6 +89,12 @@ jobs:
           path: ~/.cargo/bin/cargo-audit
           key: cargo-audit-${{ runner.os }}-${{ env.CARGO_AUDIT_VERSION }}
 
+      # The ubuntu-22.04 image happens to ship cargo-audit at this same version
+      # today, so on a cache miss `cargo install` prints "already installed" and
+      # returns in a second, and the cache then holds the image's binary. That
+      # is not what pins the version: if the image moves to another version or
+      # drops it, `cargo install --version` builds the pinned one (about five
+      # minutes) and replaces whatever is there.
       - name: Install cargo-audit
         if: steps.cargo-audit-cache.outputs.cache-hit != 'true'
         run: cargo install cargo-audit --version "$CARGO_AUDIT_VERSION" --locked
