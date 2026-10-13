@@ -879,3 +879,47 @@ fn opening_a_project_lets_the_webview_read_its_previews_and_auditions() {
         );
     }
 }
+
+/// `ml_runtime_status` over IPC answers with a `state` the window can read,
+/// and returns: it loads a library at most (the one `ORT_DYLIB_PATH` names,
+/// if this shell sets it), never panics or hangs on a machine with none.
+/// The mapping of each state to JSON is covered by the unit tests in
+/// `src/commands.rs`; this is the registration and the wire.
+#[test]
+fn ml_runtime_status_over_ipc_answers_with_a_state() {
+    let app = mock_builder()
+        .manage(AppState::new())
+        .invoke_handler(tauri::generate_handler![commands::ml_runtime_status])
+        .build(mock_context(noop_assets()))
+        .expect("mock app");
+    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .expect("webview");
+
+    let answer =
+        tauri::test::get_ipc_response(&webview, make_request("ml_runtime_status", json!({})))
+            .expect("a status is an answer, not an error")
+            .deserialize::<serde_json::Value>()
+            .expect("json");
+
+    match answer["state"].as_str() {
+        Some("missing") => {
+            let searched = answer["searched"].as_array().expect("searched is a list");
+            assert!(searched.iter().all(|p| p.is_string()), "{answer}");
+        }
+        Some("found") => {
+            assert!(answer["version"].as_str().is_some(), "{answer}");
+            assert!(answer["path"].as_str().is_some(), "{answer}");
+            assert!(
+                matches!(
+                    answer["source"].as_str(),
+                    Some("bundled" | "environment" | "executable")
+                ),
+                "{answer}"
+            );
+        }
+        Some("loadFailed") => assert!(answer["reason"].as_str().is_some(), "{answer}"),
+        Some("unsupportedOs") => assert!(answer["needs"].as_str().is_some(), "{answer}"),
+        other => panic!("not a known state: {other:?} in {answer}"),
+    }
+}

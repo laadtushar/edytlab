@@ -265,3 +265,43 @@ fn identity_model_returns_its_input() {
     assert_eq!(&shape[..], &[1, 3], "Identity keeps the shape");
     assert_eq!(data, &input[..], "Identity must return its input");
 }
+
+#[test]
+#[ignore = "needs ORT_DYLIB_PATH (an ONNX Runtime library); run with --ignored"]
+fn runtime_info_reports_the_library_that_loaded() {
+    // What Settings shows (`ml_runtime_status`): the file that loaded, the
+    // version the library itself reports, and where it was found. The
+    // version must be the one `ml-runtime.json` pins: a library of another
+    // version would run, and the status line would say so.
+    let library = env::var("ORT_DYLIB_PATH").unwrap_or_else(|_| {
+        panic!("ORT_DYLIB_PATH is not set; scripts/fetch-ml-runtime.sh <platform> <dir> fetches it")
+    });
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("apps")
+        .join("desktop")
+        .join("src-tauri")
+        .join("ml-runtime.json");
+    let manifest: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&manifest).expect("read the manifest"))
+            .expect("the manifest is JSON");
+
+    let info = ml_pipeline::runtime::info().expect("the ONNX Runtime library ORT_DYLIB_PATH names");
+
+    assert_eq!(info.path, Path::new(&library), "the file that loaded");
+    assert_eq!(
+        Some(info.version.as_str()),
+        manifest["version"].as_str(),
+        "the library's own version string is the pinned version"
+    );
+    assert_eq!(info.origin, ml_pipeline::runtime::Origin::Environment);
+    assert!(
+        !info.bundled(),
+        "ORT_DYLIB_PATH is not the installer's copy"
+    );
+    // The same answer from `ensure` and from a second `info`: one library
+    // per process, loaded once.
+    assert_eq!(ml_pipeline::runtime::ensure().expect("ensure"), info.path);
+    assert_eq!(ml_pipeline::runtime::info().expect("again"), info);
+}
