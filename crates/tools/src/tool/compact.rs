@@ -20,6 +20,12 @@
 //!   once nothing left in the store names it, so a half-finished
 //!   compaction leaves a session that still works rather than nodes
 //!   pointing at deleted audio.
+//! * **Only the project's own audio goes** (#589). A node can name a
+//!   file anywhere: `load` references the user's own recording where it
+//!   lies. Compaction removes files inside the project's
+//!   `.audiograph/derived/` and nothing else, so a recording the user
+//!   loaded survives the history that named it, and so do clipboard
+//!   blobs and cached previews.
 
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -51,9 +57,11 @@ impl Tool for CompactSessionTool {
     fn schema(&self) -> Value {
         anthropic_tool(
             "compact_session",
-            "Prune old history and delete the audio only it referenced, to reclaim disk. This \
-             removes undo steps permanently — the nodes are gone, not archived. Reports what it \
-             would remove and changes nothing unless `apply` is true. The head's most recent \
+            "Prune old history and delete the project's derived audio only it referenced, to \
+             reclaim disk. A file you loaded from outside the project is never deleted, only the \
+             undo steps that named it. This removes undo steps permanently — the nodes are gone, \
+             not archived. Reports what it would remove and changes nothing unless `apply` is \
+             true. The head's most recent \
              `keep_last` nodes are never pruned, so ordinary undo keeps working; what goes is \
              the tail beyond that and any abandoned branches. Disk usually needs no action: \
              audio no node references is removed when the project is opened, and once a \
@@ -119,6 +127,7 @@ impl Tool for CompactSessionTool {
                 "applied": false,
                 "prunable_nodes": plan.nodes.len(),
                 "reclaimable_bytes": plan.bytes,
+                "reclaimable_files": plan.files.len(),
                 "keep_last": keep_last,
                 "summary": format!(
                     "Would remove {} node(s) of history and {:.1} MB of audio, keeping the last \
@@ -139,6 +148,7 @@ impl Tool for CompactSessionTool {
             "applied": true,
             "removed_nodes": report.removed_nodes,
             "removed_files": report.removed_files,
+            "kept_files": report.kept_files,
             "freed_bytes": report.freed_bytes,
             "summary": format!(
                 "Removed {} node(s) of history and {} file(s), freeing {:.1} MB. The last \

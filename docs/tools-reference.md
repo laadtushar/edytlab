@@ -33,7 +33,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`batch_apply`](#batch_apply) — Run an exported edit chain across every audio file in a folder.
 - [`change_speed`](#change_speed) — Resample a track to change playback speed without pitch preservation.
 - [`click_removal`](#click_removal) — Remove clicks and pops by detecting sample spikes (via median filter) and replacing them with interpolated values.
-- [`compact_session`](#compact_session) — Prune old history and delete the audio only it referenced, to reclaim disk.
+- [`compact_session`](#compact_session) — Prune old history and delete the project's derived audio only it referenced, to reclaim disk.
 - [`compare_nodes`](#compare_nodes) — Compute the structural diff between two session nodes.
 - [`compressor`](#compressor) — Apply dynamic compression to a track using an envelope follower.
 - [`copy_region`](#copy_region) — Copy a time range from a track into the in-memory clipboard.
@@ -244,7 +244,7 @@ Remove clicks and pops by detecting sample spikes (via median filter) and replac
 
 ## `compact_session`
 
-Prune old history and delete the audio only it referenced, to reclaim disk. This removes undo steps permanently — the nodes are gone, not archived. Reports what it would remove and changes nothing unless `apply` is true. The head's most recent `keep_last` nodes are never pruned, so ordinary undo keeps working; what goes is the tail beyond that and any abandoned branches. Disk usually needs no action: audio no node references is removed when the project is opened, and once a project's derived audio passes 2 GiB, audio only undo history holds is swept automatically in the background, oldest first — but only files that replaying their edits rebuilds, and undoing back to one rebuilds it, so undo keeps working. Use this for the audio that cannot be swept that way, or to drop history on purpose. Run `storage_report` first to see what is actually using the space.
+Prune old history and delete the project's derived audio only it referenced, to reclaim disk. A file you loaded from outside the project is never deleted, only the undo steps that named it. This removes undo steps permanently — the nodes are gone, not archived. Reports what it would remove and changes nothing unless `apply` is true. The head's most recent `keep_last` nodes are never pruned, so ordinary undo keeps working; what goes is the tail beyond that and any abandoned branches. Disk usually needs no action: audio no node references is removed when the project is opened, and once a project's derived audio passes 2 GiB, audio only undo history holds is swept automatically in the background, oldest first — but only files that replaying their edits rebuilds, and undoing back to one rebuilds it, so undo keeps working. Use this for the audio that cannot be swept that way, or to drop history on purpose. Run `storage_report` first to see what is actually using the space.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
