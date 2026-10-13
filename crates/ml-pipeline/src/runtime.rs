@@ -87,17 +87,16 @@
 //!
 //! ## The macOS minimum
 //!
-//! The runtime the installers ship (1.23.2) needs macOS 13.4. dyld does
-//! not say so when it opens a library built for a newer macOS: it loads
-//! it, and the first symbol that is missing on the older system comes back
-//! as an error whose addendum mentions the minimum, or the process dies
-//! there. So on macOS, once a library has been found and before it is
-//! opened, the running macOS is read (`kern.osproductversion`) and
-//! compared with `min_macos` from `apps/desktop/src-tauri/ml-runtime.json`,
-//! included at build time so the pin has one home. An older system is
-//! [`Error::RuntimeUnsupported`] and the file is never opened. A version
-//! that cannot be read or parsed does not refuse: the guard exists to give
-//! a clear answer, and dyld still decides.
+//! The runtime the installers ship (1.23.2) needs macOS 13.4. dyld only
+//! reports a too-new minimum lazily, as an addendum to a symbol error, so
+//! that answer is late and says nothing about what to do. So on macOS,
+//! once a library has been found and before it is opened, the running
+//! macOS is read (`kern.osproductversion`) and compared with `min_macos`
+//! from `apps/desktop/src-tauri/ml-runtime.json`, included at build time so
+//! the pin has one home. An older system is [`Error::RuntimeUnsupported`]
+//! and the file is never opened. A version that cannot be read or parsed
+//! does not refuse: the guard exists to give a clear answer, and dyld still
+//! decides.
 
 use std::ffi::{CStr, OsStr};
 use std::path::{Path, PathBuf};
