@@ -1,10 +1,10 @@
-//! A missing ONNX Runtime library is an error, not a hang (#383).
+//! A missing ONNX Runtime library is an error, not a hang or a panic (#383).
 //!
-//! With `load-dynamic`, `ort` deadlocks when it cannot load the library
-//! (see `ml_pipeline::runtime`). `ModelRegistry::load` used to reach that
-//! for any model file that existed, so this test never returned before
-//! `runtime::ensure` was in front of it. The watchdog turns that into a
-//! failure.
+//! With `load-dynamic`, `ort` 2.0.0-rc.12 deadlocked when it could not load
+//! the library, and rc.13 panics (see `ml_pipeline::runtime`).
+//! `ModelRegistry::load` used to reach that for any model file that
+//! existed, so this test never returned before `runtime::ensure` was in
+//! front of it. The watchdog turns a stall into a failure.
 //!
 //! One test per binary on purpose: it edits the process environment
 //! (`ORT_DYLIB_PATH`), which nothing else here may observe, and the
@@ -26,8 +26,9 @@ fn watchdog() {
         std::thread::sleep(Duration::from_secs(60));
         let _ = writeln!(
             std::io::stderr(),
-            "loading a model without ONNX Runtime did not return within 60 s: `ort` deadlocks on \
-             a library it cannot load, which runtime::ensure exists to prevent"
+            "loading a model without ONNX Runtime did not return within 60 s: a library that \
+             cannot be loaded must be answered with an error by runtime::ensure (`ort` rc.12 \
+             deadlocked here)"
         );
         std::process::abort();
     });

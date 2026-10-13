@@ -208,7 +208,10 @@ export default function UserGuidePage() {
         </li>
         <li>
           Questions that only read the session, like the tempo, the loudness
-          or the spectrum of a track, run without asking.
+          or the spectrum of a track, run without asking. So do hearing an
+          effect before you add it and rendering a preview: they change
+          nothing in your project, and what they save is a disposable copy
+          that is cleared as it grows.
         </li>
       </ul>
 

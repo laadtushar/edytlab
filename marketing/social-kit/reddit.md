@@ -67,16 +67,16 @@ The itch: prepping a blend is a pile of small file chores. Find the tempos, stre
 
 The recordings show three jobs:
 
-1. Both tracks in F major, at 120 and 128 BPM. The 128 track is time-stretched to 120 (pitch kept) and started under the last 8 bars of the other. The outgoing track fades under a 2 kHz low-pass while the incoming one fades in. Mastered for streaming and exported as a 50-second WAV at -14 LUFS, peaking at -1 dBFS.
-2. An extended intro: the drums-only first 8 bars are copied and spliced in, so the intro runs 16 bars, with a 150 Hz high-pass holding the low end back until the drop.
-3. A three-track mix at 124 BPM with 4-bar overlaps and crossfades, about -14 LUFS each, limited at -1 dBFS, exported as an 80-second WAV.
+1. Both tracks in F major, at 120 and 128 BPM. The 128 track is time-stretched to 120 (pitch kept) and started under the last 8 bars of the other. The outgoing track fades under a 1 kHz low-pass while the incoming one fades in. Mastered and exported as a 50-second WAV at -13.9 LUFS, peaking at -1 dBFS.
+2. An extended intro: the drums-only first 8 bars are copied and spliced in, so the intro runs 16 bars, with a 200 Hz high-pass holding the low end back until the drop.
+3. A three-track mix at 124 BPM with overlaps of about 4 bars and crossfades, about -14 LUFS each, limited at -1 dBFS, exported as a 79-second WAV.
 
 What to know before deciding whether it's worth your time:
 
 - The tracks are short synthetic loops (about 32 seconds each) that I generated. The recordings show the workflow, not how it copes with a messy real library.
 - Beat and key detection are software estimates. A drifting tempo or a long ambient intro can fool them.
-- The agent flags things instead of hiding them: a first downbeat half a second into a file, a last entry half a bar off the beat grid because one track is 16 and a half bars long, an export peaking at 0 dBFS.
-- The v0.5.0 build has no master-bus insert, so for "limiter on the master" it renders the tracks into a new baked "Master" track and mutes the originals, as the recordings show. Later edits to the source tracks don't show up until you re-render (issue 460). A master-bus effect tool is merged and ships in the next release.
+- The agent flags things instead of hiding them: bars that run a beat behind where it was told to start a track (with the fix), an export peaking right at full scale, a loudness reading that counted the fades.
+- The recordings were made on a development build after v0.5.0, where the limiter goes on the master bus. v0.5.0 itself has no master-bus insert, so for "limiter on the master" it renders the tracks into a new baked "Master" track and mutes the originals, and later edits to the source tracks don't show up until you re-render (issue 460). The master-bus effect tool ships in the next release.
 - No decks, controllers or live mode. It exports WAV, FLAC or MP3 files and has nothing for rekordbox or Serato. No stem separation or acapellas; that isn't built.
 - A test script types the requests into the real app when I record, and I only publish runs that passed my checks. The agent isn't deterministic, so your results can differ.
 - It needs an AI provider: your own key for Anthropic, OpenAI, OpenRouter, Groq or Gemini, or a local model through Ollama. Your audio files aren't uploaded; the chat text goes to the provider you pick, or stays local with Ollama.
@@ -112,7 +112,7 @@ Disclosure: I made this. It's free and MIT-licensed, and I'm mostly here to ask 
 
 It doesn't generate music and it isn't a DAW: no MIDI, no plugin hosting. It edits audio files. You describe a job in a chat box (for example "time-stretch this to 124 BPM keeping the pitch", or "bring it to -14 LUFS") and an AI agent runs ordinary tools on the file: time-stretch, pitch-shift, fades, EQ, filters, reverb, echo, compression and limiting, loudness, export as WAV, FLAC or MP3. Every edit is a step in a history you can fork, A/B against the previous version, and go back through.
 
-An example from the recordings on the site: a track's drums-only first 8 bars are copied and spliced in to make a 16-bar intro, a 150 Hz high-pass holds the low end back until the drop, and the first 4 bars fade in. The agent also warned that the export peaked at 0 dBFS with no headroom, which I'd rather it said than not. The track there is a short synthetic loop I generated, so it shows the workflow, not real-world quality.
+An example from the recordings on the site: a track's drums-only first 8 bars are copied and spliced in to make a 16-bar intro, a 200 Hz high-pass holds the low end back until the drop, and the first 4 bars fade in. The agent also warned that the export peaked right at full scale, which I'd rather it said than not. The track there is a short synthetic loop I generated, so it shows the workflow, not real-world quality.
 
 Honest limits: time-stretch and pitch-shift use a phase vocoder I wrote, so big changes on dense material sound smeared. No stems or vocal isolation (not built). Your audio isn't uploaded; the chat text goes to an AI provider you choose, or stays local with Ollama. The installers are unsigned, so macOS and Windows warn on first launch.
 
@@ -150,7 +150,7 @@ Disclosure: I build this tool (free, MIT). The question is the point, so I'll st
 
 When you finish a track and want a version DJs can mix, you probably extend the intro and outro with drums only, so there's something to beat-match over. How do you do it: copy and paste in the DAW, a separate audio-editor pass, a dedicated extended-mix bounce?
 
-Here is how it went in a recording of my tool. The track is at 124 BPM with 1.935-second bars and the first downbeat at 0.476 s (the agent works that out and says so). The drums-only first 8 bars are copied from that downbeat and spliced in after themselves, so the intro runs 16 bars. A 150 Hz high-pass holds the low end back until the drop on bar 17, the first 4 bars fade in, and the result is exported as a WAV. The agent flagged that the export peaks at 0 dBFS with no headroom.
+Here is how it went in a recording of my tool. The track is at 124 BPM with 1.935-second bars and the first downbeat at 0.476 s (the agent works that out and says so). The drums-only first 8 bars are copied from that downbeat and spliced in after themselves, so the intro runs 16 bars. A 200 Hz high-pass holds the low end back until the drop on bar 17, the first 4 bars fade in, and the result is exported as a WAV. The agent flagged that the export peaks right at full scale.
 
 What it is and isn't: a desktop editor for audio files where an AI agent calls tools (there are 93). It is not a DAW. No MIDI, no plugin hosting, and no stem separation (not built). The demo track is a short synthetic loop I generated with a drums-only intro written in, so this is a best case. A real arrangement with a pad or a vocal in bar 1 would be messier, and the recording doesn't show that. Beat detection is an estimate.
 

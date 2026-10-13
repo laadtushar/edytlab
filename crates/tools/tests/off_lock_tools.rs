@@ -22,10 +22,16 @@ use tools::{Tool, ToolContext, ToolDispatcher, ToolResult};
 ///
 /// * `copy_region` and `paste_region` use the clipboard, which an off-lock
 ///   run does not have.
-/// * `render_preview`, `audition_effect` and `render_final` stage their
-///   output in the preview cache under `.{node}.partial`, a fixed name
-///   shared with the `render_preview` command, which only the engine lock
-///   serialises today. Follow-up: unique staging names, then opt in.
+/// * `render_preview`, `audition_effect` and `render_final` are not opted
+///   in. `render_preview` and `audition_effect` stage their output in the
+///   preview caches under unique names (#535), so the shared
+///   `.{node}.partial` name that used to be a reason is gone. The engine is
+///   not the open question either: `audio_engine::Engine` holds no state, so
+///   a fresh one renders the same. What is open is `rederive::materialize`,
+///   which `render_preview` and `render_final` call before they render: it
+///   opens a second store and writes `derived/` files for a node whose audio
+///   a sweep removed, from what an off-lock run would hold as a staged
+///   handle. Follow-up: one reviewed decision each.
 /// * `batch_apply` and `apply_recipe` build nested dispatchers and report
 ///   `progress`; they would need a commit per step.
 /// * `compact_session`, `storage_report`, `fork_node`, `revert_to`,

@@ -38,7 +38,7 @@ export const octoberPosts: BlogPost[] = [
     body: [
       {
         type: "p",
-        text: "A smooth transition between two tracks sounds like one gesture, but it is a short list of exact operations: find both tempos, make them agree, line the beats up, overlap the ends, take something away from the outgoing track, and master the result. Each of those is a tool edytlab already has, so you can ask for them in plain sentences. This post follows the [beatmatch demo](/#demos) on the home page (3:08, with sound, waits sped up) and gives you the sentence to type at every step.",
+        text: "A smooth transition between two tracks sounds like one gesture, but it is a short list of exact operations: find both tempos, make them agree, line the beats up, overlap the ends, take something away from the outgoing track, and master the result. Each of those is a tool edytlab already has, so you can ask for them in plain sentences. This post follows the [beatmatch demo](/#demos) on the home page (2:45, with sound, waits sped up) and gives you the sentence to type at every step.",
       },
       {
         type: "callout",
@@ -145,7 +145,7 @@ export const octoberPosts: BlogPost[] = [
       },
       {
         type: "p",
-        text: "The compressor numbers are starting points. `compressor` needs a threshold, ratio, attack and release. `limiter` keeps every sample under the ceiling you give it by turning the gain down and letting it recover over `release_ms`, rather than clipping the peaks off. `normalize_loudness` sets the gain so integrated loudness reaches a target, and it has presets for delivery: −14 LUFS for Spotify and YouTube, −16 for Apple Podcasts, −23 for broadcast. If the gain needed would push peaks past the true-peak ceiling (−1 dBFS by default), it stops there instead of clipping and reports the shortfall, which is why the limiter comes first. That is the order in the demo: compressed, limited at −1 dB, brought to −14 LUFS.",
+        text: "The compressor numbers are starting points. `compressor` needs a threshold, ratio, attack and release. `limiter` keeps every sample under the ceiling you give it by turning the gain down and letting it recover over `release_ms`, rather than clipping the peaks off. `normalize_loudness` sets the gain so integrated loudness reaches a target, and it has presets for delivery: −14 LUFS for Spotify and YouTube, −16 for Apple Podcasts, −23 for broadcast. If the gain needed would push peaks past the true-peak ceiling (−1 dBFS by default), it stops there instead of clipping and reports the shortfall, which is why the limiter comes first. That is the order in the demo: a limiter at −1 dB on the master first, then compression, then the level brought up to about −14 LUFS.",
       },
       { type: "h2", text: "Step 6: Export" },
       {
@@ -189,7 +189,7 @@ export const octoberPosts: BlogPost[] = [
     body: [
       {
         type: "p",
-        text: "DJs like long, sparse intros. They give the previous track time to leave, and they make the start of a track easy to beat-match. Plenty of tracks already open with a few bars of drums and nothing else, but not many open with enough of them. If yours does, you can build a longer intro out of its own first bars, and in edytlab that is a short conversation. The [extended-intro demo](/#demos) on the home page (1:56, with sound) shows the whole thing on one track; this post goes through it a step at a time and takes it a little further.",
+        text: "DJs like long, sparse intros. They give the previous track time to leave, and they make the start of a track easy to beat-match. Plenty of tracks already open with a few bars of drums and nothing else, but not many open with enough of them. If yours does, you can build a longer intro out of its own first bars, and in edytlab that is a short conversation. The [extended-intro demo](/#demos) on the home page (1:55, with sound) shows the whole thing on one track; this post goes through it a step at a time and takes it a little further.",
       },
       {
         type: "callout",

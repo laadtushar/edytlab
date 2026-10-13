@@ -64,6 +64,18 @@
 //! own list, because a second list is how a tool comes to accept what the
 //! renderer then leaves out: a chain holding one such effect renders
 //! without it, and on the master bus that is the whole mix.
+//!
+//! ## Parameter names are in the table too
+//!
+//! A kind's parameters are the table's as well: each entry lists the names
+//! it reads, with their defaults, and `make` reads them through a
+//! [`Params`] that answers only to a name on that list. The list the tools
+//! check a call against ([`params_of`]) and the names the renderer reads
+//! are therefore one list, not two that agree today. This matters because a
+//! name the renderer does not read is not an error to it: it falls back to
+//! the default, so `{"gain_db": 4.9}` on a gain was a 0 dB gain and a
+//! success (#579). The tools refuse such a name when it is written; the
+//! renderer still runs what is stored, since an older project can hold one.
 
 use std::fmt;
 
@@ -71,13 +83,70 @@ use audio_dsp::dynamics::DEFAULT_RELEASE_MS;
 use audio_dsp::{Biquad, BiquadCoeffs, Gain, Limiter, Processor};
 use session::{EffectInstance, SessionState};
 
+/// One parameter a streamable effect reads: its name in the stored params,
+/// and the value used when the params do not carry it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ParamSpec {
+    pub name: &'static str,
+    pub default: f32,
+}
+
+/// A stored effect's parameters, read through the names its kind declares.
+///
+/// [`Params::get`] answers only for a name on the kind's list, so `make`
+/// cannot read one the list leaves out. That is what keeps [`params_of`],
+/// which the tools check a call against, from drifting from what the
+/// renderer reads.
+struct Params<'a> {
+    spec: &'static [ParamSpec],
+    values: &'a serde_json::Value,
+    /// The names read, for the test that every declared name is read.
+    #[cfg(test)]
+    read: std::cell::RefCell<Vec<&'static str>>,
+}
+
+impl<'a> Params<'a> {
+    fn new(spec: &'static [ParamSpec], values: &'a serde_json::Value) -> Self {
+        Self {
+            spec,
+            values,
+            #[cfg(test)]
+            read: std::cell::RefCell::new(Vec::new()),
+        }
+    }
+
+    /// The parameter `name`, or its declared default when the stored params
+    /// do not carry it (or carry something that is not a number).
+    ///
+    /// # Panics
+    ///
+    /// If `name` is not declared for the kind: a mistake in the table, which
+    /// `every_registered_kind_builds` reaches for every kind.
+    fn get(&self, name: &str) -> f32 {
+        let spec = self
+            .spec
+            .iter()
+            .find(|p| p.name == name)
+            .unwrap_or_else(|| panic!("effect parameter '{name}' is read but not declared"));
+        #[cfg(test)]
+        self.read.borrow_mut().push(spec.name);
+        self.values
+            .get(name)
+            .and_then(serde_json::Value::as_f64)
+            .map(|v| v as f32)
+            .unwrap_or(spec.default)
+    }
+}
+
 /// How to make one streamable effect: the arguments are its parameters,
 /// the project rate and the channel count.
-type Make = fn(&serde_json::Value, u32, usize) -> Box<dyn Processor>;
+type Make = fn(&Params, u32, usize) -> Box<dyn Processor>;
 
 /// An effect kind the streaming renderer can run.
 struct Streamable {
     kind: &'static str,
+    /// The parameters it reads, in the order a message lists them.
+    params: &'static [ParamSpec],
     make: Make,
 }
 
@@ -88,48 +157,76 @@ struct Streamable {
 const STREAMABLE: &[Streamable] = &[
     Streamable {
         kind: "gain",
-        make: |p, _, _| Box::new(Gain::from_db(param(p, "db", 0.0))),
+        params: &[ParamSpec {
+            name: "db",
+            default: 0.0,
+        }],
+        make: |p, _, _| Box::new(Gain::from_db(p.get("db"))),
     },
     // The release is in milliseconds and the coefficient comes from the
     // project rate, so the same `release_ms` is the same duration at 44.1
     // and at 96 kHz.
     Streamable {
         kind: "limiter",
+        params: &[
+            ParamSpec {
+                name: "ceiling_db",
+                default: 0.0,
+            },
+            ParamSpec {
+                name: "release_ms",
+                default: DEFAULT_RELEASE_MS,
+            },
+        ],
         make: |p, sample_rate, _| {
             Box::new(Limiter::new(
-                param(p, "ceiling_db", 0.0),
-                param(p, "release_ms", DEFAULT_RELEASE_MS),
+                p.get("ceiling_db"),
+                p.get("release_ms"),
                 sample_rate,
             ))
         },
     },
     Streamable {
         kind: "low_pass_filter",
+        params: &[ParamSpec {
+            name: "cutoff_hz",
+            default: 20_000.0,
+        }],
         make: |p, sample_rate, channels| {
             Box::new(Biquad::new(
-                BiquadCoeffs::low_pass(param(p, "cutoff_hz", 20_000.0), sample_rate),
+                BiquadCoeffs::low_pass(p.get("cutoff_hz"), sample_rate),
                 channels,
             ))
         },
     },
     Streamable {
         kind: "high_pass_filter",
+        params: &[ParamSpec {
+            name: "cutoff_hz",
+            default: 20.0,
+        }],
         make: |p, sample_rate, channels| {
             Box::new(Biquad::new(
-                BiquadCoeffs::high_pass(param(p, "cutoff_hz", 20.0), sample_rate),
+                BiquadCoeffs::high_pass(p.get("cutoff_hz"), sample_rate),
                 channels,
             ))
         },
     },
     Streamable {
         kind: "notch_filter",
+        params: &[
+            ParamSpec {
+                name: "center_hz",
+                default: 1_000.0,
+            },
+            ParamSpec {
+                name: "q",
+                default: 1.0,
+            },
+        ],
         make: |p, sample_rate, channels| {
             Box::new(Biquad::new(
-                BiquadCoeffs::notch(
-                    param(p, "center_hz", 1_000.0),
-                    param(p, "q", 1.0),
-                    sample_rate,
-                ),
+                BiquadCoeffs::notch(p.get("center_hz"), p.get("q"), sample_rate),
                 channels,
             ))
         },
@@ -165,6 +262,16 @@ pub fn streamable_kinds() -> impl Iterator<Item = &'static str> + Clone {
     STREAMABLE.iter().map(|s| s.kind)
 }
 
+/// The parameters `kind` reads, with their defaults, or `None` for a kind
+/// the renderer cannot run in a chain (it has no parameters to name).
+///
+/// The names are the ones [`build`] reads. A stored name that is not on the
+/// list is ignored by the renderer, which uses the default in its place, so
+/// a tool that writes parameters asks here before it stores any (#579).
+pub fn params_of(kind: &str) -> Option<&'static [ParamSpec]> {
+    STREAMABLE.iter().find(|s| s.kind == kind).map(|s| s.params)
+}
+
 /// Effect kinds that exist as algorithms but cannot yet run on a
 /// stream. Listed explicitly so the error can distinguish "not
 /// implemented yet" from "no such effect", which are different mistakes
@@ -182,15 +289,6 @@ const NOT_YET_STREAMING: &[&str] = &[
     "eq",
     "compressor",
 ];
-
-/// Read an `f32` parameter, falling back when absent.
-fn param(params: &serde_json::Value, name: &str, default: f32) -> f32 {
-    params
-        .get(name)
-        .and_then(serde_json::Value::as_f64)
-        .map(|v| v as f32)
-        .unwrap_or(default)
-}
 
 /// Instantiate one effect chain for one render.
 ///
@@ -220,7 +318,8 @@ pub fn build(
         .filter(|effect| !effect.bypassed)
         .filter_map(|effect| {
             let streamable = STREAMABLE.iter().find(|s| s.kind == effect.kind)?;
-            Some((streamable.make)(&effect.params, sample_rate, channels))
+            let params = Params::new(streamable.params, &effect.params);
+            Some((streamable.make)(&params, sample_rate, channels))
         })
         .collect()
 }
@@ -519,6 +618,75 @@ mod tests {
                 cases.iter().any(|(k, _)| *k == kind),
                 "{kind} is registered but has no case in this test"
             );
+        }
+    }
+
+    /// The names [`params_of`] gives are the names `make` reads: each is read
+    /// (a name declared and never read would be accepted by the tools and do
+    /// nothing, which is the bug this list exists to prevent, #579), and
+    /// none is read that is not declared ([`Params::get`] panics on one, and
+    /// this reaches every kind). Written out per kind so that a change to
+    /// either side is a visible edit here.
+    #[test]
+    fn the_declared_names_are_the_names_the_renderer_reads() {
+        let expected: [(&str, &[&str]); 5] = [
+            ("gain", &["db"]),
+            ("limiter", &["ceiling_db", "release_ms"]),
+            ("low_pass_filter", &["cutoff_hz"]),
+            ("high_pass_filter", &["cutoff_hz"]),
+            ("notch_filter", &["center_hz", "q"]),
+        ];
+        for kind in streamable_kinds() {
+            assert!(
+                expected.iter().any(|(k, _)| *k == kind),
+                "{kind} is registered but has no case in this test"
+            );
+        }
+        for (kind, names) in expected {
+            let streamable = STREAMABLE
+                .iter()
+                .find(|s| s.kind == kind)
+                .unwrap_or_else(|| panic!("{kind} is not registered"));
+            let declared: Vec<&str> = params_of(kind)
+                .unwrap_or_else(|| panic!("{kind} declares no parameters"))
+                .iter()
+                .map(|p| p.name)
+                .collect();
+            assert_eq!(declared, names, "{kind}");
+
+            let values = serde_json::json!({});
+            let params = Params::new(streamable.params, &values);
+            let _ = (streamable.make)(&params, 44_100, 2);
+            let mut read = params.read.borrow().clone();
+            read.sort_unstable();
+            let mut want = names.to_vec();
+            want.sort_unstable();
+            assert_eq!(read, want, "{kind}: declared and read differ");
+        }
+    }
+
+    /// A kind the renderer cannot run has no parameters to name, whether it
+    /// exists elsewhere or nowhere.
+    #[test]
+    fn only_a_streamable_kind_has_parameters() {
+        for kind in NOT_YET_STREAMING {
+            assert!(params_of(kind).is_none(), "{kind}");
+        }
+        for kind in ["wobbulator", "Gain", " gain", ""] {
+            assert!(params_of(kind).is_none(), "{kind:?}");
+        }
+    }
+
+    /// A kind's names are distinct: a repeated one would be listed twice in
+    /// a message and mean two defaults.
+    #[test]
+    fn a_kinds_parameter_names_are_distinct() {
+        for s in STREAMABLE {
+            let mut names: Vec<&str> = s.params.iter().map(|p| p.name).collect();
+            names.sort_unstable();
+            let before = names.len();
+            names.dedup();
+            assert_eq!(names.len(), before, "{}", s.kind);
         }
     }
 

@@ -1,14 +1,36 @@
 //! The ONNX Runtime library gate.
 //!
 //! `ort` is built with `load-dynamic`: the ONNX Runtime library is
-//! `dlopen`ed the first time any `ort` API is used. **`ort` cannot report
-//! a library that fails to load.** In 2.0.0-rc.12 the failure is turned
-//! into an `ort::Error`, building that error calls `ort::api()`, and
-//! `ort::api()` re-enters the library initialisation that is still
-//! running on the same thread. The thread blocks forever. (The code reads
-//! as a panic, `.expect("Failed to load ONNX Runtime dylib")`, but that is
-//! never reached.) The same happens through `ort::init_from`, which looks
-//! as if it returns the error.
+//! `dlopen`ed the first time any `ort` API is used. Left to itself, `ort`
+//! (2.0.0-rc.13) does that badly in three ways:
+//!
+//! - **A failed implicit load panics.** `Session::builder`, `ort::api()`
+//!   and the rest load the library on first use, and a failure there is
+//!   `.expect("Failed to load ONNX Runtime dylib")` inside a one-time
+//!   initialiser, not a `Result`. The release profile is `panic = "abort"`
+//!   and a tool runs while the agent loop holds the dispatcher, store and
+//!   engine mutexes, so a missing library would end the app in the middle
+//!   of a turn.
+//! - **It searches.** With no `ORT_DYLIB_PATH` it hands the loader the
+//!   bare name (`libonnxruntime.so`, `libonnxruntime.dylib`,
+//!   `onnxruntime.dll`), and a relative `ORT_DYLIB_PATH` that names no file
+//!   next to the executable is handed over as written. Either way the
+//!   working directory or the system loader's own search order decides
+//!   which file loads (see "Where it looks" for why that is not wanted).
+//! - **Some bad libraries panic even through `ort::init_from`.** It
+//!   returns a `LoadDynamicError` for a file that cannot be opened, has no
+//!   `OrtGetApiBase`, or is older than 1.[`ort::MINOR_VERSION`]. But an
+//!   `OrtGetApiBase` that returns null is an `assert!`, and a library that
+//!   has no C API of that version panics on the first use after it.
+//!
+//! `ort::init_from` was worse in 2.0.0-rc.12: it turned a load failure
+//! into an `ort::Error`, building that error called `ort::api()`, and
+//! `ort::api()` re-entered the library initialisation still running on the
+//! same thread, which then blocked forever. That was a hang, not a panic,
+//! through `init_from` and the implicit load alike. rc.13 fixed it
+//! ("Don't deadlock when load-dynamic fails",
+//! <https://github.com/pykeio/ort/releases/tag/v2.0.0-rc.13>), and this
+//! module is still needed for the three points above.
 //!
 //! Before this module, setting `WHISPER_MODEL_PATH` or
 //! `DEMUCS_*_MODEL_PATH` to any existing file made `Session::builder()`
@@ -127,9 +149,10 @@ fn candidates_from(env_path: Option<&OsStr>, exe_dir: Option<&Path>) -> Vec<Path
 /// call retries — the user may have put the library in place since.
 ///
 /// **Every entry point into `ort` must call this first.** `Session::builder`,
-/// `ort::init*`, `ort::api()` and the rest all load the library on first
-/// use and hang when they cannot, so a caller that skips this brings back
-/// the freeze this module exists to prevent.
+/// `ort::init`, `ort::api()` and the rest all load the library on first
+/// use, panic when they cannot (a release build aborts) and search the
+/// system for a bare name, so a caller that skips this loses the
+/// protection this module exists to give.
 pub fn ensure() -> Result<PathBuf> {
     ensure_with(&candidate_paths())
 }
@@ -186,8 +209,9 @@ pub fn ensure_with(candidates: &[PathBuf]) -> Result<PathBuf> {
     // library, the one that just passed every check `ort` makes, instead
     // of reading the file a second time. Close it first (move it, drop
     // it, or reorder these lines) and `ort` loads whatever is at `path`
-    // by then: a file swapped in between would be unchecked, and `ort`
-    // would block on it rather than report it (see the module doc).
+    // by then: a file swapped in between would get only `ort`'s own,
+    // thinner checks, and some failures there are panics (see the module
+    // doc).
     let builder = ort::init_from(path).map_err(|e| Error::RuntimeLoad {
         path: path.clone(),
         reason: e.to_string(),
@@ -293,9 +317,11 @@ mod tests {
     // that succeeded would be process-wide state for every other test.
 
     /// Run `ensure_with` on another thread and fail, rather than hang, if
-    /// it never returns. A library that fails to load inside `ort` blocks
-    /// the thread forever (see the module doc), so without this a
-    /// regression would stall the test run instead of failing it.
+    /// it never returns. A library that failed to load inside `ort`
+    /// 2.0.0-rc.12 blocked the thread forever (see the module doc), and
+    /// rc.13 fixed that, but a regression there, or any other stall in the
+    /// load, would still stall the test run instead of failing it without
+    /// this.
     ///
     /// On a timeout it aborts rather than panicking: the stuck thread
     /// holds a lock that `ort`'s exit handler waits on, so the process
@@ -312,7 +338,8 @@ mod tests {
                 let _ = writeln!(
                     std::io::stderr(),
                     "ensure_with did not return within 30 s. A library that fails to load must \
-                     be rejected before `ort` sees it, because `ort` deadlocks on a failed load."
+                     be rejected with an error (`ort` 2.0.0-rc.12 deadlocked on a failed load; \
+                     rc.13 does not, so suspect a regression there)."
                 );
                 std::process::abort();
             }

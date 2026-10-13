@@ -85,7 +85,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`remove_track`](#remove_track) — Remove a track from the session.
 - [`rename_track`](#rename_track) — Rename a track.
 - [`render_final`](#render_final) — Render a session node to a final audio file at the user's chosen path.
-- [`render_preview`](#render_preview) — Render a session node to a temporary WAV file and return its path.
+- [`render_preview`](#render_preview) — Render a session node to a WAV file in the project's preview cache and return its path.
 - [`reorder_effects`](#reorder_effects) — Reorder a track's effect chain, the master bus's (scope "master") or a bus's (scope "bus").
 - [`repeat_selection`](#repeat_selection) — Duplicate the audio region [start_sec, end_sec) on a track N additional times, appending copies after the original buffer.
 - [`resample_track`](#resample_track) — Resample a track to a different sample rate using linear interpolation.
@@ -193,6 +193,8 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 ## `audition_effect`
 
 Hear what an effect would sound like on a track, on the master bus (scope "master") or on a bus (scope "bus") without applying it. Renders a few seconds of the session with the effect added to that chain and returns a WAV to play. Appends no session node, so there is nothing to undo — call `add_effect` with the same arguments to keep it. The audition includes gain, pan, mute, solo, sends and the master chain, so it sounds like the result will.
+
+_Read-only — never held for approval._
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
@@ -824,7 +826,9 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `render_preview`
 
-Render a session node to a temporary WAV file and return its path. Does not create a new session node. Optional `range` is a [start_sample, end_sample) pair into the rendered output.
+Render a session node to a WAV file in the project's preview cache and return its path. Does not create a new session node. Optional `range` is a [start_sample, end_sample) pair into the rendered output. The same node (and range) is rendered once and reused; the cache is size-capped, so an old preview may be rendered again.
+
+_Read-only — never held for approval._
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|

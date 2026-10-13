@@ -30,16 +30,35 @@
 //! it and count it — an eviction policy nobody can see the effect of is
 //! not much of a policy.
 //!
-//! ## Writes are atomic
+//! ## Writes are atomic, and leave nothing else behind
 //!
-//! A render goes to a temp file in the same directory and is renamed
+//! A render goes to a staging file in the same directory and is renamed
 //! into place. A crash mid-render therefore leaves no half-written file
 //! that a later run would serve as a hit; the strongest thing this
 //! module promises is that a hit is a real hit.
+//!
+//! The staging file is the cache's to remove, and it does, whichever way
+//! the render ends: a failed render, a failed rename and a panic all delete
+//! it. One thing cannot: a process killed mid-render. That file is in this
+//! directory but is not an entry, so the cap does not count it; the next
+//! render that misses sweeps any staging file older than
+//! [`STALE_STAGING`], which no render still in progress can be.
+//!
+//! ## Every preview is an entry
+//!
+//! A caller that wants a rendered file gets it from here or does not get
+//! one. There is no "render somewhere else and hand back the path" for a
+//! case the cache does not fit: a file outside this directory is outside
+//! the cap, outside the project, and nobody's to clean up (#535). That is
+//! what lets `render_preview` and `audition_effect` run under Plan first
+//! without approval (`Tool::mutates`). An excerpt of a mix is an entry like
+//! any other, under a key that names its range ([`excerpt_key`]), so it can
+//! never be served as the mix.
 
 use std::io;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, SystemTime};
 
 /// Directory under `.audiograph/` holding cached previews.
 pub const CACHE_DIR: &str = "previews";
@@ -49,6 +68,14 @@ pub const CACHE_DIR: &str = "previews";
 /// stepping back and forth through recent history always hits, without
 /// letting a long session quietly consume the disk.
 pub const DEFAULT_CAP_BYTES: u64 = 1024 * 1024 * 1024;
+
+/// How old a staging file must be before the next render sweeps it.
+///
+/// A render writes its staging file as it goes, so one that has not been
+/// touched for this long belongs to a process that is gone. An hour is far
+/// past the longest render, and short enough that a few crashes do not add
+/// up to a cache that is quietly larger than its cap.
+pub const STALE_STAGING: Duration = Duration::from_secs(60 * 60);
 
 /// Environment override for the cap, in bytes. Exists so tests can use
 /// a cap measured in kilobytes instead of writing a gigabyte of audio.
@@ -106,40 +133,129 @@ impl PreviewCache {
         self.dir.join(format!("{}.wav", node.to_hex()))
     }
 
+    /// The cached entry for `key`, if there is one, marked as just used.
+    pub fn lookup(&self, key: session::NodeId) -> Option<PathBuf> {
+        let path = self.path_for(key);
+        if !path.is_file() {
+            return None;
+        }
+        // Touch so LRU sees this as recently used. A failure here costs
+        // accuracy in eviction order, never correctness, so it is not
+        // worth failing a cache hit over.
+        let _ = touch(&path);
+        Some(path)
+    }
+
     /// Return the cached preview for `node`, rendering it with `render`
     /// only if it is not already there.
     ///
     /// `render` is handed a path to write to. It is called at most once
     /// and its output is moved into place atomically, so a failed render
-    /// leaves the cache exactly as it was.
+    /// leaves the cache exactly as it was: the staging file is removed
+    /// whether `render` fails, panics, or cannot be moved into place.
+    ///
+    /// An entry that is larger than the cap cannot be kept, and a path to a
+    /// file that was evicted as it was written is no use to a caller, so
+    /// that is an error rather than an `Ok`. It is refused before anything
+    /// is evicted: the cache is left as it was.
     pub fn get_or_render<F, E>(&self, node: session::NodeId, render: F) -> Result<(PathBuf, Hit), E>
     where
         F: FnOnce(&Path) -> Result<(), E>,
         E: From<io::Error>,
     {
-        let final_path = self.path_for(node);
-        if final_path.is_file() {
-            // Touch so LRU sees this as recently used. A failure here
-            // costs accuracy in eviction order, never correctness, so
-            // it is not worth failing a cache hit over.
-            let _ = touch(&final_path);
-            return Ok((final_path, Hit::Cached));
+        if let Some(path) = self.lookup(node) {
+            return Ok((path, Hit::Cached));
         }
 
         std::fs::create_dir_all(&self.dir).map_err(E::from)?;
+        self.sweep_stale_staging();
 
+        let final_path = self.path_for(node);
         // Same directory as the destination: a rename across filesystems
         // is not atomic, and the tempdir is frequently a different one.
-        let staging = self.dir.join(format!(".{}.partial", node.to_hex()));
-        render(&staging)?;
-        std::fs::rename(&staging, &final_path).map_err(E::from)?;
+        let staging = Staging(self.staging_path(node));
+        render(&staging.0)?;
+        match std::fs::rename(&staging.0, &final_path) {
+            Ok(()) => {}
+            // Another render of this key finished first. The name is the
+            // content, so what is there is what this would have put there,
+            // and a platform whose rename will not replace a file (a Windows
+            // volume without POSIX rename) reports a race it lost as an
+            // error. The staging file is removed on the way out.
+            Err(_) if final_path.is_file() => {
+                let _ = touch(&final_path);
+                return Ok((final_path, Hit::Cached));
+            }
+            Err(e) => return Err(E::from(e)),
+        }
 
-        // Evict after inserting rather than before: the entry that was
-        // just asked for is the one entry that must survive, and it is
-        // now the most recently used.
-        self.evict_to_cap();
+        // An entry bigger than the whole cache cannot be kept. Finding that
+        // out by evicting would cost the cache everything older first, so
+        // look before evicting.
+        let bytes = std::fs::metadata(&final_path).map(|m| m.len()).unwrap_or(0);
+        if bytes > self.cap_bytes {
+            let _ = std::fs::remove_file(&final_path);
+            return Err(E::from(io::Error::other(format!(
+                "the rendered preview ({bytes} bytes) does not fit in the preview cache, \
+                 whose cap is {} bytes",
+                self.cap_bytes
+            ))));
+        }
+
+        // `rename` keeps the render's modified time, which is when the file
+        // was written and not when it entered the cache, and a coarse clock
+        // (exFAT keeps two seconds) can make that no newer than entries
+        // already here. The entry just asked for is the one entry that must
+        // survive, and it is the most recently used: say so first, and
+        // evict around it.
+        let _ = touch(&final_path);
+        self.evict(Some(&final_path));
+
+        if !final_path.is_file() {
+            // Something else removed it as it was written.
+            return Err(E::from(io::Error::other(
+                "the rendered preview was removed from the preview cache as it was written",
+            )));
+        }
 
         Ok((final_path, Hit::Rendered))
+    }
+
+    /// A staging path that no other render, in this process or another,
+    /// is using: two renders of one key must not write the same file, or
+    /// one's cleanup would delete the other's work.
+    fn staging_path(&self, node: session::NodeId) -> PathBuf {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, Ordering::Relaxed);
+        self.dir.join(format!(
+            ".{}.{}-{n}.partial",
+            node.to_hex(),
+            std::process::id()
+        ))
+    }
+
+    /// Remove staging files too old to belong to a render in progress; see
+    /// [`STALE_STAGING`].
+    fn sweep_stale_staging(&self) {
+        let Ok(read) = std::fs::read_dir(&self.dir) else {
+            return;
+        };
+        let now = SystemTime::now();
+        for entry in read.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) != Some("partial") {
+                continue;
+            }
+            let stale = entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|modified| now.duration_since(modified).ok())
+                .is_some_and(|age| age >= STALE_STAGING);
+            if stale {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
     }
 
     /// Total bytes currently held.
@@ -159,6 +275,13 @@ impl PreviewCache {
     /// Drop least-recently-used entries until the directory fits the
     /// cap. Public so a caller can enforce the cap after changing it.
     pub fn evict_to_cap(&self) {
+        self.evict(None);
+    }
+
+    /// [`Self::evict_to_cap`], never taking `keep`. An entry that fits the
+    /// cap on its own is always safe to keep: once everything else is gone
+    /// the directory holds only it.
+    fn evict(&self, keep: Option<&Path>) {
         let mut entries = self.entries();
         let mut total: u64 = entries.iter().map(|e| e.bytes).sum();
         if total <= self.cap_bytes {
@@ -171,6 +294,9 @@ impl PreviewCache {
         for entry in entries {
             if total <= self.cap_bytes {
                 break;
+            }
+            if keep == Some(entry.path.as_path()) {
+                continue;
             }
             if std::fs::remove_file(&entry.path).is_ok() {
                 total = total.saturating_sub(entry.bytes);
@@ -210,6 +336,35 @@ struct Entry {
     path: PathBuf,
     bytes: u64,
     used: SystemTime,
+}
+
+/// A staging file, removed when this goes out of scope.
+///
+/// After a successful rename the path is gone and the removal does
+/// nothing, so the same line covers a failed render, a failed rename and a
+/// panic.
+struct Staging(PathBuf);
+
+impl Drop for Staging {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// The key of the excerpt `[start, end)` (in frames) of what `base`
+/// renders to.
+///
+/// `base` names a session state: a node, or for an audition the amended
+/// state that never becomes one. Hashing the range in as well is what keeps
+/// two excerpts of one state apart, and an excerpt apart from the whole
+/// mix, which is stored under `base` itself. Equal inputs give equal keys,
+/// so asking for an excerpt twice is a hit.
+pub fn excerpt_key(base: session::NodeId, start: u64, end: u64) -> session::NodeId {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(&base.0);
+    hasher.update(&start.to_le_bytes());
+    hasher.update(&end.to_le_bytes());
+    session::NodeId(*hasher.finalize().as_bytes())
 }
 
 fn cap_from_env() -> u64 {
@@ -373,6 +528,280 @@ mod tests {
             !cache.path_for(middle).exists(),
             "the least recently used entry survived"
         );
+    }
+
+    /// Everything in the cache folder that is not a finished entry.
+    fn staging_files(cache: &PreviewCache) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(cache.dir())
+            .map(|read| {
+                read.flatten()
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .filter(|n| !n.ends_with(".wav"))
+                    .collect()
+            })
+            .unwrap_or_default();
+        names.sort();
+        names
+    }
+
+    /// The half-written file of a render that failed used to stay where it
+    /// was: uncounted by the cap, and never looked at again.
+    #[test]
+    fn a_failed_render_leaves_no_staging_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = PreviewCache::new(tmp.path());
+
+        cache
+            .get_or_render::<_, io::Error>(node_id(20), |p| {
+                write(p, 32)?;
+                Err(io::Error::other("render blew up halfway"))
+            })
+            .unwrap_err();
+
+        assert_eq!(staging_files(&cache), Vec::<String>::new());
+    }
+
+    /// A panic in the renderer unwinds through the cache the same way.
+    #[test]
+    fn a_render_that_panics_leaves_no_staging_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = PreviewCache::new(tmp.path());
+
+        let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = cache.get_or_render::<_, io::Error>(node_id(21), |p| {
+                write(p, 32)?;
+                panic!("the renderer panicked halfway");
+            });
+        }));
+        assert!(unwound.is_err(), "the panic should reach the caller");
+
+        assert_eq!(staging_files(&cache), Vec::<String>::new());
+    }
+
+    /// The render succeeded and moving it into place did not: the file is
+    /// still not the cache's to keep.
+    #[test]
+    fn a_render_that_cannot_be_moved_into_place_leaves_no_staging_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = PreviewCache::new(tmp.path());
+        let id = node_id(22);
+        // A folder with something in it where the entry belongs: a file
+        // cannot be renamed over it.
+        std::fs::create_dir_all(cache.path_for(id)).unwrap();
+        std::fs::write(cache.path_for(id).join("in-the-way"), b"x").unwrap();
+
+        cache
+            .get_or_render::<_, io::Error>(id, |p| write(p, 32))
+            .unwrap_err();
+
+        assert_eq!(staging_files(&cache), Vec::<String>::new());
+    }
+
+    /// A render killed with the process (a crash, a power cut) cannot
+    /// clean up after itself. Its file is in the cache folder but is not
+    /// an entry, so nothing counts it against the cap; the next render
+    /// sweeps it once it is too old to be one still being written.
+    #[test]
+    fn a_staging_file_left_by_a_crashed_render_is_swept() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = PreviewCache::new(tmp.path());
+        std::fs::create_dir_all(cache.dir()).unwrap();
+
+        let old = cache.dir().join(".dead.partial");
+        let recent = cache.dir().join(".alive.partial");
+        write(&old, 64).unwrap();
+        write(&recent, 64).unwrap();
+        let long_ago = SystemTime::now() - STALE_STAGING * 2;
+        std::fs::File::options()
+            .write(true)
+            .open(&old)
+            .unwrap()
+            .set_modified(long_ago)
+            .unwrap();
+
+        cache
+            .get_or_render::<_, io::Error>(node_id(23), |p| write(p, 64))
+            .unwrap();
+
+        assert!(!old.exists(), "a stale staging file was kept");
+        assert!(
+            recent.exists(),
+            "a staging file that may still be being written was removed"
+        );
+    }
+
+    /// An entry too big for the cap cannot be kept without breaking the
+    /// cap, and a path to a file that was just evicted is no use to the
+    /// caller. Say so instead.
+    #[test]
+    fn an_entry_larger_than_the_cap_is_an_error_not_a_dangling_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cache = PreviewCache::new(tmp.path());
+        cache.cap_bytes = 50;
+        let id = node_id(24);
+
+        let e = cache
+            .get_or_render::<_, io::Error>(id, |p| write(p, 100))
+            .unwrap_err();
+
+        assert!(e.to_string().contains("cap"), "unhelpful error: {e}");
+        assert!(!cache.path_for(id).exists());
+        assert_eq!(cache.size_bytes(), 0);
+    }
+
+    /// A preview too big for the cap cannot be kept, and used to cost the
+    /// cache everything else before that was found out: eviction ran with
+    /// the new entry in place, oldest first, and took every older entry
+    /// before it reached the one that could never fit.
+    #[test]
+    fn a_preview_over_the_cap_leaves_the_cache_as_it_was() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cache = PreviewCache::new(tmp.path());
+        cache.cap_bytes = 100;
+        let (a, b) = (node_id(40), node_id(41));
+        for id in [a, b] {
+            cache
+                .get_or_render::<_, io::Error>(id, |p| write(p, 40))
+                .unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+
+        let big = node_id(42);
+        let e = cache
+            .get_or_render::<_, io::Error>(big, |p| write(p, 200))
+            .unwrap_err();
+
+        assert!(e.to_string().contains("cap"), "unhelpful error: {e}");
+        assert!(!cache.path_for(big).exists());
+        assert!(
+            cache.path_for(a).is_file() && cache.path_for(b).is_file(),
+            "an entry that fit was evicted to make room for one that could not"
+        );
+        assert_eq!(cache.size_bytes(), 80);
+        assert_eq!(staging_files(&cache), Vec::<String>::new());
+    }
+
+    /// `rename` keeps the render's modified time, which is when the file
+    /// was last written, not when it entered the cache. On a filesystem
+    /// whose clock is coarse (exFAT keeps two seconds), or after a copy
+    /// that preserves times, that can be older than entries already there;
+    /// eviction would then take the entry just asked for and report an
+    /// error for a preview that fits.
+    #[test]
+    fn a_new_entry_is_not_evicted_for_having_an_old_modified_time() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cache = PreviewCache::new(tmp.path());
+        cache.cap_bytes = 250;
+        let (oldest, newer, fresh) = (node_id(43), node_id(44), node_id(45));
+        for id in [oldest, newer] {
+            cache
+                .get_or_render::<_, io::Error>(id, |p| write(p, 100))
+                .unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+
+        cache
+            .get_or_render::<_, io::Error>(fresh, |p| {
+                write(p, 100)?;
+                std::fs::File::options()
+                    .write(true)
+                    .open(p)?
+                    .set_modified(SystemTime::now() - Duration::from_secs(3600))
+            })
+            .expect("a 100-byte preview fits a 250-byte cache");
+
+        assert!(cache.path_for(fresh).is_file(), "the new entry was evicted");
+        assert!(cache.path_for(newer).is_file());
+        assert!(
+            !cache.path_for(oldest).exists(),
+            "the entry evicted should be the least recently used one"
+        );
+        assert!(cache.size_bytes() <= 250);
+    }
+
+    /// Another render of the same key can finish between this one's lookup
+    /// and its rename. On Unix the rename just replaces it; where it cannot
+    /// (a Windows volume without POSIX rename) it is an error, but the
+    /// entry is there and is the same bytes, so that is a hit, not a
+    /// failure. The seam: a render that leaves no staging file makes the
+    /// rename fail on every platform (a folder does not: Windows renames
+    /// one over a file), while the winner's entry is already in place.
+    #[test]
+    fn a_rename_that_loses_a_race_is_a_hit_on_the_winner() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = PreviewCache::new(tmp.path());
+        let id = node_id(46);
+
+        let (path, hit) = cache
+            .get_or_render::<_, io::Error>(id, |_staging| write(&cache.path_for(id), 64))
+            .expect("the entry is there, so this is not an error");
+
+        assert_eq!(hit, Hit::Cached);
+        assert_eq!(path, cache.path_for(id));
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), 64);
+    }
+
+    /// Two renders of one key must not share a staging file: when one
+    /// fails and cleans up, the other's half-finished work has to survive
+    /// it. With one fixed name per key, the failure deleted the file the
+    /// other was still writing.
+    #[test]
+    fn a_failed_render_does_not_delete_a_concurrent_renders_staging_file() {
+        use std::sync::mpsc::channel;
+        use std::sync::Arc;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = Arc::new(PreviewCache::new(tmp.path()));
+        let id = node_id(25);
+        let wait = Duration::from_secs(10);
+
+        let (a_started, a_started_rx) = channel::<()>();
+        let (b_done, b_done_rx) = channel::<()>();
+
+        let a = {
+            let cache = Arc::clone(&cache);
+            std::thread::spawn(move || {
+                cache.get_or_render::<_, io::Error>(id, |p| {
+                    write(p, 64)?;
+                    a_started.send(()).unwrap();
+                    // Not finished until the other render has failed.
+                    b_done_rx.recv_timeout(wait).unwrap();
+                    Ok(())
+                })
+            })
+        };
+
+        a_started_rx.recv_timeout(wait).unwrap();
+        let failed = cache.get_or_render::<_, io::Error>(id, |p| {
+            write(p, 32)?;
+            Err(io::Error::other("the second render failed"))
+        });
+        assert!(failed.is_err());
+        b_done.send(()).unwrap();
+
+        let (path, hit) = a
+            .join()
+            .unwrap()
+            .expect("the first render was not disturbed");
+        assert_eq!(hit, Hit::Rendered);
+        assert_eq!(std::fs::metadata(path).unwrap().len(), 64);
+        assert_eq!(staging_files(&cache), Vec::<String>::new());
+    }
+
+    /// An excerpt is its own entry: not the mix it was cut from, and not
+    /// another cut of the same mix.
+    #[test]
+    fn an_excerpt_has_a_key_of_its_own() {
+        let mix = node_id(30);
+        let key = excerpt_key(mix, 0, 1_000);
+
+        assert_ne!(key, mix, "an excerpt would be served as the mix");
+        assert_eq!(key, excerpt_key(mix, 0, 1_000), "the key is not stable");
+        assert_ne!(key, excerpt_key(mix, 0, 1_001));
+        assert_ne!(key, excerpt_key(mix, 1, 1_000));
+        assert_ne!(key, excerpt_key(node_id(31), 0, 1_000));
+        // (0, 1000) is not (1000, 0), and a swap must not collide.
+        assert_ne!(excerpt_key(mix, 0, 1_000), excerpt_key(mix, 1_000, 0));
     }
 
     #[test]

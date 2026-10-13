@@ -52,6 +52,19 @@ export async function onboardClaude(ctx, { key = KEY, model, effort } = {}) {
     assert(ok, `reasoning effort ${effort} is not an option`);
   }
   await d.click("[data-testid='settings-save-button']");
+  // With no Secret Service (run-env.sh), the save lands in the kernel
+  // keyring and the welcome holds its note on that until Continue (#539).
+  const next = await d.until(
+    async () => {
+      for (const id of ["settings-continue-button", "settings-save-error"]) {
+        if (await d.count(`[data-testid='${id}']`)) return id;
+      }
+      return (await d.count("[data-testid='settings']")) === 0 && "closed";
+    },
+    { timeout: 30000, label: "the save to go through" },
+  );
+  if (next === "settings-save-error") throw new Error(`the save failed: ${await d.text("[data-testid='settings-save-error']")}`);
+  if (next === "settings-continue-button") await d.click("[data-testid='settings-continue-button']");
 }
 
 export async function ready(ctx, ...files) {

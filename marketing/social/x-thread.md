@@ -4,7 +4,7 @@
 <https://github.com/laadtushar/edytlab/releases/latest>
 
 Attach the demo to post 1. Upload
-`website/public/demos/dj-beatmatched-transition.mp4` (2.4 MB, 3:08) directly
+`website/public/demos/dj-beatmatched-transition.mp4` (2.6 MB, 2:45) directly
 as native video, rather than linking to it. Put links in post 8, not post 1.
 
 Each post is 280 characters or fewer (counted by script).
@@ -18,7 +18,7 @@ I built a desktop audio editor you drive by chatting.
 
 Here a DJ asks for two tracks' tempos, the incoming one is time-stretched to match, crossfaded in 8 bars before the first ends, and the mix is exported as a WAV at -14 LUFS.
 
-(3:08, with sound. Free, open source.)
+(2:45, with sound. Free, open source.)
 ```
 
 **2/8**

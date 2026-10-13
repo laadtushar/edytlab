@@ -35,9 +35,9 @@ limits. About 230 words.
 ```
 I built an audio editor you talk to. The video is three DJ jobs, each described in plain English and ending in an exported WAV.
 
-A 128 BPM track time-stretched to match a 120 BPM one, started under the last 8 bars of the first, crossfaded with a low-pass on the outgoing track, mastered to -14 LUFS. An extended club intro, made by copying a track's drums-only first 8 bars. A three-track mini-mix at 124 BPM with 4-bar overlaps.
+A 128 BPM track time-stretched to match a 120 BPM one, started under the last 8 bars of the first, crossfaded with a low-pass on the outgoing track, mastered to about -14 LUFS. An extended club intro, made by copying a track's drums-only first 8 bars. A three-track mini-mix at 124 BPM with overlaps of about 4 bars.
 
-What I like best: the agent flags its own edge cases. A downbeat half a second into a file. A last entry half a bar off the beat grid. An export peaking at 0 dBFS with no headroom.
+What I like best: the agent flags its own edge cases. Bars that run a beat behind, with the fix. An export peaking right at full scale. A loudness reading that counted the fades.
 
 How it works: the model never hears the audio. It gets text about the session (tempo, key, loudness) and picks from 93 audio tools. The DSP runs on your machine, in Rust. Your files aren't uploaded; only the chat goes to the provider you choose (Anthropic, OpenAI, OpenRouter, Groq, Gemini), or stays local with Ollama.
 
@@ -64,7 +64,7 @@ numbers are fixture values, not a model's output), and the image says so.
 **Shorter version (under 90 words), same video:**
 
 ```
-I built an audio editor you talk to. The video: three DJ jobs, each described in plain English and ending in an exported WAV. A beatmatched blend, an extended club intro, a three-track mini-mix. The agent even flags its own edge cases, like a downbeat half a second into a file.
+I built an audio editor you talk to. The video: three DJ jobs, each described in plain English and ending in an exported WAV. A beatmatched blend, an extended club intro, a three-track mini-mix. The agent even flags its own edge cases, like bars that run a beat behind.
 
 Free and open source (MIT) for macOS, Windows and Linux. Audio is processed on your machine. It preps files, it doesn't play live, and the installers are unsigned, so expect a first-launch warning.
 
@@ -87,12 +87,12 @@ Before: that list, by hand, in an editor, every time.
 
 After, in the video: a DJ describes the blend and an AI agent works through the list on the files.
 
-- It reports what it's working with: both tracks in F major, at 120 and 128 BPM.
+- It reports what it's working with: both tracks in F major, the 128 BPM one about 6.7% faster.
 - It time-stretches the 128 BPM track to 120, keeping its pitch, and starts it at 16 seconds, under the last 8 bars of the other.
-- The outgoing track fades under a 2 kHz low-pass while the incoming one fades in.
-- The mix is mastered for streaming and exported as a 50-second WAV at -14 LUFS, peaking at -1 dBFS.
+- The outgoing track fades under a 1 kHz low-pass while the incoming one fades in.
+- The mix is mastered and exported as a 50-second WAV at -13.9 LUFS, peaking at -1 dBFS.
 
-The moment I trust it most: it tells the DJ the incoming track's first downbeat sits half a second into the file, and offers to nudge it, instead of quietly leaving the blend a little off.
+The moment I trust it most: it tells the DJ that at 16 seconds the incoming track's bars run a beat behind, and offers to start it at 15.5 instead, rather than quietly leaving the blend a little off.
 
 Limits, so nobody has to find them: the tracks are short synthetic loops I generated, so this shows the workflow, not how it copes with a real record. Beat detection is an estimate and can be wrong on a drifting tempo. This is prep for files, not a live tool.
 
@@ -121,7 +121,7 @@ words.
 ```
 The audio editor I've been building has an AI agent in it, and the model never touches a sample. Everything else follows from that.
 
-The agent chooses and orders 93 audio tools: fades, EQ, filters, time-stretch, loudness, export. The tools are deterministic Rust. The video shows it sequencing a three-track mix with them.
+The agent chooses and orders 93 audio tools: fades, EQ, filters, time-stretch, loudness, export. The tools are plain Rust functions, with no model in the audio path. The video shows it sequencing a three-track mix with them.
 
 What I'd tell someone starting this:
 
@@ -202,7 +202,7 @@ It's a desktop audio editor in Tauri 2, Rust and React, where an AI agent calls 
 
 Places a contributor could make a real difference:
 
-- Master bus and bus effects. A tool can now put an effect on the master bus, and on a bus of its own (pull requests 516 and 551, merged after v0.5.0, so not in the release yet). Until it ships, the agent works around it by rendering a baked "Master" track and muting the originals, which the beatmatch and mini-mix recordings both show. Still missing: streaming versions of eleven effects the renderer can't run on a chain yet (reverb, echo, EQ, compressor and others). A stored effect it can't run is now left out of the render with a warning instead of failing it (merged, not released); issue 520, now closed, has the details, in the audio-engine and tools crates.
+- Master bus and bus effects. A tool can now put an effect on the master bus, and on a bus of its own (pull requests 516 and 551, merged after v0.5.0, so not in the release yet). Until it ships, the v0.5.0 agent works around it by rendering a baked "Master" track and muting the originals. The recordings were re-made on a build that has the tool, so their limiter sits on the master bus. Still missing: streaming versions of eleven effects the renderer can't run on a chain yet (reverb, echo, EQ, compressor and others). A stored effect it can't run is now left out of the render with a warning instead of failing it (merged, not released); issue 520, now closed, has the details, in the audio-engine and tools crates.
 - macOS microphone access. v0.5.0 adds the entitlement and the usage text, but nobody has recorded on a signed, notarized macOS build to confirm it. That check is issue 464, and it needs a Mac.
 - A real pass on Linux with a locked keyring. The Secret Service code is tested against fakes only. Issue 497.
 - New audio tools and new LLM providers. Each is one registered implementation, and docs/contributing.md walks through both.
@@ -229,7 +229,7 @@ Contributing guide: https://github.com/laadtushar/edytlab/blob/main/docs/contrib
 
 Sources for the claims:
 
-- Demo numbers and the three flagged edge cases: captions in
+- Demo numbers and the flagged edge cases: captions in
   `website/lib/demos.ts`.
 - "Synthetic loops I generated": `apps/desktop/e2e-native/fixtures.mjs` writes
   the three tracks (32 seconds each) from code. The DJ page and README say
@@ -242,7 +242,7 @@ Sources for the claims:
 - Undo story: v0.4.0 changelog, `apps/desktop/src/lib/headTrail.ts`.
 - Zero-dependency effects crate and Rubber Band decision:
   `crates/audio-dsp/Cargo.toml`, `crates/audio-time/src/vocoder.rs`.
-- Master-bus workaround: issue 460 (closed by PR 516, merged after v0.5.0, so the recordings and the v0.5.0 build still show the workaround), and the mini-mix caption in `demos.ts`.
+- Master-bus workaround: issue 460 (closed by PR 516, merged after v0.5.0, so the v0.5.0 build still has the workaround; the recordings were re-made after it and put the limiter on the master bus, as the mini-mix caption in `demos.ts` says).
 - Linux keyring: issue 394. v0.4.0 and earlier use the kernel keyring; v0.5.0 uses the Secret Service (`crates/ai/src/keychain.rs`, `docs/architecture.md`).
 
 Decisions for you:

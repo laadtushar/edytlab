@@ -32,11 +32,12 @@ publish = false
 # One declaration of `ort` for ml-pipeline, ml-whisper and ml-demucs, so the
 # workspace builds a single copy with a single set of features.
 #
-# `=` pins it exactly. A caret requirement on 2.0.0-rc.12 also matches
-# rc.13, so a plain `cargo update` would take it, and rc.13 does not build
-# here: it gates the CoreML and CUDA providers behind features and drops
-# the `CoreMLExecutionProvider` / `CUDAExecutionProvider` names. Move to it
-# on purpose, in a PR of its own.
+# `=` pins it exactly. `ort` 2.0 is still a release candidate, and the
+# candidates are not drop-in: a caret requirement matches a later one, so a
+# plain `cargo update` could take it. rc.13 did break the build that way,
+# gating the execution providers behind features and dropping rc.12's
+# `CoreMLExecutionProvider` / `CUDAExecutionProvider` names. Move to the
+# next one on purpose, in a PR of its own.
 #
 # `api-23` is the ONNX Runtime API level `ort` is built for, and `ort`
 # refuses any library older than that level (`ort::MINOR_VERSION`). The
@@ -48,11 +49,16 @@ publish = false
 # `load-dynamic` keeps the build offline-friendly: the host process opens
 # libonnxruntime.{so,dylib,dll} at first use, and
 # `ml_pipeline::runtime::ensure` decides which file that is, because `ort`
-# itself deadlocks on a library it cannot load. Tests that need the runtime
-# are `#[ignore]`d. The CoreML and CUDA providers are chosen at run time
-# through `load-dynamic`; nothing cargo-feature-gates them because the
-# per-target choice is made with `cfg(target_os = ...)`.
-ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "load-dynamic", "api-23"] }
+# panics when its own load fails and falls back to a system search for a
+# bare name (see that module). Tests that need the runtime are
+# `#[ignore]`d.
+#
+# `coreml` and `cuda` build `ort::ep::CoreML` and `ort::ep::CUDA`, which
+# rc.13 hides behind them. With `load-dynamic` they link and download
+# nothing: whether a provider works is decided when a session is built, and
+# which one is asked for is a `cfg(target_os = ...)` choice in
+# `ml-pipeline`'s `onnx_session.rs`.
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "ndarray", "load-dynamic", "api-23", "coreml", "cuda"] }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "warn"
