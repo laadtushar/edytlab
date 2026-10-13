@@ -13,9 +13,16 @@
 //! source would resolve here but blow up at render with
 //! "Ill-formed WAVE file: no RIFF tag found". To keep the renderer
 //! contract honest, anything that fails to open as a WAV is transcoded
-//! to a CAS-addressed sibling WAV under `<source_dir>/derived/<hash>.wav`
+//! to a CAS-addressed WAV under `<project>/.audiograph/derived/<hash>.wav`
 //! and the clip is pointed at that path instead.
+//!
+//! A WAV that does open stays where it is, with one exception: a file
+//! inside the project's own `.audiograph/` that the store does not own is
+//! copied into `derived/` as well (#580). `previews/` and `auditions/` are
+//! bounded caches that evict their oldest entries, so a clip that named
+//! one would lose its audio the next time the cache filled.
 
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
@@ -27,8 +34,9 @@ use session::{
 
 use audio_decoder::{DecodedAudio, WavStreamReader};
 
+use crate::provenance::{CLIPBOARD_DIR, DERIVED_DIR};
 use crate::schema::{anthropic_tool, object_schema};
-use crate::tool::util::write_cas_wav;
+use crate::tool::util::{copy_cas_wav, write_cas_wav};
 use crate::{Tool, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
@@ -87,10 +95,12 @@ impl Tool for LoadTool {
 
         // The renderer opens clip sources via the WAV-only streaming
         // reader. If the original file isn't a WAV the streaming reader
-        // can open, transcode `decoded` to a CAS-addressed sibling WAV
-        // and point the clip there. WAV sources that the streaming
+        // can open, transcode `decoded` to a CAS-addressed WAV in the
+        // project and point the clip there. WAV sources that the streaming
         // reader accepts are used as-is so the byte-identity guarantee
-        // for unity-passthrough renders still holds.
+        // for unity-passthrough renders still holds — unless the file is
+        // one of the project's own caches' entries, which is copied
+        // (#580).
         let source_path = match ensure_streamable_wav(ctx.store.project_dir(), &path, &decoded) {
             Ok(p) => p,
             Err(msg) => return Ok(ToolResult::Error(msg)),
@@ -217,7 +227,11 @@ impl Tool for LoadTool {
 /// Return a path to a WAV the M22 streaming renderer can read.
 ///
 /// If `src` already opens cleanly via `WavStreamReader`, returns it
-/// unchanged so the unity-passthrough byte-identity path still applies.
+/// unchanged so the unity-passthrough byte-identity path still applies —
+/// unless it is a file the project's own bounded caches hold (see
+/// [`is_unowned_store_file`]). Those are copied, byte for byte, into the
+/// project's CAS storage instead (#580).
+///
 /// Otherwise, writes `decoded` to a CAS-addressed WAV at
 /// `<project>/.audiograph/derived/<hash>.wav` and returns that path. The hash is
 /// over sample-rate, channel count and little-endian sample bytes, so
@@ -228,7 +242,8 @@ fn ensure_streamable_wav(
     src: &Path,
     decoded: &DecodedAudio,
 ) -> Result<PathBuf, String> {
-    if WavStreamReader::open(src).is_ok() {
+    let streamable = WavStreamReader::open(src).is_ok();
+    if streamable && !is_unowned_store_file(project_dir, src) {
         return Ok(src.to_path_buf());
     }
 
@@ -264,21 +279,72 @@ fn ensure_streamable_wav(
         crate::provenance::audio_hash(&decoded.samples, decoded.sample_rate, decoded.channels)
     ));
 
-    write_cas_wav(
-        &decoded.samples,
-        decoded.sample_rate,
-        decoded.channels,
-        &cas_path,
-    )
-    .map_err(|e| {
-        format!(
-            "failed to transcode {} -> {}: {e}",
-            src.display(),
-            cas_path.display()
+    if streamable {
+        // The same name a transcode of it would take, so a cache entry
+        // and the file it was rendered from are one file here.
+        copy_cas_wav(src, &cas_path).map_err(|e| {
+            format!(
+                "failed to copy {} -> {}: {e}",
+                src.display(),
+                cas_path.display()
+            )
+        })?;
+    } else {
+        write_cas_wav(
+            &decoded.samples,
+            decoded.sample_rate,
+            decoded.channels,
+            &cas_path,
         )
-    })?;
+        .map_err(|e| {
+            format!(
+                "failed to transcode {} -> {}: {e}",
+                src.display(),
+                cas_path.display()
+            )
+        })?;
+    }
 
     Ok(cas_path)
+}
+
+/// Whether `src` is a file inside this project's `.audiograph/` that the
+/// store does not own (#580), and so must not be the source a clip names.
+///
+/// What the store owns there is `derived/` and `clipboard/`: content-
+/// addressed audio that the clips and the history name, that Save As
+/// carries to a copy of the project (`relocate::rebind` finds either by
+/// name), and that reclaim only removes under rules that start from which
+/// nodes name it. A clip pointing into one is a clip pointing at the
+/// project's own audio, as every edit's output does.
+///
+/// Everything else under `.audiograph/` is a cache, a record or a
+/// scratch area, and is the store's to delete without asking what names
+/// it: `previews/` and `auditions/` evict their oldest entries to stay
+/// under a cap, and the ML tools' `stem-cache/` and `inference-cache/` are
+/// the same kind of thing. Deciding by "not one of the two the store
+/// owns" rather than by listing the caches means the next cache someone
+/// adds is covered without anyone remembering this function.
+///
+/// Judged by where the path resolves to, not how it was spelled: a `..`
+/// or a link from outside the project to an entry in a cache dangles
+/// when the entry is evicted as surely as the entry's own path does. Only
+/// *this* project's store counts: a folder that happens to be called
+/// `previews` is the user's own.
+fn is_unowned_store_file(project_dir: &Path, src: &Path) -> bool {
+    let store = project_dir.join(session::STORE_DIR);
+    let store = std::fs::canonicalize(&store).unwrap_or(store);
+    let Ok(src) = std::fs::canonicalize(src) else {
+        return false;
+    };
+    let Ok(inside) = src.strip_prefix(&store) else {
+        return false;
+    };
+    let owned = [DERIVED_DIR, CLIPBOARD_DIR];
+    !inside
+        .components()
+        .next()
+        .is_some_and(|top| owned.iter().any(|dir| top.as_os_str() == OsStr::new(dir)))
 }
 
 #[cfg(test)]
@@ -332,6 +398,141 @@ mod tests {
             out.starts_with(dir.path().join(".audiograph").join("derived")),
             "a transcode belongs inside the project: {}",
             out.display()
+        );
+    }
+
+    /// A WAV at `<project>/.audiograph/<sub>/<name>`.
+    fn wav_in_store(project: &Path, sub: &str, name: &str) -> PathBuf {
+        let folder = project.join(".audiograph").join(sub);
+        std::fs::create_dir_all(&folder).unwrap();
+        let wav = folder.join(name);
+        write_wav(&wav, &[0.25; 1024], 44_100, 1);
+        wav
+    }
+
+    /// What `load` would point a clip at for `src`.
+    fn source_for(project: &Path, src: &Path) -> PathBuf {
+        let decoded = audio_decoder::decode_file(src).unwrap();
+        ensure_streamable_wav(project, src, &decoded).unwrap()
+    }
+
+    fn derived_of(project: &Path) -> PathBuf {
+        project.join(".audiograph").join("derived")
+    }
+
+    /// **#580.** Every place under `.audiograph/` that the store does not own
+    /// is copied, not only the two caches that exist today: the next cache
+    /// someone adds evicts its entries the same way.
+    #[test]
+    fn a_wav_the_store_does_not_own_is_copied_into_derived() {
+        for sub in [
+            "previews",
+            "auditions",
+            "stem-cache/htdemucs/abc123",
+            "inference-cache",
+            // A file directly in the store folder, beside `head`.
+            "",
+            // A cache that does not exist yet.
+            "some-future-cache",
+        ] {
+            let dir = TempDir::new().unwrap();
+            let wav = wav_in_store(dir.path(), sub, "entry.wav");
+
+            let out = source_for(dir.path(), &wav);
+
+            assert_ne!(out, wav, "{sub:?}: a cache entry must not be referenced");
+            assert_eq!(out.parent().unwrap(), derived_of(dir.path()), "{sub:?}");
+            assert_eq!(
+                std::fs::read(&out).unwrap(),
+                std::fs::read(&wav).unwrap(),
+                "{sub:?}: the copy is the file's own bytes"
+            );
+            // The source is left alone: it is the cache's to evict.
+            assert!(wav.is_file(), "{sub:?}");
+        }
+    }
+
+    /// The store's own audio is already where a clip should point, and
+    /// reclaim knows which nodes name it. Copying it would make a second
+    /// file for no reason.
+    #[test]
+    fn the_stores_own_audio_is_referenced_in_place() {
+        for sub in ["derived", "clipboard"] {
+            let dir = TempDir::new().unwrap();
+            let wav = wav_in_store(dir.path(), sub, "0123abcd.wav");
+
+            let out = source_for(dir.path(), &wav);
+
+            assert_eq!(out, wav, "{sub}: the store's own file stays where it is");
+        }
+    }
+
+    /// A folder called `previews` that is not under the project's
+    /// `.audiograph/` is a user's folder.
+    #[test]
+    fn a_user_folder_named_like_a_cache_is_not_a_cache() {
+        let dir = TempDir::new().unwrap();
+        for name in ["previews", "auditions", "derived", "stem-cache"] {
+            let folder = dir.path().join(name);
+            std::fs::create_dir_all(&folder).unwrap();
+            let wav = folder.join("take.wav");
+            write_wav(&wav, &[0.25; 1024], 44_100, 1);
+
+            assert_eq!(source_for(dir.path(), &wav), wav, "{}", wav.display());
+        }
+        assert!(!derived_of(dir.path()).exists(), "nothing was copied");
+    }
+
+    /// A path is judged by where it resolves to, not how it is spelled.
+    #[test]
+    fn a_path_that_climbs_into_a_cache_is_still_copied() {
+        let dir = TempDir::new().unwrap();
+        let wav = wav_in_store(dir.path(), "previews", "entry.wav");
+        std::fs::create_dir_all(derived_of(dir.path())).unwrap();
+        let climbing = derived_of(dir.path())
+            .join("..")
+            .join("previews")
+            .join("entry.wav");
+
+        let out = source_for(dir.path(), &climbing);
+
+        assert_ne!(out, climbing);
+        assert_eq!(out.parent().unwrap(), derived_of(dir.path()));
+        assert!(wav.is_file());
+    }
+
+    /// A link from outside the project to a cache entry dangles when the
+    /// entry goes, as the entry's own path does.
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_to_a_cache_entry_is_copied() {
+        let dir = TempDir::new().unwrap();
+        let wav = wav_in_store(dir.path(), "auditions", "entry.wav");
+        let elsewhere = TempDir::new().unwrap();
+        let link = elsewhere.path().join("take.wav");
+        std::os::unix::fs::symlink(&wav, &link).unwrap();
+
+        let out = source_for(dir.path(), &link);
+
+        assert_ne!(out, link);
+        assert_eq!(out.parent().unwrap(), derived_of(dir.path()));
+    }
+
+    /// The same audio from two cache entries (or an entry and a transcode
+    /// of it) is one file, whichever way it arrived.
+    #[test]
+    fn copies_of_the_same_audio_share_a_name() {
+        let dir = TempDir::new().unwrap();
+        let a = wav_in_store(dir.path(), "previews", "a.wav");
+        let b = wav_in_store(dir.path(), "auditions", "b.wav");
+
+        let out_a = source_for(dir.path(), &a);
+        let out_b = source_for(dir.path(), &b);
+
+        assert_eq!(out_a, out_b);
+        assert_eq!(
+            std::fs::read_dir(derived_of(dir.path())).unwrap().count(),
+            1
         );
     }
 }
