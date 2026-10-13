@@ -847,45 +847,48 @@ mod tests {
 
     /// The installer's layout, per OS, from a fake executable path: where
     /// the app tells `ensure` to look first (`set_bundle_dir`).
+    ///
+    /// The fake paths hang off the temp directory so that they are absolute
+    /// on every OS (`/Applications/...` is not on Windows, where the layout
+    /// is the same function over the same path shape).
     #[test]
     fn the_bundle_directory_follows_each_installers_layout() {
-        // macOS: `Contents/MacOS/<exe>`, and the library in the sibling
-        // `Contents/Frameworks` (`bundle.macOS.frameworks`).
-        let exe = Path::new("/Applications/edytlab.app/Contents/MacOS/edytlab");
+        let base = std::env::temp_dir();
+
+        // macOS: `/Applications/edytlab.app/Contents/MacOS/<exe>`, and the
+        // library in the sibling `Contents/Frameworks`
+        // (`bundle.macOS.frameworks`).
+        let app = base.join("Applications").join("edytlab.app");
+        let exe = app.join("Contents").join("MacOS").join("edytlab");
+        let frameworks = app.join("Contents").join("Frameworks");
         assert_eq!(
-            bundle_dir_for("macos", Some(exe), None),
-            Some(PathBuf::from(
-                "/Applications/edytlab.app/Contents/Frameworks"
-            ))
+            bundle_dir_for("macos", Some(&exe), None),
+            Some(frameworks.clone())
         );
         // The resource directory is not what macOS uses, even if given.
-        let resources = Path::new("/Applications/edytlab.app/Contents/Resources");
+        let resources = app.join("Contents").join("Resources");
         assert_eq!(
-            bundle_dir_for("macos", Some(exe), Some(resources)),
-            Some(PathBuf::from(
-                "/Applications/edytlab.app/Contents/Frameworks"
-            ))
+            bundle_dir_for("macos", Some(&exe), Some(&resources)),
+            Some(frameworks)
         );
 
         // Linux: Tauri's resource directory, which for a deb is
         // `/usr/lib/edytlab` and for an AppImage `<mount>/usr/lib/edytlab`.
         // The executable does not say.
-        let deb_exe = Path::new("/usr/bin/edytlab");
-        let deb_res = Path::new("/usr/lib/edytlab");
+        let deb_exe = base.join("usr").join("bin").join("edytlab");
+        let deb_res = base.join("usr").join("lib").join("edytlab");
         assert_eq!(
-            bundle_dir_for("linux", Some(deb_exe), Some(deb_res)),
-            Some(deb_res.to_path_buf())
+            bundle_dir_for("linux", Some(&deb_exe), Some(&deb_res)),
+            Some(deb_res.clone())
         );
-        let appimage_res = Path::new("/tmp/.mount_edytlaAbc123/usr/lib/edytlab");
+        let mount = base.join(".mount_edytlaAbc123");
+        let appimage_exe = mount.join("usr").join("bin").join("edytlab");
+        let appimage_res = mount.join("usr").join("lib").join("edytlab");
         assert_eq!(
-            bundle_dir_for(
-                "linux",
-                Some(Path::new("/tmp/.mount_edytlaAbc123/usr/bin/edytlab")),
-                Some(appimage_res)
-            ),
-            Some(appimage_res.to_path_buf())
+            bundle_dir_for("linux", Some(&appimage_exe), Some(&appimage_res)),
+            Some(appimage_res)
         );
-        assert_eq!(bundle_dir_for("linux", Some(deb_exe), None), None);
+        assert_eq!(bundle_dir_for("linux", Some(&deb_exe), None), None);
 
         // Windows: the DLL sits next to the exe, which is searched anyway,
         // so there is nothing to add (and so no duplicate candidate).
@@ -904,18 +907,28 @@ mod tests {
     /// any directory's parent would search a directory nobody installed.
     #[test]
     fn a_macos_executable_outside_an_app_bundle_has_no_bundle_directory() {
-        for exe in [
-            "/Users/me/edytlab/target/debug/edytlab",
-            "/usr/local/bin/edytlab",
-            "/Applications/edytlab.app/Contents/Resources/edytlab",
-            "/Applications/edytlab.app/MacOS/edytlab",
-            "/MacOS/edytlab",
-            "edytlab",
-        ] {
+        let base = std::env::temp_dir();
+        let app = base.join("Applications").join("edytlab.app");
+        let not_in_a_bundle = [
+            base.join("edytlab")
+                .join("target")
+                .join("debug")
+                .join("edytlab"),
+            base.join("usr").join("local").join("bin").join("edytlab"),
+            // Inside the bundle, but not where the executable lives.
+            app.join("Contents").join("Resources").join("edytlab"),
+            app.join("MacOS").join("edytlab"),
+            // `MacOS` is right but `Contents` is not.
+            base.join("elsewhere").join("MacOS").join("edytlab"),
+            base.join("MacOS").join("edytlab"),
+            PathBuf::from("edytlab"),
+        ];
+        for exe in &not_in_a_bundle {
             assert_eq!(
-                bundle_dir_for("macos", Some(Path::new(exe)), None),
+                bundle_dir_for("macos", Some(exe), None),
                 None,
-                "{exe}"
+                "{}",
+                exe.display()
             );
         }
         assert_eq!(bundle_dir_for("macos", None, None), None);
