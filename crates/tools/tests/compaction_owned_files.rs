@@ -423,13 +423,18 @@ fn a_path_that_only_looks_like_derived_is_not_derived() {
     let dotdot = w.derived().join("..").join("..").join("beside.wav");
     assert!(dotdot.is_file(), "the test's own path must resolve");
 
-    let mut escapes = vec![(dotdot, beside.clone())];
-    #[cfg(unix)]
-    {
-        let link = w.derived().join("link.wav");
-        std::os::unix::fs::symlink(&w.outside, &link).unwrap();
-        escapes.push((link, w.outside.clone()));
-    }
+    let escapes = {
+        // `mut` is used only by the unix-only symlink case below.
+        #[cfg_attr(not(unix), allow(unused_mut))]
+        let mut escapes = vec![(dotdot, beside.clone())];
+        #[cfg(unix)]
+        {
+            let link = w.derived().join("link.wav");
+            std::os::unix::fs::symlink(&w.outside, &link).unwrap();
+            escapes.push((link, w.outside.clone()));
+        }
+        escapes
+    };
 
     for (spelled, real) in escapes {
         let bytes = std::fs::read(&real).unwrap();
