@@ -8,8 +8,10 @@ use std::collections::BTreeMap;
 
 use ai::oauth::pkce::{Nonce, PkceChallenge, PkceVerifier, State, VerifierError};
 use ai::oauth::token::{TokenClient, TokenError, TokenResponse, TokenTypeHint};
-use ai::oauth::{authorization_url, AuthorizationRequest, ParameterError, SecretString};
-use serde_json::json;
+use ai::oauth::{
+    authorization_url, AuthorizationRequest, AuthorizationUrlError, ParameterError, SecretString,
+};
+use serde_json::{json, Value};
 use url::Url;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -184,18 +186,67 @@ fn authorization_url_refuses_extras_that_override_its_own_parameters() {
     ] {
         let err = authorization_url(&endpoint, &request, &[(name, "x")]).unwrap_err();
         assert!(
-            matches!(&err, ParameterError::Reserved(n) if n == name),
+            matches!(&err, AuthorizationUrlError::Parameter(ParameterError::Reserved(n)) if n == name),
             "{name}: {err:?}"
         );
     }
     let err =
         authorization_url(&endpoint, &request, &[("prompt", "a"), ("prompt", "b")]).unwrap_err();
-    assert!(matches!(err, ParameterError::Duplicate(_)), "{err:?}");
+    assert!(
+        matches!(
+            err,
+            AuthorizationUrlError::Parameter(ParameterError::Duplicate(_))
+        ),
+        "{err:?}"
+    );
     // An endpoint whose own query already sets a reserved name is refused too.
     let rigged =
         Url::parse("https://auth.example.com/authorize?redirect_uri=https://evil").unwrap();
     let err = authorization_url(&rigged, &request, &[]).unwrap_err();
-    assert!(matches!(err, ParameterError::Reserved(_)), "{err:?}");
+    assert!(
+        matches!(
+            err,
+            AuthorizationUrlError::Parameter(ParameterError::Reserved(_))
+        ),
+        "{err:?}"
+    );
+}
+
+#[test]
+fn authorization_url_refuses_an_endpoint_that_is_not_https() {
+    // The URL goes to the OS opener: only https, or plain http on a loopback
+    // address (tests), may reach it.
+    let challenge = PkceVerifier::generate().unwrap().challenge();
+    let state = State::generate().unwrap();
+    let request = AuthorizationRequest {
+        client_id: "c",
+        redirect_uri: "http://127.0.0.1:1455/cb",
+        scope: "openid",
+        state: &state,
+        nonce: None,
+        code_challenge: &challenge,
+    };
+    for bad in [
+        "http://auth.example.com/authorize",
+        "javascript:alert(1)",
+        "file:///etc/passwd",
+        "ftp://auth.example.com/authorize",
+        "https://user:pass@auth.example.com/authorize",
+        "https://auth.example.com/authorize#frag",
+    ] {
+        let endpoint = Url::parse(bad).unwrap();
+        let result = authorization_url(&endpoint, &request, &[]);
+        assert!(
+            matches!(result, Err(AuthorizationUrlError::Endpoint(_))),
+            "{bad}: {result:?}"
+        );
+    }
+    for ok in [
+        "https://auth.example.com/authorize",
+        "http://127.0.0.1:8080/authorize",
+    ] {
+        authorization_url(&Url::parse(ok).unwrap(), &request, &[]).unwrap();
+    }
 }
 
 // --- The token endpoint ---------------------------------------------------
@@ -301,7 +352,7 @@ async fn exchanges_a_code_with_the_verifier_and_reads_a_typed_response() {
         tokens.id_token.as_ref().map(SecretString::expose_secret),
         Some("IDT-secret-value")
     );
-    assert_eq!(tokens.token_type.as_deref(), Some("Bearer"));
+    assert_eq!(tokens.token_type, "Bearer");
     assert_eq!(tokens.expires_in, Some(3600));
     assert_eq!(tokens.scopes(), vec!["openid", "profile", "offline_access"]);
     assert!(tokens.has_scope("offline_access"));
@@ -394,6 +445,101 @@ async fn an_oauth_error_body_is_typed() {
         err.oauth_error().map(|b| b.error.as_str()),
         Some("invalid_grant")
     );
+}
+
+#[tokio::test]
+async fn an_oauth_error_body_is_cut_short_and_printable() {
+    // The endpoint's text ends up in error messages and logs: no terminal
+    // escapes or line breaks, and no more than a few hundred characters.
+    let server = token_server(
+        400,
+        json!({
+            "error": format!("invalid_grant\u{1b}[2J\r\n{}", "e".repeat(500)),
+            "error_description": format!("line one\nline two\u{7}{}", "d".repeat(10_000)),
+            "error_uri": format!("https://example.com/\r\nX-Injected: 1{}", "u".repeat(10_000)),
+        }),
+    )
+    .await;
+    let err = token_client(&server)
+        .refresh(&SecretString::new("RT-old"), &[])
+        .await
+        .unwrap_err();
+    let body = err.oauth_error().expect("an RFC 6749 error body");
+    assert!(body.error.starts_with("invalid_grant"), "{:?}", body.error);
+    let description = body.error_description.as_deref().unwrap();
+    let uri = body.error_uri.as_deref().unwrap();
+    for (field, value, max) in [
+        ("error", body.error.as_str(), 64),
+        ("error_description", description, 300),
+        ("error_uri", uri, 300),
+    ] {
+        assert!(
+            value.chars().count() <= max,
+            "{field}: {} characters",
+            value.chars().count()
+        );
+        assert!(!value.chars().any(char::is_control), "{field}: {value:?}");
+    }
+    assert!(!err.to_string().chars().any(char::is_control), "{err}");
+}
+
+#[tokio::test]
+async fn the_token_type_must_be_bearer() {
+    // RFC 6749 §5.1 requires `token_type`, and this client sends the token
+    // as a bearer (RFC 6750), whose name is case-insensitive.
+    for token_type in ["Bearer", "bearer", "BEARER"] {
+        let mut body = token_body();
+        body["token_type"] = json!(token_type);
+        let server = token_server(200, body).await;
+        token_client(&server)
+            .refresh(&SecretString::new("RT"), &[])
+            .await
+            .unwrap_or_else(|e| panic!("{token_type}: {e:?}"));
+    }
+    for token_type in [
+        json!("DPoP"),
+        json!("mac"),
+        json!(""),
+        json!("Bearer "),
+        Value::Null,
+    ] {
+        let mut body = token_body();
+        if token_type.is_null() {
+            body.as_object_mut().unwrap().remove("token_type");
+        } else {
+            body["token_type"] = token_type.clone();
+        }
+        let server = token_server(200, body).await;
+        let err = token_client(&server)
+            .refresh(&SecretString::new("RT"), &[])
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, TokenError::InvalidResponse(_)),
+            "{token_type}: {err:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn expires_in_is_capped_at_a_day() {
+    // `Instant::now() + Duration::from_secs(u64::MAX)` panics: a hostile or
+    // broken endpoint must not be able to make the caller's expiry overflow.
+    for (sent, kept) in [
+        (json!(3600), 3600),
+        (json!(86_400), 86_400),
+        (json!(86_401), 86_400),
+        (json!(u64::MAX), 86_400),
+    ] {
+        let mut body = token_body();
+        body["expires_in"] = sent.clone();
+        let server = token_server(200, body).await;
+        let tokens = token_client(&server)
+            .refresh(&SecretString::new("RT"), &[])
+            .await
+            .unwrap();
+        assert_eq!(tokens.expires_in, Some(kept), "{sent}");
+    }
 }
 
 #[tokio::test]
@@ -504,6 +650,93 @@ async fn refuses_an_oversized_response() {
     assert!(matches!(err, TokenError::TooLarge(_)), "{err:?}");
 }
 
+/// A one-shot HTTP server that answers any request with `body` in chunks of
+/// 4 KiB, `Transfer-Encoding: chunked` and no `Content-Length`, so the client
+/// cannot tell the size from the headers.
+async fn chunked_server(body: Vec<u8>) -> Url {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        // Read the request: its head, then the form (Content-Length bytes).
+        let mut request = Vec::new();
+        let mut buf = [0u8; 4096];
+        let body_len = loop {
+            let n = stream.read(&mut buf).await.unwrap();
+            assert!(n > 0, "the client closed before sending its request");
+            request.extend_from_slice(&buf[..n]);
+            if let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                let head = String::from_utf8_lossy(&request[..end]).to_ascii_lowercase();
+                let length: usize = head
+                    .lines()
+                    .find_map(|l| l.strip_prefix("content-length:"))
+                    .map(|v| v.trim().parse().unwrap())
+                    .unwrap_or(0);
+                break end + 4 + length;
+            }
+        };
+        while request.len() < body_len {
+            let n = stream.read(&mut buf).await.unwrap();
+            if n == 0 {
+                break;
+            }
+            request.extend_from_slice(&buf[..n]);
+        }
+        let head = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                    Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n";
+        if stream.write_all(head.as_bytes()).await.is_err() {
+            return;
+        }
+        for chunk in body.chunks(4096) {
+            let mut framed = format!("{:x}\r\n", chunk.len()).into_bytes();
+            framed.extend_from_slice(chunk);
+            framed.extend_from_slice(b"\r\n");
+            // The client hangs up once it has read too much.
+            if stream.write_all(&framed).await.is_err() {
+                return;
+            }
+        }
+        let _ = stream.write_all(b"0\r\n\r\n").await;
+        let _ = stream.shutdown().await;
+    });
+    Url::parse(&format!("http://127.0.0.1:{port}/token")).unwrap()
+}
+
+/// A token response of exactly `len` bytes.
+fn token_json_of_len(len: usize) -> Vec<u8> {
+    let frame = r#"{"access_token":"AT","token_type":"Bearer","pad":""}"#;
+    let pad = "p".repeat(len - frame.len());
+    let body = format!(r#"{{"access_token":"AT","token_type":"Bearer","pad":"{pad}"}}"#);
+    assert_eq!(body.len(), len);
+    body.into_bytes()
+}
+
+#[tokio::test]
+async fn refuses_an_oversized_chunked_response() {
+    // With no Content-Length, only the count kept while reading can stop it.
+    const LIMIT: usize = 64 * 1024;
+    let at_limit = TokenClient::new(chunked_server(token_json_of_len(LIMIT)).await, "c")
+        .unwrap()
+        .refresh(&SecretString::new("RT"), &[])
+        .await;
+    assert!(at_limit.is_ok(), "{at_limit:?}");
+
+    let over = TokenClient::new(chunked_server(token_json_of_len(LIMIT + 1)).await, "c")
+        .unwrap()
+        .refresh(&SecretString::new("RT"), &[])
+        .await
+        .unwrap_err();
+    assert!(matches!(over, TokenError::TooLarge(_)), "{over:?}");
+
+    let far_over = TokenClient::new(chunked_server(vec![b' '; 2 * 1024 * 1024]).await, "c")
+        .unwrap()
+        .refresh(&SecretString::new("RT"), &[])
+        .await
+        .unwrap_err();
+    assert!(matches!(far_over, TokenError::TooLarge(_)), "{far_over:?}");
+}
+
 #[tokio::test]
 async fn refuses_extras_that_override_its_own_parameters() {
     let server = token_server(200, token_body()).await;
@@ -564,6 +797,53 @@ fn refuses_a_plain_http_endpoint_off_this_machine() {
 }
 
 // --- Secrets stay out of Debug --------------------------------------------
+
+/// Fails to compile if `$ty` implements any of the traits.
+///
+/// `Probe<M>` is implemented for every type with `M = ()`, and once more,
+/// with a marker type of its own, for every type that implements each trait.
+/// `<$ty as Probe<_>>` leaves `M` to inference: with one impl it is `()`;
+/// with two the compiler cannot choose and stops (E0283, "type annotations
+/// needed"). This is the trick `static_assertions::assert_not_impl_any!`
+/// uses. Unlike a `compile_fail` doc test, it cannot pass because of some
+/// other error.
+macro_rules! assert_not_impl {
+    ($ty:ty: $($trait:path),+ $(,)?) => {
+        const _: fn() = || {
+            trait Probe<M> {
+                fn probe() {}
+            }
+            impl<T: ?Sized> Probe<()> for T {}
+            $({
+                #[allow(dead_code)]
+                struct Implements;
+                impl<T: ?Sized + $trait> Probe<Implements> for T {}
+            })+
+            let _ = <$ty as Probe<_>>::probe;
+        };
+    };
+}
+
+#[test]
+fn secrets_cannot_be_displayed_serialized_or_compared() {
+    // Checked when this file compiles. No `Display` and no `Serialize`, so a
+    // secret cannot reach a log line, an error message or an IPC reply by
+    // accident; no `PartialEq`, whose `==` stops at the first differing
+    // byte (compare with `constant_time_eq` or `State::matches`).
+    use ai::oauth::loopback::Callback;
+    use ai::oauth::oidc::{IdTokenClaims, IdTokenExpectations};
+    use std::fmt::Display;
+    assert_not_impl!(SecretString: Display, serde::Serialize, PartialEq);
+    assert_not_impl!(PkceVerifier: Display, serde::Serialize, PartialEq);
+    assert_not_impl!(State: Display, serde::Serialize, PartialEq);
+    assert_not_impl!(Nonce: Display, serde::Serialize, PartialEq);
+    assert_not_impl!(TokenResponse: Display, serde::Serialize, PartialEq);
+    assert_not_impl!(Callback: Display, serde::Serialize, PartialEq);
+    // The ID token's claims hold the email address, and the expectations
+    // the nonce.
+    assert_not_impl!(IdTokenClaims: Display, serde::Serialize, PartialEq);
+    assert_not_impl!(IdTokenExpectations<'static>: Display, serde::Serialize, PartialEq);
+}
 
 #[test]
 fn secrets_are_redacted_in_debug_output() {

@@ -8,8 +8,10 @@
 //!   before a key is looked up. Only RSA keys published for signing (`use`
 //!   absent or `sig`, `alg` absent or `RS256`) are candidates, and the check
 //!   is `ring`'s RSASSA-PKCS1-v1_5 with SHA-256 over 2048- to 8192-bit
-//!   moduli. A header with `crit` is refused; `jku`, `jwk`, `x5u` and the
-//!   like are never used, so a token cannot name its own key.
+//!   moduli, so a key under 2048 bits never verifies. A header with a
+//!   `crit` member is refused, whatever its value (`null` included); `jku`,
+//!   `jwk`, `x5u` and the like are never used, so a token cannot name its own
+//!   key.
 //! - **Claims are typed strictly**, and only read after the signature
 //!   verifies. A missing `iss`, `sub`, `aud`, `exp` or `iat`, or any claim
 //!   of the wrong JSON type (such as `exp` as a string), is an error rather
@@ -17,11 +19,22 @@
 //! - `iss` must equal the configured issuer exactly. `aud` must be exactly
 //!   the client id (a string, or an array holding only it), and `azp`, if
 //!   present, the client id too. `exp`, `nbf` and `iat` are checked with
-//!   [`CLOCK_SKEW`]. `nonce` must equal the attempt's, compared in constant
-//!   time.
+//!   [`CLOCK_SKEW`].
+//! - **Two kinds of ID token** ([`IdTokenExpectations`]). The one from a
+//!   sign-in's code exchange must carry the attempt's `nonce`, compared in
+//!   constant time; the expectation takes a [`Nonce`], which only
+//!   [`Nonce::generate`] makes, so it can never be empty. One from a refresh
+//!   response (OpenID Connect Core §12.2) needs no nonce, but its `iss`,
+//!   `sub` and `aud` must equal the original's, as must its `azp` (present
+//!   or absent alike), a `nonce` if it has one, and an `auth_time` if both
+//!   have one.
 //!
 //! The discovery document is fetched once and cached; its `issuer` must
-//! equal the configured issuer (OpenID Connect Discovery §4.3). The JWKS is
+//! equal the configured issuer (OpenID Connect Discovery §4.3). The endpoints
+//! it names must be `https`, unless the issuer itself is on a loopback
+//! address (tests), when plain `http` to a loopback address is allowed too:
+//! an issuer reached over `https` cannot send the client to a local port. The
+//! JWKS is
 //! cached for an hour. A token whose `kid` is not in the cache makes one
 //! refetch, unless the set was fetched less than
 //! [`DEFAULT_JWKS_REFETCH_INTERVAL`] ago, so a stream of bad tokens cannot
@@ -39,8 +52,11 @@ use serde_json::{Map, Value};
 use tokio::sync::{Mutex, OnceCell};
 use url::Url;
 
-use super::pkce::constant_time_eq;
-use super::{check_endpoint, http_client, read_limited, BodyError, EndpointError, SecretString};
+use super::pkce::{constant_time_eq, Nonce};
+use super::{
+    check_endpoint, http_client, is_loopback_host, read_limited, BodyError, EndpointError,
+    SecretString,
+};
 
 /// Leeway for `exp`, `nbf` and `iat` against this machine's clock.
 pub const CLOCK_SKEW: Duration = Duration::from_secs(60);
@@ -94,6 +110,9 @@ pub enum OidcError {
     NotYetValid,
     #[error("the ID token does not belong to this sign-in (nonce mismatch)")]
     NonceMismatch,
+    /// A refreshed ID token names another account than the original.
+    #[error("the refreshed ID token is for a different account than the original sign-in")]
+    SubjectChanged,
 }
 
 /// The parts of an issuer's discovery document this client uses.
@@ -105,6 +124,10 @@ pub struct ProviderMetadata {
     pub jwks_uri: Url,
     pub revocation_endpoint: Option<Url>,
     pub id_token_signing_alg_values_supported: Vec<String>,
+    /// RFC 9207: the issuer promises an `iss` parameter in every
+    /// authorization response, so one without it is to be refused
+    /// ([`super::loopback::Callback::check_issuer`]). False when absent.
+    pub authorization_response_iss_parameter_supported: bool,
     /// The whole document, the fields above included.
     pub document: Map<String, Value>,
 }
@@ -119,23 +142,49 @@ struct RawMetadata {
     revocation_endpoint: Option<String>,
     #[serde(default)]
     id_token_signing_alg_values_supported: Vec<String>,
+    #[serde(default)]
+    authorization_response_iss_parameter_supported: bool,
 }
 
 /// What a verified ID token must have been issued for.
-#[derive(Clone, Copy)]
-pub struct IdTokenExpectations<'a> {
-    /// The `aud` (and `azp`, if present) the token must name.
-    pub client_id: &'a str,
-    /// The `nonce` sent in this attempt's authorization request.
-    pub nonce: &'a str,
+#[derive(Clone, Copy, Debug)]
+pub enum IdTokenExpectations<'a> {
+    /// The ID token from a sign-in's code exchange (OpenID Connect Core
+    /// §3.1.3.7): its `aud` (and `azp`, if present) is `client_id`, and its
+    /// `nonce` is the one sent in this attempt's authorization request.
+    SignIn {
+        client_id: &'a str,
+        nonce: &'a Nonce,
+    },
+    /// An ID token from a refresh response (OpenID Connect Core §12.2): its
+    /// `aud` (and `azp`, if present) is `client_id`, it needs no `nonce`, and
+    /// its `iss`, `sub`, `aud` and `azp` are those of `original`, the claims
+    /// of the ID token verified at sign-in. A `nonce`, if present, must be
+    /// the original's, and so must an `auth_time` if both have one.
+    Refresh {
+        client_id: &'a str,
+        original: &'a IdTokenClaims,
+    },
 }
 
-impl fmt::Debug for IdTokenExpectations<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("IdTokenExpectations")
-            .field("client_id", &self.client_id)
-            .field("nonce", &"<redacted>")
-            .finish()
+impl<'a> IdTokenExpectations<'a> {
+    /// For the ID token of a sign-in's code exchange.
+    pub fn sign_in(client_id: &'a str, nonce: &'a Nonce) -> Self {
+        Self::SignIn { client_id, nonce }
+    }
+
+    /// For the ID token of a refresh response, checked against `original`.
+    pub fn refresh(client_id: &'a str, original: &'a IdTokenClaims) -> Self {
+        Self::Refresh {
+            client_id,
+            original,
+        }
+    }
+
+    fn client_id(&self) -> &'a str {
+        match self {
+            Self::SignIn { client_id, .. } | Self::Refresh { client_id, .. } => client_id,
+        }
     }
 }
 
@@ -206,6 +255,7 @@ impl JwksCache {
 pub struct OidcClient {
     http: reqwest::Client,
     issuer: String,
+    issuer_url: Url,
     discovery_url: Url,
     metadata: OnceCell<Arc<ProviderMetadata>>,
     jwks: Mutex<JwksCache>,
@@ -238,6 +288,7 @@ impl OidcClient {
         Ok(Self {
             http: http_client().map_err(OidcError::Client)?,
             issuer: issuer.to_string(),
+            issuer_url: parsed,
             discovery_url,
             metadata: OnceCell::new(),
             jwks: Mutex::new(JwksCache::default()),
@@ -272,13 +323,7 @@ impl OidcClient {
         if raw.issuer != self.issuer {
             return Err(OidcError::IssuerMismatch);
         }
-        let endpoint = |name: &str, value: &str| -> Result<Url, OidcError> {
-            let url = Url::parse(value)
-                .map_err(|e| OidcError::InvalidDiscovery(format!("{name}: {e}")))?;
-            check_endpoint(&url)
-                .map_err(|e| OidcError::InvalidDiscovery(format!("{name}: {e}")))?;
-            Ok(url)
-        };
+        let endpoint = |name: &str, value: &str| discovered_endpoint(&self.issuer_url, name, value);
         Ok(Arc::new(ProviderMetadata {
             authorization_endpoint: endpoint(
                 "authorization_endpoint",
@@ -292,6 +337,8 @@ impl OidcClient {
                 .map(|v| endpoint("revocation_endpoint", v))
                 .transpose()?,
             id_token_signing_alg_values_supported: raw.id_token_signing_alg_values_supported,
+            authorization_response_iss_parameter_supported: raw
+                .authorization_response_iss_parameter_supported,
             issuer: raw.issuer,
             document,
         }))
@@ -384,7 +431,7 @@ impl OidcClient {
                     .collect(),
             ));
         }
-        if header.crit.is_some() {
+        if header.crit {
             return Err(OidcError::UnsupportedHeader);
         }
         let key = self.key_for(header.kid.as_deref()).await?;
@@ -402,6 +449,21 @@ impl OidcClient {
     }
 }
 
+/// An endpoint URL from `issuer`'s discovery document, checked like any
+/// endpoint. Plain `http` (which [`check_endpoint`] allows only to a
+/// loopback address) is allowed only when the issuer itself is on a loopback
+/// address: an issuer reached over `https` cannot send a token, a code or a
+/// verifier to a local port.
+fn discovered_endpoint(issuer: &Url, name: &str, value: &str) -> Result<Url, OidcError> {
+    let invalid = |why: &dyn fmt::Display| OidcError::InvalidDiscovery(format!("{name}: {why}"));
+    let url = Url::parse(value).map_err(|e| invalid(&e))?;
+    check_endpoint(&url).map_err(|e| invalid(&e))?;
+    if url.scheme() != "https" && !is_loopback_host(issuer) {
+        return Err(invalid(&"plain http is allowed only for a loopback issuer"));
+    }
+    Ok(url)
+}
+
 /// The JOSE header fields this client reads. Others (`typ`, `jku`, `jwk`,
 /// `x5u`, ...) are ignored, never followed.
 #[derive(Deserialize)]
@@ -409,8 +471,17 @@ struct Header {
     alg: String,
     #[serde(default)]
     kid: Option<String>,
-    #[serde(default)]
-    crit: Option<Value>,
+    /// Whether the header has a `crit` member at all. Its value is not
+    /// read: `"crit": null`, which RFC 7515 §4.1.11 does not allow, is
+    /// refused like any other.
+    #[serde(default, deserialize_with = "present")]
+    crit: bool,
+}
+
+/// True for a member that is there, whatever its value (`null` included).
+fn present<'de, D: Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+    serde::de::IgnoredAny::deserialize(d)?;
+    Ok(true)
 }
 
 struct CompactJws<'a> {
@@ -511,6 +582,8 @@ struct RawClaims {
     nonce: Option<String>,
     #[serde(default)]
     azp: Option<String>,
+    #[serde(default, deserialize_with = "optional_numeric_date")]
+    auth_time: Option<f64>,
 }
 
 /// A JSON number of seconds since the epoch (RFC 7519 §2): not a string,
@@ -538,19 +611,15 @@ fn check_claims(
     let claims: Map<String, Value> = serde_json::from_slice(payload)
         .map_err(|_| OidcError::InvalidClaims("not a JSON object"))?;
 
+    let client_id = expected.client_id();
     if raw.iss != issuer {
         return Err(OidcError::WrongIssuer);
     }
     let audience_ok = match &raw.aud {
-        Audience::One(aud) => aud == expected.client_id,
-        Audience::Many(auds) => matches!(auds.as_slice(), [aud] if aud == expected.client_id),
+        Audience::One(aud) => aud == client_id,
+        Audience::Many(auds) => matches!(auds.as_slice(), [aud] if aud == client_id),
     };
-    if !audience_ok
-        || raw
-            .azp
-            .as_deref()
-            .is_some_and(|azp| azp != expected.client_id)
-    {
+    if !audience_ok || raw.azp.as_deref().is_some_and(|azp| azp != client_id) {
         return Err(OidcError::WrongAudience);
     }
     let now = now
@@ -564,12 +633,15 @@ fn check_claims(
     if raw.nbf.is_some_and(|nbf| nbf > now + skew) || raw.iat > now + skew {
         return Err(OidcError::NotYetValid);
     }
-    if !raw
-        .nonce
-        .as_deref()
-        .is_some_and(|nonce| constant_time_eq(nonce, expected.nonce))
-    {
-        return Err(OidcError::NonceMismatch);
+    match expected {
+        IdTokenExpectations::SignIn { nonce, .. } => {
+            if !raw.nonce.as_deref().is_some_and(|n| nonce.matches(n)) {
+                return Err(OidcError::NonceMismatch);
+            }
+        }
+        IdTokenExpectations::Refresh { original, .. } => {
+            check_refreshed(&raw, original)?;
+        }
     }
     if raw.sub.is_empty() {
         return Err(OidcError::InvalidClaims("sub is empty"));
@@ -577,7 +649,7 @@ fn check_claims(
     Ok(IdTokenClaims {
         issuer: raw.iss,
         subject: raw.sub,
-        audience: expected.client_id.to_string(),
+        audience: client_id.to_string(),
         expires_at: raw.exp as u64,
         issued_at: raw.iat as u64,
         // Profile claims, read leniently: they decide nothing here.
@@ -588,4 +660,68 @@ fn check_claims(
         email_verified: claims.get("email_verified").and_then(Value::as_bool),
         claims,
     })
+}
+
+/// OpenID Connect Core §12.2: a refreshed ID token is for the same issuer,
+/// account and client as the original.
+fn check_refreshed(raw: &RawClaims, original: &IdTokenClaims) -> Result<(), OidcError> {
+    let claim = |name: &str| original.claims.get(name);
+    if raw.iss != original.issuer {
+        return Err(OidcError::WrongIssuer);
+    }
+    if raw.sub != original.subject {
+        return Err(OidcError::SubjectChanged);
+    }
+    let audience_ok = match &raw.aud {
+        Audience::One(aud) => *aud == original.audience,
+        Audience::Many(auds) => matches!(auds.as_slice(), [aud] if *aud == original.audience),
+    };
+    // `azp` present in both and equal, or absent from both.
+    if !audience_ok || raw.azp.as_deref() != claim("azp").and_then(Value::as_str) {
+        return Err(OidcError::WrongAudience);
+    }
+    // It should have no nonce; one it has must be the original's.
+    if let Some(nonce) = raw.nonce.as_deref() {
+        let original_nonce = claim("nonce").and_then(Value::as_str);
+        if !original_nonce.is_some_and(|o| constant_time_eq(nonce, o)) {
+            return Err(OidcError::NonceMismatch);
+        }
+    }
+    // `auth_time` is still the time of the original sign-in.
+    if let (Some(new), Some(old)) = (raw.auth_time, claim("auth_time").and_then(Value::as_f64)) {
+        if new != old {
+            return Err(OidcError::InvalidClaims(
+                "auth_time is not the original sign-in's",
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plain_http_endpoints_are_allowed_only_for_a_loopback_issuer() {
+        let remote = Url::parse("https://auth.example.com").unwrap();
+        let local = Url::parse("http://127.0.0.1:8080").unwrap();
+        for value in [
+            "http://127.0.0.1:9/token",
+            "http://localhost:9/token",
+            "http://[::1]:9/token",
+        ] {
+            let result = discovered_endpoint(&remote, "token_endpoint", value);
+            assert!(
+                matches!(result, Err(OidcError::InvalidDiscovery(_))),
+                "an https issuer named {value}: {result:?}"
+            );
+            discovered_endpoint(&local, "token_endpoint", value).unwrap();
+        }
+        for issuer in [&remote, &local] {
+            discovered_endpoint(issuer, "token_endpoint", "https://auth.example.com/token")
+                .unwrap();
+            assert!(discovered_endpoint(issuer, "jwks_uri", "http://auth.example.com/j").is_err());
+        }
+    }
 }

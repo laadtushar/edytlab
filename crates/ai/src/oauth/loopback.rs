@@ -10,29 +10,56 @@
 //!
 //! What it accepts, and what it does with everything else:
 //!
-//! - It binds `127.0.0.1` only, never a wildcard address, on the preferred
-//!   port if that is free and otherwise on one the OS picks. On Windows the
-//!   socket is opened with `SO_EXCLUSIVEADDRUSE`, so another process cannot
-//!   bind the same port with `SO_REUSEADDR` and take the redirect; elsewhere
-//!   `SO_REUSEADDR` is left off (`tokio::net::TcpListener::bind` would set it).
+//! - It binds `127.0.0.1` only, never a wildcard address, and the redirect
+//!   URI names that address, not `localhost` ([`LoopbackHost`] says why). It
+//!   takes the preferred port if that is free and otherwise one the OS picks.
+//!   On Windows the socket is opened with `SO_EXCLUSIVEADDRUSE`, so another
+//!   process cannot bind the same port with `SO_REUSEADDR` and take the
+//!   redirect; elsewhere `SO_REUSEADDR` is left off
+//!   (`tokio::net::TcpListener::bind` would set it).
 //! - One `GET` of the configured path, with a `Host` header naming the bound
 //!   host and port (which turns away DNS-rebinding pages), carrying `code` or
-//!   `error`, ends the wait. Any other request gets a 404 or a 400 and the
-//!   listener keeps waiting, until the timeout (five minutes by default) or
-//!   [`CancelHandle::cancel`].
+//!   `error` and this attempt's `state`, ends the wait. Any other request
+//!   gets a 404 or a 400 and the listener keeps waiting, until the timeout
+//!   (five minutes by default) or [`CancelHandle::cancel`].
+//! - **A wrong or missing `state` does not end the attempt.** Any web page
+//!   can make the browser request the callback URL (an
+//!   `<img src="http://127.0.0.1:1455/auth/callback?code=x">` passes the
+//!   `Host` check), and so can any local process. Such a callback gets the
+//!   fixed failure page with a 400 and the listener keeps waiting for the
+//!   real one. `state` carries 256 bits, so there is nothing to guess by
+//!   trying again; the timeout and the cancel handle still end the wait.
+//! - A request whose `Sec-Fetch-Mode` is present and is not `navigate` gets
+//!   a 400 before its `state` is looked at: the redirect is a top-level
+//!   navigation, and a page's background requests (images, `fetch`, frames'
+//!   subresources) say otherwise. Browsers without Fetch Metadata send no
+//!   such header and are let through to the `state` check.
 //! - The request head is capped at 8 KiB and 64 headers, a connection has 10
 //!   seconds to send it, at most 16 connections are read at once, and a
 //!   connection that never speaks (browsers open some speculatively) does not
 //!   hold up the others.
 //! - The callback's `state` is compared with the expected one in constant
-//!   time, before anything else in it is looked at; a missing or different
-//!   `state` ends the attempt with [`LoopbackError::StateMismatch`].
+//!   time, before anything else in it is looked at. With the right `state`,
 //!   `error=access_denied` is [`LoopbackError::AccessDenied`], any other
 //!   `error` is [`LoopbackError::Authorization`], and the code is never
 //!   returned alongside an error.
 //! - The browser is shown a fixed page that echoes nothing from the request,
 //!   with `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, a CSP of
 //!   `default-src 'none'`, and no CORS headers, so no other page can read it.
+//!
+//! **Ports.** Leaving `SO_REUSEADDR` off has a cost. The listener closes its
+//! side of each connection first, so after an attempt those connections sit
+//! in TIME_WAIT for about a minute (60 s on Linux; the length varies by OS),
+//! and while they do the preferred port cannot be bound again. A quick retry
+//! therefore falls back to an ephemeral port. Callers must use the port the
+//! listener reports ([`LoopbackListener::port`],
+//! [`LoopbackListener::redirect_uri`]) in both the authorization request and
+//! the code exchange, and never assume the preferred one.
+//!
+//! **RFC 9207.** If the authorization server sends an `iss` parameter with
+//! the callback, it is kept in [`Callback::params`];
+//! [`Callback::check_issuer`] compares it with the issuer, and the caller
+//! must do so before exchanging the code.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -47,7 +74,7 @@ use tokio::sync::watch;
 use tokio::task::JoinSet;
 
 use super::pkce::State;
-use super::SecretString;
+use super::{printable, SecretString, MAX_DESCRIPTION_CHARS, MAX_ERROR_CODE_CHARS};
 
 /// How long [`LoopbackListener::authorize`] waits for the callback.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(300);
@@ -62,9 +89,6 @@ const CONNECTION_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_CONNECTIONS: usize = 16;
 const LISTEN_BACKLOG: u32 = 16;
 const MAX_PATH_LEN: usize = 256;
-/// The provider's `error_description` is kept to this many characters.
-const MAX_DESCRIPTION_CHARS: usize = 300;
-const MAX_ERROR_CODE_CHARS: usize = 64;
 /// After answering, how long and how much to read of what the client is
 /// still sending, so closing does not reset the connection.
 const LINGER: Duration = Duration::from_secs(1);
@@ -73,23 +97,24 @@ const MAX_DRAIN: usize = 64 * 1024;
 const SUCCESS_PAGE: &str = "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>Signed in</title></head>\n<body><p>You can close this tab and return to edytlab.</p></body></html>\n";
 const FAILURE_PAGE: &str = "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><title>Sign-in did not finish</title></head>\n<body><p>Sign-in did not finish. You can close this tab and return to edytlab.</p></body></html>\n";
 
-/// The host name in the redirect URI. The listener binds `127.0.0.1` in
-/// both cases; the name decides the `redirect_uri` and the `Host` header it
-/// accepts.
+/// The host in the redirect URI, which is also the address the listener
+/// binds.
+///
+/// There is no `localhost`. That name resolves to `::1` as well as
+/// `127.0.0.1`, and browsers try `::1` first, so a listener on `127.0.0.1`
+/// alone would leave `[::1]:<port>` free for another process to bind and
+/// receive the redirect. A provider that accepts only `localhost` will need
+/// a listener that binds both addresses.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LoopbackHost {
     /// `127.0.0.1`, which RFC 8252 §8.3 recommends over `localhost`.
     Ipv4Loopback,
-    /// `localhost`, for a provider that accepts only that name. Browsers
-    /// that try `::1` first fall back to `127.0.0.1` when it refuses.
-    Localhost,
 }
 
 impl LoopbackHost {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Ipv4Loopback => "127.0.0.1",
-            Self::Localhost => "localhost",
         }
     }
 }
@@ -147,10 +172,29 @@ impl fmt::Debug for CancelHandle {
 
 /// A callback whose `state` matched: the code, and every other parameter
 /// the provider sent (`state` and `code` removed), such as an issued
-/// `client_id` or the granted `scope`.
+/// `client_id`, the granted `scope` or the issuer's `iss`.
 pub struct Callback {
     pub code: SecretString,
     pub params: BTreeMap<String, String>,
+}
+
+impl Callback {
+    /// Checks the authorization response's `iss` parameter (RFC 9207 §2.4)
+    /// against `issuer`, the issuer the request was sent to. Call it before
+    /// exchanging the code: a different issuer means the response came from
+    /// another authorization server (a mix-up attack).
+    ///
+    /// The comparison is exact (RFC 3986 §6.2.1). A response without `iss`
+    /// is accepted unless `required`, which the caller sets from the
+    /// issuer's `authorization_response_iss_parameter_supported`
+    /// ([`super::oidc::ProviderMetadata`]).
+    pub fn check_issuer(&self, issuer: &str, required: bool) -> Result<(), LoopbackError> {
+        match self.params.get("iss") {
+            Some(iss) if iss == issuer => Ok(()),
+            None if !required => Ok(()),
+            _ => Err(LoopbackError::IssuerMismatch),
+        }
+    }
 }
 
 impl fmt::Debug for Callback {
@@ -178,8 +222,10 @@ pub enum LoopbackError {
     TimedOut,
     #[error("sign-in was cancelled")]
     Cancelled,
-    #[error("the sign-in response did not belong to this attempt (state mismatch)")]
-    StateMismatch,
+    /// The callback's `iss` is not the issuer's, or is missing where the
+    /// issuer promises one ([`Callback::check_issuer`]).
+    #[error("the sign-in response came from a different issuer (iss mismatch)")]
+    IssuerMismatch,
     #[error("access was denied")]
     AccessDenied { description: Option<String> },
     #[error("the sign-in failed: {error}")]
@@ -274,7 +320,8 @@ impl LoopbackListener {
         let mut cancelled = self.cancel.subscribe();
         let expected_host: Arc<str> = format!("{}:{}", self.host.as_str(), self.port).into();
         let bare_host_ok = self.port == 80;
-        let mut connections: JoinSet<Option<(TcpStream, BTreeMap<String, String>)>> =
+        let expected_state = Arc::new(expected_state.clone());
+        let mut connections: JoinSet<Option<(TcpStream, Result<Callback, LoopbackError>)>> =
             JoinSet::new();
 
         loop {
@@ -283,8 +330,8 @@ impl LoopbackListener {
                 _ = cancelled.wait_for(|c| *c) => return Err(LoopbackError::Cancelled),
                 _ = tokio::time::sleep_until(deadline) => return Err(LoopbackError::TimedOut),
                 Some(joined) = connections.join_next(), if !connections.is_empty() => {
-                    let Ok(Some((mut stream, params))) = joined else { continue };
-                    let outcome = evaluate(params, expected_state);
+                    // Only a callback with this attempt's `state` gets here.
+                    let Ok(Some((mut stream, outcome))) = joined else { continue };
                     let page = if outcome.is_ok() {
                         (200, "OK", SUCCESS_PAGE)
                     } else {
@@ -295,9 +342,13 @@ impl LoopbackListener {
                 }
                 accepted = self.listener.accept() => match accepted {
                     Ok((stream, _)) if connections.len() < MAX_CONNECTIONS => {
-                        let host = expected_host.clone();
-                        let path = self.path.clone();
-                        connections.spawn(read_callback(stream, host, bare_host_ok, path));
+                        connections.spawn(read_callback(
+                            stream,
+                            expected_host.clone(),
+                            bare_host_ok,
+                            self.path.clone(),
+                            expected_state.clone(),
+                        ));
                     }
                     // Over the cap: closed unread.
                     Ok(_) => {}
@@ -361,16 +412,18 @@ fn exclusive_address_use(socket: &TcpSocket) -> io::Result<()> {
     Ok(())
 }
 
-/// Reads one request from `stream`. Returns the stream and the query when it
-/// is a well-formed `GET` of the callback path for the right host, carrying
-/// `code` or `error`. Anything else is answered (404 or 400) or, if it never
-/// arrives in time, dropped, and gives `None`.
+/// Reads one request from `stream`. Returns the stream and the attempt's
+/// outcome when it is a well-formed navigation to the callback path for the
+/// right host, carrying `code` or `error` and the expected `state`. Anything
+/// else is answered (404 or 400) or, if it never arrives in time, dropped,
+/// and gives `None`, so the listener keeps waiting.
 async fn read_callback(
     mut stream: TcpStream,
     expected_host: Arc<str>,
     bare_host_ok: bool,
     path: Arc<str>,
-) -> Option<(TcpStream, BTreeMap<String, String>)> {
+    expected_state: Arc<State>,
+) -> Option<(TcpStream, Result<Callback, LoopbackError>)> {
     let head = match tokio::time::timeout(CONNECTION_TIMEOUT, read_head(&mut stream)).await {
         Ok(Ok(head)) => head,
         Ok(Err(HeadError::TooLarge)) => {
@@ -380,7 +433,22 @@ async fn read_callback(
         Ok(Err(HeadError::Closed)) | Err(_) => return None,
     };
     match parse_request(&head, &expected_host, bare_host_ok, &path) {
-        Ok(params) => Some((stream, params)),
+        Ok(params) => match evaluate(params, &expected_state) {
+            Some(outcome) => Some((stream, outcome)),
+            // Not this attempt's: another page, a stale tab or a local
+            // process. Refused, and the wait goes on.
+            None => {
+                respond(
+                    &mut stream,
+                    400,
+                    "Bad Request",
+                    "text/html; charset=utf-8",
+                    FAILURE_PAGE,
+                )
+                .await;
+                None
+            }
+        },
         Err(Rejection::NotFound) => {
             respond_plain(&mut stream, 404, "Not Found").await;
             None
@@ -437,7 +505,8 @@ enum Rejection {
 
 /// Parses a request head strictly: `GET <origin-form> HTTP/1.x`, at most
 /// [`MAX_HEADERS`] `name: value` headers with no folding or control
-/// characters, exactly one `Host` naming the listener, no body.
+/// characters, exactly one `Host` naming the listener, no body, and, for the
+/// callback path, at most one `Sec-Fetch-Mode`, which must be `navigate`.
 fn parse_request(
     head: &[u8],
     expected_host: &str,
@@ -467,6 +536,7 @@ fn parse_request(
     }
 
     let mut host = None;
+    let mut fetch_mode = None;
     for (count, line) in lines.enumerate() {
         if count >= MAX_HEADERS {
             return Err(BadRequest);
@@ -485,6 +555,10 @@ fn parse_request(
         let value = value.trim_matches([' ', '\t']);
         if name.eq_ignore_ascii_case("host") {
             if host.replace(value).is_some() {
+                return Err(BadRequest);
+            }
+        } else if name.eq_ignore_ascii_case("sec-fetch-mode") {
+            if fetch_mode.replace(value).is_some() {
                 return Err(BadRequest);
             }
         } else if name.eq_ignore_ascii_case("transfer-encoding")
@@ -506,6 +580,12 @@ fn parse_request(
     let (request_path, query) = target.split_once('?').unwrap_or((target, ""));
     if request_path != path {
         return Err(NotFound);
+    }
+    // The redirect is a navigation. An image, a `fetch` or a frame's
+    // subresource says otherwise (Fetch Metadata); none of them may end the
+    // wait, whatever it carries.
+    if fetch_mode.is_some_and(|mode| mode != "navigate") {
+        return Err(BadRequest);
     }
     let mut params = BTreeMap::new();
     for (name, value) in url::form_urlencoded::parse(query.as_bytes()) {
@@ -529,19 +609,25 @@ fn is_token_byte(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b)
 }
 
-/// Turns a callback that reached the right path into the attempt's result.
-/// `state` is checked first: nothing else in a callback from someone else
-/// is believed, its error included.
+/// Turns a callback that reached the right path into the attempt's result,
+/// or `None` when its `state` is missing or not this attempt's. `state` is
+/// checked first: nothing else in a callback from someone else is believed,
+/// its error included.
 fn evaluate(
     mut params: BTreeMap<String, String>,
     expected_state: &State,
-) -> Result<Callback, LoopbackError> {
+) -> Option<Result<Callback, LoopbackError>> {
     let state_ok = params
         .remove("state")
         .is_some_and(|s| expected_state.matches(&s));
     if !state_ok {
-        return Err(LoopbackError::StateMismatch);
+        return None;
     }
+    Some(callback_result(params))
+}
+
+/// The result of a callback whose `state` matched.
+fn callback_result(mut params: BTreeMap<String, String>) -> Result<Callback, LoopbackError> {
     if let Some(error) = params.remove("error").filter(|e| !e.is_empty()) {
         let description = params
             .remove("error_description")
@@ -560,14 +646,6 @@ fn evaluate(
         code: SecretString::new(code),
         params,
     })
-}
-
-/// `s` cut to `max` characters, control characters replaced by spaces.
-fn printable(s: &str, max: usize) -> String {
-    s.chars()
-        .take(max)
-        .map(|c| if c.is_control() { ' ' } else { c })
-        .collect()
 }
 
 async fn respond_plain(stream: &mut TcpStream, status: u16, reason: &str) {
@@ -647,6 +725,33 @@ mod tests {
         assert_eq!(addr.ip(), Ipv4Addr::LOCALHOST);
     }
 
+    #[tokio::test]
+    async fn the_redirect_uri_names_only_the_address_it_binds() {
+        // A redirect host that can resolve to an address the listener does
+        // not hold (`localhost` is also `::1`, which browsers try first)
+        // lets another process bind that address and take the code.
+        for host in [LoopbackHost::Ipv4Loopback] {
+            // Exhaustive, so a new variant has to be listed above.
+            match host {
+                LoopbackHost::Ipv4Loopback => {}
+            }
+            let listener = LoopbackListener::bind(LoopbackConfig::new(host, "/cb"))
+                .await
+                .unwrap();
+            let bound = listener.listener.local_addr().unwrap().ip();
+            let uri = url::Url::parse(&listener.redirect_uri()).unwrap();
+            let named = match uri.host() {
+                Some(url::Host::Ipv4(ip)) => std::net::IpAddr::V4(ip),
+                Some(url::Host::Ipv6(ip)) => std::net::IpAddr::V6(ip),
+                other => panic!(
+                    "{host:?}: the redirect URI names {other:?}, which can resolve to an \
+                     address other than the one bound ({bound})"
+                ),
+            };
+            assert_eq!(named, bound, "{host:?}");
+        }
+    }
+
     #[test]
     fn parses_a_callback() {
         let params = parse(
@@ -700,6 +805,36 @@ mod tests {
     }
 
     #[test]
+    fn the_callback_must_be_a_navigation_when_the_browser_says() {
+        let head = |mode: &str| {
+            format!("GET /cb?code=a&state=s HTTP/1.1\r\nHost: 127.0.0.1:1455\r\n{mode}\r\n")
+        };
+        // No Fetch Metadata (an older browser), or a navigation: parsed.
+        for ok in [
+            "",
+            "Sec-Fetch-Mode: navigate\r\n",
+            "sec-fetch-mode:navigate \r\n",
+        ] {
+            assert!(parse(&head(ok)).is_ok(), "{ok:?}");
+        }
+        for bad in [
+            "Sec-Fetch-Mode: no-cors\r\n",
+            "Sec-Fetch-Mode: cors\r\n",
+            "Sec-Fetch-Mode: same-origin\r\n",
+            "Sec-Fetch-Mode: Navigate\r\n",
+            "Sec-Fetch-Mode: \r\n",
+            "Sec-Fetch-Mode: navigate\r\nSec-Fetch-Mode: navigate\r\n",
+        ] {
+            assert_eq!(parse(&head(bad)), Err(Rejection::BadRequest), "{bad:?}");
+        }
+        // Another path is still a 404, whatever its mode.
+        assert_eq!(
+            parse("GET /favicon.ico HTTP/1.1\r\nHost: 127.0.0.1:1455\r\nSec-Fetch-Mode: no-cors\r\n\r\n"),
+            Err(Rejection::NotFound)
+        );
+    }
+
+    #[test]
     fn a_bare_host_is_accepted_only_on_port_80() {
         let head = "GET /cb?code=a HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
         assert_eq!(
@@ -721,10 +856,14 @@ mod tests {
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect()
         };
-        assert!(matches!(
-            evaluate(with(&[("code", "c"), ("error", "access_denied")]), &state),
-            Err(LoopbackError::StateMismatch)
-        ));
+        // Not this attempt's, whatever else it says: no outcome at all.
+        for params in [
+            with(&[("code", "c"), ("error", "access_denied")]),
+            with(&[("code", "c"), ("state", "")]),
+            with(&[("code", "c"), ("state", &state.as_str()[1..])]),
+        ] {
+            assert!(evaluate(params, &state).is_none());
+        }
         assert!(matches!(
             evaluate(
                 with(&[
@@ -734,7 +873,7 @@ mod tests {
                 ]),
                 &state
             ),
-            Err(LoopbackError::AccessDenied { .. })
+            Some(Err(LoopbackError::AccessDenied { .. }))
         ));
         let err = evaluate(
             with(&[
@@ -744,6 +883,7 @@ mod tests {
             ]),
             &state,
         )
+        .unwrap()
         .unwrap_err();
         match err {
             LoopbackError::Authorization { error, description } => {

@@ -2,7 +2,7 @@
 //!
 //! The key is generated when the test runs, so no private key is committed.
 //! `ring`, which `ai::oauth::oidc` verifies with, cannot generate RSA keys, so
-//! this does it with `num-bigint`: two random 1024-bit primes (Miller-Rabin),
+//! this does it with `num-bigint`: two random primes of half the size (Miller-Rabin),
 //! `e = 65537`, and PKCS#1 v1.5 signing with SHA-256 by CRT. It is a fixture,
 //! not crypto anyone relies on: a signature it gets wrong fails `ring`'s
 //! verification, which the accept-a-good-token test would show.
@@ -35,17 +35,22 @@ const SHA256_DIGEST_INFO: [u8; 19] = [
 impl TestRsaKey {
     /// A fresh 2048-bit key.
     pub fn generate() -> Self {
+        Self::generate_bits(2048)
+    }
+
+    /// A fresh key with a modulus of exactly `bits` bits (even).
+    pub fn generate_bits(bits: u64) -> Self {
         let rng = SystemRandom::new();
         let e = BigUint::from(65_537u32);
         let one = BigUint::from(1u32);
         loop {
-            let p = random_prime(&rng, 1024);
-            let q = random_prime(&rng, 1024);
+            let p = random_prime(&rng, bits / 2);
+            let q = random_prime(&rng, bits / 2);
             if p == q {
                 continue;
             }
             let n = &p * &q;
-            if n.bits() != 2048 {
+            if n.bits() != bits {
                 continue;
             }
             let phi = (&p - &one) * (&q - &one);
@@ -84,7 +89,7 @@ impl TestRsaKey {
 
     /// RSASSA-PKCS1-v1_5 with SHA-256 (RFC 8017 §8.2.1).
     pub fn sign_rs256(&self, message: &[u8]) -> Vec<u8> {
-        let k = 256;
+        let k = self.n.bits().div_ceil(8) as usize;
         let hash = ring::digest::digest(&ring::digest::SHA256, message);
         let mut t = SHA256_DIGEST_INFO.to_vec();
         t.extend_from_slice(hash.as_ref());

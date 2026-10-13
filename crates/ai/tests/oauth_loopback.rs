@@ -64,12 +64,30 @@ async fn get(url: String) -> Seen {
     }
 }
 
+/// [`get`], or `None` when nothing answers (the listener has gone).
+async fn try_get(url: String) -> Option<Seen> {
+    let resp = http().get(url).send().await.ok()?;
+    let status = resp.status().as_u16();
+    let headers = resp
+        .headers()
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or_default().to_string()))
+        .collect();
+    let body = resp.text().await.unwrap_or_default();
+    Some(Seen {
+        status,
+        headers,
+        body,
+    })
+}
+
 /// Sends `raw` as-is and returns the status line's code (0 if the listener
 /// closed without answering).
 async fn raw(port: u16, raw: Vec<u8>) -> u16 {
-    let mut stream = TcpStream::connect((Ipv4Addr::LOCALHOST, port))
-        .await
-        .unwrap();
+    // 0 too when nothing listens any more.
+    let Ok(mut stream) = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).await else {
+        return 0;
+    };
     // The listener may answer and close before reading everything.
     let _ = stream.write_all(&raw).await;
     let mut buf = Vec::new();
@@ -303,38 +321,57 @@ async fn a_silent_connection_does_not_hold_up_the_callback() {
 }
 
 #[tokio::test]
-async fn a_state_mismatch_is_an_error() {
+async fn a_state_mismatch_is_400_and_the_listener_keeps_waiting() {
+    // Any page can make the browser request the callback URL. A wrong
+    // `state` is refused, but must not end the sign-in in progress.
     let state = State::generate().unwrap();
     let other = State::generate().unwrap();
     let listener = LoopbackListener::bind(config()).await.unwrap();
-    let query = format!("code=good&state={}", other.as_str());
+    let forged = format!("code=forged&state={}", other.as_str());
+    let real = format!("code=good&state={}", state.as_str());
 
-    let (result, page) = run(listener, &state, move |port| async move {
-        get(callback_url(port, &query)).await
+    let (result, (page, after)) = run(listener, &state, move |port| async move {
+        let page = try_get(callback_url(port, &forged)).await;
+        let after = try_get(callback_url(port, &real)).await;
+        (page, after)
     })
     .await;
 
-    assert!(
-        matches!(result, Err(LoopbackError::StateMismatch)),
-        "{result:?}"
+    assert_eq!(
+        result
+            .expect("the real callback still ends the wait")
+            .code
+            .expose_secret(),
+        "good"
     );
+    let page = page.expect("the forged callback is answered");
     assert_eq!(page.status, 400);
-    assert!(!page.body.contains("good"));
+    assert!(!page.body.contains("forged"));
     assert_eq!(page.header("cache-control"), Some("no-store"));
+    assert_eq!(after.map(|p| p.status), Some(200));
 }
 
 #[tokio::test]
-async fn a_missing_state_is_a_mismatch() {
+async fn a_missing_state_is_400_and_the_listener_keeps_waiting() {
+    // What `<img src="http://127.0.0.1:1455/auth/callback?code=x">` sends.
     let state = State::generate().unwrap();
     let listener = LoopbackListener::bind(config()).await.unwrap();
-    let (result, _) = run(listener, &state, move |port| async move {
-        get(callback_url(port, "code=good")).await
+    let real = format!("code=good&state={}", state.as_str());
+    let (result, (poke, after)) = run(listener, &state, move |port| async move {
+        let poke = try_get(callback_url(port, "code=x")).await;
+        let after = try_get(callback_url(port, &real)).await;
+        (poke, after)
     })
     .await;
-    assert!(
-        matches!(result, Err(LoopbackError::StateMismatch)),
-        "{result:?}"
+    assert_eq!(
+        result
+            .expect("the real callback still ends the wait")
+            .code
+            .expose_secret(),
+        "good"
     );
+    assert_eq!(poke.map(|p| p.status), Some(400));
+    assert_eq!(after.map(|p| p.status), Some(200));
 }
 
 #[tokio::test]
@@ -381,17 +418,74 @@ async fn another_oauth_error_is_reported_apart_from_access_denied() {
 }
 
 #[tokio::test]
-async fn an_error_with_the_wrong_state_is_a_mismatch_not_a_denial() {
+async fn an_error_with_the_wrong_state_is_400_and_the_listener_keeps_waiting() {
+    // A forged denial is not believed: only one with the right `state` ends
+    // the attempt (`access_denied_is_its_own_error`).
     let state = State::generate().unwrap();
     let listener = LoopbackListener::bind(config()).await.unwrap();
-    let (result, _) = run(listener, &state, move |port| async move {
-        get(callback_url(port, "error=access_denied&state=forged")).await
+    let real = format!("code=good&state={}", state.as_str());
+    let (result, codes) = run(listener, &state, move |port| async move {
+        let mut codes = Vec::new();
+        for forged in ["error=access_denied&state=forged", "error=access_denied"] {
+            codes.push(try_get(callback_url(port, forged)).await.map(|p| p.status));
+        }
+        codes.push(try_get(callback_url(port, &real)).await.map(|p| p.status));
+        codes
     })
     .await;
-    assert!(
-        matches!(result, Err(LoopbackError::StateMismatch)),
-        "{result:?}"
+    assert_eq!(
+        result
+            .expect("the real callback still ends the wait")
+            .code
+            .expose_secret(),
+        "good"
     );
+    assert_eq!(codes, [Some(400), Some(400), Some(200)]);
+}
+
+#[tokio::test]
+async fn a_background_request_is_400_and_the_listener_keeps_waiting() {
+    // A redirect is a top-level navigation. A request a page makes in the
+    // background (an image, a fetch, a frame's subresource) says otherwise in
+    // `Sec-Fetch-Mode`, and is refused before its `state` is looked at.
+    let state = State::generate().unwrap();
+    let listener = LoopbackListener::bind(config()).await.unwrap();
+    let target = format!("{PATH}?code=from-background&state={}", state.as_str());
+    let real = format!("{PATH}?code=good&state={}", state.as_str());
+
+    let (result, (codes, navigated)) = run(listener, &state, move |port| async move {
+        let mut codes = Vec::new();
+        for mode in [
+            "Sec-Fetch-Mode: no-cors\r\n".to_string(),
+            "Sec-Fetch-Mode: cors\r\n".to_string(),
+            "Sec-Fetch-Mode: same-origin\r\n".to_string(),
+            "Sec-Fetch-Mode: websocket\r\n".to_string(),
+            "Sec-Fetch-Mode: \r\n".to_string(),
+            "Sec-Fetch-Mode: navigate\r\nSec-Fetch-Mode: no-cors\r\n".to_string(),
+        ] {
+            let req = format!(
+                "GET {target} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n{mode}Connection: close\r\n\r\n"
+            );
+            codes.push(raw(port, req.into_bytes()).await);
+        }
+        let req = format!(
+            "GET {real} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nSec-Fetch-Mode: navigate\r\n\
+             Sec-Fetch-Dest: document\r\nConnection: close\r\n\r\n"
+        );
+        let navigated = raw(port, req.into_bytes()).await;
+        (codes, navigated)
+    })
+    .await;
+
+    assert_eq!(
+        result
+            .expect("the navigation ends the wait")
+            .code
+            .expose_secret(),
+        "good"
+    );
+    assert!(codes.iter().all(|&c| c == 400), "{codes:?}");
+    assert_eq!(navigated, 200);
 }
 
 #[tokio::test]
@@ -505,8 +599,14 @@ async fn binds_the_preferred_port_or_falls_back_to_an_ephemeral_one() {
 #[tokio::test]
 async fn another_socket_cannot_take_over_the_port() {
     // SO_REUSEADDR on a second socket must not let it bind our address.
-    // On Windows this holds only because the listener sets
-    // SO_EXCLUSIVEADDRUSE; elsewhere because neither socket allows reuse.
+    // This checks the guard on Windows only: there SO_REUSEADDR alone lets
+    // a second socket bind a listening one's address, and the listener's
+    // SO_EXCLUSIVEADDRUSE is what stops it. On Linux and macOS a socket
+    // cannot bind over a listening one even with SO_REUSEADDR set on both
+    // (only SO_REUSEPORT, which neither sets, would allow it), so this passes
+    // there whatever the listener does. The guard on Unix, no SO_REUSEADDR
+    // on the listener, is the unit test `the_listener_does_not_set_so_reuseaddr`
+    // in `src/oauth/loopback.rs`.
     let listener = LoopbackListener::bind(config()).await.unwrap();
     let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, listener.port()));
     let squatter = socket2::Socket::new(
@@ -522,37 +622,50 @@ async fn another_socket_cannot_take_over_the_port() {
 }
 
 #[tokio::test]
-async fn the_localhost_variant_answers_to_localhost() {
-    let state = State::generate().unwrap();
-    let listener = LoopbackListener::bind(LoopbackConfig::new(LoopbackHost::Localhost, "/cb"))
-        .await
-        .unwrap();
-    let port = listener.port();
-    assert_eq!(
-        listener.redirect_uri(),
-        format!("http://localhost:{port}/cb")
-    );
-    let query = format!("code=good&state={}", state.as_str());
-
-    let (result, codes) = run(listener, &state, move |port| async move {
-        let target = format!("/cb?{query}");
-        let wrong = raw(
-            port,
-            format!("GET {target} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n").into_bytes(),
-        )
+async fn the_callback_issuer_is_checked_as_rfc_9207_says() {
+    const ISSUER: &str = "https://auth.example.com";
+    let callback_with = |query: String| async move {
+        let state = State::generate().unwrap();
+        let listener = LoopbackListener::bind(config()).await.unwrap();
+        let query = format!("{query}&state={}", state.as_str());
+        let (result, _) = run(listener, &state, move |port| async move {
+            get(callback_url(port, &query)).await
+        })
         .await;
-        // Host names are case-insensitive.
-        let right = raw(
-            port,
-            format!("GET {target} HTTP/1.1\r\nHost: LocalHost:{port}\r\n\r\n").into_bytes(),
-        )
-        .await;
-        (wrong, right)
-    })
-    .await;
+        result.unwrap()
+    };
 
-    assert_eq!(codes, (400, 200));
-    assert_eq!(result.unwrap().code.expose_secret(), "good");
+    // The issuer's own `iss`, percent-encoded as a form value.
+    let right = callback_with(format!("code=c&iss={}", "https%3A%2F%2Fauth.example.com")).await;
+    assert_eq!(right.params.get("iss").map(String::as_str), Some(ISSUER));
+    right.check_issuer(ISSUER, false).unwrap();
+    right.check_issuer(ISSUER, true).unwrap();
+
+    // Another issuer's, or ours with a trailing slash: a mix-up, refused
+    // whether or not the issuer promised `iss`.
+    for other in [
+        "https%3A%2F%2Fevil.example",
+        "https%3A%2F%2Fauth.example.com%2F",
+    ] {
+        let wrong = callback_with(format!("code=c&iss={other}")).await;
+        for required in [false, true] {
+            assert!(
+                matches!(
+                    wrong.check_issuer(ISSUER, required),
+                    Err(LoopbackError::IssuerMismatch)
+                ),
+                "{other} required={required}"
+            );
+        }
+    }
+
+    // No `iss`: fine unless the issuer's metadata promises one.
+    let none = callback_with("code=c".to_string()).await;
+    none.check_issuer(ISSUER, false).unwrap();
+    assert!(matches!(
+        none.check_issuer(ISSUER, true),
+        Err(LoopbackError::IssuerMismatch)
+    ));
 }
 
 #[tokio::test]

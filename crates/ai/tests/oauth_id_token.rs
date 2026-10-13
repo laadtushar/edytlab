@@ -10,7 +10,8 @@ mod oauth_support;
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use ai::oauth::oidc::{IdTokenExpectations, OidcClient, OidcError};
+use ai::oauth::oidc::{IdTokenClaims, IdTokenExpectations, OidcClient, OidcError};
+use ai::oauth::pkce::Nonce;
 use ai::oauth::SecretString;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
@@ -20,7 +21,12 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const CLIENT_ID: &str = "client-123";
-const NONCE: &str = "nonce-abcdefghijklmnopqrstuvwxyz0123456789";
+
+/// The sign-in attempt's nonce, shared by every test in this file.
+fn nonce() -> &'static Nonce {
+    static NONCE: OnceLock<Nonce> = OnceLock::new();
+    NONCE.get_or_init(|| Nonce::generate().unwrap())
+}
 
 fn key() -> &'static TestRsaKey {
     static KEY: OnceLock<TestRsaKey> = OnceLock::new();
@@ -77,7 +83,7 @@ fn good_claims(issuer: &str) -> Value {
         "aud": CLIENT_ID,
         "exp": now + 3600,
         "iat": now,
-        "nonce": NONCE,
+        "nonce": nonce().as_str(),
         "email": "person@example.com",
         "email_verified": true,
     })
@@ -92,10 +98,7 @@ fn signed(kid: &str, claims: &Value) -> SecretString {
 }
 
 fn expectations() -> IdTokenExpectations<'static> {
-    IdTokenExpectations {
-        client_id: CLIENT_ID,
-        nonce: NONCE,
-    }
+    IdTokenExpectations::sign_in(CLIENT_ID, nonce())
 }
 
 async fn client_for(server: &MockServer) -> OidcClient {
@@ -241,13 +244,22 @@ async fn rejects_a_wrong_or_missing_nonce() {
     let server = issuer_with(json!({ "keys": [key().jwk("k1")] })).await;
     let client = client_for(&server).await;
 
+    // Another attempt's nonce, an empty one, or this one cut short. The
+    // expected nonce is a `Nonce`, which is never empty, so `"nonce": ""`
+    // cannot match it.
     let mut claims = good_claims(&server.uri());
-    claims["nonce"] = json!("another-attempt");
-    let err = client
-        .verify_id_token(&signed("k1", &claims), &expectations())
-        .await
-        .unwrap_err();
-    assert!(matches!(err, OidcError::NonceMismatch), "{err:?}");
+    let other = Nonce::generate().unwrap();
+    for wrong in [other.as_str(), "", &nonce().as_str()[1..]] {
+        claims["nonce"] = json!(wrong);
+        let err = client
+            .verify_id_token(&signed("k1", &claims), &expectations())
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, OidcError::NonceMismatch),
+            "{wrong:?}: {err:?}"
+        );
+    }
 
     claims.as_object_mut().unwrap().remove("nonce");
     let err = client
@@ -363,6 +375,7 @@ async fn rejects_claims_of_the_wrong_type() {
         ("aud", json!(7)),
         ("nonce", json!(1)),
         ("sub", json!(12)),
+        ("auth_time", json!("1700000000")),
     ] {
         let mut claims = good_claims(&server.uri());
         claims[claim] = value.clone();
@@ -393,9 +406,10 @@ async fn rejects_repeated_keys_rather_than_picking_one() {
     let client = client_for(&server).await;
     let now = now();
     let claims = format!(
-        r#"{{"iss":"{iss}","iss":"https://evil.example","sub":"u","aud":"{CLIENT_ID}","exp":{exp},"iat":{now},"nonce":"{NONCE}"}}"#,
+        r#"{{"iss":"{iss}","iss":"https://evil.example","sub":"u","aud":"{CLIENT_ID}","exp":{exp},"iat":{now},"nonce":"{nonce}"}}"#,
         iss = server.uri(),
         exp = now + 3600,
+        nonce = nonce().as_str(),
     );
     let token = jwt_raw(r#"{"alg":"RS256","kid":"k1"}"#, &claims, |m| {
         key().sign_rs256(m)
@@ -425,16 +439,21 @@ async fn rejects_a_critical_header_and_malformed_tokens() {
     let client = client_for(&server).await;
     let claims = good_claims(&server.uri());
 
-    let crit = jwt(
-        &json!({ "alg": "RS256", "kid": "k1", "crit": ["exp"] }),
-        &claims,
-        |m| key().sign_rs256(m),
-    );
-    let err = client
-        .verify_id_token(&SecretString::new(crit), &expectations())
-        .await
-        .unwrap_err();
-    assert!(matches!(err, OidcError::UnsupportedHeader), "{err:?}");
+    // `crit` in any form, even `null` or empty, which RFC 7515 §4.1.11 forbids.
+    for crit in [json!(["exp"]), json!([]), Value::Null] {
+        let token = jwt(
+            &json!({ "alg": "RS256", "kid": "k1", "crit": crit }),
+            &claims,
+            |m| key().sign_rs256(m),
+        );
+        let result = client
+            .verify_id_token(&SecretString::new(token), &expectations())
+            .await;
+        assert!(
+            matches!(result, Err(OidcError::UnsupportedHeader)),
+            "crit {crit}: {result:?}"
+        );
+    }
 
     let good = signed("k1", &claims);
     let good = good.expose_secret();
@@ -558,6 +577,139 @@ async fn skips_keys_it_cannot_use() {
 }
 
 #[tokio::test]
+async fn rejects_a_key_under_2048_bits() {
+    // A 1024-bit RSA key can be factored by a well-funded attacker; the
+    // verifier's floor is 2048 bits.
+    static WEAK: OnceLock<TestRsaKey> = OnceLock::new();
+    let weak = WEAK.get_or_init(|| TestRsaKey::generate_bits(1024));
+    let server = issuer_with(json!({ "keys": [weak.jwk("weak")] })).await;
+    let client = client_for(&server).await;
+    let token = jwt(&rs256_header("weak"), &good_claims(&server.uri()), |m| {
+        weak.sign_rs256(m)
+    });
+    let result = client
+        .verify_id_token(&SecretString::new(token), &expectations())
+        .await;
+    assert!(matches!(result, Err(OidcError::BadSignature)), "{result:?}");
+}
+
+/// The claims of a sign-in's ID token, verified, with `extra` added.
+async fn signed_in(client: &OidcClient, issuer: &str, extra: Value) -> IdTokenClaims {
+    let mut claims = good_claims(issuer);
+    for (k, v) in extra.as_object().unwrap() {
+        claims[k] = v.clone();
+    }
+    client
+        .verify_id_token(&signed("k1", &claims), &expectations())
+        .await
+        .expect("the sign-in's ID token verifies")
+}
+
+/// A refresh response's ID token: the original's claims, newly issued,
+/// without a nonce, changed by `edit`.
+fn refreshed(issuer: &str, edit: impl FnOnce(&mut Value)) -> SecretString {
+    let mut claims = good_claims(issuer);
+    claims.as_object_mut().unwrap().remove("nonce");
+    claims["iat"] = json!(now() + 1);
+    edit(&mut claims);
+    signed("k1", &claims)
+}
+
+#[tokio::test]
+async fn verifies_a_refreshed_id_token_against_the_original() {
+    // OpenID Connect Core §12.2: no new nonce is expected, but the issuer,
+    // the account and the client must be the original's.
+    let server = issuer_with(json!({ "keys": [key().jwk("k1")] })).await;
+    let client = client_for(&server).await;
+    let iss = server.uri();
+    let original = signed_in(&client, &iss, json!({ "auth_time": 1_700_000_000 })).await;
+    let refresh = IdTokenExpectations::refresh(CLIENT_ID, &original);
+
+    // No nonce, or the original's; the same auth_time, or none.
+    for token in [
+        refreshed(&iss, |_| {}),
+        refreshed(&iss, |c| c["nonce"] = json!(nonce().as_str())),
+        refreshed(&iss, |c| c["auth_time"] = json!(1_700_000_000)),
+    ] {
+        let claims = client.verify_id_token(&token, &refresh).await.unwrap();
+        assert_eq!(claims.subject, original.subject);
+    }
+    // The sign-in expectations would refuse it: it carries no nonce.
+    let err = client
+        .verify_id_token(&refreshed(&iss, |_| {}), &expectations())
+        .await
+        .unwrap_err();
+    assert!(matches!(err, OidcError::NonceMismatch), "{err:?}");
+
+    let other_nonce = Nonce::generate().unwrap();
+    // What is wrong with the token, the token, and the error it must get.
+    type Case = (&'static str, SecretString, fn(&OidcError) -> bool);
+    let cases: Vec<Case> = vec![
+        (
+            "another account",
+            refreshed(&iss, |c| c["sub"] = json!("user-subject-2")),
+            |e| matches!(e, OidcError::SubjectChanged),
+        ),
+        (
+            "another client",
+            refreshed(&iss, |c| c["aud"] = json!("someone-else")),
+            |e| matches!(e, OidcError::WrongAudience),
+        ),
+        (
+            "an azp the original did not have",
+            refreshed(&iss, |c| c["azp"] = json!(CLIENT_ID)),
+            |e| matches!(e, OidcError::WrongAudience),
+        ),
+        (
+            "another issuer",
+            refreshed(&iss, |c| c["iss"] = json!("https://evil.example")),
+            |e| matches!(e, OidcError::WrongIssuer),
+        ),
+        (
+            "a nonce that is not the original's",
+            refreshed(&iss, |c| c["nonce"] = json!(other_nonce.as_str())),
+            |e| matches!(e, OidcError::NonceMismatch),
+        ),
+        (
+            "a later auth_time",
+            refreshed(&iss, |c| c["auth_time"] = json!(1_700_000_001)),
+            |e| matches!(e, OidcError::InvalidClaims(_)),
+        ),
+        (
+            "an expired token",
+            refreshed(&iss, |c| c["exp"] = json!(now() - 3600)),
+            |e| matches!(e, OidcError::Expired),
+        ),
+    ];
+    for (what, token, expected) in cases {
+        let result = client.verify_id_token(&token, &refresh).await;
+        match result {
+            Err(e) if expected(&e) => {}
+            other => panic!("{what}: {other:?}"),
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_refreshed_id_token_keeps_the_original_azp() {
+    let server = issuer_with(json!({ "keys": [key().jwk("k1")] })).await;
+    let client = client_for(&server).await;
+    let iss = server.uri();
+    let original = signed_in(&client, &iss, json!({ "azp": CLIENT_ID })).await;
+    let refresh = IdTokenExpectations::refresh(CLIENT_ID, &original);
+
+    client
+        .verify_id_token(&refreshed(&iss, |c| c["azp"] = json!(CLIENT_ID)), &refresh)
+        .await
+        .expect("the same azp");
+    let err = client
+        .verify_id_token(&refreshed(&iss, |_| {}), &refresh)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, OidcError::WrongAudience), "{err:?}");
+}
+
+#[tokio::test]
 async fn refuses_a_discovery_document_for_another_issuer() {
     let server = MockServer::start().await;
     mount_discovery(&server, "https://evil.example").await;
@@ -583,12 +735,34 @@ async fn reads_the_endpoints_from_discovery() {
         format!("{}/authorize", server.uri())
     );
     assert_eq!(meta.jwks_uri.as_str(), format!("{}/jwks", server.uri()));
+    // Not in this document, so false.
+    assert!(!meta.authorization_response_iss_parameter_supported);
     assert_eq!(
         meta.revocation_endpoint
             .as_ref()
             .map(|u| u.as_str().to_string()),
         Some(format!("{}/revoke", server.uri()))
     );
+}
+
+#[tokio::test]
+async fn reads_whether_the_issuer_sends_iss_with_its_responses() {
+    // RFC 9207 §3: `authorization_response_iss_parameter_supported`.
+    let server = MockServer::start().await;
+    let uri = server.uri();
+    Mock::given(method("GET"))
+        .and(path("/.well-known/openid-configuration"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "issuer": uri,
+            "authorization_endpoint": format!("{uri}/authorize"),
+            "token_endpoint": format!("{uri}/token"),
+            "jwks_uri": format!("{uri}/jwks"),
+            "authorization_response_iss_parameter_supported": true,
+        })))
+        .mount(&server)
+        .await;
+    let meta = client_for(&server).await.metadata().await.unwrap();
+    assert!(meta.authorization_response_iss_parameter_supported);
 }
 
 #[test]

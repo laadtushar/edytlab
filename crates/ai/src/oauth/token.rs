@@ -9,10 +9,14 @@
 //!
 //! Responses are typed. A success body without an `access_token` is an
 //! error, and so is one that does not parse; that error says where parsing
-//! failed but never quotes the body, which holds tokens. A failure with an
-//! RFC 6749 §5.2 error body is [`TokenError::OAuth`], so a caller can act on
-//! its `error` code (`invalid_grant` and the like); any other failure is its
-//! HTTP status alone.
+//! failed but never quotes the body, which holds tokens. A success must also
+//! name its `token_type` as `Bearer` (in any case), the only kind this client
+//! knows how to send, and an `expires_in` above [`MAX_EXPIRES_IN`] is read as
+//! that ([`TokenResponse::expires_in`]). A failure with an RFC 6749 §5.2
+//! error body is [`TokenError::OAuth`], so a caller can act on its `error`
+//! code (`invalid_grant` and the like); its text is cut short and stripped of
+//! control characters as it is read. Any other failure is its HTTP status
+//! alone.
 
 use std::fmt;
 
@@ -22,12 +26,18 @@ use url::Url;
 
 use super::pkce::PkceVerifier;
 use super::{
-    check_endpoint, check_extra_params, http_client, read_limited, BodyError, EndpointError,
-    ParameterError, SecretString,
+    check_endpoint, check_extra_params, http_client, printable, read_limited, BodyError,
+    EndpointError, ParameterError, SecretString, MAX_DESCRIPTION_CHARS, MAX_ERROR_CODE_CHARS,
 };
 
 /// A token endpoint's reply is read up to this size.
 const MAX_RESPONSE_BYTES: usize = 64 * 1024;
+
+/// The longest `expires_in` kept, in seconds: one day. Access tokens live
+/// for minutes or hours; a larger value is read as this, so a caller's
+/// `Instant::now() + Duration::from_secs(expires_in)` cannot overflow (with
+/// `u64::MAX` it panics).
+pub const MAX_EXPIRES_IN: u64 = 24 * 60 * 60;
 
 /// The parameters the client sets itself, which an extra may not repeat.
 const TOKEN_RESERVED: &[&str] = &[
@@ -75,14 +85,39 @@ impl TokenError {
 }
 
 /// An RFC 6749 §5.2 error response.
+///
+/// The server's text ends up in error messages and perhaps logs, so each
+/// field is cut to a few hundred characters (the code to 64) and has its
+/// control characters replaced by spaces as it is read: no terminal escapes,
+/// no forged log lines.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(from = "RawOAuthErrorBody")]
 pub struct OAuthErrorBody {
     /// The error code, such as `invalid_grant`.
     pub error: String,
-    #[serde(default)]
     pub error_description: Option<String>,
-    #[serde(default)]
     pub error_uri: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct RawOAuthErrorBody {
+    error: String,
+    #[serde(default)]
+    error_description: Option<String>,
+    #[serde(default)]
+    error_uri: Option<String>,
+}
+
+impl From<RawOAuthErrorBody> for OAuthErrorBody {
+    fn from(raw: RawOAuthErrorBody) -> Self {
+        Self {
+            error: printable(&raw.error, MAX_ERROR_CODE_CHARS),
+            error_description: raw
+                .error_description
+                .map(|d| printable(&d, MAX_DESCRIPTION_CHARS)),
+            error_uri: raw.error_uri.map(|u| printable(&u, MAX_DESCRIPTION_CHARS)),
+        }
+    }
 }
 
 /// A successful token response (RFC 6749 §5.1), with any fields beyond the
@@ -94,16 +129,24 @@ pub struct TokenResponse {
     pub refresh_token: Option<SecretString>,
     #[serde(default)]
     pub id_token: Option<SecretString>,
+    /// `Bearer`, in some case: a response with any other type, or none, is
+    /// refused (RFC 6749 §5.1 requires it, and RFC 6750 bearer use is all
+    /// this client does with a token).
     #[serde(default)]
-    pub token_type: Option<String>,
-    /// Seconds from now.
-    #[serde(default)]
+    pub token_type: String,
+    /// Seconds from now, at most [`MAX_EXPIRES_IN`]: a larger value is read
+    /// as that.
+    #[serde(default, deserialize_with = "capped_expires_in")]
     pub expires_in: Option<u64>,
     /// The granted scopes, space-separated.
     #[serde(default)]
     pub scope: Option<String>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
+}
+
+fn capped_expires_in<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u64>, D::Error> {
+    Ok(Option::<u64>::deserialize(d)?.map(|secs| secs.min(MAX_EXPIRES_IN)))
 }
 
 impl TokenResponse {
@@ -269,6 +312,12 @@ impl TokenClient {
             return Err(TokenError::InvalidResponse(
                 "the access token is empty".into(),
             ));
+        }
+        if !response.token_type.eq_ignore_ascii_case("bearer") {
+            return Err(TokenError::InvalidResponse(format!(
+                "the token type is {:?}, not Bearer",
+                printable(&response.token_type, 32)
+            )));
         }
         Ok(response)
     }

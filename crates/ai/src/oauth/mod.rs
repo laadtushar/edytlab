@@ -22,12 +22,30 @@
 //! `Debug` prints `<redacted>`, and it has no `Display` and no `Serialize`, so
 //! it cannot reach a log line, an error message or an IPC reply by accident.
 //! Reading one takes an explicit [`SecretString::expose_secret`]. Nothing in
-//! this module logs a token, a code or an email address.
+//! this module logs a token, a code or an email address. Text a server sends
+//! back (an OAuth `error`, `error_description` or `error_uri`) is cut short
+//! and has its control characters replaced before it reaches an error value.
 //!
 //! **HTTP.** Each client makes its own `reqwest` client that never follows a
 //! redirect (a 307 from a token endpoint would resend the refresh token to
 //! wherever it points), times out, and caps the size of what it reads. An
 //! endpoint must be `https`, or plain `http` on a loopback address for tests.
+//! The authorization URL handed to the browser is held to the same rule.
+//!
+//! **For the provider built on this (#474, PR 3).**
+//!
+//! - Verify the ID token of the code exchange with
+//!   [`oidc::IdTokenExpectations::sign_in`] and the attempt's
+//!   [`pkce::Nonce`], and an ID token in a refresh response with
+//!   [`oidc::IdTokenExpectations::refresh`] and the claims of the original
+//!   (OpenID Connect Core §12.2: no new nonce, same `iss`, `sub` and `aud`).
+//! - Call [`loopback::Callback::check_issuer`] before exchanging the code
+//!   (RFC 9207, mix-up attacks). It compares `Callback::params["iss"]` with
+//!   the issuer whenever the response carries one, and refuses a response
+//!   without one when `required`, which the caller sets from
+//!   [`oidc::ProviderMetadata::authorization_response_iss_parameter_supported`].
+//! - Use the port the listener reports, never the preferred one: see
+//!   "Ports" in [`loopback`].
 
 pub mod loopback;
 pub mod oidc;
@@ -48,20 +66,11 @@ use pkce::{Nonce, PkceChallenge, State};
 /// or a PKCE verifier.
 ///
 /// `Debug` shows `SecretString(<redacted>)`. There is deliberately no
-/// `Display` and no `Serialize`:
-///
-/// ```compile_fail,E0277
-/// let s = ai::oauth::SecretString::new("t");
-/// let _ = format!("{s}");
-/// ```
-///
-/// ```compile_fail,E0277
-/// let s = ai::oauth::SecretString::new("t");
-/// let _ = serde_json::to_string(&s);
-/// ```
-///
-/// It does not implement `PartialEq` either; compare secrets with
-/// [`pkce::constant_time_eq`].
+/// `Display` and no `Serialize`, and no `PartialEq` either, whose `==` stops
+/// at the first byte that differs: compare secrets with
+/// [`pkce::constant_time_eq`]. `tests/oauth_client.rs`
+/// (`secrets_cannot_be_displayed_serialized_or_compared`) fails to compile if
+/// this type, or any other that holds a secret, gains one of the three.
 #[derive(Clone, Deserialize)]
 #[serde(transparent)]
 pub struct SecretString(String);
@@ -128,13 +137,28 @@ pub(crate) fn check_endpoint(url: &Url) -> Result<(), EndpointError> {
     Ok(())
 }
 
-fn is_loopback_host(url: &Url) -> bool {
+pub(crate) fn is_loopback_host(url: &Url) -> bool {
     match url.host() {
         Some(url::Host::Ipv4(ip)) => IpAddr::V4(ip).is_loopback(),
         Some(url::Host::Ipv6(ip)) => IpAddr::V6(ip).is_loopback(),
         Some(url::Host::Domain(d)) => d.eq_ignore_ascii_case("localhost"),
         None => false,
     }
+}
+
+/// An OAuth `error` code from a server is kept to this many characters.
+pub(crate) const MAX_ERROR_CODE_CHARS: usize = 64;
+/// An `error_description` or `error_uri` from a server is kept to this many
+/// characters.
+pub(crate) const MAX_DESCRIPTION_CHARS: usize = 300;
+
+/// `s` cut to `max` characters, control characters replaced by spaces: what
+/// is left of a server's text once it is fit for an error message or a log.
+pub(crate) fn printable(s: &str, max: usize) -> String {
+    s.chars()
+        .take(max)
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect()
 }
 
 /// How long one HTTP call to an issuer may take, connection included.
@@ -228,24 +252,38 @@ const AUTHORIZE_RESERVED: &[&str] = &[
     "code_challenge_method",
 ];
 
+/// Why [`authorization_url`] would not build a URL.
+#[derive(Debug, thiserror::Error)]
+pub enum AuthorizationUrlError {
+    /// The endpoint is not one to hand to the browser.
+    #[error("the authorization endpoint is not usable: {0}")]
+    Endpoint(#[from] EndpointError),
+    #[error(transparent)]
+    Parameter(#[from] ParameterError),
+}
+
 /// The URL to open in the browser: `endpoint` with the request's parameters
 /// and then `extra`, all percent-encoded. `response_type` is `code` and
 /// `code_challenge_method` is `S256`.
 ///
-/// An extra parameter, or a query parameter already on `endpoint`, that
-/// would set one of the standard ones is refused, as is a repeated extra.
+/// `endpoint` must pass the same check as every other endpoint (`https`, or
+/// plain `http` on a loopback address, with no credentials or fragment), so
+/// only such a URL reaches the OS opener. An extra parameter, or a query
+/// parameter already on `endpoint`, that would set one of the standard ones
+/// is refused, as is a repeated extra.
 pub fn authorization_url(
     endpoint: &Url,
     request: &AuthorizationRequest<'_>,
     extra: &[(&str, &str)],
-) -> Result<Url, ParameterError> {
+) -> Result<Url, AuthorizationUrlError> {
+    check_endpoint(endpoint)?;
     check_extra_params(extra, AUTHORIZE_RESERVED)?;
     for (name, _) in endpoint.query_pairs() {
         if AUTHORIZE_RESERVED.contains(&name.as_ref()) {
-            return Err(ParameterError::Reserved(name.into_owned()));
+            return Err(ParameterError::Reserved(name.into_owned()).into());
         }
         if extra.iter().any(|(n, _)| *n == name) {
-            return Err(ParameterError::Duplicate(name.into_owned()));
+            return Err(ParameterError::Duplicate(name.into_owned()).into());
         }
     }
     let mut url = endpoint.clone();
