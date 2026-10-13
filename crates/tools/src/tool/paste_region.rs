@@ -4,7 +4,10 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{destructive_edit_then, remap_after_insert, timeline_end, track_channels};
+use crate::tool::util::{
+    destructive_edit_then, insert_gap_timeline, remap_after_insert, sync_other_tracks,
+    timeline_end, track_channels,
+};
 use crate::{Tool, ToolContext, ToolResult};
 
 /// Splice `clipboard` into `samples` at `at_sec`. The insertion point is
@@ -122,6 +125,9 @@ impl Tool for PasteRegionTool {
             "paste_region",
             "Paste the clipboard audio (set by copy_region) into a track at a given offset. \
              The clipboard audio is spliced in; samples after the insertion point are shifted right. \
+             With sync-lock on (see `set_sync_lock`) the gap opens on every other track too, \
+             so the tracks stay aligned: the call then moves clips on tracks it does not name, \
+             and a clip that straddles the insertion point is split in two. \
              Appends a new session node.",
             json!({
                 "type": "object",
@@ -210,6 +216,8 @@ impl Tool for PasteRegionTool {
             pasted.samples.len() / pasted.channels.max(1) as usize,
         );
 
+        let label = format!("paste clipboard at {at:.2}s on track {track}");
+        let summary = label.clone();
         let result = destructive_edit_then(
             ctx,
             track,
@@ -235,10 +243,54 @@ impl Tool for PasteRegionTool {
                 let old_end =
                     timeline_end(&state.tracks[edited].clips).saturating_sub(clip_frames as u64);
                 let at_frames = ((at.max(0.0) * rate) as u64).min(old_end);
-                remap_after_insert(state, at_frames as f64 / rate, clip_frames as f64 / rate);
-                Default::default()
+                let at_sec = at_frames as f64 / rate;
+                let len_sec = clip_frames as f64 / rate;
+                remap_after_insert(state, at_sec, len_sec);
+
+                // Sync-lock (#170 §3, #572): the track the paste names got
+                // longer by the clipboard, and every other track has to open
+                // the same gap or everything after it drifts by exactly what
+                // was pasted. Same node as the sample edit, so undo puts all
+                // of it back, and the same timeline shift `insert_silence`
+                // makes, which costs no derived file.
+                //
+                // The gap is where the audio actually went in (`at` clamped
+                // to the end of the track) and as long as the clipboard
+                // plays, in seconds, then counted in the session's frames:
+                // the paste only succeeds when the clipboard is at the
+                // *track's* rate, and a track may be at another rate than the
+                // session (#234), so the clipboard's frame count is not the
+                // other tracks' unit. Labels and words are not touched again
+                // here; they are the session's, not a track's, and moved once
+                // above.
+                let mut extras = serde_json::Map::new();
+                if !state.sync_lock {
+                    return extras;
+                }
+                let session_rate = state.sample_rate.max(1) as f64;
+                let gap_at = (at_sec * session_rate).round().max(0.0) as u64;
+                let gap_len = (len_sec * session_rate).round().max(0.0) as u64;
+                let synced = if gap_len == 0 {
+                    0
+                } else {
+                    sync_other_tracks(state, edited, |clips| {
+                        insert_gap_timeline(clips, gap_at, gap_len)
+                    })
+                };
+                extras.insert("synced_tracks".into(), json!(synced));
+                if synced > 0 {
+                    // The node keeps the plain label; the answer says what
+                    // else moved, as `cut_range`'s does.
+                    extras.insert(
+                        "summary".into(),
+                        json!(format!(
+                            "{summary} and {synced} other track(s), sync-locked"
+                        )),
+                    );
+                }
+                extras
             },
-            format!("paste clipboard at {at:.2}s on track {track}"),
+            label,
         );
 
         // Record the op here rather than letting the dispatcher's default

@@ -689,7 +689,7 @@ Apply a notch (band-reject) filter to a track, attenuating frequencies near cent
 
 ## `paste_region`
 
-Paste the clipboard audio (set by copy_region) into a track at a given offset. The clipboard audio is spliced in; samples after the insertion point are shifted right. Appends a new session node.
+Paste the clipboard audio (set by copy_region) into a track at a given offset. The clipboard audio is spliced in; samples after the insertion point are shifted right. With sync-lock on (see `set_sync_lock`) the gap opens on every other track too, so the tracks stay aligned: the call then moves clips on tracks it does not name, and a clip that straddles the insertion point is split in two. Appends a new session node.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
@@ -993,7 +993,7 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `set_sync_lock`
 
-Turn sync-lock on or off. With it on, an edit that shifts time on one track shifts every track, so a multitrack recording stays aligned — cutting a sentence from one speaker's track in an interview moves the other speaker's track by the same amount rather than desynchronising the conversation. Affects `cut_range` and `insert_silence`; each is still one undoable node covering every track it moved.
+Turn sync-lock on or off. With it on, an edit that shifts time on one track shifts every track, so a multitrack recording stays aligned — cutting a sentence from one speaker's track in an interview moves the other speaker's track by the same amount rather than desynchronising the conversation. Affects `cut_range`, `insert_silence` and `paste_region`; each is still one undoable node covering every track it moved.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
