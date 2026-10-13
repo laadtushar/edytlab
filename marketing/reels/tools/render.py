@@ -1,21 +1,36 @@
-"""Render the 1080x1920 reels: PIL draws the cards and caption stills, one ffmpeg
-filter graph does the compositing. Everything runs under `nice -n 10`."""
-import io, json, math, os, re, subprocess, sys
-from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
+"""Render the 1080x1920 reels: PIL draws the background, cards and caption stills, one ffmpeg
+filter graph does the compositing. Everything runs under `nice -n 10`.
+
+The look is the website's (brand.py): its dark tokens, Inter, the logo, and the cards of the demo
+videos' own burned-in captions (an opaque card with a violet edge, so a caption's contrast never
+depends on the frame behind it).
+
+Where things sit on the 1080x1920 canvas. Everything this file adds (captions, pill, note, progress
+bar, card text) stays inside SAFE: 120 px clear of both sides (the right side is where Reels,
+Shorts and TikTok put their buttons) and above the bottom 20 % (their caption and sound bar). The
+recording itself runs edge to edge. `assert_safe` checks each layer when it is drawn.
+"""
+import io, json, math, os, random, re, subprocess, sys
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 from spec import *
 from cues import build_reel, FPS
+import brand   # the site's colours and Inter, from website/app/globals.css and the `fonts-inter` package, as make-demo-videos.mjs uses them
+from brand import font, BACKGROUND, CARD, FOREGROUND, PRIMARY, MUTED_FG, BORDER, GRADIENT, AURORA
 
 W, H = 1080, 1920
-FRAME_W, FRAME_H, FRAME_Y = 1080, 654, 720
-CAP_Y, CAP_H = 430, 270
+CARD_WASH = 1.6     # the aurora on the hook and end cards, in multiples of the site's own opacity: a card is nothing but the wash, so it gets more (put_text keeps every line at 4.5:1 or better)
+SAFE_L, SAFE_R, SAFE_TOP, SAFE_BOTTOM = 120, 960, 250, round(H * 0.8)
+FRAME_W, FRAME_H, FRAME_Y = 1080, 654, 720      # the 1280x776 recording, scaled to the full width
+CAP_Y, CAP_H = 430, 270                          # the reel's own caption: a band above the recording
 PILL_Y = 366
 NOTE_Y = 1402
 BAR_Y = 1458
-ACCENT = (242, 140, 60)
-FONT_B = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
-FONT_SERIF_BI = "/usr/share/fonts/truetype/liberation/LiberationSerif-BoldItalic.ttf"
+CARD_PAD_X, CARD_PAD_Y, EDGE_W = 32, 26, 8      # the caption card; the violet edge is EDGE_W wide
+CARD_R = brand.RADIUS_PX * 2                    # the site's --radius, at the reels' 2x (a canvas is about twice a site section's px size)
 WORK = f"{ROOT}/work"
 THREADS = os.environ.get("REEL_THREADS", "3")
+X264_PARAMS = os.environ.get("REEL_X264", "aq-mode=3")
+GRAIN = float(os.environ.get("REEL_GRAIN", "0.5"))   # std. dev. (8-bit levels) of the noise on the cards' background, see background()
 
 
 def run(cmd, **kw):
@@ -26,43 +41,62 @@ def run(cmd, **kw):
     return p
 
 
-def font(size, path=FONT_B):
-    return ImageFont.truetype(path, size)
+def rgba(c, a=255):
+    return tuple(c) + (a,)
 
 
-def grab(slug, t):
-    p = subprocess.run(["nice", "-n", "10", "ffmpeg", "-nostdin", "-v", "error", "-ss", f"{t:.3f}", "-i", f"{DEMO_DIR}/{slug}.mp4",
-                        "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "-"], capture_output=True)
-    return Image.open(io.BytesIO(p.stdout)).convert("RGB")
+def assert_safe(layer, what, dx=0, dy=0, left=SAFE_L, right=SAFE_R, top=0, bottom=SAFE_BOTTOM):
+    """The layer's visible pixels, placed at (dx, dy) on the canvas, lie inside the safe area."""
+    box = layer.getchannel("A").point(lambda v: 255 if v > 8 else 0).getbbox()
+    if box is None:
+        return
+    x0, y0, x1, y1 = box[0] + dx, box[1] + dy, box[2] + dx, box[3] + dy
+    if x0 < left or x1 > right or y0 < top or y1 > bottom:
+        raise ValueError(f"{what} reaches {(x0, y0, x1, y1)}, outside the safe area {(left, top, right, bottom)}")
 
 
-# ------------------------------------------------------------------ cards
-def blurred_bg(im, dark=0.30):
-    w, h = im.size
-    cw = round(h * 9 / 16)
-    x0 = (w - cw) // 2
-    c = im.crop((x0, 0, x0 + cw, h)).resize((270, 480), Image.LANCZOS).filter(ImageFilter.GaussianBlur(5))
-    c = c.resize((W, H), Image.BICUBIC)
-    c = ImageEnhance.Brightness(c).enhance(dark)
-    c = ImageEnhance.Color(c).enhance(0.8)
-    # vertical vignette
-    g = Image.new("L", (1, H))
-    for y in range(H):
-        d = abs(y - H / 2) / (H / 2)
-        g.putpixel((0, y), int(255 * (0.55 + 0.45 * (1 - d ** 2))))
-    g = g.resize((W, H))
-    return Image.composite(c, Image.new("RGB", (W, H), (6, 8, 14)), g)
+def check_contrast(bg, box, colour, what):
+    """Text of `colour` over `bg` in `box`: 4.5:1 or better against the brightest the background gets there
+    (the per-channel maximum in the box, which is at least as bright as any one pixel)."""
+    ext = bg.convert("RGB").crop(tuple(round(v) for v in box)).getextrema()
+    ratio = brand.contrast(colour, tuple(e[1] for e in ext))
+    if ratio < brand.MIN_CONTRAST:
+        raise ValueError(f"{what}: {ratio:.2f}:1 over the brightest part of the background behind it, under {brand.MIN_CONTRAST}:1")
 
 
-def text_w(f, s):
-    return f.getlength(s)
+def put_text(layer, bg, xy, text, f, colour, anchor, what):
+    """Draw text on `layer` and check its contrast against `bg`, the picture the layer will sit on."""
+    ImageDraw.Draw(layer).text(xy, text, font=f, fill=rgba(colour), anchor=anchor)
+    check_contrast(bg, ImageDraw.Draw(layer).textbbox(xy, text, font=f, anchor=anchor), colour, what)
 
 
-def draw_center(d, y, s, f, fill, w=W):
-    d.text(((w - text_w(f, s)) / 2, y), s, font=f, fill=fill)
+# ------------------------------------------------------------------ background
+def background(strength=1.0, grain=0.0, glow=True):
+    """The page's dark background with the site's `.aurora` (a violet and a magenta wash at opposite
+    corners, `.aurora` in globals.css) and, when `glow` is on (behind the recording), the violet of its `.glow`.
+    `strength` 1 is the site's own opacity (0.16); the cards use CARD_WASH times that. `grain` is the std. dev. of a little
+    noise, as the site's film grain: the cards' wash is steep enough to band once it is encoded. Only the cards
+    get it, because the encoder keeps noise and it costs file size."""
+    bg = Image.new("RGB", (W, H), BACKGROUND)
+
+    def wash(shape, colour, opacity, blur):
+        m = Image.new("L", (W, H), 0)
+        shape(ImageDraw.Draw(m))
+        m = m.filter(ImageFilter.GaussianBlur(blur)).point(lambda v: min(255, int(v * opacity)))
+        bg.paste(Image.new("RGB", (W, H), colour), (0, 0), m)
+
+    wash(lambda d: d.ellipse([-440, -300, 680, 820], fill=255), AURORA[0], brand.AURORA_OPACITY * strength, 150)
+    wash(lambda d: d.ellipse([430, 1180, 1550, 2300], fill=255), AURORA[1], brand.AURORA_OPACITY * strength, 150)
+    if glow:
+        wash(lambda d: d.rectangle([-60, FRAME_Y + 10, W + 60, FRAME_Y + FRAME_H - 10], fill=255), AURORA[0], 0.26, 70)
+    if grain:   # seeded, so a rebuild gives the same bytes
+        width = grain * 12 ** 0.5   # a uniform spread of this width has std. dev. `grain`
+        noise = Image.frombytes("L", (W, H), random.Random(2026).randbytes(W * H)).point(lambda v: 128 + round((v / 255 - 0.5) * width))
+        bg = ImageChops.add(bg, noise.convert("RGB"), 1.0, -128)
+    return bg
 
 
-def shadowed(layer, blur=4, off=4, alpha=0.55):
+def shadowed(layer, blur=12, off=8, alpha=0.5):
     a = layer.getchannel("A").point(lambda v: int(v * alpha))
     sh = Image.new("RGBA", layer.size, (0, 0, 0, 0))
     sh.putalpha(a)
@@ -73,108 +107,201 @@ def shadowed(layer, blur=4, off=4, alpha=0.55):
     return out
 
 
-def wordmark(d, cx, y, size, fill_lab=(255, 255, 255)):
-    fa, fb = font(size, FONT_SERIF_BI), font(size)
-    wa, wb = text_w(fa, "edyt"), text_w(fb, "lab")
-    x = cx - (wa + wb) / 2
-    d.text((x, y), "edyt", font=fa, fill=ACCENT)
-    d.text((x + wa, y), "lab", font=fb, fill=fill_lab)
+# ------------------------------------------------------------------ the logo
+def logo_mark(size):
+    """website/public/logo.svg drawn at `size` px: three level bars and two rising strokes (its shapes, in
+    the viewBox of components/motion/logo.tsx). Drawn at 4x and scaled down for smooth edges."""
+    ss = 4
+    px = size * ss
+    k = px / 57.29
+    ox, oy = 3.854, 3.354
+
+    def P(x, y):
+        return ((x - ox) * k, (y - oy) * k)
+
+    im = Image.new("RGBA", (px, px), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    for x, y, h in ((5, 26, 12), (14, 20, 24), (23, 25, 14)):
+        d.rounded_rectangle([*P(x, y), *P(x + 6, y + h)], radius=3 * k, fill=rgba(brand.LOGO_BARS))
+    for pts, col in (([(34, 26), (41, 18), (48, 23), (57, 12)], brand.LOGO_BARS), ([(34, 38), (41, 46), (48, 41), (57, 52)], brand.LOGO_LINE)):
+        xy = [P(*p) for p in pts]
+        d.line(xy, fill=rgba(col), width=round(6 * k), joint="curve")
+        for x, y in xy:
+            d.ellipse([x - 3 * k, y - 3 * k, x + 3 * k, y + 3 * k], fill=rgba(col))
+    return im.resize((size, size), Image.LANCZOS)
 
 
-def hook_card(path, title, sub, bg_im):
-    bg = blurred_bg(bg_im, 0.62).convert("RGBA")
+def wordmark(layer, bg, cx, top, mark, size):
+    """The site header's lockup: the mark, then "edytlab" in Inter SemiBold."""
+    f = font("SemiBold", size)
+    tw = f.getlength("edytlab")
+    gap = round(mark * 0.28)
+    x = cx - (mark + gap + tw) / 2
+    layer.alpha_composite(logo_mark(mark), (round(x), round(top)))
+    put_text(layer, bg, (x + mark + gap, top + mark / 2), "edytlab", f, FOREGROUND, "lm", "wordmark")
+
+
+def gradient_text(layer, bg, xy, text, f, anchor="ls"):
+    """Text filled with the site's `.gradient-text` (light violet to magenta-violet, left to right)."""
+    m = Image.new("L", layer.size, 0)
+    ImageDraw.Draw(m).text(xy, text, font=f, fill=255, anchor=anchor)
+    box = m.getbbox()
+    if not box:
+        return
+    check_contrast(bg, box, GRADIENT[1], "gradient title")   # the darker end is the one that matters
+    w = box[2] - box[0]
+    ramp = Image.new("L", (w, 1))
+    ramp.putdata([round(255 * x / max(1, w - 1)) for x in range(w)])
+    ramp = ramp.resize((w, box[3] - box[1]))
+    fill = Image.composite(Image.new("RGB", ramp.size, GRADIENT[1]), Image.new("RGB", ramp.size, GRADIENT[0]), ramp)
+    full = Image.new("RGB", layer.size, GRADIENT[0])
+    full.paste(fill, (box[0], box[1]))
+    layer.paste(full, (0, 0), m)
+
+
+def wrap(text, f, max_w, max_lines=2):
+    """Greedy line breaks; with two lines, the split that leaves them most even."""
+    words = text.split()
+    if f.getlength(text) <= max_w:
+        return [text]
+    best = None
+    for k in range(1, len(words)):
+        a, b = " ".join(words[:k]), " ".join(words[k:])
+        w = max(f.getlength(a), f.getlength(b))
+        if w <= max_w and (best is None or w < best[0]):
+            best = (w, [a, b])
+    if best is None or max_lines < 2:
+        raise ValueError(f"does not fit {max_lines} line(s) of {max_w}px: {text}")
+    return best[1]
+
+
+# ------------------------------------------------------------------ cards
+def hook_card(path, title, sub):
+    bg = background(CARD_WASH, GRAIN, glow=False).convert("RGBA")
     layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    d = ImageDraw.Draw(layer)
-    wordmark(d, W / 2, 330, 78)
+    wordmark(layer, bg, W / 2, 330, 84, 64)
     size = 132
-    while size > 70:
-        f = font(size)
-        if max(text_w(f, ln) for ln in title) <= 940:
-            break
+    while size > 64 and max(font("Bold", size).getlength(ln) for ln in title) > SAFE_R - SAFE_L:
         size -= 4
-    f = font(size)
-    lh = int(size * 1.16)
+    f = font("Bold", size)
+    lh = round(size * 1.1)
     top = 760 - lh * len(title) / 2
     for i, ln in enumerate(title):
-        draw_center(d, top + i * lh, ln, f, ACCENT if i == len(title) - 1 else (255, 255, 255))
-    y = top + lh * len(title) + 36
+        xy = (W / 2 - f.getlength(ln) / 2, top + i * lh + size)
+        if i == len(title) - 1:
+            gradient_text(layer, bg, xy, ln, f)
+        else:
+            put_text(layer, bg, xy, ln, f, FOREGROUND, "ls", "hook title")
     if sub:
-        fs = font(40)
-        draw_center(d, y, sub, fs, (255, 255, 255, 190))
-    layer = shadowed(layer, blur=6, off=5, alpha=0.5)
-    bg.alpha_composite(layer)
+        fs = font("Medium", 38)
+        y = top + lh * len(title) + 40
+        for ln in wrap(sub, fs, SAFE_R - SAFE_L):
+            put_text(layer, bg, (W / 2, y), ln, fs, MUTED_FG, "ma", "hook sub line")
+            y += 52
+    assert_safe(layer, "hook card", top=SAFE_TOP)
+    bg.alpha_composite(shadowed(layer, blur=8, off=6, alpha=0.45))
     bg.convert("RGB").save(path)
 
 
-def end_card(path, bg_im, free="Free, open source"):
-    bg = blurred_bg(bg_im, 0.58).convert("RGBA")
+def end_card(path, free="Free, open source"):
+    bg = background(CARD_WASH, GRAIN, glow=False).convert("RGBA")
     layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
-    wordmark(d, W / 2, 520, 168)
+    wordmark(layer, bg, W / 2, 470, 150, 104)
     fsz = 84
-    while text_w(font(fsz), free) > 940:
+    while font("Bold", fsz).getlength(free) > SAFE_R - SAFE_L:
         fsz -= 4
-    draw_center(d, 760, free, font(fsz), (255, 255, 255))
-    # url pill
-    fu = font(92)
-    s = SITE_URL
-    tw = text_w(fu, s)
-    px0, px1 = (W - tw) / 2 - 56, (W + tw) / 2 + 56
-    d.rounded_rectangle([px0, 930, px1, 1066], radius=68, outline=ACCENT + (255,), width=5, fill=(0, 0, 0, 90))
-    d.text(((W - tw) / 2, 930 + 18), s, font=fu, fill=ACCENT + (255,))
-    draw_center(d, 1150, "macOS  ·  Windows  ·  Linux", font(50), (255, 255, 255, 220))
-    layer = shadowed(layer, blur=6, off=5, alpha=0.5)
-    bg.alpha_composite(layer)
+    put_text(layer, bg, (W / 2, 760), free, font("Bold", fsz), FOREGROUND, "ma", "end title")
+    # the url in a pill with the site's primary ring (`ring-hover`: primary at 45 %)
+    fu = font("SemiBold", 88)
+    tw = fu.getlength(SITE_URL)
+    x0, x1 = W / 2 - tw / 2 - 60, W / 2 + tw / 2 + 60
+    d.rounded_rectangle([x0, 930, x1, 1070], radius=70, fill=rgba(CARD, 235), outline=rgba(PRIMARY, 200), width=4)
+    d.text((W / 2, 1000), SITE_URL, font=fu, fill=rgba(PRIMARY), anchor="mm")
+    put_text(layer, bg, (W / 2, 1150), "macOS  ·  Windows  ·  Linux", font("Medium", 46), MUTED_FG, "ma", "end platforms")
+    assert_safe(layer, "end card", top=SAFE_TOP)
+    bg.alpha_composite(shadowed(layer, blur=8, off=6, alpha=0.45))
     bg.convert("RGB").save(path)
 
 
 # ------------------------------------------------------------- caption stills
-def layout(tokens, max_w=960):
-    """Best 1-2 line layout at the largest size in 64..50 px. -> (font, [[idx]])"""
-    for size in range(64, 49, -2):
-        f = font(size)
-        sp = text_w(f, " ")
-        ws = [text_w(f, t) for t in tokens]
-        total = sum(ws) + sp * (len(ws) - 1)
-        if total <= max_w:
-            return f, [list(range(len(tokens)))]
+def explode(tokens):
+    """tokens -> parts (text, token index, glued): a long hyphenated name, such as a file name, may break after a hyphen."""
+    parts = []
+    for i, tok in enumerate(tokens):
+        pieces = re.findall(r"[^-]+-?", tok) if len(tok) > 16 and "-" in tok.strip("-") else [tok]
+        for k, piece in enumerate(pieces):
+            parts.append((piece, i, k > 0))
+    return parts
+
+
+MAX_TEXT_W = SAFE_R - SAFE_L - 2 * CARD_PAD_X - EDGE_W
+
+
+def layout(tokens, max_w=MAX_TEXT_W):
+    """Best 1-2 line layout at the largest Inter SemiBold size in 60..44 px. -> (font, parts, [(first, end)])"""
+    parts = explode(tokens)
+    for size in range(60, 43, -2):
+        f = font("SemiBold", size)
+        sp = f.getlength(" ")
+        ws = [f.getlength(p[0]) for p in parts]
+
+        def span(a, b):
+            return sum(ws[a:b]) + sum(sp for k in range(a + 1, b) if not parts[k][2])
+
+        if span(0, len(parts)) <= max_w:
+            return f, parts, [(0, len(parts))]
         best = None
-        for k in range(1, len(tokens)):
-            w1 = sum(ws[:k]) + sp * (k - 1)
-            w2 = sum(ws[k:]) + sp * (len(ws) - k - 1)
+        for k in range(1, len(parts)):
+            w1, w2 = span(0, k), span(k, len(parts))
             if max(w1, w2) <= max_w and (best is None or max(w1, w2) < best[0]):
                 best = (max(w1, w2), k)
         if best:
-            k = best[1]
-            return f, [list(range(k)), list(range(k, len(tokens)))]
+            return f, parts, [(0, best[1]), (best[1], len(parts))]
     raise ValueError("caption does not fit 2 lines: " + " ".join(tokens))
 
 
 def caption_image(tokens, accent_n, cur=None, alpha=1.0, mode="plain"):
-    """tokens: display words. mode plain: all white (first accent_n accent).
-    mode words: idx<cur white, idx==cur accent, idx>cur dim white (cur=-1: all dim)."""
-    f, lines = layout(tokens)
+    """The reel's own caption: Inter SemiBold on the site's card with a violet edge, as in the demos.
+    tokens: display words. mode plain: the first accent_n words violet, the rest white.
+    mode words: idx<cur white, idx==cur violet, idx>cur dim (cur=-1: all dim)."""
+    f, parts, lines = layout(tokens)
+    sp = f.getlength(" ")
+    asc, desc = f.getmetrics()
+    lh = round((asc + desc) * 1.08)
+
+    def width(a, b):
+        return sum(f.getlength(parts[k][0]) for k in range(a, b)) + sum(sp for k in range(a + 1, b) if not parts[k][2])
+
+    block_w = max(width(a, b) for a, b in lines)
+    block_h = asc + desc + (len(lines) - 1) * lh
+    card_w, card_h = round(block_w) + 2 * CARD_PAD_X + EDGE_W, block_h + 2 * CARD_PAD_Y
+    x0, y0 = round((W - card_w) / 2), round((CAP_H - card_h) / 2)
     layer = Image.new("RGBA", (W, CAP_H), (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
-    sp = text_w(f, " ")
-    lh = int(f.size * 1.2)
-    top = (CAP_H - lh * len(lines)) / 2 + 4
-    for li, idxs in enumerate(lines):
-        total = sum(text_w(f, tokens[i]) for i in idxs) + sp * (len(idxs) - 1)
-        x = (W - total) / 2
-        for i in idxs:
+    box = [x0, y0, x0 + card_w, y0 + card_h]
+    d.rounded_rectangle(box, radius=CARD_R, fill=rgba(CARD, 240), outline=rgba(BORDER), width=2)
+    # the violet edge: a bar down the left side, cut to the card's rounded shape
+    shape = Image.new("L", layer.size, 0)
+    ImageDraw.Draw(shape).rounded_rectangle(box, radius=CARD_R, fill=255)
+    edge = Image.new("L", layer.size, 0)
+    ImageDraw.Draw(edge).rectangle([x0, y0, x0 + EDGE_W - 1, y0 + card_h], fill=255)
+    layer.paste(Image.new("RGBA", layer.size, rgba(PRIMARY)), (0, 0), ImageChops.multiply(shape, edge))
+    for li, (a, b) in enumerate(lines):
+        x = x0 + EDGE_W + CARD_PAD_X + (block_w - width(a, b)) / 2
+        base = y0 + CARD_PAD_Y + asc + li * lh
+        for k in range(a, b):
+            text, ti, glued = parts[k]
+            if k > a and not glued:
+                x += sp
             if mode == "words":
-                if i < cur:
-                    col = (255, 255, 255, 255)
-                elif i == cur:
-                    col = ACCENT + (255,)
-                else:
-                    col = (255, 255, 255, 120)
+                col = FOREGROUND + (255,) if ti < cur else PRIMARY + (255,) if ti == cur else FOREGROUND + (120,)
             else:
-                col = ACCENT + (255,) if i < accent_n else (255, 255, 255, 255)
-            d.text((x, top + li * lh), tokens[i], font=f, fill=col)
-            x += text_w(f, tokens[i]) + sp
-    layer = shadowed(layer, blur=4, off=4, alpha=0.6)
+                col = rgba(PRIMARY) if ti < accent_n else rgba(FOREGROUND)
+            d.text((x, base), text, font=f, fill=col, anchor="ls")
+            x += f.getlength(text)
+    assert_safe(layer, "caption", dy=CAP_Y)
+    layer = shadowed(layer, blur=14, off=8, alpha=0.5)
     if alpha < 1.0:
         layer.putalpha(layer.getchannel("A").point(lambda v: int(v * alpha)))
     return layer
@@ -184,7 +311,6 @@ ACCENT_RE = [re.compile(r"^\d+ ·"), re.compile(r"^(Listen|Done|Before):")]
 
 
 def accent_count(text):
-    toks = text.split()
     for rx in ACCENT_RE:
         m = rx.match(text)
         if m:
@@ -197,33 +323,27 @@ def blank_caption(path):
 
 
 # ------------------------------------------------------------ group layers
-def group_layer(path, pill_text, note=True, note_text="Real screen recording · waits sped up"):
+def group_layer(path, bg, pill_text, note=True, note_text="Real screen recording · waits sped up"):
     layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
     if pill_text:
-        f = font(34)
-        tw = text_w(f, pill_text)
+        f = font("SemiBold", 34)
+        tw = f.getlength(pill_text)
         x0, x1 = (W - tw) / 2 - 44, (W + tw) / 2 + 44
-        d.rounded_rectangle([x0, PILL_Y, x1, PILL_Y + 66], radius=33, fill=(0, 0, 0, 120), outline=ACCENT + (230,), width=3)
-        d.text(((W - tw) / 2, PILL_Y + 12), pill_text, font=f, fill=(255, 255, 255, 255))
+        d.rounded_rectangle([x0, PILL_Y, x1, PILL_Y + 66], radius=33, fill=rgba(CARD, 240), outline=rgba(PRIMARY, 115), width=3)
+        d.text((W / 2, PILL_Y + 33), pill_text, font=f, fill=rgba(FOREGROUND), anchor="mm")
     if note:
-        f = font(27)
-        draw_center(d, NOTE_Y, note_text, f, (255, 255, 255, 150))
+        put_text(layer, bg, (W / 2, NOTE_Y), note_text, font("Medium", 28), MUTED_FG, "ma", "note")
     # progress track
-    d.rounded_rectangle([60, BAR_Y, W - 60, BAR_Y + 6], radius=3, fill=(255, 255, 255, 36))
+    d.rounded_rectangle([SAFE_L, BAR_Y, SAFE_R - 1, BAR_Y + 5], radius=3, fill=rgba(FOREGROUND, 36))
+    assert_safe(layer, "pill, note and progress track")
     layer.save(path)
 
 
 def bar_image(path):
-    im = Image.new("RGBA", (W - 120, 6), (0, 0, 0, 0))
-    ImageDraw.Draw(im).rounded_rectangle([0, 0, W - 121, 5], radius=3, fill=ACCENT + (255,))
+    im = Image.new("RGBA", (SAFE_R - SAFE_L, 6), (0, 0, 0, 0))
+    ImageDraw.Draw(im).rounded_rectangle([0, 0, SAFE_R - SAFE_L - 1, 5], radius=3, fill=rgba(PRIMARY))
     im.save(path)
-
-
-def mask_image(path):
-    m = Image.new("L", (FRAME_W, FRAME_H), 0)
-    ImageDraw.Draw(m).rounded_rectangle([0, 0, FRAME_W - 1, FRAME_H - 1], radius=22, fill=255)
-    m.save(path)
 
 
 # --------------------------------------------------------------- build graph
@@ -308,23 +428,10 @@ def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
     demo_dur = (end["start"] if end else tl["duration"]) - t0
     demo_frames = fr(demo_dur)
 
-    # cards: background frame from the demo the reel is about
-    demo_code = r.get("demo")
-    bg_src = (DEMOS[demo_code]["slug"], 85.0) if demo_code == "BT" else (DEMOS[demo_code]["slug"], 58.0) if demo_code else ("dj-mini-mix", 58.0)
-    if name == "highlights":
-        bg_src = ("dj-beatmatched-transition", 85.0)
-    if name == "teaser":
-        bg_src = ("dj-beatmatched-transition", 85.0)
-    if demo_code == "MM":
-        bg_src = ("dj-mini-mix", 58.0)
-    if demo_code == "EI":
-        bg_src = ("dj-extended-club-intro", 66.0)
-    bgim = grab(*bg_src)
-    inputs, fparts = [], []
-    idx = 0
+    inputs, idx = [], 0
     if hook:
         hp = f"{work}/hook.png"
-        hook_card(hp, hook["title"], hook.get("sub", ""), bgim)
+        hook_card(hp, hook["title"], hook.get("sub", ""))
         inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{fr(hook['end']-hook['start'])/FPS:.4f}", "-i", hp]
         hidx = idx; idx += 1
     sidx = []
@@ -334,13 +441,17 @@ def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
         sidx.append(idx); idx += 1
     if end:
         ep = f"{work}/end.png"
-        end_card(ep, bgim, ES_TEXT["free"] if tl.get("lang") == "es" else "Free, open source")
+        end_card(ep, ES_TEXT["free"] if tl.get("lang") == "es" else "Free, open source")
         inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{fr(end['end']-end['start'])/FPS:.4f}", "-i", ep]
         eidx = idx; idx += 1
-    mp, bp = f"{work}/mask.png", f"{work}/bar.png"
-    mask_image(mp); bar_image(bp)
-    inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{demo_dur+1:.3f}", "-i", mp]
-    midx = idx; idx += 1
+    # the background the recording sits on
+    bp = f"{work}/bg.png"
+    bgimg = background()
+    bgimg.save(bp)
+    inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{demo_dur+1:.3f}", "-i", bp]
+    bgidx = idx; idx += 1
+    bar = f"{work}/bar.png"
+    bar_image(bar)
     # caption layer
     items = caption_timeline(tl, work, mode, words)
     cl = f"{work}/caps.txt"
@@ -360,10 +471,10 @@ def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
     gidx = []
     for gi, (a, b, pill) in enumerate(groups):
         gp = f"{work}/group{gi}.png"
-        group_layer(gp, pill, True, ES_TEXT["note"] if tl.get("lang") == "es" else "Real screen recording · waits sped up")
+        group_layer(gp, bgimg, pill, True, ES_TEXT["note"] if tl.get("lang") == "es" else "Real screen recording · waits sped up")
         inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{demo_dur+1:.3f}", "-i", gp]
         gidx.append(idx); idx += 1
-    inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{demo_dur+1:.3f}", "-i", bp]
+    inputs += ["-loop", "1", "-framerate", str(FPS), "-t", f"{demo_dur+1:.3f}", "-i", bar]
     baridx = idx; idx += 1
 
     f = []
@@ -375,10 +486,8 @@ def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
                  f"tpad=stop_mode=clone:stop=4,trim=end_frame={nf},setpts=N/({FPS}*TB)[v{k}]")
         labels.append(f"[v{k}]")
     f.append("".join(labels) + f"concat=n={len(labels)}:v=1:a=0[vc]")
-    f.append("[vc]split=2[fgsrc][bgsrc]")
-    f.append("[bgsrc]crop=1080:520:0:0,scale=-2:480,crop=270:480,gblur=sigma=5,scale=1080:1920:flags=bicubic,eq=brightness=0.02:contrast=1.25:saturation=1.1,setsar=1,format=yuv420p[bg]")
-    f.append(f"[fgsrc]format=rgba[fgc];[{midx}:v]format=gray,setsar=1[mk];[fgc][mk]alphamerge[fg]")
-    f.append(f"[bg][fg]overlay=0:{FRAME_Y}:format=auto[b1]")
+    f.append(f"[{bgidx}:v]fps={FPS},format=yuv420p,setsar=1[bg]")
+    f.append(f"[bg][vc]overlay=0:{FRAME_Y}:format=auto[b1]")
     f.append(f"[{cidx}:v]fps={FPS},format=rgba,setsar=1[cap]")
     f.append(f"[b1][cap]overlay=0:{CAP_Y}:format=auto:eof_action=pass[b2]")
     cur = "b2"
@@ -387,22 +496,19 @@ def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
         f.append(f"[{cur}][gl{gi}]overlay=0:0:format=auto:enable='between(t,{a:.3f},{b:.3f})':eof_action=pass[g{gi}]")
         cur = f"g{gi}"
     f.append(f"[{baridx}:v]format=rgba,setsar=1[bar]")
-    f.append(f"color=c=0x00000000:s={W-120}x6:r={FPS},format=rgba[bcan]")
+    f.append(f"color=c=0x00000000:s={SAFE_R-SAFE_L}x6:r={FPS},format=rgba[bcan]")
     f.append(f"[bcan][bar]overlay=x='-w+w*t/{demo_dur:.3f}':y=0:eval=frame:format=auto:shortest=1[bfill]")
-    f.append(f"[{cur}][bfill]overlay=60:{BAR_Y}:format=auto:eof_action=pass,setsar=1,format=yuv420p,trim=end_frame={demo_frames},setpts=N/({FPS}*TB)[demo]")
+    f.append(f"[{cur}][bfill]overlay={SAFE_L}:{BAR_Y}:format=auto:eof_action=pass,setsar=1,format=yuv420p,trim=end_frame={demo_frames},setpts=N/({FPS}*TB)[demo]")
     parts = []
-    if hook:
+    if hook:   # no fade in: the first frame is the card, which is what a feed shows before it plays
         hf = fr(hook["end"] - hook["start"])
-        f.append(f"[{hidx}:v]fps={FPS},scale={W}:{H},setsar=1,format=yuv420p,"
-                 f"zoompan=z='min(1+0.0006*on,1.05)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s={W}x{H}:fps={FPS},"
-                 f"fade=t=in:st=0:d=0.2,trim=end_frame={hf},setpts=N/({FPS}*TB),setsar=1,format=yuv420p[hk]")
+        f.append(f"[{hidx}:v]fps={FPS},scale={W}:{H},setsar=1,format=yuv420p,trim=end_frame={hf},setpts=N/({FPS}*TB)[hk]")
         parts.append("[hk]")
     parts.append("[demo]")
     if end:
         ef = fr(end["end"] - end["start"])
         f.append(f"[{eidx}:v]fps={FPS},scale={W}:{H},setsar=1,format=yuv420p,"
-                 f"zoompan=z='min(1+0.0006*on,1.05)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s={W}x{H}:fps={FPS},"
-                 f"fade=t=in:st=0:d=0.2,fade=t=out:st={ef/FPS-0.25:.3f}:d=0.25,trim=end_frame={ef},setpts=N/({FPS}*TB),setsar=1,format=yuv420p[ed]")
+                 f"fade=t=out:st={ef/FPS-0.25:.3f}:d=0.25,trim=end_frame={ef},setpts=N/({FPS}*TB),setsar=1,format=yuv420p[ed]")
         parts.append("[ed]")
     f.append("".join(parts) + f"concat=n={len(parts)}:v=1:a=0[outv]")
     script = f"{work}/graph.txt"
@@ -410,7 +516,7 @@ def render_video(tl, mode="plain", words=None, out_path=None, crf=20):
     out_path = out_path or f"{work}/video.mp4"
     cmd = ["ffmpeg", "-nostdin", "-y", "-v", "error"] + inputs + ["-filter_complex_script", script, "-map", "[outv]", "-an",
            "-c:v", "libx264", "-preset", "medium", "-crf", str(crf), "-profile:v", "high", "-level", "4.2", "-pix_fmt", "yuv420p",
-           "-r", str(FPS), "-g", "60", "-threads", THREADS, "-movflags", "+faststart", out_path]
+           "-x264-params", X264_PARAMS, "-r", str(FPS), "-g", "60", "-threads", THREADS, "-movflags", "+faststart", out_path]
     run(cmd)
     return out_path
 
@@ -507,7 +613,7 @@ def contact_sheet(video, tl, out_png, cols=4, rows=3, tw=270):
     th = round(tw * 16 / 9)
     sheet = Image.new("RGB", (cols * tw, rows * th), (0, 0, 0))
     d = ImageDraw.Draw(sheet)
-    f = font(18)
+    f = font("SemiBold", 18)
     for i, (cid, t) in enumerate(pts):
         p = subprocess.run(["nice", "-n", "10", "ffmpeg", "-nostdin", "-v", "error", "-ss", f"{t:.3f}", "-i", video, "-frames:v", "1",
                             "-f", "image2pipe", "-vcodec", "png", "-"], capture_output=True)

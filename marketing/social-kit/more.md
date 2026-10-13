@@ -11,8 +11,8 @@ v0.5.0 <https://github.com/laadtushar/edytlab/releases/tag/v0.5.0> ·
 DJ recordings <https://edytlab.com/use-cases/dj>
 
 **Videos:** `reel-highlights.mp4`, `reel-beatmatched-transition.mp4`,
-`reel-extended-club-intro.mp4`, `reel-mini-mix.mp4`, `reel-teaser.mp4`; each
-also as `-narrated` with a matching `.srt`. The full recordings are
+`reel-extended-club-intro.mp4`, `reel-mini-mix.mp4`, `reel-teaser.mp4` (no
+voiceover yet). The full recordings are
 `website/public/demos/dj-beatmatched-transition.mp4` (2:45),
 `dj-extended-club-intro.mp4` (1:55) and `dj-mini-mix.mp4` (1:58), also at
 `https://edytlab.com/demos/<name>.mp4`.

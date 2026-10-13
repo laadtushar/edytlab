@@ -1,12 +1,25 @@
 # edytlab reels: narration transcripts and ElevenLabs settings
 
+> **Status: written for the old takes.** The narrated reels and demos (`*-narrated.mp4`, their `.srt` and `*-narration-timing.json`) were deleted
+> when the three demo videos were re-filmed in the app's new look (#581): they showed the old UI. The narrated versions will be regenerated once
+> narration credits are available. Until then this file, `transcripts/` and `audio/` are the source for that, and everything in them
+> **describes the earlier amber-UI takes, not the current footage**:
+>
+> - the lines were written for the old recordings and old cuts. Check each against the new footage before re-narrating. Facts that changed: the mini-mix export
+>   is now 1:19 (line `MM09` says one minute twenty-one) and its second Listen caption says 0:46; the demos' own caption times and lengths moved
+>   (2:45, 1:55 and 1:58 now, against 3:08, 1:56 and 2:18 before);
+> - the **Window**, **Words / max** and **Spoken** columns below are the old cuts' and the old videos'. The plain reels were re-cut and carry no narration, so
+>   `reel-*-cues.json` has the new timeline, and `demo-*-cues.json` has the new caption windows with the room each leaves for a voice
+>   (`python3 tools/cues.py` lists the lines that no longer fit). Rebuild the narrated timelines with `tools/build.py` once the lines are re-checked;
+> - the clips in `audio/` are the old lines' voice; a line that changes needs a new clip.
+
 Voice **Roger - Laid-Back, Casual, Resonant** (`voice_id CwhRBWXzGAHq8TQ4Fs17`), model **Eleven v4** (`eleven_v4`).
-Every line below was generated with exactly these settings, so the narrated videos in this folder and anything you
+Every line below was generated with exactly these settings, so the narrated videos that were made from them and anything you
 re-record in the ElevenLabs web app will match.
 
 ## Read this before posting: the free-plan licence
 
-The audio in `*-narrated.mp4` and in `audio/` was generated on the account's **free plan** (10,000 credits a month).
+The audio in `audio/` (and in the narrated videos made from it, now deleted) was generated on the account's **free plan** (10,000 credits a month).
 ElevenLabs' own terms ("Can I publish the content I generate on the platform?",
 https://elevenlabs.io/docs/help-center/legal/can-i-publish-the-content-i-generate-on-the-platform), verbatim:
 
@@ -75,7 +88,8 @@ Everything below, retries and sound effects included, stayed under the 8,000-cha
 
 `R` highlights reel, `B` beatmatch reel, `E` intro reel, `M` mini-mix reel, `T` teaser (all in `reel-*-cues.json`);
 `BT`, `EI`, `MM` are the three full website videos (`demo-<slug>-cues.json`). The Spanish reel reuses `R01` to `R11`
-(`audio/reel-highlights-es/`, `transcripts/es/`). A line that is word for word the same in two files was generated once
+(`audio/reel-highlights-es/`, `transcripts/es/`). The ids and windows in the tables are the old cuts': the new plain reels keep the same
+items in the same order but with their own lengths (see `reel-*-cues.json`). A line that is word for word the same in two files was generated once
 and the clip is shared (same text, same audio). Table columns: **Words / max** is the spoken word count against the brief's
 `floor(max_seconds x 2.4)` for the cue; **Spoken** is the measured length of the line from the character alignment
 (`max_seconds` is the cue window minus 0.3 s). "(silent)" cues are the "Listen" moments, where the app's music plays.
@@ -86,7 +100,7 @@ and the clip is shared (same text, same audio). Table columns: **Words / max** i
 
 ### Highlights reel (reel-highlights)
 
-Video: `reel-highlights.mp4` / `reel-highlights-narrated.mp4`, 62.1 s. Cue file: `reel-highlights-cues.json`. Audio: `audio/reel-highlights/<cue-id>.mp3`.
+Old cut, 62.1 s (its narrated video was deleted; the plain `reel-highlights.mp4` was re-cut for the new footage, see `reel-highlights-cues.json`). Audio: `audio/reel-highlights/<cue-id>.mp3`.
 
 | Cue | Window (s) | On screen | Narration (text sent to ElevenLabs) | Words / max | Spoken | Note |
 |---|---|---|---|---|---|---|
@@ -104,7 +118,7 @@ Video: `reel-highlights.mp4` / `reel-highlights-narrated.mp4`, 62.1 s. Cue file:
 
 ### Reel: beatmatch and blend two tracks (reel-beatmatched-transition)
 
-Video: `reel-beatmatched-transition.mp4` / `reel-beatmatched-transition-narrated.mp4`, 55.0 s. Cue file: `reel-beatmatched-transition-cues.json`. Audio: `audio/reel-beatmatched-transition/<cue-id>.mp3`.
+Old cut, 55.0 s (its narrated video was deleted; the plain `reel-beatmatched-transition.mp4` was re-cut for the new footage, see `reel-beatmatched-transition-cues.json`). Audio: `audio/reel-beatmatched-transition/<cue-id>.mp3`.
 
 | Cue | Window (s) | On screen | Narration (text sent to ElevenLabs) | Words / max | Spoken | Note |
 |---|---|---|---|---|---|---|
@@ -121,7 +135,7 @@ Video: `reel-beatmatched-transition.mp4` / `reel-beatmatched-transition-narrated
 
 ### Reel: extend an intro for mixing (reel-extended-club-intro)
 
-Video: `reel-extended-club-intro.mp4` / `reel-extended-club-intro-narrated.mp4`, 40.3 s. Cue file: `reel-extended-club-intro-cues.json`. Audio: `audio/reel-extended-club-intro/<cue-id>.mp3`.
+Old cut, 40.3 s (its narrated video was deleted; the plain `reel-extended-club-intro.mp4` was re-cut for the new footage, see `reel-extended-club-intro-cues.json`). Audio: `audio/reel-extended-club-intro/<cue-id>.mp3`.
 
 | Cue | Window (s) | On screen | Narration (text sent to ElevenLabs) | Words / max | Spoken | Note |
 |---|---|---|---|---|---|---|
@@ -136,7 +150,7 @@ Video: `reel-extended-club-intro.mp4` / `reel-extended-club-intro-narrated.mp4`,
 
 ### Reel: a three-track mini-mix (reel-mini-mix)
 
-Video: `reel-mini-mix.mp4` / `reel-mini-mix-narrated.mp4`, 44.2 s. Cue file: `reel-mini-mix-cues.json`. Audio: `audio/reel-mini-mix/<cue-id>.mp3`.
+Old cut, 44.2 s (its narrated video was deleted; the plain `reel-mini-mix.mp4` was re-cut for the new footage, see `reel-mini-mix-cues.json`). Audio: `audio/reel-mini-mix/<cue-id>.mp3`.
 
 | Cue | Window (s) | On screen | Narration (text sent to ElevenLabs) | Words / max | Spoken | Note |
 |---|---|---|---|---|---|---|
@@ -152,7 +166,7 @@ Video: `reel-mini-mix.mp4` / `reel-mini-mix-narrated.mp4`, 44.2 s. Cue file: `re
 
 ### Teaser (reel-teaser)
 
-Video: `reel-teaser.mp4` / `reel-teaser-narrated.mp4`, 14.0 s. Cue file: `reel-teaser-cues.json`. Audio: `audio/reel-teaser/<cue-id>.mp3`.
+Old cut, 14.0 s (its narrated video was deleted; the plain `reel-teaser.mp4` was re-cut for the new footage, see `reel-teaser-cues.json`). Audio: `audio/reel-teaser/<cue-id>.mp3`.
 
 | Cue | Window (s) | On screen | Narration (text sent to ElevenLabs) | Words / max | Spoken | Note |
 |---|---|---|---|---|---|---|
@@ -164,7 +178,7 @@ Video: `reel-teaser.mp4` / `reel-teaser-narrated.mp4`, 14.0 s. Cue file: `reel-t
 
 ### Spanish highlights reel (reel-highlights-es)
 
-Video: `reel-highlights-es-narrated.mp4` (no un-narrated Spanish video: its cuts are timed to the Spanish speech), 62.3 s. Spanish narration, the same shots with cut lengths set by the Spanish speech. Cue file: `reel-highlights-es-cues.json`. Audio: `audio/reel-highlights-es/<cue-id>.mp3`.
+Old cut, 62.3 s (its narrated video and cue file were deleted; there is no un-narrated Spanish video, its cuts were timed to the Spanish speech, and `tools/build.py reel highlights-es narrated` rebuilds it). Spanish narration, the same shots with cut lengths set by the Spanish speech. Audio: `audio/reel-highlights-es/<cue-id>.mp3`.
 
 | Cue | Window (s) | On screen | Narration (text sent to ElevenLabs) | Words / max | Spoken | Note |
 |---|---|---|---|---|---|---|
@@ -185,7 +199,7 @@ Video: `reel-highlights-es-narrated.mp4` (no un-narrated Spanish video: its cuts
 
 ### Beatmatch and blend two tracks (demo-dj-beatmatched-transition)
 
-Video: `dj-beatmatched-transition.mp4` (the website video, untouched) / `demo-dj-beatmatched-transition-narrated.mp4`, 187.7 s. Cue file: `demo-dj-beatmatched-transition-cues.json`. Audio: `audio/demo-dj-beatmatched-transition/<cue-id>.mp3`.
+Old video, 187.7 s (the website video was re-filmed: `dj-beatmatched-transition.mp4` is now 165.3 s, with its captions at the times in `demo-dj-beatmatched-transition-cues.json`; its narrated version was deleted). Audio: `audio/demo-dj-beatmatched-transition/<cue-id>.mp3`.
 
 | Cue | Window (s) | On screen | Narration (text sent to ElevenLabs) | Words / max | Spoken | Note |
 |---|---|---|---|---|---|---|
@@ -204,7 +218,7 @@ Video: `dj-beatmatched-transition.mp4` (the website video, untouched) / `demo-dj
 
 ### Extend an intro for mixing (demo-dj-extended-club-intro)
 
-Video: `dj-extended-club-intro.mp4` (the website video, untouched) / `demo-dj-extended-club-intro-narrated.mp4`, 115.9 s. Cue file: `demo-dj-extended-club-intro-cues.json`. Audio: `audio/demo-dj-extended-club-intro/<cue-id>.mp3`.
+Old video, 115.9 s (the website video was re-filmed: `dj-extended-club-intro.mp4` is now 114.9 s, with its captions at the times in `demo-dj-extended-club-intro-cues.json`; its narrated version was deleted). Audio: `audio/demo-dj-extended-club-intro/<cue-id>.mp3`.
 
 | Cue | Window (s) | On screen | Narration (text sent to ElevenLabs) | Words / max | Spoken | Note |
 |---|---|---|---|---|---|---|
@@ -221,7 +235,7 @@ Video: `dj-extended-club-intro.mp4` (the website video, untouched) / `demo-dj-ex
 
 ### A three-track mini-mix (demo-dj-mini-mix)
 
-Video: `dj-mini-mix.mp4` (the website video, untouched) / `demo-dj-mini-mix-narrated.mp4`, 137.8 s. Cue file: `demo-dj-mini-mix-cues.json`. Audio: `audio/demo-dj-mini-mix/<cue-id>.mp3`.
+Old video, 137.8 s (the website video was re-filmed: `dj-mini-mix.mp4` is now 118.0 s, with its captions at the times in `demo-dj-mini-mix-cues.json`; its narrated version was deleted). Audio: `audio/demo-dj-mini-mix/<cue-id>.mp3`.
 
 | Cue | Window (s) | On screen | Narration (text sent to ElevenLabs) | Words / max | Spoken | Note |
 |---|---|---|---|---|---|---|
