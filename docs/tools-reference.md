@@ -906,13 +906,14 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `select_region`
 
-Resolve a description of a region into a concrete time range, using the session's transcript, a voice track's audio, or its tempo map. Give exactly one of: `text` (a phrase to find in the transcript), `speech_passage` (1-based, or negative from the end — -1 is the last thing said), or `from_beat`/`to_beat`. `speech_passage` reads the transcript; with no transcript, pass `voice_tracks` and it finds the speech in those tracks' audio instead, so -1 is the last thing said on them. `text` always needs the transcript, because finding a phrase needs the words. Returns start_sec and end_sec for any tool that takes a range, and reports what it matched and what it keyed on (transcript, audio or tempo_map), so the choice can be checked before acting on it. Refuses rather than guessing when the description does not resolve.
+Resolve a description of a region into a concrete time range, using the session's transcript, a voice track's audio, or its tempo map. Give exactly one of: `text` (a phrase to find in the transcript), `speech_passage` (1-based, or negative from the end — -1 is the last thing said), or `from_beat`/`to_beat`. `speech_passage` reads the transcript; with no transcript, pass `voice_tracks` and it finds the speech in those tracks' audio instead, so -1 is the last thing said on them. `text` always needs the transcript, because finding a phrase needs the words. Passages join across pauses shorter than `join_gap_sec`, as in `duck_under_speech`. Returns start_sec and end_sec for any tool that takes a range, and reports what it matched and what it keyed on (transcript, audio or tempo_map), so the choice can be checked before acting on it. Refuses rather than guessing when the description does not resolve.
 
 _Read-only — never held for approval._
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `from_beat` | integer | no |  |
+| `join_gap_sec` | number | no | For `speech_passage`: pauses shorter than this stay inside one passage. Default 1 s, as in `duck_under_speech`; pass the same value to both. |
 | `occurrence` | integer | no | Which occurrence of `text`. Default 1. |
 | `pad_sec` | number | no | Seconds of headroom either side. Default 0. |
 | `speech_passage` | integer | no | A stretch of continuous speech. 1 is the first, -1 the last. |

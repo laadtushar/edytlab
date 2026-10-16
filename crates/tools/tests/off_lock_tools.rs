@@ -38,12 +38,21 @@ use tools::{Tool, ToolContext, ToolDispatcher, ToolResult};
 ///   `name_node` and `apply_diff` read or rewrite the history itself.
 /// * `transcribe`, `separate_stems` and `split_by_speaker` need models
 ///   that are not shipped.
-/// * `select_region` reports `progress`.
 /// * Metadata tools (`set_track_gain`, `mute_track`, ...), `generate_*`,
 ///   `export_*`, `import_labels`, `label`, `cut_range`, `trim`, `gain` and
 ///   MCP tools are fast, or have not been reviewed for a re-run on a newer
 ///   head. Possible follow-ups, one reviewed decision each.
-const OFF_LOCK: [&str; 40] = [
+///
+/// `select_region` and `duck_under_speech` are on it (#570). With
+/// `voice_tracks` both decode and scan every clip of the voice tracks, which
+/// takes as long as the voice is long, and they read only the head.
+/// `select_region` appends nothing, so it is never run again.
+/// `duck_under_speech` appends one node that writes the music track's
+/// automation, and names every track it reads (`music_track`,
+/// `voice_tracks`), so a user's edit to the clips of one of them refuses its
+/// re-run. `select_region` reports its selection on the `progress` sink,
+/// which takes no lock; see [`ALLOWED`].
+const OFF_LOCK: [&str; 42] = [
     "align_to_beat",
     "analyze_track",
     "change_speed",
@@ -51,6 +60,7 @@ const OFF_LOCK: [&str; 40] = [
     "compressor",
     "de_esser",
     "distortion",
+    "duck_under_speech",
     "echo",
     "eq",
     "fade",
@@ -76,6 +86,7 @@ const OFF_LOCK: [&str; 40] = [
     "resample_track",
     "reverb",
     "reverse",
+    "select_region",
     "silence_finder",
     "silence_region",
     "stereo_to_mono",
@@ -215,7 +226,7 @@ const FORBIDDEN: &[(&str, &str)] = &[
     (".list_nodes(", "scanning every node is a history operation"),
     (
         "progress::",
-        "progress is reported against the caller's context",
+        "what a run reports belongs to the call, and a run that loses the race reported for nothing",
     ),
     (
         "std::process",
@@ -234,15 +245,51 @@ const FORBIDDEN: &[(&str, &str)] = &[
 /// a reviewed decision like widening `OFF_LOCK`: read the module first.
 const REACHABLE: &[&str] = &[
     "tool::util",
+    "tool::speech_detect",
+    "tool::ducking",
     "util::range_resolver",
     "schema",
     "provenance",
     "dispatcher",
 ];
 
+/// Spellings of a [`FORBIDDEN`] token that one file may use, as
+/// `(file, spelling, why it is safe there)`. The spelling is blanked from
+/// that file's code before the scan, so every other use of the token in it
+/// is still found, and so is the same spelling in any other file.
+///
+/// `progress::` is forbidden because what a run reports belongs to the
+/// call: a run that loses the race and is thrown away would have reported
+/// for nothing, and `begin` and `cancelled` are one process-wide switch.
+const ALLOWED: &[(&str, &str, &str)] = &[(
+    "select_region.rs",
+    "crate::progress::report(",
+    "select_region appends nothing, so `Store::commit` publishes its one run whatever the \
+     head did and it is never run again: the selection it reports is the call's own answer, \
+     reported once. `report` hands the event to the process-wide sink and takes no lock.",
+)];
+
 /// What may be named at the crate root: the tool traits and results, and
 /// `Range`, which `util::range_resolver` (above) re-exports.
 const ROOT_ITEMS: &[&str] = &["Tool", "ToolContext", "ToolResult", "Result", "Range"];
+
+/// The file each tool on [`OFF_LOCK`] lives in, under `src/tool/`, where it
+/// is not the tool's name.
+const FILE_OF: &[(&str, &str)] = &[("duck_under_speech", "ducking.rs")];
+
+fn file_of(tool: &str) -> String {
+    FILE_OF
+        .iter()
+        .find(|(name, _)| *name == tool)
+        .map_or_else(|| format!("{tool}.rs"), |(_, file)| (*file).to_string())
+}
+
+/// The files under `src/tool/` that the tools on [`OFF_LOCK`] share, and
+/// reach through [`REACHABLE`]: an edit to one reaches all of them, so each
+/// is scanned like a tool's own file. `ducking.rs` is `duck_under_speech`'s
+/// file, which `select_region` also reaches; it is listed so that it is
+/// still scanned should `duck_under_speech` leave the list.
+const SHARED_FILES: &[&str] = &["util.rs", "speech_detect.rs", "ducking.rs"];
 
 fn source_of(file: &str) -> String {
     let path: PathBuf = [env!("CARGO_MANIFEST_DIR"), "src", "tool", file]
@@ -625,8 +672,19 @@ fn store_aliases(text: &str) -> Vec<usize> {
     out
 }
 
+/// `source` with the spellings [`ALLOWED`] in `file` blanked out, lines
+/// kept.
+fn without_allowed(file: &str, source: &str) -> String {
+    ALLOWED
+        .iter()
+        .filter(|(f, _, _)| *f == file)
+        .fold(source.to_string(), |text, (_, spelling, _)| {
+            text.replace(spelling, &" ".repeat(spelling.len()))
+        })
+}
+
 fn offences_in(file: &str, source: &str) -> Vec<String> {
-    let lines = code_of(source);
+    let lines = code_of(&without_allowed(file, source));
     let mut found: Vec<(usize, String)> = Vec::new();
     for (n, line) in &lines {
         for &(token, why) in FORBIDDEN {
@@ -692,12 +750,15 @@ fn offences(file: &str) -> Vec<String> {
 /// either is a decision someone made, and review is the guard for it.
 #[test]
 fn every_off_lock_tool_avoids_what_a_staged_run_cannot_do() {
-    let mut problems = Vec::new();
-    for name in OFF_LOCK {
-        problems.extend(offences(&format!("{name}.rs")));
-    }
+    let mut files: Vec<String> = OFF_LOCK.iter().map(|name| file_of(name)).collect();
     // The helpers they share: an edit to one reaches all of them.
-    problems.extend(offences("util.rs"));
+    files.extend(SHARED_FILES.iter().map(|f| f.to_string()));
+    files.sort();
+    files.dedup();
+    let mut problems = Vec::new();
+    for file in &files {
+        problems.extend(offences(file));
+    }
     assert!(
         problems.is_empty(),
         "a tool that runs off the store lock does something a staged run cannot:\n  {}\n\n\
@@ -784,6 +845,48 @@ fn the_scan_finds_what_it_looks_for() {
     assert_eq!(found("use crate::tool::batch::run;\n"), vec![1]);
 }
 
+/// An allowance in [`ALLOWED`] is one spelling in one file. The same call in
+/// another file, another `progress` call in the same file, and the same
+/// function reached another way are all still found.
+#[test]
+fn an_allowance_is_one_spelling_in_one_file() {
+    let report = "fn f() {\n    crate::progress::report(json!({}));\n}\n";
+    assert!(offences_in("select_region.rs", report).is_empty());
+    assert_eq!(
+        offences_in("echo.rs", report).len(),
+        2,
+        "the token and the path"
+    );
+
+    for other in [
+        "fn f() {\n    crate::progress::begin();\n}\n",
+        "fn f() {\n    if crate::progress::cancelled() {}\n}\n",
+        "use crate::progress;\nfn f() {\n    progress::report(json!({}));\n}\n",
+        "use crate::progress::report;\nfn f() {\n    report(json!({}));\n}\n",
+    ] {
+        assert!(
+            !offences_in("select_region.rs", other).is_empty(),
+            "not the allowed spelling: {other}"
+        );
+    }
+
+    // Every allowance names a file the scan reads, and a token it forbids.
+    for (file, spelling, why) in ALLOWED {
+        assert!(
+            OFF_LOCK.iter().any(|name| file_of(name) == *file) || SHARED_FILES.contains(file),
+            "{file} is not scanned ({why})"
+        );
+        assert!(
+            FORBIDDEN.iter().any(|(token, _)| spelling.contains(token)),
+            "{spelling} contains no forbidden token, so allowing it does nothing ({why})"
+        );
+        assert!(
+            source_of(file).contains(spelling),
+            "{file} no longer says {spelling}, so the allowance is stale ({why})"
+        );
+    }
+}
+
 /// The scan reads text, so a second `Store` reached by a spelling it does
 /// not search for gets through. These are the spellings that take no
 /// effort to write, and one that rustfmt produces on its own.
@@ -865,6 +968,26 @@ const NOT_TRACKS: &[(&str, &str, &str)] = &[
         "resample_track",
         "target_sample_rate",
         "a sample rate in Hz (the track to resample is `track`)",
+    ),
+    (
+        "select_region",
+        "occurrence",
+        "which match of `text` in the transcript, 1-based",
+    ),
+    (
+        "select_region",
+        "speech_passage",
+        "which passage of speech, 1-based or negative from the end (the tracks are `voice_tracks`)",
+    ),
+    (
+        "select_region",
+        "from_beat",
+        "a beat in the tempo map, 1-based",
+    ),
+    (
+        "select_region",
+        "to_beat",
+        "a beat in the tempo map, 1-based",
     ),
 ];
 
