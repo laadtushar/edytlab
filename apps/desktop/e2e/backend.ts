@@ -30,13 +30,25 @@ import { fixturePath, fixtureSeconds } from "./audio-fixtures";
  * testing an ordering — a result the test releases when it chooses (see
  * `App.release`).
  */
-export type Answer = { ok: unknown } | { reject: string } | { deferred: string };
+export type SimpleAnswer = { ok: unknown } | { reject: string } | { deferred: string };
+
+/**
+ * A simple answer, or, for a command whose answer depends on what it is
+ * asked about, one simple answer for each value of one of its arguments
+ * (see {@link byArg}). A value the test did not list is a call it did not
+ * anticipate, and is reported as one.
+ */
+export type Answer = SimpleAnswer | { byArg: string; answers: Record<string, SimpleAnswer> };
 
 export type Backend = Record<string, Answer>;
 
-export const ok = (value: unknown): Answer => ({ ok: value });
-export const reject = (message: string): Answer => ({ reject: message });
-export const deferred = (name: string): Answer => ({ deferred: name });
+export const ok = (value: unknown): SimpleAnswer => ({ ok: value });
+export const reject = (message: string): SimpleAnswer => ({ reject: message });
+export const deferred = (name: string): SimpleAnswer => ({ deferred: name });
+export const byArg = (arg: string, answers: Record<string, SimpleAnswer>): Answer => ({
+  byArg: arg,
+  answers,
+});
 
 /**
  * `CommandError::NoSession`'s `Display`, from `commands.rs`. Every
@@ -491,6 +503,29 @@ export function sessionNode(id: string, parent: string | null): unknown {
     ),
   ) as Record<string, unknown>;
   return { ...snapshot, id, parent };
+}
+
+/**
+ * `set_head_to` on a store that holds the nodes `held` and no longer has
+ * the nodes `gone` (a compaction removed them, #595).
+ *
+ * `set_head_to_inner` first puts back any audio a sweep removed
+ * (`materialize`), which for a node it cannot read is nothing:
+ * `rederive::missing_paths` lists no paths for it. Then `Store::set_head`
+ * refuses an id that has no node file with `Error::NodeNotFound(hex)`,
+ * which `CommandError::Session` prints as `session error: node not found:
+ * <hex>`. A node the store holds is answered with its own id
+ * (`id.to_hex()`).
+ */
+export function headMovesWithin({ held, gone }: { held: string[]; gone: string[] }): Backend {
+  return {
+    set_head_to: byArg("nodeId", {
+      ...Object.fromEntries(held.map((id) => [id, ok(id)])),
+      ...Object.fromEntries(
+        gone.map((id) => [id, reject(`session error: node not found: ${id}`)]),
+      ),
+    }),
+  };
 }
 
 /** A node id as the backend formats one: 32 bytes, as 64 hex digits. */

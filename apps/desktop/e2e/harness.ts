@@ -51,7 +51,17 @@ mockIPC(
   (cmd, args) => {
     window.__E2E_CALLS__.push({ cmd, args });
     if (Object.prototype.hasOwnProperty.call(config.backend, cmd)) {
-      const answer = config.backend[cmd];
+      let answer = config.backend[cmd];
+      // An answer that depends on one argument: the one for its value, and
+      // a value the test did not list is a call it did not anticipate.
+      if ("byArg" in answer) {
+        const value = String((args as Record<string, unknown> | undefined)?.[answer.byArg]);
+        if (!Object.prototype.hasOwnProperty.call(answer.answers, value)) {
+          window.__E2E_UNHANDLED__.push(`${cmd} ${answer.byArg}=${value}`);
+          return undefined;
+        }
+        answer = answer.answers[value];
+      }
       // A string, not an `Error`. Every command returns
       // `CmdResult<T> = Result<T, String>`, so a failure reaches the
       // frontend as the bare message — and an error path tested

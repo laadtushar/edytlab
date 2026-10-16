@@ -23,12 +23,17 @@
  * A restart here is `app.restart`: the page is loaded again and the
  * backend is told what the project holds, which is the head it ended on
  * and the path the app asked it to keep. Nothing else carries over.
+ *
+ * And a compaction deletes nodes the path can still name (#595): the step
+ * that went through the mute, the redo list. Undo must go on past them,
+ * not be refused on every press.
  */
 
 import { fixturePath, fixtureSeconds } from "./audio-fixtures";
 import type { SavedTrail } from "../src/lib/headTrail";
 
 import {
+  headMovesWithin,
   nodeId,
   ok,
   projectWith,
@@ -610,4 +615,120 @@ test("a preview click in the graph leaves the head and the saved path alone, and
   await page.keyboard.press("Control+z");
   await expect.poll(() => app.requestsFor("set_head_to")).toEqual([{ nodeId: MUTED }]);
   expect(await app.requestsFor("get_node")).toEqual([]);
+});
+
+/**
+ * The graph `get_graph` answers once `compact_session` has run with the
+ * default `keep_last` of 20: `plan_compaction` keeps the head's chain
+ * (START, then BEFORE_LOAD) and deletes every node off it, so MUTED, which
+ * only the unmute stepped back from, is gone.
+ */
+function compacted() {
+  const at = (n: number) => `2026-10-09T00:0${n}:00Z`;
+  return ok({
+    nodes: [
+      { id: BEFORE_LOAD, parent: null, label: "load", tool: "load", created_at: at(0) },
+      { id: START, parent: BEFORE_LOAD, label: "load", tool: "load", created_at: at(1) },
+    ],
+    head: START,
+  });
+}
+
+/** Mute, then unmute: the head is START again, with [START, MUTED] behind it. */
+async function muteThenUnmute(app: App) {
+  const page = app.page;
+  await page.getByTestId("timeline-lane-mute").click();
+  await expect.poll(() => app.requestsFor("set_track_muted")).toHaveLength(1);
+  await app.become({ set_track_muted: ok(START) });
+  await page.getByTestId("timeline-lane-mute").click();
+  await expect.poll(() => app.requestsFor("set_track_muted")).toHaveLength(2);
+  await app.settle();
+}
+
+test("after the agent compacts the session, undo goes past the mute it removed (#595)", async ({
+  app,
+}) => {
+  await app.boot({
+    ...projectWith([toneTrack()], START),
+    render_preview: ok(fixturePath("tone3s")),
+    set_track_muted: ok(MUTED),
+  });
+  const page = app.page;
+  await expect(page.getByTestId("ruler")).toContainText("0:03");
+  await muteThenUnmute(app);
+  expect((await savedPaths(app)).at(-1)).toEqual({ head: START, trail: [START, MUTED], redo: [] });
+
+  // The agent runs `compact_session` with `apply`. It makes no node, so
+  // the window hears only the call (`agent://tool-call`, then
+  // `agent://tool-call-end`, as `emit_agent_event` sends them).
+  await app.become({
+    get_graph: compacted(),
+    get_node: ok(sessionNode(START, BEFORE_LOAD)),
+    ...headMovesWithin({ held: [BEFORE_LOAD, START], gone: [MUTED] }),
+  });
+  await app.emit("agent://tool-call", { name: "compact_session", id: "toolu_compact" });
+  await app.emit("agent://tool-call-end", { id: "toolu_compact", ok: true, not_run: false });
+
+  // The window asks the store what it still has and drops the mute from
+  // the path it keeps, and saves.
+  await expect.poll(() => app.requestsFor("get_graph")).toHaveLength(1);
+  await expect
+    .poll(async () => (await savedPaths(app)).at(-1))
+    .toEqual({ head: START, trail: [], redo: [] });
+  await app.settle();
+
+  // Undo is the state before the mute, by START's stored parent. MUTED is
+  // never asked for.
+  await page.keyboard.press("Control+z");
+  await expect.poll(() => app.requestsFor("set_head_to")).toEqual([{ nodeId: BEFORE_LOAD }]);
+  await app.settle();
+  await expect(page.getByTestId("render-error")).toHaveCount(0);
+});
+
+test("undo skips a step the store refuses as gone, instead of failing on every press (#595)", async ({
+  app,
+}) => {
+  // The nodes went without the window hearing of it: a compaction run
+  // from the CLI, say. The store's refusal is the first it learns of it.
+  await app.boot({
+    ...projectWith([toneTrack()], START),
+    render_preview: ok(fixturePath("tone3s")),
+    set_track_muted: ok(MUTED),
+  });
+  const page = app.page;
+  await expect(page.getByTestId("ruler")).toContainText("0:03");
+  await muteThenUnmute(app);
+
+  await app.become({
+    get_graph: compacted(),
+    get_node: ok(sessionNode(START, BEFORE_LOAD)),
+    ...headMovesWithin({ held: [BEFORE_LOAD, START], gone: [MUTED] }),
+  });
+
+  // One press: the mute is refused, the window checks that it is gone,
+  // drops it, and makes the next step instead. No error is shown.
+  await page.keyboard.press("Control+z");
+  await expect
+    .poll(() => app.requestsFor("set_head_to"))
+    .toEqual([{ nodeId: MUTED }, { nodeId: BEFORE_LOAD }]);
+  await app.settle();
+  await expect(page.getByTestId("render-error")).toHaveCount(0);
+  expect(await app.requestsFor("get_graph")).toHaveLength(1);
+  const saved = (await savedPaths(app)).at(-1);
+  expect(saved?.head).toBe(BEFORE_LOAD);
+  expect([...(saved?.trail ?? []), ...(saved?.redo ?? [])]).not.toContain(MUTED);
+
+  // Redo returns to START, and undo from there does not ask for the mute
+  // again.
+  await page.keyboard.press("Control+y");
+  await expect
+    .poll(() => app.requestsFor("set_head_to"))
+    .toEqual([{ nodeId: MUTED }, { nodeId: BEFORE_LOAD }, { nodeId: START }]);
+  await app.settle();
+  await page.keyboard.press("Control+z");
+  await expect
+    .poll(() => app.requestsFor("set_head_to"))
+    .toEqual([{ nodeId: MUTED }, { nodeId: BEFORE_LOAD }, { nodeId: START }, { nodeId: BEFORE_LOAD }]);
+  await app.settle();
+  await expect(page.getByTestId("render-error")).toHaveCount(0);
 });

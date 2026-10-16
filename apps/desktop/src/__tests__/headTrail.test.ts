@@ -290,3 +290,70 @@ describe("undo follows the path taken, not the node's first parent (#398)", () =
     expect(fwd.trail).toContain("Y");
   });
 });
+
+describe("a compaction removes nodes the path names (#595)", () => {
+  /**
+   * `compact_session` deletes every node off the head's chain and the
+   * chain's tail. A step that returned to an earlier state leaves the node
+   * it passed through off the chain (mute, then unmute: the mute), and so
+   * does the redo list. Undo pointed at one of them is refused, so the
+   * window has to forget them.
+   */
+  it("drops the removed step, and undo goes on to the one before it", () => {
+    const parentOf: Record<string, string | null> = { L0: null, L1: "L0" };
+    let s = run([
+      { type: "fill", head: "L0" },
+      { type: "advance", head: "L1" }, // load
+      { type: "advance", head: "M" }, // mute
+      { type: "advance", head: "L1" }, // unmute: L1 again
+    ]);
+    expect(s).toEqual({ head: "L1", trail: ["L0", "L1", "M"], redo: [] });
+
+    s = headTrailReducer(s, { type: "drop", nodes: ["M"] });
+    // The path closes up over the mute. The L1 it leaves at the end is the
+    // head itself, which is no step to undo to.
+    expect(s).toEqual({ head: "L1", trail: ["L0"], redo: [] });
+    expect(undoTarget(s.trail, s.head!, parentOf[s.head!])).toBe("L0");
+    expect(undo(s, parentOf).head).toBe("L0");
+  });
+
+  it("drops removed entries from the redo list too", () => {
+    let s = run([
+      { type: "fill", head: "A" },
+      { type: "advance", head: "B" },
+      { type: "advance", head: "C" },
+      { type: "stepBack", from: "C", to: "B" },
+      { type: "stepBack", from: "B", to: "A" },
+    ]);
+    expect(s).toEqual({ head: "A", trail: [], redo: ["C", "B"] });
+
+    s = headTrailReducer(s, { type: "drop", nodes: ["B"] });
+    expect(s).toEqual({ head: "A", trail: [], redo: ["C"] });
+    expect(redoTarget(s.redo, s.head!)).toBe("C");
+  });
+
+  it("closes up over a removed node without leaving the same head twice in a row", () => {
+    const s = headTrailReducer(
+      { head: "D", trail: ["A", "B", "A", "C"], redo: ["E", "F", "E"] },
+      { type: "drop", nodes: ["B", "F"] },
+    );
+    expect(s).toEqual({ head: "D", trail: ["A", "C"], redo: ["E"] });
+  });
+
+  it("changes nothing, and is not a step to save, when the path names none of them", () => {
+    const s = run([
+      { type: "fill", head: "A" },
+      { type: "advance", head: "B" },
+    ]);
+    expect(headTrailReducer(s, { type: "drop", nodes: ["Z"] })).toBe(s);
+    expect(headTrailReducer(s, { type: "drop", nodes: [] })).toBe(s);
+  });
+
+  it("never drops the head: the store does not remove the node it is on", () => {
+    const s = headTrailReducer(
+      { head: "B", trail: ["A", "M"], redo: [] },
+      { type: "drop", nodes: ["B", "M"] },
+    );
+    expect(s).toEqual({ head: "B", trail: ["A"], redo: [] });
+  });
+});

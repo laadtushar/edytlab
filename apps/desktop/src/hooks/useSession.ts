@@ -15,6 +15,10 @@
  *    it back when the project opens, so it survives a restart. The save
  *    is not a turn in the line below and nothing waits for it
  *    (`lib/trailWriter.ts`).
+ *  - forgets the steps a compaction deleted (#595): when the agent's
+ *    `compact_session` ends, and whenever undo or redo is refused, it asks
+ *    the store which nodes it still has (`forgetRemoved`), so undo is not
+ *    pointed at one that is gone.
  *  - holds the one line every session-changing command goes through
  *    (`lib/sessionQueue.ts`, #498), so edits reach the backend, and their
  *    heads are adopted, in the order the user made them.
@@ -47,13 +51,39 @@ import { createSessionQueue, type InSessionOrder } from "../lib/sessionQueue";
 import { createTrailWriter } from "../lib/trailWriter";
 
 import {
+  getGraph,
   getHeadTrail,
   getSessionHead,
   onNodeCreated,
+  onToolCall,
+  onToolCallEnd,
   renderPreview as bridgeRenderPreview,
   saveHeadTrail,
   type NodeId,
 } from "../lib/tauri-bridge";
+
+/**
+ * The agent's tool that deletes history (`crates/tools/src/tool/compact.rs`).
+ * It makes no node, so no `node-created` follows it: its call ending is
+ * the only word the window gets that nodes may be gone.
+ */
+const COMPACT_TOOL = "compact_session";
+
+/**
+ * The node ids in a `get_graph` answer, or `null` for an answer that is
+ * not one (a mock that does not know the command): nothing can be said to
+ * be gone from that.
+ */
+function graphNodeIds(raw: unknown): Set<NodeId> | null {
+  const nodes = (raw as { nodes?: unknown } | null | undefined)?.nodes;
+  if (!Array.isArray(nodes)) return null;
+  const ids = new Set<NodeId>();
+  for (const n of nodes) {
+    const id = (n as { id?: unknown } | null)?.id;
+    if (typeof id === "string") ids.add(id);
+  }
+  return ids;
+}
 
 export interface UseSessionResult {
   /** Latest known head node id: read once at mount (a returning user's
@@ -108,6 +138,21 @@ export interface UseSessionResult {
   /** Redo moved the backend from `from` to `to`: `from` goes back on the trail. */
   stepForward: (from: NodeId, to: NodeId) => void;
   /**
+   * Drop from the path every entry naming a node the store no longer has,
+   * and save what is left (#595). A compaction deletes history, and the
+   * path can name what it deleted: the redo list, and a step that returned
+   * to an earlier state (mute, then unmute, leaves the mute off the head's
+   * chain). Undo pointed at one would be refused on every press.
+   *
+   * Asks the store for its nodes (`get_graph`) and resolves to the ids it
+   * dropped: none when the path names no missing node, or when the store
+   * cannot answer. It never rejects. It is not a turn in the session's line
+   * and queues nothing, so undo and redo call it from inside theirs, after
+   * a refusal; the hook runs it in the line itself when `compact_session`
+   * ends.
+   */
+  forgetRemoved: () => Promise<NodeId[]>;
+  /**
    * Run a command that changes the session or moves the head once every
    * one queued before it has finished (#498). The command's whole turn
    * goes in: the call, and adopting the head it returns. An edit sent
@@ -146,6 +191,7 @@ export function useSession(): UseSessionResult {
         case "advance":
         case "stepBack":
         case "stepForward":
+        case "drop":
           if (next.head !== null) writer.save(next);
           break;
         case "reset":
@@ -231,6 +277,59 @@ export function useSession(): UseSessionResult {
     (from: NodeId, to: NodeId) => dispatchHead({ type: "stepForward", from, to }),
     [dispatchHead],
   );
+  const forgetRemoved = useCallback(async (): Promise<NodeId[]> => {
+    // What the path names now. A node an edit adds while the store is being
+    // read is not among them, so it cannot be taken for one that is gone.
+    const { trail: path, redo } = historyRef.current;
+    const named = new Set([...path, ...redo]);
+    if (named.size === 0) return [];
+    let held: Set<NodeId> | null;
+    try {
+      held = graphNodeIds(await getGraph());
+    } catch {
+      return [];
+    }
+    // A list without the head is not the store this path is in (another
+    // project opened meanwhile), and says nothing about it.
+    const head = historyRef.current.head;
+    if (held === null || head === null || !held.has(head)) return [];
+    const gone = [...named].filter((id) => !held.has(id));
+    if (gone.length > 0) dispatchHead({ type: "drop", nodes: gone });
+    return gone;
+  }, [dispatchHead]);
+
+  // When the agent's compaction ends, forget what it deleted, in the line:
+  // an undo pressed meanwhile waits for it, so it is never sent to a node
+  // that is gone. A dry run deletes nothing, and the store then answers
+  // with every node the path names.
+  useEffect(() => {
+    let cancelled = false;
+    const unlisten: (() => void)[] = [];
+    const keep = (listening: Promise<() => void>) =>
+      listening
+        .then((fn) => {
+          if (cancelled) fn();
+          else unlisten.push(fn);
+        })
+        .catch(() => undefined);
+    const compactions = new Set<string>();
+    keep(
+      onToolCall((name, id) => {
+        if (name === COMPACT_TOOL) compactions.add(id);
+      }),
+    );
+    keep(
+      onToolCallEnd((id, ok) => {
+        if (!compactions.delete(id) || !ok) return;
+        void queue.run(forgetRemoved);
+      }),
+    );
+    return () => {
+      cancelled = true;
+      for (const fn of unlisten) fn();
+    };
+  }, [queue, forgetRemoved]);
+
   const peekUndo = useCallback(() => {
     const { head: from, trail: path } = historyRef.current;
     return from === null ? null : { from, to: undoTarget(path, from, null) };
@@ -252,6 +351,7 @@ export function useSession(): UseSessionResult {
     peekRedo,
     stepBack,
     stepForward,
+    forgetRemoved,
     inOrder: queue.run,
   };
 }
