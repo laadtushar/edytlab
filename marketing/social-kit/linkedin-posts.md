@@ -17,7 +17,7 @@ come once narration credits are available).
 site <https://edytlab.com> ·
 source <https://github.com/laadtushar/edytlab> ·
 download <https://github.com/laadtushar/edytlab/releases/latest> (the newest
-release, v0.5.0 on 2026-10-11; check before each post that the version a post
+release, v0.6.0 on 2026-10-16; check before each post that the version a post
 names is still the newest)
 
 **Conventions used in every post:** no emoji; 3 to 5 hashtags at the end;
@@ -44,7 +44,7 @@ How it works: the model never hears the audio. It gets text about the session (t
 
 Honest limits: the demo tracks are short synthetic loops I generated, and the agent in the recordings is Claude. It preps files; it isn't a live DJ tool. No stem separation yet. The installers are unsigned, so macOS and Windows warn on first launch.
 
-Free, open source (MIT), v0.5.0 for macOS, Windows and Linux. DJs: which prep job would you hand off first?
+Free, open source (MIT), v0.6.0 for macOS, Windows and Linux. DJs: which prep job would you hand off first?
 
 Demos and downloads: https://edytlab.com
 
@@ -171,10 +171,10 @@ With Ollama there's no key, and the chat stays on your machine too.
 
 Two honest caveats about that last part:
 
-- Local models have small context windows. In v0.4.0 one measured first request was about 15,000 tokens, and a model with an 8,192-token context refused it. v0.5.0 sends Ollama a core set of tools plus the ones your message names, which takes that request from about 58 KB to about 8.7 KB in the test suite (bytes, not tokens), but I haven't re-run that model on it.
+- Local models have small context windows. In v0.4.0 one measured first request was about 15,000 tokens, and a model with an 8,192-token context refused it. Since v0.5.0 Ollama gets a core set of tools plus the ones your message names, about 8.7 KB of request against about 66 KB with every tool in the test suite (bytes, not tokens), but I haven't re-run that model on it.
 - The recordings were made with Claude as the agent. I haven't confirmed which local models can finish a job like these.
 
-The desktop app sends no telemetry. API keys live in your operating system's credential store. On Linux, v0.4.0 and earlier kept them in the kernel keyring only until you reboot; v0.5.0 uses the Secret Service (GNOME Keyring, KWallet or KeePassXC) and warns when none is running. I haven't checked that across a real reboot yet.
+The desktop app sends no telemetry. API keys live in your operating system's credential store. On Linux, v0.4.0 and earlier kept them in the kernel keyring only until you reboot; since v0.5.0 they go in the Secret Service (GNOME Keyring, KWallet or KeePassXC), with a warning when none is running. I haven't checked that across a real reboot yet.
 
 The numbers are in the repo's issues and tests. If you run local models, I'd like your results.
 
@@ -199,12 +199,12 @@ Angle: specific, honest invitations, including the big unshipped piece. About
 ```
 edytlab is MIT-licensed and I'd like help with it. Here is where, specifically.
 
-It's a desktop audio editor in Tauri 2, Rust and React, where an AI agent calls 93 audio tools. v0.5.0 is out for macOS, Windows and Linux (unsigned installers).
+It's a desktop audio editor in Tauri 2, Rust and React, where an AI agent calls 93 audio tools. v0.6.0 is out for macOS, Windows and Linux (unsigned installers).
 
 Places a contributor could make a real difference:
 
-- Master bus and bus effects. A tool can now put an effect on the master bus, and on a bus of its own (pull requests 516 and 551, merged after v0.5.0, so not in the release yet). Until it ships, the v0.5.0 agent works around it by rendering a baked "Master" track and muting the originals. The recordings were re-made on a build that has the tool, so their limiter sits on the master bus. Still missing: streaming versions of eleven effects the renderer can't run on a chain yet (reverb, echo, EQ, compressor and others). A stored effect it can't run is now left out of the render with a warning instead of failing it (merged, not released); issue 520, now closed, has the details, in the audio-engine and tools crates.
-- macOS microphone access. v0.5.0 adds the entitlement and the usage text, but nobody has recorded on a signed, notarized macOS build to confirm it. That check is issue 464, and it needs a Mac.
+- Effects on a chain. Since v0.6.0 the agent can put an effect on the master bus and on a bus (pull requests 516 and 551), but only five kinds run in a chain: gain, the limiter and three filters. Still missing: streaming versions of the other eleven (reverb, echo, EQ, compressor and others), which today can only be baked into a track. A stored effect the renderer can't run is left out of the render with a warning; issue 520, now closed, has the details, in the audio-engine and tools crates.
+- macOS microphone access. Since v0.5.0 the build has the entitlement and the usage text, but nobody has recorded on a signed, notarized macOS build to confirm it. That check is issue 464, and it needs a Mac.
 - A real pass on Linux with a locked keyring. The Secret Service code is tested against fakes only. Issue 497.
 - New audio tools and new LLM providers. Each is one registered implementation, and docs/contributing.md walks through both.
 - The big one: stem separation and transcription are not shipped. The Demucs and Whisper tools are wired in, but their inference is not (issues 383 to 385). If you've shipped ONNX Runtime inside a Tauri app, I'd like to talk.
@@ -238,13 +238,14 @@ Sources for the claims:
 - 93 tools: `docs/tools-reference.md`. Providers and Ollama:
   `README.md`. Local-first table: `website/app/use-cases/local-ai-audio-editor/page.tsx`.
   The 15,000-token / 8,192-context numbers are v0.4.0's, from issue 395; what
-  v0.5.0 sends instead is in `docs/architecture.md` ("Request size and
-  small-context models") and `crates/ai/tests/request_size.rs`.
+  has been sent since v0.5.0, with the v0.6.0 sizes, is in
+  `docs/architecture.md` ("Request size and small-context models") and
+  `crates/ai/tests/request_size.rs`.
 - Undo story: v0.4.0 changelog, `apps/desktop/src/lib/headTrail.ts`.
 - Zero-dependency effects crate and Rubber Band decision:
   `crates/audio-dsp/Cargo.toml`, `crates/audio-time/src/vocoder.rs`.
-- Master-bus workaround: issue 460 (closed by PR 516, merged after v0.5.0, so the v0.5.0 build still has the workaround; the recordings were re-made after it and put the limiter on the master bus, as the mini-mix caption in `demos.ts` says).
-- Linux keyring: issue 394. v0.4.0 and earlier use the kernel keyring; v0.5.0 uses the Secret Service (`crates/ai/src/keychain.rs`, `docs/architecture.md`).
+- Master bus: issue 460, closed by PR 516, which v0.6.0 is the first release to ship (v0.5.0 and earlier render a baked "Master" track instead); the recordings were made after it and put the limiter on the master bus, as the mini-mix caption in `demos.ts` says.
+- Linux keyring: issue 394. v0.4.0 and earlier use the kernel keyring; v0.5.0 and later use the Secret Service (`crates/ai/src/keychain.rs`, `docs/architecture.md`).
 
 Decisions for you:
 

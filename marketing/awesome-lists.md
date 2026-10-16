@@ -26,9 +26,10 @@ local model and write down which model and context size you used. Without
 that, the claim "works with Ollama" rests only on Ollama being a supported
 provider and on the Settings Test button; the one documented local run so far
 (v0.4.0) failed on context size
-([#395](https://github.com/laadtushar/edytlab/issues/395)). v0.5.0 sends Ollama
-a smaller tool set ([#479](https://github.com/laadtushar/edytlab/pull/479)),
-and no run on it is recorded in the repo yet.
+([#395](https://github.com/laadtushar/edytlab/issues/395)). Since v0.5.0
+Ollama is sent a smaller tool set
+([#479](https://github.com/laadtushar/edytlab/pull/479)), and no run on it is
+recorded in the repo yet.
 
 ---
 
@@ -99,8 +100,8 @@ one, is a better place; it was not checked.
 - **Fit:** it is a list of Linux audio production software, and edytlab is a
   cross-platform editor with Linux builds (`.deb`, AppImage). Linux caveat to
   know before submitting: v0.4.0 and earlier keep API keys only until reboot;
-  v0.5.0 stores them in the Secret Service and warns when there is none
-  ([#394](https://github.com/laadtushar/edytlab/issues/394)).
+  since v0.5.0 they are stored in the Secret Service, with a warning when
+  there is none ([#394](https://github.com/laadtushar/edytlab/issues/394)).
 
 Entry:
 

@@ -266,8 +266,8 @@ def build(key):
 
 
 def end_card(P, t_end, total, ig=False, rd=False):
-    """The sign-off: the site's lockup, "Free, open source", the url. It names no version: the footage is a development
-    build that is not released yet, and the newest release looks different."""
+    """The sign-off: the site's lockup, "Free, open source", the url. It names no version: the cuts were made from a
+    development build before v0.6.0 was released (the footage matches v0.6.0; add the version here and re-render to name it)."""
     L = P.L
     if ig:
         ec = EndCard(P.ctx, t_end + 0.1, total, [("Free, open source", True), ("Unsigned installers  \u00b7  synthetic demo tracks", False)],
