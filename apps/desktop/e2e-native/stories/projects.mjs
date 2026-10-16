@@ -107,7 +107,7 @@ export default [
         b.setAttribute("data-e2e-template", "1");
         return b.textContent.trim();
       });
-      assert(picked, "a Podcast template button");
+      assert(picked, "a Podcast template button (the picker listed none: the build's templates/ must be beside the binary in a target/<profile> folder with .cargo-lock, see the note at the top of suite.mjs)");
       await d.click("[data-e2e-template='1']");
       await sleep(1500);
       const tracks = await d.invoke("list_tracks");
