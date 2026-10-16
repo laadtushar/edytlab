@@ -54,19 +54,16 @@ const MENU_OPEN_FILE_EVENT: &str = "menu://open-file";
 ///
 /// Where that is depends on the platform (`runtime::bundle_dir_for`): the
 /// app bundle's `Contents/Frameworks` on macOS, Tauri's resource directory
-/// on Linux (`/usr/lib/edytlab` for a deb, inside the mount for an
-/// AppImage), and on Windows nowhere new, because the DLL sits next to the
-/// exe, which is always searched. Registering nothing is fine: a build
-/// that is not installed (`cargo run`, `tauri dev`) has the library next to
-/// the executable or has none.
-fn register_ml_runtime_bundle(app: &tauri::App) {
+/// (`resource_dir`) on Linux (`/usr/lib/edytlab` for a deb, inside the
+/// mount for an AppImage), and on Windows nowhere new, because the DLL sits
+/// next to the exe, which is always searched. Registering nothing is fine:
+/// a build that is not installed (`cargo run`, `tauri dev`) has the library
+/// next to the executable or has none.
+fn register_ml_runtime_bundle(resource_dir: Option<&std::path::Path>) {
     let exe = std::env::current_exe().ok();
-    let resource_dir = app.path().resource_dir().ok();
-    let Some(dir) = ml_pipeline::runtime::bundle_dir_for(
-        std::env::consts::OS,
-        exe.as_deref(),
-        resource_dir.as_deref(),
-    ) else {
+    let Some(dir) =
+        ml_pipeline::runtime::bundle_dir_for(std::env::consts::OS, exe.as_deref(), resource_dir)
+    else {
         return;
     };
     if !ml_pipeline::runtime::set_bundle_dir(dir.clone()) {
@@ -74,8 +71,48 @@ fn register_ml_runtime_bundle(app: &tauri::App) {
     }
 }
 
+/// The one argument that makes the app print the answer Settings' ONNX
+/// Runtime line shows, as one line of JSON on stdout (the `ml_runtime_status`
+/// command's answer), and exit without opening a window (#383).
+///
+/// The release workflows run it against each unpacked installer
+/// (`scripts/installer-ml-runtime.py check`) to show that the app, in that
+/// installer's layout, finds the library the installer carries and calls it
+/// bundled. It looks where the app looks, `ORT_DYLIB_PATH` first, and loads
+/// the library to read its version, as the Settings line does; it reads and
+/// writes nothing else.
+pub const ML_RUNTIME_STATUS_ARG: &str = "--ml-runtime-status";
+
+/// `edytlab --ml-runtime-status`: see [`ML_RUNTIME_STATUS_ARG`]. Registers
+/// the bundle directory as `setup` would, from Tauri's own resource-directory
+/// rule, and answers on this thread, before any runtime or window exists.
+/// Returns the process's exit code: 0 once the answer is written, whatever
+/// it says, and 1 if it could not be written.
+fn print_ml_runtime_status(package_info: &tauri::PackageInfo) -> i32 {
+    use std::io::Write;
+
+    let resource_dir =
+        tauri::utils::platform::resource_dir(package_info, &tauri::Env::default()).ok();
+    register_ml_runtime_bundle(resource_dir.as_deref());
+    let status = commands::ml_runtime_status_now();
+    let Ok(line) = serde_json::to_string(&status) else {
+        return 1;
+    };
+    let mut out = std::io::stdout().lock();
+    match writeln!(out, "{line}").and_then(|()| out.flush()) {
+        Ok(()) => 0,
+        Err(_) => 1,
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let context = tauri::generate_context!();
+    let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    if args.len() == 1 && args[0] == ML_RUNTIME_STATUS_ARG {
+        std::process::exit(print_ml_runtime_status(context.package_info()));
+    }
+
     let app_state = AppState::new();
     // Pending from the first moment, before any command can ask: the
     // keychain reads that settle it start in `setup` below and can take
@@ -98,7 +135,7 @@ pub fn run() {
 
             // Tell the ONNX Runtime loader where the installer puts the
             // library (#383). Before anything can ask it to load one.
-            register_ml_runtime_bundle(app);
+            register_ml_runtime_bundle(app.path().resource_dir().ok().as_deref());
 
             // Install the memory store. Spec location is `~/.edytlab/
             // memory.md`; if the user's home dir can't be resolved we
@@ -377,7 +414,7 @@ pub fn run() {
             install_bundled_skills,
             install_plugin,
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running tauri application");
 }
 

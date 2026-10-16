@@ -1146,8 +1146,9 @@ pub enum MlRuntimeSource {
 /// found, or why it has none.
 ///
 /// All four are answers, not failures of the command: "this build carries
-/// no runtime" is the state every release build is in until the installers
-/// ship it (#383), and the window shows it as a line of text.
+/// no runtime" is the state of a development build, and of every release
+/// up to v0.6.0, before the installers carried it (#383), and the window
+/// shows it as a line of text.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(
     tag = "state",
@@ -1226,10 +1227,18 @@ fn ml_runtime_status_dto(
 /// separation or transcription, which are not shipped (#384, #385).
 #[tauri::command]
 pub async fn ml_runtime_status() -> CmdResult<MlRuntimeStatusDto> {
-    let answer = tauri::async_runtime::spawn_blocking(ml_pipeline::runtime::info)
+    let status = tauri::async_runtime::spawn_blocking(ml_runtime_status_now)
         .await
         .map_err(|e| CommandError::TaskFailed(e.to_string()))?;
-    Ok(ml_runtime_status_dto(answer))
+    Ok(status)
+}
+
+/// [`ml_runtime_status`]'s answer, worked out on the calling thread, which
+/// it blocks while the library loads. The command runs it on the blocking
+/// pool; `edytlab --ml-runtime-status` runs it before any window exists
+/// (`crate::print_ml_runtime_status`).
+pub fn ml_runtime_status_now() -> MlRuntimeStatusDto {
+    ml_runtime_status_dto(ml_pipeline::runtime::info())
 }
 
 /// Remove the stored API key for the active provider and tear down the
