@@ -339,22 +339,23 @@ fn resolve_text(
     let words = &transcript.words;
     let hay: Vec<String> = words.iter().map(|w| normalise(&w.text)).collect();
 
-    let mut found = 0usize;
-    for i in 0..hay.len().saturating_sub(needle.len() - 1) {
-        if hay[i..i + needle.len()] == needle[..] {
-            found += 1;
-            if found == occurrence {
-                let first = &words[i];
-                let last = &words[i + needle.len() - 1];
-                return Ok(Resolved {
-                    start_s: first.start_s as f64,
-                    end_s: last.end_s as f64,
-                    matched: format!("\"{phrase}\" (occurrence {occurrence} of ...)"),
-                    keyed_on: "transcript",
-                    voice_tracks: Vec::new(),
-                });
-            }
-        }
+    // Every match, not just up to the one asked for: what was matched says
+    // how many there are, so the caller can tell "the second of two" from
+    // "the second of five" (#570).
+    let starts: Vec<usize> = (0..hay.len().saturating_sub(needle.len() - 1))
+        .filter(|&i| hay[i..i + needle.len()] == needle[..])
+        .collect();
+    let found = starts.len();
+    if let Some(&i) = occurrence.checked_sub(1).and_then(|n| starts.get(n)) {
+        let first = &words[i];
+        let last = &words[i + needle.len() - 1];
+        return Ok(Resolved {
+            start_s: first.start_s as f64,
+            end_s: last.end_s as f64,
+            matched: format!("\"{phrase}\" (occurrence {occurrence} of {found})"),
+            keyed_on: "transcript",
+            voice_tracks: Vec::new(),
+        });
     }
 
     if found == 0 {

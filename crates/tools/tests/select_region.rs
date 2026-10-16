@@ -293,6 +293,41 @@ fn an_occurrence_past_the_end_says_how_many_there_are() {
     assert!(msg.contains("appears 2 time(s)"), "{msg}");
 }
 
+/// **What was matched names the occurrence and how many there are** (#570
+/// item 3). It used to end in a literal `...` where the count belonged,
+/// because the search stopped at the occurrence asked for, and the model
+/// quotes `matched` and the summary back.
+#[test]
+fn matched_says_which_occurrence_of_how_many() {
+    let mut s = Session::new();
+    s.with_transcript(&transcript());
+
+    for (args, want) in [
+        (
+            json!({ "text": "latency" }),
+            "\"latency\" (occurrence 1 of 2)",
+        ),
+        (
+            json!({ "text": "latency", "occurrence": 2 }),
+            "\"latency\" (occurrence 2 of 2)",
+        ),
+        (
+            json!({ "text": "the latency" }),
+            "\"the latency\" (occurrence 1 of 2)",
+        ),
+        (
+            json!({ "text": "terrible" }),
+            "\"terrible\" (occurrence 1 of 1)",
+        ),
+    ] {
+        let v = ok(s.call("select_region", args.clone()));
+        assert_eq!(v["matched"], json!(want), "{args}: {v}");
+        let summary = v["summary"].as_str().expect("a summary");
+        assert!(summary.contains(want), "{args}: {summary}");
+        assert!(!summary.contains("..."), "{args}: {summary}");
+    }
+}
+
 /// "The last thing he said" without having to know how many there were.
 #[test]
 fn a_negative_passage_counts_from_the_end() {
