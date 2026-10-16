@@ -298,10 +298,10 @@ export default function UserGuidePage() {
       </ol>
       <p>
         Both versions are rendered into the project&apos;s preview cache, so a
-        version you have just played is not rendered again, and they stay there
-        while the bar is open. The cache holds 1 GiB of renders: two versions
-        that do not fit in it together (more than about 45 minutes each of
-        48 kHz stereo) cannot be compared, and the bar says so.
+        version you have just played is not rendered again. They stay there
+        while the bar is open, even when the two are too long to fit in the
+        cache&apos;s 1 GiB together, as an hour-long mix is, and the cache
+        clears back down to its size when you close the bar.
       </p>
 
       <h2>Stem Separation</h2>

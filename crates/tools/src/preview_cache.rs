@@ -62,10 +62,16 @@
 //! as long as it is open, and a side evicted meanwhile is a switch that
 //! fails (#575). Such a caller takes a [`Held`] for the key
 //! ([`PreviewCache::hold`]) before asking for it, and eviction leaves the
-//! entry alone until the hold is dropped. A held entry still counts against
-//! the cap, so a new entry that does not fit beside the held ones is refused,
-//! as one bigger than the cap is, rather than evicting a held entry or
-//! breaking the cap.
+//! entry alone until the hold is dropped.
+//!
+//! The cap is on the entries nobody holds. A held entry is outside it, so a
+//! render while one is held evicts only unheld entries to fit, and is
+//! refused only when it is bigger than the cap on its own. A long session
+//! (an hour-long mix) can therefore be compared although its two sides do
+//! not fit in the cap together. The one holder is the A/B compare, which
+//! holds one pair at a time, so the folder is bounded by the cap plus that
+//! pair. When the last hold on an entry is dropped it counts again, and the
+//! cache is brought back under the cap there and then.
 
 use std::collections::BTreeMap;
 use std::io;
@@ -117,8 +123,8 @@ impl Hit {
 /// `PreviewCache` for a project (the window's commands and the agent's tools
 /// alike), and all of them have to see the same holds. Eviction runs with
 /// this locked, so a hold is taken either before an eviction looks or after
-/// it has finished. Nothing is done under it but reading file sizes and
-/// removing files, and no other lock is taken while it is held.
+/// it has finished. Nothing is done under it but listing a cache folder and
+/// removing files from it, and no other lock is taken while it is held.
 static HELD: Mutex<BTreeMap<PathBuf, usize>> = Mutex::new(BTreeMap::new());
 
 fn held() -> MutexGuard<'static, BTreeMap<PathBuf, usize>> {
@@ -127,12 +133,19 @@ fn held() -> MutexGuard<'static, BTreeMap<PathBuf, usize>> {
     HELD.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// An entry kept out of eviction for as long as this is alive; see
-/// [`PreviewCache::hold`].
+/// An entry kept out of eviction, and out of the cap, for as long as this
+/// is alive; see [`PreviewCache::hold`].
+///
+/// Dropping the last hold on an entry evicts that entry's cache down to its
+/// cap, the released entry included, so the cache is back under its cap as
+/// soon as nothing holds it over.
 #[derive(Debug)]
 #[must_use = "the entry is held only while this is alive"]
 pub struct Held {
     path: PathBuf,
+    /// The cap of the cache the hold was taken in, which applies again once
+    /// the hold is gone.
+    cap_bytes: u64,
 }
 
 impl Held {
@@ -145,11 +158,24 @@ impl Held {
 impl Drop for Held {
     fn drop(&mut self) {
         let mut held = held();
-        if let Some(count) = held.get_mut(&self.path) {
-            *count -= 1;
-            if *count == 0 {
-                held.remove(&self.path);
-            }
+        let Some(count) = held.get_mut(&self.path) else {
+            return;
+        };
+        *count -= 1;
+        if *count > 0 {
+            return;
+        }
+        held.remove(&self.path);
+        // The entry counts against the cap again. Evict now rather than at
+        // the next render, which may be long after (or never, before the app
+        // quits), so the cache is over its cap only while something holds it
+        // there.
+        if let Some(dir) = self.path.parent() {
+            let cache = PreviewCache {
+                dir: dir.to_path_buf(),
+                cap_bytes: self.cap_bytes,
+            };
+            cache.evict(&held, None);
         }
     }
 }
@@ -200,14 +226,19 @@ impl PreviewCache {
     /// at the holds finishes before this returns, so the lookup after it sees
     /// what that eviction left, and no later eviction takes the entry.
     ///
-    /// A held entry still counts against the cap: a new entry that does not
-    /// fit beside the held ones is refused, not kept by evicting one of them.
-    /// Two holds on one key are two holds; the entry is held until both are
-    /// dropped.
+    /// A held entry is outside the cap: renders made while it is held evict
+    /// only unheld entries to fit, so the folder can be over the cap by what
+    /// is held. It is not exempt from the rule that an entry bigger than the
+    /// cap on its own is refused. Two holds on one key are two holds; the
+    /// entry is held until both are dropped, and dropping the last one
+    /// brings the cache back under its cap.
     pub fn hold(&self, key: session::NodeId) -> Held {
         let path = self.path_for(key);
         *held().entry(path.clone()).or_insert(0) += 1;
-        Held { path }
+        Held {
+            path,
+            cap_bytes: self.cap_bytes,
+        }
     }
 
     /// The cached entry for `key`, if there is one, marked as just used.
@@ -233,10 +264,10 @@ impl PreviewCache {
     ///
     /// An entry that is larger than the cap cannot be kept, and a path to a
     /// file that was evicted as it was written is no use to a caller, so
-    /// that is an error rather than an `Ok`. So is one that does not fit
-    /// beside the entries [held](Self::hold), which eviction may not take.
-    /// It is refused before anything is evicted: the cache is left as it
-    /// was.
+    /// that is an error rather than an `Ok`. It is refused before anything
+    /// is evicted: the cache is left as it was. Entries that are
+    /// [held](Self::hold) are outside the cap and are never evicted, so they
+    /// play no part in whether a new entry fits.
     pub fn get_or_render<F, E>(&self, node: session::NodeId, render: F) -> Result<(PathBuf, Hit), E>
     where
         F: FnOnce(&Path) -> Result<(), E>,
@@ -268,31 +299,18 @@ impl PreviewCache {
             Err(e) => return Err(E::from(e)),
         }
 
-        // An entry bigger than the whole cache cannot be kept, and neither
-        // can one that does not fit beside the held entries, which eviction
-        // may not take. Finding that out by evicting would cost the cache
-        // everything older first, so look before evicting. The holds are
-        // read once, and stay locked until the eviction is done.
+        // An entry bigger than the whole cache cannot be kept. Finding that
+        // out by evicting would cost the cache everything older first, so
+        // look before evicting. Held entries are outside the cap and play no
+        // part in this.
         let bytes = std::fs::metadata(&final_path).map(|m| m.len()).unwrap_or(0);
-        let held = held();
-        let beside = self.held_bytes(&held, &final_path);
-        if bytes.saturating_add(beside) > self.cap_bytes {
-            drop(held);
+        if bytes > self.cap_bytes {
             let _ = std::fs::remove_file(&final_path);
-            return Err(E::from(io::Error::other(if beside == 0 {
-                format!(
-                    "the rendered preview ({bytes} bytes) does not fit in the preview cache, \
-                     whose cap is {} bytes",
-                    self.cap_bytes
-                )
-            } else {
-                format!(
-                    "the rendered preview ({bytes} bytes) does not fit in the preview cache \
-                     beside the {beside} bytes of previews in use, which cannot be evicted \
-                     (an open A/B compare holds both of its sides); the cache's cap is {} bytes",
-                    self.cap_bytes
-                )
-            })));
+            return Err(E::from(io::Error::other(format!(
+                "the rendered preview ({bytes} bytes) does not fit in the preview cache, \
+                 whose cap is {} bytes",
+                self.cap_bytes
+            ))));
         }
 
         // `rename` keeps the render's modified time, which is when the file
@@ -301,9 +319,10 @@ impl PreviewCache {
         // already here. The entry just asked for is the one entry that must
         // survive, and it is the most recently used: say so first, and
         // evict around it.
+        // The holds are read under their lock, which stays taken until the
+        // eviction is done (see `HELD`).
         let _ = touch(&final_path);
-        self.evict(&held, Some(&final_path));
-        drop(held);
+        self.evict(&held(), Some(&final_path));
 
         if !final_path.is_file() {
             // Something else removed it as it was written.
@@ -352,7 +371,7 @@ impl PreviewCache {
         }
     }
 
-    /// Total bytes currently held.
+    /// Total bytes on disk, held entries included.
     pub fn size_bytes(&self) -> u64 {
         self.entries().iter().map(|e| e.bytes).sum()
     }
@@ -366,19 +385,24 @@ impl PreviewCache {
         self.len() == 0
     }
 
-    /// Drop least-recently-used entries until the directory fits the
-    /// cap. Public so a caller can enforce the cap after changing it.
-    /// [Held](Self::hold) entries are never dropped, so after a cap is
-    /// lowered the directory can stay over it by what they hold.
+    /// Drop least-recently-used entries until the entries nobody
+    /// [holds](Self::hold) fit the cap. Public so a caller can enforce the
+    /// cap after changing it. Held entries are outside the cap and are never
+    /// dropped.
     pub fn evict_to_cap(&self) {
         self.evict(&held(), None);
     }
 
-    /// [`Self::evict_to_cap`], never taking `keep` or a held entry. An entry
-    /// that fits beside the held ones is always safe to keep: once
-    /// everything else is gone the directory holds only it and them.
+    /// [`Self::evict_to_cap`], never taking `keep`. The cap is on the
+    /// entries not in `held`, which are neither counted nor taken. An
+    /// unheld `keep` that fits the cap on its own is always safe to keep:
+    /// once every other unheld entry is gone it is all the cap holds.
     fn evict(&self, held: &BTreeMap<PathBuf, usize>, keep: Option<&Path>) {
-        let mut entries = self.entries();
+        let mut entries: Vec<Entry> = self
+            .entries()
+            .into_iter()
+            .filter(|e| !held.contains_key(&e.path))
+            .collect();
         let mut total: u64 = entries.iter().map(|e| e.bytes).sum();
         if total <= self.cap_bytes {
             return;
@@ -391,24 +415,13 @@ impl PreviewCache {
             if total <= self.cap_bytes {
                 break;
             }
-            if keep == Some(entry.path.as_path()) || held.contains_key(&entry.path) {
+            if keep == Some(entry.path.as_path()) {
                 continue;
             }
             if std::fs::remove_file(&entry.path).is_ok() {
                 total = total.saturating_sub(entry.bytes);
             }
         }
-    }
-
-    /// Bytes on disk for the entries of this cache in `held`, other than
-    /// `except`: what eviction may not take to make room for `except`.
-    fn held_bytes(&self, held: &BTreeMap<PathBuf, usize>, except: &Path) -> u64 {
-        held.keys()
-            .filter(|path| path.parent() == Some(self.dir.as_path()) && path.as_path() != except)
-            .filter_map(|path| std::fs::metadata(path).ok())
-            .filter(|meta| meta.is_file())
-            .map(|meta| meta.len())
-            .sum()
     }
 
     fn entries(&self) -> Vec<Entry> {
@@ -915,6 +928,14 @@ mod tests {
     // Holds (#575)
     // -----------------------------------------------------------------
 
+    /// Bytes on disk for the entries of `ids` that are there.
+    fn bytes_of(cache: &PreviewCache, ids: &[session::NodeId]) -> u64 {
+        ids.iter()
+            .filter_map(|id| std::fs::metadata(cache.path_for(*id)).ok())
+            .map(|m| m.len())
+            .sum()
+    }
+
     /// The A/B bar reads a side again on every switch. Here the held entry
     /// is the least recently used one, so without the hold it would be the
     /// first to go.
@@ -922,7 +943,7 @@ mod tests {
     fn a_held_entry_outlives_an_eviction_that_would_take_it() {
         let tmp = tempfile::tempdir().unwrap();
         let mut cache = PreviewCache::new(tmp.path());
-        cache.cap_bytes = 250;
+        cache.cap_bytes = 150;
         let (old, middle, new) = (node_id(50), node_id(51), node_id(52));
 
         let _held = cache.hold(old);
@@ -939,49 +960,89 @@ mod tests {
             "the oldest entry not held should have gone instead"
         );
         assert!(cache.path_for(new).is_file());
-        assert!(cache.size_bytes() <= 250);
+        assert!(
+            bytes_of(&cache, &[middle, new]) <= 150,
+            "the entries nobody holds are over the cap"
+        );
     }
 
-    /// An entry that does not fit beside the held ones could be kept only
-    /// by evicting one of them or by breaking the cap. It is refused, and
-    /// refused before anything is evicted, as one bigger than the cap is.
+    /// A held entry is outside the cap, so what is rendered beside it is
+    /// judged on its own: a pair too big for the cap together can be
+    /// compared, and a render beside it evicts only unheld entries. The
+    /// folder is over the cap by what is held, and no more.
     #[test]
-    fn an_entry_that_does_not_fit_beside_the_held_ones_is_refused() {
+    fn held_entries_are_outside_the_cap() {
         let tmp = tempfile::tempdir().unwrap();
         let mut cache = PreviewCache::new(tmp.path());
-        cache.cap_bytes = 250;
-        let (a, b, other, c) = (node_id(53), node_id(54), node_id(55), node_id(56));
-        let holds = [cache.hold(a), cache.hold(b)];
-        for id in [a, b] {
+        cache.cap_bytes = 150;
+        let (a, b, c, d) = (node_id(53), node_id(54), node_id(55), node_id(56));
+
+        let _holds = [cache.hold(a), cache.hold(b)];
+        for id in [a, b, c] {
             cache
                 .get_or_render::<_, io::Error>(id, |p| write(p, 100))
-                .unwrap();
+                .expect("each fits the cap on its own");
+            std::thread::sleep(Duration::from_millis(10));
         }
-        // Small enough to fit beside the pair, so the cache is full.
+        assert!(
+            [a, b, c].iter().all(|id| cache.path_for(*id).is_file()),
+            "an entry was evicted or refused for the held pair's sake"
+        );
+        assert_eq!(cache.size_bytes(), 300, "over the cap by the held pair");
+
+        // The next unheld render evicts the unheld one, not the pair.
         cache
-            .get_or_render::<_, io::Error>(other, |p| write(p, 40))
+            .get_or_render::<_, io::Error>(d, |p| write(p, 100))
             .unwrap();
+        assert!(!cache.path_for(c).exists());
+        assert!(cache.path_for(a).is_file() && cache.path_for(b).is_file());
+        assert_eq!(cache.size_bytes(), 300);
+        assert_eq!(staging_files(&cache), Vec::<String>::new());
+    }
+
+    /// Holding does not get round the one refusal there is: an entry bigger
+    /// than the cap on its own is still an error.
+    #[test]
+    fn a_held_entry_bigger_than_the_cap_is_still_refused() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cache = PreviewCache::new(tmp.path());
+        cache.cap_bytes = 50;
+        let id = node_id(57);
+        let _held = cache.hold(id);
 
         let e = cache
-            .get_or_render::<_, io::Error>(c, |p| write(p, 100))
+            .get_or_render::<_, io::Error>(id, |p| write(p, 100))
             .unwrap_err();
 
         assert!(e.to_string().contains("cap"), "unhelpful error: {e}");
-        assert!(e.to_string().contains("in use"), "unhelpful error: {e}");
-        assert!(cache.path_for(a).is_file() && cache.path_for(b).is_file());
-        assert!(
-            cache.path_for(other).is_file(),
-            "an entry was evicted for one that was then refused"
-        );
-        assert!(!cache.path_for(c).exists());
-        assert_eq!(staging_files(&cache), Vec::<String>::new());
+        assert!(!cache.path_for(id).exists());
+    }
 
-        // And once the holds are gone there is room for it.
+    /// Dropping the holds puts the pair back under the cap, at once: the
+    /// cache does not wait for a render that may never come.
+    #[test]
+    fn dropping_the_holds_brings_the_cache_back_under_its_cap() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cache = PreviewCache::new(tmp.path());
+        cache.cap_bytes = 150;
+        let (a, b, newer) = (node_id(58), node_id(59), node_id(60));
+        let holds = [cache.hold(a), cache.hold(b)];
+        for id in [a, b, newer] {
+            cache
+                .get_or_render::<_, io::Error>(id, |p| write(p, 100))
+                .unwrap();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(cache.size_bytes(), 300);
+
         drop(holds);
-        cache
-            .get_or_render::<_, io::Error>(c, |p| write(p, 100))
-            .expect("fits once nothing is held");
-        assert!(cache.size_bytes() <= 250);
+
+        assert!(cache.size_bytes() <= 150, "still over the cap");
+        assert!(
+            cache.path_for(newer).is_file(),
+            "the eviction should take the least recently used entries, the pair"
+        );
+        assert!(!cache.path_for(a).exists() && !cache.path_for(b).exists());
     }
 
     /// A hold ends when it is dropped: the entry is an ordinary one again,
@@ -991,7 +1052,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let mut cache = PreviewCache::new(tmp.path());
         cache.cap_bytes = 250;
-        let (old, middle, new) = (node_id(57), node_id(58), node_id(59));
+        let (old, middle, new) = (node_id(61), node_id(62), node_id(63));
 
         let held = cache.hold(old);
         for id in [old, middle] {
@@ -1016,26 +1077,27 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let mut cache = PreviewCache::new(tmp.path());
         cache.cap_bytes = 150;
-        let (twice, next, last) = (node_id(60), node_id(61), node_id(62));
+        let (twice, next) = (node_id(64), node_id(65));
         let first = cache.hold(twice);
         let second = cache.hold(twice);
         assert_eq!(first.path(), cache.path_for(twice));
-        cache
-            .get_or_render::<_, io::Error>(twice, |p| write(p, 100))
-            .unwrap();
-        std::thread::sleep(Duration::from_millis(10));
+        for id in [twice, next] {
+            cache
+                .get_or_render::<_, io::Error>(id, |p| write(p, 100))
+                .unwrap();
+            std::thread::sleep(Duration::from_millis(10));
+        }
 
         drop(first);
-        cache
-            .get_or_render::<_, io::Error>(next, |p| write(p, 100))
-            .expect_err("no room beside the entry still held once");
-        assert!(cache.path_for(twice).is_file());
+        assert!(
+            cache.path_for(twice).is_file(),
+            "released while a hold on it was left"
+        );
+        assert_eq!(cache.size_bytes(), 200);
 
         drop(second);
-        cache
-            .get_or_render::<_, io::Error>(last, |p| write(p, 100))
-            .expect("room once the last hold is gone");
-        assert!(!cache.path_for(twice).exists());
+        assert!(!cache.path_for(twice).exists(), "kept after the last hold");
+        assert!(cache.path_for(next).is_file());
     }
 
     /// `evict_to_cap` after a cap is lowered leaves a held entry too.
@@ -1043,7 +1105,7 @@ mod tests {
     fn evicting_to_a_lowered_cap_leaves_held_entries() {
         let tmp = tempfile::tempdir().unwrap();
         let mut cache = PreviewCache::new(tmp.path());
-        let (held_id, free) = (node_id(63), node_id(64));
+        let (held_id, free) = (node_id(66), node_id(67));
         let _held = cache.hold(held_id);
         for id in [held_id, free] {
             cache

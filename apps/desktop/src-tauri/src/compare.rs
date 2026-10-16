@@ -6,7 +6,9 @@
 //! A/B bar loads a side from its file on every switch, for as long as it
 //! is open, so a side evicted meanwhile is a switch that fails. The two
 //! entries are therefore held ([`tools::preview_cache::Held`]) from before
-//! they are rendered until the bar ends the compare (`end_compare`).
+//! they are rendered until the bar ends the compare (`end_compare`). A held
+//! entry is outside the cap, so the cache can be over it by this one pair;
+//! letting the pair go evicts it back under.
 //!
 //! The window has one A/B bar, so there is one compare at a time: starting
 //! one ends the one before. Each gets an id, and only the id of the open

@@ -616,8 +616,8 @@ and evicts least-recently-used entries; an evicted entry is re-rendered
 byte-identically on demand. `storage_report` reports what it is holding. A mix
 bigger than the cap cannot be kept, so the call fails (the cache is left as it
 was) instead of returning a path to a file that is already gone. While an A/B
-compare is open its two sides are held in the same cache (`prepareCompare`), and
-a mix that does not fit beside them fails the same way.
+compare is open its two sides are held in the same cache (`prepareCompare`),
+outside the cap: a render made meanwhile evicts only other entries to fit.
 
 ```typescript
 const wavPath = await bridge.renderPreview(nodeId);
@@ -688,10 +688,12 @@ be written is an error.
 
 **Held while compared.** The bar loads a side from its file on every switch, so
 both entries are kept out of the cache's eviction until `endCompare(compare_id)`,
-or until the next `prepareCompare`, which ends the compare before it. A held
-entry still counts against the cap: a pair that does not fit in the cache
-together fails (nothing it would have evicted is lost), and while a compare is
-open a `renderPreview` that does not fit beside the pair fails the same way.
+or until the next `prepareCompare`, which ends the compare before it. Held
+entries are outside the cap, so a long session whose two sides do not fit in the
+cache together (an hour-long mix) can still be compared, and a `renderPreview`
+made while the compare is open evicts only other entries. The cache is over its
+cap by at most the pair, and back under it once the compare ends. A side bigger
+than the cap on its own is an error, as it is for `renderPreview`.
 
 ```typescript
 interface PreparedCompare {
@@ -709,9 +711,11 @@ const { a_path, b_path, a_warnings, b_warnings, compare_id } =
 ### `endCompare(compareId: number) → void`
 
 The compare bar for `compareId` has closed: its two renders are ordinary
-preview-cache entries again, which the cache may evict. Ending a compare that
-is no longer the open one (a newer `prepareCompare` has started since) changes
-nothing. The A/B bar calls it when it closes or moves to another pair.
+preview-cache entries again. They count against the cap once more, and the cache
+is evicted back under it at once, least recently used first (usually the pair).
+Ending a compare that is no longer the open one (a newer `prepareCompare` has
+started since) changes nothing. The A/B bar calls it when it closes or moves to
+another pair.
 
 ```typescript
 await bridge.endCompare(compare_id);

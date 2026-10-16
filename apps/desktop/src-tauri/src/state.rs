@@ -140,9 +140,10 @@ pub struct AppState {
     /// the `SessionContext` injected into the system prompt.
     pub selection: Arc<Mutex<Option<Range>>>,
     /// The A/B compare the window has open, which holds both sides'
-    /// preview-cache entries out of eviction until `end_compare` (#575).
-    /// Its lock is a leaf: taken alone, never with the store, engine,
-    /// dispatcher or agent locks.
+    /// preview-cache entries out of eviction, and out of the cap, until
+    /// `end_compare` (#575). Its lock is taken alone, never with the store,
+    /// engine, dispatcher or agent locks; letting a pair go takes the preview
+    /// cache's hold lock under it, which is the last lock there is.
     pub compare: Arc<Mutex<crate::compare::CompareHolds>>,
     /// In-memory audio clipboard for `copy_region` / `paste_region`.
     /// Shared with the `Agent` so the clipboard persists across turns and

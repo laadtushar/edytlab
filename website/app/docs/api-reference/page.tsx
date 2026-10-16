@@ -216,7 +216,7 @@ const commands = [
       {
         name: "renderPreview(node)",
         returns: "string (path)",
-        desc: "Render the session to a WAV for playback. Cached by node id under .audiograph/previews/, so repeating a head — undo, redo — costs nothing. The cache is capped; a mix bigger than the cap is an error, and so is one that does not fit beside the two renders an open A/B compare holds.",
+        desc: "Render the session to a WAV for playback. Cached by node id under .audiograph/previews/, so repeating a head — undo, redo — costs nothing. The cache is capped; a mix bigger than the cap is an error.",
       },
       {
         name: "getRenderWarnings(node)",
@@ -231,12 +231,12 @@ const commands = [
       {
         name: "prepareCompare(a, b)",
         returns: "{ a_path, b_path, a_warnings, b_warnings, compare_id }",
-        desc: "Pre-render two nodes for A/B comparison, with what each side's render leaves out. Each side is the preview cache's entry for its node (the file renderPreview returns for it), rendered only if it is not there already, and nothing is written outside the project. Both are kept from the cache's eviction until endCompare(compare_id) or the next compare; a pair that does not fit in the cache together is an error.",
+        desc: "Pre-render two nodes for A/B comparison, with what each side's render leaves out. Each side is the preview cache's entry for its node (the file renderPreview returns for it), rendered only if it is not there already, and nothing is written outside the project. Both are kept from the cache's eviction, and outside its cap, until endCompare(compare_id) or the next compare, so two sides too long to fit in the cache together can still be compared. A side bigger than the cap on its own is an error.",
       },
       {
         name: "endCompare(compareId)",
         returns: "void",
-        desc: "The compare bar has closed: its two renders are ordinary cache entries again, which the cache may evict. Ending a compare that a newer one has replaced changes nothing.",
+        desc: "The compare bar has closed: its two renders are ordinary cache entries again, and the cache is evicted back under its cap at once. Ending a compare that a newer one has replaced changes nothing.",
       },
       {
         name: "acceptB(b)",

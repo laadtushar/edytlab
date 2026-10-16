@@ -10,9 +10,10 @@
 //!
 //! The cache evicts its least recently used entries, and the A/B bar reads
 //! both files again on every switch, so the pair is held for as long as
-//! the bar is open: eviction leaves it alone until `end_compare`, and a
-//! render that would not fit beside it is refused, as one bigger than the
-//! cap is, rather than taking a side out from under the bar.
+//! the bar is open: eviction leaves it alone until `end_compare`. A held
+//! pair is outside the cap, so a long session whose sides do not fit in it
+//! together can still be compared, and once the compare ends the cache is
+//! back under its cap.
 //!
 //! The claim is about where files end up, so each test points the OS temp
 //! directory at an empty folder of its own and looks at it afterwards. The
@@ -235,6 +236,15 @@ impl Sandbox {
             .collect()
     }
 
+    /// Bytes on disk for the whole-mix entries of `nodes` that are there.
+    fn bytes_of(&self, nodes: &[NodeId]) -> u64 {
+        nodes
+            .iter()
+            .filter_map(|n| std::fs::metadata(self.entry(*n)).ok())
+            .map(|m| m.len())
+            .sum()
+    }
+
     fn cached_bytes(&self) -> u64 {
         names_in(&self.previews())
             .iter()
@@ -401,7 +411,7 @@ fn a_compare_that_cannot_render_leaves_nothing_behind() {
 }
 
 // ---------------------------------------------------------------------
-// The pair is held while it is being compared
+// The pair is held while it is being compared, outside the cap
 // ---------------------------------------------------------------------
 
 /// The A/B bar loads a side from its file on every switch, so a side the
@@ -414,15 +424,14 @@ fn the_pair_being_compared_outlives_renders_that_evict() {
     let (a, b) = (s.nodes[1], s.nodes[2]);
     let one = s.render_bytes();
     std::fs::remove_file(s.entry(s.nodes[0])).unwrap();
-
-    let answer = s.compare(a, b).expect("prepare_compare");
-    // Room for three renders and a half: the pair and one more.
-    let cap = one * 7 / 2;
+    // Room for one render and a half.
+    let cap = one * 3 / 2;
     s.cap(cap);
+
+    let _answer = s.compare(a, b).expect("prepare_compare");
     for node in [s.nodes[3], s.nodes[4]] {
         std::thread::sleep(TICK);
         s.preview(node).expect("render_preview");
-        assert!(s.cached_bytes() <= cap, "over the cap");
     }
 
     assert!(s.entry(a).is_file(), "A was evicted while it was compared");
@@ -431,54 +440,96 @@ fn the_pair_being_compared_outlives_renders_that_evict() {
         !s.entry(s.nodes[3]).exists(),
         "the render evicted should be the oldest one not being compared"
     );
-
-    // Once the bar closes, the pair is an ordinary entry again: the
-    // least recently used one goes first.
-    s.end_compare(&answer);
-    std::thread::sleep(TICK);
-    s.preview(s.nodes[5]).expect("render_preview");
-    assert!(!s.entry(a).exists(), "A was kept after the compare ended");
-    assert!(s.cached_bytes() <= cap, "over the cap");
+    assert!(
+        s.bytes_of(&[s.nodes[3], s.nodes[4]]) <= cap,
+        "the renders not being compared are over the cap"
+    );
 }
 
-/// A render that does not fit beside the pair cannot be kept without
-/// evicting a side or breaking the cap, so it is refused before anything
-/// is evicted, as one bigger than the cap is.
+/// The pair is outside the cap, so a render made while the bar is open is
+/// judged on its own: it fits if it fits the cap alone, evicting only
+/// renders that are not being compared.
 #[test]
-fn a_render_that_does_not_fit_beside_the_pair_is_refused() {
+fn a_render_beside_the_pair_fits_because_the_pair_is_outside_the_cap() {
     let s = Sandbox::new();
     let (a, b) = (s.nodes[1], s.nodes[2]);
     let one = s.render_bytes();
-    let answer = s.compare(a, b).expect("prepare_compare");
-    s.cap(one * 5 / 2);
+    std::fs::remove_file(s.entry(s.nodes[0])).unwrap();
+    s.cap(one * 3 / 2);
+    let _answer = s.compare(a, b).expect("prepare_compare");
 
-    let err = s.preview(s.nodes[3]).expect_err("no room beside the pair");
+    let c = s.preview(s.nodes[3]).expect("fits the cap on its own");
 
-    assert!(err.contains("cap"), "should say why: {err}");
+    assert!(c.is_file());
     assert!(s.entry(a).is_file() && s.entry(b).is_file());
-    assert!(!s.entry(s.nodes[3]).exists());
+    assert_eq!(s.cached_bytes(), one * 3, "over the cap by the pair");
     assert_eq!(s.staging_files(), Vec::<String>::new());
-
-    s.end_compare(&answer);
-    s.preview(s.nodes[3])
-        .expect("there is room once the compare has ended");
 }
 
-/// A pair that does not fit the cap together cannot both be kept, and a
-/// path to a side that was evicted as the other was rendered is no use to
-/// the bar. The compare says so instead.
+/// A long session (an hour-long mix) can be compared although its two
+/// sides do not fit in the cap together: the pair is held outside it.
 #[test]
-fn a_pair_bigger_than_the_cap_is_an_error_not_a_dangling_path() {
+fn a_pair_bigger_than_the_cap_can_still_be_compared() {
     let s = Sandbox::new();
     let one = s.render_bytes();
     s.cap(one * 3 / 2);
+    let (a, b) = (s.nodes[1], s.nodes[2]);
+
+    let answer = s.compare(a, b).expect("the pair is outside the cap");
+
+    assert_eq!(path(&answer, "a_path"), s.entry(a));
+    assert_eq!(path(&answer, "b_path"), s.entry(b));
+    assert!(
+        s.entry(a).is_file() && s.entry(b).is_file(),
+        "a side was evicted as the other was rendered"
+    );
+    assert_eq!(s.os_tmp_files(), Vec::<String>::new());
+}
+
+/// Once the bar closes, the pair counts against the cap again, and the
+/// cache is back under it straight away: least recently used first, which
+/// is the pair.
+#[test]
+fn ending_the_compare_brings_the_cache_back_under_its_cap() {
+    let s = Sandbox::new();
+    let (a, b) = (s.nodes[1], s.nodes[2]);
+    let one = s.render_bytes();
+    std::fs::remove_file(s.entry(s.nodes[0])).unwrap();
+    let cap = one * 3 / 2;
+    s.cap(cap);
+    let answer = s.compare(a, b).expect("prepare_compare");
+    std::thread::sleep(TICK);
+    let later = s.preview(s.nodes[3]).expect("render_preview");
+    assert!(
+        s.cached_bytes() > cap,
+        "the pair puts the cache over its cap"
+    );
+
+    s.end_compare(&answer);
+
+    assert!(
+        s.cached_bytes() <= cap,
+        "still over the cap once the compare ended"
+    );
+    assert!(!s.entry(a).exists() && !s.entry(b).exists());
+    assert!(later.is_file(), "the newest render should have been kept");
+}
+
+/// Holding the pair does not get round the one refusal there is: a side
+/// bigger than the cap on its own is an error, as it is for
+/// `render_preview`, and not a path to a file that is already gone.
+#[test]
+fn a_side_bigger_than_the_cap_is_an_error_not_a_dangling_path() {
+    let s = Sandbox::new();
+    let one = s.render_bytes();
+    s.cap(one / 2);
 
     let err = s
         .compare(s.nodes[1], s.nodes[2])
-        .expect_err("the pair does not fit");
+        .expect_err("a side does not fit the cap");
 
     assert!(err.contains("cap"), "should say why: {err}");
-    assert!(s.cached_bytes() <= one * 3 / 2, "over the cap");
+    assert!(!s.entry(s.nodes[1]).exists() && !s.entry(s.nodes[2]).exists());
     assert_eq!(s.staging_files(), Vec::<String>::new());
     assert_eq!(s.os_tmp_files(), Vec::<String>::new());
 }

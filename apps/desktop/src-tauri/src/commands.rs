@@ -2500,11 +2500,14 @@ pub async fn get_render_warnings(
 ///
 /// The bar loads a side from its file on every switch, so both entries are
 /// held out of the cache's eviction, from before they are looked up until
-/// `end_compare` (or the next compare) lets them go. A held entry still
-/// counts against the cache's cap, so a pair that does not fit in it
-/// together is an error rather than a path to a side that was evicted, and
-/// while the compare is open a preview that does not fit beside it is
-/// refused. Starting a compare ends the one before: the window has one bar.
+/// `end_compare` (or the next compare) lets them go. Held entries are
+/// outside the cache's cap, so a long session whose two sides do not fit in
+/// the cap together (an hour-long mix) can still be compared, and a preview
+/// rendered while the bar is open evicts only other entries. The cache is
+/// over its cap by at most the pair, and back under it once the pair is let
+/// go. A side bigger than the cap on its own is an error, as it is for
+/// `render_preview`. Starting a compare ends the one before: the window has
+/// one bar.
 ///
 /// Returns `{ "a_path": "…", "b_path": "…", "a_warnings": […],
 /// "b_warnings": […], "compare_id": n }` — the caller feeds the paths to
@@ -2525,10 +2528,6 @@ pub async fn prepare_compare(
         let a_id = NodeId::from_hex(&a).map_err(|_| CommandError::InvalidNodeId(a.clone()))?;
         let b_id = NodeId::from_hex(&b).map_err(|_| CommandError::InvalidNodeId(b.clone()))?;
 
-        // Ends whatever compare was open, even if this one fails: the bar
-        // has moved on from it.
-        let compare_id = lock_std(&state.compare, "compare")?.begin();
-
         let (a_state, b_state, project_dir) = {
             let store = lock_std(&store_handle, "store")?;
             let a_node = store.get(a_id).map_err(CommandError::from)?;
@@ -2543,9 +2542,14 @@ pub async fn prepare_compare(
         let b_warnings = render_warnings_of(&b_state);
 
         // Held before either is looked up, so that rendering B, or anything
-        // else rendering meanwhile, cannot evict A from under the bar.
+        // else rendering meanwhile, cannot evict A from under the bar; and
+        // before the compare open until now is ended, since letting that go
+        // evicts down to the cap, and the two may share a side (the head).
         let cache = tools::PreviewCache::new(&project_dir);
         let sides = vec![cache.hold(a_id), cache.hold(b_id)];
+        // Ends whatever compare was open, even if this one then fails to
+        // render: the bar has moved on from it.
+        let compare_id = lock_std(&state.compare, "compare")?.begin();
         let a_path = cached_mix(state, &store_handle, &cache, a_id, &a_state)?;
         let b_path = cached_mix(state, &store_handle, &cache, b_id, &b_state)?;
         let a_path = utf8_path(&a_path, "the A side")?;
@@ -2569,7 +2573,9 @@ pub async fn prepare_compare(
 // ---------------------------------------------------------------------------
 
 /// The A/B bar for compare `compare_id` has closed: its two renders are
-/// ordinary preview-cache entries again, which the cache may evict (#575).
+/// ordinary preview-cache entries again (#575). They count against the cap
+/// once more, and the cache is evicted back under it now, least recently
+/// used first, which is usually the pair.
 ///
 /// Ending a compare that is not the open one, because a newer one has
 /// started since, changes nothing, so a bar that closes as another opens
