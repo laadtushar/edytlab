@@ -78,9 +78,10 @@ goes in the first comment.
 | Captions: auto-captions exist and can be managed | <https://help.instagram.com/7487270478066359/> | page is JavaScript-only | **unverified**; text is burned in so the cut does not depend on it |
 
 **What this decided for the Instagram cut:** 1080x1920, 30 fps, 31 s (inside 3 minutes; the whole point lands in the first 3 s);
-the hook line is on screen from frame 3; all text and the frame sit inside x 65-1015 and y 269-1248 (14 % top, 35 % bottom, 6 % sides);
-the only audio is the real app audio, so there is no trending-audio dependency and the post is "original audio". The 30-second narrated
-version uses the owner-approved voice and must carry the ElevenLabs credit (README).
+the hook line is on screen from frame 3; every word the cut adds sits inside x 120-960 and y 269-1248 (14 % top, 35 % bottom, and 120 px at each side, the reels' margin; the recording
+itself may use x 65-1015);
+the only audio is the real app audio, so there is no trending-audio dependency and the post is "original audio". There is no narrated
+version for now (README).
 
 ---
 
@@ -130,18 +131,20 @@ libraries document, and ffmpeg encodes. Nothing was downloaded.
 | Prepare the viewer, direct attention | Wikipedia, Twelve basic principles of animation, <https://en.wikipedia.org/wiki/Twelve_basic_principles_of_animation> | "Anticipation is used to prepare the audience for an action"; staging: "Its purpose is to direct the audience's attention, and make it clear what is of greatest importance in a scene." | the camera arrives before the callout draws (anticipation); one emphasised thing per shot (staging) | read |
 | Reading speed for on-screen words | Netflix English Timed Text Style Guide, <https://partnerhelp.netflixstudios.com/hc/en-us/articles/217350977-English-Timed-Text-Style-Guide> | "Adult programs: Up to 20 characters per second."; "42 characters per line."; "Maximum two lines." | every title is two lines at most and stays up long enough: the longest (44 characters) holds 4 s, 11 characters per second | read |
 | No flashing | WCAG 2.2, 2.3.1, <https://www.w3.org/WAI/WCAG22/Understanding/three-flashes-or-below-threshold.html> | "Web pages do not contain anything that flashes more than three times in any one second period" | all transitions are cross-fades of 0.3 s or more; no strobing | read |
-| Text contrast | WCAG 2.2, 1.4.3, <https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html> | "a contrast ratio of at least 4.5:1" (3:1 for large text) | white on the background gradient is 17-20:1, the orange accent 7-8:1, the muted note text 8-9:1 (computed with the WCAG formula over the gradient's range, (8,9,13) to (24,27,40)) | read |
+| Text contrast | WCAG 2.2, 1.4.3, <https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html> | "a contrast ratio of at least 4.5:1" (3:1 for large text) | the site's own tokens (`marketing/reels/tools/brand.py` reads them from `website/app/globals.css`): foreground on background 19:1, the violet accent 6.0:1, the gradient's darker end 5.5:1, the muted note 7.8:1; `engine.py` also checks every title, list, note and card line against the brightest background pixel behind it and refuses to build under 4.5:1 | read |
 | Kinetic type: legibility first, few animated elements at a time, test muted | vendor blogs: <https://hera.video/blog/kinetic-typography-video-generator-guide>, <https://www.nemovideo.com/blog/kinetic-typography-product-ads> | summaries only: limit simultaneous animated elements; "fast motion for the hook, medium motion for benefits, a clear pause on the main claim, and the longest hold on the call to action" | titles reveal word by word but never rotate, scale hard or blur for long; the end card holds longest | secondary (vendor blogs; low weight) |
 
 **The motion kit (same on all three cuts):**
 1. **Easing**: enter on emphasized decelerate, exit on emphasized accelerate, camera on easeInOutCubic, settle on a damped spring.
-2. **Kinetic titles**: each word rises 0.42 em, fades and de-blurs over 0.55 s, 70 ms apart; the accent word is orange. Step titles share one size per canvas.
+2. **Kinetic titles**: each word rises 0.42 em, fades and de-blurs over 0.55 s, 70 ms apart; the stressed words are filled with the site's gradient (light violet to magenta-violet). Step titles share one size per canvas.
 3. **Camera**: a crop rectangle on the recording and the frame rectangle on the stage are interpolated together (centre linearly, size geometrically so the zoom
    speed looks constant), with a 1.2 % slow drift during holds so a held shot never looks frozen. Zoom is capped at 2.15-2.3x because the source is 1280x776.
 4. **Callouts**: the ring draws itself on over 0.55 s (a trimmed rounded-rectangle path, anti-aliased by 3x supersampling), pulses at 0.9 Hz, sends one ripple,
    a leader line grows to a chip that springs in. Regions are in source pixels, so they follow the camera; where the recorded chat scrolls, the region is keyframed.
-5. **Brand**: orange (242,140,60) from the app, the "edyt" serif italic + "lab" wordmark from the app's own title screen, a row of breathing bars (the app's
-   logo motif), a thin orange progress line on every cut.
+5. **Brand**: the website's, shared with the reels (`marketing/reels/tools/brand.py`, read from `website/app/globals.css` and `website/public/logo.svg`): its dark
+   background with the `.aurora` washes, Inter, the violet primary for rings and the progress line, the `.gradient-text` on stressed words, the demos' own caption card
+   for chips, the header's lockup (the logo's mark, then "edytlab") on the hook and end cards, and a row of breathing bars in the logo's own fill. No version is named:
+   the footage is a development build.
 6. **Sound**: a synthesised soft whoosh on scene changes, a tick when a callout lands, a chime under the wordmark (`tools/sfx.py`, no samples, no licence).
 
 ---

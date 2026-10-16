@@ -95,22 +95,30 @@ def main():
     mixed = f"{work}/{tag}_mix.wav"
     with wave.open(mixed, "wb") as w:
         w.setnchannels(2); w.setsampwidth(2); w.setframerate(SR); w.writeframes(pcm)
-    # Gain + a look-ahead limiter, iterated until -14 LUFS with a true peak under -1 dBTP.
+    # Gain + a look-ahead limiter, iterated until -14 LUFS with a true peak under -1 dBTP, then the AAC file itself is
+    # measured (the encoder adds overshoot to the peaks: one cut came out at -0.4 dBTP from a -1.7 dBTP source) and the
+    # limiter is lowered and the file re-encoded until it too is under -1 dBTP.
     normed = f"{work}/{tag}_norm.wav"
     i_in, _ = measure(mixed)
     g, limit = -14.0 - i_in + 2.0, 0.78
-    for _ in range(8):
-        af = f"volume={g:.2f}dB,alimiter=limit={limit:.3f}:attack=3:release=60:level=false"
-        run(["ffmpeg", "-nostdin", "-y", "-v", "error", "-i", mixed, "-af", af, "-ar", "48000", "-c:a", "pcm_s16le", normed])
-        got, tp = measure(normed)
-        if abs(got + 14.0) <= 0.15 and tp <= -1.25:
+    for attempt in range(6):
+        for _ in range(8):
+            af = f"volume={g:.2f}dB,alimiter=limit={limit:.3f}:attack=3:release=60:level=false"
+            run(["ffmpeg", "-nostdin", "-y", "-v", "error", "-i", mixed, "-af", af, "-ar", "48000", "-c:a", "pcm_s16le", normed])
+            got, tp = measure(normed)
+            if abs(got + 14.0) <= 0.15 and tp <= -1.25:
+                break
+            if tp > -1.25:
+                limit *= 0.97
+            g += (-14.0 - got) * 0.9
+        print(f"  loudness: {got:.2f} LUFS, true peak {tp:.2f} dBTP (gain {g:.1f} dB, limiter {limit:.3f})")
+        run(["ffmpeg", "-nostdin", "-y", "-v", "error", "-i", video, "-i", normed, "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac",
+             "-b:a", "192k", "-ar", "48000", "-ac", "2", "-shortest", "-movflags", "+faststart", out])
+        f_i, f_tp = measure(out)
+        print(f"  the file: {f_i:.2f} LUFS, true peak {f_tp:.2f} dBTP")
+        if f_tp <= -1.05 and abs(f_i + 14.0) <= 0.3:
             break
-        if tp > -1.25:
-            limit *= 0.97
-        g += (-14.0 - got) * 0.9
-    print(f"  loudness: {got:.2f} LUFS, true peak {tp:.2f} dBTP (gain {g:.1f} dB, limiter {limit:.3f})")
-    run(["ffmpeg", "-nostdin", "-y", "-v", "error", "-i", video, "-i", normed, "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac",
-         "-b:a", "192k", "-ar", "48000", "-ac", "2", "-shortest", "-movflags", "+faststart", out])
+        limit *= 0.93
     print(out, "mix loudness before normalising", f"{i_in:.2f} LUFS")
 
 

@@ -6,6 +6,11 @@ real demo recordings are decoded by ffmpeg and composed inside a virtual camera,
 and a second ffmpeg process encodes the result. Nothing here needs more than
 Python 3 + Pillow + ffmpeg, so it runs offline.
 
+Look: the website's, shared with the reels. Colours, Inter, the logo and the aurora
+come from marketing/reels/tools/brand.py (read from website/app/globals.css and
+website/public/logo.svg), so a change on the site is a change here. Every text colour
+is checked for 4.5:1 against the brightest pixel of what it is drawn on.
+
 Motion vocabulary (see research.md, section M):
   * easing  : Material 3 cubic-béziers (emphasized decelerate to enter, emphasized
               accelerate to exit), easeInOutCubic for the camera (Motion Canvas'
@@ -24,23 +29,25 @@ import sys
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
+# The reels' brand module (<repo>/marketing/reels/tools/brand.py): the site's colours, Inter, the logo and the aurora.
+# This file is <repo>/marketing/launch-video/tools/engine.py.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.insert(0, os.path.join(REPO_ROOT, "marketing", "reels", "tools"))
+import brand  # noqa: E402
+
 FPS = 30
 SRC_W, SRC_H = 1280, 776
-# The three demo recordings live in the repo: <repo>/website/public/demos. This file is <repo>/marketing/launch-video/tools/engine.py.
-# Set EDYTLAB_DEMO_DIR to read them from somewhere else.
-DEMO_DIR = os.environ.get("EDYTLAB_DEMO_DIR") or os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "website", "public", "demos")
-FD ="/usr/share/fonts/truetype/liberation/"
-F_SANS_B = FD + "LiberationSans-Bold.ttf"
-F_SANS = FD + "LiberationSans-Regular.ttf"
-F_SERIF_I = FD + "LiberationSerif-Italic.ttf"
-F_SERIF = FD + "LiberationSerif-Regular.ttf"
-F_MONO_B = FD + "LiberationMono-Bold.ttf"
+# The three demo recordings live in the repo: <repo>/website/public/demos. Set EDYTLAB_DEMO_DIR to read them from somewhere else.
+DEMO_DIR = os.environ.get("EDYTLAB_DEMO_DIR") or os.path.join(REPO_ROOT, "website", "public", "demos")
+# Inter weights (brand.font): the site's type.
+F_BOLD, F_SEMI, F_MED = "Bold", "SemiBold", "Medium"
 
-ACCENT = (242, 140, 60)
-WHITE = (255, 255, 255)
-MUTED = (172, 178, 192)
-PANEL = (13, 14, 20)
+ACCENT = brand.PRIMARY            # the site's violet: rings, markers, the url, the progress line
+GRAD = brand.GRADIENT             # `.gradient-text`: light violet to magenta-violet, for the words a title stresses
+WHITE = brand.FOREGROUND
+MUTED = brand.MUTED_FG
+PANEL = brand.CARD                # the demos' own caption card, the chips and the diagram's panels
+EDGE = brand.BORDER
 
 
 # ----------------------------------------------------------------- easing
@@ -96,10 +103,11 @@ def prog(T, t0, dur, ease=None):
 _fonts = {}
 
 
-def font(path, size):
-    key = (path, int(round(size)))
+def font(weight, size):
+    """Inter at `weight` (F_BOLD, F_SEMI or F_MED) and `size` px."""
+    key = (weight, int(round(size)))
     if key not in _fonts:
-        _fonts[key] = ImageFont.truetype(path, key[1])
+        _fonts[key] = brand.font(*key)
     return _fonts[key]
 
 
@@ -117,14 +125,17 @@ LAYOUTS = {
     # 16:9 Reddit (and LinkedIn desktop)
     "wide": dict(W=1920, H=1080, title_box=(120, 40, 1800, 190), title_max=72, title_min=44,
                  area=(120, 214, 1800, 1010), max_scale=2.4, step_size=66, chips=(30, 200, 1890, 1050),
-                 chip_size=34, ring_w=4, radius=22, note_y=1034, note_size=24,
+                 chip_size=34, ring_w=4, radius=22, note_y=1018, note_size=24,
                  bar=(120, 1066, 1800), safe=(40, 30, 1880, 1050), list_size=48, end_wordmark=210),
-    # 9:16 Instagram Reels: Meta's own safe zone is 14 % top, 35 % bottom, 6 % each side
-    "tall": dict(W=1080, H=1920, title_box=(65, 270, 1015, 490), title_max=78, title_min=48,
-                 area=(65, 506, 1015, 1240), max_scale=2.3, step_size=62,
-                 chips=(65, 272, 1015, 1246),
-                 chip_size=33, ring_w=4, radius=20, note_y=1256, note_size=24,
-                 bar=(65, 1330, 1015), safe=(65, 269, 1015, 1248), list_size=46, end_wordmark=230),
+    # 9:16 Instagram Reels. Everything this file adds (titles, chips, the note) stays inside Meta's published ad safe zone,
+    # the strictest there is: 14 % clear at the top, 35 % at the bottom (y 269 to 1248), and 120 px at each side, the
+    # reels' margin (the right edge is where Reels, Shorts and TikTok put their buttons). The recording and the progress
+    # line, which carry no words, may use the rest. `assert_safe` checks the titles and the chips when they are built.
+    "tall": dict(W=1080, H=1920, title_box=(120, 276, 960, 476), title_max=78, title_min=48,
+                 area=(65, 492, 1015, 1196), max_scale=2.3, step_size=62,
+                 chips=(120, 276, 960, 1200),
+                 chip_size=33, ring_w=4, radius=20, note_y=1208, note_size=24,
+                 bar=(120, 1330, 960), safe=(120, 269, 960, 1248), list_size=46, end_wordmark=230),
 }
 
 
@@ -195,37 +206,63 @@ def rounded_mask(w, h, r):
 
 
 _bg_cache = {}
+WASH = 1.0      # the aurora behind a cut, in multiples of the site's own opacity (0.16)
+GRAIN = 0.5     # std. dev. (8-bit levels) of the seeded noise that keeps the wash from banding once encoded
 
 
 def make_bg(W, H):
+    """The page's dark background with the site's `.aurora` (brand.aurora_wash): a violet and a magenta wash at opposite corners."""
     key = (W, H)
-    if key in _bg_cache:
-        return _bg_cache[key].copy()
-    sw, sh = max(8, W // 8), max(8, H // 8)
-    small = Image.new("RGB", (sw, sh))
-    px = small.load()
-    cx, cy = sw * 0.5, sh * 0.30
-    for y in range(sh):
-        for x in range(sw):
-            d = math.hypot((x - cx) / sw, (y - cy) / sh * 0.9)
-            k = clamp(1 - d * 1.35)
-            k = k * k
-            px[x, y] = (round(lerp(7, 24, k)), round(lerp(8, 27, k)), round(lerp(12, 40, k)))
-    bg = small.resize((W, H), Image.BICUBIC)
-    noise = Image.effect_noise((W, H), 40).point(lambda v: int((v - 128) * 0.09) + 8)
-    bg = ImageChops.add(bg, Image.merge("RGB", (noise, noise, noise)), 1.0, -8)
-    _bg_cache[key] = bg
-    return bg.copy()
+    if key not in _bg_cache:
+        bg = Image.new("RGB", (W, H), brand.BACKGROUND)
+        brand.aurora_wash(bg, WASH)
+        _bg_cache[key] = brand.add_grain(bg, GRAIN)
+    return _bg_cache[key].copy()
+
+
+def check_contrast(canvas_size, box, colours, what, lift=0.0):
+    """Text in each of `colours`, drawn inside `box` on the plain background (make_bg), keeps 4.5:1 or better against the
+    brightest part of it there: the per-channel maximum of the box, which is at least as bright as any pixel in it.
+    `lift` mixes that much of the logo's violet in, for text drawn over the breathing bars."""
+    ext = make_bg(*canvas_size).crop(tuple(int(round(v)) for v in box)).getextrema()
+    top = tuple(e[1] for e in ext)
+    if lift:
+        top = tuple(round(c * (1 - lift) + b * lift) for c, b in zip(top, brand.LOGO_BARS))
+    for c in colours:
+        ratio = brand.contrast(c, top)
+        if ratio < brand.MIN_CONTRAST:
+            raise ValueError(f"{what}: {ratio:.2f}:1 over the brightest part of the background behind it, under {brand.MIN_CONTRAST}:1")
+
+
+def assert_safe(layout, box, what):
+    """Words added by this file lie inside the layout's safe area (`Layout.safe`)."""
+    x0, y0, x1, y1 = box
+    sx0, sy0, sx1, sy1 = layout.safe
+    if x0 < sx0 - 1 or y0 < sy0 - 1 or x1 > sx1 + 1 or y1 > sy1 + 1:
+        raise ValueError(f"{what} reaches {tuple(round(v) for v in box)}, outside the safe area {layout.safe}")
 
 
 # ------------------------------------------------------------- text bits
-def text_layer(s, f, fill=WHITE, pad=10, stroke=0):
+def gradient_fill(w, h):
+    """The site's `.gradient-text`, left to right, as an RGB image."""
+    ramp = Image.new("L", (max(1, w), 1))
+    ramp.putdata([round(255 * x / max(1, w - 1)) for x in range(max(1, w))])
+    ramp = ramp.resize((max(1, w), max(1, h)))
+    return Image.composite(Image.new("RGB", ramp.size, GRAD[1]), Image.new("RGB", ramp.size, GRAD[0]), ramp)
+
+
+def text_layer(s, f, fill=WHITE, pad=10, stroke=0, gradient=False):
     w = int(math.ceil(text_w(f, s))) + pad * 2 + 2
     asc, desc = f.getmetrics()
     h = asc + desc + pad * 2
     im = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
-    d.text((pad, pad), s, font=f, fill=fill + (255,), stroke_width=stroke)
+    if gradient:
+        m = Image.new("L", (w, h), 0)
+        ImageDraw.Draw(m).text((pad, pad), s, font=f, fill=255)
+        im = Image.merge("RGBA", (*gradient_fill(w, h).split(), m))
+    else:
+        d.text((pad, pad), s, font=f, fill=fill + (255,), stroke_width=stroke)
     return im
 
 
@@ -284,10 +321,10 @@ class Item:
 
 
 class BarsBG(Item):
-    """Brand motion: a row of thin accent bars that breathe like a waveform (the app's own logo motif)."""
+    """Brand motion: a row of thin violet bars that breathe like a waveform (the logo's three level bars, in its own fill)."""
     z = 1
 
-    def __init__(self, t0, t1, rect, alpha=0.30, fade=0.5, n=None, seed=0.0, mirror=True, color=ACCENT):
+    def __init__(self, t0, t1, rect, alpha=0.30, fade=0.5, n=None, seed=0.0, mirror=True, color=brand.LOGO_BARS):
         self.t0, self.t1, self.rect, self.alpha, self.fade = t0, t1, rect, alpha, fade
         self.n, self.seed, self.mirror, self.color = n, seed, mirror, color
 
@@ -316,11 +353,12 @@ class BarsBG(Item):
 
 
 class Title(Item):
-    """Kinetic typography: words rise, fade and de-blur in a stagger (emphasized decelerate), leave on emphasized accelerate."""
+    """Kinetic typography: words rise, fade and de-blur in a stagger (emphasized decelerate), leave on emphasized accelerate.
+    The words a title stresses (between asterisks) are filled with the site's gradient."""
     z = 20
 
-    def __init__(self, ctx, markup, t0, t1, box=None, align="center", size=None, path=F_SANS_B, delay=0.0,
-                 stagger=0.07, valign="mid", color=WHITE, max_lines=2, enter=0.55, exit_=0.24, min_size=None, fixed=False):
+    def __init__(self, ctx, markup, t0, t1, box=None, align="center", size=None, path=F_BOLD, delay=0.0,
+                 stagger=0.07, valign="mid", color=WHITE, max_lines=2, enter=0.55, exit_=0.24, min_size=None, fixed=False, lift=0.0):
         L = ctx.L
         self.t0, self.t1 = t0, t1
         self.markup = markup
@@ -338,14 +376,22 @@ class Title(Item):
         self.words = []
         k = 0
         pad = 12
+        accent = False
+        x0, x1 = 1e9, -1e9
         for li, line in enumerate(lines):
             lw = line[-1][2] + line[-1][3]
             xo = box[0] + (bw - lw) / 2 if align == "center" else box[0]
             for word, acc, x, ww in line:
-                lay = text_layer(word, f, ACCENT if acc else color, pad=pad)
+                accent = accent or acc
+                x0, x1 = min(x0, xo + x), max(x1, xo + x + ww)
+                lay = text_layer(word, f, color, pad=pad, gradient=acc)
                 self.words.append((lay, xo + x - pad, y0 + li * lh * 1.02 - pad + 0, k))
                 k += 1
         self.stagger, self.delay, self.enter, self.exit_ = stagger, delay, enter, exit_
+        # the words' extent: inside the safe area, and 4.5:1 against the brightest background behind them (the gradient's darker end for the stressed words)
+        y1 = y0 + total_h
+        assert_safe(L, (x0, y0, x1, y1), f"title {markup!r}")
+        check_contrast((L.W, L.H), (x0, y0, x1, y1), [color] + ([GRAD[1]] if accent else []), f"title {markup!r}", lift=lift)
 
     def draw(self, ctx, canvas, T):
         q = prog(T, self.t1 - self.exit_, self.exit_, EASE_OUT)
@@ -372,17 +418,17 @@ class Stack(Item):
         bw = box[2] - box[0]
         # shrink until the widest row fits
         while size > 24:
-            f = font(F_SANS_B, size)
+            f = font(F_SEMI, size)
             if max(text_w(f, s) for s in items) + size * 1.1 <= bw:
                 break
             size -= 2
         self.size = size
-        f = font(F_SANS_B, size)
+        f = font(F_SEMI, size)
         pad = 8
         self.rows = []
         y = box[1]
         if heading:
-            fh = font(F_SANS_B, max(22, int(size * 0.62)))
+            fh = font(F_SEMI, max(22, int(size * 0.62)))
             self.heading = (text_layer(heading.upper(), fh, heading_color, pad=pad), box[0] - pad, y - pad)
             y += fh.getmetrics()[0] * 1.9
         else:
@@ -407,6 +453,12 @@ class Stack(Item):
             if self.heading:
                 h = self.heading
                 self.heading = (h[0], h[1], h[2] + shift)
+        # the rows' extent: inside the safe area, 4.5:1 against the brightest background behind them
+        x1 = box[0] + size * 0.85 + max(text_w(f, s) for s in items)
+        top = (self.heading[2] + pad) if self.heading else (self.rows[0][2] + pad)
+        bottom = self.rows[-1][2] + pad + size * 1.4
+        assert_safe(L, (box[0], top, x1, bottom), f"list {items[0]!r}")
+        check_contrast((L.W, L.H), (box[0], top, x1, bottom), [WHITE, ACCENT], f"list {items[0]!r}")
 
     def draw(self, ctx, canvas, T):
         q = prog(T, self.t1 - self.exit_, self.exit_, EASE_OUT)
@@ -424,20 +476,23 @@ class Stack(Item):
 
 
 class Note(Item):
-    """Small honest-footage note under the frame, and the thin progress line (brand motion)."""
+    """Small honest-footage note under the frame."""
     z = 30
 
     def __init__(self, ctx, text, t0, t1):
         L = ctx.L
         self.t0, self.t1 = t0, t1
-        f = font(F_SANS, L.note_size)
+        f = font(F_MED, L.note_size)
         self.lay = text_layer(text, f, MUTED, pad=6)
         self.x = (L.W - self.lay.width) / 2
         self.y = L.note_y - 6
+        box = (self.x + 6, self.y + 6, self.x + self.lay.width - 6, self.y + self.lay.height - 6)
+        assert_safe(L, box, f"note {text!r}")
+        check_contrast((L.W, L.H), box, [MUTED], f"note {text!r}")
 
     def draw(self, ctx, canvas, T):
         a = min(prog(T, self.t0, 0.5, EASE_STD), 1 - prog(T, self.t1 - 0.3, 0.3, EASE_STD))
-        paste_layer(canvas, self.lay, self.x, self.y, alpha=a * 0.85)
+        paste_layer(canvas, self.lay, self.x, self.y, alpha=a)
 
 
 class Progress(Item):
@@ -455,7 +510,7 @@ class Progress(Item):
         w = x1 - x0
         lay = Image.new("RGBA", (int(w) + 4, 10), (0, 0, 0, 0))
         d = ImageDraw.Draw(lay)
-        d.rounded_rectangle([2, 2, w + 2, 8], radius=3, fill=(255, 255, 255, 38))
+        d.rounded_rectangle([2, 2, w + 2, 8], radius=3, fill=WHITE + (38,))
         fw = max(6, w * clamp(T / self.total))
         d.rounded_rectangle([2, 2, 2 + fw, 8], radius=3, fill=ACCENT + (255,))
         paste_layer(canvas, lay, x0 - 2, y - 5, alpha=a)
@@ -640,7 +695,7 @@ class FootageClip(Item):
         _clip_paste(canvas, rgba, ifx, ify)
         # hairline border
         bd = Image.new("RGBA", (ifw, ifh), (0, 0, 0, 0))
-        ImageDraw.Draw(bd).rounded_rectangle([0, 0, ifw - 1, ifh - 1], radius=L.radius, outline=(255, 255, 255, int(34 * a)), width=2)
+        ImageDraw.Draw(bd).rounded_rectangle([0, 0, ifw - 1, ifh - 1], radius=L.radius, outline=EDGE + (int(255 * a),), width=2)
         _clip_paste(canvas, bd, ifx, ify)
 
 
@@ -708,7 +763,7 @@ class Callout(Item):
         self.sides, self.pad, self.ring, self.number = sides, pad, ring, number
         self.chip_dx, self.chip_dy = chip_dx, chip_dy
         L = ctx.L
-        f = font(F_SANS_B, L.chip_size)
+        f = font(F_SEMI, L.chip_size)
         self.f = f
         tw = text_w(f, label)
         self.pad_x, self.pad_y = int(L.chip_size * 0.62), int(L.chip_size * 0.36)
@@ -723,13 +778,13 @@ class Callout(Item):
         w, h = self.cw * s + 12, self.ch * s + 12
         im = Image.new("RGBA", (w, h), (0, 0, 0, 0))
         d = ImageDraw.Draw(im)
-        d.rounded_rectangle([6, 6, w - 7, h - 7], radius=(h - 12) / 2, fill=(12, 13, 19, 238), outline=ACCENT + (255,), width=3 * s // 2 + 1)
+        d.rounded_rectangle([6, 6, w - 7, h - 7], radius=(h - 12) / 2, fill=PANEL + (240,), outline=ACCENT + (255,), width=3 * s // 2 + 1)
         L = self.ctx.L
-        f2 = font(F_SANS_B, L.chip_size * s)
+        f2 = font(F_SEMI, L.chip_size * s)
         asc, desc = f2.getmetrics()
         tx = 6 + self.pad_x * s + self.num_w * s
         if self.number:
-            fn = font(F_SANS_B, int(L.chip_size * s * 0.82))
+            fn = font(F_SEMI, int(L.chip_size * s * 0.82))
             nw = text_w(fn, str(self.number))
             r = (h - 12) / 2 - 8 * s
             cx = 6 + self.pad_x * s * 0.55 + r
@@ -873,29 +928,29 @@ class Flow(Item):
 
     def _panel(self, w, h, title, lines, accent=False, chips=None, size=28):
         s = 2
-        while size > 20 and max([text_w(font(F_SANS_B, size * 1.12), title)] + [text_w(font(F_SANS, size), ln) for ln in lines]) > w - 56:
+        while size > 20 and max([text_w(font(F_SEMI, size * 1.12), title)] + [text_w(font(F_MED, size), ln) for ln in lines]) > w - 56:
             size -= 1
         im = Image.new("RGBA", (int(w) * s + 8, int(h) * s + 8), (0, 0, 0, 0))
         d = ImageDraw.Draw(im)
-        d.rounded_rectangle([4, 4, w * s + 4, h * s + 4], radius=22 * s, fill=(14, 15, 22, 235),
-                            outline=(ACCENT if accent else (90, 96, 112)) + (255,), width=3 * s)
-        ft = font(F_SANS_B, size * s * 1.12)
+        d.rounded_rectangle([4, 4, w * s + 4, h * s + 4], radius=22 * s, fill=PANEL + (242,),
+                            outline=ACCENT + (255,) if accent else MUTED + (120,), width=3 * s)
+        ft = font(F_SEMI, size * s * 1.12)
         d.text((24 * s, 18 * s), title, font=ft, fill=(ACCENT if accent else WHITE) + (255,))
         y = 18 * s + ft.getmetrics()[0] * 1.5
-        fl = font(F_SANS, size * s)
+        fl = font(F_MED, size * s)
         for ln in lines:
-            d.text((24 * s, y), ln, font=fl, fill=(220, 224, 232, 255))
+            d.text((24 * s, y), ln, font=fl, fill=WHITE + (255,))
             y += size * s * 1.38
         if chips:
-            fc = font(F_SANS_B, size * s * 0.82)
+            fc = font(F_SEMI, size * s * 0.82)
             x, y2 = 24 * s, y + 8 * s
             for c in chips:
                 cw_ = text_w(fc, c) + 28 * s
                 if x + cw_ > w * s - 20 * s:
                     x = 24 * s
                     y2 += size * s * 1.45
-                d.rounded_rectangle([x, y2, x + cw_, y2 + size * s * 1.2], radius=size * s * 0.6, outline=(120, 126, 142, 255), width=2 * s,
-                                    fill=(24, 26, 36, 255))
+                d.rounded_rectangle([x, y2, x + cw_, y2 + size * s * 1.2], radius=size * s * 0.6, outline=MUTED + (255,), width=2 * s,
+                                    fill=EDGE + (255,))
                 d.text((x + 14 * s, y2 + size * s * 0.12), c, font=fc, fill=WHITE + (255,))
                 x += cw_ + 12 * s
         return im.resize((int(w) + 4, int(h) + 4), Image.LANCZOS)
@@ -917,6 +972,16 @@ class Flow(Item):
             self.pr = (x0 + pw + gap, py, pw, ph)
         self.img_l = self._panel(self.pl[2], self.pl[3], self.left[0], self.left[1], True, None, size)
         self.img_r = self._panel(self.pr[2], self.pr[3], self.right[0], self.right[1], False, self.chips, size)
+        # the arrow's label sits on the background between the panels: inside the safe area, 4.5:1 against what is behind it
+        assert_safe(L, self.box, "diagram")
+        fl = font(F_SEMI, 26 if L.name != "wide" else 30)
+        lw = text_w(fl, self.arrow_label)
+        if self.vertical:
+            lbox = (L.W / 2 + 26, self.pl[1] + self.pl[3], L.W / 2 + 26 + lw, self.pr[1])
+        else:
+            cx = (self.pl[0] + self.pl[2] + self.pr[0]) / 2
+            lbox = (cx - lw / 2, self.pl[1] + self.pl[3] / 2 + 16, cx + lw / 2, self.pl[1] + self.pl[3] / 2 + 16 + fl.getmetrics()[0] + 12)
+        check_contrast((L.W, L.H), lbox, [ACCENT], "diagram label")
 
     def draw(self, ctx, canvas, T):
         q = prog(T, self.t1 - 0.25, 0.25, EASE_OUT)
@@ -955,75 +1020,127 @@ class Flow(Item):
                 d.polygon(tri, fill=ACCENT + (255,))
             lay = lay.resize((bw_, bh_), Image.LANCZOS)
             paste_layer(canvas, lay, bx, by, alpha=1 - q)
-            f = font(F_SANS_B, 26 if L.name != "wide" else 30)
+            f = font(F_SEMI, 26 if L.name != "wide" else 30)
             lt = text_layer(self.arrow_label, f, ACCENT, pad=6)
             lx = lab_pos[0] - (0 if self.vertical else lt.width / 2)
             paste_layer(canvas, lt, lx, lab_pos[1] - (lt.height / 2 if self.vertical else 0), alpha=prog(T, self.t0 + 1.7, 0.4, EASE_IN) * (1 - q))
 
 
+def lockup(mark):
+    """The site header's lockup at a mark `mark` px high: the logo's mark, then "edytlab" in Inter SemiBold. -> (mark image, word
+    layer, offsets of the word layer from the mark's top-left, total width, the word's font), `pad` being the word layer's padding."""
+    size = round(mark / 1.44)
+    fw = font(F_SEMI, size)
+    gap = round(mark * 0.28)
+    pad = 14
+    word = text_layer("edytlab", fw, WHITE, pad=pad)
+    asc, desc = fw.getmetrics()
+    return brand.logo_mark(mark), word, (mark + gap - pad, mark / 2 - pad - (asc + desc) / 2), mark + gap + text_w(fw, "edytlab")
+
+
+class Lockup(Item):
+    """The lockup, small, above a hook's title (the reels' hook cards carry it too). Rises and fades in with the title."""
+    z = 20
+
+    def __init__(self, ctx, t0, t1, top, mark=64, delay=0.0):
+        L = ctx.L
+        self.t0, self.t1, self.delay = t0, t1, delay
+        self.mark, self.word, (self.wx, self.wy), w = lockup(mark)
+        self.x, self.y = (L.W - w) / 2, top
+        box = (self.x, top, self.x + w, top + mark)
+        assert_safe(L, box, "lockup")
+        check_contrast((L.W, L.H), box, [WHITE], "lockup")
+
+    def draw(self, ctx, canvas, T):
+        q = prog(T, self.t1 - 0.24, 0.24, EASE_OUT)
+        p = prog(T, self.t0 + self.delay, 0.55, EASE_IN)
+        if p <= 0 or q >= 1:
+            return
+        a = clamp(p * 1.7) * (1 - q)
+        dy = (1 - p) * 26 - q * 8
+        paste_layer(canvas, self.mark, self.x, self.y + dy, alpha=a, blur=(1 - p) * 8)
+        paste_layer(canvas, self.word, self.x + self.wx, self.y + self.wy + dy, alpha=a, blur=(1 - p) * 8)
+
+
 class EndCard(Item):
-    """Brand sign-off: wordmark (serif italic 'edyt' + 'lab', as in the app) over breathing bars, then the facts."""
+    """Brand sign-off: the site's lockup (the logo's mark, then "edytlab" in Inter SemiBold, as in its header), the facts and
+    the url in the pill the reels use. The block sits in the middle of the safe area; `bottom` is where it ends."""
     z = 20
 
     def __init__(self, ctx, t0, t1, lines, url_pill=None, small=None):
         L = ctx.L
         self.t0, self.t1 = t0, t1
-        S = L.end_wordmark
-        a = text_layer("edyt", font(F_SERIF_I, S), ACCENT, pad=14)
-        b = text_layer("lab", font(F_SERIF, S), WHITE, pad=14)
-        self.a, self.b = a, b
-        tw = a.width + b.width - 28
-        cx = L.W / 2
-        self.ax = cx - tw / 2 - 14
-        self.bx = self.ax + a.width - 14
-        self.wy = (L.safe[1] + (L.safe[3] - L.safe[1]) * (0.30 if L.name != "wide" else 0.27)) - a.height / 2
-        self.lines = []
-        y = self.wy + a.height + 6
-        f1 = font(F_SANS_B, int(L.title_max * 0.62))
+        mark = round(L.end_wordmark * 0.62 * 1.44)
+        self.mark, self.word, (wx, wy), lock_w = lockup(mark)
+        pad = 14
+        # (kind, layer, x, y) with y from the block's top; every layer is centred on the canvas except the lockup's two
+        self.items = []
+        self.items.append(("mark", self.mark, (L.W - lock_w) / 2, 0.0))
+        self.items.append(("word", self.word, (L.W - lock_w) / 2 + wx, wy))
+        boxes = [((L.W - lock_w) / 2, 0, (L.W + lock_w) / 2, mark, WHITE)]
+        y = mark + 26
         for ln in lines:
-            lay = text_layer(ln[0], font(F_SANS_B if ln[1] else F_SANS, int(L.title_max * (0.62 if ln[1] else 0.5))), WHITE if ln[1] else MUTED, pad=8)
-            self.lines.append((lay, (L.W - lay.width) / 2, y))
+            fl = font(F_BOLD if ln[1] else F_MED, int(L.title_max * (0.92 if ln[1] else 0.5)))
+            lay = text_layer(ln[0], fl, WHITE if ln[1] else MUTED, pad=8)
+            self.items.append(("line", lay, (L.W - lay.width) / 2, y - 8))
+            boxes.append(((L.W - text_w(fl, ln[0])) / 2, y, (L.W + text_w(fl, ln[0])) / 2, y + lay.height - 16, WHITE if ln[1] else MUTED))
             y += lay.height * 1.0
         self.pill = None
         if url_pill:
-            fp = font(F_SANS_B, int(L.title_max * 0.56))
+            fp = font(F_SEMI, int(L.title_max * 0.66))
             tw_ = text_w(fp, url_pill)
             pw_, ph_ = int(tw_ + 70), int(fp.getmetrics()[0] * 1.9)
-            s = 2
-            im = Image.new("RGBA", ((pw_ + 12) * s, (ph_ + 12) * s), (0, 0, 0, 0))
+            ss = 2
+            im = Image.new("RGBA", ((pw_ + 12) * ss, (ph_ + 12) * ss), (0, 0, 0, 0))
             d = ImageDraw.Draw(im)
-            d.rounded_rectangle([6 * s, 6 * s, (pw_ + 6) * s, (ph_ + 6) * s], radius=ph_ * s / 2, fill=(14, 15, 22, 240), outline=ACCENT + (255,), width=4 * s)
-            d.text((6 * s + 35 * s, 6 * s + ph_ * s * 0.2), url_pill, font=font(F_SANS_B, int(L.title_max * 0.56) * s), fill=WHITE + (255,))
-            self.pill = (im.resize((pw_ + 12, ph_ + 12), Image.LANCZOS), (L.W - pw_ - 12) / 2, y + 18)
+            d.rounded_rectangle([6 * ss, 6 * ss, (pw_ + 6) * ss, (ph_ + 6) * ss], radius=ph_ * ss / 2, fill=PANEL + (240,), outline=ACCENT + (200,), width=4 * ss)
+            d.text(((pw_ + 12) * ss / 2, (ph_ + 12) * ss / 2), url_pill, font=font(F_SEMI, int(L.title_max * 0.66) * ss), fill=ACCENT + (255,), anchor="mm")
+            assert brand.contrast(ACCENT, PANEL) >= brand.MIN_CONTRAST
+            self.pill = (im.resize((pw_ + 12, ph_ + 12), Image.LANCZOS), (L.W - pw_ - 12) / 2, y + 18 - 6)
             y += ph_ + 36
         self.small = []
         for sm in (small or []):
-            lay = text_layer(sm, font(F_SANS, int(L.title_max * 0.48)), MUTED, pad=6)
-            self.small.append((lay, (L.W - lay.width) / 2, y + 10))
+            fs = font(F_MED, int(L.title_max * 0.5))
+            lay = text_layer(sm, fs, MUTED, pad=6)
+            self.small.append((lay, (L.W - lay.width) / 2, y + 10 - 6))
+            boxes.append(((L.W - text_w(fs, sm)) / 2, y + 10, (L.W + text_w(fs, sm)) / 2, y + 10 + lay.height - 12, MUTED))
             y += lay.height + 4
+        # centre the block in the safe area (a touch high, as the eye sees it), then check every line
+        sx0, sy0, sx1, sy1 = L.safe
+        top = sy0 + ((sy1 - sy0) - y) * 0.42
+        self.top, self.bottom = top, top + y
+        for x0, y0, x1, y1, col in boxes:
+            assert_safe(L, (x0, top + y0, x1, top + y1), "end card")
+            check_contrast((L.W, L.H), (x0, top + y0, x1, top + y1), [col], "end card")
+        if self.pill:
+            assert_safe(L, (self.pill[1], top + self.pill[2], self.pill[1] + self.pill[0].width, top + self.pill[2] + self.pill[0].height), "end card pill")
 
     def draw(self, ctx, canvas, T):
         q = prog(T, self.t1 - 0.3, 0.3, EASE_STD)
         if q >= 1:
             return
+        top = self.top
         pa = prog(T, self.t0 + 0.15, 0.7, EASE_IN)
         pb = prog(T, self.t0 + 0.30, 0.7, EASE_IN)
-        paste_layer(canvas, self.a, self.ax, self.wy + (1 - pa) * 60, alpha=clamp(pa * 1.5) * (1 - q), blur=(1 - pa) * 14)
-        paste_layer(canvas, self.b, self.bx, self.wy + (1 - pb) * 60, alpha=clamp(pb * 1.5) * (1 - q), blur=(1 - pb) * 14)
         k = 0
-        for lay, x, y in self.lines:
-            p = prog(T, self.t0 + 0.8 + k * 0.18, 0.55, EASE_IN)
-            paste_layer(canvas, lay, x, y + (1 - p) * 26, alpha=clamp(p * 1.6) * (1 - q), blur=(1 - p) * 6)
-            k += 1
+        for kind, lay, x, y in self.items:
+            if kind == "mark":
+                paste_layer(canvas, lay, x, top + y + (1 - pa) * 60, alpha=clamp(pa * 1.5) * (1 - q), blur=(1 - pa) * 14)
+            elif kind == "word":
+                paste_layer(canvas, lay, x, top + y + (1 - pb) * 60, alpha=clamp(pb * 1.5) * (1 - q), blur=(1 - pb) * 14)
+            else:
+                p = prog(T, self.t0 + 0.8 + k * 0.18, 0.55, EASE_IN)
+                paste_layer(canvas, lay, x, top + y + (1 - p) * 26, alpha=clamp(p * 1.6) * (1 - q), blur=(1 - p) * 6)
+                k += 1
         if self.pill:
             lay, x, y = self.pill
             p = prog(T, self.t0 + 0.8 + k * 0.18, 0.6, EASE_IN)
             sp = spring(T - (self.t0 + 0.8 + k * 0.18))
-            paste_layer(canvas, lay, x, y, alpha=clamp(p * 1.6) * (1 - q), scale=0.9 + 0.1 * sp)
+            paste_layer(canvas, lay, x, top + y, alpha=clamp(p * 1.6) * (1 - q), scale=0.9 + 0.1 * sp)
             k += 1
         for lay, x, y in self.small:
             p = prog(T, self.t0 + 0.8 + k * 0.18, 0.55, EASE_IN)
-            paste_layer(canvas, lay, x, y + (1 - p) * 14, alpha=clamp(p * 1.6) * (1 - q))
+            paste_layer(canvas, lay, x, top + y + (1 - p) * 14, alpha=clamp(p * 1.6) * (1 - q))
             k += 1
 
 

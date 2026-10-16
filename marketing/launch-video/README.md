@@ -1,8 +1,8 @@
 # edytlab launch video: index
 
-> **Licence.** The narrated files and the narration clips are not covered by the repository's MIT licence. Every `out/launch-*-narrated.mp4` and everything under `out/narration/` was generated with ElevenLabs ([elevenlabs.io](https://elevenlabs.io)) on its free plan. ElevenLabs' terms apply to them: "The free plan does not include a commercial license and cannot be used for any commercial purpose", and a published piece must credit "elevenlabs.io" or "11.ai" in its title ([source](https://elevenlabs.io/docs/help-center/legal/can-i-publish-the-content-i-generate-on-the-platform)). Regenerate the narration on a paid plan before any commercial use: `tools/narrate.py` rebuilds every clip from `out/narration/*/lines_*.json`, and `tools/audio.py` or `tools/assemble.sh` re-mixes them onto the picture-only masters. The plain cuts (`out/launch-linkedin.mp4`, `out/launch-reddit.mp4`, `out/launch-instagram.mp4`) and the masters in `out/picture-only/` contain only the app recordings from `website/public/demos/` and sounds synthesised in code (`tools/sfx.py`), with no ElevenLabs audio, and are covered by the MIT licence.
+> **Licence.** Everything under `out/narration/` was generated with ElevenLabs ([elevenlabs.io](https://elevenlabs.io)) on its free plan, and ElevenLabs' terms apply to it: "The free plan does not include a commercial license and cannot be used for any commercial purpose", and a published piece must credit "elevenlabs.io" or "11.ai" in its title ([source](https://elevenlabs.io/docs/help-center/legal/can-i-publish-the-content-i-generate-on-the-platform)). Those clips belong to the earlier narrated cuts, which are gone (below); `tools/narrate.py` rebuilds clips from `out/narration/*/lines_*.json` on a paid plan. The cuts that are published here (`out/launch-linkedin.mp4`, `out/launch-reddit.mp4`, `out/launch-instagram.mp4`) and the masters in `out/picture-only/` contain only the app recordings from `website/public/demos/` and sounds synthesised in code (`tools/sfx.py`), with no ElevenLabs audio, and are covered by the MIT licence.
 
-> **Status, 2026-10-11.** The end cards in all three cuts say `v0.4.0`, and the claim ledger in `script.md` was checked against that release on 2026-10-10. v0.5.0 was published on 2026-10-10 and is now Latest, so the files name an older version than the one `releases/latest` serves. To change it, edit the `v0.4.0` strings in `tools/launch.py` (the end-card lines) and re-render; nothing here was re-rendered for this note. The app footage is also the old amber look: the brand change (#515) is merged and ships after v0.5.0, so the next release looks different from every recording in this folder.
+> **Status, 2026-10-16.** Re-cut from the re-filmed demos (#581: the app's violet look, recorded on a development build after v0.5.0), in the website's look (`marketing/reels/tools/brand.py`, shared with the reels). Every source time was re-measured on the new videos (`tools/launch.py`; the caption and sound windows are the reels', `marketing/reels/tools/spec.py`). **The end cards name no version.** The footage is a development build and v0.5.0, the newest release, looks different, so a version on the card would say something the picture does not show; each shot carries the note "Development build". The earlier cuts (amber UI, end card `v0.4.0`) and their narrated versions, `.srt` files and contact sheets are deleted. **There are no narrated cuts for now:** the old ones showed an interface that no longer exists, and no ElevenLabs key is available to voice new ones. `out/narration/` (the clips, the line lists and the chosen takes) and the lines in `script.md` stay as the source for re-narrating, and **were written for the earlier takes**: the re-filmed agent says different things at different times, so check every line against the new footage and re-time it before use (`narr_*.json` and `lines_*.json` hold the old cuts' times).
 
 One launch video, cut three ways, built from the three real demo recordings in `website/public/demos/` (no simulated UI) with code-driven
 motion design (kinetic titles, camera zooms onto the agent's chat and the waveform, animated callouts, one brand motion kit).
@@ -11,48 +11,42 @@ motion design (kinetic titles, camera zooms onto the agent's chat and the wavefo
 - `script.md`: the master script (scene by scene), the three platform cuts, and the **claim ledger** (every claim in the video and where it is true).
 - `out/`: the videos, captions, contact sheets, picture-only masters and narration clips. `tools/`: the code that renders them. `work/` is a scratch directory the tools create (cue files, the synthesised sounds, QC stills); it is not committed.
 
-## Read this first: ElevenLabs
+## Read this first: ElevenLabs (only when re-narrating)
 
-The `-narrated` files use a voice generated on ElevenLabs' **free plan**. ElevenLabs' terms
+The published cuts have no voice. The clips in `out/narration/` use a voice generated on ElevenLabs' **free plan**. ElevenLabs' terms
 (<https://elevenlabs.io/docs/help-center/legal/can-i-publish-the-content-i-generate-on-the-platform>): "The free plan does not include a
 commercial license and cannot be used for any commercial purpose." and "you must attribute it to ElevenLabs by including "elevenlabs.io" or
-"11.ai" in the title". So:
+"11.ai" in the title". So, when a narrated cut comes back:
 
-- Put **elevenlabs.io** (or 11.ai) in the title or first line of any post that uses a `-narrated` file.
+- Put **elevenlabs.io** (or 11.ai) in the title or first line of any post that uses a file with that voice.
 - Whether promoting a free, open-source project is a "commercial purpose" is for the owner or ElevenLabs to say; this folder cannot settle it.
-  The safe routes: post the un-narrated files (they contain **no** ElevenLabs audio), credit as above, or regenerate the lines on a paid plan
+  The safe routes: post the plain files (they contain **no** ElevenLabs audio), credit as above, or regenerate the lines on a paid plan
   (`tools/narrate.py gen`, about 700 characters per cut).
 - Voice: Roger (`CwhRBWXzGAHq8TQ4Fs17`), model `eleven_v4`, stability 0.5, similarity 0.75, `mp3_44100_128`.
 
 ## The files (`out/`)
 
-All H.264 High, yuv420p, 30 fps, with AAC 48 kHz stereo, normalised to -14 LUFS with the true peak under -1 dBTP (measured with ebur128 on the
-finished files). Each platform has a version **without** narration (on-screen text carries it, safe to post now) and a `-narrated` version
-(same picture, voice added). Each has an `.srt` and one contact sheet (the narrated version has the same picture).
+All H.264 High, yuv420p, 30 fps, with AAC 48 kHz stereo, normalised to -14 LUFS (measured -14.1 to -14.2) with the true peak under -1 dBTP (measured on the finished AAC files with ebur128: `tools/audio.py` re-encodes until the file itself, not just its source, is under -1 dBTP). There are **no narrated cuts** (see the status note at the top): the on-screen text carries the story, so the plain files are safe to post as they are. Each cut has an `.srt` and one contact sheet.
 
 | File | Platform | Frame | Length | Size | Loudness | What it is |
 |---|---|---|---|---|---|---|
-| `launch-linkedin.mp4` | LinkedIn feed | 1:1, 1080x1080 | 69.0 s | 12.9 MB | -14.1 LUFS / -1.4 dBTP | Master cut: founder hook, the chores, six numbered steps on real footage (the real audio), two more jobs, how it works, honest limits, end card |
-| `launch-linkedin-narrated.mp4` | LinkedIn | 1:1 | 69.0 s | 13.9 MB | -14.0 LUFS / -1.5 dBTP | Same, with voice (needs the ElevenLabs credit) |
-| `launch-reddit.mp4` | Reddit video post | 16:9, 1920x1080 | 63.4 s | 17.0 MB | -14.1 LUFS / -1.5 dBTP | Understated cut: plain first line, real recording from 4 s, no hook, limits on screen, end card = GitHub address |
-| `launch-reddit-narrated.mp4` | Reddit | 16:9 | 63.4 s | 18.0 MB | -14.0 LUFS / -1.3 dBTP | Same, with voice |
-| `launch-instagram.mp4` | Instagram Reels | 9:16, 1080x1920 | 31.4 s | 7.8 MB | -14.1 LUFS / -1.5 dBTP | Short cut: hook in frame 3, five steps, real audio, end card; inside Meta's safe zone |
-| `launch-instagram-narrated.mp4` | Instagram | 9:16 | 31.4 s | 8.2 MB | -13.9 LUFS / -1.3 dBTP | Same, with voice |
+| `launch-linkedin.mp4` | LinkedIn feed | 1:1, 1080x1080 | 69.3 s | 9.7 MB | -14.2 LUFS / -1.2 dBTP | Master cut: founder hook, the chores, six numbered steps on real footage (the real audio), two more jobs, how it works, honest limits, end card |
+| `launch-reddit.mp4` | Reddit video post | 16:9, 1920x1080 | 63.7 s | 12.4 MB | -14.2 LUFS / -1.7 dBTP | Understated cut: plain first line, real recording from 4 s, no hook, limits on screen, end card = GitHub address |
+| `launch-instagram.mp4` | Instagram Reels | 9:16, 1080x1920 | 31.5 s | 5.4 MB | -14.1 LUFS / -1.5 dBTP | Short cut: hook in frame 3, five steps, real audio, end card; every word inside Meta's safe zone |
 | `launch-{linkedin,reddit,instagram}.srt` | | | | | | The burned-in words as captions (titles, lists, end card) |
-| `launch-{linkedin,reddit,instagram}-narrated.srt` | | | | | | The spoken lines, timed to the voice |
-| `launch-{linkedin,reddit,instagram}-contact.png` | | | | | | 16-22 frames across the cut (inspected, see "Checks") |
-| `picture-only/launch-*-picture-only.mp4` | | | 36.6 MB in all | | no audio | The picture with no sound at all: re-mix it with your own voice or music (below) |
-| `narration/{li,rd,ig}/` | | | | | | Every generated clip (two takes per line, more for the tight ones), the line list with timings, `narr_*.json` (the take chosen per line; its `file` paths are relative to `tools/`). The `usage.log` that `narrate.py gen` writes next to them is not committed (the repo ignores `*.log`); its totals are under "ElevenLabs credits" below |
+| `launch-{linkedin,reddit,instagram}-contact.png` | | | | | | 16-25 frames across the cut (inspected, see "Checks") |
+| `picture-only/launch-*-picture-only.mp4` | | | 26.5 MB in all | | no audio | The picture with no sound at all: re-mix it with your own voice or music (below) |
+| `narration/{li,rd,ig}/` | | | | | | Every clip generated for the earlier cuts (two takes per line, more for the tight ones), the line list with timings, `narr_*.json` (the take chosen per line; its `file` paths are relative to `tools/`). **For the earlier takes**: the lines and their times need re-checking before use (top of this file). The `usage.log` that `narrate.py gen` writes next to them is not committed (the repo ignores `*.log`); its totals are under "ElevenLabs credits" below |
 
-Sound in the un-narrated files: the recording's own audio (only the "Hear it" playback is audible; it is the real playback of the app, in real
-time), plus three synthesised UI sounds at low level (a soft whoosh on scene changes, a tick when a callout lands, a chime under the wordmark),
-made in code by `tools/sfx.py`: no samples, no licence, no ElevenLabs audio.
+Sound in the cuts: the recording's own audio (only the "Hear it" playback is audible; it is the real playback of the app, in real
+time, and the shot starts 0.26 s before the sound does and ends inside it), plus three synthesised UI sounds at low level (a soft whoosh on scene changes, a tick when a callout lands, a chime under the wordmark),
+made in code by `tools/sfx.py`: no samples, no licence, no ElevenLabs audio. Where the earlier cuts were, `launch-*-narrated.mp4`, their `.srt` files and contact sheets, there is nothing now.
 
 ## The cuts, in one line each (full scene tables in `script.md`)
 
-- **LinkedIn 69 s:** hook (0-3) -> chores (3-10) -> 1 describe it, 2 the agent calls a tool, 3 it flags what it noticed, 4 the blend, 5 hear it (real audio), 6 master and export (10-45) -> two more jobs (44-52) -> how it works (52-58) -> honest limits (58-64) -> end card (64-69).
-- **Reddit 63 s:** plain first line (0-4) -> the same six steps (4-39) -> two more jobs (38-46) -> how it works -> limits -> end card with the GitHub address (58-63).
-- **Instagram 31 s:** hook (0-2) -> five steps incl. real audio (2-26) -> end card (26-31).
+- **LinkedIn 69 s:** hook (0-3.5) -> chores (3.5-10.4) -> 1 describe it, 2 the agent calls a tool, 3 it flags what it noticed, 4 the blend, 5 hear it (real audio), 6 master and export (9.9-44.9) -> two more jobs (44.6-52.3) -> how it works (52.2-58.9) -> honest limits (58.8-64.2) -> end card (64.2-69.3).
+- **Reddit 64 s:** plain first line (0-4.4) -> the same six steps (4.0-39.0) -> two more jobs (38.7-46.4) -> how it works -> limits -> end card with the GitHub address (58.3-63.7).
+- **Instagram 31.5 s:** hook (0-2.5) -> five steps incl. real audio (2.2-26.3) -> end card (26.1-31.5).
 
 ## Platform choices, and why (details and citations in `research.md`)
 
@@ -61,8 +55,8 @@ made in code by `tools/sfx.py`: no samples, no licence, no ElevenLabs audio.
   of a phone feed than a 16:9 strip; the chat panel is near-square, so zooms fill the frame. No LinkedIn source prefers 1:1 over 4:5 for organic video: a judgement call.
 - **Reddit, 16:9, understated:** Reddit's own creative study (as summarised by ppc.land) favours things shown "in their natural setting" over
   "a high-budget product shot"; overlay text and captions helped. Reddit's and every subreddit's own rules could not be read from here (all unverified).
-- **Instagram, 9:16, 31 s:** "Make sure the first 3 seconds of your reel are engaging, so that people don't move on." (Instagram for Creators FAQ); Meta's published safe zone is "at least 14% of
-  the top, 35% of the bottom, and 6% on each side" free of text and logos (an **ad** rule, the strictest published; the cut keeps everything in x 65-1015, y 269-1248).
+- **Instagram, 9:16, 31.5 s:** "Make sure the first 3 seconds of your reel are engaging, so that people don't move on." (Instagram for Creators FAQ); Meta's published safe zone is "at least 14% of
+  the top, 35% of the bottom, and 6% on each side" free of text and logos (an **ad** rule, the strictest published). Every word the cut adds sits in x 120-960 and y 269-1248: Meta's top and bottom, and the reels' 120 px at each side (the right edge is where Reels, Shorts and TikTok put their buttons). `engine.py` asserts it for every title, chip, list, note and card line when the cut is built; the recording and the progress line carry no words and may use the rest.
 
 ## Motion design: what was learned from whom (full table with quoted lines: `research.md`, section M)
 
@@ -85,9 +79,8 @@ keyframed where the recorded chat scrolls).
 
 ## Decisions the owner must make before posting
 
-1. **Narration and the ElevenLabs licence** (top of this file): post un-narrated, or narrated with "elevenlabs.io" in the title, or regenerate on a paid plan. I could not listen to any audio here;
-   I measured it (loudness, true peak, no line overlaps the real app audio, every line fits its window) but the voice, its pacing and the synthesised sounds have **not been heard by a person**. Listen once before posting.
-2. **An AI voice saying "I built ..."**: the LinkedIn narration is in first person but is not the owner's voice. Disclose it, or record the lines yourself (they are in `script.md` and `out/narration/li/lines_li.json`) and re-mix with `tools/audio.py`.
+1. **Listen once.** The three UI sounds and the mix levels have **not been heard by a person**: I measured (loudness, true peak, the real playback sits inside its window and is quiet in the 3 s before: `tools/verify.py`) but could not listen. The plain cuts have no voice, so there is no AI-voice or ElevenLabs question to settle before posting them.
+2. **Narration, later.** If you want a voice: re-check `script.md`'s lines against the new footage (they were written for the earlier takes), time them to the new cuts, regenerate on a paid plan or accept the free-plan credit (top of this file), and mix with `tools/audio.py`. A first-person line on LinkedIn ("I built ...") in an AI voice should be disclosed, or recorded by you.
 3. **The "I built an audio editor you talk to." hook** (LinkedIn): it is the opening of the owner's own post 1; keep it only if that is true for how the owner wants to present the project.
 4. **LinkedIn shape**: 1:1 was chosen. `launch-reddit.mp4` (16:9) also works on LinkedIn desktop. Say if you want a 4:5 or 16:9 LinkedIn file; the engine renders any of them from the same script.
 5. **"Demo tracks are short synthetic loops"** is on screen in the limits (and in the Instagram end card). It comes from the owner's own posts (now `marketing/social-kit/`); nothing in the app, the website or the docs states it. Confirm it is true.
@@ -96,28 +89,31 @@ keyframed where the recorded chat scrolls).
 8. **Instagram:** the safe zone uses Meta's ad numbers (no organic figure is published); check the in-app preview. The vertical-grid crop (3:4) was not confirmed from Instagram itself; the hook text sits inside it. Pick the cover frame at about 1.5 s.
 9. **Agent name:** the recordings show no model name and the video says none. The existing posts say the agent in the recordings is Claude; keep that in the post text if you want it said.
 10. **Music:** none is used. Adding trending audio on Instagram is your choice (it "can also impact distribution", but check the licence for a business account).
-11. **Sign-off wording:** the end cards say "Free and open source", "installers are unsigned" (Reddit, Instagram) and ask "Which prep job would you hand off first?" (LinkedIn). Change any of it in `tools/launch.py` and re-render.
+11. **Version and release:** the cuts name no version. They show a development build, and the newest release (v0.5.0) looks different, so post them as "the next release" or alongside the demo copy that says "a development build after v0.5.0" (`marketing/social-kit/more.md`), not as a tour of what v0.5.0 does; the master-bus limiter in step 6 is in the development build only. When the violet release ships, nothing here needs changing; if you want the version on the card then, add it in `tools/launch.py` (`end_card`) and re-render.
+12. **Sign-off wording:** the end cards say "Free, open source", "installers are unsigned" (Reddit, Instagram) and ask "Which prep job would you hand off first?" (LinkedIn). Change any of it in `tools/launch.py` and re-render.
 
 ## Posting copy (existing, already checked against the same facts)
 
 | Platform | File to post | Copy |
 |---|---|---|
-| LinkedIn | `out/launch-linkedin.mp4` | `marketing/social-kit/linkedin-posts.md`, **post 1** (launch); pin its comment. Swap the attachment from `reel-highlights.mp4` to this file. For the narrated file add "Voice: elevenlabs.io" to the post |
+| LinkedIn | `out/launch-linkedin.mp4` | `marketing/social-kit/linkedin-posts.md`, **post 1** (launch); pin its comment. Swap the attachment from `reel-highlights.mp4` to this file |
 | Reddit | `out/launch-reddit.mp4` | `marketing/social-kit/reddit.md`: **r/DJs** (post 1) or **r/opensource** (post 4); body as the first comment; do not post two on one day (`calendar.md`) |
-| Instagram | `out/launch-instagram.mp4` | `marketing/social-kit/instagram.md`, **caption 1** (the lead reel); for the narrated file put "elevenlabs.io" in the caption |
+| Instagram | `out/launch-instagram.mp4` | `marketing/social-kit/instagram.md`, **caption 1** (the lead reel) |
 
 ## ElevenLabs credits
 
-- Characters sent for this task: **3,708** in 76 requests (7 lines on Instagram, 12 on LinkedIn, 11 on Reddit, two takes each, a few extra takes for tight lines, and re-written lines when a take ran too long). Voice only; no sound-effect generation (the sounds are synthesised in code so the un-narrated files stay free of ElevenLabs audio).
+- Characters sent for the earlier clips (the ones in `out/narration/`): **3,708** in 76 requests (7 lines on Instagram, 12 on LinkedIn, 11 on Reddit, two takes each, a few extra takes for tight lines, and re-written lines when a take ran too long). Voice only; no sound-effect generation (the sounds are synthesised in code so the un-narrated files stay free of ElevenLabs audio).
 - Account counter from the API after the last request: **5,617 of 10,000 used** (free tier). The owner confirmed 8,091 remaining at hand-over (counter 1,909), so **4,383 remain**; the counter resets on 2026-11-09 (next reset time from the API).
 - The key was read only from the environment inside the commands that used it and handed to curl on stdin; it is in no file, log or argument (searched the working folder for it before it was added to the repo: none; `narrate.py` reads `ELEVENLABS_API_KEY` from the environment and nothing else).
 
 ## Checks done
 
-- Contact sheets inspected frame by frame at several sizes; fixes made from them: step titles at one size per canvas, callout regions re-measured on native frames with a 50 px grid (and keyframed where the chat scrolls), chip placement in the side gutters on 16:9, camera moves finished before callouts draw (step 4), the diagram's text auto-fits its panels, title overlaps removed at cuts, SRT cues no longer overlap.
-- `tools/verify.py`: every file is H.264/AAC, 30 fps, correct frame size and duration, -13.9 to -14.1 LUFS and -1.3 to -1.5 dBTP; the real app audio sits inside its window (about -10 dB mean there, 20 dB or more quieter in the 3 s before: this check caught an ffmpeg `amix`/`adelay` offset that had put the playback up to about 10 s early in the first mixes, so `tools/audio.py` now sums the sources itself at exact sample offsets); no narration line overlaps the real app audio; each line fits its window (the first Instagram line is played at 1.1x to end before step 1); in the narrated files the voice and the real playback measure within about 2 dB of each other.
-- Content: every number or claim on screen is in the claim ledger (`script.md`) with its source; nothing shows or says stem separation or transcription working (they are named only as **not** there); no signed-build claim (the limits and the end cards say unsigned); no user, download or review numbers; no model names.
-- Not done: no listening test, no test in the apps themselves (LinkedIn, Reddit and Instagram uploaders), no read of any subreddit's live rules.
+- Contact sheets of exact frames inspected frame by frame (`launch.py <key> still ...`, and again on the finished files). Fixes made from them: every crop stays above the recording's own caption card (y 684), callout regions re-measured on native frames with a 50 px grid and keyframed where the chat scrolls (the tool chip, the request bubble, the three chips), each shot cut inside the stretch where the chat holds still, the playhead ring follows the measured playhead (15.6 px/s), the ring is shortened on the square and tall cuts so its chip does not land on the title or the note, no two callouts overlap.
+- Source times: each shot is asserted by `launch.py` to lie inside the burned-in caption it is cut from (caption starts re-detected with `marketing/reels/tools/detect_captions.py` and matching the reels' `spec.py`), a silent shot never overlaps the app's sound, and the Listen shot starts 0.26 s before the sound (86.07 s against the sound's 86.33 s) and ends inside it (95.27 s; the sound runs to 102.90 s). Windows re-checked with `silencedetect -55 dB, d=0.5`.
+- Brand and contrast: `brand.py` fails the import under 4.5:1 for any of its text colours; `engine.py` also checks every title, list, note, diagram label, lockup and end-card line against the brightest pixel of the background behind it and refuses to build under 4.5:1 (the gradient's darker end counts for stressed words), and asserts that each of them lies inside its layout's safe area (the tall one: x 120-960, y 269-1248). The reels' pictures are byte-identical to before the shared drawing moved into `brand.py` (hash-compared: background, card background and the mark at 84 and 150 px).
+- `tools/verify.py`: every file is H.264/AAC, 30 fps, correct frame size and duration, -14.1 to -14.2 LUFS and -1.2 to -1.7 dBTP (the first LinkedIn mix came out of the AAC encoder at -0.4 dBTP, so `audio.py` now measures the file and re-encodes under -1); the real app audio sits inside its window (-11 to -12 dB mean there, 25 dB or more quieter in the 3 s before).
+- Content: every number or claim on screen is in the claim ledger (`script.md`) with its source on the new footage; nothing shows or says stem separation or transcription working (they are named only as **not** there); no signed-build claim (the limits and the end cards say unsigned); no user, download or review numbers; no model names; **no version number**.
+- Not done: no listening test, no test in the apps themselves (LinkedIn, Reddit and Instagram uploaders), no read of any subreddit's live rules, no narration.
 
 ## Unverified (from `research.md`, section E)
 
@@ -125,24 +121,31 @@ Reddit's own video limits and every subreddit's current rules; Reddiquette's wor
 
 ## Re-render, re-narrate, re-mix (all offline)
 
-Needs Python 3.12 or older (`audio.py` uses `audioop`, removed in 3.13) with Pillow, ffmpeg and ffprobe on the PATH, the Liberation and DejaVu fonts (`/usr/share/fonts/truetype/`), and the three recordings in `website/public/demos/` (set `EDYTLAB_DEMO_DIR` to read them from somewhere else). Run everything from `marketing/launch-video/tools/`. `work/` is created on demand and is git-ignored.
+Needs Python 3.12 or older (`audio.py` uses `audioop`, removed in 3.13) with Pillow (with its raqm support, which the wheels have, so Inter is kerned), ffmpeg and ffprobe on the PATH, Inter (Debian/Ubuntu's `fonts-inter`, in `/usr/share/fonts/opentype/inter`; `EDYTLAB_REEL_FONT_DIR` points at another copy, as for the reels), and the three recordings in `website/public/demos/` (set `EDYTLAB_DEMO_DIR` to read them from somewhere else). The look comes from `marketing/reels/tools/brand.py`, which reads `website/app/globals.css` and `website/public/logo.svg`; the caption and sound windows come from `marketing/reels/tools/spec.py`. Run everything from `marketing/launch-video/tools/`. `work/` is created on demand and is git-ignored.
 
 ```
 cd marketing/launch-video/tools
 python3 -I sfx.py ../work/sfx                         # the three synthesised UI sounds (assemble.sh does this when they are missing)
 python3 -I launch.py <li|rd|ig> still 5 12 30        # contact sheet of exact frames -> ../work/qc_<key>.png
-python3 -I launch.py <li|rd|ig> render out.mp4       # silent picture (about 5-10 min per cut on a shared machine)
+python3 -I launch.py <li|rd|ig> render out.mp4       # silent picture (about 5-15 min per cut on a shared machine)
 python3 -I launch.py <li|rd|ig> cues ../work/cues_<key>.json
-python3 -I audio.py mix ../work/cues_<key>.json out.mp4 final.mp4 [--narration narr.json] [--no-sfx]
+python3 -I audio.py mix ../work/cues_<key>.json out.mp4 final.mp4 [--no-sfx]
 python3 -I mksrt.py ../work/cues_<key>.json final.srt
-./assemble.sh                                        # rebuild the mp4s, plain .srt and contact sheets in out/ (overwrites them; needs out/picture-only/); ./assemble.sh --help
-python3 -I verify.py                                 # after assemble.sh: index rows and the narration-vs-real-audio check
-# narration (spends ElevenLabs characters; paid plan for commercial use). gen skips takes whose .mp3 exists, so use a fresh folder:
+./assemble.sh                                        # rebuild the mp4s, .srt files and contact sheets in out/ (overwrites them; needs out/picture-only/); ./assemble.sh --help
+python3 -I verify.py                                 # after assemble.sh: the index rows and the real-audio-window check
+```
+
+To re-cut after the demos are re-filmed again: `marketing/reels/tools/detect_captions.py` and `silencedetect` for the caption and sound windows (put them in the reels' `spec.py`), `tools/grid.py` (a gridded native frame of a demo, in source pixels) to place the regions in `launch.py`'s `REG` and each callout, `launch.py <key> still ...` to check, then `render`, `assemble.sh`, `verify.py`. `Plan.clip` refuses a shot outside its caption's window, a silent shot that would let the app's sound in, and a Listen shot that does not start on the sound.
+
+### Re-narrating (not done: no ElevenLabs key)
+
+```
+# the lines in ../out/narration/*/lines_*.json and script.md were written for the earlier takes: check them against the new footage, re-time them to
+# `launch.py <key> cues` (its "scenes" give each section's start and end), and write the new lines_*.json first. gen skips takes whose .mp3 exists, so use a fresh folder:
 #   set -a; . <env file>; set +a; python3 -I narrate.py gen ../out/narration/li/lines_li.json ../work/narr/li 2
 #   python3 -I narrate.py pick ../out/narration/li/lines_li.json ../work/narr/li ../work/narr/narr_li.json
 #   python3 -I audio.py mix ../work/cues_li.json ../out/picture-only/launch-linkedin-picture-only.mp4 final.mp4 --narration ../work/narr/narr_li.json
 ```
 
-To use your own voice: record the lines, write `narr.json` as `[{"t": seconds, "file": "line.wav", "gain_db": 0}, ...]` (times are in `out/narration/*/lines_*.json`) and run `audio.py mix` on a `picture-only` file.
-`tools/grid.py` makes a gridded native frame of a demo for placing callouts. `work/sfx/` holds the three synthesised sounds (`tools/sfx.py` regenerates them).
+To use your own voice: record the lines, write `narr.json` as `[{"t": seconds, "file": "line.wav", "gain_db": 0}, ...]` and run `audio.py mix` on a `picture-only` file. The committed `narr_*.json` and `lines_*.json` carry the earlier cuts' times, so they are the format to copy, not a timing to reuse.
 `narrate.py gen` also writes a word-timing `.json` per take next to each `.mp3`; `narrate.py pick` needs them. The committed `out/narration/` folders do not hold them (the committed `narr_*.json` already records the take chosen per line and its `speech_end`), so `pick` works on freshly generated takes, as above.
