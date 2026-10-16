@@ -12,10 +12,16 @@
 //!   and travels, as does the clipboard;
 //! * the window is on the copy, and the copy's head renders there.
 //!
-//! What the copy holds before anything opens it, and that it plays once the
-//! original is gone, is shown on `project::copy_project` itself (its unit
-//! tests): opening the copy sweeps its `derived/` audio while the original
-//! is still there (#612), which is not this change's to fix.
+//! And the copy is a project of its own (#612). Save As opens the copy, and
+//! every open sweeps `derived/` of the audio no node names. The copy's node
+//! files are the original's, naming the original's files, which are still
+//! there; read with those paths, the copy's own audio was named by nothing
+//! and the open deleted it, leaving the copy playing from the original's
+//! folder. Deleting the original, the usual second half of moving a
+//! project, then cost the copy every edit no replay can redo. The tests
+//! after the first make that history with a paste, which is one, and check
+//! that the copy plays every clip once the original (and, for a copy of the
+//! copy, the copy before it) is deleted.
 //!
 //! Windows: gated like `commands_mock.rs`, for the same reason (Wry's
 //! WebView2 imports).
@@ -224,4 +230,290 @@ fn a_copy_leaves_the_caches_behind_and_its_head_renders() {
         preview.display()
     );
     assert!(preview.is_file());
+}
+
+// ---------------------------------------------------------------------------
+// The copy plays on its own (#612)
+// ---------------------------------------------------------------------------
+
+/// A window with the commands these tests use.
+fn window() -> (tauri::App<MockRuntime>, WebviewWindow<MockRuntime>) {
+    let app = mock_builder()
+        .manage(AppState::new())
+        .invoke_handler(tauri::generate_handler![
+            commands::open_project,
+            commands::save_project_as,
+            commands::render_preview,
+            commands::get_session_head,
+            commands::move_clip,
+        ])
+        .build(mock_context(noop_assets()))
+        .expect("mock app");
+    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .expect("webview");
+    (app, webview)
+}
+
+/// A project made by the agent's tools, and the user's takes outside it.
+///
+/// Two takes, loaded from where the user keeps them. The first is edited
+/// twice (`silence_region`), so its first edit's audio is history only and
+/// its second's is the head's. A stretch of it is copied and pasted into
+/// the second take, which no replay can redo (`paste_region` reads the
+/// clipboard), so nothing can rebuild that audio if it is lost. The head
+/// plays both edits' outputs and nothing of the takes but through them,
+/// so a third take, left untouched, is the head's user file in place.
+struct History {
+    takes: tempfile::TempDir,
+    project: tempfile::TempDir,
+    head: session::NodeId,
+}
+
+impl History {
+    fn new() -> Self {
+        let takes = tempfile::tempdir().expect("tempdir");
+        let project = tempfile::tempdir().expect("tempdir");
+        let mut store = session::Store::open(project.path()).expect("store");
+        let mut clipboard = None;
+        for i in 0..3 {
+            let take = takes.path().join(format!("take-{i}.wav"));
+            write_wav(&take, 16_000 + 4_000 * i);
+            tool(&mut store, &mut clipboard, "load", json!({ "path": take }));
+        }
+        for (name, args) in [
+            (
+                "silence_region",
+                json!({ "track": 0, "start_sec": 0.2, "end_sec": 0.4 }),
+            ),
+            (
+                "copy_region",
+                json!({ "track": 0, "range": { "start_sec": 0.5, "end_sec": 0.9 } }),
+            ),
+            ("paste_region", json!({ "track": 1, "at": 1.0 })),
+            (
+                "silence_region",
+                json!({ "track": 0, "start_sec": 1.2, "end_sec": 1.4 }),
+            ),
+        ] {
+            tool(&mut store, &mut clipboard, name, args);
+        }
+        let head = store.head().expect("a head");
+        Self {
+            takes,
+            project,
+            head,
+        }
+    }
+
+    fn src(&self) -> &Path {
+        self.project.path()
+    }
+}
+
+fn derived(project: &Path) -> PathBuf {
+    project.join(session::STORE_DIR).join("derived")
+}
+
+/// The names of the files in `project`'s `derived/`.
+fn derived_names(project: &Path) -> Vec<PathBuf> {
+    files_under(&derived(project))
+}
+
+/// Every file under `dir`, with its bytes.
+fn contents(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    files_under(dir)
+        .into_iter()
+        .map(|rel| {
+            let bytes = std::fs::read(dir.join(&rel)).expect("read");
+            (rel, bytes)
+        })
+        .collect()
+}
+
+/// `node`, rendered by the window's own command, as the bytes it came out
+/// as.
+fn render(webview: &WebviewWindow<MockRuntime>, node: session::NodeId) -> Vec<u8> {
+    let preview = call(webview, "render_preview", json!({ "node": node.to_hex() }))
+        .unwrap_or_else(|e| panic!("node {} does not render: {e}", node.to_hex()));
+    std::fs::read(preview.as_str().expect("a path")).expect("the preview")
+}
+
+/// `project` names its own `derived/` and `clipboard/` files and the
+/// user's takes, in every node, as every reader of it sees them.
+fn assert_names_only_its_own(project: &Path, takes: &Path) {
+    let store = session::Store::open(project).expect("store");
+    for node in store.list_nodes().expect("nodes") {
+        for clip in node.state.tracks.iter().flat_map(|t| &t.clips) {
+            let path = &clip.source_path;
+            assert!(
+                path.starts_with(derived(project))
+                    || path.starts_with(project.join(session::STORE_DIR).join("clipboard"))
+                    || path.starts_with(takes),
+                "node {} of {} names {}",
+                node.id.to_hex(),
+                project.display(),
+                path.display()
+            );
+        }
+    }
+}
+
+/// #612 as a user meets it: Save As, then the original deleted. The copy's
+/// head plays every clip, the pasted one included, from the copy's files.
+#[test]
+fn a_copy_plays_every_clip_once_the_original_is_deleted() {
+    let history = History::new();
+    let copies = tempfile::tempdir().expect("tempdir");
+    let dest = copies.path().join("copy");
+    let (_app, webview) = window();
+    call(&webview, "open_project", json!({ "path": history.src() })).expect("open_project");
+    let before = render(&webview, history.head);
+    let audio = derived_names(history.src());
+    assert_eq!(audio.len(), 3, "two silences and a paste: {audio:?}");
+
+    call(&webview, "save_project_as", json!({ "dest": dest })).expect("save_project_as");
+    std::fs::remove_dir_all(history.src()).expect("the original is deleted");
+
+    assert!(
+        render(&webview, history.head) == before,
+        "the copy's head renders differently from the original's"
+    );
+    for file in &audio {
+        assert!(
+            derived_names(&dest).contains(file),
+            "the copy lost {}: {:?}",
+            file.display(),
+            derived_names(&dest)
+        );
+    }
+}
+
+/// The copy names only its own audio and the user's takes, opening it
+/// leaves the original exactly as it was, and the background reclaimer,
+/// over its cap, takes none of the copy's audio for an orphan and keeps
+/// every file the head plays.
+#[test]
+fn a_copy_names_its_own_audio_and_leaves_the_original_alone() {
+    use tauri::Manager;
+    let history = History::new();
+    let copies = tempfile::tempdir().expect("tempdir");
+    let dest = copies.path().join("copy");
+    let (app, webview) = window();
+    call(&webview, "open_project", json!({ "path": history.src() })).expect("open_project");
+    let original = contents(history.src());
+
+    call(&webview, "save_project_as", json!({ "dest": dest })).expect("save_project_as");
+
+    assert_eq!(
+        derived_names(&dest),
+        derived_names(history.src()),
+        "the copy's open swept its own audio"
+    );
+    assert_names_only_its_own(&dest, history.takes.path());
+    assert!(
+        contents(history.src()) == original,
+        "opening the copy changed the original"
+    );
+
+    // Over a cap of nothing it frees all it may: the first silence's audio,
+    // which only history names and a replay rebuilds.
+    let report = edytlab_desktop_lib::reclaimer::reclaim_once(&app.state::<AppState>(), 0)
+        .expect("over its cap, the reclaimer sweeps");
+    assert_eq!(
+        report.removed_orphans, 0,
+        "the reclaimer took the copy's audio for orphans: {report:?}"
+    );
+    assert_eq!(report.removed_files, 1, "{report:?}");
+    let reader = session::Store::open(&dest).expect("store");
+    assert_eq!(
+        tools::rederive::missing_paths(&reader, history.head),
+        Vec::<PathBuf>::new(),
+        "the reclaimer took audio the head plays"
+    );
+    assert!(
+        contents(history.src()) == original,
+        "the reclaimer changed the original"
+    );
+}
+
+/// Save As from the copy, after an edit made in it: the second copy names
+/// its own audio whether a node was written in the original or in the
+/// first copy, and plays both nodes once both are deleted.
+#[test]
+fn a_copy_of_the_copy_plays_once_both_before_it_are_deleted() {
+    let history = History::new();
+    let copies = tempfile::tempdir().expect("tempdir");
+    let first = copies.path().join("first");
+    let second = copies.path().join("second");
+    let (_app, webview) = window();
+    call(&webview, "open_project", json!({ "path": history.src() })).expect("open_project");
+    call(&webview, "save_project_as", json!({ "dest": first })).expect("save_project_as");
+
+    // An edit in the first copy, written there.
+    call(
+        &webview,
+        "move_clip",
+        json!({ "track": 2, "clip": 0, "startSec": 0.25 }),
+    )
+    .expect("move_clip");
+    let moved = session::NodeId::from_hex(
+        call(&webview, "get_session_head", json!({}))
+            .expect("head")
+            .as_str()
+            .expect("hex"),
+    )
+    .expect("an id");
+    assert_ne!(moved, history.head);
+    let renders = [
+        (history.head, render(&webview, history.head)),
+        (moved, render(&webview, moved)),
+    ];
+
+    call(&webview, "save_project_as", json!({ "dest": second })).expect("save_project_as");
+    assert_names_only_its_own(&second, history.takes.path());
+    std::fs::remove_dir_all(history.src()).expect("the original is deleted");
+    std::fs::remove_dir_all(&first).expect("the first copy is deleted");
+
+    for (node, before) in renders {
+        assert!(
+            render(&webview, node) == before,
+            "node {} renders differently in the second copy",
+            node.to_hex()
+        );
+    }
+    assert_names_only_its_own(&second, history.takes.path());
+}
+
+/// A project folder copied by hand, as a file manager does, and opened: the
+/// same as Save As, since the open is what sweeps.
+#[test]
+fn a_folder_copied_by_hand_keeps_its_audio() {
+    fn copy_folder(from: &Path, to: &Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for entry in std::fs::read_dir(from).unwrap().flatten() {
+            let target = to.join(entry.file_name());
+            if entry.path().is_dir() {
+                copy_folder(&entry.path(), &target);
+            } else {
+                std::fs::copy(entry.path(), target).unwrap();
+            }
+        }
+    }
+    let history = History::new();
+    let copies = tempfile::tempdir().expect("tempdir");
+    let dest = copies.path().join("copied by hand");
+    copy_folder(history.src(), &dest);
+    let (_app, webview) = window();
+    call(&webview, "open_project", json!({ "path": history.src() })).expect("open_project");
+    let before = render(&webview, history.head);
+
+    call(&webview, "open_project", json!({ "path": dest })).expect("open the copy");
+    std::fs::remove_dir_all(history.src()).expect("the original is deleted");
+
+    assert!(
+        render(&webview, history.head) == before,
+        "the copy's head renders differently from the original's"
+    );
+    assert_names_only_its_own(&dest, history.takes.path());
 }

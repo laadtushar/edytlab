@@ -209,4 +209,135 @@ mod tests {
             PathBuf::from("/nowhere/gone.wav"),
         );
     }
+
+    /// `original` and `copy`, each holding `name` in `dir_of(project)`, as
+    /// Save As (or a folder copied by hand) leaves them.
+    fn original_and_copy(dir_of: fn(&Path) -> PathBuf, name: &str) -> (TempDir, PathBuf, PathBuf) {
+        let tmp = TempDir::new().unwrap();
+        let original = tmp.path().join("original");
+        let copy = tmp.path().join("copy");
+        for project in [&original, &copy] {
+            std::fs::create_dir_all(dir_of(project)).unwrap();
+            std::fs::write(dir_of(project).join(name), b"audio").unwrap();
+        }
+        (tmp, original, copy)
+    }
+
+    /// The copy right after Save As (#612): its nodes name the original's
+    /// files, and the original is still there. The copy holds the same
+    /// bytes under the same name, so it plays its own, and what it names is
+    /// what its sweeps keep.
+    #[test]
+    fn a_copy_plays_its_own_file_while_the_original_is_still_there() {
+        let (_tmp, original, copy) = original_and_copy(derived_dir, "abc.wav");
+        let mut state = state_with(&[derived_dir(&original).join("abc.wav")]);
+
+        assert_eq!(rebind(&mut state, &copy), 1);
+        assert_eq!(
+            state.tracks[0].clips[0].source_path,
+            derived_dir(&copy).join("abc.wav"),
+        );
+    }
+
+    #[test]
+    fn a_copy_plays_its_own_clipboard_blob_while_the_original_is_still_there() {
+        let (_tmp, original, copy) = original_and_copy(clipboard_dir, "def.wav");
+        let mut state = state_with(&[clipboard_dir(&original).join("def.wav")]);
+
+        assert_eq!(rebind(&mut state, &copy), 1);
+        assert_eq!(
+            state.tracks[0].clips[0].source_path,
+            clipboard_dir(&copy).join("def.wav"),
+        );
+    }
+
+    /// The original, read as itself, is left exactly as written: its
+    /// files are its own.
+    #[test]
+    fn the_original_keeps_its_own_paths() {
+        let (_tmp, original, _copy) = original_and_copy(derived_dir, "abc.wav");
+        let mut state = state_with(&[derived_dir(&original).join("abc.wav")]);
+
+        assert_eq!(rebind(&mut state, &original), 0);
+        assert_eq!(
+            state.tracks[0].clips[0].source_path,
+            derived_dir(&original).join("abc.wav"),
+        );
+    }
+
+    /// A file in another project's store that this one does not hold is
+    /// still the one to play: a node may name it (a WAV loaded from that
+    /// folder), and there is nothing here to put in its place.
+    #[test]
+    fn another_projects_file_this_one_does_not_hold_is_left_where_it_is() {
+        let (_tmp, original, copy) = original_and_copy(derived_dir, "abc.wav");
+        std::fs::write(derived_dir(&original).join("only-there.wav"), b"audio").unwrap();
+        let mut state = state_with(&[derived_dir(&original).join("only-there.wav")]);
+
+        assert_eq!(rebind(&mut state, &copy), 0);
+        assert_eq!(
+            state.tracks[0].clips[0].source_path,
+            derived_dir(&original).join("only-there.wav"),
+        );
+    }
+
+    /// The original is gone, and so is this project's file of that name
+    /// (the history sweep took it, having proved a replay rebuilds it). The
+    /// clip names this project's file, so the rebuild puts it here and a
+    /// read reports it missing here: a path in a folder that no longer
+    /// exists is one nothing would ever rebuild.
+    #[test]
+    fn a_gone_file_of_another_project_is_looked_for_here() {
+        let (_tmp, original, copy) = original_and_copy(derived_dir, "abc.wav");
+        std::fs::remove_dir_all(&original).unwrap();
+        std::fs::remove_file(derived_dir(&copy).join("abc.wav")).unwrap();
+        let mut state = state_with(&[derived_dir(&original).join("abc.wav")]);
+
+        assert_eq!(rebind(&mut state, &copy), 1);
+        assert_eq!(
+            state.tracks[0].clips[0].source_path,
+            derived_dir(&copy).join("abc.wav"),
+        );
+    }
+
+    /// Only a project's store is content-addressed. A folder of the user's
+    /// that happens to be called `derived` holds their own files, which
+    /// keep pointing where they are whatever this project holds.
+    #[test]
+    fn a_user_folder_named_derived_is_not_a_store() {
+        let tmp = TempDir::new().unwrap();
+        let project = tmp.path().join("p");
+        std::fs::create_dir_all(derived_dir(&project)).unwrap();
+        std::fs::write(derived_dir(&project).join("take.wav"), b"local").unwrap();
+        let mine = tmp.path().join("music").join(DERIVED_DIR);
+        std::fs::create_dir_all(&mine).unwrap();
+        std::fs::write(mine.join("take.wav"), b"the user's own").unwrap();
+
+        let mut state = state_with(&[mine.join("take.wav")]);
+        assert_eq!(rebind(&mut state, &project), 0);
+        assert_eq!(state.tracks[0].clips[0].source_path, mine.join("take.wav"));
+    }
+
+    /// A project opened through another spelling of its folder (here a
+    /// link) reads its own files as written. Rewriting them to the
+    /// spelling it was opened by would change every node's state, and
+    /// with it what `NodeId::from_state` gives, for a project that has
+    /// not moved at all.
+    #[cfg(unix)]
+    #[test]
+    fn a_project_opened_through_a_link_keeps_its_paths() {
+        let tmp = TempDir::new().unwrap();
+        let project = tmp.path().join("p");
+        std::fs::create_dir_all(derived_dir(&project)).unwrap();
+        std::fs::write(derived_dir(&project).join("abc.wav"), b"audio").unwrap();
+        let link = tmp.path().join("link");
+        std::os::unix::fs::symlink(&project, &link).unwrap();
+
+        let mut state = state_with(&[derived_dir(&project).join("abc.wav")]);
+        assert_eq!(rebind(&mut state, &link), 0);
+        assert_eq!(
+            state.tracks[0].clips[0].source_path,
+            derived_dir(&project).join("abc.wav"),
+        );
+    }
 }
