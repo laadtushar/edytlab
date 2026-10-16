@@ -272,6 +272,7 @@ src/
 ```
 src/
 ├── commands.rs    # The #[tauri::command] functions (~90 of them)
+├── compare.rs     # The open A/B compare and the previews it holds (#575)
 ├── events.rs      # agent://… event names and payloads
 ├── lib.rs         # Builder, command registration, startup
 ├── live_stores.rs # The stores that are alive, by project folder (#534)

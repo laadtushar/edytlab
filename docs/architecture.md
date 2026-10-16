@@ -796,7 +796,7 @@ Revert:
   set_head(N2)  →  head now points to N2, N3/N4/N5 still exist (no deletion)
 
 A/B Compare:
-  prepare_compare(A, B) renders both to temp WAVs
+  prepare_compare(A, B) renders both into .audiograph/previews/, held until end_compare
   accept_b(B) moves head to B
 ```
 
@@ -838,6 +838,7 @@ Nodes are stored as content-addressed JSON files under `<project-dir>/.audiograp
 
 A clip does not name a cache entry. `derived/` and `clipboard/` hold the project's own audio, and a clip may name a file in either; everything else under `.audiograph/` is a cache or a record, and `previews/` and `auditions/` evict their oldest entries to stay under a cap. So `load` of a WAV from any of them copies it into `derived/` instead of naming it where it lies (#580): the file's own bytes, under the name a transcode of the same audio would take, so loading the same audio twice stores it once. A WAV from anywhere else is still named in place, which is what keeps a render of an untouched track the source's own bytes.
 
+The one thing eviction leaves alone is an entry being read again: the A/B bar loads a side from its file on every switch, so `prepare_compare` holds both sides' entries in `previews/` (`PreviewCache::hold`) until `end_compare` or the next compare (#575). The cap is on the entries nobody holds. A held entry is outside it, so a long session whose two sides do not fit in the cap together (an hour-long mix) can still be compared, and a render made while the bar is open evicts only unheld entries to fit; the one refusal is still a render bigger than the cap on its own. One compare is open at a time, so `previews/` is bounded by the cap plus one pair. Dropping the last hold on an entry evicts the cache back under its cap there and then, so once the bar closes the pair counts again and is usually what goes, being the least recently used.
 That is also why nothing that frees disk deletes outside `derived/`. The history sweep (`reclaim::sweep`) and the orphan sweep when a project opens (`reclaim::sweep_orphans`) work in `derived/` only, and so does `compact_session` (#589, #593): a pruned node can name the user's own recording where it lies, so `plan_compaction` lists only the files that resolve, as canonical paths, inside `.audiograph/derived/` (so `..` and a symlink cannot lead out), and `apply_compaction` checks each one again before it deletes it, leaving any other path in place and counting it in `kept_files`. A loaded file loses the undo steps that named it, never the file. Clipboard blobs and cached previews are not compaction's to delete either.
 
 Annotations (markers, regions, labels) are part of `SessionState`, so they live inside each node's JSON rather than in a directory of their own.
@@ -1167,6 +1168,8 @@ The agent's tool dispatch (`tools::Shared::dispatch`) follows the same order:
 
 The registry of live stores (`AppState::live_stores`, [#534](https://github.com/laadtushar/edytlab/pull/534)) is a leaf: its lock is taken alone, to look a folder up or register a store, and dropped before the store, engine, dispatcher, agent or `AppState` locks are taken, and none of those is taken while it is held. In `open_project_with` the order is registry (alone), then the store's lock (held across the re-read, the sweep and the swap), then, with the store lock dropped, `AppState::set_open_project`, which takes the store slot's lock and then the project directory's.
 
+The preview cache's holds (`HELD` in `crates/tools/src/preview_cache.rs`, #575) are behind a lock that is the last one taken: a render takes it after its staging file is renamed into place, with whatever the caller holds (a tool holds the store and engine locks), and keeps it only while it evicts, which lists the cache folder and removes files. Dropping the last hold on an entry takes it too, and evicts under it. The open compare's slot (`AppState::compare`) drops holds while it is locked, so it is locked with nothing else held: `prepare_compare` takes it alone to begin a compare (after holding the new pair, so ending the old one cannot evict a side the two share) and again, after both sides are rendered, to keep their holds, and `end_compare` takes nothing else.
+
 A command that reads the session while an off-lock tool runs gets the head as it was when the tool started. The tool's node appears when it commits, and `agent://node-created` is emitted after that, so a refresh triggered by the event sees it.
 
 Save As (`project::copy_project`) takes the store lock alone, to copy the history and stage the handle that keeps the sweeps off its copy, and lets go of it before the audio is copied. It takes no other lock; opening the copy afterwards follows `open_project_with`'s order.
@@ -1192,7 +1195,7 @@ Save As (`project::copy_project`) takes the store lock alone, to copy the histor
 
 Tauri's security model requires explicit capability declarations. `apps/desktop/src-tauri/capabilities/default.json` grants only `core:default` and the dialog plugin (`dialog:default`, `dialog:allow-open`) for the file pickers. There is no filesystem plugin: reading source audio and writing renders happen in Rust commands.
 
-The asset protocol (`tauri.conf.json` → `app.security.assetProtocol`) starts scoped to `$APPDATA/**`; the app adds each project's folder as it opens (`allow_assets_in_dir` in `commands.rs`) and each individual file it hands the timeline or a compare render (`allow_asset_file`), rather than everything the user can read.
+The asset protocol (`tauri.conf.json` → `app.security.assetProtocol`) starts scoped to `$APPDATA/**`; the app adds each project's folder as it opens (`allow_assets_in_dir` in `commands.rs`), with its `previews/` and `auditions/` caches by name, which is where both a preview and each side of an A/B compare live, and each individual file it hands the timeline (`allow_asset_file`), rather than everything the user can read.
 
 macOS hardened runtime entitlement allows outbound HTTPS to LLM provider endpoints.
 

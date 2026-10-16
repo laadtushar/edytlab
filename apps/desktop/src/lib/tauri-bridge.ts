@@ -510,16 +510,33 @@ export async function renderRange(
   return { warnings: answer?.warnings ?? [] };
 }
 
-/** What `prepare_compare` answers: both renders, and what each left out. */
+/**
+ * What `prepare_compare` answers: both renders, what each left out, and the
+ * compare they belong to.
+ *
+ * The paths are the preview cache's entries for the two nodes (#575). The
+ * cache keeps them for as long as the compare is open, because the A/B bar
+ * loads a side from its file on every switch; `endCompare(compare_id)`
+ * lets them go.
+ */
 export interface PreparedCompare {
   a_path: string;
   b_path: string;
   a_warnings: RenderWarning[];
   b_warnings: RenderWarning[];
+  compare_id: number;
 }
 
 export const prepareCompare = (a: NodeId, b: NodeId): Promise<PreparedCompare> =>
   invoke<PreparedCompare>("prepare_compare", { a, b });
+
+/**
+ * The compare `compareId` is over: its two renders are ordinary cache
+ * entries again, which the cache may evict. Ending one that is no longer the
+ * open compare (a newer one has started) changes nothing.
+ */
+export const endCompare = (compareId: number): Promise<void> =>
+  invoke<void>("end_compare", { compareId });
 
 export const acceptB = (b: NodeId): Promise<string> =>
   invoke<string>("accept_b", { b });

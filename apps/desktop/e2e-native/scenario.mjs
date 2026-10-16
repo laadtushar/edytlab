@@ -74,8 +74,8 @@ export async function scenario(app, wav) {
     // What the policy should refuse.
     out.remoteFetch = await s.execAsync("const done = arguments[arguments.length - 1]; fetch('https://example.com/').then(r => done('allowed ' + r.status), e => done('blocked ' + e.name));");
     out.outOfScopeAsset = await s.execAsync("const done = arguments[arguments.length - 1]; const u = window.__TAURI_INTERNALS__.convertFileSrc('/etc/hostname', 'asset'); fetch(u).then(r => done(r.status + ' ' + u), e => done('blocked ' + e.name + ' ' + u));");
-    // A compare render lands in the OS temp dir; prepare_compare grants
-    // exactly its two files.
+    // A compare render lands in the project's preview cache (#575), which
+    // the project's grant covers by name, as it does the transport's.
     out.compare = await s.execAsync("const done = arguments[arguments.length - 1]; const I = window.__TAURI_INTERNALS__; I.invoke('get_session_head').then(h => I.invoke('prepare_compare', { a: h, b: h })).then(r => fetch(I.convertFileSrc(r.a_path, 'asset'))).then(r => done('status ' + r.status), e => done('err ' + e));");
     // A project opened outside app data: its directory is granted on open.
     out.otherProject = await s.execAsync("const done = arguments[arguments.length - 1]; const I = window.__TAURI_INTERNALS__; I.invoke('open_project', { path: arguments[0] }).then(() => fetch(I.convertFileSrc(arguments[0] + '/inside.wav', 'asset'))).then(r => done('status ' + r.status), e => done('err ' + e));", [process.env.OTHER_PROJECT]);
