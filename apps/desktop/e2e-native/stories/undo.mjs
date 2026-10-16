@@ -30,7 +30,10 @@ export default [
 
       await d.click("[data-testid='timeline-lane-mute']");
       await d.until(async () => (await tracks(ctx))[0].muted === true, { label: "track 0 muted in the session" });
-      assert((await d.attr("[data-testid='timeline-lane-mute']", "aria-pressed")) === "true", "mute button shows pressed");
+      // Wait for the button, do not read it once: a track list read back for an
+      // earlier edit can land after the click and show the old state for a
+      // moment, until this edit's own read-back follows it (#596).
+      await d.until(async () => (await d.attr("[data-testid='timeline-lane-mute']", "aria-pressed")) === "true", { label: "the mute button to show pressed" });
       assert((await head(ctx)) !== before, "muting moved the head (it is a session edit)");
       await ctx.shot("Track 1 muted");
 
@@ -45,7 +48,7 @@ export default [
       await d.keys(K.ctrl, "z");
       await d.until(async () => (await tracks(ctx))[0].muted === false, { label: "undo of the mute" });
       assert((await head(ctx)) === before, "two undos return to the head before both edits");
-      assert((await d.attr("[data-testid='timeline-lane-mute']", "aria-pressed")) === "false", "mute button shows not pressed again");
+      await d.until(async () => (await d.attr("[data-testid='timeline-lane-mute']", "aria-pressed")) === "false", { label: "the mute button to show not pressed again" });
       await ctx.shot("Both undone");
     },
   },

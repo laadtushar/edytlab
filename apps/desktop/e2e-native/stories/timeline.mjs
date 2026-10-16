@@ -15,6 +15,21 @@ async function tracks(ctx) {
   return ctx.d.invoke("list_tracks");
 }
 
+/** Click a toggle a second time to turn it off, and let that commit finish
+ * before the next control is touched. A commit is followed by a read-back of
+ * the track list, which has no mark on the page to wait for. One still on its
+ * way when a slider is nudged puts the old gain back under it, and the nudge
+ * is lost (#596: the app does this to a person who taps fast enough, too). So
+ * wait for the head to move and the backend to agree, then for the read-back
+ * to have had time to land. */
+async function toggleOff(ctx, selector, field) {
+  const before = await head(ctx);
+  await ctx.d.click(selector);
+  await waitForNewHead(ctx, before);
+  await ctx.d.until(async () => (await tracks(ctx))[0][field] === false, { label: `the backend to say ${field} is off` });
+  await sleep(1500);
+}
+
 export default [
   {
     id: "4-track-controls",
@@ -30,16 +45,17 @@ export default [
       await d.click("[data-testid='timeline-lane-mute']");
       await waitForNewHead(ctx, before);
       assert((await tracks(ctx))[0].muted === true, "the backend says muted");
-      assert(/muted/i.test(await d.text("[data-testid='timeline-lane-mute']")), "the button says muted");
+      // Waited for, not read once: see toggleOff, and #596.
+      await d.until(async () => /muted/i.test(await d.text("[data-testid='timeline-lane-mute']")), { label: "the button to say muted" });
       await ctx.shot("Muted: the button says so and the head moved");
-      await d.click("[data-testid='timeline-lane-mute']");
+      await toggleOff(ctx, "[data-testid='timeline-lane-mute']", "muted");
 
       before = await head(ctx);
       await d.click("[data-testid='timeline-lane-solo']");
       await waitForNewHead(ctx, before);
       assert((await tracks(ctx))[0].soloed === true, "the backend says soloed");
       await ctx.shot("Soloed");
-      await d.click("[data-testid='timeline-lane-solo']");
+      await toggleOff(ctx, "[data-testid='timeline-lane-solo']", "soloed");
 
       before = await head(ctx);
       // One press at a time, as a person taps an arrow key. Four presses
