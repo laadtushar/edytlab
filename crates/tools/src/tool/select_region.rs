@@ -26,15 +26,27 @@
 //! transcript or, with `voice_tracks`, from the audio of the tracks that
 //! hold the voice, through the detector `duck_under_speech` uses
 //! ([`speech_detect`](crate::tool::speech_detect)) and the same rule for
-//! joining speech into passages. That matters while `transcribe` is a
-//! stub (#384): no session in a shipped build has a transcript, so
-//! without it `speech_passage` could only fail.
+//! joining speech into passages, `join_gap_sec`, read the same way
+//! ([`join_gap`]). That matters while `transcribe` is a stub (#384): no
+//! session in a shipped build has a transcript, so without it
+//! `speech_passage` could only fail.
 //!
 //! A track named in `voice_tracks` wins over a transcript, because the
 //! transcript is session-level and cannot say which track it belongs to.
-//! `voice_tracks` with `text` or a beat range is refused: there is no
-//! sensible reading of the audio for either, and ignoring it would
-//! silently answer a different question.
+//! `voice_tracks` or `join_gap_sec` with `text` or a beat range is
+//! refused: neither has passages of speech to find or join, and ignoring
+//! the argument would silently answer a different question.
+//!
+//! ## Off the store lock
+//!
+//! Reading a voice track decodes every clip on it and scans the whole
+//! timeline, which takes as long as the voice is long, and the store,
+//! engine and clipboard locks used to be held for all of it (#570). The
+//! tool reads the head and appends nothing, so it runs on a staged handle
+//! ([`Tool::runs_off_the_lock`]): a user's edit made meanwhile lands at
+//! once, and the selection is the one the head the call began on gives, as
+//! it was when the edit waited. A run that appends nothing is never run
+//! again, so the one selection it reports is the call's own.
 //!
 //! The audio route tells pitched sound from unpitched sound, not a voice
 //! from an instrument, so a voice track that carries music reads as
@@ -53,7 +65,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
-use crate::tool::ducking::{join_passages, speech_passages, Passage, DEFAULT_JOIN_GAP_S};
+use crate::tool::ducking::{join_gap, join_passages, speech_passages, Passage};
 use crate::tool::speech_detect::{speech_in_track, track_list, unique_tracks};
 use crate::tool::util::{check_track_index, load_head_state};
 use crate::{Tool, ToolContext, ToolResult};
@@ -87,6 +99,10 @@ struct Args {
     /// transcript. Only for `speech_passage`.
     #[serde(default)]
     voice_tracks: Option<Vec<usize>>,
+    /// Pauses shorter than this are inside one passage. Only for
+    /// `speech_passage`. Read as `duck_under_speech` reads its own.
+    #[serde(default)]
+    join_gap_sec: Option<f32>,
     /// A beat range from the session's tempo map, 1-based.
     #[serde(default)]
     from_beat: Option<u64>,
@@ -114,7 +130,8 @@ impl Tool for SelectRegionTool {
              end — -1 is the last thing said), or `from_beat`/`to_beat`. `speech_passage` reads \
              the transcript; with no transcript, pass `voice_tracks` and it finds the speech in \
              those tracks' audio instead, so -1 is the last thing said on them. `text` always \
-             needs the transcript, because finding a phrase needs the words. Returns start_sec \
+             needs the transcript, because finding a phrase needs the words. Passages join across \
+             pauses shorter than `join_gap_sec`, as in `duck_under_speech`. Returns start_sec \
              and end_sec for any tool that takes a range, and reports what it matched and what \
              it keyed on (transcript, audio or tempo_map), so the choice can be checked before \
              acting on it. Refuses rather than guessing when the description does not resolve.",
@@ -141,6 +158,10 @@ impl Tool for SelectRegionTool {
                         "minItems": 1,
                         "description": "Track(s) with the speech, for `speech_passage` when the session has no transcript. Finds the passages where their audio has voiced (pitched) sound instead of in the transcript, so a breath, click or hiss is not a passage; not for `text` or a beat range. The voice alone: a track with music in it reads as speech throughout, and loud low rumble, or a fan that runs for part of the track, reads as speech while it lasts. The detector's thresholds were set on synthetic recordings and not yet checked on real takes, so check the range before a destructive edit.",
                     },
+                    "join_gap_sec": {
+                        "type": "number",
+                        "description": "For `speech_passage`: pauses shorter than this stay inside one passage. Default 1 s, as in `duck_under_speech`; pass the same value to both.",
+                    },
                     "from_beat": { "type": "integer", "minimum": 1 },
                     "to_beat": { "type": "integer", "minimum": 1 },
                     "pad_sec": {
@@ -159,6 +180,12 @@ impl Tool for SelectRegionTool {
     // whole purpose.
     fn mutates(&self) -> bool {
         false
+    }
+
+    // Reads the head's audio and appends nothing (#570); see the module
+    // docs.
+    fn runs_off_the_lock(&self) -> bool {
+        true
     }
 
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
@@ -207,6 +234,16 @@ impl Tool for SelectRegionTool {
                     .to_string()
             }));
         }
+        // The same for `join_gap_sec`, which says how passages of speech
+        // are joined: a phrase or a beat range has none.
+        if args.join_gap_sec.is_some() && args.speech_passage.is_none() {
+            return Ok(ToolResult::Error(
+                "`join_gap_sec` goes with `speech_passage`: it says how long a pause splits two \
+                 passages of speech, and a phrase or a beat range has no passages to join. Drop \
+                 `join_gap_sec`"
+                    .to_string(),
+            ));
+        }
 
         let state = match load_head_state(ctx) {
             Ok(s) => s,
@@ -216,7 +253,7 @@ impl Tool for SelectRegionTool {
         let resolved = if let Some(text) = args.text.as_deref() {
             resolve_text(&state, text, args.occurrence.unwrap_or(1))
         } else if let Some(n) = args.speech_passage {
-            resolve_passage(&state, n, args.voice_tracks)
+            resolve_passage(&state, n, args.voice_tracks, join_gap(args.join_gap_sec))
         } else {
             resolve_beats(&state, args.from_beat, args.to_beat)
         };
@@ -302,22 +339,23 @@ fn resolve_text(
     let words = &transcript.words;
     let hay: Vec<String> = words.iter().map(|w| normalise(&w.text)).collect();
 
-    let mut found = 0usize;
-    for i in 0..hay.len().saturating_sub(needle.len() - 1) {
-        if hay[i..i + needle.len()] == needle[..] {
-            found += 1;
-            if found == occurrence {
-                let first = &words[i];
-                let last = &words[i + needle.len() - 1];
-                return Ok(Resolved {
-                    start_s: first.start_s as f64,
-                    end_s: last.end_s as f64,
-                    matched: format!("\"{phrase}\" (occurrence {occurrence} of ...)"),
-                    keyed_on: "transcript",
-                    voice_tracks: Vec::new(),
-                });
-            }
-        }
+    // Every match, not just up to the one asked for: what was matched says
+    // how many there are, so the caller can tell "the second of two" from
+    // "the second of five" (#570).
+    let starts: Vec<usize> = (0..hay.len().saturating_sub(needle.len() - 1))
+        .filter(|&i| hay[i..i + needle.len()] == needle[..])
+        .collect();
+    let found = starts.len();
+    if let Some(&i) = occurrence.checked_sub(1).and_then(|n| starts.get(n)) {
+        let first = &words[i];
+        let last = &words[i + needle.len() - 1];
+        return Ok(Resolved {
+            start_s: first.start_s as f64,
+            end_s: last.end_s as f64,
+            matched: format!("\"{phrase}\" (occurrence {occurrence} of {found})"),
+            keyed_on: "transcript",
+            voice_tracks: Vec::new(),
+        });
     }
 
     if found == 0 {
@@ -343,20 +381,22 @@ fn normalise(w: &str) -> String {
 /// The `which`-th passage of speech, from the audio of `voice_tracks` when
 /// they are given and from the transcript when they are not.
 ///
-/// Both routes join speech into passages by [`DEFAULT_JOIN_GAP_S`] and
-/// count them the same way, so a passage number means the same from
-/// either, and the same as in `duck_under_speech`.
+/// Both routes join speech across pauses shorter than `join_gap_s` and
+/// count the passages the same way, so a passage number means the same
+/// from either, and the same as in `duck_under_speech` called with the same
+/// `join_gap_sec` (both read it through [`join_gap`]).
 fn resolve_passage(
     state: &session::SessionState,
     which: i64,
     voice_tracks: Option<Vec<usize>>,
+    join_gap_s: f32,
 ) -> Result<Resolved, String> {
     let (passages, keyed_on, voice_tracks) = match voice_tracks {
         // A named track wins over a transcript: the transcript is
         // session-level and cannot say which track it belongs to.
         Some(requested) => {
             let tracks = unique_tracks(requested);
-            let passages = passages_in_audio(state, &tracks)?;
+            let passages = passages_in_audio(state, &tracks, join_gap_s)?;
             (passages, "audio", tracks)
         }
         None => {
@@ -367,7 +407,7 @@ fn resolve_passage(
                         .to_string(),
                 );
             };
-            let passages = speech_passages(&transcript.words, DEFAULT_JOIN_GAP_S);
+            let passages = speech_passages(&transcript.words, join_gap_s);
             if passages.is_empty() {
                 return Err("the transcript has no words, so there are no passages".to_string());
             }
@@ -413,6 +453,7 @@ fn resolve_passage(
 fn passages_in_audio(
     state: &session::SessionState,
     tracks: &[usize],
+    join_gap_s: f32,
 ) -> Result<Vec<Passage>, String> {
     if tracks.is_empty() {
         return Err("voice_tracks is empty; name the track(s) with the speech".to_string());
@@ -426,7 +467,7 @@ fn passages_in_audio(
     for &t in tracks {
         found.extend(speech_in_track(&state.tracks[t].clips, t)?);
     }
-    let passages = join_passages(found, DEFAULT_JOIN_GAP_S);
+    let passages = join_passages(found, join_gap_s);
     if passages.is_empty() {
         return Err(format!(
             "found no speech on track(s) {}: nothing voiced stands above that audio's own noise \

@@ -245,22 +245,24 @@ pub(crate) fn sweep_orphaned_audio(store: &Store) {
 /// The asset scope used to be `**` — any file the user can read, which
 /// is what an injection in the webview would have been able to read too.
 /// It is now the app's own data directory (the default project lives
-/// there) plus what the app grants as it goes: each project as it opens,
-/// the files `list_tracks` hands the timeline, and compare renders.
+/// there) plus what the app grants as it goes: each project as it opens
+/// (with its preview caches, where `render_preview` and `prepare_compare`
+/// put what the transport plays) and the files `list_tracks` hands the
+/// timeline.
 /// A failed grant shows as audio that will not load, so it is logged.
 ///
 /// `allow_directory(dir, true)` is not enough on Linux and macOS: Tauri
 /// matches the asset scope with `require_literal_leading_dot` there, so
 /// `dir/**` does not reach through `.audiograph`, and the previews the
 /// transport plays and the auditions the chat plays live under it (#402).
-/// Those two caches are therefore granted by name, which a literal `.`
-/// satisfies; the rest of `.audiograph` stays out of reach.
+/// The caches are therefore granted by name, which a literal `.`
+/// satisfies; the rest of `.audiograph` stays out of reach. Their names
+/// are `tools::preview_cache::CACHE_DIRS`, the list Save As leaves out of
+/// a copy too (#576), so a new cache is granted by being added there.
 pub(crate) fn allow_assets_in_dir<R: Runtime>(app: &AppHandle<R>, dir: &std::path::Path) {
     let scope = app.asset_protocol_scope();
-    let caches = [
-        tools::PreviewCache::new(dir),
-        tools::PreviewCache::in_dir(dir, tools::tool::audition::AUDITION_DIR),
-    ];
+    let caches =
+        tools::preview_cache::CACHE_DIRS.map(|name| tools::PreviewCache::in_dir(dir, name));
     for allowed in std::iter::once(dir).chain(caches.iter().map(|c| c.dir())) {
         if let Err(e) = scope.allow_directory(allowed, true) {
             tracing::warn!(dir = %allowed.display(), error = %e, "could not allow a project in the asset scope");
@@ -434,10 +436,22 @@ pub async fn save_head_trail(
 /// Copy the open project to `dest` and continue in the copy.
 ///
 /// Save As, in the sense a DAW means it: the work carries on in the new
-/// place, and the original is left as it was at this moment. That is
-/// only honest because a project folder now contains its own audio
-/// (#156) — before the storage layout moved, a copy would have been a
-/// history pointing at files somewhere else.
+/// place, and the original is left as it was. That is only honest because
+/// a project folder now contains its own audio (#156) — before the storage
+/// layout moved, a copy would have been a history pointing at files
+/// somewhere else.
+///
+/// The copy is a snapshot of the head at the moment of the click (#571):
+/// that head, the history behind it and the audio they play, whatever the
+/// agent commits while the copy is made. An edit that holds the store when
+/// Save As is clicked finishes first and is in the copy; one still running
+/// off the store's lock, and anything after, is not. The store's lock is
+/// held only while the history is copied, and the audio is copied with it
+/// free, so the window and the agent are not held up by a large project
+/// (see `project::copy_project`, which also says what is checked before
+/// the copy is answered). The caches (`.audiograph/previews/` and
+/// `auditions/`) are left behind and counted in the report, since they
+/// rebuild (#576).
 #[tauri::command]
 pub async fn save_project_as<R: Runtime>(
     app: AppHandle<R>,
@@ -457,12 +471,15 @@ pub async fn save_project_as<R: Runtime>(
         );
     }
 
-    // The copy can be gigabytes: on the blocking pool, not a worker.
+    // The copy can be gigabytes, and it waits on the store's lock: on the
+    // blocking pool, not a worker.
     let report = {
         let dest_path = dest_path.clone();
         blocking(&state, move |state| {
+            let store = state.store_handle().ok_or(CommandError::NoSession)?;
             let report =
-                crate::project::copy_project(&src, &dest_path).map_err(CommandError::Io)?;
+                crate::project::copy_project(&store, &dest_path).map_err(CommandError::Io)?;
+            drop(store);
 
             // Continue in the copy. Leaving the original open would make
             // Save As a backup button, which is a different feature with a
@@ -2451,25 +2468,48 @@ pub async fn render_preview(state: State<'_, AppState>, node: String) -> CmdResu
         };
         let cache = tools::PreviewCache::new(&project_dir);
 
-        let (out_path, _hit) = cache.get_or_render::<_, CommandError>(node_id, |path| {
-            // A cached render needs none of the node's audio; a new one does.
-            {
-                let store = lock_std(&store_handle, "store")?;
-                materialize(&store, node_id)?;
-            }
-            let engine = lock_std(&state.engine, "engine")?;
-            engine
-                .render_to_wav(&session_node.state, path, None)
-                .map_err(CommandError::from)?;
-            Ok(())
-        })?;
-
-        out_path
-            .to_str()
-            .map(str::to_owned)
-            .ok_or_else(|| CommandError::InvalidPath("temp path is not valid UTF-8".into()).into())
+        let out_path = cached_mix(state, &store_handle, &cache, node_id, &session_node.state)?;
+        Ok(utf8_path(&out_path, "the preview")?)
     })
     .await
+}
+
+/// The whole mix of `node` (whose state is `session_state`) from the
+/// project's preview cache, rendered into it first if it is not there.
+///
+/// The one way the window gets a mix to play: `render_preview` for the
+/// transport and `prepare_compare` for each side of an A/B compare, so a
+/// compare's side is the entry Play already made for that node, and the
+/// other way round. A failed render leaves nothing behind
+/// (`PreviewCache::get_or_render`), and there is no file outside the cache
+/// to fall back on.
+fn cached_mix(
+    state: &AppState,
+    store_handle: &Mutex<session::Store>,
+    cache: &tools::PreviewCache,
+    node_id: NodeId,
+    session_state: &session::SessionState,
+) -> Result<PathBuf, CommandError> {
+    let (path, _hit) = cache.get_or_render::<_, CommandError>(node_id, |path| {
+        // A cached render needs none of the node's audio; a new one does.
+        {
+            let store = lock_std(store_handle, "store")?;
+            materialize(&store, node_id)?;
+        }
+        let engine = lock_std(&state.engine, "engine")?;
+        engine
+            .render_to_wav(session_state, path, None)
+            .map_err(CommandError::from)?;
+        Ok(())
+    })?;
+    Ok(path)
+}
+
+/// `path` as the string the window feeds to `convertFileSrc`.
+fn utf8_path(path: &std::path::Path, what: &str) -> Result<String, CommandError> {
+    path.to_str()
+        .map(str::to_owned)
+        .ok_or_else(|| CommandError::InvalidPath(format!("{what}'s path is not valid UTF-8")))
 }
 
 // ---------------------------------------------------------------------------
@@ -2575,21 +2615,35 @@ pub async fn get_render_warnings(
 
 /// Pre-render both A and B nodes so the frontend A/B toggle is gapless.
 ///
-/// Renders each node to a stable path under the OS temp directory:
-/// - `<tempdir>/compare_a.wav`
-/// - `<tempdir>/compare_b.wav`
+/// Each side is the project's preview cache entry for its node,
+/// `<project>/.audiograph/previews/<node>.wav`: the same file
+/// `render_preview` makes for that node, rendered only if it is not there
+/// already (#575). Nothing is written anywhere else, and a cache that cannot
+/// be written is an error. The asset scope already covers the cache, since
+/// `allow_assets_in_dir` grants it with the project.
+///
+/// The bar loads a side from its file on every switch, so both entries are
+/// held out of the cache's eviction, from before they are looked up until
+/// `end_compare` (or the next compare) lets them go. Held entries are
+/// outside the cache's cap, so a long session whose two sides do not fit in
+/// the cap together (an hour-long mix) can still be compared, and a preview
+/// rendered while the bar is open evicts only other entries. The cache is
+/// over its cap by at most the pair, and back under it once the pair is let
+/// go. A side bigger than the cap on its own is an error, as it is for
+/// `render_preview`. Starting a compare ends the one before: the window has
+/// one bar.
 ///
 /// Returns `{ "a_path": "…", "b_path": "…", "a_warnings": […],
-/// "b_warnings": […] }` — the caller feeds the paths to the audio engine on
-/// each A/B button click so the switch is instant (no render latency on
-/// toggle). The warnings are what each side's render leaves out
+/// "b_warnings": […], "compare_id": n }` — the caller feeds the paths to
+/// the audio engine on each A/B button click so the switch is instant (no
+/// render latency on toggle), and hands `compare_id` to `end_compare` when
+/// the bar closes. The warnings are what each side's render leaves out
 /// (`get_render_warnings`' list for that node), so a comparison can say that
 /// one side is missing an effect it stores (#532).
 #[tauri::command]
-pub async fn prepare_compare<R: Runtime>(
+pub async fn prepare_compare(
     a: String,
     b: String,
-    app: AppHandle<R>,
     state: State<'_, AppState>,
 ) -> CmdResult<serde_json::Value> {
     blocking(&state, move |state| {
@@ -2598,54 +2652,62 @@ pub async fn prepare_compare<R: Runtime>(
         let a_id = NodeId::from_hex(&a).map_err(|_| CommandError::InvalidNodeId(a.clone()))?;
         let b_id = NodeId::from_hex(&b).map_err(|_| CommandError::InvalidNodeId(b.clone()))?;
 
-        let (a_state, b_state) = {
+        let (a_state, b_state, project_dir) = {
             let store = lock_std(&store_handle, "store")?;
             let a_node = store.get(a_id).map_err(CommandError::from)?;
             let b_node = store.get(b_id).map_err(CommandError::from)?;
-            materialize(&store, a_id)?;
-            materialize(&store, b_id)?;
-            (a_node.state, b_node.state)
+            (
+                a_node.state,
+                b_node.state,
+                store.project_dir().to_path_buf(),
+            )
         };
         let a_warnings = render_warnings_of(&a_state);
         let b_warnings = render_warnings_of(&b_state);
 
-        let mut a_path = std::env::temp_dir();
-        a_path.push(format!("edytlab-compare-a-{}.wav", a_id.to_hex()));
-        let mut b_path = std::env::temp_dir();
-        b_path.push(format!("edytlab-compare-b-{}.wav", b_id.to_hex()));
+        // Held before either is looked up, so that rendering B, or anything
+        // else rendering meanwhile, cannot evict A from under the bar; and
+        // before the compare open until now is ended, since letting that go
+        // evicts down to the cap, and the two may share a side (the head).
+        let cache = tools::PreviewCache::new(&project_dir);
+        let sides = vec![cache.hold(a_id), cache.hold(b_id)];
+        // Ends whatever compare was open, even if this one then fails to
+        // render: the bar has moved on from it.
+        let compare_id = lock_std(&state.compare, "compare")?.begin();
+        let a_path = cached_mix(state, &store_handle, &cache, a_id, &a_state)?;
+        let b_path = cached_mix(state, &store_handle, &cache, b_id, &b_state)?;
+        let a_path = utf8_path(&a_path, "the A side")?;
+        let b_path = utf8_path(&b_path, "the B side")?;
 
-        {
-            let engine = lock_std(&state.engine, "engine")?;
-            engine
-                .render_to_wav(&a_state, &a_path, None)
-                .map_err(CommandError::from)?;
-            engine
-                .render_to_wav(&b_state, &b_path, None)
-                .map_err(CommandError::from)?;
-        }
-
-        let a_path_str = a_path
-            .to_str()
-            .map(str::to_owned)
-            .ok_or_else(|| CommandError::InvalidPath("compare_a path is not valid UTF-8".into()))?;
-        let b_path_str = b_path
-            .to_str()
-            .map(str::to_owned)
-            .ok_or_else(|| CommandError::InvalidPath("compare_b path is not valid UTF-8".into()))?;
-
-        // Rendered to the OS temp directory, which is outside the asset
-        // scope: grant exactly these two, not the whole temp directory.
-        allow_asset_file(&app, &a_path);
-        allow_asset_file(&app, &b_path);
+        lock_std(&state.compare, "compare")?.open(compare_id, sides);
 
         Ok(serde_json::json!({
-            "a_path": a_path_str,
-            "b_path": b_path_str,
+            "a_path": a_path,
+            "b_path": b_path,
             "a_warnings": a_warnings,
             "b_warnings": b_warnings,
+            "compare_id": compare_id,
         }))
     })
     .await
+}
+
+// ---------------------------------------------------------------------------
+// end_compare
+// ---------------------------------------------------------------------------
+
+/// The A/B bar for compare `compare_id` has closed: its two renders are
+/// ordinary preview-cache entries again (#575). They count against the cap
+/// once more, and the cache is evicted back under it now, least recently
+/// used first, which is usually the pair.
+///
+/// Ending a compare that is not the open one, because a newer one has
+/// started since, changes nothing, so a bar that closes as another opens
+/// cannot let go of the other's renders.
+#[tauri::command]
+pub async fn end_compare(state: State<'_, AppState>, compare_id: u64) -> CmdResult<()> {
+    lock_std(&state.compare, "compare")?.end(compare_id);
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

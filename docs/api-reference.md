@@ -233,17 +233,30 @@ and leaves no node behind — it lands in `failures` and the rest still load.
 
 Copy the current project to `dest` and continue working in the copy.
 
+The copy is a snapshot of the head at the moment of the click: that head, the
+history behind it and the audio they play, whatever the agent commits while
+the copy is made (#571). An edit that holds the session when Save As is
+clicked finishes first and is in the copy; one still running off the session's
+lock, and anything after, is not. The session's lock is held only while the
+history is copied; the audio is copied with it free, so other commands are not
+held up by a large project. The caches, `.audiograph/previews/` and
+`.audiograph/auditions/`, are left behind, since every entry in them rebuilds
+on demand (#576); a folder of the same name anywhere else is copied.
+
 **Returns:**
 ```typescript
 interface CopyReport {
-  files: number;
-  bytes: number;
-  dest: string;
+  files: number;                // Files copied
+  bytes: number;                // Their total size
+  skipped_cache_files: number;  // Cached previews and auditions left behind
 }
 ```
 
-**Errors:** no session open; `dest` exists and is not empty; the copy fails
-part way (the report is not written and `dest` is left for inspection).
+**Errors:** no session open; `dest` is not absolute, or is the project's own
+folder; `dest` exists and is not empty; the copy fails part way, or is not
+whole when it is checked (the head's node, or audio the head plays, is missing
+from it; the error names the file). In each of the last two `dest` is left for
+inspection.
 
 ---
 
@@ -616,7 +629,9 @@ is bounded (1 GiB by default, overridable with `EDYTLAB_PREVIEW_CACHE_BYTES`)
 and evicts least-recently-used entries; an evicted entry is re-rendered
 byte-identically on demand. `storage_report` reports what it is holding. A mix
 bigger than the cap cannot be kept, so the call fails (the cache is left as it
-was) instead of returning a path to a file that is already gone.
+was) instead of returning a path to a file that is already gone. While an A/B
+compare is open its two sides are held in the same cache (`prepareCompare`),
+outside the cap: a render made meanwhile evicts only other entries to fit.
 
 ```typescript
 const wavPath = await bridge.renderPreview(nodeId);
@@ -673,10 +688,26 @@ const { warnings } = await bridge.renderRange(nodeId, 10.0, 45.5, "/Users/alice/
 ### `prepareCompare(a: NodeId, b: NodeId) → PreparedCompare`
 
 Pre-render two nodes for A/B comparison. Returns paths to both rendered WAV
-files, and what each side's render leaves out (`getRenderWarnings`' list for
-that node). A side that stores an effect the renderer cannot run sounds the
-same with or without it, which is what a comparison cannot afford, so the
-window lists both sides' warnings under the compare bar.
+files, what each side's render leaves out (`getRenderWarnings`' list for that
+node), and the id of the compare. A side that stores an effect the renderer
+cannot run sounds the same with or without it, which is what a comparison
+cannot afford, so the window lists both sides' warnings under the compare bar.
+
+**Where the files are.** Each side is the preview cache's entry for its node,
+`<project>/.audiograph/previews/<node>.wav`: the file `renderPreview` returns
+for that node, rendered only if it is not there already (#575). A side the
+window has just played is not rendered again, and neither is a pair compared
+before. Nothing is written outside the project, and a cache folder that cannot
+be written is an error.
+
+**Held while compared.** The bar loads a side from its file on every switch, so
+both entries are kept out of the cache's eviction until `endCompare(compare_id)`,
+or until the next `prepareCompare`, which ends the compare before it. Held
+entries are outside the cap, so a long session whose two sides do not fit in the
+cache together (an hour-long mix) can still be compared, and a `renderPreview`
+made while the compare is open evicts only other entries. The cache is over its
+cap by at most the pair, and back under it once the compare ends. A side bigger
+than the cap on its own is an error, as it is for `renderPreview`.
 
 ```typescript
 interface PreparedCompare {
@@ -684,9 +715,24 @@ interface PreparedCompare {
   b_path: string;
   a_warnings: RenderWarning[];
   b_warnings: RenderWarning[];
+  compare_id: number;
 }
 
-const { a_path, b_path, a_warnings, b_warnings } = await bridge.prepareCompare(nodeA, nodeB);
+const { a_path, b_path, a_warnings, b_warnings, compare_id } =
+  await bridge.prepareCompare(nodeA, nodeB);
+```
+
+### `endCompare(compareId: number) → void`
+
+The compare bar for `compareId` has closed: its two renders are ordinary
+preview-cache entries again. They count against the cap once more, and the cache
+is evicted back under it at once, least recently used first (usually the pair).
+Ending a compare that is no longer the open one (a newer `prepareCompare` has
+started since) changes nothing. The A/B bar calls it when it closes or moves to
+another pair.
+
+```typescript
+await bridge.endCompare(compare_id);
 ```
 
 ### `acceptB(b: NodeId) → NodeId`

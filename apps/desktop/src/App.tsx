@@ -1049,13 +1049,13 @@ function App() {
       await refreshTracks();
       // Not an error, so it does not go through the error banner — but
       // the numbers are worth seeing, since a copy that skipped the
-      // cache is smaller than the folder it came from and that would
+      // caches is smaller than the folder it came from and that would
       // otherwise look like data loss.
       // eslint-disable-next-line no-console
       console.info(
         `Saved a copy to ${dir}: ${report.files} files, ` +
           `${(report.bytes / 1e6).toFixed(1)} MB, ` +
-          `${report.skipped_previews} cached preview(s) left behind.`,
+          `${report.skipped_cache_files} cached preview and audition file(s) left behind.`,
       );
     } catch (e) {
       setRenderError(String(e));

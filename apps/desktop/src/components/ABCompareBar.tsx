@@ -16,6 +16,11 @@
  * A side whose session stores an effect the renderer cannot run plays
  * without it. The two sides then sound alike for the very thing being
  * compared, so what each side leaves out is listed under the bar (#532).
+ *
+ * Both renders are the preview cache's entries for their nodes, and every
+ * switch loads a side from its file again, so the backend keeps the pair
+ * out of the cache's eviction while the bar is open. The bar lets go of it
+ * (`endCompare`) when it closes or moves to another pair (#575).
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -23,6 +28,7 @@ import { useEffect, useRef, useState } from "react";
 import { compareNotice } from "../lib/renderWarnings";
 import {
   acceptB as bridgeAcceptB,
+  endCompare,
   prepareCompare,
   type RenderWarning,
 } from "../lib/tauri-bridge";
@@ -50,6 +56,15 @@ export interface ABCompareBarProps {
 
 type Side = "a" | "b";
 
+/**
+ * Let the backend's hold on a compare's renders go. Nothing waits on it and
+ * nothing is shown if it fails: the next compare ends this one anyway.
+ */
+function release(compareId: number | null | undefined) {
+  if (typeof compareId !== "number") return;
+  void endCompare(compareId).catch(() => undefined);
+}
+
 export function ABCompareBar({
   aNodeId,
   bNodeId,
@@ -71,6 +86,8 @@ export function ABCompareBar({
   // re-running the pre-render on every render.
   const aPathRef = useRef<string | null>(null);
   const bPathRef = useRef<string | null>(null);
+  // The compare the backend is holding both renders for.
+  const compareIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!aNodeId || !bNodeId) return;
@@ -79,10 +96,18 @@ export function ABCompareBar({
     setPreparing(true);
     setPrepareError(null);
     setLeft({ a: [], b: [] });
+    // Not this pair's renders, and no longer held.
+    aPathRef.current = null;
+    bPathRef.current = null;
 
     prepareCompare(aNodeId, bNodeId)
-      .then(({ a_path, b_path, a_warnings, b_warnings }) => {
-        if (cancelled) return;
+      .then(({ a_path, b_path, a_warnings, b_warnings, compare_id }) => {
+        if (cancelled) {
+          // Rendered for a bar that has closed or moved to another pair.
+          release(compare_id);
+          return;
+        }
+        compareIdRef.current = compare_id;
         aPathRef.current = a_path;
         bPathRef.current = b_path;
         setLeft({ a: a_warnings ?? [], b: b_warnings ?? [] });
@@ -98,6 +123,8 @@ export function ABCompareBar({
 
     return () => {
       cancelled = true;
+      release(compareIdRef.current);
+      compareIdRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aNodeId, bNodeId, onAudioPathChange]);

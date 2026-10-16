@@ -381,6 +381,29 @@ export function leftOut(
 }
 
 /**
+ * An A/B compare of two nodes, as the backend answers it.
+ *
+ * `prepare_compare` renders each side into the project's preview cache
+ * (`<project>/.audiograph/previews/<node>.wav`) and returns those paths,
+ * what each side's render leaves out (`render_warnings_of`), and
+ * `compare_id`: `CompareHolds::begin`'s count, which starts at 1 with each
+ * launch. The window's own paths here are fixtures, since this backend
+ * renders nothing. `end_compare` is `CmdResult<()>`, so `null`, whether or
+ * not the id named the open compare. The A/B bar calls it when it closes.
+ */
+export function comparing(sides: {
+  a_path: string;
+  b_path: string;
+  a_warnings: RenderWarning[];
+  b_warnings: RenderWarning[];
+}): Backend {
+  return {
+    prepare_compare: ok({ ...sides, compare_id: 1 }),
+    end_compare: ok(null),
+  };
+}
+
+/**
  * A project that already holds these tracks when the app starts: a
  * returning user.
  *

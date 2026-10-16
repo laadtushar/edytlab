@@ -272,12 +272,13 @@ src/
 ```
 src/
 ├── commands.rs    # The #[tauri::command] functions (~90 of them)
+├── compare.rs     # The open A/B compare and the previews it holds (#575)
 ├── events.rs      # agent://… event names and payloads
 ├── lib.rs         # Builder, command registration, startup
 ├── live_stores.rs # The stores that are alive, by project folder (#534)
 ├── main.rs        # Entry point
 ├── mcp_tool.rs    # Wraps MCP server tools as `tools::Tool`
-├── project.rs     # Project metadata, view state, recents
+├── project.rs     # Project metadata, view state, recents, Save As's copy
 ├── reclaimer.rs   # Background cap on a project's derived audio
 ├── settings.rs    # ~/.edytlab/settings.json: Plan first, kept across a restart (#569)
 └── state.rs       # AppState

@@ -1048,6 +1048,36 @@ fn the_sweep_waits_for_a_tool_running_off_the_lock() {
     assert!(report.removed_files > 0, "{report:?}");
 }
 
+/// Compaction deletes audio too, so it waits as the sweeps do (rule 0).
+/// While a staged handle is alive (a tool running off the lock, or Save As
+/// copying the project, #571) it removes no history and no audio, and says
+/// why; once the handle is gone the same call does its work.
+#[test]
+fn compaction_waits_for_a_run_off_the_lock() {
+    let mut s = Session::new();
+    for _ in 0..4 {
+        s.make_history();
+    }
+    let nodes_before = s.store.list_nodes().unwrap().len();
+    let sorted = |mut files: Vec<PathBuf>| {
+        files.sort();
+        files
+    };
+    let files_before = sorted(s.derived_files());
+
+    let staged = s.store.stage().expect("stage");
+    match s.call("compact_session", json!({ "keep_last": 1, "apply": true })) {
+        ToolResult::Error(m) => assert!(m.contains("try again"), "{m}"),
+        ToolResult::Ok(v) => panic!("compacted while a run was in flight: {v}"),
+    }
+    assert_eq!(s.store.list_nodes().unwrap().len(), nodes_before);
+    assert_eq!(sorted(s.derived_files()), files_before);
+
+    drop(staged);
+    let v = ok(s.call("compact_session", json!({ "keep_last": 1, "apply": true })));
+    assert!(v["removed_nodes"].as_u64().unwrap_or(0) > 0, "{v}");
+}
+
 /// The wait is for the project, not for the `Store` a tool happened to be
 /// staged from. The app builds a new `Store` each time a project is opened
 /// (the background reclaimer's reader and the one an open sweeps with
