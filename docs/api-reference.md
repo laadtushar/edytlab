@@ -1301,7 +1301,7 @@ show it as "not run", not as a failure.
 
 ### `onNodeCreated(cb: (nodeId: string) => void) → Promise<UnlistenFn>`
 
-Emitted when a tool appends a new node to the session DAG. Refresh the graph view and track list.
+Emitted when an agent tool call moves the session's head: to a new node, or to one already in the graph (`revert_to`, `fork_node`). `nodeId` is the head the store is on after the call, not a `node_id` from the tool's result, and it is sent once per call that moved it, even one that then failed. A call that leaves the head where it was (`name_node`, a read) sends nothing. Refresh the graph view and track list.
 
 ### `onAgentDone(cb: () => void) → Promise<UnlistenFn>`
 

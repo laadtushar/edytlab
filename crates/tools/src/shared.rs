@@ -57,6 +57,21 @@
 //! (see [`session::Store::staged_in_flight`] for why the sweep waits).
 //! It never leaves a session node.
 //!
+//! ## Where the call left the head
+//!
+//! [`Dispatched::moved_head`] is the head the call moved the store to, read
+//! from the store, so the app's window can follow the agent without
+//! trusting the tool's result (#594). A tool's `node_id` is not that: it is
+//! the node `name_node` labelled, and `apply_diff` and `apply_recipe` move
+//! the head and return none. A locked run compares the head before and after
+//! the tool under the lock, where only the tool can move it. An off-lock run
+//! compares its staged handle's head before and after the tool, and reports
+//! it only once the commit has published it; a user's edit that lands while
+//! it runs moves the head too, and is not the call's to report. A tool that
+//! moves the head several times is reported once, at the head it ended on;
+//! one that moves it and then fails is reported all the same, since the
+//! store keeps what it did.
+//!
 //! A panic in an off-lock tool poisons no lock, where one in a locked tool
 //! poisons the store's.
 
@@ -64,6 +79,7 @@ use std::collections::HashSet;
 use std::sync::Mutex;
 
 use serde_json::Value;
+use session::NodeId;
 
 use crate::dispatcher::Prepared;
 use crate::{Clipboard, Result, ToolContext, ToolDispatcher, ToolResult};
@@ -245,6 +261,35 @@ fn head_state(store: &session::Store) -> Option<session::SessionState> {
         .map(|node| node.state)
 }
 
+/// What [`Shared::dispatch`] did with a call.
+#[must_use = "the result is the tool's answer, and `moved_head` is where the window must follow"]
+#[derive(Debug)]
+pub struct Dispatched {
+    /// What the tool returned, or why it was not run: the answer
+    /// [`ToolDispatcher::invoke`] would give.
+    pub result: Result<ToolResult>,
+    /// The head this call moved the store to, or `None` if it left the head
+    /// where it found it. Set whatever `result` is, since a tool that moved
+    /// the head and then failed leaves the head moved. Never a move someone
+    /// else made while the call ran. See the module docs.
+    pub moved_head: Option<NodeId>,
+}
+
+impl Dispatched {
+    /// A call that moved nothing: refused, or answered without an edit.
+    fn unmoved(result: Result<ToolResult>) -> Self {
+        Self {
+            result,
+            moved_head: None,
+        }
+    }
+}
+
+/// `after`, if it is not `before`.
+fn moved(before: Option<NodeId>, after: Option<NodeId>) -> Option<NodeId> {
+    after.filter(|head| Some(*head) != before)
+}
+
 /// How many times an off-lock tool is run before it is run under the
 /// locks instead. Two means one retry after a user edit lands mid-run:
 /// a second edit during the retry is rare enough that waiting out a third
@@ -263,7 +308,8 @@ pub struct Shared<'a> {
 impl Shared<'_> {
     /// Dispatch `name` with `args` as [`ToolDispatcher::invoke`] would, with
     /// the same errors, running the tool off the store lock when it allows
-    /// it. See the module docs.
+    /// it, and say where the call left the store's head. See the module
+    /// docs.
     ///
     /// `user_message` is the chat message the call belongs to, which a few
     /// tools read a selection range from. `allowed` is this turn's tool
@@ -278,10 +324,13 @@ impl Shared<'_> {
         args: Value,
         user_message: &str,
         allowed: Option<&HashSet<String>>,
-    ) -> Result<ToolResult> {
+    ) -> Dispatched {
         let prepared = {
             let d = self.dispatcher.lock().expect("dispatcher mutex poisoned");
-            d.prepare(name, &args, allowed)?
+            match d.prepare(name, &args, allowed) {
+                Ok(prepared) => prepared,
+                Err(refused) => return Dispatched::unmoved(Err(refused)),
+            }
         };
 
         if prepared.runs_off_the_lock() {
@@ -290,7 +339,7 @@ impl Shared<'_> {
             let positions = addressed_tracks(&args);
             let mut named: Option<Named> = None;
             for attempt in 1..=OFF_LOCK_ATTEMPTS {
-                if let Some(result) = self.run_off_the_lock(
+                if let Some(dispatched) = self.run_off_the_lock(
                     &prepared,
                     &args,
                     (&positions, &mut named),
@@ -298,7 +347,7 @@ impl Shared<'_> {
                     allowed,
                     attempt,
                 ) {
-                    return result;
+                    return dispatched;
                 }
             }
             tracing::info!(
@@ -326,16 +375,16 @@ impl Shared<'_> {
         user_message: &str,
         allowed: Option<&HashSet<String>>,
         attempt: usize,
-    ) -> Option<Result<ToolResult>> {
+    ) -> Option<Dispatched> {
         // The lock is held for this one call, and released before the tool.
         let staged = self.store.lock().expect("store mutex poisoned").stage();
         let mut staged = match staged {
             Ok(s) => s,
             Err(e) => {
-                return Some(Ok(ToolResult::Error(format!(
+                return Some(Dispatched::unmoved(Ok(ToolResult::Error(format!(
                     "could not start {}: {e}",
                     prepared.name()
-                ))))
+                )))))
             }
         };
 
@@ -346,12 +395,15 @@ impl Shared<'_> {
                 None => *named = Some(Named::capture(&staged, positions)),
                 Some(first) => {
                     if let Some(refusal) = first.refusal(prepared.name(), &staged) {
-                        return Some(Ok(ToolResult::Error(refusal)));
+                        return Some(Dispatched::unmoved(Ok(ToolResult::Error(refusal))));
                     }
                 }
             }
         }
 
+        // The handle's own head, before and after: a user's edit moves the
+        // shared store's, never this one.
+        let before = staged.head();
         // Nothing the tool may use is shared. `Engine` holds no state, and
         // the tools that opt in never read the clipboard.
         let mut engine = audio_engine::Engine::new();
@@ -366,6 +418,7 @@ impl Shared<'_> {
             };
             ToolDispatcher::run(prepared, args.clone(), &mut ctx)
         };
+        let after = staged.head();
 
         // Committed whatever the result was: a tool that appended and then
         // failed leaves its node behind when it runs under the lock, and
@@ -376,7 +429,12 @@ impl Shared<'_> {
             .expect("store mutex poisoned")
             .commit(staged);
         match committed {
-            Ok(session::Commit::Published) => Some(result),
+            // Published: the store's head is now the handle's (or, if the
+            // run appended nothing, the handle's never moved).
+            Ok(session::Commit::Published) => Some(Dispatched {
+                result,
+                moved_head: moved(before, after),
+            }),
             Ok(session::Commit::Conflict) => {
                 tracing::info!(
                     tool = prepared.name(),
@@ -385,7 +443,10 @@ impl Shared<'_> {
                 );
                 None
             }
-            Err(e) => Some(Ok(ToolResult::Error(format!("session append failed: {e}")))),
+            // Nothing was published: the head file is written last.
+            Err(e) => Some(Dispatched::unmoved(Ok(ToolResult::Error(format!(
+                "session append failed: {e}"
+            ))))),
         }
     }
 
@@ -402,11 +463,14 @@ impl Shared<'_> {
         named: Option<&Named>,
         user_message: &str,
         allowed: Option<&HashSet<String>>,
-    ) -> Result<ToolResult> {
+    ) -> Dispatched {
         let mut store = self.store.lock().expect("store mutex poisoned");
         if let Some(refusal) = named.and_then(|n| n.refusal(prepared.name(), &store)) {
-            return Ok(ToolResult::Error(refusal));
+            return Dispatched::unmoved(Ok(ToolResult::Error(refusal)));
         }
+        // Read under the lock the tool runs under, so a move between the
+        // two is the tool's.
+        let before = store.head();
         let mut engine = self.engine.lock().expect("engine mutex poisoned");
         let mut clipboard = self.clipboard.lock().expect("clipboard mutex poisoned");
         let mut ctx = ToolContext {
@@ -416,7 +480,11 @@ impl Shared<'_> {
             clipboard: &mut clipboard,
             allowed_tools: allowed,
         };
-        ToolDispatcher::run(prepared, args, &mut ctx)
+        let result = ToolDispatcher::run(prepared, args, &mut ctx);
+        Dispatched {
+            result,
+            moved_head: moved(before, store.head()),
+        }
     }
 }
 

@@ -1540,13 +1540,25 @@ where
             // is published only if the session did not change meanwhile
             // (#421); every other tool runs under the store, engine and
             // clipboard locks as before. See `tools::shared`.
-            let result = tools::Shared {
+            let tools::Dispatched { result, moved_head } = tools::Shared {
                 dispatcher: dispatcher.as_ref(),
                 store: store.as_ref(),
                 engine: engine.as_ref(),
                 clipboard: clipboard.as_ref(),
             }
             .dispatch(name, args, &user_msg_saved, allowed_tools.as_ref());
+
+            // The window moves its head, and the path undo walks, on this
+            // event, so it names the head the store is on after the call,
+            // as the dispatch read it, and only when the call moved it
+            // (#594). Not the tool's `node_id`: `name_node` returns the node
+            // it labelled, and `apply_diff` and `apply_recipe` move the head
+            // without returning one. Sent whatever the result, since a call
+            // that moved the head and then failed still moved it.
+            if let Some(head) = moved_head {
+                on_event(AgentEvent::NodeCreated(head));
+                node_ids_emitted.push(head);
+            }
 
             match result {
                 Err(tools::DispatchError::NotPermitted(tool)) => {
@@ -1607,10 +1619,6 @@ where
                 }
                 Ok(ToolResult::Ok(mut value)) => {
                     consecutive_validation_errors = 0;
-                    if let Some(node_id) = extract_node_id(&value) {
-                        on_event(AgentEvent::NodeCreated(node_id));
-                        node_ids_emitted.push(node_id);
-                    }
                     on_event(AgentEvent::ToolCallEnd {
                         id: id.clone(),
                         ok: true,
@@ -1856,16 +1864,6 @@ fn grow_to(v: &mut Vec<PartialBlock>, idx: usize) -> Result<()> {
         v.push(PartialBlock::Pending);
     }
     Ok(())
-}
-
-/// Tool results commonly include `node_id` (a hex string). We surface
-/// these as [`AgentEvent::NodeCreated`] for the UI without forcing the
-/// caller to re-parse tool output.
-fn extract_node_id(value: &Value) -> Option<session::NodeId> {
-    value
-        .get("node_id")
-        .and_then(|v| v.as_str())
-        .and_then(|s| session::NodeId::from_hex(s).ok())
 }
 
 /// Pull the drawable part out of a tool result, for the tools that have

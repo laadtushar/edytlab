@@ -23,7 +23,8 @@ use session::{Annotation, AnnotationId, AnnotationKind, NodeId, Store};
 use tempfile::TempDir;
 use tools::schema::{anthropic_tool, object_schema};
 use tools::{
-    DispatchError, Shared, Tool, ToolContext, ToolDispatcher, ToolResult, OFF_LOCK_ATTEMPTS,
+    DispatchError, Dispatched, Shared, Tool, ToolContext, ToolDispatcher, ToolResult,
+    OFF_LOCK_ATTEMPTS,
 };
 
 /// What the tool "wrote" before its node exists.
@@ -273,6 +274,11 @@ impl App {
     }
 
     fn dispatch(&self) -> tools::Result<ToolResult> {
+        self.dispatched().result
+    }
+
+    /// The call, with where it left the head.
+    fn dispatched(&self) -> Dispatched {
         Shared {
             dispatcher: &self.dispatcher,
             store: &self.store,
@@ -596,6 +602,7 @@ fn concurrent_user_edits_and_tool_runs_lose_nothing() {
                 clipboard: &clipboard,
             }
             .dispatch("slow", json!({ "i": i }), "", None)
+            .result
             .expect("dispatch");
             assert!(matches!(result, ToolResult::Ok(_)), "{result:?}");
         }
@@ -683,15 +690,138 @@ fn dispatch_reports_what_invoke_reports() {
     };
 
     let unknown = shared().dispatch("nope", json!({}), "", None);
-    assert!(matches!(unknown, Err(DispatchError::Unknown(_))));
+    assert!(matches!(unknown.result, Err(DispatchError::Unknown(_))));
+    assert_eq!(unknown.moved_head, None);
 
     let invalid = shared().dispatch("probe", json!({ "x": 1 }), "", None);
-    assert!(matches!(invalid, Err(DispatchError::SchemaValidation(_))));
+    assert!(matches!(
+        invalid.result,
+        Err(DispatchError::SchemaValidation(_))
+    ));
+    assert_eq!(invalid.moved_head, None);
 
     let allowed: std::collections::HashSet<String> = ["other".to_string()].into();
     let refused = shared().dispatch("probe", json!({}), "", Some(&allowed));
-    assert!(matches!(refused, Err(DispatchError::NotPermitted(_))));
+    assert!(matches!(
+        refused.result,
+        Err(DispatchError::NotPermitted(_))
+    ));
+    assert_eq!(refused.moved_head, None);
     assert_eq!(app.calls(), 0, "a refused call ran the tool");
+}
+
+// ---------------------------------------------------------------------
+// Where the call left the head (#594)
+// ---------------------------------------------------------------------
+//
+// The app's window follows the agent's head moves from what `dispatch`
+// reports, so it must be the store's head after the call, only when the
+// call moved it, and never a move the user made meanwhile.
+
+/// Locked or not, a call that appends reports the head it moved to.
+#[test]
+fn a_call_that_moves_the_head_reports_where_on_both_paths() {
+    for off_lock in [true, false] {
+        let app = App::new(|p| p.off_lock = off_lock);
+
+        let d = app.dispatched();
+
+        assert!(matches!(d.result, Ok(ToolResult::Ok(_))), "{d:?}");
+        let head = app.head();
+        assert_ne!(head, app.base, "off_lock={off_lock}: nothing was appended");
+        assert_eq!(d.moved_head, Some(head), "off_lock={off_lock}");
+    }
+}
+
+/// A call that reads moves nothing, and says so.
+#[test]
+fn a_read_only_call_reports_no_move_on_both_paths() {
+    for off_lock in [true, false] {
+        let app = App::new(|p| {
+            p.off_lock = off_lock;
+            p.appends = false;
+        });
+
+        let d = app.dispatched();
+
+        assert!(matches!(d.result, Ok(ToolResult::Ok(_))), "{d:?}");
+        assert_eq!(app.head(), app.base);
+        assert_eq!(d.moved_head, None, "off_lock={off_lock}");
+    }
+}
+
+/// The user's edit while a read runs off the lock moves the store's head.
+/// That move is the user's, and the window has it already; reporting it as
+/// the agent's would put it on the undo path a second time.
+#[test]
+fn a_users_edit_during_a_read_is_not_reported_as_the_calls() {
+    let app = App::new(|p| {
+        p.appends = false;
+        p.user_edits = 1;
+    });
+
+    let d = app.dispatched();
+
+    assert!(matches!(d.result, Ok(ToolResult::Ok(_))), "{d:?}");
+    assert_ne!(app.head(), app.base, "the user's edit is the head");
+    assert_eq!(d.moved_head, None);
+}
+
+/// A run that lost the race to the user's edit and ran again reports the
+/// head of the run that published, which sits on the user's edit, and not
+/// the user's edit itself.
+#[test]
+fn a_rerun_reports_its_own_head_not_the_users() {
+    let app = App::new(|p| p.user_edits = 1);
+
+    let d = app.dispatched();
+
+    assert!(matches!(d.result, Ok(ToolResult::Ok(_))), "{d:?}");
+    assert_eq!(app.calls(), 2);
+    let head = app.head();
+    let user = app.node(head).parent.expect("the user's edit");
+    assert_ne!(user, app.base);
+    assert_eq!(d.moved_head, Some(head));
+}
+
+/// After two lost races the locked run is the one that publishes, and it
+/// reports its own head.
+#[test]
+fn the_locked_run_after_two_lost_races_reports_its_own_head() {
+    let app = App::new(|p| p.user_edits = usize::MAX);
+
+    let d = app.dispatched();
+
+    assert!(matches!(d.result, Ok(ToolResult::Ok(_))), "{d:?}");
+    assert_eq!(app.calls(), 3);
+    let head = app.head();
+    assert_eq!(
+        names(&app.store.lock().unwrap(), head),
+        vec!["user", "user", "tool"]
+    );
+    assert_eq!(d.moved_head, Some(head));
+}
+
+/// A tool that appends and then fails leaves its node, and the head on it,
+/// so the move is reported with the error.
+#[test]
+fn a_call_that_moves_the_head_then_fails_reports_the_move_on_both_paths() {
+    for off_lock in [true, false] {
+        let app = App::new(|p| {
+            p.off_lock = off_lock;
+            p.fail_after_append = true;
+        });
+
+        let d = app.dispatched();
+
+        assert!(
+            matches!(d.result, Ok(ToolResult::Error(_))),
+            "off_lock={off_lock}: {d:?}"
+        );
+        let head = app.head();
+        assert_ne!(head, app.base);
+        assert_eq!(d.moved_head, Some(head), "off_lock={off_lock}");
+    }
 }
 
 // ---------------------------------------------------------------------
@@ -748,6 +878,7 @@ impl Real {
             clipboard: &self.clipboard,
         }
         .dispatch(tool, args, message, None)
+        .result
         .expect("dispatch");
         match result {
             ToolResult::Ok(v) => v,
@@ -1115,6 +1246,7 @@ impl Studio {
             clipboard: &self.clipboard,
         }
         .dispatch(tool, args, message, None)
+        .result
         .expect("dispatch")
     }
 

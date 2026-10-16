@@ -285,7 +285,12 @@ pub enum AgentEvent {
     /// It ends the badge's lifecycle the way [`AgentEvent::ToolCallEnd`]
     /// does, but it is not a failure, because nothing ran.
     ToolCallNotRun { id: String },
-    /// A tool call resulted in a new session node. Emitted before the
+    /// A tool call moved the session's head, to this node: a new one, or
+    /// one that was already there (`revert_to`, `fork_node`). The id is the
+    /// store's head after the call, not anything in the tool's result
+    /// (#594), and it is sent only when the call moved it, whether or not
+    /// the call then succeeded. A move the user made while the call ran is
+    /// not the call's and is not sent. At most one per call, before the
     /// matching [`AgentEvent::ToolCallEnd`].
     NodeCreated(session::NodeId),
     /// Final event of a turn. Always emitted on success.
@@ -346,7 +351,8 @@ pub struct TurnResult {
     /// `tool_use`, `max_tokens`, ...). `None` if the server did not
     /// emit one.
     pub stop_reason: Option<String>,
-    /// Session node ids the agent created during the turn, in order.
+    /// The heads the agent's calls moved the session to during the turn,
+    /// in order: one per [`AgentEvent::NodeCreated`].
     pub node_ids: Vec<session::NodeId>,
 }
 
