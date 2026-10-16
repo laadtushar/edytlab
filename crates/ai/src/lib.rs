@@ -42,6 +42,7 @@ mod approval;
 mod context_window;
 pub mod keychain;
 pub mod models;
+pub mod oauth;
 pub mod prompt;
 pub mod provider;
 pub mod responses;
