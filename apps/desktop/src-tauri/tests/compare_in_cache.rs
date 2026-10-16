@@ -108,10 +108,7 @@ impl Sandbox {
         std::fs::create_dir_all(&project).unwrap();
         std::fs::create_dir_all(&os_tmp).unwrap();
 
-        let mut saved: Vec<_> = TMP_VARS
-            .iter()
-            .map(|v| (*v, std::env::var_os(v)))
-            .collect();
+        let mut saved: Vec<_> = TMP_VARS.iter().map(|v| (*v, std::env::var_os(v))).collect();
         saved.push((CAP_VAR, std::env::var_os(CAP_VAR)));
         for var in TMP_VARS {
             std::env::set_var(var, &os_tmp);
@@ -134,7 +131,8 @@ impl Sandbox {
             };
             let mut nodes = Vec::new();
             let mut run = |tool: &str, args: Value, ctx: &mut tools::ToolContext| {
-                match dispatcher.invoke(tool, args, ctx).expect("invoke") {
+                let result = dispatcher.invoke(tool, args, ctx).expect("invoke");
+                match result {
                     tools::ToolResult::Ok(_) => nodes.push(ctx.store.head().expect("head")),
                     tools::ToolResult::Error(m) => panic!("{tool} failed: {m}"),
                 }
@@ -156,6 +154,7 @@ impl Sandbox {
                 commands::open_project,
                 commands::render_preview,
                 commands::prepare_compare,
+                commands::end_compare,
             ])
             .build(mock_context(noop_assets()))
             .expect("mock app");
@@ -298,8 +297,16 @@ fn a_compare_renders_into_the_preview_cache_and_nowhere_else() {
         Vec::<String>::new(),
         "a compare left files in the OS temp directory"
     );
-    assert_eq!(path(&answer, "a_path"), s.entry(a), "A is not A's cache entry");
-    assert_eq!(path(&answer, "b_path"), s.entry(b), "B is not B's cache entry");
+    assert_eq!(
+        path(&answer, "a_path"),
+        s.entry(a),
+        "A is not A's cache entry"
+    );
+    assert_eq!(
+        path(&answer, "b_path"),
+        s.entry(b),
+        "B is not B's cache entry"
+    );
     assert!(s.entry(a).is_file() && s.entry(b).is_file());
     assert_eq!(s.staging_files(), Vec::<String>::new());
 }

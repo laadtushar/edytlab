@@ -296,6 +296,13 @@ export default function UserGuidePage() {
           head, or <strong>Dismiss</strong> to keep the current head.
         </li>
       </ol>
+      <p>
+        Both versions are rendered into the project&apos;s preview cache, so a
+        version you have just played is not rendered again, and they stay there
+        while the bar is open. The cache holds 1 GiB of renders: two versions
+        that do not fit in it together (more than about 45 minutes each of
+        48 kHz stereo) cannot be compared, and the bar says so.
+      </p>
 
       <h2>Stem Separation</h2>
       <p>
