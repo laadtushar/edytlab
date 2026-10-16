@@ -125,6 +125,11 @@ jobs:
           # Per-OS cache key so the matrix legs don't trample each
           # other's target dir cache.
           key: ci-${{ matrix.platform.name }}
+          # Save only from main (#610). A PR that changes Cargo.lock
+          # restores a partial match, and uploading a new cache from the
+          # PR ran the Windows leg past its 30-minute limit after every
+          # step had passed. PRs still restore main's cache.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6

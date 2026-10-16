@@ -231,7 +231,8 @@ any model works unless you have tried it.
 > in one line of the system prompt so the model knows they exist. Hosted
 > providers still get every tool. The test that measures it
 > (`crates/ai/tests/request_size.rs`, against a mock server) puts the one-line
-> request at about 8.7 KB of text, against about 58 KB with every tool. That is
+> request at about 8.7 KB of text, against about 66 KB with every tool (on
+> v0.6.0; it was 58 KB in v0.5.0, and the full list grows with the tools). That is
 > bytes, not tokens, I have not run a tokenizer, and I have not re-run
 > llama-server with Qwen2.5-3B on the new request. If the server still refuses
 > a request as too long, the app now says so and what to change (llama.cpp does
@@ -334,8 +335,8 @@ all three platforms. Only claim things you hit.
 >   worker might hold inside a sync command.
 > - **Keyring on Linux.** `keyring`'s `linux-native` backend is the kernel
 >   keyring: in-memory, gone after a reboot. That is what v0.4.0 and earlier
->   use (#394); v0.5.0 stores credentials in the Secret Service and warns when
->   there is none. I haven't checked that across a real reboot yet. If you ship
+>   use (#394); since v0.5.0 the app stores credentials in the Secret Service
+>   and warns when there is none. I haven't checked that across a real reboot yet. If you ship
 >   credentials on Linux, read the backend's docs before you rely on it.
 > - **Testing.** Playwright runs the production front end in Chromium with only
 >   the IPC boundary replaced, and the fake backend answers from the Rust

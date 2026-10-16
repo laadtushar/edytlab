@@ -855,15 +855,18 @@ fn under_the_cap_the_background_sweep_does_nothing() {
 /// The webview plays a rendered preview and an audition over the asset
 /// protocol (#402). Both live under `<project>/.audiograph/`, a hidden
 /// directory, and on Linux and macOS the asset scope's `**` does not
-/// reach through one — so opening a project must grant the two caches by
-/// name, and only them.
+/// reach through one — so opening a project must grant the caches by
+/// name, and only them. The names are the one list Save As leaves out of
+/// a copy too (#576), so a cache added to it is checked here as well.
 #[test]
 fn opening_a_project_lets_the_webview_read_its_previews_and_auditions() {
     let p = SweptProject::open();
     let scope = p.app.asset_protocol_scope();
     let store = p.dir.path().join(".audiograph");
 
-    for cache in ["previews", "auditions"] {
+    let caches = tools::preview_cache::CACHE_DIRS;
+    assert!(caches.contains(&"previews") && caches.contains(&"auditions"));
+    for cache in caches {
         let wav = store.join(cache).join("0123abcd.wav");
         assert!(scope.is_allowed(&wav), "{} is not readable", wav.display());
     }

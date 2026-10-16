@@ -233,17 +233,30 @@ and leaves no node behind — it lands in `failures` and the rest still load.
 
 Copy the current project to `dest` and continue working in the copy.
 
+The copy is a snapshot of the head at the moment of the click: that head, the
+history behind it and the audio they play, whatever the agent commits while
+the copy is made (#571). An edit that holds the session when Save As is
+clicked finishes first and is in the copy; one still running off the session's
+lock, and anything after, is not. The session's lock is held only while the
+history is copied; the audio is copied with it free, so other commands are not
+held up by a large project. The caches, `.audiograph/previews/` and
+`.audiograph/auditions/`, are left behind, since every entry in them rebuilds
+on demand (#576); a folder of the same name anywhere else is copied.
+
 **Returns:**
 ```typescript
 interface CopyReport {
-  files: number;
-  bytes: number;
-  dest: string;
+  files: number;                // Files copied
+  bytes: number;                // Their total size
+  skipped_cache_files: number;  // Cached previews and auditions left behind
 }
 ```
 
-**Errors:** no session open; `dest` exists and is not empty; the copy fails
-part way (the report is not written and `dest` is left for inspection).
+**Errors:** no session open; `dest` is not absolute, or is the project's own
+folder; `dest` exists and is not empty; the copy fails part way, or is not
+whole when it is checked (the head's node, or audio the head plays, is missing
+from it; the error names the file). In each of the last two `dest` is left for
+inspection.
 
 ---
 

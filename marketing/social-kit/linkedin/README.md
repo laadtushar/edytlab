@@ -129,8 +129,8 @@ count, a quote or a benchmark.
 | Every edit is a node; fork, A/B, go back; undo follows the path you took | `crates/tools/src/tool/fork_node.rs`, `compare_nodes.rs`, `apps/desktop/src/lib/headTrail.ts` |
 | Rubber Band was dropped for a pure-Rust phase vocoder; the cost is smearing on dense material at large changes | `crates/audio-time/src/vocoder.rs`, `README.md` |
 | Eleven effects cannot yet run on a master or bus chain | `NOT_YET_STREAMING` in `crates/audio-engine/src/effect_chain.rs` |
-| #464 (macOS microphone), #497 (Linux keyring), #383 to #385 (ML inference) are open | GitHub, checked 2026-10-11 |
-| v0.5.0 for macOS, Windows and Linux; MIT; the installers are unsigned | `tauri.conf.json`, `LICENSE`, the v0.5.0 release notes. The last carousel page, the only canvas that mentions a download, says so |
+| #464 (macOS microphone), #497 (Linux keyring), #383 to #385 (ML inference) | GitHub, checked 2026-10-16: #464, #497, #384 and #385 are open. #383 (the ONNX Runtime and model delivery) is closed on GitHub, but the runtime is not shipped and no model is downloaded, so "Not shipped yet" on the slide is still true |
+| v0.6.0 for macOS, Windows and Linux; MIT; the installers are unsigned | `tauri.conf.json` (`render.mjs` reads the version from it), `LICENSE`, the v0.6.0 release notes. The last carousel page, the only canvas that mentions a download, says so. **The committed `out/post-3-carousel.pdf` was rendered before v0.6.0 and still says v0.5.0**: run `node render.mjs` before posting it |
 
 ## Files
 

@@ -1013,13 +1013,15 @@ export const listRecentProjects = (): Promise<RecentProject[]> =>
 export interface CopyReport {
   files: number;
   bytes: number;
-  /** Preview-cache entries deliberately left behind; they re-derive. */
-  skipped_previews: number;
+  /** Cached previews and auditions deliberately left behind; they re-derive. */
+  skipped_cache_files: number;
 }
 
 /**
  * Copy the open project to `dest` and continue in the copy — Save As in
- * the sense a DAW means it, with the original left as it was.
+ * the sense a DAW means it, with the original left as it was. The copy is
+ * the project at the moment of the click, whatever the agent commits while
+ * it is made (#571), without the caches (#576).
  */
 export const saveProjectAs = (dest: string): Promise<CopyReport> =>
   invoke<CopyReport>("save_project_as", { dest });

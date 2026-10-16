@@ -136,7 +136,7 @@ crates/
   ml-whisper/         Transcription (decoder is a stub, #384)
   ml-pipeline/        Shared ONNX runtime gate, verified model downloader (no callers yet) + inference cache (#383)
 docs/                 Specs, handover, packaging notes
-.github/workflows/    CI, auto-release, unsigned dev/release and signed release pipelines
+.github/workflows/    CI, cargo audit, auto-release, unsigned dev/release and signed release pipelines
 tests/                Shared fixture notes and golden-data placeholders
 ```
 
@@ -169,7 +169,7 @@ The Tauri bundle build is intentionally **not** in CI (too slow); release workfl
 ## Releases
 
 - **Auto dev releases.** `auto-release.yml` listens to `ci.yml`'s `workflow_run` on `main`. On green, it tags `v<version>-dev.<run_number>` and dispatches `release-dev.yml`, which builds **unsigned** bundles — a universal macOS `.dmg`, Windows `.msi` + NSIS `.exe`, Linux `.deb` + AppImage — and attaches them to a GitHub Release. On a green matrix the `publish` job flips that release out of draft, so every green push to `main` publishes a dev prerelease; it is marked `prerelease` with `make_latest=false`, so it never takes the Latest badge from a real release. A draft is what a *failed* matrix leaves behind.
-- **Versioned releases (unsigned for now).** `release-dev.yml` dispatched with `channel: release` publishes a real release — not a prerelease, marked Latest. v0.2.0 to v0.5.0 shipped this way.
+- **Versioned releases (unsigned for now).** `release-dev.yml` dispatched with `channel: release` publishes a real release — not a prerelease, marked Latest. v0.2.0 to v0.6.0 shipped this way.
 - **Signed releases.** `release-signed.yml` builds all three platforms in one matrix — Apple notarization on mac, Authenticode + DigiCert timestamp on Windows, unsigned `.deb`/AppImage on Linux. **Manual** `workflow_dispatch`, gated on signing secrets being provisioned. They are not provisioned yet, so every release so far is unsigned ([#386](https://github.com/laadtushar/edytlab/issues/386)). It builds first and uploads only after signing, so the published assets are always the signed bytes. See [`docs/packaging-windows.md`](docs/packaging-windows.md) for the Windows side, including the SmartScreen reputation note.
 - Bundle targets are pinned in `tauri.conf.json` to `["app", "dmg", "msi", "nsis", "deb", "appimage"]` — don't revert to `"all"`.
 

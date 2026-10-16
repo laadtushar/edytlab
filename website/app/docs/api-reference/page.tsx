@@ -26,7 +26,7 @@ const commands = [
       {
         name: "saveProjectAs(dest)",
         returns: "CopyReport",
-        desc: "Copy the open project to dest and carry on in the copy. Refuses a dest that exists and is not empty, and a copy that fails part way leaves dest for inspection. Resolves with { files, bytes, dest }.",
+        desc: "Copy the open project to dest and carry on in the copy. The copy is the project at the moment of the click, history and audio together, whatever the assistant commits while it is made, and the audio is copied without holding up other commands. Cached previews and auditions are left behind, since they rebuild. Refuses a dest that exists and is not empty; a copy that fails part way, or is missing what its head needs, is an error and leaves dest for inspection. Resolves with { files, bytes, skipped_cache_files }.",
       },
       {
         name: "getProjectMeta()",
@@ -586,7 +586,7 @@ const events = [
   {
     name: "onNodeCreated(cb)",
     payload: "nodeId: string",
-    desc: "New DAG node appended. Refresh the graph view and track list.",
+    desc: "An agent tool call moved the session's head: to a new node, or to one already in the graph (revert_to, fork_node). nodeId is the head the session is on after the call, not a node_id from the tool's result, and it is sent once per call that moved it, even one that then failed. A call that leaves the head where it was (name_node, a read) sends nothing. Refresh the graph view and track list.",
   },
   {
     name: "onAgentDone(cb)",

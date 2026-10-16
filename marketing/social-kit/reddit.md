@@ -6,7 +6,7 @@ with a question. Do not cross-post one text, and do not post two of these on
 the same day (`calendar.md` spaces them out).
 
 This supersedes the v0.3.0-era text in `marketing/launch/reddit.md` for these
-six subreddits: it is updated for v0.5.0, includes the other two DJ demos, and
+six subreddits: it is updated for v0.6.0, includes the other two DJ demos, and
 discloses that the demo tracks are synthetic. (That file still has posts for
 r/audioengineering, r/podcasting and r/tauri if you want them later.)
 
@@ -14,7 +14,7 @@ r/audioengineering, r/podcasting and r/tauri if you want them later.)
 site <https://edytlab.com> ·
 DJ recordings <https://edytlab.com/use-cases/dj> ·
 source <https://github.com/laadtushar/edytlab> ·
-v0.5.0 <https://github.com/laadtushar/edytlab/releases/tag/v0.5.0>
+v0.6.0 <https://github.com/laadtushar/edytlab/releases/tag/v0.6.0>
 
 **Videos:** `reel-beatmatched-transition.mp4`, `reel-extended-club-intro.mp4`,
 `reel-mini-mix.mp4`, `reel-highlights.mp4`. Reddit video posts generally have
@@ -76,13 +76,13 @@ What to know before deciding whether it's worth your time:
 - The tracks are short synthetic loops (about 32 seconds each) that I generated. The recordings show the workflow, not how it copes with a messy real library.
 - Beat and key detection are software estimates. A drifting tempo or a long ambient intro can fool them.
 - The agent flags things instead of hiding them: bars that run a beat behind where it was told to start a track (with the fix), an export peaking right at full scale, a loudness reading that counted the fades.
-- The recordings were made on a development build after v0.5.0, where the limiter goes on the master bus. v0.5.0 itself has no master-bus insert, so for "limiter on the master" it renders the tracks into a new baked "Master" track and mutes the originals, and later edits to the source tracks don't show up until you re-render (issue 460). The master-bus effect tool ships in the next release.
+- The recordings were made on a development build just before v0.6.0, and v0.6.0 does what they show: the limiter goes on the master bus, so it keeps working when a track changes. v0.5.0 and earlier had no master-bus insert and rendered the tracks into a baked "Master" track instead (issue 460). Only gain, the limiter and three filters run live on the master or a bus; for the compressor in the first demo the agent still mixes the two tracks to a new one.
 - No decks, controllers or live mode. It exports WAV, FLAC or MP3 files and has nothing for rekordbox or Serato. No stem separation or acapellas; that isn't built.
 - A test script types the requests into the real app when I record, and I only publish runs that passed my checks. The agent isn't deterministic, so your results can differ.
 - It needs an AI provider: your own key for Anthropic, OpenAI, OpenRouter, Groq or Gemini, or a local model through Ollama. Your audio files aren't uploaded; the chat text goes to the provider you pick, or stays local with Ollama.
 
 Recordings: https://edytlab.com/use-cases/dj
-Downloads for macOS, Windows and Linux (unsigned, so expect a first-launch warning): https://github.com/laadtushar/edytlab/releases/tag/v0.5.0
+Downloads for macOS, Windows and Linux (unsigned, so expect a first-launch warning): https://github.com/laadtushar/edytlab/releases/tag/v0.6.0
 
 For people who prep: which chore do you repeat the most, and what would make you not trust a tool like this?
 ```
@@ -160,7 +160,7 @@ Two things I'd like producers' opinions on:
 2. What would you not trust an agent to do to your master?
 
 Recording: https://edytlab.com/use-cases/dj
-Free and open source for macOS, Windows and Linux (unsigned installers): https://github.com/laadtushar/edytlab/releases/tag/v0.5.0
+Free and open source for macOS, Windows and Linux (unsigned installers): https://github.com/laadtushar/edytlab/releases/tag/v0.6.0
 ```
 
 ---
@@ -189,12 +189,12 @@ edytlab: an MIT-licensed desktop audio editor driven by an AI agent (Rust, Tauri
 ```
 Disclosure: it's my project.
 
-edytlab is a desktop audio editor for macOS, Windows and Linux. You describe an edit in a chat box and an AI agent calls deterministic audio tools (93 of them) that run locally in a Rust engine. The model never receives the audio, only text about it. It's MIT-licensed: https://github.com/laadtushar/edytlab. v0.5.0 is the current release.
+edytlab is a desktop audio editor for macOS, Windows and Linux. You describe an edit in a chat box and an AI agent calls deterministic audio tools (93 of them) that run locally in a Rust engine. The model never receives the audio, only text about it. It's MIT-licensed: https://github.com/laadtushar/edytlab. v0.6.0 is the current release.
 
 Where I'd like help:
 
-- Master bus and bus effects (issue 520, closed). A tool can now put an effect on the master bus and on a bus (merged after v0.5.0, so unreleased). Still missing: streaming versions of eleven effects the renderer can't run on a chain yet (reverb, echo, EQ, compressor and others). Rust, in the audio-engine and tools crates.
-- macOS microphone (issue 464). v0.5.0 adds the entitlement and the usage text, but it hasn't been checked on a signed, notarized macOS build. That needs a Mac.
+- Effects on a chain (issue 520, closed, has the background). Since v0.6.0 the agent can put an effect on the master bus and on a bus, but only five kinds run in a chain: gain, the limiter and three filters. Still missing: streaming versions of the other eleven (reverb, echo, EQ, compressor and others), which today can only be baked into a track. Rust, in the audio-engine and tools crates.
+- macOS microphone (issue 464). Since v0.5.0 the build has the entitlement and the usage text, but it hasn't been checked on a signed, notarized macOS build. That needs a Mac.
 - A real pass on Linux with a locked Secret Service (issue 497). The code is tested against fakes only.
 - Shipping the ML pieces (issues 383 to 385). Stem separation (Demucs) and transcription (Whisper) are wired in as tools, but their inference is not shipped. That means onnxruntime and model delivery inside a Tauri app.
 - New audio tools and new LLM providers. docs/contributing.md walks through both. Six providers today: Anthropic, OpenAI, OpenRouter, Groq, Gemini, and Ollama for local models.
@@ -245,14 +245,14 @@ edytlab is a desktop audio editor. You describe an edit and the model chooses an
 What exists for local models:
 
 - An Ollama provider. No key. It talks to the OpenAI-compatible endpoint (default http://localhost:11434/v1). In Settings, Test sends a minimal request to check that the model can call tools.
-- A smaller tool list, new in v0.5.0. Ollama is sent a core set of 15 tools plus the ones your message names (by name, a distinctive word, or a phrase like "remove the reverb"), with shortened descriptions. The names of the rest go in one line of the system prompt, so the model knows they exist and can call them. Hosted providers still get every tool.
+- A smaller tool list (since v0.5.0). Ollama is sent a core set of 15 tools plus the ones your message names (by name, a distinctive word, or a phrase like "remove the reverb"), with shortened descriptions. The names of the rest go in one line of the system prompt, so the model knows they exist and can call them. Hosted providers still get every tool.
 - If a server refuses a request as too long, the app now says so and what to change. llama.cpp refuses; Ollama trims an over-long prompt silently, and the app shows nothing.
 - "Plan first" (the agent shows its steps and nothing runs until you approve) was being sent in the wrong format to Ollama, Groq and Gemini until v0.3.0. That's fixed. I haven't verified it end to end with a real local model.
 
 What I have measured:
 
 - Before the change (v0.4.0), a one-line request ("Make track 0 louder by 6 dB.") produced a 15,157-token first request. I pointed the Ollama provider at llama.cpp's llama-server running Qwen2.5-3B with an 8,192-token context, and it refused the request outright. The numbers are in issue 395.
-- After it, the repo's request-size test (`crates/ai/tests/request_size.rs`, against a mock server) puts that same request at about 8.7 KB of text, against about 58 KB with every tool: roughly 2.3 KB of system prompt and 6.3 KB of tool schemas. That is bytes, not tokens. I did not run a tokenizer, and I have not re-run llama-server with Qwen2.5-3B on the new request.
+- After it, the repo's request-size test (`crates/ai/tests/request_size.rs`, against a mock server) puts that same request at about 8.7 KB of text, against about 66 KB with every tool on v0.6.0: roughly 2.3 KB of system prompt and 6.3 KB of tool schemas. That is bytes, not tokens. I did not run a tokenizer, and I have not re-run llama-server with Qwen2.5-3B on the new request.
 
 What I haven't done:
 
@@ -265,7 +265,7 @@ What I'd like opinions on: the selection is a heuristic (words and phrases in th
 If you try it: which model, quantisation and context size, whether it kept to the tool schemas, and how it failed. Failure reports are as useful as successes.
 
 Source (issue 395 has the v0.4.0 numbers): https://github.com/laadtushar/edytlab
-Downloads for macOS, Windows and Linux (unsigned, so expect a first-launch warning): https://github.com/laadtushar/edytlab/releases/tag/v0.5.0
+Downloads for macOS, Windows and Linux (unsigned, so expect a first-launch warning): https://github.com/laadtushar/edytlab/releases/tag/v0.6.0
 ```
 
 ---
@@ -297,7 +297,7 @@ It's a desktop audio editor where an LLM agent calls 93 deterministic tools: a R
 
 - audio-dsp has no dependencies, on purpose: functions over &mut [f32] plus a sample rate and channel count, no session types, no IO. It sits below both the tools crate and the renderer, so a dependency there is a dependency everywhere. It exists because the effect algorithms used to be pub(crate) inside tools and the renderer needed them too, which meant a dependency cycle or a second copy.
 - Time-stretch and pitch-shift are a phase vocoder on realfft, with onset-triggered phase resets (spectral-flux onset detection, causal thresholding) to protect transients. I planned on Rubber Band and dropped it: it needs librubberband-dev on Linux, vcpkg on Windows and Homebrew on macOS, and a native dependency like that breaks every CI target at once. The limits are written at the top of crates/audio-time/src/vocoder.rs: dense mixes smear, and the further the factor is from 1.0 the worse.
-- Session state is a content-addressed DAG: a node's id is the blake3 of its state. Two routes to the same state are one node, and that node keeps the parent from its first visit. Undo that followed node.parent broke on mute-then-unmute (#398). The fix in v0.4.0 is not in the graph: the frontend keeps the path the user took, as one reducer for head, undo trail and redo list (headTrail.ts). In v0.5.0 it doesn't survive a restart (#453), where it falls back to the parent; saving it with the project (a small trail.json beside the graph) is merged and ships in the next release. I'm not sure that's the right model, and I'd like to hear how you'd do it.
+- Session state is a content-addressed DAG: a node's id is the blake3 of its state. Two routes to the same state are one node, and that node keeps the parent from its first visit. Undo that followed node.parent broke on mute-then-unmute (#398). The fix in v0.4.0 is not in the graph: the frontend keeps the path the user took, as one reducer for head, undo trail and redo list (headTrail.ts). Since v0.6.0 that path is saved with the project (a small trail.json beside the graph, #453), so undo survives a restart; before, it fell back to the parent. I'm not sure that's the right model, and I'd like to hear how you'd do it.
 - Tools are registered in a dispatcher with JSON-schema validation, and docs/tools-reference.md is generated from the registry by a test, so the doc can't disagree with what the agent can call.
 - Lock discipline: a long tool held the store lock while synchronous Tauri commands waited for it on the main thread, which froze the window (#421). Moving those commands off the main thread shipped in v0.3.0 and v0.5.0. Also in v0.5.0, a tool that opts in runs on a staged store handle with no lock held and commits only if the head hasn't moved; if it has, the tool runs again on the new head, and a list in a test pins which tools opt in. The convention for the rest is to take and drop the store lock before touching the engine lock.
 - LLM providers sit behind an LlmProvider trait; request serialisation and SSE parsing are per provider.
@@ -317,10 +317,12 @@ Demo recordings (DJ jobs, screen-captured from the real app): https://edytlab.co
 
 Facts to re-check on the day:
 
-- Issue numbers and open/closed state. On 2026-10-11: closed are 460 (PR 516)
-  and 453 (PR 521), both merged after v0.5.0, and 421, 395 and 394 (all in
-  v0.5.0); open are 464, 497, 520, 389, 386 and 383 to 385. They were all open
-  when this was written (2026-10-10).
+- Issue numbers and open/closed state. On 2026-10-16: closed are 460 (PR 516),
+  453 (PR 521) and 520 (all in v0.6.0), and 421, 395 and 394 (all in v0.5.0);
+  open are 464, 497, 389, 386, 384 and 385. 383 (the ONNX Runtime and model
+  delivery) is closed on GitHub, but the runtime still isn't shipped and no
+  model is downloaded, so keep saying "383 to 385". They were all open when
+  this was written (2026-10-10).
 - "No open issue carries the good first issue label": true when checked (17
   open issues, none labelled). Label two issues before posting r/opensource
   and replace that sentence with their numbers.
@@ -328,9 +330,11 @@ Facts to re-check on the day:
   issue 395. The 8.7 KB / 58 KB figures and the 2.3 KB / 6.3 KB split are from
   `crates/ai/tests/request_size.rs` (`cargo test -p ai --test request_size --
   --nocapture`) and the table in `docs/architecture.md`; they are bytes.
-- The "Master" workaround is from issue 460 and the mini-mix caption in
-  `website/lib/demos.ts`. PR 516 closed the issue after v0.5.0, so the v0.5.0
-  build and the recordings still show the workaround.
+- The "Master" workaround is from issue 460. PR 516 closed it, and v0.6.0 is
+  the first release with the master-bus tool; v0.5.0 and earlier still render a
+  baked "Master" track. The recordings were made after PR 516: the mini-mix
+  caption in `website/lib/demos.ts` puts its limiter on the master, and the
+  beatmatch mixes to a new track only to compress it.
 - "A test script types the requests" and "only runs that passed are
   published": `apps/desktop/e2e-native/stories/demos.mjs` and
   `make-demo-videos.mjs`. The site captions do not say this, so it appears

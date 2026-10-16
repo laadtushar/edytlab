@@ -253,14 +253,14 @@ pub(crate) fn sweep_orphaned_audio(store: &Store) {
 /// matches the asset scope with `require_literal_leading_dot` there, so
 /// `dir/**` does not reach through `.audiograph`, and the previews the
 /// transport plays and the auditions the chat plays live under it (#402).
-/// Those two caches are therefore granted by name, which a literal `.`
-/// satisfies; the rest of `.audiograph` stays out of reach.
+/// The caches are therefore granted by name, which a literal `.`
+/// satisfies; the rest of `.audiograph` stays out of reach. Their names
+/// are `tools::preview_cache::CACHE_DIRS`, the list Save As leaves out of
+/// a copy too (#576), so a new cache is granted by being added there.
 pub(crate) fn allow_assets_in_dir<R: Runtime>(app: &AppHandle<R>, dir: &std::path::Path) {
     let scope = app.asset_protocol_scope();
-    let caches = [
-        tools::PreviewCache::new(dir),
-        tools::PreviewCache::in_dir(dir, tools::tool::audition::AUDITION_DIR),
-    ];
+    let caches =
+        tools::preview_cache::CACHE_DIRS.map(|name| tools::PreviewCache::in_dir(dir, name));
     for allowed in std::iter::once(dir).chain(caches.iter().map(|c| c.dir())) {
         if let Err(e) = scope.allow_directory(allowed, true) {
             tracing::warn!(dir = %allowed.display(), error = %e, "could not allow a project in the asset scope");
@@ -434,10 +434,22 @@ pub async fn save_head_trail(
 /// Copy the open project to `dest` and continue in the copy.
 ///
 /// Save As, in the sense a DAW means it: the work carries on in the new
-/// place, and the original is left as it was at this moment. That is
-/// only honest because a project folder now contains its own audio
-/// (#156) — before the storage layout moved, a copy would have been a
-/// history pointing at files somewhere else.
+/// place, and the original is left as it was. That is only honest because
+/// a project folder now contains its own audio (#156) — before the storage
+/// layout moved, a copy would have been a history pointing at files
+/// somewhere else.
+///
+/// The copy is a snapshot of the head at the moment of the click (#571):
+/// that head, the history behind it and the audio they play, whatever the
+/// agent commits while the copy is made. An edit that holds the store when
+/// Save As is clicked finishes first and is in the copy; one still running
+/// off the store's lock, and anything after, is not. The store's lock is
+/// held only while the history is copied, and the audio is copied with it
+/// free, so the window and the agent are not held up by a large project
+/// (see `project::copy_project`, which also says what is checked before
+/// the copy is answered). The caches (`.audiograph/previews/` and
+/// `auditions/`) are left behind and counted in the report, since they
+/// rebuild (#576).
 #[tauri::command]
 pub async fn save_project_as<R: Runtime>(
     app: AppHandle<R>,
@@ -457,12 +469,15 @@ pub async fn save_project_as<R: Runtime>(
         );
     }
 
-    // The copy can be gigabytes: on the blocking pool, not a worker.
+    // The copy can be gigabytes, and it waits on the store's lock: on the
+    // blocking pool, not a worker.
     let report = {
         let dest_path = dest_path.clone();
         blocking(&state, move |state| {
+            let store = state.store_handle().ok_or(CommandError::NoSession)?;
             let report =
-                crate::project::copy_project(&src, &dest_path).map_err(CommandError::Io)?;
+                crate::project::copy_project(&store, &dest_path).map_err(CommandError::Io)?;
+            drop(store);
 
             // Continue in the copy. Leaving the original open would make
             // Save As a backup button, which is a different feature with a

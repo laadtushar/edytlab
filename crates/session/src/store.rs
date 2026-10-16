@@ -54,8 +54,13 @@ use crate::{Error, Result};
 /// `<project>/.audiograph/previews/`, and `storage_report` has to be
 /// able to find them without hardcoding the name a second time.
 pub const STORE_DIR: &str = ".audiograph";
-const NODES_DIR: &str = "nodes";
-const HEAD_FILE: &str = "head";
+/// The history's folder under [`STORE_DIR`]. Public, with [`HEAD_FILE`] and
+/// [`node_path`], so a copy of a project (Save As, in the desktop crate) can
+/// tell the store's own files from the rest and check what it copied
+/// without spelling the layout out a second time.
+pub const NODES_DIR: &str = "nodes";
+/// The head's file under [`STORE_DIR`].
+pub const HEAD_FILE: &str = "head";
 
 /// Fsync a directory so a prior atomic rename inside it is durable.
 ///
@@ -85,7 +90,7 @@ pub(crate) fn fsync_dir(_path: &Path) -> io::Result<()> {
 /// Where the file for the node with this 64-character hex id is, in the
 /// project at `project_dir`. The one place the layout in the module
 /// documentation is spelt out as a path.
-pub(crate) fn node_path(project_dir: &Path, hex: &str) -> PathBuf {
+pub fn node_path(project_dir: &Path, hex: &str) -> PathBuf {
     project_dir
         .join(STORE_DIR)
         .join(NODES_DIR)
