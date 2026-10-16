@@ -1,26 +1,27 @@
 Microsoft Visual C++ runtime
 ============================
 
-The Windows installers of edytlab put these four files next to edytlab.exe,
-in the folder edytlab is installed to:
+The Windows installers of edytlab put these four files next to
+edytlab-desktop.exe, in the folder edytlab is installed to:
 
   msvcp140.dll
   msvcp140_1.dll
   vcruntime140.dll
   vcruntime140_1.dll
 
-They are the Microsoft Visual C++ 2015-2022 runtime, version 14.40 or newer,
+They are the Microsoft Visual C++ runtime (version 14.40 or newer),
 Copyright (c) Microsoft Corporation. ONNX Runtime (onnxruntime.dll, beside
 them) needs them; edytlab itself is linked without them.
 
-They are copied, unmodified, from the VC\Redist folder of Visual Studio, which
-the Visual Studio license terms list as Distributable Code, and they are
-distributed under those terms:
+They are copied, unmodified, from the VC\Redist folder of the Visual Studio
+that built this release. The Visual Studio license terms list that folder as
+Distributable Code, and the files are distributed under those terms:
 
   Visual Studio license terms
   https://visualstudio.microsoft.com/license-terms/
 
-  Distributable Code files for Visual Studio 2022 ("Visual C++ Runtime Files")
+  Distributable Code files for Visual Studio ("Visual C++ Runtime Files")
+  https://learn.microsoft.com/en-us/visualstudio/releases/2026/redistribution
   https://learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution
 
 Microsoft's own installer for the same runtime, the Visual C++ Redistributable,

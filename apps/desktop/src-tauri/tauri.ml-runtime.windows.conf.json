@@ -9,7 +9,7 @@
       "ml-runtime/vc-runtime-x64/vcruntime140_1.dll": "vcruntime140_1.dll",
       "ml-runtime/win-x64/LICENSE": "licenses/onnxruntime/LICENSE",
       "ml-runtime/win-x64/ThirdPartyNotices.txt": "licenses/onnxruntime/ThirdPartyNotices.txt",
-      "licenses/vc-runtime-NOTICE.txt": "licenses/vc-runtime/NOTICE.txt"
+      "licenses/vc-runtime/NOTICE.txt": "licenses/vc-runtime/NOTICE.txt"
     }
   }
 }

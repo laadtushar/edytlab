@@ -370,7 +370,12 @@ def check_installed(installed, expected, signed):
         if src.name == expected.library:
             library_path = installed_file
         if not installed_file.is_file():
-            fail("%s is missing (the overlay puts %s there)" % (shown(installed_file), src.name))
+            renamed = installed_file.parent / src.name
+            if renamed != installed_file and renamed.is_file():
+                fail("%s is missing; the installer has it as %s, under the source's name (an MSI does not "
+                     "rename a resource)" % (shown(installed_file), shown(renamed)))
+            else:
+                fail("%s is missing (the overlay puts %s there)" % (shown(installed_file), src.name))
         elif sha256(installed_file) != sha256(src):
             fail("%s is not the file the build was given (%s)" % (shown(installed_file), src))
         else:

@@ -64,7 +64,7 @@ const OVERLAYS: [(&str, &str); 3] = [
 const VC_RUNTIME_DIR: &str = "ml-runtime/vc-runtime-x64";
 
 /// The notice for the Visual C++ runtime, kept in the repository.
-const VC_RUNTIME_NOTICE: &str = "licenses/vc-runtime-NOTICE.txt";
+const VC_RUNTIME_NOTICE: &str = "licenses/vc-runtime/NOTICE.txt";
 
 fn resources(overlay: &Value) -> &Map<String, Value> {
     overlay["bundle"]["resources"]
@@ -163,7 +163,17 @@ fn each_overlay_bundles_exactly_the_runtime_its_notices_and_on_windows_the_vc_ru
              the app and the licence notices are expected"
         );
 
-        for (src, _) in &got {
+        for (src, dst) in &got {
+            // The MSI keeps a resource's directory but not a new file name:
+            // tauri-bundler writes each one as a WiX `<File Source=...>`
+            // with no `Name`, so it installs under the source's own name.
+            // The first dry run caught the VC++ notice landing as
+            // `licenses/vc-runtime/vc-runtime-NOTICE.txt` in the MSI.
+            assert_eq!(
+                Path::new(src).file_name(),
+                Path::new(dst).file_name(),
+                "{file}: {src} -> {dst} renames the file, which the MSI does not do"
+            );
             let staged = src.starts_with("ml-runtime/");
             assert!(
                 staged || src_tauri().join(src).is_file(),
