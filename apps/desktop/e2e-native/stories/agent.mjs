@@ -1,6 +1,10 @@
 // The assistant, end to end: a person types, a model decides, real tools
-// edit the session, and the timeline, graph and files follow. Run with
-// LLM=real against a local model on :11434 (see HANDOFF.md).
+// edit the session, and the timeline, graph and files follow.
+//
+// The model's replies are scripted (fake-llm.mjs), so these run the same
+// every time. Under LLM=real the script is ignored (see `script` in
+// suite.mjs) and a real model on :11434 decides what to call, which is
+// what the assertions below are written to allow.
 import { assert, K, head, onboard, openAudio, renderPreview, sleep, waitForNewHead } from "./helpers.mjs";
 
 /** Type into the chat box and send it, as a person does. */
@@ -96,6 +100,16 @@ export default [
       const before = await head(ctx);
       await ctx.shot("The stereo take loaded, before asking for anything");
 
+      // What a model does for this request: one tool call, then a sentence.
+      // Without a script fake-llm.mjs answers "Done." and calls
+      // nothing, which is not an app failure.
+      await ctx.script({
+        stream: [
+          { tool_calls: [{ name: "set_track_gain", arguments: { track: 0, db: 6 } }] },
+          { text: "Raised track 0 by 6 dB." },
+        ],
+        oneShot: [{ text: "edit" }],
+      });
       await say(ctx, "Make track 0 louder by 6 dB.");
       await sleep(1500);
       await ctx.shot("Sent: the assistant is thinking");
@@ -127,6 +141,10 @@ export default [
       await onboard(ctx);
       await openAudio(ctx, ctx.fixtures.tone);
       const before = await head(ctx);
+      await ctx.script({
+        stream: [{ text: "I can load, trim, fade, mix and export your audio, and explain what I did." }],
+        oneShot: [{ text: "edit" }],
+      });
       await say(ctx, "In one sentence, what can you do for me?");
       await waitForReply(ctx);
       await ctx.shot("A plain-text answer");
