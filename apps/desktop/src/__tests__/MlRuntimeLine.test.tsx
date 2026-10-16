@@ -11,6 +11,7 @@
  */
 
 import { render, screen } from "@testing-library/react";
+import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mlRuntimeStatusMock = vi.fn();
@@ -57,8 +58,12 @@ describe("MlRuntimeLine", () => {
     const line = await screen.findByText("ONNX Runtime: 1.23.2 (bundled)");
     expect(line).toHaveAttribute("data-testid", "settings-ml-runtime");
     expect(line).toHaveAttribute("data-state", "found");
-    // The file is on hover, not in the line.
-    expect(line).toHaveAttribute("title", BUNDLED.state === "found" ? BUNDLED.path : "");
+    // The file is text under the line, not a hover: a `title` cannot be
+    // reached from the keyboard or read by a screen reader.
+    expect(screen.getByTestId("settings-ml-runtime-detail")).toHaveTextContent(
+      BUNDLED.state === "found" ? BUNDLED.path : "",
+    );
+    expect(line).not.toHaveAttribute("title");
   });
 
   it("says a build with no runtime has none, and where it looked", async () => {
@@ -67,8 +72,9 @@ describe("MlRuntimeLine", () => {
 
     const line = await screen.findByText("ONNX Runtime: not installed in this build");
     expect(line).toHaveAttribute("data-state", "missing");
-    expect(line.getAttribute("title")).toContain("/usr/lib/edytlab/libonnxruntime.so");
-    expect(line.getAttribute("title")).toContain("/usr/bin/libonnxruntime.so");
+    const detail = screen.getByTestId("settings-ml-runtime-detail");
+    expect(detail).toHaveTextContent("/usr/lib/edytlab/libonnxruntime.so");
+    expect(detail).toHaveTextContent("/usr/bin/libonnxruntime.so");
   });
 
   it("reports a macOS that is too old and a library that will not load", async () => {
@@ -79,13 +85,16 @@ describe("MlRuntimeLine", () => {
         "ONNX Runtime: needs macOS 13.4 or newer (this Mac is running 12.6.1)",
       ),
     ).toHaveAttribute("data-state", "unsupportedOs");
+    expect(screen.queryByTestId("settings-ml-runtime-detail")).toBeNull();
     first.unmount();
 
     mlRuntimeStatusMock.mockResolvedValue(BROKEN);
     render(<MlRuntimeLine />);
     const line = await screen.findByText(/ONNX Runtime: could not be loaded/);
     expect(line).toHaveTextContent("it has no OrtGetApiBase entry point");
-    expect(line).toHaveAttribute("title", "/usr/lib/edytlab/libonnxruntime.so");
+    expect(screen.getByTestId("settings-ml-runtime-detail")).toHaveTextContent(
+      "/usr/lib/edytlab/libonnxruntime.so",
+    );
   });
 
   it("shows the command's own error when it cannot be asked", async () => {
@@ -112,13 +121,49 @@ describe("MlRuntimeLine", () => {
     expect(mlRuntimeStatusMock).toHaveBeenCalledTimes(1);
   });
 
-  it("ignores an answer that arrives after the line is gone", async () => {
+  /**
+   * The effect's `cancelled` guard is what keeps an old call's answer from
+   * overwriting a newer one. It is observable where an effect really runs
+   * twice on one instance: React's StrictMode mounts, cleans up and mounts
+   * again. Both calls are in flight, the second answers first, and the
+   * first answers last; the line must keep the second's answer. (A guard
+   * against setting state after unmount is not observable: React no longer
+   * warns about it.)
+   */
+  it("keeps the newest call's answer when an older call answers last", async () => {
+    const first = held<MlRuntimeStatus>();
+    const second = held<MlRuntimeStatus>();
+    mlRuntimeStatusMock.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    render(
+      <StrictMode>
+        <MlRuntimeLine />
+      </StrictMode>,
+    );
+    expect(mlRuntimeStatusMock).toHaveBeenCalledTimes(2);
+
+    await second.resolve(MISSING);
+    expect(screen.getByTestId("settings-ml-runtime")).toHaveTextContent(
+      "ONNX Runtime: not installed in this build",
+    );
+    await first.resolve(BUNDLED);
+    expect(screen.getByTestId("settings-ml-runtime")).toHaveTextContent(
+      "ONNX Runtime: not installed in this build",
+    );
+    expect(screen.getByTestId("settings-ml-runtime")).toHaveAttribute("data-state", "missing");
+  });
+
+  /**
+   * The line is read when the user gets to it. A live region would read
+   * "checking…" and then the result aloud each time the Account tab opens.
+   */
+  it("is not a live region, in any state", async () => {
     const answer = held<MlRuntimeStatus>();
     mlRuntimeStatusMock.mockReturnValue(answer.promise);
-    const { unmount } = render(<MlRuntimeLine />);
-    unmount();
-    // Nothing to assert on a gone line but that this does not throw or warn.
+    const { container } = render(<MlRuntimeLine />);
+    expect(container.querySelector("[role], [aria-live]")).toBeNull();
+
     await answer.resolve(BUNDLED);
+    expect(container.querySelector("[role], [aria-live]")).toBeNull();
   });
 });
 

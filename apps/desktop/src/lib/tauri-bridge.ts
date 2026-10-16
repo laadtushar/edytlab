@@ -185,9 +185,10 @@ export type MlRuntimeStatus =
 
 /**
  * Which ONNX Runtime library the app found, and its version. Loads the
- * library if it has not been, off the main thread, so a missing, too-new or
- * broken one comes back as a status and never as a hang. It does not mean
- * stem separation or transcription run.
+ * library if it has not been, off the main thread, so a library that is
+ * missing, broken, or not usable on this macOS (it is the OS that can be too
+ * old) comes back as a status and never as a hang. It does not mean stem
+ * separation or transcription run.
  */
 export const mlRuntimeStatus = (): Promise<MlRuntimeStatus> =>
   invoke<MlRuntimeStatus>("ml_runtime_status");

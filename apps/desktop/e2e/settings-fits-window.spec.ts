@@ -256,6 +256,14 @@ for (const win of WINDOWS) {
       await runtime.scrollIntoViewIfNeeded();
       await expect(runtime).toHaveText("ONNX Runtime: not installed in this build");
       await expectInWindow(page, runtime, "the ONNX Runtime line");
+      // Where it looked is text under the line (a hover is out of reach of
+      // the keyboard and of a screen reader), and it fits the window too.
+      const detail = page.getByTestId("settings-ml-runtime-detail");
+      await detail.scrollIntoViewIfNeeded();
+      await expect(detail).toHaveText(
+        "Looked in: /usr/lib/edytlab/libonnxruntime.so, /usr/bin/libonnxruntime.so",
+      );
+      await expectInWindow(page, detail, "the places the ONNX Runtime was looked for");
       await expectInWindow(page, card, "the Settings card with the runtime line", MARGIN);
 
       await page.getByTestId("settings-key-input").fill(KEY);

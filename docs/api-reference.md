@@ -1133,8 +1133,9 @@ build", or the reason the library it found cannot be used.
 
 It loads the library if it has not been loaded: it opens the file by absolute
 path, makes the checks `ort` makes, and hands it to `ort` once. That is file and
-library work, so the command runs it on the blocking pool, and a missing,
-too-new or broken library is a status, never a panic or a hang. It looks in
+library work, so the command runs it on the blocking pool, and a library that
+is missing, broken, or cannot be used because this macOS is too old for it is a
+status, never a panic or a hang. It looks in
 `ORT_DYLIB_PATH`, then the directory the installer puts the library in
 (`Contents/Frameworks` on macOS, Tauri's resource directory on Linux), then next
 to the executable (where the Windows installer puts it).

@@ -96,7 +96,26 @@
 //! the pin has one home. An older system is [`Error::RuntimeUnsupported`]
 //! and the file is never opened. A version that cannot be read or parsed
 //! does not refuse: the guard exists to give a clear answer, and dyld still
-//! decides.
+//! decides. So does `10.16`, which is not a version but what the sysctl
+//! answers a process that has `SYSTEM_VERSION_COMPAT=1` set: a macOS 14
+//! started from a Terminal that exports it would otherwise be told it is
+//! too old.
+//!
+//! ## The library's own dependencies
+//!
+//! Choosing the file is not enough on Windows, where the library's imports
+//! (`msvcp140.dll`, `vcruntime140.dll`, `vcruntime140_1.dll`) are found by
+//! a search of their own. `LoadLibraryExW(path, 0)` searches the default
+//! order for them, which includes the working directory and `PATH`, so a
+//! `vcruntime140_1.dll` planted in a writable launch directory, or an old
+//! copy somewhere on `PATH`, would be loaded into the process (CWE-427
+//! again, one level down). The library is therefore opened with
+//! `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32`: its
+//! dependencies come from the directory it sits in (where the installer
+//! puts the VC++ runtime DLLs beside it) and from `System32`, and from
+//! nowhere else, so the working directory and `PATH` are not searched for
+//! them either. Elsewhere the platform loader resolves dependencies as it
+//! does for any library, relative to the file we name.
 
 use std::ffi::{CStr, OsStr};
 use std::path::{Path, PathBuf};
@@ -461,15 +480,33 @@ fn check_os() -> Result<()> {
     }
 }
 
+/// What `kern.osproductversion` answers to a process that has
+/// system-version compatibility on (`SYSTEM_VERSION_COMPAT=1`, an old pip
+/// workaround people export in their shell): XNU's `sysctl_osproductversion`
+/// returns `osproductversioncompat`, `SystemVersionCompat.plist`'s
+/// ProductVersion, instead of the real version. No macOS ever had this
+/// number, so it says nothing about the system the app is running on.
+/// (XNU `bsd/kern/kern_sysctl.c`; OpenJDK JDK-8269850.)
+const MACOS_COMPAT_VERSION: (u32, u32) = (10, 16);
+
 /// [`Error::RuntimeUnsupported`] if `running` is a macOS older than
-/// `needs`. A version that is unknown (`None`) or that neither side can be
-/// parsed from does not refuse, and says so in the log: the check gives a
-/// clear answer, it is not a gate, and dyld still decides.
+/// `needs`. A version that is unknown (`None`), that is the compatibility
+/// stand-in ([`MACOS_COMPAT_VERSION`]), or that neither side can be parsed
+/// from does not refuse, and says so in the log: the check gives a clear
+/// answer, it is not a gate, and dyld still decides.
 fn refuse_old_macos(running: Option<&str>, needs: &str) -> Result<()> {
     let Some(running) = running else {
         tracing::warn!("could not read the macOS version; not checking the ONNX Runtime minimum");
         return Ok(());
     };
+    if parse_macos_version(running) == Some(MACOS_COMPAT_VERSION) {
+        tracing::warn!(
+            running,
+            "macOS reports its system-version compatibility number (SYSTEM_VERSION_COMPAT is \
+             on for this process), not its version; not checking the ONNX Runtime minimum"
+        );
+        return Ok(());
+    }
     match macos_meets(running, needs) {
         Some(false) => Err(Error::RuntimeUnsupported {
             needs: needs.trim().to_string(),
@@ -563,6 +600,40 @@ fn running_macos_version() -> Option<String> {
     None
 }
 
+/// Open the library at `path`, by absolute path.
+///
+/// On Windows its dependencies are searched for in the directory it sits in
+/// and in `System32` only (see "The library's own dependencies" in the
+/// module doc), never in the working directory or on `PATH`. The handle is
+/// kept by [`PINNED`], so `ort::init_from`'s own `Library::new(path)` is
+/// answered with this already loaded module and searches for nothing.
+#[cfg(windows)]
+fn open_library(path: &Path) -> std::result::Result<libloading::Library, String> {
+    use libloading::os::windows::{
+        Library as WindowsLibrary, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR, LOAD_LIBRARY_SEARCH_SYSTEM32,
+    };
+    // SAFETY: opening a library runs its initialisers. This is the file
+    // the user or the install layout names as ONNX Runtime, and loading
+    // it is exactly what `ort` would do next.
+    unsafe {
+        WindowsLibrary::load_with_flags(
+            path,
+            LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32,
+        )
+    }
+    .map(libloading::Library::from)
+    .map_err(|e| e.to_string())
+}
+
+/// Open the library at `path`, by absolute path.
+#[cfg(not(windows))]
+fn open_library(path: &Path) -> std::result::Result<libloading::Library, String> {
+    // SAFETY: opening a library runs its initialisers. This is the file
+    // the user or the install layout names as ONNX Runtime, and loading
+    // it is exactly what `ort` would do next.
+    unsafe { libloading::Library::new(path) }.map_err(|e| e.to_string())
+}
+
 /// Open `path` and make the checks `ort` makes when it loads a library,
 /// without going through `ort` (which cannot report a failure; see the
 /// module doc). Returns the open library and the version it reports, or why
@@ -571,10 +642,7 @@ fn running_macos_version() -> Option<String> {
 /// On failure the library is closed again, so the file can be replaced
 /// (on Windows an open DLL cannot be) and checked again.
 fn check_library(path: &Path) -> std::result::Result<(libloading::Library, String), String> {
-    // SAFETY: opening a library runs its initialisers. This is the file
-    // the user or the install layout names as ONNX Runtime, and loading
-    // it is exactly what `ort` would do next.
-    let library = unsafe { libloading::Library::new(path) }.map_err(|e| e.to_string())?;
+    let library = open_library(path)?;
 
     let version = {
         // SAFETY: `GetApiBase` is the signature `ort-sys` declares for
@@ -1199,7 +1267,6 @@ mod tests {
             ("11.0", false),
             ("10.15", false),
             ("10.15.7", false),
-            ("10.16", false),
             ("9", false),
         ] {
             assert_eq!(
@@ -1268,6 +1335,37 @@ mod tests {
         assert!(refuse_old_macos(None, "13.4").is_ok());
         assert!(refuse_old_macos(Some("garbage"), "13.4").is_ok());
         assert!(refuse_old_macos(Some("12.0"), "garbage").is_ok());
+    }
+
+    /// With system-version compatibility on for the process, XNU's
+    /// `sysctl_osproductversion` answers `kern.osproductversion` with
+    /// `osproductversioncompat` (`SystemVersionCompat.plist`'s
+    /// ProductVersion), which is `10.16`. A process gets that from
+    /// `SYSTEM_VERSION_COMPAT=1`, an old pip workaround people export in
+    /// their shell, so a macOS 14 launched from such a Terminal reports
+    /// itself as 10.16. No macOS ever had that number: it is a stand-in, not
+    /// a version, so it must not be read as "older than 13.4" (the app used
+    /// to refuse the library with "this Mac is running macOS 10.16").
+    /// Sources: XNU `bsd/kern/kern_sysctl.c` (`sysctl_osproductversion`),
+    /// OpenJDK JDK-8269850.
+    #[test]
+    fn the_compatibility_version_is_not_a_real_macos_and_does_not_refuse() {
+        for compat in ["10.16", "10.16.0", " 10.16\n"] {
+            assert!(
+                refuse_old_macos(Some(compat), "13.4").is_ok(),
+                "{compat:?} is what macOS reports under SYSTEM_VERSION_COMPAT"
+            );
+        }
+        // Its neighbours are real versions and still refuse.
+        for old in ["10.15", "10.15.7", "10.17", "11.0", "12.7.6"] {
+            assert!(
+                matches!(
+                    refuse_old_macos(Some(old), "13.4"),
+                    Err(Error::RuntimeUnsupported { .. })
+                ),
+                "macOS {old} is older than 13.4"
+            );
+        }
     }
 
     /// The minimum is read from `ml-runtime.json`, the one place the pin
