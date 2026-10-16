@@ -186,7 +186,9 @@ export default function UserGuidePage() {
       <p>
         Turn on the <strong>Plan</strong> toggle beside the chat box when you
         want to see what the agent will do before it does it. With it on,{" "}
-        <strong>no edit runs until you approve it</strong>.
+        <strong>no edit runs until you approve it</strong>. The toggle stays
+        as you left it when you quit and reopen edytlab, so a session you
+        protected is still protected after a restart.
       </p>
       <ul>
         <li>

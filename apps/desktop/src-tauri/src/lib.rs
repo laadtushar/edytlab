@@ -11,6 +11,7 @@ pub mod live_stores;
 pub mod mcp_tool;
 pub mod project;
 pub mod reclaimer;
+pub mod settings;
 pub mod state;
 
 use crate::commands::{
@@ -86,6 +87,13 @@ pub fn run() {
             // user's last choice survives restart.
             let agents_dir = resolve_global_agent_profiles_dir(app);
             app_state.install_agent_profile_library(agents_dir);
+
+            // Read the settings file (~/.edytlab/settings.json). On this
+            // thread, before the window can ask for anything: Plan first is
+            // an approval gate, and the first message of the launch has to
+            // find it as the person left it (#569). A missing or corrupt
+            // file means off and never stops the app starting.
+            app_state.install_settings(resolve_global_settings_path(app));
 
             // Install the MCP config (~/.edytlab/mcp.json), then, on a
             // background thread, read the keychain and start every enabled
@@ -378,6 +386,18 @@ fn resolve_global_agent_profiles_dir<R: tauri::Runtime>(app: &tauri::App<R>) -> 
         .unwrap_or_else(|_| std::path::PathBuf::from("."))
         .join(".edytlab")
         .join("agents")
+}
+
+/// Resolve `~/.edytlab/settings.json`. Same fallback strategy.
+fn resolve_global_settings_path<R: tauri::Runtime>(app: &tauri::App<R>) -> std::path::PathBuf {
+    if let Ok(home) = app.path().home_dir() {
+        return home.join(".edytlab").join(settings::SETTINGS_FILE);
+    }
+    app.path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+        .join(".edytlab")
+        .join(settings::SETTINGS_FILE)
 }
 
 /// Resolve `~/.edytlab/mcp.json`. Same fallback strategy.

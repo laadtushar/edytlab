@@ -147,7 +147,8 @@ function providerCommands(): Backend {
 function bootCommands({ hasKey }: { hasKey: boolean }): Backend {
   return {
     ...providerCommands(),
-    // `AppState::plan_first` starts as `AtomicBool::new(false)`.
+    // `AppState::plan_first` starts from `~/.edytlab/settings.json`, and a
+    // fresh install has none: off (#569).
     get_plan_first: ok(false),
     // `get_sync_lock` returns `Ok(false)` rather than failing when no
     // session is open, so the window can still draw.

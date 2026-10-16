@@ -879,3 +879,89 @@ fn opening_a_project_lets_the_webview_read_its_previews_and_auditions() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Plan first across a restart (#569)
+// ---------------------------------------------------------------------------
+
+/// A launch of the app over IPC: a state reading the settings at
+/// `settings`, and the two Plan first commands the composer calls.
+fn plan_first_launch(
+    settings: &std::path::Path,
+) -> (
+    tauri::App<tauri::test::MockRuntime>,
+    tauri::WebviewWindow<tauri::test::MockRuntime>,
+) {
+    let state = AppState::new();
+    state.install_settings(settings.to_path_buf());
+    let app = mock_builder()
+        .manage(state)
+        .invoke_handler(tauri::generate_handler![
+            commands::set_plan_first,
+            commands::get_plan_first
+        ])
+        .build(mock_context(noop_assets()))
+        .expect("mock app");
+    let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .expect("webview");
+    (app, webview)
+}
+
+fn plan_first_over_ipc(webview: &tauri::WebviewWindow<tauri::test::MockRuntime>) -> bool {
+    tauri::test::get_ipc_response(webview, make_request("get_plan_first", json!({})))
+        .expect("answered")
+        .deserialize::<bool>()
+        .expect("a bool")
+}
+
+/// The bug, through the commands the composer calls: the toggle is
+/// clicked on, the app is quit, and the next launch's `get_plan_first`
+/// (what the toggle reads when the chat box opens) says on.
+#[test]
+fn plan_first_set_through_the_command_is_on_in_the_next_launch() {
+    let home = tempfile::tempdir().expect("tempdir");
+    let settings = home.path().join(".edytlab").join("settings.json");
+
+    let (app, webview) = plan_first_launch(&settings);
+    assert!(!plan_first_over_ipc(&webview), "a fresh install starts off");
+    assert_ipc_response(
+        &webview,
+        make_request("set_plan_first", json!({ "enabled": true })),
+        Ok(json!(null)),
+    );
+    assert!(plan_first_over_ipc(&webview));
+    drop(webview);
+    drop(app);
+
+    let (_app, webview) = plan_first_launch(&settings);
+    assert!(
+        plan_first_over_ipc(&webview),
+        "Plan first was turned on, and the next launch started with it off"
+    );
+}
+
+/// A save that fails says so, with words the composer can show, and the
+/// choice still applies: the toggle must not be told it failed while the
+/// next turn is held (or not) the other way.
+#[test]
+fn a_plan_first_save_that_fails_says_so_and_still_applies() {
+    let home = tempfile::tempdir().expect("tempdir");
+    // The settings folder is a file, so nothing can be created in it.
+    let blocker = home.path().join(".edytlab");
+    std::fs::write(&blocker, "not a folder").expect("blocker");
+
+    let (_app, webview) = plan_first_launch(&blocker.join("settings.json"));
+    let response = tauri::test::get_ipc_response(
+        &webview,
+        make_request("set_plan_first", json!({ "enabled": true })),
+    );
+
+    let err = response.expect_err("a failed save must not answer Ok");
+    let text = err.as_str().expect("error payload is a string");
+    assert!(
+        text.contains("could not save") && text.contains("Plan first"),
+        "unexpected error string: {text}"
+    );
+    assert!(plan_first_over_ipc(&webview), "the choice still applies");
+}

@@ -159,12 +159,13 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
   // classifier happened to call the request a mashup, which from the
   // outside looked arbitrary.
   const [planFirst, setPlanFirst] = useState(false);
-  // Set on the first click. The stored preference is read once, and a
-  // click can land while that read is in flight: the read then answers
-  // with what was stored *before* the click, and applying it put the
-  // toggle back while the backend kept the click's value — the composer
-  // promising one behaviour and the next turn doing the other. The same
-  // race Settings closed for the provider in #324.
+  // Set on the first click. The preference is kept in the app's settings
+  // file and read back once, here, and a click can land while that read
+  // is in flight: the read then answers with what was stored *before* the
+  // click, and applying it put the toggle back while the backend kept the
+  // click's value — the composer promising one behaviour and the next
+  // turn doing the other. The same race Settings closed for the provider
+  // in #324.
   const planPickedRef = useRef(false);
 
   useEffect(() => {
@@ -173,8 +174,8 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
       .then((on) => {
         if (!cancelled && !planPickedRef.current) setPlanFirst(on);
       })
-      // A composer that cannot read one optional preference should still
-      // work; the toggle simply starts off.
+      // A composer that cannot read the preference should still work; the
+      // toggle simply starts off.
       .catch(() => {});
     return () => {
       cancelled = true;
@@ -187,8 +188,20 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
     setPlanFirst(next); // optimistic: the button should not lag the click
     try {
       await setPlanFirstBridge(next);
-    } catch {
-      setPlanFirst(!next); // put it back rather than lie about the state
+    } catch (err) {
+      // An error does not say the click was refused: a choice that could
+      // not be saved to the settings file still holds until the app quits
+      // (#569). So ask what is in force rather than assume, and put the
+      // toggle there instead of lying about the state. The message says the
+      // next launch is in doubt.
+      let inForce = !next;
+      try {
+        inForce = await getPlanFirst();
+      } catch {
+        // Unreadable too: the click is taken as refused.
+      }
+      setPlanFirst(inForce);
+      setLocalError(String(err));
     }
   }, [planFirst]);
   const [slashOpen, setSlashOpen] = useState(false);

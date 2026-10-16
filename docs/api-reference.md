@@ -743,9 +743,18 @@ fired, or the turn stays suspended.
 ### `setPlanFirst(enabled: boolean) → void` · `getPlanFirst() → boolean`
 
 Ask for a plan before **every** turn, rather than only the ones the classifier
-calls mashups. Held in `AppState`, not on disk: it survives the agent rebuilds
-that a key, model or base-URL change causes, and it is off again at every
-launch. The chat box reads it with `getPlanFirst()` when it opens.
+calls mashups. It survives the agent rebuilds that a key, model or base-URL
+change causes, and it survives a restart: `setPlanFirst()` writes it to
+`~/.edytlab/settings.json` (replacing the file in one step), and the app reads
+it back before the window can ask for anything. A fresh install has no file, and
+a missing, unreadable or corrupt one reads as off; none of them stops the app
+starting. The chat box reads it with `getPlanFirst()` when it opens, so its
+toggle shows what the next turn will do.
+
+It is an approval gate, so a save that fails is not silent. The choice still
+applies until the app quits, and `setPlanFirst()` rejects with a message that
+begins `could not save the Plan first setting`. The chat box then asks
+`getPlanFirst()` which way it is in force and shows that message.
 
 **With it on, no edit runs without your approval.** If the model writes a plan,
 you approve the plan. If it does not (it chose not to, or planning failed for any

@@ -68,6 +68,13 @@ pub enum CommandError {
     #[error("keychain error: {0}")]
     Keychain(#[from] keyring::Error),
 
+    /// Plan first was turned on or off for this launch, but the choice could
+    /// not be written to the settings file (#569), so the next launch will
+    /// start from whatever was saved before. The text is for the composer
+    /// to show as it is.
+    #[error("could not save the Plan first setting ({0}); it applies until edytlab quits")]
+    PlanFirstNotSaved(std::io::Error),
+
     #[error("invalid node id: {0}")]
     InvalidNodeId(String),
 
@@ -2845,16 +2852,30 @@ fn emit_agent_event<R: tauri::Runtime>(app: &AppHandle<R>, event: ai::AgentEvent
 ///
 /// Held on `AppState` rather than the agent because the agent is rebuilt
 /// on every key, model or base-URL change, and a preference that
-/// silently reset itself would be worse than not having one.
+/// silently reset itself would be worse than not having one. It is also
+/// saved to `~/.edytlab/settings.json` and read back at launch (#569): it
+/// is an approval gate, so one that came back off after a restart would
+/// let the next edits through with no card.
+///
+/// The choice applies to this launch whatever the disk does. If it could
+/// not be saved, the answer is an error that says so; the composer then
+/// asks `get_plan_first` what is in force rather than assuming the click
+/// failed.
 #[tauri::command]
 pub async fn set_plan_first(state: State<'_, AppState>, enabled: bool) -> CmdResult<()> {
-    state
-        .plan_first
-        .store(enabled, std::sync::atomic::Ordering::SeqCst);
+    // Applied and saved before the rebuild, which waits for any turn in
+    // progress to end: the choice must not wait on that to be kept.
+    let saved = state.save_plan_first(enabled);
+    if let Err(e) = &saved {
+        tracing::warn!(error = %e, "could not save the Plan first setting");
+    }
     rebuild_agent(state.inner()).await?;
+    saved.map_err(CommandError::PlanFirstNotSaved)?;
     Ok(())
 }
 
+/// Whether Plan first is on: what was saved at the last quit when the app
+/// has just started, then whatever `set_plan_first` has set since.
 #[tauri::command]
 pub async fn get_plan_first(state: State<'_, AppState>) -> CmdResult<bool> {
     Ok(state.plan_first.load(std::sync::atomic::Ordering::SeqCst))
@@ -8588,6 +8609,63 @@ mod tests {
         let (asked, built) = rebuild_and_record(&state);
         assert_eq!(asked, ["base_url:ollama", "effort:ollama"]);
         assert!(built);
+    }
+
+    // ---- Plan first across a restart (#569) -----------------------------
+
+    /// An agent built the way startup builds one: a state with a store, a
+    /// keyless provider (so no key is needed) and the settings file at
+    /// `settings`, read as `run` reads it.
+    fn agent_built_at_launch(settings: &std::path::Path) -> ai::Agent {
+        let project = tempdir().unwrap();
+        let state = state_with_a_store(project.path());
+        state.set_active_provider("ollama".to_string());
+        state.install_settings(settings.to_path_buf());
+        let mut slot = None;
+        rebuild_agent_from(&state, &mut slot, |_| None, |_| None, |_| None);
+        slot.expect("a keyless provider builds an agent")
+    }
+
+    /// The bug: Plan first is an approval gate, and it was off again after
+    /// every restart. The first turn after one ran its edits with no card,
+    /// and the composer's toggle gave no sign of it. The agent startup
+    /// builds must already hold edits when the person had it on, without
+    /// the toggle being touched.
+    #[test]
+    fn the_agent_built_at_launch_holds_edits_when_plan_first_was_left_on() {
+        let home = tempdir().unwrap();
+        let settings = home.path().join(".edytlab").join("settings.json");
+
+        // The last launch: the person turns it on.
+        let before = AppState::new();
+        before.install_settings(settings.clone());
+        before.save_plan_first(true).expect("saved");
+        drop(before);
+
+        assert!(agent_built_at_launch(&settings).plan_first());
+    }
+
+    /// And it is the file that does it: with nothing saved, the same
+    /// startup builds an agent that acts directly, as a fresh install does.
+    #[test]
+    fn the_agent_built_at_launch_acts_directly_when_nothing_was_saved() {
+        let home = tempdir().unwrap();
+        let settings = home.path().join(".edytlab").join("settings.json");
+        assert!(!agent_built_at_launch(&settings).plan_first());
+    }
+
+    /// A setting turned off again stays off after a restart.
+    #[test]
+    fn the_agent_built_at_launch_acts_directly_when_plan_first_was_turned_off() {
+        let home = tempdir().unwrap();
+        let settings = home.path().join(".edytlab").join("settings.json");
+        let before = AppState::new();
+        before.install_settings(settings.clone());
+        before.save_plan_first(true).expect("saved");
+        before.save_plan_first(false).expect("saved");
+        drop(before);
+
+        assert!(!agent_built_at_launch(&settings).plan_first());
     }
 
     /// Where a chat turn finds no agent, it says why. After a refused
