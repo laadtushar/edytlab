@@ -1,7 +1,7 @@
 # Script: the edytlab launch video (master and three platform cuts)
 
 > **The voice lines in this file were written for the earlier takes.** The three demos were re-filmed in the app's violet look (#581, on a development
-> build after v0.5.0) and the cuts re-made from them (2026-10-16). The re-filmed agent says different things, at different times, than the takes the lines were
+> build between v0.5.0 and v0.6.0, which the footage matches) and the cuts re-made from them (2026-10-16). The re-filmed agent says different things, at different times, than the takes the lines were
 > written against (the first downbeat, the 1 kHz low-pass, the 200 Hz high-pass, the 79-second mini-mix), and the cuts are now silent apart from the
 > app's own sound. The *italic* lines and the narration clips under `out/narration/` are the source for re-narrating once ElevenLabs credits are available: check each line
 > against the new footage and re-time it to the table below first. Nothing narrated is published.
@@ -24,7 +24,7 @@ the earlier narration, kept for re-narrating.
 |---|---|
 | Free, open source (MIT) | `README.md` "License: MIT"; `marketing/press-kit.md` one-sentence description |
 | macOS, Windows, Linux | `README.md` "Builds for macOS (universal), Windows and Linux" |
-| No version number anywhere | The footage is a **development build after v0.5.0** (the app's violet look, and a limiter that goes on the master bus, which v0.5.0 lacks: `marketing/social-kit/reddit.md`). The newest release, v0.5.0, looks different, so naming it would misstate what is shown. The note under every shot says "Development build" |
+| No version number anywhere | The footage is a **development build recorded before v0.6.0**, and it matches v0.6.0: the app's violet look, and a limiter that goes on the master bus, which v0.6.0 is the first release to do (`marketing/social-kit/reddit.md`). The cuts were made before the release and name none; the note under every shot says "Development build", which is true of the recording. Add the version to the end card only with a re-render (`tools/launch.py`, `end_card`) |
 | 93 deterministic tools | `docs/tools-reference.md` ("Every one of the 93 tools the AI agent can call"); press kit boilerplate |
 | Audio files stay here; only the chat goes to the provider you choose | press kit boilerplate ("audio files are never uploaded; only the chat goes to the language-model provider the user selects") and fact sheet ("Where audio goes: Nowhere. Processing is local. Only chat text goes to the chosen provider.") |
 | Anthropic, OpenAI, OpenRouter, Groq, Gemini, Ollama (local) | press kit fact sheet "AI providers" |

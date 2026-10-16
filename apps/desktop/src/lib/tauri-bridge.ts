@@ -157,6 +157,42 @@ export interface KeychainPersistence {
 export const getKeychainPersistence = (): Promise<KeychainPersistence> =>
   invoke<KeychainPersistence>("get_keychain_persistence");
 
+/**
+ * Where the ONNX Runtime library that loaded came from: `bundled` is the
+ * installer's copy, `environment` the file `ORT_DYLIB_PATH` names,
+ * `executable` one beside the executable on macOS or Linux (a development
+ * build; not the installer's).
+ */
+export type MlRuntimeSource = "bundled" | "environment" | "executable";
+
+/**
+ * The answer of {@link mlRuntimeStatus}, tagged by `state`. Each is an
+ * answer, not a failure: `missing` is what every release build says until
+ * the installers carry the runtime (#383).
+ *
+ * - `found`: a library was checked and loaded; `version` is what it reports.
+ * - `missing`: none exists at any place the loader looks (`searched`).
+ * - `unsupportedOs`: one was found, but macOS is older than its minimum
+ *   (`needs`), so it was not opened (`running` is this Mac's version).
+ * - `loadFailed`: one was found and could not be loaded; `path` is null for
+ *   an error that names no file.
+ */
+export type MlRuntimeStatus =
+  | { state: "found"; version: string; path: string; source: MlRuntimeSource }
+  | { state: "missing"; searched: string[] }
+  | { state: "unsupportedOs"; needs: string; running: string }
+  | { state: "loadFailed"; path: string | null; reason: string };
+
+/**
+ * Which ONNX Runtime library the app found, and its version. Loads the
+ * library if it has not been, off the main thread, so a library that is
+ * missing, broken, or not usable on this macOS (it is the OS that can be too
+ * old) comes back as a status and never as a hang. It does not mean stem
+ * separation or transcription run.
+ */
+export const mlRuntimeStatus = (): Promise<MlRuntimeStatus> =>
+  invoke<MlRuntimeStatus>("ml_runtime_status");
+
 export const clearApiKey = (): Promise<void> =>
   invoke<void>("clear_api_key");
 

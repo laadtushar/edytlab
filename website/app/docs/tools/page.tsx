@@ -366,12 +366,12 @@ const groups = [
         prompt: 'put a limiter on the master at -1 dB',
         what: "Append an effect to a track's chain, pass scope \"master\" to put it on the master bus, where every track is summed, or scope \"bus\" with a bus name to put it on a bus made with create_bus. The chain is applied at render time and the source audio is never rewritten, so the parameters stay editable — unlike the destructive effect tools above, which bake their result into a new node.",
         output: "node_id, effect_index",
-        note: "An effect on the master bus processes the whole mix and keeps doing so when a track is edited later, which a mix rendered down into a new track does not. A bus processes what tracks send it with set_send, so an effect on a bus nothing sends to is not heard; name a bus by the name it was created with, or by its id if two share a name. Effects run in the order they appear in the chain. Only five kinds can stream today: gain, limiter, low_pass_filter, high_pass_filter and notch_filter. add_effect refuses any other kind, on a track, on a bus or on the master bus, with a message that lists the five and, for a kind that exists as a destructive tool (reverb, echo, eq, compressor and others), names that tool to call instead.",
+        note: "An effect on the master bus processes the whole mix and keeps doing so when a track is edited later, which a mix rendered down into a new track does not. A bus processes what tracks send it with set_send, so an effect on a bus nothing sends to is not heard; name a bus by the name it was created with, or by its id if two share a name. Effects run in the order they appear in the chain. Only five kinds can stream today: gain, limiter, low_pass_filter, high_pass_filter and notch_filter. add_effect refuses any other kind, on a track, on a bus or on the master bus, with a message that lists the five and, for a kind that exists as a destructive tool (reverb, echo, eq, compressor and others), names that tool to call instead. It also refuses a parameter the kind does not read, naming it and listing the kind's own, rather than saving a setting the renderer would ignore.",
       },
       {
         name: "set_effect_params",
         prompt: 'change that low-pass to 2 kHz',
-        what: "Edit an effect already in a chain, on a track, on the master bus or on a bus. Given parameters are merged into the existing ones by default; pass replace to swap the whole set instead.",
+        what: "Edit an effect already in a chain, on a track, on the master bus or on a bus. Given parameters are merged into the existing ones by default; pass replace to swap the whole set instead. A parameter name the effect's kind does not read is refused, with the kind's own names in the error.",
         output: "node_id",
       },
       {
@@ -502,9 +502,9 @@ const groups = [
       {
         name: "compact_session",
         prompt: "this project is huge — reclaim some disk",
-        what: "Prune old history and delete the audio only it referenced. Reports what it would remove and changes nothing unless asked twice, because this removes undo steps permanently — the nodes are gone, not archived. The most recent nodes on the current chain are never pruned, so ordinary undo keeps working; what goes is the tail beyond them and any branches forked away from and never returned to.",
-        output: "prunable_nodes, reclaimable_bytes; removed_nodes and freed_bytes when applied",
-        note: "For space without losing history, nothing is needed: once a project's derived audio passes 2 GiB, the oldest audio only undo history holds is swept in the background — but only files a replay of their edits has just rebuilt, byte for byte, so undoing back to one rebuilds it. This tool is for what cannot be rebuilt that way, or for dropping history on purpose.",
+        what: "Prune old history and delete the audio the project made that only that history used. A file you loaded is never deleted, only the undo steps that named it. Reports what it would remove and changes nothing unless asked twice, because this removes undo steps permanently — the nodes are gone, not archived. The most recent nodes on the current chain are never pruned, so ordinary undo keeps working; what goes is the tail beyond them and any branches forked away from and never returned to.",
+        output: "prunable_nodes, reclaimable_bytes, reclaimable_files; removed_nodes, removed_files, kept_files and freed_bytes when applied",
+        note: "It deletes only files inside the project's own .audiograph/derived/ folder, where edits write their audio, and checks each one again just before deleting it. Anything else a pruned version named — a recording you loaded from elsewhere, clipboard audio, a cached preview — stays where it is, and the apply result counts it in kept_files. For space without losing history, nothing is needed: once a project's derived audio passes 2 GiB, the oldest audio only undo history holds is swept in the background — but only files a replay of their edits has just rebuilt, byte for byte, so undoing back to one rebuilds it. This tool is for what cannot be rebuilt that way, or for dropping history on purpose.",
       },
       {
         name: "storage_report",

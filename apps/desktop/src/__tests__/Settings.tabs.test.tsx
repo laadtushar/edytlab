@@ -34,6 +34,7 @@ vi.mock("../lib/tauri-bridge", () => ({
   setBaseUrlFor: vi.fn(),
   testApiKeyFor: vi.fn(),
   installPlugin: vi.fn(),
+  mlRuntimeStatus: vi.fn(),
 }));
 
 import {
@@ -43,6 +44,7 @@ import {
   getActiveProvider,
   getBaseUrlFor,
   getEffortFor,
+  mlRuntimeStatus,
   hasApiKeyFor,
   installPlugin,
   listModelsFor,
@@ -163,6 +165,8 @@ describe("Settings tab strip", () => {
     vi.mocked(defaultBaseUrlFor).mockResolvedValue(
       "https://api.anthropic.com",
     );
+    // The Account tab's foot line (#383): no runtime in this build.
+    vi.mocked(mlRuntimeStatus).mockResolvedValue({ state: "missing", searched: [] });
     for (const fn of [
       setEffortFor,
       hasApiKeyFor,

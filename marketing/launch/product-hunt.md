@@ -57,9 +57,9 @@ I'd love to know which edit you'd ask for first.
 The repo has no screenshots made for this listing. The demo poster is the one
 still made for the site, and `docs/brand/` has before and after screenshots of
 the app's colours (#515, taken with the IPC faked, so they show fake data):
-the `before-*` set is the look v0.5.0 shipped, and the `after-*` set is the
-violet look that ships in the next release. Capture the other four from the
-running v0.5.0 app at 1280x776 (the same frame the demo uses) and keep the
+the `before-*` set is the look v0.5.0 and earlier shipped, and the `after-*`
+set is the violet look v0.6.0 ships. Capture the other four from the
+running v0.6.0 app at 1280x776 (the same frame the demo uses) and keep the
 filenames out of the repo unless you want them in `website/public`.
 
 | # | Show | Caption |

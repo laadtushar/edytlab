@@ -113,6 +113,18 @@ function providerCommands(): Backend {
     // default). An unreadable keychain rejects with the reason, and so
     // does one that refused at launch, without being asked.
     get_effort_for: ok(null),
+    // `ml_runtime_status_dto(ml_pipeline::runtime::info())`, which the
+    // panel's Account tab asks for (the first-run card does not). No
+    // installer carries the ONNX Runtime library yet (#383) and the e2e
+    // run sets no `ORT_DYLIB_PATH`, so `runtime::info` is
+    // `Error::MissingRuntime { searched }`, which the DTO maps to
+    // `state: "missing"` with the places `candidate_paths()` listed, as
+    // strings: here a deb install's resource directory and then its
+    // executable's.
+    ml_runtime_status: ok({
+      state: "missing",
+      searched: ["/usr/lib/edytlab/libonnxruntime.so", "/usr/bin/libonnxruntime.so"],
+    }),
     // `list_models_at`'s Anthropic arm with no key saved, which is what a
     // fresh profile has: `anthropic_fallback_models()` in
     // `crates/ai/src/models.rs`, uncached, with the reason as the notice.

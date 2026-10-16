@@ -7,7 +7,7 @@ appears, the demo tracks are synthetic loops, no invented numbers.
 **Links:**
 site <https://edytlab.com> ·
 source <https://github.com/laadtushar/edytlab> ·
-v0.5.0 <https://github.com/laadtushar/edytlab/releases/tag/v0.5.0> ·
+v0.6.0 <https://github.com/laadtushar/edytlab/releases/tag/v0.6.0> ·
 DJ recordings <https://edytlab.com/use-cases/dj>
 
 **Videos:** `reel-highlights.mp4`, `reel-beatmatched-transition.mp4`,
@@ -253,7 +253,7 @@ upload and change the numbers if you added intros or cards.** Per-step chapters
 inside each demo are left as TODO because the step times are not in the repo.
 
 ```
-edytlab is a free, open-source desktop audio editor where you describe an edit and an AI agent runs audio tools to do it. These are three full screen recordings of the app on a development build after v0.5.0, recorded with sound. Waits for the agent are sped up; every playback is in real time. The agent in the recordings is Claude.
+edytlab is a free, open-source desktop audio editor where you describe an edit and an AI agent runs audio tools to do it. These are three full screen recordings of the app, made with sound on a development build just before v0.6.0 that has v0.6.0's look and tools. Waits for the agent are sped up; every playback is in real time. The agent in the recordings is Claude.
 
 Read this before you watch:
 - The three tracks are short synthetic loops I generated for the demos, not real records. These show the workflow, not how it copes with a messy library.
@@ -277,7 +277,7 @@ The model never hears the audio. It chooses and orders calls to 93 deterministic
 Get it
 Free and open source (MIT) for macOS, Windows and Linux. The installers are unsigned, so macOS and Windows warn on first launch; the release notes have the steps.
 Website and docs: https://edytlab.com
-Download v0.5.0: https://github.com/laadtushar/edytlab/releases/tag/v0.5.0
+Download v0.6.0: https://github.com/laadtushar/edytlab/releases/tag/v0.6.0
 Source: https://github.com/laadtushar/edytlab
 The DJ walkthrough, with the limits: https://edytlab.com/use-cases/dj
 
@@ -292,7 +292,7 @@ edytlab, AI audio editor, beatmatching, DJ prep, extended intro, time stretch, o
 
 ---
 
-## 6. Show HN (refreshed for v0.5.0)
+## 6. Show HN (refreshed for v0.6.0)
 
 Submit <https://edytlab.com>. Post the first comment as soon as it is up and
 stay for several hours. Do not ask anyone to upvote.
@@ -329,9 +329,10 @@ What doesn't work, so you don't have to find it:
 
 - No stem separation and no transcription. Both tools are registered and both return an error today; the ONNX Runtime isn't shipped, no model is downloaded, and the inference isn't built (#383, #384, #385). That also means transcript-based editing doesn't work end to end.
 - The installers are unsigned (#386). macOS needs one xattr command after you drag the app to Applications, and Windows shows a SmartScreen warning. The release notes have the steps.
-- It's an offline editor for files. It isn't a live DJ tool or a DAW: no MIDI, no plugin hosting. v0.5.0 has no master-bus effect tool, so the agent renders a baked "Master" track (#460; the tool is merged and ships in the next release).
-- Local models: in v0.4.0 the first request was about 15,000 tokens in my one measurement (#395), and a model with an 8,192-token context refused it. v0.5.0 sends Ollama a smaller tool set (about 8.7 KB of request text for a one-line message, against about 58 KB with every tool; bytes, not tokens). I haven't re-run that model on it, and I haven't run a local model through a full job; the recordings used a hosted model.
-- On Linux, v0.4.0 and earlier kept API keys in the kernel keyring only until you reboot (#394). v0.5.0 uses the Secret Service and warns when none is running. I haven't checked it across a real reboot or against a locked keyring yet (#497).
+- It's an offline editor for files. It isn't a live DJ tool or a DAW: no MIDI, no plugin hosting. Only five effects (gain, the limiter and three filters) can sit live on a track, a bus or the master bus; reverb, EQ or a compressor is baked into the track's audio instead.
+- Local models: in v0.4.0 the first request was about 15,000 tokens in my one measurement (#395), and a model with an 8,192-token context refused it. Since v0.5.0 Ollama gets a smaller tool set (about 8.7 KB of request text for a one-line message, against about 66 KB with every tool; bytes, not tokens). I haven't re-run that model on it, and I haven't run a local model through a full job; the recordings used a hosted model.
+- On Linux, v0.4.0 and earlier kept API keys in the kernel keyring only until you reboot (#394). Since v0.5.0 they go in the Secret Service, with a warning when none is running. I haven't checked it across a real reboot or against a locked keyring yet (#497).
+- If you tried an earlier build: v0.5.0 and older could delete your own recordings when the assistant compacted history (#589). v0.6.0 deletes only audio the project made, inside its own folder.
 - The limiter works on sample peaks with no look-ahead; it isn't a true-peak limiter.
 
 I develop this with Claude Code; many commits carry a Co-Authored-By trailer, and the repo has a CLAUDE.md with the working rules.
@@ -342,7 +343,7 @@ Feedback I'd like:
 2. If you run local models: which ones can drive a tool list this size without losing the thread?
 3. If you do DSP: the vocoder and the limiter are where I expect the most justified criticism.
 
-Download v0.5.0 (unsigned): https://github.com/laadtushar/edytlab/releases/tag/v0.5.0
+Download v0.6.0 (unsigned): https://github.com/laadtushar/edytlab/releases/tag/v0.6.0
 Source: https://github.com/laadtushar/edytlab
 ```
 
@@ -356,7 +357,7 @@ Answers to have ready:
 | Is the audio really never uploaded? | There is no server of mine in the loop. The traffic is the chat to your chosen provider, plus the request Settings makes to it for its model list (your key, no prompt or audio). You can check it with your OS network tools. |
 | Why Tauri and not Electron? | The back end is Rust, so the UI process and the DSP crates share one workspace. Don't claim size or speed numbers; none were measured. |
 | Is there a web version? | No. A browser-based version is being evaluated in #389 and is undecided. |
-| 93 tools is a lot for a model. | It is. For Ollama, v0.5.0 sends a core set of about 15 plus the ones your message names, and lists the rest by name (#395, #479). Hosted providers still get all of them; Anthropic's prompt cache needs a fixed list. Agent profiles and a capabilities blacklist can narrow the list, and plan first keeps a human in the loop. |
+| 93 tools is a lot for a model. | It is. For Ollama, the app sends a core set of about 15 plus the ones your message names, and lists the rest by name (#395, #479; since v0.5.0). Hosted providers still get all of them; Anthropic's prompt cache needs a fixed list. Agent profiles and a capabilities blacklist can narrow the list, and plan first keeps a human in the loop. |
 
 ---
 
@@ -366,26 +367,27 @@ Answers to have ready:
 
 Subject options:
 
-1. `edytlab v0.5.0: your edits are kept while the assistant works, and three DJ demos`
+1. `edytlab v0.6.0: a data-loss fix, effects on the master bus, and undo that survives a restart`
 2. `Three DJ jobs, done by chatting with an AI audio agent`
 
 Body:
 
 ```
-edytlab v0.5.0 is out for macOS, Windows and Linux. It's a free, open-source desktop audio editor where you describe an edit and an AI agent runs audio tools on your files.
+edytlab v0.6.0 is out for macOS, Windows and Linux. It's a free, open-source desktop audio editor where you describe an edit and an AI agent runs audio tools on your files.
 
-What changed:
-- Edits you make while the assistant is working are kept, in the order you made them. A long tool no longer locks the session, and the window no longer freezes on track edits.
-- Plan cards say what each step does, and a question is never held at a plan gate.
-- Ducking music under speech works without a transcript: name the voice track and the music ducks under its audio.
-- On Linux, API keys go in the Secret Service, and a keychain that can't be read says so instead of erasing your settings.
-- Ollama is sent a much smaller tool list, so its first request is far smaller (I haven't yet run a local model on it end to end).
-- The assistant's default models are current ones, and Anthropic's model list in Settings is fetched live.
-- Settings fits small windows.
+A data-loss fix first: in earlier versions, asking the assistant to compact history could delete a recording you had loaded, once the versions that used it were pruned. v0.6.0 deletes only audio the project made itself, inside its own folder. If you're on v0.5.0 or earlier, update before you compact a project.
 
-I also recorded three DJ jobs on a development build after v0.5.0, with sound: a beatmatched blend, an extended club intro and a three-track mini-mix. The tracks are short synthetic loops, and it's for prepping files, not playing live: https://edytlab.com/#demos
+What else changed:
+- Effects on the master bus and on buses. A limiter on the master keeps working as the tracks change, and the assistant can let you hear an effect before adding it. Only gain, the limiter and three filters run in a chain so far.
+- A saved effect the app can't run in a chain no longer breaks playback: it's left out, and the window says what was left out.
+- Undo survives a restart and follows the version the assistant leaves you on, and Plan first stays on if you left it on.
+- After Save As, the assistant edits the copy, and opening a project no longer takes it back to an older version.
+- With sync-lock on, a paste moves the other tracks too.
+- The app looks like the website now: violet on zinc, with motion that respects reduced motion.
 
-Download (the installers are unsigned, so macOS and Windows warn on first launch): https://github.com/laadtushar/edytlab/releases/tag/v0.5.0
+The three DJ demos were recorded with sound in that look, with the limiter on the master bus: a beatmatched blend, an extended club intro and a three-track mini-mix. The tracks are short synthetic loops, and it's for prepping files, not playing live: https://edytlab.com/#demos
+
+Download (the installers are unsigned, so macOS and Windows warn on first launch): https://github.com/laadtushar/edytlab/releases/tag/v0.6.0
 Full changelog: https://edytlab.com/changelog
 
 If you try it, I'd like to hear which edit you ask for first.
@@ -394,8 +396,8 @@ If you try it, I'd like to hear which edit you ask for first.
 **Discord (short)**
 
 ```
-edytlab v0.5.0 is out (macOS, Windows, Linux). Edits you make while the assistant works are kept, in order; plan cards say what each step does; ducking works without a transcript; Linux keys go in the Secret Service. Three DJ demos, recorded with sound: https://edytlab.com/#demos
-Download (unsigned, so expect a first-launch warning): https://github.com/laadtushar/edytlab/releases/tag/v0.5.0
+edytlab v0.6.0 is out (macOS, Windows, Linux). Update before you compact a project: earlier versions could delete your own recordings when compacting history. Also: effects on the master bus and on buses, undo that survives a restart, Plan first that stays on, and the website's violet look. Three DJ demos, recorded with sound: https://edytlab.com/#demos
+Download (unsigned, so expect a first-launch warning): https://github.com/laadtushar/edytlab/releases/tag/v0.6.0
 Tell me which edit you'd ask for first.
 ```
 
@@ -403,20 +405,19 @@ Tell me which edit you'd ask for first.
 
 ## Notes (not part of the posts)
 
-- Release facts (edits kept in order, plan cards, ducking without a transcript,
-  Secret Service, Ollama's smaller tool set, current default models, Settings
-  in small windows) are from the v0.5.0 release notes and
-  `website/app/changelog/page.tsx`. The notes' macOS microphone line is left
-  out on purpose: it concerns signed builds, none exists yet, and it has not
-  been checked on a Mac (#464).
+- Release facts (the compaction data-loss fix, master-bus and bus effects,
+  saved effects left out instead of breaking playback, undo and Plan first
+  across a restart, Save As and opening fixes, sync-lock paste, the violet
+  look) are from the v0.6.0 release notes and `website/app/changelog/page.tsx`.
+  The notes' "adding a label works on macOS" is left out on purpose: the
+  in-page name box that fixes it has not been checked on a Mac yet (#567).
 - Show HN says "The desktop app has no telemetry" and does **not** repeat the
   older draft's "the website has no analytics". `website/app/privacy/page.tsx`
   says the website uses anonymous Vercel analytics, and
   `marketing/launch/show-hn.md`, `marketing/README.md` and
   `marketing/press-kit.md` now say the same (#472).
-- The newsletter and Discord text list release changes only. It does not
-  mention the reasoning-effort setting (Anthropic models only) because that
-  would need a sentence of qualification; add it if your audience uses
-  Anthropic.
+- The newsletter and Discord text list release changes only, and not all of
+  them: keychain reporting, the held recipe card, the previews cache and the
+  rustls update are in the release notes if your audience wants them.
 - Where the YouTube chapters come from: durations in `website/lib/demos.ts`.
   Recheck them against the real upload.

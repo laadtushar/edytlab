@@ -33,6 +33,12 @@ tempfile = "3"
 thiserror = "2"
 tracing = "0.1"
 
+# `runtime::running_macos_version` reads `kern.osproductversion` with
+# `sysctlbyname` rather than spawning `sw_vers`. Already in the lock file
+# (`libloading`, `tokio` and `reqwest` all build it).
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 tempfile = "3"
 # `tests/download.rs` calls the downloader from inside a runtime, as the

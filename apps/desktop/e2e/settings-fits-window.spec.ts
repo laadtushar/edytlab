@@ -147,6 +147,10 @@ for (const win of WINDOWS) {
         page.getByRole("heading", { name: "Welcome to edytlab" }),
         "the Welcome heading",
       );
+      // The runtime line is the panel's. This card is as tall as a small
+      // window allows, and a first-run user has no use for it.
+      await expect(page.getByTestId("settings-ml-runtime")).toHaveCount(0);
+      expect(await app.requestsFor("ml_runtime_status")).toEqual([]);
 
       // A real click: Playwright scrolls what a user could scroll, checks
       // that the button is hit where it is clicked, and clicks there.
@@ -243,6 +247,24 @@ for (const win of WINDOWS) {
       await expectInWindow(page, page.getByRole("heading", { name: "Settings" }), "the heading");
       await expectInWindow(page, page.getByTestId("settings-close"), "Close");
       await expectInWindow(page, page.getByTestId("settings-tabs"), "the tab strip");
+
+      // The ONNX Runtime line at the foot of the Account tab (#383): it is
+      // in the scrolling body, so it is scrolled to, and it fits the window
+      // there. Until the installers carry the library the line says so,
+      // and nothing about what the library is for.
+      const runtime = page.getByTestId("settings-ml-runtime");
+      await runtime.scrollIntoViewIfNeeded();
+      await expect(runtime).toHaveText("ONNX Runtime: not installed in this build");
+      await expectInWindow(page, runtime, "the ONNX Runtime line");
+      // Where it looked is text under the line (a hover is out of reach of
+      // the keyboard and of a screen reader), and it fits the window too.
+      const detail = page.getByTestId("settings-ml-runtime-detail");
+      await detail.scrollIntoViewIfNeeded();
+      await expect(detail).toHaveText(
+        "Looked in: /usr/lib/edytlab/libonnxruntime.so, /usr/bin/libonnxruntime.so",
+      );
+      await expectInWindow(page, detail, "the places the ONNX Runtime was looked for");
+      await expectInWindow(page, card, "the Settings card with the runtime line", MARGIN);
 
       await page.getByTestId("settings-key-input").fill(KEY);
       await save.click();
