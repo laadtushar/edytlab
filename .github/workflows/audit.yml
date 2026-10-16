@@ -1,0 +1,116 @@
+name: Audit
+
+# Scans Cargo.lock against the RustSec advisory database with `cargo audit`
+# (#587 cleared six advisories that nothing had flagged until someone ran a
+# scan by hand).
+#
+# Policy, which is cargo-audit's default and so needs no audit.toml:
+#   - a vulnerability fails the job (exit 1);
+#   - an unmaintained, unsound or yanked crate prints as a warning and the job
+#     still passes (exit 0).
+# There is no `ignore` list on purpose. If an advisory is red, bump the crate
+# (`cargo update -p <crate> --precise <version>`); do not silence the ID.
+#
+# Why this is its own workflow and not a job in ci.yml: auto-release.yml tags
+# a dev release only when the run named "CI" succeeds on a push to main. A new
+# advisory is published upstream on a day nobody touched this repo, so it must
+# never be able to turn that run red and skip a release. This workflow is named
+# "Audit", does not run on push, and nothing waits on it.
+#
+# Triggers:
+#   - weekly, so an advisory filed against a lock nobody has touched still
+#     surfaces (a scheduled run always uses the default branch);
+#   - workflow_dispatch, to re-run by hand after a bump;
+#   - PRs that change Cargo.lock or any Cargo.toml, so a dependency change is
+#     checked before it merges. Do not make this a required status check: a
+#     PR the path filter skips would wait on it forever.
+on:
+  schedule:
+    # Monday 06:23 UTC. Off the hour: GitHub delays top-of-hour schedules.
+    - cron: "23 6 * * 1"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - Cargo.lock
+      - Cargo.toml
+      - "**/Cargo.toml"
+      - .github/workflows/audit.yml
+
+# Only superseded PR runs are cancelled; a scheduled or dispatched run is left
+# to finish so its result is not lost.
+concurrency:
+  group: audit-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: short
+  # Exact version (`cargo install --version` takes MAJOR.MINOR.PATCH with no
+  # operator as an exact pin). Bump it deliberately, not with the toolchain:
+  # it is also the cache key below. 0.22.2 needs Rust 1.88 or newer.
+  CARGO_AUDIT_VERSION: 0.22.2
+  # cargo-audit only reads Cargo.lock and never compiles the workspace, so it
+  # has no use for the 1.88 pin in rust-toolchain.toml. Overriding it here
+  # means rustup does not install that toolchain (with rustfmt and clippy)
+  # just to run `cargo audit`, and a cargo-audit that needs a newer compiler
+  # than the app's does not break this job.
+  RUSTUP_TOOLCHAIN: stable
+
+jobs:
+  cargo-audit:
+    name: cargo audit
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # The runner image ships rustup and a stable toolchain; this makes sure
+      # the stable one is current without a third-party action.
+      - name: Install Rust toolchain
+        run: rustup toolchain install stable --profile minimal --no-self-update
+
+      # Only the binary is cached, never the advisory database: every run
+      # fetches the database fresh, which is the point of the job.
+      #
+      # Restore and save are separate steps so the binary is saved straight
+      # after it is built. A single `actions/cache` step saves in its post
+      # step, and only if the job succeeded, so a run that fails because it
+      # found a vulnerability would throw the build away and the next run
+      # would pay for it again.
+      - name: Restore cargo-audit
+        id: cargo-audit-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.cargo/bin/cargo-audit
+          key: cargo-audit-${{ runner.os }}-${{ env.CARGO_AUDIT_VERSION }}
+
+      # The ubuntu-22.04 image happens to ship cargo-audit at this same version
+      # today, so on a cache miss `cargo install` prints "already installed" and
+      # returns in a second, and the cache then holds the image's binary. That
+      # is not what pins the version: if the image moves to another version or
+      # drops it, `cargo install --version` builds the pinned one (about five
+      # minutes) and replaces whatever is there.
+      - name: Install cargo-audit
+        if: steps.cargo-audit-cache.outputs.cache-hit != 'true'
+        run: cargo install cargo-audit --version "$CARGO_AUDIT_VERSION" --locked
+
+      - name: Save cargo-audit
+        if: steps.cargo-audit-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.cargo/bin/cargo-audit
+          key: cargo-audit-${{ runner.os }}-${{ env.CARGO_AUDIT_VERSION }}
+
+      - name: cargo-audit version
+        run: cargo audit --version
+
+      # Fetches the current advisory database, then scans ./Cargo.lock. The
+      # whole workspace shares that one lock file, so one scan covers every
+      # crate on every platform the app ships on (no `[target]` filter).
+      - name: cargo audit
+        run: cargo audit

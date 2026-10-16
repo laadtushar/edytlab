@@ -17,7 +17,7 @@ skills = { path = "../skills" }
 agent_profiles = { path = "../agent_profiles" }
 audio-engine = { path = "../audio-engine" }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync", "net", "time", "io-util"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 eventsource-stream = "0.2"
@@ -27,6 +27,18 @@ thiserror = "2"
 # `crypto-rust` makes keyring's Cargo.lock entry list the async `secret-service`/`zbus` crates too (its weak `secret-service?/crypto-rust`); they are not built.
 keyring = { version = "3", default-features = false, features = ["linux-native", "sync-secret-service", "crypto-rust", "apple-native", "windows-native"] }
 tracing = "0.1"
+# The OAuth client (src/oauth/, #474). Each was already in Cargo.lock as a
+# dependency of reqwest/rustls/tokio, so none adds a crate to the build.
+# ring: RS256 ID-token signatures, SHA-256 for PKCE, the OS random generator.
+ring = "0.17"
+base64 = "0.22"
+url = "2"
+# Constant-time comparison of the callback's `state` and the ID token's `nonce`.
+subtle = "2.6"
+
+[target.'cfg(windows)'.dependencies]
+# SO_EXCLUSIVEADDRUSE on the OAuth loopback listener (src/oauth/loopback.rs).
+windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock"] }
 
 [dev-dependencies]
 wiremock = "0.6"
@@ -34,3 +46,7 @@ tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync", 
 tempfile = "3"
 hound = "3.5"
 audio-decoder = { path = "../audio-decoder" }
+# OAuth tests: an RSA key generated at test time to sign ID tokens, and a
+# second socket that tries to take over the loopback listener's port.
+num-bigint = "0.4"
+socket2 = "0.6"

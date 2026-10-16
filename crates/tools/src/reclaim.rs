@@ -575,7 +575,12 @@ pub struct CompactionPlan {
     /// link is cut when the plan is applied, so the kept history ends
     /// cleanly instead of pointing at something deleted.
     pub new_root: Option<session::NodeId>,
-    /// Files only those nodes reference, and their total size.
+    /// Files only those nodes reference *that the project owns* — inside
+    /// its `.audiograph/derived/` — and their total size. A file the
+    /// pruned nodes name from anywhere else (the user's own recording
+    /// that `load` referenced in place, a clipboard blob, a cached
+    /// preview) is not here: it was never the project's to delete (#589).
+    /// This is exactly what [`apply_compaction`] removes.
     pub files: Vec<PathBuf>,
     pub bytes: u64,
     pub total_nodes: usize,
@@ -587,6 +592,11 @@ pub struct CompactionReport {
     pub removed_nodes: usize,
     pub removed_files: usize,
     pub freed_bytes: u64,
+    /// Files in the plan that were left alone because they are not files
+    /// in this project's `derived/` (#589). Zero for a plan from
+    /// [`plan_compaction`], which lists only what it may remove; nonzero
+    /// means the plan came from somewhere else.
+    pub kept_files: usize,
 }
 
 /// The head's chain, newest first.
@@ -601,6 +611,28 @@ fn chain_from(store: &session::Store, head: session::NodeId) -> Vec<session::Nod
     out
 }
 
+/// The one directory compaction may delete from: this project's
+/// `.audiograph/derived/`, the same folder [`sweep`] works in, resolved
+/// so that every comparison against it is between real paths.
+///
+/// `None` when the folder does not exist, and then nothing is derived.
+fn derived_root(project_dir: &Path) -> Option<PathBuf> {
+    std::fs::canonicalize(derived_dir(project_dir)).ok()
+}
+
+/// `path` resolved (`..` and symlinks followed), if it is a file inside
+/// `root`; `None` for anything else.
+///
+/// A node can name any file: `load` references the user's own WAV where
+/// it lies, a paste names a clipboard blob, a render a cached preview.
+/// Only a file that really lives in `derived/` is the project's, and a
+/// path that merely reads as one — `derived/../../take.wav`, or a link
+/// in `derived/` to a file elsewhere — resolves out of it here.
+fn owned_file(root: &Path, path: &Path) -> Option<PathBuf> {
+    let real = std::fs::canonicalize(path).ok()?;
+    (real.starts_with(root) && real.is_file()).then_some(real)
+}
+
 /// Work out what a compaction would remove.
 ///
 /// Two things go: the tail of the head's chain beyond `keep_last`, and
@@ -612,6 +644,12 @@ fn chain_from(store: &session::Store, head: session::NodeId) -> Vec<session::Nod
 /// head follows parent links and stops at the first gap. So the cut is
 /// always "everything older than the Nth", never a set of individually
 /// chosen nodes.
+///
+/// **Only the project's own files are listed** (#589): those inside its
+/// `.audiograph/derived/`. A pruned node can name audio that lives
+/// anywhere — the user's recording, which `load` references in place —
+/// and none of that is touched, however sure it is that no kept node
+/// wants it.
 pub fn plan_compaction(
     store: &session::Store,
     head: session::NodeId,
@@ -660,10 +698,15 @@ pub fn plan_compaction(
 
     let mut files = Vec::new();
     let mut bytes = 0u64;
-    for path in doomed_refs.difference(&kept_refs) {
-        if let Ok(meta) = std::fs::metadata(path) {
-            bytes += meta.len();
-            files.push(path.clone());
+    if let Some(root) = derived_root(store.project_dir()) {
+        for path in doomed_refs.difference(&kept_refs) {
+            let Some(real) = owned_file(&root, path) else {
+                continue;
+            };
+            if let Ok(meta) = std::fs::metadata(&real) {
+                bytes += meta.len();
+                files.push(real);
+            }
         }
     }
 
@@ -682,6 +725,13 @@ pub fn plan_compaction(
 /// leaves a session whose history is shorter and whose audio is intact
 /// — which still works. The other order would leave nodes pointing at
 /// files that are gone.
+///
+/// A file in the plan is removed only if it is a file inside this
+/// project's `.audiograph/derived/` (#589). [`plan_compaction`] lists
+/// only those, and this checks again, because a plan is plain data that
+/// anything can build: a path outside `derived/` is left where it is and
+/// counted in [`CompactionReport::kept_files`], and the rest of the plan
+/// still runs.
 pub fn apply_compaction(
     store: &mut session::Store,
     plan: &CompactionPlan,
@@ -704,9 +754,18 @@ pub fn apply_compaction(
             .map_err(|e| format!("failed to make {} a root: {e}", root.to_hex()))?;
     }
 
+    let root = derived_root(store.project_dir());
     for path in &plan.files {
-        if let Ok(meta) = std::fs::metadata(path) {
-            if std::fs::remove_file(path).is_ok() {
+        // Already gone: nothing to remove, and nothing refused.
+        if std::fs::symlink_metadata(path).is_err() {
+            continue;
+        }
+        let Some(real) = root.as_deref().and_then(|r| owned_file(r, path)) else {
+            report.kept_files += 1;
+            continue;
+        };
+        if let Ok(meta) = std::fs::metadata(&real) {
+            if std::fs::remove_file(&real).is_ok() {
                 report.removed_files += 1;
                 report.freed_bytes += meta.len();
             }
