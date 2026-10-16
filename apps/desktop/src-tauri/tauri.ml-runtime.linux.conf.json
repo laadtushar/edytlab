@@ -1,0 +1,10 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "resources": {
+      "ml-runtime/linux-x64/libonnxruntime.so": "libonnxruntime.so",
+      "ml-runtime/linux-x64/LICENSE": "licenses/onnxruntime/LICENSE",
+      "ml-runtime/linux-x64/ThirdPartyNotices.txt": "licenses/onnxruntime/ThirdPartyNotices.txt"
+    }
+  }
+}

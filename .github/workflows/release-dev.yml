@@ -47,10 +47,39 @@ name: Release (unsigned)
 #   tauri-action with `tagName` they'd race to "find or create draft",
 #   producing two draft releases for the same tag (artifacts split, or
 #   the published view ends up empty). The create-release job runs
-#   once, finds-or-creates a single draft, and both build legs upload
-#   into it via `releaseId`. Idempotent: re-running on the same tag
+#   once, finds-or-creates a single draft, and every build leg uploads
+#   into it by its id. Idempotent: re-running on the same tag
 #   reuses the draft; a published release on the same tag is a hard
 #   error so we don't silently skip the upload.
+#
+# The ONNX Runtime (#383):
+#   Each leg fetches the pinned library and its licence notices
+#   (scripts/fetch-ml-runtime.sh, which checks them against
+#   apps/desktop/src-tauri/ml-runtime.json), on Windows stages the
+#   Visual C++ runtime DLLs the library imports, and builds with the
+#   platform's `tauri.ml-runtime.<os>.conf.json` overlay (`--config` in
+#   the matrix args), which tells the bundler where each file goes. The
+#   base tauri.conf.json names none of it, so a local or CI build that
+#   has not fetched anything still builds.
+#
+# Build, check, then upload:
+#   tauri-action only builds here (no `releaseId`). The check step
+#   (scripts/installer-ml-runtime.py) then opens every installer the leg
+#   produced and fails unless the runtime and its notices are in it, byte
+#   for byte, where the app looks, and unless the app binary from that
+#   installer, run with --ml-runtime-status, loads it and calls it
+#   bundled. Only after that does the upload step put those same files
+#   in the draft, so the bytes that were checked are the bytes that ship
+#   (the rule release-signed.yml keeps for signing). The upload names
+#   each file as tauri-action did: its own name, and
+#   `edytlab_universal.app.tar.gz` for the packed .app.
+#
+# Dry run (dispatch with `dry_run: true`):
+#   Every leg builds and checks its installers and keeps them as a
+#   workflow artifact for 5 days. Nothing else happens: create-release
+#   and publish are skipped, so is each leg's upload, and no tag or
+#   release is created. The `tag` input is required by the form but not
+#   used.
 
 on:
   push:
@@ -77,6 +106,11 @@ on:
         required: false
         default: ""
         type: string
+      dry_run:
+        description: "Build and check the installers only: no tag, no release, nothing uploaded or published (the tag is not used)."
+        required: false
+        default: false
+        type: boolean
 
 env:
   CARGO_TERM_COLOR: always
@@ -89,6 +123,9 @@ permissions:
 jobs:
   create-release:
     name: create draft release
+    # A dry run creates nothing. On a tag push `inputs` is empty, so this
+    # runs.
+    if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -249,6 +286,9 @@ jobs:
   build:
     name: build (${{ matrix.platform.name }})
     needs: create-release
+    # A job whose need was skipped is skipped too unless its `if` says
+    # otherwise, and in a dry run create-release is skipped on purpose.
+    if: ${{ !cancelled() && (needs.create-release.result == 'success' || (inputs.dry_run && needs.create-release.result == 'skipped')) }}
     runs-on: ${{ matrix.platform.runner }}
     # 90, not 60: the macOS leg now compiles two architectures, and the
     # signed workflow — which has built universal all along — already
@@ -268,26 +308,33 @@ jobs:
             # targets, so x86_64-apple-darwin is absent unless asked
             # for.
             rust_targets: x86_64-apple-darwin,aarch64-apple-darwin
+            # The key in ml-runtime.json `platforms` this leg bundles.
+            ml_runtime: osx-universal2
             # `--bundles app,dmg` is explicit on purpose: when only
             # `bundle.targets: "all"` was used, tauri-action sometimes
             # silently dropped the .dmg and uploaded only the .app
             # archive. Listing the bundles forces both to be built and
             # surfaces a hard error if either step fails.
-            args: --target universal-apple-darwin --bundles app,dmg
+            #
+            # `--config` is relative to `projectPath` (apps/desktop), and
+            # adds the ONNX Runtime (see the header).
+            args: --target universal-apple-darwin --bundles app,dmg --config src-tauri/tauri.ml-runtime.macos.conf.json
           - name: windows-x86_64
             runner: windows-latest
             rust_targets: ""
+            ml_runtime: win-x64
             # Build both Windows installer formats: .msi (WiX) and the
             # NSIS setup .exe. Users tend to prefer one or the other,
             # so we ship both.
-            args: --bundles msi,nsis
+            args: --bundles msi,nsis --config src-tauri/tauri.ml-runtime.windows.conf.json
           - name: linux-x86_64
             runner: ubuntu-22.04
             rust_targets: x86_64-unknown-linux-gnu
+            ml_runtime: linux-x64
             # `.deb` for Debian/Ubuntu users, `.AppImage` as the
             # distro-agnostic fallback. Mirrors `bundle.targets` in
             # tauri.conf.json so Linux artifacts land in releases too.
-            args: --target x86_64-unknown-linux-gnu --bundles deb,appimage
+            args: --target x86_64-unknown-linux-gnu --bundles deb,appimage --config src-tauri/tauri.ml-runtime.linux.conf.json
 
     steps:
       - name: Checkout
@@ -424,18 +471,130 @@ jobs:
       - name: pnpm install
         run: pnpm install --frozen-lockfile
 
+      # Into the folder the overlay bundles from (gitignored). The script
+      # checks the archive's size and SHA-256, and the library's own
+      # SHA-256, against ml-runtime.json, and stops the leg on a mismatch.
+      - name: Fetch the pinned ONNX Runtime
+        shell: bash
+        run: bash scripts/fetch-ml-runtime.sh ${{ matrix.platform.ml_runtime }} apps/desktop/src-tauri/ml-runtime/${{ matrix.platform.ml_runtime }}
+
+      # onnxruntime.dll imports the Visual C++ runtime, which the app
+      # itself links statically and a clean Windows does not have. Copied
+      # from this runner's Visual Studio (its redistributable folder), and
+      # refused if older than `vc_runtime.min_version`.
+      - name: Stage the Visual C++ runtime beside it
+        if: matrix.platform.runner == 'windows-latest'
+        shell: bash
+        run: |
+          for py in python3 python; do "$py" -I -c 'import sys' 2>/dev/null && break; done
+          "$py" -I scripts/installer-ml-runtime.py stage-vc-runtime apps/desktop/src-tauri/ml-runtime/vc-runtime-x64
+
+      # Build only: no `releaseId` and no `tagName`, so tauri-action
+      # uploads nothing. The files are checked first, and the upload step
+      # below sends exactly what was checked (see the header).
       - name: Build unsigned bundle via tauri-action
+        id: build
         uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: apps/desktop
-          # Upload to the single draft release that create-release
-          # produced. Using `releaseId` (not `tagName`) means
-          # tauri-action skips the find-or-create logic that would
-          # otherwise race between matrix legs.
-          releaseId: ${{ needs.create-release.outputs.release_id }}
           args: ${{ matrix.platform.args }}
+
+      - name: Check the ONNX Runtime in every installer
+        shell: bash
+        env:
+          ARTIFACT_PATHS: ${{ steps.build.outputs.artifactPaths }}
+        run: |
+          for py in python3 python; do "$py" -I -c 'import sys' 2>/dev/null && break; done
+          "$py" -I scripts/installer-ml-runtime.py check ${{ matrix.platform.ml_runtime }} --paths-json "$ARTIFACT_PATHS"
+
+      # A dry run keeps what it built, so the installers can be tried on
+      # real machines before anything is released.
+      - name: Keep the installers (dry run only)
+        if: ${{ inputs.dry_run }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: installers-${{ matrix.platform.name }}
+          path: |
+            target/**/release/bundle/dmg/*.dmg
+            target/**/release/bundle/macos/*.app.tar.gz
+            target/**/release/bundle/msi/*.msi
+            target/**/release/bundle/nsis/*-setup.exe
+            target/**/release/bundle/deb/*.deb
+            target/**/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+          retention-days: 5
+          compression-level: 0
+
+      # Upload to the single draft release that create-release produced,
+      # by id, so the legs never race to find or create one. The same
+      # files the check step opened: tauri-action's own list of what it
+      # built.
+      - name: Upload the checked installers to the draft release
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
+          ARTIFACT_PATHS: ${{ steps.build.outputs.artifactPaths }}
+        run: |
+          set -euo pipefail
+          repo="${GITHUB_REPOSITORY}"
+          if [ -z "$RELEASE_ID" ]; then
+            echo "::error::no draft release to upload to"
+            exit 1
+          fi
+
+          # A JSON array of paths. `tr` drops the carriage return the
+          # Windows jq writes at the end of every line, which would
+          # otherwise be part of each path.
+          mapfile -t paths < <(printf '%s' "$ARTIFACT_PATHS" | jq -r '.[]' | tr -d '\r')
+          if [ ${#paths[@]} -eq 0 ]; then
+            echo "::error::tauri-action reported no artifacts"
+            exit 1
+          fi
+
+          uploaded=0
+          for path in "${paths[@]}"; do
+            name="$(basename "$path")"
+            if [ -d "$path" ]; then
+              # The .app is a directory. tauri-action packs it into
+              # `<name>.app.tar.gz` beside it whether or not it uploads,
+              # and uploaded that as `<name>_universal.app.tar.gz`.
+              case "$path" in
+                *.app) ;;
+                *) echo "::error::$path is a directory, not an installer"; exit 1 ;;
+              esac
+              case "$path" in
+                *universal-apple-darwin*) arch=universal ;;
+                *) echo "::error::$path is not a universal build"; exit 1 ;;
+              esac
+              name="${name%.app}_${arch}.app.tar.gz"
+              path="$path.tar.gz"
+            fi
+            if [ ! -f "$path" ]; then
+              echo "::error::$path is not a file"
+              exit 1
+            fi
+
+            # Make re-runs idempotent: a second attempt would otherwise
+            # 422 on the existing asset name.
+            existing=$(gh api "repos/${repo}/releases/${RELEASE_ID}/assets" --paginate \
+              --jq ".[] | select(.name == \"${name}\") | .id" || true)
+            for asset_id in $existing; do
+              echo "Replacing existing asset ${name} (id ${asset_id})"
+              gh api -X DELETE "repos/${repo}/releases/assets/${asset_id}"
+            done
+
+            echo "Uploading ${name}"
+            curl -sS --fail-with-body -X POST \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary @"${path}" \
+              "https://uploads.github.com/repos/${repo}/releases/${RELEASE_ID}/assets?name=${name}" \
+              >/dev/null
+            uploaded=$((uploaded + 1))
+          done
+          echo "Uploaded ${uploaded} asset(s) for ${{ matrix.platform.name }}"
 
   publish:
     name: publish draft release
@@ -444,8 +603,9 @@ jobs:
     timeout-minutes: 5
     # Only publish if every matrix leg uploaded successfully. A
     # cancelled or failed leg leaves the draft in place for inspection
-    # rather than shipping a partial set.
-    if: ${{ needs.build.result == 'success' }}
+    # rather than shipping a partial set. A dry run has no draft (and
+    # create-release, which this needs, was skipped).
+    if: ${{ !inputs.dry_run && needs.build.result == 'success' }}
     steps:
       - name: Flip draft -> published
         env:

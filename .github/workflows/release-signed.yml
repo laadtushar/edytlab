@@ -31,6 +31,19 @@ name: Release (signed)
 # tauri-action's bundle step via the APPLE_* env vars, so those
 # artifacts are already signed when the build finishes.
 #
+# ── The ONNX Runtime (#383) ─────────────────────────────────────────
+# Each leg fetches the pinned library and its notices, stages the
+# Visual C++ runtime on Windows, and builds with the platform's
+# `tauri.ml-runtime.<os>.conf.json` overlay, as release-dev.yml does
+# (its header has the detail). After signing and before the upload,
+# scripts/installer-ml-runtime.py opens every installer and fails
+# unless the runtime is where the app looks and the app binary from
+# that installer reports it as bundled. On macOS it runs with
+# `--signed`: Tauri signs the dylib along with the app, which rewrites
+# it, so the check verifies that signature and its team instead of the
+# dylib's bytes, and the app's own run shows the hardened runtime's
+# library validation accepts it.
+#
 # ── Required secrets (Settings → Secrets → Actions) ─────────────────
 #   APPLE_CERTIFICATE              base64-encoded Developer ID Application .p12
 #   APPLE_CERTIFICATE_PASSWORD     password for the .p12
@@ -160,18 +173,26 @@ jobs:
             # `--target universal-apple-darwin` without ever installing
             # the Intel target.
             rust_targets: x86_64-apple-darwin,aarch64-apple-darwin
-            args: --target universal-apple-darwin --bundles app,dmg
+            ml_runtime: osx-universal2
+            # Signing rewrites the dylib; see the header.
+            ml_runtime_check: --signed
+            args: --target universal-apple-darwin --bundles app,dmg --config src-tauri/tauri.ml-runtime.macos.conf.json
           - name: windows-x86_64
             runner: windows-latest
             rust_targets: ""
-            args: --bundles msi,nsis
+            ml_runtime: win-x64
+            # signtool signs the installers, not the files inside them.
+            ml_runtime_check: ""
+            args: --bundles msi,nsis --config src-tauri/tauri.ml-runtime.windows.conf.json
           - name: linux-x86_64
             runner: ubuntu-22.04
             rust_targets: x86_64-unknown-linux-gnu
+            ml_runtime: linux-x64
+            ml_runtime_check: ""
             # Linux was absent from both old signed workflows, so a
             # signed release shipped no Linux artifacts at all even
             # though the dev workflow builds them.
-            args: --target x86_64-unknown-linux-gnu --bundles deb,appimage
+            args: --target x86_64-unknown-linux-gnu --bundles deb,appimage --config src-tauri/tauri.ml-runtime.linux.conf.json
 
     steps:
       - name: Checkout
@@ -320,6 +341,19 @@ jobs:
             sleep 10
             install_deps
           }
+
+      # The runtime the overlay bundles, checked against ml-runtime.json.
+      # See release-dev.yml.
+      - name: Fetch the pinned ONNX Runtime
+        shell: bash
+        run: bash scripts/fetch-ml-runtime.sh ${{ matrix.platform.ml_runtime }} apps/desktop/src-tauri/ml-runtime/${{ matrix.platform.ml_runtime }}
+
+      - name: Stage the Visual C++ runtime beside it
+        if: matrix.platform.runner == 'windows-latest'
+        shell: bash
+        run: |
+          for py in python3 python; do "$py" -I -c 'import sys' 2>/dev/null && break; done
+          "$py" -I scripts/installer-ml-runtime.py stage-vc-runtime apps/desktop/src-tauri/ml-runtime/vc-runtime-x64
 
       - name: Decode Windows signing certificate
         if: matrix.platform.runner == 'windows-latest'
@@ -472,6 +506,16 @@ jobs:
           echo "Validating notarization staple on $APP"
           xcrun stapler validate "$APP"
 
+      # ── Check the ONNX Runtime in every installer (#383) ────────
+      # The signed files, the same list the upload reads.
+      - name: Check the ONNX Runtime in every installer
+        shell: bash
+        env:
+          ARTIFACT_PATHS: ${{ steps.build.outputs.artifactPaths }}
+        run: |
+          for py in python3 python; do "$py" -I -c 'import sys' 2>/dev/null && break; done
+          "$py" -I scripts/installer-ml-runtime.py check ${{ matrix.platform.ml_runtime_check }} ${{ matrix.platform.ml_runtime }} --paths-json "$ARTIFACT_PATHS"
+
       # ── Upload, last, so only signed bytes ship ─────────────────
       - name: Upload artifacts to the draft release
         shell: bash
@@ -487,9 +531,11 @@ jobs:
           # generated artifacts" but not its encoding. It emits a JSON
           # array today; accept a newline-separated list too so a change
           # there surfaces as a normal failure rather than an empty
-          # upload that still reports success.
+          # upload that still reports success. `tr` drops the carriage
+          # return the Windows jq writes at the end of every line, which
+          # would otherwise end each path and make it "not a file".
           if printf '%s' "$ARTIFACT_PATHS" | jq -e 'type == "array"' >/dev/null 2>&1; then
-            mapfile -t paths < <(printf '%s' "$ARTIFACT_PATHS" | jq -r '.[]')
+            mapfile -t paths < <(printf '%s' "$ARTIFACT_PATHS" | jq -r '.[]' | tr -d '\r')
           else
             echo "::warning::artifactPaths was not a JSON array; falling back to line splitting"
             mapfile -t paths < <(printf '%s\n' "$ARTIFACT_PATHS" | sed '/^[[:space:]]*$/d')

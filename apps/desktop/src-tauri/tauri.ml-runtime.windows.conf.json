@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "resources": {
+      "ml-runtime/win-x64/onnxruntime.dll": "onnxruntime.dll",
+      "ml-runtime/vc-runtime-x64/msvcp140.dll": "msvcp140.dll",
+      "ml-runtime/vc-runtime-x64/msvcp140_1.dll": "msvcp140_1.dll",
+      "ml-runtime/vc-runtime-x64/vcruntime140.dll": "vcruntime140.dll",
+      "ml-runtime/vc-runtime-x64/vcruntime140_1.dll": "vcruntime140_1.dll",
+      "ml-runtime/win-x64/LICENSE": "licenses/onnxruntime/LICENSE",
+      "ml-runtime/win-x64/ThirdPartyNotices.txt": "licenses/onnxruntime/ThirdPartyNotices.txt",
+      "licenses/vc-runtime-NOTICE.txt": "licenses/vc-runtime/NOTICE.txt"
+    }
+  }
+}
