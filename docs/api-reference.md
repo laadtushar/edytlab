@@ -242,10 +242,11 @@ history is copied; the audio is copied with it free, so other commands are not
 held up by a large project. The caches, `.audiograph/previews/` and
 `.audiograph/auditions/`, are left behind, since every entry in them rebuilds
 on demand (#576); a folder of the same name anywhere else is copied. The copy
-plays its own audio from the moment it opens, so deleting or moving the
-original afterwards costs it nothing (#612); the user's own files that the
-project plays from where they lie are not copied, and the copy keeps playing
-them from there.
+plays its own audio (`.audiograph/derived/` and `clipboard/`) from the moment
+it opens, so deleting or moving the original afterwards costs it none of it
+(#612). A file the project plays from where the user keeps it (a take loaded
+in place) is still played from that path: one inside the original's folder is
+copied with it, but the copy goes on naming the original's.
 
 **Returns:**
 ```typescript
