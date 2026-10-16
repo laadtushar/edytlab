@@ -279,6 +279,7 @@ src/
 ├── mcp_tool.rs    # Wraps MCP server tools as `tools::Tool`
 ├── project.rs     # Project metadata, view state, recents
 ├── reclaimer.rs   # Background cap on a project's derived audio
+├── settings.rs    # ~/.edytlab/settings.json: Plan first, kept across a restart (#569)
 └── state.rs       # AppState
 ```
 
@@ -573,15 +574,22 @@ The other manifests mirror it, and `apps/desktop/src/__tests__/appVersion.test.t
 6. `cargo fmt --all --check`
 7. `cargo clippy --workspace --all-targets -- -D warnings`
 8. `cargo test --workspace --no-fail-fast -- --test-threads=1`
-9. `pnpm --filter @edytlab/desktop test`
-10. `pnpm --filter @edytlab/desktop test:slow-scheduler` (Linux leg only)
-11. `pnpm --filter @edytlab/desktop build` (`tsc -b` + `vite build`)
+9. Linux leg only: fetch the pinned ONNX Runtime (`scripts/fetch-ml-runtime.sh linux-x64`, cached by the hash of `apps/desktop/src-tauri/ml-runtime.json`) and run `ml-pipeline`'s ignored `cache_smoke` tests against it with `ORT_DYLIB_PATH` set (see [Environment Variables](#9-environment-variables))
+10. `pnpm --filter @edytlab/desktop test`
+11. `pnpm --filter @edytlab/desktop test:slow-scheduler` (Linux leg only)
+12. `pnpm --filter @edytlab/desktop build` (`tsc -b` + `vite build`)
 
 **`e2e (chromium)` job** (Ubuntu only): installs Chromium for Playwright, then `typecheck:e2e` and `test:e2e` against a production build of the frontend.
 
-**`website (test)` job:** in `website/`, `pnpm install --frozen-lockfile --ignore-workspace`, `pnpm test`, `pnpm typecheck`.
+**`website (test)` job:** in `website/`, `pnpm install --frozen-lockfile --ignore-workspace`, `pnpm test`, `pnpm typecheck`. It does not run `pnpm build`; run that locally for a change to `website/`.
 
 **Important:** CI concurrency is set to cancel in-flight PR runs but **never cancel main runs** — `auto-release.yml` waits on the `workflow_run` completion event.
+
+### Workflow: `audit.yml` (Audit)
+
+`cargo audit` scans `Cargo.lock` against the RustSec advisory database: weekly (Monday 06:23 UTC), on `workflow_dispatch`, and on PRs that change `Cargo.lock` or a `Cargo.toml`. A vulnerability fails it; an unmaintained, unsound or yanked crate only warns. There is no `ignore` list: clear a red run by bumping the crate (`cargo update -p <crate> --precise <version>`). The `cargo-audit` version is pinned in the workflow's `CARGO_AUDIT_VERSION`.
+
+It is a workflow of its own, not a `ci.yml` job, and it does not run on push: `auto-release.yml` waits only on the run named "CI", so an advisory published on a quiet day can never turn that run red and skip a dev release. Do not make it a required check, since a PR its path filter skips would wait on it forever.
 
 ### Workflow: `auto-release.yml`
 

@@ -321,6 +321,16 @@ depends on whether the model wrote a plan:
 With no answer within five minutes nothing runs, each held call is answered "not
 run" (`ToolCallNotRun`), and the turn ends with `PlanTimeout`.
 
+The toggle survives a restart (#569). `set_plan_first` applies the choice and
+writes it to `~/.edytlab/settings.json` (`src-tauri/src/settings.rs`, beside
+`recents.json` and `mcp.json`), replacing the file atomically and keeping any
+field it does not know; setup reads it before the window can ask for anything,
+and `get_plan_first` tells the chat box what is in force. A missing, unreadable
+or corrupt file means off and never blocks launch. A write that fails still
+applies the choice until the app quits, and `set_plan_first` reports it. It is
+not in the keychain, because the keychain may be waiting on an unlock prompt
+when the agent is built (#497).
+
 "Would change the session" is `Tool::mutates()`, which defaults to `true`: a new
 tool, and every MCP tool, is held unless it is deliberately marked read-only.
 A tool that writes only the app's own caches is not a mutation, where a cache is
@@ -363,12 +373,12 @@ server, takes the first streaming request, and prints its parts. Read them with
 cargo test -p ai --test request_size -- --nocapture
 ```
 
-At the time of writing:
+On v0.6.0 (`d7fe4d5`, 2026-10-16). The full list has grown with the tools since the slim set landed (#479), when it was 54 KB for Anthropic and 57 KB as chat-completions JSON; the slim request has not:
 
 | Request | System prompt | Tool schemas | Total |
 |---------|---------------|--------------|-------|
-| Anthropic (every tool) | 1.2 KB | 54 KB | 55.5 KB |
-| A chat-completions provider sent every tool | 1.2 KB | 57 KB | 58 KB |
+| Anthropic (every tool) | 1.2 KB | 62 KB | 63.4 KB |
+| A chat-completions provider sent every tool | 1.2 KB | 64.7 KB | 66 KB |
 | Ollama (slim set, with the names line) | 2.3 KB | 6.3 KB | 8.7 KB |
 
 The system prompt is a kilobyte, so the fix is fewer and terser tools, and only
@@ -827,6 +837,8 @@ Nodes are stored as content-addressed JSON files under `<project-dir>/.audiograp
 ```
 
 A clip does not name a cache entry. `derived/` and `clipboard/` hold the project's own audio, and a clip may name a file in either; everything else under `.audiograph/` is a cache or a record, and `previews/` and `auditions/` evict their oldest entries to stay under a cap. So `load` of a WAV from any of them copies it into `derived/` instead of naming it where it lies (#580): the file's own bytes, under the name a transcode of the same audio would take, so loading the same audio twice stores it once. A WAV from anywhere else is still named in place, which is what keeps a render of an untouched track the source's own bytes.
+
+That is also why nothing that frees disk deletes outside `derived/`. The history sweep (`reclaim::sweep`) and the orphan sweep when a project opens (`reclaim::sweep_orphans`) work in `derived/` only, and so does `compact_session` (#589, #593): a pruned node can name the user's own recording where it lies, so `plan_compaction` lists only the files that resolve, as canonical paths, inside `.audiograph/derived/` (so `..` and a symlink cannot lead out), and `apply_compaction` checks each one again before it deletes it, leaving any other path in place and counting it in `kept_files`. A loaded file loses the undo steps that named it, never the file. Clipboard blobs and cached previews are not compaction's to delete either.
 
 Annotations (markers, regions, labels) are part of `SessionState`, so they live inside each node's JSON rather than in a directory of their own.
 
