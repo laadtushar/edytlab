@@ -559,8 +559,10 @@ impl Store {
         let bytes = fs::read(&path)?;
         let mut node: SessionNode = serde_json::from_slice(&bytes)?;
         // A project that has been copied or moved holds its own audio
-        // under paths the nodes do not name. See `crate::relocate`; in a
-        // project that has not moved this does nothing.
+        // under paths the nodes do not name, and reads it, not the folder
+        // it came from, whether or not that is still there (#612). See
+        // `crate::relocate`; in a project that has not been copied or moved
+        // this does nothing.
         crate::relocate::rebind(&mut node.state, &self.project_dir);
         // A node a staged run appended that is on disk already — a state
         // reached again, which is a node ids hash state alone — stands as
@@ -624,6 +626,8 @@ impl Store {
             return Ok(Vec::new());
         }
         let mut out = Vec::new();
+        // One for the listing, so each folder a clip names is resolved once.
+        let mut rebinder = crate::relocate::Rebinder::new(&self.project_dir);
         for shard in fs::read_dir(&nodes_dir)? {
             let shard = shard?;
             if !shard.file_type()?.is_dir() {
@@ -637,7 +641,7 @@ impl Store {
                 }
                 let bytes = fs::read(&path)?;
                 let mut node: SessionNode = serde_json::from_slice(&bytes)?;
-                crate::relocate::rebind(&mut node.state, &self.project_dir);
+                rebinder.rebind(&mut node.state);
                 out.push(node);
             }
         }
@@ -680,14 +684,14 @@ impl Store {
         diff::merge(self, a, b)
     }
 
-    /// Move head to a node whose state matches `target`.
+    /// Move head to `target`.
     ///
-    /// Node ids hash the state alone, so appending `target`'s state lands
-    /// on `target` itself: the result is `target`, still parented to
-    /// whatever it was parented to when first reached (see
-    /// [`Store::append`]). Nothing is added and every node after it is
-    /// kept, so no history is lost; what is not recorded is the route
-    /// that led here.
+    /// The result is `target`, still parented to whatever it was parented
+    /// to when first reached. Nothing is added and every node after it is
+    /// kept, so no history is lost; what is not recorded is the route that
+    /// led here. That holds in a copied or moved project too, where
+    /// `target` reads with paths its id was not hashed from, so appending
+    /// its state would not land on it (see [`crate::diff::revert_to`]).
     pub fn revert_to(&mut self, target: NodeId) -> Result<NodeId> {
         diff::revert_to(self, target)
     }

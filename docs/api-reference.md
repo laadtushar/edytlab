@@ -241,7 +241,11 @@ lock, and anything after, is not. The session's lock is held only while the
 history is copied; the audio is copied with it free, so other commands are not
 held up by a large project. The caches, `.audiograph/previews/` and
 `.audiograph/auditions/`, are left behind, since every entry in them rebuilds
-on demand (#576); a folder of the same name anywhere else is copied.
+on demand (#576); a folder of the same name anywhere else is copied. The copy
+plays its own audio from the moment it opens, so deleting or moving the
+original afterwards costs it nothing (#612); the user's own files that the
+project plays from where they lie are not copied, and the copy keeps playing
+them from there.
 
 **Returns:**
 ```typescript

@@ -450,6 +450,12 @@ pub async fn save_head_trail(
 /// the copy is answered). The caches (`.audiograph/previews/` and
 /// `auditions/`) are left behind and counted in the report, since they
 /// rebuild (#576).
+///
+/// The copy's nodes still name the original's files, which are still there
+/// when the copy opens. The copy reads, plays and keeps its own files of
+/// the same names all the same (`session::relocate`, #612), so its open
+/// sweep leaves its audio alone and deleting the original afterwards costs
+/// it nothing.
 #[tauri::command]
 pub async fn save_project_as<R: Runtime>(
     app: AppHandle<R>,

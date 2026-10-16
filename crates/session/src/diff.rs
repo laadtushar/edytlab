@@ -1011,12 +1011,22 @@ pub fn fork(store: &mut Store, parent: NodeId) -> Result<NodeId> {
     Ok(parent)
 }
 
-/// Move head to a state equivalent to `target`'s, by appending a node
-/// with that state. A node's id hashes its state alone, so this is
-/// `target` itself (the append finds it already there): head moves back
-/// and the full history stays in place. See [`Store::revert_to`].
+/// Move head to `target`. Nothing is added and the full history stays in
+/// place. See [`Store::revert_to`].
+///
+/// This used to append a node with `target`'s state, which a node's id
+/// hashing its state alone made `target` itself. It is not in a copied or
+/// moved project: `target` reads there with that project's own paths
+/// (`crate::relocate`), which its id was not hashed from, so the append
+/// was a duplicate of it under another id. So the head is moved to
+/// `target` itself. A staged handle, which may not move the shared head,
+/// still appends the state, as before.
 pub fn revert_to(store: &mut Store, target: NodeId) -> Result<NodeId> {
     let target_node = store.get(target)?;
+    if !store.is_staged() {
+        store.set_head(target)?;
+        return Ok(target);
+    }
     let new_node = SessionNode {
         id: NodeId([0; 32]),
         parent: None,

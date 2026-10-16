@@ -1,4 +1,4 @@
-//! Making a moved project play again.
+//! Making a copied or moved project play its own audio.
 //!
 //! Clip paths are absolute. That is deliberate — a clip can point at a
 //! file anywhere, and the node id is the hash of the state including
@@ -17,23 +17,78 @@
 //! name *is* the blake3 of the samples (`tools::provenance::audio_hash`).
 //! So finding `9f3c….wav` in this project's `derived/` is not a guess
 //! that some nearby file might do; it is finding the same bytes the
-//! missing path named. Nothing else in the tree is content-addressed,
+//! other path named. Nothing else in the tree is content-addressed,
 //! which is why nothing else is rebound.
+//!
+//! ## The rules
+//!
+//! 1. **A file in another project's store** (`<other>/.audiograph/derived/`
+//!    or `clipboard/`) is this project's file of the same name, in the
+//!    same folder of its own store, when this project has that file. It
+//!    is also this project's when the named file is gone, even if this
+//!    project has lost it too: that is where a rebuild puts it
+//!    (`tools::rederive` rebuilds only into the project's own
+//!    `derived/`), and where a read reports it missing.
+//! 2. **Any other path that does not exist** is this project's file of the
+//!    same name in `derived/` or `clipboard/`, if it has one.
+//!
+//! Everything else is left as written: a file of another project's store
+//! that this project does not hold (a WAV loaded from that folder: there is
+//! nothing here to play instead), every path into this project's own
+//! store however it is spelt, and every file of the user's, wherever it
+//! is and whatever it is called. A user's file is never rebound while it
+//! exists, so it keeps pointing where it is.
+//!
+//! ## Why a copy is rebound while the original is still there (#612)
+//!
+//! Rule 2 alone fires only once the original has gone. Until then the
+//! copy's nodes name the original's files, and they exist. Save As opens
+//! the copy straight away, and every open runs the orphan sweep, which
+//! deletes each file in `derived/` that no node names; the copy's nodes
+//! named the original's files, so the copy's own were named by nothing
+//! and went. The copy then played from the original's folder, and
+//! deleting the original (the second half of moving a project, by Save As
+//! or by copying the folder by hand) cost it every edit no replay can
+//! redo. Rule 1 makes a copy read its own files from the moment it
+//! exists, and the sweeps, which count what the store reads back, keep
+//! exactly what the copy plays. It is one rule, applied wherever a node is
+//! read, so what is played and what is kept cannot drift apart.
 //!
 //! ## Why it happens on read rather than on copy
 //!
 //! Rewriting the paths in the copied node files would change every node
 //! id, and the ids are the file names, the parent pointers and the head.
 //! A copy would arrive with a broken DAG. Rebinding on the way out of
-//! the store leaves what is on disk exactly as written.
+//! the store leaves what is on disk exactly as written. It also covers
+//! what no copy routine sees: a folder copied by hand, and a project moved.
+//!
+//! What it cannot do is put back audio a copy has already lost. A copy
+//! opened by a build without rule 1 had its `derived/` swept then; its
+//! clips name the original's files, which it plays while the original is
+//! there (the original's file exists and this project has none of that
+//! name), and nothing here copies them into it.
+//!
+//! ## What it costs
+//!
+//! A rebound node reads with paths its id was not hashed from, so
+//! appending its state again is a new node with another id, not the node
+//! itself. `revert_to` therefore moves the head to the node it names
+//! rather than appending its state. An edit that changes nothing, made
+//! on a copied node, still adds a node, as it already did in a moved
+//! project; once an edit has been made in the copy, its nodes name the
+//! copy's files and this no longer arises.
 //!
 //! ## Why it is invisible in a healthy project
 //!
-//! A path that exists is never touched, so in a project that has not
-//! moved this does nothing at all and `NodeId::from_state` still
-//! reproduces the id it was stored under. The rebind only fires where
-//! the alternative is silence.
+//! A project's own files, and the user's, are never touched, so in a
+//! project that has not been copied or moved this does nothing at all and
+//! `NodeId::from_state` still reproduces the id it was stored under. That
+//! holds when the project is opened by another spelling of its folder (a
+//! link, `..`): a path into its own store is recognised by the folder it
+//! resolves to, not by how it is written.
 
+use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 use crate::state::SessionState;
@@ -59,31 +114,108 @@ pub fn clipboard_dir(project_dir: &Path) -> PathBuf {
     project_dir.join(STORE_DIR).join(CLIPBOARD_DIR)
 }
 
-/// Point any missing clip at this project's own copy of the same file,
-/// where there is one. Returns how many clips were rebound.
-///
-/// Only content-addressed directories are searched, and only a path
-/// that does not exist is considered — see the module docs.
+/// Point each clip that names another project's store, or a missing file,
+/// at this project's own file of the same name, by the rules in the module
+/// docs. Returns how many clips were rebound.
 pub fn rebind(state: &mut SessionState, project_dir: &Path) -> usize {
-    let dirs = [derived_dir(project_dir), clipboard_dir(project_dir)];
-    let mut rebound = 0;
+    Rebinder::new(project_dir).rebind(state)
+}
 
-    for track in &mut state.tracks {
-        for clip in &mut track.clips {
-            if clip.source_path.exists() {
-                continue;
-            }
-            let Some(name) = clip.source_path.file_name() else {
-                continue;
-            };
-            if let Some(local) = dirs.iter().map(|d| d.join(name)).find(|p| p.is_file()) {
-                clip.source_path = local;
-                rebound += 1;
-            }
+/// [`rebind`] for many nodes of one project, asking once per folder
+/// whether a folder a clip names is this project's own.
+pub(crate) struct Rebinder<'a> {
+    project_dir: &'a Path,
+    /// For each store folder a clip has named, whether it is this
+    /// project's own under another spelling.
+    own: HashMap<PathBuf, bool>,
+}
+
+impl<'a> Rebinder<'a> {
+    pub(crate) fn new(project_dir: &'a Path) -> Self {
+        Self {
+            project_dir,
+            own: HashMap::new(),
         }
     }
 
-    rebound
+    pub(crate) fn rebind(&mut self, state: &mut SessionState) -> usize {
+        let mut rebound = 0;
+        for track in &mut state.tracks {
+            for clip in &mut track.clips {
+                if let Some(local) = self.local_for(&clip.source_path) {
+                    clip.source_path = local;
+                    rebound += 1;
+                }
+            }
+        }
+        rebound
+    }
+
+    /// Where a clip naming `path` should read instead, if anywhere.
+    fn local_for(&mut self, path: &Path) -> Option<PathBuf> {
+        let name = path.file_name()?;
+        if let Some(store_dir) = store_folder(path) {
+            // Rule 1. The usual case, this project's own file as written,
+            // costs a comparison and no file system call.
+            let local = self.project_dir.join(STORE_DIR).join(store_dir).join(name);
+            if local == path || self.is_own(path.parent()?, store_dir) {
+                return None;
+            }
+            if local.is_file() {
+                return Some(local);
+            }
+            if path.exists() {
+                return None;
+            }
+            return Some(self.by_name(name).unwrap_or(local));
+        }
+        // Rule 2.
+        if path.exists() {
+            return None;
+        }
+        self.by_name(name)
+    }
+
+    /// This project's file called `name`, in `derived/` or `clipboard/`.
+    fn by_name(&self, name: &OsStr) -> Option<PathBuf> {
+        [
+            derived_dir(self.project_dir),
+            clipboard_dir(self.project_dir),
+        ]
+        .into_iter()
+        .map(|dir| dir.join(name))
+        .find(|p| p.is_file())
+    }
+
+    /// Whether `folder`, a store folder called `store_dir`, is this
+    /// project's own: the same folder, resolved. A folder that cannot be
+    /// resolved (gone) is another project's.
+    fn is_own(&mut self, folder: &Path, store_dir: &str) -> bool {
+        if let Some(&own) = self.own.get(folder) {
+            return own;
+        }
+        let local = self.project_dir.join(STORE_DIR).join(store_dir);
+        let own = match (std::fs::canonicalize(folder), std::fs::canonicalize(local)) {
+            (Ok(a), Ok(b)) => a == b,
+            _ => false,
+        };
+        self.own.insert(folder.to_path_buf(), own);
+        own
+    }
+}
+
+/// `derived` or `clipboard`, if `path` is a file directly in that folder
+/// of some project's store (`<project>/.audiograph/<folder>/<file>`).
+fn store_folder(path: &Path) -> Option<&'static str> {
+    let folder = path.parent()?;
+    let store = folder.parent()?;
+    if store.file_name()? != OsStr::new(STORE_DIR) {
+        return None;
+    }
+    let folder = folder.file_name()?;
+    [DERIVED_DIR, CLIPBOARD_DIR]
+        .into_iter()
+        .find(|dir| folder == OsStr::new(dir))
 }
 
 #[cfg(test)]

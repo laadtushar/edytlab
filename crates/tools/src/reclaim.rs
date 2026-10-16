@@ -511,6 +511,13 @@ impl Verifier {
 /// lists count as naming theirs. Otherwise every flattened copy would be
 /// taken for an orphan, including the one the timeline is showing.
 ///
+/// What a node names is what the store reads back. In a copy of a project
+/// (Save As, or a folder copied by hand) the node files name the
+/// original's files, and the store reads them as the copy's own files of
+/// the same names (`session::relocate`), so the copy's audio is named, and
+/// kept, while the original is still there (#612). The same goes for every
+/// sweep here and for compaction, which list nodes through the store too.
+///
 /// Not the history sweep. [`sweep`] also removes audio only older nodes
 /// name, once a replay has rebuilt it; review of #98 proved that record
 /// alone was not enough for five kinds of history (after
