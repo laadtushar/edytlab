@@ -1147,7 +1147,7 @@ pub enum MlRuntimeSource {
 ///
 /// All four are answers, not failures of the command: "this build carries
 /// no runtime" is the state of a development build, and of every release
-/// up to v0.6.0, before the installers carried it (#383), and the window
+/// up to v0.6.1, before the installers carried it (#383), and the window
 /// shows it as a line of text.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(

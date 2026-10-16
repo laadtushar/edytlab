@@ -116,7 +116,7 @@ function providerCommands(): Backend {
     // `ml_runtime_status_dto(ml_pipeline::runtime::info())`, which the
     // panel's Account tab asks for (the first-run card does not). The
     // answer here is a build without the ONNX Runtime library (one from
-    // source, or a release up to v0.6.0; the installers after it carry
+    // source, or a release up to v0.6.1; the installers after it carry
     // it, #383) and no `ORT_DYLIB_PATH`, so `runtime::info` is
     // `Error::MissingRuntime { searched }`, which the DTO maps to
     // `state: "missing"` with the places `candidate_paths()` listed, as

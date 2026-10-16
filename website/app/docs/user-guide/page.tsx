@@ -495,8 +495,8 @@ export default function UserGuidePage() {
         places it looked below it. It says{" "}
         <code>not installed in this build</code> when there is none, or why the
         one it found cannot be used, such as a macOS older than 13.4. The
-        installers of every release after v0.6.0 carry ONNX Runtime 1.23.2, so
-        an installed app says <code>bundled</code>; v0.6.0 and earlier, and a
+        installers of every release after v0.6.1 carry ONNX Runtime 1.23.2, so
+        an installed app says <code>bundled</code>; v0.6.1 and earlier, and a
         build from source, say <code>not installed in this build</code>. It is
         a status line: it installs nothing, and it does not mean that any
         on-device audio model is available.

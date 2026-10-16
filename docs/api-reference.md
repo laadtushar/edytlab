@@ -1166,8 +1166,8 @@ const status = await bridge.mlRuntimeStatus();
 executable on macOS or Linux (a development build).
 
 The release installers carry ONNX Runtime 1.23.2 from the first release after
-v0.6.0 (#383), so an installed build answers `found` with `source: "bundled"`;
-v0.6.0 and earlier, and a build from source, have none and answer `missing`.
+v0.6.1 (#383), so an installed build answers `found` with `source: "bundled"`;
+v0.6.1 and earlier, and a build from source, have none and answer `missing`.
 The app binary prints the same answer as one line of JSON, with no window,
 when started with `--ml-runtime-status` (`edytlab-desktop --ml-runtime-status`),
 which is how the release workflows check every installer. A library that loads
