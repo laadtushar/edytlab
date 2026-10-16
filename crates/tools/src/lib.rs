@@ -42,7 +42,7 @@ pub use dispatcher::{
 pub use preview_cache::{Hit as PreviewHit, PreviewCache};
 pub use provenance::{derived_dir, verify_chain, Problem};
 pub use recipe::{Recipe, RecipeStep};
-pub use shared::{Shared, OFF_LOCK_ATTEMPTS};
+pub use shared::{Dispatched, Shared, OFF_LOCK_ATTEMPTS};
 pub use util::range_resolver::{resolve as resolve_range, Range, RangeError};
 
 /// A track's audio as one file on the session's time axis, for callers

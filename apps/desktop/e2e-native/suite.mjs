@@ -11,7 +11,7 @@
 // except where a story is about what survives a restart.
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { Driver } from "./webdriver.mjs";
 import { chooseThrough, screenshotRoot } from "./native.mjs";
 import { writeFixtures } from "./fixtures.mjs";
@@ -20,6 +20,26 @@ import { fakeSource, markSources, proxySource, recordStory } from "./tool-calls.
 
 const APP = process.env.APP ?? "/home/user/edytlab/target/debug/edytlab-desktop";
 const OUT = process.env.OUT ?? "/tmp/edytlab-native";
+
+// Tauri finds a build's resources (templates/, bundled-skills/) beside the
+// binary only when the binary sits in a cargo output folder: <x>/target/<profile>
+// (or target/<triple>/<profile>) with a .cargo-lock in it (tauri-utils,
+// platform.rs). Built with CARGO_TARGET_DIR in a folder not called "target",
+// or copied out of its folder, the app starts without them: the template
+// picker is empty and "3-template" fails. Say so before the run, not after.
+{
+  const appDir = dirname(APP);
+  const parts = appDir.split("/");
+  const inTarget = parts.at(-2) === "target" || parts.at(-3) === "target";
+  if (!existsSync(join(appDir, "templates")) || !inTarget || !existsSync(join(appDir, ".cargo-lock"))) {
+    console.warn(
+      `warning: ${APP} is not in a cargo <...>/target/<profile> folder with .cargo-lock and templates/ beside it, ` +
+        "so the app will not find its templates and 3-template will fail. For a build made with another " +
+        "CARGO_TARGET_DIR, copy the binary, .cargo-lock, templates/ and bundled-skills/ into <dir>/target/debug/. " +
+        "(Ignore this for an installed package, whose resources are in ../lib/edytlab.)",
+    );
+  }
+}
 const LLM = "http://127.0.0.1:11434";
 // Where a story's tool calls are read from once it ends: the scripted model
 // always (it is simply absent under LLM=real), and claude-proxy.mjs when the

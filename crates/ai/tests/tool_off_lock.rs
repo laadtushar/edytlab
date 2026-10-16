@@ -72,6 +72,8 @@ fn base_node() -> session::SessionNode {
 /// tool appends a node.
 struct SlowEdit {
     off_lock: bool,
+    /// Whether it appends its marker, or only reads.
+    appends: bool,
     started: Mutex<Sender<()>>,
     release: Mutex<Receiver<()>>,
     runs: Arc<AtomicUsize>,
@@ -99,6 +101,11 @@ impl Tool for SlowEdit {
                 .ok();
         }
         let head = ctx.store.head().expect("a head");
+        if !self.appends {
+            // A result that names a node, as `name_node`'s does, though
+            // nothing moved.
+            return Ok(ToolResult::Ok(json!({ "node_id": head.to_hex() })));
+        }
         let id = ctx
             .store
             .add_annotation(head, marker("from-tool"))
@@ -165,6 +172,10 @@ struct Outcome {
 }
 
 async fn run_turn(off_lock: bool) -> Outcome {
+    run_turn_with(off_lock, true).await
+}
+
+async fn run_turn_with(off_lock: bool, appends: bool) -> Outcome {
     let server = MockServer::start().await;
     let responses: Vec<Entry> = vec![
         ok(classifier_json("general")),
@@ -188,6 +199,7 @@ async fn run_turn(off_lock: bool) -> Outcome {
     let mut dispatcher = ToolDispatcher::new();
     dispatcher.register(Box::new(SlowEdit {
         off_lock,
+        appends,
         started: Mutex::new(started_tx),
         release: Mutex::new(release_rx),
         runs: Arc::clone(&runs),
@@ -305,4 +317,24 @@ async fn a_tool_that_does_not_opt_in_still_holds_the_store() {
     assert_eq!(store.get(h).unwrap().parent, Some(o.base));
     assert_eq!(store.list_nodes().unwrap().len(), 2);
     assert_eq!(o.created, vec![h]);
+}
+
+/// A read that runs off the lock while the user edits moves nothing, and
+/// the window is told nothing (#594). The head did move, but the user moved
+/// it, and the window has that move already: sending it as the agent's
+/// would put it on the undo path twice. Nor does the `node_id` in the
+/// result count, since it is not a move either.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_users_edit_during_an_off_lock_read_is_not_reported_as_the_agents() {
+    let o = run_turn_with(true, false).await;
+
+    assert!(!o.reading.blocked, "the read did not run off the lock");
+    let user = o.reading.user_edit.expect("the user's edit landed");
+    assert!(o.result.is_ok(), "{:?}", o.result);
+    assert_eq!(o.ended, vec![("t1".to_string(), true)]);
+    assert_eq!(o.runs, 1, "a read is not run again");
+
+    let store = o.store.lock().unwrap();
+    assert_eq!(store.head(), Some(user), "the user's edit is the head");
+    assert_eq!(o.created, Vec::<NodeId>::new());
 }

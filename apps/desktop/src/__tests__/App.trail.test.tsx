@@ -13,9 +13,13 @@
  * writes it, `get_head_trail` reads what was written, and a restart is the
  * app unmounted and mounted again against the same backend, with nothing
  * carried over in the webview.
+ *
+ * And what the path does when the store loses nodes it names (#595): a
+ * compaction deletes history, and undo must not be pointed at it.
  */
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { emit } from "@tauri-apps/api/event";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -67,6 +71,10 @@ const NO_PATH: SavedTrail = { head: null, trail: [], redo: [] };
 class Backend {
   head = START;
   muted = false;
+  /** The nodes the store holds. A compaction removes some (#595). */
+  nodes = new Set([BEFORE_LOAD, START, MUTED]);
+  /** When set, `set_head_to` fails with this, as a rebuild that could not finish does. */
+  headRefusal: string | null = null;
   /** `.audiograph/trail.json`: what `save_head_trail` last wrote. */
   file: SavedTrail = NO_PATH;
   /** Every command the app sent, in order. */
@@ -80,7 +88,12 @@ class Backend {
 
   handle = (cmd: string, args: Args = {}): unknown => {
     this.calls++;
-    if (cmd.startsWith("set_") || cmd.startsWith("get_node") || cmd.endsWith("_head_trail")) {
+    if (
+      cmd.startsWith("set_") ||
+      cmd.startsWith("get_node") ||
+      cmd.endsWith("_head_trail") ||
+      cmd === "get_graph"
+    ) {
       this.sent.push({ cmd, args });
     }
     switch (cmd) {
@@ -88,12 +101,30 @@ class Backend {
         this.muted = args.muted as boolean;
         this.head = this.muted ? MUTED : START;
         return this.head;
-      case "set_head_to":
-        this.head = args.nodeId as string;
+      case "set_head_to": {
+        const id = args.nodeId as string;
+        if (this.headRefusal) return Promise.reject(this.headRefusal);
+        // `Store::set_head` refuses an id with no node file:
+        // `Error::NodeNotFound`, as `CommandError::Session` prints it.
+        if (!this.nodes.has(id)) return Promise.reject(`session error: node not found: ${id}`);
+        this.head = id;
         this.muted = this.head === MUTED;
         return this.head;
+      }
       case "get_node":
         return { id: args.id, parent: args.id === START ? BEFORE_LOAD : null };
+      case "get_graph":
+        // `get_graph`: every node the store lists, and the head.
+        return {
+          nodes: [...this.nodes].map((id) => ({
+            id,
+            parent: id === START ? BEFORE_LOAD : id === MUTED ? START : null,
+            label: null,
+            tool: null,
+            created_at: "2026-10-16T00:00:00Z",
+          })),
+          head: this.head,
+        };
       case "get_session_head":
         return this.head;
       case "get_head_trail":
@@ -162,6 +193,10 @@ class Backend {
   get askedForParents(): number {
     return this.sent.filter((s) => s.cmd === "get_node").length;
   }
+
+  get askedForGraph(): number {
+    return this.sent.filter((s) => s.cmd === "get_graph").length;
+  }
 }
 
 /** Let what the app does next happen. */
@@ -216,6 +251,20 @@ async function mute(pressed: boolean) {
   );
 }
 const undo = () => fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+const redo = () => fireEvent.keyDown(window, { key: "y", ctrlKey: true });
+
+/**
+ * The agent runs `compact_session` with `apply`: the store loses `gone`,
+ * and the window hears the call start and end, as `emit_agent_event` sends
+ * them. The tool makes no node, so there is no `node-created`.
+ */
+async function compact(backend: Backend, gone: string[]) {
+  for (const id of gone) backend.nodes.delete(id);
+  await act(async () => {
+    await emit("agent://tool-call", { name: "compact_session", id: "toolu_compact" });
+    await emit("agent://tool-call-end", { id: "toolu_compact", ok: true });
+  });
+}
 
 beforeEach(() => {
   vi.spyOn(window, "prompt").mockReturnValue("verse");
@@ -375,5 +424,103 @@ describe("saving the path", () => {
     expect(backend.saves[1]).toEqual({ head: MUTED, trail: [START], redo: [START] });
     // Release the second as well, so nothing is left pending.
     backend.saveHeld = null;
+  });
+});
+
+describe("after a compaction removes nodes the path names (#595)", () => {
+  it("undo goes past the removed mute to the state before it, and the saved path drops it", async () => {
+    const backend = new Backend();
+    await open(backend);
+    await mute(true); // MUTED
+    await quiet(backend);
+    await mute(false); // START again, with [START, MUTED] behind it
+    await quiet(backend);
+    expect(backend.file).toEqual({ head: START, trail: [START, MUTED], redo: [] });
+
+    // The mute is off the head's chain, so the compaction deletes it.
+    await compact(backend, [MUTED]);
+    await waitFor(() => expect(backend.file).toEqual({ head: START, trail: [], redo: [] }));
+    await quiet(backend);
+
+    undo();
+    await waitFor(() => expect(backend.undoneTo).toEqual([BEFORE_LOAD]));
+    await quiet(backend);
+    expect(screen.queryByTestId("render-error")).toBeNull();
+  });
+
+  it("undo skips a step the store no longer has, rather than failing on every press", async () => {
+    // A compaction the window did not hear of: run from the CLI, say.
+    const backend = new Backend();
+    await open(backend);
+    await mute(true);
+    await quiet(backend);
+    await mute(false);
+    await quiet(backend);
+    backend.nodes.delete(MUTED);
+
+    undo();
+    // The removed mute is refused, the step goes, and the next one is made.
+    await waitFor(() => expect(backend.undoneTo).toEqual([MUTED, BEFORE_LOAD]));
+    await quiet(backend);
+    expect(backend.head).toBe(BEFORE_LOAD);
+    expect(screen.queryByTestId("render-error")).toBeNull();
+    // The path the window keeps, and saves, no longer names it.
+    expect(backend.file.trail).not.toContain(MUTED);
+    expect(backend.file.redo).not.toContain(MUTED);
+
+    // Redo comes back to START, and undo from there does not try the mute
+    // again.
+    redo();
+    await waitFor(() => expect(backend.undoneTo).toEqual([MUTED, BEFORE_LOAD, START]));
+    await quiet(backend);
+    undo();
+    await waitFor(() =>
+      expect(backend.undoneTo).toEqual([MUTED, BEFORE_LOAD, START, BEFORE_LOAD]),
+    );
+  });
+
+  it("redo skips a removed step too", async () => {
+    const backend = new Backend();
+    await open(backend);
+    await mute(true);
+    await quiet(backend);
+    undo(); // back to START, with the mute to redo
+    await waitFor(() => expect(backend.undoneTo).toEqual([START]));
+    await quiet(backend);
+    backend.nodes.delete(MUTED);
+
+    redo();
+    await waitFor(() => expect(backend.undoneTo).toEqual([START, MUTED]));
+    await quiet(backend);
+    expect(screen.queryByTestId("render-error")).toBeNull();
+    expect(backend.file).toEqual({ head: START, trail: [], redo: [] });
+
+    // Nothing is left to redo: the next press sends nothing.
+    redo();
+    await quiet(backend);
+    expect(backend.undoneTo).toEqual([START, MUTED]);
+  });
+
+  it("a refusal for any other reason is shown, and the step is kept", async () => {
+    const backend = new Backend();
+    await open(backend);
+    await mute(true);
+    await quiet(backend);
+    await mute(false);
+    await quiet(backend);
+    // The node is there, but its audio could not be rebuilt.
+    backend.headRefusal = "could not rebuild take.wav: replay failed";
+
+    undo();
+    await screen.findByTestId("render-error");
+    await quiet(backend);
+    expect(backend.undoneTo).toEqual([MUTED]);
+    expect(backend.file).toEqual({ head: START, trail: [START, MUTED], redo: [] });
+
+    // Once it can be rebuilt, the same step is made.
+    backend.headRefusal = null;
+    undo();
+    await waitFor(() => expect(backend.undoneTo).toEqual([MUTED, MUTED]));
+    expect(backend.head).toBe(MUTED);
   });
 });

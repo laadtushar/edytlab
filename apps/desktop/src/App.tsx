@@ -152,6 +152,7 @@ function App() {
     peekRedo,
     stepBack,
     stepForward,
+    forgetRemoved,
     inOrder,
   } = useSession();
   // The node the history graph is previewing, apart from `head` (#522): a
@@ -336,26 +337,41 @@ function App() {
         // makes, so reading the trail now would undo to where the edit
         // began and skip it.
         const moved = await inOrder(async () => {
-          // Where the user came from, read from the latest state and not
-          // from this render: a key pressed right after an edit must not
-          // undo to where the render before it was (#398).
-          const step = peekUndo();
-          if (!step) return false;
-          // The node's stored parent is right only while no edit has
-          // returned to an earlier state, so it is asked for only when
-          // the trail has nothing left.
-          const to = step.to ?? (await getNode(step.from)).parent;
-          if (!to) return false;
-          await setHeadTo(to);
-          stepBack(step.from, to);
-          return true;
+          // A step to a node the store no longer has is dropped and the
+          // next one tried (#595). A pass that goes round again has taken
+          // the step it tried off the path, so this ends.
+          for (;;) {
+            // Where the user came from, read from the latest state and not
+            // from this render: a key pressed right after an edit must not
+            // undo to where the render before it was (#398).
+            const step = peekUndo();
+            if (!step) return false;
+            // The node's stored parent is right only while no edit has
+            // returned to an earlier state, so it is asked for only when
+            // the trail has nothing left.
+            const to = step.to ?? (await getNode(step.from)).parent;
+            if (!to) return false;
+            try {
+              await setHeadTo(to);
+            } catch (err) {
+              // Refused. If the node is gone, the path has now forgotten
+              // it: try the next step. Whether it is gone is asked of the
+              // store's nodes, not read from the error's text. A stored
+              // parent that is gone is not on the path, so forgetting
+              // cannot take it away, and it is an error like any other.
+              if (step.to !== null && (await forgetRemoved()).includes(to)) continue;
+              throw err;
+            }
+            stepBack(step.from, to);
+            return true;
+          }
         });
         if (moved) await refreshTracks();
       } catch (err) {
         setRenderError(String(err));
       }
     });
-  }, [peekUndo, stepBack, runHeadMove, inOrder]);
+  }, [peekUndo, stepBack, forgetRemoved, runHeadMove, inOrder]);
 
   // Whenever the head moves — an edit, an undo, a project opening — the
   // toggle re-reads the session rather than trusting what it last set.
@@ -395,18 +411,26 @@ function App() {
       try {
         // In line, and read when it is its turn, as undo is (#498).
         const moved = await inOrder(async () => {
-          const step = peekRedo();
-          if (!step) return false;
-          await setHeadTo(step.to);
-          stepForward(step.from, step.to);
-          return true;
+          // A removed step is skipped, as undo skips one (#595).
+          for (;;) {
+            const step = peekRedo();
+            if (!step) return false;
+            try {
+              await setHeadTo(step.to);
+            } catch (err) {
+              if ((await forgetRemoved()).includes(step.to)) continue;
+              throw err;
+            }
+            stepForward(step.from, step.to);
+            return true;
+          }
         });
         if (moved) await refreshTracks();
       } catch (err) {
         setRenderError(String(err));
       }
     });
-  }, [peekRedo, stepForward, runHeadMove, inOrder]);
+  }, [peekRedo, stepForward, forgetRemoved, runHeadMove, inOrder]);
 
   // Window-level keyboard transport. Active whenever the user isn't
   // typing into a chat input / settings field. Space toggles

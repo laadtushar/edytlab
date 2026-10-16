@@ -28,6 +28,10 @@ vi.mock("../lib/tauri-bridge", () => ({
       bridge.nodeCreated = bridge.nodeCreated.filter((c) => c !== cb);
     });
   }),
+  // Compactions are not under test here (`useSession.trail.test.ts`).
+  onToolCall: vi.fn(() => Promise.resolve(() => undefined)),
+  onToolCallEnd: vi.fn(() => Promise.resolve(() => undefined)),
+  getGraph: vi.fn(() => Promise.resolve({ nodes: [], head: null })),
 }));
 
 import { useSession } from "../hooks/useSession";

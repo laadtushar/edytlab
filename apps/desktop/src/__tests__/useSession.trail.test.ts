@@ -19,15 +19,19 @@ import { held } from "./held";
 
 const bridge = vi.hoisted(() => ({
   nodeCreated: [] as ((nodeId: string) => void)[],
+  toolCall: [] as ((name: string, id: string) => void)[],
+  toolCallEnd: [] as ((id: string, ok: boolean) => void)[],
   getSessionHead: vi.fn(),
   getHeadTrail: vi.fn(),
   saveHeadTrail: vi.fn(),
+  getGraph: vi.fn(),
 }));
 
 vi.mock("../lib/tauri-bridge", () => ({
   getSessionHead: bridge.getSessionHead,
   getHeadTrail: bridge.getHeadTrail,
   saveHeadTrail: bridge.saveHeadTrail,
+  getGraph: bridge.getGraph,
   renderPreview: vi.fn(() => Promise.resolve("/tmp/mix.wav")),
   onNodeCreated: vi.fn((cb: (n: string) => void) => {
     bridge.nodeCreated.push(cb);
@@ -35,7 +39,25 @@ vi.mock("../lib/tauri-bridge", () => ({
       bridge.nodeCreated = bridge.nodeCreated.filter((c) => c !== cb);
     });
   }),
+  onToolCall: vi.fn((cb: (name: string, id: string) => void) => {
+    bridge.toolCall.push(cb);
+    return Promise.resolve(() => {
+      bridge.toolCall = bridge.toolCall.filter((c) => c !== cb);
+    });
+  }),
+  onToolCallEnd: vi.fn((cb: (id: string, ok: boolean) => void) => {
+    bridge.toolCallEnd.push(cb);
+    return Promise.resolve(() => {
+      bridge.toolCallEnd = bridge.toolCallEnd.filter((c) => c !== cb);
+    });
+  }),
 }));
+
+/** `get_graph`'s answer for a store holding `ids`. */
+const graphOf = (head: string, ids: string[]) => ({
+  nodes: ids.map((id) => ({ id, parent: null, label: null, tool: null, created_at: "" })),
+  head,
+});
 
 import type { SavedTrail } from "../lib/headTrail";
 import { useSession } from "../hooks/useSession";
@@ -57,9 +79,12 @@ async function mountOnA() {
 
 beforeEach(() => {
   bridge.nodeCreated = [];
+  bridge.toolCall = [];
+  bridge.toolCallEnd = [];
   bridge.getSessionHead.mockReset().mockResolvedValue("A");
   bridge.getHeadTrail.mockReset().mockResolvedValue(nothing);
   bridge.saveHeadTrail.mockReset().mockResolvedValue(undefined);
+  bridge.getGraph.mockReset().mockResolvedValue(graphOf("A", ["A", "M"]));
 });
 
 describe("useSession: the path comes back after a restart", () => {
@@ -335,5 +360,100 @@ describe("useSession: nothing waits for the save", () => {
       trail: ["A", "B", "C"],
       redo: [],
     });
+  });
+});
+
+describe("useSession: a compaction removes nodes the path names (#595)", () => {
+  /** Mute, then unmute: the head is A again, with [A, M] behind it. */
+  async function mutedThenUnmuted() {
+    const hook = await mountOnA();
+    act(() => hook.result.current.setHeadLocal("M"));
+    act(() => hook.result.current.setHeadLocal("A"));
+    await waitFor(() =>
+      expect(bridge.saveHeadTrail).toHaveBeenLastCalledWith({
+        head: "A",
+        trail: ["A", "M"],
+        redo: [],
+      }),
+    );
+    return hook;
+  }
+
+  /** The agent's `compact_session` call starts and ends, as the events say. */
+  async function compactionEnds(ok: boolean, name = "compact_session") {
+    await waitFor(() => expect(bridge.toolCallEnd).toHaveLength(1));
+    act(() => bridge.toolCall.forEach((cb) => cb(name, "toolu_1")));
+    act(() => bridge.toolCallEnd.forEach((cb) => cb("toolu_1", ok)));
+  }
+
+  it("forgetRemoved drops what the store no longer has, saves, and says what it dropped", async () => {
+    const { result } = await mutedThenUnmuted();
+    bridge.getGraph.mockResolvedValue(graphOf("A", ["A"]));
+
+    let dropped: string[] = [];
+    await act(async () => {
+      dropped = await result.current.forgetRemoved();
+    });
+
+    expect(dropped).toEqual(["M"]);
+    expect(result.current.peekUndo()).toEqual({ from: "A", to: null });
+    await waitFor(() =>
+      expect(bridge.saveHeadTrail).toHaveBeenLastCalledWith({ head: "A", trail: [], redo: [] }),
+    );
+  });
+
+  it("forgetRemoved drops nothing, and saves nothing, when the store has every node", async () => {
+    const { result } = await mutedThenUnmuted();
+    const saves = bridge.saveHeadTrail.mock.calls.length;
+
+    let dropped: string[] = ["?"];
+    await act(async () => {
+      dropped = await result.current.forgetRemoved();
+    });
+
+    expect(dropped).toEqual([]);
+    expect(result.current.peekUndo()).toEqual({ from: "A", to: "M" });
+    expect(bridge.saveHeadTrail).toHaveBeenCalledTimes(saves);
+  });
+
+  it.each([
+    ["refuses", () => Promise.reject("no session loaded; call open_project first")],
+    ["answers with something else", () => Promise.resolve(undefined)],
+    ["lists nodes without the head", () => Promise.resolve(graphOf("X", ["X"]))],
+  ])("forgetRemoved drops nothing when the store %s", async (_, answer) => {
+    const { result } = await mutedThenUnmuted();
+    bridge.getGraph.mockImplementation(answer);
+
+    let dropped: string[] = ["?"];
+    await act(async () => {
+      dropped = await result.current.forgetRemoved();
+    });
+
+    expect(dropped).toEqual([]);
+    expect(result.current.peekUndo()).toEqual({ from: "A", to: "M" });
+  });
+
+  it("forgets the removed steps when the agent's compaction ends", async () => {
+    const { result } = await mutedThenUnmuted();
+    bridge.getGraph.mockResolvedValue(graphOf("A", ["A"]));
+
+    await compactionEnds(true);
+
+    await waitFor(() => expect(result.current.peekUndo()).toEqual({ from: "A", to: null }));
+    await waitFor(() =>
+      expect(bridge.saveHeadTrail).toHaveBeenLastCalledWith({ head: "A", trail: [], redo: [] }),
+    );
+  });
+
+  it("asks nothing for another tool, or a compaction that failed", async () => {
+    await mutedThenUnmuted();
+
+    await compactionEnds(true, "storage_report");
+    await compactionEnds(false);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(bridge.getGraph).not.toHaveBeenCalled();
   });
 });
