@@ -277,7 +277,7 @@ src/
 ├── live_stores.rs # The stores that are alive, by project folder (#534)
 ├── main.rs        # Entry point
 ├── mcp_tool.rs    # Wraps MCP server tools as `tools::Tool`
-├── project.rs     # Project metadata, view state, recents
+├── project.rs     # Project metadata, view state, recents, Save As's copy
 ├── reclaimer.rs   # Background cap on a project's derived audio
 └── state.rs       # AppState
 ```

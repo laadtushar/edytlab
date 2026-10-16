@@ -26,6 +26,10 @@
 //!   `.audiograph/derived/` and nothing else, so a recording the user
 //!   loaded survives the history that named it, and so do clipboard
 //!   blobs and cached previews.
+//! * **Not while the project's files are in use off the lock** (rule 0
+//!   in [`crate::reclaim`]): while a tool runs off the store's lock, or
+//!   Save As copies the project (#571), applying is refused and nothing
+//!   changes. The dry run still reports.
 
 use serde::Deserialize;
 use serde_json::{json, Value};

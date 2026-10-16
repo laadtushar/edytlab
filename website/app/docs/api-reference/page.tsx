@@ -26,7 +26,7 @@ const commands = [
       {
         name: "saveProjectAs(dest)",
         returns: "CopyReport",
-        desc: "Copy the open project to dest and carry on in the copy. Refuses a dest that exists and is not empty, and a copy that fails part way leaves dest for inspection. Resolves with { files, bytes, dest }.",
+        desc: "Copy the open project to dest and carry on in the copy. The copy is the project at the moment of the click, history and audio together, whatever the assistant commits while it is made, and the audio is copied without holding up other commands. Cached previews and auditions are left behind, since they rebuild. Refuses a dest that exists and is not empty; a copy that fails part way, or is missing what its head needs, is an error and leaves dest for inspection. Resolves with { files, bytes, skipped_cache_files }.",
       },
       {
         name: "getProjectMeta()",

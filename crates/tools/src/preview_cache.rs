@@ -81,6 +81,23 @@ pub const STALE_STAGING: Duration = Duration::from_secs(60 * 60);
 /// a cap measured in kilobytes instead of writing a gigabyte of audio.
 pub const CAP_ENV: &str = "EDYTLAB_PREVIEW_CACHE_BYTES";
 
+/// Every cache folder under `.audiograph/`, by name: the folders that hold
+/// only renders the app makes again on demand, so losing one costs a render
+/// and nothing else (#576).
+///
+/// The one list of them. Save As leaves these folders out of the copy (and
+/// only these, and only directly under `.audiograph/`: a folder of the same
+/// name anywhere else is someone's own), and the window's asset scope grants
+/// each by name, as it has to for a folder inside `.audiograph/` (#402). A
+/// [`PreviewCache`] is made in one of them ([`PreviewCache::in_dir`] checks,
+/// in a debug build), so a new cache is added here, and Save As and the
+/// asset scope follow without a change of their own.
+///
+/// `derived/` is not on it, though some of its files rebuild: it is the
+/// project's own audio, and a node that no replay can make again has no
+/// other copy of what it plays.
+pub const CACHE_DIRS: [&str; 2] = [CACHE_DIR, crate::tool::audition::AUDITION_DIR];
+
 /// Whether a lookup rendered or reused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Hit {
@@ -115,7 +132,14 @@ impl PreviewCache {
     /// like previews are, and want the same bounded LRU behaviour, but
     /// they are excerpts rather than whole mixes and must never be
     /// served in place of one.
+    ///
+    /// `subdir` is one of [`CACHE_DIRS`]: a cache folder not on that list
+    /// would go into every Save As copy and be out of the webview's reach.
     pub fn in_dir(project_dir: &Path, subdir: &str) -> Self {
+        debug_assert!(
+            CACHE_DIRS.contains(&subdir),
+            "`{subdir}` is not in CACHE_DIRS: add it there"
+        );
         Self {
             dir: project_dir.join(session::STORE_DIR).join(subdir),
             cap_bytes: cap_from_env(),
