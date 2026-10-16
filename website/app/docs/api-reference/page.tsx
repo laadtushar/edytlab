@@ -506,6 +506,16 @@ const commands = [
     ],
   },
   {
+    group: "ONNX Runtime",
+    items: [
+      {
+        name: "mlRuntimeStatus()",
+        returns: "MlRuntimeStatus",
+        desc: "Which ONNX Runtime library the app found and its version, for the line in Settings. It loads the library if it has not been, off the main thread, and a library that is missing, broken, or unusable because this macOS is too old for it is a status, never a hang. state is found (version, path, and source: bundled, environment or executable), missing (the places searched), unsupportedOs (macOS older than the library's 13.4) or loadFailed (path, reason). This build ships no runtime yet, so it answers missing; a loaded library does not mean stem separation or transcription run.",
+      },
+    ],
+  },
+  {
     group: "Templates",
     items: [
       {
@@ -723,6 +733,11 @@ interface TrackSummary { id: string; name: string; muted: boolean; gain_db: numb
 interface RenderWarning { scope: { type: "track"; index: number; name: string } | { type: "bus"; name: string } | { type: "master" }; effect_index: number; kind: string; reason: "not_yet_streamable" | "unknown" }
 interface ModelInfo    { id: string; display_name: string; context_length: number | null }
 interface ModelCatalogue { models: ModelInfo[]; source: "live" | "fallback"; notice: string | null }
+type MlRuntimeStatus =
+  | { state: "found"; version: string; path: string; source: "bundled" | "environment" | "executable" }
+  | { state: "missing"; searched: string[] }
+  | { state: "unsupportedOs"; needs: string; running: string }
+  | { state: "loadFailed"; path: string | null; reason: string };
 interface Marker       { id: string; name: string; kind: "marker" | "region"; time_sec?: number; start_sec?: number; end_sec?: number }`}</code>
       </pre>
     </DocShell>

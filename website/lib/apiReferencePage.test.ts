@@ -86,7 +86,7 @@ function documentedCommands(): string[] {
 describe("the API reference page", () => {
   it("is being read by this test at all", () => {
     // A regex that stopped matching would leave the "no stale row" check
-    // below with nothing to look at, and pass. There are 92 commands today;
+    // below with nothing to look at, and pass. There are 93 commands today;
     // a page with fewer than half of them has other problems, which the
     // next test names.
     expect(registeredCommands().length).toBeGreaterThan(80);

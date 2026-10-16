@@ -488,6 +488,16 @@ export default function UserGuidePage() {
         answers, which is slower and uses more tokens; Default leaves it to the
         model. Other providers do not have the setting.
       </p>
+      <p>
+        At the foot of Settings → Account, one line names the{" "}
+        <strong>ONNX Runtime</strong> library the app found, for example{" "}
+        <code>ONNX Runtime: 1.23.2 (bundled)</code>, with the file and the
+        places it looked below it. It says{" "}
+        <code>not installed in this build</code> when there is none, or why the
+        one it found cannot be used, such as a macOS older than 13.4. It is a
+        status line: it installs nothing, and it does not mean that any
+        on-device audio model is available.
+      </p>
     </DocShell>
   );
 }

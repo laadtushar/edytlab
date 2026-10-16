@@ -30,17 +30,22 @@
 //! ## Runtime requirements
 //!
 //! `ort` is configured with `load-dynamic`, so the process needs an ONNX
-//! Runtime library to load: the file `ORT_DYLIB_PATH` names, or
-//! `libonnxruntime.{so,dylib}` / `onnxruntime.dll` next to the
-//! executable. Nothing ships that library yet (#383).
+//! Runtime library to load: the file `ORT_DYLIB_PATH` names, then
+//! `libonnxruntime.{so,dylib}` / `onnxruntime.dll` in the directory the app
+//! registers for its installer's layout ([`runtime::set_bundle_dir`]:
+//! `Contents/Frameworks` on macOS, Tauri's resource directory on Linux),
+//! then next to the executable (where the Windows installer puts it).
+//! The app finds the library there, but no installer carries it yet (#383).
+//! [`runtime::info`] reports which file loaded and its version.
 //!
 //! Left alone, `ort` **panics** when it cannot load the library (and, with
 //! no path given, searches the system for it by bare name); in 2.0.0-rc.12
 //! it deadlocked instead. So every caller that builds an `ort` session
 //! goes through [`runtime::ensure`] first, which turns a missing or
 //! unloadable library into [`Error::MissingRuntime`] /
-//! [`Error::RuntimeLoad`]. See the [`runtime`] module for why that
-//! matters. Tests that build real sessions are `#[ignore]`d — see
+//! [`Error::RuntimeLoad`], and, on a macOS older than the runtime's minimum,
+//! into [`Error::RuntimeUnsupported`] before the library is opened. See the
+//! [`runtime`] module for why that matters. Tests that build real sessions are `#[ignore]`d — see
 //! `tests/cache_smoke.rs`.
 
 use std::io;
@@ -105,6 +110,18 @@ pub enum Error {
     /// fails is reported, never skipped in favour of another one.
     #[error("ONNX Runtime at {} could not be loaded: {reason}", .path.display())]
     RuntimeLoad { path: PathBuf, reason: String },
+
+    /// A library file was found, but this macOS is older than the
+    /// runtime's minimum, so it was not opened. dyld reports that only
+    /// late, as a symbol error that happens to mention the minimum; the
+    /// check is made before the file is opened (see "The macOS minimum" in
+    /// the [`runtime`] module). `needs` is the manifest's `min_macos`
+    /// (`13.4`) and `running` what `kern.osproductversion` reports.
+    ///
+    /// The message states the fact and offers no remedy, as
+    /// [`Error::MissingRuntime`]'s does.
+    #[error("ONNX Runtime needs macOS {needs} or newer; this Mac is running macOS {running}")]
+    RuntimeUnsupported { needs: String, running: String },
 
     /// A model file could not be downloaded: the network failed, the
     /// connection closed early, or the server answered with an error

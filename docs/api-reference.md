@@ -49,6 +49,7 @@ unlisten();
 - [Templates](#templates)
 - [Plugins](#plugins)
 - [Capabilities](#capabilities)
+- [ONNX Runtime](#onnx-runtime)
 - [Skills (CRUD)](#skills-crud)
 - [Agent Profiles (CRUD)](#agent-profiles-crud)
 - [Memory](#memory)
@@ -1131,6 +1132,45 @@ interface CapabilityDescriptor {
 
 ---
 
+## ONNX Runtime
+
+### `mlRuntimeStatus() → MlRuntimeStatus`
+
+Which ONNX Runtime library the app found, and its version. Settings shows it as
+one line: "ONNX Runtime: 1.23.2 (bundled)", "ONNX Runtime: not installed in this
+build", or the reason the library it found cannot be used.
+
+It loads the library if it has not been loaded: it opens the file by absolute
+path, makes the checks `ort` makes, and hands it to `ort` once. That is file and
+library work, so the command runs it on the blocking pool, and a library that
+is missing, broken, or cannot be used because this macOS is too old for it is a
+status, never a panic or a hang. It looks in
+`ORT_DYLIB_PATH`, then the directory the installer puts the library in
+(`Contents/Frameworks` on macOS, Tauri's resource directory on Linux), then next
+to the executable (where the Windows installer puts it).
+
+**Returns:**
+```typescript
+type MlRuntimeStatus =
+  | { state: "found"; version: string; path: string;
+      source: "bundled" | "environment" | "executable" }
+  | { state: "missing"; searched: string[] }            // every place it looked
+  | { state: "unsupportedOs"; needs: string; running: string } // macOS older than 13.4
+  | { state: "loadFailed"; path: string | null; reason: string };
+
+const status = await bridge.mlRuntimeStatus();
+```
+
+`source` says where the library came from: `bundled` is the installer's copy,
+`environment` the file `ORT_DYLIB_PATH` names, `executable` one left beside the
+executable on macOS or Linux (a development build).
+
+No installer carries the library yet (#383), so a release build answers
+`missing`. A library that loads is not stem separation or transcription, which
+this build does not ship (#384, #385).
+
+---
+
 ## Skills (CRUD)
 
 ### `listSkills() → SkillSummary[]`
@@ -1419,6 +1459,12 @@ interface KeychainPersistence {
   persistent: boolean;      // false: Linux with no Secret Service, kept until reboot only
   reason: string | null;    // why the Secret Service could not be used
 }
+
+type MlRuntimeStatus =
+  | { state: "found"; version: string; path: string; source: "bundled" | "environment" | "executable" }
+  | { state: "missing"; searched: string[] }
+  | { state: "unsupportedOs"; needs: string; running: string }
+  | { state: "loadFailed"; path: string | null; reason: string };
 
 interface ProjectInfo {
   path: string;
