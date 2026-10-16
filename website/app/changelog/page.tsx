@@ -47,6 +47,7 @@ const entries: Entry[] = [
       "With Plan first on, a held recipe or batch shows the edits it will run. The card showed only the recipe's file path; it now lists each step in order, and says so when the recipe cannot be read.",
       "Keychain problems are reported instead of hidden. On Linux, a key saved after the Secret Service went away lasts only until restart, and Settings now says so before it closes; a key saved while the service was briefly away is no longer replaced by an older copy when it comes back. After you decline to unlock the keyring at launch, the app asks nothing more until you save in Settings, Save leaves your chosen model alone instead of writing the default over it, and the chat says why there is no assistant.",
       "The app looks like the website: violet on zinc instead of amber, the edytlab wordmark, and small motions on buttons, cards, banners and messages. Motion is off when your system asks for reduced motion.",
+      "The library behind the app's secure connections (rustls) is updated past four published security advisories.",
       "Stem separation and transcription are still not shipped.",
     ],
   },
