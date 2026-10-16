@@ -466,7 +466,7 @@ export const octoberPosts: BlogPost[] = [
       },
       {
         type: "p",
-        text: "Audio the current version needs is never touched, and neither is audio nothing can rebuild. `storage_report` shows where the space goes, split three ways: what the current version needs, what only undo history holds, and what nothing refers to. `compact_session` is the blunt tool: it prunes old history and deletes the audio only that history used, which drops the undo steps permanently. Ask for the report first.",
+        text: "Audio the current version needs is never touched, and neither is audio nothing can rebuild. `storage_report` shows where the space goes, split three ways: what the current version needs, what only undo history holds, and what nothing refers to. `compact_session` is the blunt tool: it prunes old history and deletes the audio only that history used, which drops the undo steps permanently. Ask for the report first. Update to v0.6.0 before you use it: from v0.6.0 it deletes only audio the project made, inside its own folder, so a file you loaded loses the undo steps that named it and never the file itself. Earlier versions could delete a recording you had loaded once the versions that used it were pruned.",
       },
       {
         type: "callout",

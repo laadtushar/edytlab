@@ -37,12 +37,35 @@ export default function UserGuidePage() {
           the tool that created it, and its timestamp.
         </li>
         <li>
-          <strong>Revert to any node</strong> — click a node in the graph and
-          select "Set as head" to jump back to that state.
+          <strong>Preview a version</strong> — click a node in the graph to
+          render that version&apos;s mix and play it. The node gets a dashed
+          outline and your place in the history does not move: the next edit
+          or undo starts from where you were, not from the node you
+          previewed.
+        </li>
+        <li>
+          <strong>Revert to any node</strong> — right-click a node in the graph
+          and choose "Set as head" to jump back to that state. Undo brings you
+          back.
         </li>
         <li>
           <strong>Fork</strong> — branch from any node to explore a different
           edit direction without losing your current work.
+        </li>
+        <li>
+          <strong>Undo and redo</strong> — <code>Ctrl/Cmd+Z</code> and{" "}
+          <code>Ctrl/Cmd+Shift+Z</code> retrace the steps you took, the
+          agent&apos;s edits included. The path is saved with the project, so
+          undo still works after you quit and reopen edytlab.
+        </li>
+        <li>
+          <strong>Compact history</strong> — a long session can use a lot of
+          disk. Ask <code>this project is huge — reclaim some disk</code> and
+          the agent first reports what it would remove, then, if you confirm,
+          deletes old undo steps for good together with the audio the project
+          made for them inside its own folder. A file you loaded is never
+          deleted, only the undo steps that named it. The most recent steps
+          are kept, so ordinary undo keeps working.
         </li>
       </ul>
 
@@ -285,7 +308,8 @@ export default function UserGuidePage() {
         <li>
           Ask the agent:{" "}
           <code>compare the current version with the one before the reverb</code>,
-          or use the Graph view to select two nodes and click "Compare".
+          or right-click a node in the Graph view and choose "Compare with…"
+          to compare it, as B, with the current version.
         </li>
         <li>
           The A/B compare bar appears at the top. Toggle between A and B to hear
@@ -293,7 +317,8 @@ export default function UserGuidePage() {
         </li>
         <li>
           Click <strong>Accept B</strong> to make the B node the new session
-          head, or <strong>Dismiss</strong> to keep the current head.
+          head, or close the bar (<strong>×</strong>) to keep the current
+          head.
         </li>
       </ol>
 

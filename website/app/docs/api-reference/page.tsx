@@ -576,7 +576,7 @@ const events = [
   {
     name: "onNodeCreated(cb)",
     payload: "nodeId: string",
-    desc: "New DAG node appended. Refresh the graph view and track list.",
+    desc: "An agent tool call moved the session's head: to a new node, or to one already in the graph (revert_to, fork_node). nodeId is the head the session is on after the call, not a node_id from the tool's result, and it is sent once per call that moved it, even one that then failed. A call that leaves the head where it was (name_node, a read) sends nothing. Refresh the graph view and track list.",
   },
   {
     name: "onAgentDone(cb)",
