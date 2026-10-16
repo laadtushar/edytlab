@@ -1,5 +1,6 @@
-//! `edytlab --ml-runtime-status` prints the answer Settings' runtime line
-//! shows, as one line of JSON, and exits without opening a window (#383).
+//! `edytlab-desktop --ml-runtime-status` prints the answer Settings'
+//! runtime line shows, as one line of JSON, and exits without opening a
+//! window (#383).
 //!
 //! The release workflows run it against every unpacked installer
 //! (`scripts/installer-ml-runtime.py check`): the app binary, in the

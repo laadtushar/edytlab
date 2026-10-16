@@ -83,11 +83,11 @@ fn register_ml_runtime_bundle(resource_dir: Option<&std::path::Path>) {
 /// writes nothing else.
 pub const ML_RUNTIME_STATUS_ARG: &str = "--ml-runtime-status";
 
-/// `edytlab --ml-runtime-status`: see [`ML_RUNTIME_STATUS_ARG`]. Registers
-/// the bundle directory as `setup` would, from Tauri's own resource-directory
-/// rule, and answers on this thread, before any runtime or window exists.
-/// Returns the process's exit code: 0 once the answer is written, whatever
-/// it says, and 1 if it could not be written.
+/// `edytlab-desktop --ml-runtime-status`: see [`ML_RUNTIME_STATUS_ARG`].
+/// Registers the bundle directory as `setup` would, from Tauri's own
+/// resource-directory rule, and answers on this thread, before any runtime
+/// or window exists. Returns the process's exit code: 0 once the answer is
+/// written, whatever it says, and 1 if it could not be written.
 fn print_ml_runtime_status(package_info: &tauri::PackageInfo) -> i32 {
     use std::io::Write;
 

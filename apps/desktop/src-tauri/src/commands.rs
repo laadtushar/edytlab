@@ -1235,8 +1235,8 @@ pub async fn ml_runtime_status() -> CmdResult<MlRuntimeStatusDto> {
 
 /// [`ml_runtime_status`]'s answer, worked out on the calling thread, which
 /// it blocks while the library loads. The command runs it on the blocking
-/// pool; `edytlab --ml-runtime-status` runs it before any window exists
-/// (`crate::print_ml_runtime_status`).
+/// pool; `edytlab-desktop --ml-runtime-status` runs it before any window
+/// exists (`crate::print_ml_runtime_status`).
 pub fn ml_runtime_status_now() -> MlRuntimeStatusDto {
     ml_runtime_status_dto(ml_pipeline::runtime::info())
 }

@@ -167,8 +167,9 @@ export type MlRuntimeSource = "bundled" | "environment" | "executable";
 
 /**
  * The answer of {@link mlRuntimeStatus}, tagged by `state`. Each is an
- * answer, not a failure: `missing` is what every release build says until
- * the installers carry the runtime (#383).
+ * answer, not a failure: `missing` is what a build from source says, and
+ * every release up to v0.6.0; the installers after it carry the runtime
+ * and say `found`, `bundled` (#383).
  *
  * - `found`: a library was checked and loaded; `version` is what it reports.
  * - `missing`: none exists at any place the loader looks (`searched`).

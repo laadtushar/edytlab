@@ -114,9 +114,10 @@ function providerCommands(): Backend {
     // does one that refused at launch, without being asked.
     get_effort_for: ok(null),
     // `ml_runtime_status_dto(ml_pipeline::runtime::info())`, which the
-    // panel's Account tab asks for (the first-run card does not). No
-    // installer carries the ONNX Runtime library yet (#383) and the e2e
-    // run sets no `ORT_DYLIB_PATH`, so `runtime::info` is
+    // panel's Account tab asks for (the first-run card does not). The
+    // answer here is a build without the ONNX Runtime library (one from
+    // source, or a release up to v0.6.0; the installers after it carry
+    // it, #383) and no `ORT_DYLIB_PATH`, so `runtime::info` is
     // `Error::MissingRuntime { searched }`, which the DTO maps to
     // `state: "missing"` with the places `candidate_paths()` listed, as
     // strings: here a deb install's resource directory and then its

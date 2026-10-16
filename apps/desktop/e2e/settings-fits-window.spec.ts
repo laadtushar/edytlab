@@ -250,8 +250,9 @@ for (const win of WINDOWS) {
 
       // The ONNX Runtime line at the foot of the Account tab (#383): it is
       // in the scrolling body, so it is scrolled to, and it fits the window
-      // there. Until the installers carry the library the line says so,
-      // and nothing about what the library is for.
+      // there. The fake backend answers as a build without the library
+      // does, and the line says so, and nothing about what the library is
+      // for.
       const runtime = page.getByTestId("settings-ml-runtime");
       await runtime.scrollIntoViewIfNeeded();
       await expect(runtime).toHaveText("ONNX Runtime: not installed in this build");

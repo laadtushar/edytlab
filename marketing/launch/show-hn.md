@@ -68,8 +68,8 @@ telemetry. The website, which is separate, uses Vercel's anonymous analytics
 **What does not work yet.** I would rather say it here than have you find it:
 
 - No stem separation and no transcription. Both are registered as tools and both
-  return an error today; the ONNX Runtime is not shipped, no model is
-  downloaded, and the inference is not built (#383, #384, #385). That also means transcript-based editing (cut words,
+  return an error today; the installers now carry the ONNX Runtime, but no
+  model is downloaded and the inference is not built (#383, #384, #385). That also means transcript-based editing (cut words,
   remove fillers) does not work end to end. Nothing in the app or the docs
   should suggest otherwise; if you find a place that does, that is a bug.
 - Builds are unsigned. macOS needs one `xattr` command after you drag the app

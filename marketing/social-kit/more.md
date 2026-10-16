@@ -327,7 +327,7 @@ How it's built:
 
 What doesn't work, so you don't have to find it:
 
-- No stem separation and no transcription. Both tools are registered and both return an error today; the ONNX Runtime isn't shipped, no model is downloaded, and the inference isn't built (#383, #384, #385). That also means transcript-based editing doesn't work end to end.
+- No stem separation and no transcription. Both tools are registered and both return an error today; the installers now carry the ONNX Runtime, but no model is downloaded and the inference isn't built (#383, #384, #385). That also means transcript-based editing doesn't work end to end.
 - The installers are unsigned (#386). macOS needs one xattr command after you drag the app to Applications, and Windows shows a SmartScreen warning. The release notes have the steps.
 - It's an offline editor for files. It isn't a live DJ tool or a DAW: no MIDI, no plugin hosting. Only five effects (gain, the limiter and three filters) can sit live on a track, a bus or the master bus; reverb, EQ or a compressor is baked into the track's audio instead.
 - Local models: in v0.4.0 the first request was about 15,000 tokens in my one measurement (#395), and a model with an 8,192-token context refused it. Since v0.5.0 Ollama gets a smaller tool set (about 8.7 KB of request text for a one-line message, against about 66 KB with every tool; bytes, not tokens). I haven't re-run that model on it, and I haven't run a local model through a full job; the recordings used a hosted model.

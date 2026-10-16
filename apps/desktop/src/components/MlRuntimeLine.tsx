@@ -2,8 +2,9 @@
  * One line in Settings: which ONNX Runtime library the app found (#383).
  *
  * "ONNX Runtime: 1.23.2 (bundled)", "ONNX Runtime: not installed in this
- * build", or the reason the one it found cannot be used. Until the
- * installers carry the library, a release build answers the second.
+ * build", or the reason the one it found cannot be used. A release
+ * installer after v0.6.0 answers the first (#383); a build from source, or
+ * an older release, the second.
  *
  * The status is asked for once, when the line mounts. The backend loads the
  * library to answer, off the main thread, and a missing or broken one is an

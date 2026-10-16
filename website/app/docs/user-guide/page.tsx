@@ -494,9 +494,20 @@ export default function UserGuidePage() {
         <code>ONNX Runtime: 1.23.2 (bundled)</code>, with the file and the
         places it looked below it. It says{" "}
         <code>not installed in this build</code> when there is none, or why the
-        one it found cannot be used, such as a macOS older than 13.4. It is a
-        status line: it installs nothing, and it does not mean that any
+        one it found cannot be used, such as a macOS older than 13.4. The
+        installers of every release after v0.6.0 carry ONNX Runtime 1.23.2, so
+        an installed app says <code>bundled</code>; v0.6.0 and earlier, and a
+        build from source, say <code>not installed in this build</code>. It is
+        a status line: it installs nothing, and it does not mean that any
         on-device audio model is available.
+      </p>
+      <p>
+        The runtime&rsquo;s licence and third-party notices are installed with
+        it, in <code>licenses/onnxruntime/</code>: inside{" "}
+        <code>edytlab.app/Contents/Resources</code> on macOS, in{" "}
+        <code>/usr/lib/edytlab</code> on Linux, and in the install folder on
+        Windows, which also has the Visual C++ runtime the library needs and
+        its notice in <code>licenses/vc-runtime/</code>.
       </p>
     </DocShell>
   );

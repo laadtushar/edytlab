@@ -169,8 +169,10 @@ jobs:
       # and never reaches the test.
       #
       # One Linux leg: it checks that the pinned runtime and the `ort`
-      # binding agree. The macOS and Windows libraries are not run here;
-      # the installers will carry their own checks (#383).
+      # binding agree. The macOS and Windows libraries are not run here:
+      # the release workflows check every installer, including the app
+      # binary loading the library it carries
+      # (scripts/installer-ml-runtime.py, #383).
       #
       # The cache holds the unpacked library (22 MB) under a key made from
       # the manifest, so a changed pin misses it. The script runs either
