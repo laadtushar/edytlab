@@ -10,12 +10,14 @@
 # its size and SHA-256, and unpacks into <outdir> only the library, renamed to
 # the name the app loads (libonnxruntime.so, onnxruntime.dll or
 # libonnxruntime.dylib), and the licence notices the manifest lists. Nothing
-# else in the archive is written (the Windows one holds a 378 MB .pdb).
+# else in the archive is written (the Windows one holds a 378 MB .pdb). The
+# unpacked library must match the manifest's `library_sha256` too, the digest
+# the per-installer check (scripts/installer-ml-runtime.py) looks for.
 #
 # It exits non-zero, and leaves nothing in <outdir>, on a failed download, a
-# size or digest that is not the manifest's, or an archive without the
-# library. On success it prints the library's absolute path, and only that, on
-# stdout:
+# size or digest that is not the manifest's, an archive without the library,
+# or a library whose digest is not `library_sha256`. On success it prints the
+# library's absolute path, and only that, on stdout:
 #
 #   export ORT_DYLIB_PATH="$(scripts/fetch-ml-runtime.sh linux-x64 ml-runtime/linux-x64)"
 #
@@ -23,7 +25,8 @@
 # nothing, so CI can restore <outdir> from a cache keyed on the manifest's hash
 # and still run the script to confirm what it restored. It records the
 # archive's digest and the library's own in <outdir>/.fetched, and a changed
-# manifest or a library that no longer matches fetches again.
+# manifest or a library that no longer matches `library_sha256` fetches
+# again.
 #
 # Needs bash, curl, python3 (or python), and sha256sum or shasum. Python reads
 # the manifest and does the unpacking, so the same code handles the .tgz and
@@ -146,7 +149,7 @@ def extract(manifest, platform, archive, stage):
 command = sys.argv[1]
 if command == "fields":
     _, p = entry(sys.argv[2], sys.argv[3])
-    print("\t".join([p["url"], p["sha256"], str(p["size"]), bare(p["install_as"])]))
+    print("\t".join([p["url"], p["sha256"], str(p["size"]), bare(p["install_as"]), p["library_sha256"]]))
 elif command == "notices":
     data, _ = entry(sys.argv[2], sys.argv[3])
     print("\n".join(bare(n) for n in data["notices"]))
@@ -158,7 +161,7 @@ PY
 
 # The `tr` drops the carriage return Python writes on Windows.
 fields=$("$py" -I -c "$PYSRC" fields "$manifest" "$platform" | tr -d '\r')
-IFS=$'\t' read -r url sha256 size install_as <<<"$fields"
+IFS=$'\t' read -r url sha256 size install_as library_sha256 <<<"$fields"
 notices=$("$py" -I -c "$PYSRC" notices "$manifest" "$platform" | tr -d '\r')
 
 mkdir -p "$outdir"
@@ -172,7 +175,7 @@ complete() {
   while IFS= read -r name; do
     [[ -f $outdir/$name ]] || return 1
   done <<<"$notices"
-  [[ $(cat "$stamp") == "$sha256 $(sha256_of "$library")" ]]
+  [[ $(cat "$stamp") == "$sha256 $library_sha256" && $(sha256_of "$library") == "$library_sha256" ]]
 }
 
 if complete; then
@@ -198,13 +201,16 @@ actual_sha=$(sha256_of "$archive")
 stage="$work/stage"
 mkdir "$stage"
 "$py" -I -c "$PYSRC" extract "$manifest" "$platform" "$archive" "$stage"
+actual_library_sha=$(sha256_of "$stage/$install_as")
+[[ $actual_library_sha == "$library_sha256" ]] ||
+  die "sha256 mismatch for $install_as unpacked from $url: got $actual_library_sha, the manifest says $library_sha256. Nothing was unpacked."
 
 # Only a verified archive's files reach <outdir>, and the stamp goes last.
 rm -f "$stamp"
 for file in "$stage"/*; do
   mv -f "$file" "$outdir/"
 done
-echo "$sha256 $(sha256_of "$library")" >"$stamp"
+echo "$sha256 $library_sha256" >"$stamp"
 
 echo "fetch-ml-runtime: installed $install_as ($(wc -c <"$library" | tr -d '[:space:]') bytes) and $(echo "$notices" | tr '\n' ' ')into $outdir" >&2
 echo "$library"

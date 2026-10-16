@@ -2,9 +2,11 @@
 //!
 //! That file is the one place the pinned ONNX Runtime is written down:
 //! its version, and for each platform the archive to fetch, its size and
-//! SHA-256, and which file inside it is the library.
+//! SHA-256, which file inside it is the library and that file's own
+//! SHA-256, and on Windows the Visual C++ runtime DLLs it needs.
 //! `scripts/fetch-ml-runtime.sh` downloads from it and CI caches on its
-//! hash, and the release workflows will bundle what it fetches. A typo in
+//! hash, and the release workflows bundle what it fetches and check each
+//! installer against it (`scripts/installer-ml-runtime.py`). A typo in
 //! it would only show when something downloads from a mangled URL or
 //! compares against a digest that cannot match, so this checks its shape
 //! on every `cargo test`, with no network: the URLs point at Microsoft's
@@ -12,7 +14,8 @@
 //! installed names are the ones `runtime::ensure` looks for.
 //!
 //! It cannot check that a digest is *right*. The fetch script does that,
-//! against the real archive, and the Linux CI job runs it.
+//! against the real archive, and the Linux CI job and every release leg
+//! run it.
 
 use std::path::Path;
 
@@ -33,6 +36,13 @@ fn manifest() -> Value {
         .unwrap_or_else(|e| panic!("cannot read the runtime manifest {}: {e}", path.display()));
     serde_json::from_str(&text)
         .unwrap_or_else(|e| panic!("the runtime manifest {} is not JSON: {e}", path.display()))
+}
+
+fn is_sha256(digest: &str) -> bool {
+    digest.len() == 64
+        && digest
+            .chars()
+            .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
 }
 
 fn text<'a>(value: &'a Value, key: &str, what: &str) -> &'a str {
@@ -138,13 +148,20 @@ fn every_platform_is_pinned_to_the_release_download_for_the_version() {
             "{name}: the asset {file} should be a {extension} archive"
         );
 
-        let sha256 = text(p, "sha256", &what);
-        assert!(
-            sha256.len() == 64
-                && sha256
-                    .chars()
-                    .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c)),
-            "{name}: `sha256` must be 64 lowercase hex characters, got {sha256:?}"
+        // The archive's digest, and the unpacked library's own: the fetch
+        // script checks both, and the per-installer check finds the second
+        // in every installer (#383).
+        for key in ["sha256", "library_sha256"] {
+            let digest = text(p, key, &what);
+            assert!(
+                is_sha256(digest),
+                "{name}: `{key}` must be 64 lowercase hex characters, got {digest:?}"
+            );
+        }
+        assert_ne!(
+            text(p, "sha256", &what),
+            text(p, "library_sha256", &what),
+            "{name}: `library_sha256` is the unpacked library's digest, not the archive's"
         );
 
         let size = p
@@ -217,4 +234,67 @@ fn the_name_for_this_platform_is_the_one_the_gate_looks_for() {
         "`runtime::ensure` looks for this name next to the executable, so an installer has to \
          put the library there under it"
     );
+}
+
+/// The Windows library imports the Visual C++ runtime (`msvcp140.dll`,
+/// `msvcp140_1.dll`, `vcruntime140.dll`, `vcruntime140_1.dll`), and the app
+/// links its own C runtime statically, so nothing on a clean Windows
+/// provides them: the installers put them beside the library, and the
+/// runtime gate looks for them there and in `System32` only. The manifest
+/// names them, and the oldest version the library runs on, for
+/// `scripts/installer-ml-runtime.py` to stage and check. No other platform
+/// has such a list.
+#[test]
+fn the_windows_library_lists_the_visual_cpp_runtime_it_needs() {
+    let m = manifest();
+    let platforms = m["platforms"]
+        .as_object()
+        .expect("the manifest needs a `platforms` object");
+    for (name, p) in platforms {
+        if name != "win-x64" {
+            assert!(
+                p.get("vc_runtime").is_none(),
+                "{name}: only the Windows library needs the Visual C++ runtime"
+            );
+        }
+    }
+
+    let vc = &m["platforms"]["win-x64"]["vc_runtime"];
+    let min = text(vc, "min_version", "win-x64 `vc_runtime`");
+    let parts: Vec<u32> = min
+        .split('.')
+        .map(|p| {
+            p.parse()
+                .unwrap_or_else(|_| panic!("`min_version` must be MAJOR.MINOR, got {min:?}"))
+        })
+        .collect();
+    assert!(
+        parts.len() == 2 && parts[0] == 14 && parts[1] >= 40,
+        "`min_version` is a Visual C++ 2015-2022 runtime version, 14.40 or newer \
+         (ONNX Runtime 1.23 crashes on an older msvcp140.dll), got {min:?}"
+    );
+
+    let files: Vec<&str> = vc["files"]
+        .as_array()
+        .expect("win-x64 `vc_runtime` needs a `files` array")
+        .iter()
+        .map(|f| f.as_str().expect("`files` must be strings"))
+        .collect();
+    for required in [
+        "msvcp140.dll",
+        "msvcp140_1.dll",
+        "vcruntime140.dll",
+        "vcruntime140_1.dll",
+    ] {
+        assert!(
+            files.contains(&required),
+            "onnxruntime.dll imports {required}: add it to `vc_runtime.files`"
+        );
+    }
+    for file in files {
+        assert!(
+            file.ends_with(".dll") && !file.contains(['/', '\\']) && file == file.to_lowercase(),
+            "a Visual C++ runtime file must be a bare, lower-case .dll name, got {file:?}"
+        );
+    }
 }

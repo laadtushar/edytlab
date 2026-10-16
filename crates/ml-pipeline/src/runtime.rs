@@ -104,17 +104,18 @@
 //! ## The library's own dependencies
 //!
 //! Choosing the file is not enough on Windows, where the library's imports
-//! (`msvcp140.dll`, `vcruntime140.dll`, `vcruntime140_1.dll`) are found by
-//! a search of their own. `LoadLibraryExW(path, 0)` searches the default
-//! order for them, which includes the working directory and `PATH`, so a
-//! `vcruntime140_1.dll` planted in a writable launch directory, or an old
-//! copy somewhere on `PATH`, would be loaded into the process (CWE-427
-//! again, one level down). The library is therefore opened with
-//! `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32`: its
-//! dependencies come from the directory it sits in (where the installer
-//! puts the VC++ runtime DLLs beside it) and from `System32`, and from
-//! nowhere else, so the working directory and `PATH` are not searched for
-//! them either. Elsewhere the platform loader resolves dependencies as it
+//! (`msvcp140.dll`, `msvcp140_1.dll`, `vcruntime140.dll`,
+//! `vcruntime140_1.dll`, listed as `vc_runtime` in `ml-runtime.json`) are
+//! found by a search of their own. `LoadLibraryExW(path, 0)` searches the
+//! default order for them, which includes the working directory and
+//! `PATH`, so a `vcruntime140_1.dll` planted in a writable launch
+//! directory, or an old copy somewhere on `PATH`, would be loaded into the
+//! process (CWE-427 again, one level down). The library is therefore opened
+//! with `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32`:
+//! its dependencies come from the directory it sits in (where the Windows
+//! installers put the VC++ runtime DLLs beside it) and from `System32`, and
+//! from nowhere else, so the working directory and `PATH` are not searched
+//! for them either. Elsewhere the platform loader resolves dependencies as it
 //! does for any library, relative to the file we name.
 
 use std::ffi::{CStr, OsStr};
