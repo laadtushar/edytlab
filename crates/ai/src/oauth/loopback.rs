@@ -327,7 +327,12 @@ impl LoopbackListener {
         loop {
             tokio::select! {
                 biased;
-                _ = cancelled.wait_for(|c| *c) => return Err(LoopbackError::Cancelled),
+                // `wait_for` answers with a `watch::Ref`, a read guard that
+                // is not `Send`; dropped here, it never becomes part of the
+                // select's output, so `authorize` can run on any task.
+                _ = async { drop(cancelled.wait_for(|c| *c).await) } => {
+                    return Err(LoopbackError::Cancelled)
+                }
                 _ = tokio::time::sleep_until(deadline) => return Err(LoopbackError::TimedOut),
                 Some(joined) = connections.join_next(), if !connections.is_empty() => {
                     // Only a callback with this attempt's `state` gets here.

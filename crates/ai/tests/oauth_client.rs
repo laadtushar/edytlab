@@ -448,6 +448,58 @@ async fn an_oauth_error_body_is_typed() {
 }
 
 #[tokio::test]
+async fn an_error_wrapped_in_an_object_is_typed_too() {
+    // Some issuers wrap the code in an object (Codex CLI reads OpenAI's
+    // refresh errors in both shapes); the ChatGPT session classifies refresh
+    // failures by that code (#474).
+    let server = token_server(
+        401,
+        json!({ "error": { "code": "refresh_token_reused", "message": "already used", "type": "x" } }),
+    )
+    .await;
+    let err = token_client(&server)
+        .refresh(&SecretString::new("RT-old"), &[])
+        .await
+        .unwrap_err();
+    match &err {
+        TokenError::OAuth { status, body } => {
+            assert_eq!(*status, 401);
+            assert_eq!(body.error, "refresh_token_reused");
+            assert_eq!(body.error_description.as_deref(), Some("already used"));
+        }
+        other => panic!("expected an OAuth error, got {other:?}"),
+    }
+
+    // `error_description` wins over the object's message; the same caps apply.
+    let server = token_server(
+        400,
+        json!({
+            "error": { "code": format!("bad\r\n{}", "c".repeat(500)), "message": "m" },
+            "error_description": "d",
+        }),
+    )
+    .await;
+    let err = token_client(&server)
+        .refresh(&SecretString::new("RT-old"), &[])
+        .await
+        .unwrap_err();
+    let body = err.oauth_error().expect("an error body");
+    assert_eq!(body.error.chars().count(), 64);
+    assert!(body.error.starts_with("bad  c"), "{:?}", body.error);
+    assert_eq!(body.error_description.as_deref(), Some("d"));
+
+    // An object without a string `code` is no error body: the status alone.
+    for error in [json!({ "message": "m" }), json!({ "code": 7 }), json!(null)] {
+        let server = token_server(400, json!({ "error": error })).await;
+        let err = token_client(&server)
+            .refresh(&SecretString::new("RT-old"), &[])
+            .await
+            .unwrap_err();
+        assert!(matches!(err, TokenError::Status { status: 400 }), "{err:?}");
+    }
+}
+
+#[tokio::test]
 async fn an_oauth_error_body_is_cut_short_and_printable() {
     // The endpoint's text ends up in error messages and logs: no terminal
     // escapes or line breaks, and no more than a few hundred characters.

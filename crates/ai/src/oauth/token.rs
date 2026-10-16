@@ -14,8 +14,9 @@
 //! knows how to send, and an `expires_in` above [`MAX_EXPIRES_IN`] is read as
 //! that ([`TokenResponse::expires_in`]). A failure with an RFC 6749 §5.2
 //! error body is [`TokenError::OAuth`], so a caller can act on its `error`
-//! code (`invalid_grant` and the like); its text is cut short and stripped of
-//! control characters as it is read. Any other failure is its HTTP status
+//! code (`invalid_grant` and the like), whether the server sends it as the
+//! RFC's string or wrapped in an object; its text is cut short and stripped
+//! of control characters as it is read. Any other failure is its HTTP status
 //! alone.
 
 use std::fmt;
@@ -86,6 +87,13 @@ impl TokenError {
 
 /// An RFC 6749 §5.2 error response.
 ///
+/// RFC 6749 puts the code in `error` as a string. Some issuers wrap it in an
+/// object instead, `{"error": {"code": "...", "message": "..."}}`. Codex
+/// CLI, a client of the same OpenAI auth server the ChatGPT session uses,
+/// reads its refresh errors in both shapes. Both are read into this one
+/// type, the object's `message` standing in for a missing
+/// `error_description`.
+///
 /// The server's text ends up in error messages and perhaps logs, so each
 /// field is cut to a few hundred characters (the code to 64) and has its
 /// control characters replaced by spaces as it is read: no terminal escapes,
@@ -101,19 +109,37 @@ pub struct OAuthErrorBody {
 
 #[derive(Deserialize)]
 struct RawOAuthErrorBody {
-    error: String,
+    error: RawErrorField,
     #[serde(default)]
     error_description: Option<String>,
     #[serde(default)]
     error_uri: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum RawErrorField {
+    /// RFC 6749 §5.2.
+    Code(String),
+    /// The wrapped form.
+    Object {
+        code: String,
+        #[serde(default)]
+        message: Option<String>,
+    },
+}
+
 impl From<RawOAuthErrorBody> for OAuthErrorBody {
     fn from(raw: RawOAuthErrorBody) -> Self {
+        let (code, message) = match raw.error {
+            RawErrorField::Code(code) => (code, None),
+            RawErrorField::Object { code, message } => (code, message),
+        };
         Self {
-            error: printable(&raw.error, MAX_ERROR_CODE_CHARS),
+            error: printable(&code, MAX_ERROR_CODE_CHARS),
             error_description: raw
                 .error_description
+                .or(message)
                 .map(|d| printable(&d, MAX_DESCRIPTION_CHARS)),
             error_uri: raw.error_uri.map(|u| printable(&u, MAX_DESCRIPTION_CHARS)),
         }
@@ -342,7 +368,8 @@ impl TokenClient {
     }
 }
 
-/// A non-2xx reply: its RFC 6749 §5.2 body if it has one, else its status.
+/// A non-2xx reply: its RFC 6749 §5.2 body (in either shape
+/// [`OAuthErrorBody`] reads) if it has one, else its status.
 fn failure(status: u16, body: &[u8]) -> TokenError {
     match serde_json::from_slice::<OAuthErrorBody>(body) {
         Ok(body) if !body.error.is_empty() => TokenError::OAuth { status, body },

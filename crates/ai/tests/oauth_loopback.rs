@@ -540,6 +540,28 @@ async fn it_can_be_cancelled_while_waiting() {
 }
 
 #[tokio::test]
+async fn the_wait_can_run_on_a_task_of_its_own() {
+    // A Tauri async command, or `tokio::spawn`, needs a `Send` future: the
+    // wait must hold nothing that is not `Send` (such as the read guard a
+    // `watch::Receiver` hands out) across an await.
+    let state = State::generate().unwrap();
+    let listener = LoopbackListener::bind(config()).await.unwrap();
+    let cancel = listener.cancel_handle();
+    let waiting = tokio::spawn(async move {
+        listener
+            .authorize(AUTHORIZE_URL, |_: &str| Ok::<(), String>(()), &state)
+            .await
+    });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    cancel.cancel();
+    let result = waiting.await.unwrap();
+    assert!(
+        matches!(result, Err(LoopbackError::Cancelled)),
+        "{result:?}"
+    );
+}
+
+#[tokio::test]
 async fn a_cancel_before_waiting_still_counts() {
     let state = State::generate().unwrap();
     let listener = LoopbackListener::bind(config()).await.unwrap();
