@@ -485,6 +485,15 @@ impl Agent {
         self.plan_first = on;
     }
 
+    /// Whether this agent holds edits for approval ([`Agent::set_plan_first`]).
+    ///
+    /// The app builds a new agent at launch and on every key, model or
+    /// base-URL change, and carries the setting into each from its own
+    /// state; this is how a test sees that it did.
+    pub fn plan_first(&self) -> bool {
+        self.plan_first
+    }
+
     /// Build a new agent. `dispatcher`, `store`, `engine`, and `clipboard`
     /// are reference-counted so the caller can keep using them concurrently
     /// (under their respective mutexes).

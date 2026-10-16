@@ -6,8 +6,11 @@
   python3 launch.py <li|rd|ig> cues out.json         timing of every scene, sfx and caption (for audio + narration)
 
 li = LinkedIn 1:1 1080x1080, rd = Reddit 16:9 1920x1080, ig = Instagram Reels 9:16 1080x1920.
-Every shot is a stretch of one of the three real demo recordings in website/public/demos/. Times are demo-video
-seconds (the same clock the reel tools measured). Nothing on screen is invented UI; the one diagram is labelled.
+Every shot is a stretch of one of the three real demo recordings in website/public/demos/ (re-filmed in the app's violet look,
+#581). Times are demo-video seconds, the clock the reels measured: where each burned-in step caption starts (`detect_captions.py`)
+and where the app's sound is audible are in marketing/reels/tools/spec.py, which this file reads, and `Plan.clip` asserts that
+every shot lies inside the caption it is cut from, that a shot with no sound never overlaps the app's sound, and that a Listen
+shot starts at most 0.3 s before the sound and ends inside it. Nothing on screen is invented UI; the one diagram is labelled.
 """
 import json
 import os
@@ -17,22 +20,55 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from engine import *  # noqa
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BT, EI, MM = "dj-beatmatched-transition", "dj-extended-club-intro", "dj-mini-mix"
-MINUS = "−"
+# The reels' spec.py holds the caption windows and the audible windows measured on the re-filmed demos. It wants a scratch
+# root for the narration work it does not do here; nothing of it is used.
+os.environ.setdefault("EDYTLAB_REEL_ROOT", os.path.join(HERE, "work"))
+import spec  # noqa: E402
 
-# Regions of the recorded app window, in source pixels (1280x776). Measured on native frames with a 50 px grid.
+BT, EI, MM = "dj-beatmatched-transition", "dj-extended-club-intro", "dj-mini-mix"
+CODE = {BT: "BT", EI: "EI", MM: "MM"}
+MINUS = "\u2212"
+NOTE = "Development build  \u00b7  real screen recording  \u00b7  waits sped up"
+
+# Regions of the recorded app window, in source pixels (1280x776). Measured on native frames with a 50 px grid. The recording
+# burns its own step caption into a card across the bottom (y 684 to 754), which this cut replaces with its own titles, so no
+# crop reaches below y 684, except the composer's (TYPE), which a short caption's card never touches.
 REG = {
-    "WIDE": (0, 0, 1280, 700),
-    "TYPE": (905, 440, 375, 275),        # chat composer + the last bubble
-    "CHAT_TOP": (920, 62, 360, 330),
-    "CHAT_MID": (920, 200, 360, 320),
+    "WIDE": (0, 0, 1280, 684),
+    "TYPE": (905, 440, 375, 266),        # chat composer + the last bubble
+    "CHAT_TOP": (920, 60, 360, 330),
+    "CHAT_MID": (920, 160, 360, 330),
     "CHAT_LOW": (920, 330, 360, 330),
-    "CHAT_TALL": (920, 62, 360, 440),
+    "CHAT_TALL": (920, 180, 360, 440),
     "WAVES": (0, 70, 920, 540),
-    "WAVES3": (0, 70, 920, 630),
+    "WAVES3": (0, 70, 920, 610),
     "PLAYHEAD": (300, 92, 440, 340),
 }
 LAYOUT_OF = {"li": "sq", "rd": "wide", "ig": "tall"}
+LISTEN_LEAD_MAX = 0.3     # a Listen shot starts at most this long before the app's sound (as in the reels)
+
+
+def caption_window(code, ids):
+    """(start, end) on the demo video of the captions `ids` (consecutive), from the reels' spec."""
+    rows = {r[0]: r for r in spec.caption_table(code)}
+    return rows[ids[0]][1], rows[ids[-1]][2]
+
+
+def check_shot(demo, src0, dur, caps, listen=False):
+    """The shot lies inside its caption(s); a shot without sound keeps clear of the app's sound; a Listen shot starts on it."""
+    code = CODE[demo]
+    lo, hi = caption_window(code, caps)
+    end = src0 + dur
+    assert lo - 1e-6 <= src0 and end <= hi + 0.05, (demo, caps, "outside its caption", src0, end, lo, hi)
+    windows = list(spec.DEMOS[code]["audio"].values())
+    if listen:
+        w = [w for w in windows if w[0] - LISTEN_LEAD_MAX <= src0 <= w[1]]
+        assert w, (demo, caps, "a Listen shot must start at most 0.3 s before the app's sound", src0, windows)
+        onset, offset = w[0]
+        assert src0 >= onset - LISTEN_LEAD_MAX - 1e-6 and end <= offset + 0.02, (demo, caps, "must end inside the sound", src0, end, onset, offset)
+    else:
+        for onset, offset in windows:
+            assert end <= onset + 1e-6 or src0 >= offset - 1e-6, (demo, caps, "the app's sound would leak into a silent shot", src0, end, onset, offset)
 
 
 class Plan:
@@ -52,6 +88,11 @@ class Plan:
     def add(self, it):
         return self.piece.add(it)
 
+    def set_total(self, total):
+        total = round(total * FPS) / FPS        # a whole number of frames
+        self.total = total
+        self.piece.duration = total
+
     def step(self, markup, t0, t1, cue=None, **kw):
         """Step titles share one size on every cut (consistent brand motion)."""
         self.title(markup, t0, t1, cue=cue, size=self.L.step_size, fixed=True, max_lines=2, **kw)
@@ -62,7 +103,8 @@ class Plan:
         if cue != "":
             self.cues.append((t0 + 0.2, t1 - 0.1, cue or plain))
 
-    def clip(self, demo, src0, dur, t0, shots, **kw):
+    def clip(self, demo, src0, dur, t0, shots, caps=None, listen=False, **kw):
+        check_shot(demo, src0, dur, caps, listen)
         c = FootageClip(self.ctx, demo, src0, dur, t0, shots, REG, **kw)
         self.add(c)
         self.clips.append(c)
@@ -76,11 +118,13 @@ class Plan:
 
 
 # ----------------------------------------------------------------- shared scenes
+END_SECONDS = {"li": 5.2, "rd": 5.5, "ig": 5.5}    # how long the end card holds
+
+
 def demo_blend(P, t, style):
     """The beatmatch-and-blend demo, step by step. Returns (t_end, last_clip, nxt). Cuts overlap by 0.3 s (crossfade)."""
     ig = style == "ig"
-    calm = style == "rd"
-    chat_cap = "CHAT_TOP"
+    chat_low = "CHAT_LOW"
     prev = None
 
     def nxt(c, tt, dur):
@@ -90,48 +134,49 @@ def demo_blend(P, t, style):
         prev = c
         return tt + dur - 0.3
 
-    # 1. describe it (typed request: real typing, real send)
-    d = P.clip(BT, 38.2 if ig else 37.9, 4.4 if ig else 5.0, t, [dict(t=0, crop="WIDE"), dict(t=0.9 if ig else 1.0, crop="TYPE", move=0.8)])
+    # 1. describe it: a question typed into the composer (real typing, real send)
+    d = P.clip(BT, 23.6 if ig else 23.4, 4.4 if ig else 5.0, t, [dict(t=0, crop="WIDE"), dict(t=0.9, crop="TYPE", move=0.8)], caps=("BT04",))
     P.step("*1* · Describe it in plain English" if not ig else "*1* · Say it in plain English", t + 0.15, t + d.dur - 0.12)
-    P.call(d, (930, 620, 340, 82), "You type the edit", 1.1 if ig else 1.4, d.dur - 0.9, sides=("t",))
+    P.call(d, (930, 578, 345, 124), "You type the edit", 1.2, d.dur - 0.9, sides=("t",))
     t = nxt(d, t, d.dur)
-    # 2. the agent calls a tool
-    d = P.clip(BT, 45.6, 3.7 if ig else 4.4, t, [dict(t=0, crop="TYPE"), dict(t=0.6, crop=chat_cap, move=0.8)], fade_in=0.3, rise=False)
+    # 2. the agent calls a tool: "Time stretch" runs, the chip turns green
+    d = P.clip(BT, 40.4, 3.7 if ig else 4.4, t, [dict(t=0, crop="TYPE"), dict(t=0.5, crop=chat_low, move=0.7)], caps=("BT05",), fade_in=0.3, rise=False)
     P.step("*2* · The agent calls a tool", t + 0.15, t + d.dur - 0.12)
-    P.call(d, [(0.9, (934, 94, 104, 28)), (2.9, (934, 103, 104, 28)), (3.4, (934, 110, 104, 28))], "A real tool call", 1.3, 3.2, sides=("r", "b"))
+    # the chat scrolls as the chip arrives (src 41.0 -> 41.5), then holds until the reply lands (43.5)
+    P.call(d, [(0.6, (937, 540, 106, 20)), (1.1, (937, 506, 106, 22)), (3.0, (937, 506, 106, 22))], "A real tool call", 1.0, 3.0, sides=("r", "b"))
     if not ig:
-        P.call(d, [(0.9, (948, 168, 252, 54)), (2.9, (948, 177, 252, 54)), (3.4, (948, 184, 252, 54))], "128 to 120 BPM, pitch kept", 2.0, 4.2 if not calm else 4.0, sides=("t", "b"))
+        P.call(d, (985, 434, 268, 60), "Tempo matched, pitch kept", 1.4, 3.0, sides=("t", "b"))
     t = nxt(d, t, d.dur)
     if not ig:
-        # 3. it flags what it noticed
-        d = P.clip(BT, 62.0, 4.6, t, [dict(t=0, crop="CHAT_TOP"), dict(t=0.6, crop="CHAT_MID", move=0.8)], fade_in=0.3, rise=False)
+        # 3. it flags what it noticed: the reply opens with "Bars don't line up yet" (the chat holds still from 48.4 to 52.3)
+        d = P.clip(BT, 48.4, 3.9, t, [dict(t=0, crop="CHAT_TOP")], caps=("BT06",), fade_in=0.3, rise=False)
         P.step("*3* · It flags what it noticed", t + 0.15, t + d.dur - 0.12)
-        P.call(d, (948, 246, 250, 70), "It flags its own edge case", 1.5, 4.3, sides=("b", "t"))
+        P.call(d, (938, 98, 290, 180), "It flags: bars a beat apart", 1.0, 3.5, sides=("b", "t"))
         t = nxt(d, t, d.dur)
-    # 4. describe the blend -> chips -> 2 kHz low-pass -> waveforms
-    d4dur = 5.9 if ig else 7.0
-    k_top, k_waves = (1.9, 3.6) if ig else (2.1, 4.2)
-    shots = [dict(t=0, crop="CHAT_MID"), dict(t=k_top, crop="CHAT_TOP", move=0.8), dict(t=k_waves, crop="WAVES", move=1.0)]
-    d = P.clip(BT, 82.4, d4dur, t, shots, fade_in=0.3, rise=False)
+    # 4. describe the blend: the request, three tool calls, then the fades on the waveforms
+    s0, d4, k_w = (74.4, 6.0, 4.0) if ig else (73.2, 8.0, 5.7)
+    r_a, r_b = (937, 410, 190, 152), (937, 376, 190, 150)   # the three tool chips, at src 76.0 and from 77.0 on
+    shots = [dict(t=0, crop="CHAT_TALL"), dict(t=k_w, crop="WAVES", move=0.9)]
+    d = P.clip(BT, s0, d4, t, shots, caps=("BT07",), fade_in=0.3, rise=False)
     P.step("*4* · Describe the blend" if not ig else "*3* · Describe the blend", t + 0.15, t + d.dur - 0.12)
-    P.call(d, (932, 404, 128, 94), "Three tool calls", 0.3, k_top - 0.7, sides=("t", "b"))
-    P.call(d, (965, 100, 240, 46), "A 2 kHz low-pass", k_top + 0.2, k_waves - 0.8, sides=("b", "t"))
-    P.call(d, (384, 100, 252, 420), "Crossfade, 16 to 32 s", k_waves + 0.5, d.dur - 0.3, sides=("t", "b", "l"))
+    if not ig:
+        P.call(d, [(73.0 - s0, (985, 428, 270, 148)), (74.0 - s0, (985, 376, 270, 152)), (75.0 - s0, (985, 310, 270, 150))],
+               "Fades + low-pass, in plain English", 0.3, 76.0 - s0 - 0.3, sides=("t", "b"))
+    P.call(d, [(76.0 - s0, r_a), (77.0 - s0, r_b), (79.0 - s0, r_b)], "Three tool calls", 76.2 - s0, k_w - 0.6, sides=("r", "l"))
+    P.call(d, (378, 96, 262, 330), "Crossfade, 16 to 32 s", k_w + 0.5, d.dur - 0.3, sides=("t", "b", "l"))
     t = nxt(d, t, d.dur)
     return t, prev, nxt
 
 
 def build(key):
     ig, rd, li = key == "ig", key == "rd", key == "li"
-    T = {"li": 69.0, "rd": 63.4, "ig": 31.4}[key]
-    P = Plan(key, T)
+    P = Plan(key, 1000.0)       # the total is known once the last scene is placed: set below
     L = P.L
-    P.add(Progress(P.ctx, T, 0.0, T))
     t = 0.0
-    note = "Real screen recording  |  waits for the agent are sped up"
     if li:
         P.add(BarsBG(0.0, 3.7, (0, 640, L.W, 960), alpha=0.28, fade=0.5, seed=0.0))
-        P.title("I built an *audio editor* | you talk to.", 0.15, 3.5, box=(70, 200, 1010, 600), size=104, max_lines=2, min_size=64,
+        P.add(Lockup(P.ctx, 0.15, 3.5, top=150, mark=72))
+        P.title("I built an *audio editor* | you talk to.", 0.3, 3.5, box=(70, 290, 1010, 640), size=104, max_lines=2, min_size=64,
                 cue="I built an audio editor you talk to.")
         P.sfx.append((0.12, "whoosh", -13))
         P.title("One blend. *Seven chores.*", 3.5, 8.2, cue="One blend. Seven chores.")
@@ -145,14 +190,16 @@ def build(key):
         P.scenes += [("hook", 0.0, 3.4), ("problem", 3.4, 9.9)]
     elif rd:
         P.add(BarsBG(0.0, 4.2, (0, 700, L.W, 980), alpha=0.18, fade=0.6, seed=0.0))
-        P.title("*edytlab:* an open-source audio editor | you drive in plain English", 0.2, 4.4, box=(160, 250, 1760, 640), size=96, max_lines=2,
+        P.add(Lockup(P.ctx, 0.2, 4.4, top=170, mark=80))
+        P.title("An open-source audio editor | you drive in plain English", 0.35, 4.4, box=(160, 330, 1760, 700), size=96, max_lines=2,
                 min_size=60, cue="edytlab: an open-source audio editor you drive in plain English")
         P.sfx.append((0.15, "whoosh", -14))
         P.scenes += [("intro", 0.0, 4.2)]
         t = 4.0
     else:
         P.add(BarsBG(0.0, 2.4, (0, 760, L.W, 1060), alpha=0.30, fade=0.4, seed=0.0))
-        P.title("Describe the blend. | *Hear the mix.*", 0.1, 2.5, box=(65, 380, 1015, 740), size=92, max_lines=2, min_size=60,
+        P.add(Lockup(P.ctx, 0.1, 2.5, top=300, mark=72))
+        P.title("Describe the blend. | *Hear the mix.*", 0.2, 2.5, box=(120, 420, 960, 780), size=92, max_lines=2, min_size=60,
                 cue="Describe the blend. Hear the mix.", enter=0.45)
         P.sfx.append((0.08, "whoosh", -12))
         P.scenes += [("hook", 0.0, 2.3)]
@@ -161,73 +208,84 @@ def build(key):
     first_clip_t = t
     t, last, nxt = demo_blend(P, t, key)
     P.scenes += [("demo", first_clip_t, t)]
-    # 5. hear it
+    # 5. hear it: the cut starts as the sound does (the app's sound is audible from 86.33 s) and ends inside it
     ldur = 9.2 if not ig else 7.0
-    s0 = 90.3 if not ig else 91.0
-    d = P.clip(BT, s0, ldur, t, [dict(t=0, crop="WAVES"), dict(t=2.0 if not ig else 1.6, crop="PLAYHEAD", move=1.1)], fade_in=0.3, rise=False)
+    s0 = 1291 / 15      # 86.067 s: the demo is 15 fps, and this is the last frame at least 0.2 s before the sound
+    d = P.clip(BT, s0, ldur, t, [dict(t=0, crop="WAVES"), dict(t=2.0 if not ig else 1.6, crop="PLAYHEAD", move=1.1)], caps=("BT08",), listen=True,
+               fade_in=0.3, rise=False)
     P.step("*5* · Hear it" if not ig else "*4* · Hear it", t + 0.15, t + d.dur - 0.12)
-    P.call(d, (422, 62, 34, 32), "Press play: real audio", 0.3, 1.9 if not ig else 1.5, sides=("b", "r"))
-    # the playhead moves 16 source px per second (measured: x=339 at 93.0 s, x=387 at 96.0 s)
-    ph = lambda src: 339 + (src - 93.0) * 16.0
-    P.call(d, [(2.6 - (0 if not ig else 0.0), (ph(s0 + 2.6) - 7, 100, 14, 400)), (d.dur - 0.6, (ph(s0 + d.dur - 0.6) - 7, 100, 14, 400))],
-           "Heard in real time", 3.0 if not ig else 2.4, d.dur - 0.4, sides=("t", "b"))
+    P.call(d, (424, 58, 32, 30), "Press play: real audio", 0.3, 1.9 if not ig else 1.5, sides=("b", "r"))
+    # the playhead moves 15.6 source px per second (measured: x=324.5 at 86.0 s, 386.5 at 90.0 s, 574.5 at 102.0 s)
+    ph = lambda src: 324.5 + (src - 86.0) * 15.6
+    # on the square and tall cuts the ring covers the top track only: a full-height ring leaves its chip no room but the title's
+    # or the note's (on 16:9 the chips go in the gutters, so the ring may span both tracks)
+    tall_ring = not rd
+    rh = 240 if tall_ring else 420
+    P.call(d, [(2.6, (ph(s0 + 2.6) - 7, 96, 14, rh)), (d.dur - 0.6, (ph(s0 + d.dur - 0.6) - 7, 96, 14, rh))],
+           "Heard in real time", 3.0 if not ig else 2.4, d.dur - 0.4, sides=("b", "t") if tall_ring else ("t", "b"))
     t_listen = t
     t = nxt(d, t, d.dur)
-    # 6. master + export
-    d = P.clip(BT, 163.2, 6.0 if not ig else 4.2, t, [dict(t=0, crop="CHAT_LOW")], fade_in=0.3, rise=False)
+    # 6. master + export: the export reply (the app's sound is silent here and starts again at 149.03 s)
+    d = P.clip(BT, 142.0, 6.0 if not ig else 4.2, t, [dict(t=0, crop="CHAT_TOP")], caps=("BT10", "BT11"), fade_in=0.3, rise=False)
     P.step("*6* · Master and export" if not ig else "*5* · Master and export", t + 0.15, t + d.dur - 0.12)
-    P.call(d, (948, 440, 250, 48), f"{MINUS}14 LUFS, peak {MINUS}1 dBFS", 0.8, d.dur - 0.4, sides=("b", "t"))
+    P.call(d, (940, 226, 285, 100), f"Peak {MINUS}1.0 dBFS, {MINUS}13.9 LUFS", 0.8, d.dur - 0.4, sides=("b", "t"), pad=4)
     if not ig:
-        P.call(d, (937, 358, 72, 22), "Exports a 50 s WAV", 2.6, d.dur - 0.4, sides=("t", "r"))
+        P.call(d, (940, 178, 285, 36), "Exports a 50 s WAV", 2.6, d.dur - 0.4, sides=("t", "r"), pad=4)
     t_exp = t
     t = nxt(d, t, d.dur)
     P.scenes += [("listen", t_listen, t_exp + 0.3), ("export", t_exp, t)]
     if not ig:
         # two more jobs, same recordings
-        d = P.clip(EI, 62.4, 4.0, t, [dict(t=0, crop="WIDE"), dict(t=1.1, crop="CHAT_TALL", move=0.9)], fade_in=0.3, rise=False)
+        d = P.clip(EI, 61.4, 4.0, t, [dict(t=0, crop="CHAT_LOW"), dict(t=1.0, crop="CHAT_MID", move=0.8)], caps=("EI06",), fade_in=0.3, rise=False)
         P.step("Also: *hold the low end until the drop*", t + 0.15, t + d.dur - 0.12)
-        P.call(d, [(1.6, (948, 236, 250, 62)), (3.9, (948, 236, 250, 62))], "A 150 Hz high-pass, as asked", 2.0, d.dur - 0.3, sides=("b", "t"))
+        P.call(d, (940, 216, 290, 95), "A 200 Hz high-pass until the drop", 1.8, d.dur - 0.3, sides=("b", "t"))
         t_a = t
         t = nxt(d, t, d.dur)
-        d = P.clip(MM, 55.4, 4.0, t, [dict(t=0, crop="WAVES3")], fade_in=0.3, rise=False)
+        d = P.clip(MM, 42.4, 4.0, t, [dict(t=0, crop="WAVES3")], caps=("MM04",), fade_in=0.3, rise=False)
         P.step("And *a three-track mini-mix*", t + 0.15, t + d.dur - 0.12)
-        P.call(d, (420, 100, 260, 620), "4-bar overlaps", 1.0, d.dur - 0.3, sides=("t", "b", "r"))
+        P.call(d, (355, 100, 330, 580), "4-bar overlaps", 1.0, d.dur - 0.3, sides=("t", "b", "r"))
         d.fade_out = 0.4
         t = t + d.dur - 0.1
         P.scenes += [("also", t_a, t)]
-        P.add(Note(P.ctx, note, first_clip_t + 0.2, t - 0.1))
+        P.add(Note(P.ctx, NOTE, first_clip_t + 0.2, t - 0.1))
     else:
         d.fade_out = 0.4
-        P.add(Note(P.ctx, note, first_clip_t + 0.2, t + 0.3))
+        P.add(Note(P.ctx, NOTE, first_clip_t + 0.2, t + 0.3))
     t_flow = t
     if not ig:
         t_flow_end = t_flow + 6.6
-        common_tail(P, t_flow, t_flow_end, t_flow_end + 5.3, T, rd)
+        T = t_flow_end + 5.3 + END_SECONDS[key]
+        P.set_total(T)
+        common_tail(P, t_flow, t_flow_end, t_flow_end + 5.3, P.total, rd)
     else:
-        end_card(P, t_flow, T, ig=True)
+        T = t_flow + END_SECONDS[key]
+        P.set_total(T)
+        end_card(P, t_flow, P.total, ig=True)
+    P.add(Progress(P.ctx, P.total, 0.0, P.total))
     return P
 
 
 def end_card(P, t_end, total, ig=False, rd=False):
+    """The sign-off: the site's lockup, "Free, open source", the url. It names no version: the footage is a development
+    build that is not released yet, and the newest release looks different."""
     L = P.L
     if ig:
-        P.add(BarsBG(t_end, total, (0, 1020, L.W, 1300), alpha=0.22, fade=0.5, seed=2.0))
-        P.add(EndCard(P.ctx, t_end + 0.1, total,
-                      [("Free and open source", True), ("Unsigned installers  ·  synthetic demo tracks", False)],
-                      url_pill="edytlab.com", small=["macOS  ·  Windows  ·  Linux  ·  v0.4.0"]))
-        P.cues.append((t_end + 0.8, total - 0.2, "edytlab. Free and open source. Unsigned installers, synthetic demo tracks. edytlab.com"))
+        ec = EndCard(P.ctx, t_end + 0.1, total, [("Free, open source", True), ("Unsigned installers  \u00b7  synthetic demo tracks", False)],
+                     url_pill="edytlab.com", small=["macOS  \u00b7  Windows  \u00b7  Linux"])
+        cue = "edytlab. Free, open source. Unsigned installers, synthetic demo tracks. edytlab.com"
     elif rd:
-        P.add(BarsBG(t_end, total, (0, int(L.H * 0.66), L.W, int(L.H * 0.96)), alpha=0.18, fade=0.6, seed=2.0))
-        P.add(EndCard(P.ctx, t_end + 0.1, total,
-                      [("Free and open source (MIT)", True), ("macOS  ·  Windows  ·  Linux  ·  v0.4.0  ·  installers are unsigned", False)],
-                      url_pill="github.com/laadtushar/edytlab", small=["edytlab.com"]))
-        P.cues.append((t_end + 0.8, total - 0.2, "edytlab. Free and open source (MIT). github.com/laadtushar/edytlab. v0.4.0, installers unsigned."))
+        ec = EndCard(P.ctx, t_end + 0.1, total, [("Free, open source", True), ("MIT licence  \u00b7  macOS  \u00b7  Windows  \u00b7  Linux  \u00b7  installers are unsigned", False)],
+                     url_pill="github.com/laadtushar/edytlab", small=["edytlab.com"])
+        cue = "edytlab. Free, open source (MIT). github.com/laadtushar/edytlab. edytlab.com. Installers are unsigned."
     else:
-        P.add(BarsBG(t_end, total, (0, int(L.H * 0.70), L.W, int(L.H * 0.97)), alpha=0.18, fade=0.6, seed=2.0))
-        P.add(EndCard(P.ctx, t_end + 0.1, total,
-                      [("Free and open source (MIT)", True), ("macOS  ·  Windows  ·  Linux  ·  v0.4.0", False)],
-                      url_pill="github.com/laadtushar/edytlab", small=["edytlab.com", "Which prep job would you hand off first?"]))
-        P.cues.append((t_end + 0.8, total - 0.2, "edytlab. Free and open source (MIT). github.com/laadtushar/edytlab. Which prep job would you hand off first?"))
+        ec = EndCard(P.ctx, t_end + 0.1, total, [("Free, open source", True), ("MIT licence  \u00b7  macOS  \u00b7  Windows  \u00b7  Linux", False)],
+                     url_pill="edytlab.com", small=["github.com/laadtushar/edytlab", "Which prep job would you hand off first?"])
+        cue = "edytlab. Free, open source (MIT). edytlab.com. github.com/laadtushar/edytlab. Which prep job would you hand off first?"
+    P.add(ec)
+    # the breathing bars under the block, never behind a word
+    y0 = min(L.H - 60, ec.bottom + 30)
+    P.add(BarsBG(t_end, total, (0, y0, L.W, min(L.H - 20, y0 + 230)), alpha=0.22, fade=0.5, seed=2.0))
+    P.cues.append((t_end + 0.8, total - 0.2, cue))
     P.sfx.append((t_end + 0.2, "chime", -11))
     P.scenes += [("end", t_end, total)]
 

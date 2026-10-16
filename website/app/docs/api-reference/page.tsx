@@ -261,12 +261,12 @@ const commands = [
       {
         name: "setPlanFirst(enabled)",
         returns: "void",
-        desc: "With Plan first on, no edit runs without your approval: the plan is shown, or, with no plan, the first step that would change the session. Calls that only read the session, audition an effect or render a preview are never held. The setting is kept through the agent rebuilds a key, model or base-URL change causes, and is off again at every launch.",
+        desc: "With Plan first on, no edit runs without your approval: the plan is shown, or, with no plan, the first step that would change the session. Calls that only read the session, audition an effect or render a preview are never held. The setting is kept through the agent rebuilds a key, model or base-URL change causes, and across a restart: it is saved to ~/.edytlab/settings.json and read back when the app starts. If it cannot be saved the call rejects with \"could not save the Plan first setting\", the choice still applies until the app quits, and the next launch starts from what was saved before.",
       },
       {
         name: "getPlanFirst()",
         returns: "boolean",
-        desc: "Whether Plan first is on. The chat box reads it when it opens, so its toggle shows the right state.",
+        desc: "Whether Plan first is on: what was saved when the app last quit, then whatever setPlanFirst has set since. Off on a fresh install, or when the settings file is missing or corrupt. The chat box reads it when it opens, so its toggle shows the right state.",
       },
       {
         name: "cancelLongRunningTool()",

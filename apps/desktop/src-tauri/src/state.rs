@@ -123,7 +123,18 @@ pub struct AppState {
     /// Whether the user asked to see a plan before every turn. Kept on
     /// the state rather than in the agent so it survives an agent
     /// rebuild — which happens on every key, model or base-URL change.
+    ///
+    /// Also kept in the settings file, and read from it at launch
+    /// ([`AppState::install_settings`]): it is an approval gate, so one
+    /// that came back off after a restart would let edits through with no
+    /// card (#569). A state nothing installed settings into starts off.
+    /// Write it with [`AppState::save_plan_first`], not by storing to the
+    /// atomic, or the next launch will not see the change.
     pub plan_first: Arc<std::sync::atomic::AtomicBool>,
+    /// The app's settings file (`~/.edytlab/settings.json`). Empty until
+    /// `install_settings` runs, as the other `install_*` paths are, so a
+    /// bare `AppState::new()` keeps its settings in memory only.
+    pub settings_path: Arc<Mutex<PathBuf>>,
     /// Current timeline selection, pushed from the frontend via
     /// `set_selection_context`. Read per-turn in `send_message` to build
     /// the `SessionContext` injected into the system prompt.
@@ -195,6 +206,7 @@ impl AppState {
             plan_rejected: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             plan_gate_open: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             plan_first: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            settings_path: Arc::new(Mutex::new(PathBuf::new())),
             selection: Arc::new(Mutex::new(None)),
             clipboard: Arc::new(Mutex::new(None)),
             memory: Arc::new(Mutex::new(None)),
@@ -213,6 +225,46 @@ impl AppState {
             mcp_config_path: Arc::new(Mutex::new(PathBuf::new())),
             mcp: Arc::new(McpRegistry::new()),
         }
+    }
+
+    /// Install the settings file path and read what it holds. Called once
+    /// at startup from `lib.rs::run`, before the window can ask for
+    /// anything, so the first message of the launch already knows whether
+    /// Plan first is on (#569). A missing or unreadable file means the
+    /// defaults, which is off, and never stops the app starting.
+    pub fn install_settings(&self, path: PathBuf) {
+        let plan_first = crate::settings::read_plan_first(&path);
+        let mut slot = self
+            .settings_path
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *slot = path;
+        self.plan_first
+            .store(plan_first, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Turn Plan first on or off for this launch and record it for the next.
+    ///
+    /// The running session takes the choice whatever the disk says: the
+    /// gate does what the person asked for as long as the app is open. An
+    /// `Err` means only that the next launch is in doubt, and the caller
+    /// says so. With no settings path installed (a bare `AppState::new()`)
+    /// nothing is written.
+    ///
+    /// Both happen under the settings lock, so two quick toggles land in
+    /// the same order in memory and on disk. That lock is a leaf: taken
+    /// alone, and nothing else is waited for while it is held.
+    pub fn save_plan_first(&self, enabled: bool) -> std::io::Result<()> {
+        let path = self
+            .settings_path
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        self.plan_first
+            .store(enabled, std::sync::atomic::Ordering::SeqCst);
+        if path.as_os_str().is_empty() {
+            return Ok(());
+        }
+        crate::settings::write_plan_first(&path, enabled)
     }
 
     /// Install the MCP config file path + initial load. Called once
@@ -764,5 +816,152 @@ mod startup_reads_tests {
         tokio::time::timeout(Duration::from_secs(5), state.startup_reads_settled())
             .await
             .expect("settled");
+    }
+}
+
+#[cfg(test)]
+mod plan_first_settings_tests {
+    //! Plan first survives a restart (#569).
+    //!
+    //! It is an approval gate: with it on, no edit runs until the person
+    //! approves it. It lived only in memory, so a person who turned it on
+    //! to protect a session and then restarted got a composer with the
+    //! toggle off and edits that applied with no card. These build a state
+    //! the way `run` does, from a settings location, drop it as a quit
+    //! does, and build another from the same location.
+
+    use super::*;
+
+    fn is_on(state: &AppState) -> bool {
+        state.plan_first.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// A launch: a new state reading the settings at `path`.
+    fn launch(path: &std::path::Path) -> AppState {
+        let state = AppState::new();
+        state.install_settings(path.to_path_buf());
+        state
+    }
+
+    /// Where `run` puts it. Its folder does not exist yet on a fresh
+    /// install, and saving has to cope.
+    fn settings_in(home: &tempfile::TempDir) -> PathBuf {
+        home.path().join(".edytlab").join("settings.json")
+    }
+
+    #[test]
+    fn a_fresh_install_starts_with_plan_first_off() {
+        let home = tempfile::tempdir().unwrap();
+        assert!(!is_on(&launch(&settings_in(&home))));
+    }
+
+    /// The bug.
+    #[test]
+    fn plan_first_turned_on_is_still_on_in_the_next_launch() {
+        let home = tempfile::tempdir().unwrap();
+        let path = settings_in(&home);
+
+        let first = launch(&path);
+        first.save_plan_first(true).expect("saved");
+        assert!(is_on(&first));
+        drop(first);
+
+        assert!(is_on(&launch(&path)));
+    }
+
+    #[test]
+    fn turning_it_off_again_is_kept_too() {
+        let home = tempfile::tempdir().unwrap();
+        let path = settings_in(&home);
+        let first = launch(&path);
+        first.save_plan_first(true).expect("saved");
+        first.save_plan_first(false).expect("saved");
+        drop(first);
+
+        assert!(!is_on(&launch(&path)));
+    }
+
+    /// A hand-edited or half-written file must not stop the app starting,
+    /// and must not leave the person unable to choose: the next choice
+    /// replaces it. Off, because that is what a fresh install does.
+    #[test]
+    fn a_corrupt_settings_file_starts_off_and_the_next_choice_replaces_it() {
+        let home = tempfile::tempdir().unwrap();
+        let path = settings_in(&home);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "{ \"plan_first\": tru").unwrap();
+
+        let state = launch(&path);
+        assert!(!is_on(&state));
+
+        state
+            .save_plan_first(true)
+            .expect("saved over the corrupt file");
+        drop(state);
+        assert!(is_on(&launch(&path)));
+    }
+
+    /// A file that is there and cannot be read (here a directory, which
+    /// fails the same way on every platform and still fails as root) is
+    /// not a reason to refuse to start either.
+    #[test]
+    fn a_settings_file_that_cannot_be_read_starts_off() {
+        let home = tempfile::tempdir().unwrap();
+        let path = settings_in(&home);
+        std::fs::create_dir_all(&path).unwrap();
+
+        assert!(!is_on(&launch(&path)));
+    }
+
+    /// A save that fails is reported, and the choice still applies to the
+    /// running session: the gate does what the person asked for as long as
+    /// the app is open, and only the restart is in doubt.
+    #[test]
+    fn a_save_that_cannot_be_written_is_reported_and_still_applies_for_this_launch() {
+        let home = tempfile::tempdir().unwrap();
+        // Its folder is a file, so the settings cannot be created.
+        let blocker = home.path().join(".edytlab");
+        std::fs::write(&blocker, "not a folder").unwrap();
+        let state = launch(&blocker.join("settings.json"));
+
+        state
+            .save_plan_first(true)
+            .expect_err("the file cannot be written, and that must not read as saved");
+
+        assert!(is_on(&state));
+    }
+
+    /// A state nothing installed settings into (every test, the CLI) keeps
+    /// the choice in memory and touches no disk.
+    #[test]
+    fn without_a_settings_location_the_choice_is_kept_in_memory_only() {
+        let state = AppState::new();
+        state
+            .save_plan_first(true)
+            .expect("nothing to write, nothing to fail");
+        assert!(is_on(&state));
+        assert!(!is_on(&AppState::new()));
+    }
+
+    /// Two quick toggles must not leave the disk holding the first while
+    /// memory holds the second: after a restart the person would get the
+    /// opposite of what they last saw.
+    #[test]
+    fn racing_saves_leave_the_disk_and_memory_agreeing() {
+        let home = tempfile::tempdir().unwrap();
+        let path = settings_in(&home);
+        let state = launch(&path);
+
+        let threads: Vec<_> = (0..16)
+            .map(|i| {
+                let state = state.clone();
+                std::thread::spawn(move || state.save_plan_first(i % 2 == 0).expect("saved"))
+            })
+            .collect();
+        for t in threads {
+            t.join().unwrap();
+        }
+
+        assert_eq!(is_on(&launch(&path)), is_on(&state));
     }
 }

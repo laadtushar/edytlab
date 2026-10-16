@@ -1,5 +1,5 @@
 1
-00:00:00,300 --> 00:00:02,400
+00:00:00,400 --> 00:00:02,400
 Describe the blend. Hear the mix.
 
 2
@@ -11,18 +11,18 @@ Describe the blend. Hear the mix.
 2 · The agent calls a tool
 
 4
-00:00:10,050 --> 00:00:15,380
+00:00:10,050 --> 00:00:15,480
 3 · Describe the blend
 
 5
-00:00:15,650 --> 00:00:22,080
+00:00:15,750 --> 00:00:22,180
 4 · Hear it
 
 6
-00:00:22,350 --> 00:00:25,980
+00:00:22,450 --> 00:00:26,080
 5 · Master and export
 
 7
-00:00:26,700 --> 00:00:31,200
-edytlab. Free and open source. Unsigned installers, synthetic demo tracks. edytlab.com
+00:00:26,800 --> 00:00:31,300
+edytlab. Free, open source. Unsigned installers, synthetic demo tracks. edytlab.com
 

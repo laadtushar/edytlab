@@ -10,7 +10,7 @@ bar, card text) stays inside SAFE: 120 px clear of both sides (the right side is
 Shorts and TikTok put their buttons) and above the bottom 20 % (their caption and sound bar). The
 recording itself runs edge to edge. `assert_safe` checks each layer when it is drawn.
 """
-import io, json, math, os, random, re, subprocess, sys
+import io, json, math, os, re, subprocess, sys
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 from spec import *
 from cues import build_reel, FPS
@@ -41,8 +41,7 @@ def run(cmd, **kw):
     return p
 
 
-def rgba(c, a=255):
-    return tuple(c) + (a,)
+rgba = brand.rgba
 
 
 def assert_safe(layer, what, dx=0, dy=0, left=SAFE_L, right=SAFE_R, top=0, bottom=SAFE_BOTTOM):
@@ -72,27 +71,16 @@ def put_text(layer, bg, xy, text, f, colour, anchor, what):
 
 # ------------------------------------------------------------------ background
 def background(strength=1.0, grain=0.0, glow=True):
-    """The page's dark background with the site's `.aurora` (a violet and a magenta wash at opposite
-    corners, `.aurora` in globals.css) and, when `glow` is on (behind the recording), the violet of its `.glow`.
-    `strength` 1 is the site's own opacity (0.16); the cards use CARD_WASH times that. `grain` is the std. dev. of a little
-    noise, as the site's film grain: the cards' wash is steep enough to band once it is encoded. Only the cards
-    get it, because the encoder keeps noise and it costs file size."""
+    """The page's dark background with the site's `.aurora` (brand.aurora_wash) and, when `glow` is on (behind the
+    recording), the violet of its `.glow`. `strength` 1 is the site's own opacity (0.16); the cards use CARD_WASH times
+    that. `grain` is the std. dev. of a little noise (brand.add_grain): the cards' wash is steep enough to band once it is
+    encoded. Only the cards get it, because the encoder keeps noise and it costs file size."""
     bg = Image.new("RGB", (W, H), BACKGROUND)
-
-    def wash(shape, colour, opacity, blur):
-        m = Image.new("L", (W, H), 0)
-        shape(ImageDraw.Draw(m))
-        m = m.filter(ImageFilter.GaussianBlur(blur)).point(lambda v: min(255, int(v * opacity)))
-        bg.paste(Image.new("RGB", (W, H), colour), (0, 0), m)
-
-    wash(lambda d: d.ellipse([-440, -300, 680, 820], fill=255), AURORA[0], brand.AURORA_OPACITY * strength, 150)
-    wash(lambda d: d.ellipse([430, 1180, 1550, 2300], fill=255), AURORA[1], brand.AURORA_OPACITY * strength, 150)
+    brand.aurora_wash(bg, strength)
     if glow:
-        wash(lambda d: d.rectangle([-60, FRAME_Y + 10, W + 60, FRAME_Y + FRAME_H - 10], fill=255), AURORA[0], 0.26, 70)
-    if grain:   # seeded, so a rebuild gives the same bytes
-        width = grain * 12 ** 0.5   # a uniform spread of this width has std. dev. `grain`
-        noise = Image.frombytes("L", (W, H), random.Random(2026).randbytes(W * H)).point(lambda v: 128 + round((v / 255 - 0.5) * width))
-        bg = ImageChops.add(bg, noise.convert("RGB"), 1.0, -128)
+        brand.wash(bg, lambda d: d.rectangle([-60, FRAME_Y + 10, W + 60, FRAME_Y + FRAME_H - 10], fill=255), AURORA[0], 0.26, 70)
+    if grain:
+        bg = brand.add_grain(bg, grain)
     return bg
 
 
@@ -108,27 +96,7 @@ def shadowed(layer, blur=12, off=8, alpha=0.5):
 
 
 # ------------------------------------------------------------------ the logo
-def logo_mark(size):
-    """website/public/logo.svg drawn at `size` px: three level bars and two rising strokes (its shapes, in
-    the viewBox of components/motion/logo.tsx). Drawn at 4x and scaled down for smooth edges."""
-    ss = 4
-    px = size * ss
-    k = px / 57.29
-    ox, oy = 3.854, 3.354
-
-    def P(x, y):
-        return ((x - ox) * k, (y - oy) * k)
-
-    im = Image.new("RGBA", (px, px), (0, 0, 0, 0))
-    d = ImageDraw.Draw(im)
-    for x, y, h in ((5, 26, 12), (14, 20, 24), (23, 25, 14)):
-        d.rounded_rectangle([*P(x, y), *P(x + 6, y + h)], radius=3 * k, fill=rgba(brand.LOGO_BARS))
-    for pts, col in (([(34, 26), (41, 18), (48, 23), (57, 12)], brand.LOGO_BARS), ([(34, 38), (41, 46), (48, 41), (57, 52)], brand.LOGO_LINE)):
-        xy = [P(*p) for p in pts]
-        d.line(xy, fill=rgba(col), width=round(6 * k), joint="curve")
-        for x, y in xy:
-            d.ellipse([x - 3 * k, y - 3 * k, x + 3 * k, y + 3 * k], fill=rgba(col))
-    return im.resize((size, size), Image.LANCZOS)
+logo_mark = brand.logo_mark   # website/public/logo.svg, drawn in brand.py (the launch video draws it too)
 
 
 def wordmark(layer, bg, cx, top, mark, size):

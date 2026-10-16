@@ -15,9 +15,10 @@ Colours are (r, g, b) tuples. `check()` runs at import: it fails the render if a
 under the 4.5:1 contrast the reels promise, so a palette change on the site cannot slip an unreadable caption in.
 """
 import os
+import random
 import re
 from pathlib import Path
-from PIL import ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SITE = REPO_ROOT / "website"
@@ -137,6 +138,62 @@ def font(weight, size):
         if p.exists():
             return ImageFont.truetype(str(p), size)
     raise FileNotFoundError(f"no Inter-{weight}.otf/.ttf in {FONT_DIR}: install fonts-inter, or set EDYTLAB_REEL_FONT_DIR")
+
+
+# ----------------------------------------------------------- shared drawing
+# Used by the reels (render.py) and the launch video (marketing/launch-video/tools/engine.py), so both are drawn
+# from one place: the site's logo, its `.aurora` washes behind a section and the film grain.
+def rgba(c, a=255):
+    return tuple(c) + (a,)
+
+
+def wash(bg, shape, colour, opacity, blur):
+    """Paste `colour` onto `bg` (an RGB image, in place) through a blurred mask: `shape(draw)` fills the mask with 255 and
+    `opacity` (0..1) scales it."""
+    m = Image.new("L", bg.size, 0)
+    shape(ImageDraw.Draw(m))
+    m = m.filter(ImageFilter.GaussianBlur(blur)).point(lambda v: min(255, int(v * opacity)))
+    bg.paste(Image.new("RGB", bg.size, colour), (0, 0), m)
+
+
+def aurora_wash(bg, strength=1.0):
+    """The site's `.aurora` (a violet and a magenta wash at opposite corners, `.aurora` in globals.css) on `bg`, in place.
+    `strength` 1 is the site's own opacity (0.16). The two blobs are 1120 px across, at the top-left and bottom-right corners."""
+    w, h = bg.size
+    wash(bg, lambda d: d.ellipse([-440, -300, 680, 820], fill=255), AURORA[0], AURORA_OPACITY * strength, 150)
+    wash(bg, lambda d: d.ellipse([w - 650, h - 740, w + 470, h + 380], fill=255), AURORA[1], AURORA_OPACITY * strength, 150)
+
+
+def add_grain(bg, grain, seed=2026):
+    """`bg` plus a little seeded noise of std. dev. `grain` (8-bit levels), as the site's film grain: a steep wash bands once it
+    is encoded. Seeded, so a rebuild gives the same bytes."""
+    w, h = bg.size
+    width = grain * 12 ** 0.5   # a uniform spread of this width has std. dev. `grain`
+    noise = Image.frombytes("L", (w, h), random.Random(seed).randbytes(w * h)).point(lambda v: 128 + round((v / 255 - 0.5) * width))
+    return ImageChops.add(bg, noise.convert("RGB"), 1.0, -128)
+
+
+def logo_mark(size):
+    """website/public/logo.svg drawn at `size` px: three level bars and two rising strokes (its shapes, in
+    the viewBox of components/motion/logo.tsx). Drawn at 4x and scaled down for smooth edges."""
+    ss = 4
+    px = size * ss
+    k = px / 57.29
+    ox, oy = 3.854, 3.354
+
+    def P(x, y):
+        return ((x - ox) * k, (y - oy) * k)
+
+    im = Image.new("RGBA", (px, px), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    for x, y, h in ((5, 26, 12), (14, 20, 24), (23, 25, 14)):
+        d.rounded_rectangle([*P(x, y), *P(x + 6, y + h)], radius=3 * k, fill=rgba(LOGO_BARS))
+    for pts, col in (([(34, 26), (41, 18), (48, 23), (57, 12)], LOGO_BARS), ([(34, 38), (41, 46), (48, 41), (57, 52)], LOGO_LINE)):
+        xy = [P(*p) for p in pts]
+        d.line(xy, fill=rgba(col), width=round(6 * k), joint="curve")
+        for x, y in xy:
+            d.ellipse([x - 3 * k, y - 3 * k, x + 3 * k, y + 3 * k], fill=rgba(col))
+    return im.resize((size, size), Image.LANCZOS)
 
 
 CONTRASTS = check()
