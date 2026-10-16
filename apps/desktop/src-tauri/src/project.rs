@@ -127,6 +127,31 @@ pub fn write_view(project_dir: &Path, view: &ViewState) -> std::io::Result<()> {
 /// largest thing in the directory. Copying it would make Save As slow
 /// in exchange for nothing.
 pub fn copy_project(src: &Path, dest: &Path) -> std::io::Result<CopyReport> {
+    copy_from(src, dest, &mut |_| {})
+}
+
+/// [`copy_project`] of the project whose live store is `store`, calling
+/// `before_each_file` with each file's path in the project (relative to
+/// it) before the file is copied. The call is where a test makes the
+/// project change during the copy.
+pub(crate) fn copy_project_with(
+    store: &std::sync::Mutex<session::Store>,
+    dest: &Path,
+    mut before_each_file: impl FnMut(&Path),
+) -> std::io::Result<CopyReport> {
+    let src = store
+        .lock()
+        .map_err(|_| std::io::Error::other("the project's store lock is poisoned"))?
+        .project_dir()
+        .to_path_buf();
+    copy_from(&src, dest, &mut before_each_file)
+}
+
+fn copy_from(
+    src: &Path,
+    dest: &Path,
+    before_each_file: &mut dyn FnMut(&Path),
+) -> std::io::Result<CopyReport> {
     if dest.exists() && std::fs::read_dir(dest)?.next().is_some() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::AlreadyExists,
@@ -134,7 +159,7 @@ pub fn copy_project(src: &Path, dest: &Path) -> std::io::Result<CopyReport> {
         ));
     }
     let mut report = CopyReport::default();
-    copy_dir(src, dest, &mut report)?;
+    copy_dir(src, src, dest, &mut report, before_each_file)?;
     Ok(report)
 }
 
@@ -147,7 +172,13 @@ pub struct CopyReport {
     pub skipped_previews: usize,
 }
 
-fn copy_dir(src: &Path, dest: &Path, report: &mut CopyReport) -> std::io::Result<()> {
+fn copy_dir(
+    root: &Path,
+    src: &Path,
+    dest: &Path,
+    report: &mut CopyReport,
+    before_each_file: &mut dyn FnMut(&Path),
+) -> std::io::Result<()> {
     std::fs::create_dir_all(dest)?;
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
@@ -165,8 +196,9 @@ fn copy_dir(src: &Path, dest: &Path, report: &mut CopyReport) -> std::io::Result
                     .unwrap_or(0);
                 continue;
             }
-            copy_dir(&from, &to, report)?;
+            copy_dir(root, &from, &to, report, before_each_file)?;
         } else if from.is_file() {
+            before_each_file(from.strip_prefix(root).unwrap_or(&from));
             let bytes = std::fs::copy(&from, &to)?;
             report.files += 1;
             report.bytes += bytes;
@@ -351,6 +383,7 @@ mod tests {
         std::fs::create_dir_all(store.join("derived")).unwrap();
         std::fs::create_dir_all(store.join("clipboard")).unwrap();
         std::fs::create_dir_all(store.join(tools::preview_cache::CACHE_DIR)).unwrap();
+        std::fs::create_dir_all(store.join(tools::tool::audition::AUDITION_DIR)).unwrap();
         std::fs::write(src.join(PROJECT_FILE), "{\"name\":\"Episode 12\"}").unwrap();
         std::fs::write(store.join("head"), "abc").unwrap();
         std::fs::write(store.join("nodes").join("a.json"), "{}").unwrap();
@@ -367,6 +400,14 @@ mod tests {
             vec![0u8; 4096],
         )
         .unwrap();
+        // And two auditions, a cache of the same kind (#576).
+        for name in ["a1.wav", "a2.wav"] {
+            std::fs::write(
+                store.join(tools::tool::audition::AUDITION_DIR).join(name),
+                vec![0u8; 4096],
+            )
+            .unwrap();
+        }
 
         let dest = tmp.path().join("copy");
         let report = copy_project(&src, &dest).expect("copy");
@@ -394,14 +435,21 @@ mod tests {
             "including the clipboard blobs a paste depends on"
         );
 
-        // The cache is the one thing left behind: it is the biggest
-        // directory and every entry re-derives on demand.
+        // The caches are what is left behind: they are the biggest
+        // directories and every entry re-derives on demand.
         assert!(
             !dest
                 .join(session::STORE_DIR)
                 .join(tools::preview_cache::CACHE_DIR)
                 .exists(),
             "the preview cache must not be copied"
+        );
+        assert!(
+            !dest
+                .join(session::STORE_DIR)
+                .join(tools::tool::audition::AUDITION_DIR)
+                .exists(),
+            "the audition cache must not be copied"
         );
         assert_eq!(report.skipped_previews, 2);
         assert_eq!(report.files, 5);
@@ -576,6 +624,276 @@ mod tests {
         let dest = tmp.path().join("nested").join("copy");
         copy_project(&src, &dest).expect("copy into a path that does not exist yet");
         assert!(dest.join(PROJECT_FILE).is_file());
+    }
+
+    /// A folder is a cache because of where it is, not what it is called
+    /// (#576): only `.audiograph/previews/` and `.audiograph/auditions/` are
+    /// the app's caches. A `previews` folder of the user's own in the project
+    /// folder, or one under `derived/`, is the project's and travels.
+    #[test]
+    fn a_folder_named_like_a_cache_elsewhere_is_copied() {
+        let tmp = TempDir::new().unwrap();
+        let src = tmp.path().join("original");
+        let store = src.join(session::STORE_DIR);
+        let derived = session::relocate::derived_dir(&src);
+        let elsewhere = [
+            src.join("previews").join("my-mixdown.wav"),
+            src.join("auditions").join("take-3.wav"),
+            derived.join("previews").join("kept.wav"),
+            derived.join("auditions").join("kept.wav"),
+        ];
+        for file in &elsewhere {
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, vec![0u8; 256]).unwrap();
+        }
+        std::fs::create_dir_all(store.join(tools::preview_cache::CACHE_DIR)).unwrap();
+        std::fs::write(
+            store.join(tools::preview_cache::CACHE_DIR).join("p.wav"),
+            vec![0u8; 256],
+        )
+        .unwrap();
+
+        let dest = tmp.path().join("copy");
+        copy_project(&src, &dest).expect("copy");
+
+        for file in &elsewhere {
+            let copied = dest.join(file.strip_prefix(&src).unwrap());
+            assert!(
+                copied.is_file(),
+                "{} is not a cache and was left out of the copy",
+                copied.display()
+            );
+        }
+        assert!(!dest
+            .join(session::STORE_DIR)
+            .join(tools::preview_cache::CACHE_DIR)
+            .exists());
+    }
+
+    /// A node with one track playing `audio`, one clip per file, and a length
+    /// that gives it an id of its own.
+    fn playing(audio: &[PathBuf], length_samples: u64) -> session::SessionNode {
+        use session::{Clip, SessionNode, SessionState, Track, TrackId};
+        SessionNode {
+            id: session::NodeId([0u8; 32]),
+            parent: None,
+            created_at: chrono::Utc::now(),
+            label: None,
+            reasoning: None,
+            state: SessionState {
+                tracks: vec![Track {
+                    id: TrackId(uuid::Uuid::nil()),
+                    name: "Vox".into(),
+                    clips: audio
+                        .iter()
+                        .map(|path| Clip {
+                            source_path: path.clone(),
+                            start_in_track: 0,
+                            source_offset: 0,
+                            length: 256,
+                            content_hash: None,
+                            time_stretch_factor: None,
+                            pitch_shift_semitones: None,
+                            beat_grid: None,
+                            volume_envelope: Vec::new(),
+                        })
+                        .collect(),
+                    gain_db: 0.0,
+                    pan: 0.0,
+                    muted: false,
+                    soloed: false,
+                    effects: Vec::new(),
+                    sends: Vec::new(),
+                }],
+                bus_routing: Default::default(),
+                master_chain: Vec::new(),
+                tempo_map: Default::default(),
+                key_map: None,
+                transcript: None,
+                sample_rate: 48_000,
+                length_samples,
+                annotations: Vec::new(),
+                sync_lock: false,
+            },
+            op: None,
+        }
+    }
+
+    /// A project whose head plays a file in `derived/` and a clipboard
+    /// blob, as its live store; and that head.
+    struct Original {
+        dir: PathBuf,
+        store: std::sync::Mutex<session::Store>,
+        head: session::NodeId,
+        /// The audio the head plays from `derived/`.
+        audio: PathBuf,
+    }
+
+    fn original(tmp: &TempDir) -> Original {
+        let dir = tmp.path().join("original");
+        let derived = session::relocate::derived_dir(&dir);
+        let clipboard = session::relocate::clipboard_dir(&dir);
+        std::fs::create_dir_all(&derived).unwrap();
+        std::fs::create_dir_all(&clipboard).unwrap();
+        let audio = derived.join("first.wav");
+        let blob = clipboard.join("blob.wav");
+        std::fs::write(&audio, vec![1u8; 1024]).unwrap();
+        std::fs::write(&blob, vec![2u8; 512]).unwrap();
+        let mut store = session::Store::open(&dir).unwrap();
+        let head = store.append(playing(&[audio.clone(), blob], 1)).unwrap();
+        Original {
+            dir,
+            store: std::sync::Mutex::new(store),
+            head,
+            audio,
+        }
+    }
+
+    /// `path` inside the project's store directory, as the copy names the
+    /// files it is about to copy.
+    fn in_store(path: &str) -> PathBuf {
+        Path::new(session::STORE_DIR).join(path)
+    }
+
+    /// Save As during an edit (#571). The copy used to be taken file by
+    /// file with nothing held, so an edit that landed part way could leave a
+    /// copy whose head names a node the copy does not have, or a node whose
+    /// audio it does not have; it opened, and failed on its first read.
+    ///
+    /// Here an edit lands just before the copy reaches `head` and another
+    /// just after it, each made the way a tool that runs off the store's
+    /// lock makes one (staged, its audio written with no lock held, then
+    /// committed) and each followed by what deletes from `derived/`: the
+    /// orphan sweep, and a compaction down to the newest node. An edit that
+    /// finds the store's lock taken waits for it, as every writer does.
+    ///
+    /// The copy is the project as it was when the copy started, and it
+    /// plays on its own once the original is gone. The audio is copied with
+    /// the store's lock free, so a long copy does not stop every command.
+    #[test]
+    fn a_copy_is_the_project_as_it_was_when_the_copy_started() {
+        use session::{Commit, Store};
+        let tmp = TempDir::new().unwrap();
+        let p = original(&tmp);
+        let derived = session::relocate::derived_dir(&p.dir);
+
+        let head_file = in_store("head");
+        let mut edits_due = 0;
+        let mut edits_landed = 0u64;
+        let (mut reached_head, mut past_head) = (false, false);
+        let mut audio_copied_under_the_lock = Vec::new();
+        let dest = tmp.path().join("copy");
+        copy_project_with(&p.store, &dest, |file| {
+            if file == head_file {
+                reached_head = true;
+                edits_due += 1;
+            } else if reached_head && !past_head {
+                past_head = true;
+                edits_due += 1;
+            }
+            if file.starts_with(in_store("derived")) && p.store.try_lock().is_err() {
+                audio_copied_under_the_lock.push(file.to_path_buf());
+            }
+            while edits_due > 0 {
+                let Ok(live) = p.store.try_lock() else {
+                    break;
+                };
+                edits_landed += 1;
+                let mut run = live.stage().unwrap();
+                drop(live);
+                let audio = derived.join(format!("edit-{edits_landed}.wav"));
+                std::fs::write(&audio, vec![3u8; 1024]).unwrap();
+                run.append(playing(&[audio], 1 + edits_landed)).unwrap();
+                let mut live = p.store.lock().unwrap();
+                assert_eq!(live.commit(run).unwrap(), Commit::Published);
+                let _ = tools::reclaim::sweep_orphans(&live);
+                let head = live.head().unwrap();
+                let plan = tools::reclaim::plan_compaction(&live, head, 1).unwrap();
+                let _ = tools::reclaim::apply_compaction(&mut live, &plan);
+                edits_due -= 1;
+            }
+        })
+        .expect("copy");
+
+        drop(p.store);
+        std::fs::remove_dir_all(&p.dir).expect("the original is gone");
+        let copy = Store::open(&dest).unwrap();
+        let head = copy.head().expect("the copy has a head");
+        if let Err(e) = copy.get(head) {
+            panic!(
+                "the copy's head {} is not a node in the copy: {e}",
+                head.to_hex()
+            );
+        }
+        assert_eq!(
+            head, p.head,
+            "the copy's head is not the head the project had when the copy started"
+        );
+        for node in copy.list_nodes().unwrap() {
+            for clip in node.state.tracks.iter().flat_map(|t| &t.clips) {
+                assert!(
+                    clip.source_path.is_file() && clip.source_path.starts_with(&dest),
+                    "node {} in the copy names audio the copy does not have: {}",
+                    node.id.to_hex(),
+                    clip.source_path.display()
+                );
+            }
+        }
+        assert_eq!(
+            edits_landed, 2,
+            "the edits did not land during the copy, so this shows nothing"
+        );
+        assert!(
+            audio_copied_under_the_lock.is_empty(),
+            "the audio was copied holding the store's lock, which stops every command \
+             for as long as the copy takes: {audio_copied_under_the_lock:?}"
+        );
+    }
+
+    /// The copy is checked before it is opened: a copy whose head names a
+    /// node it does not have is an error, not a project that opens and
+    /// fails on its first read (#571).
+    #[test]
+    fn a_copy_without_its_head_node_is_an_error() {
+        let tmp = TempDir::new().unwrap();
+        let p = original(&tmp);
+        let hex = p.head.to_hex();
+        let dest = tmp.path().join("copy");
+        let copied_node = dest
+            .join(session::STORE_DIR)
+            .join("nodes")
+            .join(&hex[0..2])
+            .join(format!("{hex}.json"));
+
+        // Lost from the copy once the audio is being copied, whatever took it.
+        let result = copy_project_with(&p.store, &dest, |file| {
+            if file.starts_with(in_store("derived")) && copied_node.is_file() {
+                std::fs::remove_file(&copied_node).unwrap();
+            }
+        });
+
+        let err = result.expect_err("a copy without its head node was answered as a project");
+        assert!(err.to_string().contains(&hex), "{err}");
+    }
+
+    /// Likewise a copy without audio its head plays, which was there when
+    /// the copy started and is gone before it was copied: an error naming
+    /// the file, not a copy that plays silence there (#571).
+    #[test]
+    fn a_copy_without_audio_its_head_plays_is_an_error() {
+        let tmp = TempDir::new().unwrap();
+        let p = original(&tmp);
+        let name = in_store("derived").join("first.wav");
+        let dest = tmp.path().join("copy");
+
+        let result = copy_project_with(&p.store, &dest, |file| {
+            if file == name {
+                std::fs::remove_file(&p.audio).unwrap();
+            }
+        });
+
+        let err = result.expect_err("a copy without its head's audio was answered as a project");
+        assert!(err.to_string().contains("first.wav"), "{err}");
     }
 
     #[test]
