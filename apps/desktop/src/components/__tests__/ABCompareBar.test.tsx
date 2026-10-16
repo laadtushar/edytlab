@@ -329,7 +329,7 @@ describe("ABCompareBar lets go of the renders it compared (#575)", () => {
     const onAudioPathChange = vi.fn();
     prepareCompareMock
       .mockResolvedValueOnce(prepared(1))
-      .mockReturnValueOnce(Promise.reject(new Error("render failed")));
+      .mockRejectedValueOnce(new Error("render failed"));
 
     const { rerender } = render(bar(B_NODE, onAudioPathChange));
     await waitFor(() => expect(onAudioPathChange).toHaveBeenCalledWith(A_PATH));
