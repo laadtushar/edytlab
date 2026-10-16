@@ -293,6 +293,41 @@ fn an_occurrence_past_the_end_says_how_many_there_are() {
     assert!(msg.contains("appears 2 time(s)"), "{msg}");
 }
 
+/// **What was matched names the occurrence and how many there are** (#570
+/// item 3). It used to end in a literal `...` where the count belonged,
+/// because the search stopped at the occurrence asked for, and the model
+/// quotes `matched` and the summary back.
+#[test]
+fn matched_says_which_occurrence_of_how_many() {
+    let mut s = Session::new();
+    s.with_transcript(&transcript());
+
+    for (args, want) in [
+        (
+            json!({ "text": "latency" }),
+            "\"latency\" (occurrence 1 of 2)",
+        ),
+        (
+            json!({ "text": "latency", "occurrence": 2 }),
+            "\"latency\" (occurrence 2 of 2)",
+        ),
+        (
+            json!({ "text": "the latency" }),
+            "\"the latency\" (occurrence 1 of 2)",
+        ),
+        (
+            json!({ "text": "terrible" }),
+            "\"terrible\" (occurrence 1 of 1)",
+        ),
+    ] {
+        let v = ok(s.call("select_region", args.clone()));
+        assert_eq!(v["matched"], json!(want), "{args}: {v}");
+        let summary = v["summary"].as_str().expect("a summary");
+        assert!(summary.contains(want), "{args}: {summary}");
+        assert!(!summary.contains("..."), "{args}: {summary}");
+    }
+}
+
 /// "The last thing he said" without having to know how many there were.
 #[test]
 fn a_negative_passage_counts_from_the_end() {
@@ -962,4 +997,246 @@ fn the_schema_states_what_the_audio_mode_cannot_do() {
         tool.contains("`text`") && tool.contains("words"),
         "and that a phrase still needs the transcript: {tool}"
     );
+}
+
+// =============================================================================
+// How long a pause splits two passages: `join_gap_sec` (#570)
+// =============================================================================
+//
+// `duck_under_speech` takes `join_gap_sec`; `select_region` used to join at
+// a fixed second. Its docs promised that a passage number means the same in
+// both tools, which held only at the default: duck with `join_gap_sec: 0.5`
+// and "passage 3" was a different stretch of speech in each.
+
+/// A voice track, then music. The voice has four lines with pauses of
+/// 0.6 s, 1.4 s and 5 s between them, so 0.5 s, 1 s and 2 s split it into
+/// four, three and two passages.
+fn four_lines_over_music() -> Session {
+    let voice = track_with(
+        SR,
+        20.0,
+        &[
+            (2.0, voice_burst(SR, 1.0)),
+            (3.6, voice_burst(SR, 1.0)),
+            (6.0, voice_burst(SR, 1.0)),
+            (12.0, voice_burst(SR, 1.0)),
+        ],
+    );
+    let music: Vec<f32> = (0..SR as usize * 20)
+        .map(|n| (2.0 * std::f32::consts::PI * 440.0 * n as f32 / SR as f32).sin() * 0.25)
+        .collect();
+    Session::with_tracks(&[(SR, voice), (SR, music)])
+}
+
+/// `args` with the fields of `extra` added.
+fn with(mut args: Value, extra: &Value) -> Value {
+    for (k, v) in extra.as_object().expect("an object") {
+        args[k] = v.clone();
+    }
+    args
+}
+
+/// Every passage `select_region` finds, in order, as `(start, end)`: passage
+/// 1, 2, ... until it says there are no more.
+fn selected_passages(s: &mut Session, args: Value) -> Vec<(f64, f64)> {
+    let mut out = Vec::new();
+    for n in 1.. {
+        match s.call(
+            "select_region",
+            with(args.clone(), &json!({ "speech_passage": n })),
+        ) {
+            ToolResult::Ok(v) => out.push((
+                v["start_sec"].as_f64().expect("start_sec"),
+                v["end_sec"].as_f64().expect("end_sec"),
+            )),
+            ToolResult::Error(msg) => {
+                assert!(
+                    msg.contains(&format!("there are {} passage(s)", out.len())),
+                    "stopped for another reason: {msg}"
+                );
+                return out;
+            }
+        }
+    }
+    unreachable!()
+}
+
+/// The passages `duck_under_speech` ducked under, read back from the curve
+/// it wrote on `music`'s first clip. With no pre-roll, attack or release a
+/// duck is a step down at the start of a passage and a step up at its end,
+/// each two points a sample apart, so the curve gives the spans exactly.
+fn ducked_passages(s: &mut Session, music: usize, args: Value) -> (Vec<(f64, f64)>, Value) {
+    let out = ok(s.call(
+        "duck_under_speech",
+        with(
+            json!({ "music_track": music, "pre_roll_ms": 0, "attack_ms": 0, "release_ms": 0 }),
+            &args,
+        ),
+    ));
+    let clip = &s.state().tracks[music].clips[0];
+    assert_eq!(clip.start_in_track, 0, "the curve is read from 0 s");
+    let points = &clip.volume_envelope;
+    let mut spans = Vec::new();
+    let mut start = None;
+    for pair in points.windows(2) {
+        let t = pair[0].time_samples as f64 / SR as f64;
+        match (pair[0].gain_db == 0.0, pair[1].gain_db == 0.0) {
+            (true, false) => start = Some(t),
+            (false, true) => spans.push((start.take().expect("down before up"), t)),
+            _ => {}
+        }
+    }
+    assert_eq!(
+        spans.len() as u64,
+        out["passages"].as_u64().unwrap(),
+        "{out}"
+    );
+    (spans, out)
+}
+
+/// **The acceptance.** For a pause length that splits the speech into four,
+/// three or two passages, `select_region` with that `join_gap_sec` finds the
+/// same passages as `duck_under_speech` with it: the same count, and each one
+/// over the same span.
+#[test]
+fn join_gap_sec_gives_the_passages_duck_under_speech_finds() {
+    let mut s = four_lines_over_music();
+
+    for (gap, want) in [(0.5, 4), (1.0, 3), (2.0, 2)] {
+        let gap_arg = json!({ "voice_tracks": [0], "join_gap_sec": gap });
+        let selected = selected_passages(&mut s, gap_arg.clone());
+        let (ducked, out) = ducked_passages(&mut s, 1, gap_arg);
+
+        assert_eq!(selected.len(), want, "join_gap_sec {gap}: {selected:?}");
+        assert_eq!(ducked.len(), want, "join_gap_sec {gap}: {ducked:?}");
+        for (i, (sel, duck)) in selected.iter().zip(&ducked).enumerate() {
+            assert!(
+                (sel.0 - duck.0).abs() < 1e-3 && (sel.1 - duck.1).abs() < 1e-3,
+                "join_gap_sec {gap}, passage {}: select_region {sel:?}, duck_under_speech {duck:?}",
+                i + 1
+            );
+        }
+        let selected_sec: f64 = selected.iter().map(|(a, b)| b - a).sum();
+        let speech_sec = out["speech_sec"].as_f64().unwrap();
+        assert!(
+            (selected_sec - speech_sec).abs() < 1e-3,
+            "join_gap_sec {gap}: {selected_sec} s selected, {speech_sec} s ducked"
+        );
+    }
+
+    // And the third passage at 0.5 s is not the third at 2 s: the parameter
+    // matters, which is why the two tools have to agree on it.
+    let at = |gap: f64, s: &mut Session| {
+        ok(s.call(
+            "select_region",
+            json!({ "speech_passage": 2, "voice_tracks": [0], "join_gap_sec": gap }),
+        ))
+    };
+    let half = at(0.5, &mut s);
+    let two = at(2.0, &mut s);
+    assert_near(&half, "start_sec", 3.6, 0.1);
+    assert_near(&two, "start_sec", 12.0, 0.1);
+}
+
+/// **Left out, the gap is a second**, as it was before the parameter and as
+/// it is in `duck_under_speech`: the same answers as `join_gap_sec: 1`.
+#[test]
+fn join_gap_sec_defaults_to_one_second_as_before() {
+    let mut s = four_lines_over_music();
+
+    let default = selected_passages(&mut s, json!({ "voice_tracks": [0] }));
+    let one = selected_passages(&mut s, json!({ "voice_tracks": [0], "join_gap_sec": 1.0 }));
+    assert_eq!(default, one);
+    assert_eq!(default.len(), 3, "{default:?}");
+    assert!((default[0].0 - 2.0).abs() < 0.1 && (default[0].1 - 4.6).abs() < 0.1);
+
+    let (ducked, _) = ducked_passages(&mut s, 1, json!({ "voice_tracks": [0] }));
+    assert_eq!(ducked.len(), 3, "the duck's default is the same second");
+}
+
+/// The transcript route joins words by the same parameter. The words of a
+/// sentence touch, so a gap of zero splits every word off, and a gap longer
+/// than the pause between the two sentences joins them.
+#[test]
+fn join_gap_sec_joins_the_transcripts_words_too() {
+    let mut s = Session::new();
+    s.with_transcript(&transcript());
+
+    let msg = err(s.call(
+        "select_region",
+        json!({ "speech_passage": 10, "join_gap_sec": 0 }),
+    ));
+    assert!(msg.contains("there are 9 passage(s)"), "{msg}");
+
+    let one = ok(s.call(
+        "select_region",
+        json!({ "speech_passage": -1, "join_gap_sec": 10 }),
+    ));
+    assert_near(&one, "start_sec", 2.0, 0.01);
+    assert_near(&one, "end_sec", 15.0, 0.01);
+    assert_eq!(one["matched"], json!("passage 1 of 1 of speech"), "{one}");
+
+    let default = ok(s.call("select_region", json!({ "speech_passage": -1 })));
+    assert_eq!(
+        default["matched"],
+        json!("passage 2 of 2 of speech"),
+        "{default}"
+    );
+}
+
+/// The same bounds as `duck_under_speech`: a negative gap is read as zero,
+/// so two overlapping words are one passage in both tools, as they are at
+/// zero. Taken as given, -1 would keep words that overlap by less than a
+/// second apart.
+#[test]
+fn a_negative_join_gap_is_read_as_zero_in_both_tools() {
+    let mut s = Session::new();
+    s.with_transcript(&[("one", 2.0, 3.0), ("two", 2.5, 3.5), ("later", 10.0, 11.0)]);
+
+    for gap in [0.0, -1.0] {
+        let msg = err(s.call(
+            "select_region",
+            json!({ "speech_passage": 3, "join_gap_sec": gap }),
+        ));
+        assert!(msg.contains("there are 2 passage(s)"), "{gap}: {msg}");
+        let ducked = ok(s.call(
+            "duck_under_speech",
+            json!({ "music_track": 0, "join_gap_sec": gap }),
+        ));
+        assert_eq!(ducked["passages"], json!(2), "{gap}: {ducked}");
+    }
+}
+
+/// `join_gap_sec` says how a passage of speech is found, so it goes with
+/// `speech_passage`. With a phrase or a beat range it would be ignored,
+/// which is a different question answered silently; it is refused instead,
+/// as `voice_tracks` is.
+#[test]
+fn join_gap_sec_is_refused_without_speech_passage() {
+    let mut s = Session::new();
+    s.with_transcript(&transcript());
+
+    for args in [
+        json!({ "text": "latency", "join_gap_sec": 0.5 }),
+        json!({ "from_beat": 1, "to_beat": 3, "join_gap_sec": 0.5 }),
+    ] {
+        let msg = err(s.call("select_region", args.clone()));
+        assert!(msg.contains("join_gap_sec"), "{args}: {msg}");
+        assert!(msg.contains("speech_passage"), "{args}: {msg}");
+    }
+}
+
+/// The parameter is in the schema the model reads, with the same name,
+/// type and default as `duck_under_speech`'s.
+#[test]
+fn join_gap_sec_is_in_the_schema_as_in_ducking() {
+    use tools::Tool;
+    let select = tools::tool::SelectRegionTool.schema();
+    let duck = tools::tool::DuckUnderSpeechTool.schema();
+    let ours = &select["input_schema"]["properties"]["join_gap_sec"];
+    let theirs = &duck["input_schema"]["properties"]["join_gap_sec"];
+    assert_eq!(ours["type"], theirs["type"], "{ours}");
+    let text = ours["description"].as_str().expect("a description");
+    assert!(text.contains("Default 1 s"), "{text}");
+    assert!(text.contains("duck_under_speech"), "{text}");
 }

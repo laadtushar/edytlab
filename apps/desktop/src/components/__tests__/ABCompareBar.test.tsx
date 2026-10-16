@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // ---- mock tauri-bridge ----
 const prepareCompareMock = vi.fn();
 const acceptBMock = vi.fn();
+const endCompareMock = vi.fn();
 
 vi.mock("../../lib/tauri-bridge", async () => {
   const actual = await vi.importActual<
@@ -20,6 +21,7 @@ vi.mock("../../lib/tauri-bridge", async () => {
     ...actual,
     prepareCompare: (a: string, b: string) => prepareCompareMock(a, b),
     acceptB: (b: string) => acceptBMock(b),
+    endCompare: (id: number) => endCompareMock(id),
   };
 });
 
@@ -33,6 +35,8 @@ const B_PATH = "/tmp/compare_b.wav";
 beforeEach(() => {
   prepareCompareMock.mockReset();
   acceptBMock.mockReset();
+  endCompareMock.mockReset();
+  endCompareMock.mockResolvedValue(undefined);
 });
 
 describe("ABCompareBar", () => {
@@ -241,5 +245,111 @@ describe("ABCompareBar render warnings (#532)", () => {
 
     await waitFor(() => expect(screen.getByTestId("ab-side-a")).not.toBeDisabled());
     expect(screen.queryByTestId("ab-render-warnings")).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * The backend keeps both renders out of the preview cache's eviction while
+ * the bar is open, because every switch loads a side from its file again
+ * (#575). The bar has to say when it is done with them, or the pair stays
+ * held until the next compare.
+ */
+describe("ABCompareBar lets go of the renders it compared (#575)", () => {
+  const prepared = (compare_id: number) => ({
+    a_path: A_PATH,
+    b_path: B_PATH,
+    a_warnings: [],
+    b_warnings: [],
+    compare_id,
+  });
+
+  const bar = (bNodeId = B_NODE, onAudioPathChange = vi.fn()) => (
+    <ABCompareBar
+      aNodeId={A_NODE}
+      bNodeId={bNodeId}
+      onAudioPathChange={onAudioPathChange}
+      onAcceptB={vi.fn()}
+      onClose={vi.fn()}
+    />
+  );
+
+  it("keeps the pair while the bar is open, and ends the compare when it closes", async () => {
+    prepareCompareMock.mockResolvedValue(prepared(7));
+
+    const { unmount } = render(bar());
+    await waitFor(() => expect(screen.getByTestId("ab-side-b")).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId("ab-side-b"));
+    fireEvent.click(screen.getByTestId("ab-side-a"));
+    expect(endCompareMock).not.toHaveBeenCalled();
+
+    unmount();
+    expect(endCompareMock).toHaveBeenCalledTimes(1);
+    expect(endCompareMock).toHaveBeenCalledWith(7);
+  });
+
+  it("ends a compare that finishes rendering after the bar has closed, and plays nothing", async () => {
+    let finish: (value: ReturnType<typeof prepared>) => void = () => undefined;
+    prepareCompareMock.mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const onAudioPathChange = vi.fn();
+
+    const { unmount } = render(bar(B_NODE, onAudioPathChange));
+    unmount();
+    expect(endCompareMock).not.toHaveBeenCalled();
+    await act(async () => {
+      finish(prepared(8));
+    });
+
+    await waitFor(() => expect(endCompareMock).toHaveBeenCalledWith(8));
+    expect(onAudioPathChange).not.toHaveBeenCalled();
+  });
+
+  it("ends the old pair's compare when the bar moves to another pair", async () => {
+    const C_NODE = "c".repeat(64);
+    prepareCompareMock.mockResolvedValueOnce(prepared(1)).mockResolvedValueOnce(prepared(2));
+
+    const { rerender, unmount } = render(bar(B_NODE));
+    await waitFor(() => expect(screen.getByTestId("ab-side-b")).not.toBeDisabled());
+
+    rerender(bar(C_NODE));
+    expect(endCompareMock).toHaveBeenCalledWith(1);
+    await waitFor(() => expect(prepareCompareMock).toHaveBeenLastCalledWith(A_NODE, C_NODE));
+    await waitFor(() => expect(screen.getByTestId("ab-side-b")).not.toBeDisabled());
+    expect(endCompareMock).toHaveBeenCalledTimes(1);
+
+    unmount();
+    expect(endCompareMock).toHaveBeenLastCalledWith(2);
+  });
+
+  it("does not switch to the old pair's renders once the new pair has failed to render", async () => {
+    const C_NODE = "c".repeat(64);
+    const onAudioPathChange = vi.fn();
+    prepareCompareMock
+      .mockResolvedValueOnce(prepared(1))
+      .mockRejectedValueOnce(new Error("render failed"));
+
+    const { rerender } = render(bar(B_NODE, onAudioPathChange));
+    await waitFor(() => expect(onAudioPathChange).toHaveBeenCalledWith(A_PATH));
+    rerender(bar(C_NODE, onAudioPathChange));
+    await screen.findByTestId("ab-error");
+    onAudioPathChange.mockClear();
+
+    // The old pair's renders are no longer held, and are not C's.
+    fireEvent.click(screen.getByTestId("ab-side-b"));
+    expect(onAudioPathChange).not.toHaveBeenCalled();
+  });
+
+  it("an end the backend refuses is not shown", async () => {
+    prepareCompareMock.mockResolvedValue(prepared(3));
+    endCompareMock.mockRejectedValue("internal: a state mutex was poisoned (compare)");
+
+    const { unmount } = render(bar());
+    await waitFor(() => expect(screen.getByTestId("ab-side-b")).not.toBeDisabled());
+    unmount();
+
+    expect(endCompareMock).toHaveBeenCalledWith(3);
   });
 });

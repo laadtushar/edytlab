@@ -15,7 +15,7 @@
  */
 
 import { fixturePath, fixtureSeconds } from "./audio-fixtures";
-import { leftOut, nodeId, ok, projectWith, selecting, trackFor } from "./backend";
+import { comparing, leftOut, nodeId, ok, projectWith, selecting, trackFor } from "./backend";
 import { expect, test, type App } from "./fixtures";
 import { dragSelect } from "./timeline";
 
@@ -206,7 +206,7 @@ test.describe("A/B compare of such a project", () => {
         head: A,
       }),
       // A stores the reverb; B, the edit after it, does not.
-      prepare_compare: ok({
+      ...comparing({
         a_path: TONE,
         b_path: fixturePath("tone3sB"),
         a_warnings: [reverbOnVocals],
@@ -230,5 +230,8 @@ test.describe("A/B compare of such a project", () => {
     await page.getByTestId("ab-close").click();
     await expect(page.getByTestId("ab-render-warnings")).toHaveCount(0);
     await expect(page.getByTestId("render-warnings")).toBeVisible();
+    // Closing the bar ends the compare, so the cache may evict its renders
+    // again (#575).
+    await expect.poll(() => app.requestsFor("end_compare")).toEqual([{ compareId: 1 }]);
   });
 });

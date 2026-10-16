@@ -52,7 +52,15 @@ const DEFAULT_PRE_ROLL_MS: f32 = 150.0;
 /// between two. Ducking back up for a quarter-second comma is a pump,
 /// not an edit. `select_region` joins by the same rule, so "the third
 /// thing he said" means the same in both.
-pub(crate) const DEFAULT_JOIN_GAP_S: f32 = 1.0;
+const DEFAULT_JOIN_GAP_S: f32 = 1.0;
+
+/// The `join_gap_sec` a call asked for, as both speech tools read it: the
+/// default when it is left out, and never below zero. One reading for
+/// both, so a passage number in `select_region` is the same stretch of
+/// speech as in `duck_under_speech` given the same value (#570).
+pub(crate) fn join_gap(requested: Option<f32>) -> f32 {
+    requested.unwrap_or(DEFAULT_JOIN_GAP_S).max(0.0)
+}
 
 #[derive(Debug, Deserialize)]
 struct Args {
@@ -118,6 +126,19 @@ impl Tool for DuckUnderSpeechTool {
         )
     }
 
+    // With `voice_tracks` it decodes and scans every clip of the voice
+    // tracks, which takes as long as the voice is long, and the store,
+    // engine and clipboard locks used to be held for all of it (#570). It
+    // reads the head and appends one node, so it runs on a staged handle
+    // like the other analysis tools. A run that loses the race to a user's
+    // edit is run again on the new head unless the edit changed the music
+    // or a voice track (both are named, in `music_track` and `voice_tracks`):
+    // a moved voice clip moves the speech, and the music's automation is
+    // what this writes.
+    fn runs_off_the_lock(&self) -> bool {
+        true
+    }
+
     fn invoke(&self, args: Value, ctx: &mut ToolContext) -> crate::Result<ToolResult> {
         let args: Args = match serde_json::from_value(args) {
             Ok(a) => a,
@@ -133,7 +154,7 @@ impl Tool for DuckUnderSpeechTool {
         let attack_s = args.attack_ms.unwrap_or(DEFAULT_ATTACK_MS).max(0.0) / 1000.0;
         let release_s = args.release_ms.unwrap_or(DEFAULT_RELEASE_MS).max(0.0) / 1000.0;
         let pre_roll_s = args.pre_roll_ms.unwrap_or(DEFAULT_PRE_ROLL_MS).max(0.0) / 1000.0;
-        let join_gap_s = args.join_gap_sec.unwrap_or(DEFAULT_JOIN_GAP_S).max(0.0);
+        let join_gap_s = join_gap(args.join_gap_sec);
 
         let mut state = match load_head_state(ctx) {
             Ok(s) => s,

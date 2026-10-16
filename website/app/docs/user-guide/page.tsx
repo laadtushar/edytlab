@@ -321,6 +321,13 @@ export default function UserGuidePage() {
           head.
         </li>
       </ol>
+      <p>
+        Both versions are rendered into the project&apos;s preview cache, so a
+        version you have just played is not rendered again. They stay there
+        while the bar is open, even when the two are too long to fit in the
+        cache&apos;s 1 GiB together, as an hour-long mix is, and the cache
+        clears back down to its size when you close the bar.
+      </p>
 
       <h2>Stem Separation</h2>
       <p>

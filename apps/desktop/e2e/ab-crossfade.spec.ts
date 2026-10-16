@@ -13,7 +13,7 @@
  */
 
 import { fixturePath } from "./audio-fixtures";
-import { nodeId, ok, projectWith, toneTrack } from "./backend";
+import { comparing, nodeId, ok, projectWith, toneTrack } from "./backend";
 import { expect, test } from "./fixtures";
 
 const A = nodeId(1);
@@ -39,7 +39,7 @@ test("switching to B mid-playback crossfades from the same moment", async ({ app
     }),
     // `prepare_compare` renders both sides and returns their paths, and
     // what each side's render leaves out (nothing here).
-    prepare_compare: ok({ a_path: aPath, b_path: bPath, a_warnings: [], b_warnings: [] }),
+    ...comparing({ a_path: aPath, b_path: bPath, a_warnings: [], b_warnings: [] }),
   });
   const page = app.page;
   await expect(page.getByTestId("ruler")).toContainText("0:03");

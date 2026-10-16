@@ -32,11 +32,14 @@
 //!    user edits meanwhile. [`apply_sweep`] and [`sweep_orphans`] check
 //!    `Store::staged_in_flight` under the store's lock, where it cannot
 //!    change for runs staged from that store, and do nothing if it is not
-//!    zero. The count is the project's, shared by every `Store` opened on
-//!    the directory in this process, so a sweep through a freshly opened
-//!    handle (a project opened again, the reclaimer's reader) sees a run
-//!    staged from another. The sweep runs again every minute, so this
-//!    defers it; it does not lose it.
+//!    zero; [`apply_compaction`] refuses, and changes nothing. Save As holds
+//!    a staged handle too, writing nothing, while it copies the project's
+//!    audio with no lock held, so that nothing the copied nodes name is
+//!    deleted under the copy (#571). The count is the project's, shared by
+//!    every `Store` opened on the directory in this process, so a sweep
+//!    through a freshly opened handle (a project opened again, the
+//!    reclaimer's reader) sees a run staged from another. The sweep runs
+//!    again every minute, so this defers it; it does not lose it.
 //! 1. **Never touch a file the current head names.** Whatever the
 //!    policy, the session you are looking at keeps working.
 //! 2. **Never touch a file no op can rebuild.** A node written before
@@ -732,10 +735,23 @@ pub fn plan_compaction(
 /// anything can build: a path outside `derived/` is left where it is and
 /// counted in [`CompactionReport::kept_files`], and the rest of the plan
 /// still runs.
+///
+/// Refused, with nothing changed, while a staged handle on the project is
+/// alive (rule 0): a tool running off the lock may be reading audio this
+/// would delete, and Save As, which keeps one for the length of its copy,
+/// has copied the nodes this removes and is copying the audio they name.
 pub fn apply_compaction(
     store: &mut session::Store,
     plan: &CompactionPlan,
 ) -> Result<CompactionReport, String> {
+    if store.staged_in_flight() > 0 {
+        return Err(
+            "nothing was compacted: the project's files are in use without the \
+                    session's lock (an edit still running, or Save As copying the project); \
+                    try again when it has finished"
+                .to_string(),
+        );
+    }
     let mut report = CompactionReport::default();
 
     for id in &plan.nodes {
