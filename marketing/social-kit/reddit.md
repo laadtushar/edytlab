@@ -319,9 +319,9 @@ Facts to re-check on the day:
 
 - Issue numbers and open/closed state. On 2026-10-16: closed are 460 (PR 516),
   453 (PR 521) and 520 (all in v0.6.0), and 421, 395 and 394 (all in v0.5.0);
-  open are 464, 497, 389, 386, 384 and 385. 383 (the ONNX Runtime and model
-  delivery) is closed on GitHub, but the runtime still isn't shipped and no
-  model is downloaded, so keep saying "383 to 385". They were all open when
+  open are 464, 497, 389, 386, 384 and 385, and 383 (the ONNX Runtime and
+  model delivery), reopened on 2026-10-16: the installers carry the runtime
+  after v0.6.0, but no model is downloaded, so keep saying "383 to 385". They were all open when
   this was written (2026-10-10).
 - "No open issue carries the good first issue label": true when checked (17
   open issues, none labelled). Label two issues before posting r/opensource
