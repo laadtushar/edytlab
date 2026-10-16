@@ -13,6 +13,10 @@ vi.mock('../lib/tauri-bridge', () => ({
   getActiveProvider: vi.fn(() => Promise.resolve("")),
   setActiveProvider: vi.fn().mockResolvedValue(undefined),
   testApiKeyFor: vi.fn().mockResolvedValue(undefined),
+  // The Account tab's foot line (#383): no runtime in this build.
+  mlRuntimeStatus: vi
+    .fn()
+    .mockResolvedValue({ state: "missing", searched: [] }),
 }));
 
 import { installPlugin } from '../lib/tauri-bridge';

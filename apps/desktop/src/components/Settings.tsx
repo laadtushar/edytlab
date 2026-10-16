@@ -56,6 +56,7 @@ import {
 import { AgentProfilesEditor } from "./AgentProfilesEditor";
 import { McpServersEditor } from "./McpServersEditor";
 import { MemoryEditor } from "./MemoryEditor";
+import { MlRuntimeLine } from "./MlRuntimeLine";
 import { ProjectEditor } from "./ProjectEditor";
 import { SkillsEditor } from "./SkillsEditor";
 
@@ -1487,6 +1488,11 @@ export function Settings({
               </p>
             </>
           ) : null}
+
+          {/* Not in the first-run card: it is already as tall as a small
+              window allows (settings-fits-window.spec.ts), and the line
+              is no use to someone who has not set a key yet. */}
+          {mode === "panel" ? <MlRuntimeLine /> : null}
 
           </>
           ) : null}

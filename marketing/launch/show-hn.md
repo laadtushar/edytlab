@@ -77,15 +77,18 @@ telemetry. The website, which is separate, uses Vercel's anonymous analytics
   have the steps.
 - It is an offline editor. It is not a live DJ tool or a DAW: no MIDI, no VST
   hosting.
-- Rough edges I know about: on Linux, v0.5.0 keeps your API key in the Secret
-  Service and warns when there is none (#394; v0.4.0 and earlier kept it only
-  until reboot), but I have not yet checked it across a real reboot or against
-  a locked keyring (#497); there is no master-bus effect tool in v0.5.0, so the
-  agent renders a baked "Master" track (#460, fixed on main, not released); the
+- Rough edges I know about: on Linux, since v0.5.0 your API key goes in the
+  Secret Service, with a warning when there is none (#394; v0.4.0 and earlier
+  kept it only until reboot), but I have not yet checked it across a real
+  reboot or against a locked keyring (#497); only five effects (gain, the
+  limiter and three filters) can sit live on a track, a bus or the master bus,
+  so reverb, EQ or a compressor is baked into the track's audio instead; the
   limiter has instant attack and no look-ahead, and is not a true-peak one;
   with a local model, v0.4.0's first request was about 15k tokens in my one
-  measurement (#395), and v0.5.0 sends Ollama a smaller tool set, but I have
-  not run a local model through a full job.
+  measurement (#395), and since v0.5.0 Ollama gets a smaller tool set, but I
+  have not run a local model through a full job. If you tried an earlier
+  build: v0.5.0 and older could delete your own recordings when the assistant
+  compacted history (#589), so please use v0.6.0.
 
 **Transparency.** This project is developed with Claude Code as a collaborator.
 Many commits carry a `Co-Authored-By: Claude` trailer, and the repo has a
@@ -100,7 +103,7 @@ Many commits carry a `Co-Authored-By: Claude` trailer, and the repo has a
 3. If you do DSP: the vocoder and the limiter are the two places I expect the
    most justified criticism.
 
-Download (unsigned v0.5.0): https://github.com/laadtushar/edytlab/releases/latest
+Download (unsigned v0.6.0): https://github.com/laadtushar/edytlab/releases/latest
 Source: https://github.com/laadtushar/edytlab
 
 ---
@@ -115,4 +118,4 @@ Source: https://github.com/laadtushar/edytlab
 | "Is the audio really never uploaded?" | Yes: there is no server in the loop. The privacy page lists the network traffic: chat requests to your chosen provider, plus the request Settings makes to that provider for its model list (it carries your key, no prompt or audio). You can check it in your OS network tools. |
 | "Why Tauri and not Electron?" | The back end is Rust, so the UI process and the DSP crates share one workspace. Do not claim size or speed numbers against Electron; none were measured. |
 | "Is there a web version?" | No. A browser SaaS is evaluated in #389 and undecided. |
-| "93 tools is a lot for a model" | It is. For Ollama, v0.5.0 sends a core set of about 15 tools plus the ones your message names, and lists the rest by name (#395, #479). Hosted providers still get all of them: Anthropic's prompt cache needs a fixed list. The Capabilities menu and agent profiles can narrow the list, and plan-first keeps a human in the loop. |
+| "93 tools is a lot for a model" | It is. For Ollama, the app sends a core set of about 15 tools plus the ones your message names, and lists the rest by name (#395, #479; since v0.5.0). Hosted providers still get all of them: Anthropic's prompt cache needs a fixed list. The Capabilities menu and agent profiles can narrow the list, and plan-first keeps a human in the loop. |

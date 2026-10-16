@@ -42,6 +42,9 @@ const defaultBaseUrlForMock = vi.fn();
 const setBaseUrlForMock = vi.fn();
 const getEffortForMock = vi.fn();
 const setEffortForMock = vi.fn();
+// The panel's foot line (#383). No runtime in this build is the answer
+// every release build gives until the installers carry one.
+const mlRuntimeStatusMock = vi.fn();
 
 vi.mock("../lib/tauri-bridge", () => ({
   setApiKeyFor: (provider: string, key: string) =>
@@ -69,6 +72,7 @@ vi.mock("../lib/tauri-bridge", () => ({
   getEffortFor: (provider: string) => getEffortForMock(provider),
   setEffortFor: (provider: string, effort: string | null) =>
     setEffortForMock(provider, effort),
+  mlRuntimeStatus: () => mlRuntimeStatusMock(),
 }));
 
 import { PROVIDER_STORAGE_KEY, Settings } from "../components/Settings";
@@ -98,6 +102,9 @@ describe("Settings", () => {
     setBaseUrlForMock.mockReset().mockResolvedValue(undefined);
     getEffortForMock.mockReset().mockResolvedValue(null);
     setEffortForMock.mockReset().mockResolvedValue(undefined);
+    mlRuntimeStatusMock
+      .mockReset()
+      .mockResolvedValue({ state: "missing", searched: [] });
     window.localStorage.clear();
   });
 

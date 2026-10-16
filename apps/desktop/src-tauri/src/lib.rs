@@ -23,16 +23,17 @@ use crate::commands::{
     get_project_meta, get_render_warnings, get_session_head, get_sync_lock, get_transcript,
     get_view_state, has_api_key, has_api_key_for, install_bundled_skills, install_plugin,
     list_agent_profiles, list_capabilities, list_markers, list_mcp_servers, list_models_for,
-    list_providers, list_recent_projects, list_skills, list_templates, list_tracks, move_clip,
-    open_project, prepare_compare, read_agent_profile, read_mcp_server, read_memory, read_skill,
-    reject_plan, remove_clip, remove_marker, remove_track, rename_node, rename_track,
-    render_preview, render_range, restart_mcp_server, save_head_trail, save_project_as,
-    save_view_state, send_message, set_active_agent_profile, set_active_model, set_active_provider,
-    set_api_key, set_api_key_for, set_base_url_for, set_clip_envelope, set_effort_for, set_head_to,
-    set_plan_first, set_project_meta, set_selection_context, set_sync_lock, set_track_gain,
-    set_track_muted, set_track_pan, set_track_soloed, start_recording, stop_recording,
-    test_api_key, test_api_key_for, timer_record, try_load_api_key_at_startup, update_marker,
-    upsert_agent_profile, upsert_mcp_server, upsert_skill, write_memory, RecorderState,
+    list_providers, list_recent_projects, list_skills, list_templates, list_tracks,
+    ml_runtime_status, move_clip, open_project, prepare_compare, read_agent_profile,
+    read_mcp_server, read_memory, read_skill, reject_plan, remove_clip, remove_marker,
+    remove_track, rename_node, rename_track, render_preview, render_range, restart_mcp_server,
+    save_head_trail, save_project_as, save_view_state, send_message, set_active_agent_profile,
+    set_active_model, set_active_provider, set_api_key, set_api_key_for, set_base_url_for,
+    set_clip_envelope, set_effort_for, set_head_to, set_plan_first, set_project_meta,
+    set_selection_context, set_sync_lock, set_track_gain, set_track_muted, set_track_pan,
+    set_track_soloed, start_recording, stop_recording, test_api_key, test_api_key_for,
+    timer_record, try_load_api_key_at_startup, update_marker, upsert_agent_profile,
+    upsert_mcp_server, upsert_skill, write_memory, RecorderState,
 };
 use crate::state::AppState;
 use std::sync::{Arc, Mutex};
@@ -46,6 +47,32 @@ use tauri::{
 /// the same flow client-side, so this event keeps the menu and toolbar
 /// behavioural parity in one place.
 const MENU_OPEN_FILE_EVENT: &str = "menu://open-file";
+
+/// Register the directory the installer puts the ONNX Runtime library in,
+/// so `ml_pipeline::runtime::ensure` looks there after `ORT_DYLIB_PATH` and
+/// before the executable's own directory (#383).
+///
+/// Where that is depends on the platform (`runtime::bundle_dir_for`): the
+/// app bundle's `Contents/Frameworks` on macOS, Tauri's resource directory
+/// on Linux (`/usr/lib/edytlab` for a deb, inside the mount for an
+/// AppImage), and on Windows nowhere new, because the DLL sits next to the
+/// exe, which is always searched. Registering nothing is fine: a build
+/// that is not installed (`cargo run`, `tauri dev`) has the library next to
+/// the executable or has none.
+fn register_ml_runtime_bundle(app: &tauri::App) {
+    let exe = std::env::current_exe().ok();
+    let resource_dir = app.path().resource_dir().ok();
+    let Some(dir) = ml_pipeline::runtime::bundle_dir_for(
+        std::env::consts::OS,
+        exe.as_deref(),
+        resource_dir.as_deref(),
+    ) else {
+        return;
+    };
+    if !ml_pipeline::runtime::set_bundle_dir(dir.clone()) {
+        tracing::warn!(dir = %dir.display(), "could not register the ONNX Runtime bundle directory");
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -68,6 +95,10 @@ pub fn run() {
             tools::progress::set_sink(move |event| {
                 let _ = progress_handle.emit("tool-progress", event);
             });
+
+            // Tell the ONNX Runtime loader where the installer puts the
+            // library (#383). Before anything can ask it to load one.
+            register_ml_runtime_bundle(app);
 
             // Install the memory store. Spec location is `~/.edytlab/
             // memory.md`; if the user's home dir can't be resolved we
@@ -268,6 +299,7 @@ pub fn run() {
             has_api_key,
             has_api_key_for,
             get_keychain_persistence,
+            ml_runtime_status,
             clear_api_key,
             clear_api_key_for,
             test_api_key,

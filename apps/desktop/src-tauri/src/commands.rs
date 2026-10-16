@@ -1123,6 +1123,115 @@ pub async fn get_keychain_persistence() -> CmdResult<KeychainPersistenceDto> {
     Ok(ai::keychain::persistence().into())
 }
 
+// ---------------------------------------------------------------------------
+// ml_runtime_status
+// ---------------------------------------------------------------------------
+
+/// Where the ONNX Runtime library that loaded came from, as the window
+/// phrases it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MlRuntimeSource {
+    /// The installer put it there: the app bundle's `Contents/Frameworks`,
+    /// Tauri's resource directory on Linux, or beside the exe on Windows.
+    Bundled,
+    /// The file `ORT_DYLIB_PATH` names.
+    Environment,
+    /// Beside the executable on macOS or Linux, where a development build
+    /// or the user left it. Not something an installer put there.
+    Executable,
+}
+
+/// What `ml_runtime_status` answers: the ONNX Runtime library the app
+/// found, or why it has none.
+///
+/// All four are answers, not failures of the command: "this build carries
+/// no runtime" is the state every release build is in until the installers
+/// ship it (#383), and the window shows it as a line of text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(
+    tag = "state",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum MlRuntimeStatusDto {
+    /// A library was found, checked and loaded.
+    Found {
+        /// The version the library itself reports, such as `1.23.2`.
+        version: String,
+        path: String,
+        source: MlRuntimeSource,
+    },
+    /// No library exists at any place the loader looks. `searched` lists
+    /// them, in order.
+    Missing { searched: Vec<String> },
+    /// A library was found, but this macOS is older than its minimum, so
+    /// it was not opened.
+    UnsupportedOs { needs: String, running: String },
+    /// A library was found and could not be loaded, or the load failed
+    /// for a reason that names no file.
+    LoadFailed {
+        path: Option<String>,
+        reason: String,
+    },
+}
+
+/// [`MlRuntimeStatusDto`] for what `ml_pipeline::runtime::info` returned.
+fn ml_runtime_status_dto(
+    answer: ml_pipeline::Result<ml_pipeline::runtime::RuntimeInfo>,
+) -> MlRuntimeStatusDto {
+    use ml_pipeline::runtime::Origin;
+    use ml_pipeline::Error;
+
+    match answer {
+        Ok(info) => MlRuntimeStatusDto::Found {
+            source: if info.bundled() {
+                MlRuntimeSource::Bundled
+            } else if info.origin == Origin::Environment {
+                MlRuntimeSource::Environment
+            } else {
+                MlRuntimeSource::Executable
+            },
+            version: info.version,
+            path: info.path.display().to_string(),
+        },
+        Err(Error::MissingRuntime { searched }) => MlRuntimeStatusDto::Missing {
+            searched: searched.iter().map(|p| p.display().to_string()).collect(),
+        },
+        Err(Error::RuntimeUnsupported { needs, running }) => {
+            MlRuntimeStatusDto::UnsupportedOs { needs, running }
+        }
+        Err(Error::RuntimeLoad { path, reason }) => MlRuntimeStatusDto::LoadFailed {
+            path: Some(path.display().to_string()),
+            reason,
+        },
+        // `runtime::info` returns no other kind; a new one is shown, not hidden.
+        Err(other) => MlRuntimeStatusDto::LoadFailed {
+            path: None,
+            reason: other.to_string(),
+        },
+    }
+}
+
+/// Which ONNX Runtime library the app found, and its version (#383).
+///
+/// Loads it if it has not been: this is `ml_pipeline::runtime::info`, which
+/// opens the library by absolute path, makes the checks `ort` makes and
+/// hands it to `ort` once, so a missing, unsupported or broken library is an
+/// answer here and never a panic or a hang. That is file and library work,
+/// so it runs on the blocking pool, not on an async worker. It takes none
+/// of the store, engine or dispatcher locks.
+///
+/// Nothing here says a model runs: a library that loads is not stem
+/// separation or transcription, which are not shipped (#384, #385).
+#[tauri::command]
+pub async fn ml_runtime_status() -> CmdResult<MlRuntimeStatusDto> {
+    let answer = tauri::async_runtime::spawn_blocking(ml_pipeline::runtime::info)
+        .await
+        .map_err(|e| CommandError::TaskFailed(e.to_string()))?;
+    Ok(ml_runtime_status_dto(answer))
+}
+
 /// Remove the stored API key for the active provider and tear down the
 /// agent. Equivalent to [`clear_api_key_for`] with the active provider.
 ///
@@ -9018,5 +9127,108 @@ mod tests {
             err.starts_with("model selected for this session, but could not be saved"),
             "{err}"
         );
+    }
+
+    // -- ml_runtime_status (#383) ------------------------------------------
+
+    fn runtime_json(
+        answer: ml_pipeline::Result<ml_pipeline::runtime::RuntimeInfo>,
+    ) -> serde_json::Value {
+        serde_json::to_value(ml_runtime_status_dto(answer)).expect("serialises")
+    }
+
+    fn found(
+        origin: ml_pipeline::runtime::Origin,
+    ) -> ml_pipeline::Result<ml_pipeline::runtime::RuntimeInfo> {
+        Ok(ml_pipeline::runtime::RuntimeInfo {
+            path: std::path::PathBuf::from("/opt/edytlab/lib/libonnxruntime.so"),
+            version: "1.23.2".to_string(),
+            origin,
+        })
+    }
+
+    /// The window reads these by name, so the wire shape is the contract:
+    /// `mlRuntimeStatus` in `tauri-bridge.ts` types it.
+    #[test]
+    fn a_found_runtime_is_reported_with_its_version_path_and_source() {
+        use ml_pipeline::runtime::Origin;
+
+        assert_eq!(
+            runtime_json(found(Origin::Bundle)),
+            serde_json::json!({
+                "state": "found",
+                "version": "1.23.2",
+                "path": "/opt/edytlab/lib/libonnxruntime.so",
+                "source": "bundled",
+            })
+        );
+        assert_eq!(
+            runtime_json(found(Origin::Environment))["source"],
+            "environment"
+        );
+        // Beside the executable is the installer's only on Windows.
+        let expected = if cfg!(windows) {
+            "bundled"
+        } else {
+            "executable"
+        };
+        assert_eq!(runtime_json(found(Origin::Executable))["source"], expected);
+    }
+
+    #[test]
+    fn a_runtime_that_is_not_there_lists_where_it_looked() {
+        let answer = Err(ml_pipeline::Error::MissingRuntime {
+            searched: vec![
+                std::path::PathBuf::from("/usr/lib/edytlab/libonnxruntime.so"),
+                std::path::PathBuf::from("/usr/bin/libonnxruntime.so"),
+            ],
+        });
+        assert_eq!(
+            runtime_json(answer),
+            serde_json::json!({
+                "state": "missing",
+                "searched": [
+                    "/usr/lib/edytlab/libonnxruntime.so",
+                    "/usr/bin/libonnxruntime.so",
+                ],
+            })
+        );
+    }
+
+    #[test]
+    fn a_macos_that_is_too_old_is_reported_with_both_versions() {
+        let answer = Err(ml_pipeline::Error::RuntimeUnsupported {
+            needs: "13.4".to_string(),
+            running: "12.6.1".to_string(),
+        });
+        assert_eq!(
+            runtime_json(answer),
+            serde_json::json!({
+                "state": "unsupportedOs",
+                "needs": "13.4",
+                "running": "12.6.1",
+            })
+        );
+    }
+
+    #[test]
+    fn a_runtime_that_fails_to_load_is_reported_with_the_file_and_the_reason() {
+        let answer = Err(ml_pipeline::Error::RuntimeLoad {
+            path: std::path::PathBuf::from("/opt/edytlab/lib/libonnxruntime.so"),
+            reason: "it has no OrtGetApiBase entry point".to_string(),
+        });
+        assert_eq!(
+            runtime_json(answer),
+            serde_json::json!({
+                "state": "loadFailed",
+                "path": "/opt/edytlab/lib/libonnxruntime.so",
+                "reason": "it has no OrtGetApiBase entry point",
+            })
+        );
+        // An error that names no file is still shown, with no path.
+        let other = runtime_json(Err(ml_pipeline::Error::Cancelled));
+        assert_eq!(other["state"], "loadFailed");
+        assert_eq!(other["path"], serde_json::Value::Null);
+        assert!(other["reason"].as_str().is_some_and(|r| !r.is_empty()));
     }
 }

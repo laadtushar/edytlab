@@ -22,7 +22,13 @@ pub const TOOL_CALL: &str = "agent://tool-call";
 /// declined or unanswered held step, or one over the tool budget), which
 /// is neither.
 pub const TOOL_CALL_END: &str = "agent://tool-call-end";
-/// `agent://node-created` — a tool call produced a new session node.
+/// `agent://node-created` — an agent tool call moved the session's head,
+/// to a new node or to one already in the graph (`revert_to`,
+/// `fork_node`). The payload is the store's head after the call, not a
+/// `node_id` from the tool's result (#594), sent once per call that moved
+/// it, before that call's `tool-call-end`. A call that leaves the head
+/// where it was (`name_node`, a read) sends nothing. See
+/// [`ai::AgentEvent::NodeCreated`].
 pub const NODE_CREATED: &str = "agent://node-created";
 /// `agent://done` — the turn finished (success).
 pub const DONE: &str = "agent://done";
@@ -73,7 +79,7 @@ pub struct ToolCallEndPayload {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct NodeCreatedPayload {
-    /// Hex-encoded session node id.
+    /// Hex-encoded id of the head the call left the session on.
     pub node_id: String,
 }
 

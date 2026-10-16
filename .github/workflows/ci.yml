@@ -125,6 +125,11 @@ jobs:
           # Per-OS cache key so the matrix legs don't trample each
           # other's target dir cache.
           key: ci-${{ matrix.platform.name }}
+          # Save only from main (#610). A PR that changes Cargo.lock
+          # restores a partial match, and uploading a new cache from the
+          # PR ran the Windows leg past its 30-minute limit after every
+          # step had passed. PRs still restore main's cache.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
@@ -189,7 +194,7 @@ jobs:
         # `--ignored` runs only the ignored tests, and they fail rather
         # than skip when the library is missing, so this step cannot go
         # green without having run a model.
-        run: cargo test -p ml-pipeline --test cache_smoke -- --ignored --test-threads=1
+        run: cargo test -p ml-pipeline --test cache_smoke --test runtime_bundle_real -- --ignored --test-threads=1
 
       # The frontend test suite was not run by CI at all.
       #
