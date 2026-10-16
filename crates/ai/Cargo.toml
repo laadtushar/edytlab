@@ -9,6 +9,15 @@ publish = false
 [lints]
 workspace = true
 
+[features]
+# Lets `chatgpt::Endpoints::loopback_for_tests` point the ChatGPT session at a
+# mock issuer on this machine. Nothing in the app enables it: only `ai`'s own
+# dev-dependency on itself (below) does, so it is on for this crate's tests
+# and off in every build of the desktop app and the CLI, debug or release
+# (`cargo tree -p edytlab-desktop -e features -i ai` shows it is absent).
+# See "Endpoints" in src/chatgpt/mod.rs.
+test-endpoints = []
+
 [dependencies]
 tools = { path = "../tools" }
 session = { path = "../session" }
@@ -35,12 +44,18 @@ base64 = "0.22"
 url = "2"
 # Constant-time comparison of the callback's `state` and the ID token's `nonce`.
 subtle = "2.6"
+# The ChatGPT session's cross-process refresh lock (`flock`, or `LockFileEx`
+# on Windows). Already in Cargo.lock through ml-pipeline, which locks its
+# model downloads the same way.
+fs4 = "1.1"
 
 [target.'cfg(windows)'.dependencies]
 # SO_EXCLUSIVEADDRUSE on the OAuth loopback listener (src/oauth/loopback.rs).
 windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock"] }
 
 [dev-dependencies]
+# This crate again, with the mock-issuer seam, for its own tests only.
+ai = { path = ".", features = ["test-endpoints"] }
 wiremock = "0.6"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync", "time", "test-util"] }
 tempfile = "3"
@@ -50,3 +65,5 @@ audio-decoder = { path = "../audio-decoder" }
 # second socket that tries to take over the loopback listener's port.
 num-bigint = "0.4"
 socket2 = "0.6"
+# The ChatGPT refresh-lock test's second process takes the lock with it.
+fs4 = "1.1"

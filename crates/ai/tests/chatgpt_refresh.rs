@@ -1,0 +1,912 @@
+//! The ChatGPT session after sign-in (`ai::chatgpt::session`), against a
+//! fake OpenAI issuer: when it refreshes, single-flight refresh in one
+//! process and the file lock across processes, the rotated refresh token
+//! saved before use, how each refresh failure is handled, restarts, and
+//! sign-out with revocation.
+//!
+//! Time is a clock the tests move; access tokens live an hour.
+
+mod chatgpt_support;
+mod oauth_support;
+
+use std::io::{BufRead, BufReader, Write as _};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
+
+use ai::chatgpt::session::{
+    BearerError, ChatGptSession, EndReason, Revocation, SessionState, TokenStorage,
+};
+use ai::chatgpt::spec::UNUSABLE_REFRESH_TOKEN_CODES;
+use ai::chatgpt::store::{RefreshTokenStore, SecretStoreError, LOCK_FILE, REGISTRATION_FILE};
+use ai::chatgpt::SignInIntent;
+use ai::oauth::SecretString;
+use chatgpt_support::{form, Browser, Fake, MemoryStore, EMAIL, ISSUED_CLIENT, SUBJECT};
+use serde_json::{json, Value};
+use wiremock::matchers::{method, path};
+use wiremock::{Match, Mock, MockServer, Request, ResponseTemplate};
+
+const MINUTE: Duration = Duration::from_secs(60);
+
+fn registration_json(dir: &std::path::Path) -> Value {
+    let text = std::fs::read_to_string(dir.join("chatgpt").join(REGISTRATION_FILE)).unwrap();
+    serde_json::from_str(&text).unwrap()
+}
+
+async fn bearer(session: &ChatGptSession) -> String {
+    session.bearer().await.unwrap().expose_secret().to_string()
+}
+
+/// Matches while the flag is set.
+struct While(Arc<AtomicBool>);
+
+impl Match for While {
+    fn matches(&self, _: &Request) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
+}
+
+/// Matches the first `n` requests.
+struct FirstN(AtomicUsize);
+
+impl Match for FirstN {
+    fn matches(&self, _: &Request) -> bool {
+        self.0
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+            .is_ok()
+    }
+}
+
+fn connection_reset(_: &Request) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::ConnectionReset, "reset")
+}
+
+// --- When to refresh ------------------------------------------------------------
+
+#[tokio::test]
+async fn the_access_token_is_used_until_five_minutes_before_it_expires() {
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let session = fake.signed_in(dir.path(), store.clone()).await;
+
+    fake.clock.advance(54 * MINUTE);
+    assert_eq!(bearer(&session).await, "AT-1");
+    assert!(
+        fake.refresh_requests().is_empty(),
+        "six minutes left: no refresh"
+    );
+
+    fake.clock.advance(MINUTE + Duration::from_secs(1));
+    assert_eq!(bearer(&session).await, "AT-2");
+    let refreshes = fake.refresh_requests();
+    assert_eq!(refreshes.len(), 1);
+    let r = &refreshes[0];
+    assert_eq!(r["grant_type"], "refresh_token");
+    assert_eq!(r["client_id"], ISSUED_CLIENT);
+    assert_eq!(r["refresh_token"], "RT-1");
+    assert_eq!(r["resource"], "https://api.openai.com/v1");
+    assert!(!r.contains_key("scope"), "the grant is kept: {r:?}");
+    assert_eq!(r.len(), 4, "{r:?}");
+    assert_eq!(
+        store.get().as_deref(),
+        Some("RT-2"),
+        "the rotated token is saved"
+    );
+    assert_eq!(bearer(&session).await, "AT-2", "and the new one is used");
+}
+
+#[tokio::test]
+async fn concurrent_callers_refresh_once() {
+    let fake = Fake::start().await;
+    // The token endpoint is slow, so every caller arrives while it works.
+    *fake.on_refresh.lock().unwrap() =
+        Some(Box::new(|_| std::thread::sleep(Duration::from_millis(300))));
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let session = Arc::new(fake.signed_in(dir.path(), store.clone()).await);
+    fake.clock.advance(56 * MINUTE);
+
+    let callers: Vec<_> = (0..16)
+        .map(|_| {
+            let session = session.clone();
+            tokio::spawn(async move { bearer(&session).await })
+        })
+        .collect();
+    for caller in callers {
+        assert_eq!(caller.await.unwrap(), "AT-2");
+    }
+    assert_eq!(
+        fake.refresh_requests().len(),
+        1,
+        "one refresh for sixteen callers"
+    );
+    assert_eq!(store.saves(), ["save RT-1", "save RT-2"]);
+}
+
+#[tokio::test]
+async fn earliest_refresh_at_is_honoured_while_the_token_is_still_valid() {
+    let fake = Fake::start().await;
+    fake.knobs().earliest_refresh_after = Some(58 * 60);
+    let dir = tempfile::tempdir().unwrap();
+    let session = fake.signed_in(dir.path(), MemoryStore::new()).await;
+
+    fake.clock.advance(56 * MINUTE);
+    assert_eq!(
+        bearer(&session).await,
+        "AT-1",
+        "inside the margin, but too early"
+    );
+    assert!(fake.refresh_requests().is_empty());
+
+    fake.clock.advance(2 * MINUTE);
+    assert_eq!(bearer(&session).await, "AT-2");
+    assert_eq!(fake.refresh_requests().len(), 1);
+
+    // An expired token is refreshed whatever `earliest_refresh_at` says:
+    // there is nothing else to send.
+    fake.knobs().earliest_refresh_after = Some(10 * 60 * 60);
+    fake.clock.advance(56 * MINUTE);
+    assert_eq!(bearer(&session).await, "AT-2", "AT-3's wait starts now");
+    fake.clock.advance(61 * MINUTE);
+    assert_eq!(bearer(&session).await, "AT-3");
+    assert_eq!(fake.refresh_requests().len(), 2);
+}
+
+/// A refresh-token store whose `save` waits until the test opens a gate.
+struct GatedStore {
+    inner: Arc<MemoryStore>,
+    gate: Arc<(Mutex<bool>, Condvar)>,
+    gated: AtomicBool,
+}
+
+impl RefreshTokenStore for GatedStore {
+    fn load(&self) -> Result<Option<SecretString>, SecretStoreError> {
+        self.inner.load()
+    }
+    fn save(&self, token: &SecretString) -> Result<(), SecretStoreError> {
+        if self.gated.load(Ordering::SeqCst) {
+            let (open, cv) = &*self.gate;
+            let mut open = open.lock().unwrap();
+            while !*open {
+                open = cv.wait(open).unwrap();
+            }
+        }
+        self.inner.save(token)
+    }
+    fn delete(&self) -> Result<(), SecretStoreError> {
+        self.inner.delete()
+    }
+}
+
+/// Opens the gate when dropped, so a failing assertion cannot leave the
+/// store's thread waiting (and the test runtime waiting for it).
+struct OpenOnDrop(Arc<(Mutex<bool>, Condvar)>);
+
+impl OpenOnDrop {
+    fn open(&self) {
+        let (open, cv) = &*self.0;
+        *open.lock().unwrap() = true;
+        cv.notify_all();
+    }
+}
+
+impl Drop for OpenOnDrop {
+    fn drop(&mut self) {
+        self.open();
+    }
+}
+
+#[tokio::test]
+async fn the_rotated_refresh_token_is_saved_before_the_new_access_token_is_used() {
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let memory = MemoryStore::new();
+    let gate = Arc::new((Mutex::new(false), Condvar::new()));
+    let store = Arc::new(GatedStore {
+        inner: memory.clone(),
+        gate: gate.clone(),
+        gated: AtomicBool::new(false),
+    });
+    let session = Arc::new(ChatGptSession::open(fake.config(dir.path()), store.clone()).unwrap());
+    fake.sign_in(&session, Browser::default(), SignInIntent::SignIn)
+        .await
+        .unwrap();
+    store.gated.store(true, Ordering::SeqCst);
+    let gate = OpenOnDrop(gate);
+    fake.clock.advance(61 * MINUTE);
+
+    // The refresh has its answer but the save of RT-2 is held: nobody gets
+    // AT-2 meanwhile, neither the caller that refreshed nor another one.
+    let first = tokio::spawn({
+        let session = session.clone();
+        async move { bearer(&session).await }
+    });
+    while fake.refresh_requests().is_empty() {
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let second = tokio::spawn({
+        let session = session.clone();
+        async move { bearer(&session).await }
+    });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        !first.is_finished() && !second.is_finished(),
+        "AT-2 handed out before RT-2 was saved"
+    );
+    assert_eq!(memory.get().as_deref(), Some("RT-1"));
+
+    gate.open();
+    assert_eq!(first.await.unwrap(), "AT-2");
+    assert_eq!(second.await.unwrap(), "AT-2");
+    assert_eq!(memory.get().as_deref(), Some("RT-2"));
+    assert_eq!(fake.refresh_requests().len(), 1);
+}
+
+#[tokio::test]
+async fn a_rotated_token_the_keychain_refuses_is_kept_in_memory_and_reported() {
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let session = fake.signed_in(dir.path(), store.clone()).await;
+    *store.save_error.lock().unwrap() = Some(SecretStoreError::TooLong);
+    fake.clock.advance(56 * MINUTE);
+    assert_eq!(bearer(&session).await, "AT-2");
+    assert_eq!(
+        session.status().token_storage,
+        Some(TokenStorage::MemoryOnly(SecretStoreError::TooLong))
+    );
+    // The spent RT-1 is not left behind to fail at the next launch.
+    assert_eq!(store.get(), None);
+    // The next refresh uses the token in memory.
+    fake.clock.advance(56 * MINUTE);
+    assert_eq!(bearer(&session).await, "AT-3");
+    assert_eq!(fake.refresh_requests()[1]["refresh_token"], "RT-2");
+}
+
+// --- Refresh failures ------------------------------------------------------------
+
+#[tokio::test]
+async fn an_unusable_refresh_token_ends_the_session_and_keeps_the_registration() {
+    for code in UNUSABLE_REFRESH_TOKEN_CODES {
+        for body in [
+            json!({ "error": code }),
+            json!({ "error": { "code": code } }),
+        ] {
+            let fake = Fake::start().await;
+            let dir = tempfile::tempdir().unwrap();
+            let store = MemoryStore::new();
+            let session = fake.signed_in(dir.path(), store.clone()).await;
+            fake.knobs().refresh_error = Some((400, body.clone()));
+            fake.clock.advance(61 * MINUTE);
+
+            let expected = EndReason::RefreshTokenUnusable {
+                code: code.to_string(),
+            };
+            assert_eq!(
+                session.bearer().await.unwrap_err(),
+                BearerError::SessionEnded(expected.clone()),
+                "{body}"
+            );
+            assert_eq!(session.status().state, SessionState::SessionEnded(expected));
+            assert_eq!(store.get(), None, "{body}: the unusable token is cleared");
+            let reg = registration_json(dir.path());
+            assert_eq!(reg["active_client_id"], ISSUED_CLIENT, "{body}");
+            assert_eq!(reg["clients"][0]["subject"], SUBJECT, "{body}");
+            assert!(reg["host_id"].as_str().unwrap().starts_with("urn:uuid:"));
+
+            // Recovery is a returning sign-in with the saved client.
+            fake.knobs().refresh_error = None;
+            fake.sign_in(&session, Browser::default(), SignInIntent::SignIn)
+                .await
+                .unwrap();
+            let auth = fake.authorizations.lock().unwrap()[1].clone();
+            assert_eq!(auth["client_id"], ISSUED_CLIENT, "{body}");
+            assert!(!auth.contains_key("prompt"));
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_network_failure_keeps_every_credential() {
+    let fake = Fake::start().await;
+    let down = Arc::new(AtomicBool::new(true));
+    Mock::given(method("POST"))
+        .and(path("/api/accounts/oauth/token"))
+        .and(While(down.clone()))
+        .respond_with_err(connection_reset)
+        .with_priority(1)
+        .mount(&fake.server)
+        .await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    down.store(false, Ordering::SeqCst);
+    let session = fake.signed_in(dir.path(), store.clone()).await;
+    down.store(true, Ordering::SeqCst);
+
+    // Inside the margin, the refresh fails: the token in hand still works.
+    fake.clock.advance(56 * MINUTE);
+    assert_eq!(bearer(&session).await, "AT-1");
+    // Expired: no bearer, but nothing is erased.
+    fake.clock.advance(5 * MINUTE);
+    let err = session.bearer().await.unwrap_err();
+    assert!(matches!(err, BearerError::Unavailable { .. }), "{err:?}");
+    assert_eq!(session.status().state, SessionState::SignedIn);
+    assert_eq!(store.get().as_deref(), Some("RT-1"));
+    assert!(!store.log.lock().unwrap().iter().any(|l| l == "delete"));
+
+    // Back up, and after the wait, the same refresh token works.
+    down.store(false, Ordering::SeqCst);
+    fake.clock.advance(MINUTE);
+    assert_eq!(bearer(&session).await, "AT-2");
+    assert_eq!(
+        fake.refresh_requests().last().unwrap()["refresh_token"],
+        "RT-1"
+    );
+}
+
+#[tokio::test]
+async fn a_temporary_refusal_keeps_the_credentials_and_backs_off() {
+    for (status, body) in [
+        (503, json!({ "error": "temporarily_unavailable" })),
+        (500, json!({ "detail": "upstream" })),
+        (502, json!({ "error": "upstream_unavailable" })),
+        (429, json!({ "error": "rate_limited" })),
+    ] {
+        let fake = Fake::start().await;
+        let dir = tempfile::tempdir().unwrap();
+        let store = MemoryStore::new();
+        let session = fake.signed_in(dir.path(), store.clone()).await;
+        fake.knobs().refresh_error = Some((status, body.clone()));
+        fake.clock.advance(61 * MINUTE);
+
+        let err = session.bearer().await.unwrap_err();
+        assert!(
+            matches!(err, BearerError::Unavailable { .. }),
+            "{body}: {err:?}"
+        );
+        // Asked again at once: the same answer, and no new request.
+        assert_eq!(session.bearer().await.unwrap_err(), err);
+        assert_eq!(fake.refresh_requests().len(), 1, "{body}: it waits");
+        // After the wait it tries again, and keeps the credentials.
+        fake.clock.advance(Duration::from_secs(16));
+        assert!(session.bearer().await.is_err());
+        assert_eq!(fake.refresh_requests().len(), 2, "{body}");
+        assert_eq!(store.get().as_deref(), Some("RT-1"), "{body}");
+        assert_eq!(session.status().state, SessionState::SignedIn);
+
+        fake.knobs().refresh_error = None;
+        fake.clock.advance(MINUTE);
+        assert_eq!(bearer(&session).await, "AT-2", "{body}");
+    }
+}
+
+#[tokio::test]
+async fn invalid_client_is_reported_and_the_credentials_are_kept() {
+    // The docs answer `invalid_client` with "fix the client configuration",
+    // not with clearing the tokens.
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let session = fake.signed_in(dir.path(), store.clone()).await;
+    fake.knobs().refresh_error = Some((401, json!({ "error": "invalid_client" })));
+    fake.clock.advance(61 * MINUTE);
+    assert_eq!(
+        session.bearer().await.unwrap_err(),
+        BearerError::Refused {
+            status: 401,
+            code: Some("invalid_client".into())
+        }
+    );
+    assert_eq!(store.get().as_deref(), Some("RT-1"));
+    assert_eq!(session.status().state, SessionState::SignedIn);
+}
+
+#[tokio::test]
+async fn a_raced_refresh_is_retried_with_the_newer_stored_token() {
+    // Another writer refreshed with RT-1 (and saved RT-2) while this
+    // session's request with RT-1 was in flight: the server answers
+    // refresh_token_reused. The store holds a newer token, so the session
+    // retries once with it instead of ending.
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let session = fake.signed_in(dir.path(), store.clone()).await;
+    {
+        let fake_ref = Arc::downgrade(&fake);
+        let store = store.clone();
+        *fake.on_refresh.lock().unwrap() = Some(Box::new(move |sent| {
+            if sent == "RT-1" {
+                let fake = fake_ref.upgrade().unwrap();
+                let newer = fake.rotate_elsewhere();
+                store.set(Some(&newer));
+            }
+        }));
+    }
+    fake.clock.advance(61 * MINUTE);
+    assert_eq!(bearer(&session).await, "AT-3");
+    let sent: Vec<String> = fake
+        .refresh_requests()
+        .iter()
+        .map(|f| f["refresh_token"].clone())
+        .collect();
+    assert_eq!(sent, ["RT-1", "RT-2"]);
+    assert_eq!(store.get().as_deref(), Some("RT-3"));
+    assert_eq!(session.status().state, SessionState::SignedIn);
+}
+
+#[tokio::test]
+async fn a_reused_token_with_nothing_newer_ends_the_session() {
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let session = fake.signed_in(dir.path(), store.clone()).await;
+    fake.rotate_elsewhere(); // RT-1 spent; the store still says RT-1.
+    fake.clock.advance(61 * MINUTE);
+    assert_eq!(
+        session.bearer().await.unwrap_err(),
+        BearerError::SessionEnded(EndReason::RefreshTokenUnusable {
+            code: "refresh_token_reused".into()
+        })
+    );
+    assert_eq!(fake.refresh_requests().len(), 1);
+    assert_eq!(store.get(), None);
+}
+
+#[tokio::test]
+async fn a_session_never_erases_a_token_another_process_saved() {
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let session = fake.signed_in(dir.path(), store.clone()).await;
+    fake.knobs().refresh_error = Some((400, json!({ "error": "invalid_grant" })));
+    {
+        let store = store.clone();
+        // While this refresh is refused, another process signs in afresh.
+        *fake.on_refresh.lock().unwrap() = Some(Box::new(move |_| {
+            store.set(Some("RT-from-another-process"))
+        }));
+    }
+    fake.clock.advance(61 * MINUTE);
+    assert!(matches!(
+        session.bearer().await,
+        Err(BearerError::SessionEnded(_))
+    ));
+    assert_eq!(store.get().as_deref(), Some("RT-from-another-process"));
+}
+
+// --- Refreshed ID tokens ----------------------------------------------------------
+
+#[tokio::test]
+async fn a_refreshed_id_token_is_checked_against_the_original() {
+    let fake = Fake::start().await;
+    fake.knobs().refresh_id_token = true;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let session = fake.signed_in(dir.path(), store.clone()).await;
+
+    // Same account, no nonce (OpenID Connect Core §12.2): accepted.
+    fake.clock.advance(56 * MINUTE);
+    assert_eq!(bearer(&session).await, "AT-2");
+
+    // Another account: the session ends, and the token it just got is
+    // removed again.
+    fake.knobs().refresh_subject = Some("someone-else".into());
+    fake.clock.advance(56 * MINUTE);
+    let err = session.bearer().await.unwrap_err();
+    assert!(
+        matches!(
+            err,
+            BearerError::SessionEnded(EndReason::IdTokenRejected { .. })
+        ),
+        "{err:?}"
+    );
+    assert_eq!(store.get(), None);
+}
+
+// --- Restarts ----------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_restarted_session_refreshes_from_the_stored_token() {
+    let fake = Fake::start().await;
+    {
+        let mut knobs = fake.knobs();
+        // A refreshed ID token with the sign-in's nonce and an `azp`: after a
+        // restart it is checked against the claims saved with the account.
+        knobs.refresh_id_token = true;
+        knobs.refresh_nonce = true;
+        knobs.azp = Some(ISSUED_CLIENT.into());
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    drop(fake.signed_in(dir.path(), store.clone()).await);
+
+    let session = fake.session(dir.path(), store.clone());
+    assert_eq!(session.status().state, SessionState::NotLoaded);
+    assert!(
+        store.log.lock().unwrap().iter().all(|l| l != "load"),
+        "open reads no keychain"
+    );
+    let status = session.restore().await.unwrap();
+    assert_eq!(status.state, SessionState::SignedIn);
+    assert_eq!(status.email.as_deref(), Some(EMAIL));
+    // No access token survives a restart: the first bearer refreshes.
+    assert_eq!(bearer(&session).await, "AT-2");
+    assert_eq!(fake.refresh_requests()[0]["refresh_token"], "RT-1");
+
+    // The first bearer restores by itself too.
+    let lazy = fake.session(dir.path(), store.clone());
+    assert_eq!(bearer(&lazy).await, "AT-3");
+}
+
+#[tokio::test]
+async fn a_refresh_token_missing_at_launch_is_a_session_ended() {
+    // Linux with no Secret Service, after a reboot: the kernel keyring lost
+    // the token, registration.json did not.
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    drop(fake.signed_in(dir.path(), store.clone()).await);
+    store.set(None);
+
+    let session = fake.session(dir.path(), store.clone());
+    let status = session.restore().await.unwrap();
+    assert_eq!(
+        status.state,
+        SessionState::SessionEnded(EndReason::NotStored)
+    );
+    assert_eq!(status.email.as_deref(), Some(EMAIL));
+    assert_eq!(
+        session.bearer().await.unwrap_err(),
+        BearerError::SessionEnded(EndReason::NotStored)
+    );
+    fake.sign_in(&session, Browser::default(), SignInIntent::SignIn)
+        .await
+        .unwrap();
+    let auth = fake.authorizations.lock().unwrap()[1].clone();
+    assert_eq!(auth["client_id"], ISSUED_CLIENT, "no new registration");
+    assert_eq!(auth["login_hint"], EMAIL);
+}
+
+#[tokio::test]
+async fn a_keychain_that_cannot_be_read_at_launch_leaves_the_session_saved() {
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    drop(fake.signed_in(dir.path(), store.clone()).await);
+    *store.load_error.lock().unwrap() = Some(SecretStoreError::Unavailable("locked".into()));
+
+    let session = fake.session(dir.path(), store.clone());
+    assert!(session.restore().await.is_err());
+    assert_eq!(session.status().state, SessionState::NotLoaded);
+    assert!(matches!(session.bearer().await, Err(BearerError::Store(_))));
+    assert_eq!(store.get().as_deref(), Some("RT-1"), "nothing erased");
+
+    *store.load_error.lock().unwrap() = None;
+    assert_eq!(bearer(&session).await, "AT-2");
+}
+
+#[tokio::test]
+async fn without_a_refresh_token_the_session_ends_when_the_access_token_expires() {
+    let fake = Fake::start().await;
+    fake.knobs().issue_refresh_token = false;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let session = fake.signed_in(dir.path(), store.clone()).await;
+    assert_eq!(session.status().token_storage, None);
+    fake.clock.advance(58 * MINUTE);
+    assert_eq!(
+        bearer(&session).await,
+        "AT-1",
+        "nothing to refresh with yet"
+    );
+    fake.clock.advance(3 * MINUTE);
+    assert_eq!(
+        session.bearer().await.unwrap_err(),
+        BearerError::SessionEnded(EndReason::NoRefreshToken)
+    );
+    assert!(fake.refresh_requests().is_empty());
+}
+
+#[tokio::test]
+async fn a_rejected_bearer_is_refreshed_once_for_all_who_saw_it() {
+    // For the provider's 401 path: the first caller with the rejected token
+    // refreshes; one arriving later with the same rejected token gets the
+    // new one without another request.
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let session = fake.signed_in(dir.path(), MemoryStore::new()).await;
+    let rejected = session.bearer().await.unwrap();
+    let first = session.refresh_rejected(&rejected).await.unwrap();
+    let second = session.refresh_rejected(&rejected).await.unwrap();
+    assert_eq!(first.expose_secret(), "AT-2");
+    assert_eq!(second.expose_secret(), "AT-2");
+    assert_eq!(fake.refresh_requests().len(), 1);
+}
+
+// --- Across processes -----------------------------------------------------------
+
+#[tokio::test]
+async fn two_processes_refresh_in_turn_with_the_rotated_token() {
+    // Two sessions over one directory and one keychain stand for two
+    // edytlab processes: each has its own in-process lock, so only the file
+    // lock keeps them apart. The token endpoint is slow, so both refresh at
+    // once. Without the lock (or without re-reading the store under it),
+    // the second sends the RT-1 the first just spent and is told
+    // refresh_token_reused.
+    let fake = Fake::start().await;
+    *fake.on_refresh.lock().unwrap() =
+        Some(Box::new(|_| std::thread::sleep(Duration::from_millis(300))));
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let a = Arc::new(fake.signed_in(dir.path(), store.clone()).await);
+    let b = Arc::new(fake.session(dir.path(), store.clone()));
+    b.restore().await.unwrap();
+    fake.clock.advance(61 * MINUTE);
+
+    let (from_a, from_b) = tokio::join!(
+        tokio::spawn({
+            let a = a.clone();
+            async move { a.bearer().await }
+        }),
+        tokio::spawn({
+            let b = b.clone();
+            async move { b.bearer().await }
+        }),
+    );
+    let mut got = vec![
+        from_a
+            .unwrap()
+            .expect("A refreshed")
+            .expose_secret()
+            .to_string(),
+        from_b
+            .unwrap()
+            .expect("B refreshed")
+            .expose_secret()
+            .to_string(),
+    ];
+    got.sort();
+    assert_eq!(got, ["AT-2", "AT-3"]);
+    let sent: Vec<String> = fake
+        .refresh_requests()
+        .iter()
+        .map(|f| f["refresh_token"].clone())
+        .collect();
+    assert_eq!(
+        sent,
+        ["RT-1", "RT-2"],
+        "the second used the first's rotated token"
+    );
+    assert_eq!(store.get().as_deref(), Some("RT-3"));
+    assert!(dir.path().join("chatgpt").join(LOCK_FILE).exists());
+}
+
+/// Not a test of its own: the other process of
+/// `another_process_holding_the_lock_makes_a_refresh_wait`. With
+/// `CHATGPT_LOCK_HOLDER` set to a lock file it takes the file's lock, says
+/// so on stdout, and holds it until its stdin closes.
+#[test]
+fn lock_holder_child() {
+    let Ok(path) = std::env::var("CHATGPT_LOCK_HOLDER") else {
+        return;
+    };
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)
+        .unwrap();
+    fs4::FileExt::lock(&file).unwrap();
+    println!("LOCKED");
+    std::io::stdout().flush().unwrap();
+    let mut line = String::new();
+    while std::io::stdin().read_line(&mut line).unwrap_or(0) > 0 {}
+    drop(file);
+}
+
+#[tokio::test]
+async fn another_process_holding_the_lock_makes_a_refresh_wait() {
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let config = fake
+        .config(dir.path())
+        .with_lock_timeout(Duration::from_millis(300));
+    let session = ChatGptSession::open(config, store.clone()).unwrap();
+    fake.sign_in(&session, Browser::default(), SignInIntent::SignIn)
+        .await
+        .unwrap();
+
+    let lock_file = dir.path().join("chatgpt").join(LOCK_FILE);
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "lock_holder_child",
+            "--exact",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env("CHATGPT_LOCK_HOLDER", &lock_file)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+    loop {
+        let line = lines
+            .next()
+            .expect("the child says it holds the lock")
+            .unwrap();
+        // libtest may print the test's name on the same line.
+        if line.contains("LOCKED") {
+            break;
+        }
+    }
+
+    // Still valid: used as it is while the lock is busy.
+    fake.clock.advance(56 * MINUTE);
+    assert_eq!(bearer(&session).await, "AT-1");
+    // Expired: no refresh while the other process holds the lock, and
+    // nothing erased.
+    fake.clock.advance(5 * MINUTE);
+    let err = session.bearer().await.unwrap_err();
+    assert!(
+        matches!(&err, BearerError::Unavailable { reason } if reason.contains("lock")),
+        "{err:?}"
+    );
+    assert!(fake.refresh_requests().is_empty());
+    assert_eq!(store.get().as_deref(), Some("RT-1"));
+
+    // The other process lets go.
+    drop(child.stdin.take());
+    assert!(child.wait().unwrap().success());
+    fake.clock.advance(MINUTE);
+    assert_eq!(bearer(&session).await, "AT-2");
+    assert_eq!(fake.refresh_requests().len(), 1);
+}
+
+// --- Sign-out ---------------------------------------------------------------------
+
+#[tokio::test]
+async fn sign_out_revokes_the_refresh_token_with_the_issued_client() {
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let session = fake.signed_in(dir.path(), store.clone()).await;
+    let report = session.sign_out().await;
+    assert_eq!(report.revocation, Revocation::Confirmed);
+    assert_eq!(report.removed_from_store, Ok(()));
+
+    let revocations = fake.revocations.lock().unwrap().clone();
+    assert_eq!(revocations.len(), 1);
+    let r = &revocations[0];
+    assert_eq!(r["token"], "RT-1");
+    assert_eq!(r["token_type_hint"], "refresh_token");
+    assert_eq!(r["client_id"], ISSUED_CLIENT);
+    assert_eq!(r.len(), 3, "{r:?}");
+
+    assert_eq!(store.get(), None);
+    assert_eq!(session.status().state, SessionState::SignedOut);
+    assert_eq!(
+        session.bearer().await.unwrap_err(),
+        BearerError::NotSignedIn
+    );
+    // The client mapping and the host ID stay for the next sign-in.
+    let reg = registration_json(dir.path());
+    assert_eq!(reg["active_client_id"], ISSUED_CLIENT);
+    assert_eq!(reg["clients"][0]["signed_out"], true);
+    assert!(reg["host_id"].as_str().unwrap().starts_with("urn:uuid:"));
+    // A restart reads "signed out", not a session to restore.
+    let restarted = fake.session(dir.path(), store.clone());
+    assert_eq!(restarted.status().state, SessionState::SignedOut);
+}
+
+#[tokio::test]
+async fn sign_out_retries_a_5xx_or_a_network_failure() {
+    let fake = Fake::start().await;
+    fake.knobs().revoke_statuses = vec![503];
+    Mock::given(method("POST"))
+        .and(path("/api/accounts/oauth/revoke"))
+        .and(FirstN(AtomicUsize::new(1)))
+        .respond_with_err(connection_reset)
+        .with_priority(1)
+        .mount(&fake.server)
+        .await;
+    let dir = tempfile::tempdir().unwrap();
+    let session = fake.signed_in(dir.path(), MemoryStore::new()).await;
+    let report = session.sign_out().await;
+    assert_eq!(report.revocation, Revocation::Confirmed);
+    let attempts = fake
+        .server
+        .received_requests()
+        .await
+        .unwrap()
+        .iter()
+        .filter(|r| r.url.path() == "/api/accounts/oauth/revoke")
+        .count();
+    assert_eq!(attempts, 3, "a reset, a 503, then the 200");
+}
+
+#[tokio::test]
+async fn an_unconfirmed_revocation_still_clears_the_tokens_and_says_so() {
+    for (statuses, attempts) in [(vec![503; 10], 4), (vec![400], 1)] {
+        let fake = Fake::start().await;
+        fake.knobs().revoke_statuses = statuses.clone();
+        let dir = tempfile::tempdir().unwrap();
+        let store = MemoryStore::new();
+        let session = fake.signed_in(dir.path(), store.clone()).await;
+        let report = session.sign_out().await;
+        assert!(
+            matches!(report.revocation, Revocation::NotConfirmed { .. }),
+            "{statuses:?}: {report:?}"
+        );
+        assert_eq!(
+            fake.revocations.lock().unwrap().len(),
+            attempts,
+            "{statuses:?}: a 5xx is retried, a 4xx is not"
+        );
+        assert_eq!(store.get(), None);
+        assert_eq!(session.status().state, SessionState::SignedOut);
+    }
+}
+
+#[tokio::test]
+async fn the_refresh_token_is_never_revoked_anywhere_but_the_issuer() {
+    let fake = Fake::start().await;
+    let elsewhere = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&elsewhere)
+        .await;
+    fake.knobs().revocation_endpoint = Some(format!("{}/revoke", elsewhere.uri()));
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let session = fake.signed_in(dir.path(), store.clone()).await;
+    let report = session.sign_out().await;
+    assert!(
+        matches!(report.revocation, Revocation::NotConfirmed { .. }),
+        "{report:?}"
+    );
+    assert!(elsewhere.received_requests().await.unwrap().is_empty());
+    assert_eq!(store.get(), None);
+}
+
+#[tokio::test]
+async fn signing_out_of_an_ended_session_revokes_nothing() {
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let session = fake.signed_in(dir.path(), store.clone()).await;
+    fake.knobs().refresh_error = Some((400, json!({ "error": "invalid_grant" })));
+    fake.clock.advance(61 * MINUTE);
+    assert!(session.bearer().await.is_err());
+    let report = session.sign_out().await;
+    assert_eq!(report.revocation, Revocation::NothingToRevoke);
+    assert!(fake.revocations.lock().unwrap().is_empty());
+    assert_eq!(session.status().state, SessionState::SignedOut);
+}
+
+#[test]
+fn the_session_can_be_shared_and_its_futures_run_on_any_task() {
+    // Tauri keeps state in an `Arc` and runs async commands on other
+    // threads, and the provider calls `bearer` from the agent's tasks.
+    // Checked when this file compiles; nothing runs.
+    fn shared<T: Send + Sync>() {}
+    fn spawnable<T: Send>(_: &T) {}
+    shared::<ChatGptSession>();
+    let _ = |s: &ChatGptSession, t: &SecretString| {
+        spawnable(&s.bearer());
+        spawnable(&s.refresh_rejected(t));
+        spawnable(&s.restore());
+        spawnable(&s.sign_out());
+        spawnable(&s.sign_in(|_: &str| Ok::<(), String>(()), SignInIntent::SignIn));
+    };
+}
+
+#[test]
+fn form_helper_reads_what_the_session_sends() {
+    let f = form(b"a=1&b=x%20y");
+    assert_eq!(f["a"], "1");
+    assert_eq!(f["b"], "x y");
+}

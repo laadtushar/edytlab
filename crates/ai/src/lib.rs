@@ -39,6 +39,7 @@
 pub mod agent_loop;
 pub mod anthropic;
 mod approval;
+pub mod chatgpt;
 mod context_window;
 pub mod keychain;
 pub mod models;
