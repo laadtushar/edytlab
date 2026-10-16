@@ -15,10 +15,11 @@ Free, open-source AI audio editor for prepping DJ blends. Mac / Windows / Linux.
 ```
 
 **Videos:** `reel-highlights.mp4`, `reel-beatmatched-transition.mp4`,
-`reel-extended-club-intro.mp4`, `reel-mini-mix.mp4`, `reel-teaser.mp4`. Use
-the `-narrated` version if you want the voiceover. Instagram generally does not
-take an `.srt` upload, so the burned-in or auto captions have to do the work
-there; keep the `.srt` for LinkedIn, YouTube and TikTok.
+`reel-extended-club-intro.mp4`, `reel-mini-mix.mp4`, `reel-teaser.mp4`. They
+carry the app's real audio and their own on-screen captions, no voiceover
+(narrated versions, with `.srt` captions, will come once narration credits are
+available). Instagram generally does not take an `.srt` upload, so the
+on-screen captions have to do the work there.
 
 **Conventions:** at most two emoji per caption (none are used below, add one
 if you like). Where a caption mentions the installers it says they are

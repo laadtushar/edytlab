@@ -594,6 +594,17 @@ Results are cached for 10 minutes, per provider, endpoint and a hash of the key 
 
 The same file holds the one table of per-model output limits (`max_output_tokens`, applied by `clamp_max_tokens`): the OpenAI models with an output limit of 8192 or less (the `gpt-3.5-turbo` and `gpt-4-turbo` families and the `gpt-4-*-preview` snapshots at 4,096, and `gpt-4` at 8,192, which lowers nothing and is there so the figure is written down), and the Groq and Gemini models with a documented limit under it. The OpenAI rows are for models OpenAI is retiring (the last of them on 2026-10-23, dates in the table's doc), so they can be pruned as the dates pass. Each figure is taken from the provider's own documentation, cited next to it; a model nobody has sourced is left out, so its requests go out as built. When the caps in `prompt.rs` are raised, check this table first.
 
+### OAuth client
+
+`crates/ai/src/oauth/` is a generic OAuth 2.0 and OpenID Connect client for signing in through the system browser (#474): the authorization-code flow with PKCE for a public client (no secret), redirected to a loopback listener. Nothing in it names a provider. The issuer, endpoints, client id, scopes, callback host and path, and extra parameters such as `resource` all come from the caller or from the issuer's discovery document; Sign in with ChatGPT (and later, perhaps, OpenRouter) is a layer on top. No provider uses it yet.
+
+- `pkce.rs`: the S256 challenge of a verifier of 86 unreserved characters, and 256-bit `state` and `nonce`, all from the OS random generator (`ring::rand::SystemRandom`).
+- `loopback.rs`: binds `127.0.0.1` (preferred port, else an ephemeral one) before the caller's `open_url` opens the browser, without `SO_REUSEADDR`, and with `SO_EXCLUSIVEADDRUSE` on Windows. The redirect URI names `127.0.0.1`, never `localhost`, which also resolves to `::1`, an address the listener does not hold. It accepts one `GET` of the configured path with a `Host` header naming the bound host and port and this attempt's `state`; anything else gets a 404 or 400 and it keeps waiting, until a five-minute timeout or a `CancelHandle`. That includes a wrong or missing `state` (any web page can make the browser request the callback URL, so such a request must not end the sign-in) and a request whose `Sec-Fetch-Mode` is not `navigate`. `state` is compared in constant time and checked before anything else; with the right `state`, `access_denied` is its own error. The browser gets a fixed page that echoes nothing, with `Cache-Control: no-store` and no CORS headers. Without `SO_REUSEADDR` the preferred port stays taken for about a minute after an attempt (TIME_WAIT), so a quick retry gets an ephemeral port: callers use the port the listener reports. `Callback::check_issuer` applies RFC 9207's `iss` check before the code is exchanged.
+- `oidc.rs`: discovery (its `issuer` must match, and an `https` issuer may not name a plain-`http` endpoint), a JWKS cache with one rate-limited refetch for an unknown `kid`, and ID-token verification: RS256 only (with `ring`, 2048-bit keys or larger), no `crit` header, exact `iss`, `aud` exactly the client id, `exp`, `nbf` and `iat` with 60 s of skew, and every claim typed strictly so a wrong JSON type fails rather than skips a check. A sign-in's ID token must carry the attempt's `nonce`; one from a refresh response is checked against the original instead (OpenID Connect Core §12.2: same `iss`, `sub` and `aud`, no new nonce).
+- `token.rs`: the code exchange, refresh and revocation as form POSTs, with typed success and error bodies. A success must be a `Bearer` token, `expires_in` is capped at a day, and an error body's text is cut short and stripped of control characters.
+
+Tokens, codes and the verifier are `SecretString`: `Debug` prints `<redacted>`, and it has no `Display`, `Serialize` or `PartialEq`, so it cannot reach a log, an error or an IPC reply, or be compared in variable time; a test fails to compile if it, or another type holding a secret, gains one. The HTTP client never follows redirects (a 307 would resend the form, refresh token included), caps what it reads, and sends only to `https` or a loopback address; the authorization URL handed to the browser is held to the same rule.
+
 ### Constants
 
 ```rust
@@ -809,6 +820,8 @@ Nodes are stored as content-addressed JSON files under `<project-dir>/.audiograp
     previews/      # cached preview renders, keyed by node id (a ranged render by node id and range)
     auditions/     # cached audition_effect excerpts, keyed by content
 ```
+
+A clip does not name a cache entry. `derived/` and `clipboard/` hold the project's own audio, and a clip may name a file in either; everything else under `.audiograph/` is a cache or a record, and `previews/` and `auditions/` evict their oldest entries to stay under a cap. So `load` of a WAV from any of them copies it into `derived/` instead of naming it where it lies (#580): the file's own bytes, under the name a transcode of the same audio would take, so loading the same audio twice stores it once. A WAV from anywhere else is still named in place, which is what keeps a render of an untouched track the source's own bytes.
 
 Annotations (markers, regions, labels) are part of `SessionState`, so they live inside each node's JSON rather than in a directory of their own.
 

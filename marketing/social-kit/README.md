@@ -18,4 +18,4 @@ The videos the copy refers to are in [`../reels/`](../reels/README.md).
 - The "good first issue" offer: no issue carries the label yet.
 - Mentioning Claude Code.
 - The hosted-option line in the r/opensource post.
-- The ElevenLabs licence for the narrated reels.
+- The ElevenLabs licence, when the narrated reels are regenerated (the plain reels carry no ElevenLabs audio).

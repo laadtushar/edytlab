@@ -8,9 +8,10 @@ both are in the new design of the site, under `linkedin/` (see
 [`linkedin/README.md`](linkedin/README.md)).
 
 **Videos:** `reel-highlights.mp4`, `reel-beatmatched-transition.mp4`,
-`reel-mini-mix.mp4`, `reel-extended-club-intro.mp4`, `reel-teaser.mp4`. If
-LinkedIn's uploader offers a captions option, upload the matching `.srt`
-(for example `reel-highlights.srt`); otherwise use the `-narrated` version.
+`reel-mini-mix.mp4`, `reel-extended-club-intro.mp4`, `reel-teaser.mp4`. The
+reels carry their captions on screen, so there is no `.srt` to upload to
+LinkedIn's captions option yet (narrated versions with `.srt` captions will
+come once narration credits are available).
 
 **Links:**
 site <https://edytlab.com> ·

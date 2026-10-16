@@ -12,7 +12,7 @@ def rms(demo, a, b, step=0.5):
         seg = s[i:i+w]; e = (sum(x*x for x in seg)/w) ** 0.5
         out.append(20*math.log10(max(e,1)/32768))
     return out
-for demo,a,b in [("dj-beatmatched-transition",91,110),("dj-extended-club-intro",85,94),("dj-extended-club-intro",98,111),("dj-mini-mix",90,104),("dj-mini-mix",108,122),("dj-beatmatched-transition",170,183)]:
+for demo,a,b in [("dj-beatmatched-transition",85,104),("dj-beatmatched-transition",147,161),("dj-extended-club-intro",84,94),("dj-extended-club-intro",97,110.5),("dj-mini-mix",69,83),("dj-mini-mix",86.5,100.5)]:
     r = rms(demo,a,b)
     print(demo, a, b, "RMS dB per 0.5s:")
     print("  " + " ".join(f"{v:.0f}" for v in r))

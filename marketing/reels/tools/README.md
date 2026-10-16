@@ -1,18 +1,19 @@
 # tools
 
-Python 3 scripts that built everything in this folder (they need `ffmpeg`/`ffprobe` and Pillow; `narrate.py` needs `requests`).
+Python 3 scripts that built everything in this folder. A plain build needs `ffmpeg`/`ffprobe` and Pillow (with its raqm support, which the wheels have, so Inter is kerned); no API key. `narrate.py` needs `requests` and `ELEVENLABS_API_KEY`.
 
-- `spec.py`: the single source of truth: caption start times on the final demo videos, the audible "Listen" windows, the narration lines, the edit lists of the reels.
-- `cues.py`: edit list to cue timeline (cut lengths follow the real speech length).
-- `narrate.py`: ElevenLabs text-to-speech with timestamps and sound effects. Reads the key from `ELEVENLABS_API_KEY` in the environment only. Run as
-  `set -a; . <env file>; set +a; python3 narrate.py gen reel-highlights ...`. Keeps a 8,000-character budget ledger.
-- `render.py`, `build.py`: the 1080x1920 renderer (PIL + one ffmpeg filter graph) and the orchestrator; `docs.py`, `readme.py`: write transcripts.md and README.md.
-- `detect_captions.py`, `map-captions.mjs`, `captions-analytic-mapping.json`: how the caption times were found. Mapping the raw recording times through `make-demo-videos.mjs`'s
-  segment logic drifts by up to 3.4 s (every concat segment boundary adds about 0.1 s), so the times in `spec.py` are measured on the final mp4 (frame where the lower third changes).
-- `rms_listen_regions.py`: RMS profile used to find where the drop lands inside the Listen moments.
+- `spec.py`: the single source of truth: caption start times and the audible "Listen" windows on the final demo videos (measured on the videos re-filmed in the app's violet look, #581), the edit lists of the reels (where each cut starts on a demo video and how long it runs) and the narration lines, which were written for the earlier takes and need checking against the new footage before they are used.
+- `cues.py`: edit list to cue timeline. Every cut is asserted to lie inside its caption's window on the demo video, and a Listen cut to start at most 0.3 s before the app's sound and end inside it. `python3 cues.py` prints each reel's cuts with their source times and where the sound plays, then the demo narration lines that no longer fit their window.
+- `brand.py`: the reels' look. Colours (the site's dark `--card`, `--foreground`, `--primary`, `--muted-foreground`, `--border`, the `.gradient-text` and `.aurora` rules) are read from `website/app/globals.css` and the logo's fills from `website/public/logo.svg`, and the contrast of every text colour on its fill is checked (4.5:1 or better, or the import fails). The font is Inter from Debian/Ubuntu's `fonts-inter` (SIL OFL; no font file is in the repo). `EDYTLAB_REEL_FONT_DIR` points at another copy, a folder holding `Inter-Medium`, `Inter-SemiBold` and `Inter-Bold` as `.otf` or `.ttf` (Google Fonts).
+- `render.py`, `build.py`: the 1080x1920 renderer (PIL draws the cards and caption stills, one ffmpeg filter graph composites them) and the orchestrator. `python3 build.py all` builds the five plain reels and the three demo cue files into `$EDYTLAB_REEL_ROOT/out`; `build.py reel <key>` one reel. `render.py` asserts that everything it adds stays 120 px clear of both sides and above the bottom 20 % of the frame. `readme.py`, `docs.py`: write `README.md` (from the finished files in `out/`) and `transcripts.md`.
+- `detect_captions.py`: lists the frames where the burned-in captions of the demo videos change, which are the caption starts in `spec.py`.
+- `rms_listen_regions.py`: RMS profile of the Listen moments (edit its windows; `ffmpeg -af silencedetect=noise=-55dB:d=0.5` gives the audible windows to start from), used to find where the sound starts and ends and where the drop lands inside them.
+- `sheet.py`: a labelled contact sheet of exact frames of the demo videos (`sheet.py out.png cols width demo:t demo:t ...`), for choosing where a cut starts.
+- `narrate.py`: ElevenLabs text-to-speech with timestamps and sound effects. Reads the key from `ELEVENLABS_API_KEY` in the environment only. Run as `set -a; . <env file>; set +a; python3 narrate.py gen reel-highlights ...`. Keeps a 8,000-character budget ledger. Kept for re-narrating; not run when the plain reels were re-cut.
+
+To re-cut the reels after the demos are re-filmed: `detect_captions.py` for the caption starts, `silencedetect` and `rms_listen_regions.py` for the audible windows, `sheet.py` around each step to see where the request is typed and the plan or result lands, put the numbers into `spec.py`, check with `python3 cues.py`, then `build.py all` and `readme.py`, and look at each reel's contact sheet.
 
 Paths: the scripts find the repo from their own location, so they run from a checkout in any directory.
 
 - The demo recordings are read from `website/public/demos/`; set `EDYTLAB_DEMO_DIR` to read them from somewhere else.
-- `spec.py` (so every script except `sheet.py`, `rms_listen_regions.py`, `detect_captions.py` and `map-captions.mjs`) needs `EDYTLAB_REEL_ROOT`: a scratch working directory outside the repo with `work/` (the text-to-speech cache, `ledger.json`, `speech.json`) and `out/` (what a run writes). It stops with a message if the variable is not set.
-- `map-captions.mjs` takes the native e2e run's `OUT` directory (the one holding `videos/passed/8-demo-<slug>.json`) as its first argument, or from `OUT`.
+- `spec.py` (so every script except `sheet.py`, `rms_listen_regions.py`, `detect_captions.py` and `brand.py`) needs `EDYTLAB_REEL_ROOT`: a scratch working directory outside the repo with `work/` (intermediate renders, and for narration the text-to-speech cache, `ledger.json`, `speech.json`) and `out/` (what a run writes). It stops with a message if the variable is not set. Nothing in `work/` is committed.

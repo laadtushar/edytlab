@@ -4,7 +4,12 @@ import json, os, re, sys
 from spec import *
 import cues as C
 import narrate as N
-from build import get_tl
+import build as B
+
+
+def get_tl(key):
+    """The narrated timelines (cut lengths follow the speech): the lines and the windows they have."""
+    return B.get_tl(key, narrated=True)
 
 OUT = f"{ROOT}/out"
 KEYS = [("highlights", "Highlights reel (reel-highlights)"),
@@ -90,7 +95,7 @@ def main():
         parts.append(f"\n### {title}\n")
         lang = " Spanish narration, the same shots with cut lengths set by the Spanish speech." if key.endswith("-es") else ""
         vids = f"`{tl['file']}-narrated.mp4` (no un-narrated Spanish video: its cuts are timed to the Spanish speech)" if key.endswith("-es") else f"`{tl['file']}.mp4` / `{tl['file']}-narrated.mp4`"
-        parts.append(f"Video: {vids}, {tl['duration']:.1f} s.{lang} Cue file: `{tl['file']}-cues.json`. Audio: `audio/{tl['file']}/<cue-id>.mp3`.\n")
+        parts.append(f"Video: {vids}, {tl['duration']:.1f} s.{lang} Cue file: `{tl['file']}-narrated-cues.json`. Audio: `audio/{tl['file']}/<cue-id>.mp3`.\n")
         parts.append(table(tl))
     parts.append("\n## Full website demo videos\n")
     for code in DEMOS:

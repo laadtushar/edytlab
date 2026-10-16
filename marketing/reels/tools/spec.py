@@ -6,6 +6,11 @@ FINAL mp4 timeline, where the app's audio is audible (the "Listen" moments),
 the narration lines, and the edit lists (EDLs) of every reel.
 
 Times are seconds on the final (sped-up) demo mp4 timeline unless noted.
+
+The timings below are measured on the demo videos re-filmed in the app's violet
+look (#581). The narration lines further down were written for the earlier
+takes: they are the starting point for re-narrating, not text checked against
+this footage.
 """
 import math
 import os
@@ -40,68 +45,67 @@ BREATHING_ROOM = 0.3            # seconds kept free at the end of a cue
 # ---------------------------------------------------------------------------
 # Demo caption timing.
 #
-# make-demo-videos.mjs burns each caption in on the RAW recording timeline,
-# then plays stretches at 1x/1.25x/1.75x/3.5x and concatenates the pieces.
-# Mapping raw -> final analytically (re-implementing its segments()) lands
-# within 0.1 s at the start but drifts to +3.4 s by the end: every concat
-# segment boundary adds about 0.1 s of padding. So the starts below are
-# MEASURED on the final mp4 (the frame where the lower-third text changes,
-# found by differencing the caption strip, see work/detect.py) and spot-checked
-# on extracted frames. A caption stays up until the next one starts.
+# make-demo-videos.mjs burns each caption into the recording as a card at the
+# bottom of the frame, then plays stretches at 1x/1.25x/1.75x/3.5x and
+# concatenates the pieces. The starts below are MEASURED on the final mp4: the
+# frame where that card changes (detect_captions.py differences the strip the
+# card sits in, 15 fps, so each start is a multiple of 1/15 s), spot-checked on
+# extracted frames. A caption stays up until the next one starts.
+# `audio` is where the app's sound is audible (silencedetect -55 dB, d=0.5),
+# per caption id, the "Listen" moments.
 # ---------------------------------------------------------------------------
 DEMOS = {
     "BT": dict(
         slug="dj-beatmatched-transition", short="beatmatched-transition",
-        title="Beatmatch and blend two tracks", duration=187.733,
+        title="Beatmatch and blend two tracks", duration=165.333,
         captions=[
             ("BT01", 0.00, "A DJ blends Midnight Drive (120 BPM) into Neon Rush (128 BPM)"),
-            ("BT02", 2.40, "Open the tracks"),
-            ("BT03", 10.20, "Before: both tracks from the top, 120 against 128 BPM"),
-            ("BT04", 22.33, "1 · What am I working with?"),
-            ("BT05", 35.73, "2 · Beatmatch"),
-            ("BT06", 48.60, "3 · Line up the overlap"),
-            ("BT07", 63.87, "4 · Blend: crossfade, low-pass on the outgoing track"),
-            ("BT08", 87.73, "Listen: the transition, from 0:12"),
-            ("BT09", 110.67, "5 · Master for streaming"),
-            ("BT10", 155.93, "6 · Export"),
-            ("BT11", 167.00, "The mastered mix, from 0:20"),
-            ("BT12", 183.60, "Done: midnight-into-neon.wav, 0:50, -14 LUFS"),
+            ("BT02", 2.467, "Open the tracks"),
+            ("BT03", 10.067, "Before: both tracks from the top, 120 against 128 BPM"),
+            ("BT04", 21.933, "1 · What am I working with?"),
+            ("BT05", 34.867, "2 · Beatmatch"),
+            ("BT06", 47.333, "3 · Line up the overlap"),
+            ("BT07", 59.600, "4 · Blend: crossfade, low-pass on the outgoing track"),
+            ("BT08", 82.133, "Listen: the transition, from 0:12"),
+            ("BT09", 104.400, "5 · Master for streaming"),
+            ("BT10", 132.067, "6 · Export"),
+            ("BT11", 144.933, "The mastered mix, from 0:20"),
+            ("BT12", 161.200, "Done: midnight-into-neon.wav, 0:50, -14 LUFS"),
         ],
-        # app audio audible (silencedetect -55 dB), per caption id
-        audio={"BT03": (15.06, 20.68), "BT08": (92.30, 108.90), "BT11": (171.31, 181.95)},
+        audio={"BT03": (14.84, 20.39), "BT08": (86.33, 102.90), "BT11": (149.03, 159.66)},
     ),
     "EI": dict(
         slug="dj-extended-club-intro", short="extended-club-intro",
-        title="Extend an intro for mixing", duration=115.867,
+        title="Extend an intro for mixing", duration=114.867,
         captions=[
             ("EI01", 0.00, "A DJ makes a mixable intro for Solar Flare (124 BPM)"),
-            ("EI02", 2.40, "Open the tracks"),
-            ("EI03", 9.40, "Before: the original intro"),
-            ("EI04", 22.40, "1 · Tempo and bar length"),
-            ("EI05", 34.73, "2 · Extend the intro"),
-            ("EI06", 53.60, "3 · A filter that opens into the drop"),
-            ("EI07", 67.20, "4 · Fade in and export"),
-            ("EI08", 81.53, "Listen: the new intro fades in"),
-            ("EI09", 95.27, "Listen: the low end arrives at the drop (0:31)"),
-            ("EI10", 111.67, "Done: solar-flare-extended-intro.wav, a 16-bar intro"),
+            ("EI02", 2.400, "Open the tracks"),
+            ("EI03", 9.733, "Before: the original intro"),
+            ("EI04", 22.733, "1 · Tempo and bar length"),
+            ("EI05", 35.400, "2 · Extend the intro"),
+            ("EI06", 51.600, "3 · A filter that opens into the drop"),
+            ("EI07", 66.333, "4 · Fade in and export"),
+            ("EI08", 80.467, "Listen: the new intro fades in"),
+            ("EI09", 94.200, "Listen: the low end arrives at the drop (0:31)"),
+            ("EI10", 110.733, "Done: solar-flare-extended-intro.wav, a 16-bar intro"),
         ],
-        audio={"EI03": (14.15, 20.75), "EI08": (86.03, 93.65), "EI09": (99.51, 110.10)},
+        audio={"EI03": (14.53, 21.12), "EI08": (85.13, 92.66), "EI09": (98.48, 109.08)},
     ),
     "MM": dict(
         slug="dj-mini-mix", short="mini-mix",
-        title="A three-track mini-mix", duration=137.800,
+        title="A three-track mini-mix", duration=118.000,
         captions=[
             ("MM01", 0.00, "A DJ builds a three-track mini-mix at 124 BPM"),
-            ("MM02", 2.47, "Open the tracks"),
-            ("MM03", 10.33, "1 · Match every track to 124 BPM"),
-            ("MM04", 23.40, "2 · Sequence with 4-bar overlaps"),
-            ("MM05", 60.00, "3 · Match loudness, limit the master"),
-            ("MM06", 86.80, "Listen: Midnight Drive into Solar Flare (0:23)"),
-            ("MM07", 104.93, "Listen: Solar Flare into Neon Rush (0:47)"),
-            ("MM08", 122.67, "4 · Export the mix"),
-            ("MM09", 133.73, "Done: mini-mix-124bpm.wav, 1:21"),
+            ("MM02", 2.467, "Open the tracks"),
+            ("MM03", 10.267, "1 · Match every track to 124 BPM"),
+            ("MM04", 24.600, "2 · Sequence with 4-bar overlaps"),
+            ("MM05", 46.667, "3 · Match loudness, limit the master"),
+            ("MM06", 65.467, "Listen: Midnight Drive into Solar Flare (0:23)"),
+            ("MM07", 83.400, "Listen: Solar Flare into Neon Rush (0:46)"),
+            ("MM08", 100.800, "4 · Export the mix"),
+            ("MM09", 114.000, "Done: mini-mix-124bpm.wav, 1:19"),
         ],
-        audio={"MM06": (91.75, 103.39), "MM07": (109.29, 120.88)},
+        audio={"MM06": (70.25, 81.85), "MM07": (87.68, 99.24)},
     ),
 }
 
@@ -172,6 +176,11 @@ def max_words(max_seconds):
 
 # ---------------------------------------------------------------------------
 # Narration lines for the three full demo videos: one per caption moment.
+# THESE WERE WRITTEN FOR THE EARLIER (amber-UI) TAKES. The re-filmed videos have
+# different timings and a few different facts (the mini-mix export is 1:19 now,
+# its second Listen caption says 0:46), so check every line against the new
+# footage, and `python3 cues.py` for the ones that no longer fit their window,
+# before re-narrating.
 # Listen moments carry only a short lead-in line, spoken before the music
 # starts; "" means the cue is silent. Numbers are written the way they are
 # spoken, BPM as letters, LUFS as "loofs", the app's file names never read out.
@@ -215,16 +224,20 @@ LINES = {
 # Reel edit lists.
 #
 # A reel is a list of items:
-#   hook  : title card            (id, line, title lines)
-#   step  : cut from a demo       (caption id, src start, optional min length)
-#   listen: cut with real audio   (caption id, src start = onset - lead, music seconds)
+#   hook  : title card            (title lines, sub line, seconds)
+#   step  : cut from a demo       (caption id, src start on the demo video, seconds)
+#   listen: cut with real audio   (caption id, music seconds heard, lead seconds shown before the audio starts)
+#           or an explicit src and seconds (the teaser's best seconds of the transition)
 #   end   : end card
-# Cut lengths come from the narration (words / 2.4 + 0.7, never under the
-# floor), so every line fits its cue with the brief's 0.3 s of room.
+# Every cut lies inside its caption's window on the demo video (cues.py asserts it). A step
+# starts as the request is being typed, or just before the agent answers, and runs long enough
+# to read its caption and see the plan or the result land on the timeline. A Listen cut starts
+# LISTEN_LEAD before the app's sound does (rms_listen_regions.py shows where the sound starts
+# and ends) and stops inside it, with a short fade out.
 # ---------------------------------------------------------------------------
-STEP_FLOOR = 4.2
-LISTEN_LEAD = 2.0
-HOOK_SECONDS = 3.0
+STEP_SECONDS = 4.8
+LISTEN_LEAD = 0.2
+HOOK_SECONDS = 2.5
 END_SECONDS = 3.0
 
 END_LINE = "{edytlab|edit lab}. Free and open source."
@@ -234,58 +247,58 @@ REELS = {
         file="reel-highlights", label="Highlights", prefix="R", pills=True,
         items=[
             dict(kind="hook", line="[excited] Describe the blend. Hear the mix.",
-                 title=["Describe the blend.", "Hear the mix."], sub="A real screen recording of edytlab"),
-            dict(kind="step", cap="BT05", src=37.9), dict(kind="step", cap="BT07", src=82.6),
-            dict(kind="listen", cap="BT08", music=6.7),
-            dict(kind="step", cap="EI05", src=40.0), dict(kind="step", cap="EI06", src=61.5),
-            dict(kind="listen", cap="EI09", music=8.5),
-            dict(kind="step", cap="MM03", src=13.6), dict(kind="step", cap="MM04", src=54.0),
-            dict(kind="listen", cap="MM06", music=6.5),
+                 title=["Describe", "the blend.", "Hear the mix."], sub="A real screen recording of edytlab"),
+            dict(kind="step", cap="BT05", src=37.0), dict(kind="step", cap="BT07", src=74.4),
+            dict(kind="listen", cap="BT08", music=8.5),
+            dict(kind="step", cap="EI05", src=43.6), dict(kind="step", cap="EI06", src=58.2),
+            dict(kind="listen", cap="EI09", music=9.0),
+            dict(kind="step", cap="MM03", src=14.3), dict(kind="step", cap="MM04", src=40.4),
+            dict(kind="listen", cap="MM06", music=9.0),
             dict(kind="end"),
         ]),
     "beatmatched-transition": dict(
         file="reel-beatmatched-transition", label="Beatmatch", prefix="B", pills=False, demo="BT",
         items=[
             dict(kind="hook", line="Beatmatch two tracks. Just ask.",
-                 title=["Beatmatch", "two tracks.", "Just ask."], sub="Midnight Drive 120 BPM into Neon Rush 128 BPM"),
-            dict(kind="step", cap="BT04", src=25.0), dict(kind="step", cap="BT05", src=37.9),
-            dict(kind="step", cap="BT06", src=57.0), dict(kind="step", cap="BT07", src=82.6),
+                 title=["Beatmatch", "two tracks.", "Just ask."], sub="Midnight Drive, 120 BPM, into Neon Rush, 128 BPM"),
+            dict(kind="step", cap="BT04", src=28.0), dict(kind="step", cap="BT05", src=37.0),
+            dict(kind="step", cap="BT06", src=52.6), dict(kind="step", cap="BT07", src=74.4),
             dict(kind="listen", cap="BT08", music=10.0),
-            dict(kind="step", cap="BT09", src=141.0),
-            dict(kind="listen", cap="BT11", music=6.0),
-            dict(kind="step", cap="BT12", src=183.6, floor=4.1),
+            dict(kind="step", cap="BT09", src=116.0),
+            dict(kind="listen", cap="BT11", music=6.5),
+            dict(kind="step", cap="BT12", src=161.2, seconds=4.1),
             dict(kind="end"),
         ]),
     "extended-club-intro": dict(
         file="reel-extended-club-intro", label="Extended intro", prefix="E", pills=False, demo="EI",
         items=[
             dict(kind="hook", line="Extend an intro. Just ask.",
-                 title=["Extend an intro.", "Just ask."], sub="Solar Flare, 124 BPM"),
-            dict(kind="step", cap="EI04", src=25.0), dict(kind="step", cap="EI05", src=40.0),
-            dict(kind="step", cap="EI06", src=59.5), dict(kind="step", cap="EI07", src=69.5),
-            dict(kind="listen", cap="EI09", music=10.5),
-            dict(kind="step", cap="EI10", src=111.67, floor=4.2),
+                 title=["Extend", "an intro.", "Just ask."], sub="Solar Flare, 124 BPM"),
+            dict(kind="step", cap="EI04", src=27.4), dict(kind="step", cap="EI05", src=43.6),
+            dict(kind="step", cap="EI06", src=58.2), dict(kind="step", cap="EI07", src=72.0),
+            dict(kind="listen", cap="EI09", music=10.4),
+            dict(kind="step", cap="EI10", src=110.733, seconds=4.1),
             dict(kind="end"),
         ]),
     "mini-mix": dict(
         file="reel-mini-mix", label="Mini-mix", prefix="M", pills=False, demo="MM",
         items=[
             dict(kind="hook", line="Build a mini-mix. Just ask.",
-                 title=["Build a mini-mix.", "Just ask."], sub="Three tracks, matched to 124 BPM"),
-            dict(kind="step", cap="MM03", src=13.6), dict(kind="step", cap="MM04", src=54.0),
-            dict(kind="step", cap="MM05", src=66.5),
+                 title=["Build a", "mini-mix.", "Just ask."], sub="Three tracks, matched to 124 BPM"),
+            dict(kind="step", cap="MM03", src=14.3), dict(kind="step", cap="MM04", src=40.4),
+            dict(kind="step", cap="MM05", src=54.6),
             dict(kind="listen", cap="MM06", music=6.5), dict(kind="listen", cap="MM07", music=6.5),
-            dict(kind="step", cap="MM08", src=125.0),
-            dict(kind="step", cap="MM09", src=133.73, floor=4.0),
+            dict(kind="step", cap="MM08", src=106.2),
+            dict(kind="step", cap="MM09", src=114.0, seconds=4.0),
             dict(kind="end"),
         ]),
     "teaser": dict(
         file="reel-teaser", label="Teaser", prefix="T", pills=False,
         items=[
             dict(kind="hook", line="Ask for the blend.", title=["Ask for", "the blend."], sub="", seconds=2.5),
-            dict(kind="step", cap="BT05", src=38.6, line="Beatmatch the two tracks.", seconds=2.7),
-            dict(kind="step", cap="BT07", src=83.4, line="Blend with a crossfade.", seconds=2.7),
-            dict(kind="listen", cap="BT08", src=94.8, seconds=4.5, silent=True),
+            dict(kind="step", cap="BT05", src=39.0, line="Beatmatch the two tracks.", seconds=2.7),
+            dict(kind="step", cap="BT07", src=75.0, line="Blend with a crossfade.", seconds=2.7),
+            dict(kind="listen", cap="BT08", src=91.0, seconds=4.5, silent=True),
             dict(kind="end", line="{edytlab|edit lab}. Free, open source.", seconds=2.5),
         ]),
 }

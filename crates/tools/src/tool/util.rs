@@ -662,6 +662,37 @@ pub(crate) fn write_cas_wav(
     channels: u16,
     path: &Path,
 ) -> Result<(), String> {
+    put_cas_file(path, |tmp| {
+        audio_engine::write_wav(samples, sample_rate, channels, tmp).map_err(|e| e.to_string())
+    })
+}
+
+/// Copy the WAV at `src` to the content-addressed `path`, unless it is
+/// already there, with the guarantees of [`write_cas_wav`].
+///
+/// For a WAV the renderer can open as it is but that cannot stay where it
+/// is (#580). The bytes are kept rather than decoded and written again:
+/// [`write_cas_wav`] quantises to 16 bits, and a copy that sounded
+/// different, or stopped being the file a render of an untouched track
+/// reproduces byte for byte, would be a worse stand-in than the file.
+pub(crate) fn copy_cas_wav(src: &Path, path: &Path) -> Result<(), String> {
+    put_cas_file(path, |tmp| {
+        let mut from = std::fs::File::open(src)
+            .map_err(|e| format!("failed to read {}: {e}", src.display()))?;
+        let mut to = std::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(tmp)
+            .map_err(|e| format!("failed to write {}: {e}", tmp.display()))?;
+        std::io::copy(&mut from, &mut to)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    })
+}
+
+/// Put the file `fill` writes at `path`, whole or not at all, unless
+/// `path` is already there.
+fn put_cas_file(path: &Path, fill: impl FnOnce(&Path) -> Result<(), String>) -> Result<(), String> {
     if path.exists() {
         return Ok(());
     }
@@ -674,7 +705,7 @@ pub(crate) fn write_cas_wav(
         .tempfile_in(dir)
         .map_err(|e| format!("failed to create a file in {}: {e}", dir.display()))?
         .into_temp_path();
-    audio_engine::write_wav(samples, sample_rate, channels, &tmp).map_err(|e| e.to_string())?;
+    fill(&tmp)?;
     match tmp.persist(path) {
         Ok(()) => Ok(()),
         // Another writer of the same name got there first. The name is the
