@@ -155,6 +155,8 @@ pub struct Knobs {
     pub refresh_subject: Option<String>,
     /// ...carrying the sign-in's nonce, as some issuers do.
     pub refresh_nonce: bool,
+    /// ...signed under this `kid`, which the JWKS does not list.
+    pub refresh_kid: Option<String>,
     /// `earliest_refresh_at`, this many seconds after issue.
     pub earliest_refresh_after: Option<u64>,
     pub expires_in: u64,
@@ -183,6 +185,7 @@ impl Default for Knobs {
             refresh_id_token: false,
             refresh_subject: None,
             refresh_nonce: false,
+            refresh_kid: None,
             earliest_refresh_after: None,
             expires_in: 3600,
             refresh_error: None,
@@ -327,6 +330,16 @@ impl Fake {
     }
 
     pub fn id_token(&self, client_id: &str, nonce: Option<&str>, subject: &str) -> String {
+        self.id_token_with_kid(client_id, nonce, subject, "k1")
+    }
+
+    pub fn id_token_with_kid(
+        &self,
+        client_id: &str,
+        nonce: Option<&str>,
+        subject: &str,
+        kid: &str,
+    ) -> String {
         let auth_time = self.tokens.lock().unwrap().auth_time;
         let knobs = self.knobs();
         let now = self.clock.unix();
@@ -347,7 +360,7 @@ impl Fake {
             claims["azp"] = azp.clone().into();
         }
         jwt(
-            &json!({ "alg": "RS256", "typ": "JWT", "kid": "k1" }),
+            &json!({ "alg": "RS256", "typ": "JWT", "kid": kid }),
             &claims,
             |m| key().sign_rs256(m),
         )
@@ -442,14 +455,15 @@ impl Fake {
                                 .clone()
                                 .unwrap_or_else(|| knobs.subject.clone()),
                             knobs.refresh_nonce,
+                            knobs.refresh_kid.clone().unwrap_or_else(|| "k1".into()),
                         )
                     })
                 }
-                .map(|(subject, with_nonce)| {
+                .map(|(subject, with_nonce, kid)| {
                     let nonce = with_nonce
                         .then(|| self.tokens.lock().unwrap().nonce.clone())
                         .flatten();
-                    self.id_token(&client_id, nonce.as_deref(), &subject)
+                    self.id_token_with_kid(&client_id, nonce.as_deref(), &subject, &kid)
                 });
                 ResponseTemplate::new(200).set_body_json(self.mint(&client_id, id_token))
             }

@@ -47,9 +47,19 @@ pub const REGISTRATION_VERSION: u32 = 1;
 /// has no Tauri dependency, so the desktop app implements this over its
 /// keychain slot [`REFRESH_TOKEN_SLOT`], and tests implement it in memory.
 ///
-/// The session calls it from a blocking thread (a keychain can prompt), and
-/// serializes its own calls; it is shared with other processes only through
-/// the store itself, under the session's refresh lock.
+/// The session calls it from a blocking thread, and serializes its own
+/// calls; it is shared with other processes only through the store itself,
+/// under the session's refresh lock.
+///
+/// **Each call must return in bounded time.** The session holds its refresh
+/// lock, in-process and across processes, while it waits, so a call that
+/// sits on an unlock prompt holds up every other edytlab window's refresh.
+/// An implementation that would have to wait for the user (a locked
+/// keychain) should fail with [`SecretStoreError::Unavailable`] instead, and
+/// let the app ask for the unlock outside a refresh. The session does not
+/// time the calls out itself: it cannot stop a blocking keychain call, and a
+/// `delete` that lands after the session gave up on it could erase a token
+/// another window saved in the meantime.
 pub trait RefreshTokenStore: Send + Sync {
     /// The saved token, or `None` when there is none.
     fn load(&self) -> Result<Option<SecretString>, SecretStoreError>;
@@ -216,20 +226,55 @@ pub enum StoreError {
     UnsupportedVersion { path: PathBuf, version: u32 },
 }
 
+/// Where a `registration.json` that does not parse is moved, in the same
+/// directory, so it can still be looked at. A later one replaces it.
+pub const CORRUPT_REGISTRATION_FILE: &str = "registration.json.corrupt";
+
 /// `registration.json` in the session's directory.
 #[derive(Clone, Debug)]
 pub struct RegistrationFile {
     dir: PathBuf,
+    /// Tests only: every save fails while this is set.
+    #[cfg(feature = "test-endpoints")]
+    fail_saves: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
 impl RegistrationFile {
     /// The file in `dir` (`<app config dir>/chatgpt`).
     pub fn new(dir: impl Into<PathBuf>) -> Self {
-        Self { dir: dir.into() }
+        Self {
+            dir: dir.into(),
+            #[cfg(feature = "test-endpoints")]
+            fail_saves: None,
+        }
+    }
+
+    /// Tests only (the `test-endpoints` feature): every save fails while
+    /// `switch` is set, so a test can see what the session does when
+    /// `registration.json` cannot be written.
+    #[cfg(feature = "test-endpoints")]
+    pub fn with_failing_saves(
+        mut self,
+        switch: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> Self {
+        self.fail_saves = Some(switch);
+        self
     }
 
     pub fn path(&self) -> PathBuf {
         self.dir.join(REGISTRATION_FILE)
+    }
+
+    /// Moves a `registration.json` that does not parse to
+    /// [`CORRUPT_REGISTRATION_FILE`], replacing an older one there.
+    pub fn set_aside(&self) -> Result<PathBuf, StoreError> {
+        let to = self.dir.join(CORRUPT_REGISTRATION_FILE);
+        fs::rename(self.path(), &to).map_err(|source| StoreError::Io {
+            action: "set aside",
+            path: self.path(),
+            source,
+        })?;
+        Ok(to)
     }
 
     /// The saved registration, or `None` when there is no file.
@@ -267,6 +312,18 @@ impl RegistrationFile {
     /// `0700` and the file is `0600`. On Windows both inherit the ACL of the
     /// per-user config directory.
     pub fn save(&self, registration: &Registration) -> Result<(), StoreError> {
+        #[cfg(feature = "test-endpoints")]
+        if self
+            .fail_saves
+            .as_ref()
+            .is_some_and(|s| s.load(std::sync::atomic::Ordering::SeqCst))
+        {
+            return Err(StoreError::Io {
+                action: "write",
+                path: self.path(),
+                source: io::Error::other("a test made this save fail"),
+            });
+        }
         let bytes =
             serde_json::to_vec_pretty(registration).expect("a registration always serializes");
         write_private_atomically(&self.dir, REGISTRATION_FILE, &bytes)
@@ -274,7 +331,9 @@ impl RegistrationFile {
 }
 
 /// Creates `dir` (and its parents) if needed, the last component owner-only
-/// on Unix.
+/// on Unix. An existing `dir` must be a real directory, not a symbolic link
+/// (which could point the registration and the lock file anywhere), and on
+/// Unix one that others can reach into is narrowed to `0700`.
 pub(crate) fn ensure_private_dir(dir: &Path) -> io::Result<()> {
     if let Some(parent) = dir.parent() {
         fs::create_dir_all(parent)?;
@@ -287,10 +346,31 @@ pub(crate) fn ensure_private_dir(dir: &Path) -> io::Result<()> {
         builder.mode(0o700);
     }
     match builder.create(dir) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == io::ErrorKind::AlreadyExists && dir.is_dir() => Ok(()),
-        Err(e) => Err(e),
+        Ok(()) => return Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(e) => return Err(e),
     }
+    let meta = fs::symlink_metadata(dir)?;
+    if meta.file_type().is_symlink() {
+        return Err(io::Error::other(format!(
+            "{} is a symbolic link; the ChatGPT session keeps its files only in a real directory",
+            dir.display()
+        )));
+    }
+    if !meta.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!("{} exists and is not a directory", dir.display()),
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if meta.permissions().mode() & 0o077 != 0 {
+            fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
+        }
+    }
+    Ok(())
 }
 
 /// Writes `bytes` to `dir/name` through a temporary file in `dir` that is
@@ -483,6 +563,51 @@ mod tests {
             .map(|e| e.unwrap().file_name().into_string().unwrap())
             .collect();
         assert_eq!(names, [REGISTRATION_FILE], "{names:?}");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn an_existing_directory_is_narrowed_and_a_symlinked_one_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        let parent = tempfile::tempdir().unwrap();
+        let dir = parent.path().join(DIR_NAME);
+        fs::create_dir(&dir).unwrap();
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
+        RegistrationFile::new(&dir)
+            .save(&Registration::new(HostId::generate().unwrap()))
+            .unwrap();
+        let mode = fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700, "an existing 0755 directory is narrowed");
+
+        // A symlink in its place could send the files anywhere: refused.
+        let elsewhere = parent.path().join("elsewhere");
+        fs::create_dir(&elsewhere).unwrap();
+        let linked = parent.path().join("linked");
+        std::os::unix::fs::symlink(&elsewhere, &linked).unwrap();
+        let err = RegistrationFile::new(&linked)
+            .save(&Registration::new(HostId::generate().unwrap()))
+            .unwrap_err();
+        assert!(err.to_string().contains("symbolic link"), "{err}");
+        assert_eq!(
+            fs::read_dir(&elsewhere).unwrap().count(),
+            0,
+            "nothing written there"
+        );
+    }
+
+    #[test]
+    fn a_corrupt_registration_is_set_aside() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = RegistrationFile::new(dir.path());
+        fs::write(file.path(), b"{ broken").unwrap();
+        let to = file.set_aside().unwrap();
+        assert_eq!(to, dir.path().join(CORRUPT_REGISTRATION_FILE));
+        assert_eq!(fs::read(&to).unwrap(), b"{ broken");
+        assert!(file.load().unwrap().is_none());
+        // A second one replaces the first.
+        fs::write(file.path(), b"{ broken again").unwrap();
+        file.set_aside().unwrap();
+        assert_eq!(fs::read(&to).unwrap(), b"{ broken again");
     }
 
     #[test]

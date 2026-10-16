@@ -333,20 +333,33 @@ pub const UNUSABLE_REFRESH_TOKEN_CODES: &[&str] = &[
 /// rotating token.
 pub const REFRESH_TOKEN_REUSED: &str = "refresh_token_reused";
 
+/// Whether an HTTP status says nothing about the request's credentials: a
+/// server error, a rate limit or a timeout. Such a reply is temporary
+/// whatever error code its body carries.
+fn temporary_status(status: u16) -> bool {
+    status >= 500 || status == 429 || status == 408
+}
+
 /// Classifies a refresh's [`TokenError`].
+///
+/// The status comes first: a 5xx, 429 or 408 is temporary even when its body
+/// names one of the unusable-token codes, since a server that is failing
+/// cannot be trusted to have judged the token. Only a 4xx can make a refresh
+/// token unusable.
 pub fn classify_refresh_error(error: &TokenError) -> RefreshFailure {
     match error {
         TokenError::OAuth { status, body } => {
             let code = body.error.to_ascii_lowercase();
-            if UNUSABLE_REFRESH_TOKEN_CODES.contains(&code.as_str()) {
-                RefreshFailure::Unusable { code }
-            } else if *status >= 500
-                || *status == 429
+            if temporary_status(*status)
                 || matches!(code.as_str(), "temporarily_unavailable" | "server_error")
             {
                 RefreshFailure::Transient {
                     reason: format!("the token endpoint answered {status} ({code})"),
                 }
+            } else if (400..500).contains(status)
+                && UNUSABLE_REFRESH_TOKEN_CODES.contains(&code.as_str())
+            {
+                RefreshFailure::Unusable { code }
             } else {
                 RefreshFailure::Refused {
                     status: *status,
@@ -354,11 +367,9 @@ pub fn classify_refresh_error(error: &TokenError) -> RefreshFailure {
                 }
             }
         }
-        TokenError::Status { status } if *status >= 500 || *status == 429 || *status == 408 => {
-            RefreshFailure::Transient {
-                reason: format!("the token endpoint answered HTTP {status}"),
-            }
-        }
+        TokenError::Status { status } if temporary_status(*status) => RefreshFailure::Transient {
+            reason: format!("the token endpoint answered HTTP {status}"),
+        },
         TokenError::Status { status } => RefreshFailure::Refused {
             status: *status,
             code: None,
@@ -663,6 +674,27 @@ mod tests {
             classify_refresh_error(&oauth(400, "Refresh_Token_Reused")),
             RefreshFailure::Unusable { .. }
         ));
+        // A failing server decides nothing about the token, whatever code it
+        // sends: temporary, never unusable.
+        let wrapped = |status: u16, code: &str| TokenError::OAuth {
+            status,
+            body: serde_json::from_value::<OAuthErrorBody>(
+                serde_json::json!({ "error": { "code": code, "message": "x" } }),
+            )
+            .unwrap(),
+        };
+        for e in [
+            oauth(503, "invalid_grant"),
+            wrapped(502, "refresh_token_expired"),
+            oauth(500, "refresh_token_reused"),
+            oauth(429, "refresh_token_invalidated"),
+            oauth(408, "token_expired"),
+        ] {
+            assert!(
+                matches!(classify_refresh_error(&e), RefreshFailure::Transient { .. }),
+                "{e:?}"
+            );
+        }
         // Temporary: kept, retried later.
         for e in [
             oauth(503, "temporarily_unavailable"),

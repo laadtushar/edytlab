@@ -7,6 +7,7 @@
 mod chatgpt_support;
 mod oauth_support;
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -401,6 +402,11 @@ async fn an_id_token_for_another_audience_is_refused() {
         let reg = registration_json(dir.path());
         assert_eq!(reg["active_client_id"], Value::Null);
         assert_eq!(reg["clients"][0]["subject"], Value::Null);
+        // The tokens it refused are revoked, not left live at OpenAI.
+        let revoked = fake.revocations.lock().unwrap().clone();
+        assert_eq!(revoked.len(), 1, "{audience}");
+        assert_eq!(revoked[0]["token"], "RT-1");
+        assert_eq!(revoked[0]["client_id"], ISSUED_CLIENT);
     }
 }
 
@@ -427,6 +433,24 @@ async fn a_returning_sign_in_as_another_account_is_refused() {
         registration_json(dir.path())["clients"][0]["subject"],
         SUBJECT
     );
+    // The other account's tokens are revoked, not left live at OpenAI.
+    let revoked = fake.revocations.lock().unwrap().clone();
+    assert_eq!(revoked.len(), 1);
+    assert_eq!(revoked[0]["token"], "RT-2");
+}
+
+#[tokio::test]
+async fn an_invalid_grant_in_any_case_on_the_exchange_means_a_fresh_start() {
+    // Refresh codes are matched without regard to case; so is this one.
+    let fake = Fake::start().await;
+    fake.knobs().exchange_error = Some((400, json!({ "error": "INVALID_GRANT" })));
+    let dir = tempfile::tempdir().unwrap();
+    let session = fake.session(dir.path(), MemoryStore::new());
+    let err = fake
+        .sign_in(&session, Browser::default(), SignInIntent::SignIn)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, SignInError::CodeRejected), "{err:?}");
 }
 
 #[tokio::test]
@@ -456,6 +480,99 @@ async fn an_invalid_grant_on_the_exchange_means_a_fresh_authorization_with_the_s
             .len(),
         1
     );
+}
+
+#[tokio::test]
+async fn a_registration_that_cannot_be_saved_leaves_the_session_in_use_as_it_was() {
+    // registration.json is written before the refresh token: if it cannot
+    // be, the session in use and its stored token are untouched, and the new
+    // tokens are revoked.
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let failing = Arc::new(AtomicBool::new(false));
+    let config = fake
+        .config(dir.path())
+        .with_failing_registration_saves(failing.clone());
+    let session = ChatGptSession::open(config, store.clone()).unwrap();
+    fake.sign_in(&session, Browser::default(), SignInIntent::SignIn)
+        .await
+        .unwrap();
+    {
+        let failing = failing.clone();
+        *fake.on_exchange.lock().unwrap() =
+            Some(Box::new(move || failing.store(true, Ordering::SeqCst)));
+    }
+    let err = fake
+        .sign_in(&session, Browser::default(), SignInIntent::SignIn)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, SignInError::Registration(_)), "{err:?}");
+    assert_eq!(
+        store.get().as_deref(),
+        Some("RT-1"),
+        "the stored token is still the session in use's"
+    );
+    assert_eq!(store.saves(), ["save RT-1"]);
+    assert_eq!(session.status().state, SessionState::SignedIn);
+    assert_eq!(session.bearer().await.unwrap().expose_secret(), "AT-1");
+    let revoked = fake.revocations.lock().unwrap().clone();
+    assert_eq!(revoked.len(), 1);
+    assert_eq!(revoked[0]["token"], "RT-2");
+}
+
+#[tokio::test]
+async fn another_account_can_be_signed_in_after_a_sign_out() {
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let session = fake.signed_in(dir.path(), store.clone()).await;
+    session.sign_out().await;
+    fake.knobs().subject = "a-second-account".into();
+
+    // Continue with ChatGPT reuses the saved account's client, as the docs
+    // say signing back in should; another account is refused there...
+    let err = fake
+        .sign_in(&session, Browser::default(), SignInIntent::SignIn)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, SignInError::AccountChanged), "{err:?}");
+
+    // ...and "use another account" registers a new client for it.
+    let status = fake
+        .sign_in(
+            &session,
+            Browser {
+                client_id: CallbackClient::Send("oaiapp_second".into()),
+                ..Browser::default()
+            },
+            SignInIntent::AnotherAccount,
+        )
+        .await
+        .unwrap();
+    assert_eq!(status.state, SessionState::SignedIn);
+    let auths = fake.authorizations.lock().unwrap().clone();
+    let another = &auths[2];
+    assert_eq!(another["client_id"], "dynamic_agent_client");
+    assert_eq!(another["agent_name_hint"], "edytlab");
+    assert_eq!(another["ext_agent_host_id"], auths[0]["ext_agent_host_id"]);
+    assert!(!another.contains_key("login_hint"), "{another:?}");
+
+    let reg = registration_json(dir.path());
+    assert_eq!(reg["active_client_id"], "oaiapp_second");
+    let clients = reg["clients"].as_array().unwrap();
+    assert_eq!(clients.len(), 2, "the first account's record is kept");
+    assert_eq!(clients[0]["subject"], SUBJECT);
+    assert_eq!(clients[1]["subject"], "a-second-account");
+    assert_eq!(store.get().as_deref(), Some("RT-3"));
+    assert_eq!(session.bearer().await.unwrap().expose_secret(), "AT-3");
+    // The tokens of the refused attempt were revoked.
+    assert!(fake
+        .revocations
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|r| r["token"] == "RT-2"));
 }
 
 #[tokio::test]
@@ -599,13 +716,31 @@ async fn an_unreadable_registration_is_replaced_by_the_next_sign_in() {
     let path = dir.path().join("chatgpt");
     std::fs::create_dir_all(&path).unwrap();
     std::fs::write(path.join(REGISTRATION_FILE), b"{ not json").unwrap();
-    let session = fake.session(dir.path(), MemoryStore::new());
+    // A token from the session the file described, which nothing can use
+    // or revoke now: its client id was in the file.
+    let store = MemoryStore::new();
+    store.set(Some("RT-stale"));
+    let session = fake.session(dir.path(), store.clone());
     assert_eq!(session.status().state, SessionState::SignedOut);
+    // Set aside, not overwritten, so it can still be looked at.
+    assert_eq!(
+        std::fs::read(path.join("registration.json.corrupt")).unwrap(),
+        b"{ not json"
+    );
+    assert!(!path.join(REGISTRATION_FILE).exists());
     fake.sign_in(&session, Browser::default(), SignInIntent::SignIn)
         .await
         .unwrap();
     let reg = RegistrationFile::new(&path).load().unwrap().unwrap();
     assert_eq!(reg.active_client_id.as_deref(), Some(ISSUED_CLIENT));
+    // The stale token was cleared before the new one was saved.
+    let log = store.log.lock().unwrap().clone();
+    let deleted = log.iter().position(|l| l == "delete");
+    let saved = log.iter().position(|l| l == "save RT-1");
+    assert!(
+        deleted.is_some() && deleted < saved,
+        "the stale slot is cleared at the next sign-in: {log:?}"
+    );
 
     // A newer build's file is not overwritten: opening refuses it.
     std::fs::write(

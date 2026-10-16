@@ -21,7 +21,9 @@ use ai::chatgpt::spec::UNUSABLE_REFRESH_TOKEN_CODES;
 use ai::chatgpt::store::{RefreshTokenStore, SecretStoreError, LOCK_FILE, REGISTRATION_FILE};
 use ai::chatgpt::SignInIntent;
 use ai::oauth::SecretString;
-use chatgpt_support::{form, Browser, Fake, MemoryStore, EMAIL, ISSUED_CLIENT, SUBJECT};
+use chatgpt_support::{
+    form, Browser, CallbackClient, Fake, MemoryStore, EMAIL, ISSUED_CLIENT, SUBJECT,
+};
 use serde_json::{json, Value};
 use wiremock::matchers::{method, path};
 use wiremock::{Match, Mock, MockServer, Request, ResponseTemplate};
@@ -502,6 +504,10 @@ async fn a_refreshed_id_token_is_checked_against_the_original() {
         "{err:?}"
     );
     assert_eq!(store.get(), None);
+    // And revoked, so it is not left live at OpenAI.
+    let revoked = fake.revocations.lock().unwrap().clone();
+    assert_eq!(revoked.len(), 1);
+    assert_eq!(revoked[0]["token"], "RT-3");
 }
 
 // --- Restarts ----------------------------------------------------------------------
@@ -521,10 +527,12 @@ async fn a_restarted_session_refreshes_from_the_stored_token() {
     let store = MemoryStore::new();
     drop(fake.signed_in(dir.path(), store.clone()).await);
 
+    let before_open = store.log.lock().unwrap().len();
     let session = fake.session(dir.path(), store.clone());
     assert_eq!(session.status().state, SessionState::NotLoaded);
-    assert!(
-        store.log.lock().unwrap().iter().all(|l| l != "load"),
+    assert_eq!(
+        store.log.lock().unwrap().len(),
+        before_open,
         "open reads no keychain"
     );
     let status = session.restore().await.unwrap();
@@ -909,4 +917,282 @@ fn form_helper_reads_what_the_session_sends() {
     let f = form(b"a=1&b=x%20y");
     assert_eq!(f["a"], "1");
     assert_eq!(f["b"], "x y");
+}
+
+// --- Several windows, and refreshes cut short --------------------------------------
+
+#[tokio::test]
+async fn a_window_with_stale_claims_does_not_end_a_newer_sign_in() {
+    // Windows A and B share the keychain slot and registration.json. In A
+    // the user signs out and back in (a new refresh token and a new
+    // `auth_time`). B still holds the old sign-in's claims; under the lock
+    // it must take the account as registration.json now has it, not judge
+    // the newer session's refreshed ID token against its stale copy and
+    // erase it.
+    let fake = Fake::start().await;
+    fake.knobs().refresh_id_token = true;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let a = fake.signed_in(dir.path(), store.clone()).await;
+    let b = fake.session(dir.path(), store.clone());
+    b.restore().await.unwrap();
+
+    fake.clock.advance(10 * MINUTE);
+    assert_eq!(a.sign_out().await.revocation, Revocation::Confirmed);
+    fake.sign_in(&a, Browser::default(), SignInIntent::SignIn)
+        .await
+        .unwrap();
+    assert_eq!(store.get().as_deref(), Some("RT-2"));
+
+    // B's first request refreshes the session A now holds.
+    assert_eq!(bearer(&b).await, "AT-3");
+    assert_eq!(store.get().as_deref(), Some("RT-3"));
+    assert_eq!(b.status().state, SessionState::SignedIn);
+    // And A, an hour on, refreshes from what B saved.
+    fake.clock.advance(61 * MINUTE);
+    assert_eq!(bearer(&a).await, "AT-4");
+    assert_eq!(a.status().state, SessionState::SignedIn);
+    assert_eq!(store.get().as_deref(), Some("RT-4"));
+}
+
+#[tokio::test]
+async fn a_window_whose_account_was_replaced_elsewhere_ends_without_deleting() {
+    // In window A the user signs in to another ChatGPT account. The keychain
+    // slot now holds that account's token: window B's session is over, and
+    // it must neither refresh with that token nor delete it.
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let a = fake.signed_in(dir.path(), store.clone()).await;
+    let b = fake.session(dir.path(), store.clone());
+    b.restore().await.unwrap();
+    fake.knobs().subject = "a-second-account".into();
+    fake.sign_in(
+        &a,
+        Browser {
+            client_id: CallbackClient::Send("oaiapp_second".into()),
+            ..Browser::default()
+        },
+        SignInIntent::AnotherAccount,
+    )
+    .await
+    .unwrap();
+    assert_eq!(store.get().as_deref(), Some("RT-2"));
+
+    fake.clock.advance(61 * MINUTE);
+    assert_eq!(
+        b.bearer().await.unwrap_err(),
+        BearerError::SessionEnded(EndReason::ReplacedElsewhere)
+    );
+    assert!(fake.refresh_requests().is_empty(), "B sent nothing");
+    assert_eq!(store.get().as_deref(), Some("RT-2"), "and deleted nothing");
+    // A carries on with its account.
+    assert_eq!(bearer(&a).await, "AT-3");
+    assert_eq!(fake.refresh_requests()[0]["client_id"], "oaiapp_second");
+}
+
+#[tokio::test]
+async fn a_sign_out_in_another_window_ends_this_one_without_a_refresh() {
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let a = fake.signed_in(dir.path(), store.clone()).await;
+    let b = fake.session(dir.path(), store.clone());
+    b.restore().await.unwrap();
+    a.sign_out().await;
+    fake.clock.advance(61 * MINUTE);
+    assert_eq!(
+        b.bearer().await.unwrap_err(),
+        BearerError::SessionEnded(EndReason::SignedOutElsewhere)
+    );
+    assert!(
+        fake.refresh_requests().is_empty(),
+        "B must not refresh with the token A signed out"
+    );
+}
+
+#[tokio::test]
+async fn a_5xx_with_an_unusable_code_keeps_the_credentials() {
+    // A server error decides nothing about the token, whatever code it
+    // carries.
+    for (status, body) in [
+        (503, json!({ "error": "invalid_grant" })),
+        (
+            502,
+            json!({ "error": { "code": "refresh_token_expired", "message": "x" } }),
+        ),
+        (500, json!({ "error": "refresh_token_reused" })),
+    ] {
+        let fake = Fake::start().await;
+        let dir = tempfile::tempdir().unwrap();
+        let store = MemoryStore::new();
+        let session = fake.signed_in(dir.path(), store.clone()).await;
+        fake.knobs().refresh_error = Some((status, body.clone()));
+        fake.clock.advance(61 * MINUTE);
+        let err = session.bearer().await.unwrap_err();
+        assert!(
+            matches!(err, BearerError::Unavailable { .. }),
+            "{status} {body}: {err:?}"
+        );
+        assert_eq!(store.get().as_deref(), Some("RT-1"), "{status} {body}");
+        assert_eq!(session.status().state, SessionState::SignedIn);
+    }
+}
+
+#[tokio::test]
+async fn signing_out_of_an_ended_window_revokes_the_stored_session() {
+    // Window A shows "Session ended"; window B has since signed in afresh.
+    // Signing out in A signs the account out: B's stored token is revoked
+    // before it is cleared, not just deleted.
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let a = fake.signed_in(dir.path(), store.clone()).await;
+    fake.knobs().refresh_error = Some((400, json!({ "error": "invalid_grant" })));
+    fake.clock.advance(61 * MINUTE);
+    assert!(matches!(
+        a.bearer().await,
+        Err(BearerError::SessionEnded(_))
+    ));
+    fake.knobs().refresh_error = None;
+    let b = fake.session(dir.path(), store.clone());
+    fake.sign_in(&b, Browser::default(), SignInIntent::SignIn)
+        .await
+        .unwrap();
+    assert_eq!(store.get().as_deref(), Some("RT-2"));
+
+    let report = a.sign_out().await;
+    assert_eq!(report.revocation, Revocation::Confirmed);
+    let revoked = fake.revocations.lock().unwrap().clone();
+    assert_eq!(revoked.len(), 1);
+    assert_eq!(revoked[0]["token"], "RT-2");
+    assert_eq!(revoked[0]["client_id"], ISSUED_CLIENT);
+    assert_eq!(store.get(), None);
+}
+
+#[tokio::test]
+async fn signing_out_of_a_session_not_yet_loaded_revokes_its_stored_token() {
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    drop(fake.signed_in(dir.path(), store.clone()).await);
+    let restarted = fake.session(dir.path(), store.clone());
+    assert_eq!(restarted.status().state, SessionState::NotLoaded);
+    let report = restarted.sign_out().await;
+    assert_eq!(report.revocation, Revocation::Confirmed);
+    assert_eq!(fake.revocations.lock().unwrap()[0]["token"], "RT-1");
+    assert_eq!(store.get(), None);
+    assert_eq!(restarted.status().state, SessionState::SignedOut);
+}
+
+#[tokio::test]
+async fn a_refresh_the_caller_stops_waiting_for_still_saves_the_rotated_token() {
+    // A Stop button or a timeout drops the bearer future while the refresh
+    // is in flight. The server has rotated the token by then; the refresh
+    // must still save the new one, or the next call sends the spent one.
+    let fake = Fake::start().await;
+    *fake.on_refresh.lock().unwrap() =
+        Some(Box::new(|_| std::thread::sleep(Duration::from_millis(500))));
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let session = Arc::new(fake.signed_in(dir.path(), store.clone()).await);
+    fake.clock.advance(61 * MINUTE);
+    let cut_short = tokio::time::timeout(Duration::from_millis(150), session.bearer()).await;
+    assert!(cut_short.is_err(), "the caller gave up first");
+    // Give the refresh time to finish on its own.
+    for _ in 0..100 {
+        if store.get().as_deref() == Some("RT-2") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(store.get().as_deref(), Some("RT-2"));
+    *fake.on_refresh.lock().unwrap() = None;
+    assert_eq!(bearer(&session).await, "AT-2");
+    assert_eq!(fake.refresh_requests().len(), 1);
+}
+
+// --- Gaps the review's mutations found ---------------------------------------------
+
+#[tokio::test]
+async fn refresh_rejected_waits_out_a_failed_refresh() {
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let session = fake.signed_in(dir.path(), MemoryStore::new()).await;
+    let rejected = session.bearer().await.unwrap();
+    fake.knobs().refresh_error = Some((503, json!({ "error": "temporarily_unavailable" })));
+    // Inside the margin the refresh fails; AT-1, still valid, is used.
+    fake.clock.advance(56 * MINUTE);
+    assert_eq!(bearer(&session).await, "AT-1");
+    assert_eq!(fake.refresh_requests().len(), 1);
+    // Then the API refuses AT-1 (a 401). Inside the wait that follows a
+    // failed refresh, asking again makes no new request.
+    let err = session.refresh_rejected(&rejected).await.unwrap_err();
+    assert!(matches!(err, BearerError::Unavailable { .. }), "{err:?}");
+    assert_eq!(fake.refresh_requests().len(), 1);
+}
+
+#[tokio::test]
+async fn a_refresh_that_drops_the_plan_scope_hands_out_no_bearer() {
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let session = fake.signed_in(dir.path(), MemoryStore::new()).await;
+    fake.knobs().scope = Some("openid profile email offline_access resource.invoke".into());
+    fake.clock.advance(56 * MINUTE);
+    assert_eq!(
+        session.bearer().await.unwrap_err(),
+        BearerError::PlanDisabled
+    );
+    assert_eq!(session.status().state, SessionState::PlanDisabled);
+    assert_eq!(fake.refresh_requests().len(), 1);
+}
+
+#[tokio::test]
+async fn an_unknown_signing_key_on_a_refreshed_id_token_is_temporary() {
+    // A key OpenAI has just rotated in is not a bad token: the session keeps
+    // the rotated refresh token and tries again later.
+    let fake = Fake::start().await;
+    {
+        let mut knobs = fake.knobs();
+        knobs.refresh_id_token = true;
+        knobs.refresh_kid = Some("k2".into());
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let session = fake.signed_in(dir.path(), store.clone()).await;
+    fake.clock.advance(56 * MINUTE);
+    assert_eq!(
+        bearer(&session).await,
+        "AT-1",
+        "the token in hand, still valid"
+    );
+    assert_eq!(
+        store.get().as_deref(),
+        Some("RT-2"),
+        "the rotated token is kept"
+    );
+    assert_eq!(session.status().state, SessionState::SignedIn);
+
+    fake.knobs().refresh_kid = None;
+    fake.clock.advance(MINUTE);
+    assert_eq!(bearer(&session).await, "AT-3");
+    assert_eq!(fake.refresh_requests()[1]["refresh_token"], "RT-2");
+}
+
+#[tokio::test]
+async fn the_wait_between_failed_refreshes_is_capped_at_five_minutes() {
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let session = fake.signed_in(dir.path(), MemoryStore::new()).await;
+    fake.knobs().refresh_error = Some((503, json!({ "error": "temporarily_unavailable" })));
+    fake.clock.advance(61 * MINUTE);
+    for attempt in 1..=8 {
+        assert!(session.bearer().await.is_err());
+        assert_eq!(
+            fake.refresh_requests().len(),
+            attempt,
+            "attempt {attempt}: five minutes is the longest wait"
+        );
+        fake.clock.advance(5 * MINUTE + Duration::from_secs(1));
+    }
 }
