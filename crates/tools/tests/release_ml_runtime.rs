@@ -280,3 +280,21 @@ fn the_upload_steps_drop_the_carriage_return_jq_writes_on_windows() {
         );
     }
 }
+
+/// macOS runners run `shell: bash` steps with the system bash 3.2, which has
+/// no `mapfile` or `readarray`, no associative arrays and no case-changing
+/// expansions. The first real dev release after #615 died on `mapfile` in
+/// the upload step ("mapfile: command not found"); the dry runs had skipped
+/// that step, so nothing caught it before.
+#[test]
+fn the_release_steps_use_nothing_bash_3_2_lacks() {
+    for workflow in WORKFLOWS {
+        let yaml = effective(&repo_file(workflow));
+        for bash4 in ["mapfile ", "readarray ", "declare -A", ",,}", "^^}"] {
+            assert!(
+                !yaml.contains(bash4),
+                "{workflow}: `{bash4}` needs bash 4, and macOS runners run bash 3.2"
+            );
+        }
+    }
+}

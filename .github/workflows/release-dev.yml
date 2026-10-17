@@ -547,7 +547,11 @@ jobs:
           # A JSON array of paths. `tr` drops the carriage return the
           # Windows jq writes at the end of every line, which would
           # otherwise be part of each path.
-          mapfile -t paths < <(printf '%s' "$ARTIFACT_PATHS" | jq -r '.[]' | tr -d '\r')
+          # bash 3.2 (macOS runners) has no mapfile.
+          paths=()
+          while IFS= read -r line; do
+            if [ -n "$line" ]; then paths+=("$line"); fi
+          done < <(printf '%s' "$ARTIFACT_PATHS" | jq -r '.[]' | tr -d '\r')
           if [ ${#paths[@]} -eq 0 ]; then
             echo "::error::tauri-action reported no artifacts"
             exit 1

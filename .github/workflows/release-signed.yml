@@ -474,10 +474,18 @@ jobs:
             exit 1
           fi
           if printf '%s' "$ARTIFACT_PATHS" | jq -e 'type == "array"' >/dev/null 2>&1; then
-            mapfile -t paths < <(printf '%s' "$ARTIFACT_PATHS" | jq -r '.[]')
+            # bash 3.2 (macOS runners) has no mapfile.
+            paths=()
+            while IFS= read -r line; do
+              if [ -n "$line" ]; then paths+=("$line"); fi
+            done < <(printf '%s' "$ARTIFACT_PATHS" | jq -r '.[]')
           else
             echo "::warning::artifactPaths was not a JSON array; falling back to line splitting"
-            mapfile -t paths < <(printf '%s\n' "$ARTIFACT_PATHS" | sed '/^[[:space:]]*$/d')
+            # bash 3.2 (macOS runners) has no mapfile.
+            paths=()
+            while IFS= read -r line; do
+              if [ -n "$line" ]; then paths+=("$line"); fi
+            done < <(printf '%s\n' "$ARTIFACT_PATHS" | sed '/^[[:space:]]*$/d')
           fi
           # `|| true`: under `pipefail` a grep that matches nothing would
           # abort the step before the explicit check below could name
@@ -535,10 +543,18 @@ jobs:
           # return the Windows jq writes at the end of every line, which
           # would otherwise end each path and make it "not a file".
           if printf '%s' "$ARTIFACT_PATHS" | jq -e 'type == "array"' >/dev/null 2>&1; then
-            mapfile -t paths < <(printf '%s' "$ARTIFACT_PATHS" | jq -r '.[]' | tr -d '\r')
+            # bash 3.2 (macOS runners) has no mapfile.
+            paths=()
+            while IFS= read -r line; do
+              if [ -n "$line" ]; then paths+=("$line"); fi
+            done < <(printf '%s' "$ARTIFACT_PATHS" | jq -r '.[]' | tr -d '\r')
           else
             echo "::warning::artifactPaths was not a JSON array; falling back to line splitting"
-            mapfile -t paths < <(printf '%s\n' "$ARTIFACT_PATHS" | sed '/^[[:space:]]*$/d')
+            # bash 3.2 (macOS runners) has no mapfile.
+            paths=()
+            while IFS= read -r line; do
+              if [ -n "$line" ]; then paths+=("$line"); fi
+            done < <(printf '%s\n' "$ARTIFACT_PATHS" | sed '/^[[:space:]]*$/d')
           fi
           if [ ${#paths[@]} -eq 0 ]; then
             echo "::error::tauri-action reported no artifacts"
