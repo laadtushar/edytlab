@@ -1460,3 +1460,21 @@ async fn signing_out_while_a_dropped_refresh_is_in_flight_revokes_the_rotated_to
     assert_eq!(store.get(), None);
     assert_eq!(session.status().state, SessionState::SignedOut);
 }
+
+#[tokio::test]
+async fn a_keychain_slot_emptied_elsewhere_ends_the_session_without_a_refresh() {
+    // The stored token is gone while the registration still says signed in
+    // (the keychain was cleared, or a sign-out could not record itself).
+    // The window does not fall back to the copy in its memory.
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let session = fake.signed_in(dir.path(), store.clone()).await;
+    store.set(None);
+    fake.clock.advance(61 * MINUTE);
+    assert_eq!(
+        session.bearer().await.unwrap_err(),
+        BearerError::SessionEnded(EndReason::SignedOutElsewhere)
+    );
+    assert!(fake.refresh_requests().is_empty());
+}
