@@ -25,6 +25,18 @@ interface Entry {
 // GitHub Releases — link below.
 const entries: Entry[] = [
   {
+    version: "v0.6.1",
+    date: "2026-10",
+    bullets: [
+      "A Save As copy keeps its own audio. Opening a copy made with Save As cleaned out the copy's own audio files, because the copy still pointed at the original project's; deleting or moving the original then left the copy silent. A copy now plays from its own folder, including tones and mixdowns the app generated. A copy made with v0.6.0 is repaired the first time v0.6.1 opens it while the original is still there: the audio it needs is copied back in, never overwriting anything and stopping before the disk is nearly full. Open such a copy once before deleting its original. On exFAT, FAT and some network drives the repair cannot run safely and copies nothing, so open those copies from a local disk.",
+      "Save As copies a consistent snapshot. The copy was made with nothing held, so an edit or a cleanup landing at the same moment could leave the copy naming audio it did not have. It now takes the project as it was when you clicked, and leaves out cached previews and auditions, which are rebuilt when needed.",
+      "A/B compare keeps its renders inside the project. Each comparison wrote two full-length WAV files to the system's temporary folder and never removed them. They now go in the project's preview cache, and the pair stays available while you compare, so a long mix can still be compared.",
+      "Selecting a spoken passage or ducking music under speech no longer holds up your edits. The faders, mute and undo answer while the voice track is analysed. Selecting a passage can now join speech separated by short gaps, as ducking does, and when a phrase occurs more than once, the assistant is told which occurrence it found and of how many.",
+      "Settings → Account shows whether the ONNX Runtime is installed. This build does not ship it, so the line says it is not installed. Stem separation and transcription are still not shipped.",
+      "The library the app uses to unpack plugin archives (zip) is updated past three published security advisories. The app was not exposed: it never used the affected functions.",
+    ],
+  },
+  {
     version: "v0.6.0",
     date: "2026-10",
     bullets: [
