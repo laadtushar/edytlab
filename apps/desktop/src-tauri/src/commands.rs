@@ -5720,6 +5720,64 @@ fn valid_github_component(s: &str) -> bool {
             .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.')
 }
 
+/// Unpack a plugin archive into `extract_dir`, a fresh directory.
+///
+/// Every entry becomes a directory or a regular file, written through
+/// `enclosed_name` (the zip-slip guard) with the entry and byte caps. Nothing
+/// here calls `ZipArchive::extract`, so a symlink entry is written as a plain
+/// file holding its target, never as a link, and no Unix mode bits from the
+/// archive are applied (RUSTSEC-2026-0367, -0368 and -0369 are all about
+/// `extract`).
+fn unpack_plugin_archive(bytes: &[u8], extract_dir: &std::path::Path) -> Result<(), String> {
+    let mut archive =
+        zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|e| e.to_string())?;
+    if archive.len() > PLUGIN_MAX_ENTRIES {
+        return Err(format!(
+            "plugin archive has {} entries, over the {PLUGIN_MAX_ENTRIES} limit",
+            archive.len()
+        ));
+    }
+
+    let mut unpacked: u64 = 0;
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
+        // `enclosed_name` rejects absolute paths, drive prefixes, and any
+        // `..` that escapes the root — the zip-slip guard.
+        let outpath = match file.enclosed_name() {
+            Some(p) => extract_dir.join(p),
+            None => {
+                // zip 9 reads an entry's name fallibly; an unreadable one
+                // is as unsafe as an escaping one.
+                let name = file.name().map(|n| n.into_owned()).unwrap_or_default();
+                return Err(format!("zip entry '{name}' has unsafe path"));
+            }
+        };
+        if file.is_dir() {
+            std::fs::create_dir_all(&outpath).map_err(|e| e.to_string())?;
+            continue;
+        }
+        if let Some(parent) = outpath.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        // Cap on bytes actually written rather than the header's claimed
+        // size, which an attacker controls.
+        let remaining = PLUGIN_MAX_UNPACKED_BYTES.saturating_sub(unpacked);
+        let mut outfile = std::fs::File::create(&outpath).map_err(|e| e.to_string())?;
+        let written = std::io::copy(
+            &mut std::io::Read::take(&mut file, remaining + 1),
+            &mut outfile,
+        )
+        .map_err(|e| e.to_string())?;
+        unpacked += written;
+        if unpacked > PLUGIN_MAX_UNPACKED_BYTES {
+            return Err(format!(
+                "plugin archive unpacks to more than {PLUGIN_MAX_UNPACKED_BYTES} bytes"
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Download and unpack a plugin archive into a temp directory.
 ///
 /// The returned [`tempfile::TempDir`] owns the extraction root: dropping
@@ -5777,47 +5835,7 @@ fn download_github_plugin(repo: &str) -> Result<(std::path::PathBuf, tempfile::T
     let extract_dir = tmp.path().join("extracted");
     std::fs::create_dir_all(&extract_dir).map_err(|e| e.to_string())?;
 
-    let mut archive =
-        zip::ZipArchive::new(std::io::Cursor::new(&bytes)).map_err(|e| e.to_string())?;
-    if archive.len() > PLUGIN_MAX_ENTRIES {
-        return Err(format!(
-            "plugin archive has {} entries, over the {PLUGIN_MAX_ENTRIES} limit",
-            archive.len()
-        ));
-    }
-
-    let mut unpacked: u64 = 0;
-    for i in 0..archive.len() {
-        let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
-        // `enclosed_name` rejects absolute paths, drive prefixes, and any
-        // `..` that escapes the root — the zip-slip guard.
-        let outpath = match file.enclosed_name() {
-            Some(p) => extract_dir.join(p),
-            None => return Err(format!("zip entry '{}' has unsafe path", file.name())),
-        };
-        if file.is_dir() {
-            std::fs::create_dir_all(&outpath).map_err(|e| e.to_string())?;
-            continue;
-        }
-        if let Some(parent) = outpath.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
-        // Cap on bytes actually written rather than the header's claimed
-        // size, which an attacker controls.
-        let remaining = PLUGIN_MAX_UNPACKED_BYTES.saturating_sub(unpacked);
-        let mut outfile = std::fs::File::create(&outpath).map_err(|e| e.to_string())?;
-        let written = std::io::copy(
-            &mut std::io::Read::take(&mut file, remaining + 1),
-            &mut outfile,
-        )
-        .map_err(|e| e.to_string())?;
-        unpacked += written;
-        if unpacked > PLUGIN_MAX_UNPACKED_BYTES {
-            return Err(format!(
-                "plugin archive unpacks to more than {PLUGIN_MAX_UNPACKED_BYTES} bytes"
-            ));
-        }
-    }
+    unpack_plugin_archive(&bytes, &extract_dir)?;
 
     // GitHub zip extracts to a single top-level dir: <repo-name>-main/
     let plugin_dir = std::fs::read_dir(&extract_dir)
@@ -9292,5 +9310,86 @@ mod tests {
         assert_eq!(other["state"], "loadFailed");
         assert_eq!(other["path"], serde_json::Value::Null);
         assert!(other["reason"].as_str().is_some_and(|r| !r.is_empty()));
+    }
+}
+
+#[cfg(test)]
+mod plugin_archive_tests {
+    use super::*;
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+
+    fn archive(build: impl FnOnce(&mut zip::ZipWriter<std::io::Cursor<Vec<u8>>>)) -> Vec<u8> {
+        let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        build(&mut w);
+        w.finish().unwrap().into_inner()
+    }
+
+    fn deflated() -> SimpleFileOptions {
+        SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated)
+    }
+
+    /// A GitHub branch archive: one top-level folder holding the plugin.
+    #[test]
+    fn a_github_style_archive_unpacks_into_its_folder() {
+        let bytes = archive(|w| {
+            w.add_directory("plugin-main/", deflated()).unwrap();
+            w.start_file("plugin-main/plugin.json", deflated()).unwrap();
+            w.write_all(br#"{"name":"demo"}"#).unwrap();
+            w.start_file("plugin-main/skills/a/SKILL.md", deflated())
+                .unwrap();
+            w.write_all(b"# a").unwrap();
+        });
+        let dir = tempfile::tempdir().unwrap();
+        unpack_plugin_archive(&bytes, dir.path()).unwrap();
+        let root = dir.path().join("plugin-main");
+        assert_eq!(
+            std::fs::read_to_string(root.join("plugin.json")).unwrap(),
+            r#"{"name":"demo"}"#
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("skills/a/SKILL.md")).unwrap(),
+            "# a"
+        );
+    }
+
+    /// The zip-slip guard: an entry that climbs out of the folder is refused
+    /// and nothing is written beside it.
+    #[test]
+    fn an_entry_that_escapes_the_folder_is_refused() {
+        let bytes = archive(|w| {
+            w.start_file("plugin-main/../../escaped.txt", deflated())
+                .unwrap();
+            w.write_all(b"x").unwrap();
+        });
+        let outer = tempfile::tempdir().unwrap();
+        let dir = outer.path().join("extracted");
+        std::fs::create_dir_all(&dir).unwrap();
+        let err = unpack_plugin_archive(&bytes, &dir).unwrap_err();
+        assert!(err.contains("unsafe path"), "{err}");
+        assert!(!outer.path().join("escaped.txt").exists());
+    }
+
+    /// RUSTSEC-2026-0368's case: a symlink entry pointing outside the folder.
+    /// It must come out as a plain file holding the target text, never as a
+    /// link, so nothing written later through it can land outside.
+    #[test]
+    fn a_symlink_entry_is_written_as_a_plain_file() {
+        let outer = tempfile::tempdir().unwrap();
+        let target = outer.path().join("outside");
+        let bytes = archive(|w| {
+            w.add_directory("plugin-main/", deflated()).unwrap();
+            w.add_symlink("plugin-main/link", target.to_str().unwrap(), deflated())
+                .unwrap();
+            w.start_file("plugin-main/link/payload", deflated()).ok();
+        });
+        let dir = outer.path().join("extracted");
+        std::fs::create_dir_all(&dir).unwrap();
+        // Whatever the second entry does, nothing reaches `outside`.
+        let _ = unpack_plugin_archive(&bytes, &dir);
+        let link = dir.join("plugin-main/link");
+        let meta = std::fs::symlink_metadata(&link).unwrap();
+        assert!(!meta.file_type().is_symlink(), "a symlink was created");
+        assert!(!target.exists(), "something was written outside the folder");
     }
 }
