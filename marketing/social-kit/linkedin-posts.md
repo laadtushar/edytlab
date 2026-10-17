@@ -199,7 +199,7 @@ Angle: specific, honest invitations, including the big unshipped piece. About
 ```
 edytlab is MIT-licensed and I'd like help with it. Here is where, specifically.
 
-It's a desktop audio editor in Tauri 2, Rust and React, where an AI agent calls 93 audio tools. v0.6.0 is out for macOS, Windows and Linux (unsigned installers).
+It's a desktop audio editor in Tauri 2, Rust and React, where an AI agent calls 93 audio tools. v0.6.1 is out for macOS, Windows and Linux (unsigned installers).
 
 Places a contributor could make a real difference:
 

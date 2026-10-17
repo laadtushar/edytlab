@@ -7,7 +7,7 @@ appears, the demo tracks are synthetic loops, no invented numbers.
 **Links:**
 site <https://edytlab.com> ·
 source <https://github.com/laadtushar/edytlab> ·
-v0.6.0 <https://github.com/laadtushar/edytlab/releases/tag/v0.6.0> ·
+v0.6.0 <https://github.com/laadtushar/edytlab/releases/tag/v0.6.1> ·
 DJ recordings <https://edytlab.com/use-cases/dj>
 
 **Videos:** `reel-highlights.mp4`, `reel-beatmatched-transition.mp4`,
@@ -277,7 +277,7 @@ The model never hears the audio. It chooses and orders calls to 93 deterministic
 Get it
 Free and open source (MIT) for macOS, Windows and Linux. The installers are unsigned, so macOS and Windows warn on first launch; the release notes have the steps.
 Website and docs: https://edytlab.com
-Download v0.6.0: https://github.com/laadtushar/edytlab/releases/tag/v0.6.0
+Download v0.6.1: https://github.com/laadtushar/edytlab/releases/tag/v0.6.1
 Source: https://github.com/laadtushar/edytlab
 The DJ walkthrough, with the limits: https://edytlab.com/use-cases/dj
 
@@ -343,7 +343,7 @@ Feedback I'd like:
 2. If you run local models: which ones can drive a tool list this size without losing the thread?
 3. If you do DSP: the vocoder and the limiter are where I expect the most justified criticism.
 
-Download v0.6.0 (unsigned): https://github.com/laadtushar/edytlab/releases/tag/v0.6.0
+Download v0.6.1 (unsigned): https://github.com/laadtushar/edytlab/releases/tag/v0.6.1
 Source: https://github.com/laadtushar/edytlab
 ```
 
@@ -373,9 +373,9 @@ Subject options:
 Body:
 
 ```
-edytlab v0.6.0 is out for macOS, Windows and Linux. It's a free, open-source desktop audio editor where you describe an edit and an AI agent runs audio tools on your files.
+edytlab v0.6.1 is out for macOS, Windows and Linux. It's a free, open-source desktop audio editor where you describe an edit and an AI agent runs audio tools on your files.
 
-A data-loss fix first: in earlier versions, asking the assistant to compact history could delete a recording you had loaded, once the versions that used it were pruned. v0.6.0 deletes only audio the project made itself, inside its own folder. If you're on v0.5.0 or earlier, update before you compact a project.
+Two data-loss fixes first. In v0.5.0 and earlier, asking the assistant to compact history could delete a recording you had loaded; v0.6.0 fixed that. In v0.6.0, opening a copy made with Save As deleted the copy's own audio, so deleting the original left the copy silent; v0.6.1 fixes that and repairs such a copy the first time it opens while the original is still there. Update, and open any Save As copy once before deleting its original.
 
 What else changed:
 - Effects on the master bus and on buses. A limiter on the master keeps working as the tracks change, and the assistant can let you hear an effect before adding it. Only gain, the limiter and three filters run in a chain so far.
@@ -387,7 +387,7 @@ What else changed:
 
 The three DJ demos were recorded with sound in that look, with the limiter on the master bus: a beatmatched blend, an extended club intro and a three-track mini-mix. The tracks are short synthetic loops, and it's for prepping files, not playing live: https://edytlab.com/#demos
 
-Download (the installers are unsigned, so macOS and Windows warn on first launch): https://github.com/laadtushar/edytlab/releases/tag/v0.6.0
+Download (the installers are unsigned, so macOS and Windows warn on first launch): https://github.com/laadtushar/edytlab/releases/tag/v0.6.1
 Full changelog: https://edytlab.com/changelog
 
 If you try it, I'd like to hear which edit you ask for first.
@@ -396,8 +396,8 @@ If you try it, I'd like to hear which edit you ask for first.
 **Discord (short)**
 
 ```
-edytlab v0.6.0 is out (macOS, Windows, Linux). Update before you compact a project: earlier versions could delete your own recordings when compacting history. Also: effects on the master bus and on buses, undo that survives a restart, Plan first that stays on, and the website's violet look. Three DJ demos, recorded with sound: https://edytlab.com/#demos
-Download (unsigned, so expect a first-launch warning): https://github.com/laadtushar/edytlab/releases/tag/v0.6.0
+edytlab v0.6.1 is out (macOS, Windows, Linux). Update before you compact a project or delete the original of a Save As copy: earlier versions could lose your audio. Also: effects on the master bus and on buses, undo that survives a restart, Plan first that stays on, and the website's violet look. Three DJ demos, recorded with sound: https://edytlab.com/#demos
+Download (unsigned, so expect a first-launch warning): https://github.com/laadtushar/edytlab/releases/tag/v0.6.1
 Tell me which edit you'd ask for first.
 ```
 

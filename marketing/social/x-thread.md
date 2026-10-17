@@ -54,7 +54,7 @@ It's for prep, not live use. And in the demo, the agent itself flags a spot wher
 **6/8**
 
 ```
-v0.6.0 is out. Update before you compact a project: earlier versions could delete your own recordings when compacting history. Also new: effects on the master bus and on buses, undo that survives a restart, Plan first that stays on, and the app in the website's violet look.
+v0.6.1 is out. Update before you compact a project or delete the original of a Save As copy: earlier versions could lose your audio. Also new: effects on the master bus and on buses, undo that survives a restart, Plan first that stays on, and the violet look.
 ```
 
 **7/8**

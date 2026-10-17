@@ -14,7 +14,7 @@ r/audioengineering, r/podcasting and r/tauri if you want them later.)
 site <https://edytlab.com> ·
 DJ recordings <https://edytlab.com/use-cases/dj> ·
 source <https://github.com/laadtushar/edytlab> ·
-v0.6.0 <https://github.com/laadtushar/edytlab/releases/tag/v0.6.0>
+v0.6.0 <https://github.com/laadtushar/edytlab/releases/tag/v0.6.1>
 
 **Videos:** `reel-beatmatched-transition.mp4`, `reel-extended-club-intro.mp4`,
 `reel-mini-mix.mp4`, `reel-highlights.mp4`. Reddit video posts generally have
@@ -82,7 +82,7 @@ What to know before deciding whether it's worth your time:
 - It needs an AI provider: your own key for Anthropic, OpenAI, OpenRouter, Groq or Gemini, or a local model through Ollama. Your audio files aren't uploaded; the chat text goes to the provider you pick, or stays local with Ollama.
 
 Recordings: https://edytlab.com/use-cases/dj
-Downloads for macOS, Windows and Linux (unsigned, so expect a first-launch warning): https://github.com/laadtushar/edytlab/releases/tag/v0.6.0
+Downloads for macOS, Windows and Linux (unsigned, so expect a first-launch warning): https://github.com/laadtushar/edytlab/releases/tag/v0.6.1
 
 For people who prep: which chore do you repeat the most, and what would make you not trust a tool like this?
 ```
@@ -160,7 +160,7 @@ Two things I'd like producers' opinions on:
 2. What would you not trust an agent to do to your master?
 
 Recording: https://edytlab.com/use-cases/dj
-Free and open source for macOS, Windows and Linux (unsigned installers): https://github.com/laadtushar/edytlab/releases/tag/v0.6.0
+Free and open source for macOS, Windows and Linux (unsigned installers): https://github.com/laadtushar/edytlab/releases/tag/v0.6.1
 ```
 
 ---
@@ -265,7 +265,7 @@ What I'd like opinions on: the selection is a heuristic (words and phrases in th
 If you try it: which model, quantisation and context size, whether it kept to the tool schemas, and how it failed. Failure reports are as useful as successes.
 
 Source (issue 395 has the v0.4.0 numbers): https://github.com/laadtushar/edytlab
-Downloads for macOS, Windows and Linux (unsigned, so expect a first-launch warning): https://github.com/laadtushar/edytlab/releases/tag/v0.6.0
+Downloads for macOS, Windows and Linux (unsigned, so expect a first-launch warning): https://github.com/laadtushar/edytlab/releases/tag/v0.6.1
 ```
 
 ---
