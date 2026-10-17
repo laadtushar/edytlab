@@ -344,7 +344,10 @@ mod tests {
 
     /// `original` and `copy`, each holding `name` in `dir_of(project)`, as
     /// Save As (or a folder copied by hand) leaves them.
-    fn original_and_copy(dir_of: fn(&Path) -> PathBuf, name: &str) -> (TempDir, PathBuf, PathBuf) {
+    fn original_and_copy(
+        dir_of: impl Fn(&Path) -> PathBuf,
+        name: &str,
+    ) -> (TempDir, PathBuf, PathBuf) {
         let tmp = TempDir::new().unwrap();
         let original = tmp.path().join("original");
         let copy = tmp.path().join("copy");
@@ -415,21 +418,141 @@ mod tests {
 
     /// The original is gone, and so is this project's file of that name
     /// (the history sweep took it, having proved a replay rebuilds it). The
-    /// clip names this project's file, so the rebuild puts it here and a
-    /// read reports it missing here: a path in a folder that no longer
-    /// exists is one nothing would ever rebuild.
+    /// clip is left naming the original's file: a read rebinds only to a
+    /// file that is here. Pointing it at a file that does not exist would be
+    /// saved into every node an edit writes from it, and a folder that is
+    /// only out of reach (a drive unplugged, a share down) would then never
+    /// be reached again (see `tests/copied_project.rs`). Putting the file
+    /// back here is the rebuild's job (`tools::rederive`), and a read finds
+    /// it once it is back.
     #[test]
-    fn a_gone_file_of_another_project_is_looked_for_here() {
+    fn a_gone_file_of_another_project_stays_as_written() {
         let (_tmp, original, copy) = original_and_copy(derived_dir, "abc.wav");
         std::fs::remove_dir_all(&original).unwrap();
         std::fs::remove_file(derived_dir(&copy).join("abc.wav")).unwrap();
         let mut state = state_with(&[derived_dir(&original).join("abc.wav")]);
 
+        assert_eq!(rebind(&mut state, &copy), 0);
+        assert_eq!(
+            state.tracks[0].clips[0].source_path,
+            derived_dir(&original).join("abc.wav"),
+        );
+    }
+
+    /// `<project>/generated/`, where `generate_tone`, `generate_noise` and
+    /// `mix_to_new_track` write, outside the store.
+    fn generated(project: &Path) -> PathBuf {
+        project.join("generated")
+    }
+
+    /// A project, by the folder that makes it one.
+    fn make_project(project: &Path) {
+        std::fs::create_dir_all(project.join(STORE_DIR)).unwrap();
+    }
+
+    /// Generated audio is named by its content too, and Save As copies the
+    /// folder with the rest of the project, so a copy plays its own.
+    #[test]
+    fn a_copy_plays_its_own_generated_file_while_the_original_is_still_there() {
+        let (_tmp, original, copy) = original_and_copy(generated, "abc.wav");
+        make_project(&original);
+        make_project(&copy);
+        let mut state = state_with(&[generated(&original).join("abc.wav")]);
+
         assert_eq!(rebind(&mut state, &copy), 1);
         assert_eq!(
             state.tracks[0].clips[0].source_path,
-            derived_dir(&copy).join("abc.wav"),
+            generated(&copy).join("abc.wav"),
         );
+    }
+
+    /// And once the original is gone, a missing path finds the copy's
+    /// generated file by name, as it finds a derived file or a blob.
+    #[test]
+    fn a_moved_project_finds_its_own_generated_file() {
+        let (_tmp, original, copy) = original_and_copy(generated, "abc.wav");
+        make_project(&copy);
+        std::fs::remove_dir_all(&original).unwrap();
+        let mut state = state_with(&[generated(&original).join("abc.wav")]);
+
+        assert_eq!(rebind(&mut state, &copy), 1);
+        assert_eq!(
+            state.tracks[0].clips[0].source_path,
+            generated(&copy).join("abc.wav"),
+        );
+    }
+
+    /// A folder called `generated` in a folder that is not a project is the
+    /// user's, and its files keep pointing where they are.
+    #[test]
+    fn a_user_folder_named_generated_is_not_a_project() {
+        let (_tmp, music, copy) = original_and_copy(generated, "take.wav");
+        make_project(&copy);
+        let mut state = state_with(&[generated(&music).join("take.wav")]);
+
+        assert_eq!(rebind(&mut state, &copy), 0);
+        assert_eq!(
+            state.tracks[0].clips[0].source_path,
+            generated(&music).join("take.wav"),
+        );
+    }
+
+    /// Only the folders whose files are named by their content are
+    /// rebound. The caches under `.audiograph/` are named by node or by
+    /// request, so a file of the same name in this project's cache is not
+    /// the same audio, whether the named file is there or gone.
+    #[test]
+    fn the_caches_are_not_rebound() {
+        for cache in ["previews", "auditions"] {
+            let in_cache = |p: &Path| p.join(STORE_DIR).join(cache);
+            let (_tmp, original, copy) = original_and_copy(in_cache, "abc.wav");
+            let named = in_cache(&original).join("abc.wav");
+
+            let mut state = state_with(&[named.clone()]);
+            assert_eq!(rebind(&mut state, &copy), 0, "{cache}");
+            assert_eq!(state.tracks[0].clips[0].source_path, named, "{cache}");
+
+            std::fs::remove_dir_all(&original).unwrap();
+            let mut state = state_with(&[named.clone()]);
+            assert_eq!(rebind(&mut state, &copy), 0, "{cache}, gone");
+            assert_eq!(state.tracks[0].clips[0].source_path, named, "{cache}, gone");
+        }
+    }
+
+    /// A copy opened through a link, whose nodes name both its own files by
+    /// its real folder and the original's. Each folder is judged by where it
+    /// resolves, not by its name: the copy's own keep their spelling, and
+    /// the original's are rebound, in whichever order the clips come.
+    #[cfg(unix)]
+    #[test]
+    fn a_copy_opened_through_a_link_tells_its_own_folder_from_the_originals() {
+        let (tmp, original, copy) = original_and_copy(derived_dir, "abc.wav");
+        std::fs::write(derived_dir(&copy).join("own.wav"), b"audio").unwrap();
+        let link = tmp.path().join("link");
+        std::os::unix::fs::symlink(&copy, &link).unwrap();
+        let own = derived_dir(&copy).join("own.wav");
+        let theirs = derived_dir(&original).join("abc.wav");
+
+        for clips in [[own.clone(), theirs.clone()], [theirs.clone(), own.clone()]] {
+            let mut state = state_with(&clips);
+            assert_eq!(rebind(&mut state, &link), 1, "{clips:?}");
+            let read: Vec<_> = state.tracks[0]
+                .clips
+                .iter()
+                .map(|c| c.source_path.clone())
+                .collect();
+            let expect: Vec<_> = clips
+                .iter()
+                .map(|p| {
+                    if *p == theirs {
+                        derived_dir(&link).join("abc.wav")
+                    } else {
+                        own.clone()
+                    }
+                })
+                .collect();
+            assert_eq!(read, expect);
+        }
     }
 
     /// Only a project's store is content-addressed. A folder of the user's

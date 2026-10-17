@@ -263,7 +263,9 @@ fn window() -> (tauri::App<MockRuntime>, WebviewWindow<MockRuntime>) {
 /// the second take, which no replay can redo (`paste_region` reads the
 /// clipboard), so nothing can rebuild that audio if it is lost. The head
 /// plays both edits' outputs and nothing of the takes but through them,
-/// so a third take, left untouched, is the head's user file in place.
+/// so a third take, left untouched, is the head's user file in place. Last,
+/// a generated tone, which lives in `<project>/generated/`, outside the
+/// store.
 struct History {
     takes: tempfile::TempDir,
     project: tempfile::TempDir,
@@ -294,6 +296,10 @@ impl History {
             (
                 "silence_region",
                 json!({ "track": 0, "start_sec": 1.2, "end_sec": 1.4 }),
+            ),
+            (
+                "generate_tone",
+                json!({ "frequency_hz": 660.0, "duration_sec": 0.5 }),
             ),
         ] {
             tool(&mut store, &mut clipboard, name, args);
@@ -339,8 +345,8 @@ fn render(webview: &WebviewWindow<MockRuntime>, node: session::NodeId) -> Vec<u8
     std::fs::read(preview.as_str().expect("a path")).expect("the preview")
 }
 
-/// `project` names its own `derived/` and `clipboard/` files and the
-/// user's takes, in every node, as every reader of it sees them.
+/// `project` names its own `derived/`, `clipboard/` and `generated/` files
+/// and the user's takes, in every node, as every reader of it sees them.
 fn assert_names_only_its_own(project: &Path, takes: &Path) {
     let store = session::Store::open(project).expect("store");
     for node in store.list_nodes().expect("nodes") {
@@ -349,6 +355,7 @@ fn assert_names_only_its_own(project: &Path, takes: &Path) {
             assert!(
                 path.starts_with(derived(project))
                     || path.starts_with(project.join(session::STORE_DIR).join("clipboard"))
+                    || path.starts_with(project.join("generated"))
                     || path.starts_with(takes),
                 "node {} of {} names {}",
                 node.id.to_hex(),
@@ -509,6 +516,56 @@ fn a_folder_copied_by_hand_keeps_its_audio() {
     let before = render(&webview, history.head);
 
     call(&webview, "open_project", json!({ "path": dest })).expect("open the copy");
+    std::fs::remove_dir_all(history.src()).expect("the original is deleted");
+
+    assert!(
+        render(&webview, history.head) == before,
+        "the copy's head renders differently from the original's"
+    );
+    assert_names_only_its_own(&dest, history.takes.path());
+}
+
+/// A copy saved by 0.6.0: its open swept its whole `derived/`, and it has
+/// played from the original's folder since. Opening it with the original
+/// still there copies that audio back into it, after which the original
+/// can be deleted and the copy plays every clip.
+#[test]
+fn opening_a_copy_saved_by_0_6_0_brings_its_audio_home() {
+    fn copy_folder(from: &Path, to: &Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for entry in std::fs::read_dir(from).unwrap().flatten() {
+            let target = to.join(entry.file_name());
+            if entry.path().is_dir() {
+                copy_folder(&entry.path(), &target);
+            } else {
+                std::fs::copy(entry.path(), target).unwrap();
+            }
+        }
+    }
+    let history = History::new();
+    let copies = tempfile::tempdir().expect("tempdir");
+    let dest = copies.path().join("saved by 0.6.0");
+    copy_folder(history.src(), &dest);
+    for name in derived_names(&dest) {
+        std::fs::remove_file(derived(&dest).join(name)).unwrap();
+    }
+    let (_app, webview) = window();
+    call(&webview, "open_project", json!({ "path": history.src() })).expect("open_project");
+    let before = render(&webview, history.head);
+    let audio = derived_names(history.src());
+
+    call(&webview, "open_project", json!({ "path": dest })).expect("open the copy");
+
+    // The copy runs beside the window; the open does not wait for it.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while derived_names(&dest) != audio {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the copy's audio did not come home: {:?}, wanted {audio:?}",
+            derived_names(&dest)
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
     std::fs::remove_dir_all(history.src()).expect("the original is deleted");
 
     assert!(

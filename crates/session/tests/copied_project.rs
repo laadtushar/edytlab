@@ -246,3 +246,52 @@ fn a_copy_of_a_copy_names_its_own_files() {
     std::fs::remove_dir_all(&c.copy).unwrap();
     assert_eq!(named(&again), paths, "and the same with both gone");
 }
+
+/// A copy whose own file of a name is missing (a copy saved by 0.6.0,
+/// whose open swept its `derived/`), edited while the original is out of
+/// reach: its drive unplugged, its share down. An edit writes the head's
+/// clips as it read them, so a read that pointed them at the copy's missing
+/// file would save that path into the new node, and when the drive came
+/// back the edit would still not reach the original's file. Read as
+/// written, the edit names the original's file, and plays again when it is
+/// back.
+#[test]
+fn an_edit_made_while_the_original_is_offline_finds_it_again() {
+    let c = Copied::new();
+    std::fs::remove_file(derived_dir(&c.copy).join("3333.wav")).unwrap();
+    let offline = c.original.with_file_name("unplugged");
+    std::fs::rename(&c.original, &offline).unwrap();
+
+    let mut store = Store::open(&c.copy).unwrap();
+    let mut edited = store.get(c.second).unwrap().state;
+    edited.tracks[0].gain_db = -3.0;
+    let edit = append(&mut store, edited);
+    drop(store);
+
+    std::fs::rename(&offline, &c.original).unwrap();
+    let store = Store::open(&c.copy).unwrap();
+    let path = store.get(edit).unwrap().state.tracks[0].clips[0]
+        .source_path
+        .clone();
+    assert_eq!(path, derived_dir(&c.original).join("3333.wav"));
+    assert!(
+        path.is_file(),
+        "the edit lost its audio: {}",
+        path.display()
+    );
+}
+
+/// A staged handle may not move the shared head, so it may not revert
+/// either: it is refused, and the handle is where it was.
+#[test]
+fn revert_to_on_a_staged_handle_is_refused() {
+    let c = Copied::new();
+    let store = Store::open(&c.original).unwrap();
+    let mut staged = store.stage().unwrap();
+
+    let err = staged.revert_to(c.first).unwrap_err();
+    assert!(matches!(err, session::Error::Staged(_)), "{err:?}");
+    assert_eq!(staged.head(), Some(c.second));
+    drop(staged);
+    assert_eq!(Store::open(&c.original).unwrap().head(), Some(c.second));
+}
