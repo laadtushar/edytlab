@@ -229,7 +229,17 @@ where
 /// yet be trusted to rebuild it. A failure costs disk, not work, so it is
 /// logged.
 pub(crate) fn sweep_orphaned_audio(store: &Store) {
-    match tools::reclaim::sweep_orphans(store) {
+    log_orphan_sweep(tools::reclaim::sweep_orphans(store));
+}
+
+/// [`sweep_orphaned_audio`] for the nodes the open has listed from `store`
+/// (it lists them once, for this and for the repair of a copy).
+pub(crate) fn sweep_orphaned_audio_listed(store: &Store, nodes: &[SessionNode]) {
+    log_orphan_sweep(tools::reclaim::sweep_orphans_listed(store, nodes));
+}
+
+fn log_orphan_sweep(swept: std::io::Result<tools::reclaim::SweepReport>) {
+    match swept {
         Ok(r) if r.removed_files > 0 => tracing::info!(
             removed = r.removed_files,
             freed_bytes = r.freed_bytes,
@@ -539,7 +549,7 @@ pub fn forget_recent_project(path: String) -> CmdResult<Vec<crate::project::Rece
 }
 
 fn open_project_inner(state: &AppState, path: PathBuf) -> Result<ProjectInfo, CommandError> {
-    open_project_with(state, path, sweep_orphaned_audio)
+    open_project_with(state, path, sweep_orphaned_audio_listed)
 }
 
 /// The live store for the project at `path`, and whether it is new.
@@ -598,8 +608,10 @@ fn live_or_new_store_with(
 ///
 /// **A copy that has lost audio its original still has** (a copy saved by
 /// 0.6.0, whose open swept its `derived/`, #612) is put right after the
-/// sweep: what to copy in is planned with the lock held
-/// (`tools::repair::plan_repair`), a staged handle is taken from the live
+/// sweep: what to copy in is planned with the lock held, from the nodes
+/// the open listed once for the sweep and for this, at no file system cost
+/// for a project that is not a copy (`tools::repair::plan_repair_listed`);
+/// a staged handle is taken from the live
 /// store, and the files are copied on a thread of their own once the lock
 /// is let go ([`repair_in_background`]). The open does not wait for the
 /// copy, and a copy that fails is logged and skipped. While the handle
@@ -616,7 +628,7 @@ fn live_or_new_store_with(
 fn open_project_with(
     state: &AppState,
     path: PathBuf,
-    sweep: impl FnOnce(&Store),
+    sweep: impl FnOnce(&Store, &[SessionNode]),
 ) -> Result<ProjectInfo, CommandError> {
     if !path.is_absolute() {
         return Err(CommandError::InvalidPath(format!(
@@ -650,9 +662,18 @@ fn open_project_with(
         Some(Store::open(&dir)?)
     };
     let store: &Store = reread.as_ref().unwrap_or(&held);
-    sweep(store);
+    // Listed once, for the sweep and for the repair of a copy. A store whose
+    // nodes cannot be read names nothing, so it is neither swept nor
+    // repaired.
+    let listed = store.list_nodes();
+    if let Ok(nodes) = &listed {
+        sweep(store, nodes);
+    }
     let head_hex = store.head().map(|id| id.to_hex());
-    let repair = plan_repair(store, &held);
+    let repair = listed
+        .as_deref()
+        .ok()
+        .and_then(|nodes| plan_repair(store, nodes, &held));
 
     // A project is now a thing with a name and a history of being
     // opened (#156), not just a folder that happens to contain a store.
@@ -690,8 +711,13 @@ fn open_project_with(
 /// project's live store, to keep the deleters away while it is copied.
 /// `None` when there is nothing to copy, or no handle could be taken (then
 /// the copy waits for the next open). Called with the store's lock held.
-fn plan_repair(store: &Store, live: &Store) -> Option<(tools::repair::RepairPlan, Store)> {
-    let plan = tools::repair::plan_repair(store, tools::reclaim::DEFAULT_DERIVED_CAP_BYTES);
+fn plan_repair(
+    store: &Store,
+    nodes: &[SessionNode],
+    live: &Store,
+) -> Option<(tools::repair::RepairPlan, Store)> {
+    let plan =
+        tools::repair::plan_repair_listed(store, nodes, tools::reclaim::DEFAULT_DERIVED_CAP_BYTES);
     if plan.is_empty() {
         return None;
     }
@@ -719,6 +745,7 @@ fn repair_in_background(plan: tools::repair::RepairPlan, staged: Store) {
                 bytes = report.bytes,
                 already_there = report.already_there,
                 failed = report.failed,
+                left_for_space = report.left_for_space,
                 "copied in the audio this project names from the project it was copied from"
             );
         });
@@ -6837,10 +6864,10 @@ mod tests {
             let state = state.clone();
             let dir = tmp.path().to_path_buf();
             std::thread::spawn(move || {
-                open_project_with(&state, dir, |store| {
+                open_project_with(&state, dir, |store, nodes| {
                     at_the_sweep.send(()).expect("the test is listening");
                     opener_waits.recv().expect("the test lets the sweep go on");
-                    sweep_orphaned_audio(store);
+                    sweep_orphaned_audio_listed(store, nodes);
                 })
             })
         };
@@ -6927,10 +6954,10 @@ mod tests {
             let state = state.clone();
             let dir = a.path().to_path_buf();
             std::thread::spawn(move || {
-                open_project_with(&state, dir, |store| {
+                open_project_with(&state, dir, |store, nodes| {
                     at_the_sweep.send(()).expect("the test is listening");
                     opener_waits.recv().expect("the test lets the sweep go on");
-                    sweep_orphaned_audio(store);
+                    sweep_orphaned_audio_listed(store, nodes);
                 })
             })
         };

@@ -5843,6 +5843,7 @@ dependencies = [
  "audio-time",
  "blake3",
  "chrono",
+ "fs4",
  "hound",
  "jsonschema",
  "ml-demucs",

@@ -620,11 +620,23 @@ mod tests {
             let in_cache = |p: &Path| p.join(STORE_DIR).join(cache);
             let (_tmp, original, copy) = original_and_copy(in_cache, "abc.wav");
             let named = in_cache(&original).join("abc.wav");
+            // And the same name in each of the copy's own content folders,
+            // so that taking the cache for any of them would show.
+            let own = [derived_dir(&copy), clipboard_dir(&copy), generated(&copy)];
+            for dir in &own {
+                std::fs::create_dir_all(dir).unwrap();
+                std::fs::write(dir.join("abc.wav"), b"audio").unwrap();
+            }
 
             let mut state = state_with(&[named.clone()]);
             assert_eq!(rebind(&mut state, &copy), 0, "{cache}");
             assert_eq!(state.tracks[0].clips[0].source_path, named, "{cache}");
 
+            // Gone, a path is looked for by name in those folders (rule 2),
+            // so they are emptied first; the copy's own cache still has it.
+            for dir in &own {
+                std::fs::remove_file(dir.join("abc.wav")).unwrap();
+            }
             std::fs::remove_dir_all(&original).unwrap();
             let mut state = state_with(&[named.clone()]);
             assert_eq!(rebind(&mut state, &copy), 0, "{cache}, gone");

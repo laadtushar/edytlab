@@ -82,7 +82,8 @@ first open, and moves the project to the top of the recents list. A project
 that is a copy of another and has lost audio the other still has (a copy saved
 by 0.6.0, whose open swept its `derived/`, #612) has that audio copied back
 into it: in the background, so the open does not wait, adding files and never
-replacing one, and skipping (and logging) a file it cannot copy.
+replacing one, stopping while the disk still has 1 GiB free, and skipping (and
+logging) a file it cannot copy. What it leaves, the next open tries again.
 
 **Example:**
 ```typescript

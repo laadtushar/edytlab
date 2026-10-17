@@ -531,23 +531,44 @@ pub fn sweep_orphans(store: &session::Store) -> std::io::Result<SweepReport> {
     if store.staged_in_flight() > 0 {
         return Ok(SweepReport::default());
     }
+    if !derived_dir(store.project_dir()).is_dir() {
+        return Ok(SweepReport::default());
+    }
+
+    // A store whose nodes could not be read names nothing, and sweeping it
+    // would empty the directory.
+    let Ok(nodes) = store.list_nodes() else {
+        return Ok(SweepReport::default());
+    };
+    sweep_orphans_listed(store, &nodes)
+}
+
+/// [`sweep_orphans`] for the nodes the caller has listed from `store`,
+/// under the same lock: opening a project lists them once, for this and
+/// for planning the repair of a copy (`crate::repair`). A caller whose
+/// listing failed does not call this: a store whose nodes could not be
+/// read names nothing, and sweeping it would empty the directory.
+pub fn sweep_orphans_listed(
+    store: &session::Store,
+    nodes: &[session::SessionNode],
+) -> std::io::Result<SweepReport> {
+    // Rule 0: not while a tool runs without the lock.
+    if store.staged_in_flight() > 0 {
+        return Ok(SweepReport::default());
+    }
     let dir = derived_dir(store.project_dir());
     if !dir.is_dir() {
         return Ok(SweepReport::default());
     }
 
-    // A store whose nodes could not be read names nothing, and sweeping it
-    // would empty the directory. Only a store that really has no history
-    // may have everything in `derived/` counted as unnamed — and a head
-    // with no nodes behind it is not that.
-    let Ok(nodes) = store.list_nodes() else {
-        return Ok(SweepReport::default());
-    };
+    // Only a store that really has no history may have everything in
+    // `derived/` counted as unnamed — and a head with no nodes behind it is
+    // not that.
     if nodes.is_empty() && store.head().is_some() {
         return Ok(SweepReport::default());
     }
-    let mut named = all_refs(&nodes);
-    named.extend(lane_copies(store.project_dir(), &nodes));
+    let mut named = all_refs(nodes);
+    named.extend(lane_copies(store.project_dir(), nodes));
 
     let mut report = SweepReport::default();
     for entry in std::fs::read_dir(&dir)? {

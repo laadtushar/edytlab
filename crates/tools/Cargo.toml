@@ -17,6 +17,9 @@ audio-dsp = { path = "../audio-dsp" }
 audio-analysis = { path = "../audio-analysis" }
 audio-time = { path = "../audio-time" }
 blake3 = "1"
+# How much room a volume has, so repairing a copy never fills the disk
+# (repair.rs). Already in the tree through ml-pipeline.
+fs4 = "1.1"
 # Reads clipboard blobs back exactly, float or 16-bit (provenance.rs).
 hound = "3.5"
 realfft = "3"

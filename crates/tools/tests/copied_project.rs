@@ -541,3 +541,121 @@ fn the_repair_never_replaces_a_file() {
         "staging files left behind: {leftovers:?}"
     );
 }
+
+/// Only `derived/` audio is rebuilt: it is all a replay writes. A copy
+/// whose node names another project's clipboard blob and generated file,
+/// both gone with the original and missing from the copy, has nothing to
+/// rebuild: `materialize` writes nothing into the copy's `clipboard/` or
+/// `generated/` (a replay's output under those names would not be the
+/// blob or the tone) and leaves the read to report them missing.
+#[test]
+fn only_derived_audio_is_a_rebuild_target() {
+    let tmp = TempDir::new().unwrap();
+    let original = tmp.path().join("original");
+    let copy = tmp.path().join("copy");
+    let blob = session::relocate::clipboard_dir(&original).join("1111.wav");
+    let tone = session::relocate::generated_dir(&original).join("2222.wav");
+    for file in [&blob, &tone] {
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        write_tone(file, 0.1, 440.0);
+    }
+    let node = {
+        let mut store = session::Store::open(&original).unwrap();
+        let mut state = session::SessionState {
+            tracks: Vec::new(),
+            bus_routing: Default::default(),
+            master_chain: Vec::new(),
+            tempo_map: Default::default(),
+            key_map: None,
+            transcript: None,
+            sample_rate: SR,
+            length_samples: 4_800,
+            annotations: Vec::new(),
+            sync_lock: false,
+        };
+        for path in [&blob, &tone] {
+            state.tracks.push(session::Track {
+                id: session::TrackId(uuid::Uuid::new_v4()),
+                name: "t".into(),
+                clips: vec![session::Clip {
+                    source_path: path.to_path_buf(),
+                    start_in_track: 0,
+                    source_offset: 0,
+                    length: 4_800,
+                    content_hash: None,
+                    time_stretch_factor: None,
+                    pitch_shift_semitones: None,
+                    beat_grid: None,
+                    volume_envelope: Vec::new(),
+                }],
+                gain_db: 0.0,
+                pan: 0.0,
+                muted: false,
+                soloed: false,
+                effects: Vec::new(),
+                sends: Vec::new(),
+            });
+        }
+        store
+            .append(session::SessionNode {
+                id: session::NodeId([0; 32]),
+                parent: None,
+                created_at: chrono::Utc::now(),
+                label: None,
+                reasoning: None,
+                state,
+                op: None,
+            })
+            .unwrap()
+    };
+    copy_folder(&original, &copy);
+    std::fs::remove_dir_all(&original).unwrap();
+    for dir in [
+        session::relocate::clipboard_dir(&copy),
+        session::relocate::generated_dir(&copy),
+    ] {
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    let store = session::Store::open(&copy).unwrap();
+
+    assert_eq!(
+        tools::rederive::materialize(&store, node),
+        Ok(Vec::new()),
+        "nothing to rebuild"
+    );
+    assert_eq!(
+        tools::rederive::missing_paths(&store, node),
+        vec![blob, tone]
+    );
+    assert!(!session::relocate::clipboard_dir(&copy).exists());
+    assert!(!session::relocate::generated_dir(&copy).exists());
+}
+
+/// A repair cut short by a nearly full disk has put back the head's audio
+/// first, so the copy plays as it stands even if the original goes before
+/// the next open finishes the job.
+#[test]
+fn a_repair_cut_short_for_space_puts_back_the_heads_audio_first() {
+    let w = World::new();
+    w.swept_by_0_6_0();
+    let plan =
+        tools::repair::plan_repair(&w.copy_store(), tools::reclaim::DEFAULT_DERIVED_CAP_BYTES);
+    assert_eq!(plan.files().len(), 3);
+    let mut asked = 0;
+
+    let report = tools::repair::apply_repair_with(&plan, |_| {
+        asked += 1;
+        Ok(if asked <= 2 { u64::MAX / 2 } else { 0 })
+    });
+
+    assert_eq!(report.copied, 2, "{report:?}");
+    assert_eq!(report.left_for_space, 1, "{report:?}");
+    std::fs::remove_dir_all(&w.original).unwrap();
+    let store = w.copy_store();
+    assert_eq!(
+        tools::rederive::missing_paths(&store, w.head()),
+        Vec::<PathBuf>::new(),
+        "the head's audio came home first"
+    );
+    assert!(render(&store) == w.reference);
+}
