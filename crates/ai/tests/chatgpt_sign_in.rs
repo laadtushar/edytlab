@@ -710,6 +710,77 @@ async fn a_cancel_before_the_browser_opens_still_counts() {
 }
 
 #[tokio::test]
+async fn a_sign_in_whose_caller_stops_waiting_still_finishes() {
+    // The caller is dropped during the code exchange. The code is spent by
+    // then, so the sign-in finishes on its own task, and it counts as in
+    // progress until it has.
+    let fake = Fake::start().await;
+    let exchanging = Arc::new(AtomicBool::new(false));
+    {
+        let exchanging = exchanging.clone();
+        *fake.on_exchange.lock().unwrap() = Some(Box::new(move || {
+            exchanging.store(true, Ordering::SeqCst);
+            std::thread::sleep(Duration::from_millis(600));
+        }));
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let session = fake.session(dir.path(), store.clone());
+    {
+        let attempt = fake.sign_in(&session, Browser::default(), SignInIntent::SignIn);
+        tokio::pin!(attempt);
+        loop {
+            tokio::select! {
+                done = &mut attempt => panic!("finished before the drop: {:?}", done.map(|s| s.state)),
+                _ = tokio::time::sleep(Duration::from_millis(10)) => {
+                    if exchanging.load(Ordering::SeqCst) {
+                        tokio::time::sleep(Duration::from_millis(50)).await;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    assert!(session.is_signing_in(), "still finishing");
+    for _ in 0..100 {
+        if !session.is_signing_in() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(!session.is_signing_in());
+    assert_eq!(session.status().state, SessionState::SignedIn);
+    assert_eq!(store.get().as_deref(), Some("RT-1"));
+    assert_eq!(
+        registration_json(dir.path())["active_client_id"],
+        ISSUED_CLIENT
+    );
+}
+
+#[tokio::test]
+async fn a_returning_sign_in_whose_token_the_keychain_refuses_leaves_no_older_token() {
+    // The new refresh token cannot be saved over the old one: the old one is
+    // spent for this account's new session, so it is removed rather than
+    // left to be restored at the next launch.
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let session = fake.signed_in(dir.path(), store.clone()).await;
+    assert_eq!(store.get().as_deref(), Some("RT-1"));
+    *store.save_error.lock().unwrap() = Some(SecretStoreError::TooLong);
+    let status = fake
+        .sign_in(&session, Browser::default(), SignInIntent::SignIn)
+        .await
+        .unwrap();
+    assert_eq!(
+        status.token_storage,
+        Some(TokenStorage::MemoryOnly(SecretStoreError::TooLong))
+    );
+    assert_eq!(store.get(), None, "RT-1 is not left behind");
+    assert_eq!(session.bearer().await.unwrap().expose_secret(), "AT-2");
+}
+
+#[tokio::test]
 async fn an_unreadable_registration_is_replaced_by_the_next_sign_in() {
     let fake = Fake::start().await;
     let dir = tempfile::tempdir().unwrap();
@@ -722,15 +793,22 @@ async fn an_unreadable_registration_is_replaced_by_the_next_sign_in() {
     store.set(Some("RT-stale"));
     let session = fake.session(dir.path(), store.clone());
     assert_eq!(session.status().state, SessionState::SignedOut);
+    // Opening reads it as none but leaves it alone: it is set aside only
+    // under the file lock, so a window that opens while another writes it
+    // never moves a file that is being replaced.
+    assert_eq!(
+        std::fs::read(path.join(REGISTRATION_FILE)).unwrap(),
+        b"{ not json"
+    );
+    assert!(!path.join("registration.json.corrupt").exists());
+    fake.sign_in(&session, Browser::default(), SignInIntent::SignIn)
+        .await
+        .unwrap();
     // Set aside, not overwritten, so it can still be looked at.
     assert_eq!(
         std::fs::read(path.join("registration.json.corrupt")).unwrap(),
         b"{ not json"
     );
-    assert!(!path.join(REGISTRATION_FILE).exists());
-    fake.sign_in(&session, Browser::default(), SignInIntent::SignIn)
-        .await
-        .unwrap();
     let reg = RegistrationFile::new(&path).load().unwrap().unwrap();
     assert_eq!(reg.active_client_id.as_deref(), Some(ISSUED_CLIENT));
     // The stale token was cleared before the new one was saved.

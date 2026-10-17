@@ -36,7 +36,8 @@
 //! takes the account as the registration now has it (another window may have
 //! signed out and in again, with new ID-token claims) and refreshes with that
 //! token; if it names another client, or says signed out, this window's
-//! session ends in memory and nothing is deleted. The refresh runs on a task
+//! session ends in memory and nothing is deleted. The registration is
+//! checked on every refresh, this process's own token included. The refresh runs on a task
 //! of its own, so a caller that stops waiting (a timeout, a Stop button)
 //! cannot leave the server's rotated token unsaved. The rotated refresh token
 //! is saved before the new access token is handed to anyone. A failure is
@@ -56,18 +57,27 @@
 //!   credentials and waits, and is reported as it is.
 //!
 //! **Sign-out** ([`ChatGptSession::sign_out`]) signs the account out of
-//! every window: under the lock it reads the stored refresh token whatever
-//! this window's state, revokes it (and this window's own token, if that
-//! differs) at the discovery document's `revocation_endpoint`, which must be
-//! on the issuer's origin, retrying a network failure or a 5xx with backoff.
-//! It then clears the tokens whatever happened, keeps the registration and
-//! the host ID, marks the account signed out, and reports whether the
-//! revocation was confirmed.
+//! every window. Under the lock it reads the stored refresh token whatever
+//! this window's state, clears it, marks the account signed out (keeping the
+//! registration and the host ID) and lets go of the lock. Then it revokes
+//! that token (and this window's own, if that differs) at the discovery
+//! document's `revocation_endpoint`, which must be on the issuer's origin,
+//! retrying a network failure or a 5xx with backoff, and reports whether the
+//! revocation was confirmed. A keychain that cannot be read is reported as
+//! an unconfirmed revocation, and its token is left in place for a later
+//! sign-out to revoke rather than deleted unrevoked.
 //!
-//! **The file lock** falls back to the in-process lock alone, with a warning,
-//! where the OS refuses file locks (`ENOLCK` on some network file systems, a
-//! read-only file system, a lock file this user may not open). Two edytlab
-//! processes are then not kept apart, as before this lock existed.
+//! **Another account** signed in while one is signed in replaces it: the
+//! previous account's record is marked signed out and its refresh token
+//! revoked, since the keychain has one slot and another account's
+//! credentials are never overwritten silently.
+//!
+//! **The file lock** falls back to a process-wide lock for the session
+//! directory, with a warning, where the OS refuses file locks (`ENOLCK` on
+//! some network file systems, a read-only file system, a lock file this user
+//! may not open). Every session in the process over that directory still
+//! takes turns; two edytlab processes are then not kept apart, as before this
+//! lock existed.
 //!
 //! **Secrets.** Tokens are [`SecretString`]s. None is written to
 //! `registration.json`, put in a URL, logged, or shown by `Debug`; the
@@ -534,33 +544,55 @@ struct Retry {
     error: BearerError,
 }
 
-/// The OS lock on `refresh.lock`, released on drop; `None` when the file
-/// system offers no locks and the in-process lock stands alone.
-struct FileLock(Option<File>);
+/// The cross-process lock: the OS lock on `refresh.lock`, or, where the file
+/// system offers no locks, the process-wide lock for the session directory
+/// ([`process_lock`]). Released on drop.
+enum FileLock {
+    Os(File),
+    /// Held for its drop, which lets the next session in.
+    Process {
+        _guard: tokio::sync::OwnedMutexGuard<()>,
+    },
+}
 
 impl Drop for FileLock {
     fn drop(&mut self) {
         // Closing releases it too; unlocking first makes it immediate.
-        if let Some(file) = &self.0 {
+        if let FileLock::Os(file) = self {
             let _ = FileExt::unlock(file);
         }
     }
 }
 
-/// Ends a sign-in attempt: no longer in progress, no cancel handle, no
-/// pending cancel, all in one step.
-struct Attempt<'a> {
-    core: &'a Core,
+/// The in-process stand-in for `refresh.lock` where the file system has no
+/// locks: one per session directory, shared by every [`ChatGptSession`] in
+/// the process, so two sessions over one directory are still kept apart
+/// (each session's own lock covers only its own callers).
+fn process_lock(dir: &std::path::Path) -> Arc<Mutex<()>> {
+    static LOCKS: std::sync::OnceLock<
+        StdMutex<std::collections::HashMap<std::path::PathBuf, Arc<Mutex<()>>>>,
+    > = std::sync::OnceLock::new();
+    let key = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    let mut locks = lock(LOCKS.get_or_init(Default::default));
+    Arc::clone(locks.entry(key).or_default())
 }
 
-impl Drop for Attempt<'_> {
+/// Ends a sign-in attempt: no longer in progress, no cancel handle, no
+/// pending cancel, all in one step. It owns the core, so the task that
+/// finishes a sign-in whose caller stopped waiting can hold it: the sign-in
+/// counts as in progress until that task is done.
+struct Attempt {
+    core: Arc<Core>,
+}
+
+impl Drop for Attempt {
     fn drop(&mut self) {
         *lock(&self.core.cancel) = Cancel::default();
     }
 }
 
-/// What the registration on disk says about a refresh token this process
-/// did not write.
+/// What the registration on disk says about the refresh token a refresh is
+/// about to send.
 enum Owner {
     /// The registration's active account is still this process's client,
     /// signed in: the token is that account's, perhaps from a newer sign-in.
@@ -611,17 +643,20 @@ impl ChatGptSession {
     /// Opens the session: reads `registration.json`, and nothing else. A
     /// saved session is [`SessionState::NotLoaded`] until [`Self::restore`]
     /// (or the first bearer) reads its refresh token, since that is a
-    /// keychain read. A `registration.json` that does not parse is set aside
-    /// as [`store::CORRUPT_REGISTRATION_FILE`]; the next sign-in registers
-    /// afresh and clears the keychain slot, whose token nothing can use or
-    /// revoke without the client id the file held.
+    /// keychain read. A `registration.json` that does not parse is read as
+    /// none; the next sign-in, under the file lock, sets it aside as
+    /// [`store::CORRUPT_REGISTRATION_FILE`], registers afresh and clears the
+    /// keychain slot, whose token nothing can use or revoke without the
+    /// client id the file held.
     pub fn open(
         config: SessionConfig,
         secrets: Arc<dyn RefreshTokenStore>,
     ) -> Result<Self, OpenError> {
         let oidc = OidcClient::new(config.endpoints.issuer())?;
         let file = config.registration_file();
-        let registration = read_registration(&file)?;
+        // No file lock here: a file that does not parse is read as none,
+        // and set aside only by a sign-in, under the lock.
+        let registration = read_registration(&file, SetAside::No)?;
         let phase = match registration
             .as_ref()
             .and_then(|r| r.active(config.endpoints.issuer()))
@@ -707,7 +742,7 @@ impl ChatGptSession {
         F: FnOnce(&str) -> Result<(), E>,
         E: fmt::Display,
     {
-        let _attempt = self.core.begin_attempt()?;
+        let attempt = Core::begin_attempt(&self.core)?;
         let core = &self.core;
         let endpoints = &core.config.endpoints;
 
@@ -764,6 +799,7 @@ impl ChatGptSession {
         let code = callback.code;
         detached(
             async move {
+                let _attempt = attempt;
                 core.complete_sign_in(client_id, registering, code, verifier, nonce, redirect_uri)
                     .await
             },
@@ -787,12 +823,12 @@ impl ChatGptSession {
         }
     }
 
-    /// Signs out of the account, in every window: revokes the stored refresh
-    /// token (and this window's, if it differs), then clears the tokens
-    /// whether or not the revocation was confirmed. The registration (the
-    /// issued client and its account) and the host ID are kept for the next
-    /// sign-in. It runs to the end even if the caller stops waiting. See the
-    /// module documentation.
+    /// Signs out of the account, in every window: clears the stored refresh
+    /// token and marks the account signed out, then revokes that token (and
+    /// this window's, if it differs) and reports whether the revocation was
+    /// confirmed. The registration (the issued client and its account) and
+    /// the host ID are kept for the next sign-in. It runs to the end even if
+    /// the caller stops waiting. See the module documentation.
     pub async fn sign_out(&self) -> SignOutReport {
         let core = Arc::clone(&self.core);
         detached(async move { core.sign_out().await }, || SignOutReport {
@@ -853,7 +889,7 @@ impl Core {
         }
         // The registration as it is now, not as it was at `open`: another
         // window may have signed out or in since.
-        if let Ok(Some(registration)) = read_registration(&self.file) {
+        if let Ok(Some(registration)) = read_registration(&self.file, SetAside::No) {
             lock(&self.inner).registration = Some(registration);
         }
         let record = lock(&self.inner)
@@ -1015,30 +1051,34 @@ impl Core {
         };
         let mut retried = false;
         loop {
-            // A token this process did not write: whose is it now?
+            // The registration as it is on disk now, on every refresh: a
+            // window that signed out may have failed to delete the token,
+            // so even this process's own token is used only while the
+            // registration still names its client, signed in.
             let ours = memory_token.as_ref().is_some_and(|m| same_secret(m, &sent));
-            if !ours {
-                match self.owner_of_stored_token(&client_id) {
-                    Owner::Same(record) => {
-                        client_id = record.client_id.clone();
-                        original = original_claims(&record);
-                        let mut inner = lock(&self.inner);
-                        if let Phase::Active(a) = &mut inner.phase {
-                            a.client_id = record.client_id.clone();
-                            a.original = original.clone();
-                            a.scopes = record.scopes.clone();
-                            a.refresh_token = Some(sent.clone());
-                            a.access = None;
-                        }
+            match self.owner_of_stored_token(&client_id) {
+                Owner::Same(record) if !ours => {
+                    // Another window wrote this token, perhaps after signing
+                    // out and in again: take the account as it now is.
+                    client_id = record.client_id.clone();
+                    original = original_claims(&record);
+                    let mut inner = lock(&self.inner);
+                    if let Phase::Active(a) = &mut inner.phase {
+                        a.client_id = record.client_id.clone();
+                        a.original = original.clone();
+                        a.scopes = record.scopes.clone();
+                        a.refresh_token = Some(sent.clone());
+                        a.access = None;
                     }
-                    Owner::Gone(reason) => {
-                        tracing::info!("chatgpt: this window's session ended: {reason}");
-                        self.end(reason.clone(), None).await;
-                        return Err(BearerError::SessionEnded(reason));
-                    }
-                    Owner::Unknown(reason) => {
-                        return Err(self.failed(BearerError::Unavailable { reason }));
-                    }
+                }
+                Owner::Same(_) => {}
+                Owner::Gone(reason) => {
+                    tracing::info!("chatgpt: this window's session ended: {reason}");
+                    self.end(reason.clone(), None).await;
+                    return Err(BearerError::SessionEnded(reason));
+                }
+                Owner::Unknown(reason) => {
+                    return Err(self.failed(BearerError::Unavailable { reason }));
                 }
             }
             let client = match TokenClient::new(
@@ -1096,11 +1136,10 @@ impl Core {
         }
     }
 
-    /// Whose a stored refresh token this process did not write is, from
-    /// `registration.json` as it is on disk now. The caller holds the file
-    /// lock.
+    /// Whose the refresh token about to be sent is, from `registration.json`
+    /// as it is on disk now. The caller holds the file lock.
     fn owner_of_stored_token(&self, client_id: &str) -> Owner {
-        let registration = match read_registration(&self.file) {
+        let registration = match read_registration(&self.file, SetAside::Yes) {
             Ok(r) => r,
             Err(e) => return Owner::Unknown(e.to_string()),
         };
@@ -1273,8 +1312,8 @@ impl Core {
 
     // --- Sign-in -----------------------------------------------------------------
 
-    fn begin_attempt(&self) -> Result<Attempt<'_>, SignInError> {
-        let mut cancel = lock(&self.cancel);
+    fn begin_attempt(core: &Arc<Core>) -> Result<Attempt, SignInError> {
+        let mut cancel = lock(&core.cancel);
         if cancel.signing_in {
             return Err(SignInError::AlreadyInProgress);
         }
@@ -1283,7 +1322,9 @@ impl Core {
             handle: None,
             requested: false,
         };
-        Ok(Attempt { core: self })
+        Ok(Attempt {
+            core: Arc::clone(core),
+        })
     }
 
     /// The host ID (saved before the first sign-in) and the client to use.
@@ -1293,7 +1334,7 @@ impl Core {
     ) -> Result<(HostId, AttemptKind, Option<String>), SignInError> {
         let _flight = self.flight.lock().await;
         let _file = self.lock_file().await.map_err(SignInError::Lock)?;
-        let registration = match read_registration(&self.file)? {
+        let registration = match read_registration(&self.file, SetAside::Yes)? {
             Some(r) => r,
             None => {
                 // No registration (a first sign-in, or one set aside as
@@ -1423,143 +1464,230 @@ impl Core {
     /// session replaced. If the registration cannot be saved, nothing else
     /// has changed: the session in use, and its stored token, are as they
     /// were.
+    ///
+    /// A sign-in to another account while one is signed in replaces it: the
+    /// keychain has one slot, and "never overwrite another account
+    /// registration's credentials" rules out doing that silently. The
+    /// previous account's record is marked signed out in the same write, and
+    /// its refresh token (read from the slot before it is overwritten, and
+    /// this window's own if that differs) is revoked once the locks are let
+    /// go.
     async fn finish_sign_in(
         &self,
         client_id: String,
         claims: IdTokenClaims,
         tokens: &TokenResponse,
     ) -> Result<ChatGptStatus, SignInError> {
-        let _flight = self.flight.lock().await;
-        let _file = self.lock_file().await.map_err(SignInError::Lock)?;
-        let now = self.config.clock.now();
+        let (status, superseded) = {
+            let _flight = self.flight.lock().await;
+            let _file = self.lock_file().await.map_err(SignInError::Lock)?;
+            let now = self.config.clock.now();
 
-        let mut registration = read_registration(&self.file)?
-            .or_else(|| lock(&self.inner).registration.clone())
-            .ok_or_else(|| SignInError::Registration(StoreError::Corrupt(self.file.path())))?;
-        // "For a returning account, confirm the new ID token's verified
-        // identity matches the selected account before replacing
-        // credentials."
-        if let Some(saved) = registration
-            .client(&client_id)
-            .and_then(|c| c.subject.as_deref())
-        {
-            if saved != claims.subject {
-                return Err(SignInError::AccountChanged);
-            }
-        }
-
-        // The registration first: if it cannot be written, nothing else
-        // changes.
-        let scopes = spec::granted_scopes(tokens).unwrap_or_default();
-        let reference = IdTokenReference {
-            azp: claims
-                .claims
-                .get("azp")
-                .and_then(Value::as_str)
-                .map(str::to_string),
-            auth_time: match claims.claims.get("auth_time") {
-                Some(Value::Number(n)) => Some(n.clone()),
-                _ => None,
-            },
-            nonce: claims
-                .claims
-                .get("nonce")
-                .and_then(Value::as_str)
-                .map(str::to_string),
-        };
-        let record = ClientRecord {
-            client_id: client_id.clone(),
-            issuer: self.issuer().to_string(),
-            subject: Some(claims.subject.clone()),
-            email: claims.email.clone(),
-            scopes: scopes.clone(),
-            id_token_reference: reference,
-            saved_at: unix_secs(now),
-            signed_out: false,
-        };
-        match registration.client_mut(&client_id) {
-            Some(existing) => *existing = record,
-            None => registration.clients.push(record),
-        }
-        registration.active_client_id = Some(client_id.clone());
-        self.file.save(&registration)?;
-
-        // Then the refresh token: if the store refuses it, the session runs
-        // from memory and says so.
-        let refresh_token = tokens.refresh_token.clone().filter(|t| !t.is_empty());
-        let storage = match &refresh_token {
-            Some(token) => Some(match self.save_secret(token).await {
-                Ok(()) => TokenStorage::Stored,
-                Err(e) => {
-                    tracing::warn!("chatgpt: the refresh token is kept in memory only: {e}");
-                    // Leave no older session's token behind it.
-                    let _ = self.delete_secret().await;
-                    TokenStorage::MemoryOnly(e)
+            let mut registration = read_registration(&self.file, SetAside::Yes)?
+                .or_else(|| lock(&self.inner).registration.clone())
+                .ok_or_else(|| SignInError::Registration(StoreError::Corrupt(self.file.path())))?;
+            // "For a returning account, confirm the new ID token's verified
+            // identity matches the selected account before replacing
+            // credentials."
+            if let Some(saved) = registration
+                .client(&client_id)
+                .and_then(|c| c.subject.as_deref())
+            {
+                if saved != claims.subject {
+                    return Err(SignInError::AccountChanged);
                 }
-            }),
-            None => {
-                let _ = self.delete_secret().await;
-                None
             }
-        };
 
-        let lifetime = tokens
-            .expires_in
-            .map(Duration::from_secs)
-            .unwrap_or(spec::DEFAULT_ACCESS_TOKEN_LIFETIME);
-        {
-            let mut inner = lock(&self.inner);
-            inner.registration = Some(registration);
-            inner.phase = Phase::Active(Box::new(Active {
-                client_id,
-                original: claims,
-                scopes,
-                access: Some(AccessToken {
-                    token: tokens.access_token.clone(),
-                    expires_at: now + lifetime,
-                    earliest_refresh_at: spec::earliest_refresh_at(tokens),
+            // Another account still signed in, which this one replaces.
+            let previous = registration
+                .active(self.issuer())
+                .filter(|c| c.client_id != client_id && !c.signed_out)
+                .map(|c| c.client_id.clone());
+            let mut superseded: Vec<(String, SecretString)> = Vec::new();
+            if let Some(previous) = &previous {
+                match self.load_secret().await {
+                    Ok(Some(token)) => superseded.push((previous.clone(), token)),
+                    Ok(None) => {}
+                    Err(e) => tracing::warn!(
+                        "chatgpt: the previous account's refresh token could not be read to \
+                         revoke it: {e}"
+                    ),
+                }
+                if let Phase::Active(a) = &lock(&self.inner).phase {
+                    if a.client_id == *previous {
+                        if let Some(token) = &a.refresh_token {
+                            if !superseded.iter().any(|(_, t)| same_secret(t, token)) {
+                                superseded.push((previous.clone(), token.clone()));
+                            }
+                        }
+                    }
+                }
+                if let Some(c) = registration.client_mut(previous) {
+                    c.signed_out = true;
+                    c.saved_at = unix_secs(now);
+                }
+            }
+
+            // The registration first: if it cannot be written, nothing else
+            // changes.
+            let scopes = spec::granted_scopes(tokens).unwrap_or_default();
+            let reference = IdTokenReference {
+                azp: claims
+                    .claims
+                    .get("azp")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                auth_time: match claims.claims.get("auth_time") {
+                    Some(Value::Number(n)) => Some(n.clone()),
+                    _ => None,
+                },
+                nonce: claims
+                    .claims
+                    .get("nonce")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+            };
+            let record = ClientRecord {
+                client_id: client_id.clone(),
+                issuer: self.issuer().to_string(),
+                subject: Some(claims.subject.clone()),
+                email: claims.email.clone(),
+                scopes: scopes.clone(),
+                id_token_reference: reference,
+                saved_at: unix_secs(now),
+                signed_out: false,
+            };
+            match registration.client_mut(&client_id) {
+                Some(existing) => *existing = record,
+                None => registration.clients.push(record),
+            }
+            registration.active_client_id = Some(client_id.clone());
+            self.file.save(&registration)?;
+
+            // Then the refresh token: if the store refuses it, the session
+            // runs from memory and says so.
+            let refresh_token = tokens.refresh_token.clone().filter(|t| !t.is_empty());
+            let storage = match &refresh_token {
+                Some(token) => Some(match self.save_secret(token).await {
+                    Ok(()) => TokenStorage::Stored,
+                    Err(e) => {
+                        tracing::warn!("chatgpt: the refresh token is kept in memory only: {e}");
+                        // Leave no older session's token behind it.
+                        let _ = self.delete_secret().await;
+                        TokenStorage::MemoryOnly(e)
+                    }
                 }),
-                refresh_token,
-                storage,
-                retry: None,
-            }));
+                None => {
+                    let _ = self.delete_secret().await;
+                    None
+                }
+            };
+
+            let lifetime = tokens
+                .expires_in
+                .map(Duration::from_secs)
+                .unwrap_or(spec::DEFAULT_ACCESS_TOKEN_LIFETIME);
+            {
+                let mut inner = lock(&self.inner);
+                inner.registration = Some(registration);
+                inner.phase = Phase::Active(Box::new(Active {
+                    client_id,
+                    original: claims,
+                    scopes,
+                    access: Some(AccessToken {
+                        token: tokens.access_token.clone(),
+                        expires_at: now + lifetime,
+                        earliest_refresh_at: spec::earliest_refresh_at(tokens),
+                    }),
+                    refresh_token,
+                    storage,
+                    retry: None,
+                }));
+            }
+            (self.status(), superseded)
+        };
+        for (previous, token) in &superseded {
+            if let Revocation::NotConfirmed { reason } = self.revoke(previous, token, true).await {
+                tracing::warn!(
+                    "chatgpt: the account signed in before could not be revoked: {reason}"
+                );
+            }
         }
-        Ok(self.status())
+        Ok(status)
     }
 
     // --- Sign-out ----------------------------------------------------------------
 
     async fn sign_out(&self) -> SignOutReport {
-        let _flight = self.flight.lock().await;
-        // Signing out must not hang on another process: without the lock it
-        // goes ahead.
-        let _file = self.lock_file().await.ok();
         let issuer = self.issuer().to_string();
-        let (window_client, window_token) = {
-            let inner = lock(&self.inner);
-            match &inner.phase {
-                Phase::Active(a) => (Some(a.client_id.clone()), a.refresh_token.clone()),
-                _ => (None, None),
+        // Under the locks: what to revoke, then the local sign-out. The
+        // revocations, retries and all, run after the locks are let go, so
+        // no other window waits on them.
+        let (to_revoke, unreadable, removed_from_store) = {
+            let _flight = self.flight.lock().await;
+            // Signing out must not hang on another process: without the
+            // lock it goes ahead.
+            let _file = self.lock_file().await.ok();
+            let (window_client, window_token) = {
+                let inner = lock(&self.inner);
+                match &inner.phase {
+                    Phase::Active(a) => (Some(a.client_id.clone()), a.refresh_token.clone()),
+                    _ => (None, None),
+                }
+            };
+            // The account as registration.json has it now, and whatever
+            // token the keychain holds, whatever this window's state: an
+            // ended or not-yet-loaded window still signs the account out.
+            let disk_client = read_registration(&self.file, SetAside::Yes)
+                .ok()
+                .flatten()
+                .or_else(|| lock(&self.inner).registration.clone())
+                .and_then(|r| r.active(&issuer).map(|c| c.client_id.clone()));
+            let mut to_revoke: Vec<(Option<String>, SecretString)> = Vec::new();
+            let mut unreadable = None;
+            match self.load_secret().await {
+                Ok(Some(stored)) => {
+                    to_revoke.push((disk_client.clone().or(window_client.clone()), stored))
+                }
+                Ok(None) => {}
+                Err(e) => unreadable = Some(e),
             }
+            if let Some(token) = window_token {
+                if !to_revoke.iter().any(|(_, t)| same_secret(t, &token)) {
+                    to_revoke.push((window_client.or(disk_client), token));
+                }
+            }
+            // A keychain that cannot be read holds a token nobody has seen:
+            // it is left where it is, for a later sign-out to revoke, rather
+            // than deleted unrevoked. The registration still says signed
+            // out, so no window uses it meanwhile.
+            let removed_from_store = match &unreadable {
+                Some(e) => Err(e.clone()),
+                None => self.delete_secret().await,
+            };
+            let now = unix_secs(self.config.clock.now());
+            if let Err(e) = self.update_registration(|r| {
+                if let Some(id) = r.active_client_id.clone() {
+                    if let Some(c) = r.client_mut(&id).filter(|c| c.issuer == issuer) {
+                        c.signed_out = true;
+                        c.saved_at = now;
+                    }
+                }
+            }) {
+                tracing::warn!("chatgpt: could not record the sign-out: {e}");
+            }
+            lock(&self.inner).phase = Phase::SignedOut;
+            (to_revoke, unreadable, removed_from_store)
         };
-        // The account as registration.json has it now, and whatever token
-        // the keychain holds, whatever this window's state: an ended or
-        // not-yet-loaded window still signs the account out.
-        let disk_client = read_registration(&self.file)
-            .ok()
-            .flatten()
-            .or_else(|| lock(&self.inner).registration.clone())
-            .and_then(|r| r.active(&issuer).map(|c| c.client_id.clone()));
-        let mut to_revoke: Vec<(Option<String>, SecretString)> = Vec::new();
-        if let Ok(Some(stored)) = self.load_secret().await {
-            to_revoke.push((disk_client.clone().or(window_client.clone()), stored));
-        }
-        if let Some(token) = window_token {
-            if !to_revoke.iter().any(|(_, t)| same_secret(t, &token)) {
-                to_revoke.push((window_client.or(disk_client), token));
-            }
-        }
-        let mut revocation = Revocation::NothingToRevoke;
+
+        let mut revocation = match &unreadable {
+            Some(e) => Revocation::NotConfirmed {
+                reason: format!(
+                    "the keychain could not be read, so the saved session was not revoked: {e}"
+                ),
+            },
+            None => Revocation::NothingToRevoke,
+        };
         for (client_id, token) in &to_revoke {
             let outcome = match client_id {
                 Some(client_id) => self.revoke(client_id, token, true).await,
@@ -1575,19 +1703,6 @@ impl Core {
         if let Revocation::NotConfirmed { reason } = &revocation {
             tracing::warn!("chatgpt: sign-out could not confirm the revocation: {reason}");
         }
-        let removed_from_store = self.delete_secret().await;
-        let now = unix_secs(self.config.clock.now());
-        if let Err(e) = self.update_registration(|r| {
-            if let Some(id) = r.active_client_id.clone() {
-                if let Some(c) = r.client_mut(&id).filter(|c| c.issuer == issuer) {
-                    c.signed_out = true;
-                    c.saved_at = now;
-                }
-            }
-        }) {
-            tracing::warn!("chatgpt: could not record the sign-out: {e}");
-        }
-        lock(&self.inner).phase = Phase::SignedOut;
         SignOutReport {
             revocation,
             removed_from_store,
@@ -1683,7 +1798,7 @@ impl Core {
         &self,
         change: impl FnOnce(&mut Registration),
     ) -> Result<(), StoreError> {
-        let mut registration = match read_registration(&self.file)? {
+        let mut registration = match read_registration(&self.file, SetAside::Yes)? {
             Some(r) => r,
             None => match lock(&self.inner).registration.clone() {
                 Some(r) => r,
@@ -1703,18 +1818,10 @@ impl Core {
         let dir = &self.config.dir;
         let path = dir.join(store::LOCK_FILE);
         let failed = |e: &io::Error| format!("could not lock {}: {e}", path.display());
-        let no_file_lock = |e: &io::Error| {
-            if !self.warned_no_file_lock.swap(true, Ordering::Relaxed) {
-                tracing::warn!(
-                    "chatgpt: file locks are not available here ({e}); another edytlab process \
-                     could refresh the ChatGPT session at the same time"
-                );
-            }
-            FileLock(None)
-        };
+        let deadline = tokio::time::Instant::now() + self.config.lock_timeout;
         if let Err(e) = ensure_private_dir(dir) {
             return if file_lock_unsupported(&e) {
-                Ok(no_file_lock(&e))
+                self.process_wide_lock(&e, deadline).await
             } else {
                 Err(failed(&e))
             };
@@ -1728,15 +1835,16 @@ impl Core {
         }
         let file = match options.open(&path) {
             Ok(file) => file,
-            Err(e) if file_lock_unsupported(&e) => return Ok(no_file_lock(&e)),
+            Err(e) if file_lock_unsupported(&e) => {
+                return self.process_wide_lock(&e, deadline).await
+            }
             Err(e) => return Err(failed(&e)),
         };
-        let deadline = tokio::time::Instant::now() + self.config.lock_timeout;
         loop {
             // Not `file.try_lock()`: std has a method of that name from Rust
             // 1.89, with another error type, and it would win the call.
             match FileExt::try_lock(&file) {
-                Ok(()) => return Ok(FileLock(Some(file))),
+                Ok(()) => return Ok(FileLock::Os(file)),
                 Err(TryLockError::WouldBlock) => {
                     if tokio::time::Instant::now() >= deadline {
                         return Err(
@@ -1748,10 +1856,30 @@ impl Core {
                 }
                 Err(TryLockError::Error(e)) if e.kind() == io::ErrorKind::Interrupted => {}
                 Err(TryLockError::Error(e)) if file_lock_unsupported(&e) => {
-                    return Ok(no_file_lock(&e))
+                    return self.process_wide_lock(&e, deadline).await
                 }
                 Err(TryLockError::Error(e)) => return Err(failed(&e)),
             }
+        }
+    }
+
+    /// The fallback where the OS gives no file lock: the process-wide lock
+    /// for this directory, with one warning that other processes are not
+    /// kept out.
+    async fn process_wide_lock(
+        &self,
+        why: &io::Error,
+        deadline: tokio::time::Instant,
+    ) -> Result<FileLock, String> {
+        if !self.warned_no_file_lock.swap(true, Ordering::Relaxed) {
+            tracing::warn!(
+                "chatgpt: file locks are not available here ({why}); another edytlab process \
+                 could refresh the ChatGPT session at the same time"
+            );
+        }
+        match tokio::time::timeout_at(deadline, process_lock(&self.config.dir).lock_owned()).await {
+            Ok(guard) => Ok(FileLock::Process { _guard: guard }),
+            Err(_) => Err("another ChatGPT session held the session lock for too long".into()),
         }
     }
 
@@ -1783,10 +1911,23 @@ async fn blocking<T: Send + 'static>(
     })
 }
 
-/// `registration.json`, with a file that does not parse set aside as
-/// `registration.json.corrupt` and read as none.
-fn read_registration(file: &RegistrationFile) -> Result<Option<Registration>, StoreError> {
+/// Whether a `registration.json` that does not parse may be moved aside:
+/// only by a caller holding the file lock, so a window that opens while
+/// another replaces the file never moves it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SetAside {
+    Yes,
+    No,
+}
+
+/// `registration.json`, with a file that does not parse read as none and,
+/// under the lock, set aside as `registration.json.corrupt`.
+fn read_registration(
+    file: &RegistrationFile,
+    set_aside: SetAside,
+) -> Result<Option<Registration>, StoreError> {
     match file.load() {
+        Err(StoreError::Corrupt(_)) if set_aside == SetAside::No => Ok(None),
         Err(StoreError::Corrupt(_)) => {
             match file.set_aside() {
                 Ok(_) => tracing::warn!(
@@ -1858,5 +1999,30 @@ mod tests {
         ] {
             assert!(!file_lock_unsupported(&other), "{other:?}");
         }
+    }
+
+    #[tokio::test]
+    async fn the_fallback_lock_is_one_per_directory_for_the_whole_process() {
+        let a = tempfile::tempdir().unwrap();
+        let b = tempfile::tempdir().unwrap();
+        // Every session over one directory gets the same lock, however the
+        // path is spelled; another directory gets its own.
+        let first = process_lock(a.path());
+        let spelled_otherwise = process_lock(&a.path().join("."));
+        assert!(Arc::ptr_eq(&first, &spelled_otherwise));
+        assert!(!Arc::ptr_eq(&first, &process_lock(b.path())));
+        // And it excludes: while one holds it, another waits.
+        let held = first.clone().lock_owned().await;
+        let waiting = tokio::time::timeout(
+            Duration::from_millis(50),
+            process_lock(a.path()).lock_owned(),
+        )
+        .await;
+        assert!(
+            waiting.is_err(),
+            "a second session over the directory waits"
+        );
+        drop(held);
+        process_lock(a.path()).lock_owned().await;
     }
 }

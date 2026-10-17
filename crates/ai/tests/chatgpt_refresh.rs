@@ -504,10 +504,12 @@ async fn a_refreshed_id_token_is_checked_against_the_original() {
         "{err:?}"
     );
     assert_eq!(store.get(), None);
-    // And revoked, so it is not left live at OpenAI.
+    // And revoked, with this session's client, so it is not left live at
+    // OpenAI.
     let revoked = fake.revocations.lock().unwrap().clone();
     assert_eq!(revoked.len(), 1);
     assert_eq!(revoked[0]["token"], "RT-3");
+    assert_eq!(revoked[0]["client_id"], ISSUED_CLIENT);
 }
 
 // --- Restarts ----------------------------------------------------------------------
@@ -1195,4 +1197,266 @@ async fn the_wait_between_failed_refreshes_is_capped_at_five_minutes() {
         );
         fake.clock.advance(5 * MINUTE + Duration::from_secs(1));
     }
+}
+
+// --- Second review (#605) ------------------------------------------------------------
+
+#[tokio::test]
+async fn signing_out_while_the_keychain_cannot_be_read_does_not_claim_a_clean_sign_out() {
+    // A window that cannot read the keychain cannot know what to revoke. It
+    // says so, keeps the token where it is for a later sign-out to revoke,
+    // and still marks the account signed out so no window uses it.
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    drop(fake.signed_in(dir.path(), store.clone()).await);
+    let restarted = fake.session(dir.path(), store.clone());
+    *store.load_error.lock().unwrap() = Some(SecretStoreError::Unavailable("locked".into()));
+
+    let report = restarted.sign_out().await;
+    match &report.revocation {
+        Revocation::NotConfirmed { reason } => {
+            assert!(reason.contains("keychain could not be read"), "{reason}")
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(report.removed_from_store.is_err(), "{report:?}");
+    assert_eq!(
+        store.get().as_deref(),
+        Some("RT-1"),
+        "left for a later sign-out"
+    );
+    assert_eq!(
+        registration_json(dir.path())["clients"][0]["signed_out"],
+        true
+    );
+    assert_eq!(restarted.status().state, SessionState::SignedOut);
+
+    // Once the keychain answers, signing out again revokes it.
+    *store.load_error.lock().unwrap() = None;
+    let again = restarted.sign_out().await;
+    assert_eq!(again.revocation, Revocation::Confirmed);
+    assert_eq!(fake.revocations.lock().unwrap()[0]["token"], "RT-1");
+    assert_eq!(store.get(), None);
+}
+
+#[tokio::test]
+async fn another_account_while_signed_in_revokes_and_signs_out_the_first() {
+    // "Never overwrite another account registration's credentials": the
+    // keychain slot is single, so the first account's refresh token is
+    // revoked and its record marked signed out, not silently overwritten.
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let session = fake.signed_in(dir.path(), store.clone()).await;
+    fake.knobs().subject = "a-second-account".into();
+    let status = fake
+        .sign_in(
+            &session,
+            Browser {
+                client_id: CallbackClient::Send("oaiapp_second".into()),
+                ..Browser::default()
+            },
+            SignInIntent::AnotherAccount,
+        )
+        .await
+        .unwrap();
+    assert_eq!(status.state, SessionState::SignedIn);
+    assert_eq!(store.get().as_deref(), Some("RT-2"));
+    let revoked = fake.revocations.lock().unwrap().clone();
+    assert_eq!(revoked.len(), 1, "{revoked:?}");
+    assert_eq!(revoked[0]["token"], "RT-1");
+    assert_eq!(revoked[0]["client_id"], ISSUED_CLIENT);
+    let reg = registration_json(dir.path());
+    assert_eq!(reg["active_client_id"], "oaiapp_second");
+    assert_eq!(reg["clients"][0]["signed_out"], true, "the first account");
+    assert_eq!(reg["clients"][1]["signed_out"], false);
+}
+
+#[tokio::test]
+async fn a_window_restored_after_a_sign_out_elsewhere_is_signed_out() {
+    // B was opened, but not restored, before A signed out: B's restore reads
+    // the registration as it is now.
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let a = fake.signed_in(dir.path(), store.clone()).await;
+    let b = fake.session(dir.path(), store.clone());
+    assert_eq!(b.status().state, SessionState::NotLoaded);
+    a.sign_out().await;
+    assert_eq!(b.restore().await.unwrap().state, SessionState::SignedOut);
+    assert_eq!(b.bearer().await.unwrap_err(), BearerError::NotSignedIn);
+}
+
+#[tokio::test]
+async fn a_window_restored_after_a_sign_out_and_in_elsewhere_keeps_the_newer_session() {
+    // The review's restore leg: B opened, not restored; A signs out and back
+    // in; B's first bearer must not empty the store.
+    let fake = Fake::start().await;
+    fake.knobs().refresh_id_token = true;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let a = fake.signed_in(dir.path(), store.clone()).await;
+    let b = fake.session(dir.path(), store.clone());
+    fake.clock.advance(10 * MINUTE);
+    a.sign_out().await;
+    fake.sign_in(&a, Browser::default(), SignInIntent::SignIn)
+        .await
+        .unwrap();
+    assert_eq!(bearer(&b).await, "AT-3");
+    assert_eq!(store.get().as_deref(), Some("RT-3"));
+    assert_eq!(b.status().state, SessionState::SignedIn);
+}
+
+#[tokio::test]
+async fn a_window_whose_own_token_outlived_a_sign_out_does_not_use_it() {
+    // A signs out, but the revocation is not confirmed and the keychain
+    // delete did not take: the stored token is still B's own. The
+    // registration says signed out, and B checks it on every refresh.
+    let fake = Fake::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let a = fake.signed_in(dir.path(), store.clone()).await;
+    let b = fake.session(dir.path(), store.clone());
+    b.restore().await.unwrap();
+    fake.knobs().revoke_statuses = vec![500; 4];
+    let report = a.sign_out().await;
+    assert!(matches!(report.revocation, Revocation::NotConfirmed { .. }));
+    store.set(Some("RT-1"));
+    fake.clock.advance(61 * MINUTE);
+    assert_eq!(
+        b.bearer().await.unwrap_err(),
+        BearerError::SessionEnded(EndReason::SignedOutElsewhere)
+    );
+    assert!(fake.refresh_requests().is_empty(), "B sent nothing");
+}
+
+#[tokio::test]
+async fn a_sign_out_whose_caller_stops_waiting_still_revokes() {
+    // Dropped during the wait between two revocation attempts, the sign-out
+    // still makes its next attempt, and the tokens are cleared either way.
+    let fake = Fake::start().await;
+    fake.knobs().revoke_statuses = vec![503];
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let config = fake
+        .config(dir.path())
+        .with_revoke_retry_delays(vec![Duration::from_millis(400); 3]);
+    let session = ChatGptSession::open(config, store.clone()).unwrap();
+    fake.sign_in(&session, Browser::default(), SignInIntent::SignIn)
+        .await
+        .unwrap();
+    let cut_short = tokio::time::timeout(Duration::from_millis(150), session.sign_out()).await;
+    assert!(cut_short.is_err(), "the caller gave up first");
+    for _ in 0..100 {
+        if fake.revocations.lock().unwrap().len() == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(
+        fake.revocations.lock().unwrap().len(),
+        2,
+        "the retry still ran"
+    );
+    assert_eq!(store.get(), None);
+    assert_eq!(session.status().state, SessionState::SignedOut);
+    assert_eq!(
+        registration_json(dir.path())["clients"][0]["signed_out"],
+        true
+    );
+}
+
+#[tokio::test]
+async fn a_slow_revocation_holds_up_no_other_window() {
+    // Sign-out clears and marks under the lock, then revokes after letting
+    // go of it: another window's refresh is not kept waiting behind the
+    // revocation's retries.
+    let fake = Fake::start().await;
+    fake.knobs().revoke_statuses = vec![503; 4];
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let config = fake
+        .config(dir.path())
+        .with_revoke_retry_delays(vec![Duration::from_millis(500); 3]);
+    let a = Arc::new(ChatGptSession::open(config, store.clone()).unwrap());
+    fake.sign_in(&a, Browser::default(), SignInIntent::SignIn)
+        .await
+        .unwrap();
+    let b = fake.session(dir.path(), store.clone());
+    b.restore().await.unwrap();
+    fake.clock.advance(61 * MINUTE);
+    let signing_out = tokio::spawn({
+        let a = a.clone();
+        async move { a.sign_out().await }
+    });
+    while fake.revocations.lock().unwrap().is_empty() {
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let from_b = tokio::time::timeout(Duration::from_millis(300), b.bearer())
+        .await
+        .expect("B is not held up by A's revocation retries");
+    assert_eq!(
+        from_b.unwrap_err(),
+        BearerError::SessionEnded(EndReason::SignedOutElsewhere)
+    );
+    let report = signing_out.await.unwrap();
+    assert!(matches!(report.revocation, Revocation::NotConfirmed { .. }));
+}
+
+#[tokio::test]
+async fn dropping_the_session_mid_refresh_still_saves_the_rotated_token() {
+    // The review's probe: the session itself is dropped while its refresh
+    // is in flight; the refresh finishes on its own task.
+    let fake = Fake::start().await;
+    *fake.on_refresh.lock().unwrap() =
+        Some(Box::new(|_| std::thread::sleep(Duration::from_millis(500))));
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let session = fake.signed_in(dir.path(), store.clone()).await;
+    fake.clock.advance(61 * MINUTE);
+    let _ = tokio::time::timeout(Duration::from_millis(100), session.bearer()).await;
+    drop(session);
+    for _ in 0..100 {
+        if store.get().as_deref() == Some("RT-2") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(store.get().as_deref(), Some("RT-2"));
+    *fake.on_refresh.lock().unwrap() = None;
+    let reopened = fake.session(dir.path(), store.clone());
+    assert_eq!(bearer(&reopened).await, "AT-3");
+    let sent: Vec<String> = fake
+        .refresh_requests()
+        .iter()
+        .map(|f| f["refresh_token"].clone())
+        .collect();
+    assert_eq!(sent, ["RT-1", "RT-2"]);
+}
+
+#[tokio::test]
+async fn signing_out_while_a_dropped_refresh_is_in_flight_revokes_the_rotated_token() {
+    // The review's probe: sign-out waits for the refresh in flight, then
+    // revokes the token that refresh saved.
+    let fake = Fake::start().await;
+    *fake.on_refresh.lock().unwrap() =
+        Some(Box::new(|_| std::thread::sleep(Duration::from_millis(500))));
+    let dir = tempfile::tempdir().unwrap();
+    let store = MemoryStore::new();
+    let session = fake.signed_in(dir.path(), store.clone()).await;
+    fake.clock.advance(61 * MINUTE);
+    let _ = tokio::time::timeout(Duration::from_millis(100), session.bearer()).await;
+    let report = session.sign_out().await;
+    assert_eq!(report.revocation, Revocation::Confirmed);
+    let revoked: Vec<String> = fake
+        .revocations
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|f| f["token"].clone())
+        .collect();
+    assert_eq!(revoked, ["RT-2"]);
+    assert_eq!(store.get(), None);
+    assert_eq!(session.status().state, SessionState::SignedOut);
 }
