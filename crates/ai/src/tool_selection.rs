@@ -143,6 +143,33 @@ pub const SLIM_CORE_TOOLS: &[&str] = &[
 /// accounted for there and not here.
 pub const SLIM_TOOLS_BUDGET_BYTES: usize = 8_000;
 
+/// How much of the session block (`session_context.rs`) the tool budget
+/// already leaves room for, in bytes of its text (#573).
+///
+/// [`SLIM_TOOLS_BUDGET_BYTES`] was set against the request of a one-track
+/// session, whose block is about 260 B, and the bound held with that block
+/// in it. A bigger block used to grow the request with no limit: a
+/// six-track mix with three buses left 82 B under the bound, and thirty
+/// tracks went past it. Now the block shares the request with the tools:
+/// every byte it takes past this is a byte fewer for the tools
+/// ([`slim_tools_budget`]), so a big session costs the request about what
+/// a one-track one does. What it costs instead is the tools at the end of
+/// the order of priority above that no longer fit (for a message that
+/// names many tools, the last ones it names, then core tools); they stay
+/// in the names line and can be called by name. With the block at its cap,
+/// [`crate::session_context::SLIM_SESSION_BLOCK_MAX_BYTES`], the budget
+/// left still holds the whole core for a message that names nothing, which
+/// a test checks.
+pub const SLIM_SESSION_ALLOWANCE_BYTES: usize = 300;
+
+/// The tool budget for a turn whose session block is `session_block_bytes`
+/// long: [`SLIM_TOOLS_BUDGET_BYTES`], less what the block takes past
+/// [`SLIM_SESSION_ALLOWANCE_BYTES`].
+pub fn slim_tools_budget(session_block_bytes: usize) -> usize {
+    SLIM_TOOLS_BUDGET_BYTES
+        .saturating_sub(session_block_bytes.saturating_sub(SLIM_SESSION_ALLOWANCE_BYTES))
+}
+
 /// The most the names line may spend on tool names, in bytes. The
 /// built-in tools that can be left out of a request come to about 1,000 B
 /// (1,170 B if every one of them were); they are always listed, first. The
@@ -632,11 +659,16 @@ impl SlimSelection {
 ///
 /// The tools are sorted by name, so they do not depend on the dispatcher's
 /// order, and the same inputs give the same bytes.
+///
+/// `budget` is the most the compacted descriptors may add up to:
+/// [`SLIM_TOOLS_BUDGET_BYTES`], less what the turn's session block takes
+/// past its allowance ([`slim_tools_budget`]).
 pub(crate) fn slim_tool_schemas(
     available: Value,
     user_text: &str,
     prompt_parts: &[&str],
     conversation: &[Message],
+    budget: usize,
 ) -> SlimSelection {
     let Some(list) = available.as_array() else {
         return SlimSelection {
@@ -658,7 +690,7 @@ pub(crate) fn slim_tool_schemas(
     compacted.dedup_by(|a, b| a.0 == b.0);
 
     let total: usize = compacted.iter().map(|(_, _, size)| size).sum();
-    if total <= SLIM_TOOLS_BUDGET_BYTES {
+    if total <= budget {
         return SlimSelection {
             tools: Value::Array(compacted.into_iter().map(|(_, tool, _)| tool).collect()),
             unsent: Vec::new(),
@@ -710,7 +742,7 @@ pub(crate) fn slim_tool_schemas(
         };
         // A tool that would not fit is skipped, not the end of the list:
         // a smaller one further down may.
-        if used + size <= SLIM_TOOLS_BUDGET_BYTES {
+        if used + size <= budget {
             used += size;
             chosen.insert(name);
         }
@@ -763,12 +795,25 @@ mod tests {
         prompt_parts: &[&str],
         conversation: &[Message],
     ) -> Value {
-        slim_tool_schemas(available, user_text, prompt_parts, conversation).tools
+        slim_tool_schemas(
+            available,
+            user_text,
+            prompt_parts,
+            conversation,
+            SLIM_TOOLS_BUDGET_BYTES,
+        )
+        .tools
     }
 
     /// The whole selection, for `text` with the whole registry permitted.
     fn selection_for(text: &str, conversation: &[Message]) -> SlimSelection {
-        slim_tool_schemas(all_tools(), text, &[], conversation)
+        slim_tool_schemas(
+            all_tools(),
+            text,
+            &[],
+            conversation,
+            SLIM_TOOLS_BUDGET_BYTES,
+        )
     }
 
     /// A message by the user.
@@ -858,6 +903,102 @@ mod tests {
              for tools a message names. Trim the core rather than raising the number.",
             SLIM_TOOLS_BUDGET_BYTES.saturating_sub(total)
         );
+    }
+
+    // -----------------------------------------------------------------
+    // The budget the session block leaves (#573)
+    // -----------------------------------------------------------------
+
+    /// A block no longer than a one-track session's leaves the budget as it
+    /// was set; past that, each byte of the block is a byte off the tools.
+    #[test]
+    fn the_session_block_takes_its_room_from_the_tools_past_its_allowance() {
+        assert_eq!(slim_tools_budget(0), SLIM_TOOLS_BUDGET_BYTES);
+        assert_eq!(
+            slim_tools_budget(SLIM_SESSION_ALLOWANCE_BYTES),
+            SLIM_TOOLS_BUDGET_BYTES
+        );
+        assert_eq!(
+            slim_tools_budget(SLIM_SESSION_ALLOWANCE_BYTES + 700),
+            SLIM_TOOLS_BUDGET_BYTES - 700
+        );
+        // The block a one-track session renders is within the allowance, so
+        // the request every other test here measures is unchanged.
+        let one_track = crate::session_context::render_block_within(
+            &crate::session_context::SessionContext {
+                head: Some("a".repeat(64)),
+                tracks: vec![crate::session_context::TrackBrief {
+                    name: "voice".into(),
+                    clips: vec![(0.0, 30.0)],
+                    gain_db: 0.0,
+                    pan: 0.0,
+                    muted: false,
+                    soloed: false,
+                    effects: vec![],
+                }],
+                ..Default::default()
+            },
+            crate::session_context::SLIM_SESSION_BLOCK_MAX_BYTES,
+            "",
+        );
+        assert!(
+            one_track.len() <= SLIM_SESSION_ALLOWANCE_BYTES,
+            "a one-track block is {} B",
+            one_track.len()
+        );
+    }
+
+    /// With the block at its cap a message that names nothing still gets
+    /// the whole core: what a big session costs is tools from the end of the
+    /// order of priority, never the edits a plain message relies on.
+    #[test]
+    fn the_core_is_still_sent_with_the_session_block_at_its_cap() {
+        let budget = slim_tools_budget(crate::session_context::SLIM_SESSION_BLOCK_MAX_BYTES);
+        // The core's own cap, which `the_core_alone_compacts_to_at_most_6000_bytes`
+        // holds it to.
+        assert!(budget >= 6_000, "{budget} B is less than the core may take");
+
+        let sent = names(
+            &slim_tool_schemas(
+                all_tools(),
+                "Make track 0 louder by 6 dB.",
+                &[],
+                &[],
+                budget,
+            )
+            .tools,
+        );
+        for name in SLIM_CORE_TOOLS {
+            assert!(sent.iter().any(|s| s == name), "{name} dropped: {sent:?}");
+        }
+    }
+
+    /// A smaller budget drops tools from the end of the order of priority,
+    /// so the first tool a message names is the last to go, and every tool
+    /// left out is still named in the names line.
+    #[test]
+    fn a_smaller_budget_drops_from_the_end_of_the_priority() {
+        let text = "add reverb, echo, tremolo, phaser and distortion";
+        let full = slim_tool_schemas(all_tools(), text, &[], &[], SLIM_TOOLS_BUDGET_BYTES);
+        let small = slim_tool_schemas(
+            all_tools(),
+            text,
+            &[],
+            &[],
+            slim_tools_budget(crate::session_context::SLIM_SESSION_BLOCK_MAX_BYTES),
+        );
+        let (full_names, small_names) = (names(&full.tools), names(&small.tools));
+
+        assert!(small_names.len() < full_names.len(), "{small_names:?}");
+        assert!(
+            small_names.iter().all(|n| full_names.contains(n)),
+            "a smaller budget brought in {small_names:?} over {full_names:?}"
+        );
+        assert!(small_names.iter().any(|n| n == "reverb"), "{small_names:?}");
+        let note = small.names_note().expect("some tools were left out");
+        for dropped in full_names.iter().filter(|n| !small_names.contains(n)) {
+            assert!(note.contains(dropped.as_str()), "{dropped} not in {note}");
+        }
     }
 
     // -----------------------------------------------------------------
@@ -1288,7 +1429,13 @@ mod tests {
                 .cloned()
                 .collect(),
         );
-        let selection = slim_tool_schemas(available, "remove the ums", &[], &[]);
+        let selection = slim_tool_schemas(
+            available,
+            "remove the ums",
+            &[],
+            &[],
+            SLIM_TOOLS_BUDGET_BYTES,
+        );
         assert_eq!(names(&selection.tools), vec!["gain"]);
     }
 
@@ -1448,7 +1595,13 @@ mod tests {
                 .cloned()
                 .collect(),
         );
-        let selection = slim_tool_schemas(available, "add a limiter and some gain", &[], &[]);
+        let selection = slim_tool_schemas(
+            available,
+            "add a limiter and some gain",
+            &[],
+            &[],
+            SLIM_TOOLS_BUDGET_BYTES,
+        );
         let sent = names(&selection.tools);
         for gone in ["limiter", "gain"] {
             assert!(!sent.iter().any(|n| n == gone), "{gone} sent");
@@ -1468,7 +1621,13 @@ mod tests {
                 .cloned()
                 .collect(),
         );
-        let selection = slim_tool_schemas(available, "make it louder", &[], &[]);
+        let selection = slim_tool_schemas(
+            available,
+            "make it louder",
+            &[],
+            &[],
+            SLIM_TOOLS_BUDGET_BYTES,
+        );
         assert!(selection.unsent.is_empty());
         assert_eq!(selection.names_note(), None);
     }
@@ -1620,7 +1779,13 @@ mod tests {
              reverse it, split by speaker, add a noise gate, a stereo widener and a de-esser",
             "",
         ] {
-            let selection = slim_tool_schemas(Value::Array(available.clone()), text, &[], &[]);
+            let selection = slim_tool_schemas(
+                Value::Array(available.clone()),
+                text,
+                &[],
+                &[],
+                SLIM_TOOLS_BUDGET_BYTES,
+            );
             let sent: HashSet<String> = names(&selection.tools).into_iter().collect();
             let note = selection.names_note().expect("some tools were not sent");
             let words = line_words(&note);

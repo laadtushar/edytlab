@@ -413,7 +413,8 @@ for the provider that needs it. `LlmProvider::tool_set()` says which:
   6. tools the user named in earlier messages, the latest message first.
 
   They are added while the compacted descriptors stay within
-  `SLIM_TOOLS_BUDGET_BYTES`, then sorted by name. If everything permitted
+  `SLIM_TOOLS_BUDGET_BYTES`, less what the session block takes past its
+  allowance (see "The session block has a budget" below), then sorted by name. If everything permitted
   already fits (a small agent profile), all of it is sent. Each description is
   cut to its first sentence and the keywords the model can do without
   (`default`, `examples`, `title`, `additionalProperties: false`) are dropped;
@@ -469,6 +470,50 @@ for the provider that needs it. `LlmProvider::tool_set()` says which:
   Ollama like any other tool: one is sent in full when a message names it
   (their names are matched by the same rules), and otherwise it is listed by
   name.
+
+**The session block has a budget (#573).** The system prompt carries a block
+that lists the session (`crates/ai/src/session_context.rs`): the head node, its
+length, every track with its clips, gain, pan and chain, every bus with its id,
+its sends and its chain, the master chain, the selection and the markers. It
+grows with the session, and nothing used to cap it: a six-track mix with three
+buses left Ollama's first request 82 B under the bound, and thirty tracks went
+past it. `render_block_within` now writes it within a byte budget that depends
+on the tool set (`block_budget`):
+
+- `SESSION_BLOCK_MAX_BYTES`, 8,000 B, for a provider sent every tool. It has
+  the room, but pays for the block on every turn, uncached, since the block
+  changes with every edit. A thirty-track mix with eight buses and forty
+  markers (about 5.5 KB) is listed in full.
+- `SLIM_SESSION_BLOCK_MAX_BYTES`, 2,300 B, for Ollama. The block also shares the
+  request with the slim tools: what it takes past `SLIM_SESSION_ALLOWANCE_BYTES`
+  (300 B, about a one-track session's block, which is what
+  `SLIM_TOOLS_BUDGET_BYTES` was set against) comes off the tool budget
+  (`slim_tools_budget`). So a session of any size makes about the request a
+  one-track one does, and what a big session costs instead is the tools at the
+  end of the order of priority above, which stay in the names line. At the cap
+  the budget still holds the whole core, so a message that names nothing loses
+  nothing.
+
+A session that fits is written exactly as before. One that does not keeps the
+fixed parts (head, length, master chain, selection, headers; a chain lists at
+most 16 effects and a bus at most 8 sends) and cuts the three lists. Each gets
+a share of what is left, tracks twice what buses and markers get, and a list
+that needs less passes the rest on. Within a list the items the user's message
+names come first (a track by its name or as "track 3", a bus or a marker by its
+name), then for buses the ones a listed track sends to, then the rest in order;
+what is shown keeps the list's own order. A cut list ends with a line that says
+how many it left out of how many, such as
+``…and 192 more tracks (200 in all), not listed here. A tool's `track` takes any index up to 199.``
+and, for markers, ``…; `export_labels` lists every one.`` No agent tool lists
+tracks or buses, so those two lines give the count (and for tracks the index
+range) only. On Ollama the two-hundred-track session lists eight tracks, two
+buses and twenty-two markers. The block is rendered once per turn with the rest
+of `system`, so the thinking-block rule below is unaffected. `request_size.rs`
+runs a thirty-track session and a two-hundred-track one with fifty buses and a
+thousand markers, and holds every session's first request
+`SESSION_HEADROOM_BYTES` (500 B) under the bound; the six-track mix with the
+message that sends the most tools now leaves 1,094 B, and the two-hundred-track
+session with sixty MCP tools registered still fits, 536 B under.
 
 Three things stay as they were. The set and the names line are worked out once
 per turn, so every round trip sends the same tools in the same order and

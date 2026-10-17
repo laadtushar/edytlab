@@ -47,6 +47,31 @@
 //! assertion there only fails if the whole-list request shrinks below the
 //! size the issue measured. That is why the bound is half the context and
 //! not all of it.
+//!
+//! # The session block (#573)
+//!
+//! The system prompt carries a block that lists the session: the head, every
+//! track, every bus with its sends, the master chain, the selection and the
+//! markers (`crates/ai/src/session_context.rs`). It grows with the session,
+//! and nothing capped it: a six-track mix with three buses left 82 B under the
+//! bound, and thirty tracks went past it. It now has a byte budget, per kind
+//! of provider:
+//!
+//! * a provider sent every tool (Anthropic and the other hosted ones) gets
+//!   `SESSION_BLOCK_MAX_BYTES`, 8,000 B. It has the room, but pays for the
+//!   block on every turn.
+//! * Ollama gets `SLIM_SESSION_BLOCK_MAX_BYTES`, 2,300 B, and the block shares
+//!   the request with the slim tools: what it takes past
+//!   `SLIM_SESSION_ALLOWANCE_BYTES` (300 B, about a one-track session's block)
+//!   comes off `SLIM_TOOLS_BUDGET_BYTES`. So a session of any size costs the
+//!   request about what a one-track one does; what it costs instead is the
+//!   tools that no longer fit, from the end of the slim set's priority (a
+//!   message that names nothing still gets the whole core).
+//!
+//! A list too long for its share is cut, and ends with a line that says how
+//! many it left out of how many. Every session here must stay
+//! `SESSION_HEADROOM_BYTES` under the bound, so that the next sentence in the
+//! prompt does not land on whoever writes it.
 
 mod common;
 
@@ -55,6 +80,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use ai::provider::provider_from_id;
+use ai::session_context::SESSION_BLOCK_MAX_BYTES;
 use ai::{Agent, AgentEvent, BusBrief, Error, LlmConfig, SendBrief, SessionContext, TrackBrief};
 use common::{
     chat_reply_json, chat_sse_text, chat_sse_tool_call, classifier_json, ok, sse_text, Entry,
@@ -93,12 +119,17 @@ const SLIM_FIRST_REQUEST_MAX_BYTES: usize = 4_096 * BYTES_PER_TOKEN;
 const MCP_HEADROOM_BYTES: usize = 500;
 
 /// What the three buses of `mix_with_buses` (eight sends, four chain
-/// entries) may add to the first request (#552): measured 659 B, with the
+/// entries) may add to the system prompt (#552): measured 659 B, with the
 /// headroom of one more send or two. 125 B of that is the header line that
 /// says how to edit a bus chain (it was 534 B before that clause, and the
 /// cap 600 B). A bus costs its 36-character id, its sends and its chain, so
-/// a session with many buses costs more; raise this deliberately, and say
-/// why, if the section grows.
+/// a session with many buses costs more, up to the block's budget; raise
+/// this deliberately, and say why, if the section grows.
+///
+/// Measured on the system prompt, not the whole request: on Ollama a block
+/// past its allowance takes its room from the tools (#573), so for a
+/// message that names many tools the buses cost a tool schema instead, and
+/// the request with them can be the smaller one.
 const BUSES_MAX_BYTES: usize = 720;
 
 /// The issue's measured token count for the first request.
@@ -468,6 +499,14 @@ fn names_line_words(system: &str) -> BTreeSet<String> {
         .unwrap_or_default()
 }
 
+/// The system prompt up to the names line: all of it but the part that
+/// changes when the slim set leaves different tools out.
+fn before_names_line(system: &str) -> &str {
+    system
+        .find(&format!("\n\n{NAMES_LINE_START}"))
+        .map_or(system, |at| &system[..at])
+}
+
 /// Every word of the system prompt, for "this appears nowhere in it".
 fn all_words(system: &str) -> BTreeSet<String> {
     system
@@ -728,7 +767,7 @@ async fn ollama_is_told_about_buses_and_the_bound_holds() {
             ..ctx.clone()
         };
         let (sent, split) = ollama_first_request(message, ctx.clone()).await;
-        let (_, bare) = ollama_first_request(message, bare_ctx).await;
+        let (bare, _) = ollama_first_request(message, bare_ctx).await;
         report("ollama, three buses", &split);
 
         let system = system_text(&sent.body);
@@ -736,16 +775,291 @@ async fn ollama_is_told_about_buses_and_the_bound_holds() {
         for bus in &ctx.buses {
             assert!(system.contains(&bus.id), "{} not in {system}", bus.id);
         }
+        // Small enough to list in full: nothing is cut.
+        assert!(!system.contains("…and "), "{system}");
         assert_fits(message, &split);
 
-        let cost = split.total - bare.total;
-        println!("three buses cost {cost} B of the first request ({message:?})");
+        let cost = len_of(&json!(before_names_line(&system)))
+            - len_of(&json!(before_names_line(&system_text(&bare.body))));
+        println!("three buses cost {cost} B of the system prompt ({message:?})");
         assert!(
             cost <= BUSES_MAX_BYTES,
-            "{message:?}: three buses with eight sends add {cost} B to the first request, over \
+            "{message:?}: three buses with eight sends add {cost} B to the system prompt, over \
              {BUSES_MAX_BYTES} B. A bus costs its id, its sends and its chain every turn."
         );
+        assert_session_headroom(&format!("three buses, {message:?}"), &split);
+        // What the block took from the tools came off the end of what the
+        // message named: the first tool it names is still sent.
+        if message == NAMES_MANY_TOOLS {
+            let tools = tool_names_in(&sent.body["tools"]);
+            assert!(tools.contains("reverb"), "{tools:?}");
+        }
     }
+}
+
+// ---------------------------------------------------------------------
+// Sessions too big to list in full (#573)
+// ---------------------------------------------------------------------
+
+/// What a session of `tracks` tracks, `buses` buses with `sends_per_bus`
+/// sends each, and `markers` markers looks like to the model, built the
+/// way a big mix is: every track has audio and a mixer state, some are cut
+/// into clips and some have chains, every bus has a chain, and every fifth
+/// marker is a region.
+fn big_session(
+    tracks: usize,
+    buses: usize,
+    sends_per_bus: usize,
+    markers: usize,
+) -> SessionContext {
+    const NAMES: [&str; 10] = [
+        "kick",
+        "snare",
+        "overheads",
+        "bass DI",
+        "rhythm gtr",
+        "lead gtr",
+        "keys",
+        "lead vocal",
+        "backing vox",
+        "strings",
+    ];
+    const BUS_NAMES: [&str; 4] = ["Reverb", "Delay", "Parallel comp", "Chorus"];
+    let track_name = |i: usize| format!("{} {}", NAMES[i % NAMES.len()], i / NAMES.len() + 1);
+    SessionContext {
+        selection: Some(tools::Range {
+            start_sec: 12.0,
+            end_sec: 16.5,
+        }),
+        head: Some("a".repeat(64)),
+        tracks: (0..tracks)
+            .map(|i| TrackBrief {
+                name: track_name(i),
+                clips: if i % 4 == 0 {
+                    vec![(0.0, 60.0), (64.0, 120.0), (128.0, 184.5)]
+                } else {
+                    vec![(0.0, 184.5)]
+                },
+                gain_db: 0.0 - (i % 7) as f32,
+                pan: ((i % 5) as f32 - 2.0) / 2.0,
+                muted: i % 11 == 3,
+                soloed: false,
+                effects: match i % 3 {
+                    0 => vec!["compressor".into(), "eq".into()],
+                    1 => vec!["eq (bypassed)".into()],
+                    _ => vec![],
+                },
+            })
+            .collect(),
+        buses: (0..buses)
+            .map(|b| BusBrief {
+                name: format!("{} {}", BUS_NAMES[b % BUS_NAMES.len()], b + 1),
+                id: format!("{b:08x}-5b7e-4d21-9a6c-0e1d2f3a4b5c"),
+                sends: (0..sends_per_bus)
+                    .map(|k| {
+                        let track = (b * sends_per_bus + k) % tracks;
+                        SendBrief {
+                            track,
+                            track_name: track_name(track),
+                            level_db: -6.0 - 3.0 * k as f32,
+                        }
+                    })
+                    .collect(),
+                effects: vec!["reverb".into(), "eq".into()],
+            })
+            .collect(),
+        markers: (0..markers)
+            .map(|m| session::Annotation {
+                id: session::AnnotationId::new(),
+                name: format!("cue {}", m + 1),
+                kind: if m % 5 == 4 {
+                    session::AnnotationKind::Region {
+                        start_sec: m as f64 * 0.18,
+                        end_sec: m as f64 * 0.18 + 2.0,
+                    }
+                } else {
+                    session::AnnotationKind::Marker {
+                        time_sec: m as f64 * 0.18,
+                    }
+                },
+            })
+            .collect(),
+        master_effects: vec!["limiter".into()],
+    }
+}
+
+/// The issue's case: about thirty tracks, eight buses with three sends
+/// each, and forty markers.
+fn large_session() -> SessionContext {
+    big_session(30, 8, 3, 40)
+}
+
+/// Far past it: two hundred tracks, fifty buses, a thousand markers.
+fn huge_session() -> SessionContext {
+    big_session(200, 50, 3, 1_000)
+}
+
+/// How far under the bound a first request must stay with any session:
+/// the room for one more sentence in the prompt or one more tool, so that
+/// whoever adds it is not the one left to find a number (#573).
+const SESSION_HEADROOM_BYTES: usize = 500;
+
+fn assert_session_headroom(label: &str, split: &Split) {
+    assert_fits(label, split);
+    assert!(
+        split.total + SESSION_HEADROOM_BYTES <= SLIM_FIRST_REQUEST_MAX_BYTES,
+        "{label}: the first request is {} B, which leaves {} B below the bound of \
+         {SLIM_FIRST_REQUEST_MAX_BYTES} B, under the {SESSION_HEADROOM_BYTES} B of headroom a \
+         session must leave. system {} B, tools {} B ({} tools), messages {} B.",
+        split.total,
+        SLIM_FIRST_REQUEST_MAX_BYTES.saturating_sub(split.total),
+        split.system,
+        split.tools,
+        split.n_tools,
+        split.messages,
+    );
+}
+
+/// The lines of one `## <name>` section of the system prompt, header and
+/// all, up to the blank line that ends it.
+fn section<'a>(system: &'a str, name: &str) -> Vec<&'a str> {
+    let heading = format!("## {name}");
+    system
+        .lines()
+        .skip_while(|line| *line != heading)
+        .skip(1)
+        .take_while(|line| !line.is_empty())
+        .collect()
+}
+
+/// What a section says it left out: the `N` of "…and N more <what> (T in
+/// all)" and the `T`, or `None` when it has no such line.
+fn left_out(lines: &[&str], what: &str) -> Option<(usize, usize)> {
+    let line = lines.iter().find(|l| l.starts_with("…and "))?;
+    let rest = line.strip_prefix("…and ")?;
+    let (n, rest) = rest.split_once(&format!(" more {what} ("))?;
+    let (total, _) = rest.split_once(" in all)")?;
+    Some((n.parse().ok()?, total.parse().ok()?))
+}
+
+/// A session too big to list stays under the bound, with headroom, for a
+/// plain message and for the one that sends the most tool schemas.
+///
+/// On `ace6e85` nothing capped the block: thirty tracks were already past
+/// the bound, and two hundred were several times it.
+#[tokio::test]
+async fn ollama_a_session_too_big_to_list_stays_under_the_bound() {
+    for (label, ctx) in [("large", large_session()), ("huge", huge_session())] {
+        for message in [CANONICAL, NAMES_MANY_TOOLS] {
+            let (sent, split) = ollama_first_request(message, ctx.clone()).await;
+            report(&format!("ollama, a {label} session"), &split);
+            assert_session_headroom(&format!("{label} session, {message:?}"), &split);
+
+            // Still told about the session: its head, and some of each list.
+            let system = system_text(&sent.body);
+            assert!(system.contains("head node: "), "{system}");
+            for name in ["tracks", "buses", "markers"] {
+                assert!(
+                    section(&system, name).iter().any(|l| l.starts_with("- ")),
+                    "{label}: nothing listed under ## {name}: {system}"
+                );
+            }
+        }
+    }
+}
+
+/// The worst case at once: a huge session, the names line at its cap with
+/// sixty MCP tools, and the message that sends the most schemas. It has to
+/// fit; the headroom is the MCP case's own, and is not asked of it twice.
+#[tokio::test]
+async fn ollama_a_huge_session_with_many_mcp_tools_still_fits() {
+    let turn = run_conversation(
+        "ollama",
+        &[NAMES_MANY_TOOLS],
+        chat_script(),
+        Options {
+            mcp_tools: 60,
+            context: Some(huge_session()),
+            ..Options::default()
+        },
+    )
+    .await;
+    turn.result.as_ref().expect("the turn succeeds");
+    let split = split_chat(&turn.streaming[0]);
+    report("ollama, a huge session and 60 MCP tools", &split);
+    assert_fits("huge session, 60 MCP tools", &split);
+}
+
+/// When a list is cut the model is told, with the count it was not shown,
+/// the total, and for the markers the tool that lists every one. The count
+/// is checked against what was listed, on the wire.
+#[tokio::test]
+async fn a_cut_list_says_how_much_it_left_out_and_where_the_rest_is() {
+    let ctx = huge_session();
+    let (sent, _) = ollama_first_request(CANONICAL, ctx.clone()).await;
+    let system = system_text(&sent.body);
+
+    for (name, total) in [
+        ("tracks", ctx.tracks.len()),
+        ("buses", ctx.buses.len()),
+        ("markers", ctx.markers.len()),
+    ] {
+        let lines = section(&system, name);
+        let listed = lines.iter().filter(|l| l.starts_with("- ")).count();
+        println!("ollama, a huge session: {listed} of {total} {name} listed");
+        let (more, all) = left_out(&lines, name)
+            .unwrap_or_else(|| panic!("## {name} does not say what it left out: {lines:#?}"));
+        assert_eq!(all, total, "## {name}: {lines:#?}");
+        assert_eq!(
+            listed + more,
+            total,
+            "## {name} lists {listed} and says {more} more of {total}"
+        );
+    }
+    let markers = section(&system, "markers");
+    let line = markers.iter().find(|l| l.starts_with("…and ")).unwrap();
+    assert!(
+        line.contains("`export_labels`"),
+        "the markers line names the tool that lists them all: {line}"
+    );
+    // The tracks line says the index range a tool's `track` takes, which is
+    // all of them, listed or not.
+    let tracks = section(&system, "tracks");
+    let line = tracks.iter().find(|l| l.starts_with("…and ")).unwrap();
+    assert!(
+        line.contains(&format!("up to {}", ctx.tracks.len() - 1)),
+        "{line}"
+    );
+}
+
+/// A provider sent every tool has the room, but pays for the block on
+/// every turn, so it is capped too, at a larger size than Ollama's.
+#[tokio::test]
+async fn anthropic_a_huge_session_block_is_capped() {
+    let turn = run_conversation(
+        "anthropic",
+        &[CANONICAL],
+        anthropic_script(),
+        Options {
+            context: Some(huge_session()),
+            ..Options::default()
+        },
+    )
+    .await;
+    turn.result.as_ref().expect("the turn succeeds");
+    let sent = &turn.streaming[0];
+    report("anthropic, a huge session", &split_anthropic(sent));
+    let system = system_text(&sent.body);
+    let block = &system[system.find("## session").expect("a session block")..];
+    assert!(
+        block.len() <= SESSION_BLOCK_MAX_BYTES,
+        "the session block is {} B, over {SESSION_BLOCK_MAX_BYTES} B",
+        block.len()
+    );
+    assert!(
+        left_out(&section(block, "tracks"), "tracks").is_some(),
+        "{block}"
+    );
 }
 
 /// Every request of a turn carries the same tools, in the same order.

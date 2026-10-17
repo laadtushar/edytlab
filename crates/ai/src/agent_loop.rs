@@ -79,7 +79,7 @@ use crate::prompt::{
 };
 use crate::provider::ToolSet;
 use crate::responses;
-use crate::session_context::{render_block, SessionContext};
+use crate::session_context::{block_budget, render_block_within, SessionContext};
 use crate::tool_selection::is_not_implemented;
 use crate::{context_window, tool_selection};
 use crate::{AgentEvent, Effort, Error, LlmConfig, Result, TurnResult, WireFormat};
@@ -871,7 +871,13 @@ where
             guard.render(&ctx)
         })
         .unwrap_or_default();
-    let ctx_block = session_ctx.map(render_block).unwrap_or_default();
+    // Within a budget for the provider (#573): a session too big to list
+    // in full is cut, the tracks and buses the message names kept first.
+    // Rendered once per turn, like the rest of `system`, so every step of
+    // the turn carries the same block.
+    let ctx_block = session_ctx
+        .map(|ctx| render_block_within(ctx, block_budget(cfg.provider.tool_set()), &user_message))
+        .unwrap_or_default();
     let profile_block = profile_body
         .map(|b| {
             let defanged = b.replace("</agent-profile", "</\u{200B}agent-profile");
@@ -1037,6 +1043,9 @@ where
                     skills_block.as_str(),
                 ],
                 conversation,
+                // The block and the tools share the request: what the
+                // block takes past its allowance comes off the tools.
+                tool_selection::slim_tools_budget(ctx_block.len()),
             );
             let note = selection.names_note();
             (selection.tools, note)
