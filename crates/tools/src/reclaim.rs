@@ -35,7 +35,9 @@
 //!    zero; [`apply_compaction`] refuses, and changes nothing. Save As holds
 //!    a staged handle too, writing nothing, while it copies the project's
 //!    audio with no lock held, so that nothing the copied nodes name is
-//!    deleted under the copy (#571). The count is the project's, shared by
+//!    deleted under the copy (#571), and so does the copy of a project's
+//!    audio into it from the project it was copied from, as it opens
+//!    ([`crate::repair`], #612). The count is the project's, shared by
 //!    every `Store` opened on the directory in this process, so a sweep
 //!    through a freshly opened handle (a project opened again, the
 //!    reclaimer's reader) sees a run staged from another. The sweep runs
@@ -745,8 +747,10 @@ pub fn plan_compaction(
 ///
 /// Refused, with nothing changed, while a staged handle on the project is
 /// alive (rule 0): a tool running off the lock may be reading audio this
-/// would delete, and Save As, which keeps one for the length of its copy,
-/// has copied the nodes this removes and is copying the audio they name.
+/// would delete, Save As, which keeps one for the length of its copy, has
+/// copied the nodes this removes and is copying the audio they name, and a
+/// copy of a project's audio into it as it opens ([`crate::repair`]) is
+/// adding files these nodes name.
 pub fn apply_compaction(
     store: &mut session::Store,
     plan: &CompactionPlan,
@@ -754,7 +758,8 @@ pub fn apply_compaction(
     if store.staged_in_flight() > 0 {
         return Err(
             "nothing was compacted: the project's files are in use without the \
-                    session's lock (an edit still running, or Save As copying the project); \
+                    session's lock (an edit still running, Save As copying the project, or \
+                    audio being copied in from the project this one was copied from); \
                     try again when it has finished"
                 .to_string(),
         );

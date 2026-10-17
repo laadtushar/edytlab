@@ -1019,24 +1019,12 @@ pub fn fork(store: &mut Store, parent: NodeId) -> Result<NodeId> {
 /// moved project: `target` reads there with that project's own paths
 /// (`crate::relocate`), which its id was not hashed from, so the append
 /// was a duplicate of it under another id. So the head is moved to
-/// `target` itself. A staged handle, which may not move the shared head,
-/// still appends the state, as before.
+/// `target` itself. A staged handle may not move the shared head, so on
+/// one this is refused, as [`Store::set_head`] is.
 pub fn revert_to(store: &mut Store, target: NodeId) -> Result<NodeId> {
-    let target_node = store.get(target)?;
-    if !store.is_staged() {
-        store.set_head(target)?;
-        return Ok(target);
-    }
-    let new_node = SessionNode {
-        id: NodeId([0; 32]),
-        parent: None,
-        created_at: chrono::Utc::now(),
-        label: Some(format!("revert to {}", target.to_hex())),
-        reasoning: None,
-        state: target_node.state,
-        op: None,
-    };
-    store.append(new_node)
+    store.get(target)?;
+    store.set_head(target)?;
+    Ok(target)
 }
 
 /// Merge two nodes by computing both diffs against their (synthetic)

@@ -455,9 +455,11 @@ pub async fn save_head_trail(
 ///
 /// The copy's nodes still name the original's files, which are still there
 /// when the copy opens. The copy reads, plays and keeps its own files of
-/// the same names all the same (`session::relocate`, #612), so its open
-/// sweep leaves its audio alone and deleting the original afterwards costs
-/// it nothing.
+/// the same names all the same (`session::relocate`, #612), in
+/// `.audiograph/derived/`, `clipboard/` and `generated/`, so its open sweep
+/// leaves its audio alone and deleting the original afterwards costs it
+/// none of that audio. A take loaded in place from inside the original's
+/// folder is copied too, but the copy goes on naming the original's.
 #[tauri::command]
 pub async fn save_project_as<R: Runtime>(
     app: AppHandle<R>,
@@ -594,6 +596,16 @@ fn live_or_new_store_with(
 /// same way, under the lock of the store just registered for it, which
 /// nothing can have staged from yet.
 ///
+/// **A copy that has lost audio its original still has** (a copy saved by
+/// 0.6.0, whose open swept its `derived/`, #612) is put right after the
+/// sweep: what to copy in is planned with the lock held
+/// (`tools::repair::plan_repair`), a staged handle is taken from the live
+/// store, and the files are copied on a thread of their own once the lock
+/// is let go ([`repair_in_background`]). The open does not wait for the
+/// copy, and a copy that fails is logged and skipped. While the handle
+/// lives, the orphan sweep, the reclaimer and compaction wait (rule 0 in
+/// `tools::reclaim`), as they do for Save As's copy.
+///
 /// Lock order: the registry's lock is a leaf, held inside
 /// `live_stores.find` / `register` and nowhere else. The store's lock is
 /// then taken alone, before the sweep and kept until the store is in place,
@@ -640,6 +652,7 @@ fn open_project_with(
     let store: &Store = reread.as_ref().unwrap_or(&held);
     sweep(store);
     let head_hex = store.head().map(|id| id.to_hex());
+    let repair = plan_repair(store, &held);
 
     // A project is now a thing with a name and a history of being
     // opened (#156), not just a folder that happens to contain a store.
@@ -662,11 +675,56 @@ fn open_project_with(
     let dir = held.project_dir().to_path_buf();
     drop(held);
     state.set_open_project(handle, dir);
+    if let Some((plan, staged)) = repair {
+        repair_in_background(plan, staged);
+    }
 
     Ok(ProjectInfo {
         path: path_str,
         head: head_hex,
     })
+}
+
+/// What to copy into the project `store` reads from the project it was
+/// copied from (`tools::repair`), and a staged handle on `live`, the
+/// project's live store, to keep the deleters away while it is copied.
+/// `None` when there is nothing to copy, or no handle could be taken (then
+/// the copy waits for the next open). Called with the store's lock held.
+fn plan_repair(store: &Store, live: &Store) -> Option<(tools::repair::RepairPlan, Store)> {
+    let plan = tools::repair::plan_repair(store, tools::reclaim::DEFAULT_DERIVED_CAP_BYTES);
+    if plan.is_empty() {
+        return None;
+    }
+    match live.stage() {
+        Ok(staged) => Some((plan, staged)),
+        Err(e) => {
+            tracing::warn!(error = %e, "could not hold the project to copy its audio in");
+            None
+        }
+    }
+}
+
+/// Copy in what `plan` lists on a thread of its own, holding `staged` (a
+/// handle that writes nothing, and counts as in flight) until it is done.
+/// Takes no lock. If no thread can be started the handle goes with the
+/// closure and nothing is copied until the next open.
+fn repair_in_background(plan: tools::repair::RepairPlan, staged: Store) {
+    let spawned = std::thread::Builder::new()
+        .name("copy-audio-home".into())
+        .spawn(move || {
+            let report = tools::repair::apply_repair(&plan);
+            drop(staged);
+            tracing::info!(
+                copied = report.copied,
+                bytes = report.bytes,
+                already_there = report.already_there,
+                failed = report.failed,
+                "copied in the audio this project names from the project it was copied from"
+            );
+        });
+    if let Err(e) = spawned {
+        tracing::warn!(error = %e, "could not start copying the project's audio in");
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -30,6 +30,7 @@ pub mod provenance;
 pub mod recipe;
 pub mod reclaim;
 pub mod rederive;
+pub mod repair;
 pub mod schema;
 pub mod shared;
 pub mod tool;

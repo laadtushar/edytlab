@@ -78,7 +78,11 @@ interface ProjectInfo {
 
 **Side effects:** Rebuilds the Agent if an API key is already configured.
 Also stamps `last_opened_at` into `project.json`, creating it on the
-first open, and moves the project to the top of the recents list.
+first open, and moves the project to the top of the recents list. A project
+that is a copy of another and has lost audio the other still has (a copy saved
+by 0.6.0, whose open swept its `derived/`, #612) has that audio copied back
+into it: in the background, so the open does not wait, adding files and never
+replacing one, and skipping (and logging) a file it cannot copy.
 
 **Example:**
 ```typescript
@@ -242,11 +246,12 @@ history is copied; the audio is copied with it free, so other commands are not
 held up by a large project. The caches, `.audiograph/previews/` and
 `.audiograph/auditions/`, are left behind, since every entry in them rebuilds
 on demand (#576); a folder of the same name anywhere else is copied. The copy
-plays its own audio (`.audiograph/derived/` and `clipboard/`) from the moment
-it opens, so deleting or moving the original afterwards costs it none of it
-(#612). A file the project plays from where the user keeps it (a take loaded
-in place) is still played from that path: one inside the original's folder is
-copied with it, but the copy goes on naming the original's.
+plays its own audio (`.audiograph/derived/`, `clipboard/` and `generated/`)
+from the moment it opens, so deleting or moving the original afterwards costs
+it none of it (#612). A file the project plays from where the user keeps it (a
+take loaded in place) is still played from that path: one inside the
+original's folder is copied with it, but the copy goes on naming the
+original's.
 
 **Returns:**
 ```typescript

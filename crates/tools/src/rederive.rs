@@ -201,7 +201,11 @@ pub fn replay(store: &session::Store, node: session::NodeId) -> Result<Replay, S
 /// circle.
 struct Rebuild<'a> {
     store: &'a session::Store,
+    /// This project's `derived/`, resolved.
     derived: PathBuf,
+    /// And as the store spells it, which is how `Store::counterpart`
+    /// spells this project's files.
+    derived_spelt: PathBuf,
     naming: HashMap<PathBuf, Vec<session::NodeId>>,
     tried: HashSet<session::NodeId>,
 }
@@ -222,39 +226,61 @@ impl<'a> Rebuild<'a> {
         Self {
             store,
             derived: key(&derived_dir(store.project_dir())),
+            derived_spelt: derived_dir(store.project_dir()),
             naming,
             tried: HashSet::new(),
         }
     }
 
-    /// `node`'s derived files that are not on disk.
-    fn missing(&self, node: session::NodeId) -> Vec<PathBuf> {
-        let mut out: Vec<PathBuf> = Vec::new();
-        for path in missing_paths(self.store, node) {
-            let in_derived = path.parent().is_some_and(|p| key(p) == self.derived);
-            if in_derived && !out.contains(&path) {
-                out.push(path);
+    /// `node`'s derived files that are not on disk, each as the path the
+    /// node is read with and the file a rebuild writes.
+    ///
+    /// A path into this project's `derived/` is rebuilt where it is. A path
+    /// into another project's `derived/` (a copy whose original is gone or
+    /// out of reach, and whose own file of that name a history sweep took)
+    /// is rebuilt into this project's `derived/` under the same name, never
+    /// into the other project's folder; a read then finds it there
+    /// (`session::relocate`, rule 1).
+    fn missing(&self, node: session::NodeId) -> Vec<Missing> {
+        let mut out: Vec<Missing> = Vec::new();
+        for named in missing_paths(self.store, node) {
+            let target = if named.parent().is_some_and(|p| key(p) == self.derived) {
+                named.clone()
+            } else {
+                match self.store.counterpart(&named) {
+                    Some(here) if here.parent() == Some(self.derived_spelt.as_path()) => here,
+                    _ => continue,
+                }
+            };
+            if !out.iter().any(|m| m.target == target) {
+                out.push(Missing { named, target });
             }
         }
         out
     }
 
-    /// Put `path` back, through `prefer` first and then any other node
-    /// that names it. The name is the content, so any step that writes it
-    /// writes these bytes — and a branch made by `apply_diff` shares its
+    /// Put `missing.target` back, through `prefer` first and then any other
+    /// node that names it. The name is the content, so any step that writes
+    /// it writes these bytes — and a branch made by `apply_diff` shares its
     /// parent's audio but cannot itself be replayed, so asking only the
     /// branch would call a file lost that its parent rebuilds.
-    fn file(&mut self, path: &Path, prefer: session::NodeId) -> Result<(), String> {
-        if path.is_file() {
+    fn file(&mut self, missing: &Missing, prefer: session::NodeId) -> Result<(), String> {
+        let target = &missing.target;
+        if target.is_file() {
             return Ok(());
         }
-        let name = path
+        let name = target
             .file_name()
             .ok_or_else(|| "the missing path has no file name".to_string())?
             .to_string_lossy()
             .to_string();
         let mut candidates = vec![prefer];
-        for id in self.naming.get(&key(path)).cloned().unwrap_or_default() {
+        for id in self
+            .naming
+            .get(&key(&missing.named))
+            .cloned()
+            .unwrap_or_default()
+        {
             if id != prefer {
                 candidates.push(id);
             }
@@ -265,7 +291,7 @@ impl<'a> Rebuild<'a> {
                 continue;
             }
             match self.node(id) {
-                Ok(()) if path.is_file() => return Ok(()),
+                Ok(()) if target.is_file() => return Ok(()),
                 Ok(()) => {
                     first_error.get_or_insert_with(|| {
                         format!(
@@ -293,25 +319,37 @@ impl<'a> Rebuild<'a> {
             .get(node)
             .map_err(|e| format!("failed to read node {}: {e}", node.to_hex()))?;
         if let Some(parent) = n.parent {
-            for path in self.missing(parent) {
-                self.file(&path, parent)?;
+            for missing in self.missing(parent) {
+                self.file(&missing, parent)?;
             }
         }
         let replayed = replay(self.store, node)?;
-        for path in self.missing(node) {
-            if let Some(rebuilt) = path.file_name().and_then(|name| replayed.path(name)) {
-                put_back(&rebuilt, &path)?;
+        for missing in self.missing(node) {
+            let target = &missing.target;
+            if let Some(rebuilt) = target.file_name().and_then(|name| replayed.path(name)) {
+                put_back(&rebuilt, target)?;
             }
         }
         Ok(())
     }
 }
 
+/// A derived file a node names that is not on disk.
+struct Missing {
+    /// The path the node is read with.
+    named: PathBuf,
+    /// Where a rebuild writes it: `named` itself in this project's
+    /// `derived/`, or this project's file of that name for a path into
+    /// another project's.
+    target: PathBuf,
+}
+
 /// Regenerate `missing`, a file `node` names.
 ///
 /// Returns `Ok(true)` when the file is present afterwards — including
 /// when it turned out to be there all along, so callers can use this as
-/// "make sure this exists" without checking first.
+/// "make sure this exists" without checking first. A file of another
+/// project's `derived/` is put back in this project's, under its name.
 ///
 /// `Err` names what stopped it, in a sentence a user can act on. A
 /// refusal is the right outcome for a file with no way back: the
@@ -325,7 +363,16 @@ pub fn ensure_present(
     if missing.is_file() {
         return Ok(true);
     }
-    Rebuild::new(store).file(missing, node)?;
+    let mut rebuild = Rebuild::new(store);
+    let target = rebuild
+        .missing(node)
+        .into_iter()
+        .find(|m| m.named == missing || m.target == missing)
+        .unwrap_or_else(|| Missing {
+            named: missing.to_path_buf(),
+            target: missing.to_path_buf(),
+        });
+    rebuild.file(&target, node)?;
     Ok(true)
 }
 
@@ -340,21 +387,25 @@ pub fn ensure_present(
 /// before anything opens it. The head's audio is never swept, so the
 /// head's own reads need nothing.
 ///
-/// Only files in the project's `derived/` are rebuilt. Those are the
-/// only files the app ever deletes, and the only ones a replay can
-/// write; a missing file anywhere else is the user's own source, moved
-/// or deleted, and is left for the read to report as it always has.
+/// Only derived files are rebuilt, and only into the project's own
+/// `derived/`. Those are the only files the app ever deletes, and the
+/// only ones a replay can write. A node that names another project's
+/// `derived/` file (a copied project's node, whose original is gone or out
+/// of reach) has it rebuilt here under the same name, which reads then
+/// find; nothing is written into the other project's folder. A missing
+/// file anywhere else is the user's own source, moved or deleted, and is
+/// left for the read to report as it always has.
 ///
-/// Returns the files it rebuilt. `Err` names the first file it could not
-/// rebuild and why, and the caller refuses rather than go on to render
-/// silence or move the head to a state that cannot play.
+/// Returns the files it rebuilt, where they now are. `Err` names the first
+/// file it could not rebuild and why, and the caller refuses rather than
+/// go on to render silence or move the head to a state that cannot play.
 pub fn materialize(store: &session::Store, node: session::NodeId) -> Result<Vec<PathBuf>, String> {
     let mut rebuild = Rebuild::new(store);
     let missing = rebuild.missing(node);
-    for path in &missing {
-        rebuild.file(path, node)?;
+    for m in &missing {
+        rebuild.file(m, node)?;
     }
-    Ok(missing)
+    Ok(missing.into_iter().map(|m| m.target).collect())
 }
 
 /// Copy a rebuilt file into place under its name, atomically.

@@ -1,7 +1,9 @@
-//! `revert_to` — move the head back to `target` (M24). Node ids hash the
-//! state, so this lands on `target` itself rather than adding a node:
-//! nothing is created, every node after it is kept, and only the head
-//! moves (see `Store::revert_to`).
+//! `revert_to` — move the head back to `target` (M24), with
+//! `Store::set_head` (see `Store::revert_to`): nothing is created, every
+//! node after it is kept, and only the head moves. It used to append
+//! `target`'s state, which node ids hashing the state made `target` itself;
+//! in a copied project a node reads with that project's paths, which its id
+//! was not hashed from, so the append added a duplicate of it (#612).
 
 use serde::Deserialize;
 use serde_json::{json, Value};
