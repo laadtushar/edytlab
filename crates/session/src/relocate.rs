@@ -204,6 +204,16 @@ fn kept_folder(path: &Path) -> Option<(Kept, &Path)> {
     Some((kept, store.parent()?))
 }
 
+/// Where a path a clip names is, for the rules.
+enum Place {
+    /// In one of this project's own content-named folders.
+    Own,
+    /// In one of another project's: where this project keeps that name.
+    Theirs(PathBuf),
+    /// Anywhere else.
+    Elsewhere,
+}
+
 /// The rules in the module docs, for one project, remembering for each
 /// folder a clip names whether it is this project's own under another
 /// spelling. A [`crate::Store`] keeps one for as long as it is open, and
@@ -250,34 +260,49 @@ impl Rebinder {
     /// Neither file need exist: the rebuild of a gone file asks this for
     /// where to put it, and the repair of a copy for where to copy to.
     pub fn counterpart(&self, path: &Path) -> Option<PathBuf> {
-        let name = path.file_name()?;
-        let (kept, project) = kept_folder(path)?;
+        match self.place(path) {
+            Place::Theirs(local) => Some(local),
+            Place::Own | Place::Elsewhere => None,
+        }
+    }
+
+    /// Where `path` is, for the rules.
+    fn place(&self, path: &Path) -> Place {
+        let Some(name) = path.file_name() else {
+            return Place::Elsewhere;
+        };
+        let Some((kept, project)) = kept_folder(path) else {
+            return Place::Elsewhere;
+        };
         let local = kept.dir(&self.project_dir).join(name);
         // The usual case, this project's own file as written, costs a
         // comparison and no file system call.
-        if local == path || self.is_own(path.parent()?, kept) {
-            return None;
+        if local == path || path.parent().is_some_and(|f| self.is_own(f, kept)) {
+            return Place::Own;
         }
         if kept == Kept::Generated && !project.join(STORE_DIR).is_dir() {
-            return None;
+            return Place::Elsewhere;
         }
-        Some(local)
+        Place::Theirs(local)
     }
 
     /// Where a clip naming `path` should read instead, if anywhere: always
     /// a file that exists.
     fn local_for(&self, path: &Path) -> Option<PathBuf> {
-        // Rule 1.
-        if let Some(local) = self.counterpart(path) {
-            if local.is_file() {
-                return Some(local);
+        match self.place(path) {
+            // This project's own file, as written, whether it is there or
+            // not: a gone one is rebuilt where it is named.
+            Place::Own => None,
+            // Rule 1.
+            Place::Theirs(local) if local.is_file() => Some(local),
+            // Rule 2.
+            Place::Theirs(_) | Place::Elsewhere => {
+                if path.exists() {
+                    return None;
+                }
+                self.by_name(path.file_name()?)
             }
         }
-        // Rule 2.
-        if path.exists() {
-            return None;
-        }
-        self.by_name(path.file_name()?)
     }
 
     /// This project's file called `name`, in `derived/`, `clipboard/` or
