@@ -664,11 +664,12 @@ impl ToolDispatcher {
 ///   because the day it does append one, the safe default is this one.
 ///
 /// This list is an optimisation and a diagnostic, not the safety
-/// mechanism. The safety mechanism is that a derived file is named
-/// `blake3(its own samples)`, so any rebuild is checked against the name
-/// it has to produce — a misclassification here cannot corrupt audio, it
-/// can only waste a rebuild attempt. `tool_provenance.rs` pins these
-/// names against the registry so a rename cannot quietly drop one.
+/// mechanism. The safety mechanism is that a derived file is named by a
+/// hash of its own samples (`provenance::audio_hash`), so any rebuild is
+/// checked against the name it has to produce — a misclassification here
+/// cannot corrupt audio, it can only waste a rebuild attempt.
+/// `tool_provenance.rs` pins these names against the registry so a rename
+/// cannot quietly drop one.
 /// Tools that, when a call names no `range`, take it from the
 /// `[apply to …]` prefix the app puts on a chat message for a selection.
 ///
