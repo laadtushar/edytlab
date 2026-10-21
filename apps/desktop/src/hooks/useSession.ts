@@ -22,6 +22,9 @@
  *  - holds the one line every session-changing command goes through
  *    (`lib/sessionQueue.ts`, #498), so edits reach the backend, and their
  *    heads are adopted, in the order the user made them.
+ *  - counts the moments the history graph has to be read again
+ *    (`graphVersion`, #602): the one trigger the open graph follows, so it
+ *    is not left to each caller to remember.
  *
  * It does not open projects. `App` does, as a turn in the line (it also
  * restores the view in the same turn), and tells the hook through
@@ -54,6 +57,7 @@ import {
   getGraph,
   getHeadTrail,
   getSessionHead,
+  onAgentDone,
   onNodeCreated,
   onToolCall,
   onToolCallEnd,
@@ -153,6 +157,24 @@ export interface UseSessionResult {
    */
   forgetRemoved: () => Promise<NodeId[]>;
   /**
+   * A number that goes up whenever what the history graph draws may have
+   * changed, and only then (#602): hand it to `GraphView` as `refreshKey`
+   * and the open graph is read again, once. It goes up when
+   *
+   * - the head moves: an edit, undo, redo, "Set as head", an agent step,
+   *   and a project opening, which counts even if its head is the one the
+   *   last had;
+   * - the agent's turn ends, because `name_node` sets a label and moves
+   *   nothing (#601), so no node is created for anything to hear of;
+   * - `forgetRemoved` runs, because it runs when nodes may be gone. That
+   *   is when the agent's `compact_session` ends (it makes no node
+   *   either), and when the store refuses an undo or redo.
+   *
+   * A click on a node in the graph is a preview and moves none of these
+   * (#522), so it does not read the graph again.
+   */
+  graphVersion: number;
+  /**
    * Run a command that changes the session or moves the head once every
    * one queued before it has finished (#498). The command's whole turn
    * goes in: the call, and adopting the head it returns. An edit sent
@@ -174,13 +196,23 @@ export function useSession(): UseSessionResult {
   // One per mounted session, made once: the line is state, so it must not
   // be rebuilt by a render.
   const [queue] = useState(createSessionQueue);
+  // The one trigger for reading the history graph again. A render with
+  // more than one cause for it (a head move and a turn ending together)
+  // reads the graph once, because `GraphView` sees only the number.
+  const [graphVersion, setGraphVersion] = useState(0);
+  const graphChanged = useCallback(() => setGraphVersion((n) => n + 1), []);
   // Saves the path with the project, outside the line above: no edit waits
   // for the disk. `send` reads the bridge when it runs, not now.
   const [writer] = useState(() => createTrailWriter((path) => saveHeadTrail(path)));
   const dispatchHead = useCallback(
     (action: HeadAction) => {
-      const next = headTrailReducer(historyRef.current, action);
-      if (next === historyRef.current) return;
+      const before = historyRef.current;
+      const next = headTrailReducer(before, action);
+      // Every head move comes through here, so this is the one place the
+      // graph hears of them (#602). A project opening is one even when it
+      // is on the same head: the nodes behind it are another project's.
+      if (next.head !== before.head || action.type === "reset") graphChanged();
+      if (next === before) return;
       historyRef.current = next;
       setHistory(next);
       // The path is saved when the user's steps change it. Not when it is
@@ -201,7 +233,7 @@ export function useSession(): UseSessionResult {
           break;
       }
     },
-    [writer],
+    [writer, graphChanged],
   );
 
   // Subscribe to node-created so the head pointer follows the agent's
@@ -277,7 +309,7 @@ export function useSession(): UseSessionResult {
     (from: NodeId, to: NodeId) => dispatchHead({ type: "stepForward", from, to }),
     [dispatchHead],
   );
-  const forgetRemoved = useCallback(async (): Promise<NodeId[]> => {
+  const forget = useCallback(async (): Promise<NodeId[]> => {
     // What the path names now. A node an edit adds while the store is being
     // read is not among them, so it cannot be taken for one that is gone.
     const { trail: path, redo } = historyRef.current;
@@ -297,11 +329,23 @@ export function useSession(): UseSessionResult {
     if (gone.length > 0) dispatchHead({ type: "drop", nodes: gone });
     return gone;
   }, [dispatchHead]);
+  const forgetRemoved = useCallback(async (): Promise<NodeId[]> => {
+    try {
+      return await forget();
+    } finally {
+      // It runs when nodes may be gone, whatever the path named and
+      // however the store answered, and the graph is drawn from the store
+      // and not from the path (#602). After the read, not before: the
+      // graph is then read from a store that is settled.
+      graphChanged();
+    }
+  }, [forget, graphChanged]);
 
   // When the agent's compaction ends, forget what it deleted, in the line:
   // an undo pressed meanwhile waits for it, so it is never sent to a node
   // that is gone. A dry run deletes nothing, and the store then answers
-  // with every node the path names.
+  // with every node the path names. `forgetRemoved` also says the graph is
+  // to be read again, so a compaction needs nothing more for the view.
   useEffect(() => {
     let cancelled = false;
     const unlisten: (() => void)[] = [];
@@ -324,11 +368,14 @@ export function useSession(): UseSessionResult {
         void queue.run(forgetRemoved);
       }),
     );
+    // A turn's end is the word on a label the agent set: `name_node` moves
+    // no head and makes no node (#601), so nothing else announces it (#602).
+    keep(onAgentDone(graphChanged));
     return () => {
       cancelled = true;
       for (const fn of unlisten) fn();
     };
-  }, [queue, forgetRemoved]);
+  }, [queue, forgetRemoved, graphChanged]);
 
   const peekUndo = useCallback(() => {
     const { head: from, trail: path } = historyRef.current;
@@ -352,6 +399,7 @@ export function useSession(): UseSessionResult {
     stepBack,
     stepForward,
     forgetRemoved,
+    graphVersion,
     inOrder: queue.run,
   };
 }
