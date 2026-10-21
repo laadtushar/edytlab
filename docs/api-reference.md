@@ -1156,13 +1156,30 @@ way until the user enables them.
 
 ### `installBundledSkills() → number`
 
-Copy the pre-installed skill `.md` files out of the Tauri resource bundle into
-`~/.edytlab/skills/` on first launch. Returns the number copied.
+Keep the skill `.md` files that ship in the Tauri resource bundle current in
+`~/.edytlab/skills/`. The app calls it at every launch. Returns the number of
+skills written: copied in, or updated.
 
-Returns `0` — not an error — when the skills directory already holds `.md`
-files, so a user's edits are never overwritten, and when running in dev without
-the bundled-skills resource dir. Always safe to call, and non-fatal: the app
-calls it on startup and ignores the result.
+The folder is the user's, so the app records what it installed in
+`~/.edytlab/skills/.bundled.json` and replaces a file only while it is still
+the text it installed:
+
+- a skill that is missing and was never installed is copied in;
+- one that is unedited, when the bundled text has changed, is replaced (a copy
+  from before the record counts as unedited if its text is one the app has
+  shipped before);
+- one the user has edited is left alone, and the new text is written beside it
+  as `<name>.bundled.md`, which neither the agent nor the Skills editor lists;
+- one the user deleted is not brought back.
+
+Every write goes through a temporary file renamed into place, and nothing is
+deleted. A skill that cannot be updated is logged and skipped. When anything
+was written the skill library is reloaded, so the agent sees the new text
+without a restart.
+
+Returns `0` — not an error — when nothing was due, and when running in dev
+without the bundled-skills resource dir. Always safe to call, and non-fatal: the
+app calls it on startup and ignores the result.
 
 ---
 
