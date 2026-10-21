@@ -426,7 +426,7 @@ const commands = [
       {
         name: "installBundledSkills()",
         returns: "number",
-        desc: "Copy the skills that ship with the app into the user's library. Returns how many were written.",
+        desc: "Keep the skills that ship with the app current in the user's library: copy in missing ones, update those the user has not edited (the new text of an edited one goes beside it as <name>.bundled.md), and never bring back one the user deleted. Returns how many were written.",
       },
     ],
   },

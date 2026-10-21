@@ -24,7 +24,7 @@ Here a DJ asks for two tracks' tempos, the incoming one is time-stretched to mat
 **2/8**
 
 ```
-How it works: an AI agent turns your request into calls to 93 audio tools. The tools do the DSP, in Rust, on your machine. The model only picks and orders them. It never touches the samples.
+How it works: an AI agent turns your request into calls to 94 audio tools. The tools do the DSP, in Rust, on your machine. The model only picks and orders them. It never touches the samples.
 ```
 
 **3/8**

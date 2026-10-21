@@ -651,9 +651,14 @@ is bounded (1 GiB by default, overridable with `EDYTLAB_PREVIEW_CACHE_BYTES`)
 and evicts least-recently-used entries; an evicted entry is re-rendered
 byte-identically on demand. `storage_report` reports what it is holding. A mix
 bigger than the cap cannot be kept, so the call fails (the cache is left as it
-was) instead of returning a path to a file that is already gone. While an A/B
-compare is open its two sides are held in the same cache (`prepareCompare`),
-outside the cap: a render made meanwhile evicts only other entries to fit.
+was) instead of returning a path to a file that is already gone. The entry it
+returns is the one the window plays, so it is held in the cache, outside the
+cap, until the window's next `renderPreview` or a project change (#607): the
+transport loads the file again whenever the timeline mounts (a switch to the
+Graph or Transcript tab and back), and a render made meanwhile (the agent's,
+an audition, a graph preview) evicts only other entries to fit. A call that
+fails changes nothing, and the previous hold stays. While an A/B compare is
+open its two sides are held in the same cache too (`prepareCompare`).
 
 ```typescript
 const wavPath = await bridge.renderPreview(nodeId);
@@ -1167,13 +1172,30 @@ way until the user enables them.
 
 ### `installBundledSkills() → number`
 
-Copy the pre-installed skill `.md` files out of the Tauri resource bundle into
-`~/.edytlab/skills/` on first launch. Returns the number copied.
+Keep the skill `.md` files that ship in the Tauri resource bundle current in
+`~/.edytlab/skills/`. The app calls it at every launch. Returns the number of
+skills written: copied in, or updated.
 
-Returns `0` — not an error — when the skills directory already holds `.md`
-files, so a user's edits are never overwritten, and when running in dev without
-the bundled-skills resource dir. Always safe to call, and non-fatal: the app
-calls it on startup and ignores the result.
+The folder is the user's, so the app records what it installed in
+`~/.edytlab/skills/.bundled.json` and replaces a file only while it is still
+the text it installed:
+
+- a skill that is missing and was never installed is copied in;
+- one that is unedited, when the bundled text has changed, is replaced (a copy
+  from before the record counts as unedited if its text is a version that shipped
+  before the record existed);
+- one the user has edited is left alone, and the new text is written beside it
+  as `<name>.bundled.md`, which neither the agent nor the Skills editor lists;
+- one the user deleted is not brought back.
+
+Every write goes through a temporary file renamed into place, and nothing is
+deleted. A skill that cannot be updated is logged and skipped. When anything
+was written the skill library is reloaded, so the agent sees the new text
+without a restart.
+
+Returns `0` — not an error — when nothing was due, and when running in dev
+without the bundled-skills resource dir. Always safe to call, and non-fatal: the
+app calls it on startup and ignores the result.
 
 ---
 

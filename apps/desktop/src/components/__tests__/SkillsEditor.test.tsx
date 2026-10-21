@@ -44,6 +44,16 @@ describe("SkillsEditor", () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
   });
 
+  it("tells the user the bundled skills are updated unless they edited them (#574)", async () => {
+    render(<SkillsEditor />);
+    await waitFor(() => expect(listSkillsMock).toHaveBeenCalled());
+
+    // Before any skill is open, the pane the user lands on says so.
+    const note = await screen.findByTestId("skills-bundled-note");
+    expect(note.textContent).toMatch(/updated when a release changes them/);
+    expect(note.textContent).toMatch(/unless you have edited them/);
+  });
+
   it("lists skills on mount and opens one on click", async () => {
     const user = userEvent.setup();
     render(<SkillsEditor />);

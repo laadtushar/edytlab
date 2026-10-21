@@ -59,7 +59,7 @@ The part I like best: the agent flags its own edge cases. Bars that run a beat b
 **6/7**
 
 ```
-How it works: the model never hears the audio. It gets text (tempo, key, loudness) and picks from 93 deterministic tools. The DSP runs on your machine, in Rust. The chat goes to the provider you pick, or stays local with Ollama.
+How it works: the model never hears the audio. It gets text (tempo, key, loudness) and picks from 94 deterministic tools. The DSP runs on your machine, in Rust. The chat goes to the provider you pick, or stays local with Ollama.
 ```
 
 **7/7**
@@ -98,7 +98,7 @@ Attach `reel-highlights.mp4`, and add alt text (use the one in `instagram.md`).
 ```
 I built a free, open-source desktop audio editor you talk to (macOS, Windows, Linux; MIT).
 
-The video shows three DJ jobs described in plain English: a 128 BPM track beatmatched to 120, an 8-bar drum intro extended to 16, and a three-track mini-mix. An AI agent calls 93 audio tools that run on your machine; the chat goes to the provider you choose, or stays local with Ollama.
+The video shows three DJ jobs described in plain English: a 128 BPM track beatmatched to 120, an 8-bar drum intro extended to 16, and a three-track mini-mix. An AI agent calls 94 audio tools that run on your machine; the chat goes to the provider you choose, or stays local with Ollama.
 
 Demo tracks are synthetic loops. Unsigned installers. https://edytlab.com
 
@@ -272,7 +272,7 @@ What happens in each
 3. A warm-up mix at 124 BPM. Two tracks are time-stretched to 124, keeping their pitch. The agent checks that their beats now line up and sequences them so each comes in about 4 bars before the one before it ends, with a crossfade over each overlap; it brings the last track in on the bar line before it rather than at the exact 4-bar mark. Each track is brought to about -14 LUFS, with a limiter at -1 dBFS on the master, and the mix is exported as a 79-second WAV. (TODO: step timestamps)
 
 How it works
-The model never hears the audio. It chooses and orders calls to 93 deterministic audio tools; the signal processing runs on your computer, in Rust. Your audio files aren't uploaded. The chat goes to the AI provider you pick (Anthropic, OpenAI, OpenRouter, Groq, Gemini), or stays local with Ollama.
+The model never hears the audio. It chooses and orders calls to 94 deterministic audio tools; the signal processing runs on your computer, in Rust. Your audio files aren't uploaded. The chat goes to the AI provider you pick (Anthropic, OpenAI, OpenRouter, Groq, Gemini), or stays local with Ollama.
 
 Get it
 Free and open source (MIT) for macOS, Windows and Linux. The installers are unsigned, so macOS and Windows warn on first launch; the release notes have the steps.
@@ -299,7 +299,7 @@ stay for several hours. Do not ask anyone to upvote.
 
 **Title options** (counts include the `Show HN: ` prefix; all 80 or under):
 
-1. `Show HN: edytlab – desktop audio editor where an LLM calls 93 DSP tools` (71)
+1. `Show HN: edytlab – desktop audio editor where an LLM calls 94 DSP tools` (71)
 2. `Show HN: edytlab – edit audio by chatting; the DSP runs locally in Rust` (71)
 
 Recommended: 1.
@@ -307,7 +307,7 @@ Recommended: 1.
 **First comment:**
 
 ```
-Hi HN. edytlab is a desktop audio editor (macOS, Windows, Linux, MIT) where you edit by describing what you want. Load some audio and ask for something like "time-stretch the second track to match the first one's tempo, start it 8 bars before the first ends, crossfade, limit at -1 dB, bring it to -14 LUFS and export a WAV". An LLM agent turns that into calls to 93 audio tools. The tools do the signal processing; the model only chooses and sequences them, and it never receives samples. It gets text: the session state and measurements such as tempo, key, beat grid and loudness.
+Hi HN. edytlab is a desktop audio editor (macOS, Windows, Linux, MIT) where you edit by describing what you want. Load some audio and ask for something like "time-stretch the second track to match the first one's tempo, start it 8 bars before the first ends, crossfade, limit at -1 dB, bring it to -14 LUFS and export a WAV". An LLM agent turns that into calls to 94 audio tools. The tools do the signal processing; the model only chooses and sequences them, and it never receives samples. It gets text: the session state and measurements such as tempo, key, beat grid and loudness.
 
 There are three screen recordings of DJ jobs on the site (2:45, 1:55 and 1:58, with sound): https://edytlab.com/#demos. Some things about them that the captions don't say:
 
@@ -357,7 +357,7 @@ Answers to have ready:
 | Is the audio really never uploaded? | There is no server of mine in the loop. The traffic is the chat to your chosen provider, plus the request Settings makes to it for its model list (your key, no prompt or audio). You can check it with your OS network tools. |
 | Why Tauri and not Electron? | The back end is Rust, so the UI process and the DSP crates share one workspace. Don't claim size or speed numbers; none were measured. |
 | Is there a web version? | No. A browser-based version is being evaluated in #389 and is undecided. |
-| 93 tools is a lot for a model. | It is. For Ollama, the app sends a core set of about 15 plus the ones your message names, and lists the rest by name (#395, #479; since v0.5.0). Hosted providers still get all of them; Anthropic's prompt cache needs a fixed list. Agent profiles and a capabilities blacklist can narrow the list, and plan first keeps a human in the loop. |
+| 94 tools is a lot for a model. | It is. For Ollama, the app sends a core set of about 15 plus the ones your message names, and lists the rest by name (#395, #479; since v0.5.0). Hosted providers still get all of them; Anthropic's prompt cache needs a fixed list. Agent profiles and a capabilities blacklist can narrow the list, and plan first keeps a human in the loop. |
 
 ---
 

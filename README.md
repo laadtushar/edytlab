@@ -86,7 +86,7 @@ Ollama is sent a smaller set of tools than the hosted providers: the common edit
 ┌──────────────────────────────────────────────────────────────────┐
 │  Rust core (cargo workspace)                                     │
 │   crates/ai          — LlmProvider trait, agent loop, keychain   │
-│   crates/tools       — 93 deterministic tools + dispatcher       │
+│   crates/tools       — 94 deterministic tools + dispatcher       │
 │   crates/session     — DAG of session states, fork/diff/compare  │
 │   crates/audio-*     — decode, DSP, engine, time-domain ops      │
 │   crates/ml-*        — Demucs, Whisper (inference not shipped)   │
@@ -120,7 +120,7 @@ apps/
   cli/                Headless one-turn agent driver (edytlab-cli) for E2E tests and smoke runs
 crates/
   ai/                 LLM provider abstraction, agent loop, keychain, prompt cache
-  tools/              93 audio-editing tools (load, cut, gain, normalize, render, …)
+  tools/              94 audio-editing tools (load, cut, gain, normalize, render, …)
   session/            Session-graph data model, DAG storage, fork/diff/compare
   audio-decoder/      File decode (symphonia)
   audio-dsp/          Sample-level DSP shared by the tools and the renderer (no dependencies)

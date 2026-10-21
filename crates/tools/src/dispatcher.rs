@@ -249,18 +249,19 @@ impl ToolDispatcher {
             DuplicateTrackTool, EchoTool, EqTool, ExportLabelsTool, ExportMultipleTool,
             ExportRecipeTool, FadeTool, ForkNodeTool, GainTool, GenerateNoiseTool,
             GenerateToneTool, HighPassFilterTool, ImportLabelsTool, InsertSilenceTool, InvertTool,
-            LabelTool, LevelerTool, LimiterTool, LoadTool, LowPassFilterTool, MixToNewTrackTool,
-            MonoToStereoTool, MoveClipTool, MuteTrackTool, NameNodeTool, NoiseGateTool,
-            NoiseReductionTool, NormalizeLoudnessTool, NormalizeTool, NotchFilterTool,
-            PasteRegionTool, PhaserTool, PitchShiftTool, PlotSpectrumTool, PunchInTool,
-            RemoveClipTool, RemoveEffectTool, RemoveFillersTool, RemoveSendTool, RemoveTrackTool,
-            RenameTrackTool, RenderFinalTool, RenderPreviewTool, ReorderEffectsTool,
-            RepeatSelectionTool, ResampleTrackTool, ReverbTool, ReverseTool, RevertToTool,
-            SelectRegionTool, SeparateStemsTool, SetClipEnvelopeTool, SetEffectBypassedTool,
-            SetEffectParamsTool, SetPanTool, SetSendTool, SetSyncLockTool, SetTrackGainTool,
-            SilenceFinderTool, SilenceRegionTool, SoloTrackTool, SplitBySpeakerTool, SplitClipTool,
-            StereoToMonoTool, StereoWidenerTool, StorageReportTool, TimeShiftTool, TimeStretchTool,
-            TranscribeTool, TremoloTool, TrimTool, TruncateSilenceTool, VocalReductionTool,
+            LabelTool, LevelerTool, LimiterTool, ListSessionTool, LoadTool, LowPassFilterTool,
+            MixToNewTrackTool, MonoToStereoTool, MoveClipTool, MuteTrackTool, NameNodeTool,
+            NoiseGateTool, NoiseReductionTool, NormalizeLoudnessTool, NormalizeTool,
+            NotchFilterTool, PasteRegionTool, PhaserTool, PitchShiftTool, PlotSpectrumTool,
+            PunchInTool, RemoveClipTool, RemoveEffectTool, RemoveFillersTool, RemoveSendTool,
+            RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
+            ReorderEffectsTool, RepeatSelectionTool, ResampleTrackTool, ReverbTool, ReverseTool,
+            RevertToTool, SelectRegionTool, SeparateStemsTool, SetClipEnvelopeTool,
+            SetEffectBypassedTool, SetEffectParamsTool, SetPanTool, SetSendTool, SetSyncLockTool,
+            SetTrackGainTool, SilenceFinderTool, SilenceRegionTool, SoloTrackTool,
+            SplitBySpeakerTool, SplitClipTool, StereoToMonoTool, StereoWidenerTool,
+            StorageReportTool, TimeShiftTool, TimeStretchTool, TranscribeTool, TremoloTool,
+            TrimTool, TruncateSilenceTool, VocalReductionTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -391,6 +392,9 @@ impl ToolDispatcher {
         d.register(Box::new(ImportLabelsTool));
         // export_multiple: non-destructive per-track WAV export.
         d.register(Box::new(ExportMultipleTool));
+        // #618: the way to the tracks, buses and markers the session block
+        // cut.
+        d.register(Box::new(ListSessionTool));
         d
     }
 
@@ -664,11 +668,12 @@ impl ToolDispatcher {
 ///   because the day it does append one, the safe default is this one.
 ///
 /// This list is an optimisation and a diagnostic, not the safety
-/// mechanism. The safety mechanism is that a derived file is named
-/// `blake3(its own samples)`, so any rebuild is checked against the name
-/// it has to produce — a misclassification here cannot corrupt audio, it
-/// can only waste a rebuild attempt. `tool_provenance.rs` pins these
-/// names against the registry so a rename cannot quietly drop one.
+/// mechanism. The safety mechanism is that a derived file is named by a
+/// hash of its own samples (`provenance::audio_hash`), so any rebuild is
+/// checked against the name it has to produce — a misclassification here
+/// cannot corrupt audio, it can only waste a rebuild attempt.
+/// `tool_provenance.rs` pins these names against the registry so a rename
+/// cannot quietly drop one.
 /// Tools that, when a call names no `range`, take it from the
 /// `[apply to …]` prefix the app puts on a chat message for a selection.
 ///

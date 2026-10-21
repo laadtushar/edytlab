@@ -152,7 +152,7 @@ When you finish a track and want a version DJs can mix, you probably extend the 
 
 Here is how it went in a recording of my tool. The track is at 124 BPM with 1.935-second bars and the first downbeat at 0.476 s (the agent works that out and says so). The drums-only first 8 bars are copied from that downbeat and spliced in after themselves, so the intro runs 16 bars. A 200 Hz high-pass holds the low end back until the drop on bar 17, the first 4 bars fade in, and the result is exported as a WAV. The agent flagged that the export peaks right at full scale.
 
-What it is and isn't: a desktop editor for audio files where an AI agent calls tools (there are 93). It is not a DAW. No MIDI, no plugin hosting, and no stem separation (not built). The demo track is a short synthetic loop I generated with a drums-only intro written in, so this is a best case. A real arrangement with a pad or a vocal in bar 1 would be messier, and the recording doesn't show that. Beat detection is an estimate.
+What it is and isn't: a desktop editor for audio files where an AI agent calls tools (there are 94). It is not a DAW. No MIDI, no plugin hosting, and no stem separation (not built). The demo track is a short synthetic loop I generated with a drums-only intro written in, so this is a best case. A real arrangement with a pad or a vocal in bar 1 would be messier, and the recording doesn't show that. Beat detection is an estimate.
 
 Two things I'd like producers' opinions on:
 
@@ -189,7 +189,7 @@ edytlab: an MIT-licensed desktop audio editor driven by an AI agent (Rust, Tauri
 ```
 Disclosure: it's my project.
 
-edytlab is a desktop audio editor for macOS, Windows and Linux. You describe an edit in a chat box and an AI agent calls deterministic audio tools (93 of them) that run locally in a Rust engine. The model never receives the audio, only text about it. It's MIT-licensed: https://github.com/laadtushar/edytlab. v0.6.0 is the current release.
+edytlab is a desktop audio editor for macOS, Windows and Linux. You describe an edit in a chat box and an AI agent calls deterministic audio tools (94 of them) that run locally in a Rust engine. The model never receives the audio, only text about it. It's MIT-licensed: https://github.com/laadtushar/edytlab. v0.6.0 is the current release.
 
 Where I'd like help:
 
@@ -232,7 +232,7 @@ local-first project, this qualifies on the first and only partly on the second.
 **Title:**
 
 ```
-Open-source desktop app where the model calls 93 audio tools, with an Ollama provider. What I've measured with local models (not much) and what I haven't
+Open-source desktop app where the model calls 94 audio tools, with an Ollama provider. What I've measured with local models (not much) and what I haven't
 ```
 
 **Body:**
@@ -240,7 +240,7 @@ Open-source desktop app where the model calls 93 audio tools, with an Ollama pro
 ```
 Disclosure: my project (MIT). I'm posting here because of the Ollama provider, and because I need data I don't have.
 
-edytlab is a desktop audio editor. You describe an edit and the model chooses and orders calls to 93 deterministic audio tools (EQ, fades, time-stretch, loudness, export). The tools run in a Rust engine on your machine. The model never receives audio, only text: the session state, measurements such as tempo and loudness, and tool results.
+edytlab is a desktop audio editor. You describe an edit and the model chooses and orders calls to 94 deterministic audio tools (EQ, fades, time-stretch, loudness, export). The tools run in a Rust engine on your machine. The model never receives audio, only text: the session state, measurements such as tempo and loudness, and tool results.
 
 What exists for local models:
 
@@ -293,7 +293,7 @@ edytlab: a Tauri 2 audio editor with a zero-dependency DSP crate and a hand-writ
 ```
 Disclosure: my project (MIT), developed with Claude Code; the commit trailers and CLAUDE.md say so. I'm posting engineering notes, and I'd like specific review.
 
-It's a desktop audio editor where an LLM agent calls 93 deterministic tools: a Rust workspace of 16 crates behind a Tauri 2 + React shell. The parts that might interest this sub:
+It's a desktop audio editor where an LLM agent calls 94 deterministic tools: a Rust workspace of 16 crates behind a Tauri 2 + React shell. The parts that might interest this sub:
 
 - audio-dsp has no dependencies, on purpose: functions over &mut [f32] plus a sample rate and channel count, no session types, no IO. It sits below both the tools crate and the renderer, so a dependency there is a dependency everywhere. It exists because the effect algorithms used to be pub(crate) inside tools and the renderer needed them too, which meant a dependency cycle or a second copy.
 - Time-stretch and pitch-shift are a phase vocoder on realfft, with onset-triggered phase resets (spectral-flux onset detection, causal thresholding) to protect transients. I planned on Rubber Band and dropped it: it needs librubberband-dev on Linux, vcpkg on Windows and Homebrew on macOS, and a native dependency like that breaks every CI target at once. The limits are written at the top of crates/audio-time/src/vocoder.rs: dense mixes smear, and the further the factor is from 1.0 the worse.

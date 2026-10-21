@@ -58,7 +58,7 @@ export function Counter({ value, className }: CounterProps) {
   );
 
   // Held at the width of the final figure, with every digit the same
-  // width, so "0" → "93" never nudges the unit beside it while it counts.
+  // width, so "0" → "94" never nudges the unit beside it while it counts.
   return (
     <span
       ref={ref}

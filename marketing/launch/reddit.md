@@ -125,7 +125,7 @@ holds up only if the rules allow it.
 >
 > The design: the model gets a text description of the session (tracks, levels,
 > effects, and measurements like BPM, key, beat grid and EBU R128 loudness) and
-> a list of 93 tools (gain, EQ, compressor, limiter, filters, fades, time
+> a list of 94 tools (gain, EQ, compressor, limiter, filters, fades, time
 > stretch, pitch shift, normalise to a LUFS target, and so on). It picks and
 > orders tools. The audio is processed by the tools, in Rust, deterministically,
 > so the same tool call on the same file gives the same bytes. (The model's
@@ -202,14 +202,14 @@ calling, and quantisation. They want real numbers, not slogans. Do not claim
 any model works unless you have tried it.
 
 **Title:**
-`Open-source desktop app where a local model (Ollama) edits audio by calling 93 tools. Looking for which tool-calling models can handle it`
+`Open-source desktop app where a local model (Ollama) edits audio by calling 94 tools. Looking for which tool-calling models can handle it`
 
 **Body:**
 
 > Disclosure: my project, MIT-licensed.
 >
 > edytlab is a desktop audio editor driven by an LLM agent. The model chooses
-> and orders calls to 93 deterministic audio tools (EQ, compression, time
+> and orders calls to 94 deterministic audio tools (EQ, compression, time
 > stretch, fades, loudness, export); the DSP is in Rust and runs on your
 > machine. Ollama is one of six providers (the others are Anthropic, OpenAI,
 > OpenRouter, Groq and Gemini). For Ollama there's no key: point it at your
@@ -269,7 +269,7 @@ truth.
 > Disclosure: my project, MIT. The repo is developed with Claude Code; the
 > commit trailers say so.
 >
-> The Rust side of a desktop audio editor that an LLM agent drives through 93
+> The Rust side of a desktop audio editor that an LLM agent drives through 94
 > tools:
 >
 > - `audio-dsp` has deliberately zero dependencies: functions over `&mut [f32]`

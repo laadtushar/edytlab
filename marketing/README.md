@@ -75,7 +75,7 @@ These are the claims that are easy to get wrong. Each has bitten a draft once.
 
 | Claim | Where it was checked |
 |---|---|
-| 93 tools | `docs/tools-reference.md` (generated from the tool registry) |
+| 94 tools | `docs/tools-reference.md` (generated from the tool registry) |
 | Six providers: Anthropic, OpenAI, OpenRouter, Groq, Gemini, Ollama | `README.md`, `website/app/docs/getting-started/page.tsx` |
 | Ollama needs no key and can keep the chat on your machine | `website/app/privacy/page.tsx`, user guide |
 | Audio is never uploaded; only the chat goes to the provider (Settings also asks it for its model list, with your key and no prompt or audio) | `website/app/privacy/page.tsx` |

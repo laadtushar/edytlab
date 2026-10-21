@@ -934,6 +934,38 @@ mod tests {
         assert!(held_step(&d, &step, Some(&only_peek), "").is_none());
     }
 
+    /// `list_session` is how the model reaches the part of the session the
+    /// block cut (#618), and it is called page after page. Plan first holds a
+    /// step only for a call that can change the session, so a step of these
+    /// runs without the user being asked, on the real registry and not on a
+    /// stand-in: the tool must really be registered read-only.
+    #[test]
+    fn a_step_of_list_session_calls_is_not_held() {
+        let d = ToolDispatcher::default_dispatcher();
+        assert!(
+            d.get("list_session").is_some(),
+            "list_session is not registered"
+        );
+        let step = [
+            call("a", "list_session", r#"{"what":"tracks"}"#),
+            call(
+                "b",
+                "list_session",
+                r#"{"what":"markers","offset":100,"limit":50}"#,
+            ),
+        ];
+        assert!(held_step(&d, &step, None, "").is_none());
+
+        // The control: the same step with an edit in it is held, and then
+        // every call is listed, `list_session` among them.
+        let with_edit = [
+            call("a", "list_session", r#"{"what":"buses"}"#),
+            call("b", "set_track_gain", r#"{"track":0,"db":3.0}"#),
+        ];
+        let held = held_step(&d, &with_edit, None, "").expect("an edit is held");
+        assert_eq!(held.len(), 2);
+    }
+
     #[test]
     fn held_step_lists_every_call_in_order() {
         let d = dispatcher();

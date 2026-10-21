@@ -43,7 +43,7 @@ recorded in the repo yet.
 Entry:
 
 ```markdown
-- [edytlab](https://github.com/laadtushar/edytlab) - Open-source desktop audio editor where an agent edits through 93 tools; Ollama is a supported local provider
+- [edytlab](https://github.com/laadtushar/edytlab) - Open-source desktop audio editor where an agent edits through 94 tools; Ollama is a supported local provider
 ```
 
 ## 2. EndoTheDev/Awesome-Ollama

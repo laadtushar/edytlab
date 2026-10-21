@@ -15,7 +15,7 @@ Pick one. Counts include the `Show HN: ` prefix.
 
 1. `Show HN: edytlab – edit audio by chatting with an agent, DSP runs locally` (73)
 2. `Show HN: edytlab – an open-source audio editor you drive in plain English` (73)
-3. `Show HN: edytlab – desktop audio editor where an LLM calls 93 DSP tools` (71)
+3. `Show HN: edytlab – desktop audio editor where an LLM calls 94 DSP tools` (71)
 
 Recommended: **3**. It names the architecture (an LLM calling deterministic
 tools), which is the part HN will want to argue about.
@@ -30,7 +30,7 @@ Hi HN. edytlab is a desktop audio editor (macOS, Windows, Linux, MIT) where you
 edit by describing what you want. Load some audio and type something like
 "time-stretch the second track to match the first one's tempo, start it 8 bars
 before the first one ends, crossfade, limit at -1 dB, bring it to -14 LUFS and
-export a WAV". An LLM agent turns that into calls to 93 audio tools. The tools
+export a WAV". An LLM agent turns that into calls to 94 audio tools. The tools
 do the signal processing; the model only chooses and sequences them. It never
 sees samples.
 
@@ -119,4 +119,4 @@ Source: https://github.com/laadtushar/edytlab
 | "Is the audio really never uploaded?" | Yes: there is no server in the loop. The privacy page lists the network traffic: chat requests to your chosen provider, plus the request Settings makes to that provider for its model list (it carries your key, no prompt or audio). You can check it in your OS network tools. |
 | "Why Tauri and not Electron?" | The back end is Rust, so the UI process and the DSP crates share one workspace. Do not claim size or speed numbers against Electron; none were measured. |
 | "Is there a web version?" | No. A browser SaaS is evaluated in #389 and undecided. |
-| "93 tools is a lot for a model" | It is. For Ollama, the app sends a core set of about 15 tools plus the ones your message names, and lists the rest by name (#395, #479; since v0.5.0). Hosted providers still get all of them: Anthropic's prompt cache needs a fixed list. The Capabilities menu and agent profiles can narrow the list, and plan-first keeps a human in the loop. |
+| "94 tools is a lot for a model" | It is. For Ollama, the app sends a core set of about 15 tools plus the ones your message names, and lists the rest by name (#395, #479; since v0.5.0). Hosted providers still get all of them: Anthropic's prompt cache needs a fixed list. The Capabilities menu and agent profiles can narrow the list, and plan-first keeps a human in the loop. |

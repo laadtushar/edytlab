@@ -26,7 +26,7 @@ import "@/lib/gsap-text";
 const stats = [
   { value: "0", unit: "bytes", label: "of your audio uploaded — the DSP runs on your machine" },
   { value: "6", unit: "providers", label: "bring your own key, or run a local model" },
-  { value: "93", unit: "tools", label: "the agent can call, from fade to beat-warp" },
+  { value: "94", unit: "tools", label: "the agent can call, from fade to beat-warp" },
 ];
 
 export function StatsStrip() {

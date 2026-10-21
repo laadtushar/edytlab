@@ -93,7 +93,7 @@ export default function LocalAiUseCasePage() {
         <p>
           The model never sees or hears samples. It is given a description of
           the session, with measurements such as tempo, key, beat grid and
-          loudness, and a list of 93 deterministic audio tools. It chooses
+          loudness, and a list of 94 deterministic audio tools. It chooses
           which tools to call and in what order. The tools do the signal
           processing, in pure Rust, with no Python in the audio path. That
           split is what makes local-first practical: the heavy, private part
@@ -168,7 +168,7 @@ export default function LocalAiUseCasePage() {
         <h2>Where next</h2>
         <p>
           See it work in the <Link href="/use-cases/dj">DJ blend demo</Link>,
-          browse the <Link href="/docs/tools">93 tools</Link>, or read the{" "}
+          browse the <Link href="/docs/tools">94 tools</Link>, or read the{" "}
           <Link href="/blog">blog</Link>. The builds are unsigned for now, so
           macOS and Windows will warn on first launch; the{" "}
           <Link href="/docs/getting-started">setup guide</Link> has the steps.

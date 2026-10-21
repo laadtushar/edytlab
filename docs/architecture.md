@@ -45,7 +45,7 @@
      ┌──────▼──┐  ┌────▼────┐  ┌──────────▼───┐  ┌──────▼──────┐
      │  crates/│  │ crates/ │  │    crates/   │  │   crates/   │
      │  ai     │  │ tools   │  │    session   │  │   audio-*   │
-     │  agent  │  │ 93 tools│  │    DAG store │  │   ml-*      │
+     │  agent  │  │ 94 tools│  │    DAG store │  │   ml-*      │
      └──────┬──┘  └────┬────┘  └──────────┬───┘  └──────┬──────┘
             │          │                  │              │
      ┌──────▼──────────▼──────────────────▼──────────────▼──────┐
@@ -97,7 +97,7 @@ edytlab/
     ├── recorder/                 # Microphone capture to WAV (cpal)
     ├── session/                  # DAG data model, node store, fork/diff/compare
     ├── skills/                   # User skill library with trigger evaluation
-    └── tools/                    # 93 deterministic audio-editing tools
+    └── tools/                    # 94 deterministic audio-editing tools
 ```
 
 ### Dependency Graph (simplified)
@@ -395,6 +395,10 @@ for the provider that needs it. `LlmProvider::tool_set()` says which:
 - **`ToolSet::Slim`** (Ollama): `crates/ai/src/tool_selection.rs` builds the
   list once per turn from the tools the turn permits (so a disabled tool is
   never brought back), in this order of priority:
+  0. `PINNED_WHEN_BLOCK_CUT` (`list_session`), only when the session block had
+     to cut a list (see "The session block has a budget" below). It is sent
+     outside the budget, so it takes nothing from the rest, and nothing is
+     pinned for a session that fits;
   1. tools the user's message names, by name, by a distinctive word of it
      ("reverb", "pitch it up", "reversed") or by what people say instead
      ("remove the reverb" for `remove_effect`, "less harsh" for `de_esser`,
@@ -436,7 +440,7 @@ for the provider that needs it. `LlmProvider::tool_set()` says which:
   a tool the profile or the Capabilities menu took away is in neither. The
   built-in tools come first and are always all listed (they come to about
   1 KB). The MCP tools follow, in name order, while the names stay within
-  `SLIM_NAMES_BUDGET_BYTES` (1,600 B), and the line then ends "and N more",
+  `SLIM_NAMES_BUDGET_BYTES` (1,614 B), and the line then ends "and N more",
   which counts MCP tools only. The order matters: an MCP wire name is
   `<server>__<tool>` and can sort ahead of every built-in name, so a cap that
   walked the names alphabetically would cut built-in tools that sort late to
@@ -502,18 +506,26 @@ that needs less passes the rest on. Within a list the items the user's message
 names come first (a track by its name or as "track 3", a bus or a marker by its
 name), then for buses the ones a listed track sends to, then the rest in order;
 what is shown keeps the list's own order. A cut list ends with a line that says
-how many it left out of how many, such as
-``…and 192 more tracks (200 in all), not listed here. A tool's `track` takes any index up to 199.``
-and, for markers, ``…; `export_labels` lists every one.`` No agent tool lists
-tracks or buses, so those two lines give the count (and for tracks the index
-range) only. On Ollama the two-hundred-track session lists eight tracks, two
-buses and twenty-two markers. The block is rendered once per turn with the rest
+how many it left out of how many and how to reach them, such as
+``…and 192 more tracks (200 in all), not listed here. `list_session` with what "tracks" pages through them; a tool's `track` takes any index up to 199.``
+(#618). `list_session` (`crates/tools/src/tool/list_session.rs`) is a read-only
+tool, so Plan first never holds it. It takes `what` (`tracks`, `buses` or
+`markers`), `offset` and `limit`, and returns one page in the block's own lines
+(they are written once, in `crates/tools/src/session_lines.rs`, and `ai` calls
+that), a summary that says what range it showed of how many, and `next_offset`
+while there is more. A page ends at 100 items or `PAGE_MAX_BYTES` (4,096 B of
+the result as the model receives it), whichever comes first, so a
+two-hundred-track page and a thousand-marker page each fit an 8,192-token
+context (`ollama_a_page_of_a_huge_session_fits_an_8k_context`). On Ollama the
+two-hundred-track session lists seven tracks, two buses and nineteen markers,
+and the tool, pinned (item 0 above), lists the rest. The block is rendered once per turn with the rest
 of `system`, so the thinking-block rule below is unaffected. `request_size.rs`
 runs a thirty-track session and a two-hundred-track one with fifty buses and a
 thousand markers, and holds every session's first request
 `SESSION_HEADROOM_BYTES` (500 B) under the bound; the six-track mix with the
-message that sends the most tools now leaves 1,094 B, and the two-hundred-track
-session with sixty MCP tools registered still fits, 536 B under.
+message that sends the most tools now leaves 1,080 B, and the two-hundred-track
+session with sixty MCP tools registered still fits, 130 B under (it was 536 B
+before the pinned `list_session` added its 393 B of schema to a cut session).
 
 Three things stay as they were. The set and the names line are worked out once
 per turn, so every round trip sends the same tools in the same order and
@@ -711,7 +723,7 @@ pub struct ToolContext<'a> {
 
 impl ToolDispatcher {
     pub fn new() -> Self                    // empty
-    pub fn default_dispatcher() -> Self     // registers all 93 built-in tools
+    pub fn default_dispatcher() -> Self     // registers all 94 built-in tools
     pub fn register(&mut self, tool: Box<dyn Tool>)
     pub fn unregister_prefix(&mut self, prefix: &str) -> usize  // MCP `<server>__` tools
     pub fn tool_schemas(&self) -> Value     // sent to the LLM
@@ -748,7 +760,7 @@ There are four ways to open a store. `Store::open_shared` is the project the win
 
 ### The Tools
 
-There are 93, registered in `ToolDispatcher::default_dispatcher()` with their implementations under `crates/tools/src/tool/`. The full list, with every parameter, is [tools-reference.md](./tools-reference.md) — generated from the registry, so it cannot drift from what the agent can call.
+There are 94, registered in `ToolDispatcher::default_dispatcher()` with their implementations under `crates/tools/src/tool/`. The full list, with every parameter, is [tools-reference.md](./tools-reference.md) — generated from the registry, so it cannot drift from what the agent can call.
 
 Two of them are stubs: `separate_stems` (Demucs, [#385](https://github.com/laadtushar/edytlab/issues/385)) and `transcribe` (Whisper, [#384](https://github.com/laadtushar/edytlab/issues/384)) return an error in this build. `cut_words`, `remove_fillers` and the `text` mode of `select_region` need a transcript, which only `transcribe` produces, so they cannot run yet either. `duck_under_speech` and `select_region`'s `speech_passage` do not wait on it: with no transcript they key on a voice track's audio (`voice_tracks`, found by `speech_detect.rs` from voiced sound, not level, and joined into passages by the same rule in both). A phrase needs the words, so `select_region` refuses `voice_tracks` with `text`.
 
@@ -897,7 +909,7 @@ Nodes are stored as content-addressed JSON files under `<project-dir>/.audiograp
 
 A clip does not name a cache entry. `derived/` and `clipboard/` hold the project's own audio, and a clip may name a file in either; everything else under `.audiograph/` is a cache or a record, and `previews/` and `auditions/` evict their oldest entries to stay under a cap. So `load` of a WAV from any of them copies it into `derived/` instead of naming it where it lies (#580): the file's own bytes, under the name a transcode of the same audio would take, so loading the same audio twice stores it once. A WAV from anywhere else is still named in place, which is what keeps a render of an untouched track the source's own bytes.
 
-The one thing eviction leaves alone is an entry being read again: the A/B bar loads a side from its file on every switch, so `prepare_compare` holds both sides' entries in `previews/` (`PreviewCache::hold`) until `end_compare` or the next compare (#575). The cap is on the entries nobody holds. A held entry is outside it, so a long session whose two sides do not fit in the cap together (an hour-long mix) can still be compared, and a render made while the bar is open evicts only unheld entries to fit; the one refusal is still a render bigger than the cap on its own. One compare is open at a time, so `previews/` is bounded by the cap plus one pair. Dropping the last hold on an entry evicts the cache back under its cap there and then, so once the bar closes the pair counts again and is usually what goes, being the least recently used.
+The one thing eviction leaves alone is an entry being read again: the A/B bar loads a side from its file on every switch, so `prepare_compare` holds both sides' entries in `previews/` (`PreviewCache::hold`) until `end_compare` or the next compare (#575). The cap is on the entries nobody holds. A held entry is outside it, so a long session whose two sides do not fit in the cap together (an hour-long mix) can still be compared, and a render made while the bar is open evicts only unheld entries to fit; the one refusal is still a render bigger than the cap on its own. One compare is open at a time, so that is one pair. The window holds the mix it plays the same way (#607): the transport loads the file again whenever the timeline mounts, as it does on a switch to the Graph or Transcript tab and back, and an entry the agent's renders had evicted meanwhile was a "Could not load the mix" for the mix the user was just playing. `render_preview`, the window's render for Play, Preview and a graph preview, holds the entry it returns (`AppState::window_mix`, `window_mix.rs`), and the next one replaces the hold, as does a project change; the agent's tools render with no hold and never touch the slot. So `previews/` is bounded by the cap plus one pair plus the window's one mix. A mix gone anyway (a cache cleared by hand) is asked for again by the timeline that finds it missing, once for each path. Dropping the last hold on an entry evicts the cache back under its cap there and then, so once the bar closes the pair counts again and is usually what goes, being the least recently used.
 That is also why nothing that frees disk deletes outside `derived/`. The history sweep (`reclaim::sweep`) and the orphan sweep when a project opens (`reclaim::sweep_orphans`) work in `derived/` only, and so does `compact_session` (#589, #593): a pruned node can name the user's own recording where it lies, so `plan_compaction` lists only the files that resolve, as canonical paths, inside `.audiograph/derived/` (so `..` and a symlink cannot lead out), and `apply_compaction` checks each one again before it deletes it, leaving any other path in place and counting it in `kept_files`. A loaded file loses the undo steps that named it, never the file. Clipboard blobs and cached previews are not compaction's to delete either.
 
 Annotations (markers, regions, labels) are part of `SessionState`, so they live inside each node's JSON rather than in a directory of their own.
@@ -908,7 +920,7 @@ The label lane (`LabelLane`, below the tracks) edits them directly: double-click
 
 Save As (`save_project_as`, `project::copy_project`) copies the folder without its caches: the folders directly under `.audiograph/` named in `tools::preview_cache::CACHE_DIRS` (`previews/` and `auditions/`), the same list the asset scope grants by name, so a new cache is left out of copies and readable by the webview by being added there (#576). A folder of the same name anywhere else, the user's own or one under `derived/`, is copied. The copy is a snapshot of the head when it starts (#571), made in two parts. The store's own state (`nodes/`, `head`, `trail.json`, `view.json` and `project.json`) is copied holding the store's lock, so no edit is half-way through and the copied head's node is beside it. The audio and the rest of the folder are then copied with no lock held, while a staged handle the copy keeps (it writes nothing) counts as in flight, so the orphan sweep, the reclaimer and compaction delete nothing until the copy is done; audio is named by its content and otherwise only added to. Before the window moves to the copy, the copy is checked for its head, the head's node, and every file the head plays from `derived/` and `clipboard/` that was there when the lock was let go, and a copy missing one is an error that names it.
 
-The copy's node files are the original's, byte for byte, so their clips name the original's absolute paths, and Save As opens the copy straight away, while the original is still there. The copy reads its own audio all the same (#612): `session::relocate` takes a clip that names a file in another project's `.audiograph/derived/` or `clipboard/`, or in its `generated/`, as this project's file of the same name when this project has it. Those three folders name their files by a hash of the audio (what the hash covers differs by writer, #620). A read only ever points a clip at a file that is there: a file of another project's `derived/` that is gone (the copy's own taken by its history sweep, and the original deleted or out of reach) is rebuilt by `rederive` into this project's `derived/` under its name, never into the other project's folder, and found there from then on. The rule is applied wherever the store reads a node, and the store keeps what it works out about each folder for as long as it is open, so the sweeps, which keep what the store's nodes name, keep exactly what the copy plays. Before it, a copy's open swept its whole `derived/` as unnamed and left it playing from the original's folder, and deleting the original then cost it every edit a replay cannot redo. A folder copied by hand and a moved project are read the same way. A copy that a build without the rule already swept is put right when it is opened while the original is still there (`tools::repair`): the files its nodes name that the original has and it lacks are copied in under the same names, planned under the store's lock from the nodes the open lists once for the orphan sweep and for this (a project that is not a copy costs one pass over its clips and no file system call), and copied on a thread of their own, which holds a staged handle so that the sweeps and compaction wait until it is done. It copies the head's audio first, then what no replay can rebuild and the blobs and generated audio, and other history only while `derived/` stays within the history sweep's cap, so the sweep and the repair never undo each other; what it leaves, a replay rebuilds into the copy. It only adds files, never over one (a no-replace rename, or a hard link; on a volume with neither, every copy fails and is logged), keeps each source's modification time for the history sweep's oldest-first order, stops while the disk still has 1 GiB free or at the first copy refused as full, and removes the staging files a killed repair left in `clipboard/` and `generated/`. A file it cannot copy is logged and skipped, and the next open tries again. Every file of the user's keeps pointing where it is, a take loaded in place from inside the original's folder included: Save As copies it, but the copy's clips go on naming the original's, which is not named by its content and is not rebound while it exists. Node files are not rewritten, since a node's id is the hash of its state and the ids are the file names, the parents and the head; so a copied node reads with paths its id was not hashed from, and `revert_to` moves the head to the node it names (`Store::set_head`) instead of appending its state, which would be a duplicate under another id.
+The copy's node files are the original's, byte for byte, so their clips name the original's absolute paths, and Save As opens the copy straight away, while the original is still there. The copy reads its own audio all the same (#612): `session::relocate` takes a clip that names a file in another project's `.audiograph/derived/` or `clipboard/`, or in its `generated/`, as this project's file of the same name when this project has it. Those three folders name their files by a hash of the audio with its rate and channel count (`tools::provenance::audio_hash`, whichever writer wrote the file since #620; a mixed-down track by the blake3 of its WAV file, which holds the layout too), so a file of one name is the same audio. A project written before #620 still has edit outputs and generated tones and noise named by the blake3 of their samples alone, which does not say at what rate or in how many channels; nothing is renamed, and a replay counts that older name as a match for the file it writes and rebuilds under the recorded one. A read only ever points a clip at a file that is there: a file of another project's `derived/` that is gone (the copy's own taken by its history sweep, and the original deleted or out of reach) is rebuilt by `rederive` into this project's `derived/` under its name, never into the other project's folder, and found there from then on. The rule is applied wherever the store reads a node, and the store keeps what it works out about each folder for as long as it is open, so the sweeps, which keep what the store's nodes name, keep exactly what the copy plays. Before it, a copy's open swept its whole `derived/` as unnamed and left it playing from the original's folder, and deleting the original then cost it every edit a replay cannot redo. A folder copied by hand and a moved project are read the same way. A copy that a build without the rule already swept is put right when it is opened while the original is still there (`tools::repair`): the files its nodes name that the original has and it lacks are copied in under the same names, planned under the store's lock from the nodes the open lists once for the orphan sweep and for this (a project that is not a copy costs one pass over its clips and no file system call), and copied on a thread of their own, which holds a staged handle so that the sweeps and compaction wait until it is done. It copies the head's audio first, then what no replay can rebuild and the blobs and generated audio, and other history only while `derived/` stays within the history sweep's cap, so the sweep and the repair never undo each other; what it leaves, a replay rebuilds into the copy. It only adds files, never over one (a no-replace rename, or a hard link; on a volume with neither, every copy fails and is logged), keeps each source's modification time for the history sweep's oldest-first order, stops while the disk still has 1 GiB free or at the first copy refused as full, and removes the staging files a killed repair left in `clipboard/` and `generated/`. A file it cannot copy is logged and skipped, and the next open tries again. Every file of the user's keeps pointing where it is, a take loaded in place from inside the original's folder included: Save As copies it, but the copy's clips go on naming the original's, which is not named by its content and is not rebound while it exists. Node files are not rewritten, since a node's id is the hash of its state and the ids are the file names, the parents and the head; so a copied node reads with paths its id was not hashed from, and `revert_to` moves the head to the node it names (`Store::set_head`) instead of appending its state, which would be a duplicate under another id.
 
 ---
 
@@ -1111,7 +1123,7 @@ Memory fragments are injected into the system prompt on every turn:
 </edytlab-memory>
 ```
 
-The agent sees memory on every turn but has no tool to write it: none of the 93 registered tools touches memory. You edit it in Settings → Memory (the `read_memory` / `write_memory` commands), which is how BPM, speaker names or style preferences carry across turns and sessions.
+The agent sees memory on every turn but has no tool to write it: none of the 94 registered tools touches memory. You edit it in Settings → Memory (the `read_memory` / `write_memory` commands), which is how BPM, speaker names or style preferences carry across turns and sessions.
 
 ### Skills System
 
@@ -1135,6 +1147,8 @@ Trigger types:
 - `regex` — injected when the pattern matches the user's message
 
 Matching skills are appended to the system prompt before the turn executes.
+
+The skills in `apps/desktop/src-tauri/resources/skills/` ship inside the app, and `install_bundled_skills` keeps them current in the user's folder at every launch without touching what the user changed (`bundled_skills.rs`, #574). `~/.edytlab/skills/.bundled.json` records the hash of the text it installed for each file. A file whose hash still matches is replaced when the bundled text changes; an edited one is left alone, with the new text written beside it as `<name>.bundled.md` (the loader skips that name); a deleted one is not brought back. An install from before the record counts a file as unedited only if its text is a version that shipped before the record existed, listed in `pre_manifest_skills.json`. That list is frozen: it describes installs with no manifest and nothing else, so adding to it would make such an install take a skill added later for one the user deleted. A new or changed bundled skill needs no entry; `the_pre_manifest_list_never_changes` holds the list to that.
 
 ---
 
@@ -1235,9 +1249,9 @@ The agent's tool dispatch (`tools::Shared::dispatch`) follows the same order:
 2. A tool that runs off the lock (see [Off-lock tools](#off-lock-tools)) takes only the store lock, twice and briefly: to stage a handle, and to commit it. Nothing is locked while it runs.
 3. Any other tool takes store, engine, then clipboard, and keeps them for the call.
 
-The registry of live stores (`session::live::Registry`, [#534](https://github.com/laadtushar/edytlab/pull/534), moved into `session` by #566) is a leaf: its lock is taken alone, to look a folder up or register a store, and none of the store, engine, dispatcher, agent or `AppState` locks is taken while it is held, and no store is dropped under it (a folder's identity is worked out, and a store built, outside it). It may itself be taken while a store or engine lock is held (a tool that opens folders of its own, `batch_apply`, does), which is safe because it waits for nothing. In `open_project_with` the order is registry (alone), then the store's lock (held across the re-read, the sweep and the swap), then, with the store lock dropped, `AppState::set_open_project`, which takes the store slot's lock and then the project directory's. The one other path that takes several of these is `release_replaced_project` (a project folder replaced at the same path, #566): the agent's lock (`try_lock_owned`, never waited for), then the registry (`Store::replaced_holder`, alone), then the old store's lock (`try_lock`, never waited for, and held until the window has let go, so no command can stage an edit between the check and the release), then the `store` slot, then `project_dir` (`AppState::release_open_project_if_exclusive`). It is the only path that holds a store's lock across the window's slots. It reverses nothing: the agent's lock is taken before the slot everywhere (`rebuild_agent_into` does too, and a turn holds it across the whole turn), and no path takes a store's lock while holding the slot (`store_handle()` drops the slot before its caller locks the store).
+The registry of live stores (`session::live::Registry`, [#534](https://github.com/laadtushar/edytlab/pull/534), moved into `session` by #566) is a leaf: its lock is taken alone, to look a folder up or register a store, and none of the store, engine, dispatcher, agent or `AppState` locks is taken while it is held, and no store is dropped under it (a folder's identity is worked out, and a store built, outside it). It may itself be taken while a store or engine lock is held (a tool that opens folders of its own, `batch_apply`, does), which is safe because it waits for nothing. In `open_project_with` the order is registry (alone), then the store's lock (held across the re-read, the sweep and the swap), then, with the store lock dropped, `AppState::set_open_project`, which takes the store slot's lock and then the project directory's. The one other path that takes several of these is `release_replaced_project` (a project folder replaced at the same path, #566): the agent's lock (`try_lock_owned`, never waited for), then the registry (`Store::replaced_holder`, alone), then the old store's lock (`try_lock`, never waited for, and held until the window has let go, so no command can stage an edit between the check and the release), then the `store` slot, then `project_dir` (`AppState::release_open_project_if_exclusive`), and last, with every one of those let go, the window-mix hold is released (`AppState::release_window_mix`, as `set_open_project` does), because that lock is taken alone (#607). It is the only path that holds a store's lock across the window's slots. It reverses nothing: the agent's lock is taken before the slot everywhere (`rebuild_agent_into` does too, and a turn holds it across the whole turn), and no path takes a store's lock while holding the slot (`store_handle()` drops the slot before its caller locks the store).
 
-The preview cache's holds (`HELD` in `crates/tools/src/preview_cache.rs`, #575) are behind a lock that is the last one taken: a render takes it after its staging file is renamed into place, with whatever the caller holds (a tool holds the store and engine locks), and keeps it only while it evicts, which lists the cache folder and removes files. Dropping the last hold on an entry takes it too, and evicts under it. The open compare's slot (`AppState::compare`) drops holds while it is locked, so it is locked with nothing else held: `prepare_compare` takes it alone to begin a compare (after holding the new pair, so ending the old one cannot evict a side the two share) and again, after both sides are rendered, to keep their holds, and `end_compare` takes nothing else.
+The preview cache's holds (`HELD` in `crates/tools/src/preview_cache.rs`, #575) are behind a lock that is the last one taken: a render takes it after its staging file is renamed into place, with whatever the caller holds (a tool holds the store and engine locks), and keeps it only while it evicts, which lists the cache folder and removes files. Dropping the last hold on an entry takes it too, and evicts under it. The open compare's slot (`AppState::compare`) drops holds while it is locked, so it is locked with nothing else held: `prepare_compare` takes it alone to begin a compare (after holding the new pair, so ending the old one cannot evict a side the two share) and again, after both sides are rendered, to keep their holds, and `end_compare` takes nothing else. The window's mix slot (`AppState::window_mix`) is locked the same way: `render_preview` holds the entry before it looks it up, takes the slot alone once the render has succeeded, and drops the hold it replaced after the slot is unlocked; `set_open_project` takes it alone after the store and project slots are released.
 
 A command that reads the session while an off-lock tool runs gets the head as it was when the tool started. The tool's node appears when it commits, and `agent://node-created` is emitted after that, so a refresh triggered by the event sees it.
 
@@ -1345,6 +1359,8 @@ No per-provider keychain code is needed: the slots are keyed by provider id (`<i
 ### Adding a Skill
 
 Drop a `.md` file with YAML frontmatter into `~/.edytlab/skills/`. No recompile needed.
+
+To change a skill that ships with the app, edit it under `apps/desktop/src-tauri/resources/skills/`; nothing else needs updating. Users who have not edited the old copy get the new one at their next launch. Do not add the new text to `apps/desktop/src-tauri/src/pre_manifest_skills.json` (see above); `node scripts/pre-manifest-skill-hashes.mjs --check` verifies that file against the git history (full history needed: `git fetch --unshallow` in a shallow clone).
 
 ### Adding an Agent Profile
 

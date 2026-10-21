@@ -145,6 +145,12 @@ pub struct AppState {
     /// engine, dispatcher or agent locks; letting a pair go takes the preview
     /// cache's hold lock under it, which is the last lock there is.
     pub compare: Arc<Mutex<crate::compare::CompareHolds>>,
+    /// The mix the window plays, whose preview-cache entry is held out of
+    /// eviction, and out of the cap, until the window's next `render_preview`
+    /// or a project change (#607). Filled only by that command, never by the
+    /// agent's tools. Its lock is taken alone, never with the store, engine,
+    /// dispatcher or agent locks; a hold is dropped after the lock is let go.
+    pub window_mix: Arc<Mutex<crate::window_mix::WindowMix>>,
     /// In-memory audio clipboard for `copy_region` / `paste_region`.
     /// Shared with the `Agent` so the clipboard persists across turns and
     /// is accessible from both the tool layer and (future) IPC commands.
@@ -214,6 +220,7 @@ impl AppState {
             settings_path: Arc::new(Mutex::new(PathBuf::new())),
             selection: Arc::new(Mutex::new(None)),
             compare: Arc::new(Mutex::new(Default::default())),
+            window_mix: Arc::new(Mutex::new(Default::default())),
             clipboard: Arc::new(Mutex::new(None)),
             memory: Arc::new(Mutex::new(None)),
             skills: Arc::new(Mutex::new(
@@ -600,9 +607,26 @@ impl AppState {
     /// too. The order is the `store` slot, then the `project_dir` slot; no
     /// code takes them the other way round.
     pub fn set_open_project(&self, store: LiveStore, dir: PathBuf) {
-        let mut slot = self.store.lock().expect("store mutex poisoned");
-        *slot = Some(store);
-        *self.project_dir.lock().expect("project_dir mutex poisoned") = Some(dir);
+        {
+            let mut slot = self.store.lock().expect("store mutex poisoned");
+            *slot = Some(store);
+            *self.project_dir.lock().expect("project_dir mutex poisoned") = Some(dir);
+        }
+        self.release_window_mix();
+    }
+
+    /// The window's mix is one of a project that is no longer the open one,
+    /// and the window starts over (#607). Called with no other lock held,
+    /// slots included, and the hold is dropped with the window-mix lock
+    /// released too: a hold's drop evicts the old project's cache back under
+    /// its cap.
+    pub fn release_window_mix(&self) {
+        let released = self
+            .window_mix
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .release();
+        drop(released);
     }
 
     /// Let go of the open project if its store is `stale` and nothing else
@@ -618,7 +642,9 @@ impl AppState {
     /// The count is taken with the `store` slot's lock held, which every
     /// `store_handle()` takes to clone, so no new handle can appear between
     /// the count and the release. The two slots are written together, in the
-    /// order [`AppState::set_open_project`] takes them.
+    /// order [`AppState::set_open_project`] takes them. The window's mix is
+    /// not touched here, because its lock is taken alone: the caller releases
+    /// it ([`AppState::release_window_mix`]) once it holds no lock.
     pub fn release_open_project_if_exclusive(&self, stale: &LiveStore, others: usize) -> bool {
         let mut slot = self.store.lock().expect("store mutex poisoned");
         let Some(held) = slot.as_ref() else {

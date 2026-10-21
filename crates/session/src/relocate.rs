@@ -17,17 +17,33 @@
 //! of the audio: `.audiograph/derived/` (destructive edits, and files
 //! `load` copies in), `.audiograph/clipboard/` (the blobs a paste
 //! depends on) and `generated/` at the project's root (`generate_tone`,
-//! `generate_noise`, `mix_to_new_track`). What the hash covers depends on
-//! the writer: an edit's output and a generated tone or noise are named by
-//! the blake3 of their samples alone, a clipboard blob and a `load` copy
-//! by `tools::provenance::audio_hash` (the samples with their rate and
-//! channel count), a mixed-down track by the blake3 of its WAV file. So a
-//! file of the same name holds the same samples; for the first kind the
-//! name does not say at what rate or in how many channels (#620). For a
-//! copy that does not arise, since its file of the name is a byte copy
-//! of the one named. The caches beside them (`previews/`, `auditions/`)
-//! are named by node or by request, not by content, and nothing else in
-//! the tree is named by content, which is why nothing else is rebound.
+//! `generate_noise`, `mix_to_new_track`). Since #620 every writer but one
+//! names a file by `tools::provenance::audio_hash`, the blake3 of the
+//! samples *with their rate and channel count*; the exception, a
+//! mixed-down track, is named by the blake3 of its WAV file, header
+//! included, which holds the layout too. So a file of the same name holds
+//! the same audio at the same rate and in the same number of channels, in
+//! whichever of the folders it is, and whichever writer wrote it: an edit
+//! whose output is the same audio as a `load` copy in `derived/` names that
+//! very file, and one that equals a clipboard blob or a generated tone
+//! names a file of the same name in another folder. (A file the project
+//! writes as a WAV holds its samples as 16 bits, and the name is made from
+//! them before that; two files of one name are the same audio to that.)
+//!
+//! That is the rule for what is written now. Before #620 an edit's output
+//! and a generated tone or noise were named by the blake3 of their samples
+//! alone, so two buffers of a different rate or channel count could share a
+//! name, and the second was handed the first's file. Nothing is renamed, so
+//! a project already on disk still has such files, and for those the name
+//! does not say at what rate or in how many channels. This module never
+//! looks inside a file and cannot tell them apart. For a copy that does not
+//! matter, since its file of the name is a byte copy of the one named; and
+//! the replay that rebuilds one (`tools::rederive`, the history sweep)
+//! recognises the older name as well as the new one, and writes the file
+//! under the name the node records. The caches beside them (`previews/`,
+//! `auditions/`) are named by node or by request, not by content, and
+//! nothing else in the tree is named by content, which is why nothing else
+//! is rebound.
 //!
 //! ## The rules
 //!

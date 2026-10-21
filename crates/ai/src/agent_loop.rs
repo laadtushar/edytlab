@@ -79,7 +79,7 @@ use crate::prompt::{
 };
 use crate::provider::ToolSet;
 use crate::responses;
-use crate::session_context::{block_budget, render_block_within, SessionContext};
+use crate::session_context::{block_budget, render_block_checked, SessionContext};
 use crate::tool_selection::is_not_implemented;
 use crate::{context_window, tool_selection};
 use crate::{AgentEvent, Effort, Error, LlmConfig, Result, TurnResult, WireFormat};
@@ -875,8 +875,12 @@ where
     // in full is cut, the tracks and buses the message names kept first.
     // Rendered once per turn, like the rest of `system`, so every step of
     // the turn carries the same block.
-    let ctx_block = session_ctx
-        .map(|ctx| render_block_within(ctx, block_budget(cfg.provider.tool_set()), &user_message))
+    let (ctx_block, block_cut) = session_ctx
+        .map(|ctx| {
+            let block =
+                render_block_checked(ctx, block_budget(cfg.provider.tool_set()), &user_message);
+            (block.text, block.cut)
+        })
         .unwrap_or_default();
     let profile_block = profile_body
         .map(|b| {
@@ -1043,6 +1047,13 @@ where
                     skills_block.as_str(),
                 ],
                 conversation,
+                // A block that cut a list names `list_session` to reach the
+                // rest (#618), so the model is sent that tool first.
+                if block_cut {
+                    tool_selection::PINNED_WHEN_BLOCK_CUT
+                } else {
+                    &[]
+                },
                 // The block and the tools share the request: what the
                 // block takes past its allowance comes off the tools.
                 tool_selection::slim_tools_budget(ctx_block.len()),

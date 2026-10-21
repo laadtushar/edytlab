@@ -714,8 +714,9 @@ fn open_project_with(
 /// **Lock order**, the only path that holds a store's lock across the window's
 /// slots: the agent's (`try_lock_owned`, never waited for) → the registry
 /// (`Store::replaced_holder`, a leaf, released before the next) → the old
-/// store's (`try_lock`, never waited for) → the `store` slot → `project_dir`.
-/// Nothing takes a store's lock while holding the slot (`store_handle()`
+/// store's (`try_lock`, never waited for) → the `store` slot → `project_dir`,
+/// and then, with all of them let go, the window-mix lock, which is taken
+/// alone. Nothing takes a store's lock while holding the slot (`store_handle()`
 /// drops it before its caller locks the store), and the agent's lock is
 /// taken before the slot everywhere (`rebuild_agent_into` does the same), so
 /// no order is reversed and the two `try_lock`s cannot wait.
@@ -739,6 +740,10 @@ fn release_replaced_project(state: &AppState, path: &Path) -> bool {
         return false;
     }
     *agent = None;
+    drop(agent);
+    // The window's mix was of the project just let go, and its hold is
+    // released with no other lock held, as that lock is taken alone (#607).
+    state.release_window_mix();
     true
 }
 
@@ -2581,6 +2586,20 @@ fn first_token(s: &str) -> Option<&str> {
 // render_preview
 // ---------------------------------------------------------------------------
 
+/// The window's render of `node`: its whole mix, in the project's preview
+/// cache, rendered into it first if it is not there. Answers the path the
+/// transport plays.
+///
+/// The entry it returns is the one the window plays, so it is held out of the
+/// cache's eviction, and outside its cap, until the window's next
+/// `render_preview` replaces it or the project changes (#607). The timeline
+/// reads the file again whenever it mounts (a switch to the Graph or
+/// Transcript tab and back), and a render made meanwhile (the agent's, an
+/// audition, a graph preview) must not have evicted it. The hold is taken
+/// before the entry is looked up, and kept only once the render has worked:
+/// a render that fails changes nothing the window shows, so the mix before
+/// it stays held. The agent's tools render into the same cache without
+/// holding anything and never touch this slot (`AppState::window_mix`).
 #[tauri::command]
 pub async fn render_preview(state: State<'_, AppState>, node: String) -> CmdResult<String> {
     blocking(&state, move |state| {
@@ -2604,8 +2623,15 @@ pub async fn render_preview(state: State<'_, AppState>, node: String) -> CmdResu
         };
         let cache = tools::PreviewCache::new(&project_dir);
 
+        let hold = cache.hold(node_id);
         let out_path = cached_mix(state, &store_handle, &cache, node_id, &session_node.state)?;
-        Ok(utf8_path(&out_path, "the preview")?)
+        let path = utf8_path(&out_path, "the preview")?;
+        // Replaces the hold on the mix played before, taken above first so
+        // a render of the same node never leaves it unheld. The slot is
+        // locked alone, and the old hold is dropped (which evicts) after.
+        let previous = lock_std(&state.window_mix, "window_mix")?.replace(hold);
+        drop(previous);
+        Ok(path)
     })
     .await
 }
@@ -5751,60 +5777,54 @@ pub fn stop_recording(
 // install_bundled_skills (Task 2)
 // ---------------------------------------------------------------------------
 
-/// Copy the skills bundled inside the Tauri resource dir into
-/// `~/.edytlab/skills/` on the very first launch.
+/// Keep the skills bundled inside the Tauri resource dir current in
+/// `~/.edytlab/skills/`. The frontend calls it at every launch.
 ///
-/// The command is idempotent: if the target directory already contains
-/// any `.md` file it exits immediately and returns `Ok(0)`, so user
-/// edits or manually added skills are never overwritten.
+/// The skills folder is the user's, so the app records what it installed
+/// (`.bundled.json` in the folder) and replaces a file only while it is
+/// still the text it installed (#574). Per bundled skill:
 ///
-/// Returns the number of files copied (0 when the skills dir already
-/// exists, or when running in dev mode where the `bundled-skills/`
-/// resource subdir is absent).
+/// - missing and never installed: copied in;
+/// - unedited and the bundled text changed: replaced (a copy from before the
+///   record counts as unedited if its text is a version that shipped then);
+/// - edited: left alone, with the new text written beside it as
+///   `<name>.bundled.md`, which neither the agent nor the Skills editor
+///   lists;
+/// - deleted by the user: not brought back.
+///
+/// Every write is a temporary file renamed into place, and nothing is ever
+/// deleted. A skill that cannot be dealt with is logged and skipped. See
+/// `bundled_skills` for the rules.
+///
+/// Returns the number of skills written, installed or updated (0 when
+/// nothing was due, or when running in dev mode where the
+/// `bundled-skills/` resource subdir is absent). The skill library is
+/// reloaded when that is more than 0, so the agent sees the new text
+/// without a restart.
 #[tauri::command]
 pub fn install_bundled_skills(app: tauri::AppHandle) -> CmdResult<usize> {
     let resource_dir = app.path().resource_dir().map_err(|e| e.to_string())?;
     let bundled_dir = resource_dir.join("bundled-skills");
+    let skills_dir = edytlab_skills_dir(&app)?;
 
-    let skills_dir = match app.path().home_dir() {
-        Ok(home) => home.join(".edytlab").join("skills"),
-        Err(_) => app
-            .path()
-            .app_data_dir()
-            .map_err(|e| e.to_string())?
-            .join(".edytlab")
-            .join("skills"),
-    };
+    let report = crate::bundled_skills::sync(
+        &bundled_dir,
+        &skills_dir,
+        &crate::bundled_skills::PreManifestHashes::embedded(),
+    )
+    .map_err(|e| e.to_string())?;
+    tracing::info!(?report, "bundled skills synced");
 
-    // If skills dir already has .md files, don't overwrite user customisations.
-    if skills_dir.exists() {
-        let has_skills = std::fs::read_dir(&skills_dir)
-            .map_err(|e| e.to_string())?
-            .filter_map(|e| e.ok())
-            .any(|e| e.path().extension().and_then(|s| s.to_str()) == Some("md"));
-        if has_skills {
-            return Ok(0);
+    let written = report.written();
+    if written > 0 {
+        // The library was loaded at startup, before this ran.
+        if let Some(state) = app.try_state::<AppState>() {
+            if let Err(e) = state.reload_skills_from_disk() {
+                tracing::warn!(error = ?e, "skill reload after updating bundled skills failed");
+            }
         }
     }
-
-    if !bundled_dir.exists() {
-        return Ok(0); // dev mode: bundled-skills/ not yet present
-    }
-
-    std::fs::create_dir_all(&skills_dir).map_err(|e| e.to_string())?;
-
-    let mut count = 0usize;
-    for entry in std::fs::read_dir(&bundled_dir).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let src = entry.path();
-        if src.extension().and_then(|s| s.to_str()) != Some("md") {
-            continue;
-        }
-        let dst = skills_dir.join(entry.file_name());
-        std::fs::copy(&src, &dst).map_err(|e| e.to_string())?;
-        count += 1;
-    }
-    Ok(count)
+    Ok(written)
 }
 
 // ---------------------------------------------------------------------------

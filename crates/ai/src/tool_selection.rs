@@ -13,6 +13,13 @@
 //! Capabilities menu have already narrowed them, so nothing here can bring
 //! back a disabled tool), in this order of priority:
 //!
+//! 0. [`PINNED_WHEN_BLOCK_CUT`]: `list_session`, when the session block was
+//!    too big to list in full and says so (#618). Its cut lines send the
+//!    model to that tool, and a message that names a dozen others must not
+//!    be able to push it out. A pinned tool is sent outside the budget
+//!    below, so it takes nothing from the core or from what the message
+//!    names. Nothing is pinned when the block fits, so a session that fits
+//!    costs the request nothing for it;
 //! 1. tools the user's message names, by name or by a word of the name
 //!    ("reverb", "pitch it up", "time stretch") or by what people say
 //!    instead of the name ("harsh" for `de_esser`, "remove the reverb" for
@@ -133,6 +140,21 @@ pub const SLIM_CORE_TOOLS: &[&str] = &[
     "set_track_gain",
 ];
 
+/// The tools sent whatever the message says, outside the budget, when the
+/// session block had to cut a list (#618). The cut lines name
+/// `list_session` as the way to the rest, so a model that reads one must be
+/// able to call it with the schema in front of it, not only by exact name
+/// from the names line.
+///
+/// Not in [`SLIM_CORE_TOOLS`]: that would cost every request about 340 B,
+/// including the many whose session fits the block and has nothing to list.
+/// Pinned, it costs a request that name those lines only, and costs it the
+/// descriptor's size and no more: it is not charged to the budget, so the
+/// core a plain message gets is whole beside it. `tests/request_size.rs`
+/// holds the cut sessions under the bound with their headroom, this tool
+/// in.
+pub const PINNED_WHEN_BLOCK_CUT: &[&str] = &["list_session"];
+
 /// The most the compacted tool descriptors may add up to, in bytes of
 /// their JSON in Anthropic's shape.
 ///
@@ -172,7 +194,7 @@ pub fn slim_tools_budget(session_block_bytes: usize) -> usize {
 
 /// The most the names line may spend on tool names, in bytes. The
 /// built-in tools that can be left out of a request come to about 1,000 B
-/// (1,170 B if every one of them were); they are always listed, first. The
+/// (1,208 B if every one of them were); they are always listed, first. The
 /// room above that is for MCP tools, which join the registry and so the
 /// line. Past it the line ends "and N more" instead of growing, so the
 /// request bound holds whatever is registered.
@@ -181,7 +203,11 @@ pub fn slim_tools_budget(session_block_bytes: usize) -> usize {
 /// tool schemas (about 8.5 KB), and the names line adds to that: with
 /// 2,000 here and 40 MCP tools that request was 194 B under the bound.
 /// `tests/request_size.rs` holds the headroom with MCP tools registered.
-pub const SLIM_NAMES_BUDGET_BYTES: usize = 1_600;
+///
+/// This was 1,600 until `list_session` (#618) added its name, 14 B with the
+/// separator, to the line of built-ins. It went up by that and no more, so
+/// the room left for MCP names is what it was.
+pub const SLIM_NAMES_BUDGET_BYTES: usize = 1_614;
 
 /// A tool whose description begins with this does nothing in this build
 /// (`separate_stems`, `transcribe`: their inference is not shipped). The
@@ -660,7 +686,11 @@ impl SlimSelection {
 /// The tools are sorted by name, so they do not depend on the dispatcher's
 /// order, and the same inputs give the same bytes.
 ///
-/// `budget` is the most the compacted descriptors may add up to:
+/// `pinned` are tools that are sent if they are permitted, whatever the
+/// message names and outside `budget` ([`PINNED_WHEN_BLOCK_CUT`] when the
+/// session block was cut, none otherwise).
+///
+/// `budget` is the most the compacted descriptors of the other tools may add up to:
 /// [`SLIM_TOOLS_BUDGET_BYTES`], less what the turn's session block takes
 /// past its allowance ([`slim_tools_budget`]).
 pub(crate) fn slim_tool_schemas(
@@ -668,6 +698,7 @@ pub(crate) fn slim_tool_schemas(
     user_text: &str,
     prompt_parts: &[&str],
     conversation: &[Message],
+    pinned: &[&str],
     budget: usize,
 ) -> SlimSelection {
     let Some(list) = available.as_array() else {
@@ -731,7 +762,13 @@ pub(crate) fn slim_tool_schemas(
             .collect()
     };
 
-    let mut chosen: HashSet<String> = HashSet::new();
+    // Pinned tools first and free of the budget: only those the turn
+    // permits, which are the ones in `compacted`.
+    let mut chosen: HashSet<String> = pinned
+        .iter()
+        .filter(|name| compacted.iter().any(|(n, _, _)| n == *name))
+        .map(|name| (*name).to_string())
+        .collect();
     let mut used = 0usize;
     for name in priority {
         if chosen.contains(&name) {
@@ -800,6 +837,7 @@ mod tests {
             user_text,
             prompt_parts,
             conversation,
+            &[],
             SLIM_TOOLS_BUDGET_BYTES,
         )
         .tools
@@ -812,6 +850,7 @@ mod tests {
             text,
             &[],
             conversation,
+            &[],
             SLIM_TOOLS_BUDGET_BYTES,
         )
     }
@@ -958,18 +997,89 @@ mod tests {
         // holds it to.
         assert!(budget >= 6_000, "{budget} B is less than the core may take");
 
+        // A block at its cap is a cut block, so `list_session` is pinned
+        // ahead of the core (#618): the core must fit beside it.
         let sent = names(
             &slim_tool_schemas(
                 all_tools(),
                 "Make track 0 louder by 6 dB.",
                 &[],
                 &[],
+                PINNED_WHEN_BLOCK_CUT,
                 budget,
             )
             .tools,
         );
-        for name in SLIM_CORE_TOOLS {
+        for name in SLIM_CORE_TOOLS.iter().chain(PINNED_WHEN_BLOCK_CUT) {
             assert!(sent.iter().any(|s| s == name), "{name} dropped: {sent:?}");
+        }
+    }
+
+    /// A block that cut a list names `list_session`, so the tool is sent
+    /// ahead of everything the message names: a message that names a dozen
+    /// tools cannot push it out. Without the pin it is one of the names the
+    /// model can call by exact name, and not sent (#618).
+    #[test]
+    fn a_pinned_tool_is_sent_first_whatever_the_message_names() {
+        let text = "add reverb, echo, tremolo, phaser and distortion, pitch shift it, time \
+                    stretch it, reverse it, add a noise gate, a stereo widener and a de-esser";
+        let budget = slim_tools_budget(crate::session_context::SLIM_SESSION_BLOCK_MAX_BYTES);
+
+        let pinned = slim_tool_schemas(all_tools(), text, &[], &[], PINNED_WHEN_BLOCK_CUT, budget);
+        assert!(names(&pinned.tools).contains(&"list_session".to_string()));
+        assert!(!pinned.unsent.contains(&"list_session".to_string()));
+        // What the message named first is still sent.
+        assert!(names(&pinned.tools).contains(&"reverb".to_string()));
+
+        let plain = slim_tool_schemas(all_tools(), text, &[], &[], &[], budget);
+        assert!(!names(&plain.tools).contains(&"list_session".to_string()));
+        assert!(plain.unsent.contains(&"list_session".to_string()));
+        assert!(plain.names_note().unwrap().contains("list_session"));
+
+        // It is outside the budget: everything else is what it was without
+        // it, so pinning it takes no tool from the message or the core.
+        let mut expected = names(&plain.tools);
+        expected.push("list_session".to_string());
+        expected.sort();
+        assert_eq!(names(&pinned.tools), expected);
+    }
+
+    /// Pinning is a priority, not a permission: a tool the turn does not
+    /// permit (an agent profile's whitelist, the Capabilities menu) is not
+    /// brought back by it.
+    #[test]
+    fn a_pinned_tool_the_turn_does_not_permit_is_not_sent_or_named() {
+        let without: Vec<Value> = all_tools()
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|t| t["name"] != "list_session")
+            .cloned()
+            .collect();
+
+        let selection = slim_tool_schemas(
+            Value::Array(without),
+            "make it louder",
+            &[],
+            &[],
+            PINNED_WHEN_BLOCK_CUT,
+            slim_tools_budget(crate::session_context::SLIM_SESSION_BLOCK_MAX_BYTES),
+        );
+
+        assert!(!names(&selection.tools).contains(&"list_session".to_string()));
+        assert!(!selection.unsent.contains(&"list_session".to_string()));
+    }
+
+    /// The pinned tool exists, reads only, and is registered under the name
+    /// the cut lines give.
+    #[test]
+    fn the_pinned_tools_are_registered_and_read_only() {
+        let dispatcher = ToolDispatcher::default_dispatcher();
+        for name in PINNED_WHEN_BLOCK_CUT {
+            let tool = dispatcher
+                .get(name)
+                .unwrap_or_else(|| panic!("{name} is not a registered tool"));
+            assert!(!tool.mutates(), "{name} must be read-only");
         }
     }
 
@@ -979,10 +1089,11 @@ mod tests {
     #[test]
     fn a_smaller_budget_drops_from_the_end_of_the_priority() {
         let text = "add reverb, echo, tremolo, phaser and distortion";
-        let full = slim_tool_schemas(all_tools(), text, &[], &[], SLIM_TOOLS_BUDGET_BYTES);
+        let full = slim_tool_schemas(all_tools(), text, &[], &[], &[], SLIM_TOOLS_BUDGET_BYTES);
         let small = slim_tool_schemas(
             all_tools(),
             text,
+            &[],
             &[],
             &[],
             slim_tools_budget(crate::session_context::SLIM_SESSION_BLOCK_MAX_BYTES),
@@ -1434,6 +1545,7 @@ mod tests {
             "remove the ums",
             &[],
             &[],
+            &[],
             SLIM_TOOLS_BUDGET_BYTES,
         );
         assert_eq!(names(&selection.tools), vec!["gain"]);
@@ -1633,6 +1745,7 @@ mod tests {
             "add a limiter and some gain",
             &[],
             &[],
+            &[],
             SLIM_TOOLS_BUDGET_BYTES,
         );
         let sent = names(&selection.tools);
@@ -1657,6 +1770,7 @@ mod tests {
         let selection = slim_tool_schemas(
             available,
             "make it louder",
+            &[],
             &[],
             &[],
             SLIM_TOOLS_BUDGET_BYTES,
@@ -1815,6 +1929,7 @@ mod tests {
             let selection = slim_tool_schemas(
                 Value::Array(available.clone()),
                 text,
+                &[],
                 &[],
                 &[],
                 SLIM_TOOLS_BUDGET_BYTES,

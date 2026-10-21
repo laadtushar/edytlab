@@ -17,10 +17,10 @@
 //! 1. **The operations are recorded** — `NodeOp { tool, params, … }`.
 //! 2. **The DSP is deterministic** — no RNG in the edit path;
 //!    `generate_noise` uses a fixed-seed LCG.
-//! 3. **A replay is self-verifying** — a derived file is named
-//!    `blake3(its own samples)`, so a rebuild is checked against the
-//!    name it must produce. Drift is detected rather than silently
-//!    substituted.
+//! 3. **A replay is self-verifying** — a derived file is named by a hash
+//!    of its own samples (with their rate and channel count), so a
+//!    rebuild is checked against the name it must produce. Drift is
+//!    detected rather than silently substituted.
 //!
 //! ## What a recipe refuses to do
 //!

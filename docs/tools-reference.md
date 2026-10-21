@@ -1,6 +1,6 @@
 # edytlab — Tools Reference
 
-> Every one of the 93 tools the AI agent can call: parameters, types, and what each one does.
+> Every one of the 94 tools the AI agent can call: parameters, types, and what each one does.
 
 <!-- GENERATED FILE — do not edit by hand.
      Regenerate with:
@@ -61,6 +61,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`label`](#label) — Place a named marker or region label in the session at the current head.
 - [`leveler`](#leveler) — Apply dynamic leveling: normalise each short window to a target RMS level.
 - [`limiter`](#limiter) — Peak limiter: turns the gain down just enough that no sample exceeds ceiling_db, then lets it recover smoothly over release_ms.
+- [`list_session`](#list_session) — List tracks, buses or markers a page at a time, in the session block's lines.
 - [`load`](#load) — Decode an audio file and add it to the session as a new track.
 - [`low_pass_filter`](#low_pass_filter) — Apply a Butterworth low-pass filter to a track, removing frequencies above cutoff_hz.
 - [`mix_to_new_track`](#mix_to_new_track) — Offline-render the selected tracks together and add the result as a new mixed track.
@@ -556,6 +557,18 @@ Peak limiter: turns the gain down just enough that no sample exceeds ceiling_db,
 | `release_ms` | number | no | How long the gain takes to recover after a peak, in milliseconds. Default 80. Shorter keeps the level up but distorts bass more; longer is smoother but holds the level down for longer after each peak. |
 | `start_sec` | number | no |  |
 | `track` | integer | yes |  |
+
+## `list_session`
+
+List tracks, buses or markers a page at a time, in the session block's lines. Read-only.
+
+_Read-only — never held for approval._
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `limit` | integer | no | Default and most: 100 |
+| `offset` | integer | no |  |
+| `what` | one of `tracks`, `buses`, `markers` | yes |  |
 
 ## `load`
 

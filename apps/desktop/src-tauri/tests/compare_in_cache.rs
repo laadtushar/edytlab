@@ -195,6 +195,38 @@ impl Sandbox {
             .map(|v| PathBuf::from(v.as_str().expect("a path")))
     }
 
+    /// A render by the agent's `render_preview` tool, into the same cache:
+    /// an ordinary entry that holds nothing. The window's own
+    /// `render_preview` holds the entry it returns (#607), so a test about
+    /// what a compare's hold does to the entries around it renders those
+    /// with this.
+    fn agent_render(&self, node: NodeId) -> PathBuf {
+        let mut store = session::Store::open(&self.project).expect("store");
+        let mut engine = audio_engine::Engine::new();
+        let mut clipboard = None;
+        let dispatcher = tools::ToolDispatcher::default_dispatcher();
+        let mut ctx = tools::ToolContext {
+            store: &mut store,
+            engine: &mut engine,
+            user_message: "",
+            clipboard: &mut clipboard,
+            allowed_tools: None,
+        };
+        match dispatcher
+            .invoke(
+                "render_preview",
+                json!({ "node_id": node.to_hex() }),
+                &mut ctx,
+            )
+            .expect("invoke")
+        {
+            tools::ToolResult::Ok(v) => {
+                PathBuf::from(v["path"].as_str().expect("the tool answers a path"))
+            }
+            tools::ToolResult::Error(m) => panic!("render_preview failed: {m}"),
+        }
+    }
+
     fn end_compare(&self, answer: &Value) {
         let id = answer["compare_id"].clone();
         assert!(id.is_u64(), "prepare_compare names the compare: {answer}");
@@ -431,7 +463,7 @@ fn the_pair_being_compared_outlives_renders_that_evict() {
     let _answer = s.compare(a, b).expect("prepare_compare");
     for node in [s.nodes[3], s.nodes[4]] {
         std::thread::sleep(TICK);
-        s.preview(node).expect("render_preview");
+        s.agent_render(node);
     }
 
     assert!(s.entry(a).is_file(), "A was evicted while it was compared");
@@ -499,7 +531,7 @@ fn ending_the_compare_brings_the_cache_back_under_its_cap() {
     s.cap(cap);
     let answer = s.compare(a, b).expect("prepare_compare");
     std::thread::sleep(TICK);
-    let later = s.preview(s.nodes[3]).expect("render_preview");
+    let later = s.agent_render(s.nodes[3]);
     assert!(
         s.cached_bytes() > cap,
         "the pair puts the cache over its cap"
