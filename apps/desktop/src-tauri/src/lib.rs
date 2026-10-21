@@ -5,6 +5,7 @@
 //! Anthropic API key or to open a project. The agent is constructed
 //! lazily once both have been provided.
 
+pub mod bundled_skills;
 pub mod commands;
 pub mod compare;
 pub mod events;

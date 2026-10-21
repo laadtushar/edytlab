@@ -44,6 +44,8 @@ skills = { path = "../../../crates/skills" }
 tools = { path = "../../../crates/tools" }
 recorder = { path = "../../../crates/recorder" }
 regex = "1"
+# `bundled_skills`: the hash that says whether a skill file is still the text the app installed. Already in the lockfile (ml-pipeline).
+sha2 = "0.10"
 tempfile = "3"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 zip = { version = "9", default-features = false, features = ["deflate"] }

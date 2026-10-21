@@ -39,6 +39,22 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// What goes between a skill's name and `.md` in `<name>.bundled.md`, the
+/// copy of a bundled skill's newer text the app writes beside a skill the
+/// user has edited (#574). It is a file for the user to read, not a skill:
+/// [`SkillLibrary::load_from`] skips it, so neither the agent nor the
+/// Skills editor lists it, whatever its frontmatter says. The editor cannot
+/// create a skill with a `.` in its name, so no skill of the user's is
+/// ever called that.
+pub const BUNDLED_COPY_SUFFIX: &str = ".bundled";
+
+/// Whether `path` names a [`BUNDLED_COPY_SUFFIX`] file.
+fn is_bundled_copy(path: &Path) -> bool {
+    path.file_stem()
+        .and_then(|s| s.to_str())
+        .is_some_and(|stem| stem.ends_with(BUNDLED_COPY_SUFFIX))
+}
+
 #[derive(Debug)]
 pub enum Trigger {
     Always,
@@ -121,7 +137,7 @@ impl SkillLibrary {
                 source,
             })?;
             let path = entry.path();
-            if path.extension().and_then(|s| s.to_str()) != Some("md") {
+            if path.extension().and_then(|s| s.to_str()) != Some("md") || is_bundled_copy(&path) {
                 continue;
             }
             match load_skill(&path) {
@@ -405,6 +421,25 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let lib = SkillLibrary::load_from(&tmp.path().join("nope")).unwrap();
         assert!(lib.skills().is_empty());
+    }
+
+    #[test]
+    fn a_bundled_copy_beside_a_skill_is_not_a_skill() {
+        // `<name>.bundled.md` is the newer text of a bundled skill the user
+        // has edited (#574). Whatever its frontmatter says, it must not be
+        // listed or injected next to the user's own copy.
+        let tmp = tempfile::tempdir().unwrap();
+        let text = "---\ndescription: d\ntrigger: always\n---\nbody\n";
+        write(tmp.path(), "mix.md", text);
+        write(tmp.path(), "mix.bundled.md", text); // would load as "mix.bundled"
+        write(
+            tmp.path(),
+            "other.bundled.md",
+            "---\nname: other\ndescription: d\n---\nbody\n", // would warn
+        );
+        let lib = SkillLibrary::load_from(tmp.path()).unwrap();
+        let names: Vec<&str> = lib.skills().iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["mix"]);
     }
 
     #[test]

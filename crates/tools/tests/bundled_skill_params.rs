@@ -2,7 +2,9 @@
 //!
 //! The skill bodies under `apps/desktop/src-tauri/resources/skills` are
 //! injected verbatim into the system prompt, and they ship with the app
-//! and auto-install on first launch. So a wrong parameter name in a
+//! and reach every user's skills folder (installed on first launch, and
+//! updated at each launch while the user has not edited the file,
+//! `bundled_skills.rs`). So a wrong parameter name in a
 //! skill is not a documentation slip — it is an instruction the model
 //! follows, producing a call the dispatcher rejects with
 //! `SchemaValidation` and a visible stumble mid-workflow.

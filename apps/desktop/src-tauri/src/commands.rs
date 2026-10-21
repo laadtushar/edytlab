@@ -5715,60 +5715,54 @@ pub fn stop_recording(
 // install_bundled_skills (Task 2)
 // ---------------------------------------------------------------------------
 
-/// Copy the skills bundled inside the Tauri resource dir into
-/// `~/.edytlab/skills/` on the very first launch.
+/// Keep the skills bundled inside the Tauri resource dir current in
+/// `~/.edytlab/skills/`. The frontend calls it at every launch.
 ///
-/// The command is idempotent: if the target directory already contains
-/// any `.md` file it exits immediately and returns `Ok(0)`, so user
-/// edits or manually added skills are never overwritten.
+/// The skills folder is the user's, so the app records what it installed
+/// (`.bundled.json` in the folder) and replaces a file only while it is
+/// still the text it installed (#574). Per bundled skill:
 ///
-/// Returns the number of files copied (0 when the skills dir already
-/// exists, or when running in dev mode where the `bundled-skills/`
-/// resource subdir is absent).
+/// - missing and never installed: copied in;
+/// - unedited and the bundled text changed: replaced (a copy from before the
+///   record counts as unedited if its text is one the app shipped);
+/// - edited: left alone, with the new text written beside it as
+///   `<name>.bundled.md`, which neither the agent nor the Skills editor
+///   lists;
+/// - deleted by the user: not brought back.
+///
+/// Every write is a temporary file renamed into place, and nothing is ever
+/// deleted. A skill that cannot be dealt with is logged and skipped. See
+/// `bundled_skills` for the rules.
+///
+/// Returns the number of skills written, installed or updated (0 when
+/// nothing was due, or when running in dev mode where the
+/// `bundled-skills/` resource subdir is absent). The skill library is
+/// reloaded when that is more than 0, so the agent sees the new text
+/// without a restart.
 #[tauri::command]
 pub fn install_bundled_skills(app: tauri::AppHandle) -> CmdResult<usize> {
     let resource_dir = app.path().resource_dir().map_err(|e| e.to_string())?;
     let bundled_dir = resource_dir.join("bundled-skills");
+    let skills_dir = edytlab_skills_dir(&app)?;
 
-    let skills_dir = match app.path().home_dir() {
-        Ok(home) => home.join(".edytlab").join("skills"),
-        Err(_) => app
-            .path()
-            .app_data_dir()
-            .map_err(|e| e.to_string())?
-            .join(".edytlab")
-            .join("skills"),
-    };
+    let report = crate::bundled_skills::sync(
+        &bundled_dir,
+        &skills_dir,
+        &crate::bundled_skills::ShippedHashes::embedded(),
+    )
+    .map_err(|e| e.to_string())?;
+    tracing::info!(?report, "bundled skills synced");
 
-    // If skills dir already has .md files, don't overwrite user customisations.
-    if skills_dir.exists() {
-        let has_skills = std::fs::read_dir(&skills_dir)
-            .map_err(|e| e.to_string())?
-            .filter_map(|e| e.ok())
-            .any(|e| e.path().extension().and_then(|s| s.to_str()) == Some("md"));
-        if has_skills {
-            return Ok(0);
+    let written = report.written();
+    if written > 0 {
+        // The library was loaded at startup, before this ran.
+        if let Some(state) = app.try_state::<AppState>() {
+            if let Err(e) = state.reload_skills_from_disk() {
+                tracing::warn!(error = ?e, "skill reload after updating bundled skills failed");
+            }
         }
     }
-
-    if !bundled_dir.exists() {
-        return Ok(0); // dev mode: bundled-skills/ not yet present
-    }
-
-    std::fs::create_dir_all(&skills_dir).map_err(|e| e.to_string())?;
-
-    let mut count = 0usize;
-    for entry in std::fs::read_dir(&bundled_dir).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let src = entry.path();
-        if src.extension().and_then(|s| s.to_str()) != Some("md") {
-            continue;
-        }
-        let dst = skills_dir.join(entry.file_name());
-        std::fs::copy(&src, &dst).map_err(|e| e.to_string())?;
-        count += 1;
-    }
-    Ok(count)
+    Ok(written)
 }
 
 // ---------------------------------------------------------------------------
