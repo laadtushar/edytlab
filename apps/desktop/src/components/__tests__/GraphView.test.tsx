@@ -223,6 +223,61 @@ describe("GraphView", () => {
     expect(onSelect).toHaveBeenCalledWith(bubbles[0].dataset.nodeId);
   });
 
+  it("reads the graph again when refreshKey changes, and draws what it now holds (#602)", async () => {
+    const before = makeGraph(4);
+    const [first, second, third] = before.nodes.map((n) => n.id);
+    getGraphMock.mockResolvedValue(before);
+    const props = {
+      head: first,
+      onSelectNode: vi.fn(),
+      onSetHead: vi.fn(async () => undefined),
+    };
+    const { rerender } = render(<GraphView {...props} refreshKey={0} />);
+    await act(async () => {
+      await flush();
+    });
+    expect(screen.getAllByTestId("graph-bubble")).toHaveLength(4);
+
+    // A compaction removed the second node and a label was set.
+    const after: GraphSummary = {
+      head: first,
+      nodes: before.nodes
+        .filter((n) => n.id !== second)
+        .map((n) => (n.id === third ? { ...n, label: "chorus" } : n)),
+    };
+    getGraphMock.mockResolvedValue(after);
+    rerender(<GraphView {...props} refreshKey={1} />);
+    await act(async () => {
+      await flush();
+    });
+
+    expect(getGraphMock).toHaveBeenCalledTimes(2);
+    const drawn = screen.getAllByTestId("graph-bubble");
+    expect(drawn).toHaveLength(3);
+    expect(drawn.map((b) => b.dataset.nodeId)).not.toContain(second);
+    expect(drawn.find((b) => b.dataset.nodeId === third)).toHaveTextContent("chorus");
+  });
+
+  it("does not read again for a preview, a head ring or a path that moved (#522, #602)", async () => {
+    // These are drawn from the graph already held. Only refreshKey reads.
+    const summary = makeGraph(4);
+    const [first, second, , last] = summary.nodes.map((n) => n.id);
+    getGraphMock.mockResolvedValue(summary);
+    const props = { onSelectNode: vi.fn(), onSetHead: vi.fn(async () => undefined), refreshKey: 0 };
+    const { rerender } = render(<GraphView {...props} head={last} />);
+    await act(async () => {
+      await flush();
+    });
+
+    rerender(<GraphView {...props} head={last} preview={first} />);
+    rerender(<GraphView {...props} head={second} preview={first} path={[last, second]} />);
+    await act(async () => {
+      await flush();
+    });
+
+    expect(getGraphMock).toHaveBeenCalledTimes(1);
+  });
+
   it("marks the previewed node apart from the head (#522)", async () => {
     // A click previews a node and leaves the head where it was, so the two
     // can be different bubbles and each needs its own mark. The head ring
@@ -337,8 +392,10 @@ describe("GraphView", () => {
     expect(onSetHead).toHaveBeenCalledTimes(1);
     expect(onSetHead).toHaveBeenCalledWith(bubbles[1].dataset.nodeId);
     expect(setHeadToMock).not.toHaveBeenCalled();
-    // The graph is read again once the parent has moved the head.
-    expect(getGraphMock).toHaveBeenCalledTimes(2);
+    // Not read again here. The move is the parent's, and it counts the
+    // head move in `refreshKey` (#602): a read of its own would be a
+    // second one for the click.
+    expect(getGraphMock).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId("graph-context-menu")).not.toBeInTheDocument();
   });
 

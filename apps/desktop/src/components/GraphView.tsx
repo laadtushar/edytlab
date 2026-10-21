@@ -3,8 +3,9 @@
  *
  * Responsibilities:
  *  - Fetch the full graph via the `get_graph` bridge call on mount and
- *    whenever the parent signals a refresh (new node created, project
- *    opened, etc.).
+ *    whenever the parent signals a refresh (`refreshKey`): the head
+ *    moved, a project opened, the agent's turn ended, nodes were removed
+ *    (#602).
  *  - Lay nodes out top→bottom with dagre, colour-code lineages, and
  *    render via @xyflow/react.
  *  - Click a node → call the parent's `onSelectNode(id)`, which previews
@@ -104,9 +105,14 @@ export interface GraphViewProps {
    * other edits (#498); without it the bridge is called directly.
    */
   onRenameNode?: (id: NodeId, label: string) => Promise<void>;
-  /** Bumping this number forces a refetch of `get_graph`. The parent
-   *  bumps it on `node-created` events so the graph stays in sync
-   *  with the agent's edits. */
+  /**
+   * Bumping this number forces a refetch of `get_graph`: it is the one
+   * trigger from outside. The parent bumps it whenever what the graph
+   * draws may have changed (`useSession`'s `graphVersion`, #602): a head
+   * move, a project opening, the end of the agent's turn (a label the
+   * agent set moves no head) and a compaction that removed nodes. A
+   * preview click (`onSelectNode`) is none of these and does not bump it.
+   */
   refreshKey?: number;
   /**
    * The heads the user has been on, oldest first, ending at `head`: the
@@ -254,16 +260,18 @@ export function GraphView({
     };
   }, [refreshKey, localRefresh]);
 
+  // No read of its own after the move: it is a head move, which the parent
+  // counts in `refreshKey`, so a read here would be the second for one
+  // click (#602).
   const handleSetHead = useCallback(
     async (nodeId: string) => {
       try {
         await onSetHead(nodeId);
-        refetch();
       } catch (e) {
         setError(String(e));
       }
     },
-    [onSetHead, refetch],
+    [onSetHead],
   );
 
   const handleRename = useCallback(

@@ -31,6 +31,7 @@ vi.mock("../lib/tauri-bridge", () => ({
   // Compactions are not under test here (`useSession.trail.test.ts`).
   onToolCall: vi.fn(() => Promise.resolve(() => undefined)),
   onToolCallEnd: vi.fn(() => Promise.resolve(() => undefined)),
+  onAgentDone: vi.fn(() => Promise.resolve(() => undefined)),
   getGraph: vi.fn(() => Promise.resolve({ nodes: [], head: null })),
 }));
 

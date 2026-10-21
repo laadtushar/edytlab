@@ -1,0 +1,133 @@
+{
+  "video": "reel-teaser.mp4",
+  "duration": 14.0,
+  "audio_dir": "audio/reel-teaser",
+  "narration_voice": "Roger - Laid-Back, Casual, Resonant (CwhRBWXzGAHq8TQ4Fs17)",
+  "narration_model": "eleven_v4",
+  "cues": [
+    {
+      "id": "T01",
+      "kind": "hook",
+      "start": 0.0,
+      "end": 2.0,
+      "onscreen": "Ask for the blend.",
+      "max_seconds": 1.7,
+      "max_words": 4,
+      "narration": "Ask for the blend.",
+      "narration_spoken": "Ask for the blend.",
+      "narration_display": "Ask for the blend.",
+      "words": 4,
+      "title": [
+        "Ask for",
+        "the blend."
+      ],
+      "sub": "",
+      "speech_seconds": 1.44,
+      "clip": "T01.mp3",
+      "clip_speech_seconds": 1.44
+    },
+    {
+      "id": "T02",
+      "kind": "step",
+      "start": 2.0,
+      "end": 4.3,
+      "onscreen": "2 · Beatmatch",
+      "max_seconds": 2.0,
+      "max_words": 4,
+      "narration": "Beatmatch the two tracks.",
+      "narration_spoken": "Beatmatch the two tracks.",
+      "narration_display": "Beatmatch the two tracks.",
+      "words": 4,
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT05",
+        "start": 38.6,
+        "end": 40.9
+      },
+      "speech_seconds": 1.76,
+      "clip": "T02.mp3",
+      "clip_speech_seconds": 1.76
+    },
+    {
+      "id": "T03",
+      "kind": "step",
+      "start": 4.3,
+      "end": 6.5,
+      "onscreen": "4 · Blend: crossfade, low-pass on the outgoing track",
+      "max_seconds": 1.9,
+      "max_words": 4,
+      "narration": "Blend with a crossfade.",
+      "narration_spoken": "Blend with a crossfade.",
+      "narration_display": "Blend with a crossfade.",
+      "words": 4,
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT07",
+        "start": 83.4,
+        "end": 85.6
+      },
+      "speech_seconds": 1.68,
+      "clip": "T03.mp3",
+      "clip_speech_seconds": 1.68
+    },
+    {
+      "id": "T04",
+      "kind": "listen",
+      "start": 6.5,
+      "end": 11.0,
+      "onscreen": "Listen: the transition, from 0:12",
+      "max_seconds": 0.0,
+      "max_words": 0,
+      "silent": true,
+      "source": {
+        "demo": "dj-beatmatched-transition",
+        "code": "BT",
+        "caption": "BT08",
+        "start": 94.8,
+        "end": 99.3
+      }
+    },
+    {
+      "id": "T05",
+      "kind": "end",
+      "start": 11.0,
+      "end": 14.0,
+      "onscreen": "edytlab · Free, open source · edytlab.com · macOS · Windows · Linux",
+      "max_seconds": 2.7,
+      "max_words": 6,
+      "narration": "{edytlab|edit lab}. Free, open source.",
+      "narration_spoken": "edit lab. Free, open source.",
+      "narration_display": "edytlab. Free, open source.",
+      "words": 5,
+      "speech_seconds": 3.04,
+      "clip": "T05.wav",
+      "clip_speech_seconds": 2.764,
+      "clip_tempo": 1.1
+    }
+  ],
+  "fps": 30,
+  "sfx": [
+    {
+      "file": "sfx/hit.mp3",
+      "at": 0.0,
+      "gain_db": 9.5
+    },
+    {
+      "file": "sfx/whoosh.mp3",
+      "at": 1.9,
+      "gain_db": 2.1
+    },
+    {
+      "file": "sfx/whoosh.mp3",
+      "at": 4.2,
+      "gain_db": 2.1
+    },
+    {
+      "file": "sfx/ding.mp3",
+      "at": 11.0,
+      "gain_db": -16.4
+    }
+  ]
+}

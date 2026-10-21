@@ -1,0 +1,52 @@
+1
+00:00:00,000 --> 00:00:01,930
+Blending two tracks.
+
+2
+00:00:02,400 --> 00:00:04,890
+First, open both tracks.
+
+3
+00:00:10,200 --> 00:00:14,450
+From the top: 120 against 128.
+
+4
+00:00:22,330 --> 00:00:26,820
+1: ask what you're working
+with: tempo and key.
+
+5
+00:00:35,730 --> 00:00:40,780
+2: beatmatch. Neon Rush
+stretches down to 120.
+
+6
+00:00:48,600 --> 00:00:53,170
+3: line up the overlap,
+under the last 8 bars.
+
+7
+00:01:03,870 --> 00:01:08,440
+4: crossfade, with a low-pass
+on the outgoing track.
+
+8
+00:01:27,730 --> 00:01:28,860
+Have a listen.
+
+9
+00:01:50,670 --> 00:01:53,560
+5: master it for streaming.
+
+10
+00:02:35,930 --> 00:02:38,420
+6: export the file.
+
+11
+00:02:47,000 --> 00:02:49,090
+Now, the mastered mix.
+
+12
+00:03:03,600 --> 00:03:07,690
+Done: 50 seconds, -14 LUFS.
+

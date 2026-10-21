@@ -1,0 +1,41 @@
+1
+00:00:00,000 --> 00:00:01,770
+A mixable intro.
+
+2
+00:00:02,400 --> 00:00:04,490
+First, open the track.
+
+3
+00:00:09,400 --> 00:00:11,810
+First, the original intro.
+
+4
+00:00:22,400 --> 00:00:25,930
+1: check the tempo and bar length.
+
+5
+00:00:34,730 --> 00:00:39,300
+2: extend the intro.
+Copy the first 8 bars.
+
+6
+00:00:53,600 --> 00:00:57,050
+3: a filter that opens into the drop.
+
+7
+00:01:07,200 --> 00:01:10,410
+4: fade it in, and export.
+
+8
+00:01:21,530 --> 00:01:23,780
+Listen to the intro fade in.
+
+9
+00:01:35,270 --> 00:01:36,800
+Wait for the drop.
+
+10
+00:01:51,670 --> 00:01:55,440
+Done: a 16-bar intro, exported.
+
