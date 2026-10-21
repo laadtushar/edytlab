@@ -25,6 +25,22 @@ interface Entry {
 // GitHub Releases — link below.
 const entries: Entry[] = [
   {
+    version: "v0.7.0",
+    date: "2026-10",
+    bullets: [
+      "The installers carry the ONNX Runtime. Every installer now ships ONNX Runtime 1.23.2 and its notices (with the Visual C++ runtime it needs on Windows), and Settings → Account says it is bundled. No speech or stem model ships with it yet, so stem separation and transcription are still not available.",
+      "A setting you change is not undone by the app catching up. Tapping a fader or pan slider, or clicking mute or solo, could be put back for a moment, or lost, when an earlier change's read-back arrived late. A control you have set now stays as you set it until the session confirms it.",
+      "The History graph keeps up. It now redraws when the head moves, when the assistant's turn ends (so a label it set shows at once) and after a compaction, instead of keeping nodes that were removed until the next edit.",
+      "The mix you play stays playable. Switching to the Graph or Transcript tab and back could fail with 'Could not load the mix' once enough other previews had been made. The window's mix is now kept in the preview cache, and if it is lost anyway it is rendered again once.",
+      "Bundled skills update. Fixes and new skills that ship with the app now reach an existing install, not only a new one. A skill you have edited or deleted is left alone; an edited one gets the new text beside it as <name>.bundled.md.",
+      "Large sessions. The assistant can list every track, bus and marker of a big session page by page, including on Ollama's small context, and the session summary it is sent is capped so a big project still fits.",
+      "The assistant is told each effect's setting names (a gain's level is db, a limiter's ceiling_db and release_ms), so it no longer guesses a name the effect does not have.",
+      "Audio the app writes is named by its sample rate and channel count as well as its samples, so two edits with the same samples in different layouts no longer share one file. Projects made by earlier versions keep working: their files still verify and rebuild under their old names.",
+      "One project folder, one writer. A batch run no longer writes into a project you have open, and a project folder restored from a backup (or trashed and made again) while the assistant still works in the old one waits until the turn ends before it opens.",
+      "The libraries that check secure connections (rustls-webpki and webpki-roots) are updated past two published security advisories about distrusted certificates.",
+    ],
+  },
+  {
     version: "v0.6.1",
     date: "2026-10",
     bullets: [
