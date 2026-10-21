@@ -36,7 +36,7 @@ const cards = [
     href: "/docs/tools",
     icon: Wrench,
     title: "Audio Tools Reference",
-    desc: "All 93 tools the agent can call — cut, normalize, time-stretch, render, and more.",
+    desc: "All 94 tools the agent can call — cut, normalize, time-stretch, render, and more.",
     audience: "User",
   },
   {

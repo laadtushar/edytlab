@@ -3,9 +3,9 @@ import { Fragment } from "react";
 import { pageSocial } from "@/lib/seo-core";
 import { DocShell } from "@/components/docs/doc-shell";
 
-const title = "Audio Tools Reference: all 93 edytlab agent tools";
+const title = "Audio Tools Reference: all 94 edytlab agent tools";
 const description =
-  "All 93 audio-editing tools the edytlab AI agent can call, from cut and normalize to time-stretch and render, with example prompts and what is not implemented yet.";
+  "All 94 audio-editing tools the edytlab AI agent can call, from cut and normalize to time-stretch and render, with example prompts and what is not implemented yet.";
 
 export const metadata: Metadata = {
   title,
@@ -512,6 +512,13 @@ const groups = [
         what: "Report what the session costs on disk, split by category: audio the current version needs, audio only the undo history needs (and how much of that is rebuildable from recorded operations), audio nothing references at all, the bounded preview cache, and clipboard blobs. Every destructive edit writes a new file; audio nothing references goes when the project opens, and past 2 GiB the oldest audio only undo history holds is swept, once a replay has rebuilt it. Reads only — it deletes nothing.",
         output: "total_bytes, live, history, unreferenced, preview_cache, clipboard_blobs",
         note: "Pair it with compact_session, which does the reclaiming — this is the before-and-after measurement.",
+      },
+      {
+        name: "list_session",
+        prompt: "list every track in this session",
+        what: "List the session's tracks, buses or markers a page at a time, in the same lines the session summary in the agent's prompt uses. A session too big for that summary has each list cut and says how many it left out; this is how the agent reaches the rest. Reads only — it changes nothing, so Plan first never holds it for approval.",
+        output: "summary (what range it showed of how many), text (the lines), next_offset (only while there is another page)",
+        note: "A page ends at 100 items or 4,096 bytes, whichever comes first, so a model with a small context can take it: a thousand markers come in several pages, not one result. Local models are sent this tool whenever that summary was cut.",
       }
     ],
   },
@@ -664,7 +671,7 @@ export default function ToolsPage() {
   return (
     <DocShell
       title="Audio Tools Reference"
-      description="All 93 tools the AI agent can call to edit your audio session."
+      description="All 94 tools the AI agent can call to edit your audio session."
     >
       <p>
         Tools are deterministic functions the agent calls to manipulate your

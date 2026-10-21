@@ -17,7 +17,7 @@ with an AI agent.
 
 edytlab is a free, open-source desktop audio editor where you edit by chatting
 with an AI agent. The agent turns a request such as "time-stretch the second
-track to match the first, crossfade, and export a WAV" into calls to 93
+track to match the first, crossfade, and export a WAV" into calls to 94
 deterministic audio tools. The tools run locally in a Rust engine on the user's
 own computer, so audio files are never uploaded; only the chat goes to the
 language-model provider the user selects (Anthropic, OpenAI, OpenRouter, Groq,
@@ -44,7 +44,7 @@ Every line below was checked against the repository or the GitHub release on
 | Built with | Tauri 2, Rust, React |
 | Audio engine | Pure-Rust DSP. Decode with `symphonia`, resample with `rubato`, effects in an in-house dependency-free `audio-dsp` crate. |
 | Time-stretch / pitch-shift | A phase vocoder written for the project |
-| Tools | 93 deterministic tools the agent can call (generated list: `docs/tools-reference.md`) |
+| Tools | 94 deterministic tools the agent can call (generated list: `docs/tools-reference.md`) |
 | AI providers | Anthropic, OpenAI, OpenRouter, Groq, Gemini and Ollama (local, no key) |
 | Where audio goes | Nowhere. Processing is local. Only chat text goes to the chosen provider. |
 | Telemetry | None in the desktop app. The website uses anonymous Vercel analytics (page views and page performance, no cookies) |

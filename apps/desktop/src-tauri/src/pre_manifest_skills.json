@@ -1,0 +1,35 @@
+{
+  "note": "FROZEN: the bundled skills as shipped before the app kept .bundled.json (history up to 67d70927). Never add to it; see bundled_skills.rs.",
+  "generated_by": "node scripts/pre-manifest-skill-hashes.mjs",
+  "hash": "SHA-256, lowercase hex, of the file's text with CRLF read as LF; oldest version first",
+  "skills": {
+    "dialog-enhancer.md": [
+      "f06e87ff7e336f389c3ad69c3477832cac2230c995eda575f22e7af819521529"
+    ],
+    "export-guide.md": [
+      "3eccf5996b44114407acc70715c12ea6f82cbed8e66d84f39071d26c5a79b934",
+      "231acd704010a02c414c7fce1f94d695047e00d81e1479b2e3e1d1b9cb042a55"
+    ],
+    "loudness-master.md": [
+      "b3a275837855f4a63f6c5c87c7c0ba9f6d59ce63c081a08e23e068c7131304ed",
+      "42131bb78536c362c1bb073ed3f5026e9adbe000903ff3a183208e9eb2780985"
+    ],
+    "music-mix.md": [
+      "fab5e2493a7005406c26be3d1fabcafa1d5f41beea75f37f8a3a8304fc1c50c7",
+      "1d2df515532bd9bd314ca3149f8d2ea81b4bbbbca70fdb63fa6b9549e188c371"
+    ],
+    "noise-reducer.md": [
+      "e3f58e88c426bbf30fe50dc9c860dc5c1ef5fae1d00a9a3ab22f7507041f1557"
+    ],
+    "podcast-cleanup.md": [
+      "b6ae8e17e16d93126687441e1b10230a07434eb03ee2ec6af40bfef77c614a8f",
+      "7e3ab0b367ab6e487d79d196484bf0d29728b45d6cd4d7a8375e5ce677502c8f"
+    ],
+    "silence-cleaner.md": [
+      "f22ea5b260aec843868eaa6c019323b72657655a58ee8409bb2b328d007c510d"
+    ],
+    "vocal-chain.md": [
+      "36b91907ddaf61350129a33373c19182019f5f4ba7c61a712cd1cd5380692750"
+    ]
+  }
+}

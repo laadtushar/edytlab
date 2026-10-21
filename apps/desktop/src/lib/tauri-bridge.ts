@@ -1180,11 +1180,14 @@ export const stopRecording = (outputPath: string): Promise<RecordingResult> =>
 // Bundled skills install (Task 2)
 // -----------------------------------------------------------------------------
 
-/** Copy the 8 pre-installed skill .md files from the Tauri resource bundle
- *  into ~/.edytlab/skills/ on first launch.  Returns the number of files
- *  copied, or 0 if the skills directory already contains .md files (so user
- *  customisations are never overwritten) or if running in dev mode without
- *  the bundled-skills resource dir.  Always safe to call; non-fatal. */
+/** Keep the skill .md files that ship with the app current in
+ *  ~/.edytlab/skills/: copy in one that is missing, and replace one that is
+ *  still the text the app installed with the newer bundled text.  A skill the
+ *  user has edited is left alone (the new text goes beside it as
+ *  <name>.bundled.md) and one the user deleted is not brought back, so user
+ *  customisations are never overwritten.  Returns the number of files
+ *  written, or 0 if nothing was due or if running in dev mode without the
+ *  bundled-skills resource dir.  Always safe to call; non-fatal. */
 export async function installBundledSkills(): Promise<number> {
   return invoke<number>("install_bundled_skills");
 }

@@ -631,9 +631,9 @@ function App() {
       })
       .catch(() => undefined);
 
-    // Install the 8 bundled skill files to ~/.edytlab/skills/ on first
-    // launch. Fire-and-forget — non-fatal if the resource dir is absent
-    // (dev mode) or skills already exist.
+    // Keep the 8 bundled skill files current in ~/.edytlab/skills/: install
+    // the missing ones, update those the user has not edited. Fire-and-forget
+    // — non-fatal if the resource dir is absent (dev mode).
     installBundledSkills().catch(() => {
       // Non-fatal: bundled skills may not be available in dev mode
     });

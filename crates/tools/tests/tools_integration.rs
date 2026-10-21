@@ -812,6 +812,7 @@ fn default_dispatcher_exposes_all_phase1_tools() {
             "label",
             "leveler",
             "limiter",
+            "list_session",
             "load",
             "low_pass_filter",
             "mix_to_new_track",

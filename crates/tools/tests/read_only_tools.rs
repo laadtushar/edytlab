@@ -36,6 +36,10 @@ use tools::{
 /// already references (`Tool::mutates` states this). The read-only test
 /// below checks what they leave, and that it is exactly that.
 ///
+/// `list_session` is here for what it reads: the head's tracks, buses and
+/// markers, as text, one page at a time (#618). It writes nothing and opens
+/// no file, so it leaves no cache entry either.
+///
 /// Deliberately **not** on this list, though they look harmless:
 ///
 /// * `copy_region` overwrites the user's clipboard and writes a CAS blob.
@@ -47,11 +51,12 @@ use tools::{
 /// * `mute_track`, `solo_track` and `set_sync_lock` append state.
 /// * `apply_recipe` and `batch_apply` run nested edits.
 /// * `load` appends a node.
-const READ_ONLY: [&str; 9] = [
+const READ_ONLY: [&str; 10] = [
     "analyze_track",
     "audition_effect",
     "compare_nodes",
     "export_labels",
+    "list_session",
     "plot_spectrum",
     "render_preview",
     "select_region",
@@ -300,7 +305,7 @@ fn every_read_only_tool_leaves_the_session_untouched() {
     );
     let swept_hex = swept.to_hex();
 
-    let calls: [(&str, Value); 11] = [
+    let calls: [(&str, Value); 14] = [
         ("analyze_track", json!({ "track": 0 })),
         (
             "audition_effect",
@@ -308,6 +313,11 @@ fn every_read_only_tool_leaves_the_session_untouched() {
         ),
         ("compare_nodes", json!({ "a": hex, "b": hex })),
         ("export_labels", json!({})),
+        // One page of each list: the calls the session block's cut lines
+        // tell the model to make.
+        ("list_session", json!({ "what": "tracks" })),
+        ("list_session", json!({ "what": "buses" })),
+        ("list_session", json!({ "what": "markers" })),
         (
             "plot_spectrum",
             json!({ "track": 0, "start_sec": 0.0, "end_sec": 0.5 }),

@@ -420,6 +420,31 @@ export default function UserGuidePage() {
         </li>
       </ul>
 
+      <h3>Skills that come with edytlab</h3>
+      <p>
+        edytlab ships a few skills of its own (podcast cleanup, music mixing,
+        loudness mastering and others) and puts them in your skills folder,{" "}
+        <code>~/.edytlab/skills/</code>, the first time it runs. When a release
+        corrects one or adds one, the app brings your folder up to date at
+        launch, except for what you have changed:
+      </p>
+      <ul>
+        <li>
+          A bundled skill you have not edited is replaced by the newer text.
+        </li>
+        <li>
+          One you have edited stays as you left it. The newer text is saved
+          beside it as <code>&lt;name&gt;.bundled.md</code>, a file the app does
+          not load, so you can compare the two and copy across what you want.
+        </li>
+        <li>One you have deleted stays deleted.</li>
+        <li>A skill you wrote yourself is never touched.</li>
+      </ul>
+      <p>
+        Saving a skill in the editor, even to turn it off, counts as an edit.
+        To stop getting a bundled skill's updates, edit it or delete it.
+      </p>
+
       <h2>Agent Profiles</h2>
       <p>
         Profiles let you configure the agent's model, tool set, and behaviour

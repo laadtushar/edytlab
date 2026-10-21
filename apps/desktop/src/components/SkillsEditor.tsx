@@ -202,9 +202,16 @@ export function SkillsEditor() {
         {editor.kind === "empty" ? (
           <div
             data-testid="skills-editor-empty"
-            className="flex h-full items-center justify-center rounded-md border border-dashed border-[var(--border)] text-xs text-[var(--text-faint)]"
+            className="flex h-full flex-col items-center justify-center gap-1 rounded-md border border-dashed border-[var(--border)] px-4 text-center text-xs text-[var(--text-faint)]"
           >
-            Select a skill or click "New" to create one.
+            <span>Select a skill or click "New" to create one.</span>
+            <span
+              data-testid="skills-bundled-note"
+              className="max-w-sm text-[11px]"
+            >
+              Skills that come with edytlab are updated when a release changes
+              them, unless you have edited them.
+            </span>
           </div>
         ) : editor.kind === "loading" ? (
           <div className="flex h-full items-center justify-center text-xs text-[var(--text-faint)]">

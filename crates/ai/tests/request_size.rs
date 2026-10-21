@@ -144,9 +144,11 @@ const ISSUE_MEASURED_TOKENS: usize = 15_157;
 // `FULL_TOOLS_MAX_BYTES` was 62,500 over a measured 62,278 B until #579 named
 // the effect parameters in the schemas of add_effect, set_effect_params and
 // audition_effect, which adds 427 B. It went up by that and no more, so the
-// headroom is the 222 B it was.
+// headroom was the 222 B it had been. #618 then added `list_session`, whose
+// descriptor with its comma is 375 B (62,705 B to 63,080 B). It went up by
+// that and no more, so the headroom is still 222 B.
 const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
-const FULL_TOOLS_MAX_BYTES: usize = 62_927; // measured 62,705
+const FULL_TOOLS_MAX_BYTES: usize = 63_302; // measured 63,080
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -231,6 +233,9 @@ struct Options {
     /// What the session looks like to the model. `None` is
     /// [`native_run_context`].
     context: Option<SessionContext>,
+    /// The session the store holds, for a tool that reads it. `None` is an
+    /// empty store, as in every test that calls no such tool.
+    state: Option<session::SessionState>,
 }
 
 /// A stand-in for a tool an MCP server adds: it is named
@@ -288,6 +293,20 @@ fn dispatcher_with_mcp(mcp_tools: usize) -> ToolDispatcher {
     dispatcher
 }
 
+/// `state` as the node the store would hold it in, built the way its files
+/// are read so that the test needs no clock of its own.
+fn node_of(state: &session::SessionState) -> session::SessionNode {
+    serde_json::from_value(json!({
+        "id": "0".repeat(64),
+        "parent": null,
+        "created_at": "2026-01-01T00:00:00Z",
+        "label": null,
+        "reasoning": null,
+        "state": state,
+    }))
+    .expect("a node")
+}
+
 /// Run `messages` as consecutive turns of one conversation, with the mock
 /// answering `responses` in order across all of them. `Turn::streaming`
 /// has every streaming request of every turn, in order, and
@@ -306,12 +325,14 @@ async fn run_conversation(
 
     let dir = tempfile::tempdir().expect("tempdir");
     let notify = Arc::new(tokio::sync::Notify::new());
+    let mut store = session::Store::open(dir.path()).expect("open store");
+    if let Some(state) = &options.state {
+        store.append(node_of(state)).expect("append the head");
+    }
     let mut agent = Agent::new(
         config_for(provider_id, server.uri()),
         Arc::new(Mutex::new(dispatcher_with_mcp(options.mcp_tools))),
-        Arc::new(Mutex::new(
-            session::Store::open(dir.path()).expect("open store"),
-        )),
+        Arc::new(Mutex::new(store)),
         Arc::new(Mutex::new(audio_engine::Engine::new())),
         Arc::clone(&notify),
         Arc::new(Mutex::new(None)),
@@ -1021,20 +1042,248 @@ async fn a_cut_list_says_how_much_it_left_out_and_where_the_rest_is() {
             "## {name} lists {listed} and says {more} more of {total}"
         );
     }
-    let markers = section(&system, "markers");
-    let line = markers.iter().find(|l| l.starts_with("…and ")).unwrap();
-    assert!(
-        line.contains("`export_labels`"),
-        "the markers line names the tool that lists them all: {line}"
-    );
-    // The tracks line says the index range a tool's `track` takes, which is
-    // all of them, listed or not.
+    // Each line names the tool that lists the rest, and what to pass it
+    // (#618): a model that reads "not listed here" can do something about it.
+    for name in ["tracks", "buses", "markers"] {
+        let lines = section(&system, name);
+        let line = lines.iter().find(|l| l.starts_with("…and ")).unwrap();
+        assert!(
+            line.contains("`list_session`") && line.contains(&format!("what \"{name}\"")),
+            "## {name} does not say how to list the rest: {line}"
+        );
+    }
+    // The tool the lines name was sent in full, so the model that reads one
+    // can call it without guessing the arguments.
+    let sent_tools = tool_names_in(&sent.body["tools"]);
+    assert!(sent_tools.contains("list_session"), "{sent_tools:?}");
+    // The tracks line also says the index range a tool's `track` takes,
+    // which is all of them, listed or not.
     let tracks = section(&system, "tracks");
     let line = tracks.iter().find(|l| l.starts_with("…and ")).unwrap();
     assert!(
         line.contains(&format!("up to {}", ctx.tracks.len() - 1)),
         "{line}"
     );
+}
+
+// ---------------------------------------------------------------------
+// `list_session`: the way to the part of a session the block cut (#618)
+// ---------------------------------------------------------------------
+
+/// The context the issue's acceptance names, in tokens.
+const CONTEXT_TOKENS: usize = 8_192;
+
+/// Tokens that must still be free after the request that carries a page:
+/// the model's reply, and a call for the next page. The first request is
+/// held to half the context for the same reason (`SLIM_FIRST_REQUEST_MAX_BYTES`);
+/// this is what a page may take of the other half, with room over.
+const REPLY_TOKENS: usize = 2_048;
+
+/// The most a page of `list_session` may take, as the tool states it
+/// (`PAGE_MAX_BYTES`). Written out here, and checked against the tool's
+/// constant, so that a change to the tool's cap is a change to this file too.
+const STATED_PAGE_CAP: usize = 4_096;
+
+/// The session behind `huge_session()`, as a state a store holds and a tool
+/// reads: two hundred tracks, fifty buses fed by three tracks each, a
+/// thousand markers of which every fifth is a region.
+fn huge_state() -> session::SessionState {
+    let effect = |kind: &str| session::EffectInstance {
+        kind: kind.into(),
+        params: json!({}),
+        bypassed: false,
+    };
+    let bus_id = |b: usize| format!("{b:08x}-5b7e-4d21-9a6c-0e1d2f3a4b5c");
+    session::SessionState {
+        tracks: (0..200)
+            .map(|i| session::Track {
+                id: session::TrackId::new(),
+                name: format!("strings {i}"),
+                clips: vec![session::Clip {
+                    // Not on disk: counted in the session's rate.
+                    source_path: format!("/nonexistent/take-{i}.wav").into(),
+                    start_in_track: 0,
+                    source_offset: 0,
+                    length: 8_856_000,
+                    content_hash: None,
+                    time_stretch_factor: None,
+                    pitch_shift_semitones: None,
+                    beat_grid: None,
+                    volume_envelope: Vec::new(),
+                }],
+                gain_db: -2.5,
+                pan: 0.0,
+                muted: false,
+                soloed: false,
+                effects: vec![effect("compressor"), effect("eq")],
+                sends: if i < 150 {
+                    vec![serde_json::from_value(json!({
+                        "bus_id": bus_id(i / 3),
+                        "level_db": -6.0,
+                    }))
+                    .expect("a send")]
+                } else {
+                    vec![]
+                },
+            })
+            .collect(),
+        bus_routing: session::BusGraph {
+            buses: (0..50)
+                .map(|b| {
+                    serde_json::from_value(json!({
+                        "id": bus_id(b),
+                        "name": format!("Bus {b}"),
+                        "effects": [effect("reverb")],
+                    }))
+                    .expect("a bus")
+                })
+                .collect(),
+        },
+        master_chain: vec![effect("limiter")],
+        tempo_map: session::TempoMap::default(),
+        key_map: None,
+        transcript: None,
+        sample_rate: 48_000,
+        length_samples: 0,
+        annotations: (0..1_000)
+            .map(|m| session::Annotation {
+                id: session::AnnotationId::new(),
+                name: format!("cue {m}"),
+                kind: if m % 5 == 4 {
+                    session::AnnotationKind::Region {
+                        start_sec: m as f64 * 0.18,
+                        end_sec: m as f64 * 0.18 + 2.0,
+                    }
+                } else {
+                    session::AnnotationKind::Marker {
+                        time_sec: m as f64 * 0.18,
+                    }
+                },
+            })
+            .collect(),
+        sync_lock: false,
+    }
+}
+
+/// What the model is told about `state` at the start of a turn.
+fn context_of(state: &session::SessionState) -> SessionContext {
+    SessionContext {
+        head: Some("a".repeat(64)),
+        tracks: TrackBrief::from_state(state),
+        buses: BusBrief::from_state(state),
+        markers: state.annotations.clone(),
+        master_effects: SessionContext::master_effects_from_state(state),
+        ..SessionContext::default()
+    }
+}
+
+/// The acceptance: a 200-track page and a 1,000-marker page (and a 50-bus
+/// one) fit an 8,192-token context. The model asks for the first page of
+/// each from a huge session on Ollama, and the request that carries the
+/// answer (the whole first request, the call, and the page) is measured as
+/// it went over the wire.
+///
+/// Tokens are counted at `BYTES_PER_TOKEN` bytes each, the assumption the
+/// rest of this file makes (see the top of the file for where 3 comes
+/// from), and `REPLY_TOKENS` of the context must still be free for the
+/// model's answer.
+#[tokio::test]
+async fn ollama_a_page_of_a_huge_session_fits_an_8k_context() {
+    assert_eq!(tools::tool::list_session::PAGE_MAX_BYTES, STATED_PAGE_CAP);
+    let state = huge_state();
+    let ctx = context_of(&state);
+    for (what, total) in [("tracks", 200), ("buses", 50), ("markers", 1_000)] {
+        let args = json!({ "what": what }).to_string();
+        let turn = run_conversation(
+            "ollama",
+            &[CANONICAL],
+            vec![
+                ok(chat_reply_json("general")),
+                ok(chat_sse_tool_call("call_1", "list_session", &args)),
+                ok(chat_sse_text("Done.")),
+            ],
+            Options {
+                context: Some(ctx.clone()),
+                state: Some(state.clone()),
+                ..Options::default()
+            },
+        )
+        .await;
+        turn.result.as_ref().expect("the turn succeeds");
+        assert_eq!(turn.streaming.len(), 2, "{what}: call, then answer");
+
+        let results = tool_results(&turn.streaming[1].body);
+        assert_eq!(results.len(), 1, "{what}: {results:?}");
+        let page: Value = serde_json::from_str(&results[0])
+            .unwrap_or_else(|_| panic!("{what}: the result is not a page: {}", results[0]));
+        let shown = page["text"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{what}: no text: {page}"))
+            .lines()
+            .count();
+        assert!(shown > 0 && shown < total, "{what}: {shown} of {total}");
+        assert!(page.get("next_offset").is_some(), "{what}: {page}");
+        assert!(
+            results[0].len() <= STATED_PAGE_CAP,
+            "{what}: the page is {} B, over {STATED_PAGE_CAP} B",
+            results[0].len()
+        );
+
+        let first = split_chat(&turn.streaming[0]);
+        assert_fits(&format!("{what} page, first request"), &first);
+        let carrying = turn.streaming[1].raw_len;
+        let tokens = carrying.div_ceil(BYTES_PER_TOKEN);
+        println!(
+            "list_session {what}: {shown} of {total} on the first page ({} B); the request that \
+             carries it is {carrying} B, about {tokens} tokens at {BYTES_PER_TOKEN} B/token of \
+             {CONTEXT_TOKENS}",
+            results[0].len()
+        );
+        assert!(
+            tokens + REPLY_TOKENS <= CONTEXT_TOKENS,
+            "{what}: the request carrying the page is about {tokens} tokens, which leaves \
+             {} of {CONTEXT_TOKENS} for the reply, under the {REPLY_TOKENS} it needs",
+            CONTEXT_TOKENS.saturating_sub(tokens)
+        );
+    }
+}
+
+/// A model on the slim set can only call `list_session` if it was sent the
+/// tool, so it is sent whenever the block it just read was cut, for any
+/// message, and not otherwise: a session that fits needs nothing listed,
+/// and the tool is then one of the names the model is told it can call.
+#[tokio::test]
+async fn ollama_is_sent_list_session_exactly_when_the_block_was_cut() {
+    for message in [CANONICAL, NAMES_MANY_TOOLS] {
+        for (label, ctx, cut) in [
+            ("huge", huge_session(), true),
+            ("large", large_session(), true),
+            ("six tracks, three buses", mix_with_buses(), false),
+        ] {
+            let (sent, split) = ollama_first_request(message, ctx).await;
+            let system = system_text(&sent.body);
+            let tools = tool_names_in(&sent.body["tools"]);
+            assert_eq!(
+                system.contains("…and "),
+                cut,
+                "{label}: the block is {}cut: {system}",
+                if cut { "not " } else { "" }
+            );
+            assert_eq!(
+                tools.contains("list_session"),
+                cut,
+                "{label}, {message:?}: list_session is {}sent: {tools:?}",
+                if cut { "not " } else { "" }
+            );
+            if !cut {
+                assert!(
+                    names_line_words(&system).contains("list_session"),
+                    "{label}: neither sent nor named"
+                );
+            }
+            assert_session_headroom(&format!("{label}, {message:?}"), &split);
+        }
+    }
 }
 
 /// A provider sent every tool has the room, but pays for the block on

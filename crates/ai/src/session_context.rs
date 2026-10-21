@@ -19,12 +19,22 @@
 //!   budget.
 //!
 //! A session that fits is listed in full. One that does not is cut list by
-//! list, and each cut list says how many it left out ([`render_block_within`]).
-//! `tests/request_size.rs` holds the requests a huge session makes under
-//! the bound with headroom.
+//! list, and each cut list says how many it left out ([`render_block_within`])
+//! and names `list_session`, the read-only tool that lists the rest a page at
+//! a time, in these same lines (#618). `tests/request_size.rs` holds the
+//! requests a huge session makes under the bound with headroom.
 
-use session::{Annotation, AnnotationKind, EffectInstance, SessionState};
+use session::{Annotation, SessionState};
+use tools::session_lines::{
+    bus_line, chain_text, effect_labels, marker_line, markers_by_time, track_line,
+};
 use tools::Range;
+
+// The briefs and the lines they are written as live in `tools`
+// (`session_lines`), because `list_session` writes the same lines for the
+// part of the session the block cuts (#618). They are re-exported here, where
+// the rest of `ai` and the app have always found them.
+pub use tools::session_lines::{BusBrief, SendBrief, TrackBrief};
 
 use crate::provider::ToolSet;
 
@@ -60,156 +70,6 @@ impl SessionContext {
     }
 }
 
-/// Effect kinds in chain order, bypassed ones marked.
-fn effect_labels(chain: &[EffectInstance]) -> Vec<String> {
-    chain
-        .iter()
-        .map(|e| {
-            if e.bypassed {
-                format!("{} (bypassed)", e.kind)
-            } else {
-                e.kind.clone()
-            }
-        })
-        .collect()
-}
-
-/// One track as the model needs to see it to act on it: which index it
-/// is, what it is called, where its audio sits on the timeline, and its
-/// mixer state (#408).
-///
-/// Without this the model knew nothing about the session it was editing.
-/// "Fade out the last two seconds" could not be placed, because nothing
-/// said how long the track was, and the model went looking for a way to
-/// measure it instead of fading.
-#[derive(Debug, Clone, PartialEq)]
-pub struct TrackBrief {
-    pub name: String,
-    /// Each clip's `(start, end)` on the session timeline, in seconds.
-    pub clips: Vec<(f64, f64)>,
-    pub gain_db: f32,
-    pub pan: f32,
-    pub muted: bool,
-    pub soloed: bool,
-    /// Effect kinds in chain order, bypassed ones marked.
-    pub effects: Vec<String>,
-}
-
-impl TrackBrief {
-    /// The tracks of `state`, in index order.
-    ///
-    /// Clip frames are counted in the clip's own source rate (#234), as
-    /// `list_tracks` counts them, so the model and the timeline agree on
-    /// where everything is. A source whose header cannot be read falls
-    /// back to the session rate, as the timeline does.
-    pub fn from_state(state: &SessionState) -> Vec<TrackBrief> {
-        let session_rate = state.sample_rate.max(1) as f64;
-        state
-            .tracks
-            .iter()
-            .map(|t| TrackBrief {
-                name: t.name.clone(),
-                clips: t
-                    .clips
-                    .iter()
-                    .map(|c| {
-                        let rate = tools::clip_source_rate(c)
-                            .map(f64::from)
-                            .unwrap_or(session_rate);
-                        let start = c.start_in_track as f64 / rate;
-                        (start, start + c.length as f64 / rate)
-                    })
-                    .collect(),
-                gain_db: t.gain_db,
-                pan: t.pan,
-                muted: t.muted,
-                soloed: t.soloed,
-                effects: effect_labels(&t.effects),
-            })
-            .collect()
-    }
-
-    fn end(&self) -> f64 {
-        self.clips.iter().map(|&(_, end)| end).fold(0.0, f64::max)
-    }
-}
-
-/// One effects bus as the model needs to see it to use it (#552): its
-/// name, the id `set_send` and `remove_send` take, which tracks feed it,
-/// and its effect chain.
-///
-/// Without this a conversation learned a bus only from its own
-/// `create_bus` result, or from the error an unknown name got, and two
-/// buses sharing a name cost a second refused call.
-#[derive(Debug, Clone, PartialEq)]
-pub struct BusBrief {
-    pub name: String,
-    /// The bus id, in full: a name may be shared, the id never is.
-    pub id: String,
-    /// The tracks that send to this bus, in track order.
-    pub sends: Vec<SendBrief>,
-    /// Effect kinds in chain order, bypassed ones marked, as a track's.
-    pub effects: Vec<String>,
-}
-
-/// One track's send to a bus.
-#[derive(Debug, Clone, PartialEq)]
-pub struct SendBrief {
-    /// The sending track's index, which is what a tool's `track` takes.
-    pub track: usize,
-    pub track_name: String,
-    pub level_db: f32,
-}
-
-impl BusBrief {
-    /// The buses of `state`, in the order it holds them.
-    ///
-    /// A send to a bus the session does not hold is dropped: it names
-    /// nothing the model could use.
-    pub fn from_state(state: &SessionState) -> Vec<BusBrief> {
-        state
-            .bus_routing
-            .buses
-            .iter()
-            .map(|bus| BusBrief {
-                name: bus.name.clone(),
-                id: bus.id.to_string(),
-                sends: state
-                    .tracks
-                    .iter()
-                    .enumerate()
-                    .flat_map(|(index, track)| {
-                        track
-                            .sends
-                            .iter()
-                            .filter(|send| send.bus_id == bus.id)
-                            .map(move |send| SendBrief {
-                                track: index,
-                                track_name: track.name.clone(),
-                                level_db: send.level_db,
-                            })
-                    })
-                    .collect(),
-                effects: effect_labels(&bus.effects),
-            })
-            .collect()
-    }
-}
-
-/// How many clips a track lists before the rest are summarised. A track
-/// cut into hundreds of pieces would otherwise fill the prompt.
-const MAX_CLIPS_LISTED: usize = 8;
-
-/// How many sends a bus lists before the rest are summarised, for the same
-/// reason: a reverb that every track feeds would otherwise be one very long
-/// line.
-const MAX_SENDS_LISTED: usize = 8;
-
-/// How many effects a chain lists before the rest are summarised. Real
-/// chains are far shorter. This is what keeps the master line, which is
-/// never left out, from growing without bound.
-const MAX_EFFECTS_LISTED: usize = 16;
-
 /// The most the block may take, in bytes of its text, for a provider that
 /// is sent every tool ([`ToolSet::Full`]: Anthropic and every other hosted
 /// provider) (#573).
@@ -236,9 +96,10 @@ pub const SESSION_BLOCK_MAX_BYTES: usize = 8_000;
 /// This cap is what keeps that cost small enough for a message that names
 /// nothing to still be sent the whole core, which a test in
 /// `tool_selection.rs` holds. Of the huge session in `request_size.rs`
-/// (two hundred tracks, fifty buses, a thousand markers) it lists eight
-/// tracks, two buses and twenty-two markers, the ones the message names
-/// first.
+/// (two hundred tracks, fifty buses, a thousand markers) it lists seven
+/// tracks, two buses and nineteen markers, the ones the message names
+/// first, and the pinned `list_session` (`tool_selection::PINNED_WHEN_BLOCK_CUT`)
+/// lists the rest.
 ///
 /// [`SLIM_SESSION_ALLOWANCE_BYTES`]: crate::tool_selection::SLIM_SESSION_ALLOWANCE_BYTES
 /// [`slim_tools_budget`]: crate::tool_selection::slim_tools_budget
@@ -278,17 +139,39 @@ pub fn render_block(ctx: &SessionContext) -> String {
 ///
 /// What is shown stays in its list's own order. A list that was cut ends
 /// with a line that says how many it left out of how many, and what can
-/// reach the rest: any index for a track, and `export_labels` for the
-/// markers. No tool lists the tracks or the buses, so for those the line
-/// gives the count and, for tracks, the index range a tool's `track`
-/// takes.
+/// reach the rest: `list_session` with the `what` of that list, which pages
+/// through all of it in these same lines (#618), and for tracks the index
+/// range a tool's `track` takes, since any index works whether or not the
+/// track is listed.
 ///
 /// The fixed parts are bounded (a chain lists at most
-/// [`MAX_EFFECTS_LISTED`] effects, and a selection and a head are one line
-/// each), and come to well under [`SLIM_SESSION_BLOCK_MAX_BYTES`]; a test
-/// holds the worst case there. Below what they take the block is longer
-/// than `max_bytes`, with every list cut to its count.
+/// [`tools::session_lines::MAX_EFFECTS_LISTED`] effects, and a selection and
+/// a head are one line each), and come to well under
+/// [`SLIM_SESSION_BLOCK_MAX_BYTES`]; a test holds the worst case there. Below
+/// what they take the block is longer than `max_bytes`, with every list cut
+/// to its count.
 pub fn render_block_within(ctx: &SessionContext, max_bytes: usize, message: &str) -> String {
+    render_block_checked(ctx, max_bytes, message).text
+}
+
+/// The block [`render_block_within`] writes, and whether it had to cut a list.
+///
+/// The agent loop reads `cut` to send a provider that is sent a slim tool
+/// set `list_session`, the tool the cut lines name (#618).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenderedBlock {
+    pub text: String,
+    /// At least one list of the block ends in a line that says how many it
+    /// left out.
+    pub cut: bool,
+}
+
+/// [`render_block_within`], with whether a list was cut.
+pub fn render_block_checked(
+    ctx: &SessionContext,
+    max_bytes: usize,
+    message: &str,
+) -> RenderedBlock {
     if ctx.selection.is_none()
         && ctx.markers.is_empty()
         && ctx.head.is_none()
@@ -296,15 +179,13 @@ pub fn render_block_within(ctx: &SessionContext, max_bytes: usize, message: &str
         && ctx.buses.is_empty()
         && ctx.master_effects.is_empty()
     {
-        return String::new();
+        return RenderedBlock {
+            text: String::new(),
+            cut: false,
+        };
     }
 
-    let mut markers_by_time: Vec<&Annotation> = ctx.markers.iter().collect();
-    markers_by_time.sort_by(|a, b| {
-        time_of(a)
-            .partial_cmp(&time_of(b))
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    let sorted_markers = markers_by_time(&ctx.markers);
 
     let mut tracks = List::new(
         TRACKS_HEADER,
@@ -326,7 +207,7 @@ pub fn render_block_within(ctx: &SessionContext, max_bytes: usize, message: &str
         MARKERS_HEADER,
         "",
         markers_left_out,
-        markers_by_time.iter().map(|a| marker_line(a)).collect(),
+        sorted_markers.iter().map(|a| marker_line(a)).collect(),
     );
 
     let session = session_part(ctx);
@@ -348,8 +229,8 @@ pub fn render_block_within(ctx: &SessionContext, max_bytes: usize, message: &str
         let track_order = priority(ctx.tracks.len(), |i| {
             usize::from(!mentions.names_track(i, &ctx.tracks[i].name))
         });
-        let marker_order = priority(markers_by_time.len(), |i| {
-            usize::from(!mentions.names(&markers_by_time[i].name))
+        let marker_order = priority(sorted_markers.len(), |i| {
+            usize::from(!mentions.names(&sorted_markers[i].name))
         });
 
         // Room for the line that says what a list left out is set aside
@@ -398,7 +279,10 @@ pub fn render_block_within(ctx: &SessionContext, max_bytes: usize, message: &str
     out.push_str(&master);
     out.push_str(&selection);
     markers.render(&mut out);
-    out
+    RenderedBlock {
+        text: out,
+        cut: tracks.hidden() + buses.hidden() + markers.hidden() > 0,
+    }
 }
 
 const TRACKS_HEADER: &str = "## tracks\nThe index is what a tool's `track` argument takes. Times are seconds on the session timeline.\n";
@@ -407,24 +291,27 @@ const BUSES_HEADER: &str = "## buses\nTracks send a parallel copy to a bus; `set
 
 const MARKERS_HEADER: &str = "## markers\n";
 
-/// What a cut track list says it left out. Every index still works: a
-/// tool's `track` reaches a track whether or not it is listed.
+/// What a cut track list says it left out, and how to reach it. Every index
+/// still works whether or not it is listed: a tool's `track` reaches a track.
 fn tracks_left_out(more: usize, total: usize) -> String {
     format!(
-        "…and {more} more tracks ({total} in all), not listed here. A tool's `track` takes any index up to {}.\n",
+        "…and {more} more tracks ({total} in all), not listed here. `list_session` with what \"tracks\" pages through them; a tool's `track` takes any index up to {}.\n",
         total.saturating_sub(1)
     )
 }
 
+/// `list_session` reads only, and writes each page in the lines above
+/// (`the_tool_each_left_out_line_names_is_registered_read_only_and_takes_what_it_passes`
+/// holds that the name and the `what` here are the tool's).
 fn buses_left_out(more: usize, total: usize) -> String {
-    format!("…and {more} more buses ({total} in all), not listed here.\n")
+    format!(
+        "…and {more} more buses ({total} in all), not listed here. `list_session` with what \"buses\" pages through them.\n"
+    )
 }
 
-/// `export_labels` reads only, takes nothing, and returns every marker
-/// and region.
 fn markers_left_out(more: usize, total: usize) -> String {
     format!(
-        "…and {more} more markers ({total} in all), not listed here; `export_labels` lists every one.\n"
+        "…and {more} more markers ({total} in all), not listed here. `list_session` with what \"markers\" pages through them.\n"
     )
 }
 
@@ -648,118 +535,12 @@ fn selection_part(ctx: &SessionContext) -> String {
     }
 }
 
-fn track_line(i: usize, t: &TrackBrief) -> String {
-    let mut out = format!("- {i} \"{}\"", t.name);
-    let mut flags = Vec::new();
-    if t.muted {
-        flags.push("muted");
-    }
-    if t.soloed {
-        flags.push("soloed");
-    }
-    if !flags.is_empty() {
-        out.push_str(&format!(" ({})", flags.join(", ")));
-    }
-    out.push_str(": ");
-    match t.clips.as_slice() {
-        [] => out.push_str("no audio"),
-        [(start, end)] => out.push_str(&format!("{start:.2}-{end:.2}s")),
-        clips => {
-            let listed: Vec<String> = clips
-                .iter()
-                .take(MAX_CLIPS_LISTED)
-                .map(|(s, e)| format!("{s:.2}-{e:.2}s"))
-                .collect();
-            out.push_str(&format!("{} clips: {}", clips.len(), listed.join(", ")));
-            if clips.len() > MAX_CLIPS_LISTED {
-                out.push_str(&format!(", and {} more", clips.len() - MAX_CLIPS_LISTED));
-            }
-        }
-    }
-    out.push_str(&format!(
-        "; gain {:+.1} dB; pan {}",
-        t.gain_db,
-        pan_text(t.pan)
-    ));
-    if !t.effects.is_empty() {
-        out.push_str(&format!("; effects: {}", chain_text(&t.effects)));
-    }
-    out.push('\n');
-    out
-}
-
-fn bus_line(b: &BusBrief) -> String {
-    let mut out = format!("- \"{}\" (id {}): ", b.name, b.id);
-    if b.sends.is_empty() {
-        out.push_str("no sends");
-    } else {
-        let sends: Vec<String> = b
-            .sends
-            .iter()
-            .take(MAX_SENDS_LISTED)
-            .map(|s| format!("{} \"{}\" ({:+.1} dB)", s.track, s.track_name, s.level_db))
-            .collect();
-        out.push_str(&format!("from {}", sends.join(", ")));
-        if b.sends.len() > MAX_SENDS_LISTED {
-            out.push_str(&format!(", and {} more", b.sends.len() - MAX_SENDS_LISTED));
-        }
-    }
-    if !b.effects.is_empty() {
-        out.push_str(&format!("; effects: {}", chain_text(&b.effects)));
-    }
-    out.push('\n');
-    out
-}
-
-fn marker_line(a: &Annotation) -> String {
-    match &a.kind {
-        AnnotationKind::Marker { time_sec } => format!("- {} @ {:.2}s\n", a.name, time_sec),
-        AnnotationKind::Region { start_sec, end_sec } => {
-            format!("- {} @ {:.2}s-{:.2}s\n", a.name, start_sec, end_sec)
-        }
-    }
-}
-
-/// A chain's effects, in order, at most [`MAX_EFFECTS_LISTED`] of them.
-fn chain_text(effects: &[String]) -> String {
-    let mut text = effects
-        .iter()
-        .take(MAX_EFFECTS_LISTED)
-        .map(String::as_str)
-        .collect::<Vec<_>>()
-        .join(", ");
-    if effects.len() > MAX_EFFECTS_LISTED {
-        text.push_str(&format!(
-            ", and {} more",
-            effects.len() - MAX_EFFECTS_LISTED
-        ));
-    }
-    text
-}
-
-/// `-1.0` hard left, `0.0` centre, `1.0` hard right, as a person says it.
-fn pan_text(pan: f32) -> String {
-    let pct = (pan.abs() * 100.0).round() as i32;
-    if pct == 0 {
-        "centre".to_string()
-    } else if pan < 0.0 {
-        format!("{pct}% left")
-    } else {
-        format!("{pct}% right")
-    }
-}
-
-fn time_of(a: &Annotation) -> f64 {
-    match a.kind {
-        AnnotationKind::Marker { time_sec } => time_sec,
-        AnnotationKind::Region { start_sec, .. } => start_sec,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use session::{AnnotationKind, EffectInstance};
     use std::path::{Path, PathBuf};
+    use tools::session_lines::pan_text;
 
     fn wav(path: &Path, rate: u32, seconds: f64) -> PathBuf {
         let spec = hound::WavSpec {
@@ -1432,7 +1213,7 @@ mod tests {
         let tiny = session_part(&only_tracks).len() + TRACKS_HEADER.len() + 1 + 120;
         assert_eq!(
             left_out_line(&render_block_within(&only_tracks, tiny, ""), "tracks"),
-            Some("…and 30 more tracks (30 in all), not listed here. A tool's `track` takes any index up to 29.")
+            Some("…and 30 more tracks (30 in all), not listed here. `list_session` with what \"tracks\" pages through them; a tool's `track` takes any index up to 29.")
         );
 
         let only_markers = SessionContext {
@@ -1443,7 +1224,7 @@ mod tests {
         };
         assert_eq!(
             left_out_line(&render_block_within(&only_markers, 100, ""), "markers"),
-            Some("…and 40 more markers (40 in all), not listed here; `export_labels` lists every one.")
+            Some("…and 40 more markers (40 in all), not listed here. `list_session` with what \"markers\" pages through them.")
         );
 
         let only_buses = SessionContext {
@@ -1452,26 +1233,61 @@ mod tests {
         };
         assert_eq!(
             left_out_line(&render_block_within(&only_buses, 300, ""), "buses"),
-            Some("…and 12 more buses (12 in all), not listed here.")
+            Some("…and 12 more buses (12 in all), not listed here. `list_session` with what \"buses\" pages through them.")
         );
     }
 
-    /// The tool the markers line sends the model to lists every marker and
-    /// region, reads only, and takes nothing, so the call cannot go wrong.
+    /// Each cut list's line sends the model to a tool, and the tool has to be
+    /// one the model can call without being asked first, that takes the
+    /// words the line passes it (#618). So the line is read, not assumed:
+    /// the name in backticks is looked up in the registry, and the `what`
+    /// it passes is checked against the schema.
     #[test]
-    fn the_tool_the_markers_line_names_lists_them_and_reads_only() {
+    fn the_tool_each_left_out_line_names_is_registered_read_only_and_takes_what_it_passes() {
         let dispatcher = tools::ToolDispatcher::default_dispatcher();
-        let tool = dispatcher
-            .get("export_labels")
-            .expect("export_labels is a registered tool");
-        assert!(!tool.mutates(), "export_labels must be read-only");
-        let schema = tool.schema();
-        assert_eq!(
-            schema["input_schema"]["required"],
-            serde_json::json!([]),
-            "{schema}"
-        );
-        assert!(markers_left_out(1, 2).contains("`export_labels`"));
+        for (line, what) in [
+            (tracks_left_out(3, 10), "tracks"),
+            (buses_left_out(3, 10), "buses"),
+            (markers_left_out(3, 10), "markers"),
+        ] {
+            let name = line
+                .split('`')
+                .nth(1)
+                .unwrap_or_else(|| panic!("the line names no tool: {line}"));
+            assert_eq!(name, "list_session", "{line}");
+            let tool = dispatcher
+                .get(name)
+                .unwrap_or_else(|| panic!("{name} is not a registered tool: {line}"));
+            assert!(!tool.mutates(), "{name} must be read-only: {line}");
+            assert!(
+                !tool.runs_off_the_lock(),
+                "{name} reads under the lock like the session block does"
+            );
+
+            let passed = line
+                .split("what \"")
+                .nth(1)
+                .and_then(|rest| rest.split('"').next())
+                .unwrap_or_else(|| panic!("the line passes no `what`: {line}"));
+            assert_eq!(passed, what, "{line}");
+            let schema = tool.schema();
+            let props = &schema["input_schema"]["properties"];
+            let takes: Vec<&str> = props["what"]["enum"]
+                .as_array()
+                .unwrap_or_else(|| panic!("`what` is not an enum: {schema}"))
+                .iter()
+                .filter_map(|v| v.as_str())
+                .collect();
+            assert!(takes.contains(&passed), "{name} takes {takes:?}: {line}");
+            // The only argument it needs is the one the line gives, and it
+            // pages with the two the line leaves to the model.
+            assert_eq!(
+                schema["input_schema"]["required"],
+                serde_json::json!(["what"]),
+                "{schema}"
+            );
+            assert!(props.get("offset").is_some() && props.get("limit").is_some());
+        }
     }
 
     /// Whatever the session holds, the block stays within the slim budget:
