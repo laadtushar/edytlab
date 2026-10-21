@@ -1432,7 +1432,7 @@ mod tests {
         let tiny = session_part(&only_tracks).len() + TRACKS_HEADER.len() + 1 + 120;
         assert_eq!(
             left_out_line(&render_block_within(&only_tracks, tiny, ""), "tracks"),
-            Some("…and 30 more tracks (30 in all), not listed here. A tool's `track` takes any index up to 29.")
+            Some("…and 30 more tracks (30 in all), not listed here. `list_session` with what \"tracks\" pages through them; a tool's `track` takes any index up to 29.")
         );
 
         let only_markers = SessionContext {
@@ -1443,7 +1443,7 @@ mod tests {
         };
         assert_eq!(
             left_out_line(&render_block_within(&only_markers, 100, ""), "markers"),
-            Some("…and 40 more markers (40 in all), not listed here; `export_labels` lists every one.")
+            Some("…and 40 more markers (40 in all), not listed here. `list_session` with what \"markers\" pages through them.")
         );
 
         let only_buses = SessionContext {
@@ -1452,26 +1452,61 @@ mod tests {
         };
         assert_eq!(
             left_out_line(&render_block_within(&only_buses, 300, ""), "buses"),
-            Some("…and 12 more buses (12 in all), not listed here.")
+            Some("…and 12 more buses (12 in all), not listed here. `list_session` with what \"buses\" pages through them.")
         );
     }
 
-    /// The tool the markers line sends the model to lists every marker and
-    /// region, reads only, and takes nothing, so the call cannot go wrong.
+    /// Each cut list's line sends the model to a tool, and the tool has to be
+    /// one the model can call without being asked first, that takes the
+    /// words the line passes it (#618). So the line is read, not assumed:
+    /// the name in backticks is looked up in the registry, and the `what`
+    /// it passes is checked against the schema.
     #[test]
-    fn the_tool_the_markers_line_names_lists_them_and_reads_only() {
+    fn the_tool_each_left_out_line_names_is_registered_read_only_and_takes_what_it_passes() {
         let dispatcher = tools::ToolDispatcher::default_dispatcher();
-        let tool = dispatcher
-            .get("export_labels")
-            .expect("export_labels is a registered tool");
-        assert!(!tool.mutates(), "export_labels must be read-only");
-        let schema = tool.schema();
-        assert_eq!(
-            schema["input_schema"]["required"],
-            serde_json::json!([]),
-            "{schema}"
-        );
-        assert!(markers_left_out(1, 2).contains("`export_labels`"));
+        for (line, what) in [
+            (tracks_left_out(3, 10), "tracks"),
+            (buses_left_out(3, 10), "buses"),
+            (markers_left_out(3, 10), "markers"),
+        ] {
+            let name = line
+                .split('`')
+                .nth(1)
+                .unwrap_or_else(|| panic!("the line names no tool: {line}"));
+            assert_eq!(name, "list_session", "{line}");
+            let tool = dispatcher
+                .get(name)
+                .unwrap_or_else(|| panic!("{name} is not a registered tool: {line}"));
+            assert!(!tool.mutates(), "{name} must be read-only: {line}");
+            assert!(
+                !tool.runs_off_the_lock(),
+                "{name} reads under the lock like the session block does"
+            );
+
+            let passed = line
+                .split("what \"")
+                .nth(1)
+                .and_then(|rest| rest.split('"').next())
+                .unwrap_or_else(|| panic!("the line passes no `what`: {line}"));
+            assert_eq!(passed, what, "{line}");
+            let schema = tool.schema();
+            let props = &schema["input_schema"]["properties"];
+            let takes: Vec<&str> = props["what"]["enum"]
+                .as_array()
+                .unwrap_or_else(|| panic!("`what` is not an enum: {schema}"))
+                .iter()
+                .filter_map(|v| v.as_str())
+                .collect();
+            assert!(takes.contains(&passed), "{name} takes {takes:?}: {line}");
+            // The only argument it needs is the one the line gives, and it
+            // pages with the two the line leaves to the model.
+            assert_eq!(
+                schema["input_schema"]["required"],
+                serde_json::json!(["what"]),
+                "{schema}"
+            );
+            assert!(props.get("offset").is_some() && props.get("limit").is_some());
+        }
     }
 
     /// Whatever the session holds, the block stays within the slim budget:
