@@ -57,7 +57,7 @@ fn casefolded(dir: &Path) -> io::Result<Identity> {
     let hash = name
         .bytes()
         .fold(0u64, |h, b| h.wrapping_mul(31).wrapping_add(u64::from(b)));
-    Ok(Identity::unpinned(FolderId::new(0, hash)))
+    Ok(Identity::unpinned(FolderId::new(0, u128::from(hash))))
 }
 
 // =============================================================================
@@ -251,6 +251,125 @@ fn a_live_stores_folder_identity_is_not_given_to_another_folder() {
 }
 
 // =============================================================================
+// A folder replaced at the same path
+// =============================================================================
+
+/// Put another folder at `project`'s path, as a restore from a backup or a
+/// trash-and-recreate does, and say where the old one went.
+fn replace_folder(project: &Path) -> std::path::PathBuf {
+    let aside = project.with_extension("old");
+    fs::rename(project, &aside).unwrap();
+    fs::create_dir(project).unwrap();
+    aside
+}
+
+/// The data-loss class. `/p` is open and a turn holds the store; `/p` is
+/// replaced, and an open of it built a second store with nothing in flight,
+/// while the first still wrote, by path, into the new folder. The second's
+/// sweep could then delete a file the first's off-lock tool had just written.
+#[test]
+fn a_folder_replaced_at_the_same_path_is_refused_while_the_old_one_is_held() {
+    let tmp = TempDir::new().unwrap();
+    let project = tmp.path().join("p");
+    let old = Store::open_shared(&project).unwrap();
+    let running = old.lock().unwrap().stage().unwrap();
+    assert!(
+        Store::replaced_holder(&project).is_none(),
+        "nothing replaced yet"
+    );
+
+    replace_folder(&project);
+
+    let refused = |what: &str, got: Result<(), Error>| match got {
+        Err(Error::FolderReplaced { path }) => assert_eq!(path, project, "{what}"),
+        other => panic!("{what}: expected FolderReplaced, got {other:?}"),
+    };
+    refused("shared", Store::open_shared(&project).map(drop));
+    refused("private", Store::open_private(&project).map(drop));
+    refused("raw", Store::open(&project).map(drop));
+    // The old store, and the edit running in it, are as they were.
+    let holder = Store::replaced_holder(&project).expect("the old store is who holds it");
+    assert!(holder.ptr_eq(&old));
+    assert_eq!(old.lock().unwrap().staged_in_flight(), 1);
+    // A reader writes nothing, so it may look at the new folder.
+    let reader = Store::open_read_only(&project).expect("a reader is no second writer");
+    assert_eq!(reader.head(), None);
+
+    // Once the old folder has no store left, the path opens as a new project.
+    drop((reader, holder, running, old));
+    let fresh = Store::open_shared_status(&project).unwrap();
+    assert!(fresh.is_new());
+    assert_eq!(fresh.into_store().lock().unwrap().staged_in_flight(), 0);
+}
+
+/// A folder moved away and another made at its path is the same thing: the
+/// store writes by the path it was opened with.
+#[test]
+fn a_folder_moved_away_and_a_new_one_made_at_its_path_is_refused_too() {
+    let tmp = TempDir::new().unwrap();
+    let project = tmp.path().join("p");
+    let moved = tmp.path().join("moved");
+    let old = Store::open_shared(&project).unwrap();
+    fs::rename(&project, &moved).unwrap();
+
+    assert!(matches!(
+        Store::open_shared(&project),
+        Err(Error::FolderReplaced { .. })
+    ));
+    // The moved folder is still the old store's folder, found by identity.
+    let again = Store::open_shared_status(&moved).unwrap();
+    assert!(!again.is_new());
+    assert!(again.into_store().ptr_eq(&old));
+}
+
+/// What holds the old folder need not be a shared store: a private writer
+/// is as much a writer, and there is no handle of the window's to let go.
+#[test]
+fn a_replaced_folder_held_by_a_private_writer_is_refused_with_no_holder_to_release() {
+    let tmp = TempDir::new().unwrap();
+    let project = tmp.path().join("p");
+    let private = Store::open_private(&project).unwrap();
+    replace_folder(&project);
+
+    assert!(matches!(
+        Store::open_shared(&project),
+        Err(Error::FolderReplaced { .. })
+    ));
+    assert!(Store::replaced_holder(&project).is_none());
+    drop(private);
+    Store::open_shared(&project).expect("the old folder is let go");
+}
+
+/// The same folder under another spelling is not a replaced one.
+#[test]
+fn a_second_spelling_of_the_same_folder_is_not_a_replaced_folder() {
+    let tmp = TempDir::new().unwrap();
+    let (a, b) = (tmp.path().join("a"), tmp.path().join("b"));
+    fs::create_dir_all(&b).unwrap();
+    let live = Store::open_shared(&a).unwrap();
+    let dotdot = b.join("..").join("a");
+    assert!(Store::replaced_holder(&dotdot).is_none());
+    assert!(live.ptr_eq(&Store::open_shared(&dotdot).unwrap()));
+}
+
+/// What a folder's identity must be, on whatever platform this runs on (on
+/// Windows it is the volume serial number and the 128-bit file id): the same
+/// folder gives the same one however it is spelt, and another folder does not.
+#[test]
+fn a_folders_identity_is_stable_and_its_own() {
+    let tmp = TempDir::new().unwrap();
+    let (a, b) = (tmp.path().join("a"), tmp.path().join("b"));
+    fs::create_dir_all(&a).unwrap();
+    fs::create_dir_all(&b).unwrap();
+    let id = |dir: &Path| identify(dir).unwrap().id();
+
+    assert_eq!(id(&a), id(&a));
+    assert_eq!(id(&a), id(&b.join("..").join("a")));
+    assert_ne!(id(&a), id(&b));
+    assert!(identify(&tmp.path().join("missing")).is_err());
+}
+
+// =============================================================================
 // Private writers
 // =============================================================================
 
@@ -403,11 +522,7 @@ fn reread_reads_the_folder_into_the_same_handle() {
     assert!(!again.is_new());
     let same = again.into_store();
     assert!(same.ptr_eq(&live));
-    {
-        let mut held = same.lock().unwrap();
-        let fresh = held.reread(tmp.path()).unwrap();
-        *held = fresh;
-    }
+    same.lock().unwrap().reread_into(tmp.path()).unwrap();
     assert_eq!(live.lock().unwrap().head(), Some(moved));
     assert!(live.ptr_eq(&Store::open_shared(tmp.path()).unwrap()));
 }
@@ -419,12 +534,13 @@ fn reread_will_not_take_another_folders_history() {
     let mut other = Store::open(b.path()).unwrap();
     other.append(node(5)).unwrap();
 
-    let got = live.lock().unwrap().reread(b.path());
+    let got = live.lock().unwrap().reread_into(b.path());
     match got {
         Err(Error::OtherFolder { path }) => assert_eq!(path, b.path()),
         Err(other) => panic!("expected OtherFolder, got {other:?}"),
-        Ok(_) => panic!("a store was given another project's history"),
+        Ok(()) => panic!("a store was given another project's history"),
     }
+    assert_eq!(live.lock().unwrap().project_dir(), a.path());
 }
 
 /// A live store keeps the spelling of the folder it was made with, and a
@@ -442,17 +558,15 @@ fn reread_goes_through_the_given_spelling_when_the_stores_own_is_gone() {
     let first = live.lock().unwrap().append(node(1)).unwrap();
 
     // While the spelling still reaches the folder it is the one kept.
-    assert_eq!(
-        live.lock().unwrap().reread(&real).unwrap().project_dir(),
-        link
-    );
+    live.lock().unwrap().reread_into(&real).unwrap();
+    assert_eq!(live.lock().unwrap().project_dir(), link);
 
     fs::remove_file(&link).unwrap();
-    let fresh = live.lock().unwrap().reread(&real).unwrap();
+    live.lock().unwrap().reread_into(&real).unwrap();
 
     assert!(!link.exists(), "the dead spelling was read through");
-    assert_eq!(fresh.project_dir(), real);
-    assert_eq!(fresh.head(), Some(first));
+    assert_eq!(live.lock().unwrap().project_dir(), real);
+    assert_eq!(live.lock().unwrap().head(), Some(first));
 }
 
 // =============================================================================

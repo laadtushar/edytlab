@@ -39,4 +39,6 @@ tracing = "0.1"
 uuid = { version = "1", features = ["serde", "v4"] }
 
 [dev-dependencies]
+# The tests open stores the raw way; see `Store::open`. A dev-dependency, so a plain build of this crate has no such open.
+session = { path = "../session", features = ["raw-open"] }
 tempfile = "3"

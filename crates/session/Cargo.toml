@@ -15,12 +15,20 @@ thiserror = "2"
 tempfile = "3"
 uuid = { version = "1", features = ["serde", "v4"] }
 
-# Windows: a folder's volume serial number and file index (`GetFileInformationByHandle`),
-# which std only offers behind an unstable feature. Already in the lock via `same-file`.
+# Windows: a folder's volume serial number and 128-bit file id
+# (`GetFileInformationByHandleEx` with `FileIdInfo`), which std only offers behind
+# an unstable feature. 0.61.2 is the version already in the lock.
 [target.'cfg(windows)'.dependencies]
-winapi-util = "0.1"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
+
+[features]
+# `Store::open`, the open that asks the registry nothing. Only tests use it, so
+# only dev-dependencies enable it; see the doc on `Store::open`.
+raw-open = []
 
 [dev-dependencies]
+# This crate's own integration tests use `Store::open`.
+session = { path = ".", features = ["raw-open"] }
 proptest = "1"
 assert_cmd = "2"
 tempfile = "3"

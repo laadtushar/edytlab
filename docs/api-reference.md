@@ -88,10 +88,13 @@ logging) a file it cannot copy. What it leaves, the next open tries again.
 **Throws:** `path` is not absolute; or the folder is one that a private writer
 has open, a `batch_apply` run writing its per-file project there (#566): two
 writers on one project folder would overwrite each other's history, so the
-open is refused until the batch is done. A folder that a store is already open
-on (the window's, or the one an assistant turn is working in) is not an error:
-the open reads the folder again into that store, whichever way the path is
-spelt.
+open is refused until the batch is done. A path that now names a different
+folder from the one a store is open on (the project was restored from a backup
+over itself, or trashed and made again) is refused too while anything but the
+window holds the old store, an assistant turn most likely: wait for the turn to
+end, then open the project again. A folder that a store is already open on (the
+window's, or the one an assistant turn is working in) is not an error: the open
+reads the folder again into that store, whichever way the path is spelt.
 
 **Example:**
 ```typescript

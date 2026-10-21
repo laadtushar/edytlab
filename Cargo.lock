@@ -4786,10 +4786,11 @@ dependencies = [
  "proptest",
  "serde",
  "serde_json",
+ "session",
  "tempfile",
  "thiserror 2.0.18",
  "uuid",
- "winapi-util",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

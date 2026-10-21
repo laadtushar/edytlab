@@ -29,6 +29,8 @@ tempfile = "3"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
 
 [dev-dependencies]
+# The tests open stores the raw way; see `Store::open`. A dev-dependency, so a plain build of this crate has no such open.
+session = { path = "../../crates/session", features = ["raw-open"] }
 assert_cmd = "2"
 audio-decoder = { path = "../../crates/audio-decoder" }
 hound = "3.5"

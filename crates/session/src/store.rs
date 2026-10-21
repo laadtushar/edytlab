@@ -217,12 +217,19 @@ impl Store {
 
     /// Open or create the store under `<project_dir>/.audiograph/`, **without
     /// the registry**: it does not look for a live store, does not become
-    /// one, and holds no claim. Nothing stops a second writer on the folder.
-    /// For a folder only the caller can reach, such as a test's temporary
-    /// folder; code that could be handed a user's project uses
-    /// [`Store::open_shared`] or [`Store::open_private`] (a test in
-    /// `crates/session/tests/no_unregistered_open.rs` fails on a bare
-    /// `Store::open(` in a crate's `src`).
+    /// one, and holds no claim. Nothing stops a second writer on the folder
+    /// (the one check it keeps is the path-replaced one,
+    /// [`Error::FolderReplaced`]). For a folder only the caller can reach,
+    /// such as a test's temporary folder; code that could be handed a user's
+    /// project uses [`Store::open_shared`] or [`Store::open_private`].
+    ///
+    /// **It only exists in a test build or with the `raw-open` feature.** The
+    /// crates that use it in tests enable that feature in their
+    /// `[dev-dependencies]`, so a plain build of a crate that calls it does
+    /// not compile. `cargo test` and `cargo clippy --all-targets` build the
+    /// dev-dependencies too and unify the feature into the crate's own
+    /// non-test code, so there `crates/session/tests/no_unregistered_open.rs`
+    /// is what refuses a call in non-test source.
     ///
     /// It does share the folder's in-flight count with every other store on
     /// the folder.
@@ -237,15 +244,16 @@ impl Store {
     /// Staged handles ([`Store::stage`]) keep this assumption: they never
     /// write, only [`Store::commit`] does, and it takes `&mut self` on the
     /// one shared store, so there is still one writer at a time.
+    #[cfg(any(test, feature = "raw-open"))]
     pub fn open(project_dir: &Path) -> Result<Self> {
         Registry::global().open_unregistered(project_dir)
     }
 
-    /// Read the folder into a new `Store`, for the caller to put in this
-    /// one's place (`*guard = store.reread(dir)?`): what an open of a
+    /// Read the folder again into this store, in place: what an open of a
     /// project that is already live does, so the window and a running turn
     /// keep one handle and one lock while the head, the nodes and the
-    /// project's relocation are read afresh.
+    /// project's relocation are read afresh. Call it under the store's lock
+    /// (`guard.reread_into(path)`).
     ///
     /// `given` is the spelling the open was given. The folder is read
     /// through this store's own spelling where that still reaches the folder,
@@ -258,9 +266,26 @@ impl Store {
     /// at its commit.
     ///
     /// Fails with [`Error::OtherFolder`] when `given` is not this store's
-    /// folder, so a store cannot be given another project's history. The new
-    /// store keeps this one's claim, if it has one.
-    pub fn reread(&self, given: &Path) -> Result<Store> {
+    /// folder, so a store cannot be given another project's history, and
+    /// with [`Error::Staged`] on a staged handle. The store keeps its claim,
+    /// if it has one.
+    ///
+    /// It replaces the value rather than returning one: a function that
+    /// handed back a second `Store` on the live folder would be a way to
+    /// make a second writer from any `&Store`. There is none:
+    ///
+    /// ```compile_fail
+    /// fn second_writer(live: &session::Store, dir: &std::path::Path) -> session::Store {
+    ///     live.reread(dir).unwrap()
+    /// }
+    /// ```
+    pub fn reread_into(&mut self, given: &Path) -> Result<()> {
+        let fresh = self.reread(given)?;
+        *self = fresh;
+        Ok(())
+    }
+
+    fn reread(&self, given: &Path) -> Result<Store> {
         if self.staged.is_some() {
             return Err(Error::Staged("reread"));
         }
@@ -283,6 +308,19 @@ impl Store {
             self.claim.clone(),
             self.read_only,
         )
+    }
+
+    /// The shared store that is alive for the folder *that used to be* at
+    /// `project_dir`, when that path now names a different folder (the
+    /// project was restored over itself, or trashed and made again). The
+    /// opens that write refuse such a path with [`Error::FolderReplaced`]
+    /// for as long as the old folder has a store, and this says who holds
+    /// it, so the one holder that may be let go (the window's) can be.
+    /// `None` when there is no replaced folder, or the old one is held by
+    /// something that is not a shared store (a private writer, a staged
+    /// edit, a reader).
+    pub fn replaced_holder(project_dir: &Path) -> Option<LiveStore> {
+        Registry::global().replaced_holder(project_dir)
     }
 
     /// Read the folder at `project_dir` into a store sharing `folder`.

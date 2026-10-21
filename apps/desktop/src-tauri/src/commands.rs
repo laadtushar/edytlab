@@ -565,10 +565,20 @@ fn open_project_inner(state: &AppState, path: PathBuf) -> Result<ProjectInfo, Co
 /// registry (`session::live`, reached through `Store::open_shared_status`)
 /// hands it out, whichever spelling of the folder the open was given
 /// (#566). The folder is read again, as an open does, into the same
-/// `Arc<Mutex<Store>>` (`Store::reread`), and `AppState` is pointed at it;
-/// the agent and every command keep one handle and one lock. A folder that a
-/// private writer has open (a `batch_apply` in progress, say) is refused:
-/// `Error::AlreadyOpen`.
+/// `Arc<Mutex<Store>>` (`Store::reread_into`, in place, under the lock), and
+/// `AppState` is pointed at it; the agent and every command keep one handle
+/// and one lock. A folder that a private writer has open (a `batch_apply` in
+/// progress, say) is refused: `Error::AlreadyOpen`.
+///
+/// **A folder replaced at the same path** (restored from a backup over
+/// itself, or trashed and made again) has a new identity, and the store of the
+/// old one still writes by path into it, so a store for the new one beside it
+/// would be a second writer with nothing in flight
+/// (`session::live`, `Error::FolderReplaced`). When the only holders of the
+/// old store are the window's and the idle agent's (no turn, no staged edit,
+/// no command using it) they are let go and the path opens fresh
+/// ([`release_replaced_project`]); otherwise the open is refused, and says
+/// to wait for the assistant's turn to end and open the project again.
 ///
 /// The sweep then runs holding that lock. A tool that runs off the lock
 /// takes it to stage, so with it held no tool can stage between the sweep's
@@ -611,25 +621,36 @@ fn open_project_with(
         .to_str()
         .ok_or_else(|| CommandError::InvalidPath("project path is not valid UTF-8".into()))?
         .to_string();
-    let opened = Store::open_shared_status(&path)?;
+    let opened = match Store::open_shared_status(&path) {
+        Err(session::Error::FolderReplaced { path: replaced }) => {
+            // The path names another folder than the one a store is open on.
+            // The window's own store of the old folder is let go if nothing
+            // else holds it; a turn's, or a staged edit's, is not, and the
+            // user is told to wait for it.
+            if !release_replaced_project(state, &path) {
+                return Err(session::Error::FolderReplaced { path: replaced }.into());
+            }
+            Store::open_shared_status(&path)?
+        }
+        other => other?,
+    };
     let is_new = opened.is_new();
     let live = opened.into_store();
     let mut held = lock_std(&live, "store")?;
     // A store built just now has read the folder. A live one is read again,
-    // under its own spelling of the folder where that still reaches it: a
-    // staged edit refuses to commit into a store whose `project_dir` differs
-    // from the one it was staged from. A spelling that has stopped reaching
-    // the folder (a symlink removed since, or pointed elsewhere) is not read
-    // through: that would make an empty folder there and hand the project an
-    // empty history. The spelling given is read instead, into the same store,
-    // so the turn and the window stay one writer on the real folder, and an
-    // edit staged under the old spelling is refused at its commit.
-    let reread = if is_new {
-        None
-    } else {
-        Some(held.reread(&path)?)
-    };
-    let store: &Store = reread.as_ref().unwrap_or(&held);
+    // in place (`Store::reread_into`), under its own spelling of the folder
+    // where that still reaches it: a staged edit refuses to commit into a
+    // store whose `project_dir` differs from the one it was staged from. A
+    // spelling that has stopped reaching the folder (a symlink removed since,
+    // or pointed elsewhere) is not read through: that would make an empty
+    // folder there and hand the project an empty history. The spelling given
+    // is read instead, into the same store, so the turn and the window stay
+    // one writer on the real folder, and an edit staged under the old
+    // spelling is refused at its commit.
+    if !is_new {
+        held.reread_into(&path)?;
+    }
+    let store: &Store = &held;
     // Listed once, for the sweep and for the repair of a copy. A store whose
     // nodes cannot be read names nothing, so it is neither swept nor
     // repaired.
@@ -641,7 +662,7 @@ fn open_project_with(
     let repair = listed
         .as_deref()
         .ok()
-        .and_then(|nodes| plan_repair(store, nodes, &held));
+        .and_then(|nodes| plan_repair(store, nodes, store));
 
     // A project is now a thing with a name and a history of being
     // opened (#156), not just a folder that happens to contain a store.
@@ -658,9 +679,6 @@ fn open_project_with(
         },
     );
 
-    if let Some(reread) = reread {
-        *held = reread;
-    }
     let dir = held.project_dir().to_path_buf();
     drop(held);
     state.set_open_project(live, dir);
@@ -672,6 +690,42 @@ fn open_project_with(
         path: path_str,
         head: head_hex,
     })
+}
+
+/// The folder at `path` was replaced and the store of the old one is still
+/// alive (`Error::FolderReplaced`): let go of the window's project and the
+/// idle agent's handle on it, so the path can be opened as the new folder it
+/// is. `true` when they were let go, which is when nothing else holds that
+/// store; `false` and nothing changed otherwise (#566).
+///
+/// - A turn holds the agent's lock for its whole length, so a lock that cannot
+///   be taken is a turn running (or a rebuild about to run): not let go.
+/// - A staged edit that runs off the store's lock holds no handle of the
+///   store's, only the folder's in-flight count, so the count is looked at
+///   too.
+/// - The store must be the window's own, and nobody else may hold it. The
+///   count of its handles is taken with the window's slot locked
+///   ([`AppState::release_open_project_if_exclusive`]): the slot's, this
+///   function's and the agent's, if the agent was built on it.
+fn release_replaced_project(state: &AppState, path: &Path) -> bool {
+    let Ok(mut agent) = Arc::clone(&state.agent).try_lock_owned() else {
+        return false;
+    };
+    let Some(stale) = Store::replaced_holder(path) else {
+        return false;
+    };
+    match stale.try_lock() {
+        Ok(held) if held.staged_in_flight() == 0 => {}
+        _ => return false,
+    }
+    let agent_holds = agent
+        .as_ref()
+        .is_some_and(|agent| Arc::ptr_eq(agent.store(), stale.as_arc()));
+    if !state.release_open_project_if_exclusive(&stale, usize::from(agent_holds)) {
+        return false;
+    }
+    *agent = None;
+    true
 }
 
 /// What to copy into the project `store` reads from the project it was
@@ -7084,6 +7138,150 @@ mod tests {
                 "a symlink to the folder `a` is a second store for it"
             );
         }
+    }
+
+    // ---- A project folder replaced at the same path (#566) -------------
+
+    /// Put another folder at `project`, as a restore from a backup or a
+    /// trash-and-recreate does. The old one is moved aside.
+    fn replace_project_folder(project: &std::path::Path) {
+        let aside = project.with_extension("old");
+        std::fs::rename(project, &aside).unwrap();
+        std::fs::create_dir(project).unwrap();
+    }
+
+    fn refused_as_replaced(got: Result<ProjectInfo, CommandError>) {
+        match got {
+            Err(CommandError::Session(session::Error::FolderReplaced { .. })) => {}
+            other => panic!("expected FolderReplaced, got {other:?}"),
+        }
+    }
+
+    /// `/p` is open, a turn holds the store, and `/p` is replaced. A store
+    /// for the new folder would start with nothing in flight beside the
+    /// turn's, which writes by path into it; its open sweep could delete a
+    /// file the turn's off-lock tool had just written. So the open is refused
+    /// while anything but the window holds the old store, and the window keeps
+    /// its project.
+    #[test]
+    fn a_replaced_project_folder_is_refused_while_a_turn_holds_the_old_store() {
+        let tmp = tempdir().unwrap();
+        let project = tmp.path().join("p");
+        std::fs::create_dir_all(&project).unwrap();
+        let state = AppState::new();
+        open_project_for_test(&state, &project).unwrap();
+        let turn = state.store_handle().expect("store");
+        turn.lock().unwrap().append(an_edit(1)).unwrap();
+        replace_project_folder(&project);
+
+        refused_as_replaced(open_project_for_test(&state, &project));
+
+        assert!(
+            Arc::ptr_eq(&turn, &state.store_handle().unwrap()),
+            "the window lost the project the turn is working in"
+        );
+        assert_eq!(
+            state.project_dir.lock().unwrap().as_deref(),
+            Some(project.as_path())
+        );
+
+        // The turn ends: only the window holds the old store, and the user
+        // can open the restored project.
+        drop(turn);
+        let reopened = open_project_for_test(&state, &project).unwrap();
+        assert_eq!(reopened.head, None, "the new folder is empty");
+        let fresh = state.store_handle().unwrap();
+        assert_eq!(fresh.lock().unwrap().project_dir(), project);
+        assert_eq!(fresh.lock().unwrap().head(), None);
+    }
+
+    /// A turn holds the agent's lock for its whole length. With no clone of
+    /// the store to count, the lock alone says a turn is running.
+    #[test]
+    fn a_replaced_project_folder_is_refused_while_the_agent_is_in_a_turn() {
+        let tmp = tempdir().unwrap();
+        let project = tmp.path().join("p");
+        std::fs::create_dir_all(&project).unwrap();
+        let state = AppState::new();
+        open_project_for_test(&state, &project).unwrap();
+        replace_project_folder(&project);
+
+        let in_a_turn = state.agent.try_lock().unwrap();
+        refused_as_replaced(open_project_for_test(&state, &project));
+        drop(in_a_turn);
+
+        open_project_for_test(&state, &project).expect("the turn is over");
+    }
+
+    /// An edit a tool runs off the store's lock holds no handle of the
+    /// store's, only the folder's in-flight count.
+    #[test]
+    fn a_replaced_project_folder_is_refused_while_an_edit_is_staged() {
+        let tmp = tempdir().unwrap();
+        let project = tmp.path().join("p");
+        std::fs::create_dir_all(&project).unwrap();
+        let state = AppState::new();
+        open_project_for_test(&state, &project).unwrap();
+        let running = state
+            .store_handle()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .stage()
+            .unwrap();
+        replace_project_folder(&project);
+
+        refused_as_replaced(open_project_for_test(&state, &project));
+        drop(running);
+
+        open_project_for_test(&state, &project).expect("the edit is over");
+    }
+
+    /// The usual case: nothing is running, and the window and the idle agent
+    /// hold the old store. Both are let go, the path opens as the new folder,
+    /// and the agent is rebuilt on it.
+    #[test]
+    fn a_replaced_project_folder_opens_once_only_the_window_and_the_idle_agent_hold_it() {
+        let tmp = tempdir().unwrap();
+        let project = tmp.path().join("p");
+        std::fs::create_dir_all(&project).unwrap();
+        let state = AppState::new();
+        state.set_active_provider("ollama".to_string());
+        open_project_for_test(&state, &project).unwrap();
+        state
+            .store_handle()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .append(an_edit(1))
+            .unwrap();
+        let build_agent = |state: &AppState| {
+            let mut slot = state.agent.try_lock().unwrap();
+            rebuild_agent_from(state, &mut slot, |_| None, |_| None, |_| None);
+            assert!(slot.is_some(), "precondition: an agent holds the store");
+        };
+        build_agent(&state);
+        let old = Arc::downgrade(&state.store_handle().unwrap());
+        replace_project_folder(&project);
+
+        let reopened = open_project_for_test(&state, &project).unwrap();
+
+        assert_eq!(reopened.head, None, "the new folder is empty");
+        assert_eq!(old.strong_count(), 0, "the old store is still held");
+        assert!(
+            state.agent.try_lock().unwrap().is_none(),
+            "the idle agent still holds the old store"
+        );
+        build_agent(&state);
+        let agent_store = state
+            .agent
+            .try_lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .store()
+            .clone();
+        assert!(Arc::ptr_eq(&agent_store, &state.store_handle().unwrap()));
     }
 
     /// A live store keeps the spelling of the folder it was made with, and

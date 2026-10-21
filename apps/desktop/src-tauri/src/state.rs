@@ -605,6 +605,33 @@ impl AppState {
         *self.project_dir.lock().expect("project_dir mutex poisoned") = Some(dir);
     }
 
+    /// Let go of the open project if its store is `stale` and nothing else
+    /// holds that store, and say whether it did (#566).
+    ///
+    /// For a project whose folder was replaced at the same path: the store
+    /// is of the old folder, and a new one cannot be opened for the path
+    /// while it lives. `others` is how many handles besides this slot's and
+    /// the caller's own `stale` the caller expects (the idle agent's, which
+    /// it is about to drop). Any more than that is a command, a reader or a
+    /// turn using the store, and then nothing is changed.
+    ///
+    /// The count is taken with the `store` slot's lock held, which every
+    /// `store_handle()` takes to clone, so no new handle can appear between
+    /// the count and the release. The two slots are written together, in the
+    /// order [`AppState::set_open_project`] takes them.
+    pub fn release_open_project_if_exclusive(&self, stale: &LiveStore, others: usize) -> bool {
+        let mut slot = self.store.lock().expect("store mutex poisoned");
+        let Some(held) = slot.as_ref() else {
+            return false;
+        };
+        if !held.ptr_eq(stale) || Arc::strong_count(held.as_arc()) != 2 + others {
+            return false;
+        }
+        *slot = None;
+        *self.project_dir.lock().expect("project_dir mutex poisoned") = None;
+        true
+    }
+
     /// Snapshot the model id selected for `provider_id`, if any.
     pub fn model_for(&self, provider_id: &str) -> Option<String> {
         self.active_model_by_provider

@@ -16,7 +16,7 @@ fn main() {
             .nth(1)
             .expect("usage: crash_writer <project_dir>"),
     );
-    let mut store = Store::open(&project_dir).expect("open store");
+    let mut store = Store::open_private(&project_dir).expect("open store");
 
     // Tight spin: NO inter-iteration sleep. The crash test's whole point
     // is to land SIGKILLs *inside* `append`'s critical section (between

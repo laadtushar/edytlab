@@ -78,6 +78,18 @@ pub enum Error {
     )]
     AlreadyOpen { path: std::path::PathBuf },
 
+    /// The path now names a different folder from the one a live store was
+    /// opened on (the project was restored over itself, or trashed and made
+    /// again), and that store is still held, so a new one would be a second
+    /// writer on the new folder's path. See `crate::live`.
+    #[error(
+        "the project folder {} was replaced while it was open, and the old one is still in use \
+         (the assistant may be working in it); wait for the assistant's turn to end, then open \
+         the project again",
+        path.display()
+    )]
+    FolderReplaced { path: std::path::PathBuf },
+
     /// [`Store::reread`] was given a folder other than the store's own.
     #[error("{} is not the folder this store is on", path.display())]
     OtherFolder { path: std::path::PathBuf },

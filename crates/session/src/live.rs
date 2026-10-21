@@ -25,7 +25,26 @@
 //! by every other store on the folder through [`Folder`], and the folder's
 //! identity cannot be reused while any of them lives. The pin closes with the
 //! last store, not with the registry's entry, so nothing stays open after the
-//! project is let go.
+//! project is let go. (It is a handle on an open project's folder: while the
+//! project is open the volume cannot be ejected or unmounted, and a folder
+//! that cannot be opened for reading cannot be opened as a project. Neither
+//! was so before the pin; both are the price of not letting two writers
+//! share a folder.)
+//!
+//! ## A folder replaced at the same path
+//!
+//! A store writes by path, and a path can come to name another folder: the
+//! project is restored from a backup over itself, or trashed and made again.
+//! The new folder has a new identity, so nothing in the registry names it;
+//! a store opened on it would start with nothing in flight while the store
+//! on the old one is still writing, by path, into it. So every record of a
+//! folder keeps the canonical path it was opened under, and a write open
+//! (shared, private, raw) of a path that a *live* record of a different
+//! folder was opened under is refused with [`Error::FolderReplaced`] until
+//! the old one is gone. The window's own handle can be let go for it (the
+//! desktop app does, when nothing else holds the store: no turn, no staged
+//! edit); a turn's cannot, and the user is told to wait for it and open the
+//! project again. [`Store::replaced_holder`] says who holds the old store.
 //!
 //! ## Ways to open a store
 //!
@@ -34,7 +53,7 @@
 //! | [`Store::open_shared`] | finds or registers the one live store | handed back, shared |
 //! | [`Store::open_private`] | registers a claim for as long as the store lives | [`Error::AlreadyOpen`] |
 //! | [`Store::open_read_only`] | not registered | no matter: it cannot write |
-//! | [`Store::open`] | not registered | no matter, and no protection: for a folder only the caller can reach |
+//! | `Store::open` | not registered | no matter, and no protection: for a folder only the caller can reach (tests; a `raw-open` feature) |
 //!
 //! A shared store is `Arc<Mutex<Store>>` ([`LiveStore`]); everything that
 //! holds the open project's store holds that one. A private store is for
@@ -49,12 +68,22 @@
 //!
 //! ## Locking
 //!
-//! The registry's lock is a leaf. It is taken for a lookup or an insertion
-//! and dropped before the caller does anything else: the identity is worked
-//! out (it touches the disk) before the lock is taken, a store is built
-//! after it is dropped, and no store, engine, dispatcher or `AppState` lock
-//! is taken while it is held. The only thing asked of a store under it is
-//! [`Mutex::is_poisoned`], which does not lock.
+//! The registry's lock is a leaf: nothing else is taken while it is held. It
+//! is taken for a lookup or an insertion and dropped before the caller does
+//! anything else. The identity is worked out (it touches the disk) before it
+//! is taken, a store is built after it is dropped, and no store, engine,
+//! dispatcher or `AppState` lock is taken under it. The only thing asked of
+//! a store under it is [`Mutex::is_poisoned`], which does not lock, and no
+//! store is *dropped* under it either: what a lookup upgrades is kept in a
+//! `Keep` that outlives the guard, because letting go of a store's last
+//! strong reference runs its drop.
+//!
+//! That is a statement about what is held *while* the registry's lock is
+//! held, not about what may be held when it is asked for. The registry can
+//! be asked for under a store or engine lock, and is: `batch_apply` and the
+//! replay in `tools::rederive` open folders of their own from inside a tool
+//! that holds the project's store. That cannot deadlock, because the
+//! registry never waits for anything while it holds its lock.
 //!
 //! The registry is only a view. It holds [`Weak`] references, so it does not
 //! keep a store alive: once the last holder lets go the entry is dead and is
@@ -64,7 +93,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::ops::Deref;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 
@@ -72,17 +101,19 @@ use crate::store::Store;
 use crate::{Error, Result};
 
 /// What a folder is, whatever it is called: its device and inode (unix), or
-/// its volume serial number and file index (Windows).
+/// its volume serial number and 128-bit file id (Windows, `FileIdInfo`; the
+/// 64-bit file index that older calls return is not guaranteed unique on
+/// ReFS, which Dev Drive uses).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FolderId {
     volume: u64,
-    index: u64,
+    index: u128,
 }
 
 impl FolderId {
     /// An identity from its two halves, for an [`Identify`] test double.
     /// The real one comes from [`identify`].
-    pub const fn new(volume: u64, index: u64) -> Self {
+    pub const fn new(volume: u64, index: u128) -> Self {
         Self { volume, index }
     }
 }
@@ -92,7 +123,7 @@ impl FolderId {
 #[cfg(unix)]
 type Pin = fs::File;
 #[cfg(windows)]
-type Pin = winapi_util::Handle;
+type Pin = fs::File;
 
 /// A folder's identity and, for the real one, the handle that pins it.
 pub struct Identity {
@@ -124,21 +155,67 @@ pub fn identify(dir: &Path) -> io::Result<Identity> {
     let pin = fs::File::open(dir)?;
     let meta = pin.metadata()?;
     Ok(Identity {
-        id: FolderId::new(meta.dev(), meta.ino()),
+        id: FolderId::new(meta.dev(), u128::from(meta.ino())),
         pin: Some(pin),
     })
 }
 
 /// The identity of the folder at `dir`: the real [`Identify`]. Errors when
 /// `dir` cannot be opened for reading, which includes it not existing.
+///
+/// `GetFileInformationByHandleEx` with `FileIdInfo` gives the 128-bit file id
+/// and the 64-bit volume serial number. The older `nFileIndex` is 64 bits
+/// and "not guaranteed to be unique on ReFS", which is what a Dev Drive is
+/// (<https://learn.microsoft.com/en-us/windows/win32/api/fileapi/ns-fileapi-by_handle_file_information>).
+/// A file system that does not answer `FileIdInfo` (FAT, exFAT) falls back
+/// to the 64-bit index, which is unique there. Both calls are `windows-sys`
+/// 0.61.2's, already in the lock.
 #[cfg(windows)]
 pub fn identify(dir: &Path) -> io::Result<Identity> {
-    let pin = winapi_util::Handle::from_path_any(dir)?;
-    let info = winapi_util::file::information(&pin)?;
-    Ok(Identity {
-        id: FolderId::new(info.volume_serial_number(), info.file_index()),
-        pin: Some(pin),
-    })
+    use std::ffi::c_void;
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FileIdInfo, GetFileInformationByHandle, GetFileInformationByHandleEx,
+        BY_HANDLE_FILE_INFORMATION, FILE_FLAG_BACKUP_SEMANTICS, FILE_ID_INFO,
+    };
+
+    // A directory is opened with backup semantics. std's default share mode
+    // lets it be renamed or deleted while the handle is open.
+    let pin = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(dir)?;
+    let handle = pin.as_raw_handle();
+
+    // SAFETY: `handle` is open for as long as `pin` is, which outlives both
+    // calls; each buffer is a zeroed, correctly typed struct of the size
+    // passed, and both are plain integers that any bytes are valid for.
+    let id = unsafe {
+        let mut wide: FILE_ID_INFO = std::mem::zeroed();
+        let ok = GetFileInformationByHandleEx(
+            handle,
+            FileIdInfo,
+            std::ptr::addr_of_mut!(wide).cast::<c_void>(),
+            std::mem::size_of::<FILE_ID_INFO>() as u32,
+        );
+        if ok != 0 {
+            FolderId::new(
+                wide.VolumeSerialNumber,
+                u128::from_le_bytes(wide.FileId.Identifier),
+            )
+        } else {
+            let mut narrow: BY_HANDLE_FILE_INFORMATION = std::mem::zeroed();
+            if GetFileInformationByHandle(handle, &mut narrow) == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            FolderId::new(
+                u64::from(narrow.dwVolumeSerialNumber),
+                (u128::from(narrow.nFileIndexHigh) << 32) | u128::from(narrow.nFileIndexLow),
+            )
+        }
+    };
+    Ok(Identity { id, pin: Some(pin) })
 }
 
 /// What every [`Store`] open on one folder in this process shares.
@@ -169,6 +246,12 @@ enum Live {
     Private,
 }
 
+/// Stores a lookup upgraded under the registry's lock and has no further
+/// use for. Declared before the guard, so it is dropped after it: letting go
+/// of a store's last strong reference runs its drop, and nothing runs under
+/// the registry's lock but edits to the maps.
+type Keep = Vec<Arc<Mutex<Store>>>;
+
 impl Holder {
     fn alive(&self) -> bool {
         match self {
@@ -180,37 +263,70 @@ impl Holder {
     /// The holder, if it still excludes another open. A shared store that
     /// can no longer be locked does not: a tool that panicked with the lock
     /// held poisons it for good, and every command on it then fails, so it
-    /// is not one to hand to the next open, which builds a working one.
+    /// is not one to hand to the next open, which builds a working one. It
+    /// goes into `keep` rather than being dropped here.
     ///
     /// That only happens in a dev or test build. The release profile aborts
     /// on panic (`[profile.release] panic = "abort"`), so a panicking tool
     /// takes the process with it and no store is left poisoned.
-    fn live(&self) -> Option<Live> {
+    fn live(&self, keep: &mut Keep) -> Option<Live> {
         match self {
-            Holder::Shared(store) => store
-                .upgrade()
-                .filter(|store| !store.is_poisoned())
-                .map(Live::Shared),
+            Holder::Shared(store) => {
+                let store = store.upgrade()?;
+                if store.is_poisoned() {
+                    keep.push(store);
+                    return None;
+                }
+                Some(Live::Shared(store))
+            }
             Holder::Private(claim) => (claim.strong_count() > 0).then_some(Live::Private),
         }
     }
 }
 
+/// A folder's shared record, and the canonical path it was opened under
+/// (see "A folder replaced at the same path" above).
+struct FolderEntry {
+    folder: Weak<Folder>,
+    spelling: PathBuf,
+}
+
 #[derive(Default)]
 struct Maps {
-    folders: HashMap<FolderId, Weak<Folder>>,
+    folders: HashMap<FolderId, FolderEntry>,
     holders: HashMap<FolderId, Holder>,
 }
 
 impl Maps {
     fn prune(&mut self) {
-        self.folders.retain(|_, folder| folder.strong_count() > 0);
+        self.folders
+            .retain(|_, entry| entry.folder.strong_count() > 0);
         self.holders.retain(|_, holder| holder.alive());
     }
 
-    fn live(&self, id: &FolderId) -> Option<Live> {
-        self.holders.get(id).and_then(Holder::live)
+    fn live(&self, id: &FolderId, keep: &mut Keep) -> Option<Live> {
+        self.holders.get(id).and_then(|holder| holder.live(keep))
     }
+
+    /// The identities of live records of *other* folders that were opened
+    /// under `spelling`.
+    fn replaced(&self, id: &FolderId, spelling: &Path) -> Vec<FolderId> {
+        self.folders
+            .iter()
+            .filter(|(other, entry)| {
+                *other != id && entry.spelling == spelling && entry.folder.strong_count() > 0
+            })
+            .map(|(other, _)| *other)
+            .collect()
+    }
+}
+
+/// Whether an open may write to the folder, and so must not share a path
+/// with a live record of another folder.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Scope {
+    Writer,
+    Reader,
 }
 
 /// A store opened shared, and whether this open is the one that built it.
@@ -315,6 +431,12 @@ pub struct Registry {
     maps: Mutex<Maps>,
 }
 
+/// The canonical path of `dir`, or `dir` as given when it cannot be resolved
+/// (a folder opened here exists by then, so that is the unusual case).
+fn spelling_of(dir: &Path) -> PathBuf {
+    fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf())
+}
+
 impl Registry {
     /// A registry that tells folders apart with `identify`, for a test that
     /// needs two paths to be one folder (a case-insensitive disk, a bind
@@ -341,11 +463,19 @@ impl Registry {
     }
 
     /// The record the stores on `dir`'s folder share, made if none is alive.
-    fn folder(&self, dir: &Path) -> Result<Arc<Folder>> {
+    /// For a writer, [`Error::FolderReplaced`] when a live record of another
+    /// folder was opened under the same path.
+    fn folder(&self, dir: &Path, scope: Scope) -> Result<Arc<Folder>> {
         let Identity { id, pin } = (self.identify)(dir)?;
+        let spelling = spelling_of(dir);
         let mut maps = self.maps();
         maps.prune();
-        if let Some(folder) = maps.folders.get(&id).and_then(Weak::upgrade) {
+        if scope == Scope::Writer && !maps.replaced(&id, &spelling).is_empty() {
+            return Err(Error::FolderReplaced {
+                path: dir.to_path_buf(),
+            });
+        }
+        if let Some(folder) = maps.folders.get(&id).and_then(|e| e.folder.upgrade()) {
             return Ok(folder);
         }
         let folder = Arc::new(Folder {
@@ -354,7 +484,13 @@ impl Registry {
             in_flight: AtomicUsize::new(0),
             _pin: pin,
         });
-        maps.folders.insert(id, Arc::downgrade(&folder));
+        maps.folders.insert(
+            id,
+            FolderEntry {
+                folder: Arc::downgrade(&folder),
+                spelling,
+            },
+        );
         Ok(folder)
     }
 
@@ -374,8 +510,9 @@ impl Registry {
     /// the moment a competing open can get in.
     fn open_shared_between(&self, dir: &Path, between: impl FnOnce()) -> Result<Opened> {
         fs::create_dir_all(dir)?;
-        let folder = self.folder(dir)?;
-        let existing = self.maps().live(&folder.id);
+        let folder = self.folder(dir, Scope::Writer)?;
+        let mut keep = Keep::new();
+        let existing = self.maps().live(&folder.id, &mut keep);
         if let Some(live) = existing {
             return taken(dir, live);
         }
@@ -383,18 +520,25 @@ impl Registry {
         between();
         let built = Arc::new(Mutex::new(built));
 
-        let mut maps = self.maps();
-        maps.prune();
-        if let Some(live) = maps.live(&folder.id) {
-            // Two opens of a folder nothing had open can both build a store.
-            // The first to get here is the one that is registered; this one
-            // takes it and its own is dropped.
-            drop(maps);
-            return taken(dir, live);
+        let lost = {
+            let mut maps = self.maps();
+            maps.prune();
+            match maps.live(&folder.id, &mut keep) {
+                // Two opens of a folder nothing had open can both build a
+                // store. The first to get here is the one that is
+                // registered; this one takes it and its own is dropped.
+                Some(live) => Some(live),
+                None => {
+                    maps.holders
+                        .insert(folder.id, Holder::Shared(Arc::downgrade(&built)));
+                    None
+                }
+            }
+        };
+        match lost {
+            Some(live) => taken(dir, live),
+            None => Ok(Opened::New(LiveStore(built))),
         }
-        maps.holders
-            .insert(folder.id, Holder::Shared(Arc::downgrade(&built)));
-        Ok(Opened::New(LiveStore(built)))
     }
 
     /// A store for the project at `dir` that nothing else will use, or
@@ -402,18 +546,23 @@ impl Registry {
     /// private; see [`Store::open_private`].
     pub fn open_private(&self, dir: &Path) -> Result<Store> {
         fs::create_dir_all(dir)?;
-        let folder = self.folder(dir)?;
+        let folder = self.folder(dir, Scope::Writer)?;
         let claim = Arc::new(Claim);
-        {
+        let mut keep = Keep::new();
+        let refused = {
             let mut maps = self.maps();
             maps.prune();
-            if maps.live(&folder.id).is_some() {
-                return Err(Error::AlreadyOpen {
-                    path: dir.to_path_buf(),
-                });
+            let live = maps.live(&folder.id, &mut keep);
+            if live.is_none() {
+                maps.holders
+                    .insert(folder.id, Holder::Private(Arc::downgrade(&claim)));
             }
-            maps.holders
-                .insert(folder.id, Holder::Private(Arc::downgrade(&claim)));
+            live
+        };
+        if refused.is_some() {
+            return Err(Error::AlreadyOpen {
+                path: dir.to_path_buf(),
+            });
         }
         // A failure to read the folder drops the claim with it.
         Store::assemble(dir, folder, Some(claim), false)
@@ -422,14 +571,15 @@ impl Registry {
     /// A store that reads the project at `dir` and cannot write; see
     /// [`Store::open_read_only`].
     pub fn open_read_only(&self, dir: &Path) -> Result<Store> {
-        let folder = self.folder(dir)?;
+        let folder = self.folder(dir, Scope::Reader)?;
         Store::assemble(dir, folder, None, true)
     }
 
-    /// A store that is not in the registry; see [`Store::open`].
+    /// A store that is not in the registry; see `Store::open`.
+    #[cfg(any(test, feature = "raw-open"))]
     pub fn open_unregistered(&self, dir: &Path) -> Result<Store> {
         fs::create_dir_all(dir)?;
-        let folder = self.folder(dir)?;
+        let folder = self.folder(dir, Scope::Writer)?;
         Store::assemble(dir, folder, None, false)
     }
 
@@ -440,9 +590,34 @@ impl Registry {
         let Ok(Identity { id, .. }) = (self.identify)(dir) else {
             return false;
         };
-        let mut maps = self.maps();
-        maps.prune();
-        maps.live(&id).is_some()
+        let mut keep = Keep::new();
+        let live = {
+            let mut maps = self.maps();
+            maps.prune();
+            maps.live(&id, &mut keep)
+        };
+        live.is_some()
+    }
+
+    /// The shared store that is alive for the folder *that used to be* at
+    /// `dir`, if the path now names another folder; see
+    /// [`Store::replaced_holder`].
+    pub fn replaced_holder(&self, dir: &Path) -> Option<LiveStore> {
+        let Identity { id, .. } = (self.identify)(dir).ok()?;
+        let spelling = spelling_of(dir);
+        let mut keep = Keep::new();
+        let found = {
+            let mut maps = self.maps();
+            maps.prune();
+            let others = maps.replaced(&id, &spelling);
+            others
+                .iter()
+                .find_map(|other| match maps.live(other, &mut keep) {
+                    Some(Live::Shared(store)) => Some(store),
+                    _ => None,
+                })
+        };
+        found.map(LiveStore)
     }
 }
 
@@ -464,7 +639,7 @@ mod tests {
         let hash = name
             .bytes()
             .fold(0u64, |h, b| h.wrapping_mul(31).wrapping_add(u64::from(b)));
-        Ok(Identity::unpinned(FolderId::new(0, hash)))
+        Ok(Identity::unpinned(FolderId::new(0, u128::from(hash))))
     }
 
     /// Two opens of a folder nothing has open can both find no live store
@@ -501,6 +676,35 @@ mod tests {
             .open_shared(tmp.path())
             .unwrap()
             .ptr_eq(&competitor));
+    }
+
+    /// A lookup under the registry's lock must not be the one to let go of a
+    /// store: if its upgrade turns out to be the last strong reference, the
+    /// store's drop would run under the lock. A poisoned store, which a
+    /// lookup passes over, is handed to the caller's `keep`, which outlives
+    /// the guard, instead of being dropped where it was found.
+    #[test]
+    fn a_poisoned_store_a_lookup_passes_over_is_kept_not_dropped() {
+        let tmp = tempdir().unwrap();
+        let registry = Registry::with_identity(identify);
+        let broken = registry.open_shared(tmp.path()).unwrap();
+        {
+            let broken = broken.handle();
+            let _ = std::thread::spawn(move || {
+                let _held = broken.lock().unwrap();
+                panic!("a tool panicked with the store locked");
+            })
+            .join();
+        }
+        assert!(broken.is_poisoned());
+
+        let id = (registry.identify)(tmp.path()).unwrap().id();
+        let mut keep = Keep::new();
+        let live = registry.maps().live(&id, &mut keep);
+
+        assert!(live.is_none(), "a poisoned store is not live");
+        assert_eq!(keep.len(), 1, "the upgrade was dropped where it was made");
+        assert!(Arc::ptr_eq(&keep[0], broken.as_arc()));
     }
 
     #[test]

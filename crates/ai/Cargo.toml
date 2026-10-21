@@ -54,6 +54,8 @@ fs4 = "1.1"
 windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock"] }
 
 [dev-dependencies]
+# The tests open stores the raw way; see `Store::open`. A dev-dependency, so a plain build of this crate has no such open.
+session = { path = "../session", features = ["raw-open"] }
 # This crate again, with the mock-issuer seam, for its own tests only.
 ai = { path = ".", features = ["test-endpoints"] }
 wiremock = "0.6"

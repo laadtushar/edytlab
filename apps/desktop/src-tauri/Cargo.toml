@@ -49,6 +49,8 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 zip = { version = "9", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
+# The tests open stores the raw way; see `Store::open`. A dev-dependency, so a plain build of this crate has no such open.
+session = { path = "../../../crates/session", features = ["raw-open"] }
 tauri = { version = "2", features = ["test"] }
 # Timeouts in the tests that wait on a signal, so a hang fails instead of stalling.
 tokio = { version = "1", features = ["time"] }
