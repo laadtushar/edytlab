@@ -31,12 +31,31 @@
 //!
 //! ## Why the bytes are the same
 //!
-//! The CAS name *is* the blake3 of the post-edit samples. So a replay
-//! that produces different audio produces a differently-named file, and
-//! the miss simply persists rather than silently substituting audio
-//! that is not what the node describes. Byte-identity is not something
-//! this has to be careful about — it is what the naming scheme checks
-//! for free.
+//! The CAS name is a hash of the post-edit samples, with their rate and
+//! channel count (`provenance::audio_hash`). So a replay that produces
+//! different audio produces a differently-named file, and the miss simply
+//! persists rather than silently substituting audio that is not what the
+//! node describes. Byte-identity is not something this has to be careful
+//! about — it is what the naming scheme checks for free.
+//!
+//! ## Names written before #620
+//!
+//! An edit's output used to be named by the blake3 of its samples alone.
+//! Nothing was renamed, so nodes written before still name files of that
+//! kind, and a replay of one now writes the new name. Names are compared,
+//! never recomputed from a file (which holds the samples as 16-bit PCM, not
+//! as they were hashed), so the check has three outcomes for a name the
+//! node records:
+//!
+//! * it is the name the replay wrote: a match;
+//! * it is the name the replay's samples would have had before #620
+//!   (`provenance::legacy_sample_hash_name`): also a match, and the file is
+//!   rebuilt under the *recorded* name, so the node reads what it names;
+//! * anything else: a mismatch, as ever.
+//!
+//! The replay learns the older name from the clip it wrote, whose
+//! `content_hash` is the blake3 of the samples alone (what the writer has
+//! always stored there). Nothing is added to a stored node.
 //!
 //! ## Why it replays into a scratch project
 //!
@@ -46,7 +65,8 @@
 //! into the real `derived/` under the name it was always going to have.
 //! The real store is never written to.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
 use crate::provenance::derived_dir;
@@ -55,26 +75,46 @@ use crate::{ToolContext, ToolDispatcher};
 /// What replaying a node's step wrote: a scratch project holding the
 /// derived files, and their names.
 ///
-/// The names are content addresses — the blake3 of the samples — so a
-/// name that also exists in the real project is the same bytes, rebuilt.
-/// That is what lets the sweep ask "can this come back?" by looking,
-/// rather than by trusting a record that says it should (#356).
+/// The names are content addresses — a hash of the samples with their rate
+/// and channel count — so a name that also exists in the real project is the
+/// same bytes, rebuilt. That is what lets the sweep ask "can this come
+/// back?" by looking, rather than by trusting a record that says it should
+/// (#356).
+///
+/// A node written before #620 records the name its samples had without the
+/// rate and channel count. The replay also knows, for each file it wrote,
+/// what that name would have been (see the module docs), and answers to it
+/// the same way.
 pub struct Replay {
     scratch: tempfile::TempDir,
-    produced: std::collections::BTreeSet<std::ffi::OsString>,
+    produced: BTreeSet<OsString>,
+    /// For a file in `produced` that an older build would have called
+    /// something else: that older name, to the file's name.
+    legacy: BTreeMap<OsString, OsString>,
 }
 
 impl Replay {
-    /// The derived files the replay wrote, by name.
-    pub fn produced(&self) -> &std::collections::BTreeSet<std::ffi::OsString> {
+    /// The derived files the replay wrote, by the names it gave them.
+    pub fn produced(&self) -> &BTreeSet<OsString> {
         &self.produced
     }
 
-    /// Where the replay wrote `name`, if it did.
-    fn path(&self, name: &std::ffi::OsStr) -> Option<PathBuf> {
-        self.produced
-            .contains(name)
-            .then(|| derived_dir(self.scratch.path()).join(name))
+    /// Every name a node may record for what the replay wrote: the names it
+    /// gave the files, and the names an older build would have given them.
+    /// A recorded name in this list is a name the replay rebuilt.
+    pub fn names(&self) -> impl Iterator<Item = &OsString> {
+        self.produced.iter().chain(self.legacy.keys())
+    }
+
+    /// Where the replay wrote what is recorded as `name`, if it did: the
+    /// file of that name, or the one an older build would have called that.
+    fn path(&self, name: &OsStr) -> Option<PathBuf> {
+        let written = if self.produced.contains(name) {
+            name
+        } else {
+            self.legacy.get(name)?.as_os_str()
+        };
+        Some(derived_dir(self.scratch.path()).join(written))
     }
 }
 
@@ -185,7 +225,7 @@ pub fn replay(store: &session::Store, node: session::NodeId) -> Result<Replay, S
         }
     }
 
-    let produced = std::fs::read_dir(derived_dir(scratch.path()))
+    let produced: BTreeSet<OsString> = std::fs::read_dir(derived_dir(scratch.path()))
         .map(|dir| {
             dir.flatten()
                 .filter(|e| e.path().is_file())
@@ -193,7 +233,47 @@ pub fn replay(store: &session::Store, node: session::NodeId) -> Result<Replay, S
                 .collect()
         })
         .unwrap_or_default();
-    Ok(Replay { scratch, produced })
+    let legacy = legacy_names(&scratch_store, scratch.path(), &produced);
+    Ok(Replay {
+        scratch,
+        produced,
+        legacy,
+    })
+}
+
+/// The names an older build would have given the files a replay wrote, to
+/// the names it gave them (#620).
+///
+/// Taken from the clips the replay's nodes hold, not worked out from the
+/// files: a clip an edit wrote carries the blake3 of the samples alone as
+/// its `content_hash`, which is what named the file before. Only clips of
+/// the scratch project's own `derived/` count, so the audio the step read
+/// (the real project's) is never taken for what it wrote.
+fn legacy_names(
+    scratch_store: &session::Store,
+    scratch: &Path,
+    produced: &BTreeSet<OsString>,
+) -> BTreeMap<OsString, OsString> {
+    let derived = key(&derived_dir(scratch));
+    let mut out = BTreeMap::new();
+    for node in scratch_store.list_nodes().unwrap_or_default() {
+        for clip in node.state.tracks.iter().flat_map(|t| &t.clips) {
+            let (Some(hash), Some(written)) = (clip.content_hash, clip.source_path.file_name())
+            else {
+                continue;
+            };
+            if clip.source_path.parent().map(key).as_ref() != Some(&derived)
+                || !produced.contains(written)
+            {
+                continue;
+            }
+            let older = OsString::from(format!("{}.wav", crate::provenance::legacy_stem(&hash)));
+            if older != written {
+                out.insert(older, written.to_os_string());
+            }
+        }
+    }
+    out
 }
 
 /// One rebuild: which nodes name each file, and which nodes it has

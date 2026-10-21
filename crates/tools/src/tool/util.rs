@@ -1110,15 +1110,18 @@ where
         ));
     }
 
-    // Hash the post-edit interleaved samples. We serialize each f32 as
-    // little-endian bytes so the hash is deterministic across platforms
-    // and across rustc versions (no transmute / no endianness assumption).
-    let mut hasher = blake3::Hasher::new();
-    for s in &window {
-        hasher.update(&s.to_le_bytes());
-    }
-    let hash = hasher.finalize();
-    let hash_hex = hash.to_hex().to_string();
+    // Name the file for the post-edit samples *and* the rate and channel
+    // count they are written with (#620): a name made from the samples
+    // alone is shared by two buffers of a different layout, and a file under
+    // a name is reused, so the second edit was handed the first's.
+    //
+    // The clip's `content_hash` stays the blake3 of the samples alone, as it
+    // always was and as the name used to be: a replay of a node written
+    // under that name finds out from it that the file it has written stands
+    // for the recorded one (`rederive`). Nothing is recomputed from a file,
+    // which holds the samples as 16-bit PCM.
+    let hash_hex = crate::provenance::audio_hash(&window, rate_out, channels_out);
+    let content_hash = crate::provenance::legacy_sample_hash(&window);
     let cas_path = derived_dir.join(format!("{hash_hex}.wav"));
 
     if let Err(e) = write_cas_wav(&window, rate_out, channels_out, &cas_path) {
@@ -1143,7 +1146,7 @@ where
         start_in_track: 0,
         source_offset: 0,
         length: new_length_frames,
-        content_hash: Some(*hash.as_bytes()),
+        content_hash: Some(content_hash),
         time_stretch_factor: first.time_stretch_factor,
         pitch_shift_semitones: first.pitch_shift_semitones,
         beat_grid: first.beat_grid.clone(),

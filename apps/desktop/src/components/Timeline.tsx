@@ -218,6 +218,17 @@ export interface TimelineProps {
   onTrackMuteChange?: (index: number, muted: boolean) => void;
   onTrackSoloChange?: (index: number, soloed: boolean) => void;
   /**
+   * A slider moved, before anything is committed: called on every input
+   * event with the lane index and the value the slider now shows. The
+   * lane draws the value at once; this tells the owner of `tracks` that
+   * the control is the user's from here, so a list it hands back before
+   * the commit (key-up, pointer release, blur) does not carry an older
+   * value over it (#596). A mute or solo click needs no such call: it
+   * commits in the same gesture.
+   */
+  onTrackGainInput?: (index: number, gainDb: number) => void;
+  onTrackPanInput?: (index: number, pan: number) => void;
+  /**
    * Volume automation commit, once per finished gesture. Points are
    * relative to the clip's own start, matching `set_clip_envelope`.
    * Omitting it hides the automation lanes entirely.
@@ -1317,6 +1328,8 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
       onTrackPanChange,
       onTrackMuteChange,
       onTrackSoloChange,
+      onTrackGainInput,
+      onTrackPanInput,
       onClipEnvelopeChange,
       onMoveClip,
       onRemoveClip,
@@ -1617,7 +1630,10 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
     // which made the toggle purely local: a mute set by the agent never
     // reached the button, and a mute set by the button never reached the
     // session. Optimistic writes below are overwritten by the next
-    // refresh, which is the point of them.
+    // refresh, which is the point of them — but not by an older one:
+    // while the session has not confirmed a value the user set, the owner
+    // of `tracks` keeps it in the list it hands over (#596), so this copy
+    // never puts a control back.
     useEffect(() => {
       setLaneStates(
         tracks && tracks.length > 0
@@ -2280,8 +2296,14 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
                   gainDb={track.gainDb ?? 0}
                   pan={track.pan ?? 0}
                   soloed={track.soloed ?? false}
-                  onGainInput={(v) => patchLane(idx, { gainDb: v })}
-                  onPanInput={(v) => patchLane(idx, { pan: v })}
+                  onGainInput={(v) => {
+                    patchLane(idx, { gainDb: v });
+                    onTrackGainInput?.(trackIndex(idx), v);
+                  }}
+                  onPanInput={(v) => {
+                    patchLane(idx, { pan: v });
+                    onTrackPanInput?.(trackIndex(idx), v);
+                  }}
                   onGainCommit={(v) => onTrackGainChange?.(trackIndex(idx), v)}
                   onPanCommit={(v) => onTrackPanChange?.(trackIndex(idx), v)}
                   onToggleSolo={() => handleToggleSolo(idx)}

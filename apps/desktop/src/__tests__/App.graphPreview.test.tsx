@@ -189,6 +189,19 @@ async function quiet(backend: Backend): Promise<void> {
   throw new Error("the app never stopped asking");
 }
 
+/**
+ * Wait until the status bar says the head is `id`.
+ *
+ * The head is adopted when a command's answer arrives, outside any `act`,
+ * so React draws it on its own schedule. `quiet` counts the backend's
+ * calls and says nothing about what has been drawn, so a read of the bar
+ * right after it can still see the head the app has just left.
+ */
+const headShown = (id: string) =>
+  waitFor(() =>
+    expect(screen.getByTestId("status-bar-head")).toHaveTextContent(headLabel(id)),
+  );
+
 /** Open the app on `backend`, and wait until it is at rest on its head. */
 async function open(backend: Backend) {
   mockIPC((cmd, args) => backend.handle(cmd, args as Args | undefined), {
@@ -196,9 +209,7 @@ async function open(backend: Backend) {
   });
   render(<App />);
   await screen.findByTestId("timeline-lane-mute");
-  await waitFor(() =>
-    expect(screen.getByTestId("status-bar-head")).toHaveTextContent(headLabel(backend.head)),
-  );
+  await headShown(backend.head);
   await quiet(backend);
 }
 
@@ -210,8 +221,11 @@ function close() {
 
 /**
  * Click the mute button, and wait until the lane shows the track as
- * `pressed`. The button toggles what it was last drawn with, so a second
- * click made before the first is drawn would send the same mute again.
+ * `pressed` and the status bar shows the head the edit made (`MUTED`, and
+ * `START` again for an unmute). The button toggles what it was last drawn
+ * with, so a second click made before the first is drawn would send the
+ * same mute again. The lane follows the track list and the bar follows the
+ * head: they are two answers, and React may draw one before the other.
  */
 async function mute(pressed: boolean) {
   fireEvent.click(screen.getByTestId("timeline-lane-mute"));
@@ -221,20 +235,32 @@ async function mute(pressed: boolean) {
       String(pressed),
     ),
   );
+  await headShown(pressed ? MUTED : START);
 }
 
 const undo = () => fireEvent.keyDown(window, { key: "z", ctrlKey: true });
 
+/** The history graph's bubble for `id`, if the graph has drawn it. */
+function findBubble(id: string): HTMLElement {
+  const found = screen
+    .getAllByTestId("graph-bubble")
+    .find((b) => b.getAttribute("data-node-id") === id);
+  if (!found) throw new Error(`no bubble for ${id}`);
+  return found;
+}
+
 /** The history graph's bubble for `id`, once the graph has drawn. */
 async function bubble(id: string): Promise<HTMLElement> {
-  return waitFor(() => {
-    const found = screen
-      .getAllByTestId("graph-bubble")
-      .find((b) => b.getAttribute("data-node-id") === id);
-    if (!found) throw new Error(`no bubble for ${id}`);
-    return found;
-  });
+  return waitFor(() => findBubble(id));
 }
+
+/** Wait until the bubble for `id` has its `data-is-head` and `data-is-preview` marks. */
+const bubbleMarks = (id: string, isHead: boolean, isPreview: boolean) =>
+  waitFor(() => {
+    const found = findBubble(id);
+    expect(found).toHaveAttribute("data-is-head", String(isHead));
+    expect(found).toHaveAttribute("data-is-preview", String(isPreview));
+  });
 
 /** Show the history graph. */
 async function openGraph() {
@@ -251,7 +277,10 @@ async function preview(backend: Backend, id: string) {
   await quiet(backend);
 }
 
-/** "Set as head" from the right-click menu of the bubble for `id`. */
+/**
+ * "Set as head" from the right-click menu of the bubble for `id`, and wait
+ * until the store has been asked and the status bar shows the new head.
+ */
 async function setAsHead(backend: Backend, id: string) {
   fireEvent.contextMenu(await bubble(id));
   fireEvent.click(
@@ -260,6 +289,7 @@ async function setAsHead(backend: Backend, id: string) {
     }),
   );
   await waitFor(() => expect(backend.undoneTo[backend.undoneTo.length - 1]).toBe(id));
+  await headShown(id);
   await quiet(backend);
 }
 
@@ -357,7 +387,11 @@ describe("a preview click in the graph", () => {
     await mute(true);
     await quiet(backend);
 
-    expect(screen.getByTestId("status-bar-head")).toHaveTextContent(headLabel(MUTED));
+    // The head is drawn when React gets to it, which can be after `quiet`.
+    await headShown(MUTED);
+    // The preview is derived from the head it was made under (see
+    // `useGraphPreview`), so the render that shows the new head is not
+    // one that still shows the preview: no wait for this one.
     expect(screen.queryByTestId("status-bar-preview")).not.toBeInTheDocument();
   });
 
@@ -452,7 +486,7 @@ describe("Set as head", () => {
     await setAsHead(backend, BEFORE_LOAD);
 
     expect(backend.undoneTo).toEqual([BEFORE_LOAD]);
-    expect(screen.getByTestId("status-bar-head")).toHaveTextContent(headLabel(BEFORE_LOAD));
+    await headShown(BEFORE_LOAD);
     // The jump is a step: the file ends at the new head, with the head it
     // left on the path.
     await waitFor(() =>
@@ -460,8 +494,9 @@ describe("Set as head", () => {
     );
     // The preview was of the node that is now the head.
     expect(screen.queryByTestId("status-bar-preview")).not.toBeInTheDocument();
-    expect(await bubble(BEFORE_LOAD)).toHaveAttribute("data-is-head", "true");
-    expect(await bubble(BEFORE_LOAD)).toHaveAttribute("data-is-preview", "false");
+    // The bubbles take their marks from the head the window holds, and may
+    // be drawn after the bar is.
+    await bubbleMarks(BEFORE_LOAD, true, false);
   });
 
   it("survives a restart and undo comes back from it", async () => {

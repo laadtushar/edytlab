@@ -94,13 +94,14 @@ impl Tool for GenerateToneTool {
         if let Err(e) = std::fs::create_dir_all(&gen_dir) {
             return Ok(ToolResult::Error(format!("mkdir failed: {e}")));
         }
-        let mut hasher = blake3::Hasher::new();
-        for s in &samples {
-            hasher.update(&s.to_le_bytes());
-        }
-        let hash = hasher.finalize();
-        let hash_bytes: [u8; 32] = *hash.as_bytes();
-        let path = gen_dir.join(format!("{}.wav", hash.to_hex()));
+        // Named for the rate and channel count too (#620): the session rate
+        // changes (a resample moves it), and the same samples at another rate
+        // are another file. `content_hash` stays the blake3 of the samples.
+        let hash_bytes = crate::provenance::legacy_sample_hash(&samples);
+        let path = gen_dir.join(format!(
+            "{}.wav",
+            crate::provenance::audio_hash(&samples, sr, 1)
+        ));
         if !path.exists() {
             if let Err(e) = audio_engine::write_wav(&samples, sr, 1, &path) {
                 return Ok(ToolResult::Error(format!("write_wav failed: {e}")));
