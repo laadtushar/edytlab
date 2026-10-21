@@ -136,7 +136,9 @@ pub fn replay(store: &session::Store, node: session::NodeId) -> Result<Replay, S
     // thrown away. Only the audio it writes is wanted.
     let scratch = tempfile::TempDir::new()
         .map_err(|e| format!("could not make a scratch project to rebuild in: {e}"))?;
-    let mut scratch_store = session::Store::open(scratch.path())
+    // Private: a folder of its own that nothing else may open while it is
+    // used, and no other store is ever on it.
+    let mut scratch_store = session::Store::open_private(scratch.path())
         .map_err(|e| format!("could not open the scratch project: {e}"))?;
     // The parent's state is the scratch project's first node. Its clips
     // name the real project's audio, which is on disk, so the step reads

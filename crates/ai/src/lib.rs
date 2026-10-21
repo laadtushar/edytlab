@@ -15,7 +15,7 @@
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let api_key = ai::keychain::load_api_key(ai::ANTHROPIC_ID).expect("api key not configured");
 //! let dispatcher = Arc::new(Mutex::new(tools::ToolDispatcher::default_dispatcher()));
-//! let store = Arc::new(Mutex::new(session::Store::open(std::path::Path::new("/tmp/proj"))?));
+//! let store = session::Store::open_shared(std::path::Path::new("/tmp/proj"))?.handle();
 //! let engine = Arc::new(Mutex::new(audio_engine::Engine::new()));
 //!
 //! let mut agent = Agent::new(

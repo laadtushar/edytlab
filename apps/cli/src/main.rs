@@ -81,7 +81,10 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    let store = Arc::new(Mutex::new(session::Store::open(&project_dir)?));
+    // Shared, like the desktop app's: the agent holds this handle for the
+    // whole run, and a tool that opens project folders of its own
+    // (`batch_apply`) is refused this one.
+    let store = session::Store::open_shared(&project_dir)?.handle();
     let dispatcher = Arc::new(Mutex::new(tools::ToolDispatcher::default_dispatcher()));
     let engine = Arc::new(Mutex::new(audio_engine::Engine::new()));
 

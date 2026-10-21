@@ -61,12 +61,13 @@ const TURN_LOCK_FIELDS: [&str; 3] = ["engine", "dispatcher", "clipboard"];
 /// project opens, and the lock a tool holds is the inner `Arc<Mutex<Store>>`
 /// inside it. `store_handle()` takes the outer lock for an instant and
 /// returns that inner handle, which the caller then locks; so does the
-/// registry of live stores (`state.live_stores.find(..)` / `.register(..)`,
-/// #501), which is how opening a project reaches the store without going
-/// through `AppState::store` first. The other two are the locks themselves.
+/// registry of live stores (`Store::open_shared(..)`, which `session::live`
+/// answers from, #501 and #566), which is how opening a project reaches the
+/// store without going through `AppState::store` first. The other two are the
+/// locks themselves.
 const STORE_LOCKS: [&str; 4] = [
     "store_handle()",
-    ".live_stores.",
+    "open_shared",
     "lock_std(&*store",
     "lock_std(&store",
 ];
@@ -707,7 +708,7 @@ pub fn engine_lock_through_lock_std(state: State<'_, AppState>) -> CmdResult<()>
 
 #[tauri::command]
 pub fn store_lock_through_the_registry(state: State<'_, AppState>) -> CmdResult<()> {
-    let handle = state.live_stores.find(&dir).ok_or("no live store")?;
+    let handle = session::Store::open_shared(&dir).map_err(|e| e.to_string())?;
     let _store = lock_std(&handle, "store")?;
     Ok(())
 }

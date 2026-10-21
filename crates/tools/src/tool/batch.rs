@@ -135,6 +135,22 @@ impl Tool for BatchApplyTool {
             .map(PathBuf::from)
             .unwrap_or_else(|| input_dir.clone());
 
+        // Refused once, up front, as a chain that cannot run is: a per-file
+        // project that is a project somebody has open (the window's, or the
+        // one this very turn is working in) would get a second writer and a
+        // second history appended behind its back (#566). With the default
+        // `output_dir` a folder holding `podcast.wav` next to a project
+        // folder named `podcast/` is enough. Nothing is started, so it is
+        // not left half done either.
+        let open: Vec<PathBuf> = files
+            .iter()
+            .map(|file| project_for(&output_dir, file))
+            .filter(|project| session::Store::is_open(project))
+            .collect();
+        if !open.is_empty() {
+            return Ok(ToolResult::Error(project_is_open(&open)));
+        }
+
         let dispatcher = ToolDispatcher::default_dispatcher();
         let mut results = Vec::new();
         let (mut done, mut refused) = (0usize, 0usize);
@@ -164,12 +180,7 @@ impl Tool for BatchApplyTool {
                 "refused": refused,
             }));
 
-            let stem = file
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("track")
-                .to_string();
-            let project = output_dir.join(&stem);
+            let project = project_for(&output_dir, file);
 
             match run_one(
                 &dispatcher,
@@ -257,6 +268,31 @@ fn audio_files_in(dir: &Path) -> Result<Vec<PathBuf>, String> {
     Ok(out)
 }
 
+/// Where `file`'s project goes: its stem, in `output_dir`.
+fn project_for(output_dir: &Path, file: &Path) -> PathBuf {
+    let stem = file.file_stem().and_then(|s| s.to_str()).unwrap_or("track");
+    output_dir.join(stem)
+}
+
+/// The refusal for projects that are open. Names each folder and says what to
+/// change, because the model has to choose another `output_dir` and the user
+/// has to be able to follow why.
+fn project_is_open(projects: &[PathBuf]) -> String {
+    let named: Vec<String> = projects.iter().map(|p| p.display().to_string()).collect();
+    format!(
+        "not run: {} {} open right now, and the batch would write its own history into {}. Each \
+         file's project goes in `<output_dir>/<file name without its extension>`; choose another \
+         `output_dir` so none of them is a project that is open.",
+        named.join(", "),
+        if named.len() == 1 {
+            "is a project that is"
+        } else {
+            "are projects that are"
+        },
+        if named.len() == 1 { "it" } else { "them" },
+    )
+}
+
 /// One file: its own project, its own history, the chain replayed
 /// against it.
 fn run_one(
@@ -272,8 +308,13 @@ fn run_one(
 
     std::fs::create_dir_all(project)
         .map_err(|e| format!("could not make {}: {e}", project.display()))?;
-    let mut store = session::Store::open(project)
-        .map_err(|e| format!("could not open a session at {}: {e}", project.display()))?;
+    // A store of its own, refused if the folder has a live one: it can have
+    // become one since the check at the top of the run, and two writers on a
+    // project is what this must never be.
+    let mut store = session::Store::open_private(project).map_err(|e| match e {
+        session::Error::AlreadyOpen { .. } => project_is_open(&[project.to_path_buf()]),
+        e => format!("could not open a session at {}: {e}", project.display()),
+    })?;
     let mut clipboard: Option<crate::Clipboard> = None;
 
     let mut applied = 0usize;

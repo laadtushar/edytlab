@@ -428,3 +428,171 @@ fn batch_apply_cannot_reach_a_tool_its_caller_may_not_use() {
         "the refusal reason should name the disabled tool, got: {reason}"
     );
 }
+
+// =============================================================================
+// A batch never writes into a project that is open (#566)
+// =============================================================================
+//
+// Each file's project is `<output_dir>/<file stem>`, and `output_dir`
+// defaults to the folder the audio is in. So a folder holding `podcast.wav`
+// next to a project folder named `podcast/` was enough for the batch to open
+// a second `Store` on a project the app had open, and append its whole chain
+// to it: the open one's in-memory head knew nothing of the new nodes, and its
+// next edit would write a head that skipped them.
+
+/// Run `tool` against `store` as the agent does: with the project's store as
+/// the context's.
+fn call_on(store: &mut session::Store, tool: &str, args: Value) -> ToolResult {
+    let mut engine = audio_engine::Engine::new();
+    let mut clipboard: Option<tools::Clipboard> = None;
+    let mut ctx = ToolContext {
+        store,
+        engine: &mut engine,
+        user_message: "",
+        clipboard: &mut clipboard,
+        allowed_tools: None,
+    };
+    ToolDispatcher::default_dispatcher()
+        .invoke(tool, args, &mut ctx)
+        .unwrap()
+}
+
+/// The project the app has open: `dir`, opened as the app opens it (shared,
+/// through the registry), with one edit in it.
+fn open_project(dir: &Path, audio: &Path) -> session::LiveStore {
+    let live = session::Store::open_shared(dir).expect("open the project");
+    ok(call_on(
+        &mut live.lock().unwrap(),
+        "load",
+        json!({ "path": audio.to_string_lossy() }),
+    ));
+    live
+}
+
+/// What the open project holds: its head and how many nodes it has, read
+/// from the live store and from the folder.
+fn history(live: &session::LiveStore, project: &Path) -> (Option<session::NodeId>, usize, usize) {
+    let held = live.lock().unwrap();
+    let on_disk = session::Store::open(project).unwrap();
+    assert_eq!(
+        on_disk.head(),
+        held.head(),
+        "the folder and the store differ"
+    );
+    (
+        held.head(),
+        held.list_nodes().unwrap().len(),
+        on_disk.list_nodes().unwrap().len(),
+    )
+}
+
+#[test]
+fn a_batch_will_not_write_into_the_project_that_is_open() {
+    let mut s = Session::new();
+    let recipe = make_recipe(&mut s);
+    let takes = make_folder(s.dir.path());
+    // The open project is `takes/take-0`, which is where the default
+    // `output_dir` (the audio's own folder) puts the project of `take-0.wav`.
+    let project = takes.join("take-0");
+    let open = open_project(&project, &takes.join("take-0.wav"));
+    let before = history(&open, &project);
+
+    // The turn that runs the batch holds the project's store, as the agent does.
+    let msg = err(call_on(
+        &mut open.lock().unwrap(),
+        "batch_apply",
+        json!({
+            "recipe_path": recipe.to_string_lossy(),
+            "input_dir": takes.to_string_lossy(),
+        }),
+    ));
+
+    assert!(msg.contains("take-0"), "name the folder: {msg}");
+    assert!(msg.contains("output_dir"), "ask for another: {msg}");
+    assert_eq!(
+        history(&open, &project),
+        before,
+        "a node was appended to the open project"
+    );
+    // Refused up front, before any file: nothing was started.
+    assert!(!takes.join("take-1").exists(), "{msg}");
+}
+
+/// The window's project, not the turn's own: the context's store is another
+/// folder's, and the open project is only open.
+#[test]
+fn a_batch_will_not_write_into_a_project_the_window_has_open_either() {
+    let mut s = Session::new();
+    let recipe = make_recipe(&mut s);
+    let takes = make_folder(s.dir.path());
+    let project = takes.join("take-1");
+    let open = open_project(&project, &takes.join("take-1.wav"));
+    let before = history(&open, &project);
+
+    let msg = err(s.call(
+        "batch_apply",
+        json!({
+            "recipe_path": recipe.to_string_lossy(),
+            "input_dir": takes.to_string_lossy(),
+        }),
+    ));
+
+    assert!(msg.contains("take-1"), "{msg}");
+    assert_eq!(history(&open, &project), before);
+    assert!(!takes.join("take-0").exists(), "nothing was started");
+}
+
+/// A project another writer holds privately (a batch already running into
+/// it) is as much in use as a shared one, and every open one is named.
+#[test]
+fn every_project_in_use_is_named() {
+    let mut s = Session::new();
+    let recipe = make_recipe(&mut s);
+    let takes = make_folder(s.dir.path());
+    let shared = open_project(&takes.join("take-0"), &takes.join("take-0.wav"));
+    let _private = session::Store::open_private(&takes.join("take-2")).unwrap();
+
+    let msg = err(s.call(
+        "batch_apply",
+        json!({
+            "recipe_path": recipe.to_string_lossy(),
+            "input_dir": takes.to_string_lossy(),
+        }),
+    ));
+
+    assert!(msg.contains("take-0") && msg.contains("take-2"), "{msg}");
+    assert!(!msg.contains("take-1"), "take-1 is not open: {msg}");
+    drop(shared);
+}
+
+/// Only the folders in use are refused: with the open project left alone, a
+/// different `output_dir` runs as ever and does not touch it.
+#[test]
+fn a_batch_into_another_folder_still_runs_beside_an_open_project() {
+    let mut s = Session::new();
+    let recipe = make_recipe(&mut s);
+    let takes = make_folder(s.dir.path());
+    let project = takes.join("take-0");
+    let open = open_project(&project, &takes.join("take-0.wav"));
+    let before = history(&open, &project);
+    let out = s.dir.path().join("out");
+
+    let v = ok(call_on(
+        &mut open.lock().unwrap(),
+        "batch_apply",
+        json!({
+            "recipe_path": recipe.to_string_lossy(),
+            "input_dir": takes.to_string_lossy(),
+            "output_dir": out.to_string_lossy(),
+        }),
+    ));
+
+    assert_eq!(v["succeeded"], json!(3), "{v}");
+    assert_eq!(history(&open, &project), before, "the open project changed");
+    for i in 0..3 {
+        let batch_project = session::Store::open(&out.join(format!("take-{i}"))).unwrap();
+        assert_eq!(batch_project.list_nodes().unwrap().len(), 2);
+    }
+    // The batch's projects are free again once it is done.
+    assert!(!session::Store::is_open(&out.join("take-0")));
+}

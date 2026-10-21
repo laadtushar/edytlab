@@ -552,38 +552,6 @@ fn open_project_inner(state: &AppState, path: PathBuf) -> Result<ProjectInfo, Co
     open_project_with(state, path, sweep_orphaned_audio_listed)
 }
 
-/// The live store for the project at `path`, and whether it is new.
-///
-/// A store that is still alive for the folder, wherever it is held (the
-/// window, the agent mid-turn, a command), is the one to use
-/// (`crate::live_stores`). Only when there is none is one built, and then
-/// it is registered before it is returned. If two opens of a folder nothing
-/// has open race, the registry keeps one of the two stores and both opens
-/// get it back: the second finds it is not new and reads the folder into it.
-fn live_or_new_store(
-    state: &AppState,
-    path: &Path,
-) -> Result<(Arc<Mutex<Store>>, bool), CommandError> {
-    live_or_new_store_with(state, path, |dir| Ok(Store::open(dir)?))
-}
-
-/// [`live_or_new_store`] with the building of a new store handed in, so a
-/// test can run a competing open between the registry saying "none" and
-/// this one registering its own.
-fn live_or_new_store_with(
-    state: &AppState,
-    path: &Path,
-    build: impl FnOnce(&Path) -> Result<Store, CommandError>,
-) -> Result<(Arc<Mutex<Store>>, bool), CommandError> {
-    if let Some(live) = state.live_stores.find(path) {
-        return Ok((live, false));
-    }
-    let built = Arc::new(Mutex::new(build(path)?));
-    let registered = state.live_stores.register(path, Arc::clone(&built));
-    let is_new = Arc::ptr_eq(&registered, &built);
-    Ok((registered, is_new))
-}
-
 /// [`open_project_inner`] with the sweep of unreferenced derived audio
 /// handed in, so a test can stop at the moment it would run.
 ///
@@ -594,10 +562,13 @@ fn live_or_new_store_with(
 /// so when the project being opened is the one open, and as much when the
 /// user opened another project and came back during the turn: `AppState`
 /// holds the other then, but the turn's store is still alive and the
-/// registry (`AppState::live_stores`) hands it out. The folder is read
-/// again, as an open does, into the same `Arc<Mutex<Store>>`, and `AppState`
-/// is pointed at it; the agent and every command keep one handle and one
-/// lock.
+/// registry (`session::live`, reached through `Store::open_shared_status`)
+/// hands it out, whichever spelling of the folder the open was given
+/// (#566). The folder is read again, as an open does, into the same
+/// `Arc<Mutex<Store>>` (`Store::reread`), and `AppState` is pointed at it;
+/// the agent and every command keep one handle and one lock. A folder that a
+/// private writer has open (a `batch_apply` in progress, say) is refused:
+/// `Error::AlreadyOpen`.
 ///
 /// The sweep then runs holding that lock. A tool that runs off the lock
 /// takes it to stage, so with it held no tool can stage between the sweep's
@@ -619,10 +590,10 @@ fn live_or_new_store_with(
 /// `tools::reclaim`), as they do for Save As's copy.
 ///
 /// Lock order: the registry's lock is a leaf, held inside
-/// `live_stores.find` / `register` and nowhere else. The store's lock is
-/// then taken alone, before the sweep and kept until the store is in place,
-/// and nothing in between takes the registry, the engine or the dispatcher.
-/// `AppState::set_open_project` then writes the `store` and `project_dir`
+/// `session::live::Registry`'s lookups and inserts and nowhere else. The
+/// store's lock is then taken alone, before the sweep and kept until the
+/// store is in place, and nothing in between takes the registry, the engine
+/// or the dispatcher. `AppState::set_open_project` then writes the `store` and `project_dir`
 /// slots together (the `store` slot's lock, then `project_dir`'s), after the
 /// store's is released.
 fn open_project_with(
@@ -640,8 +611,10 @@ fn open_project_with(
         .to_str()
         .ok_or_else(|| CommandError::InvalidPath("project path is not valid UTF-8".into()))?
         .to_string();
-    let (handle, is_new) = live_or_new_store(state, &path)?;
-    let mut held = lock_std(&handle, "store")?;
+    let opened = Store::open_shared_status(&path)?;
+    let is_new = opened.is_new();
+    let live = opened.into_store();
+    let mut held = lock_std(&live, "store")?;
     // A store built just now has read the folder. A live one is read again,
     // under its own spelling of the folder where that still reaches it: a
     // staged edit refuses to commit into a store whose `project_dir` differs
@@ -654,12 +627,7 @@ fn open_project_with(
     let reread = if is_new {
         None
     } else {
-        let dir = if crate::live_stores::same_folder(held.project_dir(), &path) {
-            held.project_dir().to_path_buf()
-        } else {
-            path.clone()
-        };
-        Some(Store::open(&dir)?)
+        Some(held.reread(&path)?)
     };
     let store: &Store = reread.as_ref().unwrap_or(&held);
     // Listed once, for the sweep and for the repair of a copy. A store whose
@@ -695,7 +663,7 @@ fn open_project_with(
     }
     let dir = held.project_dir().to_path_buf();
     drop(held);
-    state.set_open_project(handle, dir);
+    state.set_open_project(live, dir);
     if let Some((plan, staged)) = repair {
         repair_in_background(plan, staged);
     }
@@ -7083,7 +7051,7 @@ mod tests {
 
     /// One folder under two spellings (a `..` in the path, a symlink) is one
     /// project, as for the in-flight count (`session::store`): the registry
-    /// is keyed by canonical path.
+    /// tells folders apart by identity (`session::live`, #566).
     #[test]
     fn two_spellings_of_one_folder_share_a_store() {
         let tmp = tempdir().unwrap();
@@ -7116,44 +7084,6 @@ mod tests {
                 "a symlink to the folder `a` is a second store for it"
             );
         }
-    }
-
-    /// Two opens of a folder nothing has open can both find no live store and
-    /// both build one. The registry keeps whichever registers first, and the
-    /// other open must take that one instead of putting its own into
-    /// `AppState`: its own would be a second live store for the folder.
-    ///
-    /// The build step is handed in so the competing open can run exactly
-    /// there, after the registry has said "none" and before this one has
-    /// registered.
-    #[test]
-    fn an_open_that_loses_the_race_to_register_takes_the_winners_store() {
-        let tmp = tempdir().unwrap();
-        let state = AppState::new();
-        let competitor = Arc::new(Mutex::new(Store::open(tmp.path()).unwrap()));
-
-        let (got, is_new) = live_or_new_store_with(&state, tmp.path(), |dir| {
-            let won = state.live_stores.register(dir, Arc::clone(&competitor));
-            assert!(
-                Arc::ptr_eq(&won, &competitor),
-                "the competitor registers first"
-            );
-            Ok(Store::open(dir)?)
-        })
-        .unwrap();
-
-        assert!(
-            Arc::ptr_eq(&got, &competitor),
-            "the open that lost the race went on with a store of its own"
-        );
-        assert!(
-            !is_new,
-            "a store another open registered is not new: it has to be read"
-        );
-        assert!(Arc::ptr_eq(
-            &state.live_stores.find(tmp.path()).unwrap(),
-            &competitor
-        ));
     }
 
     /// A live store keeps the spelling of the folder it was made with, and
@@ -8772,8 +8702,10 @@ mod tests {
     /// the keychain says, and the tests below would prove nothing about it.
     fn state_with_a_store(dir: &std::path::Path) -> AppState {
         let state = AppState::default();
-        let store = Store::open(dir).expect("store");
-        state.set_open_project(Arc::new(Mutex::new(store)), dir.to_path_buf());
+        // Through the registry, as the real opens are: `set_open_project`
+        // takes nothing else (#566).
+        let store = Store::open_shared(dir).expect("store");
+        state.set_open_project(store, dir.to_path_buf());
         state
     }
 

@@ -15,6 +15,11 @@ thiserror = "2"
 tempfile = "3"
 uuid = { version = "1", features = ["serde", "v4"] }
 
+# Windows: a folder's volume serial number and file index (`GetFileInformationByHandle`),
+# which std only offers behind an unstable feature. Already in the lock via `same-file`.
+[target.'cfg(windows)'.dependencies]
+winapi-util = "0.1"
+
 [dev-dependencies]
 proptest = "1"
 assert_cmd = "2"

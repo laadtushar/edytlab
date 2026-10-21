@@ -8,6 +8,7 @@
 
 pub mod annotation;
 pub mod diff;
+pub mod live;
 pub mod meta;
 pub mod node;
 pub mod relocate;
@@ -20,6 +21,7 @@ pub use diff::{
     diff as diff_nodes, diff_states, fork as fork_node, merge as merge_nodes,
     revert_to as revert_to_node, BusMeta, DiffOp, DiffTarget, EffectScope, SessionDiff,
 };
+pub use live::{FolderId, LiveStore, Opened, Registry};
 pub use node::{NodeId, NodeOp, SessionNode};
 pub use state::{
     Bus, BusGraph, Clip, EffectInstance, EnvelopePoint, KeyMap, KeySegment, Send, SessionState,
@@ -60,6 +62,25 @@ pub enum Error {
     /// into the wrong place. The payload names what was asked.
     #[error("{0} is not allowed on a staged store")]
     Staged(&'static str),
+
+    /// A store was asked to write that was opened to read
+    /// ([`Store::open_read_only`]). The payload names what was asked.
+    #[error("{0} is not allowed on a read-only store")]
+    ReadOnly(&'static str),
+
+    /// [`Store::open_private`] (or [`Store::open_shared`], when the holder is
+    /// a private writer) found the folder already has a live store, and two
+    /// writers on one project folder is what the registry exists to prevent.
+    #[error(
+        "the project folder {} is already open in this process; another writer on it would \
+         overwrite its history",
+        path.display()
+    )]
+    AlreadyOpen { path: std::path::PathBuf },
+
+    /// [`Store::reread`] was given a folder other than the store's own.
+    #[error("{} is not the folder this store is on", path.display())]
+    OtherFolder { path: std::path::PathBuf },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

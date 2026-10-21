@@ -46,7 +46,10 @@ pub const CHECK_EVERY: Duration = Duration::from_secs(60);
 pub fn reclaim_once(state: &AppState, cap_bytes: u64) -> Option<SweepReport> {
     let handle = state.store_handle()?;
     let project_dir = handle.lock().ok()?.project_dir().to_path_buf();
-    let reader = match session::Store::open(&project_dir) {
+    // A reader that cannot append (`Store::open_read_only`): it works beside
+    // the live store, which is the point, so it is the one open that does not
+    // ask the registry, and it cannot be a second writer.
+    let reader = match session::Store::open_read_only(&project_dir) {
         Ok(s) => s,
         Err(e) => {
             tracing::warn!(error = %e, "could not open the project to plan a sweep");

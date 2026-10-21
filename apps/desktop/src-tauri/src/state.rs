@@ -25,11 +25,9 @@ use ai::Agent;
 use audio_engine::Engine;
 use mcp::{McpConfig, McpRegistry};
 use memory::MemoryStore;
-use session::Store;
+use session::{LiveStore, Store};
 use skills::SkillLibrary;
 use tools::{Range, ToolDispatcher};
-
-use crate::live_stores::LiveStores;
 
 /// Shared, mutex-guarded application state. Cloning is cheap (`Arc`).
 #[derive(Clone)]
@@ -40,16 +38,18 @@ pub struct AppState {
     /// Tool dispatcher (Phase 1 default tool set). Constructed once at
     /// boot; never replaced.
     pub dispatcher: Arc<Mutex<ToolDispatcher>>,
-    /// Session store. `None` until `open_project` is called. Wrapped in
-    /// `Arc<Mutex<Store>>` so the same handle can be shared with the
-    /// agent (which expects a non-`Option` `Arc<Mutex<Store>>`).
-    pub store: Arc<Mutex<Option<Arc<Mutex<Store>>>>>,
-    /// Every store that is still alive, by project folder (#501). The one
-    /// in [`AppState::store`] is among them, and so is the one a running
-    /// turn holds after the window has moved to another project. A store
-    /// put in `store` must come from here (`LiveStores::register`), or an
-    /// open of its folder could not find it and would build a second.
-    pub live_stores: LiveStores,
+    /// Session store. `None` until `open_project` is called. A
+    /// [`LiveStore`], which only the registry in `session` makes, so a store
+    /// that is not the one live for its folder cannot be put here (#566): a
+    /// project opened again later, or by a tool, finds this one and does not
+    /// build a second writer on the folder. It is `Arc<Mutex<Store>>`
+    /// underneath, shared with the agent (which expects a non-`Option`
+    /// `Arc<Mutex<Store>>`: see [`AppState::store_handle`]).
+    ///
+    /// The registry also holds the stores that are alive but not here, such
+    /// as the one a running turn keeps after the window has moved to another
+    /// project (#501).
+    pub store: Arc<Mutex<Option<LiveStore>>>,
     /// Audio engine. Stateless in Phase 1 but wrapped in `Arc<Mutex<_>>`
     /// to match the type the agent and tools expect.
     pub engine: Arc<Mutex<Engine>>,
@@ -198,7 +198,6 @@ impl AppState {
             agent: Arc::new(tokio::sync::Mutex::new(None)),
             dispatcher: Arc::new(Mutex::new(ToolDispatcher::default_dispatcher())),
             store: Arc::new(Mutex::new(None)),
-            live_stores: LiveStores::default(),
             engine: Arc::new(Mutex::new(Engine::new())),
             project_dir: Arc::new(Mutex::new(None)),
             api_key: Arc::new(Mutex::new(None)),
@@ -517,7 +516,7 @@ impl AppState {
             .lock()
             .expect("store mutex poisoned")
             .as_ref()
-            .map(Arc::clone)
+            .map(LiveStore::handle)
     }
 
     /// Snapshot the currently-cached API key, if any.
@@ -591,14 +590,16 @@ impl AppState {
 
     /// Make `store` the open project's store and `dir` its directory.
     ///
-    /// `store` is the project's live store: the one
-    /// [`AppState::live_stores`] gave out or took in for its folder.
+    /// `store` is the project's live store, as `session::Store::open_shared`
+    /// gave it out. Nothing else is accepted: a [`LiveStore`] is made only
+    /// by the registry, so an open of the folder later finds this store while
+    /// anything holds it instead of building another (#566).
     ///
     /// The two are written together, holding the `store` slot's lock for
     /// both, so a reader that sees the new store sees the new directory
     /// too. The order is the `store` slot, then the `project_dir` slot; no
     /// code takes them the other way round.
-    pub fn set_open_project(&self, store: Arc<Mutex<Store>>, dir: PathBuf) {
+    pub fn set_open_project(&self, store: LiveStore, dir: PathBuf) {
         let mut slot = self.store.lock().expect("store mutex poisoned");
         *slot = Some(store);
         *self.project_dir.lock().expect("project_dir mutex poisoned") = Some(dir);

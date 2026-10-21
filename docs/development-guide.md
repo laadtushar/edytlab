@@ -275,7 +275,6 @@ src/
 ├── compare.rs     # The open A/B compare and the previews it holds (#575)
 ├── events.rs      # agent://… event names and payloads
 ├── lib.rs         # Builder, command registration, startup
-├── live_stores.rs # The stores that are alive, by project folder (#534)
 ├── main.rs        # Entry point
 ├── mcp_tool.rs    # Wraps MCP server tools as `tools::Tool`
 ├── project.rs     # Project metadata, view state, recents, Save As's copy
@@ -289,8 +288,7 @@ src/
 pub struct AppState {
     pub agent:                    Arc<tokio::sync::Mutex<Option<Agent>>>,
     pub dispatcher:               Arc<Mutex<ToolDispatcher>>,
-    pub store:                    Arc<Mutex<Option<Arc<Mutex<Store>>>>>,
-    pub live_stores:              LiveStores,   // every live Store by folder; AppState's comes from here
+    pub store:                    Arc<Mutex<Option<LiveStore>>>, // only `session`'s registry makes a LiveStore (#566)
     pub engine:                   Arc<Mutex<Engine>>,
     pub project_dir:              Arc<Mutex<Option<PathBuf>>>,
     pub api_key:                  Arc<Mutex<Option<String>>>,

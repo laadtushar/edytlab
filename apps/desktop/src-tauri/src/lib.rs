@@ -8,7 +8,6 @@
 pub mod commands;
 pub mod compare;
 pub mod events;
-pub mod live_stores;
 pub mod mcp_tool;
 pub mod project;
 pub mod reclaimer;
@@ -37,7 +36,6 @@ use crate::commands::{
     upsert_agent_profile, upsert_mcp_server, upsert_skill, write_memory, RecorderState,
 };
 use crate::state::AppState;
-use std::sync::{Arc, Mutex};
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder},
     Emitter, Manager,
@@ -210,15 +208,16 @@ pub fn run() {
                         "could not create default project dir"
                     );
                 } else {
-                    match session::Store::open(&project_dir) {
+                    // Shared, so a project opened again later finds this
+                    // store while anything still holds it.
+                    match session::Store::open_shared(&project_dir) {
                         Ok(store) => {
-                            crate::commands::sweep_orphaned_audio(&store);
+                            // Swept under the store's lock, as an open of a
+                            // project is (#501).
+                            if let Ok(held) = store.lock() {
+                                crate::commands::sweep_orphaned_audio(&held);
+                            }
                             crate::commands::allow_assets_in_dir(app.handle(), &project_dir);
-                            // Registered, so a project opened again later
-                            // finds this store while anything still holds it.
-                            let store = app_state
-                                .live_stores
-                                .register(&project_dir, Arc::new(Mutex::new(store)));
                             app_state.set_open_project(store, project_dir.clone());
                             // If a key was loaded by the startup reads,
                             // kick a rebuild so the agent is ready for the

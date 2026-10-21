@@ -32,19 +32,19 @@
 //! drift. If the head moved — the user edited meanwhile — nothing is
 //! written, and the caller runs the edit again on the new head.
 
-use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, Weak};
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
 
 use tempfile::NamedTempFile;
 
 use chrono::Utc;
 
 use crate::diff::{self, SessionDiff};
+use crate::live::{Claim, Folder, LiveStore, Opened, Registry};
 use crate::node::{NodeId, SessionNode};
 use crate::state::SessionState;
 use crate::{Error, Result};
@@ -101,12 +101,13 @@ pub fn node_path(project_dir: &Path, hex: &str) -> PathBuf {
 pub struct Store {
     project_dir: PathBuf,
     head: Option<NodeId>,
-    /// How many staged handles on this project are alive, from any `Store`
-    /// opened on it in this process. Shared by those stores and every
-    /// handle staged from them, so a sweep holding any one of them can
-    /// tell that an edit is running without the lock (#421). See
-    /// [`in_flight_counter`].
-    in_flight: Arc<AtomicUsize>,
+    /// What every `Store` opened on this folder in this process shares:
+    /// its identity and how many staged handles on it are alive, from any
+    /// of them. Shared by those stores and every handle staged from them, so
+    /// a sweep holding any one of them can tell that an edit is running
+    /// without the lock (#421). See [`Store::staged_in_flight`] and
+    /// [`crate::live`].
+    folder: Arc<Folder>,
     /// `Some` for a handle made by [`Store::stage`]: appends go here
     /// instead of to disk.
     staged: Option<Staged>,
@@ -115,6 +116,14 @@ pub struct Store {
     /// the store is open, so what it works out about a folder is worked out
     /// once, and shared with the handles staged from it.
     rebinder: Arc<crate::relocate::Rebinder>,
+    /// `Some` for a store made by [`Store::open_private`]: the registry's
+    /// record that the folder has a writer of its own, for as long as this
+    /// store lives.
+    #[allow(dead_code)] // held for its drop, which is what the registry watches
+    claim: Option<Arc<Claim>>,
+    /// Whether this store was made by [`Store::open_read_only`]: every
+    /// write is refused with [`Error::ReadOnly`].
+    read_only: bool,
 }
 
 /// What a staged handle holds instead of writing it.
@@ -129,51 +138,12 @@ struct Staged {
     _guard: InFlight,
 }
 
-/// The in-flight counter of the project at `project_dir`: one per project
-/// directory in the process, shared by every [`Store`] opened on it.
-///
-/// A counter per `Store::open` would be wrong, because opening is not rare
-/// and not owned by one place: the app reads the folder into a new `Store`
-/// each time a project is opened (into the live handle's place, if the
-/// project already has one) and sweeps the derived audio with it; the
-/// background reclaimer opens a reader of its own. Each would start at zero
-/// and delete the output of a tool another handle has running without the
-/// lock (#421, N1). The alternative, skipping the sweep when a store for the
-/// project is already alive, would protect that one call site and none of
-/// the others.
-///
-/// Keyed by the canonical path, so `a/../a` and a symlink are one project;
-/// the directory exists by the time this is called (`open` creates it), and
-/// if it cannot be resolved the path as given is the key. A canonical path
-/// does not fold case on Linux, and two paths to one folder through a bind
-/// mount stay two keys (the same limits as the desktop app's registry of live
-/// stores, which says more). The map holds weak references, so a project
-/// nobody has open any more is forgotten rather than counted forever, and a
-/// live handle keeps its project's counter alive.
-fn in_flight_counter(project_dir: &Path) -> Arc<AtomicUsize> {
-    static COUNTERS: OnceLock<Mutex<HashMap<PathBuf, Weak<AtomicUsize>>>> = OnceLock::new();
-    let key = fs::canonicalize(project_dir).unwrap_or_else(|_| project_dir.to_path_buf());
-    // Nothing in here can panic while the lock is held, so a poisoned lock
-    // holds a map that is whole.
-    let mut counters = COUNTERS
-        .get_or_init(Default::default)
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    counters.retain(|_, counter| counter.strong_count() > 0);
-    if let Some(counter) = counters.get(&key).and_then(Weak::upgrade) {
-        return counter;
-    }
-    let counter = Arc::new(AtomicUsize::new(0));
-    counters.insert(key, Arc::downgrade(&counter));
-    counter
-}
-
-/// Decrements the shared in-flight count when dropped.
-struct InFlight(Arc<AtomicUsize>);
+/// Decrements the folder's in-flight count when dropped.
+struct InFlight(Arc<Folder>);
 
 impl Drop for InFlight {
     fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::SeqCst);
+        self.0.in_flight.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
@@ -190,7 +160,72 @@ pub enum Commit {
 }
 
 impl Store {
-    /// Open or create the store under `<project_dir>/.audiograph/`.
+    /// The store of the project at `project_dir`, shared: the one that is
+    /// alive for the folder if there is one, else a new one, registered
+    /// (#566). This is the open for the project the window has, the agent
+    /// works in and every command reaches, and the only way to get the
+    /// [`LiveStore`] that `AppState` takes.
+    ///
+    /// "Alive" is any store something still holds, wherever: the window, an
+    /// agent mid-turn on a project the window has since left, a command.
+    /// Folders are told apart by identity, not by path ([`crate::live`]), so
+    /// two spellings of one folder get one store.
+    ///
+    /// A store that is alive has not read the folder again; use
+    /// [`Store::open_shared_status`] to know, and [`Store::reread`] to read
+    /// it. Fails with [`Error::AlreadyOpen`] when a private writer
+    /// ([`Store::open_private`]) has the folder.
+    pub fn open_shared(project_dir: &Path) -> Result<LiveStore> {
+        Registry::global().open_shared(project_dir)
+    }
+
+    /// [`Store::open_shared`], saying whether the store is new or one that
+    /// was already alive.
+    pub fn open_shared_status(project_dir: &Path) -> Result<Opened> {
+        Registry::global().open_shared_status(project_dir)
+    }
+
+    /// A store of its own on the project at `project_dir`, for code that
+    /// writes to a folder for a while and must not do it to one anything
+    /// else has open (`batch_apply`'s per-file projects). Fails with
+    /// [`Error::AlreadyOpen`] when the folder has a live store, shared or
+    /// private, and for as long as this store lives the folder cannot be
+    /// opened shared either.
+    pub fn open_private(project_dir: &Path) -> Result<Store> {
+        Registry::global().open_private(project_dir)
+    }
+
+    /// A store that reads the project at `project_dir` and cannot write:
+    /// every write is refused with [`Error::ReadOnly`]. It makes nothing on
+    /// disk, takes no claim and is not registered, so it works beside a live
+    /// store, which is what it is for: the reclaimer plans a sweep on one
+    /// without holding the live store's lock (`reclaimer.rs`). It does share
+    /// the folder's in-flight count.
+    ///
+    /// It reads the head once, as it opens, and does not follow the live
+    /// store after that. The folder must exist.
+    pub fn open_read_only(project_dir: &Path) -> Result<Store> {
+        Registry::global().open_read_only(project_dir)
+    }
+
+    /// Whether a store is live for the folder at `project_dir` (shared, or
+    /// private), so a caller can say so before it starts rather than when
+    /// [`Store::open_private`] refuses. Creates nothing.
+    pub fn is_open(project_dir: &Path) -> bool {
+        Registry::global().is_open(project_dir)
+    }
+
+    /// Open or create the store under `<project_dir>/.audiograph/`, **without
+    /// the registry**: it does not look for a live store, does not become
+    /// one, and holds no claim. Nothing stops a second writer on the folder.
+    /// For a folder only the caller can reach, such as a test's temporary
+    /// folder; code that could be handed a user's project uses
+    /// [`Store::open_shared`] or [`Store::open_private`] (a test in
+    /// `crates/session/tests/no_unregistered_open.rs` fails on a bare
+    /// `Store::open(` in a crate's `src`).
+    ///
+    /// It does share the folder's in-flight count with every other store on
+    /// the folder.
     ///
     /// **Single-writer assumption.** The store assumes single-writer
     /// access. Concurrent writes from multiple processes are unsupported
@@ -203,9 +238,65 @@ impl Store {
     /// write, only [`Store::commit`] does, and it takes `&mut self` on the
     /// one shared store, so there is still one writer at a time.
     pub fn open(project_dir: &Path) -> Result<Self> {
+        Registry::global().open_unregistered(project_dir)
+    }
+
+    /// Read the folder into a new `Store`, for the caller to put in this
+    /// one's place (`*guard = store.reread(dir)?`): what an open of a
+    /// project that is already live does, so the window and a running turn
+    /// keep one handle and one lock while the head, the nodes and the
+    /// project's relocation are read afresh.
+    ///
+    /// `given` is the spelling the open was given. The folder is read
+    /// through this store's own spelling where that still reaches the folder,
+    /// because a staged edit refuses to commit into a store whose
+    /// `project_dir` differs from the one it was staged from. A spelling
+    /// that has stopped reaching it (a symlink removed since, or pointed
+    /// elsewhere) is not read through: that would make an empty folder there
+    /// and hand the project an empty history. `given` is read instead, into
+    /// the same store, and an edit staged under the old spelling is refused
+    /// at its commit.
+    ///
+    /// Fails with [`Error::OtherFolder`] when `given` is not this store's
+    /// folder, so a store cannot be given another project's history. The new
+    /// store keeps this one's claim, if it has one.
+    pub fn reread(&self, given: &Path) -> Result<Store> {
+        if self.staged.is_some() {
+            return Err(Error::Staged("reread"));
+        }
+        let reaches = |dir: &Path| {
+            (self.folder.identify)(dir).is_ok_and(|identity| identity.id() == self.folder.id)
+        };
+        if !reaches(given) {
+            return Err(Error::OtherFolder {
+                path: given.to_path_buf(),
+            });
+        }
+        let dir = if reaches(&self.project_dir) {
+            self.project_dir.as_path()
+        } else {
+            given
+        };
+        Store::assemble(
+            dir,
+            Arc::clone(&self.folder),
+            self.claim.clone(),
+            self.read_only,
+        )
+    }
+
+    /// Read the folder at `project_dir` into a store sharing `folder`.
+    /// Makes `.audiograph/nodes/` unless the store is read-only.
+    pub(crate) fn assemble(
+        project_dir: &Path,
+        folder: Arc<Folder>,
+        claim: Option<Arc<Claim>>,
+        read_only: bool,
+    ) -> Result<Self> {
         let store_dir = project_dir.join(STORE_DIR);
-        let nodes_dir = store_dir.join(NODES_DIR);
-        fs::create_dir_all(&nodes_dir)?;
+        if !read_only {
+            fs::create_dir_all(store_dir.join(NODES_DIR))?;
+        }
 
         let head_path = store_dir.join(HEAD_FILE);
         let head = if head_path.exists() {
@@ -223,10 +314,25 @@ impl Store {
         Ok(Self {
             project_dir: project_dir.to_path_buf(),
             head,
-            in_flight: in_flight_counter(project_dir),
+            folder,
             staged: None,
             rebinder: Arc::new(crate::relocate::Rebinder::new(project_dir)),
+            claim,
+            read_only,
         })
+    }
+
+    /// Whether this store was made by [`Store::open_read_only`].
+    pub fn is_read_only(&self) -> bool {
+        self.read_only
+    }
+
+    /// `Err` for a store that cannot write; `op` names what was asked.
+    fn writable(&self, op: &'static str) -> Result<()> {
+        if self.read_only {
+            return Err(Error::ReadOnly(op));
+        }
+        Ok(())
     }
 
     /// A handle for running an edit without holding this store's lock
@@ -246,21 +352,24 @@ impl Store {
     /// handle counts as in flight (see [`Store::staged_in_flight`]) from
     /// here until it is committed or dropped.
     pub fn stage(&self) -> Result<Store> {
+        self.writable("stage")?;
         if self.staged.is_some() {
             return Err(Error::Staged("stage"));
         }
-        self.in_flight.fetch_add(1, Ordering::SeqCst);
-        let guard = InFlight(Arc::clone(&self.in_flight));
+        self.folder.in_flight.fetch_add(1, Ordering::SeqCst);
+        let guard = InFlight(Arc::clone(&self.folder));
         Ok(Store {
             project_dir: self.project_dir.clone(),
             head: self.head,
-            in_flight: Arc::clone(&self.in_flight),
+            folder: Arc::clone(&self.folder),
             staged: Some(Staged {
                 base: self.head,
                 nodes: Vec::new(),
                 _guard: guard,
             }),
             rebinder: Arc::clone(&self.rebinder),
+            claim: None,
+            read_only: false,
         })
     }
 
@@ -281,21 +390,22 @@ impl Store {
     /// holding the lock that reads zero knows no staged run can start from
     /// that store until it lets go, and one that reads more than zero waits.
     ///
-    /// The count is the project's, not this `Store`'s: every `Store::open`
-    /// on the same directory in this process shares it (see
-    /// [`in_flight_counter`]). The app reads the folder into a new `Store`
-    /// whenever a project is opened, including one that is already open,
-    /// and the background reclaimer reads through a handle of its own, so a
-    /// count per `Store` would read zero for exactly the sweeps that can run
-    /// during a tool. What is not shared is the lock: two `Store`s opened
-    /// on one directory are two writers, and holding one's lock does not
-    /// stop the other from staging a new run between a sweep's check and
-    /// its delete. The app therefore keeps one live `Store` per project
-    /// folder behind one lock (`LiveStores` in the desktop crate, #501),
-    /// and opening a project reads it into that one rather than building
-    /// another.
+    /// The count is the folder's, not this `Store`'s: every store opened on
+    /// the same folder in this process shares it, whichever way it was
+    /// opened and whichever spelling of the folder it was given
+    /// ([`crate::live`] tells folders apart by identity). The app reads the
+    /// folder into a new `Store` whenever a project is opened, including one
+    /// that is already open, and the background reclaimer reads through a
+    /// handle of its own, so a count per `Store` would read zero for exactly
+    /// the sweeps that can run during a tool. What is not shared is the
+    /// lock: two `Store`s opened on one folder are two writers, and holding
+    /// one's lock does not stop the other from staging a new run between a
+    /// sweep's check and its delete. So a folder has one live `Store` behind
+    /// one lock ([`Store::open_shared`], #501, #566), and a store of any
+    /// other kind that writes ([`Store::open_private`]) is refused a folder
+    /// that has one.
     pub fn staged_in_flight(&self) -> usize {
-        self.in_flight.load(Ordering::SeqCst)
+        self.folder.in_flight.load(Ordering::SeqCst)
     }
 
     /// Publish what a staged handle appended, if the head has not moved.
@@ -321,6 +431,7 @@ impl Store {
     /// `staged` is not a staged handle, or if it was staged from another
     /// project.
     pub fn commit(&mut self, mut staged: Store) -> Result<Commit> {
+        self.writable("commit")?;
         if self.staged.is_some() {
             return Err(Error::Staged("commit into a staged store"));
         }
@@ -362,6 +473,7 @@ impl Store {
     /// On a staged handle the node is kept in memory instead of written
     /// (see [`Store::stage`]).
     pub fn append(&mut self, mut node: SessionNode) -> Result<NodeId> {
+        self.writable("append")?;
         node.parent = self.head;
         node.id = NodeId::from_state(&node.state)?;
         let id = node.id;
@@ -503,6 +615,7 @@ impl Store {
     /// A node that is already gone is not an error — a compaction
     /// interrupted halfway can be run again.
     pub fn remove_node(&mut self, id: NodeId) -> Result<bool> {
+        self.writable("remove_node")?;
         if self.staged.is_some() {
             return Err(Error::Staged("remove_node"));
         }
@@ -528,6 +641,7 @@ impl Store {
     /// `parent` is metadata the store maintains, so rewriting it does
     /// not change what the node is or where it lives on disk.
     pub fn detach_parent(&mut self, id: NodeId) -> Result<()> {
+        self.writable("detach_parent")?;
         if self.staged.is_some() {
             return Err(Error::Staged("detach_parent"));
         }
@@ -664,6 +778,7 @@ impl Store {
     }
 
     pub fn set_head(&mut self, id: NodeId) -> Result<()> {
+        self.writable("set_head")?;
         if self.staged.is_some() {
             return Err(Error::Staged("set_head"));
         }
@@ -717,6 +832,7 @@ impl Store {
     /// rewritten atomically via the same tempfile-then-rename pattern
     /// as `append`.
     pub fn set_label(&mut self, id: NodeId, label: Option<String>) -> Result<()> {
+        self.writable("set_label")?;
         if self.staged.is_some() {
             return Err(Error::Staged("set_label"));
         }
@@ -742,6 +858,7 @@ impl Store {
     /// memory, and lands with [`Store::commit`]. Any other node is refused:
     /// the handle holds no lock, so it must not rewrite files.
     pub fn set_op(&mut self, id: NodeId, op: crate::node::NodeOp) -> Result<()> {
+        self.writable("set_op")?;
         if let Some(run) = self.staged.as_mut() {
             let Some(node) = run.nodes.iter_mut().find(|n| n.id == id) else {
                 return Err(Error::Staged(
@@ -778,6 +895,7 @@ impl Store {
         parent: NodeId,
         states: Vec<(SessionState, Option<String>)>,
     ) -> Result<Vec<NodeId>> {
+        self.writable("append_branches")?;
         if self.staged.is_some() {
             return Err(Error::Staged("append_branches"));
         }
