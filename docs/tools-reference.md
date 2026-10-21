@@ -127,7 +127,7 @@ Add a non-destructive effect to a track's chain, to the master bus with scope "m
 |---|---|---|---|
 | `bus` | string | no | Name of the bus to edit, as given to create_bus. Required when scope is "bus". The id create_bus returned works too, and is the only way to pick between two buses that share a name. |
 | `kind` | string | yes | Effect kind, e.g. gain, limiter, low_pass_filter, high_pass_filter, notch_filter. |
-| `params` | object | no | Effect parameters, e.g. { "cutoff_hz": 800 }, or { "ceiling_db": -1, "release_ms": 80 } for a limiter. Defaults are used for anything omitted. |
+| `params` | object | no | Parameter names by kind: gain: db; limiter: ceiling_db, release_ms; low_pass_filter: cutoff_hz; high_pass_filter: cutoff_hz; notch_filter: center_hz, q. Other names are refused; omitted ones use defaults. |
 | `position` | integer | no | Index in the chain. Appended to the end when omitted. |
 | `scope` | one of `track`, `master`, `bus` | no | Which chain to edit. "track" (the default when `track` is given) is one track's chain. "master" is the master bus, where every track is summed: an effect there processes the whole mix, and keeps processing it when a track is edited later. "bus" (the default when `bus` is given) is a bus made with create_bus. Omit `track` when scope is "master" or "bus". |
 | `track` | integer | no | Zero-based track index. Required unless scope is "master" or "bus". |
@@ -202,7 +202,7 @@ _Read-only — never held for approval._
 | `bus` | string | no | Name of the bus to edit, as given to create_bus. Required when scope is "bus". The id create_bus returned works too, and is the only way to pick between two buses that share a name. |
 | `end_sec` | number | no | End of the region to hear |
 | `kind` | string | yes | Effect kind, e.g. gain, limiter, low_pass_filter, high_pass_filter, notch_filter. |
-| `params` | object | no | Effect parameters, the same shape add_effect takes. |
+| `params` | object | no | Parameter names by kind, as add_effect takes them: gain: db; limiter: ceiling_db, release_ms; low_pass_filter: cutoff_hz; high_pass_filter: cutoff_hz; notch_filter: center_hz, q. Other names are refused. |
 | `scope` | one of `track`, `master`, `bus` | no | Which chain to edit. "track" (the default when `track` is given) is one track's chain. "master" is the master bus, where every track is summed: an effect there processes the whole mix, and keeps processing it when a track is edited later. "bus" (the default when `bus` is given) is a bus made with create_bus. Omit `track` when scope is "master" or "bus". |
 | `start_sec` | number | no | Start of the region to hear |
 | `track` | integer | no | Zero-based track index. Required unless scope is "master" or "bus". |
@@ -966,7 +966,7 @@ Change an effect's parameters in place, on a track, on the master bus (scope "ma
 |---|---|---|---|
 | `bus` | string | no | Name of the bus to edit, as given to create_bus. Required when scope is "bus". The id create_bus returned works too, and is the only way to pick between two buses that share a name. |
 | `effect_index` | integer | yes |  |
-| `params` | object | yes |  |
+| `params` | object | yes | Parameters to change, named by the effect's kind: gain: db; limiter: ceiling_db, release_ms; low_pass_filter: cutoff_hz; high_pass_filter: cutoff_hz; notch_filter: center_hz, q. Other names are refused. |
 | `replace` | boolean | no | Replace all parameters instead of merging. Default false. |
 | `scope` | one of `track`, `master`, `bus` | no | Which chain to edit. "track" (the default when `track` is given) is one track's chain. "master" is the master bus, where every track is summed: an effect there processes the whole mix, and keeps processing it when a track is edited later. "bus" (the default when `bus` is given) is a bus made with create_bus. Omit `track` when scope is "master" or "bus". |
 | `track` | integer | no | Zero-based track index. Required unless scope is "master" or "bus". |

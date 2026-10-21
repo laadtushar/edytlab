@@ -598,6 +598,38 @@ pub(crate) fn check_effect_params(kind: &str, params: &Value) -> Result<(), Stri
     ))
 }
 
+/// The parameter names of every kind the renderer streams, written for a
+/// tool's `params` description (#579): `gain: db; limiter: ceiling_db,
+/// release_ms; ...`, one entry per kind, in the registry's order.
+///
+/// A refusal is a second try, and the model reads the schema before the
+/// first one. Before this the schema gave two examples and a gain's `db` was
+/// a guess, so `gain_db` was the natural one. The text is generated from the
+/// same table the renderer reads and [`check_effect_params`] checks against,
+/// so a kind or a parameter added to it shows up here with nothing else to
+/// edit, and the three can't disagree. The table carries names and defaults
+/// but no units, so none are written; the suffixes (`_db`, `_hz`, `_ms`) say
+/// what they are.
+///
+/// There is no full stop in the text. A small model's tool list is cut to a
+/// description's first sentence, and the table has to be inside it.
+pub(crate) fn effect_param_names() -> String {
+    use audio_engine::effect_chain::{params_of, streamable_kinds};
+
+    streamable_kinds()
+        .map(|kind| {
+            let names = params_of(kind)
+                .unwrap_or_default()
+                .iter()
+                .map(|p| p.name)
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{kind}: {}", if names.is_empty() { "none" } else { &names })
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
 /// Put a render's warnings in a tool's result (#520).
 ///
 /// A stored effect the renderer cannot run is left out of the render, not

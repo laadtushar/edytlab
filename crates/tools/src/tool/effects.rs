@@ -76,6 +76,13 @@
 //! can hold such a name, and it must still load, render and be edited. A
 //! stored effect whose kind the renderer cannot run has no list to check
 //! against, and its parameters are accepted as they always were.
+//!
+//! The refusal is the second try; the schema is what the model reads before
+//! the first. The `params` description of `add_effect`, `set_effect_params`
+//! and `audition_effect` therefore lists each streamable kind's names
+//! (`effect_param_names`), written from the same table, so `db` is not left
+//! to a guess and a kind or a parameter added to the table appears with no
+//! other edit. `tests/effect_params_schema.rs` pins it.
 
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -84,7 +91,8 @@ use uuid::Uuid;
 
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
-    append_state, check_effect_kind, check_effect_params, check_track_index, load_head_state,
+    append_state, check_effect_kind, check_effect_params, check_track_index, effect_param_names,
+    load_head_state,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -357,7 +365,10 @@ impl Tool for AddEffectTool {
                     },
                     "params": {
                         "type": "object",
-                        "description": "Effect parameters, e.g. { \"cutoff_hz\": 800 }, or { \"ceiling_db\": -1, \"release_ms\": 80 } for a limiter. Defaults are used for anything omitted."
+                        "description": format!(
+                            "Parameter names by kind: {}. Other names are refused; omitted ones use defaults.",
+                            effect_param_names()
+                        )
                     },
                     "position": {
                         "type": "integer",
@@ -665,7 +676,13 @@ impl Tool for SetEffectParamsTool {
                     "track": track_property(),
                     "bus": bus_property(),
                     "effect_index": { "type": "integer", "minimum": 0 },
-                    "params": { "type": "object" },
+                    "params": {
+                        "type": "object",
+                        "description": format!(
+                            "Parameters to change, named by the effect's kind: {}. Other names are refused.",
+                            effect_param_names()
+                        )
+                    },
                     "replace": {
                         "type": "boolean",
                         "description": "Replace all parameters instead of merging. Default false."

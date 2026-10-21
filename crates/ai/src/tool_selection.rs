@@ -1516,6 +1516,39 @@ mod tests {
         );
     }
 
+    /// The slim set keeps a description's first sentence, so the table of
+    /// effect parameter names (#579) has to be inside it. A small model is
+    /// the likeliest to guess `gain_db`, and it is the one that would lose
+    /// the table if the sentence ended before it.
+    #[test]
+    fn the_slim_set_keeps_every_effect_parameter_name_of_the_params_tables() {
+        use audio_engine::effect_chain::{params_of, streamable_kinds};
+
+        let selection = selection_for("add_effect, set_effect_params and audition_effect", &[]);
+        let sent = names(&selection.tools);
+        for tool in ["add_effect", "set_effect_params", "audition_effect"] {
+            assert!(sent.iter().any(|n| n == tool), "{tool} not sent: {sent:?}");
+            let found = selection
+                .tools
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|t| name_of(t) == Some(tool))
+                .expect("sent");
+            let params = found["input_schema"]["properties"]["params"]["description"]
+                .as_str()
+                .unwrap_or_else(|| panic!("{tool}: `params` lost its description"));
+            for kind in streamable_kinds() {
+                let names: Vec<&str> = params_of(kind).unwrap().iter().map(|p| p.name).collect();
+                let entry = format!("{kind}: {}", names.join(", "));
+                assert!(
+                    params.contains(&entry),
+                    "{tool}: the slim set cut `{entry}` from `params`: {params:?}"
+                );
+            }
+        }
+    }
+
     /// A tool with a `voice_tracks` property keys on audio, so it does not
     /// need a transcript. Listing one in `NEEDS_TRANSCRIPT_TOOLS` hides a
     /// working tool from every small model (this was `duck_under_speech`,
