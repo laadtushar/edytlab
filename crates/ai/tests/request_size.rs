@@ -140,8 +140,13 @@ const ISSUE_MEASURED_TOKENS: usize = 15_157;
 // means the system prompt or the tool schemas grew: check the growth was
 // intended, then raise the constant deliberately and say why in the
 // commit. The headroom absorbs one or two new tools.
+//
+// `FULL_TOOLS_MAX_BYTES` was 62,500 over a measured 62,278 B until #579 named
+// the effect parameters in the schemas of add_effect, set_effect_params and
+// audition_effect, which adds 427 B. It went up by that and no more, so the
+// headroom is the 222 B it was.
 const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
-const FULL_TOOLS_MAX_BYTES: usize = 62_500; // measured 54,133
+const FULL_TOOLS_MAX_BYTES: usize = 62_927; // measured 62,705
 
 // ---------------------------------------------------------------------
 // Fixture
