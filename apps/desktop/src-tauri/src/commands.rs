@@ -7331,7 +7331,8 @@ mod tests {
         open_project_for_test(&state, &project).unwrap();
         let cache = tools::PreviewCache::in_dir(&project, tools::preview_cache::CACHE_DIR);
         let hold = cache.hold(session::NodeId([7; 32]));
-        assert!(state.window_mix.lock().unwrap().replace(hold).is_none());
+        let displaced = state.window_mix.lock().unwrap().replace(hold);
+        assert!(displaced.is_none());
         assert!(state.window_mix.lock().unwrap().is_held(), "precondition");
         replace_project_folder(&project);
         // A fresh handle to the store would be a holder besides the window's.
@@ -7359,7 +7360,8 @@ mod tests {
         open_project_for_test(&state, &project).unwrap();
         let cache = tools::PreviewCache::in_dir(&project, tools::preview_cache::CACHE_DIR);
         let hold = cache.hold(session::NodeId([8; 32]));
-        state.window_mix.lock().unwrap().replace(hold);
+        let displaced = state.window_mix.lock().unwrap().replace(hold);
+        assert!(displaced.is_none());
         replace_project_folder(&project);
         let turn = state.store_handle().unwrap();
 
