@@ -21,7 +21,7 @@ const commands = [
       {
         name: "openProject(path)",
         returns: "ProjectInfo",
-        desc: "Open or create a project directory. Returns the current head node ID (null if empty), stamps last-opened into project.json, and moves the project to the top of the recents list.",
+        desc: "Open or create a project directory. Returns the current head node ID (null if empty), stamps last-opened into project.json, and moves the project to the top of the recents list. Refused while a batch_apply run is writing its per-file project to the folder, and while the folder has been replaced at the same path (restored from a backup, or trashed and made again) and the assistant is still working in the old one; wait for it to finish and open the project again.",
       },
       {
         name: "saveProjectAs(dest)",
