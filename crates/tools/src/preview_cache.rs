@@ -57,21 +57,26 @@
 //!
 //! ## An entry being read is held
 //!
-//! Most callers read an entry once, straight after asking for it. The A/B
-//! compare does not: the bar loads a side from its file on every switch, for
-//! as long as it is open, and a side evicted meanwhile is a switch that
-//! fails (#575). Such a caller takes a [`Held`] for the key
-//! ([`PreviewCache::hold`]) before asking for it, and eviction leaves the
-//! entry alone until the hold is dropped.
+//! Most callers read an entry once, straight after asking for it. Two do
+//! not. The A/B compare loads a side from its file on every switch, for as
+//! long as the bar is open, and a side evicted meanwhile is a switch that
+//! fails (#575). And the window reads the mix it plays again whenever its
+//! timeline mounts, as it does on a switch to the Graph or Transcript tab and
+//! back, and a mix evicted meanwhile is a "Could not load the mix" for what
+//! the user was just playing (#607). Such a caller takes a [`Held`] for the
+//! key ([`PreviewCache::hold`]) before asking for it, and eviction leaves the
+//! entry alone until the hold is dropped. The agent's tools are not such a
+//! caller: they read what they render at once.
 //!
 //! The cap is on the entries nobody holds. A held entry is outside it, so a
 //! render while one is held evicts only unheld entries to fit, and is
 //! refused only when it is bigger than the cap on its own. A long session
 //! (an hour-long mix) can therefore be compared although its two sides do
-//! not fit in the cap together. The one holder is the A/B compare, which
-//! holds one pair at a time, so the folder is bounded by the cap plus that
-//! pair. When the last hold on an entry is dropped it counts again, and the
-//! cache is brought back under the cap there and then.
+//! not fit in the cap together. There are two holders: the A/B compare,
+//! which holds one pair at a time, and the window, which holds the one mix it
+//! plays. So the folder is bounded by the cap plus that pair plus that mix.
+//! When the last hold on an entry is dropped it counts again, and the cache
+//! is brought back under the cap there and then.
 
 use std::collections::BTreeMap;
 use std::io;
@@ -245,7 +250,8 @@ impl PreviewCache {
     /// [`Held`] is alive, whether or not it has been rendered yet.
     ///
     /// For a caller that hands the path to something that reads the file
-    /// again later, as the A/B bar does on every switch (#575). Take the hold
+    /// again later, as the A/B bar does on every switch (#575) and the
+    /// window's timeline does when it mounts (#607). Take the hold
     /// before [`Self::get_or_render`]: an eviction that has already looked
     /// at the holds finishes before this returns, so the lookup after it sees
     /// what that eviction left, and no later eviction takes the entry.

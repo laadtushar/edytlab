@@ -640,9 +640,14 @@ is bounded (1 GiB by default, overridable with `EDYTLAB_PREVIEW_CACHE_BYTES`)
 and evicts least-recently-used entries; an evicted entry is re-rendered
 byte-identically on demand. `storage_report` reports what it is holding. A mix
 bigger than the cap cannot be kept, so the call fails (the cache is left as it
-was) instead of returning a path to a file that is already gone. While an A/B
-compare is open its two sides are held in the same cache (`prepareCompare`),
-outside the cap: a render made meanwhile evicts only other entries to fit.
+was) instead of returning a path to a file that is already gone. The entry it
+returns is the one the window plays, so it is held in the cache, outside the
+cap, until the window's next `renderPreview` or a project change (#607): the
+transport loads the file again whenever the timeline mounts (a switch to the
+Graph or Transcript tab and back), and a render made meanwhile (the agent's,
+an audition, a graph preview) evicts only other entries to fit. A call that
+fails changes nothing, and the previous hold stays. While an A/B compare is
+open its two sides are held in the same cache too (`prepareCompare`).
 
 ```typescript
 const wavPath = await bridge.renderPreview(nodeId);

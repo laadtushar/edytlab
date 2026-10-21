@@ -281,7 +281,8 @@ src/
 ├── project.rs     # Project metadata, view state, recents, Save As's copy
 ├── reclaimer.rs   # Background cap on a project's derived audio
 ├── settings.rs    # ~/.edytlab/settings.json: Plan first, kept across a restart (#569)
-└── state.rs       # AppState
+├── state.rs       # AppState
+└── window_mix.rs  # The mix the window plays and the preview-cache entry it holds (#607)
 ```
 
 `AppState` (defined in `state.rs`; abridged — read the struct for the plan-gate flags and directory fields):

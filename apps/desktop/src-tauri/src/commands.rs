@@ -2545,6 +2545,20 @@ fn first_token(s: &str) -> Option<&str> {
 // render_preview
 // ---------------------------------------------------------------------------
 
+/// The window's render of `node`: its whole mix, in the project's preview
+/// cache, rendered into it first if it is not there. Answers the path the
+/// transport plays.
+///
+/// The entry it returns is the one the window plays, so it is held out of the
+/// cache's eviction, and outside its cap, until the window's next
+/// `render_preview` replaces it or the project changes (#607). The timeline
+/// reads the file again whenever it mounts (a switch to the Graph or
+/// Transcript tab and back), and a render made meanwhile (the agent's, an
+/// audition, a graph preview) must not have evicted it. The hold is taken
+/// before the entry is looked up, and kept only once the render has worked:
+/// a render that fails changes nothing the window shows, so the mix before
+/// it stays held. The agent's tools render into the same cache without
+/// holding anything and never touch this slot (`AppState::window_mix`).
 #[tauri::command]
 pub async fn render_preview(state: State<'_, AppState>, node: String) -> CmdResult<String> {
     blocking(&state, move |state| {
@@ -2568,8 +2582,15 @@ pub async fn render_preview(state: State<'_, AppState>, node: String) -> CmdResu
         };
         let cache = tools::PreviewCache::new(&project_dir);
 
+        let hold = cache.hold(node_id);
         let out_path = cached_mix(state, &store_handle, &cache, node_id, &session_node.state)?;
-        Ok(utf8_path(&out_path, "the preview")?)
+        let path = utf8_path(&out_path, "the preview")?;
+        // Replaces the hold on the mix played before, taken above first so
+        // a render of the same node never leaves it unheld. The slot is
+        // locked alone, and the old hold is dropped (which evicts) after.
+        let previous = lock_std(&state.window_mix, "window_mix")?.replace(hold);
+        drop(previous);
+        Ok(path)
     })
     .await
 }

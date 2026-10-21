@@ -14,6 +14,7 @@ pub mod project;
 pub mod reclaimer;
 pub mod settings;
 pub mod state;
+pub mod window_mix;
 
 use crate::commands::{
     accept_b, add_marker, apply_template, approve_plan, batch_load, cancel_long_running_tool,
