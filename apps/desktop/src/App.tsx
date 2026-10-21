@@ -13,7 +13,7 @@
  * a one-click recovery path.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import type {
   EnvelopePoint,
@@ -99,6 +99,7 @@ import {
   pickProjectDirectory,
 } from "./lib/file-open";
 import { isSessionValue } from "./lib/controlValue";
+import { OwnedControls, trackKey, type Claim, type ControlName } from "./lib/ownedControls";
 import { describeLoadFailures } from "./lib/load-failures";
 import { batchLoad } from "./lib/tauri-bridge";
 import {
@@ -225,6 +226,16 @@ function App() {
     setExportedWithout(null);
   }, [head]);
   const [tracks, setTracks] = useState<TrackSummary[]>([]);
+  // The lane controls the user has set and the session has not yet
+  // confirmed (#596). A track list that lands does not overwrite them; the
+  // rule and its reasons are in `lib/ownedControls.ts`. `ownedVersion`
+  // changes whenever one is handed back, so the lanes are drawn again from
+  // the session's own list. A plain state update, not an external-store
+  // subscription: it must be drawn in the same batch as the `setTracks`
+  // that confirms the control, and a synchronous one would draw the older
+  // list first.
+  const [ownedVersion, bumpOwned] = useReducer((n: number) => n + 1, 0);
+  const [owned] = useState(() => new OwnedControls(bumpOwned));
   // The latest list, for handlers that must compare against what the
   // session holds now rather than what they closed over.
   const tracksRef = useRef<TrackSummary[]>(tracks);
@@ -242,8 +253,15 @@ function App() {
    *   project with no history answers. "New project…" on an empty folder
    *   showed it as a failure.
    *
+   * - **A control the user holds is handed back with the list that
+   *   confirms it** (#596): the request's number says whether the list was
+   *   read after the control's commit was answered, and the hand-back is
+   *   in the same batch as `setTracks`, so no list is drawn without it.
+   *
    * Any other failure is thrown to the caller, which reports it — unless
-   * a newer request has been made since, in which case it is moot.
+   * a newer request has been made since, in which case it is moot. A
+   * failed read confirms nothing: the user's values stay over the list
+   * until one that is read.
    */
   const trackRequestRef = useRef(0);
   const refreshTracks = useCallback(async (): Promise<void> => {
@@ -257,8 +275,9 @@ function App() {
       next = [];
     }
     if (request !== trackRequestRef.current) return;
+    owned.applied(request);
     setTracks(next);
-  }, []);
+  }, [owned]);
   /**
    * What the timeline draws and the status bar names: the session's own
    * audio, whichever track holds it. The track itself is kept for its
@@ -284,6 +303,39 @@ function App() {
     [tracks],
   );
   const timelineSource = sourceTrack?.audio_path ?? null;
+  /**
+   * What the timeline draws its lanes from: the session's list with the
+   * controls the user holds laid over it (#596).
+   *
+   * Memoised, so the timeline is handed a new list only when the session's
+   * list changed or a control was handed back. It used to be handed a new
+   * array on every render of the app, and the timeline copies what it is
+   * handed into its lanes each time.
+   */
+  const laneTracks = useMemo(
+    () =>
+      owned
+        .overlay(tracks)
+        // `index` is captured before the filter: a track with no audio is
+        // not drawn but still occupies a slot the mixer commands address
+        // by.
+        .map((t, index) => ({ t, index }))
+        .filter(({ t }) => t.audio_path)
+        .map(({ t, index }) => ({
+          index,
+          name: t.name,
+          audioPath: t.audio_path as string,
+          muted: t.muted,
+          gainDb: t.gain_db,
+          pan: t.pan,
+          soloed: t.soloed,
+          clips: t.clips,
+        })),
+    // `ownedVersion` is not read: it says a control was handed back, which
+    // `owned` holds no record of any more.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [owned, tracks, ownedVersion],
+  );
   const selectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [zoomPxPerSec, setZoomPxPerSec] = useState(0);
   // Whether the head lane's audio actually decoded. The status bar
@@ -366,12 +418,17 @@ function App() {
             return true;
           }
         });
-        if (moved) await refreshTracks();
+        if (moved) {
+          // The session moved by itself: what the user had set on a lane
+          // belongs to where it was (#596).
+          owned.clear();
+          await refreshTracks();
+        }
       } catch (err) {
         setRenderError(String(err));
       }
     });
-  }, [peekUndo, stepBack, forgetRemoved, runHeadMove, inOrder]);
+  }, [peekUndo, stepBack, forgetRemoved, runHeadMove, inOrder, owned]);
 
   // Whenever the head moves — an edit, an undo, a project opening — the
   // toggle re-reads the session rather than trusting what it last set.
@@ -425,12 +482,15 @@ function App() {
             return true;
           }
         });
-        if (moved) await refreshTracks();
+        if (moved) {
+          owned.clear();
+          await refreshTracks();
+        }
       } catch (err) {
         setRenderError(String(err));
       }
     });
-  }, [peekRedo, stepForward, forgetRemoved, runHeadMove, inOrder]);
+  }, [peekRedo, stepForward, forgetRemoved, runHeadMove, inOrder, owned]);
 
   // Window-level keyboard transport. Active whenever the user isn't
   // typing into a chat input / settings field. Space toggles
@@ -715,13 +775,19 @@ function App() {
   // banner and the refresh puts the control back where the session
   // actually is, rather than leaving the fader lying.
   //
+  // Until that refresh the control is the user's (#596): a track list read
+  // before the commit was answered, landing meanwhile, would put the
+  // older value back under it. `claim` is the control's hold on the
+  // lane (`lib/ownedControls.ts`); the answer ends the commit, and the
+  // refresh requested here is the first read that can confirm it.
+  //
   // In line (#498): two commits made in quick succession reach the
   // session in the order they were made, so the last value set is the
   // one it keeps. The refresh is outside the turn, so it never holds up
   // the next edit; `refreshTracks` already drops a reply that a newer
   // request has overtaken.
   const commitTrackChange = useCallback(
-    async (apply: () => Promise<string>) => {
+    async (apply: () => Promise<string>, claim?: Claim) => {
       try {
         // Every one of these commands appends a node and returns its id.
         // `applyNewHead` is what stops that value being discarded; see
@@ -731,13 +797,16 @@ function App() {
       } catch (e) {
         setRenderError(String(e));
       }
+      // `refreshTracks` numbers its request as it is called, with nothing
+      // awaited before: the next number is the read made right below.
+      if (claim) owned.finish(claim, trackRequestRef.current + 1);
       try {
         await refreshTracks();
       } catch (e) {
         setRenderError(String(e));
       }
     },
-    [applyEdit],
+    [applyEdit, owned],
   );
 
   // Release, key-up and blur all commit a slider, and most carry the value
@@ -747,45 +816,77 @@ function App() {
   // commits ahead of this one in the line have been applied, not what the
   // last refresh showed (#498). Against the refresh alone, 0 -> -3 -> 0
   // made in one window drops the final 0, because it matches the 0 on
-  // screen, and the session keeps -3. A control's pending value is the
-  // last one sent for it; it is forgotten once that commit's own refresh
-  // is in, so the track list is the truth again.
-  const pendingValues = useRef(new Map<string, { value: number; commit: number }>());
-  const commitCount = useRef(0);
-  const commitSlider = useCallback(
-    (control: string, shown: number | undefined, value: number, apply: () => Promise<string>) => {
-      const pending = pendingValues.current.get(control);
-      if (isSessionValue(pending ? pending.value : shown, value)) return;
-      const commit = ++commitCount.current;
-      pendingValues.current.set(control, { value, commit });
-      void commitTrackChange(apply).finally(() => {
-        // Only the latest commit of a control clears it; an earlier one
-        // finishing must not forget the value a later one is still sending.
-        if (pendingValues.current.get(control)?.commit === commit) {
-          pendingValues.current.delete(control);
-        }
-      });
+  // screen, and the session keeps -3. The last value sent for a control is
+  // kept by `owned` until a track list read after that commit has landed,
+  // so the track list is the truth again.
+  //
+  // A slider is the user's from its first input event (#596), not from its
+  // commit: key-up comes after the input, and a track list landing in
+  // between used to put the slider back, so the key-up committed the value
+  // the session held and nothing was sent.
+  const claimFor = useCallback(
+    (index: number, control: ControlName, value: number | boolean): Claim | undefined => {
+      const track = trackKey(tracksRef.current, index);
+      return track === null ? undefined : owned.send(track, control, value);
     },
-    [commitTrackChange],
+    [owned],
+  );
+  const commitSlider = useCallback(
+    (
+      index: number,
+      control: "gain" | "pan",
+      shown: number | undefined,
+      value: number,
+      apply: () => Promise<string>,
+    ) => {
+      const track = trackKey(tracksRef.current, index);
+      const sent = track === null ? undefined : owned.sent(track, control);
+      if (isSessionValue(typeof sent === "number" ? sent : shown, value)) {
+        if (track !== null) owned.skip(track, control);
+        return;
+      }
+      void commitTrackChange(apply, claimFor(index, control, value));
+    },
+    [commitTrackChange, claimFor, owned],
   );
   const handleTrackGainChange = useCallback(
     (index: number, gainDb: number) =>
-      commitSlider(`gain:${index}`, tracksRef.current[index]?.gain_db, gainDb, () =>
+      commitSlider(index, "gain", tracksRef.current[index]?.gain_db, gainDb, () =>
         setTrackGain(index, gainDb),
       ),
     [commitSlider],
   );
   const handleTrackPanChange = useCallback(
     (index: number, pan: number) =>
-      commitSlider(`pan:${index}`, tracksRef.current[index]?.pan, pan, () =>
+      commitSlider(index, "pan", tracksRef.current[index]?.pan, pan, () =>
         setTrackPan(index, pan),
       ),
     [commitSlider],
   );
+  // A slider's input event: the value is the user's from here until the
+  // session confirms it.
+  const holdSlider = useCallback(
+    (index: number, control: "gain" | "pan", value: number) => {
+      const track = trackKey(tracksRef.current, index);
+      if (track !== null) owned.set(track, control, value);
+    },
+    [owned],
+  );
+  const handleTrackGainInput = useCallback(
+    (index: number, gainDb: number) => holdSlider(index, "gain", gainDb),
+    [holdSlider],
+  );
+  const handleTrackPanInput = useCallback(
+    (index: number, pan: number) => holdSlider(index, "pan", pan),
+    [holdSlider],
+  );
   const handleTrackMuteChange = useCallback(
     (index: number, muted: boolean) =>
-      void commitTrackChange(() => setTrackMuted(index, muted)),
-    [commitTrackChange],
+      void commitTrackChange(
+        () => setTrackMuted(index, muted),
+        claimFor(index, "muted", muted),
+      ),
+    [commitTrackChange, claimFor],
   );
   const handleClipEnvelopeChange = useCallback(
     (trackIndex: number, clipIndex: number, points: EnvelopePoint[]) =>
@@ -809,8 +910,11 @@ function App() {
 
   const handleTrackSoloChange = useCallback(
     (index: number, soloed: boolean) =>
-      void commitTrackChange(() => setTrackSoloed(index, soloed)),
-    [commitTrackChange],
+      void commitTrackChange(
+        () => setTrackSoloed(index, soloed),
+        claimFor(index, "soloed", soloed),
+      ),
+    [commitTrackChange, claimFor],
   );
 
   // Track-head actions (#161). Each is one existing tool, one node, and
@@ -941,13 +1045,15 @@ function App() {
           setMixNodeId(null);
           await restoreView(info.head ?? null);
         });
+        // Nothing set on the project that was left is a value of this one.
+        owned.clear();
         await refreshTracks();
         setRecents(await listRecentProjects());
       } catch (e) {
         setRenderError(String(e));
       }
     },
-    [restoreView, inOrder],
+    [restoreView, inOrder, owned],
   );
 
   /**
@@ -1470,6 +1576,7 @@ function App() {
           await setHeadTo(nodeId);
           setHeadLocal(nodeId);
         });
+        owned.clear();
         await refreshTracks();
         return true;
       });
@@ -1483,7 +1590,7 @@ function App() {
         );
       }
     },
-    [runHeadMove, setHeadLocal, refreshTracks, inOrder],
+    [runHeadMove, setHeadLocal, refreshTracks, inOrder, owned],
   );
 
   /**
@@ -1648,22 +1755,9 @@ function App() {
                 <Timeline
                   ref={timelineRef}
                   audioPath={timelineSource}
-                  tracks={tracks
-                    // `index` is captured before the filter: a track
-                    // with no audio is not drawn but still occupies a
-                    // slot the mixer commands address by.
-                    .map((t, index) => ({ t, index }))
-                    .filter(({ t }) => t.audio_path)
-                    .map(({ t, index }) => ({
-                      index,
-                      name: t.name,
-                      audioPath: t.audio_path as string,
-                      muted: t.muted,
-                      gainDb: t.gain_db,
-                      pan: t.pan,
-                      soloed: t.soloed,
-                      clips: t.clips,
-                    }))}
+                  tracks={laneTracks}
+                  onTrackGainInput={handleTrackGainInput}
+                  onTrackPanInput={handleTrackPanInput}
                   onTrackGainChange={handleTrackGainChange}
                   onTrackPanChange={handleTrackPanChange}
                   onTrackMuteChange={handleTrackMuteChange}
