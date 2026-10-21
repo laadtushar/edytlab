@@ -7318,6 +7318,57 @@ mod tests {
         assert!(Arc::ptr_eq(&agent_store, &state.store_handle().unwrap()));
     }
 
+    /// The window's mix is of the project that was open (#607). Letting the
+    /// window's project go for a replaced folder lets its hold go too, with
+    /// no `set_open_project` after it: the retry of the open could fail, and
+    /// the hold would keep the old project's cache entry out of eviction.
+    #[test]
+    fn letting_go_of_a_replaced_project_releases_the_window_mix_as_well() {
+        let tmp = tempdir().unwrap();
+        let project = tmp.path().join("p");
+        std::fs::create_dir_all(&project).unwrap();
+        let state = AppState::new();
+        open_project_for_test(&state, &project).unwrap();
+        let cache = tools::PreviewCache::in_dir(&project, tools::preview_cache::CACHE_DIR);
+        let hold = cache.hold(session::NodeId([7; 32]));
+        assert!(state.window_mix.lock().unwrap().replace(hold).is_none());
+        assert!(state.window_mix.lock().unwrap().is_held(), "precondition");
+        replace_project_folder(&project);
+        // A fresh handle to the store would be a holder besides the window's.
+        assert!(state.store_handle().is_some());
+
+        assert!(release_replaced_project(&state, &project));
+
+        assert!(
+            state.store_handle().is_none(),
+            "the window kept the old project"
+        );
+        assert!(
+            !state.window_mix.lock().unwrap().is_held(),
+            "the old project's mix is still held out of eviction"
+        );
+    }
+
+    /// And nothing is released when nothing was let go.
+    #[test]
+    fn a_refused_release_leaves_the_window_mix_held() {
+        let tmp = tempdir().unwrap();
+        let project = tmp.path().join("p");
+        std::fs::create_dir_all(&project).unwrap();
+        let state = AppState::new();
+        open_project_for_test(&state, &project).unwrap();
+        let cache = tools::PreviewCache::in_dir(&project, tools::preview_cache::CACHE_DIR);
+        let hold = cache.hold(session::NodeId([8; 32]));
+        state.window_mix.lock().unwrap().replace(hold);
+        replace_project_folder(&project);
+        let turn = state.store_handle().unwrap();
+
+        assert!(!release_replaced_project(&state, &project));
+
+        assert!(state.window_mix.lock().unwrap().is_held());
+        assert!(Arc::ptr_eq(&turn, &state.store_handle().unwrap()));
+    }
+
     /// A live store keeps the spelling of the folder it was made with, and
     /// a spelling can stop reaching the folder while the store lives: open A
     /// through a symlink, let a turn hold the store, open B, remove the
