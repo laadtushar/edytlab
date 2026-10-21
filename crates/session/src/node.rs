@@ -131,9 +131,11 @@ fn canonicalize_value(value: serde_json::Value) -> serde_json::Value {
 ///
 /// ## Why this is safe to replay
 ///
-/// A derived file is named `blake3(post-edit samples)`. The filename is
-/// therefore a checksum of the result a replay must produce — so a
-/// rebuild is *self-verifying*, and a replay that drifts (a DSP fix
+/// A derived file is named by a hash of the post-edit samples with their
+/// rate and channel count (`tools::provenance::audio_hash`; before #620,
+/// of the samples alone, and a replay still recognises such a name). The
+/// filename is therefore a checksum of the result a replay must produce —
+/// so a rebuild is *self-verifying*, and a replay that drifts (a DSP fix
 /// landing between the original edit and the rebuild) is detected rather
 /// than silently substituted. That property is why recording the
 /// operation is enough, and it is worth stating plainly because

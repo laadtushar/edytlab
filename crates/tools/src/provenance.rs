@@ -32,6 +32,16 @@
 //! sample rate, then channel count, then every sample as little-endian
 //! bytes. Explicit rather than inherited from a struct layout, so the
 //! name a file lands on is stable across platforms and rustc versions.
+//!
+//! Every file the project writes under a name made from its samples gets
+//! that name from [`audio_hash`]: a destructive edit's output, a `load`
+//! copy, a generated tone or noise, a clipboard blob. Until #620 an edit's
+//! output and a generated tone or noise were named by the samples alone,
+//! which two buffers of a different rate or channel count can share (a file
+//! under a name is reused, not written, so the second was handed the
+//! first's). [`legacy_sample_hash_name`] is how those older names are
+//! recognised; nothing writes one. (A mixed-down track is named by the
+//! blake3 of its WAV file, header included, which holds the layout too.)
 
 use std::path::{Path, PathBuf};
 
@@ -51,16 +61,63 @@ pub use session::relocate::CLIPBOARD_DIR;
 /// same audio for every purpose this store has, so they hash the same
 /// (#160) — and two genuinely different ones cannot collide without
 /// colliding blake3 itself.
+///
+/// **The name of every audio file the project writes from its samples**
+/// (`<hash>.wav`), and the only function to name one with: a writer that
+/// hashed on its own could leave the rate or channel count out again
+/// (#620), and `tests/audio_names_cover_layout.rs` fails a tool source that
+/// calls blake3 itself.
 pub fn audio_hash(samples: &[f32], sample_rate: u32, channels: u16) -> String {
-    let mut bytes = Vec::with_capacity(samples.len() * 4);
-    for s in samples {
-        bytes.extend_from_slice(&s.to_le_bytes());
-    }
     let mut hasher = blake3::Hasher::new();
     hasher.update(&sample_rate.to_le_bytes());
     hasher.update(&(channels as u32).to_le_bytes());
-    hasher.update(&bytes);
+    update_with_samples(&mut hasher, samples);
     hasher.finalize().to_hex().to_string()
+}
+
+/// Feed `samples` to `hasher` as little-endian bytes, a slice at a time so
+/// that hashing a track's worth does not first copy it.
+fn update_with_samples(hasher: &mut blake3::Hasher, samples: &[f32]) {
+    let mut chunk = [0u8; 4 * 4096];
+    for block in samples.chunks(4096) {
+        for (bytes, s) in chunk.chunks_exact_mut(4).zip(block) {
+            bytes.copy_from_slice(&s.to_le_bytes());
+        }
+        hasher.update(&chunk[..block.len() * 4]);
+    }
+}
+
+/// The hash that named an edit's output and a generated tone or noise
+/// before #620: blake3 of the interleaved samples, little-endian, and
+/// nothing else — not the rate, not the channel count.
+///
+/// **Exists only to recognise names written before that change.** Files
+/// already on disk and the nodes that name them keep those names (nothing
+/// is renamed), and a replay of such a node now writes the new name
+/// ([`audio_hash`]), so `rederive` and the history sweep ask whether this
+/// would have been the recorded one. Nothing may name a new file with it:
+/// two buffers of a different layout and the same samples share it, which
+/// is the bug.
+///
+/// A writer stores it as the clip's `content_hash`, as the edits have
+/// always done (the blake3 of the samples), which is how a replay finds it
+/// again without recomputing anything from a file: the file holds the
+/// samples as 16-bit PCM, not as they were hashed.
+pub fn legacy_sample_hash(samples: &[f32]) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new();
+    update_with_samples(&mut hasher, samples);
+    *hasher.finalize().as_bytes()
+}
+
+/// [`legacy_sample_hash`] as the file stem it named, hex. Like it, only for
+/// recognising a name written before #620.
+pub fn legacy_sample_hash_name(samples: &[f32]) -> String {
+    legacy_stem(&legacy_sample_hash(samples))
+}
+
+/// The file stem a [`legacy_sample_hash`] named, hex.
+pub fn legacy_stem(hash: &[u8; 32]) -> String {
+    blake3::Hash::from_bytes(*hash).to_hex().to_string()
 }
 
 /// Directory under `.audiograph/` holding derived audio.
@@ -331,6 +388,53 @@ mod tests {
         let s = vec![0.1f32, -0.2, 0.3];
         assert_ne!(audio_hash(&s, 48_000, 2), audio_hash(&s, 44_100, 2));
         assert_ne!(audio_hash(&s, 48_000, 2), audio_hash(&s, 48_000, 1));
+    }
+
+    /// The names on disk already depend on these bytes: hashing a slice at
+    /// a time must give what hashing the whole buffer did, at every length
+    /// around a slice's edge.
+    #[test]
+    fn hashing_in_slices_gives_the_hash_of_the_whole_buffer() {
+        for n in [0, 1, 4095, 4096, 4097, 10_000] {
+            let samples: Vec<f32> = (0..n).map(|i| (i as f32 * 0.37).sin()).collect();
+            let mut bytes = Vec::new();
+            for s in &samples {
+                bytes.extend_from_slice(&s.to_le_bytes());
+            }
+            let mut whole = blake3::Hasher::new();
+            whole.update(&48_000u32.to_le_bytes());
+            whole.update(&2u32.to_le_bytes());
+            whole.update(&bytes);
+            assert_eq!(
+                audio_hash(&samples, 48_000, 2),
+                whole.finalize().to_hex().to_string(),
+                "{n} samples"
+            );
+            assert_eq!(
+                legacy_sample_hash(&samples),
+                *blake3::hash(&bytes).as_bytes(),
+                "the older hash is the samples alone, {n} of them"
+            );
+        }
+    }
+
+    /// The bug, in one place: the older name cannot tell two layouts apart,
+    /// and the new one can.
+    #[test]
+    fn the_older_name_ignores_the_layout_and_the_new_one_does_not() {
+        let samples = vec![0.1f32, -0.2, 0.3, 0.4];
+        assert_eq!(
+            legacy_sample_hash_name(&samples),
+            legacy_stem(&legacy_sample_hash(&samples))
+        );
+        assert_ne!(
+            audio_hash(&samples, 48_000, 1),
+            audio_hash(&samples, 24_000, 2)
+        );
+        assert_ne!(
+            audio_hash(&samples, 48_000, 1),
+            legacy_sample_hash_name(&samples)
+        );
     }
 
     #[test]

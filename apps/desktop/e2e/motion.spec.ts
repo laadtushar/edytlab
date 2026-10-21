@@ -57,6 +57,12 @@ declare global {
      * ended the browser no longer lists it).
      */
     __STARTED__: { el: Element; name: string; props: string[] }[];
+    /**
+     * The properties one animation's keyframes set, as the record and
+     * `propertiesAnimatedOn` both read them (`offset`, `easing` and the
+     * like are not properties).
+     */
+    __keyframeProps: (animation: Animation | undefined) => string[];
   }
 }
 
@@ -65,17 +71,21 @@ declare global {
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     window.__STARTED__ = [];
+    window.__keyframeProps = (animation) => {
+      const props = new Set<string>();
+      for (const k of (animation?.effect as KeyframeEffect | undefined)?.getKeyframes() ?? []) {
+        for (const key of Object.keys(k)) {
+          if (!["offset", "easing", "composite", "computedOffset"].includes(key)) props.add(key);
+        }
+      }
+      return [...props];
+    };
     document.addEventListener(
       "animationstart",
       (e) => {
         const el = e.target as Element;
         const own = el.getAnimations().find((a) => (a as CSSAnimation).animationName === e.animationName);
-        const props = new Set<string>();
-        for (const k of (own?.effect as KeyframeEffect | undefined)?.getKeyframes() ?? []) {
-          for (const key of Object.keys(k)) {
-            if (!["offset", "easing", "composite", "computedOffset"].includes(key)) props.add(key);
-          }
-        }
+        const props = new Set<string>(window.__keyframeProps(own));
         // The event is dispatched after the frame the animation started in,
         // and on a slow runner a 120ms animation can be over by then, so it
         // is no longer listed. Read its keyframes from the stylesheet instead,
@@ -122,10 +132,25 @@ const animationsOn = (loc: Locator) =>
     return [...new Set(names)];
   });
 
-/** The properties the keyframes of the animations an element has played set. */
+/**
+ * The properties the keyframes of the animations an element has played set:
+ * those of the ones playing now, and those the record has.
+ *
+ * Both, because `animationsOn` lists both. `getAnimations()` flushes style,
+ * so an animation is listed the moment its class lands, but `animationstart`
+ * is dispatched after the next frame, and while a slow runner has not made
+ * that frame the record is still empty. A test that has just found the
+ * animation by name and asks what it sets would be told `[]` by the record
+ * alone (found on #631's CI). Only CSS animations are read from the playing
+ * ones, as only they reach the record: a transition's keyframes would make
+ * the answer depend on whether the frame had come.
+ */
 const propertiesAnimatedOn = (loc: Locator) =>
   loc.evaluate((el) => {
     const props = new Set<string>();
+    for (const a of el.getAnimations()) {
+      if (a instanceof CSSAnimation) for (const p of window.__keyframeProps(a)) props.add(p);
+    }
     for (const s of window.__STARTED__) if (s.el === el) for (const p of s.props) props.add(p);
     return [...props].sort();
   });
