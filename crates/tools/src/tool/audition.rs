@@ -81,7 +81,9 @@ use serde_json::{json, Value};
 use crate::preview_cache::{excerpt_key, PreviewCache};
 use crate::schema::anthropic_tool;
 use crate::tool::effects::{bus_property, scope_property, track_property, Scope, Target};
-use crate::tool::util::{attach_render_warnings, check_effect_kind, check_effect_params};
+use crate::tool::util::{
+    attach_render_warnings, check_effect_kind, check_effect_params, effect_param_names,
+};
 use crate::{Tool, ToolContext, ToolResult};
 
 /// Cache directory for auditions, under `.audiograph/`.
@@ -144,7 +146,10 @@ impl Tool for AuditionEffectTool {
                     },
                     "params": {
                         "type": "object",
-                        "description": "Effect parameters, the same shape add_effect takes.",
+                        "description": format!(
+                            "Parameter names by kind, as add_effect takes them: {}. Other names are refused.",
+                            effect_param_names()
+                        ),
                     },
                     "start_sec": { "type": "number", "description": "Start of the region to hear" },
                     "end_sec": { "type": "number", "description": "End of the region to hear" },

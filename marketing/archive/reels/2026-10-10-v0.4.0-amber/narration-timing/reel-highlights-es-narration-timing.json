@@ -1,0 +1,432 @@
+{
+ "R01": {
+  "words": [
+   {
+    "text": "Describe",
+    "start": 0.48,
+    "end": 0.56
+   },
+   {
+    "text": "la",
+    "start": 0.64,
+    "end": 0.72
+   },
+   {
+    "text": "mezcla.",
+    "start": 0.8,
+    "end": 1.44
+   },
+   {
+    "text": "Esc\u00fachala.",
+    "start": 1.6,
+    "end": 2.4
+   }
+  ],
+  "speech_end": 2.4,
+  "tempo": 1.0,
+  "clip": "R01.mp3",
+  "window": 2.9,
+  "status": "ok",
+  "request_id": "xvEDPzJMm0Jbo4i4i5Rg"
+ },
+ "R02": {
+  "words": [
+   {
+    "text": "2:",
+    "start": 0.0,
+    "end": 0.56
+   },
+   {
+    "text": "beatmatch.",
+    "start": 0.96,
+    "end": 1.8
+   },
+   {
+    "text": "Neon",
+    "start": 2.0,
+    "end": 2.32
+   },
+   {
+    "text": "Rush",
+    "start": 2.4,
+    "end": 2.64
+   },
+   {
+    "text": "baja",
+    "start": 2.72,
+    "end": 3.04
+   },
+   {
+    "text": "a",
+    "start": 3.2,
+    "end": 3.28
+   },
+   {
+    "text": "120.",
+    "start": 3.44,
+    "end": 4.48
+   }
+  ],
+  "speech_end": 4.48,
+  "tempo": 1.0,
+  "clip": "R02.mp3",
+  "window": 5.1,
+  "status": "ok",
+  "request_id": "7CFISzY1CFtTneVsDhXv"
+ },
+ "R03": {
+  "words": [
+   {
+    "text": "4:",
+    "start": 0.0,
+    "end": 0.88
+   },
+   {
+    "text": "crossfade,",
+    "start": 0.96,
+    "end": 1.92
+   },
+   {
+    "text": "con",
+    "start": 2.0,
+    "end": 2.08
+   },
+   {
+    "text": "un",
+    "start": 2.16,
+    "end": 2.24
+   },
+   {
+    "text": "pasa-bajos",
+    "start": 2.32,
+    "end": 2.96
+   },
+   {
+    "text": "en",
+    "start": 3.0,
+    "end": 3.04
+   },
+   {
+    "text": "la",
+    "start": 3.12,
+    "end": 3.2
+   },
+   {
+    "text": "pista",
+    "start": 3.28,
+    "end": 3.52
+   },
+   {
+    "text": "que",
+    "start": 3.6,
+    "end": 3.68
+   },
+   {
+    "text": "sale.",
+    "start": 3.76,
+    "end": 4.24
+   }
+  ],
+  "speech_end": 4.24,
+  "tempo": 1.0,
+  "clip": "R03.mp3",
+  "window": 4.9,
+  "status": "ok",
+  "request_id": "Xw7GY6uMWNnl2RmyhNRO"
+ },
+ "R04": {
+  "words": [
+   {
+    "text": "Escucha.",
+    "start": 0.0,
+    "end": 0.8
+   }
+  ],
+  "speech_end": 0.8,
+  "tempo": 1.0,
+  "clip": "R04.mp3",
+  "window": 2.0,
+  "status": "ok",
+  "request_id": "na0eFQcg9NfbQu935iYv"
+ },
+ "R05": {
+  "words": [
+   {
+    "text": "2:",
+    "start": 0.0,
+    "end": 0.56
+   },
+   {
+    "text": "alarga",
+    "start": 0.96,
+    "end": 1.44
+   },
+   {
+    "text": "la",
+    "start": 1.52,
+    "end": 1.6
+   },
+   {
+    "text": "intro.",
+    "start": 1.68,
+    "end": 2.28
+   },
+   {
+    "text": "Copia",
+    "start": 2.48,
+    "end": 2.8
+   },
+   {
+    "text": "los",
+    "start": 2.88,
+    "end": 2.96
+   },
+   {
+    "text": "primeros",
+    "start": 3.04,
+    "end": 3.6
+   },
+   {
+    "text": "8",
+    "start": 3.68,
+    "end": 3.84
+   },
+   {
+    "text": "compases.",
+    "start": 3.92,
+    "end": 4.8
+   }
+  ],
+  "speech_end": 4.8,
+  "tempo": 1.0,
+  "clip": "R05.mp3",
+  "window": 5.4,
+  "status": "ok",
+  "request_id": "oGUVO0MjoHOkwv5ToMik"
+ },
+ "R06": {
+  "words": [
+   {
+    "text": "3:",
+    "start": 0.0,
+    "end": 0.48
+   },
+   {
+    "text": "un",
+    "start": 0.88,
+    "end": 1.04
+   },
+   {
+    "text": "filtro",
+    "start": 1.12,
+    "end": 1.44
+   },
+   {
+    "text": "que",
+    "start": 1.52,
+    "end": 1.6
+   },
+   {
+    "text": "se",
+    "start": 1.68,
+    "end": 1.76
+   },
+   {
+    "text": "abre",
+    "start": 1.84,
+    "end": 2.08
+   },
+   {
+    "text": "en",
+    "start": 2.12,
+    "end": 2.16
+   },
+   {
+    "text": "el",
+    "start": 2.24,
+    "end": 2.32
+   },
+   {
+    "text": "drop.",
+    "start": 2.4,
+    "end": 2.88
+   }
+  ],
+  "speech_end": 2.88,
+  "tempo": 1.0,
+  "clip": "R06.mp3",
+  "window": 4.2,
+  "status": "ok",
+  "request_id": "wljCOtGzCOos1VzcEeV6"
+ },
+ "R07": {
+  "words": [
+   {
+    "text": "Espera",
+    "start": 0.0,
+    "end": 0.4
+   },
+   {
+    "text": "el",
+    "start": 0.44,
+    "end": 0.48
+   },
+   {
+    "text": "drop.",
+    "start": 0.56,
+    "end": 1.04
+   }
+  ],
+  "speech_end": 1.04,
+  "tempo": 1.0,
+  "clip": "R07.mp3",
+  "window": 2.0,
+  "status": "ok",
+  "request_id": "IaCQue6Dj3SfWMiMP9ld"
+ },
+ "R08": {
+  "words": [
+   {
+    "text": "1:",
+    "start": 0.0,
+    "end": 0.8
+   },
+   {
+    "text": "iguala",
+    "start": 0.88,
+    "end": 1.28
+   },
+   {
+    "text": "cada",
+    "start": 1.36,
+    "end": 1.6
+   },
+   {
+    "text": "pista",
+    "start": 1.68,
+    "end": 2.08
+   },
+   {
+    "text": "a",
+    "start": 2.16,
+    "end": 2.24
+   },
+   {
+    "text": "124",
+    "start": 2.4,
+    "end": 3.44
+   },
+   {
+    "text": "BPM.",
+    "start": 3.6,
+    "end": 4.56
+   }
+  ],
+  "speech_end": 4.56,
+  "tempo": 1.0,
+  "clip": "R08.mp3",
+  "window": 5.2,
+  "status": "ok",
+  "request_id": "lBV8zcfTIBaDDqIr9pMX"
+ },
+ "R09": {
+  "words": [
+   {
+    "text": "2:",
+    "start": 0.0,
+    "end": 0.68
+   },
+   {
+    "text": "secuencia",
+    "start": 0.88,
+    "end": 1.36
+   },
+   {
+    "text": "con",
+    "start": 1.44,
+    "end": 1.6
+   },
+   {
+    "text": "solapes",
+    "start": 1.72,
+    "end": 2.08
+   },
+   {
+    "text": "de",
+    "start": 2.16,
+    "end": 2.24
+   },
+   {
+    "text": "4",
+    "start": 2.32,
+    "end": 2.64
+   },
+   {
+    "text": "compases.",
+    "start": 2.72,
+    "end": 3.6
+   }
+  ],
+  "speech_end": 3.6,
+  "tempo": 1.0,
+  "clip": "R09.mp3",
+  "window": 4.2,
+  "status": "ok",
+  "request_id": "SKHJXxWOHjlWQHMYO2dj"
+ },
+ "R10": {
+  "words": [
+   {
+    "text": "As\u00ed",
+    "start": 0.0,
+    "end": 0.4
+   },
+   {
+    "text": "suena.",
+    "start": 0.48,
+    "end": 0.96
+   }
+  ],
+  "speech_end": 0.96,
+  "tempo": 1.0,
+  "clip": "R10.mp3",
+  "window": 2.0,
+  "status": "ok",
+  "request_id": "QJwyTb2uzX2IkvBQh8ml"
+ },
+ "R11": {
+  "words": [
+   {
+    "text": "Gratis",
+    "start": 0.0,
+    "end": 0.64
+   },
+   {
+    "text": "y",
+    "start": 0.72,
+    "end": 0.8
+   },
+   {
+    "text": "de",
+    "start": 0.84,
+    "end": 0.88
+   },
+   {
+    "text": "c\u00f3digo",
+    "start": 1.04,
+    "end": 1.36
+   },
+   {
+    "text": "abierto.",
+    "start": 1.48,
+    "end": 2.24
+   }
+  ],
+  "speech_end": 2.24,
+  "tempo": 1.0,
+  "clip": "R11.mp3",
+  "window": 2.7,
+  "status": "ok",
+  "request_id": "nxaOK8VhghPGlmmHBipQ"
+ }
+}

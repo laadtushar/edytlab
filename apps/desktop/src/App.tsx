@@ -154,6 +154,7 @@ function App() {
     stepBack,
     stepForward,
     forgetRemoved,
+    graphVersion,
     inOrder,
   } = useSession();
   // The node the history graph is previewing, apart from `head` (#522): a
@@ -183,7 +184,6 @@ function App() {
   const [rendering, setRendering] = useState(false);
   const [renderError, setRenderError] = useState<string | null>(null);
   const [leftView, setLeftView] = useState<LeftView>("timeline");
-  const [graphRefresh, setGraphRefresh] = useState(0);
   const [keyConfigured, setKeyConfigured] = useState<boolean | null>(null);
   // Whether the launch-time `has_api_key` is still pending. It is while
   // the backend reads the keychain, which can be as long as a locked
@@ -1381,7 +1381,8 @@ function App() {
     let unlisten: (() => void) | null = null;
     let cancelled = false;
     onNodeCreated(async (_nodeId: string) => {
-      setGraphRefresh((n) => n + 1);
+      // The graph needs no word from here: the node moves the head, and
+      // `useSession` counts that for the view (`graphVersion`, #602).
       await refreshTracks();
       // The session moved, so any previously rendered mix is stale.
       setMixPath(null);
@@ -1839,7 +1840,7 @@ function App() {
                 onCompareNodes={handleCompareNodes}
                 onSetHead={handleGraphSetHead}
                 onRenameNode={handleGraphRenameNode}
-                refreshKey={graphRefresh}
+                refreshKey={graphVersion}
                 path={historyPath}
               />
             )}

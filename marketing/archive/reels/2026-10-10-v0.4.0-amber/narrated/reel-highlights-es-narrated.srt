@@ -1,0 +1,46 @@
+1
+00:00:00,480 --> 00:00:02,650
+Describe la mezcla. Escúchala.
+
+2
+00:00:02,900 --> 00:00:07,630
+2: beatmatch. Neon Rush baja a 120.
+
+3
+00:00:08,000 --> 00:00:12,490
+4: crossfade, con un pasa-bajos
+en la pista que sale.
+
+4
+00:00:12,900 --> 00:00:13,950
+Escucha.
+
+5
+00:00:21,600 --> 00:00:26,650
+2: alarga la intro. Copia
+los primeros 8 compases.
+
+6
+00:00:27,000 --> 00:00:30,130
+3: un filtro que se abre en el drop.
+
+7
+00:00:31,200 --> 00:00:32,490
+Espera el drop.
+
+8
+00:00:41,700 --> 00:00:46,510
+1: iguala cada pista a 124 BPM.
+
+9
+00:00:46,900 --> 00:00:50,750
+2: secuencia con solapes de 4 compases.
+
+10
+00:00:51,100 --> 00:00:52,310
+Así suena.
+
+11
+00:00:59,600 --> 00:01:02,090
+Gratis y de código abierto.
+

@@ -1,0 +1,47 @@
+1
+00:00:00,411 --> 00:00:02,810
+Describe the blend. Hear the mix.
+
+2
+00:00:03,000 --> 00:00:08,050
+2: beatmatch. Neon Rush
+stretches down to 120.
+
+3
+00:00:08,400 --> 00:00:12,970
+4: crossfade, with a low-pass
+on the outgoing track.
+
+4
+00:00:13,400 --> 00:00:14,530
+Have a listen.
+
+5
+00:00:22,100 --> 00:00:26,670
+2: extend the intro.
+Copy the first 8 bars.
+
+6
+00:00:27,100 --> 00:00:30,550
+3: a filter that opens into the drop.
+
+7
+00:00:31,300 --> 00:00:32,830
+Wait for the drop.
+
+8
+00:00:41,800 --> 00:00:46,050
+First, match every track to 124 BPM.
+
+9
+00:00:46,400 --> 00:00:50,170
+Second, sequence them with 4-bar overlaps.
+
+10
+00:00:50,600 --> 00:00:52,290
+Here's the first blend.
+
+11
+00:00:59,100 --> 00:01:02,050
+edytlab. Free and open source.
+

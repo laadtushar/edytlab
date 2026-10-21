@@ -1409,6 +1409,8 @@ Emitted when an agent tool call moves the session's head: to a new node, or to o
 
 Emitted when the agent turn is fully complete (no more tool calls, no more text).
 
+A turn can change what a graph view draws without moving the head: `name_node` sets a label and sends no `onNodeCreated`. A client that shows the graph reads it again here as well as on a head move.
+
 ### `onPlan(cb: (steps: object[]) => void) → Promise<UnlistenFn>`
 
 Emitted when something needs approval before it runs, and the turn is suspended
