@@ -1516,16 +1516,22 @@ function App() {
 
   // Renders what is shown: the previewed node when the graph has one, else
   // the head. Play asks for this when the mix is not a render of it.
-  const handleRenderPreview = useCallback(async () => {
-    if (!shownNode || rendering) return;
+  //
+  // Answers the path it rendered, or null when it did not render (a render
+  // already under way, nothing shown, or a failure, which it reports): the
+  // timeline asks for the mix again with this when the file has gone (#607).
+  const handleRenderPreview = useCallback(async (): Promise<string | null> => {
+    if (!shownNode || rendering) return null;
     setRendering(true);
     setRenderError(null);
     try {
       const path = previewId ? await bridgeRenderPreview(previewId) : await renderHead();
       setMixPath(path);
       setMixNodeId(shownNode);
+      return path;
     } catch (err) {
       setRenderError(String(err));
+      return null;
     } finally {
       setRendering(false);
     }
@@ -1786,6 +1792,11 @@ function App() {
                   mixCurrent={mixMatchesShown}
                   rendering={rendering}
                   onRequestRender={handleRenderPreview}
+                  // The mix's file was evicted from the preview cache while
+                  // the timeline was away: render it again, once (#607). Not
+                  // during a compare, whose sides belong to no head and are
+                  // held by the backend; its renders are not Play's to make.
+                  onMixMissing={compareMode === null ? handleRenderPreview : undefined}
                   snapToZero={snapToZero}
                   onSnapToZeroChange={setSnapToZero}
                   syncLock={syncLock}

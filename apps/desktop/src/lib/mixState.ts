@@ -67,3 +67,20 @@ export function mixIsMissing(mix: MixState): boolean {
 export function afterSessionAdvanced(): MixState {
   return NO_MIX;
 }
+
+/**
+ * Whether a failed load of the mix says its file is not there (#607).
+ *
+ * The mix is an entry in the project's preview cache, which evicts its
+ * least recently used entries once it is over a cap, so a file the window
+ * played a minute ago can be gone when the timeline mounts again (a tab
+ * switch) and reads it. Tauri's asset protocol answers 404 for a path with
+ * no file (`protocol/asset.rs`), and WaveSurfer's failed fetch says so as
+ * `Failed to fetch <url>: <status> (<text>)` (`fetcher.js`). Only that is a
+ * lost file, which rendering again repairs: a refused path (403), a
+ * protocol that fails (500), a request that never got an answer and a file
+ * that does not decode are not, and are shown as the errors they are.
+ */
+export function isMissingFileError(err: unknown): boolean {
+  return /Failed to fetch .*: 404(?:\s|$)/.test(String(err));
+}

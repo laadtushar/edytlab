@@ -56,6 +56,7 @@ const LANE_HEIGHT = 72;
 const LANE_DURATION_HINT = 1;
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Marker } from "../lib/tauri-bridge";
+import { isMissingFileError } from "../lib/mixState";
 import { snapRange } from "../lib/zeroCrossing";
 import { AutomationLane } from "./AutomationLane";
 import { TrackMenu } from "./TrackMenu";
@@ -172,6 +173,22 @@ export interface TimelineProps {
    * cancels the *play*: the mix still finishes and loads, silent.
    */
   onRequestRender?: () => void;
+  /**
+   * The file of `mixPath` is gone: render the mix again, and answer the path
+   * it came to (null if it could not be rendered; the caller reports why)
+   * once it has (#607).
+   *
+   * The mix is an entry in the project's preview cache, which evicts its
+   * oldest entries, and the timeline loads it again whenever it mounts (a
+   * switch to the Graph or Transcript tab and back). A load that fails
+   * because the file is missing (`isMissingFileError`) asks for this once
+   * for each `mixPath`, instead of showing "Could not load the mix" for a
+   * mix the user was just playing. A node renders to the same name, so the
+   * answer is usually `mixPath` itself, and the timeline then loads it
+   * again. Another path is loaded as `mixPath` changes to it. Without it,
+   * a missing file is an error, as any other failed load is.
+   */
+  onMixMissing?: () => Promise<string | null>;
   /** Snap selection edges to zero crossings. Off is today's behaviour. */
   snapToZero?: boolean;
   onSnapToZeroChange?: (enabled: boolean) => void;
@@ -1310,6 +1327,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
       mixCurrent = true,
       rendering = false,
       onRequestRender,
+      onMixMissing,
       snapToZero,
       onSnapToZeroChange,
       syncLock,
@@ -1425,6 +1443,20 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
      * read off a change in `mixPath`.
      */
     const [loadedMixPath, setLoadedMixPath] = useState<string | null>(null);
+
+    /**
+     * The mix whose file was found missing and asked for again (#607), so
+     * that a render which does not bring the file back is an error and not
+     * a loop: one try for each path. Cleared when a load succeeds, which
+     * ends the loss it was for.
+     */
+    const askedForMixRef = useRef<string | null>(null);
+    /** Bumped to load `mixPath` again when the render returned the same file. */
+    const [mixReload, setMixReload] = useState(0);
+    const onMixMissingRef = useRef(onMixMissing);
+    useEffect(() => {
+      onMixMissingRef.current = onMixMissing;
+    }, [onMixMissing]);
 
     /**
      * The players. Hidden, because they have no waveform to show — the
@@ -1543,6 +1575,32 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
       let superseded = false;
       let fade: Crossfade | null = null;
 
+      const failed = (err: unknown) => {
+        setMixError(`Could not load the mix: ${String(err)}`);
+        // Nothing will load, so there is nothing to start when it has.
+        setPendingPlay(false);
+      };
+
+      // The file is gone (#607): ask for the mix again, once for this
+      // path, and load what comes back. A render that fails has told the
+      // caller why; the load error stays so the transport is not left mute
+      // with nothing said.
+      const askForMix = (ask: () => Promise<string | null>, err: unknown) => {
+        askedForMixRef.current = mixPath;
+        void ask().then(
+          (fresh) => {
+            // The mix moved on while it rendered: that load is its own.
+            if (superseded) return;
+            if (fresh === mixPath) setMixReload((n) => n + 1);
+            else if (fresh === null) failed(err);
+            // Another file: `mixPath` is changing to it, and its effect loads it.
+          },
+          () => {
+            if (!superseded) failed(err);
+          },
+        );
+      };
+
       try {
         void to
           .load(convertFileSrc(mixPath))
@@ -1560,6 +1618,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
             setTransportSec(to.getCurrentTime());
             setTransportDuration(duration);
             setLoadedMixPath(mixPath);
+            askedForMixRef.current = null;
             if (!from.isPlaying()) {
               to.setVolume(1);
               return;
@@ -1574,15 +1633,17 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
             // likely reason the blanket `.catch` was written in the
             // first place.
             if (superseded || isAbort(err)) return;
-            setMixError(`Could not load the mix: ${String(err)}`);
-            // Nothing will load, so there is nothing to start when it has.
-            setPendingPlay(false);
+            const ask = onMixMissingRef.current;
+            if (ask && isMissingFileError(err) && askedForMixRef.current !== mixPath) {
+              askForMix(ask, err);
+              return;
+            }
+            failed(err);
           });
       } catch (err) {
         // A path the webview cannot convert. The lanes still draw, so
         // without this the app would simply be mute.
-        setMixError(`Could not load the mix: ${String(err)}`);
-        setPendingPlay(false);
+        failed(err);
       }
 
       return () => {
@@ -1591,7 +1652,7 @@ export const Timeline = forwardRef<TimelineHandle, TimelineProps>(
         // the next starts from one player playing at full level.
         fade?.finish();
       };
-    }, [mixPath]);
+    }, [mixPath, mixReload]);
     const playheadSec = playheadSecProp ?? transportSec;
 
     /**
