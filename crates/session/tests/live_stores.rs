@@ -322,6 +322,70 @@ fn a_folder_moved_away_and_a_new_one_made_at_its_path_is_refused_too() {
     assert!(again.into_store().ptr_eq(&old));
 }
 
+/// A record's spelling is the path its stores write through, and that moves:
+/// the project folder is renamed, the next open reads it through its new
+/// name (`reread_into`), and the store writes through that name from then on.
+/// Replacing the folder at the *new* path has to be refused while the store
+/// lives, which a spelling fixed when the folder was first opened cannot do.
+#[test]
+fn a_folder_renamed_and_then_replaced_at_its_new_path_is_refused_while_the_store_lives() {
+    let tmp = TempDir::new().unwrap();
+    let (p, q) = (tmp.path().join("p"), tmp.path().join("q"));
+    let live = Store::open_shared(&p).unwrap();
+    fs::rename(&p, &q).unwrap();
+    // The window opens the project from its new place; the store follows it.
+    let again = Store::open_shared_status(&q).unwrap();
+    assert!(!again.is_new());
+    assert!(again.into_store().ptr_eq(&live));
+    live.lock().unwrap().reread_into(&q).unwrap();
+    assert_eq!(live.lock().unwrap().project_dir(), q);
+
+    replace_folder(&q);
+
+    assert!(
+        matches!(Store::open_shared(&q), Err(Error::FolderReplaced { .. })),
+        "a second store was built beside the one that writes through this path"
+    );
+    drop(live);
+    Store::open_shared(&q).expect("nothing writes through it any more");
+}
+
+/// And the old spelling is free once nothing writes through it: a new
+/// project made at the path the folder used to have is not a "replaced"
+/// folder.
+#[test]
+fn a_new_folder_at_the_spelling_a_store_has_left_is_not_refused() {
+    let tmp = TempDir::new().unwrap();
+    let (p, q) = (tmp.path().join("p"), tmp.path().join("q"));
+    let live = Store::open_shared(&p).unwrap();
+    fs::rename(&p, &q).unwrap();
+    live.lock().unwrap().reread_into(&q).unwrap();
+
+    let fresh = Store::open_shared_status(&p).expect("nothing writes through the old path");
+
+    assert!(fresh.is_new());
+    assert!(!fresh.into_store().ptr_eq(&live));
+}
+
+/// A staged edit started before the move still writes through the old path,
+/// by the project directory it was staged with, until it is done.
+#[test]
+fn a_staged_edit_keeps_the_spelling_it_started_with_blocked() {
+    let tmp = TempDir::new().unwrap();
+    let (p, q) = (tmp.path().join("p"), tmp.path().join("q"));
+    let live = Store::open_shared(&p).unwrap();
+    let running = live.lock().unwrap().stage().unwrap();
+    fs::rename(&p, &q).unwrap();
+    live.lock().unwrap().reread_into(&q).unwrap();
+
+    assert!(matches!(
+        Store::open_shared(&p),
+        Err(Error::FolderReplaced { .. })
+    ));
+    drop(running);
+    Store::open_shared(&p).expect("the edit is over");
+}
+
 /// What holds the old folder need not be a shared store: a private writer
 /// is as much a writer, and there is no handle of the window's to let go.
 #[test]

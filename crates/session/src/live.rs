@@ -37,11 +37,13 @@
 //! project is restored from a backup over itself, or trashed and made again.
 //! The new folder has a new identity, so nothing in the registry names it;
 //! a store opened on it would start with nothing in flight while the store
-//! on the old one is still writing, by path, into it. So every record of a
-//! folder keeps the canonical path it was opened under, and a write open
-//! (shared, private, raw) of a path that a *live* record of a different
-//! folder was opened under is refused with [`Error::FolderReplaced`] until
-//! the old one is gone. The window's own handle can be let go for it (the
+//! on the old one is still writing, by path, into it. So every store
+//! registers the canonical path it reads its folder through and keeps it
+//! while it lives (it changes when the project folder is renamed and the
+//! store is read again through the new name), and a write open (shared,
+//! private, raw) of a path that a *live* store of a different folder writes
+//! through is refused with [`Error::FolderReplaced`] until that store is
+//! gone. The window's own handle can be let go for it (the
 //! desktop app does, when nothing else holds the store: no turn, no staged
 //! edit); a turn's cannot, and the user is told to wait for it and open the
 //! project again. [`Store::replaced_holder`] says who holds the old store.
@@ -144,7 +146,7 @@ impl Identity {
 }
 
 /// How a registry tells folders apart. A function pointer so a test can make
-/// two paths one folder without a bind mount (see [`Registry::with_identity`]).
+/// two paths one folder without a bind mount (see `Registry::with_identity`).
 pub type Identify = fn(&Path) -> io::Result<Identity>;
 
 /// The identity of the folder at `dir`: the real [`Identify`]. Errors when
@@ -168,8 +170,11 @@ pub fn identify(dir: &Path) -> io::Result<Identity> {
 /// and "not guaranteed to be unique on ReFS", which is what a Dev Drive is
 /// (<https://learn.microsoft.com/en-us/windows/win32/api/fileapi/ns-fileapi-by_handle_file_information>).
 /// A file system that does not answer `FileIdInfo` (FAT, exFAT) falls back
-/// to the 64-bit index, which is unique there. Both calls are `windows-sys`
-/// 0.61.2's, already in the lock.
+/// to the 64-bit index, which is unique there, and only on the errors that
+/// say so ([`lacks_file_id_info`]): on NTFS the two calls give different keys
+/// for one folder, so a transient failure that fell back would give a folder
+/// two identities, and so two stores. Both calls are `windows-sys` 0.61.2's,
+/// already in the lock.
 #[cfg(windows)]
 pub fn identify(dir: &Path) -> io::Result<Identity> {
     use std::ffi::c_void;
@@ -205,6 +210,10 @@ pub fn identify(dir: &Path) -> io::Result<Identity> {
                 u128::from_le_bytes(wide.FileId.Identifier),
             )
         } else {
+            let failed = io::Error::last_os_error();
+            if !lacks_file_id_info(failed.raw_os_error()) {
+                return Err(failed);
+            }
             let mut narrow: BY_HANDLE_FILE_INFORMATION = std::mem::zeroed();
             if GetFileInformationByHandle(handle, &mut narrow) == 0 {
                 return Err(io::Error::last_os_error());
@@ -218,6 +227,17 @@ pub fn identify(dir: &Path) -> io::Result<Identity> {
     Ok(Identity { id, pin: Some(pin) })
 }
 
+/// Whether a Win32 error from `GetFileInformationByHandleEx(FileIdInfo)` says
+/// the file system or Windows has no 128-bit file ids, as opposed to the call
+/// having failed: `ERROR_INVALID_FUNCTION` (1), `ERROR_NOT_SUPPORTED` (50),
+/// `ERROR_INVALID_PARAMETER` (87) and `ERROR_INVALID_LEVEL` (124). Any other
+/// error is the open's. Spelt as numbers, not `windows-sys` constants, so the
+/// decision can be tested on every platform; a Windows test pins the numbers.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn lacks_file_id_info(code: Option<i32>) -> bool {
+    matches!(code, Some(1 | 50 | 87 | 124))
+}
+
 /// What every [`Store`] open on one folder in this process shares.
 pub(crate) struct Folder {
     pub(crate) id: FolderId,
@@ -227,7 +247,52 @@ pub(crate) struct Folder {
     /// How many staged handles on the folder are alive, from any `Store`
     /// opened on it. See [`Store::staged_in_flight`].
     pub(crate) in_flight: AtomicUsize,
+    /// The paths the stores on this folder write through right now.
+    pub(crate) spellings: Arc<Spellings>,
     _pin: Option<Pin>,
+}
+
+/// Held by a store (and by every staged handle made from it) for as long as
+/// it writes through the path it was registered under.
+pub(crate) struct Spelling;
+
+/// The canonical paths the live stores of one folder write through.
+///
+/// A store writes by the path it was opened with (`project_dir`), and that
+/// moves: the project folder is renamed and the next open reads it through
+/// its new name ([`Store::reread_into`]). The old path is then free, and
+/// the new one is the one a replaced folder would have to be refused at. So
+/// each store registers the path it was read under and keeps it while it
+/// lives, and a staged handle keeps the one it was staged with after the
+/// store has moved on, because that is the path its edit still writes
+/// through. A record has no spelling of its own.
+#[derive(Default)]
+pub(crate) struct Spellings(Mutex<Vec<(PathBuf, Weak<Spelling>)>>);
+
+impl Spellings {
+    fn list(&self) -> MutexGuard<'_, Vec<(PathBuf, Weak<Spelling>)>> {
+        // Nothing under it can panic (it only edits the list).
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Record that a store reads the folder through `dir`; the store keeps
+    /// the returned token for as long as it does. A leaf under the
+    /// registry's lock: nothing is taken while it is held.
+    pub(crate) fn register(&self, dir: &Path) -> Arc<Spelling> {
+        let spelling = spelling_of(dir);
+        let token = Arc::new(Spelling);
+        let mut list = self.list();
+        list.retain(|(_, token)| token.strong_count() > 0);
+        list.push((spelling, Arc::downgrade(&token)));
+        token
+    }
+
+    /// Whether a live store writes through `spelling`.
+    fn writes_through(&self, spelling: &Path) -> bool {
+        let mut list = self.list();
+        list.retain(|(_, token)| token.strong_count() > 0);
+        list.iter().any(|(path, _)| path == spelling)
+    }
 }
 
 /// Held by a private store for as long as it lives: the registry's record
@@ -284,11 +349,11 @@ impl Holder {
     }
 }
 
-/// A folder's shared record, and the canonical path it was opened under
-/// (see "A folder replaced at the same path" above).
+/// A folder's shared record, and the paths its stores write through (see
+/// "A folder replaced at the same path" above).
 struct FolderEntry {
     folder: Weak<Folder>,
-    spelling: PathBuf,
+    spellings: Arc<Spellings>,
 }
 
 #[derive(Default)]
@@ -308,13 +373,15 @@ impl Maps {
         self.holders.get(id).and_then(|holder| holder.live(keep))
     }
 
-    /// The identities of live records of *other* folders that were opened
-    /// under `spelling`.
+    /// The identities of live records of *other* folders whose stores write
+    /// through `spelling`.
     fn replaced(&self, id: &FolderId, spelling: &Path) -> Vec<FolderId> {
         self.folders
             .iter()
             .filter(|(other, entry)| {
-                *other != id && entry.spelling == spelling && entry.folder.strong_count() > 0
+                *other != id
+                    && entry.folder.strong_count() > 0
+                    && entry.spellings.writes_through(spelling)
             })
             .map(|(other, _)| *other)
             .collect()
@@ -366,8 +433,8 @@ impl Opened {
 ///
 /// ```compile_fail
 /// use std::sync::{Arc, Mutex};
-/// let dir = std::env::temp_dir();
-/// let store = session::Store::open(&dir).unwrap();
+/// let dir = std::env::temp_dir().join("a-project");
+/// let store = session::Store::open_private(&dir).unwrap();
 /// let _live = session::LiveStore(Arc::new(Mutex::new(store)));
 /// ```
 ///
@@ -425,7 +492,7 @@ fn taken(dir: &Path, live: Live) -> Result<Opened> {
 
 /// The stores that are alive, by folder. There is one for the process
 /// ([`Registry::global`]); a test makes its own with
-/// [`Registry::with_identity`] to choose which paths are one folder.
+/// `Registry::with_identity` to choose which paths are one folder.
 pub struct Registry {
     identify: Identify,
     maps: Mutex<Maps>,
@@ -438,22 +505,29 @@ fn spelling_of(dir: &Path) -> PathBuf {
 }
 
 impl Registry {
-    /// A registry that tells folders apart with `identify`, for a test that
-    /// needs two paths to be one folder (a case-insensitive disk, a bind
-    /// mount) on a machine that has neither. The stores it opens share
-    /// nothing with the process's own registry.
-    pub fn with_identity(identify: Identify) -> Self {
+    fn new(identify: Identify) -> Self {
         Self {
             identify,
             maps: Mutex::new(Maps::default()),
         }
     }
 
+    /// A registry that tells folders apart with `identify`, for a test that
+    /// needs two paths to be one folder (a case-insensitive disk, a bind
+    /// mount) on a machine that has neither. The stores it opens share
+    /// nothing with the process's own registry, so a second registry is a
+    /// second writer on a folder: it exists only in a test build or with the
+    /// `raw-open` feature, like the raw open.
+    #[cfg(any(test, feature = "raw-open"))]
+    pub fn with_identity(identify: Identify) -> Self {
+        Self::new(identify)
+    }
+
     /// The process's registry, with the real [`identify`]. What
     /// [`Store::open_shared`] and the other opens on [`Store`] go through.
     pub fn global() -> &'static Registry {
         static GLOBAL: OnceLock<Registry> = OnceLock::new();
-        GLOBAL.get_or_init(|| Registry::with_identity(identify))
+        GLOBAL.get_or_init(|| Registry::new(identify))
     }
 
     /// The registry lock. Nothing under it can panic (it only edits the
@@ -463,8 +537,8 @@ impl Registry {
     }
 
     /// The record the stores on `dir`'s folder share, made if none is alive.
-    /// For a writer, [`Error::FolderReplaced`] when a live record of another
-    /// folder was opened under the same path.
+    /// For a writer, [`Error::FolderReplaced`] when a live store of another
+    /// folder writes through the same path.
     fn folder(&self, dir: &Path, scope: Scope) -> Result<Arc<Folder>> {
         let Identity { id, pin } = (self.identify)(dir)?;
         let spelling = spelling_of(dir);
@@ -478,17 +552,19 @@ impl Registry {
         if let Some(folder) = maps.folders.get(&id).and_then(|e| e.folder.upgrade()) {
             return Ok(folder);
         }
+        let spellings = Arc::new(Spellings::default());
         let folder = Arc::new(Folder {
             id,
             identify: self.identify,
             in_flight: AtomicUsize::new(0),
+            spellings: Arc::clone(&spellings),
             _pin: pin,
         });
         maps.folders.insert(
             id,
             FolderEntry {
                 folder: Arc::downgrade(&folder),
-                spelling,
+                spellings,
             },
         );
         Ok(folder)
@@ -705,6 +781,38 @@ mod tests {
         assert!(live.is_none(), "a poisoned store is not live");
         assert_eq!(keep.len(), 1, "the upgrade was dropped where it was made");
         assert!(Arc::ptr_eq(&keep[0], broken.as_arc()));
+    }
+
+    /// The fallback from a folder's 128-bit id to its 64-bit index is for a
+    /// file system that cannot give the first. A failure that is not that (a
+    /// handle gone bad, access denied, an I/O error) would give the same
+    /// folder a different key from the one it had, and so a second store.
+    #[test]
+    fn only_the_not_supported_errors_fall_back_to_the_narrow_file_index() {
+        for code in [1, 50, 87, 124] {
+            assert!(lacks_file_id_info(Some(code)), "error {code}");
+        }
+        for code in [2, 3, 5, 6, 32, 123, 1117, 1450] {
+            assert!(!lacks_file_id_info(Some(code)), "error {code}");
+        }
+        assert!(!lacks_file_id_info(None), "an error with no OS code");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_not_supported_codes_are_win32s() {
+        use windows_sys::Win32::Foundation::{
+            ERROR_INVALID_FUNCTION, ERROR_INVALID_LEVEL, ERROR_INVALID_PARAMETER,
+            ERROR_NOT_SUPPORTED,
+        };
+        for code in [
+            ERROR_INVALID_FUNCTION,
+            ERROR_NOT_SUPPORTED,
+            ERROR_INVALID_PARAMETER,
+            ERROR_INVALID_LEVEL,
+        ] {
+            assert!(lacks_file_id_info(Some(code as i32)), "error {code}");
+        }
     }
 
     #[test]

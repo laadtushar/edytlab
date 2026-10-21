@@ -293,6 +293,21 @@ fn project_is_open(projects: &[PathBuf]) -> String {
     )
 }
 
+/// The refusal for a per-file project whose folder was put there in place of
+/// another that is still in use: a project open at that path (this turn's own
+/// or the window's) has been moved or replaced, and it still writes through
+/// the path. Not the "wait for the turn" the app's own open says: the caller
+/// here is the turn, and waiting for itself is no answer.
+fn project_was_replaced(project: &Path) -> String {
+    format!(
+        "not run: {} is a different folder from the project that was open there, and that \
+         project is still in use and writes through this path, so the batch would write into it \
+         as well. Each file's project goes in `<output_dir>/<file name without its extension>`; \
+         choose another `output_dir`.",
+        project.display()
+    )
+}
+
 /// One file: its own project, its own history, the chain replayed
 /// against it.
 fn run_one(
@@ -313,6 +328,7 @@ fn run_one(
     // project is what this must never be.
     let mut store = session::Store::open_private(project).map_err(|e| match e {
         session::Error::AlreadyOpen { .. } => project_is_open(&[project.to_path_buf()]),
+        session::Error::FolderReplaced { .. } => project_was_replaced(project),
         e => format!("could not open a session at {}: {e}", project.display()),
     })?;
     let mut clipboard: Option<crate::Clipboard> = None;

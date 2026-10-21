@@ -32,13 +32,15 @@
 //!    `Store :: open (`, `.map(Store::open)`, `<Store>::open`, `use
 //!    ...::Store::open`, `use ...::Store::{open, ..}`, an alias (`use
 //!    session::Store as S; S::open(..)`, `type S = session::Store;`), and
-//!    `open_unregistered`.
+//!    `open_unregistered` and `with_identity` (a registry of one's own).
 //!
 //! What it does not see: a raw open reached through something that is not
 //! spelled `Store` (a macro that builds the path, a trait object, a generic).
 //! `tests/` folders and `session`'s own `src` (which defines the open) are
-//! not scanned, and nor is a file that a `#[cfg(test)] mod name;` pulls in
-//! (there is none; such a file would be scanned and fail, loudly).
+//! not scanned. A file that a `#[cfg(test)] mod name;` pulls in *is* scanned,
+//! like any other `src` file: the declaration is removed but the file is not
+//! known to be test-only. There is none today; one that used the raw open
+//! would fail this test, loudly, and would be a reason to teach it.
 
 use std::collections::HashSet;
 use std::fs;
@@ -261,9 +263,56 @@ fn is_test_only_attr(tokens: &[Token], open: usize) -> bool {
     }
 }
 
+/// Keywords that begin an item which a `,` does not end: a function, a type,
+/// a module, a `use`, a constant. What a `,` does end is a field, a variant,
+/// an argument, a match arm: things that begin with a name or a visibility.
+const ITEM_KEYWORDS: [&str; 15] = [
+    "fn",
+    "mod",
+    "impl",
+    "struct",
+    "enum",
+    "trait",
+    "union",
+    "type",
+    "use",
+    "static",
+    "const",
+    "let",
+    "extern",
+    "macro_rules",
+    "unsafe",
+];
+
+/// Whether the item at `at` begins with an item keyword, after any
+/// visibility (`pub`, `pub(crate)`) and `async`.
+fn begins_with_item_keyword(tokens: &[Token], mut at: usize) -> bool {
+    if tokens.get(at).is_some_and(|t| is_ident(t, "pub")) {
+        at += 1;
+        if tokens.get(at).is_some_and(|t| is_punct(t, '(')) {
+            at = past_group(tokens, at);
+        }
+    }
+    while tokens.get(at).is_some_and(|t| is_ident(t, "async")) {
+        at += 1;
+    }
+    tokens
+        .get(at)
+        .is_some_and(|t| ITEM_KEYWORDS.iter().any(|k| is_ident(t, k)))
+}
+
 /// The index just past the item that begins at `at`: through its first
-/// top-level `;` or `,`, or through its body when it has one (and a `;` or `,`
-/// right after that body, which `const X: S = S { .. };` has).
+/// top-level `;`, or `,` when it is a field, variant, argument or arm, or
+/// through its body when it has one (and a `;` or `,` right after that body,
+/// which `const X: S = S { .. };` has). A `,` inside `(..)`, `[..]` or
+/// `<..>` does not count, and neither does one in a `where` clause or a
+/// generic parameter list of an item that is not comma-terminated.
+///
+/// `<` and `>` are told from comparisons and arrows only roughly (`->` and
+/// `=>` are not closers). A comparison that is never closed makes the item
+/// run on to its next `;`, body or the end of the group it is in, which can
+/// hide more than the item; that is the one way this errs towards not
+/// seeing a raw open, and it takes a `<` in a field or discriminant to do it.
 fn past_item(tokens: &[Token], mut at: usize) -> usize {
     // Attributes that follow belong to the same item.
     while at < tokens.len()
@@ -272,14 +321,29 @@ fn past_item(tokens: &[Token], mut at: usize) -> usize {
     {
         at = past_group(tokens, at + 1);
     }
+    let comma_ends = !begins_with_item_keyword(tokens, at);
+    let mut angle = 0usize;
     let mut i = at;
     while i < tokens.len() {
         match tokens[i].tok {
-            Tok::Punct(';' | ',') => return i + 1,
+            Tok::Punct(';') => return i + 1,
+            Tok::Punct(',') if comma_ends && angle == 0 => return i + 1,
+            Tok::Punct('<') => {
+                angle += 1;
+                i += 1;
+            }
+            Tok::Punct('>') => {
+                let arrow =
+                    i > 0 && (is_punct(&tokens[i - 1], '-') || is_punct(&tokens[i - 1], '='));
+                if !arrow {
+                    angle = angle.saturating_sub(1);
+                }
+                i += 1;
+            }
             Tok::Punct('{') => {
                 let after = past_group(tokens, i);
                 return match tokens.get(after) {
-                    Some(t) if is_punct(t, ';') || is_punct(t, ',') => after + 1,
+                    Some(t) if is_punct(t, ';') || (comma_ends && is_punct(t, ',')) => after + 1,
                     _ => after,
                 };
             }
@@ -360,7 +424,9 @@ fn unregistered_opens(source: &str) -> Vec<(usize, String)> {
     for i in 0..tokens.len() {
         let line = tokens[i].line;
         match ident(i) {
-            Some("open_unregistered") => found.push((line, "open_unregistered".to_string())),
+            Some(raw @ ("open_unregistered" | "with_identity")) => {
+                found.push((line, raw.to_string()));
+            }
             Some(name) if names.contains(name) => {
                 // `Store::open`, and `<Store>::open`.
                 let after = if punct(i + 1, '>') { i + 2 } else { i + 1 };
@@ -520,6 +586,30 @@ pub fn production() {
     assert_eq!(lines_of(source), vec![20]);
 }
 
+/// A comma inside generic arguments, a tuple type or a `where` clause is not
+/// the end of the item: what follows it is still the item's.
+#[test]
+fn commas_in_generics_and_where_clauses_do_not_end_a_test_only_item() {
+    let source = "\
+struct S {
+    #[cfg(test)]
+    probe: HashMap<String, Vec<u8>>,
+    #[cfg(test)]
+    pair: Option<(u8, u8)>,
+    live: u8,
+}
+
+#[cfg(test)]
+fn helper() -> Result<(Store, u8), E> { Store::open(p) }
+
+#[cfg(test)]
+fn helper2<T, U>(a: T) -> U where T: A, U: B { Store::open(p) }
+
+fn production() { Store::open(p); }
+";
+    assert_eq!(lines_of(source), vec![15]);
+}
+
 #[test]
 fn cfg_not_test_and_cfg_any_test_are_production_code() {
     let source = "\
@@ -562,6 +652,10 @@ fn other_spellings_of_the_raw_open_are_found() {
         (
             "the registry's",
             "fn a() { Registry::global().open_unregistered(p); }",
+        ),
+        (
+            "a registry of its own",
+            "fn a() { Registry::with_identity(identify).open_shared(p); }",
         ),
     ] {
         assert_eq!(

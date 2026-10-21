@@ -702,11 +702,23 @@ fn open_project_with(
 ///   be taken is a turn running (or a rebuild about to run): not let go.
 /// - A staged edit that runs off the store's lock holds no handle of the
 ///   store's, only the folder's in-flight count, so the count is looked at
-///   too.
+///   too, **with the old store's lock held until the window has let go**: a
+///   command cannot lock the store and stage an edit between the check and
+///   the release. (Had the check been done without it, the alternative was to
+///   put the old store back in the slot when the retry fails.)
 /// - The store must be the window's own, and nobody else may hold it. The
 ///   count of its handles is taken with the window's slot locked
 ///   ([`AppState::release_open_project_if_exclusive`]): the slot's, this
 ///   function's and the agent's, if the agent was built on it.
+///
+/// **Lock order**, the only path that holds a store's lock across the window's
+/// slots: the agent's (`try_lock_owned`, never waited for) → the registry
+/// (`Store::replaced_holder`, a leaf, released before the next) → the old
+/// store's (`try_lock`, never waited for) → the `store` slot → `project_dir`.
+/// Nothing takes a store's lock while holding the slot (`store_handle()`
+/// drops it before its caller locks the store), and the agent's lock is
+/// taken before the slot everywhere (`rebuild_agent_into` does the same), so
+/// no order is reversed and the two `try_lock`s cannot wait.
 fn release_replaced_project(state: &AppState, path: &Path) -> bool {
     let Ok(mut agent) = Arc::clone(&state.agent).try_lock_owned() else {
         return false;
@@ -714,14 +726,16 @@ fn release_replaced_project(state: &AppState, path: &Path) -> bool {
     let Some(stale) = Store::replaced_holder(path) else {
         return false;
     };
-    match stale.try_lock() {
-        Ok(held) if held.staged_in_flight() == 0 => {}
+    let idle = match stale.try_lock() {
+        Ok(held) if held.staged_in_flight() == 0 => held,
         _ => return false,
-    }
+    };
     let agent_holds = agent
         .as_ref()
         .is_some_and(|agent| Arc::ptr_eq(agent.store(), stale.as_arc()));
-    if !state.release_open_project_if_exclusive(&stale, usize::from(agent_holds)) {
+    let released = state.release_open_project_if_exclusive(&stale, usize::from(agent_holds));
+    drop(idle);
+    if !released {
         return false;
     }
     *agent = None;

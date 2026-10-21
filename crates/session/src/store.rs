@@ -44,7 +44,7 @@ use tempfile::NamedTempFile;
 use chrono::Utc;
 
 use crate::diff::{self, SessionDiff};
-use crate::live::{Claim, Folder, LiveStore, Opened, Registry};
+use crate::live::{Claim, Folder, LiveStore, Opened, Registry, Spelling};
 use crate::node::{NodeId, SessionNode};
 use crate::state::SessionState;
 use crate::{Error, Result};
@@ -108,6 +108,11 @@ pub struct Store {
     /// without the lock (#421). See [`Store::staged_in_flight`] and
     /// [`crate::live`].
     folder: Arc<Folder>,
+    /// The path this store reads and writes its folder through, registered
+    /// with the folder for as long as the store (or a handle staged from it)
+    /// lives. See [`crate::live`], "A folder replaced at the same path".
+    #[allow(dead_code)] // held for its drop, which is what the registry watches
+    spelling: Arc<Spelling>,
     /// `Some` for a handle made by [`Store::stage`]: appends go here
     /// instead of to disk.
     staged: Option<Staged>,
@@ -352,6 +357,7 @@ impl Store {
         Ok(Self {
             project_dir: project_dir.to_path_buf(),
             head,
+            spelling: folder.spellings.register(project_dir),
             folder,
             staged: None,
             rebinder: Arc::new(crate::relocate::Rebinder::new(project_dir)),
@@ -400,6 +406,9 @@ impl Store {
             project_dir: self.project_dir.clone(),
             head: self.head,
             folder: Arc::clone(&self.folder),
+            // Its edit writes through the path it was staged with, even after
+            // this store has been read again through another.
+            spelling: Arc::clone(&self.spelling),
             staged: Some(Staged {
                 base: self.head,
                 nodes: Vec::new(),

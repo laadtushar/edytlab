@@ -565,6 +565,48 @@ fn every_project_in_use_is_named() {
     drop(shared);
 }
 
+/// A project open at a path whose folder has since been replaced still
+/// writes through that path. The batch's refusal is its own: the caller is
+/// the turn, so "wait for the turn to end" would be no answer.
+#[test]
+fn a_per_file_project_folder_replaced_under_an_open_project_is_refused_without_telling_the_turn_to_wait(
+) {
+    let mut s = Session::new();
+    let recipe = make_recipe(&mut s);
+    let takes = make_folder(s.dir.path());
+    let project = takes.join("take-0");
+    let open = open_project(&project, &takes.join("take-0.wav"));
+    // The folder is put back from a backup: another folder at the same path.
+    std::fs::rename(&project, takes.join("take-0.old")).unwrap();
+    std::fs::create_dir(&project).unwrap();
+
+    let v = ok(s.call(
+        "batch_apply",
+        json!({
+            "recipe_path": recipe.to_string_lossy(),
+            "input_dir": takes.to_string_lossy(),
+        }),
+    ));
+
+    assert_eq!(v["succeeded"], json!(2), "the other two files ran: {v}");
+    let refused = v["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["file"].as_str().unwrap().ends_with("take-0.wav"))
+        .expect("a row for take-0");
+    assert_eq!(refused["ok"], json!(false), "{refused}");
+    let why = refused["reason"].as_str().unwrap();
+    assert!(why.contains("output_dir"), "ask for another: {why}");
+    assert!(!why.contains("wait for"), "the caller is the turn: {why}");
+    assert!(!why.contains("open the project again"), "{why}");
+    assert!(
+        !project.join(".audiograph").join("head").exists(),
+        "a history was written into the replaced folder"
+    );
+    drop(open);
+}
+
 /// Only the folders in use are refused: with the open project left alone, a
 /// different `output_dir` runs as ever and does not touch it.
 #[test]
