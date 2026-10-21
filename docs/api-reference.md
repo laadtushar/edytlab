@@ -1166,8 +1166,8 @@ the text it installed:
 
 - a skill that is missing and was never installed is copied in;
 - one that is unedited, when the bundled text has changed, is replaced (a copy
-  from before the record counts as unedited if its text is one the app has
-  shipped before);
+  from before the record counts as unedited if its text is a version that shipped
+  before the record existed);
 - one the user has edited is left alone, and the new text is written beside it
   as `<name>.bundled.md`, which neither the agent nor the Skills editor lists;
 - one the user deleted is not brought back.

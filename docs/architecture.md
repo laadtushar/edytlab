@@ -1132,7 +1132,7 @@ Trigger types:
 
 Matching skills are appended to the system prompt before the turn executes.
 
-The skills in `apps/desktop/src-tauri/resources/skills/` ship inside the app, and `install_bundled_skills` keeps them current in the user's folder at every launch without touching what the user changed (`bundled_skills.rs`, #574). `~/.edytlab/skills/.bundled.json` records the hash of the text it installed for each file. A file whose hash still matches is replaced when the bundled text changes; an edited one is left alone, with the new text written beside it as `<name>.bundled.md` (the loader skips that name); a deleted one is not brought back. An install from before the record counts a file as unedited only if its text is one the app shipped, listed in `bundled_skills_shipped.json`.
+The skills in `apps/desktop/src-tauri/resources/skills/` ship inside the app, and `install_bundled_skills` keeps them current in the user's folder at every launch without touching what the user changed (`bundled_skills.rs`, #574). `~/.edytlab/skills/.bundled.json` records the hash of the text it installed for each file. A file whose hash still matches is replaced when the bundled text changes; an edited one is left alone, with the new text written beside it as `<name>.bundled.md` (the loader skips that name); a deleted one is not brought back. An install from before the record counts a file as unedited only if its text is a version that shipped before the record existed, listed in `pre_manifest_skills.json`. That list is frozen: it describes installs with no manifest and nothing else, so adding to it would make such an install take a skill added later for one the user deleted. A new or changed bundled skill needs no entry; `the_pre_manifest_list_never_changes` holds the list to that.
 
 ---
 
@@ -1344,7 +1344,7 @@ No per-provider keychain code is needed: the slots are keyed by provider id (`<i
 
 Drop a `.md` file with YAML frontmatter into `~/.edytlab/skills/`. No recompile needed.
 
-To change a skill that ships with the app, edit it under `apps/desktop/src-tauri/resources/skills/` and run `node scripts/bundled-skill-hashes.mjs` (full git history needed: `git fetch --unshallow` in a shallow clone) to add its new text to `apps/desktop/src-tauri/src/bundled_skills_shipped.json`, then commit both. The `every_bundled_skill_is_in_the_shipped_list` test fails until you do. Users who have not edited the old copy get the new one at their next launch.
+To change a skill that ships with the app, edit it under `apps/desktop/src-tauri/resources/skills/`; nothing else needs updating. Users who have not edited the old copy get the new one at their next launch. Do not add the new text to `apps/desktop/src-tauri/src/pre_manifest_skills.json` (see above); `node scripts/pre-manifest-skill-hashes.mjs --check` verifies that file against the git history (full history needed: `git fetch --unshallow` in a shallow clone).
 
 ### Adding an Agent Profile
 

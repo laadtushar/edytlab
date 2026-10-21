@@ -5724,7 +5724,7 @@ pub fn stop_recording(
 ///
 /// - missing and never installed: copied in;
 /// - unedited and the bundled text changed: replaced (a copy from before the
-///   record counts as unedited if its text is one the app shipped);
+///   record counts as unedited if its text is a version that shipped then);
 /// - edited: left alone, with the new text written beside it as
 ///   `<name>.bundled.md`, which neither the agent nor the Skills editor
 ///   lists;
@@ -5748,7 +5748,7 @@ pub fn install_bundled_skills(app: tauri::AppHandle) -> CmdResult<usize> {
     let report = crate::bundled_skills::sync(
         &bundled_dir,
         &skills_dir,
-        &crate::bundled_skills::ShippedHashes::embedded(),
+        &crate::bundled_skills::PreManifestHashes::embedded(),
     )
     .map_err(|e| e.to_string())?;
     tracing::info!(?report, "bundled skills synced");

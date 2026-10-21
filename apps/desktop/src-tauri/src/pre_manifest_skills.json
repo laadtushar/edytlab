@@ -1,5 +1,6 @@
 {
-  "generated_by": "node scripts/bundled-skill-hashes.mjs",
+  "note": "FROZEN: the bundled skills as shipped before the app kept .bundled.json (history up to 67d70927). Never add to it; see bundled_skills.rs.",
+  "generated_by": "node scripts/pre-manifest-skill-hashes.mjs",
   "hash": "SHA-256, lowercase hex, of the file's text with CRLF read as LF; oldest version first",
   "skills": {
     "dialog-enhancer.md": [

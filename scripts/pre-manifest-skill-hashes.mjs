@@ -1,22 +1,26 @@
 #!/usr/bin/env node
-// Regenerates apps/desktop/src-tauri/src/bundled_skills_shipped.json: the
-// SHA-256 of every version of every skill under
-// apps/desktop/src-tauri/resources/skills that the repository has ever had,
-// plus the files as they are in the working tree now.
+// Checks (or rewrites) apps/desktop/src-tauri/src/pre_manifest_skills.json:
+// the SHA-256 of every version of every skill under
+// apps/desktop/src-tauri/resources/skills in the git history up to
+// BOUNDARY, the last commit that changed them before the app kept a
+// manifest of what it installed (#574).
 //
-// Why: the app copies those skills into the user's ~/.edytlab/skills and, at
-// each launch, replaces a copy with the newer bundled text only when the user
-// has not edited it (#574). An install from before the app kept a record
-// (`.bundled.json`) has no record to tell it, so such a file counts as
-// unedited only when its text is one of these. Change a bundled skill and the
-// Rust test `every_bundled_skill_is_in_the_shipped_list` fails until this has
-// been run and the result committed.
+// That file is FROZEN. The app uses it for one thing: an install with no
+// `.bundled.json` can hold only versions shipped before the manifest did,
+// so a file there counts as unedited if its text is one of these, and a
+// skill listed here that is missing from the folder was deleted by the
+// user. Adding a later version or a later skill would make a user who
+// upgrades straight from such an install to a release that adds a skill
+// take the new skill for one they deleted. So nothing needs to be added
+// when a bundled skill changes, and the Rust test
+// `the_pre_manifest_list_never_changes` fails if the file does.
 //
-//   node scripts/bundled-skill-hashes.mjs           # rewrite the file
-//   node scripts/bundled-skill-hashes.mjs --check   # exit 1 if it is stale
+// This script exists to show the file is what the history says:
 //
-// Needs the full history, so not a shallow clone (`git fetch --unshallow`):
-// from a truncated history it would drop versions that did ship.
+//   node scripts/pre-manifest-skill-hashes.mjs --check   # exit 1 if it differs
+//   node scripts/pre-manifest-skill-hashes.mjs           # rewrite it
+//
+// Needs the full history, so not a shallow clone (`git fetch --unshallow`).
 //
 // A hash is over the text with CRLF read as LF, to match the app's
 // `bundled_skills::text_hash`: a Windows checkout writes CRLF, git's blob
@@ -24,13 +28,16 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+// The last commit that touched the skills before the manifest: #516.
+const BOUNDARY = "67d709278222a54d20ffe1f4b54047c4d34bfa6c";
 const SKILLS_DIR = "apps/desktop/src-tauri/resources/skills";
-const OUT = join(root, "apps/desktop/src-tauri/src/bundled_skills_shipped.json");
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const OUT = join(root, "apps/desktop/src-tauri/src/pre_manifest_skills.json");
 
 const git = (...args) =>
   execFileSync("git", args, { cwd: root, maxBuffer: 256 * 1024 * 1024 });
@@ -48,6 +55,12 @@ if (gitText("rev-parse", "--is-shallow-repository").trim() === "true") {
   );
   process.exit(1);
 }
+try {
+  git("cat-file", "-e", BOUNDARY + "^{commit}");
+} catch {
+  console.error(`Commit ${BOUNDARY} is not in this clone. Fetch the full history.`);
+  process.exit(1);
+}
 
 // name -> hashes, oldest first, each once.
 const versions = new Map();
@@ -57,11 +70,11 @@ const add = (name, hash) => {
   versions.set(name, list);
 };
 
-// Every commit that touched the folder, oldest first, and the folder's
-// `.md` blobs as that commit had them. Blobs repeat across commits, so each
-// is read once.
+// Every commit up to BOUNDARY that touched the folder, oldest first, and the
+// folder's `.md` blobs as that commit had them. Blobs repeat across commits,
+// so each is read once.
 const hashByBlob = new Map();
-const commits = gitText("log", "--reverse", "--format=%H", "--", SKILLS_DIR)
+const commits = gitText("log", "--reverse", "--format=%H", BOUNDARY, "--", SKILLS_DIR)
   .split("\n")
   .filter(Boolean);
 for (const commit of commits) {
@@ -76,16 +89,15 @@ for (const commit of commits) {
   }
 }
 
-// The files as they are now, committed or not: the edit being made.
-for (const name of readdirSync(join(root, SKILLS_DIR)).sort()) {
-  if (name.endsWith(".md")) add(name, hashOf(readFileSync(join(root, SKILLS_DIR, name))));
-}
-
 const skills = Object.fromEntries([...versions].sort(([a], [b]) => (a < b ? -1 : 1)));
 const json =
   JSON.stringify(
     {
-      generated_by: "node scripts/bundled-skill-hashes.mjs",
+      note:
+        "FROZEN: the bundled skills as shipped before the app kept .bundled.json (history up to " +
+        BOUNDARY.slice(0, 8) +
+        "). Never add to it; see bundled_skills.rs.",
+      generated_by: "node scripts/pre-manifest-skill-hashes.mjs",
       hash: "SHA-256, lowercase hex, of the file's text with CRLF read as LF; oldest version first",
       skills,
     },
@@ -99,12 +111,10 @@ if (process.argv.includes("--check")) {
     current = readFileSync(OUT, "utf8");
   } catch {}
   if (current !== json) {
-    console.error(
-      "bundled_skills_shipped.json is out of date. Run `node scripts/bundled-skill-hashes.mjs` and commit it.",
-    );
+    console.error("pre_manifest_skills.json is not what the history up to " + BOUNDARY.slice(0, 8) + " says.");
     process.exit(1);
   }
-  console.log("bundled_skills_shipped.json is up to date.");
+  console.log("pre_manifest_skills.json matches the history.");
 } else {
   writeFileSync(OUT, json);
   const n = Object.values(skills).reduce((sum, l) => sum + l.length, 0);
