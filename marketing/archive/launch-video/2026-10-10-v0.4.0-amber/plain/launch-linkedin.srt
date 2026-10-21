@@ -1,0 +1,56 @@
+1
+00:00:00,350 --> 00:00:03,400
+I built an audio editor you talk to.
+
+2
+00:00:03,700 --> 00:00:08,100
+One blend. Seven chores.
+
+3
+00:00:08,600 --> 00:00:10,220
+Or just describe it.
+
+4
+00:00:10,250 --> 00:00:14,680
+1 · Describe it in plain English
+
+5
+00:00:14,950 --> 00:00:18,780
+2 · The agent calls a tool
+
+6
+00:00:19,050 --> 00:00:23,080
+3 · It flags what it noticed
+
+7
+00:00:23,350 --> 00:00:29,780
+4 · Describe the blend
+
+8
+00:00:30,050 --> 00:00:38,680
+5 · Hear it
+
+9
+00:00:38,950 --> 00:00:44,380
+6 · Master and export
+
+10
+00:00:44,650 --> 00:00:48,080
+Also: hold the low end until the drop
+
+11
+00:00:48,350 --> 00:00:51,780
+And a three-track mini-mix
+
+12
+00:00:52,100 --> 00:00:58,500
+93 deterministic tools run on your machine. Only the chat goes to the provider you choose.
+
+13
+00:00:58,700 --> 00:01:03,850
+Honest limits: synthetic demo tracks; it preps files, it is not a live DJ tool; no stem separation or transcription yet; unsigned installers.
+
+14
+00:01:04,600 --> 00:01:08,800
+edytlab. Free and open source (MIT). github.com/laadtushar/edytlab. Which prep job would you hand off first?
+

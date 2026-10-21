@@ -1,0 +1,312 @@
+{
+ "MM01": {
+  "words": [
+   {
+    "text": "A",
+    "start": 0.0,
+    "end": 0.16
+   },
+   {
+    "text": "three-track",
+    "start": 0.24,
+    "end": 0.88
+   },
+   {
+    "text": "mini-mix.",
+    "start": 0.96,
+    "end": 1.84
+   }
+  ],
+  "speech_end": 1.84,
+  "tempo": 1.0,
+  "clip": "MM01.mp3",
+  "window": 2.47,
+  "status": "ok",
+  "request_id": "MqF1pOCnJdQ6RVDge3Nv"
+ },
+ "MM02": {
+  "words": [
+   {
+    "text": "First,",
+    "start": 0.0,
+    "end": 0.8
+   },
+   {
+    "text": "open",
+    "start": 0.88,
+    "end": 1.12
+   },
+   {
+    "text": "the",
+    "start": 1.2,
+    "end": 1.28
+   },
+   {
+    "text": "three",
+    "start": 1.36,
+    "end": 1.6
+   },
+   {
+    "text": "tracks.",
+    "start": 1.68,
+    "end": 2.4
+   }
+  ],
+  "speech_end": 2.4,
+  "tempo": 1.0,
+  "clip": "MM02.mp3",
+  "window": 7.86,
+  "status": "ok",
+  "request_id": "MHzT9PRkQfdVnzSvucgR"
+ },
+ "MM03": {
+  "words": [
+   {
+    "text": "First,",
+    "start": 0.0,
+    "end": 0.8
+   },
+   {
+    "text": "match",
+    "start": 0.88,
+    "end": 1.2
+   },
+   {
+    "text": "every",
+    "start": 1.28,
+    "end": 1.52
+   },
+   {
+    "text": "track",
+    "start": 1.6,
+    "end": 2.0
+   },
+   {
+    "text": "to",
+    "start": 2.12,
+    "end": 2.24
+   },
+   {
+    "text": "124",
+    "start": 2.32,
+    "end": 3.04
+   },
+   {
+    "text": "BPM.",
+    "start": 3.12,
+    "end": 4.0
+   }
+  ],
+  "speech_end": 4.0,
+  "tempo": 1.0,
+  "clip": "MM03.mp3",
+  "window": 13.07,
+  "status": "ok",
+  "request_id": "w6Ij7p8ouHaN747f4hAE"
+ },
+ "MM04": {
+  "words": [
+   {
+    "text": "Second,",
+    "start": 0.0,
+    "end": 0.88
+   },
+   {
+    "text": "sequence",
+    "start": 1.04,
+    "end": 1.44
+   },
+   {
+    "text": "them",
+    "start": 1.52,
+    "end": 1.68
+   },
+   {
+    "text": "with",
+    "start": 1.76,
+    "end": 1.92
+   },
+   {
+    "text": "4-bar",
+    "start": 2.08,
+    "end": 2.64
+   },
+   {
+    "text": "overlaps.",
+    "start": 2.72,
+    "end": 3.52
+   }
+  ],
+  "speech_end": 3.52,
+  "tempo": 1.0,
+  "clip": "MM04.mp3",
+  "window": 36.6,
+  "status": "ok",
+  "request_id": "5n7eDZo72Qam1zc6ZXEy"
+ },
+ "MM05": {
+  "words": [
+   {
+    "text": "Third,",
+    "start": 0.0,
+    "end": 0.8
+   },
+   {
+    "text": "match",
+    "start": 0.96,
+    "end": 1.2
+   },
+   {
+    "text": "the",
+    "start": 1.28,
+    "end": 1.36
+   },
+   {
+    "text": "loudness,",
+    "start": 1.44,
+    "end": 2.16
+   },
+   {
+    "text": "and",
+    "start": 2.24,
+    "end": 2.32
+   },
+   {
+    "text": "limit",
+    "start": 2.48,
+    "end": 2.72
+   },
+   {
+    "text": "the",
+    "start": 2.76,
+    "end": 2.8
+   },
+   {
+    "text": "master.",
+    "start": 2.88,
+    "end": 3.6
+   }
+  ],
+  "speech_end": 3.6,
+  "tempo": 1.0,
+  "clip": "MM05.mp3",
+  "window": 26.8,
+  "status": "ok",
+  "request_id": "tTdwB7wSHPzERJDtSkzx"
+ },
+ "MM06": {
+  "words": [
+   {
+    "text": "Here's",
+    "start": 0.0,
+    "end": 0.32
+   },
+   {
+    "text": "the",
+    "start": 0.36,
+    "end": 0.4
+   },
+   {
+    "text": "first",
+    "start": 0.56,
+    "end": 0.8
+   },
+   {
+    "text": "blend.",
+    "start": 0.88,
+    "end": 1.44
+   }
+  ],
+  "speech_end": 1.44,
+  "tempo": 1.0,
+  "clip": "MM06.mp3",
+  "window": 4.95,
+  "status": "ok",
+  "request_id": "In9YctKHtXI4JbGZuvQW"
+ },
+ "MM07": {
+  "words": [
+   {
+    "text": "And",
+    "start": 0.0,
+    "end": 0.16
+   },
+   {
+    "text": "the",
+    "start": 0.2,
+    "end": 0.24
+   },
+   {
+    "text": "second",
+    "start": 0.4,
+    "end": 0.64
+   },
+   {
+    "text": "one.",
+    "start": 0.8,
+    "end": 1.28
+   }
+  ],
+  "speech_end": 1.28,
+  "tempo": 1.0,
+  "clip": "MM07.mp3",
+  "window": 4.36,
+  "status": "ok",
+  "request_id": "uADnkOo2kzykARzLpCrE"
+ },
+ "MM08": {
+  "words": [
+   {
+    "text": "Fourth,",
+    "start": 0.0,
+    "end": 0.88
+   },
+   {
+    "text": "export",
+    "start": 0.96,
+    "end": 1.44
+   },
+   {
+    "text": "the",
+    "start": 1.48,
+    "end": 1.52
+   },
+   {
+    "text": "mix.",
+    "start": 1.6,
+    "end": 2.24
+   }
+  ],
+  "speech_end": 2.24,
+  "tempo": 1.0,
+  "clip": "MM08.mp3",
+  "window": 11.06,
+  "status": "ok",
+  "request_id": "3UVYyGko5XJAEIywMUxX"
+ },
+ "MM09": {
+  "words": [
+   {
+    "text": "Done:",
+    "start": 0.0,
+    "end": 0.88
+   },
+   {
+    "text": "1:21,",
+    "start": 0.96,
+    "end": 2.48
+   },
+   {
+    "text": "exported.",
+    "start": 2.56,
+    "end": 3.28
+   }
+  ],
+  "speech_end": 3.28,
+  "tempo": 1.0,
+  "clip": "MM09.mp3",
+  "window": 4.07,
+  "status": "ok",
+  "request_id": "3L4ue4wipzQpPbCxJoQc"
+ }
+}

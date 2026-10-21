@@ -1,0 +1,28 @@
+1
+00:00:00,300 --> 00:00:02,400
+Describe the blend. Hear the mix.
+
+2
+00:00:02,550 --> 00:00:06,380
+1 · Say it in plain English
+
+3
+00:00:06,650 --> 00:00:09,780
+2 · The agent calls a tool
+
+4
+00:00:10,050 --> 00:00:15,380
+3 · Describe the blend
+
+5
+00:00:15,650 --> 00:00:22,080
+4 · Hear it
+
+6
+00:00:22,350 --> 00:00:25,980
+5 · Master and export
+
+7
+00:00:26,700 --> 00:00:31,200
+edytlab. Free and open source. Unsigned installers, synthetic demo tracks. edytlab.com
+

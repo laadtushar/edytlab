@@ -1,0 +1,33 @@
+1
+00:00:00,000 --> 00:00:02,890
+Extend an intro. Just ask.
+
+2
+00:00:03,000 --> 00:00:06,530
+1: check the tempo and bar length.
+
+3
+00:00:07,200 --> 00:00:11,770
+2: extend the intro.
+Copy the first 8 bars.
+
+4
+00:00:12,200 --> 00:00:15,650
+3: a filter that opens into the drop.
+
+5
+00:00:16,400 --> 00:00:19,610
+4: fade it in, and export.
+
+6
+00:00:20,600 --> 00:00:22,130
+Wait for the drop.
+
+7
+00:00:33,100 --> 00:00:36,870
+Done: a 16-bar intro, exported.
+
+8
+00:00:37,267 --> 00:00:40,217
+edytlab. Free and open source.
+
