@@ -16,7 +16,7 @@ The demo is a DJ transition. The request: get both tracks' tempos, time-stretch 
 
 Three design choices I'd like feedback on:
 
-1. The model never touches the audio. It chooses and orders 93 tools; the DSP runs locally in Rust, with no model in the audio path. Your audio is not uploaded. Only the chat goes to the AI provider you pick: Anthropic, OpenAI, OpenRouter, Groq, Gemini, or Ollama, which keeps the chat on your machine too.
+1. The model never touches the audio. It chooses and orders 94 tools; the DSP runs locally in Rust, with no model in the audio path. Your audio is not uploaded. Only the chat goes to the AI provider you pick: Anthropic, OpenAI, OpenRouter, Groq, Gemini, or Ollama, which keeps the chat on your machine too.
 
 2. Every edit is a node in a branching history. You can fork a take, A/B it against the original, and go back. An optional "plan first" mode shows the agent's steps for your approval before it runs them.
 

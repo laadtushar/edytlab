@@ -45,7 +45,7 @@
      ┌──────▼──┐  ┌────▼────┐  ┌──────────▼───┐  ┌──────▼──────┐
      │  crates/│  │ crates/ │  │    crates/   │  │   crates/   │
      │  ai     │  │ tools   │  │    session   │  │   audio-*   │
-     │  agent  │  │ 93 tools│  │    DAG store │  │   ml-*      │
+     │  agent  │  │ 94 tools│  │    DAG store │  │   ml-*      │
      └──────┬──┘  └────┬────┘  └──────────┬───┘  └──────┬──────┘
             │          │                  │              │
      ┌──────▼──────────▼──────────────────▼──────────────▼──────┐
@@ -97,7 +97,7 @@ edytlab/
     ├── recorder/                 # Microphone capture to WAV (cpal)
     ├── session/                  # DAG data model, node store, fork/diff/compare
     ├── skills/                   # User skill library with trigger evaluation
-    └── tools/                    # 93 deterministic audio-editing tools
+    └── tools/                    # 94 deterministic audio-editing tools
 ```
 
 ### Dependency Graph (simplified)
@@ -395,6 +395,10 @@ for the provider that needs it. `LlmProvider::tool_set()` says which:
 - **`ToolSet::Slim`** (Ollama): `crates/ai/src/tool_selection.rs` builds the
   list once per turn from the tools the turn permits (so a disabled tool is
   never brought back), in this order of priority:
+  0. `PINNED_WHEN_BLOCK_CUT` (`list_session`), only when the session block had
+     to cut a list (see "The session block has a budget" below). It is sent
+     outside the budget, so it takes nothing from the rest, and nothing is
+     pinned for a session that fits;
   1. tools the user's message names, by name, by a distinctive word of it
      ("reverb", "pitch it up", "reversed") or by what people say instead
      ("remove the reverb" for `remove_effect`, "less harsh" for `de_esser`,
@@ -436,7 +440,7 @@ for the provider that needs it. `LlmProvider::tool_set()` says which:
   a tool the profile or the Capabilities menu took away is in neither. The
   built-in tools come first and are always all listed (they come to about
   1 KB). The MCP tools follow, in name order, while the names stay within
-  `SLIM_NAMES_BUDGET_BYTES` (1,600 B), and the line then ends "and N more",
+  `SLIM_NAMES_BUDGET_BYTES` (1,614 B), and the line then ends "and N more",
   which counts MCP tools only. The order matters: an MCP wire name is
   `<server>__<tool>` and can sort ahead of every built-in name, so a cap that
   walked the names alphabetically would cut built-in tools that sort late to
@@ -502,18 +506,26 @@ that needs less passes the rest on. Within a list the items the user's message
 names come first (a track by its name or as "track 3", a bus or a marker by its
 name), then for buses the ones a listed track sends to, then the rest in order;
 what is shown keeps the list's own order. A cut list ends with a line that says
-how many it left out of how many, such as
-``…and 192 more tracks (200 in all), not listed here. A tool's `track` takes any index up to 199.``
-and, for markers, ``…; `export_labels` lists every one.`` No agent tool lists
-tracks or buses, so those two lines give the count (and for tracks the index
-range) only. On Ollama the two-hundred-track session lists eight tracks, two
-buses and twenty-two markers. The block is rendered once per turn with the rest
+how many it left out of how many and how to reach them, such as
+``…and 192 more tracks (200 in all), not listed here. `list_session` with what "tracks" pages through them; a tool's `track` takes any index up to 199.``
+(#618). `list_session` (`crates/tools/src/tool/list_session.rs`) is a read-only
+tool, so Plan first never holds it. It takes `what` (`tracks`, `buses` or
+`markers`), `offset` and `limit`, and returns one page in the block's own lines
+(they are written once, in `crates/tools/src/session_lines.rs`, and `ai` calls
+that), a summary that says what range it showed of how many, and `next_offset`
+while there is more. A page ends at 100 items or `PAGE_MAX_BYTES` (4,096 B of
+the result as the model receives it), whichever comes first, so a
+two-hundred-track page and a thousand-marker page each fit an 8,192-token
+context (`ollama_a_page_of_a_huge_session_fits_an_8k_context`). On Ollama the
+two-hundred-track session lists seven tracks, two buses and nineteen markers,
+and the tool, pinned (item 0 above), lists the rest. The block is rendered once per turn with the rest
 of `system`, so the thinking-block rule below is unaffected. `request_size.rs`
 runs a thirty-track session and a two-hundred-track one with fifty buses and a
 thousand markers, and holds every session's first request
 `SESSION_HEADROOM_BYTES` (500 B) under the bound; the six-track mix with the
-message that sends the most tools now leaves 1,094 B, and the two-hundred-track
-session with sixty MCP tools registered still fits, 536 B under.
+message that sends the most tools now leaves 1,080 B, and the two-hundred-track
+session with sixty MCP tools registered still fits, 130 B under (it was 536 B
+before the pinned `list_session` added its 393 B of schema to a cut session).
 
 Three things stay as they were. The set and the names line are worked out once
 per turn, so every round trip sends the same tools in the same order and
@@ -711,7 +723,7 @@ pub struct ToolContext<'a> {
 
 impl ToolDispatcher {
     pub fn new() -> Self                    // empty
-    pub fn default_dispatcher() -> Self     // registers all 93 built-in tools
+    pub fn default_dispatcher() -> Self     // registers all 94 built-in tools
     pub fn register(&mut self, tool: Box<dyn Tool>)
     pub fn unregister_prefix(&mut self, prefix: &str) -> usize  // MCP `<server>__` tools
     pub fn tool_schemas(&self) -> Value     // sent to the LLM
@@ -744,7 +756,7 @@ The derived-audio sweep waits while a staged handle is alive (`Store::staged_in_
 
 ### The Tools
 
-There are 93, registered in `ToolDispatcher::default_dispatcher()` with their implementations under `crates/tools/src/tool/`. The full list, with every parameter, is [tools-reference.md](./tools-reference.md) — generated from the registry, so it cannot drift from what the agent can call.
+There are 94, registered in `ToolDispatcher::default_dispatcher()` with their implementations under `crates/tools/src/tool/`. The full list, with every parameter, is [tools-reference.md](./tools-reference.md) — generated from the registry, so it cannot drift from what the agent can call.
 
 Two of them are stubs: `separate_stems` (Demucs, [#385](https://github.com/laadtushar/edytlab/issues/385)) and `transcribe` (Whisper, [#384](https://github.com/laadtushar/edytlab/issues/384)) return an error in this build. `cut_words`, `remove_fillers` and the `text` mode of `select_region` need a transcript, which only `transcribe` produces, so they cannot run yet either. `duck_under_speech` and `select_region`'s `speech_passage` do not wait on it: with no transcript they key on a voice track's audio (`voice_tracks`, found by `speech_detect.rs` from voiced sound, not level, and joined into passages by the same rule in both). A phrase needs the words, so `select_region` refuses `voice_tracks` with `text`.
 
@@ -1107,7 +1119,7 @@ Memory fragments are injected into the system prompt on every turn:
 </edytlab-memory>
 ```
 
-The agent sees memory on every turn but has no tool to write it: none of the 93 registered tools touches memory. You edit it in Settings → Memory (the `read_memory` / `write_memory` commands), which is how BPM, speaker names or style preferences carry across turns and sessions.
+The agent sees memory on every turn but has no tool to write it: none of the 94 registered tools touches memory. You edit it in Settings → Memory (the `read_memory` / `write_memory` commands), which is how BPM, speaker names or style preferences carry across turns and sessions.
 
 ### Skills System
 

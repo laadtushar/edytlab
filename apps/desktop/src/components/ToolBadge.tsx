@@ -36,6 +36,7 @@ const TOOL_LABELS: Record<string, string> = {
   export_multiple: "Export tracks",
   export_labels: "Export labels",
   import_labels: "Import labels",
+  list_session: "List session",
 
   // Analysis (read-only)
   analyze_track: "Analyze audio",

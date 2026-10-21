@@ -40,7 +40,7 @@ A 128 BPM track time-stretched to match a 120 BPM one, started under the last 8 
 
 What I like best: the agent flags its own edge cases. Bars that run a beat behind, with the fix. An export peaking right at full scale. A loudness reading that counted the fades.
 
-How it works: the model never hears the audio. It gets text about the session (tempo, key, loudness) and picks from 93 audio tools. The DSP runs on your machine, in Rust. Your files aren't uploaded; only the chat goes to the provider you choose (Anthropic, OpenAI, OpenRouter, Groq, Gemini), or stays local with Ollama.
+How it works: the model never hears the audio. It gets text about the session (tempo, key, loudness) and picks from 94 audio tools. The DSP runs on your machine, in Rust. Your files aren't uploaded; only the chat goes to the provider you choose (Anthropic, OpenAI, OpenRouter, Groq, Gemini), or stays local with Ollama.
 
 Honest limits: the demo tracks are short synthetic loops I generated, and the agent in the recordings is Claude. It preps files; it isn't a live DJ tool. No stem separation yet. The installers are unsigned, so macOS and Windows warn on first launch.
 
@@ -122,7 +122,7 @@ words.
 ```
 The audio editor I've been building has an AI agent in it, and the model never touches a sample. Everything else follows from that.
 
-The agent chooses and orders 93 audio tools: fades, EQ, filters, time-stretch, loudness, export. The tools are plain Rust functions, with no model in the audio path. The video shows it sequencing a three-track mix with them.
+The agent chooses and orders 94 audio tools: fades, EQ, filters, time-stretch, loudness, export. The tools are plain Rust functions, with no model in the audio path. The video shows it sequencing a three-track mix with them.
 
 What I'd tell someone starting this:
 
@@ -199,7 +199,7 @@ Angle: specific, honest invitations, including the big unshipped piece. About
 ```
 edytlab is MIT-licensed and I'd like help with it. Here is where, specifically.
 
-It's a desktop audio editor in Tauri 2, Rust and React, where an AI agent calls 93 audio tools. v0.6.1 is out for macOS, Windows and Linux (unsigned installers).
+It's a desktop audio editor in Tauri 2, Rust and React, where an AI agent calls 94 audio tools. v0.6.1 is out for macOS, Windows and Linux (unsigned installers).
 
 Places a contributor could make a real difference:
 
@@ -235,7 +235,7 @@ Sources for the claims:
 - "Synthetic loops I generated": `apps/desktop/e2e-native/fixtures.mjs` writes
   the three tracks (32 seconds each) from code. The DJ page and README say
   "tracks", so this is a disclosure the site does not currently make.
-- 93 tools: `docs/tools-reference.md`. Providers and Ollama:
+- 94 tools: `docs/tools-reference.md`. Providers and Ollama:
   `README.md`. Local-first table: `website/app/use-cases/local-ai-audio-editor/page.tsx`.
   The 15,000-token / 8,192-context numbers are v0.4.0's, from issue 395; what
   has been sent since v0.5.0, with the v0.6.0 sizes, is in

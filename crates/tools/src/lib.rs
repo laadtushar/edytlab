@@ -32,6 +32,7 @@ pub mod reclaim;
 pub mod rederive;
 pub mod repair;
 pub mod schema;
+pub mod session_lines;
 pub mod shared;
 pub mod tool;
 pub mod util;

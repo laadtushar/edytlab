@@ -239,7 +239,7 @@ mod one_format {
             .collect()
     }
 
-    /// Every line of every page of `what`, a few to a page.
+    /// Every line of every page of `what`, two to a page.
     fn tool_lines(store: &mut Store, what: &str) -> Vec<String> {
         let dispatcher = ToolDispatcher::default_dispatcher();
         let mut engine = audio_engine::Engine::new();
@@ -256,7 +256,7 @@ mod one_format {
             let result = dispatcher
                 .invoke(
                     "list_session",
-                    json!({ "what": what, "offset": offset, "limit": 4 }),
+                    json!({ "what": what, "offset": offset, "limit": 2 }),
                     &mut ctx,
                 )
                 .unwrap_or_else(|e| panic!("list_session was refused: {e}"));

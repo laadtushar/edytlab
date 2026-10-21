@@ -369,6 +369,11 @@ fn limit_sets_how_many_a_page_holds() {
 // The byte cap
 // ---------------------------------------------------------------------
 
+#[test]
+fn the_cap_is_the_one_the_tests_state() {
+    assert_eq!(tools::tool::list_session::PAGE_MAX_BYTES, STATED_PAGE_CAP);
+}
+
 /// No page of any list passes the cap, as the model receives it, and the
 /// pages still reach every item.
 #[test]

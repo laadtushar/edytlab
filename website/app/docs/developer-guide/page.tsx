@@ -94,7 +94,7 @@ pnpm tauri:dev             # start dev mode`}</code>
   cli/                Headless one-turn agent driver (E2E tests)
 crates/
   ai/                 LLM providers, agent loop, keychain
-  tools/              93 audio-editing tools
+  tools/              94 audio-editing tools
   session/            Session DAG data model and store
   audio-decoder/      File decode (symphonia)
   audio-dsp/          Sample-level DSP shared by tools and render

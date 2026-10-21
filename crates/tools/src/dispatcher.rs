@@ -249,18 +249,19 @@ impl ToolDispatcher {
             DuplicateTrackTool, EchoTool, EqTool, ExportLabelsTool, ExportMultipleTool,
             ExportRecipeTool, FadeTool, ForkNodeTool, GainTool, GenerateNoiseTool,
             GenerateToneTool, HighPassFilterTool, ImportLabelsTool, InsertSilenceTool, InvertTool,
-            LabelTool, LevelerTool, LimiterTool, LoadTool, LowPassFilterTool, MixToNewTrackTool,
-            MonoToStereoTool, MoveClipTool, MuteTrackTool, NameNodeTool, NoiseGateTool,
-            NoiseReductionTool, NormalizeLoudnessTool, NormalizeTool, NotchFilterTool,
-            PasteRegionTool, PhaserTool, PitchShiftTool, PlotSpectrumTool, PunchInTool,
-            RemoveClipTool, RemoveEffectTool, RemoveFillersTool, RemoveSendTool, RemoveTrackTool,
-            RenameTrackTool, RenderFinalTool, RenderPreviewTool, ReorderEffectsTool,
-            RepeatSelectionTool, ResampleTrackTool, ReverbTool, ReverseTool, RevertToTool,
-            SelectRegionTool, SeparateStemsTool, SetClipEnvelopeTool, SetEffectBypassedTool,
-            SetEffectParamsTool, SetPanTool, SetSendTool, SetSyncLockTool, SetTrackGainTool,
-            SilenceFinderTool, SilenceRegionTool, SoloTrackTool, SplitBySpeakerTool, SplitClipTool,
-            StereoToMonoTool, StereoWidenerTool, StorageReportTool, TimeShiftTool, TimeStretchTool,
-            TranscribeTool, TremoloTool, TrimTool, TruncateSilenceTool, VocalReductionTool,
+            LabelTool, LevelerTool, LimiterTool, ListSessionTool, LoadTool, LowPassFilterTool,
+            MixToNewTrackTool, MonoToStereoTool, MoveClipTool, MuteTrackTool, NameNodeTool,
+            NoiseGateTool, NoiseReductionTool, NormalizeLoudnessTool, NormalizeTool,
+            NotchFilterTool, PasteRegionTool, PhaserTool, PitchShiftTool, PlotSpectrumTool,
+            PunchInTool, RemoveClipTool, RemoveEffectTool, RemoveFillersTool, RemoveSendTool,
+            RemoveTrackTool, RenameTrackTool, RenderFinalTool, RenderPreviewTool,
+            ReorderEffectsTool, RepeatSelectionTool, ResampleTrackTool, ReverbTool, ReverseTool,
+            RevertToTool, SelectRegionTool, SeparateStemsTool, SetClipEnvelopeTool,
+            SetEffectBypassedTool, SetEffectParamsTool, SetPanTool, SetSendTool, SetSyncLockTool,
+            SetTrackGainTool, SilenceFinderTool, SilenceRegionTool, SoloTrackTool,
+            SplitBySpeakerTool, SplitClipTool, StereoToMonoTool, StereoWidenerTool,
+            StorageReportTool, TimeShiftTool, TimeStretchTool, TranscribeTool, TremoloTool,
+            TrimTool, TruncateSilenceTool, VocalReductionTool,
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
@@ -391,6 +392,9 @@ impl ToolDispatcher {
         d.register(Box::new(ImportLabelsTool));
         // export_multiple: non-destructive per-track WAV export.
         d.register(Box::new(ExportMultipleTool));
+        // #618: the way to the tracks, buses and markers the session block
+        // cut.
+        d.register(Box::new(ListSessionTool));
         d
     }
 

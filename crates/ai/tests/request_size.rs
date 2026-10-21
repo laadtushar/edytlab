@@ -144,9 +144,11 @@ const ISSUE_MEASURED_TOKENS: usize = 15_157;
 // `FULL_TOOLS_MAX_BYTES` was 62,500 over a measured 62,278 B until #579 named
 // the effect parameters in the schemas of add_effect, set_effect_params and
 // audition_effect, which adds 427 B. It went up by that and no more, so the
-// headroom is the 222 B it was.
+// headroom was the 222 B it had been. #618 then added `list_session`, whose
+// descriptor with its comma is 375 B (62,705 B to 63,080 B). It went up by
+// that and no more, so the headroom is still 222 B.
 const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
-const FULL_TOOLS_MAX_BYTES: usize = 62_927; // measured 62,705
+const FULL_TOOLS_MAX_BYTES: usize = 63_302; // measured 63,080
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -1078,8 +1080,8 @@ const CONTEXT_TOKENS: usize = 8_192;
 const REPLY_TOKENS: usize = 2_048;
 
 /// The most a page of `list_session` may take, as the tool states it
-/// (`PAGE_MAX_BYTES`). Written out here so that a change to the tool's cap
-/// is a change to this file too.
+/// (`PAGE_MAX_BYTES`). Written out here, and checked against the tool's
+/// constant, so that a change to the tool's cap is a change to this file too.
 const STATED_PAGE_CAP: usize = 4_096;
 
 /// The session behind `huge_session()`, as a state a store holds and a tool
@@ -1187,6 +1189,7 @@ fn context_of(state: &session::SessionState) -> SessionContext {
 /// model's answer.
 #[tokio::test]
 async fn ollama_a_page_of_a_huge_session_fits_an_8k_context() {
+    assert_eq!(tools::tool::list_session::PAGE_MAX_BYTES, STATED_PAGE_CAP);
     let state = huge_state();
     let ctx = context_of(&state);
     for (what, total) in [("tracks", 200), ("buses", 50), ("markers", 1_000)] {
