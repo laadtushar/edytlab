@@ -23,22 +23,23 @@ import { SectionHeading } from "@/components/motion/section-heading";
  * so the two DSP cards are one card now, and the other two live where
  * their detail is.
  *
- * The phrases `website_tool_docs.rs` pins to registered tools ("Edit
- * the words, not the waveform", "Demucs stem separation", "Warp a
- * performance onto a beat grid", "Loudness-normalise", "Fork, A/B
- * compare, and revert" …) are load-bearing: reword one and update that
- * test in the same change.
+ * The phrases `website_tool_docs.rs` pins to registered tools ("Text-based
+ * editing: built, waiting on transcription", "Demucs stem separation",
+ * "Warp a performance onto a beat grid", "Loudness-normalise", "Fork,
+ * A/B compare, and revert" …) are load-bearing: reword one and update
+ * that test in the same change. The text-editing headline carries its
+ * limit on purpose: headings are what snippets and assistants quote.
  */
 const features = [
   {
     icon: FileText,
-    title: "Edit the words, not the waveform",
+    title: "Text-based editing: built, waiting on transcription",
     body: "Give a take a transcript and the transcript becomes the editor. Select a sentence to select the audio; delete it and the audio is cut and the gap closed. The remaining word timings shift to match, so the transcript keeps lining up with what you can hear. It is an ordinary edit underneath — undoable, branchable, and recorded like any other. The editing is built; the on-device transcription that produces the transcript has not shipped yet.",
   },
   {
     icon: MessageSquare,
     title: "Conversational multi-track",
-    body: "Mash A's vocals over B's drums, key-match, give me three takes. The agent plans, shows you the plan, runs the multi-track mix and renders branches you can A/B — all from a single prompt.",
+    body: "Match B's tempo to A's, start it eight bars before A ends, crossfade, give me three takes. The agent plans (and can show you the plan first), runs the multi-track mix and renders branches you can A/B — all from a single prompt.",
   },
   {
     icon: Waves,

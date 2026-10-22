@@ -38,6 +38,13 @@ function read(rel: string): string {
   return readFileSync(join(ROOT, rel), "utf8");
 }
 
+/** A source file without its comments: a comment may say what a thing used to say. */
+function code(rel: string): string {
+  return read(rel)
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+}
+
 /** Every authored `.ts` / `.tsx` file of the site, as `[path relative to website/, source]`. */
 function siteSources(dir = ROOT): [string, string][] {
   const out: [string, string][] = [];
@@ -57,7 +64,7 @@ function textOf(blocks: Block[]): string {
 }
 
 describe("the landing comparison", () => {
-  const src = read("components/landing/comparison.tsx");
+  const src = code("components/landing/comparison.tsx");
 
   it("says nothing about products it does not name", () => {
     // Two columns of category verdicts ("Traditional DAW", "AI Audio
@@ -87,7 +94,7 @@ describe("the landing comparison", () => {
 });
 
 describe("the feature grid", () => {
-  const src = read("components/landing/feature-grid.tsx");
+  const src = code("components/landing/feature-grid.tsx");
 
   it("puts the limit of text-based editing in its headline", () => {
     // The body says transcription has not shipped (#384); the headline is
