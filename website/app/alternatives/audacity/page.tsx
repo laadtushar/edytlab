@@ -296,7 +296,7 @@ export default function AudacityAlternativePage() {
           WAV. Waits for the assistant are sped up; every playback is in real time.
         </p>
         <div className="not-prose mt-6 max-w-xl">
-          <VideoLinkCard video={demo} label="Recording" />
+          <VideoLinkCard video={demo} />
         </div>
 
         <h2 id="use-both">Use both: exports and labels</h2>

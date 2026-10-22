@@ -6,8 +6,9 @@
  * page" for most of them. So each video, the three full demos included,
  * has a page of its own where it is the one thing on the screen
  * (`WatchPlayer`, with its `VideoObject`, which no other page carries),
- * and the hub, `/videos`, holds no player at all: a grid of poster cards
- * that link to those pages (`VideoLinkCard`).
+ * and the hub, `/videos`, holds no `<video>` in its markup: poster cards
+ * that link to those pages (`VideoLinkCard`), and a featured poster that
+ * only becomes a player when it is pressed (`FeaturedVideo`).
  *
  * The player is a `<video>` that waits to be played, rendered on the
  * server. Nothing starts on its own (which settles autoplay with sound
@@ -22,8 +23,10 @@ import { Play } from "lucide-react";
 
 import { JsonLd } from "@/components/json-ld";
 import { videoObjectJsonLd } from "@/lib/seo";
+import { cn } from "@/lib/utils";
 import {
   type WatchVideo,
+  cardTitle,
   formatDuration,
   videoCaptionsSrc,
   videoPath,
@@ -89,49 +92,55 @@ export function WatchPlayer({ video }: { video: WatchVideo }) {
   );
 }
 
-/** A poster, a title and a line: the card both kinds of link share. */
-function PosterCard({
-  href,
-  poster,
-  width,
-  height,
-  label,
-  seconds,
-  title,
-  blurb,
+/**
+ * A card for a video that has a page of its own: a poster with its
+ * length, the title, one line about what happens and, in small type, how
+ * it was made (`disclosure`).
+ *
+ * The whole card is the link, through the title (a stretched link), so a
+ * screen reader hears the title and not the paragraph under it. The card
+ * says nothing about what kind of video it is: the section it sits in
+ * does that.
+ *
+ * - `compact` is for a grid of vertical clips, which are narrow on a
+ *   phone: the one-line description waits for a wide screen.
+ * - `row` lays a landscape card out as a poster beside its text from
+ *   `md` up, for a section that holds one video.
+ */
+export function VideoLinkCard({
+  video,
+  compact = false,
+  row = false,
+  className,
 }: {
-  href: string;
-  poster: string;
-  width: number;
-  height: number;
-  label: string;
-  seconds: number;
-  title: string;
-  blurb: string;
+  video: WatchVideo;
+  compact?: boolean;
+  row?: boolean;
+  className?: string;
 }) {
-  const vertical = height > width;
   return (
-    <Link
-      href={href}
-      className="group flex h-full flex-col overflow-hidden rounded-xl border border-border/60 bg-card transition-colors hover:border-primary/40"
+    <article
+      className={cn(
+        "group relative flex flex-col overflow-hidden rounded-xl border border-border/60 bg-card transition-colors focus-within:border-primary/60 hover:border-primary/40",
+        row && "md:flex-row",
+        className,
+      )}
     >
-      <div className="relative bg-black">
-        <div className={vertical ? "mx-auto w-full max-w-[14rem]" : undefined}>
-          {/* The poster is a frame of the video, laid out at the video's
-              own size so the card does not move as it loads. The link
-              text names the card, so the picture is not read out again. */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={poster}
-            alt=""
-            width={width}
-            height={height}
-            loading="lazy"
-            decoding="async"
-            className="block h-auto w-full"
-            style={{ aspectRatio: `${width} / ${height}` }}
-          />
-        </div>
+      <div className={cn("relative bg-black", row && "md:w-3/5 md:shrink-0")}>
+        {/* The poster is a frame of the video, laid out at the video's
+            own size so the card does not move as it loads. The title
+            names the card, so the picture is not read out again. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={videoPosterSrc(video.slug)}
+          alt=""
+          width={video.width}
+          height={video.height}
+          loading="lazy"
+          decoding="async"
+          className="block h-auto w-full"
+          style={{ aspectRatio: `${video.width} / ${video.height}` }}
+        />
         <span
           aria-hidden
           className="absolute inset-0 flex items-center justify-center bg-black/10 transition-colors group-hover:bg-black/0"
@@ -140,32 +149,31 @@ function PosterCard({
             <Play className="size-5 translate-x-px" />
           </span>
         </span>
+        <span className="absolute bottom-2 right-2 rounded bg-black/75 px-1.5 py-0.5 text-xs font-medium tabular-nums text-white">
+          <span className="sr-only">Length </span>
+          {formatDuration(video.seconds)}
+        </span>
       </div>
-      <div className="flex flex-1 flex-col gap-2 border-t border-border/60 p-5">
-        <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
-          <span aria-hidden className="h-2 w-2 rounded-full bg-primary/60" />
-          <span>{label}</span>
-          <span className="tabular-nums">· {formatDuration(seconds)}</span>
-        </div>
-        <h3 className="text-balance text-lg font-semibold group-hover:text-primary">{title}</h3>
-        <p className="text-pretty text-sm leading-relaxed text-muted-foreground">{blurb}</p>
+      <div className={cn("flex flex-1 flex-col gap-2 p-4 sm:p-5", row && "md:justify-center md:p-8")}>
+        <h3 className={cn("text-balance text-base font-semibold leading-snug sm:text-lg", row && "md:text-2xl")}>
+          <Link
+            href={videoPath(video.slug)}
+            className="outline-none after:absolute after:inset-0 after:content-[''] group-hover:text-primary"
+          >
+            {cardTitle(video)}
+          </Link>
+        </h3>
+        <p
+          className={cn(
+            "text-pretty text-sm leading-relaxed text-muted-foreground",
+            compact && "hidden lg:block",
+            row && "md:text-base",
+          )}
+        >
+          {video.blurb}
+        </p>
+        <p className={cn("mt-auto pt-1 text-xs leading-relaxed text-muted-foreground/80", row && "md:mt-2")}>{video.disclosure}</p>
       </div>
-    </Link>
-  );
-}
-
-/** A card for a video that has a page of its own. */
-export function VideoLinkCard({ video, label }: { video: WatchVideo; label: string }) {
-  return (
-    <PosterCard
-      href={videoPath(video.slug)}
-      poster={videoPosterSrc(video.slug)}
-      width={video.width}
-      height={video.height}
-      label={label}
-      seconds={video.seconds}
-      title={video.title}
-      blurb={video.description}
-    />
+    </article>
   );
 }
