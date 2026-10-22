@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import {
   Accordion,
   AccordionContent,
@@ -26,6 +28,7 @@ const faqs = [
   {
     q: "Does my audio leave my machine?",
     a: "No. The DSP engine runs entirely on your device — decode, editing, mixing, and rendering all happen locally, and stem separation and transcription are built to run locally too once their models ship. The only network traffic is your chat with the LLM provider you've configured. Your raw audio is never uploaded.",
+    more: { href: "/use-cases/local-ai-audio-editor", label: "See what stays on your machine and what leaves" },
   },
   {
     q: "What are the system requirements?",
@@ -54,7 +57,18 @@ export function FAQ() {
               {faqs.map((f, i) => (
                 <AccordionItem key={f.q} value={`item-${i}`} data-faq-item>
                   <AccordionTrigger>{f.q}</AccordionTrigger>
-                  <AccordionContent>{f.a}</AccordionContent>
+                  <AccordionContent>
+                    {f.a}
+                    {f.more ? (
+                      <>
+                        {" "}
+                        <Link href={f.more.href} className="text-primary underline underline-offset-4">
+                          {f.more.label}
+                        </Link>
+                        .
+                      </>
+                    ) : null}
+                  </AccordionContent>
                 </AccordionItem>
               ))}
             </Accordion>

@@ -13,8 +13,55 @@ import type { Metadata } from "next";
 import { FOUNDER, LABYNATOR } from "./family";
 import { siteConfig } from "./site";
 
-/** The day the site's pages last changed in substance, for the sitemap. */
+/**
+ * The fallback date for a page with no entry in `PAGE_UPDATED`: the day
+ * the site was last checked as a whole. A page should have its own
+ * (`seo.test.ts` fails when one does not), because Google reads
+ * `<lastmod>` only "if it's consistently and verifiably" accurate, and
+ * one date on every page is not verifiable for any of them.
+ */
 export const SITE_UPDATED = "2026-10-22";
+
+/**
+ * The day each page's content last changed in substance, by path, for
+ * the sitemap and for the `dateModified` of a page's `Article` data.
+ *
+ * Each date is the committer date of the last change to the files the
+ * page is made of, read when this was written:
+ *
+ *     git log -1 --format=%cs -- <the page's source files>
+ *
+ * The source files are the page's own `page.tsx` plus the components
+ * and data that only it renders (the home page's sections, the demo
+ * list for the pages that play the demos). The header, the footer and
+ * the shells are on every page and not part of what a page says, so a
+ * change to one does not move the others. `/blog` is not here: its date
+ * is its newest post's.
+ *
+ * Move a date when a page's content changes, not when the page is
+ * rebuilt: changing dates to look fresh is on Google's list of warning
+ * signs for helpful-content review.
+ */
+export const PAGE_UPDATED: Readonly<Record<string, string>> = {
+  "/": "2026-10-22",
+  "/docs": "2026-10-21",
+  "/docs/getting-started": "2026-10-22",
+  "/docs/user-guide": "2026-10-22",
+  "/docs/tools": "2026-10-22",
+  "/docs/developer-guide": "2026-10-22",
+  "/docs/api-reference": "2026-10-22",
+  "/use-cases/dj": "2026-10-13",
+  "/use-cases/local-ai-audio-editor": "2026-10-22",
+  "/changelog": "2026-10-21",
+  "/press": "2026-10-21",
+  "/privacy": "2026-10-11",
+  "/terms": "2026-10-10",
+};
+
+/** When a page last changed in substance: its own date, else the site's. */
+export function pageUpdated(path: string): string {
+  return PAGE_UPDATED[path] ?? SITE_UPDATED;
+}
 
 export const BLOG_TITLE = "edytlab Blog";
 export const FEED_PATH = "/blog/feed.xml";
@@ -104,6 +151,16 @@ export function serializeJsonLd(data: unknown): string {
   return JSON.stringify(data).replace(/</g, "\\u003c");
 }
 
+/**
+ * Stable identifiers for the three things the home page describes, so
+ * other blocks (and other pages) can point at them instead of repeating
+ * them, and a crawler reads each as one entity across visits. They are
+ * URLs under the home page and never change with a release.
+ */
+export const ORGANIZATION_ID = `${siteConfig.url}/#organization`;
+export const WEBSITE_ID = `${siteConfig.url}/#website`;
+export const SOFTWARE_ID = `${siteConfig.url}/#software`;
+
 /** The licence the app is released under, as schema.org wants it: a URL. */
 export const LICENSE_URL = "https://opensource.org/licenses/MIT";
 
@@ -123,6 +180,7 @@ export function softwareJsonLd(version?: string) {
   return {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
+    "@id": SOFTWARE_ID,
     name: siteConfig.name,
     url: siteConfig.url,
     description: siteConfig.description,
@@ -136,4 +194,96 @@ export function softwareJsonLd(version?: string) {
     publisher: { "@type": "Organization", name: LABYNATOR.name, url: LABYNATOR.url },
     author: { "@type": "Person", name: FOUNDER.name, url: FOUNDER.url },
   };
+}
+
+/**
+ * The home page's `Organization`: edytlab itself, as the project that
+ * publishes the app, with its mark (`public/logo.png`, 512 by 512, well
+ * over the 112 by 112 minimum), where it lives on the web, and the two
+ * facts the footer states: it is part of LabyNator and was built by
+ * Tushar Laad.
+ *
+ * `sameAs` is the repository and nothing else: social handles are
+ * omitted until the accounts exist (see the footer). No rating, review
+ * or count of any kind.
+ */
+export function organizationJsonLd() {
+  return {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "@id": ORGANIZATION_ID,
+    name: siteConfig.name,
+    url: siteConfig.url,
+    logo: { "@type": "ImageObject", url: absoluteUrl("/logo.png"), width: 512, height: 512 },
+    description: siteConfig.description,
+    sameAs: [siteConfig.github],
+    founder: { "@type": "Person", name: FOUNDER.name, url: FOUNDER.url },
+    parentOrganization: { "@type": "Organization", name: LABYNATOR.name, url: LABYNATOR.url },
+  };
+}
+
+/**
+ * The home page's `WebSite`. Its `name` is what Google may show as the
+ * site name in results, so it is the brand and nothing else.
+ */
+export function websiteJsonLd() {
+  return {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "@id": WEBSITE_ID,
+    name: siteConfig.name,
+    url: siteConfig.url,
+    description: siteConfig.description,
+    inLanguage: "en",
+    publisher: { "@id": ORGANIZATION_ID },
+  };
+}
+
+/**
+ * An `Article` for a page that reads as one: the use-case pages.
+ *
+ * Authored by the founder, as the rest of the site names him, and
+ * published by the project. `dateModified` comes from `PAGE_UPDATED`,
+ * the date the sitemap gives the same page, so the two cannot disagree.
+ * `datePublished` is when the page first went up, read from git when it
+ * was written and passed in by the page.
+ */
+export function articleJsonLd(page: {
+  path: string;
+  headline: string;
+  description: string;
+  datePublished: string;
+}) {
+  const url = absoluteUrl(page.path);
+  return {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    headline: page.headline,
+    description: page.description,
+    datePublished: page.datePublished,
+    dateModified: pageUpdated(page.path),
+    author: { "@type": "Person", name: FOUNDER.name, url: FOUNDER.url },
+    publisher: {
+      "@type": "Organization",
+      "@id": ORGANIZATION_ID,
+      name: siteConfig.name,
+      url: siteConfig.url,
+      logo: { "@type": "ImageObject", url: absoluteUrl("/logo.png") },
+    },
+    image: [absoluteUrl(DEFAULT_OG_IMAGE.url)],
+    mainEntityOfPage: { "@type": "WebPage", "@id": url },
+    url,
+    inLanguage: "en",
+  };
+}
+
+/**
+ * The trail for a page one level below the home page: Home, then the
+ * page. (There is no `/use-cases` index to put between them.)
+ */
+export function pageBreadcrumbs(name: string, path: string): Crumb[] {
+  return [
+    { name: "Home", path: "/" },
+    { name, path },
+  ];
 }

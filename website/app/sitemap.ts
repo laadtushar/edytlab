@@ -1,7 +1,7 @@
 import type { MetadataRoute } from "next";
 
 import { modifiedOf, posts } from "@/lib/blog";
-import { SITE_UPDATED, absoluteUrl, postPath } from "@/lib/seo";
+import { absoluteUrl, pageUpdated, postPath } from "@/lib/seo";
 
 type Entry = MetadataRoute.Sitemap[number];
 
@@ -27,12 +27,14 @@ const pages: { path: string; priority: number; changeFrequency: Entry["changeFre
 ];
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  // The newest post moves the blog index; the site-wide date moves the rest.
+  // The newest post moves the blog index; every other page has a date of
+  // its own in `PAGE_UPDATED` (`lib/seo-core.ts`), the day its content
+  // last changed, so a date moves only when its page does.
   const blogUpdated = posts.map(modifiedOf).reduce((a, b) => (a > b ? a : b));
 
   const fixed: MetadataRoute.Sitemap = pages.map((p) => ({
     url: absoluteUrl(p.path),
-    lastModified: new Date(p.path === "/blog" ? blogUpdated : SITE_UPDATED),
+    lastModified: new Date(p.path === "/blog" ? blogUpdated : pageUpdated(p.path)),
     changeFrequency: p.changeFrequency,
     priority: p.priority,
   }));
