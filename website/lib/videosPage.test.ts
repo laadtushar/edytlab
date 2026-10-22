@@ -239,7 +239,10 @@ describe("each video's page", () => {
     const text = textOf(html);
 
     expect(body.match(/<h1\b/g)).toHaveLength(1);
-    expect(body).toContain(`>${video.title.replace(/'/g, "&#x27;")}<`);
+    // The heading is the title a visitor reads; "(short reel)" stays in <title>, where it keeps titles unique.
+    const h1 = body.slice(body.indexOf("<h1"), body.indexOf("</h1>") + "</h1>".length);
+    expect(h1).toContain(`>${cardTitle(video).replace(/'/g, "&#x27;")}<`);
+    expect(h1).not.toContain("short reel");
     expect(text).toContain(video.blurb);
     // One player, one VideoObject, and the player before every section.
     expect(body.match(/<video\b/g)).toHaveLength(1);

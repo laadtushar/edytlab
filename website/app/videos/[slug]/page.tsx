@@ -13,6 +13,7 @@ import {
   videoBreadcrumbs,
 } from "@/lib/seo";
 import {
+  cardTitle,
   forViewers,
   formatDuration,
   formatMoment,
@@ -65,7 +66,7 @@ export default async function VideoPage({ params }: Props) {
   const vertical = video.height > video.width;
 
   return (
-    <PageShell wide eyebrow={EYEBROW[video.kind]} title={video.title} lead={video.blurb}>
+    <PageShell wide eyebrow={EYEBROW[video.kind]} title={cardTitle(video)} lead={video.blurb}>
       <JsonLd data={breadcrumbJsonLd(videoBreadcrumbs(video))} />
 
       {/* A vertical video sits beside its words from `lg` up, so the page is not a phone-wide
