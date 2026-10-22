@@ -95,31 +95,17 @@ pub struct AppState {
     /// the selection to localStorage and pushes it down here so the
     /// next `rebuild_agent` builds the LlmConfig with the chosen model.
     pub active_model_by_provider: Arc<Mutex<std::collections::HashMap<String, String>>>,
-    /// Plan-approval signal for mashup mode (M27). The agent turn loop
-    /// waits on this notifier; the `approve_plan` command fires it
-    /// directly — without ever touching the agent Mutex — so there is no
-    /// deadlock even though `send_message` holds the agent lock across its
-    /// `.await` points.
-    pub plan_notify: Arc<tokio::sync::Notify>,
-    /// Edited plan steps forwarded by the frontend when the user modifies
-    /// one or more step descriptions before clicking Run. Set by
-    /// `approve_plan` before it fires `plan_notify`; consumed and cleared
-    /// by the agent loop immediately after `await_plan_approval` returns.
-    /// `None` when the user approves without edits.
-    pub plan_steps_override: Arc<Mutex<Option<String>>>,
-    /// Set by `reject_plan` before it fires `plan_notify`, so the agent
-    /// can tell a rejection from an approval on the same notifier.
-    pub plan_rejected: Arc<std::sync::atomic::AtomicBool>,
-    /// True only while a turn is actually parked on the plan gate
-    /// (#251).
+    /// The plan gate (M27, ADR 0002): where a turn waits for the user to
+    /// approve, revise or reject the plan card. The agent holds a clone;
+    /// `approve_plan` and `reject_plan` answer through this one, never
+    /// touching the agent Mutex, so there is no deadlock even though
+    /// `send_message` holds the agent lock across its `.await` points.
     ///
-    /// `plan_notify` is a tokio `Notify`, and `notify_one` on a
-    /// waiterless one *stores a permit* — so an approve with no gate
-    /// open (a stray Run click on a card that should have gone away)
-    /// silently satisfied the **next** turn's gate, with whatever
-    /// override text came with it. This flag is what makes those calls
-    /// no-ops instead.
-    pub plan_gate_open: Arc<std::sync::atomic::AtomicBool>,
+    /// An answer is taken only while a card is open, so a stray Run click
+    /// on a card that should have gone away is a no-op rather than a
+    /// permit banked for the next turn (#251), and a turn that times out
+    /// or is dropped closes it with no reset here.
+    pub plan_gate: ai::PlanGate,
     /// Whether the user asked to see a plan before every turn. Kept on
     /// the state rather than in the agent so it survives an agent
     /// rebuild — which happens on every key, model or base-URL change.
@@ -212,10 +198,7 @@ impl AppState {
             startup_reads: Arc::new(tokio::sync::watch::channel(true).0),
             active_provider: Arc::new(Mutex::new(ai::ANTHROPIC_ID.to_string())),
             active_model_by_provider: Arc::new(Mutex::new(std::collections::HashMap::new())),
-            plan_notify: Arc::new(tokio::sync::Notify::new()),
-            plan_steps_override: Arc::new(Mutex::new(None)),
-            plan_rejected: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            plan_gate_open: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            plan_gate: ai::PlanGate::new(),
             plan_first: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             settings_path: Arc::new(Mutex::new(PathBuf::new())),
             selection: Arc::new(Mutex::new(None)),

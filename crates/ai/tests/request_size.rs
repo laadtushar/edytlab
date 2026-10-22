@@ -78,7 +78,6 @@
 mod common;
 
 use std::collections::BTreeSet;
-use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use ai::provider::provider_from_id;
@@ -148,13 +147,18 @@ const ISSUE_MEASURED_TOKENS: usize = 15_157;
 // audition_effect, which adds 427 B. It went up by that and no more, so the
 // headroom was the 222 B it had been. #618 then added `list_session`, whose
 // descriptor with its comma is 375 B (62,705 B to 63,080 B). It went up by
-// that and no more, so the headroom is still 222 B. #384 then replaced
+// that and no more, so the headroom is still 222 B. #653 then had
+// `batch_apply` say where its projects and renders land (the input folder, by
+// default) and `render_final` say that a path the project reads is refused,
+// which adds 410 B (63,080 B to 63,490 B). The model chooses `output_dir` and
+// `out_path`, and a render that lands on a recording is a loss, so it went up
+// by that and no more: the headroom is still 222 B. #384 then replaced
 // `transcribe`'s "not implemented" descriptor with the one of a tool that runs
 // (`track` or `path`, `language`, what to tell the user when the model is
 // missing) and added a sentence to `cut_words` and `remove_fillers` about the
-// transcript's track: 63,080 B to 63,818 B. It went up by that and no more.
+// transcript's track: 63,490 B to 64,208 B. It went up by that and no more.
 const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
-const FULL_TOOLS_MAX_BYTES: usize = 64_040; // measured 63,818
+const FULL_TOOLS_MAX_BYTES: usize = 64_430; // measured 64,208
 
 // ---------------------------------------------------------------------
 // Fixture
@@ -330,7 +334,7 @@ async fn run_conversation(
         .await;
 
     let dir = tempfile::tempdir().expect("tempdir");
-    let notify = Arc::new(tokio::sync::Notify::new());
+    let gate = ai::PlanGate::new();
     let mut store = session::Store::open(dir.path()).expect("open store");
     if let Some(state) = &options.state {
         store.append(node_of(state)).expect("append the head");
@@ -340,9 +344,7 @@ async fn run_conversation(
         Arc::new(Mutex::new(dispatcher_with_mcp(options.mcp_tools))),
         Arc::new(Mutex::new(store)),
         Arc::new(Mutex::new(audio_engine::Engine::new())),
-        Arc::clone(&notify),
-        Arc::new(Mutex::new(None)),
-        Arc::new(AtomicBool::new(false)),
+        gate.clone(),
         Arc::new(Mutex::new(None::<tools::Clipboard>)),
     );
     agent.set_plan_first(options.plan_first);
@@ -357,7 +359,7 @@ async fn run_conversation(
             agent
                 .turn_with_context((*message).to_string(), Some(&ctx), |event| {
                     if matches!(event, AgentEvent::Plan { .. }) {
-                        notify.notify_one();
+                        gate.answer(ai::plan_gate::Answer::Approve);
                     }
                 })
                 .await,

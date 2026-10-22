@@ -18,7 +18,6 @@
 
 mod common;
 
-use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use ai::anthropic::{MessagesRequest, StreamEvent};
@@ -27,7 +26,6 @@ use ai::responses::{ResponsesCodec, ToolGrouping};
 use ai::{Agent, AgentEvent, Error, LlmConfig, LlmProvider};
 use common::{ok, Entry, SeqResponder};
 use serde_json::{json, Value};
-use tokio::sync::Notify;
 use tools::ToolDispatcher;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer};
@@ -228,9 +226,7 @@ async fn run(responses: Vec<Entry>) -> Run {
             session::Store::open(dir.path()).expect("open store"),
         )),
         Arc::new(Mutex::new(audio_engine::Engine::new())),
-        Arc::new(Notify::new()),
-        Arc::new(Mutex::new(None)),
-        Arc::new(AtomicBool::new(false)),
+        ai::PlanGate::new(),
         Arc::new(Mutex::new(None::<tools::Clipboard>)),
     );
     let mut events = Vec::new();

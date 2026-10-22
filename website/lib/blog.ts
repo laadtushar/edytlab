@@ -1,3 +1,4 @@
+import { audioHowtoPosts } from "./blog-posts-audio";
 import { octoberPosts } from "./blog-posts-october";
 import { stripInline } from "./inline";
 import { siteConfig } from "./site";
@@ -5,7 +6,9 @@ import { siteConfig } from "./site";
 /**
  * `p`, `ul`, `ol` and `callout` text takes the inline markup in
  * `lib/inline.ts` (links, `code`, **bold**). A `prompt` is a line to
- * type into edytlab's chat, shown as typed: verbatim, never parsed.
+ * type into edytlab's chat, shown as typed: verbatim, never parsed. A
+ * `code` block is a shell command or script, also verbatim, set in a
+ * box that scrolls sideways rather than wrapping.
  */
 export type Block =
   | { type: "h2"; text: string }
@@ -14,6 +17,7 @@ export type Block =
   | { type: "ul"; items: string[] }
   | { type: "ol"; items: string[] }
   | { type: "prompt"; text: string }
+  | { type: "code"; text: string }
   | { type: "callout"; text: string };
 
 export interface BlogPost {
@@ -524,7 +528,7 @@ const earlierPosts: BlogPost[] = [
 ];
 
 /** Every post, oldest first. Where two share a date, the order here is the order shown. */
-export const posts: BlogPost[] = [...earlierPosts, ...octoberPosts];
+export const posts: BlogPost[] = [...earlierPosts, ...octoberPosts, ...audioHowtoPosts];
 
 export function getPost(slug: string): BlogPost | undefined {
   return posts.find((p) => p.slug === slug);
@@ -553,6 +557,7 @@ export function wordCount(post: BlogPost): number {
         case "ol":
           return b.items.map(stripInline).join(" ");
         case "prompt":
+        case "code":
           return b.text;
         default:
           return stripInline(b.text);

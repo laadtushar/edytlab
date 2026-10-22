@@ -8,25 +8,23 @@
 //!   tool calls it is about to make.
 //!
 //! Both go through [`ask`], so one arming rule, one timeout and one
-//! meaning for "revised" serve both. This module also owns what the held
-//! step looks like on the card ([`describe_call`]) and the conversation
-//! bookkeeping a step that does not run needs ([`not_run`]).
+//! meaning for "revised" serve both; the wait itself is the
+//! [`PlanGate`](crate::plan_gate::PlanGate). This module also owns what
+//! the held step looks like on the card ([`describe_call`]) and the
+//! conversation bookkeeping a step that does not run needs ([`not_run`]).
 //!
 //! Kept out of `agent_loop.rs`, which is already long enough that adding
 //! to it would bury the loop it exists to explain.
 
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use futures_util::FutureExt;
 use serde_json::{json, Value};
-use tokio::sync::Notify;
 use tools::ToolDispatcher;
 
 use crate::agent_loop::parse_tool_args;
 use crate::anthropic::{ContentBlock, Message, Role};
+use crate::plan_gate::{Answer, PlanGate};
 use crate::{AgentEvent, Error, Result};
 
 /// The tool result a model gets when the user declined its step.
@@ -42,82 +40,31 @@ pub(crate) const TIMED_OUT: &str = "Not run: the user did not answer the approva
 /// How long the gate waits for an answer.
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(300);
 
-/// What the user said to a card.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Approval {
-    /// Run it as shown.
-    Approved,
-    /// Run it, but not as shown: this is the user's rewrite of the steps.
-    /// For a model-written plan the text is appended to the user's
-    /// message. For a held step it is guidance only, because running the
-    /// held calls would apply the very thing the user just changed.
-    Revised(String),
-    /// Do not run it.
-    Rejected,
-}
-
 /// Show `steps` on the approval card and wait for the answer.
 ///
-/// The gate is armed before the card exists. The notifier is a tokio
-/// `Notify`, which *stores* a permit when `notify_one` is called with
-/// nobody waiting, and the rejection flag and the override slot are plain
-/// shared state. Anything left behind by an earlier gate (a timed-out
-/// turn, a stray click) would otherwise answer this one before the user
-/// has seen it. Arming first is safe because the UI cannot answer a card
-/// that has not been emitted yet.
+/// The gate is opened before the card exists. An answer is only taken while
+/// a question is open, so one left behind by an earlier card (a timed-out
+/// turn, a stray click) has nothing to land in and cannot answer this one
+/// before the user has seen it, and the UI cannot answer a card that has
+/// not been emitted yet, so opening first misses nothing.
+///
+/// Waits for the frontend to answer, and no longer than five minutes. The
+/// `approve_plan` and `reject_plan` commands answer through the gate that
+/// `AppState` holds, never through the agent's lock, which `send_message`
+/// holds across this `.await` (CLAUDE.md, "Lock order"). A rejection is a
+/// normal answer, not a timeout: there used to be two ways out, approve or
+/// wait, which made the gate feel like a trap rather than a checkpoint.
+///
+/// A turn that is dropped while it waits, or that times out, closes the
+/// question itself; see [`crate::plan_gate::Waiting`].
 pub(crate) async fn ask(
     on_event: &mut impl FnMut(AgentEvent),
     steps: Vec<Value>,
-    notify: &Arc<Notify>,
-    rejected: &Arc<AtomicBool>,
-    override_slot: &Arc<Mutex<Option<String>>>,
-) -> Result<Approval> {
-    // Polling a `Notified` once consumes a stored permit. With none
-    // stored it registers a waiter that is dropped with the future.
-    let _ = notify.notified().now_or_never();
-    rejected.store(false, Ordering::SeqCst);
-    override_slot
-        .lock()
-        .expect("plan_steps_override mutex poisoned")
-        .take();
-
+    gate: &PlanGate,
+) -> Result<Answer> {
+    let waiting = gate.ask();
     on_event(AgentEvent::Plan { steps });
-
-    if await_answer(notify, rejected).await? {
-        return Ok(Approval::Rejected);
-    }
-    // Consume any step overrides the frontend stored before firing the
-    // notifier.
-    let revised = override_slot
-        .lock()
-        .expect("plan_steps_override mutex poisoned")
-        .take();
-    Ok(match revised {
-        Some(text) => Approval::Revised(text),
-        None => Approval::Approved,
-    })
-}
-
-/// Wait for the frontend to answer. Uses `tokio::sync::Notify` so the loop
-/// wakes immediately when the user clicks "Run" with zero polling
-/// overhead. Times out after 5 minutes.
-///
-/// The notifier is stored in `AppState` (not behind the agent Mutex), so
-/// the `approve_plan` Tauri command can fire it without holding any lock
-/// that `send_message` also holds, eliminating the deadlock.
-///
-/// There used to be exactly two ways out: approve, or wait five minutes.
-/// A user who disliked the plan had no way to say so, which made the gate
-/// feel like a trap rather than a checkpoint. `rejected` is set by the
-/// `reject_plan` command before it fires the same notifier, so a
-/// rejection is a normal answer rather than a timeout.
-///
-/// Returns `true` for a rejection.
-async fn await_answer(notify: &Arc<Notify>, rejected: &Arc<AtomicBool>) -> Result<bool> {
-    tokio::time::timeout(ANSWER_TIMEOUT, notify.notified())
-        .await
-        .map_err(|_| Error::PlanTimeout)?;
-    Ok(rejected.swap(false, Ordering::SeqCst))
+    waiting.wait(ANSWER_TIMEOUT).await.ok_or(Error::PlanTimeout)
 }
 
 /// A model step's tool calls: `(id, name, arguments as streamed)`.
@@ -443,96 +390,108 @@ mod tests {
     // ask
     // ------------------------------------------------------------------
 
-    fn gate() -> (Arc<Notify>, Arc<AtomicBool>, Arc<Mutex<Option<String>>>) {
-        (
-            Arc::new(Notify::new()),
-            Arc::new(AtomicBool::new(false)),
-            Arc::new(Mutex::new(None)),
-        )
-    }
-
-    /// A permit left by an earlier gate must not answer this one.
+    /// A click left over from an earlier turn must not answer this one.
     ///
-    /// Without the drain in [`ask`], the stale `notify_one` is consumed by
-    /// the wait and the result is `Approved` at once, before the user has
-    /// seen the card.
-    #[tokio::test]
-    async fn ask_ignores_a_stale_permit() {
-        let (notify, rejected, slot) = gate();
-        notify.notify_one(); // a stray click from some earlier turn
+    /// With nothing asked, the click finds no question open and is dropped.
+    /// If it were kept (as a tokio `Notify` keeps a permit), the wait would
+    /// end at once, `Approved`, before the user has seen the card.
+    #[tokio::test(start_paused = true)]
+    async fn ask_ignores_an_answer_given_before_the_card() {
+        let gate = PlanGate::new();
+        assert!(!gate.answer(Answer::Approve), "a stray click, no card open");
+        assert!(!gate.answer(Answer::Revise("left over".to_string())));
 
-        let (n, r) = (Arc::clone(&notify), Arc::clone(&rejected));
+        let late = gate.clone();
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(50)).await;
-            r.store(true, Ordering::SeqCst);
-            n.notify_one();
+            late.answer(Answer::Reject);
         });
 
         let mut events = Vec::new();
-        let answer = ask(&mut |e| events.push(e), vec![], &notify, &rejected, &slot)
+        let answer = ask(&mut |e| events.push(e), vec![], &gate)
             .await
             .expect("answered");
-        assert_eq!(answer, Approval::Rejected);
+        assert_eq!(answer, Answer::Reject);
         assert!(matches!(events.as_slice(), [AgentEvent::Plan { .. }]));
     }
 
     #[tokio::test]
-    async fn ask_returns_revised_when_the_override_is_set() {
-        let (notify, rejected, slot) = gate();
-        let (n, s) = (Arc::clone(&notify), Arc::clone(&slot));
+    async fn ask_returns_revised_when_the_user_revised() {
+        let gate = PlanGate::new();
+        let ui = gate.clone();
         let answer = ask(
             &mut |event| {
                 // The UI answers the card it was just shown.
                 if matches!(event, AgentEvent::Plan { .. }) {
-                    *s.lock().unwrap() = Some("1. track: 1".to_string());
-                    n.notify_one();
+                    ui.answer(Answer::Revise("1. track: 1".to_string()));
                 }
             },
             vec![],
-            &notify,
-            &rejected,
-            &slot,
+            &gate,
         )
         .await
         .expect("answered");
-        assert_eq!(answer, Approval::Revised("1. track: 1".to_string()));
-        assert!(slot.lock().unwrap().is_none(), "the override was consumed");
+        assert_eq!(answer, Answer::Revise("1. track: 1".to_string()));
+        assert!(
+            !gate.is_waiting(),
+            "the question was closed with its answer"
+        );
     }
 
     #[tokio::test]
     async fn ask_approves_when_nothing_was_changed() {
-        let (notify, rejected, slot) = gate();
-        let n = Arc::clone(&notify);
-        let answer = ask(&mut |_| n.notify_one(), vec![], &notify, &rejected, &slot)
-            .await
-            .expect("answered");
-        assert_eq!(answer, Approval::Approved);
-    }
-
-    /// An override left in the slot by an abandoned gate is not this
-    /// card's revision.
-    #[tokio::test]
-    async fn ask_clears_a_stale_override_before_emitting() {
-        let (notify, rejected, slot) = gate();
-        *slot.lock().unwrap() = Some("left over".to_string());
-        let (n, s) = (Arc::clone(&notify), Arc::clone(&slot));
-        let mut seen_at_emit = None;
+        let gate = PlanGate::new();
+        let ui = gate.clone();
         let answer = ask(
-            &mut |event| {
-                if matches!(event, AgentEvent::Plan { .. }) {
-                    seen_at_emit = Some(s.lock().unwrap().clone());
-                    n.notify_one();
-                }
+            &mut |_| {
+                ui.answer(Answer::Approve);
             },
             vec![],
-            &notify,
-            &rejected,
-            &slot,
+            &gate,
         )
         .await
         .expect("answered");
-        assert_eq!(seen_at_emit, Some(None), "the slot was not cleared first");
-        assert_eq!(answer, Approval::Approved);
+        assert_eq!(answer, Answer::Approve);
+    }
+
+    /// The gate is open by the time the card is emitted, and a revision
+    /// left over from an abandoned card is not this card's.
+    #[tokio::test]
+    async fn ask_is_open_before_the_card_is_emitted() {
+        let gate = PlanGate::new();
+        assert!(!gate.answer(Answer::Revise("left over".to_string())));
+
+        let ui = gate.clone();
+        let mut open_at_emit = None;
+        let answer = ask(
+            &mut |event| {
+                if matches!(event, AgentEvent::Plan { .. }) {
+                    open_at_emit = Some(ui.is_waiting());
+                    ui.answer(Answer::Approve);
+                }
+            },
+            vec![],
+            &gate,
+        )
+        .await
+        .expect("answered");
+        assert_eq!(open_at_emit, Some(true), "the gate was not open first");
+        assert_eq!(answer, Answer::Approve, "a left-over revision got in");
+    }
+
+    /// Nobody answers: the turn gets the timeout, and the gate is closed,
+    /// so a click after that is a no-op and not a permit for the next turn.
+    #[tokio::test(start_paused = true)]
+    async fn ask_times_out_and_leaves_the_gate_closed() {
+        let gate = PlanGate::new();
+        let mut events = Vec::new();
+
+        let result = ask(&mut |e| events.push(e), vec![], &gate).await;
+
+        assert!(matches!(result, Err(Error::PlanTimeout)), "{result:?}");
+        assert!(matches!(events.as_slice(), [AgentEvent::Plan { .. }]));
+        assert!(!gate.is_waiting());
+        assert!(!gate.answer(Answer::Approve), "a late click found a gate");
     }
 
     // ------------------------------------------------------------------

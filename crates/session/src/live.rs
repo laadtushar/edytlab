@@ -151,6 +151,10 @@ pub type Identify = fn(&Path) -> io::Result<Identity>;
 
 /// The identity of the folder at `dir`: the real [`Identify`]. Errors when
 /// `dir` cannot be opened for reading, which includes it not existing.
+///
+/// A regular file answers as well, with the identity that tells it from every
+/// other file on the machine whatever it is called: `tools::destination` asks
+/// it whether a path to write is a file the project reads (#653).
 #[cfg(unix)]
 pub fn identify(dir: &Path) -> io::Result<Identity> {
     use std::os::unix::fs::MetadataExt;
@@ -163,7 +167,8 @@ pub fn identify(dir: &Path) -> io::Result<Identity> {
 }
 
 /// The identity of the folder at `dir`: the real [`Identify`]. Errors when
-/// `dir` cannot be opened for reading, which includes it not existing.
+/// `dir` cannot be opened for reading, which includes it not existing. A
+/// regular file answers as well (see the unix variant).
 ///
 /// `GetFileInformationByHandleEx` with `FileIdInfo` gives the 128-bit file id
 /// and the 64-bit volume serial number. The older `nFileIndex` is 64 bits

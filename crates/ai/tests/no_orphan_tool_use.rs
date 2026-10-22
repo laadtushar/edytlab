@@ -35,7 +35,6 @@
 mod common;
 
 use std::collections::BTreeSet;
-use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use ai::anthropic::{ContentBlock, Message, Role};
@@ -45,7 +44,6 @@ use common::{
     sse_thinking_tool_step, sse_tool_step, Entry, SeqResponder,
 };
 use serde_json::{json, Value};
-use tokio::sync::Notify;
 use tools::schema::{anthropic_tool, object_schema};
 use tools::{Tool, ToolContext, ToolDispatcher, ToolResult};
 use wiremock::matchers::{method, path};
@@ -368,9 +366,7 @@ impl Fixture {
                 session::Store::open(dir.path()).expect("open store"),
             )),
             Arc::new(Mutex::new(audio_engine::Engine::new())),
-            Arc::new(Notify::new()),
-            Arc::new(Mutex::new(None)),
-            Arc::new(AtomicBool::new(false)),
+            ai::PlanGate::new(),
             Arc::new(Mutex::new(None::<tools::Clipboard>)),
         );
 

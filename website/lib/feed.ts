@@ -59,6 +59,7 @@ function blockHtml(block: Block): string {
     case "ol":
       return `<ol>${block.items.map((i) => `<li>${inlineHtml(i)}</li>`).join("")}</ol>`;
     case "prompt":
+    case "code":
       return `<pre><code>${escapeXml(block.text)}</code></pre>`;
     case "callout":
       return `<blockquote>${inlineHtml(block.text)}</blockquote>`;

@@ -50,7 +50,7 @@
             │          │                  │              │
      ┌──────▼──────────▼──────────────────▼──────────────▼──────┐
      │  SHARED STATE  (Arc<Mutex<_>> in AppState)                │
-     │  Store · Engine · Agent · Clipboard · PlanNotify          │
+     │  Store · Engine · Agent · Clipboard · PlanGate            │
      └───────────────────────────────────────────────────────────┘
                                │
      ┌─────────────────────────▼──────────────────────────┐
@@ -241,9 +241,7 @@ pub struct Agent {
     engine:       Arc<Mutex<Engine>>,
     clipboard:    Arc<Mutex<Option<tools::Clipboard>>>,
     conversation: Vec<Message>,
-    plan_notify:  Arc<Notify>,
-    plan_steps_override: Arc<std::sync::Mutex<Option<String>>>,
-    plan_rejected: Arc<AtomicBool>,
+    plan_gate:    PlanGate,
     plan_first:   bool,
     memory:       Option<Arc<MemoryStore>>,
     skills:       Option<Arc<Mutex<SkillLibrary>>>,
@@ -359,9 +357,16 @@ node names), and names only cache entries in its result.
 pre-dispatch checks with `invoke`, so a call that would be refused (turned off,
 unknown, invalid arguments) is not held.
 
-The shared approval path (arming the gate, the five-minute timeout, the card's
+The shared approval path (opening the gate, the five-minute timeout, the card's
 steps, the bookkeeping for a step that does not run) is
-`crates/ai/src/approval.rs`.
+`crates/ai/src/approval.rs`. The wait itself is the plan gate,
+`crates/ai/src/plan_gate.rs` (ADR 0002): one `PlanGate` handle, held by the
+`Agent` and by `AppState`, with a `tokio::sync::oneshot` per card. `approval::ask`
+opens the question before it emits the card and awaits it; the `approve_plan` and
+`reject_plan` commands answer it without touching the agent's lock. An answer
+takes the sender out of the slot, so a second click, a click with no card open
+and a click after the timeout do nothing, and a turn that times out or is
+dropped closes the question itself.
 
 ### Request size and small-context models
 

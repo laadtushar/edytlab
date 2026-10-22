@@ -19,6 +19,7 @@ import { octoberPosts } from "./blog-posts-october";
 import { linksIn } from "./inline";
 import { motifPath, seedOf } from "./og-motif";
 import { siteConfig } from "./site";
+import { getVideo } from "./videos";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 const COVER_BUDGET_BYTES = 8 * 1024;
@@ -31,6 +32,7 @@ function markupOf(post: BlogPost): string[] {
       case "ol":
         return b.items;
       case "prompt":
+      case "code":
       case "h2":
       case "h3":
         return [];
@@ -207,6 +209,9 @@ describe("links inside posts", () => {
     if (path === "" || path === "/") return;
     if (path.startsWith("/blog/")) {
       expect(slugs.has(path.slice("/blog/".length)), `no post ${path}`).toBe(true);
+    } else if (path.startsWith("/videos/")) {
+      // A watch page is one dynamic route, `app/videos/[slug]`, fed by the video list.
+      expect(getVideo(path.slice("/videos/".length)), `no video ${path}`).toBeDefined();
     } else {
       expect(appPages, `no page for ${path}`).toContain(`app${path}/page.tsx`);
     }

@@ -286,6 +286,74 @@ function UndoGraph() {
   );
 }
 
+/** A waveform under a dashed target line, a ceiling above it, and one narrow peak through the ceiling. */
+function Loudness() {
+  return (
+    <>
+      <path d="M40 112H600" className="stroke-muted-foreground" />
+      <path d="M40 184H600" className="stroke-primary" strokeDasharray="4 9" />
+      <path d={bars(48, 592, 236, 50, 12, 8, (t) => 0.55 + 0.3 * Math.sin(t * 14))} className="stroke-primary" />
+      <path d="M472 236V84" className="stroke-primary" strokeWidth={3.5} />
+      <circle cx="472" cy="84" r="6" className="fill-primary stroke-primary" />
+    </>
+  );
+}
+
+/** Four files of different levels on the left, the same four at one level on the right. */
+function Batch() {
+  const ys = [64, 132, 200, 268];
+  const amps = [34, 12, 24, 7];
+  return (
+    <>
+      {ys.map((y, i) => (
+        <g key={y}>
+          <rect x="40" y={y - 26} width="220" height="52" rx="10" className="fill-secondary stroke-border" />
+          <path d={bars(54, 246, y, amps[i], 80 + i, 7)} className="stroke-muted-foreground" />
+          <rect x="380" y={y - 26} width="220" height="52" rx="10" className="fill-secondary stroke-border" />
+          <path
+            d={Array.from({ length: 28 }, (_, k) => `M${394 + k * 7} ${y - 15}V${y + 15}`).join("")}
+            className="stroke-primary"
+          />
+        </g>
+      ))}
+      <path d="M286 168H354M338 150l18 18-18 18" className="stroke-primary" />
+    </>
+  );
+}
+
+/** Two bursts with a wide gap, then the same two with a short pause still between them. */
+function ShortPause() {
+  return (
+    <>
+      <path d={bars(40, 200, 90, 40, 31, 7, (t) => Math.sin(t * Math.PI) ** 0.6)} className="stroke-primary" />
+      <path d={bars(440, 600, 90, 40, 32, 7, (t) => Math.sin(t * Math.PI) ** 0.6)} className="stroke-primary" />
+      <path d="M200 60v60M440 60v60M206 90H434" className="stroke-muted-foreground" strokeDasharray="4 7" />
+      <path d="M320 140v56M304 182l16 16 16-16" className="stroke-primary" />
+      <path d={bars(40, 200, 246, 40, 31, 7, (t) => Math.sin(t * Math.PI) ** 0.6)} className="stroke-primary" />
+      <path d={bars(280, 440, 246, 40, 32, 7, (t) => Math.sin(t * Math.PI) ** 0.6)} className="stroke-primary" />
+      <path d={bars(206, 274, 246, 4, 33, 7)} className="stroke-muted-foreground" />
+      <path d="M200 216v60M280 216v60" className="stroke-muted-foreground" strokeDasharray="4 7" />
+    </>
+  );
+}
+
+/** Overlapping analysis windows, then the same windows put back further apart. */
+function Windows() {
+  const bell = (x: number, y: number, w: number, h: number) =>
+    `M${x} ${y}C${n1(x + w * 0.35)} ${y} ${n1(x + w * 0.25)} ${y - h} ${n1(x + w / 2)} ${y - h}C${n1(x + w * 0.75)} ${y - h} ${n1(x + w * 0.65)} ${y} ${x + w} ${y}`;
+  const row = (y: number, hop: number) =>
+    Array.from({ length: 8 }, (_, i) => bell(40 + i * hop, y, 96, 62)).join("");
+  return (
+    <>
+      <path d={row(130, 50)} className="stroke-primary" />
+      <path d="M40 150H90" className="stroke-muted-foreground" />
+      <path d={row(280, 70)} className="stroke-primary" />
+      <path d="M40 300H110" className="stroke-muted-foreground" />
+      <path d="M320 164v82M304 232l16 16 16-16" className="stroke-muted-foreground" strokeDasharray="3 7" />
+    </>
+  );
+}
+
 const COVERS: Record<string, () => ReactNode> = {
   "ai-audio-editing-local-first": LocalFirst,
   "stem-separation-explained-demucs": Stems,
@@ -296,6 +364,10 @@ const COVERS: Record<string, () => ReactNode> = {
   "make-a-mixable-extended-intro": ExtendedIntro,
   "which-llm-should-drive-your-audio-editor": Providers,
   "undo-is-a-graph-branches-and-ab-compare": UndoGraph,
+  "lufs-for-spotify-youtube-apple-music-podcasts": Loudness,
+  "batch-normalize-audio-files-to-a-lufs-target": Batch,
+  "remove-silence-from-audio-without-chopping-breaths": ShortPause,
+  "change-tempo-without-changing-pitch": Windows,
 };
 
 /** Slugs that have a cover of their own, for the test that holds every post to one. */

@@ -483,7 +483,7 @@ const groups = [
         prompt: "run my podcast chain over every file in this folder",
         what: "Run an exported edit chain across every audio file in a folder. Each file becomes its own project with its own history — a batch is not one giant session. Every file is attempted even if an earlier one fails, and the report says what succeeded, what refused, and why.",
         output: "files, succeeded, refused, per-file results",
-        note: "A chain that cannot be replayed is refused once, up front — that is a property of the chain, not of the twelve files. So is an output folder that would put a file's project where a project is open right now: each file's project goes in <output_dir>/<file name without its extension>, and a batch never writes into a project you have open, so choose another output_dir. Nothing is started in that case.",
+        note: "A chain that cannot be replayed is refused once, up front — that is a property of the chain, not of the twelve files. So is an output folder that would put a file's project where a project is open right now: each file's project goes in <output_dir>/<file name without its extension>, and a batch never writes into a project you have open, so choose another output_dir. So is a render that would land on one of the input files: output_dir defaults to the input folder, so with render_format set to the inputs' own format (wav for .wav files) each render would be written over its input. Your originals are never written over; choose another output_dir. Nothing is started in either case.",
       },
       {
         name: "cut_words",
@@ -648,7 +648,7 @@ const groups = [
         prompt: 'export to /Users/me/Desktop/final.wav',
         what: "Render the full session to WAV, FLAC or MP3. FLAC is lossless — identical audio, roughly half the size. MP3 is lossy but plays anywhere; bitrate defaults to 192 kbps. Takes title, artist, album, year and comment, written as Vorbis comments on FLAC and ID3v2 on MP3, and can carry the session's markers through as chapters.",
         output: "path, duration_sec, peak_dbfs, sample_rate, tagged, chapters, warnings (only when something was left out)",
-        note: "A stored effect the renderer cannot run in a chain yet (a project from an older build can hold one) is left out and the render still succeeds; warnings names each one, and a line in summary says so. Tags are applied after encoding — FLAC blocks are rewritten in place and an ID3 tag is a prefix — so tagging never touches a sample. WAV has no standard tag container worth using and refuses metadata rather than dropping it silently.",
+        note: "A stored effect the renderer cannot run in a chain yet (a project from an older build can hold one) is left out and the render still succeeds; warnings names each one, and a line in summary says so. Tags are applied after encoding — FLAC blocks are rewritten in place and an ID3 tag is a prefix — so tagging never touches a sample. WAV has no standard tag container worth using and refuses metadata rather than dropping it silently. A path that is audio the project reads is refused, because the render would replace it: a file you loaded (even a lossy one the project plays a copy of), or any file an earlier step of the history plays, however the path is spelt. Choose another path; an earlier export, or a path nothing reads, is written as before.",
       },
       {
         name: "render_preview",
