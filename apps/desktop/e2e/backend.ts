@@ -125,16 +125,18 @@ export function speechModelStatus(
  * The speech model buttons' commands, for the spec that presses them.
  * Each answers what the command answers when it is called on a model in
  * the state before it: `download_ml_model` on one that is not downloaded
- * starts it and answers `downloading` at 0 (`ModelDownloads::start_download`),
+ * starts it and answers `downloading` at 0 (`ModelDownloads::start_download`);
  * `cancel_ml_model_download` answers the state at the time of the call
- * (still `downloading`: the end arrives as an event), and
- * `remove_ml_model` on a model that is not running answers
+ * (`ModelDownloads::cancel` sets the flag and returns the status, which for
+ * a running download is its slot's current `received`: the end arrives as an
+ * event), so a spec that cancels a download passes the bytes it had
+ * received; and `remove_ml_model` on a model that is not running answers
  * `not_downloaded` with 0 bytes.
  */
-export function speechModelCommands(): Backend {
+export function speechModelCommands({ received = 0 }: { received?: number } = {}): Backend {
   return {
     download_ml_model: ok(speechModelStatus({ state: "downloading", received: 0 })),
-    cancel_ml_model_download: ok(speechModelStatus({ state: "downloading", received: 0 })),
+    cancel_ml_model_download: ok(speechModelStatus({ state: "downloading", received })),
     remove_ml_model: ok(speechModelStatus({ state: "not_downloaded" })),
   };
 }

@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   SPEECH_MODEL_NOTE,
   failedText,
+  isFullSize,
   megabytes,
   partialText,
   percent,
@@ -42,6 +43,14 @@ describe("speechModel", () => {
     );
   });
 
+  it("calls files as big as the model unchecked, not a partial download", () => {
+    expect(partialText(SIZE, SIZE)).toContain("have not been checked");
+    expect(partialText(SIZE, SIZE)).not.toContain("carries on");
+    expect(isFullSize(SIZE, SIZE)).toBe(true);
+    expect(isFullSize(SIZE - 1, SIZE)).toBe(false);
+    expect(isFullSize(0, 0)).toBe(false);
+  });
+
   it("states what ready means, and no more", () => {
     expect(
       readyText({ model: "whisper-base", state: "ready", bytes: SIZE, size: SIZE }),
@@ -52,10 +61,13 @@ describe("speechModel", () => {
     expect(failedText("HTTP 503")).toBe("The download failed: HTTP 503");
   });
 
-  it("is the same note the pages make: no transcription yet, one request, no audio", () => {
+  it("is the same note the pages make: no transcription yet, three files, what is seen, no audio", () => {
     expect(SPEECH_MODEL_NOTE).toContain("Transcription is not available yet");
     expect(SPEECH_MODEL_NOTE).toContain("does not turn anything on");
     expect(SPEECH_MODEL_NOTE).toContain("huggingface.co");
+    expect(SPEECH_MODEL_NOTE).toContain("three files");
+    expect(SPEECH_MODEL_NOTE).toContain("IP address and that the request comes from edytlab");
     expect(SPEECH_MODEL_NOTE).toContain("nothing about your audio is sent");
+    expect(SPEECH_MODEL_NOTE).not.toContain("one request");
   });
 });

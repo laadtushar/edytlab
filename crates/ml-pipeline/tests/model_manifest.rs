@@ -16,8 +16,14 @@
 //! The second half is about words. A download from Hugging Face is a new
 //! outbound request, so CLAUDE.md says where the privacy copy has to
 //! change with it. The size and the host are written in several places by
-//! hand; these tests read those places and fail if one still says nothing
-//! is downloaded, or names a size other than the manifest's.
+//! hand. These tests read those places and fail when one of the pages that
+//! list what Hugging Face sees leaves out the host, the size, that Hugging
+//! Face learns which version of edytlab is asking (the `User-Agent` the
+//! downloader sends), or, on the privacy page, that only a click starts it;
+//! and when any page of the site or any top-level doc still says the chat
+//! is the only network traffic, or that nothing is downloaded (the scan
+//! `no_page_still_says_nothing_is_downloaded_or_that_the_chat_is_the_only_traffic`
+//! names the phrases and the places it reads, and what it leaves out).
 
 use std::path::{Path, PathBuf};
 
@@ -168,6 +174,135 @@ fn the_privacy_copy_names_the_host_and_the_size() {
             text.contains(&size),
             "{page} must give the model's size ({size})"
         );
+    }
+}
+
+/// The downloader sends `User-Agent: edytlab/<version>`
+/// (`download.rs`, `run_request`), so Hugging Face learns the app and its
+/// version as well as the address and the file. Every page that lists what
+/// it sees has to say so.
+#[test]
+fn every_page_that_lists_what_hugging_face_sees_says_it_learns_the_version() {
+    for page in [
+        "website/app/privacy/page.tsx",
+        "website/app/use-cases/local-ai-audio-editor/page.tsx",
+        "website/app/docs/user-guide/page.tsx",
+        "marketing/press-kit.md",
+    ] {
+        let text = flat(&read(page));
+        assert!(
+            text.contains("which version"),
+            "{page} lists what Hugging Face sees: it must say the request also tells it \
+             that edytlab is asking, and which version"
+        );
+    }
+    let downloader = read("crates/ml-pipeline/src/download.rs");
+    assert!(
+        downloader.contains(r#".user_agent(concat!("edytlab/", env!("CARGO_PKG_VERSION")))"#),
+        "the downloader's User-Agent changed: update the privacy copy, then this test"
+    );
+}
+
+/// Every `.tsx` under `dir` (relative to the repo), as `(path, text)`.
+fn tsx_files(dir: &str) -> Vec<(String, String)> {
+    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name == "node_modules" || name == ".next" {
+                continue;
+            }
+            if path.is_dir() {
+                walk(&path, out);
+            } else if path.extension().is_some_and(|e| e == "tsx") {
+                out.push(path);
+            }
+        }
+    }
+    let mut paths = Vec::new();
+    walk(&repo_file(dir), &mut paths);
+    paths
+        .into_iter()
+        .filter_map(|p| {
+            let rel = p
+                .strip_prefix(repo_file(""))
+                .unwrap_or(&p)
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy().to_string())
+                .collect::<Vec<_>>()
+                .join("/");
+            std::fs::read_to_string(&p).ok().map(|t| (rel, t))
+        })
+        .collect()
+}
+
+/// Phrases that were true until the app could download a model, and are
+/// not now. Matched case-insensitively against the text with whitespace
+/// collapsed.
+const STALE_CLAIMS: [&str; 7] = [
+    "only network traffic",
+    "only outbound network traffic",
+    "nothing is downloaded",
+    "none is downloaded",
+    "no model is downloaded",
+    "no callers and no model is pinned",
+    "nothing calls it and no model is pinned",
+];
+
+/// Read: every page and component of the site (`website/app`,
+/// `website/components`) and the docs a person reads as current
+/// (`README.md` and `docs/*.md`). Left out on purpose, because they say
+/// what was true when they were written: the changelog (`website/app/
+/// changelog`), the blog posts, `docs/HANDOVER.md`, `docs/specs`,
+/// `docs/superpowers`, and `marketing/`, whose drafts describe the released
+/// v0.7.0 (which has no Download button) and are brought up to date when
+/// the release that carries it ships.
+#[test]
+fn no_page_still_says_nothing_is_downloaded_or_that_the_chat_is_the_only_traffic() {
+    let mut files: Vec<(String, String)> = Vec::new();
+    for dir in ["website/app", "website/components"] {
+        files.extend(
+            tsx_files(dir)
+                .into_iter()
+                .filter(|(path, _)| !path.starts_with("website/app/changelog/")),
+        );
+    }
+    files.push(("README.md".into(), read("README.md")));
+    let docs = repo_file("docs");
+    for entry in std::fs::read_dir(&docs).expect("docs/").flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.ends_with(".md") && name != "HANDOVER.md" {
+            files.push((format!("docs/{name}"), read(&format!("docs/{name}"))));
+        }
+    }
+    assert!(
+        files.len() > 20,
+        "the scan found only {} files; it is not looking where it thinks it is",
+        files.len()
+    );
+    assert!(
+        files
+            .iter()
+            .any(|(p, _)| p == "website/app/privacy/page.tsx")
+            && files
+                .iter()
+                .any(|(p, _)| p == "website/components/landing/faq.tsx")
+            && files.iter().any(|(p, _)| p == "docs/architecture.md"),
+        "the scan does not read the privacy page, the FAQ and the architecture guide"
+    );
+
+    for (path, text) in &files {
+        let flat = flat(text).to_lowercase();
+        for claim in STALE_CLAIMS {
+            assert!(
+                !flat.contains(claim),
+                "{path} says {claim:?}, which stopped being true when the app gained a \
+                 user-started model download (#383)"
+            );
+        }
     }
 }
 

@@ -25,9 +25,12 @@
 //! The download runs on its own `std::thread`. It takes none of the
 //! caller's locks; the only locks here are the artifact lock `fetch` takes
 //! (a file under the models folder) and one small `Mutex` over the table
-//! of states, which is never held across I/O or a call to the listener.
-//! The listener is called on whichever thread changed the state, so it
-//! must not block (the app's emits an event).
+//! of states. That one is held for a field or two, never across the
+//! transfer or a call to the listener; `remove` is the exception, and
+//! holds it across its few `unlink` calls on purpose, so that a start
+//! cannot slip in between its check and its deletion. The listener is
+//! called on whichever thread changed the state, so it must not block (the
+//! app's emits an event).
 //!
 //! ## What a status means
 //!
@@ -201,14 +204,50 @@ impl Catalog {
 }
 
 /// The speech model's files, as pinned in `models.json`: what transcription
-/// reads once it exists (#384). A tool resolves the model with
-/// `ModelStore::cached(whisper_base())` and, when that is `None`, says it
-/// is not downloaded; it never fetches it.
+/// reads once it exists (#384). That tool will find the model with
+/// [`cached`]`(WHISPER_BASE_ID)` and, when it is `None`, say the model is not
+/// downloaded; it will never fetch it (`tests/only_the_user_downloads.rs`
+/// keeps the downloader out of every crate but this one).
 pub fn whisper_base() -> &'static ModelArtifact {
     &Catalog::built_in()
         .get(WHISPER_BASE_ID)
         .expect("models.json pins whisper-base (tests/model_manifest.rs checks it)")
         .artifact
+}
+
+/// Where the models folder is, registered once at launch by the app
+/// ([`set_models_dir`]) so that code that only *reads* a model can find it
+/// without being able to download one.
+static MODELS_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// Register the models folder (`<app local data>/models`), once. Returns
+/// `false` if one was registered already, and keeps the first. Reads no
+/// disk and makes no request.
+pub fn set_models_dir(dir: PathBuf) -> bool {
+    MODELS_DIR.set(dir).is_ok()
+}
+
+/// The directory of model `id` if every one of its files is on disk with
+/// the pinned size and SHA-256, otherwise `None`: the read-only way for a
+/// tool to find a model (#384). It never downloads anything and creates or
+/// deletes nothing. It reads and hashes the files, a fraction of a second
+/// for the 139 MB speech model, so do not call it per frame.
+///
+/// `None` also when no models folder was registered ([`set_models_dir`]),
+/// when `id` is not in the catalog, and when the folder cannot be read.
+pub fn cached(id: &str) -> Option<PathBuf> {
+    cached_in(MODELS_DIR.get()?, Catalog::built_in(), id)
+}
+
+fn cached_in(dir: &std::path::Path, catalog: &Catalog, id: &str) -> Option<PathBuf> {
+    let model = catalog.get(id)?;
+    match ModelStore::new(dir).cached(&model.artifact) {
+        Ok(found) => found,
+        Err(e) => {
+            tracing::warn!(model = %id, error = %e, "could not read the models folder");
+            None
+        }
+    }
 }
 
 // ---------------------------------------------------------------------
@@ -369,6 +408,8 @@ impl Inner {
                     ),
                 )
             }
+            // Reached only in a debug or test build: a release build aborts
+            // on a panic (see the `catch_unwind` in `start_download`).
             Err(_) => {
                 let reason = "the download stopped unexpectedly".to_string();
                 tracing::error!(model = %model.id, "the model download thread panicked");
@@ -455,6 +496,14 @@ impl ModelDownloads {
         &self.inner.catalog
     }
 
+    /// The directory of `id` if all its files are on disk and verified, as
+    /// the free function [`cached`] answers for the registered folder. Reads
+    /// and hashes the files; no request, nothing created.
+    pub fn cached(&self, id: &str) -> Result<Option<PathBuf>> {
+        let model = self.inner.model(id)?;
+        self.inner.store.cached(&model.artifact)
+    }
+
     /// Where `id` is. Reads the disk, and hashes the files when they are
     /// all there, so a caller on an async runtime should run it on the
     /// blocking pool. Makes no request and creates nothing.
@@ -508,6 +557,11 @@ impl ModelDownloads {
                     cancel,
                     last_report: None,
                 };
+                // A panic in the transfer is caught and shown as a failure in
+                // a debug or test build. The release profile sets
+                // `panic = "abort"` (root `Cargo.toml`), so in a shipped
+                // build a panic ends the app instead and this catches
+                // nothing: nothing may rely on it.
                 let result = catch_unwind(AssertUnwindSafe(|| {
                     inner.store.fetch(&worker_model.artifact, &mut reporter)
                 }));

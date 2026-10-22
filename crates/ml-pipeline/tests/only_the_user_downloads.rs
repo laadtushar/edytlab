@@ -198,16 +198,110 @@ fn start_download_is_called_in_one_place_and_it_is_the_download_command() {
     );
 }
 
+/// Byte offsets of every whole-identifier occurrence of `word` in `text`.
+fn mention_offsets(text: &str, word: &str) -> Vec<usize> {
+    let is_ident = |c: char| c.is_alphanumeric() || c == '_';
+    text.match_indices(word)
+        .map(|(i, _)| i)
+        .filter(|&i| {
+            let before = text[..i].chars().next_back();
+            let after = text[i + word.len()..].chars().next();
+            !before.is_some_and(is_ident) && !after.is_some_and(is_ident)
+        })
+        .collect()
+}
+
+/// The byte range of the delimited text that starts at `open_at` (which
+/// holds `open`), up to and including its matching `close`.
+fn delimited(text: &str, open_at: usize, open: char, close: char) -> (usize, usize) {
+    let mut depth = 0usize;
+    for (i, c) in text[open_at..].char_indices() {
+        if c == open {
+            depth += 1;
+        } else if c == close {
+            depth -= 1;
+            if depth == 0 {
+                return (open_at, open_at + i + close.len_utf8());
+            }
+        }
+    }
+    panic!("no matching {close:?} for the {open:?} at byte {open_at}");
+}
+
+/// The command function is never *called*, only defined and registered.
+///
+/// `download_ml_model` is an ordinary `async fn`, so any code in the desktop
+/// crate could call it (`download_ml_model(state, "whisper-base".into())`
+/// from another command, or `crate::commands::download_ml_model(..)` from
+/// another module) and start a transfer without a click. So the name may
+/// appear in exactly two kinds of place: its own `fn` in `commands.rs`, and
+/// in `lib.rs`, the `use crate::commands::{..}` list and the
+/// `generate_handler![..]` list that registers it. Anywhere else, in any
+/// crate or app, is a path to a download that no click asked for.
+#[test]
+fn the_download_command_is_defined_and_registered_and_never_called() {
+    const COMMAND: &str = "download_ml_model";
+    let sources = other_sources();
+
+    for (path, text) in &sources {
+        let hits = mention_offsets(text, COMMAND);
+        match path.as_str() {
+            "apps/desktop/src-tauri/src/commands.rs" => {
+                assert_eq!(
+                    hits.len(),
+                    1,
+                    "{path} must mention `{COMMAND}` once, in its `fn`: it is called by no code"
+                );
+                assert!(
+                    text[..hits[0]].trim_end().ends_with("fn"),
+                    "{path} mentions `{COMMAND}` somewhere that is not its `fn` definition"
+                );
+            }
+            "apps/desktop/src-tauri/src/lib.rs" => {
+                let use_at = text
+                    .find("use crate::commands::{")
+                    .expect("lib.rs imports the commands");
+                let use_open = use_at + "use crate::commands::".len();
+                let imports = delimited(text, use_open, '{', '}');
+                let handler_at = text
+                    .find("generate_handler![")
+                    .expect("lib.rs registers the commands");
+                let handlers = delimited(text, handler_at + "generate_handler!".len(), '[', ']');
+                for at in hits {
+                    let registered = [imports, handlers]
+                        .iter()
+                        .any(|&(from, to)| at > from && at < to);
+                    assert!(
+                        registered,
+                        "{path} mentions `{COMMAND}` outside the `use` list and \
+                         `generate_handler!`: a launch must never begin a model download"
+                    );
+                    assert!(
+                        !text[at + COMMAND.len()..].trim_start().starts_with('('),
+                        "{path} calls `{COMMAND}`"
+                    );
+                }
+            }
+            _ => assert!(
+                hits.is_empty(),
+                "{path} mentions `{COMMAND}`. Only the user's click may reach it, through the \
+                 window's IPC: no tool, agent path or other command may call it (#383)."
+            ),
+        }
+    }
+}
+
 #[test]
 fn startup_and_the_setup_hook_do_not_download() {
     // `lib.rs` builds the app: its setup runs at every launch. It may
     // register the commands and manage the state they use, and nothing
-    // more.
+    // more. (That `download_ml_model` is not called from it is checked
+    // above.)
     let (_, lib) = other_sources()
         .into_iter()
         .find(|(p, _)| p == "apps/desktop/src-tauri/src/lib.rs")
         .expect("lib.rs");
-    for word in ["start_download", "ModelDownloads", "download_ml_model("] {
+    for word in ["start_download", "ModelDownloads"] {
         assert!(
             !lib.contains(word),
             "lib.rs mentions `{word}`: a launch must never begin a model download"

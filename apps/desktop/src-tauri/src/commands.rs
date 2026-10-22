@@ -1520,6 +1520,11 @@ pub fn ml_models_for_app<R: Runtime>(
     handle: AppHandle<R>,
     models_dir: Option<PathBuf>,
 ) -> MlModels {
+    if let Some(dir) = &models_dir {
+        // Read-only: where a tool will look for a model (#384). Registering
+        // a folder reads no disk and downloads nothing.
+        ml_pipeline::models::set_models_dir(dir.clone());
+    }
     ml_models_with_catalog_for_app(handle, models_dir, ml_pipeline::Catalog::built_in().clone())
 }
 

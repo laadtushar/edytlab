@@ -89,6 +89,8 @@ test("Download starts it once, and the bar follows the events to Ready", async (
 test("Cancel asks the backend to stop, and Download then resumes", async ({ app }) => {
   const { row, page } = await openSettings(app, {
     ml_model_status: { ok: speechModelStatus({ state: "downloading", received: 20_000_000 }) },
+    // Cancel answers the state at the time of the call: still 20 MB in.
+    ...speechModelCommands({ received: 20_000_000 }),
   });
 
   // A download already running when Settings opened is shown as it is.
@@ -99,6 +101,8 @@ test("Cancel asks the backend to stop, and Download then resumes", async ({ app 
   expect(await app.requestsFor("cancel_ml_model_download")).toEqual([{ model: "whisper-base" }]);
   await expect(page.getByTestId("speech-model-cancel")).toHaveText("Cancelling…");
   await expect(page.getByTestId("speech-model-cancel")).toBeDisabled();
+  // The answer to Cancel did not move the bar back to 0.
+  await expect(page.getByTestId("speech-model-progress")).toHaveAttribute("aria-valuenow", "14");
 
   // The thread stopped; what it had received is kept.
   await app.emit(PROGRESS, speechModelStatus({ state: "not_downloaded", bytes: 20_500_000 }));
@@ -163,6 +167,8 @@ for (const size of [
     const states = [
       speechModelStatus({ state: "not_downloaded" }),
       speechModelStatus({ state: "not_downloaded", bytes: 41_200_000 }),
+      // Files as big as the model that were not verified.
+      speechModelStatus({ state: "not_downloaded", bytes: SPEECH_MODEL_BYTES }),
       speechModelStatus({ state: "downloading", received: 41_200_000 }),
       speechModelStatus({ state: "ready" }),
       speechModelStatus({

@@ -1,12 +1,26 @@
 /**
  * Only the user's click downloads a model (#383).
  *
- * A model is about 139 MB and the request goes to huggingface.co. The
- * rules are that no tool, agent path or launch code starts one: the one
- * call in the app is the Download (and Retry) button of the Settings row.
- * This reads the authored source and fails when another file calls
- * `downloadMlModel`, or when the row calls it from anywhere but a button's
- * `onClick`, such as an effect that runs when Settings opens.
+ * A model is about 139 MB and the requests go to huggingface.co. The rules
+ * are that no tool, agent path or launch code starts one: the one call in
+ * the app is the Download (and Retry) button of the Settings row. This
+ * reads the authored source and fails when:
+ *
+ * - the command's name, `download_ml_model`, appears in `src/` anywhere
+ *   but `lib/tauri-bridge.ts`, so no other file can `invoke` it;
+ * - `downloadMlModel` is used in any file but the bridge (which defines it)
+ *   and the row;
+ * - in the row, `downloadMlModel` is used anywhere but its import and one
+ *   call inside the `download` handler; or
+ * - in the row, the `download` handler is used for anything but a button's
+ *   `onClick={download}`. It must not be handed to `useEffect`, called from
+ *   an effect, or called at all: each of those would download without a
+ *   click, for instance when Settings opens.
+ *
+ * The row is read as a syntax tree, not as text, so a word in a string or in
+ * JSX text (`"Resume download"`, `data-testid="speech-model-download"`) is
+ * not a use of the handler, and `useEffect(download, [])` or
+ * `download?.()` is one however it is spelt.
  *
  * The backend half of the same rule is
  * `crates/ml-pipeline/tests/only_the_user_downloads.rs`.
@@ -14,9 +28,12 @@
 
 import { readdirSync, readFileSync } from "node:fs";
 import { extname, join, relative } from "node:path";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 const SRC = join(process.cwd(), "src");
+const ROW = join(SRC, "components/SpeechModelRow.tsx");
+const BRIDGE = "lib/tauri-bridge.ts";
 
 function sources(dir: string = SRC): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -30,41 +47,91 @@ function sources(dir: string = SRC): string[] {
   });
 }
 
-/** The source with whole-line and trailing `//` and `/* *\/` comments cut. */
-function code(text: string): string {
-  return text
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
-    .replace(/(^|\s)\/\/.*$/gm, "$1");
-}
-
 const rel = (path: string) => relative(SRC, path).split("\\").join("/");
 
+/** Every identifier called `name` in the syntax tree of the file at `path`. */
+function identifiersIn(path: string, name: string): ts.Identifier[] {
+  const file = ts.createSourceFile(
+    path,
+    readFileSync(path, "utf8"),
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  const found: ts.Identifier[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isIdentifier(node) && node.text === name) found.push(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return found;
+}
+
+/** `const <name> = …`: where the identifier is the declared name. */
+const isDeclarationOf = (id: ts.Identifier) =>
+  ts.isVariableDeclaration(id.parent) && id.parent.name === id;
+
+/** `onClick={<id>}`: the identifier alone, as a JSX attribute's value. */
+const isOnClickValue = (id: ts.Identifier) =>
+  ts.isJsxExpression(id.parent) &&
+  id.parent.expression === id &&
+  ts.isJsxAttribute(id.parent.parent) &&
+  id.parent.parent.name.getText() === "onClick";
+
+/** Whether `id` sits inside `const download = …`. */
+function isInsideDownloadHandler(id: ts.Identifier): boolean {
+  for (let node: ts.Node | undefined = id.parent; node; node = node.parent) {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === "download"
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 describe("downloading a model", () => {
-  it("is called from the Settings row and defined in the bridge, nowhere else", () => {
-    const callers = sources()
-      .filter((p) => /\bdownloadMlModel\b/.test(code(readFileSync(p, "utf8"))))
-      .map(rel)
-      .sort();
-    expect(callers).toEqual(["components/SpeechModelRow.tsx", "lib/tauri-bridge.ts"]);
+  it("names the command in the bridge and nowhere else in src/", () => {
+    const files = sources()
+      .filter((p) => readFileSync(p, "utf8").includes("download_ml_model"))
+      .map(rel);
+    expect(files).toEqual([BRIDGE]);
   });
 
-  it("is called once in the row, in the handler a button's onClick is given", () => {
-    const text = code(readFileSync(join(SRC, "components/SpeechModelRow.tsx"), "utf8"));
+  it("uses downloadMlModel only in the bridge and the Settings row", () => {
+    const callers = sources()
+      .filter((p) => identifiersIn(p, "downloadMlModel").length > 0)
+      .map(rel)
+      .sort();
+    expect(callers).toEqual(["components/SpeechModelRow.tsx", BRIDGE]);
+  });
 
-    const calls = text.match(/\bdownloadMlModel\(/g) ?? [];
-    expect(calls).toHaveLength(1);
-    expect(text).toMatch(
-      /const download = \(\) => void run\(\(\) => downloadMlModel\(SPEECH_MODEL_ID\)\);/,
-    );
+  it("calls downloadMlModel once in the row, inside the download handler", () => {
+    const uses = identifiersIn(ROW, "downloadMlModel");
+    const imports = uses.filter((id) => ts.isImportSpecifier(id.parent));
+    const rest = uses.filter((id) => !ts.isImportSpecifier(id.parent));
 
-    // The handler is only ever handed to a button, never called.
-    const uses = [...text.matchAll(/\bdownload\b(?!Ml)/g)].map((m) =>
-      text.slice(Math.max(0, m.index - 10), m.index + m[0].length + 2),
-    );
-    const handedOut = uses.filter((u) => /onClick=\{download\}/.test(u));
-    const defined = uses.filter((u) => /const download/.test(u));
-    expect(handedOut).toHaveLength(2); // Download, and Retry
+    expect(imports).toHaveLength(1);
+    expect(rest).toHaveLength(1);
+    expect(ts.isCallExpression(rest[0]!.parent)).toBe(true);
+    expect(isInsideDownloadHandler(rest[0]!)).toBe(true);
+  });
+
+  it("uses the download handler only as a button's onClick", () => {
+    const uses = identifiersIn(ROW, "download");
+    const defined = uses.filter(isDeclarationOf);
+    const clicks = uses.filter(isOnClickValue);
+    const others = uses.filter((id) => !isDeclarationOf(id) && !isOnClickValue(id));
+
+    // Where the handler is used for anything else, the line is named.
+    expect(
+      others.map((id) => id.getSourceFile().getLineAndCharacterOfPosition(id.getStart()).line + 1),
+      "`download` is used for something other than `onClick={download}`",
+    ).toEqual([]);
     expect(defined).toHaveLength(1);
-    expect(text).not.toMatch(/\bdownload\(\)/);
+    // Download (or Resume), and Retry.
+    expect(clicks).toHaveLength(2);
   });
 });

@@ -29,8 +29,10 @@ export const SPEECH_MODEL_SOURCE = "Hugging Face";
  */
 export const SPEECH_MODEL_NOTE =
   "Transcription is not available yet. This is the model it will use, " +
-  "and downloading it does not turn anything on. Download makes one " +
-  "request to huggingface.co; nothing about your audio is sent.";
+  "and downloading it does not turn anything on. Download asks " +
+  "huggingface.co for the model's three files. It sees your IP address " +
+  "and that the request comes from edytlab, and nothing about your audio " +
+  "is sent.";
 
 /** Shown while the status is being asked for. */
 export const SPEECH_MODEL_PENDING = "Checking…";
@@ -43,9 +45,9 @@ export function removeQuestion(size: number): string {
   );
 }
 
-/** The confirmation before a partial download is deleted. */
+/** The confirmation before what is on disk of an unfinished model is deleted. */
 export const DISCARD_QUESTION =
-  "Delete the part of the speech model that has been downloaded? " +
+  "Delete the files of the speech model that are on this computer? " +
   "Download would start again from the beginning.";
 
 /** A whole number of megabytes (1 MB = 1,000,000 bytes): `139 MB`. */
@@ -69,8 +71,25 @@ export function progressText(received: number, total: number): string {
   return `${tenths(received)} of ${tenths(total)} MB (${percent(received, total)}%)`;
 }
 
-/** The line about what is already on disk of a model that is not complete. */
+/**
+ * Whether what is on disk of a model that is not ready is as big as the
+ * model. That is a copy that has not been checked, not a partial download:
+ * the backend says `not_downloaded` for files of the right size whose hash
+ * is wrong (something changed them), and for a download cut off after its
+ * last byte. Download re-checks them, and fetches again what does not match.
+ */
+export function isFullSize(bytes: number, size: number): boolean {
+  return size > 0 && bytes >= size;
+}
+
+/** The line about what is already on disk of a model that is not ready. */
 export function partialText(bytes: number, size: number): string {
+  if (isFullSize(bytes, size)) {
+    return (
+      "Files the size of the model are on disk, but they have not been " +
+      "checked. Download checks them, and fetches again what is wrong."
+    );
+  }
   return (
     `${tenths(bytes)} of ${tenths(size)} MB already downloaded. ` +
     `Download carries on from there.`

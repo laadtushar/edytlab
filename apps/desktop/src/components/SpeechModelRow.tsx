@@ -17,7 +17,9 @@
  * States, from the backend's `MlModelStatus`:
  *
  * - not downloaded: Download (or Resume download, and Delete partial
- *   download, when an earlier attempt left part of it);
+ *   download, when an earlier attempt left part of it; or Check and
+ *   download, and Delete these files, when it left files as big as the
+ *   model that are not verified);
  * - downloading: a progress bar with the bytes so far, and Cancel;
  * - ready: Ready, and Remove (which asks first);
  * - failed: the reason, and Retry.
@@ -39,6 +41,7 @@ import {
   SPEECH_MODEL_SOURCE,
   SPEECH_MODEL_TITLE,
   failedText,
+  isFullSize,
   megabytes,
   partialText,
   percent,
@@ -170,6 +173,8 @@ export function SpeechModelRow() {
   const state = status?.state ?? (problem === null ? "pending" : "error");
   const size = status?.size ?? null;
   const partial = status !== null && status.bytes > 0 ? status.bytes : 0;
+  // Files as big as the model that are not ready: not a partial download.
+  const fullSize = status !== null && isFullSize(status.bytes, status.size);
 
   return (
     <div
@@ -235,9 +240,11 @@ export function SpeechModelRow() {
               onClick={download}
               className="btn-secondary rounded px-3 py-1 text-xs transition"
             >
-              {partial > 0
-                ? "Resume download"
-                : `Download (${megabytes(status.size)})`}
+              {fullSize
+                ? "Check and download"
+                : partial > 0
+                  ? "Resume download"
+                  : `Download (${megabytes(status.size)})`}
             </button>
             {partial > 0 ? (
               <button
@@ -247,7 +254,7 @@ export function SpeechModelRow() {
                 onClick={() => void remove(DISCARD_QUESTION)}
                 className="btn-secondary rounded px-3 py-1 text-xs transition"
               >
-                Delete partial download
+                {fullSize ? "Delete these files" : "Delete partial download"}
               </button>
             ) : null}
           </div>
@@ -342,7 +349,7 @@ export function SpeechModelRow() {
                 onClick={() => void remove(DISCARD_QUESTION)}
                 className="btn-secondary rounded px-3 py-1 text-xs transition"
               >
-                Delete partial download
+                {fullSize ? "Delete these files" : "Delete partial download"}
               </button>
             ) : null}
           </div>

@@ -461,6 +461,42 @@ fn a_tampered_file_is_not_ready_and_a_start_fetches_it_again() {
 }
 
 // ---------------------------------------------------------------------------
+// The read-only lookup
+// ---------------------------------------------------------------------------
+
+#[test]
+fn cached_finds_a_verified_model_and_never_touches_the_network() {
+    let fx = Fixture::new();
+    let server = fx.server();
+    let (downloads, rx) = fx.downloads(&server);
+
+    assert_eq!(downloads.cached("speech-test").expect("lookup"), None);
+    assert!(!fx.root().exists(), "a lookup creates nothing");
+    assert_eq!(server.total_hits(), 0);
+
+    downloads.start_download("speech-test").expect("start");
+    wait_for(&rx, "ready", is_ready);
+    let requests = server.total_hits();
+    assert_eq!(
+        downloads.cached("speech-test").expect("lookup"),
+        Some(fx.dir())
+    );
+
+    // Same length, different bytes: not verified, so not found.
+    let path = fx.dir().join(BIG_FILE);
+    let mut bytes = std::fs::read(&path).unwrap();
+    bytes[10] ^= 0x55;
+    std::fs::write(&path, bytes).unwrap();
+    assert_eq!(downloads.cached("speech-test").expect("lookup"), None);
+    assert_eq!(server.total_hits(), requests, "a lookup downloads nothing");
+
+    assert!(matches!(
+        downloads.cached("../speech-test"),
+        Err(Error::UnknownModel(_))
+    ));
+}
+
+// ---------------------------------------------------------------------------
 // Cancel and resume
 // ---------------------------------------------------------------------------
 

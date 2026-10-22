@@ -168,9 +168,14 @@ describe("SpeechModelRow", () => {
       expect(note).toHaveTextContent(SPEECH_MODEL_NOTE);
       expect(note).toHaveTextContent("Transcription is not available yet");
       expect(note).toHaveTextContent("does not turn anything on");
-      // The one request the button makes, and what it does not carry.
+      // Where the button's requests go, and what they do and do not carry.
       expect(note).toHaveTextContent("huggingface.co");
+      expect(note).toHaveTextContent("three files");
+      expect(note).toHaveTextContent("your IP address");
+      expect(note).toHaveTextContent("comes from edytlab");
       expect(note).toHaveTextContent("nothing about your audio is sent");
+      // Not "one request": it asks for three files, and again on a resume.
+      expect(note).not.toHaveTextContent("one request");
     });
   });
 
@@ -185,6 +190,20 @@ describe("SpeechModelRow", () => {
       expect(screen.getByTestId("speech-model-discard")).toHaveTextContent(
         "Delete partial download",
       );
+    });
+
+    it("does not call a full-size copy that has not been checked a partial download", async () => {
+      // Files of the right size whose hash is wrong, or a download cut off
+      // after its last byte: `not_downloaded` with `bytes` equal to `size`.
+      await renderRow({ ...NOT_DOWNLOADED, bytes: SIZE });
+
+      const line = await screen.findByTestId("speech-model-status");
+      expect(line).toHaveTextContent("have not been checked");
+      expect(line).toHaveTextContent("fetches again what is wrong");
+      // Not "carries on from there": that is what a partial file gets.
+      expect(line).not.toHaveTextContent("already downloaded");
+      expect(screen.getByTestId("speech-model-download")).toHaveTextContent("Check and download");
+      expect(screen.getByTestId("speech-model-discard")).toHaveTextContent("Delete these files");
     });
 
     it("deletes the partial download only after asking", async () => {

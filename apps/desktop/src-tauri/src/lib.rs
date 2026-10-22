@@ -146,7 +146,13 @@ pub fn run() {
             // pressing Download in Settings (`download_ml_model`).
             app.manage(crate::commands::ml_models_for_app(
                 app.handle().clone(),
-                app.path().app_data_dir().ok().map(|dir| dir.join("models")),
+                // The local data folder, not the roaming one: on Windows
+                // `app_data_dir` is the roaming profile, and 139 MB would
+                // follow the user to every machine they log on to.
+                app.path()
+                    .app_local_data_dir()
+                    .ok()
+                    .map(|dir| dir.join("models")),
             ));
 
             // Install the memory store. Spec location is `~/.edytlab/
