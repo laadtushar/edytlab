@@ -539,8 +539,8 @@ impl Tool for TranscribeTool {
              computer. It needs the speech model, which the user downloads once in Settings → \
              Account; without it, or without ONNX Runtime, the call returns a message starting \
              with a bracketed code: tell the user what it says and stop, and do not try to \
-             download, install or configure anything. It runs on the CPU, takes about a quarter \
-             to a ninth of the audio's length, and the user can cancel it. Returns the words as \
+             download, install or configure anything. It runs on the CPU, usually in under half \
+             the audio's length (the first request also loads the model), and the user can cancel it. Returns the words as \
              [text, start_sec, end_sec] in order (the position is the word number cut_words \
              takes), or for long audio sentence-sized segments with their word numbers.",
             json!({
