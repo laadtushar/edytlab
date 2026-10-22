@@ -8,12 +8,15 @@
  *
  * Nothing plays on its own. Each video waits for a press of play, which
  * settles autoplay-with-sound and reduced motion in one go, and with
- * `preload="none"` the page fetches only the posters until then.
+ * `preload="none"` the page fetches only the posters until then — and
+ * those only as a video nears the viewport (`LazyPosterVideo`), so they
+ * do not queue with the page's scripts on the way in.
  */
 
 import Link from "next/link";
 
 import { JsonLd } from "@/components/json-ld";
+import { LazyPosterVideo } from "@/components/landing/lazy-poster-video";
 import { Reveal, Stagger } from "@/components/motion";
 import { DEMO_FRAME, type Demo, demoPosterSrc, demoVideoSrc, demos } from "@/lib/demos";
 import { videoObjectJsonLd } from "@/lib/seo";
@@ -30,7 +33,7 @@ export function DemoCard({ demo, index }: { demo: Demo; index: number }) {
           the grid. */}
       <JsonLd data={videoObjectJsonLd(demo)} />
       <div className="bg-black">
-        <video
+        <LazyPosterVideo
           controls
           playsInline
           preload="none"
@@ -53,7 +56,7 @@ export function DemoCard({ demo, index }: { demo: Demo; index: number }) {
             </a>{" "}
             instead.
           </p>
-        </video>
+        </LazyPosterVideo>
       </div>
       <figcaption className="flex flex-col gap-3 border-t border-border/60 p-5 sm:p-6 lg:border-l lg:border-t-0">
         <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">

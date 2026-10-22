@@ -140,19 +140,22 @@ export function Comparison() {
             ref={table}
             className="mx-auto max-w-4xl overflow-x-auto rounded-xl border border-border/60"
           >
-            <table className="w-full min-w-[560px] border-collapse text-sm">
+            {/* No minimum width: below `sm` the table is two columns, the
+                label with its detail under it and edytlab's answer, and it
+                fits a phone. From `sm` up it is the three-column table. */}
+            <table className="w-full border-collapse text-sm">
               <thead>
                 <tr className="border-b border-border/60">
-                  <th className="w-[30%] py-4 pl-6 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  <th className="w-[70%] py-4 pl-4 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground sm:w-[30%] sm:pl-6">
                     Feature
                   </th>
-                  <th className="relative w-[18%] py-4 text-center text-xs font-semibold uppercase tracking-wider text-primary">
+                  <th className="relative w-[30%] py-4 pr-2 text-center text-xs font-semibold uppercase tracking-wider text-primary sm:w-[18%] sm:pr-0">
                     <span className="relative">
                       edytlab
                       <span className="absolute -top-1 -right-2 flex size-1.5 rounded-full bg-primary" />
                     </span>
                   </th>
-                  <th className="w-[52%] py-4 pl-4 pr-6 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  <th className="hidden w-[52%] py-4 pl-4 pr-6 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground sm:table-cell">
                     What that means
                   </th>
                 </tr>
@@ -168,13 +171,16 @@ export function Comparison() {
                     key={row.label}
                     className={`border-b border-border/40 transition-colors last:border-0 hover:bg-primary/5 ${i % 2 === 0 ? "" : "bg-secondary/10"}`}
                   >
-                    <td className="py-1 pl-6 pr-4 text-sm font-medium text-foreground/80">
+                    <td className="py-3 pl-4 pr-3 align-top text-sm font-medium text-foreground/80 sm:py-1 sm:pl-6 sm:pr-4 sm:align-middle">
                       {row.label}
+                      {/* The detail, under its label, where there is no
+                          third column to put it in. */}
+                      <p className="mt-1 text-xs font-normal leading-relaxed text-muted-foreground sm:hidden">{row.detail}</p>
                     </td>
-                    <td className="text-center">
+                    <td className="pr-2 text-center align-top sm:pr-0 sm:align-middle">
                       <Cell value={row.edytlab} />
                     </td>
-                    <td className="py-3 pl-4 pr-6 text-sm text-muted-foreground">
+                    <td className="hidden py-3 pl-4 pr-6 text-sm text-muted-foreground sm:table-cell">
                       {row.detail}
                     </td>
                   </tr>

@@ -214,7 +214,7 @@ const entries: Entry[] = [
 
 export default function ChangelogPage() {
   return (
-    <LegalShell title="Changelog">
+    <LegalShell title="Changelog" path="/changelog">
       <p>
         Recent landed work. The authoritative list of binaries and tags lives
         on{" "}

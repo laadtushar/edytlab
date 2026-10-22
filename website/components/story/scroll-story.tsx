@@ -95,6 +95,17 @@ export function ScrollStory({ release }: { release: ReleaseAssets }) {
       // once on its own clock — on the stage and on the stack alike —
       // and the *story* is what the scroll controls.
       //
+      // ## It never touches the text
+      //
+      // The badge, the headline and the subtitle are in the server's
+      // HTML, at rest, and the intro leaves them there. An entrance that
+      // starts them at `opacity: 0` (or pushes the words below their
+      // clip) only runs once the page has hydrated, so the reader gets
+      // the text, then a blank hero, then the text again, and Lighthouse
+      // scored the subtitle as painted when the tween let it back: a
+      // 4.4 s LCP on a paragraph that was on screen at 0.8 s. The
+      // entrance is the audio instead, which is the story anyway.
+      //
       // The audio arrives as it would in the app: a flat line is drawn
       // across the lane (DrawSVG), then swells into the voice (MorphSVG)
       // and fills. The flat start is set here, after mount; the markup
@@ -103,26 +114,15 @@ export function ScrollStory({ release }: { release: ReleaseAssets }) {
         gsap.set("[data-voice]", { morphSVG: FLAT });
         gsap.set("[data-voice]", { drawSVG: "0%" });
         return gsap
-          .timeline({ defaults: { ease: "power3.out" } })
-          .from("[data-s1-badge]", { opacity: 0, y: -10, scale: 0.92, duration: 0.5 })
-          .from(
-            "[data-s1-title] .word",
-            { yPercent: 120, opacity: 0, rotateX: -50, stagger: 0.06, duration: 0.8 },
-            "-=0.25",
-          )
-          .from("[data-s1-sub]", { opacity: 0, y: 16, duration: 0.6 }, "-=0.45")
-          .to(
-            "[data-voice]",
-            {
-              drawSVG: "100%",
-              duration: 0.7,
-              ease: "power1.inOut",
-              // The dash was measured on the flat line; it has to go
-              // before the line becomes a longer waveform.
-              onComplete: undash("[data-voice]"),
-            },
-            "-=0.4",
-          )
+          .timeline({ defaults: { ease: "power3.out" }, delay: 0.15 })
+          .to("[data-voice]", {
+            drawSVG: "100%",
+            duration: 0.7,
+            ease: "power1.inOut",
+            // The dash was measured on the flat line; it has to go
+            // before the line becomes a longer waveform.
+            onComplete: undash("[data-voice]"),
+          })
           .to("[data-voice]", { morphSVG: morphTo(VOICE_RAW), duration: 1, ease: "power2.inOut" })
           .to("[data-voice]", { fillOpacity: 0.22, duration: 0.5 }, "-=0.4");
       };
@@ -437,12 +437,19 @@ export function ScrollStory({ release }: { release: ReleaseAssets }) {
  * The padding is the stacked layout's — narrow screens, reduced motion,
  * no script — so scenes do not run into each other and the first clears
  * the fixed header. The stage takes it off when it pins.
+ *
+ * From `md` up the first scene is laid out as the stage will lay it:
+ * a screen tall, its content centred, no padding. The headline is in
+ * the server's HTML and is visible from the first paint, so it has to
+ * be where the pinned stage will put it, or it would jump the moment
+ * GSAP pins the stage (a layout shift, and a visible one). Reading
+ * the stack with motion reduced, the hero is simply a full screen.
  */
 function Scene({ n, children }: { n: number; children: React.ReactNode }) {
   return (
     <section
       data-scene={n}
-      className={`flex min-h-[60vh] flex-col items-center justify-center px-4 pb-16 text-center ${n === 1 ? "pt-24" : "pt-16"}`}
+      className={`flex min-h-[60vh] flex-col items-center justify-center px-4 pb-16 text-center ${n === 1 ? "pt-24 md:min-h-screen md:pb-0 md:pt-0" : "pt-16"}`}
     >
       <div className="mx-auto w-full max-w-4xl">{children}</div>
     </section>

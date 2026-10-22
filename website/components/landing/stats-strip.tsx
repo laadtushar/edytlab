@@ -61,10 +61,16 @@ export function StatsStrip() {
         >
           {stats.map((s) => (
             <div key={s.unit} className="flex flex-col items-center gap-1 text-center">
-              <div className="flex items-baseline gap-1.5">
-                <dt className="text-4xl font-bold tracking-tight text-foreground sm:text-5xl">
-                  <Counter value={s.value} />
-                </dt>
+              {/* The term is the figure with its unit ("94 tools") and the
+                  description follows it. `dt` and `dd` are the `div`'s
+                  own children, as HTML wants for a grouped list: they
+                  used to sit two `div`s down, which fails Lighthouse's
+                  definition-list audit. */}
+              <dt className="flex items-baseline gap-1.5">
+                <Counter
+                  value={s.value}
+                  className="text-4xl font-bold tracking-tight text-foreground sm:text-5xl"
+                />
                 {/* An invisible copy holds the width, and the visible
                     unit sits over it — so the scramble, whose letters
                     are wider and narrower than the real ones, never
@@ -77,7 +83,7 @@ export function StatsStrip() {
                     {s.unit}
                   </span>
                 </span>
-              </div>
+              </dt>
               <dd className="max-w-[16rem] text-sm text-muted-foreground">{s.label}</dd>
             </div>
           ))}

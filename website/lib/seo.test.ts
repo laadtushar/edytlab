@@ -100,6 +100,17 @@ describe("sitemap", () => {
   });
 });
 
+describe("IndexNow", () => {
+  // IndexNow engines (Bing and others) check that the site serves the key
+  // it was told about, at the root, and compare it byte for byte. The key
+  // is public by design; it proves control of the site, it is not a secret.
+  const KEY = "2da9005c7a104cf98929005b2c4c4beb";
+
+  it("serves its key file at the root, with the key and nothing else", () => {
+    expect(readFileSync(join(ROOT, "public", `${KEY}.txt`), "utf8")).toBe(KEY);
+  });
+});
+
 describe("robots", () => {
   it("allows crawling and points at the sitemap", () => {
     const r = robots();
@@ -538,6 +549,62 @@ describe("structured data on the use-case pages", () => {
       expectNoSocialProof(articleJsonLd({ path, headline: title, description, datePublished: published }), "Article");
       expectNoSocialProof(breadcrumbJsonLd(pageBreadcrumbs(name, path)), "BreadcrumbList");
     });
+  });
+});
+
+describe("a BreadcrumbList on every page below the home page", () => {
+  // Breadcrumbs let Google show the page's place in the site under its
+  // result. A page with no trail shows a bare URL, and which pages have
+  // one was a matter of who remembered: the use-case pages, the blog and
+  // the docs did, the changelog, the press kit and the legal pages did
+  // not. A page is covered when its own source writes the trail, or when
+  // it uses a shell that writes it from the page's path.
+  const read = (path: string) => readFileSync(join(ROOT, path), "utf8");
+  const shells: Record<string, string> = {
+    DocShell: read("components/docs/doc-shell.tsx"),
+    LegalShell: read("components/landing/legal-shell.tsx"),
+  };
+  const routes = staticRoutes().filter((r) => r !== "/");
+
+  it("has pages to check", () => {
+    expect(routes.length).toBeGreaterThanOrEqual(12);
+    expect(routes).toEqual(expect.arrayContaining(["/changelog", "/press", "/privacy", "/terms", "/blog", "/docs"]));
+  });
+
+  it.each(routes)("%s writes its trail, in its own source or through a shell that does", (route) => {
+    const src = read(join("app", route.slice(1), "page.tsx"));
+    const own = /breadcrumbJsonLd\(/.test(src);
+    const shell = Object.entries(shells).find(([name, shellSrc]) => src.includes(`<${name}`) && /breadcrumbJsonLd\(/.test(shellSrc));
+    expect(own || shell !== undefined, `${route} renders no BreadcrumbList`).toBe(true);
+  });
+
+  it("gives the legal pages' shell the page's own path, which is where the trail ends", () => {
+    for (const route of ["/changelog", "/privacy", "/terms"]) {
+      const src = read(join("app", route.slice(1), "page.tsx"));
+      expect(src, `${route} does not pass its path to LegalShell`).toMatch(new RegExp(`<LegalShell[^>]*\\bpath="${route}"`));
+    }
+  });
+
+  it("names the press kit's trail Home, then Press kit, at /press", () => {
+    const src = read("app/press/page.tsx");
+    expect(src).toContain('breadcrumbJsonLd(pageBreadcrumbs("Press kit", "/press"))');
+    const ld = parsed(breadcrumbJsonLd(pageBreadcrumbs("Press kit", "/press")));
+    expect(ld.itemListElement.map((i: { item: string }) => i.item)).toEqual([siteConfig.url, absoluteUrl("/press")]);
+  });
+
+  it("ends each trail at the page's canonical URL, with Home first", () => {
+    for (const [name, route] of [
+      ["Changelog", "/changelog"],
+      ["Privacy", "/privacy"],
+      ["Terms of use", "/terms"],
+      ["Press kit", "/press"],
+    ] as const) {
+      const ld = parsed(breadcrumbJsonLd(pageBreadcrumbs(name, route)));
+      expect(ld["@type"]).toBe("BreadcrumbList");
+      expect(ld.itemListElement.map((i: { position: number }) => i.position)).toEqual([1, 2]);
+      expect(ld.itemListElement[0]).toMatchObject({ name: "Home", item: siteConfig.url });
+      expect(ld.itemListElement[1]).toMatchObject({ name, item: absoluteUrl(route) });
+    }
   });
 });
 
