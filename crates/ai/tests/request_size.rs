@@ -148,9 +148,14 @@ const ISSUE_MEASURED_TOKENS: usize = 15_157;
 // audition_effect, which adds 427 B. It went up by that and no more, so the
 // headroom was the 222 B it had been. #618 then added `list_session`, whose
 // descriptor with its comma is 375 B (62,705 B to 63,080 B). It went up by
-// that and no more, so the headroom is still 222 B.
+// that and no more, so the headroom is still 222 B. #653 then had
+// `batch_apply` say where its projects and renders land (the input folder, by
+// default) and `render_final` say that a path the project reads is refused,
+// which adds 410 B (63,080 B to 63,490 B). The model chooses `output_dir` and
+// `out_path`, and a render that lands on a recording is a loss, so it went up
+// by that and no more: the headroom is still 222 B.
 const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
-const FULL_TOOLS_MAX_BYTES: usize = 63_302; // measured 63,080
+const FULL_TOOLS_MAX_BYTES: usize = 63_712; // measured 63,490
 
 // ---------------------------------------------------------------------
 // Fixture

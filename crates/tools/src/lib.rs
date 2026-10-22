@@ -23,6 +23,7 @@
 //! implementations can assume their inputs already conform to the
 //! advertised schema.
 
+pub mod destination;
 pub mod dispatcher;
 pub mod preview_cache;
 pub mod progress;

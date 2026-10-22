@@ -212,14 +212,14 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `batch_apply`
 
-Run an exported edit chain across every audio file in a folder. Each file becomes its own project with its own history — a batch is not one giant session. Every file is attempted even if an earlier one fails, and the report says what succeeded, what refused, and why. Optionally renders each result.
+Run an exported edit chain across every audio file in a folder. Each file becomes its own project with its own history — a batch is not one giant session. Every file is attempted even if an earlier one fails, and the report says what succeeded, what refused, and why. Optionally renders each result. output_dir (default: input_dir, beside the originals) holds the projects and renders; a render that would land on an input file refuses the batch up front, so set output_dir to another folder.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `input_dir` | string | yes | Folder of audio to process |
-| `output_dir` | string | no | Where the per-file projects go. Defaults to input_dir. |
+| `output_dir` | string | no | Where the per-file projects and renders go. Defaults to input_dir, beside the originals. |
 | `recipe_path` | string | yes | Recipe JSON from export_recipe |
-| `render_format` | one of `wav`, `flac`, `mp3` | no | Also render each result to this format beside its project. |
+| `render_format` | one of `wav`, `flac`, `mp3` | no | Also render each result to this format, in output_dir under the input's name (take1.wav to take1.mp3). |
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 
@@ -824,7 +824,7 @@ Rename a track. Appends a new session node.
 
 ## `render_final`
 
-Render a session node to a final audio file at the user's chosen path. format="wav" is uncompressed, "flac" is lossless at roughly half the size and identical audio, "mp3" is lossy but plays anywhere — prefer flac when the user wants to send a file somewhere and quality matters, mp3 when size or compatibility matters. bitrate_kbps applies to mp3 only and defaults to 192.
+Render a session node to a final audio file at the user's chosen path. format="wav" is uncompressed, "flac" is lossless at roughly half the size and identical audio, "mp3" is lossy but plays anywhere — prefer flac when the user wants to send a file somewhere and quality matters, mp3 when size or compatibility matters. bitrate_kbps applies to mp3 only and defaults to 192. An out_path that is audio the project reads (a loaded file, or any file its history plays) is refused: choose another.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
