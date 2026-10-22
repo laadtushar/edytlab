@@ -214,12 +214,44 @@ fn model_registry_caches_arcs() {
 
 #[test]
 #[ignore = "needs ORT_DYLIB_PATH (an ONNX Runtime library); run with --ignored"]
+fn a_session_from_the_registry_can_be_run() {
+    // `ort` 2.0.0-rc.13's `Session::run` takes `&mut self`, and the registry
+    // used to hand out a bare `Arc<Session>`, which nothing could run: the
+    // Whisper decoder (#384) was its first would-be caller. The session now
+    // comes behind a mutex; take the lock, run the model, and check the
+    // second holder of the same Arc sees the same, working, session.
+    let model_path = fixture_model();
+    let registry = ModelRegistry::new();
+    let shared = registry
+        .load("fixture-run", &model_path, ExecProvider::Cpu)
+        .expect("load");
+    let again = registry
+        .load("fixture-run", &model_path, ExecProvider::Cpu)
+        .expect("load again");
+
+    for handle in [&shared, &again] {
+        let mut session = handle.lock().expect("session lock");
+        let input = [3.0f32, -1.0, 0.5];
+        let tensor =
+            ort::value::Tensor::from_array(([1usize, 3], input.to_vec())).expect("input tensor");
+        let outputs = session
+            .run(ort::inputs!["X" => tensor])
+            .expect("run identity.onnx through the registry's session");
+        let (_, data) = outputs["Y"]
+            .try_extract_tensor::<f32>()
+            .expect("Y is a float tensor");
+        assert_eq!(data, &input[..]);
+    }
+}
+
+#[test]
+#[ignore = "needs ORT_DYLIB_PATH (an ONNX Runtime library); run with --ignored"]
 fn coreml_ep_falls_back_to_cpu_on_non_mac() {
     let model_path = fixture_model();
 
     // On non-mac targets the CoreML branch warns and falls through to
     // CPU; on mac it actually loads CoreML. Both should produce a
-    // valid Arc<Session> and not panic.
+    // valid SharedSession and not panic.
     let registry = ModelRegistry::new();
     let s = registry
         .load("fixture-coreml", &model_path, ExecProvider::CoreML)

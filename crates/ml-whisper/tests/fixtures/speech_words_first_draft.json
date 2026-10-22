@@ -1,0 +1,47 @@
+[
+  {
+    "text": "hello",
+    "start_s": 0.3,
+    "end_s": 0.845
+  },
+  {
+    "text": "green",
+    "start_s": 0.885,
+    "end_s": 1.335
+  },
+  {
+    "text": "water",
+    "start_s": 1.385,
+    "end_s": 1.915
+  },
+  {
+    "text": "house",
+    "start_s": 1.945,
+    "end_s": 2.415
+  },
+  {
+    "text": "music",
+    "start_s": 2.465,
+    "end_s": 2.99
+  },
+  {
+    "text": "friend",
+    "start_s": 3.03,
+    "end_s": 3.525
+  },
+  {
+    "text": "table",
+    "start_s": 3.555,
+    "end_s": 4.06
+  },
+  {
+    "text": "morning",
+    "start_s": 4.11,
+    "end_s": 4.69
+  },
+  {
+    "text": "window",
+    "start_s": 4.73,
+    "end_s": 5.295
+  }
+]

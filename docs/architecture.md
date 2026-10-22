@@ -93,7 +93,7 @@ edytlab/
     ├── memory/                   # Global/project markdown memory fragments
     ├── ml-demucs/                # Stem separation via ONNX Demucs (inference is a stub, #385)
     ├── ml-pipeline/              # Shared ONNX runtime gate, model downloader + the user-started speech-model download, and inference cache (the installers carry the runtime, #383)
-    ├── ml-whisper/               # Transcription via ONNX Whisper-base (decoder is a stub, #384)
+    ├── ml-whisper/               # Transcription via ONNX Whisper-base (runs the pinned model; not called by the app yet, #384)
     ├── recorder/                 # Microphone capture to WAV (cpal)
     ├── session/                  # DAG data model, node store, fork/diff/compare
     ├── skills/                   # User skill library with trigger evaluation
@@ -1050,27 +1050,29 @@ Input: WAV (any sample rate)
     │
     ▼  log-mel spectrogram (80 bins, 30-second window)
     │
-    ▼  Whisper encoder + decoder (ONNX Whisper-base) — NOT IMPLEMENTED
+    ▼  Whisper encoder + decoder (ONNX Whisper-base), 30 s windows
     │
     ▼  word-level timestamps via DTW alignment
     │
 Output: Vec<WordTimestamp> stored in SessionState.transcript
 
-NOT IMPLEMENTED IN THIS BUILD. `WhisperModel::transcribe` returns
-`NotImplemented` once the input passes validation, whatever model is
-loaded. The diagram is the intended design, not current behaviour.
+Written, and not called by the app: `ml_whisper::transcribe` runs this diagram
+on the pinned export, but the `transcribe` tool does not call it, so the app
+still answers "not implemented in this build" whatever model is configured.
 ```
 
-Four of its pieces exist ahead of the rest. They need no ONNX Runtime and no model, they are checked in CI, and nothing calls any of them:
+`ml_whisper::transcribe(model, samples, rate, channels, language, cancel)` turns any audio into words with start and end times and a confidence. It runs on the CPU (CoreML and CUDA are not measured):
 
-- the log-mel spectrogram (`crates/ml-whisper/src/mel.rs`, compared with OpenAI's `log_mel_spectrogram`, [#554](https://github.com/laadtushar/edytlab/pull/554));
-- the decoding of token ids to text from the export's `tokenizer.json` (`tokenizer.rs`, byte-level BPE, [#555](https://github.com/laadtushar/edytlab/pull/555));
-- the greedy decoding loop (`decode.rs`, a port of `whisper/decoding.py`'s main loop, language detection, token suppression and timestamp rules, [#556](https://github.com/laadtushar/edytlab/pull/556)), with every model call behind a `DecoderStep` trait that the tests drive with fixed logits;
-- word timing from the decoder's cross-attention (`timing.rs`, a port of `whisper/timing.py`'s median filter, DTW and punctuation merge, [#557](https://github.com/laadtushar/edytlab/pull/557)), tested on made-up attention weights.
+- `export.rs` checks the names, element types and shapes of both sessions when `WhisperModel::load(folder)` opens them, so a different export (another size, one without the `_timestamped` attention outputs) is an error that says what differs. Only `base` is accepted, because only its alignment heads are known.
+- `cached.rs` runs the merged decoder behind the `DecoderStep` trait of `decode.rs`: `use_cache_branch` is false on the first step of a sequence and true after, the self-attention cache grows by a position a step, the cross-attention cache of the first step is kept, and the cross-attention of the eight alignment heads is collected per step for `timing.rs`. It talks to ONNX Runtime through a small `DecoderRun` trait (`ort_io.rs` is the only code that touches `ort` tensors), so the hand-over is tested in CI with a fake.
+- `chunk.rs` cuts long audio into 30 s windows. The next window starts at the later of the last complete word's end and the cut word's start; a first word that only repeats the tail of the last kept word is dropped; a window with no word past half a second advances a whole window.
+- `resample.rs` brings any rate and channel count to 16 kHz mono with the exact length and no filter delay.
+- `refine.rs` pulls word edges in to the sound inside them: the aligner lays words end to end, so silence belongs to the word after it. Edges only move inward, and between words spoken without a pause the aligner's boundary (about 0.14 s early) stays.
+- Windows the model calls empty are passed over by upstream's rule (`P(nospeech) > 0.6` and a mean token log-probability of at most -1), which `DecodeConfig` holds.
 
-What is not written is everything that needs the runtime and the model: the ONNX encoder and decoder behind `DecoderStep`, loading the model, chunking long audio into 30-second windows, and the tool wiring.
+Measured by hand against the real model (`crates/ml-whisper/tests/transcribe_known_words.rs`, `#[ignore]`d because CI has neither the model nor the runtime): on twelve synthetic words 0 are wrong and every start is within 0.23 s (mean 0.17 s, early); on the first list of words, which was changed after the model heard it, 1 of 9 is wrong; the same words as 44.1 kHz stereo, or with 0.6 s pauses between them, are heard the same; 48.6 s of them in shuffled order, two windows, comes back with all 84 words and 96% to 99% at their time; silence and noise give no words. A 7.3 s clip runs at 4x to 9x realtime on a shared four-core machine (the model is about 1 s of decoder and encoder per window of this length, and ONNX Runtime is the cost, not the Rust around it). That is one synthetic voice: it says the path works, not how accurate Whisper base is on hard audio.
 
-Designed to run entirely on-device. There is no transcription speed to quote until the decoder exists ([#384](https://github.com/laadtushar/edytlab/issues/384)).
+Still to do (#384): the tool wiring (the model folder from `ml_pipeline::models::cached`, progress, cancel, the `InferenceCache`, a `language` argument), the download prompt and every line of copy that says transcription is unavailable.
 
 ### Demucs (Stem Separation)
 

@@ -1,9 +1,16 @@
 //! ONNX Runtime session registry.
 //!
-//! The registry hands out `Arc<ort::Session>` keyed by a caller-provided
-//! `model_id`. Sessions are lazily built on first request via
-//! [`ModelRegistry::load`] and cached so subsequent loads of the same
-//! `model_id` clone the existing `Arc` rather than rebuilding the session.
+//! The registry hands out a [`SharedSession`] (`Arc<Mutex<ort::Session>>`)
+//! keyed by a caller-provided `model_id`. Sessions are lazily built on first
+//! request via [`ModelRegistry::load`] and cached so subsequent loads of the
+//! same `model_id` clone the existing `Arc` rather than rebuilding the
+//! session.
+//!
+//! The `Mutex` is there because `ort` 2.0.0-rc.13's `Session::run` takes
+//! `&mut self`: a bare `Arc<Session>`, which is what this handed out until
+//! the Whisper decoder (#384) became its first caller, could be held but
+//! never run. Lock it for the duration of a run; two callers of one model
+//! take turns.
 //!
 //! Execution-provider selection is delegated to [`ExecProvider`]:
 //!
@@ -31,12 +38,16 @@ use ort::session::{builder::SessionBuilder, Session};
 
 use crate::{Error, Result};
 
+/// A session that can be shared and run: `ort`'s `Session::run` needs
+/// `&mut Session`, so the registry hands it out behind a `Mutex`.
+pub type SharedSession = Arc<Mutex<Session>>;
+
 /// Per-key lazy-init slot. The outer registry holds an `Arc<Lazy>` per
 /// `model_id`; the first thread to call `load` for a given id locks the
 /// inner Mutex, runs `build_session`, and stores the result. Concurrent
 /// callers requesting the same id block on the inner Mutex (NOT the
 /// registry-wide RwLock), so other model_ids stay parallelizable.
-type Lazy = Arc<Mutex<Option<Arc<Session>>>>;
+type Lazy = Arc<Mutex<Option<SharedSession>>>;
 
 /// ONNX Runtime execution provider preference.
 ///
@@ -69,7 +80,7 @@ impl ExecProvider {
 
 /// Registry of lazily-loaded `ort::Session`s keyed by `model_id`.
 ///
-/// Designed to live as a process-wide singleton: clone the `Arc<Session>`
+/// Designed to live as a process-wide singleton: clone the [`SharedSession`]
 /// returned by [`load`] into each tool invocation rather than rebuilding
 /// the session per call.
 ///
@@ -89,7 +100,7 @@ impl ModelRegistry {
     /// from `path` using execution provider `ep` and cache it.
     ///
     /// Loading the same `model_id` twice always returns the same
-    /// `Arc<Session>` (acceptance criterion #1). Callers that want to
+    /// [`SharedSession`] (acceptance criterion #1). Callers that want to
     /// force a reload should pick a new `model_id` (e.g. include the
     /// model file's content hash in the id).
     ///
@@ -98,7 +109,7 @@ impl ModelRegistry {
     /// the inner per-key Mutex; the first builds the session, the
     /// second wakes up and clones the resulting Arc. Different
     /// `model_id`s parallelize because each has its own Lazy slot.
-    pub fn load(&self, model_id: &str, path: &Path, ep: ExecProvider) -> Result<Arc<Session>> {
+    pub fn load(&self, model_id: &str, path: &Path, ep: ExecProvider) -> Result<SharedSession> {
         // Acquire (or insert) the per-key Lazy slot under the registry
         // RwLock, then release the registry lock before doing the
         // expensive session build inside the per-key Mutex.
@@ -139,7 +150,7 @@ impl ModelRegistry {
             return Ok(existing.clone());
         }
         let session = build_session(path, ep)?;
-        let arc = Arc::new(session);
+        let arc = Arc::new(Mutex::new(session));
         *slot = Some(arc.clone());
         Ok(arc)
     }

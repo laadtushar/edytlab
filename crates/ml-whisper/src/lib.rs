@@ -1,61 +1,64 @@
-//! Whisper transcription wrapper (Phase 1, M09).
+//! Whisper transcription (Phase 1, M09; the decoder is #384).
 //!
-//! Provides a small, sync wrapper around an ONNX Whisper-base export plus
-//! a `rubato`-based 16 kHz mono pre-processor. The wrapper is deliberately
-//! minimal: load the model once, call [`WhisperModel::transcribe`] N
-//! times. The `transcribe` tool in the `tools` crate keeps a single
-//! [`WhisperModel`] alive for the lifetime of the process.
+//! A small, sync wrapper around the ONNX Whisper-base export that
+//! `ml_pipeline::models::whisper_base()` pins
+//! (`onnx-community/whisper-base_timestamped`). Load the model once with
+//! [`WhisperModel::load`], then call [`transcribe`] as often as needed.
 //!
-//! ## Phase-1 scope
+//! ## What is here
 //!
-//! - Real Whisper inference plumbing depends on the specific ONNX export
-//!   (encoder-decoder vs single-model, beam-search etc.). Shipping a
-//!   correct production-grade decode loop is out of scope for the first
-//!   milestone; what we ship here is the **API shape**, the model-loading
-//!   path, the resampler glue, and an explicit unavailable error.
+//! * [`mel`], [`tokenizer`], [`decode`], [`timing`]: the log-mel spectrogram, the
+//!   token decoder, the greedy decoding loop behind a trait, and word timing
+//!   from cross-attention. Each is ported from OpenAI's `whisper` and checked
+//!   against it without a model.
+//! * [`export`]: the names, types and shapes the ONNX files must have, checked
+//!   by [`WhisperModel::load`] so a different export is an error that says what
+//!   differs.
+//! * `cached`: the merged decoder's key-value cache as a [`decode::DecoderStep`],
+//!   and the attention it collects; the cache hand-over is tested with a fake
+//!   runner.
+//! * `chunk`: 30 s windows and where the next one starts.
+//! * `refine`: word edges pulled in to where there is sound.
+//! * [`resample_to_16khz_mono`]: any rate and channel count to 16 kHz mono,
+//!   without the delay an FFT resampler adds.
+//! * [`transcribe`]: all of it together. `tests/transcribe_known_words.rs` runs
+//!   it on a real model; CI, which has none, runs the pieces.
 //!
-//! - **There is no decoder in this build.** Once the input passes
-//!   validation, [`WhisperModel::transcribe`] returns
-//!   [`WhisperError::NotImplemented`] whatever model is loaded. No model
-//!   file, environment variable or setup step changes that.
+//! ## What the app does with it: nothing yet
 //!
-//!   It used to return `Ok(Vec::new())` instead — success carrying an
-//!   empty transcript, which a caller cannot distinguish from "this
-//!   recording contains no speech" (#233). That kept a smoke test green
-//!   on a silence fixture at the cost of lying to every real caller,
-//!   which is the wrong trade.
+//! The `transcribe` tool does not call [`transcribe`]. It answers
+//! [`WhisperError::NotImplemented`] whatever model is configured, so the app
+//! still reports that speech-to-text is not implemented in this build. Wiring
+//! the tool to this crate (the model folder from Settings, progress, the cache,
+//! the download prompt) and changing every line of copy that says so is the next
+//! change on #384. Until it lands, do not describe transcription as working.
 //!
-//! - Validation still runs *before* the stub, so a caller who forgot the
-//!   resampler hears about the mistake they can fix rather than about
-//!   the missing decoder.
-//!
-//! - The pieces that need no runtime are landing one module at a time
-//!   (plan on #384): [`mel`] is the log-mel spectrogram the encoder takes,
-//!   checked against OpenAI's own implementation. None of it is wired to
-//!   [`WhisperModel::transcribe`] yet, which still returns
-//!   [`WhisperError::NotImplemented`].
-//!
-//! - Real speech support is gated on (a) committing to a specific Whisper
-//!   ONNX export and (b) wiring a decode loop. That is a manual gate,
-//!   not a CI gate. See `tests/transcribe_smoke.rs` for the contract the
-//!   real decoder must uphold.
+//! The stub used to return an empty `Ok`, a success carrying an empty
+//! transcript, which a caller cannot tell from "this recording contains no
+//! speech" (#233). This crate must not go back to an empty success for
+//! something it did not do.
 
+mod cached;
+mod chunk;
 pub mod decode;
+pub mod export;
 pub mod mel;
+mod model;
+mod ort_io;
+mod refine;
+mod resample;
 pub mod timing;
 pub mod tokenizer;
 
-use std::path::Path;
-
-use rubato::{FftFixedInOut, Resampler};
+pub use model::{transcribe, Transcript, WhisperModel, DECODER_FILE, ENCODER_FILE, TOKENIZER_FILE};
+pub use resample::resample_to_16khz_mono;
 
 /// One word of the transcript with timing and confidence.
 ///
 /// `start_s`/`end_s` are seconds from the start of the audio buffer
-/// passed to [`WhisperModel::transcribe`]. `confidence` is in
-/// `[0.0, 1.0]`.
+/// passed to [`transcribe`]. `confidence` is in `[0.0, 1.0]`.
 ///
-/// Mirrors [`session::TranscriptWord`] field-for-field; the `transcribe`
+/// Mirrors `session::TranscriptWord` field-for-field; the `transcribe`
 /// tool maps between the two when writing the session-state side effect.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Word {
@@ -73,14 +76,11 @@ pub struct Word {
 #[derive(Debug, thiserror::Error)]
 pub enum WhisperError {
     #[error(
-        "Whisper model not found at {path}. Set WHISPER_MODEL_PATH to an ONNX Whisper export. \
-         Note that speech-to-text is not implemented in this build, so supplying a model will \
-         not yet produce a transcript (#233)."
+        "Whisper model not found at {path}. Set WHISPER_MODEL_PATH to the folder of an ONNX \
+         Whisper export. Note that speech-to-text is not implemented in this build, so supplying \
+         a model will not yet produce a transcript (#233)."
     )]
     ModelMissing { path: String },
-
-    #[error("ONNX runtime error: {0}")]
-    Ort(#[from] ort::Error),
 
     /// No usable ONNX Runtime library (see
     /// [`ml_pipeline::runtime::ensure`]). Reported instead of building a
@@ -95,6 +95,42 @@ pub enum WhisperError {
     )]
     RuntimeUnavailable(String),
 
+    /// The folder or the ONNX files in it are not the export this build reads:
+    /// a file is missing, or a session's inputs and outputs are not the
+    /// ones `export` lists. The message says which.
+    #[error("not the expected Whisper export: {0}")]
+    UnexpectedExport(String),
+
+    /// ONNX Runtime could not open a model file (corrupt, truncated, or an
+    /// opset it does not support).
+    #[error("could not load the model: {0}")]
+    ModelLoad(String),
+
+    /// A session run failed or returned something other than its shapes.
+    #[error("inference failed: {0}")]
+    Inference(String),
+
+    /// `tokenizer.json` could not be read or is not the byte-level BPE
+    /// tokenizer of the export.
+    #[error("tokenizer: {0}")]
+    Tokenizer(#[from] tokenizer::TokenizerError),
+
+    /// The decode loop failed (a decoder step, logits of the wrong shape).
+    #[error("decoding failed: {0}")]
+    Decode(decode::DecodeError),
+
+    /// Word timing failed.
+    #[error("word timing failed: {0}")]
+    Timing(#[from] timing::TimingError),
+
+    /// The caller's `cancel` answered `true`.
+    #[error("transcription cancelled")]
+    Cancelled,
+
+    /// A language code the model has no token for.
+    #[error("unknown language {0:?}: the model has no <|{0}|> token")]
+    UnknownLanguage(String),
+
     #[error("rubato resampler construction failed: {0}")]
     ResamplerInit(#[from] rubato::ResamplerConstructionError),
 
@@ -104,243 +140,75 @@ pub enum WhisperError {
     #[error("invalid audio: {0}")]
     InvalidAudio(String),
 
-    /// The decoder is a stub in this build (#233).
+    /// Speech-to-text is not available to the app in this build (#233, #384).
     ///
-    /// Returned instead of an empty transcript. `Ok(vec![])` is a
-    /// *success* carrying zero words, and every caller reads it as
-    /// "this audio contains no speech" — so a correctly configured
-    /// model produced a silently wrong answer rather than a failure
-    /// anyone could act on. Mirrors [`ml_demucs::DemucsError::NotImplemented`].
+    /// Not returned by this crate: [`transcribe`] runs the model. It is what a
+    /// caller that has not been wired to [`transcribe`] answers, in place of an
+    /// empty transcript. An empty success is a success carrying zero words, and
+    /// every caller reads it as "this audio contains no speech" — so a
+    /// correctly configured model produced a silently wrong answer rather than
+    /// a failure anyone could act on. The `transcribe` tool is that caller
+    /// today. Mirrors `ml_demucs::DemucsError::NotImplemented`.
     #[error(
-        "speech-to-text is not implemented in this build — the ONNX Whisper decoder is a stub, \
-         so no model file will produce a transcript. Tracked post-v1; there is no configuration \
-         that makes this work today."
+        "speech-to-text is not implemented in this build — the app does not run the speech model \
+         yet, so no model file will produce a transcript. Tracked post-v1; there is no \
+         configuration that makes this work today."
     )]
     NotImplemented,
 }
 
+impl From<export::ExportError> for WhisperError {
+    fn from(e: export::ExportError) -> Self {
+        WhisperError::UnexpectedExport(e.to_string())
+    }
+}
+
+impl From<decode::DecodeError> for WhisperError {
+    fn from(e: decode::DecodeError) -> Self {
+        match e {
+            decode::DecodeError::Cancelled => WhisperError::Cancelled,
+            other => WhisperError::Decode(other),
+        }
+    }
+}
+
 pub type Result<T> = std::result::Result<T, WhisperError>;
-
-/// Loaded Whisper ONNX session.
-///
-/// Holds the `ort::Session` and is `Send + Sync` so it can sit behind a
-/// `OnceLock`/`Mutex` in the tool's process-wide cache.
-pub struct WhisperModel {
-    // The inference session is held but not driven yet — see the module
-    // doc-comment for the Phase-1 scope. We keep the field non-public so
-    // we can swap in beam-search state and tokenizer handles later
-    // without breaking callers.
-    // #[allow(dead_code)]: field is intentionally unused until Phase-2 inference is wired up
-    #[allow(dead_code)]
-    session: ort::session::Session,
-}
-
-// `ort::session::Session` doesn't implement `Debug`; provide a manual
-// stub so callers can use `.unwrap()`/`.expect_err()` in tests.
-impl std::fmt::Debug for WhisperModel {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("WhisperModel").finish_non_exhaustive()
-    }
-}
-
-impl WhisperModel {
-    /// Open the ONNX model at `model_path`.
-    ///
-    /// Returns [`WhisperError::ModelMissing`] if the path does not exist
-    /// (so callers can present a structured install-script hint instead
-    /// of an opaque ORT error), [`WhisperError::RuntimeUnavailable`] if
-    /// there is no ONNX Runtime library to load, and propagates any
-    /// other ORT failure.
-    pub fn load(model_path: &Path) -> Result<Self> {
-        if !model_path.exists() {
-            return Err(WhisperError::ModelMissing {
-                path: model_path.display().to_string(),
-            });
-        }
-        // Before any `ort` call: `Session::builder()` panics, rather than
-        // erroring, when the library is missing.
-        ml_pipeline::runtime::ensure()
-            .map_err(|e| WhisperError::RuntimeUnavailable(e.to_string()))?;
-        let session = ort::session::Session::builder()?.commit_from_file(model_path)?;
-        Ok(Self { session })
-    }
-
-    /// Run transcription over a 16 kHz mono `f32` PCM buffer.
-    ///
-    /// The buffer must already be 16 kHz mono — see
-    /// [`resample_to_16khz_mono`] for the canonical pre-processor.
-    ///
-    /// Phase-1 stub: returns [`WhisperError::NotImplemented`].
-    ///
-    /// It used to return `Ok(Vec::new())`, on the reasoning that the
-    /// acceptance contract (monotonic non-decreasing timestamps,
-    /// `start_s < end_s`) is upheld vacuously by an empty `Vec`. It is
-    /// — and that was the problem (#233). An empty `Ok` is a success
-    /// carrying zero words, and a caller cannot tell it apart from
-    /// "this recording has no speech in it". So a user who did
-    /// everything right, including supplying a real model file, got a
-    /// blank transcript and no indication anything was missing.
-    ///
-    /// The input validation below still runs first: a caller who forgot
-    /// the resampler should hear about *that*, which is a mistake they
-    /// can fix, rather than about the stub.
-    pub fn transcribe(&self, audio_16khz_mono: &[f32]) -> Result<Vec<Word>> {
-        // Sanity-check the input shape so downstream callers get a
-        // clear error if they forget the resampler.
-        if !audio_16khz_mono.iter().all(|s| s.is_finite()) {
-            return Err(WhisperError::InvalidAudio(
-                "audio buffer contains non-finite samples".into(),
-            ));
-        }
-        // See the module doc for why this is currently a stub. The full
-        // decoder will replace this body without changing the signature.
-        Err(WhisperError::NotImplemented)
-    }
-}
-
-/// Resample interleaved `f32` PCM at `sr` Hz with `channels` channels to
-/// 16 kHz mono `f32`.
-///
-/// Strategy: downmix-then-resample. Whisper expects mono, and downmixing
-/// before the resampler halves the FFT cost on stereo inputs.
-///
-/// If the input is already 16 kHz the resampler is bypassed entirely
-/// (the input is downmixed and returned as-is) — `FftFixedInOut` rejects
-/// `in_rate == out_rate` on some configurations, and skipping the path
-/// is cheaper anyway.
-pub fn resample_to_16khz_mono(samples: &[f32], sr: u32, channels: u16) -> Result<Vec<f32>> {
-    if channels == 0 {
-        return Err(WhisperError::InvalidAudio("0 channels".into()));
-    }
-    if sr == 0 {
-        return Err(WhisperError::InvalidAudio("0 Hz sample rate".into()));
-    }
-    let chans = channels as usize;
-    if !samples.len().is_multiple_of(chans) {
-        return Err(WhisperError::InvalidAudio(format!(
-            "interleaved buffer length {} not divisible by channels {chans}",
-            samples.len()
-        )));
-    }
-
-    // Downmix to mono first.
-    let frames = samples.len() / chans;
-    let mut mono = Vec::with_capacity(frames);
-    if chans == 1 {
-        mono.extend_from_slice(samples);
-    } else {
-        let inv = 1.0 / chans as f32;
-        for f in 0..frames {
-            let mut acc = 0.0f32;
-            for ch in 0..chans {
-                acc += samples[f * chans + ch];
-            }
-            mono.push(acc * inv);
-        }
-    }
-
-    if sr == 16_000 {
-        return Ok(mono);
-    }
-
-    // 1024-frame chunk — small enough for tens-of-ms latency, large enough
-    // to amortize FFT cost. We're running off the audio thread here so the
-    // chunk size is throughput-bound, not latency-bound.
-    let mut resampler = FftFixedInOut::<f32>::new(sr as usize, 16_000, 1024, 1)?;
-    let chunk_in = resampler.input_frames_max();
-    let mut in_buf = vec![vec![0.0f32; chunk_in]; 1];
-    let out_max = resampler.output_frames_max();
-    let mut out_buf = vec![vec![0.0f32; out_max]; 1];
-
-    let mut out = Vec::with_capacity(((mono.len() as u64 * 16_000) / sr as u64) as usize + 64);
-    let mut pos = 0usize;
-    while pos + resampler.input_frames_next() <= mono.len() {
-        let needed = resampler.input_frames_next();
-        in_buf[0].clear();
-        in_buf[0].extend_from_slice(&mono[pos..pos + needed]);
-        let (_in_used, out_written) = resampler.process_into_buffer(&in_buf, &mut out_buf, None)?;
-        out.extend_from_slice(&out_buf[0][..out_written]);
-        pos += needed;
-    }
-    // Tail: pad with zeros to flush. For a transcription pre-processor a
-    // few ms of silence at the end is cheaper than the bookkeeping for a
-    // partial-chunk path.
-    if pos < mono.len() {
-        let needed = resampler.input_frames_next();
-        in_buf[0].clear();
-        in_buf[0].extend_from_slice(&mono[pos..]);
-        in_buf[0].resize(needed, 0.0);
-        let (_in_used, out_written) = resampler.process_into_buffer(&in_buf, &mut out_buf, None)?;
-        out.extend_from_slice(&out_buf[0][..out_written]);
-    }
-    Ok(out)
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn resample_passthrough_at_16khz() {
-        // 16 kHz mono: should return the input unchanged.
-        let input: Vec<f32> = (0..1600).map(|i| (i as f32) * 0.001).collect();
-        let out = resample_to_16khz_mono(&input, 16_000, 1).unwrap();
-        assert_eq!(out, input);
-    }
-
-    #[test]
-    fn resample_stereo_downmix() {
-        // 16 kHz stereo with L=1.0, R=-1.0 -> mono should be ~0.0 everywhere.
-        let frames = 1024;
-        let mut interleaved = Vec::with_capacity(frames * 2);
-        for _ in 0..frames {
-            interleaved.push(1.0);
-            interleaved.push(-1.0);
-        }
-        let out = resample_to_16khz_mono(&interleaved, 16_000, 2).unwrap();
-        assert_eq!(out.len(), frames);
-        for s in out {
-            assert!(s.abs() < 1e-6, "downmix not zero: {s}");
-        }
-    }
-
-    #[test]
-    fn resample_44k_to_16k_changes_length_proportionally() {
-        // 1 s of mono 44.1 kHz silence -> ~16 000 samples at 16 kHz.
-        let input = vec![0.0f32; 44_100];
-        let out = resample_to_16khz_mono(&input, 44_100, 1).unwrap();
-        let expected = 16_000;
-        let delta = (out.len() as i64 - expected as i64).abs();
-        assert!(
-            delta < 2_000,
-            "resampled length {} differs from expected {} by more than 2000 samples",
-            out.len(),
-            expected
-        );
-    }
-
-    #[test]
-    fn rejects_zero_channels() {
-        let err = resample_to_16khz_mono(&[], 16_000, 0).unwrap_err();
-        assert!(matches!(err, WhisperError::InvalidAudio(_)));
-    }
-
-    #[test]
-    fn rejects_misaligned_buffer() {
-        // 3 samples for stereo is not a whole number of frames.
-        let err = resample_to_16khz_mono(&[1.0, 2.0, 3.0], 16_000, 2).unwrap_err();
-        assert!(matches!(err, WhisperError::InvalidAudio(_)));
-    }
+    use std::path::Path;
 
     #[test]
     fn load_returns_model_missing_for_nonexistent_path() {
-        let path = Path::new("/definitely/does/not/exist/whisper.onnx");
+        let path = Path::new("/definitely/does/not/exist/whisper");
         let err = WhisperModel::load(path).unwrap_err();
         match err {
             WhisperError::ModelMissing { path: p } => {
-                assert!(p.contains("whisper.onnx"));
+                assert!(p.contains("whisper"));
             }
             other => panic!("expected ModelMissing, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn what_the_unwired_tool_answers_says_so_without_calling_the_model_a_stub() {
+        // The tool answers this until it is rewired. It is checked on the
+        // error's text, which is what the tool shows.
+        let msg = WhisperError::NotImplemented.to_string();
+        assert!(msg.contains("not implemented in this build"), "{msg}");
+        assert!(!msg.contains("stub"), "{msg}");
+    }
+
+    #[test]
+    fn a_cancelled_decode_is_a_cancelled_transcription() {
+        assert!(matches!(
+            WhisperError::from(decode::DecodeError::Cancelled),
+            WhisperError::Cancelled
+        ));
+        assert!(matches!(
+            WhisperError::from(decode::DecodeError::NoViableToken),
+            WhisperError::Decode(_)
+        ));
     }
 }

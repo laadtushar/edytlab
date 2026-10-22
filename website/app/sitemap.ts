@@ -22,6 +22,8 @@ const pages: { path: string; priority: number; changeFrequency: Entry["changeFre
   { path: "/docs/api-reference", priority: 0.7, changeFrequency: "monthly" },
   { path: "/use-cases/dj", priority: 0.8, changeFrequency: "monthly" },
   { path: "/use-cases/local-ai-audio-editor", priority: 0.8, changeFrequency: "monthly" },
+  { path: "/about", priority: 0.6, changeFrequency: "monthly" },
+  { path: "/alternatives/audacity", priority: 0.8, changeFrequency: "monthly" },
   { path: "/videos", priority: 0.7, changeFrequency: "monthly" },
   { path: "/changelog", priority: 0.6, changeFrequency: "weekly" },
   { path: "/press", priority: 0.5, changeFrequency: "monthly" },

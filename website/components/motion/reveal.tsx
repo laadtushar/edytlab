@@ -2,7 +2,7 @@
 
 import { useRef, type ElementType, type ReactNode } from "react";
 
-import { gsap, useGSAP, motionOk, NO_PREFERENCE, REVEAL_START } from "@/lib/gsap";
+import { gsap, useGSAPWhenNear, motionOk, NO_PREFERENCE, REVEAL_START } from "@/lib/gsap";
 
 type Direction = "up" | "down" | "left" | "right" | "none";
 
@@ -57,7 +57,7 @@ export function Reveal({
 }: RevealProps) {
   const ref = useRef<HTMLElement>(null);
 
-  useGSAP(
+  useGSAPWhenNear(
     () => {
       const mm = motionOk();
       mm.add(NO_PREFERENCE, () => {

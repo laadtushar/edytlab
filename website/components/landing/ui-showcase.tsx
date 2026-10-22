@@ -18,7 +18,7 @@ import { useRef } from "react";
 
 import { Stagger, TiltCard } from "@/components/motion";
 import { SectionHeading } from "@/components/motion/section-heading";
-import { gsap, useGSAP, motionOk, NO_PREFERENCE, undash, whileVisible } from "@/lib/gsap";
+import { gsap, useGSAPWhenNear, motionOk, NO_PREFERENCE, undash, whileVisible } from "@/lib/gsap";
 
 /**
  * Each panel renders its **finished** state and GSAP animates *from* the
@@ -85,7 +85,7 @@ function MixerPanel() {
   // -60..+24 dB mapped to 0..100% of the fader.
   const pos = (db: number) => ((db + 60) / 84) * 100;
 
-  useGSAP(
+  useGSAPWhenNear(
     () => {
       const mm = motionOk();
       mm.add(NO_PREFERENCE, () => {
@@ -178,7 +178,7 @@ function AutomationPanel() {
   const ref = useRef<HTMLDivElement>(null);
   const d = CURVE.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ");
 
-  useGSAP(
+  useGSAPWhenNear(
     () => {
       const mm = motionOk();
       mm.add(NO_PREFERENCE, () => {
@@ -272,7 +272,7 @@ function AutomationPanel() {
 function ClipStripPanel() {
   const ref = useRef<HTMLDivElement>(null);
 
-  useGSAP(
+  useGSAPWhenNear(
     () => {
       const mm = motionOk();
       mm.add(NO_PREFERENCE, () => {
@@ -381,7 +381,7 @@ const HEAD = 4;
 function GraphPanel() {
   const ref = useRef<HTMLDivElement>(null);
 
-  useGSAP(
+  useGSAPWhenNear(
     () => {
       const mm = motionOk();
       mm.add(NO_PREFERENCE, (context) => {

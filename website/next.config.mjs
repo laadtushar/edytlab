@@ -23,6 +23,25 @@ const cacheMedia = [{ key: "Cache-Control", value: MEDIA_CACHE_CONTROL }];
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  turbopack: {
+    resolveAlias: {
+      // Next puts `next/dist/build/polyfills/polyfill-module.js` in every
+      // page's entry chunk, whatever the browsers it targets: feature-
+      // detected stand-ins for `Array.prototype.at`, `flat`, `flatMap`,
+      // `Object.fromEntries`, `Object.hasOwn`, `trimStart`, `trimEnd`,
+      // `Symbol.prototype.description`, `Promise.prototype.finally` and
+      // `URL.canParse`. Every one but the last is in Chrome 111, Edge 111,
+      // Firefox 111 and Safari 16.4, the browsers Next documents as its
+      // default targets, and nothing the site ships calls `URL.canParse`,
+      // so for those browsers the file is dead weight, and Lighthouse's
+      // "legacy JavaScript" audit lists it (13 KiB of the chunk). The
+      // import is relative (`../build/polyfills/polyfill-module`, in
+      // `next/dist/client/app-globals.js`), so that is the key; the value
+      // is an empty module. `lib/scriptCost.test.ts` fails if Next stops
+      // importing the file under that name, or polyfills something new.
+      "../build/polyfills/polyfill-module": "./lib/no-polyfills.js",
+    },
+  },
   images: {
     remotePatterns: [],
   },

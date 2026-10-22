@@ -2,7 +2,7 @@
 
 import { useRef, type ReactNode } from "react";
 
-import { gsap, useGSAP, motionOk, NO_PREFERENCE } from "@/lib/gsap";
+import { gsap, useGSAPWhenNear, motionOk, NO_PREFERENCE } from "@/lib/gsap";
 
 interface ParallaxProps {
   /** Optional: a decorative layer can be the element itself. */
@@ -30,7 +30,7 @@ interface ParallaxProps {
 export function Parallax({ children, className, distance = -60 }: ParallaxProps) {
   const ref = useRef<HTMLDivElement>(null);
 
-  useGSAP(
+  useGSAPWhenNear(
     () => {
       const mm = motionOk();
       mm.add(NO_PREFERENCE, () => {

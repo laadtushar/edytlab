@@ -8,7 +8,8 @@
 //!
 //! ## Design
 //!
-//! - [`ModelRegistry`] keeps one `Arc<ort::Session>` per `model_id`.
+//! - [`ModelRegistry`] keeps one [`SharedSession`] (`Arc<Mutex<ort::Session>>`;
+//!   `ort`'s `run` needs `&mut`) per `model_id`.
 //!   Loading the same model twice returns the same `Arc`. Registry
 //!   creation does not touch the runtime; sessions are built lazily by
 //!   [`ModelRegistry::load`].
@@ -66,7 +67,7 @@ pub use download::{
     fetched_model_path, FetchObserver, FetchProgress, ModelArtifact, ModelFile, ModelStore, OnDisk,
 };
 pub use models::{Catalog, CatalogModel, ModelDownloads, ModelState, ModelStatus};
-pub use onnx_session::{ExecProvider, ModelRegistry};
+pub use onnx_session::{ExecProvider, ModelRegistry, SharedSession};
 
 /// Crate-wide error type. One enum, lives at the crate root so callers
 /// only ever match against a single shape.

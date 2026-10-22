@@ -26,7 +26,7 @@ import { useRef } from "react";
 
 import {
   gsap,
-  useGSAP,
+  useGSAPWhenNear,
   motionOk,
   NO_PREFERENCE,
   REVEAL_START,
@@ -221,7 +221,7 @@ function Diagram({ layout, className }: { layout: Layout; className?: string }) 
 function useLoopMotion(query: string) {
   const ref = useRef<HTMLDivElement>(null);
 
-  useGSAP(
+  useGSAPWhenNear(
     () => {
       const mm = motionOk();
       mm.add(`${NO_PREFERENCE} and ${query}`, (context) => {

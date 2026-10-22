@@ -5,7 +5,7 @@ import { useRef } from "react";
 
 import { BUILD_NOTE, DownloadButtons } from "@/components/landing/download-buttons";
 import { Words } from "@/components/motion/words";
-import { gsap, useGSAP, motionOk, NO_PREFERENCE, whileVisible } from "@/lib/gsap";
+import { gsap, useGSAPWhenNear, motionOk, NO_PREFERENCE, whileVisible } from "@/lib/gsap";
 import type { ReleaseAssets } from "@/lib/releases";
 
 /** Deterministic pseudo-random in [0, 1) — server and client agree. */
@@ -35,7 +35,7 @@ const LEVELS = Array.from({ length: BARS }, (_, i) => 0.25 + seeded(i) * 0.6);
 export function CTA({ release }: { release: ReleaseAssets }) {
   const ref = useRef<HTMLElement>(null);
 
-  useGSAP(
+  useGSAPWhenNear(
     () => {
       const mm = motionOk();
       mm.add(NO_PREFERENCE, () => {

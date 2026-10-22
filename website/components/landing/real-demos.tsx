@@ -125,7 +125,7 @@ export function RealDemos() {
             <ArrowRight className="size-4" aria-hidden />
           </Link>
           <span className="mt-1 block text-sm text-muted-foreground">
-            The launch video and five short vertical reels.
+            The launch video, the latest release and short vertical clips.
           </span>
         </p>
       </div>
