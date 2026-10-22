@@ -31,9 +31,10 @@
  * (no voice, no stock music); the 1:1 cut is the 16:9 edit again, for
  * LinkedIn, and is not listed.
  *
- * The v0.7.0 videos show the real app with a scripted assistant, and say
- * so on every shot. Their captions and descriptions here say it too, and
- * claim no more than `marketing/promo-v0.7.0/claims.md` allows.
+ * The v0.7.0 videos are the released app, filmed live, with real Claude
+ * as the assistant where there is one, and say so on every shot. Their
+ * captions and descriptions here say it too, and claim no more than
+ * `marketing/promo-v0.7.0/claims.md` allows.
  *
  * A caption says what the video shows and nothing more, like the demos':
  * nothing that has not shipped, no counts, no ratings, no superlatives.
@@ -62,7 +63,7 @@ export interface WatchVideo {
   /**
    * The one thing a viewer should know about how the video was made,
    * shown in small type wherever the video is (its card, its page): for
-   * example "Real app, scripted assistant." A re-recording changes this
+   * example "Real app, real Claude (Sonnet 5.5)." A re-recording changes this
    * line, not the layout that shows it.
    */
   disclosure: string;
@@ -126,32 +127,32 @@ export const videos: readonly SiteVideo[] = [
     kind: "release",
     title: "What's new in edytlab v0.7.0",
     blurb: "From a typed request to a 200-track session: what changed in the latest release, shown in the app.",
-    disclosure: "Real app, scripted assistant.",
+    disclosure: "Real app, real Claude (Sonnet 5.5). Typing and waits sped up where labelled.",
     caption:
-      "What's new in v0.7.0, shown in the real app. It starts with a request typed in plain English that the assistant turns into a fade and a gain change, which you then hear. Then six changes: faders that stay where you put them (#596); the history graph keeping up as a version is named and the history compacted (#602); a 200-track session where list_session pages through what the summary leaves out and twelve string tracks come down 4 dB (#618); the ONNX Runtime now shipping in every installer, as groundwork only, with no model yet; bundled skills that update unless you edited them (#574); and playback that survives switching tabs (#607). Real app, scripted assistant: every shot is the real v0.7.0 app, the assistant's replies and tool calls are scripted, and the demo audio is made in code, as the note on every shot says. The installers are unsigned. Captions are available.",
+      "What's new in v0.7.0, shown in the real app, filmed live. It starts with a request typed in plain English that Claude turns into a fade and a gain change, which you then hear. Then six changes: faders that stay where you put them (#596); the history graph keeping up as a version is named and the history compacted, each by asking (#602); a 200-track session where list_session reads what the summary leaves out and twelve string tracks come down 6 dB (#618); the ONNX Runtime now shipping in every installer, as groundwork only, with no model yet; bundled skills that update unless you edited them (#574); and playback that survives switching tabs (#607). Real app, real Claude (Sonnet 5.5): every shot is the released v0.7.0 app recorded live, the assistant's replies and tool calls are the model's, and the demo audio is made in code, as the note on every shot says. The installers are unsigned. Captions are available.",
     description:
-      "A 58-second video of what's new in edytlab v0.7.0: a typed edit, steady faders, the history graph and a 200-track session. Real app, scripted assistant.",
-    seconds: 58,
+      "A 76-second video of what's new in edytlab v0.7.0, filmed live in the real app with Claude: a typed edit, steady faders, the history graph, 200 tracks.",
+    seconds: 76,
     uploadDate: "2026-10-22",
     width: 1920,
     height: 1080,
     source: "marketing/promo-v0.7.0/out/edytlab-v0.7.0-16x9.mp4",
-    posterAt: 11,
+    posterAt: 10,
     captionsSource: "marketing/promo-v0.7.0/out/edytlab-v0.7.0-16x9.srt",
     momentsSource: "marketing/promo-v0.7.0/out/edytlab-v0.7.0-16x9.srt",
     moments: [
-      { at: 0, text: "Title: edytlab v0.7.0, “Describe the edit. It happens.” Every app shot carries the note “v0.7.0 · real app · scripted assistant”." },
-      { at: 3.7, text: "Describe the edit in plain English: the request is typed into the chat box (shown at 1.5× speed)." },
-      { at: 6.4, text: "The assistant calls the tools, fade and then set_track_gain, and the timeline updates: the backing fades in over 4 seconds and the vocal lane reads −3.0 dB." },
-      { at: 12.2, text: "Press play and hear it; the demo audio is made in code." },
-      { at: 16.433, text: "Faders that stay where you put them (#596): four key taps on a gain slider step it +0.5, +1.0, +1.5 and +2.0 dB, with no bounce back." },
-      { at: 20.633, text: "Every edit is a node in the history graph." },
-      { at: 23.133, text: "The history graph keeps up (#602): naming a version shows at once, and compacting the history removes nodes at once, 17 nodes becoming 8." },
-      { at: 28.633, text: "200 tracks? Just ask (#618): list_session pages through the session (shown at 2.3× speed), then twelve string tracks sit at −4.0 dB." },
-      { at: 37.267, text: "The ONNX Runtime now ships in every installer: groundwork only, no model yet." },
-      { at: 41.367, text: "Bundled skills update when a release changes them, unless you edited them (#574)." },
-      { at: 45.667, text: "Switch tabs, press play: it still plays, with no error (#607)." },
-      { at: 52.767, text: "End card: edytlab v0.7.0, edytlab.com, free and open source (MIT), for macOS, Windows and Linux. The installers are unsigned." },
+      { at: 0, text: "Title: edytlab v0.7.0, “Describe the edit. It happens.” Every app shot carries a note: “v0.7.0 · real app · real Claude (Sonnet 5.5)” where the assistant is in the shot, “recorded live” where it is not." },
+      { at: 3.6, text: "Describe the edit in plain English: the request is typed into the chat box (shown at 2.2× speed)." },
+      { at: 6.8, text: "The assistant calls the tools, fade and then gain, and the timeline updates: the backing fades in over 4 seconds and the vocal lane reads −3.0 dB (the wait for Claude shown at 2.5× speed)." },
+      { at: 13.282, text: "Press play and hear it; the demo audio is made in code." },
+      { at: 21.667, text: "Faders that stay where you put them (#596): four key taps on a gain slider step it +0.5, +1.0, +1.5 and +2.0 dB, with no bounce back." },
+      { at: 25.967, text: "Every edit is a node in the history graph." },
+      { at: 29.867, text: "The history graph keeps up (#602): asking Claude to name a version shows at once, and asking it to compact the history removes nodes at once, 20 nodes becoming 8 (shown at 2× and 1.6× speed)." },
+      { at: 36.833, text: "200 tracks? Just ask (#618): list_session reads what the summary left out (shown at up to 2.2× speed), then twelve string tracks sit at −6.0 dB." },
+      { at: 48.267, text: "The ONNX Runtime now ships in every installer: groundwork only, no model yet." },
+      { at: 54.167, text: "Bundled skills update when a release changes them, unless you edited them (#574)." },
+      { at: 58.867, text: "Switch tabs, press play: it still plays, with no error (#607)." },
+      { at: 71.467, text: "End card: edytlab v0.7.0, edytlab.com, free and open source (MIT), for macOS, Windows and Linux. The installers are unsigned." },
     ],
   },
   {
@@ -192,26 +193,26 @@ export const videos: readonly SiteVideo[] = [
     kind: "reel",
     title: "What's new in v0.7.0 (short reel)",
     blurb: "Five changes in the latest release, in thirty seconds.",
-    disclosure: "Real app, scripted assistant.",
+    disclosure: "Real app, real Claude (Sonnet 5.5). Typing and waits sped up where labelled.",
     caption:
-      "Five changes you can see in v0.7.0, in thirty seconds: faders that stay where you put them (#596), the history graph keeping up (#602), a 200-track session paged with list_session (#618), playback that survives switching tabs (#607), and bundled skills that stay current (#574). Real app, scripted assistant: the assistant's replies and tool calls are scripted, as the note on every shot says.",
+      "Five changes you can see in v0.7.0, in under 40 seconds: faders that stay where you put them (#596), the history graph keeping up (#602), a 200-track session where list_session reads what the summary leaves out (#618), playback that survives switching tabs (#607), and bundled skills that stay current (#574). Real app, real Claude (Sonnet 5.5): filmed live, the assistant's replies and tool calls are the model's, as the note on every shot says.",
     description:
-      "A 31-second vertical video of five changes in edytlab v0.7.0, shown in the real app with a scripted assistant.",
-    seconds: 31,
+      "A 39-second vertical video of five changes in edytlab v0.7.0, filmed live in the real app with Claude as the assistant.",
+    seconds: 39,
     uploadDate: "2026-10-22",
     width: 1080,
     height: 1920,
     source: "marketing/promo-v0.7.0/out/edytlab-v0.7.0-whats-new-9x16.mp4",
-    posterAt: 4.3,
+    posterAt: 17,
     momentsSource: "marketing/promo-v0.7.0/out/edytlab-v0.7.0-whats-new-9x16.srt",
     moments: [
       { at: 0, text: "What's new in v0.7.0: five changes you can see." },
-      { at: 2.5, text: "Faders stay where you put them (#596): four key taps, four steps, +0.5 to +2.0 dB with no bounce back." },
-      { at: 6.7, text: "The history graph keeps up (#602): names and clean-ups show at once; 17 nodes became 8." },
-      { at: 11.7, text: "200 tracks? Just ask (#618): list_session pages past the summary (shown at 3.2× speed), then the strings sit at −4.0 dB." },
-      { at: 17.267, text: "Switch tabs and it still plays, even when the mix is gone from the cache (#607): it plays with no error." },
-      { at: 21.567, text: "Bundled skills stay current (#574): updated when a release changes them, unless you edited them." },
-      { at: 26.167, text: "End card: edytlab v0.7.0, edytlab.com, free and open source (MIT), for macOS, Windows and Linux; the installers are unsigned." },
+      { at: 2.6, text: "Faders stay where you put them (#596): four key taps, four steps, +0.5 to +2.0 dB with no bounce back." },
+      { at: 6.7, text: "The history graph keeps up (#602): names and clean-ups show at once; 20 nodes became 8 (shown at 2× and 1.6× speed)." },
+      { at: 13.667, text: "200 tracks? Just ask (#618): list_session reads what the summary left out (shown at up to 2.2× speed), then the strings sit at −6.0 dB." },
+      { at: 23.167, text: "Switch tabs and it still plays, even when the mix is gone from the cache (#607): it plays with no error." },
+      { at: 30.467, text: "Bundled skills stay current (#574): updated when a release changes them, unless you edited them." },
+      { at: 35.067, text: "End card: edytlab v0.7.0, edytlab.com, free and open source (MIT), for macOS, Windows and Linux; the installers are unsigned." },
     ],
   },
   {
@@ -219,25 +220,25 @@ export const videos: readonly SiteVideo[] = [
     kind: "reel",
     title: "Describe the edit, and it happens (short reel)",
     blurb: "Type an edit in plain English and watch the fade and the gain change appear.",
-    disclosure: "Real app, scripted assistant.",
+    disclosure: "Real app, real Claude (Sonnet 5.5). Typing and waits sped up where labelled.",
     caption:
-      "Describe the edit: a request typed in plain English, the assistant calls fade and then set_track_gain, the timeline changes (the backing fades in over 4 seconds and the vocal lane reads −3.0 dB), and you press play to hear it, on a synthetic demo track made in code. Real app, scripted assistant: the assistant's replies and tool calls are scripted, as the note on every shot says.",
+      "Describe the edit: a request typed in plain English, Claude calls fade and then gain, the timeline changes (the backing fades in over 4 seconds and the vocal lane reads −3.0 dB), and you press play to hear it, on a synthetic demo track made in code. Real app, real Claude (Sonnet 5.5): filmed live, the assistant's replies and tool calls are the model's, as the note on every shot says.",
     description:
-      "A 21-second vertical video: an edit typed in plain English, the fade and gain calls, and the result played, in the real edytlab app with a scripted assistant.",
-    seconds: 21,
+      "A 26-second vertical video: an edit typed in plain English, carried out by Claude, then played, filmed live in the real edytlab app.",
+    seconds: 26,
     uploadDate: "2026-10-22",
     width: 1080,
     height: 1920,
     source: "marketing/promo-v0.7.0/out/edytlab-v0.7.0-describe-the-edit-9x16.mp4",
-    posterAt: 10.5,
+    posterAt: 12.5,
     momentsSource: "marketing/promo-v0.7.0/out/edytlab-v0.7.0-describe-the-edit-9x16.srt",
     moments: [
       { at: 0, text: "Describe the edit." },
       { at: 1.9, text: "Say it in plain English: the request is typed into the chat box." },
-      { at: 5.6, text: "The assistant calls the tools, fade and then set_track_gain." },
-      { at: 9.9, text: "The timeline changes: the backing fades in over 4 seconds and the vocal lane reads −3.0 dB." },
-      { at: 11.5, text: "Then hear it: press play on a synthetic demo track, with demo audio made in code." },
-      { at: 17.6, text: "End card: edytlab v0.7.0, edytlab.com, free and open source (MIT), for macOS, Windows and Linux; the installers are unsigned." },
+      { at: 5.467, text: "The assistant calls the tools, fade and then gain (the wait for Claude shown at 2.4× speed)." },
+      { at: 11.767, text: "The timeline changes: the backing fades in over 4 seconds and the vocal lane reads −3.0 dB." },
+      { at: 13.367, text: "Then hear it: press play on a synthetic demo track, with demo audio made in code." },
+      { at: 22.667, text: "End card: edytlab v0.7.0, edytlab.com, free and open source (MIT), for macOS, Windows and Linux; the installers are unsigned." },
     ],
   },
   {
@@ -245,25 +246,25 @@ export const videos: readonly SiteVideo[] = [
     kind: "reel",
     title: "200 tracks? Just ask (short reel)",
     blurb: "One sentence quiets the twelve string tracks in a 200-track session.",
-    disclosure: "Real app, scripted assistant.",
+    disclosure: "Real app, real Claude (Sonnet 5.5). Typing and waits sped up where labelled.",
     caption:
-      "A session of 200 tracks and one sentence, “make all the strings quieter”: the assistant pages through the session with list_session, then sets twelve tracks (violins, viola, cello and contrabass) to −4.0 dB, each volume change a node on the graph (#618). Real app, scripted assistant: the assistant's replies and tool calls are scripted, and the sound is interface sounds only.",
+      "A session of 200 tracks and one sentence, “make all the strings quieter”: Claude reads what the session summary left out with list_session, then lowers twelve tracks (violins, viola, cello and contrabass) by 6 dB, each volume change a node on the graph (#618). Real app, real Claude (Sonnet 5.5): filmed live, the assistant's replies and tool calls are the model's, and the sound is interface sounds only.",
     description:
-      "A 21-second vertical video: one sentence quiets twelve of 200 tracks, in the real edytlab app with a scripted assistant.",
-    seconds: 21,
+      "A 27-second vertical video: one sentence quiets twelve of 200 tracks, filmed live in the real edytlab app with Claude as the assistant.",
+    seconds: 27,
     uploadDate: "2026-10-22",
     width: 1080,
     height: 1920,
     source: "marketing/promo-v0.7.0/out/edytlab-v0.7.0-200-tracks-9x16.mp4",
-    posterAt: 9,
+    posterAt: 11,
     momentsSource: "marketing/promo-v0.7.0/out/edytlab-v0.7.0-200-tracks-9x16.srt",
     moments: [
       { at: 0, text: "200 tracks? Ask." },
-      { at: 3.2, text: "Just say it: “make all the strings quieter”." },
-      { at: 5.5, text: "It pages through the session: list_session, then set_track_gain." },
-      { at: 8.2, text: "Twelve strings, one sentence: each change is a node on the graph." },
-      { at: 12.3, text: "All twelve strings 4 dB quieter: violins, viola, cello and contrabass read −4.0 dB." },
-      { at: 16.9, text: "End card: edytlab v0.7.0, edytlab.com, free and open source (MIT), for macOS, Windows and Linux; the installers are unsigned." },
+      { at: 3.3, text: "Just say it: “make all the strings quieter”." },
+      { at: 6.767, text: "It reads what the summary left out: list_session, then gain." },
+      { at: 10.167, text: "Twelve strings, one sentence: each change is a node on the graph." },
+      { at: 15.967, text: "All twelve strings 6 dB quieter: violins, viola, cello and contrabass read −6.0 dB." },
+      { at: 23.567, text: "End card: edytlab v0.7.0, edytlab.com, free and open source (MIT), for macOS, Windows and Linux; the installers are unsigned." },
     ],
   },
   {

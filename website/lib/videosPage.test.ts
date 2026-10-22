@@ -73,10 +73,11 @@ describe("the words under a video's name are data", () => {
     expect(words).not.toMatch(/\\bmashups?\\b|vocals over|isolat|stem separation|\\bstems\\b|\\btranscri|filler/i);
   });
 
-  it("says 'scripted assistant' for every v0.7.0 video, and for no other", () => {
+  it("says 'real Claude (Sonnet 5.5)' for every v0.7.0 video, and for no other, and 'scripted' for none", () => {
     for (const v of videos) {
       const promo = v.source.startsWith("marketing/promo-v0.7.0/");
-      expect(/scripted assistant/i.test(v.disclosure), `${v.slug}: ${v.disclosure}`).toBe(promo);
+      expect(/real Claude \(Sonnet 5\.5\)/.test(v.disclosure), `${v.slug}: ${v.disclosure}`).toBe(promo);
+      expect(/scripted/i.test(v.disclosure), `${v.slug}: ${v.disclosure}`).toBe(false);
     }
   });
 
@@ -174,7 +175,7 @@ describe("/videos", () => {
   it("reads as public copy: no making-of in the sentences, only the one disclosure under each video", () => {
     const withoutDisclosures = watchVideos.reduce((t, v) => t.split(v.disclosure).join(" "), text);
     expect(withoutDisclosures).not.toMatch(INTERNAL);
-    expect(withoutDisclosures).not.toMatch(/scripted assistant|synthetic|sped up/i);
+    expect(withoutDisclosures).not.toMatch(/scripted|synthetic|sped up/i);
   });
 
   it("holds no <video> in its markup: the featured poster is a link until it is pressed", () => {

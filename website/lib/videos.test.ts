@@ -116,10 +116,11 @@ describe("the list", () => {
     }
   });
 
-  it("says, for every v0.7.0 video, that it is the real app with a scripted assistant", () => {
-    // Every shot of app in those videos is labelled "v0.7.0 · real app ·
-    // scripted assistant" (marketing/promo-v0.7.0/claims.md). A caption or
-    // description that left that out would claim more than the video does.
+  it("says, for every v0.7.0 video, that it is the real app with real Claude", () => {
+    // Every shot of app in those videos is labelled "v0.7.0 · real app · real
+    // Claude (Sonnet 5.5)" or "... · recorded live" (marketing/promo-v0.7.0/claims.md).
+    // A caption or description that left that out would claim less than the
+    // video is, and one that said "scripted" would be about the earlier version.
     const promo = videos.filter((v) => v.source.startsWith("marketing/promo-v0.7.0/"));
     expect(promo.map((v) => v.slug)).toEqual([
       "whats-new-v070",
@@ -132,9 +133,10 @@ describe("the list", () => {
     const wide = promo.find((v) => v.slug === "whats-new-v070") as (typeof promo)[number];
     expect(`${wide.title} ${wide.caption} ${wide.description}`).not.toMatch(/\bfive\b/i);
     for (const v of promo) {
-      expect(v.description, `${v.slug} description`).toMatch(/scripted assistant/i);
+      expect(v.description, `${v.slug} description`).toMatch(/Claude/);
+      expect(`${v.caption} ${v.description}`, v.slug).not.toMatch(/scripted/i);
       expect(v.description, `${v.slug} description`).toMatch(/real (?:edytlab )?app/i);
-      expect(v.caption, `${v.slug} caption`).toMatch(/real app, scripted assistant/i);
+      expect(v.caption, `${v.slug} caption`).toMatch(/real app, real Claude \(Sonnet 5\.5\)/i);
     }
   });
 });

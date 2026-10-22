@@ -29,13 +29,13 @@ words changes) and a 20-frame contact sheet.
 
 | File in `out/` | Platform | Frame | Length | Size | Loudness (final AAC) |
 |---|---|---|---|---|---|
-| `edytlab-v0.7.0-whats-new-9x16.mp4` | Instagram Reels, TikTok, YouTube Shorts | 1080x1920 (9:16) | 30.6 s | 8.9 MB | -14.0 LUFS / -1.4 dBTP |
-| `edytlab-v0.7.0-describe-the-edit-9x16.mp4` | Instagram Reels, TikTok, YouTube Shorts | 1080x1920 (9:16) | 21.0 s | 6.2 MB | -13.9 LUFS / -1.4 dBTP |
-| `edytlab-v0.7.0-200-tracks-9x16.mp4` | Instagram Reels, TikTok, YouTube Shorts | 1080x1920 (9:16) | 20.7 s | 6.4 MB | -13.9 LUFS / -1.2 dBTP |
-| `edytlab-v0.7.0-16x9.mp4` | YouTube, X, Reddit | 1920x1080 (16:9) | 57.8 s | 14.8 MB | -14.1 LUFS / -1.2 dBTP |
-| `edytlab-v0.7.0-1x1.mp4` | LinkedIn | 1080x1080 (1:1) | 57.8 s | 9.7 MB | -14.1 LUFS / -1.2 dBTP |
+| `edytlab-v0.7.0-whats-new-9x16.mp4` | Instagram Reels, TikTok, YouTube Shorts | 1080x1920 (9:16) | 39.5 s | 10.7 MB | -13.9 LUFS / -1.1 dBTP |
+| `edytlab-v0.7.0-describe-the-edit-9x16.mp4` | Instagram Reels, TikTok, YouTube Shorts | 1080x1920 (9:16) | 26.1 s | 6.9 MB | -14.0 LUFS / -1.1 dBTP |
+| `edytlab-v0.7.0-200-tracks-9x16.mp4` | Instagram Reels, TikTok, YouTube Shorts | 1080x1920 (9:16) | 27.4 s | 7.7 MB | -14.0 LUFS / -2.0 dBTP |
+| `edytlab-v0.7.0-16x9.mp4` | YouTube, X, Reddit | 1920x1080 (16:9) | 76.5 s | 16.2 MB | -14.1 LUFS / -1.2 dBTP |
+| `edytlab-v0.7.0-1x1.mp4` | LinkedIn | 1080x1080 (1:1) | 76.5 s | 11.1 MB | -14.1 LUFS / -1.2 dBTP |
 
-The five videos total 45.9 MB; with the `.srt` files and contact sheets, `out/` is 52.0 MB. Beside each video: `<name>.srt` (the on-screen words) and `<name>-contact.png` (20 frames).
+The five videos total 52.6 MB; with the `.srt` files and contact sheets, `out/` is about 58 MB. Beside each video: `<name>.srt` (the on-screen words) and `<name>-contact.png` (20 frames).
 
 | Composition | What it is |
 |---|---|
