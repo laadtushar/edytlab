@@ -13,13 +13,11 @@
 
 mod common;
 
-use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use ai::{Agent, AgentEvent, LlmConfig, SpeechProblem, ToolView};
 use common::{classifier_json, ok, sse_text, sse_tool_step, Entry, SeqResponder};
 use serde_json::{json, Value};
-use tokio::sync::Notify;
 use tools::tool::transcribe::{
     Audio, ModelRef, SpeechError, SpeechToText, Spoken, TranscribeTool, MARKER_MODEL_NOT_DOWNLOADED,
 };
@@ -107,9 +105,7 @@ async fn a_missing_speech_model_is_a_view_on_the_tool_call_and_not_on_what_the_a
         Arc::new(Mutex::new(dispatcher)),
         Arc::new(Mutex::new(store)),
         Arc::new(Mutex::new(audio_engine::Engine::new())),
-        Arc::new(Notify::new()),
-        Arc::new(Mutex::new(None)),
-        Arc::new(AtomicBool::new(false)),
+        ai::PlanGate::new(),
         Arc::new(Mutex::new(None::<tools::Clipboard>)),
     );
     agent.set_plan_first(false);
