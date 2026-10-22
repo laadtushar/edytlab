@@ -1,4 +1,4 @@
-# Archive: every earlier version of the launch video, the reels, the demos and the LinkedIn renders
+# Archive: every earlier version of the launch video, the reels, the demos, the v0.7.0 promo and the LinkedIn renders
 
 Nothing made for edytlab's marketing is thrown away. When a video, its captions, contact sheet, cue file, narration timing or a rendered image or PDF is replaced or removed, the earlier file is kept here, sorted by what it is, then by version, then by kind.
 
@@ -34,9 +34,15 @@ archive/
 ├── demos/
 │   ├── 2026-10-09-first-takes/       the first two website demos, video and poster (#417, #432)
 │   └── 2026-10-09-v0.4.0/            the three DJ demos recorded on v0.4.0, video and poster (#459), replaced by #581
-└── linkedin/
-    └── 2026-10-11-v0.5.0/            the LinkedIn renders that carried "v0.5.0" and "93 tools" (#578), replaced for v0.7.0
-        └── out/                      post-1-launch.png, post-3-model-never-touches-a-sample.png, post-3-carousel.pdf
+├── linkedin/
+│   └── 2026-10-11-v0.5.0/            the LinkedIn renders that carried "v0.5.0" and "93 tools" (#578), replaced for v0.7.0
+│       └── out/                      post-1-launch.png, post-3-model-never-touches-a-sample.png, post-3-carousel.pdf
+└── promo-v0.7.0/
+    └── 2026-10-22-scripted/          the v0.7.0 promo made with a scripted assistant (#644, #649), replaced by the live one
+        ├── footage/                  the nine clips (s1 to s8b), their two .wav files and the .marks.json / .notes.json beside each
+        ├── out/                      the five videos, their .srt captions and their contact sheets
+        └── record/                   the Playwright scripts that recorded the footage against the fake backend (they import
+                                      paths that no longer exist from here; kept as they were)
 ```
 
 ## Where each file came from
@@ -52,6 +58,8 @@ Every file except the two drafts is the exact file a PR committed to `main` (the
 | `demos/2026-10-09-first-takes/` | #417 (beatmatched transition, 2:58), #432 (extended club intro, 2:26) | #459 (same day) | 1280x776 |
 | `demos/2026-10-09-v0.4.0/` | #459 (2026-10-09) | #581 (2026-10-13, re-filmed in the new look) | 1280x776: beatmatched transition 3:08, extended club intro 1:56, mini mix 2:18 |
 | `linkedin/2026-10-11-v0.5.0/out/` | #578 (2026-10-11) | the v0.7.0 staleness sweep (2026-10-22), re-rendered by `social-kit/linkedin/render.mjs` | 1200x1200 PNGs (post 1 and the post 3 square) and the seven-page 1080x1350 carousel PDF. They said "v0.5.0" (post 1 and the carousel's last page) and "93 tools" (all three); the new renders say v0.7.0 and 94 tools. The other three squares (posts 2, 4 and 5) carry neither number, so they were not replaced |
+
+| `promo-v0.7.0/2026-10-22-scripted/` | #644 (footage and edit) and #649 (2026-10-22) | the live promo (2026-10-22): the same five videos re-cut from the released v0.7.0 app driven by real Claude, with the note "real Claude (Sonnet 5.5)" or "recorded live" in place of "scripted assistant" | `out/`: whats-new 9:16 0:31 (8.9 MB), describe-the-edit 9:16 0:21, 200-tracks 9:16 0:21, 16:9 0:58, 1:1 0:58, each with its `.srt` and a 20-frame contact sheet. `footage/`: nine clips, 3200x2000 at 30 fps, 38 MB. Every frame of app UI in them was the real v0.7.0 frontend in Chromium with the Rust backend replaced by a scripted one, and the assistant's replies and tool calls were scripted; the audio was synthetic |
 
 Earlier versions of the documents and scripts in `marketing/` (the READMEs, `script.md`, the Python tools) were edited in place rather than replaced, so they are not copied here; `git log -p -- marketing/` shows every version.
 

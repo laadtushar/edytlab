@@ -1,20 +1,24 @@
 # edytlab v0.7.0 promo: the Remotion edit
 
-Five finished videos for the v0.7.0 release, cut with [Remotion](https://www.remotion.dev) from the screen recordings in
-[`footage/`](footage/README.md) (phase 1, #644). Everything is in this folder: the footage and the scripts that recorded it
-(`footage/`, `record/`), the claim ledger ([`claims.md`](claims.md)), the Remotion project that edits it
-([`remotion/`](remotion/)) and the finished files ([`out/`](out/)).
+Five finished videos for the v0.7.0 release, cut with [Remotion](https://www.remotion.dev) from the live screen recordings in
+[`footage/`](footage/README.md). Everything is in this folder: the footage and the script that cuts it (`footage/`, `record/`; the
+stories that film it are `apps/desktop/e2e-native/stories/promo.mjs`), the claim ledger ([`claims.md`](claims.md)), the Remotion
+project that edits it ([`remotion/`](remotion/)) and the finished files ([`out/`](out/)). The first version of this promo (#644,
+#649) used a scripted assistant; it is kept in [`../archive/promo-v0.7.0/2026-10-22-scripted/`](../archive/promo-v0.7.0/2026-10-22-scripted/).
 
 ## Honesty, in one paragraph
 
-Every frame of app UI is the real v0.7.0 frontend (commit `23bbfe2e`), recorded in Chromium with only the IPC boundary to the
-Rust backend replaced. **The assistant in the footage is scripted**: there was no API key, so the replies and the tool calls
-are raised by the recording (`record/lib/studio.ts`), using the real tool names and arguments. **The audio is synthetic**,
-written from arithmetic, and the footage never says it is anyone's music. Remotion draws only titles, chips, callout rings,
-labels, a "speed" badge, a progress line and the end card; it draws no app UI. **Every shot of app footage carries the note
-"v0.7.0 · real app · scripted assistant".** The videos do not say that stem separation or transcription works (they do not:
-no model ships and no inference runs), they say the installers are unsigned, and the one line about the ONNX Runtime says
-"groundwork only: no model yet". Every on-screen claim has a row in [`claims.md`](claims.md) naming a PR, a doc or a test.
+Every frame of app UI is the **released v0.7.0 app** (the build from the release's `.deb`), run on Linux under Xvfb and filmed live
+with real input: the real Rust backend, the real agent loop, the real file chooser. **Where an assistant is in the shot (S1, S3,
+S4) it is real Claude Sonnet 5.5**, through the app's own Anthropic provider, at reasoning effort `low`, and what it said and
+called is quoted in [`claims.md`](claims.md) from the recording. Nothing is scripted. **The audio is synthetic**, written from
+arithmetic, and the footage never says it is anyone's music. Remotion draws only titles, chips, callout rings, labels, a "speed"
+badge, a progress line and the end card; it draws no app UI. **Every shot of app footage carries a note**: "v0.7.0 · real app ·
+real Claude (Sonnet 5.5)" where the assistant is in the shot, "v0.7.0 · real app · recorded live" where it is not (S2 faders, S5
+to S8: no assistant is used there). Waits for the model and the typing are sped up only where an "N× speed" badge says so. The
+videos do not say that stem separation or transcription works (they do not: no model ships and no inference runs), they say the
+installers are unsigned, and the one line about the ONNX Runtime says "groundwork only: no model yet". Every on-screen claim has a
+row in [`claims.md`](claims.md) naming a PR, a doc or a test.
 
 ## The files (`out/`)
 
@@ -36,8 +40,8 @@ The five videos total 45.9 MB; with the `.srt` files and contact sheets, `out/` 
 | Composition | What it is |
 |---|---|
 | `whats-new-9x16` (R1) | "What's new in v0.7.0": hook in the first 2 s, then five changes in the order faders (#596), history graph (#602), 200 tracks (#618), the mix (#607), skills (#574), then the end card. The S7 playback is the app's own (synthetic) sound |
-| `describe-the-edit-9x16` (R2) | "Describe the edit", from S1: type it, the assistant calls `fade` and `set_track_gain`, the timeline changes, press play. The sound is S1's own |
-| `200-tracks-9x16` (R3) | "200 tracks? Ask.", from S4: the request, `list_session` paging, twelve `set_track_gain` calls, the strings at -4.0 dB. No app audio exists for S4, so the sound is UI sounds only (a tick for each chip, rising for the twelve) |
+| `describe-the-edit-9x16` (R2) | "Describe the edit", from S1: type it, real Claude calls `fade` and `gain`, the timeline changes, press play. The sound is S1's own |
+| `200-tracks-9x16` (R3) | "200 tracks? Ask.", from S4: the request, `list_session` listing what the session summary left out, twelve `gain` calls, the strings at -6.0 dB. No app audio exists for S4, so the sound is UI sounds only (a tick for each chip, rising for the twelve) |
 | `16x9` (V1) | "edytlab v0.7.0" for YouTube, X and Reddit: S8a b-roll hook, S1, S2, S8b + S3, S4, S5 ("The ONNX Runtime now ships in every installer", chip "groundwork only: no model yet"), S6, S7, end card |
 | `1x1` (V1sq) | The same cut and timeline as V1 in 1080x1080 (LinkedIn): the titles break onto two lines, the camera frames each shot for the squarer card |
 
@@ -106,9 +110,9 @@ Remotion v4 wants its headless shell and downloads one on first use; where that 
 `REMOTION_BROWSER_EXECUTABLE` to a `chrome-headless-shell` (Playwright's `chromium_headless_shell-*/chrome-linux/headless_shell`
 works; `remotion.config.ts` looks for `/opt/pw-browsers/...` by default). The pinned versions are `remotion`, `@remotion/cli` and
 `@remotion/renderer` 4.0.534 (published 2026-10-07), `@fontsource/inter` 5.2.8 and React 18.3.1 (`pnpm-lock.yaml` fixes the rest).
-Rendering is about 5,400 frames at roughly 0.4 to 0.6 s a frame on four cores: **about 50 minutes for all five in one process
-(`tools/build.sh`), about 30 with two `node scripts/render.ts` processes side by side** (R1 R3 R2, and V1 V1sq; render, then
-`python3 tools/audio.py` each). `NO_BUNDLE=1 tools/build.sh R2` reuses an existing `work/bundle`. The output folder is `../out`.
+Rendering is about 7,300 frames (R1 1,163, R2 782, R3 821, V1 and V1sq 2,273 each) at roughly 0.5 s a frame on four cores: **about an hour
+for all five in one process (`tools/build.sh`)**; two `node scripts/render.ts` processes side by side are faster but need more disk
+(see below) (render, then `python3 tools/audio.py` each). `NO_BUNDLE=1 tools/build.sh R2` reuses an existing `work/bundle`. The output folder is `../out`.
 `work/` (bundle, silent renders, mixes) and `node_modules` are git-ignored: delete them when done.
 
 Two things that bit while making these, both machine limits rather than bugs in the edit: the Remotion compositor keeps decoded
@@ -151,9 +155,12 @@ Single steps: `pnpm tokens:check` (the colours are generated from `website/app/g
 
 ## Not done, and known limits
 
-- The assistant is scripted and the audio synthetic (above). Nothing here shows a model doing a job.
-- The edit does not say how long a real assistant takes; waits for it are not in the footage, and the one speed-up (R1's
-  `list_session` stretch, V1's) is labelled with a "N× speed" badge.
+- The assistant's answers vary from take to take (S3's does: one take asked before compacting, another applied at once). Each
+  clip is one passing take, and the claims say only what that take shows.
+- The audio is synthetic (above); nothing here is anyone's music.
+- Waits for the model are in the footage; the edit speeds some of them (and the typing) up, labelled with an "N× speed" badge.
+- The footage is 15 frames a second (a screen capture in real time), shown at 30 fps by repeating frames; typing and the
+  playhead are a little less smooth than a 30 fps capture would be.
 - The renders are not signed off by a person watching and listening: the checks are the measurements above and stills.
 - If the footage is re-taken (`record/README.md`), the camera boxes and ring rectangles in `src/shots.ts` are in the app
   window's CSS pixels and the moments are in the clip's seconds; re-check them against the new clip.

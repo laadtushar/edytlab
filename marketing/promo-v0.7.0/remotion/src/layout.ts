@@ -25,7 +25,7 @@ export interface Layout {
   title: Box;
   /** The footage card. */
   card: Box;
-  /** The "v0.7.0 · real app · scripted assistant" note. */
+  /** The "v0.7.0 · real app · real Claude (Sonnet 5.5)" / "recorded live" note. */
   note: Box;
   /** How the note sits in its box. */
   noteAlign: 'left' | 'center' | 'right';

@@ -23,7 +23,7 @@ export const R1: Cut = {
     shot('graph', 's3', [{a: 11.7, b: 18.3, rate: 2}, {a: 38.8, b: 44.0, rate: 1.6}], {titles: [T(0.1, 6.2, 'The history graph\nkeeps up', {hl: ['keeps', 'up'], sub: 'Names and clean-ups show at once'})]}),
     shot('big-sessions', 's4', [{a: 9.6, b: 11.9, rate: 1.5}, {a: 11.9, b: 14.1, rate: 2.2}, {a: 14.1, b: 22.6, rate: 2}, {a: 27.0, b: 30.0}], {titles: [T(0.1, 9.4, '200 tracks?\nJust ask.', {hl: ['ask'], sub: 'list_session pages past the summary'})]}),
     shot('mix', 's7', [{a: 7.6, b: 10.4}, {a: 11.2, b: 16.0}], {audio: true, titles: [T(0.1, 7.4, 'Switch tabs.\nIt still plays.', {hl: ['plays'], sub: 'Even when the mix is gone from the cache'})]}),
-    shot('skills', 's6', [{a: 5.4, b: 10.0}], {titles: [T(0.1, 4.3, 'Bundled skills\nstay current', {hl: ['current'], sub: 'Updated when a release changes them'})]}),
+    shot('skills', 's6', [{a: 6.0, b: 10.6}], {titles: [T(0.1, 4.3, 'Bundled skills\nstay current', {hl: ['current'], sub: 'Updated when a release changes them'})]}),
     end('end', 4.8),
   ],
 };
@@ -87,7 +87,7 @@ const v1Parts = () => [
     titles: [T(0.1, 5.7, 'The ONNX Runtime now\nships in every installer', {hl: ['onnx']})],
     chips: [chip(0.5, 5.6, 'groundwork only: no model yet', 'tr')],
   }),
-  shot('skills', 's6', [{a: 5.4, b: 10.8}], {titles: [T(0.1, 5.1, 'Bundled skills update,\nunless you edited them', {hl: ['update']})], chips: [chip(0.3, 5.0, '#574', 'tr')]}),
+  shot('skills', 's6', [{a: 6.0, b: 11.4}], {titles: [T(0.1, 5.1, 'Bundled skills update,\nunless you edited them', {hl: ['update']})], chips: [chip(0.3, 5.0, '#574', 'tr')]}),
   shot('mix', 's7', [{a: 6.0, b: 10.8}, {a: 11.2, b: 19.2}], {audio: true, titles: [T(0.1, 12.5, 'Switch tabs, press play:\nit still plays', {hl: ['plays']})], chips: [chip(0.3, 12.4, '#607', 'tr')]}),
   end('end', 5.4),
 ];
