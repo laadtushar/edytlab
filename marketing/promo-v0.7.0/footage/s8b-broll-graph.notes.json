@@ -1,13 +1,14 @@
 {
   "live": true,
-  "model": "claude-sonnet-5-5",
-  "effort": "low",
+  "model": null,
+  "effort": null,
   "nodes": 20,
+  "assistant": "none in this shot",
   "file": "s8b-broll-graph.mp4",
   "seconds": 20.4,
   "frames": 306,
   "fps": 15,
-  "width": 32002000,
+  "size": "3200x2000",
   "marks": [
     {
       "label": "start",

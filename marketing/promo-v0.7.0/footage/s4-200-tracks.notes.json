@@ -91,7 +91,7 @@
   "file": "s4-200-tracks.mp4",
   "frames": 506,
   "fps": 15,
-  "width": 32002000,
+  "size": "3200x2000",
   "marks": [
     {
       "label": "start",

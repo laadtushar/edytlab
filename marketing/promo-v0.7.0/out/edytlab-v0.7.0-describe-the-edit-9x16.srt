@@ -2,68 +2,73 @@
 00:00:00,000 --> 00:00:01,900
 Describe
 the edit.
-v0.7.0 · real app · scripted assistant
+v0.7.0 · real app · real Claude (Sonnet 5.5)
 
 2
-00:00:01,900 --> 00:00:04,900
+00:00:01,900 --> 00:00:05,467
 Say it in
 plain English
 Typed into the chat box
-v0.7.0 · real app · scripted assistant
+1.8× speed
+v0.7.0 · real app · real Claude (Sonnet 5.5)
 
 3
-00:00:04,900 --> 00:00:05,600
-v0.7.0 · real app · scripted assistant
+00:00:05,467 --> 00:00:07,367
+The assistant
+calls the tools
+fade, then gain
+2.4× speed
+v0.7.0 · real app · real Claude (Sonnet 5.5)
 
 4
-00:00:05,600 --> 00:00:07,400
+00:00:07,367 --> 00:00:07,867
 The assistant
 calls the tools
-fade, then set_track_gain
-v0.7.0 · real app · scripted assistant
+fade, then gain
+v0.7.0 · real app · real Claude (Sonnet 5.5)
 
 5
-00:00:07,400 --> 00:00:08,650
+00:00:07,867 --> 00:00:08,367
 The assistant
 calls the tools
-fade, then set_track_gain
+fade, then gain
 fade
-v0.7.0 · real app · scripted assistant
+v0.7.0 · real app · real Claude (Sonnet 5.5)
 
 6
-00:00:08,650 --> 00:00:09,900
+00:00:08,367 --> 00:00:11,767
 The assistant
 calls the tools
-fade, then set_track_gain
+fade, then gain
 fade
-set_track_gain
-v0.7.0 · real app · scripted assistant
+gain
+v0.7.0 · real app · real Claude (Sonnet 5.5)
 
 7
-00:00:09,900 --> 00:00:11,500
+00:00:11,767 --> 00:00:13,367
 The timeline
 changes
 fades in over 4 s
 -3.0 dB
-v0.7.0 · real app · scripted assistant
+v0.7.0 · real app · real Claude (Sonnet 5.5)
 
 8
-00:00:11,500 --> 00:00:12,700
+00:00:13,367 --> 00:00:14,967
 Then hear it
 A synthetic demo track
 demo audio, made in code
 hear the result
-v0.7.0 · real app · scripted assistant
+v0.7.0 · real app · real Claude (Sonnet 5.5)
 
 9
-00:00:12,700 --> 00:00:17,200
+00:00:14,967 --> 00:00:22,267
 Then hear it
 A synthetic demo track
 demo audio, made in code
-v0.7.0 · real app · scripted assistant
+v0.7.0 · real app · real Claude (Sonnet 5.5)
 
 10
-00:00:17,600 --> 00:00:21,000
+00:00:22,667 --> 00:00:26,067
 edytlab
 v0.7.0
 edytlab.com

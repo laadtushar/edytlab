@@ -32,10 +32,10 @@ mkdirSync(DEST, { recursive: true });
 const only = process.argv.slice(2);
 
 const CLIPS = {
-  "9-promo-s1-describe-it-happens": { name: "s1-describe-it-happens", audio: true },
+  "9-promo-s1-describe-it-happens": { name: "s1-describe-it-happens", audio: true, assistant: true },
   "9-promo-s2-faders-stay-put": { name: "s2-faders-stay-put" },
-  "9-promo-s3-history-graph": { name: "s3-history-graph" },
-  "9-promo-s4-200-tracks": { name: "s4-200-tracks" },
+  "9-promo-s3-history-graph": { name: "s3-history-graph", assistant: true },
+  "9-promo-s4-200-tracks": { name: "s4-200-tracks", assistant: true },
   "9-promo-s5-runtime-bundled": { name: "s5-runtime-bundled" },
   "9-promo-s6-skills-note": { name: "s6-skills-note" },
   "9-promo-s7-mix-stays-playable": { name: "s7-mix-stays-playable", audio: true },
@@ -197,7 +197,7 @@ for (const [id, spec] of Object.entries(CLIPS)) {
 
   // The picture: from the start mark, at a constant 15 fps.
   const mp4 = join(DEST, `${spec.name}.mp4`);
-  run("ffmpeg", ["-nostdin", "-y", "-v", "error", "-ss", (start - v0).toFixed(3), "-i", rec, "-t", length.toFixed(3), "-an", "-c:v", "libx264", "-preset", "slow", "-crf", "18", "-pix_fmt", "yuv420p", "-profile:v", "high", "-r", String(FPS), "-fps_mode", "cfr", "-movflags", "+faststart", mp4]);
+  if (!existsSync(mp4) || process.env.REENCODE) run("ffmpeg", ["-nostdin", "-y", "-v", "error", "-ss", (start - v0).toFixed(3), "-i", rec, "-t", length.toFixed(3), "-an", "-c:v", "libx264", "-preset", "slow", "-crf", "18", "-pix_fmt", "yuv420p", "-profile:v", "high", "-r", String(FPS), "-fps_mode", "cfr", "-movflags", "+faststart", mp4]);
   const secs = Number(probe(mp4, "v:0", "format=duration"));
   const frames = Number(probe(mp4, "v:0", "stream=nb_frames"));
 
@@ -206,10 +206,9 @@ for (const [id, spec] of Object.entries(CLIPS)) {
   const storyNotes = existsSync(join(OUT, "promo", `${id.split("-").slice(2, 3)[0]}.notes.json`)) ? JSON.parse(readFileSync(join(OUT, "promo", `${id.split("-").slice(2, 3)[0]}.notes.json`), "utf8")) : {};
   const toolCallsFile = join(OUT, "shots", `${id}-tool-calls.json`);
   const toolCalls = existsSync(toolCallsFile) ? JSON.parse(readFileSync(toolCallsFile, "utf8")) : null;
-  const size = Number(probe(mp4, "v:0", "stream=width,height").split(/\s+/)[0]);
   writeFileSync(
     join(DEST, `${spec.name}.notes.json`),
-    `${JSON.stringify({ ...storyNotes, file: `${spec.name}.mp4`, seconds: +secs.toFixed(2), frames, fps: FPS, width: size, marks: clipMarks, wav, spans, sync, capture: recLog, toolCalls }, null, 2)}\n`,
+    `${JSON.stringify({ ...storyNotes, ...(spec.assistant ? {} : { live: true, model: null, effort: null, assistant: "none in this shot" }), file: `${spec.name}.mp4`, seconds: +secs.toFixed(2), frames, fps: FPS, size: "3200x2000", marks: clipMarks, wav, spans, sync, capture: recLog, toolCalls }, null, 2)}\n`,
   );
   console.log(`${spec.name}: ${secs.toFixed(1)} s, ${frames} frames${wav ? `, sound ran ${sync.soundIsAheadBy} s ahead of the picture, moved` : ""}, capture ${recLog ? `${recLog.frames} frames, ${recLog.drop} dropped, ${recLog.speed}x` : "(no log)"}`);
 }

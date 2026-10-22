@@ -1,7 +1,7 @@
 {
   "live": true,
-  "model": "claude-sonnet-5-5",
-  "effort": "low",
+  "model": null,
+  "effort": null,
   "note": "Skills that come with edytlab are updated when a release changes them, unless you have edited them.",
   "skills": [
     "dialog-enhancer",
@@ -13,11 +13,12 @@
     "silence-cleaner",
     "vocal-chain"
   ],
+  "assistant": "none in this shot",
   "file": "s6-skills-note.mp4",
   "seconds": 17.73,
   "frames": 266,
   "fps": 15,
-  "width": 32002000,
+  "size": "3200x2000",
   "marks": [
     {
       "label": "start",

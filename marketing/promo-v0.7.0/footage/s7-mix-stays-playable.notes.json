@@ -1,18 +1,19 @@
 {
   "live": true,
-  "model": "claude-sonnet-5-5",
-  "effort": "low",
+  "model": null,
+  "effort": null,
   "removed": [
     "5d2c99f9a1102f4204f0e99ebbcf8bf798866f3c9f520d29ab48823238b9617a.wav"
   ],
   "renderedAgain": [
     "5d2c99f9a1102f4204f0e99ebbcf8bf798866f3c9f520d29ab48823238b9617a.wav"
   ],
+  "assistant": "none in this shot",
   "file": "s7-mix-stays-playable.mp4",
   "seconds": 21.47,
   "frames": 322,
   "fps": 15,
-  "width": 32002000,
+  "size": "3200x2000",
   "marks": [
     {
       "label": "start",

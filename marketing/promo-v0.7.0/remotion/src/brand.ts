@@ -22,8 +22,13 @@ export const GRADIENT = `linear-gradient(135deg, ${C.gradient[0]} 0%, ${C.gradie
 /** The site's `.glow` shadow, scaled. */
 export const glow = (k = 1): string => `0 0 ${80 * k}px -${20 * k}px ${rgba(C.aurora[0], 0.4)}, 0 0 ${30 * k}px -${10 * k}px ${rgba(C.aurora[0], 0.3)}`;
 
-/** The note on every shot of app footage (the footage README makes this note binding). */
-export const NOTE = 'v0.7.0 · real app · scripted assistant';
+/**
+ * The note on every shot of app footage (the footage README makes it binding): the app is the released v0.7.0 build and the
+ * footage was recorded live. Where the assistant is in the shot it is real Claude, through the app's own provider; the shots
+ * that use no assistant (faders, Settings, the mix, b-roll) say only that they were recorded live.
+ */
+export const NOTE_CLAUDE = 'v0.7.0 · real app · real Claude (Sonnet 5.5)';
+export const NOTE_LIVE = 'v0.7.0 · real app · recorded live';
 
 /** The end card's words. */
 export const END = {

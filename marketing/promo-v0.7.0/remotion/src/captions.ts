@@ -1,6 +1,6 @@
 // What is on screen, and when, as plain data: the source of the .srt and of the sound cues. Reads the same cuts the
 // compositions render (cuts.ts), so the captions can never drift from the picture.
-import {END, NOTE} from './brand.ts';
+import {END} from './brand.ts';
 import {LAYOUTS} from './layout.ts';
 import {FPS, partDur, place, ringSpan, segDur, titleLines, type Cut, type Shot} from './timeline.ts';
 
@@ -70,7 +70,7 @@ export function events(cut: Cut): Event[] {
     p.segs.forEach((g, k) => {
       if ((g.rate ?? 1) >= 1.45) clip(starts[k], starts[k] + segDur(g), `${Number.isInteger(g.rate) ? g.rate : (g.rate ?? 1).toFixed(1)}× speed`, 1);
     });
-    if (p.note) clip(0, at[i].dur, NOTE, 2);
+    if (p.note) clip(0, at[i].dur, p.note, 2);
   });
   return out;
 }

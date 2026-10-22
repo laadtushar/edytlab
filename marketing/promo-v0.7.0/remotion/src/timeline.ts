@@ -13,15 +13,15 @@ export const FPS = 30;
 export type ClipId = 's1' | 's2' | 's3' | 's4' | 's5' | 's6' | 's7' | 's8a' | 's8b';
 
 export const CLIPS: Record<ClipId, {file: string; wav?: string; dur: number}> = {
-  s1: {file: 's1-describe-it-happens.mp4', wav: 's1-describe-it-happens.wav', dur: 18.93},
-  s2: {file: 's2-faders-stay-put.mp4', dur: 6.73},
-  s3: {file: 's3-history-graph.mp4', dur: 19.23},
-  s4: {file: 's4-200-tracks.mp4', dur: 21.67},
-  s5: {file: 's5-runtime-bundled.mp4', dur: 7.23},
-  s6: {file: 's6-skills-note.mp4', dur: 11.2},
-  s7: {file: 's7-mix-stays-playable.mp4', wav: 's7-mix-stays-playable.wav', dur: 15.6},
-  s8a: {file: 's8a-broll-timeline.mp4', dur: 15.17},
-  s8b: {file: 's8b-broll-graph.mp4', dur: 13.13},
+  s1: {file: 's1-describe-it-happens.mp4', wav: 's1-describe-it-happens.wav', dur: 37.2},
+  s2: {file: 's2-faders-stay-put.mp4', dur: 12.07},
+  s3: {file: 's3-history-graph.mp4', dur: 49.73},
+  s4: {file: 's4-200-tracks.mp4', dur: 33.73},
+  s5: {file: 's5-runtime-bundled.mp4', dur: 12.27},
+  s6: {file: 's6-skills-note.mp4', dur: 17.73},
+  s7: {file: 's7-mix-stays-playable.mp4', wav: 's7-mix-stays-playable.wav', dur: 21.46},
+  s8a: {file: 's8a-broll-timeline.mp4', dur: 22.6},
+  s8b: {file: 's8b-broll-graph.mp4', dur: 20.4},
 };
 
 /** A stretch of a clip: source seconds a..b, played at `rate`x. */
@@ -87,8 +87,8 @@ export interface Shot {
   audio?: boolean;
   /** UI ticks for moments the footage has no sound for (the clip's own, in SOURCE time; `pitch` 1 is the base tick). */
   ticks: {t: number; pitch?: number}[];
-  /** The "real app" note on this shot: true for every shot of app footage. */
-  note: boolean;
+  /** The note on this shot (brand.ts NOTE_*): on every shot of app footage. */
+  note: string;
 }
 
 export interface EndCard {

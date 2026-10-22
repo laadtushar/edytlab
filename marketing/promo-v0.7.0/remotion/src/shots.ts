@@ -1,6 +1,7 @@
 // The choreography of each clip: where the camera looks, and what is circled and when, in SOURCE time (seconds into the
 // clip), so any stretch of a clip can be cut with the same direction. Boxes are in CSS px of the 1600x1000 app window.
 // A cut picks stretches (`segs`) and adds titles. Every ring and label here is a claim; each has a row in ../claims.md.
+import {NOTE_CLAUDE, NOTE_LIVE} from './brand.ts';
 import type {FocusKF} from './camera.ts';
 import type {Box} from './layout.ts';
 import type {ChipSpec, ClipId, Ring, Seg, Shot, TitleSpec} from './timeline.ts';
@@ -14,6 +15,9 @@ const COMPOSER = box(1240, 770, 360, 170);
 const LANE1_CONTROLS = box(0, 112, 340, 170);
 const LANES_TOP = box(0, 100, 560, 480);
 
+/** The clips with the assistant in them: real Claude, through the app's own provider. */
+const CLAUDE_CLIPS = new Set<ClipId>(['s1', 's3', 's4']);
+
 interface Choreo {
   cam: FocusKF[];
   rings: Ring[];
@@ -22,92 +26,95 @@ interface Choreo {
 }
 
 const CHOREO: Record<ClipId, Choreo> = {
-  // S1. Describe it, it happens.
+  // S1. Describe it, it happens. Typed 2.1 to 9.6 s, sent about 10.1; Claude's Fade chip is running at 12.3 and resolves
+  // at 15.5, the Gain chip at 16.0, the lanes redraw at 16.3 and 16.7, the reply is complete at 18.5; Play is pressed at
+  // 24.9 (the mix is rendered first) and the sound runs from 26.3 to 34.1 (all measured from the footage).
   s1: {
     cam: [
       {t: 0, box: FULL, wide: box(0, 60, 1600, 780)},
-      {t: 2.2, box: COMPOSER, wide: box(900, 560, 700, 380), move: 1.4},
-      {t: 7.1, box: CHAT_TOP, wide: box(1000, 100, 600, 290), move: 1.0},
-      {t: 10.2, box: LANES_TOP, wide: box(0, 100, 700, 360), move: 1.1},
-      {t: 12.1, box: box(100, 60, 560, 380), wide: box(100, 50, 700, 340), move: 1.0},
+      {t: 1.8, box: COMPOSER, wide: box(900, 560, 700, 380), move: 1.4},
+      {t: 11.2, box: box(1240, 100, 360, 470), wide: box(1000, 100, 600, 470), move: 1.0},
+      {t: 19.1, box: LANES_TOP, wide: box(0, 100, 700, 360), move: 1.1},
+      {t: 24.2, box: box(100, 60, 560, 380), wide: box(100, 50, 700, 340), move: 1.0},
     ],
     rings: [
-      {t0: 8.3, t1: 10.6, rect: box(1254, 190, 64, 24), label: 'fade', side: 'right'},
-      {t0: 9.55, t1: 10.8, rect: box(1254, 255, 112, 26), label: 'set_track_gain', side: 'right'},
-      {t0: 10.4, t1: 12.2, rect: box(132, 118, 280, 84), label: 'fades in over 4 s', side: 'below'},
-      {t0: 10.6, t1: 12.2, rect: box(8, 406, 116, 46), label: '-3.0 dB', side: 'right'},
-      {t0: 12.3, t1: 13.6, rect: box(741, 60, 28, 28), label: 'hear the result', side: 'below'},
+      {t0: 15.5, t1: 19.0, rect: box(1254, 209, 62, 26), label: 'fade', side: 'right'},
+      {t0: 16.0, t1: 19.0, rect: box(1254, 242, 62, 26), label: 'gain', side: 'right'},
+      {t0: 19.2, t1: 24.2, rect: box(132, 118, 280, 84), label: 'fades in over 4 s', side: 'below'},
+      {t0: 19.4, t1: 24.2, rect: box(8, 414, 116, 38), label: '-3.0 dB', side: 'right'},
+      {t0: 24.8, t1: 26.6, rect: box(741, 60, 28, 28), label: 'hear the result', side: 'below'},
     ],
   },
-  // S2. Faders that stay put (#596).
+  // S2. Faders that stay put (#596). The slider is taken hold of at 3.9 s; the readout steps at 5.07, 5.60, 6.13, 6.67.
   s2: {
     cam: [{t: 0, box: LANE1_CONTROLS, wide: box(0, 170, 420, 130), square: box(0, 175, 340, 80)}],
     rings: [
       {
-        t0: 2.0,
-        t1: 6.6,
+        t0: 3.9,
+        t1: 9.6,
         rect: box(8, 176, 116, 46),
         side: 'right',
         labels: [
-          {t0: 2.0, t1: 2.71, text: 'gain slider'},
-          {t0: 2.71, t1: 3.24, text: '+0.5 dB'},
-          {t0: 3.24, t1: 3.77, text: '+1.0 dB'},
-          {t0: 3.77, t1: 4.31, text: '+1.5 dB'},
-          {t0: 4.31, t1: 6.6, text: '+2.0 dB, no bounce back'},
+          {t0: 3.9, t1: 5.07, text: 'gain slider'},
+          {t0: 5.07, t1: 5.6, text: '+0.5 dB'},
+          {t0: 5.6, t1: 6.13, text: '+1.0 dB'},
+          {t0: 6.13, t1: 6.67, text: '+1.5 dB'},
+          {t0: 6.67, t1: 9.6, text: '+2.0 dB, no bounce back'},
         ],
       },
     ],
   },
-  // S3. The History graph keeps up (#602).
+  // S3. The History graph keeps up (#602). The first request is sent at 12.3 s, the head's bubble reads "chorus" from
+  // 14.3, the reply is done at 17.8; the second is sent at 35.4, the nodes leave the graph at 40.9, the reply is done at 43.3.
   s3: {
     cam: [
       {t: 0, box: box(1240, 100, 360, 210), wide: box(1000, 100, 600, 260), square: box(1240, 125, 360, 210)},
-      {t: 6.1, box: box(560, 780, 380, 170), wide: box(480, 740, 640, 230), move: 0.7},
-      {t: 13.8, box: box(380, 60, 480, 880), wide: box(300, 40, 700, 920), move: 0.6},
+      {t: 13.9, box: box(300, 760, 420, 210), wide: box(260, 700, 560, 260), move: 0.8},
+      {t: 38.8, box: box(380, 60, 480, 880), wide: box(300, 40, 700, 920), move: 0.8},
     ],
     rings: [
-      {t0: 6.33, t1: 7.5, rect: box(693, 898, 102, 38), label: 'named at once', side: 'right'},
-      {t0: 16.0, t1: 17.6, rect: box(428, 82, 124, 564), label: '17 nodes became 8', side: 'right'},
+      {t0: 14.4, t1: 17.8, rect: box(464, 902, 90, 36), label: 'named at once', side: 'right'},
+      {t0: 41.0, t1: 44.6, rect: box(460, 86, 112, 450), label: '20 nodes became 8', side: 'right'},
     ],
   },
-  // S4. Big sessions (#618).
+  // S4. Big sessions (#618). Looked down the lanes 1.7 to 5.1; typed 6.1 to 11.8 and sent; list_session at 14.1; twelve
+  // Gain chips 16.1 to 20.3; the reply is done at 22.5; scrolled to the strings 26.9 to 29.5.
   s4: {
     cam: [
-      {t: 0.8, box: LEFT_PANE, wide: box(0, 100, 1240, 600)},
-      {t: 6.9, box: COMPOSER, wide: box(900, 560, 700, 380), move: 1.5},
-      {t: 8.4, box: box(1240, 100, 360, 300), wide: box(1000, 100, 600, 300), move: 0.9},
-      {t: 15.2, box: box(1240, 520, 360, 330), wide: box(1000, 540, 600, 320), move: 3.8},
-      {t: 17.5, box: box(0, 240, 560, 360), wide: box(0, 240, 700, 340), move: 1.5},
+      {t: 1.0, box: LEFT_PANE, wide: box(0, 100, 1240, 600)},
+      {t: 5.4, box: COMPOSER, wide: box(900, 560, 700, 380), move: 1.5},
+      {t: 12.4, box: box(1240, 100, 360, 420), wide: box(1000, 100, 600, 420), move: 0.9},
+      {t: 25.8, box: box(0, 200, 560, 400), wide: box(0, 200, 700, 380), move: 1.5},
     ],
-    // the chips resolve at about these moments (measured from the footage); the twelve make a rising run
-    ticks: [{t: 9.77, pitch: 0.8}, {t: 10.53, pitch: 0.8}, ...Array.from({length: 12}, (_, i) => ({t: 10.77 + 0.34 * i, pitch: 0.88 + 0.045 * i}))],
+    ticks: [{t: 14.2, pitch: 0.8}, ...Array.from({length: 12}, (_, i) => ({t: 16.2 + 0.36 * i, pitch: 0.88 + 0.045 * i}))],
     rings: [
-      {t0: 10.1, t1: 11.6, rect: box(1254, 166, 130, 62), label: 'list_session', side: 'right'},
-      {t0: 19.63, t1: 21.4, rect: box(6, 302, 122, 284), label: '-4.0 dB on the strings', side: 'right'},
+      {t0: 14.2, t1: 16.6, rect: box(1254, 166, 112, 24), label: 'list_session', side: 'right'},
+      {t0: 29.6, t1: 33.4, rect: box(6, 224, 122, 570), label: '-6.0 dB on the strings', side: 'right'},
     ],
   },
-  // S5. The ONNX Runtime is bundled (groundwork only).
+  // S5. The ONNX Runtime is bundled (groundwork only). The dialog is open from 3.7 s; the line is in view throughout.
   s5: {
-    // the focus keeps the region below the dialog's model field, which these shots do not need
-    cam: [{t: 0, box: box(560, 700, 480, 216), wide: box(560, 690, 480, 240), square: box(570, 700, 392, 230)}],
-    // no label: the app's own line says "(bundled)" and a label over it covers the text above
-    rings: [{t0: 4.0, t1: 7.2, rect: box(576, 790, 310, 46)}],
+    // the focus keeps the region above the dialog's model field out of frame
+    cam: [{t: 0, box: box(580, 786, 330, 60), wide: box(560, 770, 480, 100), square: box(580, 780, 330, 80)}],
+    // no label: the app's own line says "(bundled)" and a label over it covers the text
+    rings: [{t0: 4.6, t1: 12.0, rect: box(576, 798, 330, 44)}],
   },
-  // S6. Skills update (#574).
+  // S6. Skills update (#574). The Skills tab is pressed at 5.3 s, the note is on screen from 5.6, a skill is opened at 12.2.
   s6: {
     cam: [
       {t: 0, box: box(560, 207, 480, 586)},
-      {t: 4.7, box: box(760, 440, 270, 190), wide: box(700, 420, 400, 200), move: 1.0},
+      {t: 5.8, box: box(760, 440, 270, 190), wide: box(700, 420, 400, 200), move: 1.0},
     ],
-    rings: [{t0: 4.9, t1: 8.8, rect: box(782, 494, 226, 90), label: 'unless you edited them', side: 'above'}],
+    rings: [{t0: 6.6, t1: 12.0, rect: box(784, 528, 222, 52), label: 'unless you edited them', side: 'above'}],
   },
-  // S7. The mix stays playable (#607).
+  // S7. The mix stays playable (#607). Play is pressed at 2.8 s and plays from 4.7; the Graph tab replaces the timeline
+  // (and its player) at 9.3, so the sound stops; back on the timeline at 11.7; the second Play runs from 13.55 to 18.85.
   s7: {
     cam: [{t: 0, box: box(190, 0, 640, 420), wide: box(190, 0, 700, 420)}],
-    ticks: [{t: 6.03}, {t: 8.43}],
+    ticks: [{t: 9.3}, {t: 11.7}],
     rings: [
-      {t0: 8.43, t1: 9.6, rect: box(193, 10, 74, 32), label: 'back to the timeline', side: 'below'},
-      {t0: 10.35, t1: 12.4, rect: box(741, 60, 28, 28), label: 'plays, no error', side: 'below'},
+      {t0: 11.7, t1: 12.9, rect: box(193, 10, 74, 32), label: 'back to the timeline', side: 'below'},
+      {t0: 13.9, t1: 16.0, rect: box(741, 60, 28, 28), label: 'plays, no error', side: 'below'},
     ],
   },
   // S8a / S8b. B-roll: nothing to read.
@@ -140,6 +147,6 @@ export function shot(id: string, clip: ClipId, segs: Seg[], opts: ShotOpts = {})
     titles: opts.titles ?? [],
     audio: opts.audio,
     ticks: c.ticks ?? [],
-    note: true,
+    note: CLAUDE_CLIPS.has(clip) ? NOTE_CLAUDE : NOTE_LIVE,
   };
 }

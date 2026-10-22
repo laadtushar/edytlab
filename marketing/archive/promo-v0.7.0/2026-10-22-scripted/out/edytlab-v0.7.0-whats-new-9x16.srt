@@ -1,0 +1,145 @@
+1
+00:00:00,000 --> 00:00:02,500
+What's new
+in v0.7.0
+Five changes you can see
+v0.7.0 · real app · scripted assistant
+
+2
+00:00:02,500 --> 00:00:03,210
+Faders stay
+where you put them
+Four key taps, four steps (#596)
+gain slider
+v0.7.0 · real app · scripted assistant
+
+3
+00:00:03,210 --> 00:00:03,740
+Faders stay
+where you put them
+Four key taps, four steps (#596)
++0.5 dB
+v0.7.0 · real app · scripted assistant
+
+4
+00:00:03,740 --> 00:00:04,270
+Faders stay
+where you put them
+Four key taps, four steps (#596)
++1.0 dB
+v0.7.0 · real app · scripted assistant
+
+5
+00:00:04,270 --> 00:00:04,810
+Faders stay
+where you put them
+Four key taps, four steps (#596)
++1.5 dB
+v0.7.0 · real app · scripted assistant
+
+6
+00:00:04,810 --> 00:00:06,700
+Faders stay
+where you put them
+Four key taps, four steps (#596)
++2.0 dB, no bounce back
+v0.7.0 · real app · scripted assistant
+
+7
+00:00:06,700 --> 00:00:08,830
+The history graph
+keeps up
+Names and clean-ups show at once
+v0.7.0 · real app · scripted assistant
+
+8
+00:00:08,830 --> 00:00:09,700
+The history graph
+keeps up
+Names and clean-ups show at once
+named at once
+v0.7.0 · real app · scripted assistant
+
+9
+00:00:09,700 --> 00:00:10,600
+The history graph
+keeps up
+Names and clean-ups show at once
+v0.7.0 · real app · scripted assistant
+
+10
+00:00:10,600 --> 00:00:11,700
+The history graph
+keeps up
+Names and clean-ups show at once
+17 nodes became 8
+v0.7.0 · real app · scripted assistant
+
+11
+00:00:11,700 --> 00:00:13,906
+200 tracks?
+Just ask.
+list_session pages past the summary
+v0.7.0 · real app · scripted assistant
+
+12
+00:00:13,906 --> 00:00:15,250
+200 tracks?
+Just ask.
+list_session pages past the summary
+3.2× speed
+v0.7.0 · real app · scripted assistant
+
+13
+00:00:15,250 --> 00:00:15,980
+200 tracks?
+Just ask.
+list_session pages past the summary
+v0.7.0 · real app · scripted assistant
+
+14
+00:00:15,980 --> 00:00:17,267
+200 tracks?
+Just ask.
+list_session pages past the summary
+-4.0 dB on the strings
+v0.7.0 · real app · scripted assistant
+
+15
+00:00:17,267 --> 00:00:19,217
+Switch tabs.
+It still plays.
+Even when the mix is gone from the cache
+v0.7.0 · real app · scripted assistant
+
+16
+00:00:19,217 --> 00:00:21,567
+Switch tabs.
+It still plays.
+Even when the mix is gone from the cache
+plays, no error
+v0.7.0 · real app · scripted assistant
+
+17
+00:00:21,567 --> 00:00:22,467
+Bundled skills
+stay current
+Updated when a release changes them
+v0.7.0 · real app · scripted assistant
+
+18
+00:00:22,467 --> 00:00:25,767
+Bundled skills
+stay current
+Updated when a release changes them
+unless you edited them
+v0.7.0 · real app · scripted assistant
+
+19
+00:00:26,167 --> 00:00:30,567
+edytlab
+v0.7.0
+edytlab.com
+Free and open source (MIT)
+macOS · Windows · Linux
+Unsigned installers

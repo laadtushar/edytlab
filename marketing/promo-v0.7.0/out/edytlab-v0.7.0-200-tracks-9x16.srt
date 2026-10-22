@@ -1,58 +1,60 @@
 1
 00:00:00,000 --> 00:00:01,800
 200 tracks?
-v0.7.0 · real app · scripted assistant
+v0.7.0 · real app · real Claude (Sonnet 5.5)
 
 2
-00:00:01,800 --> 00:00:03,200
+00:00:01,800 --> 00:00:03,300
 Ask.
-v0.7.0 · real app · scripted assistant
+v0.7.0 · real app · real Claude (Sonnet 5.5)
 
 3
-00:00:03,200 --> 00:00:05,500
+00:00:03,300 --> 00:00:06,767
 Just say it
 “make all the strings quieter”
-v0.7.0 · real app · scripted assistant
+1.7× speed
+v0.7.0 · real app · real Claude (Sonnet 5.5)
 
 4
-00:00:05,500 --> 00:00:06,700
-It pages through
-the session
-list_session, then set_track_gain
-v0.7.0 · real app · scripted assistant
+00:00:06,767 --> 00:00:07,767
+It reads what
+the summary left out
+list_session, then gain
+2.2× speed
+v0.7.0 · real app · real Claude (Sonnet 5.5)
 
 5
-00:00:06,700 --> 00:00:08,200
-It pages through
-the session
-list_session, then set_track_gain
+00:00:07,767 --> 00:00:10,167
+It reads what
+the summary left out
+list_session, then gain
 list_session
-v0.7.0 · real app · scripted assistant
+v0.7.0 · real app · real Claude (Sonnet 5.5)
 
 6
-00:00:08,200 --> 00:00:12,300
+00:00:10,167 --> 00:00:15,967
 Twelve strings,
 one sentence
 Each change is a node on the graph
-v0.7.0 · real app · scripted assistant
+v0.7.0 · real app · real Claude (Sonnet 5.5)
 
 7
-00:00:12,300 --> 00:00:14,830
+00:00:15,967 --> 00:00:19,467
 All twelve strings
-4 dB quieter
+6 dB quieter
 Violins, viola, cello, contrabass
-v0.7.0 · real app · scripted assistant
+v0.7.0 · real app · real Claude (Sonnet 5.5)
 
 8
-00:00:14,830 --> 00:00:16,500
+00:00:19,467 --> 00:00:23,167
 All twelve strings
-4 dB quieter
+6 dB quieter
 Violins, viola, cello, contrabass
--4.0 dB on the strings
-v0.7.0 · real app · scripted assistant
+-6.0 dB on the strings
+v0.7.0 · real app · real Claude (Sonnet 5.5)
 
 9
-00:00:16,900 --> 00:00:20,700
+00:00:23,567 --> 00:00:27,367
 edytlab
 v0.7.0
 edytlab.com

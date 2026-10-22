@@ -1,7 +1,7 @@
 {
   "live": true,
-  "model": "claude-sonnet-5-5",
-  "effort": "low",
+  "model": null,
+  "effort": null,
   "panPx": 1383,
   "labels": [
     "intro",
@@ -10,11 +10,12 @@
     "bridge",
     "outro"
   ],
+  "assistant": "none in this shot",
   "file": "s8a-broll-timeline.mp4",
   "seconds": 22.6,
   "frames": 339,
   "fps": 15,
-  "width": 32002000,
+  "size": "3200x2000",
   "marks": [
     {
       "label": "start",

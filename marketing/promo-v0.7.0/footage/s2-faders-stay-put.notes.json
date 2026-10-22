@@ -1,7 +1,7 @@
 {
   "live": true,
-  "model": "claude-sonnet-5-5",
-  "effort": "low",
+  "model": null,
+  "effort": null,
   "readouts": [
     {
       "t": 11450.000000000002,
@@ -31,11 +31,12 @@
     20743.000000000004
   ],
   "gain": 2,
+  "assistant": "none in this shot",
   "file": "s2-faders-stay-put.mp4",
   "seconds": 12.07,
   "frames": 181,
   "fps": 15,
-  "width": 32002000,
+  "size": "3200x2000",
   "marks": [
     {
       "label": "start",

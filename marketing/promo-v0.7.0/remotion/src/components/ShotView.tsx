@@ -30,7 +30,7 @@ export const ShotView: React.FC<{layout: Layout; shot: Shot; frames: number; ove
               return <div key={i} style={{position: 'absolute', left: layout.card.x, top: layout.card.y, width: layout.card.w, height: layout.card.h, borderRadius: layout.radius, background: 'rgba(9, 9, 11, 0.7)', opacity: a * opacity}} />;
             })
         : null}
-      {shot.note ? <HonestyNote layout={layout} opacity={opacity} /> : null}
+      {shot.note ? <HonestyNote layout={layout} opacity={opacity} text={shot.note} /> : null}
       {shot.titles.map((t, i) => (
         <KineticTitle key={i} layout={layout} spec={t} frame={frame} />
       ))}
