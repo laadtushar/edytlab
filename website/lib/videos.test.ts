@@ -22,12 +22,17 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// The function Next writes `sitemap.xml` with, so the test reads what the built file says.
+import { resolveSitemap } from "next/dist/build/webpack/loaders/metadata/resolve-route-data";
 import { describe, expect, it } from "vitest";
 
+import sitemap from "../app/sitemap";
 import { demos } from "./demos";
+import { escapeXml } from "./feed";
 import { mp4Seconds, mp4Size } from "./mp4-header";
+import { absoluteUrl } from "./seo";
 import { srtToVtt } from "./srt-to-vtt";
-import { videoCaptionsSrc, videoPosterSrc, videoSrc, videos } from "./videos";
+import { videoCaptionsSrc, videoPath, videoPosterSrc, videoSrc, videos } from "./videos";
 
 const SITE = fileURLToPath(new URL("../", import.meta.url));
 const REPO = join(SITE, "..");
@@ -262,5 +267,54 @@ describe("srtToVtt", () => {
     expect(out).toContain("00:00:01.000 --> 00:00:02.000\nHi");
     expect(out).not.toContain("\r");
     expect(out).not.toContain("﻿");
+  });
+});
+
+describe("the video sitemap entries", () => {
+  const entries = sitemap();
+  const watchUrls = new Set(videos.map((v) => absoluteUrl(videoPath(v.slug))));
+
+  it.each(videos.map((v) => [v.slug, v] as const))("%s's page declares exactly its one video", (_slug, v) => {
+    const entry = entries.find((e) => e.url === absoluteUrl(videoPath(v.slug)));
+    expect(entry, `${videoPath(v.slug)} is not in the sitemap`).toBeDefined();
+    // The fields come from the list, as the page's VideoObject does. Next writes them
+    // into the XML as they are, so the text is escaped.
+    expect(entry?.videos).toEqual([
+      {
+        title: escapeXml(v.title),
+        thumbnail_loc: absoluteUrl(videoPosterSrc(v.slug)),
+        description: escapeXml(v.description),
+        content_loc: absoluteUrl(videoSrc(v.slug)),
+        duration: v.seconds,
+      },
+    ]);
+    // Google's limits: a title of 100 characters, a description of 2048, a length of 1 to 28800 seconds.
+    expect(v.title.length).toBeLessThanOrEqual(100);
+    expect(v.description.length).toBeLessThanOrEqual(2048);
+    expect(v.seconds).toBeGreaterThanOrEqual(1);
+    expect(v.seconds).toBeLessThanOrEqual(28800);
+  });
+
+  it("gives no other page a video: not the hub, not the pages that play the demos", () => {
+    const withVideos = entries.filter((e) => e.videos?.length).map((e) => e.url);
+    expect(new Set(withVideos)).toEqual(watchUrls);
+    expect(withVideos.length).toBe(videos.length);
+  });
+
+  it("writes the video namespace and one <video:video> per watch page into sitemap.xml", () => {
+    const xml: string = resolveSitemap(entries);
+    expect(xml).toContain('xmlns:video="http://www.google.com/schemas/sitemap-video/1.1"');
+    expect(xml.match(/<video:video>/g)?.length).toBe(videos.length);
+    for (const v of videos) {
+      const block = xml.slice(xml.indexOf(`<loc>${absoluteUrl(videoPath(v.slug))}</loc>`));
+      const own = block.slice(0, block.indexOf("</url>"));
+      expect(own, v.slug).toContain(`<video:title>${escapeXml(v.title)}</video:title>`);
+      expect(own, v.slug).toContain(`<video:thumbnail_loc>${absoluteUrl(videoPosterSrc(v.slug))}</video:thumbnail_loc>`);
+      expect(own, v.slug).toContain(`<video:content_loc>${absoluteUrl(videoSrc(v.slug))}</video:content_loc>`);
+      expect(own, v.slug).toContain(`<video:duration>${v.seconds}</video:duration>`);
+      expect(own.match(/<video:video>/g)?.length, v.slug).toBe(1);
+    }
+    // Well-formed: nothing the XML cannot hold is left unescaped in the text.
+    expect(xml.replace(/<[^>]+>/g, "")).not.toMatch(/&(?!amp;|lt;|gt;|quot;|apos;)/);
   });
 });
