@@ -88,9 +88,9 @@ export const videos: readonly SiteVideo[] = [
   {
     slug: "whats-new-v070",
     kind: "release",
-    title: "What's new in edytlab v0.7.0: five changes you can see",
+    title: "What's new in edytlab v0.7.0",
     caption:
-      "Five changes in v0.7.0, shown in the real app: a request typed in plain English that the assistant turns into a fade and a gain change, which you then hear; faders that stay where you put them (#596); the history graph keeping up as a version is named and the history compacted (#602); a 200-track session where list_session pages through what the summary leaves out and twelve string tracks come down 4 dB (#618); the ONNX Runtime now shipping in every installer, as groundwork only, with no model yet; bundled skills that update unless you edited them (#574); and playback that survives switching tabs (#607). Real app, scripted assistant: every shot is the real v0.7.0 frontend, the assistant's replies and tool calls are scripted, and the demo audio is made in code, as the note on every shot says. The installers are unsigned. Captions are available.",
+      "What's new in v0.7.0, shown in the real app. It starts with a request typed in plain English that the assistant turns into a fade and a gain change, which you then hear. Then six changes: faders that stay where you put them (#596); the history graph keeping up as a version is named and the history compacted (#602); a 200-track session where list_session pages through what the summary leaves out and twelve string tracks come down 4 dB (#618); the ONNX Runtime now shipping in every installer, as groundwork only, with no model yet; bundled skills that update unless you edited them (#574); and playback that survives switching tabs (#607). Real app, scripted assistant: every shot is the real v0.7.0 frontend, the assistant's replies and tool calls are scripted, and the demo audio is made in code, as the note on every shot says. The installers are unsigned. Captions are available.",
     description:
       "A 58-second video of what's new in edytlab v0.7.0: a typed edit, steady faders, the history graph and a 200-track session. Real app, scripted assistant.",
     seconds: 58,

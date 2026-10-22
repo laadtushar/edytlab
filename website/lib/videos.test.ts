@@ -119,6 +119,10 @@ describe("the list", () => {
       "reel-v070-describe-the-edit",
       "reel-v070-200-tracks",
     ]);
+    // "Five changes you can see" is the vertical what's-new reel's claim (claims.md, R1). The 16:9
+    // cut shows the typed edit and six changes, so it carries no count of changes.
+    const wide = promo.find((v) => v.slug === "whats-new-v070") as (typeof promo)[number];
+    expect(`${wide.title} ${wide.caption} ${wide.description}`).not.toMatch(/\bfive\b/i);
     for (const v of promo) {
       expect(v.description, `${v.slug} description`).toMatch(/scripted assistant/i);
       expect(v.description, `${v.slug} description`).toMatch(/real (?:edytlab )?app/i);
