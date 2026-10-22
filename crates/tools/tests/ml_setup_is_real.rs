@@ -10,8 +10,9 @@
 //!   repository. Two tests pinned the dangling name in place.
 //! * The automatic download the docs promised was
 //!   `fetched_model_path`, which then errored unconditionally and had no
-//!   callers. (It now downloads and verifies a pinned artifact, #383, but
-//!   still has no callers and no model is pinned.)
+//!   callers. (It now downloads and verifies a pinned artifact, #383, and
+//!   the Settings row calls it when the user presses Download. Nothing
+//!   runs the model it fetches.)
 //! * `EDYTLAB_MODEL_DIR`, documented as the cache override, was read by
 //!   no code in the tree.
 //! * Supplying a correct model file anyway produced `Ok(vec![])` from
