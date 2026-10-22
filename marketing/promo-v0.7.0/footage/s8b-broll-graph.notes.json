@@ -1,4 +1,8 @@
 {
+  "live": true,
+  "model": "claude-sonnet-5-5",
+  "effort": "low",
+  "nodes": 20,
   "file": "s8b-broll-graph.mp4",
   "seconds": 16.53,
   "frames": 248,
@@ -27,9 +31,5 @@
     "drop": 22,
     "speed": 1.01
   },
-  "live": true,
-  "model": "claude-sonnet-5-5",
-  "effort": "low",
-  "nodes": 20,
   "toolCalls": null
 }

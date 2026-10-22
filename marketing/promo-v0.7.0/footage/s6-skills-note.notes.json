@@ -1,4 +1,18 @@
 {
+  "live": true,
+  "model": "claude-sonnet-5-5",
+  "effort": "low",
+  "note": "Skills that come with edytlab are updated when a release changes them, unless you have edited them.",
+  "skills": [
+    "dialog-enhancer",
+    "export-guide",
+    "loudness-master",
+    "music-mix",
+    "noise-reducer",
+    "podcast-cleanup",
+    "silence-cleaner",
+    "vocal-chain"
+  ],
   "file": "s6-skills-note.mp4",
   "seconds": 17.73,
   "frames": 266,
@@ -31,19 +45,5 @@
     "drop": 23,
     "speed": 1.01
   },
-  "live": true,
-  "model": "claude-sonnet-5-5",
-  "effort": "low",
-  "note": "Skills that come with edytlab are updated when a release changes them, unless you have edited them.",
-  "skills": [
-    "dialog-enhancer",
-    "export-guide",
-    "loudness-master",
-    "music-mix",
-    "noise-reducer",
-    "podcast-cleanup",
-    "silence-cleaner",
-    "vocal-chain"
-  ],
   "toolCalls": null
 }

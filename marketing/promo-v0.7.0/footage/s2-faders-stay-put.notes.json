@@ -1,4 +1,36 @@
 {
+  "live": true,
+  "model": "claude-sonnet-5-5",
+  "effort": "low",
+  "readouts": [
+    {
+      "t": 11450.000000000002,
+      "text": "0.0 dB"
+    },
+    {
+      "t": 18914,
+      "text": "+0.5 dB"
+    },
+    {
+      "t": 19500,
+      "text": "+1.0 dB"
+    },
+    {
+      "t": 20017,
+      "text": "+1.5 dB"
+    },
+    {
+      "t": 20540,
+      "text": "+2.0 dB"
+    }
+  ],
+  "tapsAt": [
+    19098,
+    19656,
+    20178,
+    20743.000000000004
+  ],
+  "gain": 2,
   "file": "s2-faders-stay-put.mp4",
   "seconds": 12.07,
   "frames": 181,
@@ -47,37 +79,5 @@
     "drop": 22,
     "speed": 1.01
   },
-  "live": true,
-  "model": "claude-sonnet-5-5",
-  "effort": "low",
-  "readouts": [
-    {
-      "t": 11450.000000000002,
-      "text": "0.0 dB"
-    },
-    {
-      "t": 18914,
-      "text": "+0.5 dB"
-    },
-    {
-      "t": 19500,
-      "text": "+1.0 dB"
-    },
-    {
-      "t": 20017,
-      "text": "+1.5 dB"
-    },
-    {
-      "t": 20540,
-      "text": "+2.0 dB"
-    }
-  ],
-  "tapsAt": [
-    19098,
-    19656,
-    20178,
-    20743.000000000004
-  ],
-  "gain": 2,
   "toolCalls": null
 }

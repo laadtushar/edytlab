@@ -1,4 +1,36 @@
 {
+  "live": true,
+  "model": "claude-sonnet-5-5",
+  "effort": "low",
+  "nodesBefore": 20,
+  "nodesAfterName": 20,
+  "nodesAfterCompact": 8,
+  "first": {
+    "badges": [
+      {
+        "status": "ok",
+        "text": "✓Rename version"
+      }
+    ],
+    "reply": "I labelled the current version (node a5cac6e1…) \"chorus\". Only the label changed. The audio is the same.",
+    "seconds": 12.39
+  },
+  "second": {
+    "badges": [
+      {
+        "status": "ok",
+        "text": "✓Rename version"
+      },
+      {
+        "status": "ok",
+        "text": "✓Compact session"
+      }
+    ],
+    "reply": "I compacted the history and kept the last 8 edits. It removed 12 older undo steps permanently. No audio files were deleted, so no disk space was freed. Undo still works for the 8 most recent edits.Undo",
+    "seconds": 19.045
+  },
+  "third": null,
+  "labelled": true,
   "file": "s3-history-graph.mp4",
   "seconds": 41.2,
   "frames": 618,
@@ -35,38 +67,6 @@
     "drop": null,
     "speed": 0.998
   },
-  "live": true,
-  "model": "claude-sonnet-5-5",
-  "effort": "low",
-  "nodesBefore": 20,
-  "nodesAfterName": 20,
-  "nodesAfterCompact": 8,
-  "first": {
-    "badges": [
-      {
-        "status": "ok",
-        "text": "✓Rename version"
-      }
-    ],
-    "reply": "I labelled the current version (node a5cac6e1…) \"chorus\". Only the label changed. The audio is the same.",
-    "seconds": 12.39
-  },
-  "second": {
-    "badges": [
-      {
-        "status": "ok",
-        "text": "✓Rename version"
-      },
-      {
-        "status": "ok",
-        "text": "✓Compact session"
-      }
-    ],
-    "reply": "I compacted the history and kept the last 8 edits. It removed 12 older undo steps permanently. No audio files were deleted, so no disk space was freed. Undo still works for the 8 most recent edits.Undo",
-    "seconds": 19.045
-  },
-  "third": null,
-  "labelled": true,
   "toolCalls": {
     "story": "9-promo-s3-history-graph",
     "source": "claude-proxy",

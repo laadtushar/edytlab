@@ -1,4 +1,15 @@
 {
+  "live": true,
+  "model": "claude-sonnet-5-5",
+  "effort": "low",
+  "panPx": 1383,
+  "labels": [
+    "intro",
+    "verse",
+    "chorus",
+    "bridge",
+    "outro"
+  ],
   "file": "s8a-broll-timeline.mp4",
   "seconds": 22.6,
   "frames": 339,
@@ -31,16 +42,5 @@
     "drop": 31,
     "speed": 0.923
   },
-  "live": true,
-  "model": "claude-sonnet-5-5",
-  "effort": "low",
-  "panPx": 1383,
-  "labels": [
-    "intro",
-    "verse",
-    "chorus",
-    "bridge",
-    "outro"
-  ],
   "toolCalls": null
 }

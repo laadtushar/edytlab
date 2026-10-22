@@ -1,4 +1,13 @@
 {
+  "live": true,
+  "model": "claude-sonnet-5-5",
+  "effort": "low",
+  "removed": [
+    "6cf7b3be357982f9ac23a3c5f6a51247b087e4f29ab87ea0ecb0e41645b1625b.wav"
+  ],
+  "renderedAgain": [
+    "6cf7b3be357982f9ac23a3c5f6a51247b087e4f29ab87ea0ecb0e41645b1625b.wav"
+  ],
   "file": "s7-mix-stays-playable.mp4",
   "seconds": 20.4,
   "frames": 306,
@@ -60,14 +69,5 @@
     "drop": 15,
     "speed": 1.01
   },
-  "live": true,
-  "model": "claude-sonnet-5-5",
-  "effort": "low",
-  "removed": [
-    "6cf7b3be357982f9ac23a3c5f6a51247b087e4f29ab87ea0ecb0e41645b1625b.wav"
-  ],
-  "renderedAgain": [
-    "6cf7b3be357982f9ac23a3c5f6a51247b087e4f29ab87ea0ecb0e41645b1625b.wav"
-  ],
   "toolCalls": null
 }

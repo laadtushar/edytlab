@@ -1,44 +1,4 @@
 {
-  "file": "s4-200-tracks.mp4",
-  "seconds": 18.717,
-  "frames": 506,
-  "fps": 15,
-  "width": 32002000,
-  "marks": [
-    {
-      "label": "start",
-      "t": 0
-    },
-    {
-      "label": "look down",
-      "t": 1.5
-    },
-    {
-      "label": "request",
-      "t": 5.38
-    },
-    {
-      "label": "done",
-      "t": 24.1
-    },
-    {
-      "label": "scroll to the strings",
-      "t": 26.64
-    },
-    {
-      "label": "strings in view",
-      "t": 29.35
-    }
-  ],
-  "wav": null,
-  "spans": null,
-  "sync": null,
-  "capture": {
-    "frames": 543,
-    "dup": null,
-    "drop": null,
-    "speed": 0.997
-  },
   "live": true,
   "model": "claude-sonnet-5-5",
   "effort": "low",
@@ -98,6 +58,7 @@
     }
   ],
   "reply": "Strings are probably in the 60 tracks I can't see, so I'll list those first.Strings are tracks 147–158, which is 12 tracks. I'll lower each by 6 dB.I lowered all 12 string tracks by 6 dB. They are Cello a/b, Contrabass a/b, Viola a/b, Violin I a–c and Violin II a–c (tracks 147–158).\nI assumed those were the strings and didn't change any other tracks. If you want a different amount, tell me and I'll set it. A bigger cut like -10 dB would be easy to apply.",
+  "seconds": 33.73,
   "strings": [
     147,
     148,
@@ -127,6 +88,45 @@
     -6
   ],
   "minus4InDom": 12,
+  "file": "s4-200-tracks.mp4",
+  "frames": 506,
+  "fps": 15,
+  "width": 32002000,
+  "marks": [
+    {
+      "label": "start",
+      "t": 0
+    },
+    {
+      "label": "look down",
+      "t": 1.5
+    },
+    {
+      "label": "request",
+      "t": 5.38
+    },
+    {
+      "label": "done",
+      "t": 24.1
+    },
+    {
+      "label": "scroll to the strings",
+      "t": 26.64
+    },
+    {
+      "label": "strings in view",
+      "t": 29.35
+    }
+  ],
+  "wav": null,
+  "spans": null,
+  "sync": null,
+  "capture": {
+    "frames": 543,
+    "dup": null,
+    "drop": null,
+    "speed": 0.997
+  },
   "toolCalls": {
     "story": "9-promo-s4-200-tracks",
     "source": "claude-proxy",

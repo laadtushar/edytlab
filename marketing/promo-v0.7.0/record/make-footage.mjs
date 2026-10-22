@@ -209,7 +209,7 @@ for (const [id, spec] of Object.entries(CLIPS)) {
   const size = Number(probe(mp4, "v:0", "stream=width,height").split(/\s+/)[0]);
   writeFileSync(
     join(DEST, `${spec.name}.notes.json`),
-    `${JSON.stringify({ file: `${spec.name}.mp4`, seconds: +secs.toFixed(2), frames, fps: FPS, width: size, marks: clipMarks, wav, spans, sync, capture: recLog, ...storyNotes, toolCalls }, null, 2)}\n`,
+    `${JSON.stringify({ ...storyNotes, file: `${spec.name}.mp4`, seconds: +secs.toFixed(2), frames, fps: FPS, width: size, marks: clipMarks, wav, spans, sync, capture: recLog, toolCalls }, null, 2)}\n`,
   );
   console.log(`${spec.name}: ${secs.toFixed(1)} s, ${frames} frames${wav ? `, sound ran ${sync.soundIsAheadBy} s ahead of the picture, moved` : ""}, capture ${recLog ? `${recLog.frames} frames, ${recLog.drop} dropped, ${recLog.speed}x` : "(no log)"}`);
 }

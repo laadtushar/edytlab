@@ -1,4 +1,25 @@
 {
+  "live": true,
+  "model": "claude-sonnet-5-5",
+  "effort": "low",
+  "request": "Fade the backing in over the first 4 seconds and bring the vocal down 3 dB",
+  "badges": [
+    {
+      "status": "ok",
+      "text": "✓Fade"
+    },
+    {
+      "status": "ok",
+      "text": "✓Gain"
+    }
+  ],
+  "reply": "I made both changes:\n\nBacking (track 0): it now fades in over the first 4 seconds.\nVocal (track 1): its gain is now -3 dB.\n\nI haven't rendered or exported anything yet. Tell me if you want that as the next step.",
+  "turnSeconds": 18.857,
+  "gains": [
+    0,
+    -3
+  ],
+  "readout": "0.0 DB",
   "file": "s1-describe-it-happens.mp4",
   "seconds": 37.2,
   "frames": 558,
@@ -48,27 +69,6 @@
     "drop": 16,
     "speed": 1.01
   },
-  "live": true,
-  "model": "claude-sonnet-5-5",
-  "effort": "low",
-  "request": "Fade the backing in over the first 4 seconds and bring the vocal down 3 dB",
-  "badges": [
-    {
-      "status": "ok",
-      "text": "✓Fade"
-    },
-    {
-      "status": "ok",
-      "text": "✓Gain"
-    }
-  ],
-  "reply": "I made both changes:\n\nBacking (track 0): it now fades in over the first 4 seconds.\nVocal (track 1): its gain is now -3 dB.\n\nI haven't rendered or exported anything yet. Tell me if you want that as the next step.",
-  "turnSeconds": 18.857,
-  "gains": [
-    0,
-    -3
-  ],
-  "readout": "0.0 DB",
   "toolCalls": {
     "story": "9-promo-s1-describe-it-happens",
     "source": "claude-proxy",

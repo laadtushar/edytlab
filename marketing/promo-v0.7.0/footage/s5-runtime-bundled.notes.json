@@ -1,4 +1,10 @@
 {
+  "live": true,
+  "model": "claude-sonnet-5-5",
+  "effort": "low",
+  "text": "ONNX Runtime: 1.23.2 (bundled)",
+  "detail": "/tmp/edytlab-v0.7.0/usr/lib/edytlab/libonnxruntime.so",
+  "scrolledPx": 0,
   "file": "s5-runtime-bundled.mp4",
   "seconds": 12.27,
   "frames": 184,
@@ -31,11 +37,5 @@
     "drop": 17,
     "speed": 1.04
   },
-  "live": true,
-  "model": "claude-sonnet-5-5",
-  "effort": "low",
-  "text": "ONNX Runtime: 1.23.2 (bundled)",
-  "detail": "/tmp/edytlab-v0.7.0/usr/lib/edytlab/libonnxruntime.so",
-  "scrolledPx": 0,
   "toolCalls": null
 }
