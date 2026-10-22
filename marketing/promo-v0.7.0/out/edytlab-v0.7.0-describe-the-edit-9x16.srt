@@ -1,0 +1,72 @@
+1
+00:00:00,000 --> 00:00:01,900
+Describe
+the edit.
+v0.7.0 · real app · scripted assistant
+
+2
+00:00:01,900 --> 00:00:04,900
+Say it in
+plain English
+Typed into the chat box
+v0.7.0 · real app · scripted assistant
+
+3
+00:00:04,900 --> 00:00:05,600
+v0.7.0 · real app · scripted assistant
+
+4
+00:00:05,600 --> 00:00:07,400
+The assistant
+calls the tools
+fade, then set_track_gain
+v0.7.0 · real app · scripted assistant
+
+5
+00:00:07,400 --> 00:00:08,650
+The assistant
+calls the tools
+fade, then set_track_gain
+fade
+v0.7.0 · real app · scripted assistant
+
+6
+00:00:08,650 --> 00:00:09,900
+The assistant
+calls the tools
+fade, then set_track_gain
+fade
+set_track_gain
+v0.7.0 · real app · scripted assistant
+
+7
+00:00:09,900 --> 00:00:11,500
+The timeline
+changes
+fades in over 4 s
+-3.0 dB
+v0.7.0 · real app · scripted assistant
+
+8
+00:00:11,500 --> 00:00:12,700
+Then hear it
+A synthetic demo track
+demo audio, made in code
+hear the result
+v0.7.0 · real app · scripted assistant
+
+9
+00:00:12,700 --> 00:00:17,200
+Then hear it
+A synthetic demo track
+demo audio, made in code
+v0.7.0 · real app · scripted assistant
+
+10
+00:00:17,600 --> 00:00:21,000
+edytlab
+v0.7.0
+edytlab.com
+Free and open source (MIT)
+macOS · Windows · Linux
+Unsigned installers
