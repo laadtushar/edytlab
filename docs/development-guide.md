@@ -91,40 +91,6 @@ this build, and there is no configuration that makes them work:
   library, `transcribe` and `separate_stems` return a tool error that
   says so (and that the feature is not implemented anyway). They used to
   hang the agent. Installing the library does not make either tool work.
-- The Whisper inference itself is written, in `crates/ml-whisper`
-  (`WhisperModel::load(folder)` and `ml_whisper::transcribe`, #384), and is
-  tested against the real model by an opt-in workflow. **The app does not
-  call it:** the `transcribe` tool still calls the stub `WhisperModel::transcribe`,
-  so for anyone using the app nothing in this section changes. Wiring the
-  tool to it is the next change on #384.
-
-#### Running the model tests locally
-
-These are the tests CI cannot run, because they need the real speech model
-and the real ONNX Runtime. They are `#[ignore]`d, so a plain `cargo test`
-lists them as ignored, and asking for them with `--ignored` makes them
-**fail** (not skip) if what they need is missing:
-
-```bash
-# ONNX Runtime 1.23.2, checked against apps/desktop/src-tauri/ml-runtime.json
-export ORT_DYLIB_PATH="$(scripts/fetch-ml-runtime.sh linux-x64 /tmp/ml/ort)"
-# the three whisper-base files (about 139 MB), checked against
-# crates/ml-pipeline/models.json; run again, it downloads nothing
-export WHISPER_MODEL_DIR="$(scripts/fetch-ml-model.sh whisper-base /tmp/ml/whisper-base)"
-
-# the words, their start times and the realtime factor (--release is much faster)
-cargo test -p ml-whisper --release --test transcribe_known_words -- --ignored --nocapture --test-threads=1
-# the downloader against huggingface.co (writes to a temporary folder of its own)
-cargo test -p ml-pipeline --test model_real_download -- --ignored --nocapture
-```
-
-`scripts/fetch-ml-model.sh` is for this and for CI. The app never runs it,
-and nothing it ships downloads a model except the user's click on Download.
-The test audio, `crates/ml-whisper/tests/fixtures/speech_words.wav`, is
-`espeak-ng` output (`make_speech.py` regenerates it, with the exact word
-times in `speech_words.json`); see the header of
-`tests/transcribe_known_words.rs` for what it does and does not show. To run
-the same tests on GitHub, dispatch the **ML** workflow (below).
 
 <!-- historical:begin -->
 Earlier revisions of this guide described a `~/.edytlab/models` cache, an
@@ -645,26 +611,6 @@ The other manifests mirror it, and `apps/desktop/src/__tests__/appVersion.test.t
 `cargo audit` scans `Cargo.lock` against the RustSec advisory database: weekly (Monday 06:23 UTC), on `workflow_dispatch`, and on PRs that change `Cargo.lock` or a `Cargo.toml`. A vulnerability fails it; an unmaintained, unsound or yanked crate only warns. There is no `ignore` list: clear a red run by bumping the crate (`cargo update -p <crate> --precise <version>`). The `cargo-audit` version is pinned in the workflow's `CARGO_AUDIT_VERSION`.
 
 It is a workflow of its own, not a `ci.yml` job, and it does not run on push: `auto-release.yml` waits only on the run named "CI", so an advisory published on a quiet day can never turn that run red and skip a dev release. Do not make it a required check, since a PR its path filter skips would wait on it forever.
-
-### Workflow: `ml.yml` (ML)
-
-The tests that need the real speech model and the real ONNX Runtime
-(`ml-whisper`'s `transcribe_known_words`, `ml-pipeline`'s `model_real_download`),
-run on Linux with `--ignored` against the pins in
-`apps/desktop/src-tauri/ml-runtime.json` and `crates/ml-pipeline/models.json`.
-Each is cached under a key made from its manifest, and the fetch scripts
-re-check every restored file's size and SHA-256 on a cache hit, so a corrupt
-cache fails the fetch step and not the test. No secrets are needed.
-
-**Trigger:** `workflow_dispatch` (Actions, ML, Run workflow) and a weekly
-schedule (Tuesday 05:41 UTC). Never on push or on a pull request, so it
-cannot be dispatched from a branch before it is merged; to try the same steps
-on a branch, run the commands in [Running the model tests locally](#running-the-model-tests-locally).
-It is a workflow of its own, not a `ci.yml` job, for the reason `audit.yml` is:
-`auto-release.yml` waits on the run named "CI", and a failure here (a pin that
-upstream removed) must not skip a release. Do not make it a required check.
-`crates/ml-pipeline/tests/ml_workflow.rs` keeps it opt-in, pins its actions to
-release tags and checks that the tests it names exist and are ignored.
 
 ### Workflow: `auto-release.yml`
 
