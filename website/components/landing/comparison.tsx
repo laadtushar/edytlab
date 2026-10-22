@@ -6,7 +6,7 @@ import { Check } from "lucide-react";
 import { AgentLoop } from "@/components/landing/agent-loop";
 import { Reveal, Stagger } from "@/components/motion";
 import { SectionHeading } from "@/components/motion/section-heading";
-import { gsap, useGSAP, motionOk, NO_PREFERENCE, DRAWABLE, undash } from "@/lib/gsap";
+import { gsap, useGSAPWhenNear, motionOk, NO_PREFERENCE, DRAWABLE, undash } from "@/lib/gsap";
 
 type CellValue = "yes" | string;
 
@@ -99,7 +99,7 @@ function Cell({ value }: { value: CellValue }) {
 export function Comparison() {
   const table = useRef<HTMLDivElement>(null);
 
-  useGSAP(
+  useGSAPWhenNear(
     () => {
       const mm = motionOk();
       mm.add(NO_PREFERENCE, () => {

@@ -4,7 +4,7 @@ import { useRef } from "react";
 
 import {
   gsap,
-  useGSAP,
+  useGSAPWhenNear,
   motionOk,
   NO_PREFERENCE,
   REVEAL_START,
@@ -44,7 +44,7 @@ const ACCENT = "M2 6 C 10 0, 18 0, 26 6 S 42 12, 50 6 S 66 0, 74 6 S 90 12, 98 6
 export function SectionHeading({ eyebrow, title, lead, className }: SectionHeadingProps) {
   const ref = useRef<HTMLDivElement>(null);
 
-  useGSAP(
+  useGSAPWhenNear(
     () => {
       const mm = motionOk();
       mm.add(NO_PREFERENCE, () => {
