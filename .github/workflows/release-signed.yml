@@ -315,8 +315,16 @@ jobs:
         # than waiting for a slow mirror to expose it.
         timeout-minutes: 18
         run: |
+          # The runner reads its mirrors from /etc/apt/apt-mirrors.txt (sources say
+          # `mirror+file:/etc/apt/apt-mirrors.txt`), and newer images keep the
+          # sources in deb822 `*.sources` files, so the rewrite covers all three:
+          # rewriting only `*.list` left apt on the Azure mirror, and four runs
+          # timed out on it on 2026-10-22 (#660, #661, #669).
           sudo sed -i 's|https\?://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' \
-            /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null || true
+            /etc/apt/apt-mirrors.txt /etc/apt/sources.list \
+            /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          grep -h -r azure /etc/apt/apt-mirrors.txt /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null \
+            && echo "::warning::apt still names an Azure mirror" || true
 
           install_deps() {
             sudo timeout 150 apt-get \
