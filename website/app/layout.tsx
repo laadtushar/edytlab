@@ -17,7 +17,7 @@ const inter = Inter({
 export const metadata: Metadata = {
   metadataBase: new URL(siteConfig.url),
   title: {
-    default: siteConfig.title,
+    default: siteConfig.homeTitle,
     template: "%s · edytlab",
   },
   description: siteConfig.description,

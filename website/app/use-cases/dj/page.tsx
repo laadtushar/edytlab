@@ -1,16 +1,27 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { JsonLd } from "@/components/json-ld";
 import { DemoCard } from "@/components/landing/real-demos";
 import { PageLinks, PageShell, Prose } from "@/components/landing/page-shell";
 import { demos } from "@/lib/demos";
-import { DEFAULT_OG_IMAGE, pageAlternates } from "@/lib/seo";
+import {
+  DEFAULT_OG_IMAGE,
+  articleJsonLd,
+  breadcrumbJsonLd,
+  pageAlternates,
+  pageBreadcrumbs,
+} from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 
 const title = "AI audio editor for DJs: beatmatch, blend and master";
 const description =
   "Prep blends by describing them. edytlab's AI agent beatmatches two tracks, crossfades, masters to a loudness target and exports a file. Free and open source.";
+const path = "/use-cases/dj";
 const url = `${siteConfig.url}/use-cases/dj`;
+// The day the page was first committed (`git log --diff-filter=A`). The
+// date it last changed is `PAGE_UPDATED[path]` in `lib/seo-core.ts`.
+const published = "2026-10-09";
 
 export const metadata: Metadata = {
   title,
@@ -39,6 +50,8 @@ export default function DjUseCasePage() {
       title="AI audio editor for DJs"
       lead="Describe a blend, a longer intro or a loudness target in plain English. An AI agent runs real audio tools on your files, on your computer, and you can A/B every take before you keep one."
     >
+      <JsonLd data={breadcrumbJsonLd(pageBreadcrumbs("AI audio editor for DJs", path))} />
+      <JsonLd data={articleJsonLd({ path, headline: title, description, datePublished: published })} />
       <section aria-labelledby="dj-demo" className="mt-12">
         <h2 id="dj-demo" className="text-2xl font-semibold">
           A real beatmatch, recorded

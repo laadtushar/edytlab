@@ -294,9 +294,10 @@ export function ScrollStory({ release }: { release: ReleaseAssets }) {
           <Badge
             data-s1-badge
             variant="outline"
-            className="mb-6 border-primary/30 bg-primary/10 text-primary"
+            className="mb-6 max-w-full border-primary/30 bg-primary/10 text-center text-primary"
           >
-            Local-first AI audio editor{release.isFallback ? "" : ` · ${release.version}`}
+            Free, open-source, local-first AI audio editor
+            {release.isFallback ? null : <span className="hidden sm:inline">{` · ${release.version}`}</span>}
           </Badge>
           <h1
             data-s1-title

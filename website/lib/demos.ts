@@ -27,6 +27,26 @@ export interface Demo {
   caption: string;
   /** Running time shown on the card, such as "1:42". Omit until known. */
   duration?: string;
+  /**
+   * One sentence for the video's structured data (`videoObjectJsonLd`),
+   * which a search result may show. Shorter than the caption and held to
+   * the same rule: it says what the recording shows and nothing more.
+   */
+  description: string;
+  /**
+   * The running time in whole seconds, as the file itself states it
+   * (`ffprobe -show_entries format=duration`, rounded). `demos.test.ts`
+   * reads the length out of the `.mp4` and fails when this disagrees, so
+   * a re-recording cannot leave a stale figure in the structured data.
+   */
+  seconds: number;
+  /**
+   * The day the file was first committed to the repository, as
+   * `YYYY-MM-DD` (`git log --diff-filter=A --format=%cs -- <the .mp4>`).
+   * The three recordings were re-filmed under the same names on
+   * 2026-10-13; the day each name first went up is the upload date.
+   */
+  uploadDate: string;
 }
 
 export const demos: readonly Demo[] = [
@@ -36,6 +56,10 @@ export const demos: readonly Demo[] = [
     caption:
       "A DJ asks what they are working with: both tracks are in F major, and Neon Rush is about 6.7% faster. Neon Rush is time-stretched to Midnight Drive's 120 BPM, keeping its pitch, and started at 16 s, under Midnight Drive's last 8 bars; Claude points out that its bars then run a beat behind and offers to start it at 15.5 s instead. Midnight Drive fades out under a 1 kHz low-pass while Neon Rush fades in. For the master, Claude mixes the two to a new track, compresses it, limits at −1 dB and raises it to about −14 LUFS, then exports a 50-second WAV at −13.9 LUFS, peaking at −1 dBFS. Waits for Claude are sped up; every playback is in real time, with sound.",
     duration: "2:45",
+    description:
+      "A screen recording of the edytlab desktop app: a DJ has Claude match one track's tempo to another's, blend the two with a crossfade and a low-pass, master the mix and export a WAV.",
+    seconds: 165,
+    uploadDate: "2026-10-09",
   },
   {
     slug: "dj-extended-club-intro",
@@ -43,6 +67,10 @@ export const demos: readonly Demo[] = [
     caption:
       "A DJ asks for Solar Flare's tempo and bar length without changing anything: 124 BPM, a 1.935-second bar, the first downbeat at 0.476 s. The drums-only first 8 bars are copied from that downbeat and pasted after themselves, so the intro runs 16 bars and the track grows from 32 to 47.5 seconds. A 200 Hz high-pass holds the low end back until the drop at 31.45 s, and Claude suggests 120–150 Hz if the intro sounds too thin. The first 4 bars fade in and the track is exported as a WAV; Claude flags that it peaks at −0.0003 dBFS, right at full scale. You hear the new intro, then the drop at 0:31. Waits for Claude are sped up; every playback is in real time, with sound.",
     duration: "1:55",
+    description:
+      "A screen recording of the edytlab desktop app: a DJ asks Claude for a track's tempo and bar length, then has its first 8 bars copied to make a 16-bar intro, and exports a WAV.",
+    seconds: 115,
+    uploadDate: "2026-10-09",
   },
   {
     slug: "dj-mini-mix",
@@ -50,6 +78,10 @@ export const demos: readonly Demo[] = [
     caption:
       "A DJ builds a warm-up mix at 124 BPM. Midnight Drive and Neon Rush are time-stretched to 124, keeping their pitch, and Claude checks that their beats now line up with Solar Flare's. Each track comes in about 4 bars before the one before it ends, with a straight-line crossfade over each overlap; Claude brings Neon Rush in on Solar Flare's bar line rather than at the exact 4-bar mark, which makes that overlap 8.77 s. Each track is brought to about −14 LUFS, with a limiter at −1 dB on the master, and Claude notes that the fades were counted in the measurement. You hear both transitions, then the mix is exported as a 79-second WAV. Waits for Claude are sped up; every playback is in real time, with sound.",
     duration: "1:58",
+    description:
+      "A screen recording of the edytlab desktop app: a DJ has Claude bring three tracks to 124 BPM, join them with overlapping crossfades, match their loudness and export the mix as a WAV.",
+    seconds: 118,
+    uploadDate: "2026-10-09",
   },
 ];
 

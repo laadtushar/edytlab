@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import { JsonLd } from "@/components/json-ld";
 import { Comparison } from "@/components/landing/comparison";
 import { CTA } from "@/components/landing/cta";
 import { FAQ } from "@/components/landing/faq";
@@ -15,7 +16,7 @@ import { StatsStrip } from "@/components/landing/stats-strip";
 import { ToolCatalogue } from "@/components/landing/tool-catalogue";
 import { UiShowcase } from "@/components/landing/ui-showcase";
 import { getLatestRelease } from "@/lib/releases";
-import { pageAlternates, serializeJsonLd, softwareJsonLd } from "@/lib/seo";
+import { organizationJsonLd, pageAlternates, softwareJsonLd, websiteJsonLd } from "@/lib/seo";
 
 export const metadata: Metadata = { alternates: pageAlternates("/") };
 
@@ -27,10 +28,9 @@ export default async function Home() {
   const jsonLd = softwareJsonLd(release.isFallback ? undefined : release.version);
   return (
     <>
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: serializeJsonLd(jsonLd) }}
-      />
+      <JsonLd data={organizationJsonLd()} />
+      <JsonLd data={websiteJsonLd()} />
+      <JsonLd data={jsonLd} />
       <SiteHeader />
       <main className="relative">
         {/* One section per idea, in the order a reader asks:

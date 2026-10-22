@@ -11,8 +11,12 @@
  * `preload="none"` the page fetches only the posters until then.
  */
 
+import Link from "next/link";
+
+import { JsonLd } from "@/components/json-ld";
 import { Reveal, Stagger } from "@/components/motion";
 import { DEMO_FRAME, type Demo, demoPosterSrc, demoVideoSrc, demos } from "@/lib/demos";
+import { videoObjectJsonLd } from "@/lib/seo";
 
 export function DemoCard({ demo, index }: { demo: Demo; index: number }) {
   const titleId = `demo-${demo.slug}-title`;
@@ -21,6 +25,10 @@ export function DemoCard({ demo, index }: { demo: Demo; index: number }) {
 
   return (
     <figure className="overflow-hidden rounded-xl border border-border/60 bg-card lg:grid lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
+      {/* The video's structured data sits beside the player, on every
+          page that plays it, as Google asks. A script takes no part in
+          the grid. */}
+      <JsonLd data={videoObjectJsonLd(demo)} />
       <div className="bg-black">
         <video
           controls
@@ -79,7 +87,15 @@ export function RealDemos() {
           </h2>
           <p className="mt-4 text-pretty text-lg text-muted-foreground">
             Screen recordings of the desktop app with Claude as the agent. Each
-            one is a single DJ job that ends in an exported file.
+            one is a single DJ job that ends in an exported file. What it does
+            and does not do for a DJ is on the{" "}
+            <Link
+              href="/use-cases/dj"
+              className="text-primary underline underline-offset-4"
+            >
+              AI audio editor for DJs
+            </Link>{" "}
+            page.
           </p>
         </Reveal>
         <Stagger className="mx-auto grid max-w-6xl gap-6" each={0.1} distance={28}>

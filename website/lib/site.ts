@@ -1,6 +1,13 @@
 export const siteConfig = {
   name: "edytlab",
+  // The tagline: the home page's visible headline, and the title of its
+  // social cards.
   title: "edytlab — Describe it. Get pro-grade audio edits.",
+  // The home page's `<title>`: the name, then what it is, in the words
+  // people search with. The layout's title template is for the other
+  // pages and does not apply to a root `default`, so this reaches the
+  // browser as written (`seo.test.ts` pins that).
+  homeTitle: "edytlab: free, open-source AI audio editor",
   description:
     "Free, open-source desktop audio editor: chat with an AI to load, cut, mix and render. Pure-Rust DSP on your machine, local-first, bring your own LLM key.",
   // The canonical origin: the host that serves the pages. The apex

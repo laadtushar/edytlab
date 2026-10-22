@@ -15,18 +15,31 @@ import robots from "../app/robots";
 import sitemap from "../app/sitemap";
 import { buildFeed, escapeXml, rfc822 } from "./feed";
 import { posts, postsNewestFirst, type BlogPost } from "./blog";
+import { demoPosterSrc, demoVideoSrc, demos } from "./demos";
 import {
   DEFAULT_OG_IMAGE,
+  ORGANIZATION_ID,
+  PAGE_UPDATED,
+  SITE_UPDATED,
+  SOFTWARE_ID,
+  WEBSITE_ID,
   absoluteUrl,
+  articleJsonLd,
   blogPostingJsonLd,
   breadcrumbJsonLd,
+  isoDuration,
+  organizationJsonLd,
   pageAlternates,
+  pageBreadcrumbs,
   pageSocial,
+  pageUpdated,
   postBreadcrumbs,
   postImagePath,
   postPath,
   serializeJsonLd,
   softwareJsonLd,
+  videoObjectJsonLd,
+  websiteJsonLd,
 } from "./seo";
 import { siteConfig } from "./site";
 
@@ -379,5 +392,324 @@ describe("one h1 per page", () => {
 
   it("has the h1s where they are expected and nowhere else", () => {
     expect(found).toEqual(expected);
+  });
+});
+
+
+/** What the browser reads back out of a block, as `serializeJsonLd` wrote it. */
+const parsed = (data: unknown) => JSON.parse(serializeJsonLd(data));
+
+/** Every key, and every `@type`, anywhere in a parsed JSON-LD value. */
+function walk(value: unknown, keys: string[] = [], types: string[] = []): { keys: string[]; types: string[] } {
+  if (Array.isArray(value)) value.forEach((v) => walk(v, keys, types));
+  else if (value && typeof value === "object") {
+    for (const [k, v] of Object.entries(value)) {
+      keys.push(k);
+      if (k === "@type") types.push(...[v].flat().map(String));
+      walk(v, keys, types);
+    }
+  }
+  return { keys, types };
+}
+
+/** Markup that claims what the site cannot back: ratings, reviews, counts of users. */
+const SOCIAL_PROOF_KEYS = [
+  "aggregateRating",
+  "review",
+  "reviews",
+  "reviewRating",
+  "ratingValue",
+  "ratingCount",
+  "reviewCount",
+  "bestRating",
+  "interactionStatistic",
+  "userInteractionCount",
+];
+const SOCIAL_PROOF_TYPES = ["Review", "AggregateRating", "Rating", "Product", "InteractionCounter"];
+
+function expectNoSocialProof(data: unknown, label: string) {
+  const { keys, types } = walk(parsed(data));
+  for (const k of SOCIAL_PROOF_KEYS) expect(keys, `${label} has a "${k}"`).not.toContain(k);
+  for (const t of SOCIAL_PROOF_TYPES) expect(types, `${label} has a ${t}`).not.toContain(t);
+}
+
+/** The pixel size of a PNG, read from its header. */
+function pngSize(path: string): { width: number; height: number } {
+  const head = readFileSync(path);
+  expect(head.subarray(1, 4).toString("latin1"), `${path} is not a PNG`).toBe("PNG");
+  return { width: head.readUInt32BE(16), height: head.readUInt32BE(20) };
+}
+
+describe("sitemap dates", () => {
+  const entries = sitemap();
+  const dateOf = (route: string) =>
+    (entries.find((e) => e.url === absoluteUrl(route))?.lastModified as Date).toISOString().slice(0, 10);
+  const routes = staticRoutes();
+
+  it("gives every page, but the blog index, a date of its own", () => {
+    // One date on every page cannot be verified for any of them, and
+    // Google uses <lastmod> only when it is. A new page has to be dated.
+    for (const route of routes.filter((r) => r !== "/blog")) {
+      expect(PAGE_UPDATED[route], `${route} has no date in PAGE_UPDATED (lib/seo-core.ts)`).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    }
+  });
+
+  it("writes each page's own date into the sitemap", () => {
+    for (const route of routes.filter((r) => r !== "/blog")) expect(dateOf(route)).toBe(PAGE_UPDATED[route]);
+  });
+
+  it("does not give every page the same date", () => {
+    const dates = new Set(routes.filter((r) => r !== "/blog").map(dateOf));
+    expect(dates.size).toBeGreaterThan(1);
+  });
+
+  it("dates the blog index by its newest post", () => {
+    const newest = posts.map((p) => p.dateModified ?? p.date).sort().at(-1);
+    expect(dateOf("/blog")).toBe(newest);
+  });
+
+  it("lists no date for a page that does not exist, or one in the future", () => {
+    expect(Object.keys(PAGE_UPDATED).filter((p) => !routes.includes(p))).toEqual([]);
+    for (const [route, date] of Object.entries(PAGE_UPDATED)) {
+      expect(date <= SITE_UPDATED, `${route}: ${date} is after the site-wide date ${SITE_UPDATED}`).toBe(true);
+    }
+  });
+
+  it("uses the site-wide date only for a path with no date of its own", () => {
+    expect(pageUpdated("/not-a-page")).toBe(SITE_UPDATED);
+    expect(pageUpdated("/privacy")).toBe(PAGE_UPDATED["/privacy"]);
+  });
+});
+
+describe("structured data on the use-case pages", () => {
+  const useCases = [
+    { path: "/use-cases/dj", name: "AI audio editor for DJs" },
+    { path: "/use-cases/local-ai-audio-editor", name: "A local-first AI audio editor" },
+  ];
+
+  it("covers every use-case page there is", () => {
+    expect(staticRoutes().filter((r) => r.startsWith("/use-cases/"))).toEqual(useCases.map((u) => u.path).sort());
+  });
+
+  describe.each(useCases)("$path", ({ path, name }) => {
+    const src = readFileSync(join(ROOT, "app", path.slice(1), "page.tsx"), "utf8");
+    const title = src.match(/const title = "([^"]+)"/)?.[1] ?? "";
+    const description = src.match(/const description =\s*"([^"]+)"/)?.[1] ?? "";
+    const published = src.match(/const published = "(\d{4}-\d{2}-\d{2})"/)?.[1] ?? "";
+
+    it("renders a breadcrumb trail and an article, in the page itself", () => {
+      expect(src).toContain("<JsonLd");
+      expect(src).toContain("breadcrumbJsonLd(pageBreadcrumbs(");
+      expect(src).toContain("articleJsonLd({ path");
+      expect(title.length).toBeGreaterThan(0);
+      expect(description.length).toBeGreaterThan(0);
+      expect(published, "the page names no `published` date").toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    });
+
+    it("has a BreadcrumbList from the home page to itself", () => {
+      const ld = parsed(breadcrumbJsonLd(pageBreadcrumbs(name, path)));
+      expect(ld["@type"]).toBe("BreadcrumbList");
+      expect(ld.itemListElement.length).toBeGreaterThanOrEqual(2);
+      expect(ld.itemListElement.map((i: { position: number }) => i.position)).toEqual([1, 2]);
+      expect(ld.itemListElement.map((i: { item: string }) => i.item)).toEqual([siteConfig.url, absoluteUrl(path)]);
+      expect(ld.itemListElement[0].name).toBe("Home");
+      expect(ld.itemListElement[1].name).toBe(name);
+    });
+
+    it("has an Article by the founder, dated like the sitemap", () => {
+      const ld = parsed(articleJsonLd({ path, headline: title, description, datePublished: published }));
+      expect(ld["@context"]).toBe("https://schema.org");
+      expect(ld["@type"]).toBe("Article");
+      expect(ld.headline).toBe(title);
+      expect(ld.headline.length).toBeLessThanOrEqual(110); // schema.org's limit for a headline
+      expect(ld.description).toBe(description);
+      expect(ld.author).toEqual({ "@type": "Person", name: "Tushar Laad", url: "https://www.tusharlaad.com" });
+      expect(ld.publisher).toMatchObject({ "@type": "Organization", "@id": ORGANIZATION_ID, name: "edytlab" });
+      expect(ld.publisher.logo.url).toBe(absoluteUrl("/logo.png"));
+      expect(ld.datePublished).toBe(published);
+      expect(ld.dateModified).toBe(PAGE_UPDATED[path]);
+      expect(ld.dateModified >= ld.datePublished).toBe(true);
+      expect(ld.image).toEqual([absoluteUrl(DEFAULT_OG_IMAGE.url)]);
+      expect(ld.url).toBe(absoluteUrl(path));
+      expect(ld.mainEntityOfPage).toEqual({ "@type": "WebPage", "@id": absoluteUrl(path) });
+    });
+
+    it("claims no rating or review", () => {
+      expectNoSocialProof(articleJsonLd({ path, headline: title, description, datePublished: published }), "Article");
+      expectNoSocialProof(breadcrumbJsonLd(pageBreadcrumbs(name, path)), "BreadcrumbList");
+    });
+  });
+});
+
+describe("structured data for the demo videos", () => {
+  it.each(demos.map((d) => [d.slug, d] as const))("%s has a complete VideoObject", (_slug, demo) => {
+    const ld = parsed(videoObjectJsonLd(demo));
+    expect(ld["@context"]).toBe("https://schema.org");
+    expect(ld["@type"]).toBe("VideoObject");
+    expect(ld.name).toBe(demo.title);
+    expect(ld.description).toBe(demo.description);
+    expect(ld.description.length).toBeGreaterThan(40);
+    // The poster the player shows, and the file it plays, both absolute.
+    expect(ld.thumbnailUrl).toEqual([absoluteUrl(demoPosterSrc(demo.slug))]);
+    expect(ld.thumbnailUrl[0]).toMatch(/^https:\/\/www\.edytlab\.com\/demos\/[a-z0-9-]+\.jpg$/);
+    expect(ld.contentUrl).toBe(absoluteUrl(demoVideoSrc(demo.slug)));
+    expect(ld.contentUrl).toMatch(/^https:\/\/www\.edytlab\.com\/demos\/[a-z0-9-]+\.mp4$/);
+    expect(ld.uploadDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(ld.uploadDate).toBe(demo.uploadDate);
+    expect(ld.duration).toMatch(/^PT(?:\d+H)?(?:\d+M)?\d+S$/);
+    expect(ld.duration).toBe(isoDuration(demo.seconds));
+    expectNoSocialProof(videoObjectJsonLd(demo), "VideoObject");
+  });
+
+  it("writes a length as an ISO 8601 duration", () => {
+    expect(isoDuration(165)).toBe("PT2M45S");
+    expect(isoDuration(115)).toBe("PT1M55S");
+    expect(isoDuration(45)).toBe("PT45S");
+    expect(isoDuration(3725)).toBe("PT1H2M5S");
+  });
+
+  it("is rendered beside the player, which both the home page and the DJ page use", () => {
+    const card = readFileSync(join(ROOT, "components/landing/real-demos.tsx"), "utf8");
+    expect(card).toContain("<JsonLd data={videoObjectJsonLd(demo)} />");
+    expect(card).toContain("export function DemoCard");
+    expect(readFileSync(join(ROOT, "app/page.tsx"), "utf8")).toContain("<RealDemos />");
+    expect(readFileSync(join(ROOT, "app/use-cases/dj/page.tsx"), "utf8")).toContain("<DemoCard");
+  });
+});
+
+describe("structured data for the organization and the site", () => {
+  const org = parsed(organizationJsonLd());
+  const site = parsed(websiteJsonLd());
+  const software = parsed(softwareJsonLd("v0.7.0"));
+
+  it("describes the organization, with a mark big enough to use", () => {
+    expect(org["@context"]).toBe("https://schema.org");
+    expect(org["@type"]).toBe("Organization");
+    expect(org.name).toBe("edytlab");
+    expect(org.url).toBe(siteConfig.url);
+    expect(org.sameAs).toContain(siteConfig.github);
+    expect(org.logo.url).toBe(absoluteUrl("/logo.png"));
+    // Google asks for at least 112 by 112 pixels.
+    const { width, height } = pngSize(join(ROOT, "public/logo.png"));
+    expect(width).toBeGreaterThanOrEqual(112);
+    expect(height).toBeGreaterThanOrEqual(112);
+  });
+
+  it("names the site, so the site name is the brand", () => {
+    expect(site["@type"]).toBe("WebSite");
+    expect(site.name).toBe("edytlab");
+    expect(site.url).toBe(siteConfig.url);
+    expect(site.publisher).toEqual({ "@id": ORGANIZATION_ID });
+  });
+
+  it("gives the three things stable ids of their own", () => {
+    expect(org["@id"]).toBe(ORGANIZATION_ID);
+    expect(site["@id"]).toBe(WEBSITE_ID);
+    expect(software["@id"]).toBe(SOFTWARE_ID);
+    expect(new Set([ORGANIZATION_ID, WEBSITE_ID, SOFTWARE_ID]).size).toBe(3);
+    for (const id of [ORGANIZATION_ID, WEBSITE_ID, SOFTWARE_ID]) expect(id.startsWith(`${siteConfig.url}/#`)).toBe(true);
+  });
+
+  it("keeps the app's id the same from one release to the next", () => {
+    expect(parsed(softwareJsonLd("v0.8.0"))["@id"]).toBe(parsed(softwareJsonLd("v0.7.0"))["@id"]);
+    expect(parsed(softwareJsonLd())["@id"]).toBe(SOFTWARE_ID);
+  });
+
+  it("is rendered on the home page", () => {
+    const home = readFileSync(join(ROOT, "app/page.tsx"), "utf8");
+    for (const call of ["organizationJsonLd()", "websiteJsonLd()", "jsonLd"]) {
+      expect(home).toContain(`<JsonLd data={${call}} />`);
+    }
+  });
+
+  it("claims no rating, review or count", () => {
+    expectNoSocialProof(organizationJsonLd(), "Organization");
+    expectNoSocialProof(websiteJsonLd(), "WebSite");
+    expectNoSocialProof(softwareJsonLd("v0.7.0"), "SoftwareApplication");
+  });
+});
+
+describe("no rating or review markup anywhere", () => {
+  // The site has no ratings, reviews or user counts to report, and
+  // markup that claims them is spam in Google's eyes. A builder is
+  // checked where it is tested; this reads the source, so one added
+  // later (a comparison page, say) fails here without anyone adding a test.
+  const files: string[] = [];
+  const collect = (dir: string) => {
+    for (const name of readdirSync(join(ROOT, dir))) {
+      const rel = join(dir, name);
+      if (statSync(join(ROOT, rel)).isDirectory()) collect(rel);
+      else if (/\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name)) files.push(rel);
+    }
+  };
+  ["app", "components", "lib"].forEach(collect);
+
+  it("reads some source", () => {
+    expect(files.length).toBeGreaterThan(20);
+  });
+
+  it("names no rating or review property, and no Review, Rating or Product type", () => {
+    const keys = new RegExp(`\\b(?:${SOCIAL_PROOF_KEYS.filter((k) => k !== "review" && k !== "reviews").join("|")})\\b`);
+    const types = new RegExp(`["']?@type["']?\\s*:\\s*["'](?:${SOCIAL_PROOF_TYPES.join("|")})["']`);
+    const offenders = files.filter((f) => {
+      // Comments may say what is left out; code may not say it.
+      const code = readFileSync(join(ROOT, f), "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/^\s*\/\/.*$/gm, "");
+      return keys.test(code) || types.test(code);
+    });
+    expect(offenders).toEqual([]);
+  });
+});
+
+describe("the home page's title and headline", () => {
+  const layout = readFileSync(join(ROOT, "app/layout.tsx"), "utf8");
+  const home = readFileSync(join(ROOT, "app/page.tsx"), "utf8");
+
+  it("says what the product is, in the words people search with", () => {
+    expect(siteConfig.homeTitle).toBe("edytlab: free, open-source AI audio editor");
+    expect(siteConfig.homeTitle.length).toBeLessThanOrEqual(60);
+  });
+
+  it("is the layout's default, which the template does not wrap", () => {
+    // `title.default` reaches the browser as written; the template is
+    // for the pages that set a title, so the brand is not said twice.
+    expect(layout).toMatch(/title:\s*\{\s*default: siteConfig\.homeTitle,\s*template: "%s · edytlab",?\s*\}/);
+    expect(siteConfig.homeTitle).not.toContain("·");
+    expect(home).not.toMatch(/\btitle\s*:/);
+  });
+
+  it("leaves the tagline as the visible headline and the social card's title", () => {
+    expect(layout).toContain("title: siteConfig.title,");
+    const story = readFileSync(join(ROOT, "components/story/scroll-story.tsx"), "utf8");
+    expect(story).toMatch(/<h1[\s\S]*Describe it\.[\s\S]*Get pro-grade audio edits\./);
+  });
+
+  it("says free and open source in the hero's eyebrow, and keeps local-first", () => {
+    const story = readFileSync(join(ROOT, "components/story/scroll-story.tsx"), "utf8");
+    const badge = story.match(/<Badge[\s\S]*?<\/Badge>/)?.[0] ?? "";
+    expect(badge).toContain("Free, open-source, local-first AI audio editor");
+  });
+});
+
+describe("internal links to the use-case pages", () => {
+  const useCases = staticRoutes().filter((r) => r.startsWith("/use-cases/"));
+  const sections = (dir: string, except: string[]) =>
+    readdirSync(join(ROOT, dir))
+      .filter((f) => f.endsWith(".tsx") && !except.includes(f))
+      .map((f) => readFileSync(join(ROOT, dir, f), "utf8"));
+  const linked = (src: string, route: string) => new RegExp(`["']${route}["']`).test(src);
+
+  it("has use-case pages to link to", () => {
+    expect(useCases.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it.each(useCases)("links %s from the footer, which every page has", (route) => {
+    expect(linked(readFileSync(join(ROOT, "components/landing/footer.tsx"), "utf8"), route)).toBe(true);
+  });
+
+  it.each(useCases)("links %s from the body of the home page, not only its footer", (route) => {
+    const body = sections("components/landing", ["footer.tsx", "site-header.tsx", "page-shell.tsx", "legal-shell.tsx"]);
+    expect(body.some((src) => linked(src, route)), `no home section links ${route}`).toBe(true);
   });
 });

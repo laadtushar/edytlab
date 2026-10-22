@@ -1,14 +1,25 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { JsonLd } from "@/components/json-ld";
 import { PageLinks, PageShell, Prose } from "@/components/landing/page-shell";
-import { DEFAULT_OG_IMAGE, pageAlternates } from "@/lib/seo";
+import {
+  DEFAULT_OG_IMAGE,
+  articleJsonLd,
+  breadcrumbJsonLd,
+  pageAlternates,
+  pageBreadcrumbs,
+} from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 
 const title = "Local-first AI audio editor: audio stays local";
 const description =
   "An AI audio editor that keeps your audio on your machine. DSP runs locally in Rust, only the chat leaves, and with Ollama it needs no cloud and no API key.";
+const path = "/use-cases/local-ai-audio-editor";
 const url = `${siteConfig.url}/use-cases/local-ai-audio-editor`;
+// The day the page was first committed (`git log --diff-filter=A`). The
+// date it last changed is `PAGE_UPDATED[path]` in `lib/seo-core.ts`.
+const published = "2026-10-09";
 
 export const metadata: Metadata = {
   title,
@@ -37,6 +48,8 @@ export default function LocalAiUseCasePage() {
       title="A local-first AI audio editor"
       lead="edytlab does not upload your audio. The editing runs on your computer, the AI only sequences the tools, and with Ollama even the chat can stay at home."
     >
+      <JsonLd data={breadcrumbJsonLd(pageBreadcrumbs("A local-first AI audio editor", path))} />
+      <JsonLd data={articleJsonLd({ path, headline: title, description, datePublished: published })} />
       <Prose>
         <h2>What stays on your machine, and what leaves</h2>
         <table>
