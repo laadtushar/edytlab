@@ -37,8 +37,18 @@ new WAV with an old JSON.
 
 Writes next to itself, or into `outdir`:
 
-    speech_words.wav    16 kHz mono 16-bit PCM, about 7.4 s
+    speech_words.wav    16 kHz mono 16-bit PCM, about 7.3 s
     speech_words.json   [{"text", "start_s", "end_s"}, ...] in order
+
+    speech_words_first_draft.wav / .json
+                        the same construction for the words as first chosen
+                        (see FIRST_DRAFT_WORDS), about 5.5 s
+
+The first pair is the test's gate. The second is not: the gate's list was
+changed after a model had heard the first one (see the comment on WORDS), so
+a pass on the gate says less than it would have if the list had been fixed
+beforehand. The test prints how the model does on the second as well, without
+asserting on it, so that both numbers can be quoted.
 
 `start_s` is the first 5 ms frame of the word whose level is within 26 dB of
 the word's own peak, and `end_s` the end of the last such frame, measured on
@@ -60,11 +70,14 @@ import wave
 RATE = 16_000
 
 # Words that are short, common, and read the same aloud and written down: no
-# numbers (a recogniser may write "1"), no names, no homophones, and no two
-# next to each other that make a compound ("green" and "house" were heard as
-# "greenhouse"). Chosen before any model heard them, then two replaced
-# because the synthesiser's pronunciation is not the word to anyone: "water"
-# came out as "walker" and "friend" as "friends".
+# numbers (a recogniser may write "1"), no names, no homophones.
+#
+# This list was fitted to the model, and the test should be read that way. The
+# first list (FIRST_DRAFT_WORDS) was changed after Whisper base heard it:
+# "green" and "house" side by side were heard as "greenhouse", "water" as
+# "walker" and "friend" as "friends", so those four were swapped for words it
+# hears as written. The gate asserts on this list; the first draft is
+# measured beside it and only printed.
 WORDS = [
     "hello",
     "music",
@@ -78,6 +91,22 @@ WORDS = [
     "paper",
     "orange",
     "coffee",
+]
+
+# The first list, as written down before any model heard it: the words
+# `speech_words_first_draft.*` is made of. Not a gate (see the header); it is
+# there so the cost of replacing "green", "house", "water" and "friend" can be
+# measured, and quoted, instead of left out of the story.
+FIRST_DRAFT_WORDS = [
+    "hello",
+    "green",
+    "water",
+    "house",
+    "music",
+    "friend",
+    "table",
+    "morning",
+    "window",
 ]
 
 # The silence before each word, in seconds: the first is the lead-in, and
@@ -152,10 +181,10 @@ def voiced_span(samples):
     return loud[0] * FRAME, (loud[-1] + 1) * FRAME
 
 
-def build():
+def build(words):
     placed = []  # (word, samples cut to the sound)
     with tempfile.TemporaryDirectory() as directory:
-        for word in WORDS:
+        for word in words:
             rate, samples = synthesise(word, directory)
             samples = resample(samples, rate, RATE)
             first, last = voiced_span(samples)
@@ -190,22 +219,27 @@ def build():
     return pcm, words
 
 
-def main():
-    outdir = sys.argv[1] if len(sys.argv) > 1 else os.path.dirname(os.path.abspath(__file__))
-    pcm, words = build()
-    wav_path = os.path.join(outdir, "speech_words.wav")
+def write(outdir, stem, words):
+    pcm, labels = build(words)
+    wav_path = os.path.join(outdir, stem + ".wav")
     with wave.open(wav_path, "wb") as w:
         w.setnchannels(1)
         w.setsampwidth(2)
         w.setframerate(RATE)
         w.writeframes(struct.pack("<%dh" % len(pcm), *pcm))
-    json_path = os.path.join(outdir, "speech_words.json")
+    json_path = os.path.join(outdir, stem + ".json")
     with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(words, f, indent=2)
+        json.dump(labels, f, indent=2)
         f.write("\n")
     print("%s: %.2f s, %d bytes" % (wav_path, len(pcm) / RATE, os.path.getsize(wav_path)))
-    for w in words:
+    for w in labels:
         print("  %-8s %6.3f - %6.3f" % (w["text"], w["start_s"], w["end_s"]))
+
+
+def main():
+    outdir = sys.argv[1] if len(sys.argv) > 1 else os.path.dirname(os.path.abspath(__file__))
+    write(outdir, "speech_words", WORDS)
+    write(outdir, "speech_words_first_draft", FIRST_DRAFT_WORDS)
 
 
 if __name__ == "__main__":

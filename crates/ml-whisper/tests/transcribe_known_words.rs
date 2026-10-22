@@ -2,13 +2,16 @@
 //!
 //! Everything here is `#[ignore]`d because it needs two things CI does not have:
 //! the pinned `whisper-base` model, about 136 MB, and the ONNX Runtime library.
-//! The opt-in workflow (`.github/workflows/ml.yml`) provides both and runs these
-//! by name with `--ignored`; by hand:
+//! Run by hand, with `WHISPER_MODEL_PATH` naming the model **folder** (the one
+//! that holds `onnx/encoder_model.onnx`, `onnx/decoder_model_merged_int8.onnx`
+//! and `tokenizer.json`, laid out as `crates/ml-pipeline/models.json` pins
+//! them) and `ORT_DYLIB_PATH` the ONNX Runtime library
+//! (`scripts/fetch-ml-runtime.sh <platform> <dir>` prints it):
 //!
 //! ```text
-//! export ORT_DYLIB_PATH="$(scripts/fetch-ml-runtime.sh linux-x64 /tmp/ort)"
-//! export WHISPER_MODEL_DIR="$(scripts/fetch-ml-model.sh whisper-base /tmp/whisper-base)"
-//! cargo test -p ml-whisper --release --test transcribe_known_words -- --ignored --nocapture
+//! export ORT_DYLIB_PATH=/path/to/libonnxruntime.so
+//! export WHISPER_MODEL_PATH=/path/to/whisper-base
+//! cargo test -p ml-whisper --release --test transcribe_known_words -- --ignored --nocapture --test-threads=1
 //! ```
 //!
 //! (`--release` is much faster; the debug build works and is slow.)
@@ -45,13 +48,21 @@
 //! previous one ended, so the pause before it belonged to it, and the starts
 //! came out 0.7 to 0.8 s early.
 //!
+//! The gate's word list was fitted to the model: four words were swapped for
+//! others after Whisper base had heard the first list (see `make_speech.py`).
+//! So the first list is run as well, `speech_words_first_draft.wav`, and **not
+//! asserted on**: `transcribe_first_draft_words_measured` prints the same table
+//! (words wrong, start and end error) for it, so that both numbers can be quoted
+//! and a pass on the fitted list is not read as more than it is.
+//!
 //! The end of a word is not asserted. It is printed (`d_end`) and is about
 //! 0.14 s early on this fixture: the aligner puts the boundary between two
 //! words a little before the first has finished, and a word ends where the next
 //! one starts.
 
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::time::{Duration, Instant};
 
 use ml_whisper::{transcribe, WhisperError, WhisperModel, Word};
 
@@ -65,16 +76,40 @@ struct Expected {
     end_s: f32,
 }
 
-/// End the run, rather than stall it, if a test never returns. A model run is
-/// seconds; a hang is a deadlock (a session locked twice did this once), and
-/// `cargo test` would wait for it for ever. Aborts rather than panics, because
-/// the stuck thread is the test.
-fn watchdog() {
-    std::thread::spawn(|| {
-        std::thread::sleep(std::time::Duration::from_secs(900));
+/// How long one test may run before it is taken to be stuck.
+const STUCK_AFTER: Duration = Duration::from_secs(900);
+
+/// Ends the run, rather than letting it stall, if the test that made it is
+/// still going after [`STUCK_AFTER`]. A model run is seconds; a hang is a
+/// deadlock (a session locked twice did this once), and `cargo test` would
+/// wait for it for ever.
+///
+/// It belongs to its test: dropping it, when the test returns or panics,
+/// stands the watch down. Without that, each test left a timer that went off
+/// 15 minutes after it started, whatever had become of the test, and aborted a
+/// later test that was running perfectly well.
+struct Watchdog(#[allow(dead_code)] mpsc::Sender<()>);
+
+/// Watch for `limit`, then call `expired`. The call must not return normally
+/// in production (it aborts); a test passes one that records the call.
+fn watch(limit: Duration, expired: impl FnOnce() + Send + 'static) -> Watchdog {
+    let (done, stood_down) = mpsc::channel::<()>();
+    std::thread::spawn(move || {
+        // `Disconnected` is the guard being dropped.
+        if stood_down.recv_timeout(limit) == Err(RecvTimeoutError::Timeout) {
+            expired();
+        }
+    });
+    Watchdog(done)
+}
+
+/// The watch for one real-model test. Aborts rather than panics, because the
+/// stuck thread is the test.
+fn watchdog() -> Watchdog {
+    watch(STUCK_AFTER, || {
         eprintln!("a transcribe_known_words test ran for 15 minutes: it is stuck, not slow");
         std::process::abort();
-    });
+    })
 }
 
 /// A path named by an environment variable, or a panic that says what to do.
@@ -99,20 +134,22 @@ fn required_path(var: &str, how: &str, wants_dir: bool) -> PathBuf {
     path
 }
 
-/// The model folder and the runtime library, or a panic saying which is missing.
-fn environment() -> PathBuf {
-    watchdog();
+/// The model folder and the runtime library, or a panic saying which is
+/// missing, and the watch over the test that asked.
+fn environment() -> (PathBuf, Watchdog) {
+    let watch = watchdog();
     required_path(
         "ORT_DYLIB_PATH",
         "scripts/fetch-ml-runtime.sh <platform> <dir> prints the library to point it at.",
         false,
     );
-    required_path(
-        "WHISPER_MODEL_DIR",
-        "scripts/fetch-ml-model.sh whisper-base <dir> downloads and verifies the pinned files \
-         and prints the folder.",
+    let dir = required_path(
+        "WHISPER_MODEL_PATH",
+        "It names the folder with onnx/encoder_model.onnx, onnx/decoder_model_merged_int8.onnx \
+         and tokenizer.json, the files crates/ml-pipeline/models.json pins.",
         true,
-    )
+    );
+    (dir, watch)
 }
 
 fn fixture(name: &str) -> PathBuf {
@@ -122,14 +159,26 @@ fn fixture(name: &str) -> PathBuf {
         .join(name)
 }
 
+/// The labels of the gate's fixture.
 fn expected_words() -> Vec<Expected> {
-    let text = std::fs::read_to_string(fixture("speech_words.json")).expect("speech_words.json");
-    serde_json::from_str(&text).expect("speech_words.json is the list written by make_speech.py")
+    labels("speech_words")
 }
 
-/// The fixture's samples (16 kHz mono) as floats.
+/// The labels `make_speech.py` wrote beside `tests/fixtures/<stem>.wav`.
+fn labels(stem: &str) -> Vec<Expected> {
+    let text = std::fs::read_to_string(fixture(&format!("{stem}.json"))).expect("the labels");
+    serde_json::from_str(&text).expect("the list written by make_speech.py")
+}
+
+/// The gate's fixture (16 kHz mono) as floats.
 fn speech() -> Vec<f32> {
-    let mut reader = hound::WavReader::open(fixture("speech_words.wav")).expect("speech_words.wav");
+    samples("speech_words")
+}
+
+/// `tests/fixtures/<stem>.wav` (16 kHz mono) as floats.
+fn samples(stem: &str) -> Vec<f32> {
+    let mut reader =
+        hound::WavReader::open(fixture(&format!("{stem}.wav"))).expect("the fixture's wav");
     let spec = reader.spec();
     assert_eq!(
         (spec.channels, spec.sample_rate, spec.bits_per_sample),
@@ -187,8 +236,19 @@ fn align(expected: &[String], heard: &[String]) -> (usize, Vec<Option<usize>>) {
     (cost[n][m], lined_up)
 }
 
-/// Print the table and assert the two properties.
-fn check(label: &str, words: &[Word], expected: &[Expected]) {
+/// What a run measured against the labels.
+struct Measured {
+    want: Vec<String>,
+    heard: Vec<String>,
+    /// Edit distance between `want` and `heard`: wrong, missing and extra words.
+    distance: usize,
+    /// For each expected word, the heard word it lines up with.
+    lined_up: Vec<Option<usize>>,
+}
+
+/// Print the table of what was heard against what was said, and measure it.
+/// Asserts nothing.
+fn measure(label: &str, words: &[Word], expected: &[Expected]) -> Measured {
     let want: Vec<String> = expected.iter().map(|e| normalise(&e.text)).collect();
     let heard: Vec<String> = words.iter().map(|w| normalise(&w.text)).collect();
     let (distance, lined_up) = align(&want, &heard);
@@ -225,7 +285,22 @@ fn check(label: &str, words: &[Word], expected: &[Expected]) {
         worst_start,
         mean(&ends)
     );
+    Measured {
+        want,
+        heard,
+        distance,
+        lined_up,
+    }
+}
 
+/// Print the table and assert the two properties.
+fn check(label: &str, words: &[Word], expected: &[Expected]) {
+    let Measured {
+        want,
+        heard,
+        distance,
+        lined_up,
+    } = measure(label, words, expected);
     assert!(
         distance <= MAX_WRONG_WORDS,
         "{label}: {distance} words wrong (at most {MAX_WRONG_WORDS}). Expected {want:?}, heard {heard:?}"
@@ -255,9 +330,9 @@ fn check(label: &str, words: &[Word], expected: &[Expected]) {
 }
 
 #[test]
-#[ignore = "needs the whisper-base model and ONNX Runtime; run in ml.yml"]
+#[ignore = "needs the whisper-base model and ONNX Runtime; run by hand with --ignored"]
 fn transcribe_known_words() {
-    let dir = environment();
+    let (dir, _watchdog) = environment();
     let expected = expected_words();
     let audio = speech();
     let seconds = audio.len() as f32 / 16_000.0;
@@ -296,13 +371,42 @@ fn transcribe_known_words() {
 }
 
 #[test]
-#[ignore = "needs the whisper-base model and ONNX Runtime; run in ml.yml"]
+#[ignore = "needs the whisper-base model and ONNX Runtime; run by hand with --ignored"]
+fn transcribe_first_draft_words_measured() {
+    // The words as first chosen, before the list was changed to suit the model
+    // (see the header). Measured, printed and **not asserted on**: it is here
+    // so that the number on the fitted list is never quoted without this one.
+    // All it requires is that the run completes and gives words in order.
+    let (dir, _watchdog) = environment();
+    let expected = labels("speech_words_first_draft");
+    let audio = samples("speech_words_first_draft");
+    let model = WhisperModel::load(&dir).expect("load");
+    let transcript =
+        transcribe(&model, &audio, 16_000, 1, Some("en"), || false).expect("transcribe");
+    let measured = measure(
+        "first draft of the words (not a gate)",
+        &transcript.words,
+        &expected,
+    );
+    println!(
+        "  first draft: {} of {} wrong; heard {:?}",
+        measured.distance,
+        expected.len(),
+        measured.heard
+    );
+    for pair in transcript.words.windows(2) {
+        assert!(pair[0].start_s <= pair[1].start_s, "{pair:?}");
+    }
+}
+
+#[test]
+#[ignore = "needs the whisper-base model and ONNX Runtime; run by hand with --ignored"]
 fn transcribe_known_words_from_44k_stereo() {
     // The path the tool takes for a real file: any rate, any channel count.
     // The fixture is brought to 44.1 kHz stereo by linear interpolation (the
     // right channel quieter), and the crate has to bring it back with the
     // word times intact: a resampler delay would show as a constant offset.
-    let dir = environment();
+    let (dir, _watchdog) = environment();
     let expected = expected_words();
     let audio = speech();
     let model = WhisperModel::load(&dir).expect("load");
@@ -351,9 +455,9 @@ fn with_pauses(audio: &[f32], expected: &[Expected], pause_s: f32) -> (Vec<f32>,
 }
 
 #[test]
-#[ignore = "needs the whisper-base model and ONNX Runtime; run in ml.yml"]
+#[ignore = "needs the whisper-base model and ONNX Runtime; run by hand with --ignored"]
 fn transcribe_known_words_separated_by_pauses() {
-    let dir = environment();
+    let (dir, _watchdog) = environment();
     let (audio, expected) = with_pauses(&speech(), &expected_words(), 0.6);
     println!(
         "{} s of audio, the words {:.2} s to {:.2} s apart",
@@ -425,7 +529,7 @@ fn shuffled(
 }
 
 #[test]
-#[ignore = "needs the whisper-base model and ONNX Runtime; run in ml.yml"]
+#[ignore = "needs the whisper-base model and ONNX Runtime; run by hand with --ignored"]
 fn transcribe_long_audio_in_windows() {
     // 48.6 s is two windows. The words of the second sit at their own times in
     // the whole recording, not in their window: that is the property under
@@ -438,7 +542,7 @@ fn transcribe_long_audio_in_windows() {
     // with 0.80 to 1.00 of what it wrote in the right place. These two seeds
     // are the first two of those runs and both came out whole; the thresholds
     // allow for a model that wrote less.
-    let dir = environment();
+    let (dir, _watchdog) = environment();
     let model = WhisperModel::load(&dir).expect("load");
     for seed in [1u64, 2] {
         let (audio, labels) = shuffled(&speech(), &expected_words(), 7, seed);
@@ -501,7 +605,7 @@ fn noise(amp: f32, seconds: usize) -> Vec<f32> {
 }
 
 #[test]
-#[ignore = "needs the whisper-base model and ONNX Runtime; run in ml.yml"]
+#[ignore = "needs the whisper-base model and ONNX Runtime; run by hand with --ignored"]
 fn silence_and_noise_have_no_words() {
     // What the no-speech rule is for. Measured with the rule's two halves
     // separately: the model's probability of "no speech" for these is 0.73 to
@@ -512,7 +616,7 @@ fn silence_and_noise_have_no_words() {
     // clicks get a few words of nonsense (a ".", "ndm", a Romanian sentence),
     // since the model does not call them silence. That is Whisper's own
     // hallucination on sounds that are not speech.
-    let dir = environment();
+    let (dir, _watchdog) = environment();
     let model = WhisperModel::load(&dir).expect("load");
     let cases = [
         ("digital silence", vec![0.0f32; 5 * 16_000]),
@@ -532,9 +636,9 @@ fn silence_and_noise_have_no_words() {
 }
 
 #[test]
-#[ignore = "needs the whisper-base model and ONNX Runtime; run in ml.yml"]
+#[ignore = "needs the whisper-base model and ONNX Runtime; run by hand with --ignored"]
 fn a_cancel_stops_the_run_and_a_bad_language_is_refused() {
-    let dir = environment();
+    let (dir, _watchdog) = environment();
     let model = WhisperModel::load(&dir).expect("load");
     let audio = speech();
 
@@ -563,11 +667,11 @@ fn a_cancel_stops_the_run_and_a_bad_language_is_refused() {
 
 #[cfg(unix)]
 #[test]
-#[ignore = "needs the whisper-base model and ONNX Runtime; run in ml.yml"]
+#[ignore = "needs the whisper-base model and ONNX Runtime; run by hand with --ignored"]
 fn a_folder_that_is_not_the_pinned_export_is_refused_with_what_differs() {
     // The encoder's file standing in for the decoder: a real ONNX model with
     // the wrong inputs and outputs.
-    let dir = environment();
+    let (dir, _watchdog) = environment();
     let tmp = tempfile::tempdir().expect("tempdir");
     std::fs::create_dir_all(tmp.path().join("onnx")).unwrap();
     let link = |from: &str, to: &str| {
@@ -586,4 +690,43 @@ fn a_folder_that_is_not_the_pinned_export_is_refused_with_what_differs() {
     };
     assert!(why.contains("decoder_model_merged_int8.onnx"), "{why}");
     assert!(why.contains("past_key_values.0.decoder.key"), "{why}");
+}
+
+// ---- the watch over a test, which CI does run --------------------------------
+
+#[test]
+fn a_watchdog_stands_down_with_its_test_and_goes_off_only_if_the_test_does_not_return() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    // A test that returns before the limit: dropping the guard ends the watch,
+    // and nothing happens when the limit passes. (A watch that is never
+    // cancelled aborts the process 15 minutes after the test that started it,
+    // whatever is running by then.)
+    let fired = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&fired);
+    let guard = watch(Duration::from_millis(200), move || {
+        flag.store(true, Ordering::SeqCst)
+    });
+    drop(guard);
+    std::thread::sleep(Duration::from_millis(600));
+    assert!(
+        !fired.load(Ordering::SeqCst),
+        "the watchdog of a test that had returned went off"
+    );
+
+    // One that is kept past its limit goes off.
+    let fired = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&fired);
+    let _guard = watch(Duration::from_millis(50), move || {
+        flag.store(true, Ordering::SeqCst)
+    });
+    let began = Instant::now();
+    while !fired.load(Ordering::SeqCst) && began.elapsed() < Duration::from_secs(10) {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(
+        fired.load(Ordering::SeqCst),
+        "a test still running after its limit was not caught"
+    );
 }
