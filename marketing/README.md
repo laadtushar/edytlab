@@ -25,13 +25,13 @@ full releases list on purpose, so they can also reach dev builds.)
 | [`launch/show-hn.md`](launch/show-hn.md) | Show HN title, body and the author's first comment, plus answers to the questions HN will ask |
 | [`launch/product-hunt.md`](launch/product-hunt.md) | Tagline, description, maker's first comment, 5 gallery captions, topics |
 | [`launch/reddit.md`](launch/reddit.md) | Seven separate posts: r/WeAreTheMusicMakers, r/DJs, r/audioengineering, r/podcasting, r/LocalLLaMA, r/rust, r/tauri |
-| [`social/x-thread.md`](social/x-thread.md) | 8-post thread for v0.6.0 and the DJ demo |
+| [`social/x-thread.md`](social/x-thread.md) | 8-post thread for the v0.7.0 release and the DJ demo |
 | [`social/linkedin.md`](social/linkedin.md) | One LinkedIn post, same angle |
 | [`social-kit/`](social-kit/README.md) | The 2026-10-10 social set: 5 LinkedIn posts, 5 Instagram reel captions, 6 Reddit posts, X, Bluesky, Mastodon, TikTok, Shorts, YouTube, Show HN and newsletter copy, and a two-week calendar |
 | [`social-kit/linkedin/`](social-kit/linkedin/README.md) | The LinkedIn visuals in the website's design: five 1200x1200 images (one per post in `social-kit/linkedin-posts.md`), a seven-page carousel PDF for post 3, the HTML templates, staged screenshots of the real app and the script that renders them |
 | [`reels/`](reels/README.md) | Vertical reels (1080×1920) cut from the three DJ demos, plain (the narrated versions will be regenerated once narration credits are available), with cue files, the narration lines and clips of the earlier takes, and the scripts that build them. Read its licence note before using the narration clips |
-| [`launch-video/`](launch-video/README.md) | The launch video, cut three ways from the re-filmed demo recordings (a development build in the app's violet look, the look v0.6.0 ships) in the website's look: LinkedIn 1:1, Reddit 16:9 and Instagram 9:16, plain (no narrated versions for now: the narration clips and lines were made for the earlier takes and stay as the source for re-narrating), with `.srt` captions, contact sheets, silent picture-only masters, the script, the research and the code that renders them. The end cards name no version. Read its licence note before using the narration clips |
-| [`archive/`](archive/README.md) | Every earlier version of the launch video, the reels and the website demos, with their captions, contact sheets, cue and timing files, sorted by what it is, then by version, then by kind. Kept for reference, nothing is deleted. Read its licence note: the narrated files use ElevenLabs free-plan audio and are not for posting |
+| [`launch-video/`](launch-video/README.md) | The launch video, cut three ways from the re-filmed demo recordings (a development build in the app's violet look, the look the app has had since v0.6.0) in the website's look: LinkedIn 1:1, Reddit 16:9 and Instagram 9:16, plain (no narrated versions for now: the narration clips and lines were made for the earlier takes and stay as the source for re-narrating), with `.srt` captions, contact sheets, silent picture-only masters, the script, the research and the code that renders them. The end cards name no version, and the architecture card says "93 tools" (the count when they were cut; it is 94 now, see its README). Read its licence note before using the narration clips |
+| [`archive/`](archive/README.md) | Every earlier version of the launch video, the reels, the website demos and the LinkedIn renders, with their captions, contact sheets, cue and timing files, sorted by what it is, then by version, then by kind. Kept for reference, nothing is deleted. Read its licence note: the narrated files use ElevenLabs free-plan audio and are not for posting |
 | [`press-kit.md`](press-kit.md) | Boilerplate, fact sheet, asset links |
 | [`awesome-lists.md`](awesome-lists.md) | Lists worth a pull request, exact entry text, and which ones are blocked today |
 
@@ -71,7 +71,7 @@ These are the claims that are easy to get wrong. Each has bitten a draft once.
 - That the editor is for live DJ performance. It edits files. Live decks and
   controllers are on the post-v1 roadmap.
 
-**Safe, and verified against the repo on 2026-10-16 (v0.6.0):**
+**Safe, and verified against the repo and the GitHub release on 2026-10-22 (v0.7.0):**
 
 | Claim | Where it was checked |
 |---|---|
@@ -112,8 +112,10 @@ getting caught.
   Ollama is sent a core set of tools plus the ones a message names, with the
   rest listed by name ([#479](https://github.com/laadtushar/edytlab/pull/479)).
   The test suite puts the one-line request at about 8.7 KB, against about
-  66 KB with every tool on v0.6.0 (`docs/architecture.md`, "Request size and
-  small-context models"). That is
+  67 KB with every tool on v0.7.0 (a chat-completions request, 67,130 B
+  measured on 2026-10-22 with `cargo test -p ai --test request_size --
+  --nocapture`; it was 66 KB on v0.6.0, as `docs/architecture.md`, "Request
+  size and small-context models", says). That is
   bytes, not tokens, and nobody has run a local model through a full job on
   it, so do not say "works with local models".
 - Master bus: v0.6.0 is the first release whose agent puts an effect on the
@@ -126,15 +128,22 @@ getting caught.
   as v0.6.0 does; in the beatmatch the agent still mixes the two tracks to a
   new one to compress them, because a compressor cannot go in an effect chain
   yet ([#520](https://github.com/laadtushar/edytlab/issues/520)).
-- v0.6.0's own known issues: a quick key tap on a mixer slider can be lost
-  while an earlier change is read back
+- v0.6.0's own known issues, as they stood on 2026-10-16: a quick key tap on a
+  mixer slider can be lost while an earlier change is read back
   ([#596](https://github.com/laadtushar/edytlab/issues/596)), and the A/B
   compare still writes its renders to the system's temporary folder
-  ([#575](https://github.com/laadtushar/edytlab/issues/575)). v0.5.0's (Save
+  ([#575](https://github.com/laadtushar/edytlab/issues/575)). Both are fixed
+  since: #575 in v0.6.1 (the renders go in the project's preview cache), and
+  #596 in v0.7.0, where a gain or pan slider, mute or solo stays as you set it
+  until the session confirms it
+  ([#626](https://github.com/laadtushar/edytlab/pull/626)). v0.5.0's (Save
   As leaving the assistant on the original project, and opening a project
   restoring an older head, [#506](https://github.com/laadtushar/edytlab/issues/506)
   and [#507](https://github.com/laadtushar/edytlab/issues/507)) are fixed in
   v0.6.0.
+- Still unchecked on a Mac: the label name box and Delete's native confirm
+  ([#567](https://github.com/laadtushar/edytlab/issues/567), open). Do not
+  promise that adding a label works on macOS until someone has tried it.
 - The limiter is a zero-latency sample-peak limiter (instant attack, smooth
   release; it was a hard clip until
   [#441](https://github.com/laadtushar/edytlab/issues/441)), not a look-ahead
@@ -155,9 +164,9 @@ getting caught.
       still in the repo. `docs/brand/` also holds before and after screenshots
       of the app's colours (#515, 1440x900, taken with the IPC faked, so they
       show fake data); the `before-*` set is the look v0.5.0 and earlier
-      shipped, and the `after-*` set is the violet look v0.6.0 ships.
+      shipped, and the `after-*` set is the violet look the app has had since v0.6.0.
 - [ ] Capture the Product Hunt screenshots listed in
-      [`launch/product-hunt.md`](launch/product-hunt.md) from the v0.6.0 build.
+      [`launch/product-hunt.md`](launch/product-hunt.md) from the v0.7.0 build.
       The only UI screenshots in the repo are the `docs/brand/` pair above and the staged ones in `social-kit/linkedin/shots/` (fake data, retaken by `social-kit/linkedin/render.mjs --shots`).
 - [ ] Decide how you will answer "was this written by AI?". The commit history
       shows `Co-Authored-By: Claude` trailers on many commits, and the repo has a
@@ -179,7 +188,7 @@ comments, and one thread cannot be answered well while three others are open.
 | 5 | **r/podcasting** | Say plainly that there is no transcript editing. |
 | 6 | **r/audioengineering** | Expect scrutiny of the DSP. Post only if the current rules allow it. |
 | 7 to 14 | **Product Hunt** ([`launch/product-hunt.md`](launch/product-hunt.md)) | Needs the screenshots and a launch-day calendar. Schedule it for 00:01 PT. Later is fine; it works better with a few real users to show up. |
-| After the star count passes the bar | **Awesome lists** ([`awesome-lists.md`](awesome-lists.md)) | `awesome-rust` requires more than 50 stars or 2,000 downloads. On 2026-10-10 the repo has 4. |
+| After the star count passes the bar | **Awesome lists** ([`awesome-lists.md`](awesome-lists.md)) | `awesome-rust` requires more than 50 stars or 2,000 downloads. The repo had 4 on 2026-10-10 and 6 on 2026-10-22. |
 
 The days are a suggestion. Do not post the same day to several subreddits, and
 do not paste the same text twice: each post in `reddit.md` is written for its

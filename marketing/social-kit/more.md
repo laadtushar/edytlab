@@ -292,7 +292,7 @@ edytlab, AI audio editor, beatmatching, DJ prep, extended intro, time stretch, o
 
 ---
 
-## 6. Show HN (refreshed for v0.6.0)
+## 6. Show HN (refreshed for v0.7.0)
 
 Submit <https://edytlab.com>. Post the first comment as soon as it is up and
 stay for several hours. Do not ask anyone to upvote.
@@ -330,9 +330,9 @@ What doesn't work, so you don't have to find it:
 - No stem separation and no transcription. Both tools are registered and both return an error today; the installers now carry the ONNX Runtime, but no model is downloaded and the inference isn't built (#383, #384, #385). That also means transcript-based editing doesn't work end to end.
 - The installers are unsigned (#386). macOS needs one xattr command after you drag the app to Applications, and Windows shows a SmartScreen warning. The release notes have the steps.
 - It's an offline editor for files. It isn't a live DJ tool or a DAW: no MIDI, no plugin hosting. Only five effects (gain, the limiter and three filters) can sit live on a track, a bus or the master bus; reverb, EQ or a compressor is baked into the track's audio instead.
-- Local models: in v0.4.0 the first request was about 15,000 tokens in my one measurement (#395), and a model with an 8,192-token context refused it. Since v0.5.0 Ollama gets a smaller tool set (about 8.7 KB of request text for a one-line message, against about 66 KB with every tool; bytes, not tokens). I haven't re-run that model on it, and I haven't run a local model through a full job; the recordings used a hosted model.
+- Local models: in v0.4.0 the first request was about 15,000 tokens in my one measurement (#395), and a model with an 8,192-token context refused it. Since v0.5.0 Ollama gets a smaller tool set (about 8.7 KB of request text for a one-line message, against about 67 KB with every tool; bytes, not tokens). I haven't re-run that model on it, and I haven't run a local model through a full job; the recordings used a hosted model.
 - On Linux, v0.4.0 and earlier kept API keys in the kernel keyring only until you reboot (#394). Since v0.5.0 they go in the Secret Service, with a warning when none is running. I haven't checked it across a real reboot or against a locked keyring yet (#497).
-- If you tried an earlier build: v0.5.0 and older could delete your own recordings when the assistant compacted history (#589). v0.6.0 deletes only audio the project made, inside its own folder.
+- If you tried an earlier build: v0.5.0 and older could delete your own recordings when the assistant compacted history (#589), and v0.6.0 could lose a Save As copy's audio once the original was deleted (#612), so please use v0.6.1 or later.
 - The limiter works on sample peaks with no look-ahead; it isn't a true-peak limiter.
 
 I develop this with Claude Code; many commits carry a Co-Authored-By trailer, and the repo has a CLAUDE.md with the working rules.
@@ -367,25 +367,27 @@ Answers to have ready:
 
 Subject options:
 
-1. `edytlab v0.6.0: a data-loss fix, effects on the master bus, and undo that survives a restart`
+1. `edytlab v0.7.0: controls that stay put, a History graph that keeps up, and skills that update`
 2. `Three DJ jobs, done by chatting with an AI audio agent`
 
 Body:
 
 ```
-edytlab v0.6.1 is out for macOS, Windows and Linux. It's a free, open-source desktop audio editor where you describe an edit and an AI agent runs audio tools on your files.
+edytlab v0.7.0 is out for macOS, Windows and Linux. It's a free, open-source desktop audio editor where you describe an edit and an AI agent runs audio tools on your files.
 
-Two data-loss fixes first. In v0.5.0 and earlier, asking the assistant to compact history could delete a recording you had loaded; v0.6.0 fixed that. In v0.6.0, opening a copy made with Save As deleted the copy's own audio, so deleting the original left the copy silent; v0.6.1 fixes that and repairs such a copy the first time it opens while the original is still there. Update, and open any Save As copy once before deleting its original.
+This one is mostly about things staying where you put them. A gain or pan slider, mute or solo is no longer put back, or lost, when an earlier change's read-back arrives late. The History graph now redraws on every head move, when the assistant's turn ends and after a compaction. The mix the window plays is held in the preview cache, and a lost one is rendered again once.
 
 What else changed:
-- Effects on the master bus and on buses. A limiter on the master keeps working as the tracks change, and the assistant can let you hear an effect before adding it. Only gain, the limiter and three filters run in a chain so far.
-- A saved effect the app can't run in a chain no longer breaks playback: it's left out, and the window says what was left out.
-- Undo survives a restart and follows the version the assistant leaves you on, and Plan first stays on if you left it on.
-- After Save As, the assistant edits the copy, and opening a project no longer takes it back to an older version.
-- With sync-lock on, a paste moves the other tracks too.
-- The app looks like the website now: violet on zinc, with motion that respects reduced motion.
+- The installers carry the ONNX Runtime (1.23.2), and Settings says it is bundled. No model ships with it, nothing is downloaded and no inference runs, so stem separation and transcription are still not available.
+- Bundled skills update in an existing install. One you edited is left alone and the new text goes beside it as <name>.bundled.md; one you deleted is not put back.
+- The assistant can page through the tracks, buses and markers of a big session, the session summary it is sent is capped, and it is told each effect's setting names instead of guessing them.
+- One writer per project folder: a batch run no longer writes into a project you have open, and a project folder replaced while the assistant still works in the old one waits until the turn ends before it opens.
+- Audio the app writes is named by its sample rate and channel count as well as its samples. Projects from earlier versions keep working.
+- The libraries that check secure connections are updated past two published security advisories.
 
-The three DJ demos were recorded with sound in that look, with the limiter on the master bus: a beatmatched blend, an extended club intro and a three-track mini-mix. The tracks are short synthetic loops, and it's for prepping files, not playing live: https://edytlab.com/#demos
+If you are on v0.6.0 or older, update before you compact a project or delete the original of a Save As copy: those versions could lose audio.
+
+The three DJ demos were recorded with sound in the app's violet look, with the limiter on the master bus: a beatmatched blend, an extended club intro and a three-track mini-mix. The tracks are short synthetic loops, and it's for prepping files, not playing live: https://edytlab.com/#demos
 
 Download (the installers are unsigned, so macOS and Windows warn on first launch): https://github.com/laadtushar/edytlab/releases/latest
 Full changelog: https://edytlab.com/changelog
@@ -396,7 +398,7 @@ If you try it, I'd like to hear which edit you ask for first.
 **Discord (short)**
 
 ```
-edytlab v0.6.1 is out (macOS, Windows, Linux). Update before you compact a project or delete the original of a Save As copy: earlier versions could lose your audio. Also: effects on the master bus and on buses, undo that survives a restart, Plan first that stays on, and the website's violet look. Three DJ demos, recorded with sound: https://edytlab.com/#demos
+edytlab v0.7.0 is out (macOS, Windows, Linux). Gain and pan sliders, mute and solo no longer get put back by a late read-back, the History graph keeps up, bundled skills update, and the assistant can page through big sessions. The installers now carry the ONNX Runtime, but no model and no inference yet. On v0.6.0 or older, update before you compact a project or delete a Save As copy's original: those versions could lose audio. Three DJ demos, recorded with sound: https://edytlab.com/#demos
 Download (unsigned, so expect a first-launch warning): https://github.com/laadtushar/edytlab/releases/latest
 Tell me which edit you'd ask for first.
 ```
@@ -405,19 +407,26 @@ Tell me which edit you'd ask for first.
 
 ## Notes (not part of the posts)
 
-- Release facts (the compaction data-loss fix, master-bus and bus effects,
-  saved effects left out instead of breaking playback, undo and Plan first
-  across a restart, Save As and opening fixes, sync-lock paste, the violet
-  look) are from the v0.6.0 release notes and `website/app/changelog/page.tsx`.
-  The notes' "adding a label works on macOS" is left out on purpose: the
-  in-page name box that fixes it has not been checked on a Mac yet (#567).
+- Release facts (controls not undone by a late read-back, the History graph
+  redrawing on every head move, the mix held in the preview cache, bundled
+  skills updating, paging through large sessions, effect setting names, audio
+  file names, one writer per project folder, the security update, and the
+  ONNX Runtime in the installers with no model and no inference) are from the
+  v0.7.0 entry in `website/app/changelog/page.tsx`. The v0.6.0 and v0.6.1
+  version of this section, which led with the compaction and Save As
+  data-loss fixes, is in git history (`git log -p -- marketing/social-kit/more.md`).
+  The "update if you are on v0.6.0 or older" line is the data-loss advice
+  that still applies (#589 compaction, fixed in v0.6.0; #612 Save As, fixed in
+  v0.6.1). The v0.6.0 notes' "adding a label works on macOS" is still left out
+  on purpose: the in-page name box that fixes it has not been checked on a Mac
+  yet (#567, open).
 - Show HN says "The desktop app has no telemetry" and does **not** repeat the
   older draft's "the website has no analytics". `website/app/privacy/page.tsx`
   says the website uses anonymous Vercel analytics, and
   `marketing/launch/show-hn.md`, `marketing/README.md` and
   `marketing/press-kit.md` now say the same (#472).
 - The newsletter and Discord text list release changes only, and not all of
-  them: keychain reporting, the held recipe card, the previews cache and the
-  rustls update are in the release notes if your audience wants them.
+  them (the Discord post names five): the full list is on the changelog page
+  if your audience wants it.
 - Where the YouTube chapters come from: durations in `website/lib/demos.ts`.
   Recheck them against the real upload.

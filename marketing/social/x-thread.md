@@ -1,4 +1,4 @@
-# X thread: v0.6.0 and the DJ demo
+# X thread: v0.7.0 and the DJ demo
 
 **Links:** site <https://edytlab.com> · download
 <https://github.com/laadtushar/edytlab/releases/latest>
