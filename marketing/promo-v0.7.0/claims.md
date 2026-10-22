@@ -71,7 +71,7 @@ Claude's behaviour here varied between takes (one answered the dry run with a qu
 | Settings, Account tab, last line: **ONNX Runtime: 1.23.2 (bundled)**, and a path under it | `lib/mlRuntimeLine.ts` writes `ONNX Runtime: <version> (bundled)` for `state: "found", source: "bundled"`, the answer `ml_runtime_status` gave for the library beside the release's binary (`<unpacked .deb>/usr/lib/edytlab/libonnxruntime.so`). 1.23.2 is the pin in `src-tauri/ml-runtime.json`. Every release installer after v0.6.1 carries it (#383, PR #615; CLAUDE.md "Repo specifics") |
 | The path `/tmp/edytlab-v0.7.0/usr/lib/edytlab/libonnxruntime.so` | Where the `.deb` was unpacked for this recording. It says the runtime was found in the bundle's resource directory, not that any installer unpacks there |
 
-What S5 does not claim: stem separation or transcription. No model ships and no inference runs (CLAUDE.md, "Demucs and Whisper ... are not shipped"; #383-#385). The edit says: **groundwork only: no model yet**. The crop keeps the dialog's provider fields out of frame (the provider on this machine is Ollama, with the machine's "no Secret Service" note above it).
+What S5 does not claim: stem separation or transcription. No model ships and no inference runs (CLAUDE.md, "Demucs and Whisper ... are not shipped"; #383-#385). The edit says: **groundwork only: no model yet**. The crop keeps the dialog's provider list and the machine's "no Secret Service" note out of frame; in the wider crops the model field below them (the provider on this machine is Ollama, model `llama3.2`) is visible, and nothing is claimed about it.
 
 ## S6. Skills update (`s6-skills-note.mp4`)
 

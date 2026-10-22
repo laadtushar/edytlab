@@ -46,7 +46,7 @@ Four key taps, four steps (#596)
 v0.7.0 · real app · recorded live
 
 7
-00:00:06,700 --> 00:00:07,950
+00:00:06,700 --> 00:00:09,500
 The history graph
 keeps up
 Names and clean-ups show at once
@@ -54,7 +54,7 @@ Names and clean-ups show at once
 v0.7.0 · real app · real Claude (Sonnet 5.5)
 
 8
-00:00:07,950 --> 00:00:09,900
+00:00:09,500 --> 00:00:10,600
 The history graph
 keeps up
 Names and clean-ups show at once
@@ -63,7 +63,7 @@ named at once
 v0.7.0 · real app · real Claude (Sonnet 5.5)
 
 9
-00:00:09,900 --> 00:00:11,275
+00:00:10,600 --> 00:00:11,975
 The history graph
 keeps up
 Names and clean-ups show at once
@@ -71,7 +71,7 @@ Names and clean-ups show at once
 v0.7.0 · real app · real Claude (Sonnet 5.5)
 
 10
-00:00:11,275 --> 00:00:12,967
+00:00:11,975 --> 00:00:13,667
 The history graph
 keeps up
 Names and clean-ups show at once
@@ -80,7 +80,7 @@ Names and clean-ups show at once
 v0.7.0 · real app · real Claude (Sonnet 5.5)
 
 11
-00:00:12,967 --> 00:00:14,400
+00:00:13,667 --> 00:00:15,100
 200 tracks?
 Just ask.
 list_session pages past the summary
@@ -88,7 +88,7 @@ list_session pages past the summary
 v0.7.0 · real app · real Claude (Sonnet 5.5)
 
 12
-00:00:14,400 --> 00:00:15,450
+00:00:15,100 --> 00:00:16,150
 200 tracks?
 Just ask.
 list_session pages past the summary
@@ -96,7 +96,7 @@ list_session pages past the summary
 v0.7.0 · real app · real Claude (Sonnet 5.5)
 
 13
-00:00:15,450 --> 00:00:16,650
+00:00:16,150 --> 00:00:17,350
 200 tracks?
 Just ask.
 list_session pages past the summary
@@ -105,7 +105,7 @@ list_session
 v0.7.0 · real app · real Claude (Sonnet 5.5)
 
 14
-00:00:16,650 --> 00:00:19,650
+00:00:17,350 --> 00:00:20,350
 200 tracks?
 Just ask.
 list_session pages past the summary
@@ -113,21 +113,21 @@ list_session pages past the summary
 v0.7.0 · real app · real Claude (Sonnet 5.5)
 
 15
-00:00:19,650 --> 00:00:22,467
+00:00:20,350 --> 00:00:23,167
 200 tracks?
 Just ask.
 list_session pages past the summary
 v0.7.0 · real app · real Claude (Sonnet 5.5)
 
 16
-00:00:22,467 --> 00:00:25,667
+00:00:23,167 --> 00:00:26,367
 Switch tabs.
 It still plays.
 Even when the mix is gone from the cache
 v0.7.0 · real app · recorded live
 
 17
-00:00:25,667 --> 00:00:26,867
+00:00:26,367 --> 00:00:27,567
 Switch tabs.
 It still plays.
 Even when the mix is gone from the cache
@@ -135,14 +135,14 @@ back to the timeline
 v0.7.0 · real app · recorded live
 
 18
-00:00:26,867 --> 00:00:27,867
+00:00:27,567 --> 00:00:28,567
 Switch tabs.
 It still plays.
 Even when the mix is gone from the cache
 v0.7.0 · real app · recorded live
 
 19
-00:00:27,867 --> 00:00:29,767
+00:00:28,567 --> 00:00:30,467
 Switch tabs.
 It still plays.
 Even when the mix is gone from the cache
@@ -150,14 +150,14 @@ plays, no error
 v0.7.0 · real app · recorded live
 
 20
-00:00:29,767 --> 00:00:30,867
+00:00:30,467 --> 00:00:31,067
 Bundled skills
 stay current
 Updated when a release changes them
 v0.7.0 · real app · recorded live
 
 21
-00:00:30,867 --> 00:00:33,967
+00:00:31,067 --> 00:00:34,667
 Bundled skills
 stay current
 Updated when a release changes them
@@ -165,7 +165,7 @@ unless you edited them
 v0.7.0 · real app · recorded live
 
 22
-00:00:34,367 --> 00:00:38,767
+00:00:35,067 --> 00:00:39,467
 edytlab
 v0.7.0
 edytlab.com

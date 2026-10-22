@@ -64,16 +64,16 @@ const CHOREO: Record<ClipId, Choreo> = {
       },
     ],
   },
-  // S3. The History graph keeps up (#602). The first request is sent at 12.3 s, the head's bubble reads "chorus" from
-  // 14.3, the reply is done at 17.8; the second is sent at 35.4, the nodes leave the graph at 40.9, the reply is done at 43.3.
+  // S3. The History graph keeps up (#602). The first request is sent at 12.3 s, the Rename version chip is done at 14.3,
+  // the head's bubble reads "chorus" (and the reply is done) at 17.8; the second is sent at 35.4, the nodes leave the graph at 40.9, the reply is done at 43.3.
   s3: {
     cam: [
       {t: 0, box: box(1240, 100, 360, 210), wide: box(1000, 100, 600, 260), square: box(1240, 125, 360, 210)},
-      {t: 13.9, box: box(300, 760, 420, 210), wide: box(260, 700, 560, 260), move: 0.8},
+      {t: 16.8, box: box(540, 760, 420, 210), wide: box(500, 700, 560, 260), move: 0.8},
       {t: 38.8, box: box(380, 60, 480, 880), wide: box(300, 40, 700, 920), move: 0.8},
     ],
     rings: [
-      {t0: 14.4, t1: 17.8, rect: box(464, 902, 90, 36), label: 'named at once', side: 'right'},
+      {t0: 17.8, t1: 21.6, rect: box(672, 903, 84, 34), label: 'named at once', side: 'right'},
       {t0: 41.0, t1: 44.6, rect: box(460, 86, 112, 450), label: '20 nodes became 8', side: 'right'},
     ],
   },
@@ -92,20 +92,20 @@ const CHOREO: Record<ClipId, Choreo> = {
       {t0: 29.6, t1: 33.4, rect: box(6, 224, 122, 570), label: '-6.0 dB on the strings', side: 'right'},
     ],
   },
-  // S5. The ONNX Runtime is bundled (groundwork only). The dialog is open from 3.7 s; the line is in view throughout.
+  // S5. The ONNX Runtime is bundled (groundwork only). The dialog is open from 4.3 s; the line is in view throughout.
   s5: {
     // the focus keeps the region above the dialog's model field out of frame
     cam: [{t: 0, box: box(580, 786, 330, 60), wide: box(560, 770, 480, 100), square: box(580, 780, 330, 80)}],
     // no label: the app's own line says "(bundled)" and a label over it covers the text
     rings: [{t0: 4.6, t1: 12.0, rect: box(576, 798, 330, 44)}],
   },
-  // S6. Skills update (#574). The Skills tab is pressed at 5.3 s, the note is on screen from 5.6, a skill is opened at 12.2.
+  // S6. Skills update (#574). The Skills tab's content (and the note) is on screen from 7.2 s, a skill is opened at 13.0.
   s6: {
     cam: [
       {t: 0, box: box(560, 207, 480, 586)},
-      {t: 5.8, box: box(760, 440, 270, 190), wide: box(700, 420, 400, 200), move: 1.0},
+      {t: 7.9, box: box(760, 440, 270, 190), wide: box(700, 420, 400, 200), move: 1.0},
     ],
-    rings: [{t0: 6.6, t1: 12.0, rect: box(784, 528, 222, 52), label: 'unless you edited them', side: 'above'}],
+    rings: [{t0: 8.0, t1: 12.8, rect: box(784, 528, 222, 52), label: 'unless you edited them', side: 'above'}],
   },
   // S7. The mix stays playable (#607). Play is pressed at 2.8 s and plays from 4.7; the Graph tab replaces the timeline
   // (and its player) at 9.3, so the sound stops; back on the timeline at 11.7; the second Play runs from 13.55 to 18.85.
