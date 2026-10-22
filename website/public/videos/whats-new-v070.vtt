@@ -1,0 +1,198 @@
+WEBVTT
+
+1
+00:00:00.000 --> 00:00:03.700
+edytlab v0.7.0
+Describe the edit. It happens.
+v0.7.0 · real app · scripted assistant
+
+2
+00:00:03.700 --> 00:00:06.400
+Describe the edit in plain English
+1.5× speed
+v0.7.0 · real app · scripted assistant
+
+3
+00:00:06.400 --> 00:00:08.133
+The assistant calls the tools, the timeline updates
+v0.7.0 · real app · scripted assistant
+
+4
+00:00:08.133 --> 00:00:09.383
+The assistant calls the tools, the timeline updates
+fade
+v0.7.0 · real app · scripted assistant
+
+5
+00:00:09.383 --> 00:00:10.633
+The assistant calls the tools, the timeline updates
+fade
+set_track_gain
+v0.7.0 · real app · scripted assistant
+
+6
+00:00:10.633 --> 00:00:12.200
+The assistant calls the tools, the timeline updates
+fades in over 4 s
+-3.0 dB
+v0.7.0 · real app · scripted assistant
+
+7
+00:00:12.200 --> 00:00:13.333
+Press play and hear it
+demo audio, made in code
+hear the result
+v0.7.0 · real app · scripted assistant
+
+8
+00:00:13.333 --> 00:00:16.433
+Press play and hear it
+demo audio, made in code
+v0.7.0 · real app · scripted assistant
+
+9
+00:00:16.433 --> 00:00:17.143
+Faders that stay where you put them
+#596
+gain slider
+v0.7.0 · real app · scripted assistant
+
+10
+00:00:17.143 --> 00:00:17.673
+Faders that stay where you put them
+#596
++0.5 dB
+v0.7.0 · real app · scripted assistant
+
+11
+00:00:17.673 --> 00:00:18.203
+Faders that stay where you put them
+#596
++1.0 dB
+v0.7.0 · real app · scripted assistant
+
+12
+00:00:18.203 --> 00:00:18.743
+Faders that stay where you put them
+#596
++1.5 dB
+v0.7.0 · real app · scripted assistant
+
+13
+00:00:18.743 --> 00:00:20.633
+Faders that stay where you put them
+#596
++2.0 dB, no bounce back
+v0.7.0 · real app · scripted assistant
+
+14
+00:00:20.633 --> 00:00:23.133
+Every edit is a node in the history graph
+v0.7.0 · real app · scripted assistant
+
+15
+00:00:23.133 --> 00:00:25.063
+Name a version: it shows at once
+#602
+v0.7.0 · real app · scripted assistant
+
+16
+00:00:25.063 --> 00:00:26.233
+Name a version: it shows at once
+#602
+named at once
+v0.7.0 · real app · scripted assistant
+
+17
+00:00:26.233 --> 00:00:27.033
+Compact the history: nodes leave at once
+#602
+v0.7.0 · real app · scripted assistant
+
+18
+00:00:27.033 --> 00:00:28.633
+Compact the history: nodes leave at once
+#602
+17 nodes became 8
+v0.7.0 · real app · scripted assistant
+
+19
+00:00:28.633 --> 00:00:30.755
+200 tracks? Just ask.
+#618
+v0.7.0 · real app · scripted assistant
+
+20
+00:00:30.755 --> 00:00:31.407
+list_session pages through the session
+#618
+list_session
+2.3× speed
+v0.7.0 · real app · scripted assistant
+
+21
+00:00:31.407 --> 00:00:33.433
+list_session pages through the session
+#618
+2.3× speed
+v0.7.0 · real app · scripted assistant
+
+22
+00:00:33.433 --> 00:00:35.507
+Twelve strings, 4 dB quieter
+#618
+v0.7.0 · real app · scripted assistant
+
+23
+00:00:35.507 --> 00:00:37.267
+Twelve strings, 4 dB quieter
+#618
+-4.0 dB on the strings
+v0.7.0 · real app · scripted assistant
+
+24
+00:00:37.267 --> 00:00:41.367
+The ONNX Runtime now ships in every installer
+groundwork only: no model yet
+v0.7.0 · real app · scripted assistant
+
+25
+00:00:41.367 --> 00:00:42.067
+Bundled skills update, unless you edited them
+#574
+v0.7.0 · real app · scripted assistant
+
+26
+00:00:42.067 --> 00:00:45.667
+Bundled skills update, unless you edited them
+#574
+unless you edited them
+v0.7.0 · real app · scripted assistant
+
+27
+00:00:45.667 --> 00:00:48.617
+Switch tabs, press play: it still plays
+#607
+v0.7.0 · real app · scripted assistant
+
+28
+00:00:48.617 --> 00:00:50.667
+Switch tabs, press play: it still plays
+#607
+plays, no error
+v0.7.0 · real app · scripted assistant
+
+29
+00:00:50.667 --> 00:00:52.367
+Switch tabs, press play: it still plays
+#607
+v0.7.0 · real app · scripted assistant
+
+30
+00:00:52.767 --> 00:00:57.767
+edytlab
+v0.7.0
+edytlab.com
+Free and open source (MIT)
+macOS · Windows · Linux
+Unsigned installers

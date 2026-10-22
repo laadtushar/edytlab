@@ -1,6 +1,7 @@
 /**
  * The videos on `/videos` besides the three full demos (those are
- * `lib/demos.ts`): the launch video and five short vertical reels.
+ * `lib/demos.ts`): the v0.7.0 video, the launch video and eight short
+ * vertical reels.
  *
  * Each is a copy of a file under `marketing/`, where it is cut and kept,
  * placed in `public/videos/` so the site can serve it:
@@ -11,7 +12,7 @@
  *   shown until the reader presses play. With `preload="none"` it is the
  *   only part of a video a visitor downloads unasked. It is a frame of
  *   the app and carries no logo and no other product's imagery;
- * - `<slug>.vtt`: for the launch video, its `.srt` converted to WebVTT
+ * - `<slug>.vtt`: for a 16:9 video, its `.srt` converted to WebVTT
  *   (`lib/srt-to-vtt.ts`).
  *
  * `videos.test.ts` fails when a copy differs from its source (so a re-cut
@@ -22,7 +23,13 @@
  * Only the plain files are listed. The narrated cuts, `marketing/reels/audio/`,
  * `sfx/` and `marketing/archive/` carry ElevenLabs free-plan audio, which
  * is not licensed for commercial use. A reel here has the app's own sound
- * and nothing else.
+ * and nothing else. The v0.7.0 videos come from `marketing/promo-v0.7.0/out/`
+ * (no voice, no stock music); the 1:1 cut is the 16:9 edit again, for
+ * LinkedIn, and is not listed.
+ *
+ * The v0.7.0 videos show the real app with a scripted assistant, and say
+ * so on every shot. Their captions and descriptions here say it too, and
+ * claim no more than `marketing/promo-v0.7.0/claims.md` allows.
  *
  * A caption says what the video shows and nothing more, like the demos':
  * nothing that has not shipped, no counts, no ratings, no superlatives.
@@ -31,8 +38,8 @@
 export interface SiteVideo {
   /** Kebab-case. Names the files in `public/videos/`. */
   slug: string;
-  /** The launch video is 16:9; a reel is 9:16. */
-  kind: "launch" | "reel";
+  /** The launch video and the release video are 16:9; a reel is 9:16. */
+  kind: "launch" | "release" | "reel";
   title: string;
   /** What it shows, for the page. */
   caption: string;
@@ -53,20 +60,22 @@ export interface SiteVideo {
   source: string;
   /** Where in the video, in seconds, the poster frame was taken. */
   posterAt: number;
-  /** For the launch video: the `.srt` its WebVTT captions were converted from. */
+  /** For a 16:9 video: the `.srt` its WebVTT captions were converted from. */
   captionsSource?: string;
   /**
-   * What happens, in order, for the watch page: one entry per cue of the
-   * source (an `.srt` cue for the launch video, a cue of `reel-*-cues.json`
-   * for a reel), at the second the cue starts. A reel's text is the cue's
-   * own on-screen words; the launch video's is a plain description of
-   * each caption. There is no voice-over in any of them. `videos.test.ts`
-   * holds the times, and a reel's words, to the source, so a re-cut
-   * cannot leave this stale.
+   * What happens, in order, for the watch page: moments of the video,
+   * each at the second a cue of `momentsSource` starts. `momentsSource`
+   * is the cue file the moments follow: a reel's `reel-*-cues.json`, whose
+   * `onscreen` words a reel's moments are, as written, one for each cue;
+   * or an `.srt`, whose cues are the burned-in words, which a moment
+   * describes in plain words (one moment may stand for several cues, and
+   * the launch video's cues carry a count that the page's copy leaves
+   * out). There is no voice-over in any of them. `videos.test.ts` holds
+   * the times, and a reel's words, to the source, so a re-cut cannot
+   * leave this stale.
    */
   moments: readonly Moment[];
-  /** The cue file a reel's `moments` come from (the launch video's are its `captionsSource`). */
-  cuesSource?: string;
+  momentsSource: string;
 }
 
 export interface Moment {
@@ -76,6 +85,37 @@ export interface Moment {
 }
 
 export const videos: readonly SiteVideo[] = [
+  {
+    slug: "whats-new-v070",
+    kind: "release",
+    title: "What's new in edytlab v0.7.0: five changes you can see",
+    caption:
+      "Five changes in v0.7.0, shown in the real app: a request typed in plain English that the assistant turns into a fade and a gain change, which you then hear; faders that stay where you put them (#596); the history graph keeping up as a version is named and the history compacted (#602); a 200-track session where list_session pages through what the summary leaves out and twelve string tracks come down 4 dB (#618); the ONNX Runtime now shipping in every installer, as groundwork only, with no model yet; bundled skills that update unless you edited them (#574); and playback that survives switching tabs (#607). Real app, scripted assistant: every shot is the real v0.7.0 frontend, the assistant's replies and tool calls are scripted, and the demo audio is made in code, as the note on every shot says. The installers are unsigned. Captions are available.",
+    description:
+      "A 58-second video of what's new in edytlab v0.7.0: a typed edit, steady faders, the history graph and a 200-track session. Real app, scripted assistant.",
+    seconds: 58,
+    uploadDate: "2026-10-22",
+    width: 1920,
+    height: 1080,
+    source: "marketing/promo-v0.7.0/out/edytlab-v0.7.0-16x9.mp4",
+    posterAt: 11,
+    captionsSource: "marketing/promo-v0.7.0/out/edytlab-v0.7.0-16x9.srt",
+    momentsSource: "marketing/promo-v0.7.0/out/edytlab-v0.7.0-16x9.srt",
+    moments: [
+      { at: 0, text: "Title: edytlab v0.7.0, “Describe the edit. It happens.” Every app shot carries the note “v0.7.0 · real app · scripted assistant”." },
+      { at: 3.7, text: "Describe the edit in plain English: the request is typed into the chat box (shown at 1.5× speed)." },
+      { at: 6.4, text: "The assistant calls the tools, fade and then set_track_gain, and the timeline updates: the backing fades in over 4 seconds and the vocal lane reads −3.0 dB." },
+      { at: 12.2, text: "Press play and hear it; the demo audio is made in code." },
+      { at: 16.433, text: "Faders that stay where you put them (#596): four key taps on a gain slider step it +0.5, +1.0, +1.5 and +2.0 dB, with no bounce back." },
+      { at: 20.633, text: "Every edit is a node in the history graph." },
+      { at: 23.133, text: "The history graph keeps up (#602): naming a version shows at once, and compacting the history removes nodes at once, 17 nodes becoming 8." },
+      { at: 28.633, text: "200 tracks? Just ask (#618): list_session pages through the session (shown at 2.3× speed), then twelve string tracks sit at −4.0 dB." },
+      { at: 37.267, text: "The ONNX Runtime now ships in every installer: groundwork only, no model yet." },
+      { at: 41.367, text: "Bundled skills update when a release changes them, unless you edited them (#574)." },
+      { at: 45.667, text: "Switch tabs, press play: it still plays, with no error (#607)." },
+      { at: 52.767, text: "End card: edytlab v0.7.0, edytlab.com, free and open source (MIT), for macOS, Windows and Linux. The installers are unsigned." },
+    ],
+  },
   {
     slug: "launch-video",
     kind: "launch",
@@ -91,6 +131,7 @@ export const videos: readonly SiteVideo[] = [
     source: "marketing/launch-video/out/launch-reddit.mp4",
     posterAt: 8,
     captionsSource: "marketing/launch-video/out/launch-reddit.srt",
+    momentsSource: "marketing/launch-video/out/launch-reddit.srt",
     moments: [
       { at: 0.55, text: "Title: an open-source audio editor you drive in plain English." },
       { at: 4.35, text: "Step 1, describe it in plain English: a request is typed asking what tempo each track is, without changing anything yet." },
@@ -104,6 +145,79 @@ export const videos: readonly SiteVideo[] = [
       { at: 46.5, text: "How it works: your audio files stay on your computer and the app's own engine edits them; only the chat goes to the provider you choose." },
       { at: 53.1, text: "The limits, stated on screen: the demo tracks are short synthetic loops, it prepares files and is not a live DJ tool, and there is no stem separation or transcription yet." },
       { at: 59.0, text: "End card: free and open source (MIT), github.com/laadtushar/edytlab, edytlab.com. The installers are unsigned." },
+    ],
+  },
+  {
+    slug: "reel-v070-whats-new",
+    kind: "reel",
+    title: "What's new in v0.7.0 (short reel)",
+    caption:
+      "Five changes you can see in v0.7.0, in thirty seconds: faders that stay where you put them (#596), the history graph keeping up (#602), a 200-track session paged with list_session (#618), playback that survives switching tabs (#607), and bundled skills that stay current (#574). Real app, scripted assistant: the assistant's replies and tool calls are scripted, as the note on every shot says.",
+    description:
+      "A 31-second vertical video of five changes in edytlab v0.7.0, shown in the real app with a scripted assistant.",
+    seconds: 31,
+    uploadDate: "2026-10-22",
+    width: 1080,
+    height: 1920,
+    source: "marketing/promo-v0.7.0/out/edytlab-v0.7.0-whats-new-9x16.mp4",
+    posterAt: 4.3,
+    momentsSource: "marketing/promo-v0.7.0/out/edytlab-v0.7.0-whats-new-9x16.srt",
+    moments: [
+      { at: 0, text: "What's new in v0.7.0: five changes you can see." },
+      { at: 2.5, text: "Faders stay where you put them (#596): four key taps, four steps, +0.5 to +2.0 dB with no bounce back." },
+      { at: 6.7, text: "The history graph keeps up (#602): names and clean-ups show at once; 17 nodes became 8." },
+      { at: 11.7, text: "200 tracks? Just ask (#618): list_session pages past the summary (shown at 3.2× speed), then the strings sit at −4.0 dB." },
+      { at: 17.267, text: "Switch tabs and it still plays, even when the mix is gone from the cache (#607): it plays with no error." },
+      { at: 21.567, text: "Bundled skills stay current (#574): updated when a release changes them, unless you edited them." },
+      { at: 26.167, text: "End card: edytlab v0.7.0, edytlab.com, free and open source (MIT), for macOS, Windows and Linux; the installers are unsigned." },
+    ],
+  },
+  {
+    slug: "reel-v070-describe-the-edit",
+    kind: "reel",
+    title: "Describe the edit, and it happens (short reel)",
+    caption:
+      "Describe the edit: a request typed in plain English, the assistant calls fade and then set_track_gain, the timeline changes (the backing fades in over 4 seconds and the vocal lane reads −3.0 dB), and you press play to hear it, on a synthetic demo track made in code. Real app, scripted assistant: the assistant's replies and tool calls are scripted, as the note on every shot says.",
+    description:
+      "A 21-second vertical video: an edit typed in plain English, the fade and gain calls, and the result played, in the real edytlab app with a scripted assistant.",
+    seconds: 21,
+    uploadDate: "2026-10-22",
+    width: 1080,
+    height: 1920,
+    source: "marketing/promo-v0.7.0/out/edytlab-v0.7.0-describe-the-edit-9x16.mp4",
+    posterAt: 10.5,
+    momentsSource: "marketing/promo-v0.7.0/out/edytlab-v0.7.0-describe-the-edit-9x16.srt",
+    moments: [
+      { at: 0, text: "Describe the edit." },
+      { at: 1.9, text: "Say it in plain English: the request is typed into the chat box." },
+      { at: 5.6, text: "The assistant calls the tools, fade and then set_track_gain." },
+      { at: 9.9, text: "The timeline changes: the backing fades in over 4 seconds and the vocal lane reads −3.0 dB." },
+      { at: 11.5, text: "Then hear it: press play on a synthetic demo track, with demo audio made in code." },
+      { at: 17.6, text: "End card: edytlab v0.7.0, edytlab.com, free and open source (MIT), for macOS, Windows and Linux; the installers are unsigned." },
+    ],
+  },
+  {
+    slug: "reel-v070-200-tracks",
+    kind: "reel",
+    title: "200 tracks? Just ask (short reel)",
+    caption:
+      "A session of 200 tracks and one sentence, “make all the strings quieter”: the assistant pages through the session with list_session, then sets twelve tracks (violins, viola, cello and contrabass) to −4.0 dB, each volume change a node on the graph (#618). Real app, scripted assistant: the assistant's replies and tool calls are scripted, and the sound is interface sounds only.",
+    description:
+      "A 21-second vertical video: one sentence quiets twelve of 200 tracks, in the real edytlab app with a scripted assistant.",
+    seconds: 21,
+    uploadDate: "2026-10-22",
+    width: 1080,
+    height: 1920,
+    source: "marketing/promo-v0.7.0/out/edytlab-v0.7.0-200-tracks-9x16.mp4",
+    posterAt: 9,
+    momentsSource: "marketing/promo-v0.7.0/out/edytlab-v0.7.0-200-tracks-9x16.srt",
+    moments: [
+      { at: 0, text: "200 tracks? Ask." },
+      { at: 3.2, text: "Just say it: “make all the strings quieter”." },
+      { at: 5.5, text: "It pages through the session: list_session, then set_track_gain." },
+      { at: 8.2, text: "Twelve strings, one sentence: each change is a node on the graph." },
+      { at: 12.3, text: "All twelve strings 4 dB quieter: violins, viola, cello and contrabass read −4.0 dB." },
+      { at: 16.9, text: "End card: edytlab v0.7.0, edytlab.com, free and open source (MIT), for macOS, Windows and Linux; the installers are unsigned." },
     ],
   },
   {
@@ -133,7 +247,7 @@ export const videos: readonly SiteVideo[] = [
       { at: 49.267, text: "Listen: Midnight Drive into Solar Flare (0:23)" },
       { at: 58.533, text: "edytlab · Free, open source · edytlab.com · macOS · Windows · Linux" },
     ],
-    cuesSource: "marketing/reels/reel-highlights-cues.json",
+    momentsSource: "marketing/reels/reel-highlights-cues.json",
   },
   {
     slug: "reel-teaser",
@@ -156,7 +270,7 @@ export const videos: readonly SiteVideo[] = [
       { at: 7.9, text: "Listen: the transition, from 0:12" },
       { at: 12.4, text: "edytlab · Free, open source · edytlab.com · macOS · Windows · Linux" },
     ],
-    cuesSource: "marketing/reels/reel-teaser-cues.json",
+    momentsSource: "marketing/reels/reel-teaser-cues.json",
   },
   {
     slug: "reel-beatmatched-transition",
@@ -184,7 +298,7 @@ export const videos: readonly SiteVideo[] = [
       { at: 43.5, text: "Done: midnight-into-neon.wav, 0:50, -14 LUFS" },
       { at: 47.6, text: "edytlab · Free, open source · edytlab.com · macOS · Windows · Linux" },
     ],
-    cuesSource: "marketing/reels/reel-beatmatched-transition-cues.json",
+    momentsSource: "marketing/reels/reel-beatmatched-transition-cues.json",
   },
   {
     slug: "reel-extended-club-intro",
@@ -210,7 +324,7 @@ export const videos: readonly SiteVideo[] = [
       { at: 32.3, text: "Done: solar-flare-extended-intro.wav, a 16-bar intro" },
       { at: 36.4, text: "edytlab · Free, open source · edytlab.com · macOS · Windows · Linux" },
     ],
-    cuesSource: "marketing/reels/reel-extended-club-intro-cues.json",
+    momentsSource: "marketing/reels/reel-extended-club-intro-cues.json",
   },
   {
     slug: "reel-mini-mix",
@@ -237,7 +351,7 @@ export const videos: readonly SiteVideo[] = [
       { at: 35.133, text: "Done: mini-mix-124bpm.wav, 1:19" },
       { at: 39.133, text: "edytlab · Free, open source · edytlab.com · macOS · Windows · Linux" },
     ],
-    cuesSource: "marketing/reels/reel-mini-mix-cues.json",
+    momentsSource: "marketing/reels/reel-mini-mix-cues.json",
   },
 ];
 
@@ -252,7 +366,8 @@ export const videoPath = (slug: string) => `${VIDEOS_PATH}/${slug}`;
 
 export const getVideo = (slug: string): SiteVideo | undefined => videos.find((v) => v.slug === slug);
 
-/** The launch video and the reels, split the way the page lays them out. */
+/** The release video, the launch video and the reels, split the way the hub lays them out. */
+export const releaseVideo = videos.find((v) => v.kind === "release") as SiteVideo;
 export const launchVideo = videos.find((v) => v.kind === "launch") as SiteVideo;
 export const reels: readonly SiteVideo[] = videos.filter((v) => v.kind === "reel");
 

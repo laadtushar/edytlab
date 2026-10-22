@@ -55,7 +55,7 @@ export default async function VideoPage({ params }: Props) {
 
   return (
     <PageShell
-      eyebrow={video.kind === "launch" ? "Launch video" : "Short reel"}
+      eyebrow={video.kind === "launch" ? "Launch video" : video.kind === "release" ? "Release video" : "Short reel"}
       title={video.title}
       lead={video.description}
     >
@@ -65,7 +65,7 @@ export default async function VideoPage({ params }: Props) {
         <WatchPlayer video={video} />
         <p className="mt-3 text-sm text-muted-foreground">
           {formatDuration(video.seconds)}
-          {video.kind === "reel" ? ", vertical, with the app's own sound and no voice-over" : ", with captions you can switch on"}
+          {video.kind === "reel" ? ", vertical, with no voice-over" : ", with captions you can switch on"}
           . Nothing plays until you press play.
         </p>
       </div>

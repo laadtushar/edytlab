@@ -46,15 +46,20 @@ function listedFiles(): string[] {
 }
 
 describe("the list", () => {
-  it("has the launch video and the five plain reels, in that order", () => {
+  it("has the v0.7.0 video first, then the launch video, then the reels, newest first", () => {
     expect(videos.map((v) => v.slug)).toEqual([
+      "whats-new-v070",
       "launch-video",
+      "reel-v070-whats-new",
+      "reel-v070-describe-the-edit",
+      "reel-v070-200-tracks",
       "reel-highlights",
       "reel-teaser",
       "reel-beatmatched-transition",
       "reel-extended-club-intro",
       "reel-mini-mix",
     ]);
+    expect(videos.map((v) => v.kind)).toEqual(["release", "launch", ...Array(8).fill("reel")]);
   });
 
   it("uses each slug once, in kebab-case", () => {
@@ -96,10 +101,28 @@ describe("the list", () => {
     expect(new Set(names).size).toBe(names.length);
   });
 
-  it("names a vertical reel 9:16 and the launch video 16:9", () => {
+  it("names a vertical reel 9:16 and the two long videos 16:9", () => {
     for (const v of videos) {
       const ratio = v.width / v.height;
-      expect(ratio, v.slug).toBeCloseTo(v.kind === "launch" ? 16 / 9 : 9 / 16, 3);
+      expect(ratio, v.slug).toBeCloseTo(v.kind === "reel" ? 9 / 16 : 16 / 9, 3);
+    }
+  });
+
+  it("says, for every v0.7.0 video, that it is the real app with a scripted assistant", () => {
+    // Every shot of app in those videos is labelled "v0.7.0 · real app ·
+    // scripted assistant" (marketing/promo-v0.7.0/claims.md). A caption or
+    // description that left that out would claim more than the video does.
+    const promo = videos.filter((v) => v.source.startsWith("marketing/promo-v0.7.0/"));
+    expect(promo.map((v) => v.slug)).toEqual([
+      "whats-new-v070",
+      "reel-v070-whats-new",
+      "reel-v070-describe-the-edit",
+      "reel-v070-200-tracks",
+    ]);
+    for (const v of promo) {
+      expect(v.description, `${v.slug} description`).toMatch(/scripted assistant/i);
+      expect(v.description, `${v.slug} description`).toMatch(/real (?:edytlab )?app/i);
+      expect(v.caption, `${v.slug} caption`).toMatch(/real app, scripted assistant/i);
     }
   });
 });
@@ -134,8 +157,10 @@ describe("public/videos", () => {
 
 describe("the copies match their sources under marketing/", () => {
   it.each(videos.map((v) => [v.slug, v] as const))("%s names a plain file that exists", (_slug, v) => {
-    expect(v.source).toMatch(/^marketing\/(?:reels\/reel-[a-z-]+|launch-video\/out\/launch-[a-z]+)\.mp4$/);
-    expect(v.source).not.toMatch(/narrated|picture-only|\/audio\/|\/sfx\/|archive|narration/i);
+    expect(v.source).toMatch(
+      /^marketing\/(?:reels\/reel-[a-z-]+|launch-video\/out\/launch-[a-z]+|promo-v0\.7\.0\/out\/edytlab-v0\.7\.0-[a-z0-9-]+)\.mp4$/,
+    );
+    expect(v.source).not.toMatch(/narrated|picture-only|\/audio\/|\/sfx\/|archive|narration|1x1/i);
     expect(isNonEmptyFile(join(REPO, v.source)), `${v.source} is gone: was it re-cut and moved?`).toBe(true);
   });
 
@@ -147,11 +172,15 @@ describe("the copies match their sources under marketing/", () => {
   });
 
   it("has captions that are the source's own, converted to WebVTT", () => {
+    // The two 16:9 videos; the vertical reels show their words burned in
+    // and have a cue file or an .srt for their moments instead.
     const withCaptions = videos.filter((v) => v.captionsSource);
-    expect(withCaptions.map((v) => v.slug)).toEqual(["launch-video"]);
+    expect(withCaptions.map((v) => v.slug)).toEqual(["whats-new-v070", "launch-video"]);
     for (const v of withCaptions) {
       const source = v.captionsSource as string;
-      expect(source).toMatch(/^marketing\/launch-video\/out\/launch-[a-z]+\.srt$/);
+      expect(source).toMatch(
+        /^marketing\/(?:launch-video\/out\/launch-[a-z]+|promo-v0\.7\.0\/out\/edytlab-v0\.7\.0-[a-z0-9]+)\.srt$/,
+      );
       expect(source.replace(/\.srt$/, ".mp4"), "the captions are of another cut").toBe(v.source);
       expect(readFileSync(onDisk(videoCaptionsSrc(v.slug)), "utf8")).toBe(srtToVtt(readFileSync(join(REPO, source), "utf8")));
     }
@@ -166,38 +195,40 @@ function srtStarts(srt: string): number[] {
 }
 
 describe("what happens, in order, is the source's own", () => {
-  it.each(videos.map((v) => [v.slug, v] as const))("%s has one moment for each cue of its source", (_slug, v) => {
+  it.each(videos.map((v) => [v.slug, v] as const))("%s has moments that follow the cues of its source", (_slug, v) => {
     expect(v.moments.length).toBeGreaterThan(2);
     const times = v.moments.map((m) => m.at);
     expect([...times].sort((a, b) => a - b)).toEqual(times);
+    expect(new Set(times).size).toBe(times.length);
     for (const m of v.moments) {
       expect(m.text.length).toBeGreaterThan(8);
       expect(m.at).toBeGreaterThanOrEqual(0);
       expect(m.at).toBeLessThan(v.seconds);
     }
 
-    if (v.kind === "launch") {
-      // The cues are the video's captions: one moment for each.
-      const starts = srtStarts(readFileSync(join(REPO, v.captionsSource as string), "utf8"));
-      expect(v.moments.map((m) => m.at), "a caption moved or was added: update `moments`").toEqual(starts);
-    } else {
-      // The cues are the reel's cue file. A reel's moments are the words it shows, as written.
-      expect(v.cuesSource).toBe(v.source.replace(/\.mp4$/, "-cues.json"));
-      const cues = JSON.parse(readFileSync(join(REPO, v.cuesSource as string), "utf8")).cues as {
-        start: number;
-        onscreen: string;
-      }[];
+    const source = readFileSync(join(REPO, v.momentsSource), "utf8");
+    if (v.momentsSource.endsWith("-cues.json")) {
+      // A reel's cue file. Its moments are the words it shows, as written, one for each cue.
+      expect(v.momentsSource).toBe(v.source.replace(/\.mp4$/, "-cues.json"));
+      const cues = JSON.parse(source).cues as { start: number; onscreen: string }[];
       expect(v.moments, "a cue moved or changed: update `moments`").toEqual(
         cues.map((c) => ({ at: c.start, text: c.onscreen })),
       );
+    } else {
+      // The burned-in words, as an .srt. A moment describes them and may stand for several
+      // cues, but each starts where a cue starts, so a re-cut that moves the words is noticed.
+      expect(v.momentsSource).toBe(v.source.replace(/\.mp4$/, ".srt"));
+      const starts = srtStarts(source).map((t) => Math.round(t * 1000));
+      for (const m of v.moments) {
+        expect(starts, `no cue starts at ${m.at} s: a caption moved, update \`moments\``).toContain(Math.round(m.at * 1000));
+      }
+      // The first moment is the first thing on screen.
+      expect(Math.round(v.moments[0].at * 1000)).toBe(Math.min(...starts));
     }
   });
 
-  it("gives only the reels a cue file, and the launch video its captions", () => {
-    for (const v of videos) {
-      expect(Boolean(v.cuesSource), v.slug).toBe(v.kind === "reel");
-      expect(Boolean(v.captionsSource), v.slug).toBe(v.kind === "launch");
-    }
+  it("gives a 16:9 video captions and a reel none", () => {
+    for (const v of videos) expect(Boolean(v.captionsSource), v.slug).toBe(v.kind !== "reel");
   });
 });
 

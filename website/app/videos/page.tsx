@@ -14,11 +14,11 @@ import {
   videosHubJsonLd,
 } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
-import { launchVideo, reels } from "@/lib/videos";
+import { launchVideo, releaseVideo, reels } from "@/lib/videos";
 
-const title = "Videos: the launch video, demos and short reels";
+const title = "Videos: what's new, the launch video, demos and reels";
 const description =
-  "Watch the edytlab desktop app do real DJ jobs: the launch video, three full demo recordings and five short vertical reels. Open source and local-first.";
+  "Watch the edytlab desktop app at work: what's new in v0.7.0, the launch video, three full DJ demos and short vertical reels. Open source and local-first.";
 const path = "/videos";
 
 export const metadata: Metadata = {
@@ -41,12 +41,28 @@ export default function VideosPage() {
       wide
       eyebrow="Videos"
       title="edytlab at work"
-      lead="Screen recordings of the desktop app, with an AI agent doing DJ jobs from a typed request to an exported file: the launch video, three full demos, and short vertical reels cut from them. Each video has a page of its own. Nothing plays until you press play."
+      lead="Videos of the desktop app: what's new in v0.7.0, the launch video, three full DJ demos recorded start to finish, and short vertical reels. Each video has a page of its own. Nothing plays until you press play."
     >
       <JsonLd data={breadcrumbJsonLd(pageBreadcrumbs("Videos", path))} />
       <JsonLd data={videosHubJsonLd()} />
 
-      <section aria-labelledby="videos-launch" className="mt-12">
+      <section aria-labelledby="videos-release" className="mt-12">
+        <Reveal>
+          <h2 id="videos-release" className="text-2xl font-semibold">
+            What&apos;s new in v0.7.0
+          </h2>
+          <p className="mt-3 max-w-3xl leading-relaxed text-foreground/90">
+            Under a minute, with captions you can switch on. Every app shot is
+            the real v0.7.0 frontend with a scripted assistant, and the video
+            says so on each one.
+          </p>
+        </Reveal>
+        <div className="mt-6 max-w-xl">
+          <VideoLinkCard video={releaseVideo} label="v0.7.0" />
+        </div>
+      </section>
+
+      <section aria-labelledby="videos-launch" className="mt-16">
         <Reveal>
           <h2 id="videos-launch" className="text-2xl font-semibold">
             The launch video
@@ -94,8 +110,9 @@ export default function VideosPage() {
             Short reels
           </h2>
           <p className="mt-3 max-w-3xl leading-relaxed text-foreground/90">
-            Vertical cuts of the demos, with the app&apos;s own sound and no
-            voice-over, in the shape a phone plays them.
+            Vertical videos, in the shape a phone plays them, with no
+            voice-over: three about v0.7.0 (real app, scripted assistant), and
+            five cut from the demos with the app&apos;s own sound.
           </p>
         </Reveal>
         <Stagger className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3" each={0.08} distance={24}>

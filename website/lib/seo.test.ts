@@ -760,9 +760,10 @@ describe("the videos hub", () => {
     expect(page).toMatch(/const description =\s*"[^"]{60,160}"/);
   });
 
-  it("lists the launch video, then the three demos, then the reels", () => {
+  it("lists what's new in v0.7.0 at the top, then the launch video, the three demos and the reels", () => {
     const at = (needle: string) => page.indexOf(needle);
-    expect(at("<VideoLinkCard video={launchVideo}")).toBeGreaterThan(-1);
+    expect(at("<VideoLinkCard video={releaseVideo}")).toBeGreaterThan(-1);
+    expect(at("<VideoLinkCard video={launchVideo}")).toBeGreaterThan(at("<VideoLinkCard video={releaseVideo}"));
     expect(at("<DemoLinkCard")).toBeGreaterThan(at("<VideoLinkCard video={launchVideo}"));
     expect(at("reels.map(")).toBeGreaterThan(at("<DemoLinkCard"));
     expect(page).toContain("demos.map(");
