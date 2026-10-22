@@ -674,6 +674,26 @@ The other manifests mirror it, and `apps/desktop/src/__tests__/appVersion.test.t
 
 It is a workflow of its own, not a `ci.yml` job, and it does not run on push: `auto-release.yml` waits only on the run named "CI", so an advisory published on a quiet day can never turn that run red and skip a dev release. Do not make it a required check, since a PR its path filter skips would wait on it forever.
 
+### Workflow: `ml.yml` (ML)
+
+The tests that need the real speech model and the real ONNX Runtime
+(`ml-whisper`'s `transcribe_known_words`, `ml-pipeline`'s `model_real_download`),
+run on Linux with `--ignored` against the pins in
+`apps/desktop/src-tauri/ml-runtime.json` and `crates/ml-pipeline/models.json`.
+Each is cached under a key made from its manifest, and the fetch scripts
+re-check every restored file's size and SHA-256 on a cache hit, so a corrupt
+cache fails the fetch step and not the test. No secrets are needed.
+
+**Trigger:** `workflow_dispatch` (Actions, ML, Run workflow) and a weekly
+schedule (Tuesday 05:41 UTC). Never on push or on a pull request, so it
+cannot be dispatched from a branch before it is merged; to try the same steps
+on a branch, run the commands in [Running the model tests locally](#running-the-model-tests-locally).
+It is a workflow of its own, not a `ci.yml` job, for the reason `audit.yml` is:
+`auto-release.yml` waits on the run named "CI", and a failure here (a pin that
+upstream removed) must not skip a release. Do not make it a required check.
+`crates/ml-pipeline/tests/ml_workflow.rs` keeps it opt-in, pins its actions to
+release tags and checks that the tests it names exist and are ignored.
+
 ### Workflow: `auto-release.yml`
 
 Fires when `ci.yml` completes successfully on `main`. Tags and dispatches `release-dev.yml`.

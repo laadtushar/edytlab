@@ -1,0 +1,116 @@
+name: ML
+
+# The tests CI cannot run: the ones that need the real speech model and the
+# real ONNX Runtime library (#383, #384). Both are large, the model comes from a
+# third party (huggingface.co), and a run takes minutes, so this workflow is
+# opt-in:
+#
+#   - workflow_dispatch, to run it by hand (Actions -> ML -> Run workflow);
+#   - weekly, so a pin that has gone stale (a model revision removed upstream, a
+#     runtime release pulled) shows up on a quiet week.
+#
+# It never runs on push or on a pull request, and nothing waits on it: it is
+# not a `ci.yml` job, so a failure here cannot turn the run named "CI" red,
+# which `auto-release.yml` waits on. Do not make it a required check.
+#
+# What it runs, all `#[ignore]`d in the crates so that `cargo test` skips them
+# visibly (#263) and all failing, not passing, when what they need is missing:
+#
+#   - ml-whisper `transcribe_known_words`: the pinned whisper-base files on the
+#     pinned ONNX Runtime, over a committed speech fixture. Asserts the words
+#     and when they start, and prints the realtime factor;
+#   - ml-pipeline `model_real_download`: the downloader fetches the same three
+#     files for real (a resume with a `Range` request included).
+#
+# Both inputs are pinned in the repository, not here, and verified before use:
+#
+#   - ONNX Runtime: apps/desktop/src-tauri/ml-runtime.json (URL, size, SHA-256
+#     of the archive and of the library), through scripts/fetch-ml-runtime.sh;
+#   - the model: crates/ml-pipeline/models.json (repository, commit, and each
+#     file's size and SHA-256), through scripts/fetch-ml-model.sh.
+#
+# Each is cached under a key made from its manifest, so changing a pin misses
+# the cache. The scripts run on a hit too, and re-check every restored file
+# against the manifest, so a corrupt cache fails the step instead of the test.
+#
+# No secrets are needed: the model is public and the runtime is a GitHub
+# release asset.
+on:
+  workflow_dispatch:
+  schedule:
+    # Tuesday 05:41 UTC. Off the hour: GitHub delays top-of-hour schedules.
+    - cron: "41 5 * * 2"
+
+# A scheduled or dispatched run is left to finish, so its result is not lost.
+concurrency:
+  group: ml-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: short
+
+jobs:
+  whisper:
+    name: whisper-base on ONNX Runtime (linux-x86_64)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Rust toolchain (rustup-shim honours rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # Its own key: these are release-profile builds, which ci.yml's debug
+      # ones cannot share. Saved only from main, as ci.yml does (#610).
+      - name: Cache cargo registry & target
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ml-linux-x86_64
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      # The library is 22 MB, under the same key ci.yml uses for it, so the
+      # two share one cache entry.
+      - name: Cache ONNX Runtime
+        uses: actions/cache@v6
+        with:
+          path: ml-runtime/linux-x64
+          key: ml-runtime-linux-x64-${{ hashFiles('apps/desktop/src-tauri/ml-runtime.json') }}
+
+      - name: Fetch ONNX Runtime
+        run: bash scripts/fetch-ml-runtime.sh linux-x64 ml-runtime/linux-x64
+
+      # The three model files, 139 MB. Keyed on the manifest, so a new pin
+      # misses; on a hit the script checks every restored file's size and
+      # SHA-256 against models.json and downloads nothing.
+      - name: Cache the whisper-base model
+        uses: actions/cache@v6
+        with:
+          path: ml-models/whisper-base
+          key: ml-model-whisper-base-${{ hashFiles('crates/ml-pipeline/models.json') }}
+
+      - name: Fetch the whisper-base model
+        run: bash scripts/fetch-ml-model.sh whisper-base ml-models/whisper-base
+
+      # `--release`: the realtime factor it prints is the one worth reading,
+      # and a debug build of the mel transform is several times slower.
+      # `--ignored` runs only the ignored tests, and they fail rather than
+      # skip when ORT_DYLIB_PATH or WHISPER_MODEL_DIR is missing, so this step
+      # cannot go green without having run the model.
+      - name: Whisper on the known words
+        env:
+          ORT_DYLIB_PATH: ${{ github.workspace }}/ml-runtime/linux-x64/libonnxruntime.so
+          WHISPER_MODEL_DIR: ${{ github.workspace }}/ml-models/whisper-base
+        run: cargo test -p ml-whisper --release --test transcribe_known_words -- --ignored --nocapture --test-threads=1
+
+      # The downloader against the real server. It writes into a temporary
+      # folder of its own and does not touch ml-models/.
+      - name: The pinned model downloads, resumes and verifies
+        run: cargo test -p ml-pipeline --release --test model_real_download -- --ignored --nocapture --test-threads=1
