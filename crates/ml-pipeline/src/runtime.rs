@@ -1115,6 +1115,10 @@ mod tests {
         assert!(msg.contains(&first.display().to_string()), "{msg}");
         assert!(msg.contains(&second.display().to_string()), "{msg}");
         assert!(msg.contains("#383"), "{msg}");
+        // The installers carry the library since v0.7.0 (#615), so the text
+        // must not say it is not shipped.
+        assert!(msg.contains("release installers include it"), "{msg}");
+        assert!(!msg.contains("does not ship"), "{msg}");
         // It reports the fact. A tool passes this text to the agent, which
         // must not read a remedy into it.
         assert!(!msg.contains("ORT_DYLIB_PATH"), "{msg}");

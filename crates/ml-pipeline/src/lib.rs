@@ -100,7 +100,7 @@ pub enum Error {
     /// (`ORT_DYLIB_PATH`, ONNX Runtime 1.x or newer for the `ort` we
     /// build against) is in the docs.
     #[error(
-        "ONNX Runtime library not found; looked in: {}. edytlab does not ship it yet (#383)",
+        "ONNX Runtime library not found; looked in: {}. The release installers include it (#383); a build from source does not",
         list_paths(.searched)
     )]
     MissingRuntime { searched: Vec<PathBuf> },
