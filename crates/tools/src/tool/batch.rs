@@ -145,21 +145,6 @@ impl Tool for BatchApplyTool {
         // `output_dir` a folder holding `podcast.wav` next to a project
         // folder named `podcast/` is enough. Nothing is started, so it is
         // not left half done either.
-        // Refused once, up front: two inputs whose names differ only in
-        // their extension (or only in case) would be one project folder, one
-        // history and one render, the second file's written over the
-        // first's and both reported as succeeded (#667).
-        if let Some((first, second)) = shared_project(&output_dir, &files) {
-            return Ok(ToolResult::Error(format!(
-                "batch_apply refused before starting: {} and {} would both be edited in the project \
-                 folder {}, so one would replace the other. Rename one of them, or move it to a \
-                 folder of its own, and run the batch again.",
-                first.display(),
-                second.display(),
-                project_for(&output_dir, &first).display()
-            )));
-        }
-
         let open: Vec<PathBuf> = files
             .iter()
             .map(|file| project_for(&output_dir, file))
@@ -190,6 +175,22 @@ impl Tool for BatchApplyTool {
                     collisions.len(),
                 )));
             }
+        }
+
+        // Refused once, up front, after the check above so that a render
+        // landing on an original is named as that: two inputs whose names differ only in
+        // their extension (or only in case) would be one project folder, one
+        // history and one render, the second file's written over the
+        // first's and both reported as succeeded (#667).
+        if let Some((first, second)) = shared_project(&output_dir, &files) {
+            return Ok(ToolResult::Error(format!(
+                "batch_apply refused before starting: {} and {} would both be edited in the project \
+                 folder {}, so one would replace the other. Rename one of them, or move it to a \
+                 folder of its own, and run the batch again.",
+                first.display(),
+                second.display(),
+                project_for(&output_dir, &first).display()
+            )));
         }
 
         let dispatcher = ToolDispatcher::default_dispatcher();
