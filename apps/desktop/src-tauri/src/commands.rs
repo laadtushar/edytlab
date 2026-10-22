@@ -2686,6 +2686,133 @@ mod render_range_tests {
     }
 }
 
+/// "Export Selection" writes to a path the user picks in a save dialog, and the
+/// dialog will happily offer the recording the session plays from (#653).
+#[cfg(test)]
+mod render_range_destination_tests {
+    use super::*;
+    use serde_json::json;
+    use tempfile::tempdir;
+
+    /// A one-second mono WAV that is not silence (a sawtooth), written by hand
+    /// so the test needs no audio dependency. A render of it at another gain
+    /// differs from it, so a write onto it shows.
+    fn write_wav(path: &std::path::Path) {
+        let frames = 8_000u32;
+        let data_len = frames * 2;
+        let mut b = Vec::new();
+        b.extend_from_slice(b"RIFF");
+        b.extend_from_slice(&(36 + data_len).to_le_bytes());
+        b.extend_from_slice(b"WAVEfmt ");
+        b.extend_from_slice(&16u32.to_le_bytes());
+        b.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        b.extend_from_slice(&1u16.to_le_bytes()); // mono
+        b.extend_from_slice(&8_000u32.to_le_bytes());
+        b.extend_from_slice(&16_000u32.to_le_bytes());
+        b.extend_from_slice(&2u16.to_le_bytes());
+        b.extend_from_slice(&16u16.to_le_bytes());
+        b.extend_from_slice(b"data");
+        b.extend_from_slice(&data_len.to_le_bytes());
+        for i in 0..frames {
+            b.extend_from_slice(&(((i % 100) as i16 - 50) * 200).to_le_bytes());
+        }
+        std::fs::write(path, b).unwrap();
+    }
+
+    /// A project that loaded `take.wav` in place and took 6 dB off it, opened
+    /// the way the app opens one. Returns the project folder, the state and
+    /// the head.
+    fn project_playing(original: &std::path::Path) -> (tempfile::TempDir, AppState, String) {
+        let dir = tempdir().unwrap();
+        {
+            let mut store = session::Store::open(dir.path()).unwrap();
+            let mut engine = audio_engine::Engine::new();
+            let mut clipboard = None;
+            let dispatcher = tools::ToolDispatcher::default_dispatcher();
+            for (tool, args) in [
+                ("load", json!({ "path": original })),
+                ("gain", json!({ "track": 0, "db": -6.0 })),
+            ] {
+                let mut ctx = tools::ToolContext {
+                    store: &mut store,
+                    engine: &mut engine,
+                    user_message: "",
+                    clipboard: &mut clipboard,
+                    allowed_tools: None,
+                };
+                match dispatcher.invoke(tool, args, &mut ctx).expect("invoke") {
+                    tools::ToolResult::Ok(_) => {}
+                    tools::ToolResult::Error(m) => panic!("{tool} failed: {m}"),
+                }
+            }
+        }
+        let state = AppState::new();
+        open_project_for_test(&state, dir.path()).unwrap();
+        let head = state
+            .store_handle()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .head()
+            .unwrap()
+            .to_hex();
+        (dir, state, head)
+    }
+
+    #[test]
+    fn export_selection_will_not_write_over_the_recording_the_session_plays() {
+        let music = tempdir().unwrap();
+        let original = music.path().join("take.wav");
+        write_wav(&original);
+        let before = std::fs::read(&original).unwrap();
+        let (_dir, state, head) = project_playing(&original);
+
+        let answer = render_range_inner(
+            &state,
+            head,
+            0.0,
+            0.5,
+            original.to_string_lossy().into_owned(),
+        );
+
+        let now = std::fs::read(&original).unwrap();
+        assert!(
+            now == before,
+            "the recording was written over (it was {} bytes, it is {} now)",
+            before.len(),
+            now.len()
+        );
+        let message = answer.expect_err("a refused export is an error the window shows");
+        assert!(
+            message.contains("take.wav") && message.contains("another"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn export_selection_still_writes_a_new_file_and_over_an_earlier_export() {
+        let music = tempdir().unwrap();
+        let original = music.path().join("take.wav");
+        write_wav(&original);
+        let before = std::fs::read(&original).unwrap();
+        let (_dir, state, head) = project_playing(&original);
+        let out = music.path().join("selection.wav");
+
+        for _ in 0..2 {
+            let answer = render_range_inner(
+                &state,
+                head.clone(),
+                0.0,
+                0.5,
+                out.to_string_lossy().into_owned(),
+            )
+            .expect("an export to a path nobody reads");
+            assert!(answer["frames_written"].as_u64().unwrap() > 0, "{answer}");
+        }
+        assert_eq!(std::fs::read(&original).unwrap(), before);
+    }
+}
+
 #[cfg(test)]
 mod commands_tests {
     use super::*;
@@ -5738,6 +5865,10 @@ fn render_range_inner(
         let node = store
             .get(id)
             .map_err(|e| CommandError::Session(e).to_string())?;
+        // The save dialog will offer the recording the session plays from, and
+        // writing a render onto it truncates it before it is read (#653). The
+        // window shows this message as the export's error.
+        tools::destination::refuse_project_audio(&store, [&out])?;
         materialize(&store, id)?;
         node
     };
