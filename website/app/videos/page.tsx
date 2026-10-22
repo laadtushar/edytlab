@@ -2,9 +2,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { JsonLd } from "@/components/json-ld";
-import { PageLinks, PageShell } from "@/components/landing/page-shell";
+import { FeaturedVideo } from "@/components/landing/featured-video";
+import { PageShell } from "@/components/landing/page-shell";
 import { VideoLinkCard } from "@/components/landing/site-video";
-import { Reveal, Stagger } from "@/components/motion";
+import { VideoActions, VideoSection, VideosCta } from "@/components/landing/videos-sections";
 import {
   breadcrumbJsonLd,
   pageAlternates,
@@ -12,12 +13,21 @@ import {
   pageSocial,
   videosHubJsonLd,
 } from "@/lib/seo";
-import { siteConfig } from "@/lib/site";
-import { demoVideos, launchVideo, releaseVideo, reels } from "@/lib/videos";
+import {
+  demoVideos,
+  formatDuration,
+  launchVideo,
+  releaseVideo,
+  reels,
+  videoCaptionsSrc,
+  videoPath,
+  videoPosterSrc,
+  videoSrc,
+} from "@/lib/videos";
 
-const title = "Videos: what's new, the launch video, demos and reels";
+const title = "Videos: watch an AI audio editor at work";
 const description =
-  "Watch the edytlab desktop app at work: what's new in v0.7.0, the launch video, three full DJ demos and short vertical reels. Open source and local-first.";
+  "Watch edytlab, an open-source AI audio editor, beatmatch two tracks, extend an intro and build a mix from plain-English requests.";
 const path = "/videos";
 
 export const metadata: Metadata = {
@@ -28,113 +38,93 @@ export const metadata: Metadata = {
 };
 
 /**
- * The hub. It holds no player: each video it lists, the three full demos
- * included, has a page of its own where it is the main content, which is
- * what Google needs to index it. The page's structured data is a
- * `CollectionPage` listing those pages, not a `VideoObject` apiece.
+ * The hub: a pitch, one featured video, then the rest in sections, and a
+ * way to download. Every card links to the video's own page, where it is
+ * the main content, which is what Google needs to index it. The page's
+ * structured data is a `CollectionPage` listing those pages, not a
+ * `VideoObject` apiece, and its markup holds no `<video>`: the featured
+ * poster becomes a player only when pressed (`FeaturedVideo`).
+ *
+ * All of the words under a video's name come from `lib/videos.ts`
+ * (`blurb`, `disclosure`), so a re-recording changes data, not this page.
  */
 export default function VideosPage() {
+  const featured = launchVideo;
   return (
     <PageShell
       wide
       eyebrow="Videos"
-      title="edytlab at work"
-      lead="Videos of the desktop app: what's new in v0.7.0, the launch video, three full DJ demos recorded start to finish, and short vertical reels. Each video has a page of its own. Nothing plays until you press play."
+      title="Watch edytlab edit audio from a sentence"
+      lead="Ask for a blend, a fade or a loudness target in plain English and see the agent do the work in the real desktop app, from the request to the exported file."
     >
       <JsonLd data={breadcrumbJsonLd(pageBreadcrumbs("Videos", path))} />
       <JsonLd data={videosHubJsonLd()} />
 
-      <section aria-labelledby="videos-release" className="mt-12">
-        <Reveal>
-          <h2 id="videos-release" className="text-2xl font-semibold">
-            What&apos;s new in v0.7.0
+      <VideoActions className="mt-8" />
+
+      <section aria-labelledby="videos-featured" className="mt-12">
+        <FeaturedVideo
+          href={videoPath(featured.slug)}
+          title={featured.title}
+          src={videoSrc(featured.slug)}
+          poster={videoPosterSrc(featured.slug)}
+          captions={featured.captionsSource ? videoCaptionsSrc(featured.slug) : undefined}
+          width={featured.width}
+          height={featured.height}
+        />
+        <div className="mt-5 max-w-3xl">
+          <h2 id="videos-featured" className="text-balance text-xl font-semibold sm:text-2xl">
+            <Link href={videoPath(featured.slug)} className="hover:text-primary">
+              {featured.title}
+            </Link>
           </h2>
-          <p className="mt-3 max-w-3xl leading-relaxed text-foreground/90">
-            Under a minute, with captions you can switch on. Every app shot is
-            the real v0.7.0 frontend with a scripted assistant, and the video
-            says so on each one.
+          <p className="mt-2 leading-relaxed text-foreground/90">{featured.blurb}</p>
+          <p className="mt-2 text-xs leading-relaxed text-muted-foreground/80">
+            {formatDuration(featured.seconds)} · {featured.disclosure}
           </p>
-        </Reveal>
-        <div className="mt-6 max-w-xl">
-          <VideoLinkCard video={releaseVideo} label="v0.7.0" />
         </div>
       </section>
 
-      <section aria-labelledby="videos-launch" className="mt-16">
-        <Reveal>
-          <h2 id="videos-launch" className="text-2xl font-semibold">
-            The launch video
-          </h2>
-          <p className="mt-3 max-w-3xl leading-relaxed text-foreground/90">
-            About a minute, with captions you can switch on. The app footage in
-            it comes from the recordings below, not from a mock-up.
-          </p>
-        </Reveal>
-        <div className="mt-6 max-w-xl">
-          <VideoLinkCard video={launchVideo} label="Launch video" />
-        </div>
-      </section>
-
-      <section aria-labelledby="videos-demos" className="mt-16">
-        <Reveal>
-          <h2 id="videos-demos" className="text-2xl font-semibold">
-            Three full demos
-          </h2>
-          <p className="mt-3 max-w-3xl leading-relaxed text-foreground/90">
-            Each is one job, from the request to an exported file, played in
-            real time with sound. Waits for the agent are sped up. The tracks
-            are short synthetic loops. Each has a page of its own, and all
-            three also play on the{" "}
+      <VideoSection
+        id="videos-walkthroughs"
+        title="Full walkthroughs"
+        lead={
+          <>
+            Three complete DJ jobs, from the request to an exported file. What edytlab does and does not do for a DJ is on the{" "}
             <Link href="/use-cases/dj" className="text-primary underline underline-offset-4">
               AI audio editor for DJs
             </Link>{" "}
-            page, which also says what edytlab can and cannot do for a DJ, and
-            in the{" "}
-            <Link href="/#demos" className="text-primary underline underline-offset-4">
-              demos section of the home page
-            </Link>
-            .
-          </p>
-        </Reveal>
-        <Stagger className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3" each={0.08} distance={24}>
-          {demoVideos.map((video, i) => (
-            <VideoLinkCard key={video.slug} video={video} label={`Demo ${String(i + 1).padStart(2, "0")}`} />
+            page.
+          </>
+        }
+      >
+        <div className="grid gap-5 md:grid-cols-3">
+          {demoVideos.map((video) => (
+            <VideoLinkCard key={video.slug} video={video} />
           ))}
-        </Stagger>
-      </section>
+        </div>
+      </VideoSection>
 
-      <section aria-labelledby="videos-reels" className="mt-16">
-        <Reveal>
-          <h2 id="videos-reels" className="text-2xl font-semibold">
-            Short reels
-          </h2>
-          <p className="mt-3 max-w-3xl leading-relaxed text-foreground/90">
-            Vertical videos, in the shape a phone plays them, with no
-            voice-over: three about v0.7.0 (real app, scripted assistant), and
-            five cut from the demos with the app&apos;s own sound.
-          </p>
-        </Reveal>
-        <Stagger className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3" each={0.08} distance={24}>
-          {reels.map((video, i) => (
-            <VideoLinkCard key={video.slug} video={video} label={`Reel ${String(i + 1).padStart(2, "0")}`} />
+      <VideoSection id="videos-latest" title="The latest release" lead="The one-minute overview of what changed.">
+        <VideoLinkCard video={releaseVideo} row />
+      </VideoSection>
+
+      <VideoSection id="videos-clips" title="Short clips" lead="Vertical videos for your phone, each about one idea.">
+        {/* Flex, not a grid, so the last row is centred whatever the count:
+            two across on a phone, four from `lg`. */}
+        <div className="flex flex-wrap justify-center gap-4">
+          {reels.map((video) => (
+            <VideoLinkCard
+              key={video.slug}
+              video={video}
+              compact
+              className="w-[calc((100%-1rem)/2)] lg:w-[calc((100%-3rem)/4)]"
+            />
           ))}
-        </Stagger>
-      </section>
+        </div>
+      </VideoSection>
 
-      <p className="mt-16 max-w-3xl leading-relaxed text-foreground/90">
-        edytlab is free and open source (MIT) for macOS, Windows and Linux. Stem
-        separation and transcription are not built yet, and the current builds
-        are unsigned, so macOS and Windows warn on first launch;{" "}
-        <Link href="/docs/getting-started" className="text-primary underline underline-offset-4">
-          the setup guide
-        </Link>{" "}
-        has the steps. Download it from the{" "}
-        <Link href={siteConfig.releases} className="text-primary underline underline-offset-4">
-          releases page
-        </Link>
-        .
-      </p>
-      <PageLinks />
+      <VideosCta />
     </PageShell>
   );
 }

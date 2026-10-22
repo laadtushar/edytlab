@@ -832,13 +832,13 @@ describe("the videos hub", () => {
     expect(page).toMatch(/const description =\s*"[^"]{60,160}"/);
   });
 
-  it("lists what's new in v0.7.0 at the top, then the launch video, the three demos and the reels", () => {
+  it("features the launch video, then lists the three demos, the latest release and the reels", () => {
     const at = (needle: string) => page.indexOf(needle);
-    expect(at("<VideoLinkCard video={releaseVideo}")).toBeGreaterThan(-1);
-    expect(at("<VideoLinkCard video={launchVideo}")).toBeGreaterThan(at("<VideoLinkCard video={releaseVideo}"));
-    expect(at("demoVideos.map(")).toBeGreaterThan(at("<VideoLinkCard video={launchVideo}"));
-    expect(at("reels.map(")).toBeGreaterThan(at("demoVideos.map("));
-    expect(page).toContain("demoVideos.map(");
+    expect(page).toContain("const featured = launchVideo");
+    expect(at("<FeaturedVideo")).toBeGreaterThan(-1);
+    expect(at("demoVideos.map(")).toBeGreaterThan(at("<FeaturedVideo"));
+    expect(at("<VideoLinkCard video={releaseVideo}")).toBeGreaterThan(at("demoVideos.map("));
+    expect(at("reels.map(")).toBeGreaterThan(at("<VideoLinkCard video={releaseVideo}"));
   });
 
   it("holds no player and no VideoObject: Google indexes a video that is the main content of its page", () => {
@@ -867,7 +867,8 @@ describe("the videos hub", () => {
 
   it("links each demo's card to the demo's own watch page", () => {
     // The card is the same component as for every other video: it links `videoPath(slug)`.
-    expect(page).toContain("<VideoLinkCard key={video.slug} video={video} label={`Demo ");
+    expect(page).toContain("demoVideos.map((video) => (");
+    expect(page).toContain("<VideoLinkCard key={video.slug} video={video} />");
     expect(cards).toContain("href={videoPath(video.slug)}");
     for (const d of demoVideos) expect(videoPath(d.slug)).toBe(`/videos/${d.slug}`);
   });
@@ -932,9 +933,10 @@ describe("a video's own page", () => {
     // The player comes straight after the heading, ahead of every other section.
     expect(body.indexOf("<WatchPlayer")).toBeGreaterThan(-1);
     expect(body.indexOf("<WatchPlayer")).toBeLessThan(body.indexOf("<section"));
-    // One player, and nothing else on the page that plays or marks up a video.
+    // One player, and nothing else on the page that plays or marks up a video. The related
+    // videos are cards, which link to their own pages and hold no `<video>`.
     expect(body.match(/<WatchPlayer/g)?.length).toBe(1);
-    expect(body).not.toMatch(/<video\b|<DemoCard|<VideoLinkCard|<DemoLinkCard/);
+    expect(body).not.toMatch(/<video\b|<DemoCard|<DemoLinkCard|<FeaturedVideo|videoObjectJsonLd|VideoObject/);
     expect(code(player).match(/<video\b/g)?.length).toBe(1);
     expect(code(player).match(/videoObjectJsonLd\(/g)?.length).toBe(1);
   });
