@@ -1,0 +1,46 @@
+{
+  "file": "s8a-broll-timeline.mp4",
+  "seconds": 22.6,
+  "frames": 339,
+  "fps": 15,
+  "width": 32002000,
+  "marks": [
+    {
+      "label": "start",
+      "t": 0
+    },
+    {
+      "label": "zoom",
+      "t": 1.5
+    },
+    {
+      "label": "pan",
+      "t": 8.01
+    },
+    {
+      "label": "lanes",
+      "t": 17.69
+    }
+  ],
+  "wav": null,
+  "spans": null,
+  "sync": null,
+  "capture": {
+    "frames": 344,
+    "dup": 0,
+    "drop": 31,
+    "speed": 0.923
+  },
+  "live": true,
+  "model": "claude-sonnet-5-5",
+  "effort": "low",
+  "panPx": 1383,
+  "labels": [
+    "intro",
+    "verse",
+    "chorus",
+    "bridge",
+    "outro"
+  ],
+  "toolCalls": null
+}

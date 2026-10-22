@@ -1,0 +1,83 @@
+{
+  "file": "s2-faders-stay-put.mp4",
+  "seconds": 12.07,
+  "frames": 181,
+  "fps": 15,
+  "width": 32002000,
+  "marks": [
+    {
+      "label": "start",
+      "t": 0
+    },
+    {
+      "label": "slider",
+      "t": 1.52
+    },
+    {
+      "label": "slider focused",
+      "t": 3.9
+    },
+    {
+      "label": "tap 1",
+      "t": 5.03
+    },
+    {
+      "label": "tap 2",
+      "t": 5.59
+    },
+    {
+      "label": "tap 3",
+      "t": 6.12
+    },
+    {
+      "label": "tap 4",
+      "t": 6.67
+    },
+    {
+      "label": "held",
+      "t": 9.31
+    }
+  ],
+  "wav": null,
+  "spans": null,
+  "sync": null,
+  "capture": {
+    "frames": 196,
+    "dup": 0,
+    "drop": 22,
+    "speed": 1.01
+  },
+  "live": true,
+  "model": "claude-sonnet-5-5",
+  "effort": "low",
+  "readouts": [
+    {
+      "t": 11450.000000000002,
+      "text": "0.0 dB"
+    },
+    {
+      "t": 18914,
+      "text": "+0.5 dB"
+    },
+    {
+      "t": 19500,
+      "text": "+1.0 dB"
+    },
+    {
+      "t": 20017,
+      "text": "+1.5 dB"
+    },
+    {
+      "t": 20540,
+      "text": "+2.0 dB"
+    }
+  ],
+  "tapsAt": [
+    19098,
+    19656,
+    20178,
+    20743.000000000004
+  ],
+  "gain": 2,
+  "toolCalls": null
+}

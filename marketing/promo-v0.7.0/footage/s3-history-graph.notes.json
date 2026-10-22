@@ -1,0 +1,108 @@
+{
+  "file": "s3-history-graph.mp4",
+  "seconds": 41.2,
+  "frames": 618,
+  "fps": 15,
+  "width": 32002000,
+  "marks": [
+    {
+      "label": "start",
+      "t": 0
+    },
+    {
+      "label": "request 1",
+      "t": 1.5
+    },
+    {
+      "label": "named",
+      "t": 13.94
+    },
+    {
+      "label": "request 2",
+      "t": 17.48
+    },
+    {
+      "label": "asked",
+      "t": 36.52
+    }
+  ],
+  "wav": null,
+  "spans": null,
+  "sync": null,
+  "capture": {
+    "frames": 654,
+    "dup": null,
+    "drop": null,
+    "speed": 0.998
+  },
+  "live": true,
+  "model": "claude-sonnet-5-5",
+  "effort": "low",
+  "nodesBefore": 20,
+  "nodesAfterName": 20,
+  "nodesAfterCompact": 8,
+  "first": {
+    "badges": [
+      {
+        "status": "ok",
+        "text": "✓Rename version"
+      }
+    ],
+    "reply": "I labelled the current version (node a5cac6e1…) \"chorus\". Only the label changed. The audio is the same.",
+    "seconds": 12.39
+  },
+  "second": {
+    "badges": [
+      {
+        "status": "ok",
+        "text": "✓Rename version"
+      },
+      {
+        "status": "ok",
+        "text": "✓Compact session"
+      }
+    ],
+    "reply": "I compacted the history and kept the last 8 edits. It removed 12 older undo steps permanently. No audio files were deleted, so no disk space was freed. Undo still works for the 8 most recent edits.Undo",
+    "seconds": 19.045
+  },
+  "third": null,
+  "labelled": true,
+  "toolCalls": {
+    "story": "9-promo-s3-history-graph",
+    "source": "claude-proxy",
+    "turns": [
+      {
+        "turn": 1,
+        "prompt": "Name this version chorus",
+        "calls": [
+          {
+            "id": "toolu_011x8VJeHTQA46KVijR5Ka7R",
+            "name": "name_node",
+            "arguments": {
+              "label": "chorus",
+              "node_id": "a5cac6e1ac3eb026a3fe12218523394f39c388d64453e2dcd92046292b6e0357"
+            },
+            "result": "{\"label\":\"chorus\",\"node_id\":\"a5cac6e1ac3eb026a3fe12218523394f39c388d64453e2dcd92046292b6e0357\",\"summary\":\"Labelled a5cac6e1ac3eb026a3fe12218523394f39c388d64453e2dcd92046292b6e0357 as \\\"chorus\\\"\"}",
+            "error": false
+          }
+        ]
+      },
+      {
+        "turn": 2,
+        "prompt": "Compact the history, keep the last 8 edits",
+        "calls": [
+          {
+            "id": "toolu_01XJqfkcB2MxyYiBQ8rbpWjk",
+            "name": "compact_session",
+            "arguments": {
+              "apply": true,
+              "keep_last": 8
+            },
+            "result": "{\"applied\":true,\"freed_bytes\":0,\"kept_files\":0,\"removed_files\":0,\"removed_nodes\":12,\"summary\":\"Removed 12 node(s) of history and 0 file(s), freeing 0.0 MB. The last 8 nodes on the current chain are untouched, so recent undo still works.\"}",
+            "error": false
+          }
+        ]
+      }
+    ]
+  }
+}

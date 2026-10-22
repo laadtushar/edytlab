@@ -1,0 +1,273 @@
+{
+  "file": "s4-200-tracks.mp4",
+  "seconds": 18.717,
+  "frames": 506,
+  "fps": 15,
+  "width": 32002000,
+  "marks": [
+    {
+      "label": "start",
+      "t": 0
+    },
+    {
+      "label": "look down",
+      "t": 1.5
+    },
+    {
+      "label": "request",
+      "t": 5.38
+    },
+    {
+      "label": "done",
+      "t": 24.1
+    },
+    {
+      "label": "scroll to the strings",
+      "t": 26.64
+    },
+    {
+      "label": "strings in view",
+      "t": 29.35
+    }
+  ],
+  "wav": null,
+  "spans": null,
+  "sync": null,
+  "capture": {
+    "frames": 543,
+    "dup": null,
+    "drop": null,
+    "speed": 0.997
+  },
+  "live": true,
+  "model": "claude-sonnet-5-5",
+  "effort": "low",
+  "request": "make all the strings quieter",
+  "badges": [
+    {
+      "status": "ok",
+      "text": "✓List session"
+    },
+    {
+      "status": "ok",
+      "text": "✓Gain"
+    },
+    {
+      "status": "ok",
+      "text": "✓Gain"
+    },
+    {
+      "status": "ok",
+      "text": "✓Gain"
+    },
+    {
+      "status": "ok",
+      "text": "✓Gain"
+    },
+    {
+      "status": "ok",
+      "text": "✓Gain"
+    },
+    {
+      "status": "ok",
+      "text": "✓Gain"
+    },
+    {
+      "status": "ok",
+      "text": "✓Gain"
+    },
+    {
+      "status": "ok",
+      "text": "✓Gain"
+    },
+    {
+      "status": "ok",
+      "text": "✓Gain"
+    },
+    {
+      "status": "ok",
+      "text": "✓Gain"
+    },
+    {
+      "status": "ok",
+      "text": "✓Gain"
+    },
+    {
+      "status": "ok",
+      "text": "✓Gain"
+    }
+  ],
+  "reply": "Strings are probably in the 60 tracks I can't see, so I'll list those first.Strings are tracks 147–158, which is 12 tracks. I'll lower each by 6 dB.I lowered all 12 string tracks by 6 dB. They are Cello a/b, Contrabass a/b, Viola a/b, Violin I a–c and Violin II a–c (tracks 147–158).\nI assumed those were the strings and didn't change any other tracks. If you want a different amount, tell me and I'll set it. A bigger cut like -10 dB would be easy to apply.",
+  "strings": [
+    147,
+    148,
+    149,
+    150,
+    151,
+    152,
+    153,
+    154,
+    155,
+    156,
+    157,
+    158
+  ],
+  "gains": [
+    -6,
+    -6,
+    -6,
+    -6,
+    -6,
+    -6,
+    -6,
+    -6,
+    -6,
+    -6,
+    -6,
+    -6
+  ],
+  "minus4InDom": 12,
+  "toolCalls": {
+    "story": "9-promo-s4-200-tracks",
+    "source": "claude-proxy",
+    "turns": [
+      {
+        "turn": 1,
+        "prompt": "make all the strings quieter",
+        "calls": [
+          {
+            "id": "toolu_011Q79GJWWDZKiW6NNhuaa9i",
+            "name": "list_session",
+            "arguments": {
+              "limit": 60,
+              "offset": 140,
+              "what": "tracks"
+            },
+            "result": "{\"summary\":\"60 of 200 tracks, offsets 140-199. That is the last page.\",\"text\":\"- 140 \\\"Trumpet 6\\\": 0.00-8.00s; gain +0.0 dB; pan centre\\n- 141 \\\"Trumpet 7\\\": 0.00-8.00s; gain +0.0 dB; pan centre\\n- 142 \\\"Trumpet 8\\\": 0.00-8.00s; gain +0.0 dB; pan centre\\n- 143 \\\"Tuba 1\\\": 0.00-8.00s; gain +0.0 dB; pan centre\\n- 144 \\\"Tuba 2\\\": 0.00-8.00s; gain +0.0 dB; pan centre\\n- 145 \\\"Tuba 3\\\": 0.00-8.00s; gain +0.0 dB; pan centre\\n- 146 \\\"Tuba 4\\\": 0.00-8.00s; gain +0.0 dB; pan centre\\n- 147 \\\"Cello a\\\": 0.00-8.00s; gain +0.0 dB; pan centre\\n- 148 \\\"Cello b\\\": 0.00-8.00s; gain +0.0 dB; pan centre\\n- 149 \\\"Contrabass a\\\": 0.00-8.00s; gain +0.0 dB; pan centre\\n- 150 \\\"Contrabass b\\\": 0.00-8.00s; gain +0.0 dB; pan centre\\n- 151 \\\"Viola a\\\": 0.00-8.00s; gain +0.0 dB; pan centre\\n- 152 \\\"Viola b\\\": 0.00-8.00s; gain +0.0 dB; pan centre\\n- 153 \\\"Violin I a\\\": 0.00-8.00s; gain +0.0 dB; pan centre\\n- 154 \\\"Violin I b\\\": 0.00-8.00s; gain +0.0 dB; pan centre\\n- 155 \\\"Violin I c\\\": 0.00-8.00s; gain +0.0 dB; … (2573 more characters)",
+            "error": false
+          },
+          {
+            "id": "toolu_016i2wpFaCjxwNimMXs9uabj",
+            "name": "gain",
+            "arguments": {
+              "db": -6,
+              "track": 147
+            },
+            "result": "{\"node_id\":\"fe2b178579b248a7cc357e1452aeac4c5b6cf6c7a152c34ed9657bc2b52c5164\",\"summary\":\"Applied -6 dB gain to track 147 (now -6 dB); new head fe2b178579b248a7cc357e1452aeac4c5b6cf6c7a152c34ed9657bc2b52c5164\",\"track_gain_db\":-6.0}",
+            "error": false
+          },
+          {
+            "id": "toolu_011rP6aVb9XbmbPMCJFNgUmx",
+            "name": "gain",
+            "arguments": {
+              "db": -6,
+              "track": 148
+            },
+            "result": "{\"node_id\":\"b9d7082358705ea53e6bb430b78daab89154d308fdbe7f2ea9ac44e04f9e98fe\",\"summary\":\"Applied -6 dB gain to track 148 (now -6 dB); new head b9d7082358705ea53e6bb430b78daab89154d308fdbe7f2ea9ac44e04f9e98fe\",\"track_gain_db\":-6.0}",
+            "error": false
+          },
+          {
+            "id": "toolu_01HhPNAXjYi4XsXKLcudU35z",
+            "name": "gain",
+            "arguments": {
+              "db": -6,
+              "track": 149
+            },
+            "result": "{\"node_id\":\"40625713d27b1d2b4f402ef102e0fd529f39baf3070610ea7e4541710fb6142b\",\"summary\":\"Applied -6 dB gain to track 149 (now -6 dB); new head 40625713d27b1d2b4f402ef102e0fd529f39baf3070610ea7e4541710fb6142b\",\"track_gain_db\":-6.0}",
+            "error": false
+          },
+          {
+            "id": "toolu_01UKds1mHkZaD3YWhAQxfbyx",
+            "name": "gain",
+            "arguments": {
+              "db": -6,
+              "track": 150
+            },
+            "result": "{\"node_id\":\"b452c67a5a9c88ffbcd8ce4cf02bb5966df80705f7ea1630147e711ce9a64294\",\"summary\":\"Applied -6 dB gain to track 150 (now -6 dB); new head b452c67a5a9c88ffbcd8ce4cf02bb5966df80705f7ea1630147e711ce9a64294\",\"track_gain_db\":-6.0}",
+            "error": false
+          },
+          {
+            "id": "toolu_01AtTNXqVDP9HxacxzpHqvDm",
+            "name": "gain",
+            "arguments": {
+              "db": -6,
+              "track": 151
+            },
+            "result": "{\"node_id\":\"d41bd223787f01911d3c4efbd5db85ade72caa307edeb1e7bb6617b3a5b3b2d2\",\"summary\":\"Applied -6 dB gain to track 151 (now -6 dB); new head d41bd223787f01911d3c4efbd5db85ade72caa307edeb1e7bb6617b3a5b3b2d2\",\"track_gain_db\":-6.0}",
+            "error": false
+          },
+          {
+            "id": "toolu_01MzGpyh51nkbLveskyv8Vd5",
+            "name": "gain",
+            "arguments": {
+              "db": -6,
+              "track": 152
+            },
+            "result": "{\"node_id\":\"c79c84753ec3a642c8c0361ff18ce73fdd829cb143de3d82eee22d3580a7e103\",\"summary\":\"Applied -6 dB gain to track 152 (now -6 dB); new head c79c84753ec3a642c8c0361ff18ce73fdd829cb143de3d82eee22d3580a7e103\",\"track_gain_db\":-6.0}",
+            "error": false
+          },
+          {
+            "id": "toolu_01L292qNahYimuck9t9ZZftf",
+            "name": "gain",
+            "arguments": {
+              "db": -6,
+              "track": 153
+            },
+            "result": "{\"node_id\":\"0b924b2529629016c32af7495e33049b06f4d35de31e65ba4a7d69ce4a542e50\",\"summary\":\"Applied -6 dB gain to track 153 (now -6 dB); new head 0b924b2529629016c32af7495e33049b06f4d35de31e65ba4a7d69ce4a542e50\",\"track_gain_db\":-6.0}",
+            "error": false
+          },
+          {
+            "id": "toolu_01XrwRfL53NQsV1ge7tRX9VA",
+            "name": "gain",
+            "arguments": {
+              "db": -6,
+              "track": 154
+            },
+            "result": "{\"node_id\":\"6ff9c7ca47744cd46f8dd69c8e5f55c4abc0b716d2ddec8f1803ce09e6b58499\",\"summary\":\"Applied -6 dB gain to track 154 (now -6 dB); new head 6ff9c7ca47744cd46f8dd69c8e5f55c4abc0b716d2ddec8f1803ce09e6b58499\",\"track_gain_db\":-6.0}",
+            "error": false
+          },
+          {
+            "id": "toolu_019tvRfbRtgD1nT3qQ64WETB",
+            "name": "gain",
+            "arguments": {
+              "db": -6,
+              "track": 155
+            },
+            "result": "{\"node_id\":\"1db22c6c19cb3e3ed2c6081511a88d2db8b56495b161d34d0292e6a3bbeb6c93\",\"summary\":\"Applied -6 dB gain to track 155 (now -6 dB); new head 1db22c6c19cb3e3ed2c6081511a88d2db8b56495b161d34d0292e6a3bbeb6c93\",\"track_gain_db\":-6.0}",
+            "error": false
+          },
+          {
+            "id": "toolu_01XnVmxPC7deZ37bVtxFHHvY",
+            "name": "gain",
+            "arguments": {
+              "db": -6,
+              "track": 156
+            },
+            "result": "{\"node_id\":\"b4455eb253be7f1b5a4de6c6f05226b6ea452e85af9b5ebcc450018432140e1b\",\"summary\":\"Applied -6 dB gain to track 156 (now -6 dB); new head b4455eb253be7f1b5a4de6c6f05226b6ea452e85af9b5ebcc450018432140e1b\",\"track_gain_db\":-6.0}",
+            "error": false
+          },
+          {
+            "id": "toolu_013126HdokZ7RGBY5yUBYnEE",
+            "name": "gain",
+            "arguments": {
+              "db": -6,
+              "track": 157
+            },
+            "result": "{\"node_id\":\"91810e40e21d1c145a64d7d906ad2af8d0482be9a2b423875f578a5d0b830c3f\",\"summary\":\"Applied -6 dB gain to track 157 (now -6 dB); new head 91810e40e21d1c145a64d7d906ad2af8d0482be9a2b423875f578a5d0b830c3f\",\"track_gain_db\":-6.0}",
+            "error": false
+          },
+          {
+            "id": "toolu_01PnNSxFAwW9W2kbTMhfm8Rg",
+            "name": "gain",
+            "arguments": {
+              "db": -6,
+              "track": 158
+            },
+            "result": "{\"node_id\":\"f346f0c7922a7d3081c3a5c3f402fc074209c7894d3c98a8b40b5e1c754e3b50\",\"summary\":\"Applied -6 dB gain to track 158 (now -6 dB); new head f346f0c7922a7d3081c3a5c3f402fc074209c7894d3c98a8b40b5e1c754e3b50\",\"track_gain_db\":-6.0}",
+            "error": false
+          }
+        ]
+      }
+    ]
+  }
+}

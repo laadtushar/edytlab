@@ -1,0 +1,18 @@
+[
+  {
+    "label": "start",
+    "t": 0
+  },
+  {
+    "label": "zoom",
+    "t": 1.5
+  },
+  {
+    "label": "pan",
+    "t": 8.01
+  },
+  {
+    "label": "lanes",
+    "t": 17.69
+  }
+]

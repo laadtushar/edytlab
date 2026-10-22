@@ -1,0 +1,108 @@
+{
+  "file": "s1-describe-it-happens.mp4",
+  "seconds": 37.2,
+  "frames": 558,
+  "fps": 15,
+  "width": 32002000,
+  "marks": [
+    {
+      "label": "start",
+      "t": 0
+    },
+    {
+      "label": "request",
+      "t": 1.5
+    },
+    {
+      "label": "done",
+      "t": 20.36
+    },
+    {
+      "label": "play",
+      "t": 23.4
+    },
+    {
+      "label": "playing",
+      "t": 26.28
+    },
+    {
+      "label": "paused",
+      "t": 34.04
+    }
+  ],
+  "wav": "s1-describe-it-happens.wav",
+  "spans": [
+    {
+      "footageStart": 26.3,
+      "footageEnd": 34.15
+    }
+  ],
+  "sync": {
+    "flashAt": 1792677894.6,
+    "toneAt": 1792677893.828,
+    "soundIsAheadBy": 0.772
+  },
+  "capture": {
+    "frames": 602,
+    "dup": 0,
+    "drop": 16,
+    "speed": 1.01
+  },
+  "live": true,
+  "model": "claude-sonnet-5-5",
+  "effort": "low",
+  "request": "Fade the backing in over the first 4 seconds and bring the vocal down 3 dB",
+  "badges": [
+    {
+      "status": "ok",
+      "text": "✓Fade"
+    },
+    {
+      "status": "ok",
+      "text": "✓Gain"
+    }
+  ],
+  "reply": "I made both changes:\n\nBacking (track 0): it now fades in over the first 4 seconds.\nVocal (track 1): its gain is now -3 dB.\n\nI haven't rendered or exported anything yet. Tell me if you want that as the next step.",
+  "turnSeconds": 18.857,
+  "gains": [
+    0,
+    -3
+  ],
+  "readout": "0.0 DB",
+  "toolCalls": {
+    "story": "9-promo-s1-describe-it-happens",
+    "source": "claude-proxy",
+    "turns": [
+      {
+        "turn": 1,
+        "prompt": "Fade the backing in over the first 4 seconds and bring the vocal down 3 dB",
+        "calls": [
+          {
+            "id": "toolu_017vyr2NxZjtSeYeMHDDDbRF",
+            "name": "fade",
+            "arguments": {
+              "kind": "in",
+              "range": {
+                "end_sec": 4,
+                "start_sec": 0
+              },
+              "track": 0
+            },
+            "result": "{\"node_id\":\"eef4180d776cef49df1439e0b7f36699be589551ed65ceafa1ee3c9b62c28a6f\",\"summary\":\"fade In 0.00s–4.00s on track 0\"}",
+            "error": false
+          },
+          {
+            "id": "toolu_01CP7rh93YBV2w8PbmFzcuXB",
+            "name": "gain",
+            "arguments": {
+              "db": -3,
+              "track": 1
+            },
+            "result": "{\"node_id\":\"0f0ce165919813c57a465c87ff97f385195460cd582f563e4f47314a1d9c9589\",\"summary\":\"Applied -3 dB gain to track 1 (now -3 dB); new head 0f0ce165919813c57a465c87ff97f385195460cd582f563e4f47314a1d9c9589\",\"track_gain_db\":-3.0}",
+            "error": false
+          }
+        ]
+      }
+    ]
+  }
+}

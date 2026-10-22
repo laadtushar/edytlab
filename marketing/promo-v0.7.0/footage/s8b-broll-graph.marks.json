@@ -1,0 +1,14 @@
+[
+  {
+    "label": "start",
+    "t": 0
+  },
+  {
+    "label": "wheel",
+    "t": 1.5
+  },
+  {
+    "label": "drag",
+    "t": 5.07
+  }
+]

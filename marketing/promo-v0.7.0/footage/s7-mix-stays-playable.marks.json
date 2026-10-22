@@ -1,0 +1,34 @@
+[
+  {
+    "label": "start",
+    "t": 0
+  },
+  {
+    "label": "play",
+    "t": 1.5
+  },
+  {
+    "label": "playing",
+    "t": 4.09
+  },
+  {
+    "label": "graph tab",
+    "t": 7.39
+  },
+  {
+    "label": "timeline tab",
+    "t": 10.1
+  },
+  {
+    "label": "play again",
+    "t": 12.1
+  },
+  {
+    "label": "playing again",
+    "t": 12.8
+  },
+  {
+    "label": "paused",
+    "t": 17.75
+  }
+]

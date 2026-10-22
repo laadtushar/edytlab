@@ -1,0 +1,41 @@
+{
+  "file": "s5-runtime-bundled.mp4",
+  "seconds": 12.27,
+  "frames": 184,
+  "fps": 15,
+  "width": 32002000,
+  "marks": [
+    {
+      "label": "start",
+      "t": 0
+    },
+    {
+      "label": "gear",
+      "t": 1.5
+    },
+    {
+      "label": "settings open",
+      "t": 3.67
+    },
+    {
+      "label": "runtime line in view",
+      "t": 5.15
+    }
+  ],
+  "wav": null,
+  "spans": null,
+  "sync": null,
+  "capture": {
+    "frames": 203,
+    "dup": 0,
+    "drop": 17,
+    "speed": 1.04
+  },
+  "live": true,
+  "model": "claude-sonnet-5-5",
+  "effort": "low",
+  "text": "ONNX Runtime: 1.23.2 (bundled)",
+  "detail": "/tmp/edytlab-v0.7.0/usr/lib/edytlab/libonnxruntime.so",
+  "scrolledPx": 0,
+  "toolCalls": null
+}

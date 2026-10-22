@@ -1,0 +1,26 @@
+[
+  {
+    "label": "start",
+    "t": 0
+  },
+  {
+    "label": "request",
+    "t": 1.5
+  },
+  {
+    "label": "done",
+    "t": 20.36
+  },
+  {
+    "label": "play",
+    "t": 23.4
+  },
+  {
+    "label": "playing",
+    "t": 26.28
+  },
+  {
+    "label": "paused",
+    "t": 34.04
+  }
+]

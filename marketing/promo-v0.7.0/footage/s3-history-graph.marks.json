@@ -1,0 +1,22 @@
+[
+  {
+    "label": "start",
+    "t": 0
+  },
+  {
+    "label": "request 1",
+    "t": 1.5
+  },
+  {
+    "label": "named",
+    "t": 13.94
+  },
+  {
+    "label": "request 2",
+    "t": 17.48
+  },
+  {
+    "label": "asked",
+    "t": 36.52
+  }
+]

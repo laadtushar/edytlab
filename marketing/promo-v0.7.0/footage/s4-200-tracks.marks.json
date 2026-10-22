@@ -1,0 +1,26 @@
+[
+  {
+    "label": "start",
+    "t": 0
+  },
+  {
+    "label": "look down",
+    "t": 1.5
+  },
+  {
+    "label": "request",
+    "t": 5.38
+  },
+  {
+    "label": "done",
+    "t": 24.1
+  },
+  {
+    "label": "scroll to the strings",
+    "t": 26.64
+  },
+  {
+    "label": "strings in view",
+    "t": 29.35
+  }
+]

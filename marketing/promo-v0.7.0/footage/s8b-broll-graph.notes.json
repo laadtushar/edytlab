@@ -1,0 +1,35 @@
+{
+  "file": "s8b-broll-graph.mp4",
+  "seconds": 16.53,
+  "frames": 248,
+  "fps": 15,
+  "width": 32002000,
+  "marks": [
+    {
+      "label": "start",
+      "t": 0
+    },
+    {
+      "label": "wheel",
+      "t": 1.5
+    },
+    {
+      "label": "drag",
+      "t": 5.07
+    }
+  ],
+  "wav": null,
+  "spans": null,
+  "sync": null,
+  "capture": {
+    "frames": 262,
+    "dup": 0,
+    "drop": 22,
+    "speed": 1.01
+  },
+  "live": true,
+  "model": "claude-sonnet-5-5",
+  "effort": "low",
+  "nodes": 20,
+  "toolCalls": null
+}

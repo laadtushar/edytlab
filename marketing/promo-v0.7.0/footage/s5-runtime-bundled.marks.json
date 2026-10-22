@@ -1,0 +1,18 @@
+[
+  {
+    "label": "start",
+    "t": 0
+  },
+  {
+    "label": "gear",
+    "t": 1.5
+  },
+  {
+    "label": "settings open",
+    "t": 3.67
+  },
+  {
+    "label": "runtime line in view",
+    "t": 5.15
+  }
+]
