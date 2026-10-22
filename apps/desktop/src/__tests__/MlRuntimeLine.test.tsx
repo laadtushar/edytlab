@@ -3,7 +3,7 @@
  *
  * One line, three states a user can be in today: a library found ("ONNX
  * Runtime: 1.23.2 (bundled)"), none in this build ("not installed in this
- * build", which every release build says until the installers carry it),
+ * build", which a build from source says, and a release before v0.7.0),
  * and one that cannot be used (a macOS that is too old, a file that will
  * not load). The wording is checked here, and that none of it claims a
  * model runs: a runtime that loads is not stem separation or

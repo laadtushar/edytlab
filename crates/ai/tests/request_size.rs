@@ -20,8 +20,9 @@
 //!
 //! The split is what showed where the size is. The system prompt is
 //! small (about 1.2 KB, session block included); the tool schemas are
-//! nearly all of it (about 54 KB of 55 KB for Anthropic, 57 KB of 58 KB
-//! as chat-completions JSON). So the fix is not a shorter prompt but
+//! nearly all of it (about 63 KB of 64.5 KB for Anthropic, 66 KB of 67 KB
+//! as chat-completions JSON, with 94 tools; it was 54 KB of 55 KB and
+//! 57 KB of 58 KB when #395 was fixed). So the fix is not a shorter prompt but
 //! fewer, terser tools, and only for a provider that needs it:
 //!
 //! * Anthropic keeps the whole list. Its prompt cache keys on the full
@@ -38,10 +39,11 @@
 //! Where three bytes per token comes from: the issue's llama.cpp run
 //! counted 15,157 tokens for a request of the whole-list kind, and
 //! `openai_first_request_reports_the_full_chat_completions_size` builds
-//! that kind of request today. Divided by 15,157 it is 3.84 bytes per
-//! token. The registry has grown since the issue, so today's request has
-//! more tokens than were counted, and 3.84 is an upper bound on the true
-//! ratio, not an estimate of it. Three is a margin under that bound,
+//! that kind of request today. Divided by 15,157 it is 4.43 bytes per
+//! token (3.84 when this was written, and it rises as tools are added). The
+//! registry has grown since the issue, so today's request has more tokens
+//! than were counted, and that figure is an upper bound on the true ratio,
+//! not an estimate of it. Three is a margin under that bound,
 //! chosen by judgement. Nothing here measures the true ratio: no
 //! tokenizer is run, and the count in that division is fixed, so the
 //! assertion there only fails if the whole-list request shrinks below the

@@ -44,7 +44,7 @@ For any change larger than a bug fix, **open an issue first** to discuss the app
 A good bug report includes:
 
 ```markdown
-**edytlab version:** v0.1.0-dev.31
+**edytlab version:** v0.7.0
 **OS:** macOS 14.3 (arm64)
 **Provider:** Anthropic / claude-sonnet-5-5
 
@@ -355,6 +355,8 @@ fn rejects_out_of_range_amount() {
     assert!(matches!(result, ToolResult::Error(_)));
 }
 ```
+
+`session::Store::open` is the raw open, which asks the registry of live stores nothing, so it exists only in `session`'s test build and under its `raw-open` feature (the crates that call it in tests enable that in `[dev-dependencies]`). A test over a temporary folder can use it. A tool never opens a project folder itself: the store arrives in `ToolContext`, and code that must open a folder of its own uses `Store::open_private` (as `batch_apply` does) or `Store::open_read_only`; `crates/session/tests/no_unregistered_open.rs` fails a raw open outside test code.
 
 The website's tool reference, `website/app/docs/tools/page.tsx`, must list every registered tool: `crates/tools/tests/website_tool_docs.rs` fails until it does.
 
