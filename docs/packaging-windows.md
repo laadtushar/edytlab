@@ -8,6 +8,7 @@
   - `embedBootstrapper`: +1.7 MB to .msi, install works offline, no first-run network dependency.
   - `downloadBootstrapper`: smaller .msi but installer must reach `aka.ms/...` at install time.
   Phase 1 ships `embedBootstrapper` for predictable install UX.
+- **The ONNX Runtime and the Visual C++ runtime** (#383, since v0.7.0). The `.msi` and the NSIS `.exe` put `onnxruntime.dll` beside `edytlab-desktop.exe`, with `msvcp140.dll`, `msvcp140_1.dll`, `vcruntime140.dll` and `vcruntime140_1.dll` (14.40 or newer, copied from the runner's Visual Studio by `scripts/installer-ml-runtime.py stage-vc-runtime`: the library imports them, and the app links its own C runtime statically) and the notices under `licenses/`. Each Windows leg of `release-dev.yml` and `release-signed.yml` fetches the library (`scripts/fetch-ml-runtime.sh win-x64`), stages the DLLs, builds with `--config src-tauri/tauri.ml-runtime.windows.conf.json` and checks the installers (`scripts/installer-ml-runtime.py check`) before anything is uploaded. `signtool` signs the installers, not the files inside them. Keep those steps if you change the Windows leg; `crates/tools/tests/release_ml_runtime.rs` fails when a release workflow drops one.
 
 ## Required GitHub secrets for the Windows leg of `release-signed.yml`
 
