@@ -87,30 +87,31 @@ export default function AboutPage() {
           <li>It is not a DAW. It edits audio files, with no MIDI, no instruments and no plugin hosting.</li>
           <li>It is not a live DJ tool. It prepares and exports files.</li>
           <li>
-            Stem separation and transcription have not shipped. The tools exist and return an error today (
+            Stem separation and transcription have not shipped. The tools exist and return an error today, so nothing built on
+            them is available. Neither is finished; progress on each is tracked on GitHub:{" "}
             <a href={`${siteConfig.github}/issues/385`} target="_blank" rel="noopener noreferrer">
-              #385
-            </a>
-            ,{" "}
+              stem separation
+            </a>{" "}
+            and{" "}
             <a href={`${siteConfig.github}/issues/384`} target="_blank" rel="noopener noreferrer">
-              #384
+              transcription
             </a>
-            ), so nothing built on them is available.
+            .
           </li>
           <li>
-            The installers are unsigned (
+            The installers are{" "}
             <a href={`${siteConfig.github}/issues/386`} target="_blank" rel="noopener noreferrer">
-              #386
+              unsigned
             </a>
-            ), so macOS and Windows warn the first time you open it.
+            , so macOS and Windows warn the first time you open it.
           </li>
         </ul>
 
         <h2 id="how-we-compare">How comparisons are made</h2>
         <p>
           Pages that compare edytlab with another product, such as the{" "}
-          <Link href="/alternatives/audacity">Audacity alternative</Link> page, follow these rules. A test in the repository
-          checks each one that a test can check.
+          <Link href="/alternatives/audacity">Audacity alternative</Link> page, follow these rules. The site&apos;s automated
+          checks cover the ones a machine can check.
         </p>
         <ul>
           <li>
@@ -118,8 +119,8 @@ export default function AboutPage() {
             day we read it.
           </li>
           <li>
-            Facts are re-checked at least every {REFRESH_AFTER_DAYS} days. The tests fail when any fact in the comparison data
-            is more than 100 days old, so an out-of-date date cannot sit there unnoticed.
+            Facts are re-checked at least every {REFRESH_AFTER_DAYS} days. The site&apos;s automated checks fail when any fact
+            is more than 100 days old, so a stale page cannot go unnoticed.
           </li>
           <li>
             Where the other product is better comes first, in a section of its own, before we say where edytlab differs.
@@ -129,8 +130,8 @@ export default function AboutPage() {
             describe it.
           </li>
           <li>
-            No unqualified superlatives: nothing is &ldquo;best&rdquo; or &ldquo;cheapest&rdquo; here. A test fails the build
-            when such a word appears outside a quotation.
+            No unqualified superlatives: nothing is &ldquo;best&rdquo; or &ldquo;cheapest&rdquo; here. The site&apos;s automated checks fail when such a
+            word appears outside a quotation.
           </li>
           <li>
             Product names appear as plain text, only to identify the product. We use no logos, screenshots or other branding

@@ -208,8 +208,12 @@ export default function AudacityAlternativePage() {
             <a href={href("ai-macos-beta")} target="_blank" rel="noopener noreferrer">
               June 2025 post
             </a>{" "}
-            says the plugins reached macOS with Audacity 3.7.4, as a beta of sorts; none of the pages we read says whether they
-            work with Audacity 4, the current version, so check before you rely on them there. Audacity&apos;s{" "}
+            says the plugins reached macOS with Audacity 3.7.4, as a beta of sorts. We could not find a statement on
+            Audacity&apos;s site that they work with Audacity 4, the current version, so check before you rely on them there.
+          </li>
+          <li>
+            <strong>AI in Audacity&apos;s plugin store.</strong>{" "}
+            Audacity&apos;s{" "}
             <a href={href("musehub-ai-bundles")} target="_blank" rel="noopener noreferrer">
               home page
             </a>{" "}
@@ -412,11 +416,11 @@ export default function AudacityAlternativePage() {
         </p>
         <h3>Why does my computer warn me when I open edytlab?</h3>
         <p>
-          The installers are not signed (
+          The installers are{" "}
           <a href={`${siteConfig.github}/issues/386`} target="_blank" rel="noopener noreferrer">
-            #386
+            not signed
           </a>
-          ), so macOS and Windows warn on first launch. The source is public, and the{" "}
+          , so macOS and Windows warn on first launch. The source is public, and the{" "}
           <Link href="/docs/getting-started">getting started guide</Link> has the steps.
         </p>
 

@@ -26,7 +26,7 @@ export function SourcesList({
     <section aria-labelledby="sources">
       <h2 id="sources">{heading}</h2>
       <p>
-        Everything stated about {competitor} comes from these pages, read on the dates shown. Each opens the page itself.
+        Everything stated about {competitor} comes from these pages, read on the dates shown.
       </p>
       <ol className="!mt-4 list-decimal space-y-2 pl-6 text-sm">
         {sources.map((s) => (

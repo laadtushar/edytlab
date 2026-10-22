@@ -17,16 +17,17 @@ export function NotBuiltYet() {
         Not built yet
       </div>
       <div className="mt-2 leading-relaxed">
-        Stem separation and transcription have not shipped in edytlab. Their tools exist but return an error today (
+        Stem separation and transcription have not shipped in edytlab. Their tools exist but return an error today, so edytlab does not offer vocal isolation, a transcript, text-based editing
+        or filler-word removal. Where another product does these, it does them and edytlab does not. Neither is finished;
+        progress on each is tracked on GitHub:{" "}
         <a href={`${siteConfig.github}/issues/385`} target="_blank" rel="noopener noreferrer">
-          #385
-        </a>
-        ,{" "}
+          stem separation
+        </a>{" "}
+        and{" "}
         <a href={`${siteConfig.github}/issues/384`} target="_blank" rel="noopener noreferrer">
-          #384
+          transcription
         </a>
-        ), so edytlab does not offer vocal isolation, a transcript, text-based editing or filler-word removal. Where another
-        product does these, it does them and edytlab does not.
+        .
       </div>
     </div>
   );
