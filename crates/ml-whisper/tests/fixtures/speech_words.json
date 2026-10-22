@@ -1,0 +1,62 @@
+[
+  {
+    "text": "hello",
+    "start_s": 0.3,
+    "end_s": 0.845
+  },
+  {
+    "text": "music",
+    "start_s": 0.885,
+    "end_s": 1.41
+  },
+  {
+    "text": "table",
+    "start_s": 1.46,
+    "end_s": 1.965
+  },
+  {
+    "text": "morning",
+    "start_s": 1.995,
+    "end_s": 2.575
+  },
+  {
+    "text": "window",
+    "start_s": 2.625,
+    "end_s": 3.19
+  },
+  {
+    "text": "yellow",
+    "start_s": 3.23,
+    "end_s": 3.73
+  },
+  {
+    "text": "garden",
+    "start_s": 3.76,
+    "end_s": 4.29
+  },
+  {
+    "text": "river",
+    "start_s": 4.34,
+    "end_s": 4.845
+  },
+  {
+    "text": "summer",
+    "start_s": 4.885,
+    "end_s": 5.34
+  },
+  {
+    "text": "paper",
+    "start_s": 5.37,
+    "end_s": 5.87
+  },
+  {
+    "text": "orange",
+    "start_s": 5.92,
+    "end_s": 6.445
+  },
+  {
+    "text": "coffee",
+    "start_s": 6.485,
+    "end_s": 6.995
+  }
+]

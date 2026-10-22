@@ -39,6 +39,10 @@ describe("footer and marketing pages", () => {
     "app/use-cases/local-ai-audio-editor/page.tsx",
     "app/videos/page.tsx",
     "app/videos/[slug]/page.tsx",
+    "app/about/page.tsx",
+    "app/alternatives/audacity/page.tsx",
+    "components/compare/disclaimer.tsx",
+    "components/compare/last-verified.tsx",
     "components/landing/page-shell.tsx",
   ];
 
@@ -63,6 +67,12 @@ describe("footer and marketing pages", () => {
 
   it("links the footer to the videos page", () => {
     expect(read(join(WEBSITE, "components/landing/footer.tsx"))).toMatch(/href(=|: )"\/videos"/);
+  });
+
+  it("links the footer to the about page and the Audacity comparison", () => {
+    const footer = read(join(WEBSITE, "components/landing/footer.tsx"));
+    expect(footer).toContain('href="/about"');
+    expect(footer).toContain('href="/alternatives/audacity"');
   });
 
   it("serves every asset the press page offers for download", () => {
@@ -90,6 +100,15 @@ describe("footer and marketing pages", () => {
       // layout's metadataBase) plus the feed link, like every other page.
       expect(source).toContain(`alternates: pageAlternates("${path}")`);
     }
+  });
+
+  it.each([
+    ["app/about/page.tsx", "/about"],
+    ["app/alternatives/audacity/page.tsx", "/alternatives/audacity"],
+  ])("gives %s its own canonical and social card, through the helpers", (file, path) => {
+    const source = read(join(WEBSITE, file));
+    expect(source).toContain(`alternates: pageAlternates("${path}")`);
+    expect(source).toContain(`...pageSocial("${path}"`);
   });
 
   it("gives the videos page its own canonical and social card, through the helpers", () => {

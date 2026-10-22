@@ -109,7 +109,7 @@ For the long version, read [`docs/specs/2026-05-05-conversational-audio-editor-d
 - **Shell:** Tauri 2, Rust workspace (edition 2021, toolchain 1.88), `cargo` profile-release with `lto = true`
 - **Frontend:** React 19, Vite 7, Tailwind 4, `@xyflow/react` for the graph view, `wavesurfer.js` for waveforms
 - **Audio:** `cpal` (microphone capture), `symphonia` (decode), `rubato` (resampling), `realfft` (spectral), `hound` (WAV), `flac-codec` and `rusty_mp3` (export), plus in-house effects in `crates/audio-dsp`
-- **ML:** `ort` (ONNX Runtime, `load-dynamic`) for Demucs / Whisper — the installers carry the runtime library (1.23.2, since v0.7.0), but no model is shipped or downloaded and both decoders are stubs ([#383](https://github.com/laadtushar/edytlab/issues/383))
+- **ML:** `ort` (ONNX Runtime, `load-dynamic`) for Demucs / Whisper — the installers carry the runtime library (1.23.2, since v0.7.0), but no model is shipped, and neither transcription nor stem separation runs in the app yet (Whisper inference is written, in `ml-whisper`, and nothing calls it) ([#383](https://github.com/laadtushar/edytlab/issues/383))
 - **LLM:** `reqwest` + `eventsource-stream` for SSE; `keyring` for OS-keychain credential storage
 - **Test:** `cargo test` (unit + integration), `vitest` (frontend), Playwright (`apps/desktop/e2e/`, the frontend in Chromium with the IPC boundary faked), `wiremock` for HTTP fakes
 - **Tooling:** pnpm 9 workspace, conventional commits
@@ -135,7 +135,7 @@ crates/
   agent_profiles/     Saved model + tool-whitelist + prompt profiles
   mcp/                MCP server config, lifecycle and JSON-RPC
   ml-demucs/          Stem separation (inference is a stub, #385)
-  ml-whisper/         Transcription (decoder is a stub, #384)
+  ml-whisper/         Transcription (runs the pinned model; not called by the app yet, #384)
   ml-pipeline/        Shared ONNX runtime gate, verified model downloader + the user-started speech-model download (#383) + inference cache
 docs/                 Specs, handover, packaging notes
 .github/workflows/    CI, cargo audit, auto-release, unsigned dev/release and signed release pipelines

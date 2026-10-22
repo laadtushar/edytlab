@@ -472,6 +472,18 @@ export function comparing(sides: {
 }
 
 /**
+ * `accept_b`, the A/B bar's "Accept B ✓", for the one node `b` a spec
+ * accepts. The command makes the node's audio present (`materialize`),
+ * sets the session head to it (`Store::set_head`) and answers with it
+ * (`b_id.to_hex()`, a `CmdResult<String>`). Another node is a call the
+ * spec did not anticipate. The session the next `list_tracks` reads is
+ * the spec's to say: `App.become`.
+ */
+export function acceptingB(b: string): Backend {
+  return { accept_b: byArg("b", { [b]: ok(b) }) };
+}
+
+/**
  * A project that already holds these tracks when the app starts: a
  * returning user.
  *

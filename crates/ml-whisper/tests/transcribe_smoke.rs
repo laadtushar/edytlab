@@ -1,14 +1,16 @@
 //! Whisper transcription smoke test.
 //!
-//! Real speech fixture is a manual gate; CI smoke test only verifies the
-//! pipeline doesn't panic and returns a `Vec<Word>`. Once a real
-//! `tests/golden/known_speech_clip.wav` and matching transcript are
-//! committed (CC0 / self-recorded) the Levenshtein-distance assertion
-//! described in M09 acceptance-criterion #1 should be re-enabled here.
+//! Real speech is `transcribe_known_words.rs`'s job. This file only verifies
+//! that the pipeline doesn't panic, returns a `Vec<Word>` that keeps the
+//! timestamp contract, and that one loaded model serves many calls.
 //!
 //! The model-dependent tests need a downloaded Whisper model, so they
 //! are `#[ignore]`d and run with `cargo test -p ml-whisper -- --ignored`
-//! once `WHISPER_MODEL_PATH` points at the `.onnx` file.
+//! once `WHISPER_MODEL_PATH` points at the model **folder** (the files of
+//! `onnx-community/whisper-base_timestamped`; it was a single `.onnx` file
+//! before `WhisperModel::load` read the whole export, #384) and
+//! `ORT_DYLIB_PATH` at the ONNX Runtime library. `transcribe_known_words.rs`
+//! reads the same two variables.
 //!
 //! They used to gate on the env var at runtime and `return` early, which
 //! `cargo test` counts as **passed** — so a run that never entered the
@@ -25,7 +27,7 @@
 
 use std::path::PathBuf;
 
-use ml_whisper::{resample_to_16khz_mono, WhisperModel};
+use ml_whisper::{resample_to_16khz_mono, transcribe, WhisperModel};
 
 /// The name every consumer uses: `transcribe.rs`, the structured error
 /// in `ml-whisper/src/lib.rs`, and the in-app recovery panel.
@@ -38,9 +40,8 @@ const MODEL_PATH_VAR: &str = "WHISPER_MODEL_PATH";
 fn model_path() -> PathBuf {
     let var = std::env::var(MODEL_PATH_VAR).unwrap_or_else(|_| {
         panic!(
-            "{MODEL_PATH_VAR} is not set. Point it at an ONNX Whisper export to run the \
-             ignored ml-whisper tests. Note that the decoder itself is a stub (#233), so \
-             `transcribe` will return NotImplemented even with a valid model."
+            "{MODEL_PATH_VAR} is not set. Point it at the folder of an ONNX Whisper export \
+             to run the ignored ml-whisper tests."
         )
     });
     let path = PathBuf::from(var);
@@ -62,30 +63,16 @@ fn transcribe_smoke_returns_vec_word() {
     // 1 second of silence at 16 kHz mono — enough to exercise the
     // pipeline without depending on a committed speech fixture.
     let silence = vec![0.0f32; 16_000];
-    let words = match model.transcribe(&silence) {
-        Ok(w) => w,
-        // Expected until the decoder lands (#233). `transcribe` used to
-        // return `Ok(vec![])` here, which made this test pass while
-        // proving nothing: the timestamp contract below is vacuous on
-        // an empty Vec, so a green run meant only that the stub was
-        // still a stub. Naming that outcome explicitly keeps the
-        // contract checks below meaningful for the real decoder, and
-        // makes this test start doing work the moment one exists.
-        Err(ml_whisper::WhisperError::NotImplemented) => {
-            eprintln!("decoder is still a stub; nothing to check yet (#233)");
-            return;
-        }
-        Err(e) => panic!("transcribe failed: {e}"),
-    };
+    let words = transcribe(&model, &silence, 16_000, 1, None, || false)
+        .expect("transcribe")
+        .words;
     // Deliberately *not* asserting `!words.is_empty()`. The fixture is
     // one second of silence, and zero words is the correct answer for
     // silence — so a real decoder would fail that assertion. Raised in
     // review on #317.
     //
-    // The cost is that the contract below is vacuous on this fixture.
-    // That is a gap in what this test proves, and the honest fix is a
-    // committed speech fixture, not an assertion that would make a
-    // correct decoder look broken.
+    // The cost is that the contract below is vacuous on this fixture; it is
+    // checked on speech in `transcribe_known_words.rs`.
     if words.is_empty() {
         eprintln!("decoder returned no words for silence, which is allowed; contract unchecked");
     }
@@ -117,7 +104,7 @@ fn missing_model_returns_structured_error() {
     // It used to require the message name a fetch-models shell script.
     // That file has never existed in this repository, so the test was
     // pinning a dangling instruction in place — and following it would
-    // not have helped, because the decoder is a stub (#233). What the
+    // not have helped, because the app does not run the model (#233). What the
     // message has to say now is that the feature is unavailable, since
     // "you are missing a step" and "this does not work yet" are
     // different problems.
@@ -155,23 +142,12 @@ fn resampler_silence_roundtrip() {
 #[test]
 #[ignore = "needs a downloaded Whisper model; set WHISPER_MODEL_PATH and run with --ignored"]
 fn reuses_loaded_model_across_calls() {
-    // Acceptance criterion #3: model-loaded-once-and-reused. We can't
-    // measure timing reliably without the real decoder, but we *can*
-    // assert the API supports it: a single `&WhisperModel` handles N
-    // calls without rebuild.
+    // Acceptance criterion #3: model-loaded-once-and-reused. A single
+    // `&WhisperModel` handles N calls without rebuild.
     let model_path = model_path();
     let model = WhisperModel::load(&model_path).expect("model load");
     let silence = vec![0.0f32; 16_000];
     for _ in 0..5 {
-        // `NotImplemented` is the expected answer until the decoder
-        // lands; `expect` here panicked against the stub, so the
-        // documented `--ignored` run died on this test. Raised in
-        // review on #317. What is being checked is that one
-        // `&WhisperModel` serves N calls without rebuilding, which
-        // holds either way.
-        match model.transcribe(&silence) {
-            Ok(_) | Err(ml_whisper::WhisperError::NotImplemented) => {}
-            Err(e) => panic!("transcribe failed: {e}"),
-        }
+        transcribe(&model, &silence, 16_000, 1, None, || false).expect("transcribe");
     }
 }

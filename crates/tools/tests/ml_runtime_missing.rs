@@ -1,7 +1,9 @@
 //! `transcribe` and `separate_stems` without an ONNX Runtime library (#383).
 //!
-//! Point the model variables at any file that exists and the tool loads
-//! it. With `ort`'s `load-dynamic`, that used to hang inside
+//! Point the model variables at any path that exists and the tool tries to
+//! load it (`WHISPER_MODEL_PATH` names a model folder and `DEMUCS_MODEL_PATH` a
+//! file; this test gives both a file, because the runtime is looked for before
+//! the path is looked at). With `ort`'s `load-dynamic`, that used to hang inside
 //! `ToolDispatcher::invoke` when the library was missing (`ort` 2.0.0-rc.12
 //! deadlocked on a library it cannot load; rc.13 panics instead), and the
 //! agent loop calls `invoke` holding the dispatcher, store and engine

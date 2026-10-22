@@ -82,6 +82,26 @@ export function Footer() {
           </Link>
         </nav>
         <nav
+          aria-label="Compare"
+          className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm"
+        >
+          <span className="font-medium">Compare</span>
+          <Link
+            href="/about"
+            data-sweep
+            className="text-muted-foreground transition-colors hover:text-foreground"
+          >
+            About and how we compare
+          </Link>
+          <Link
+            href="/alternatives/audacity"
+            data-sweep
+            className="text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Audacity alternative
+          </Link>
+        </nav>
+        <nav
           aria-label="The LabyNator family"
           className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm"
         >

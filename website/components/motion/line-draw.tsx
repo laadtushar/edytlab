@@ -4,7 +4,7 @@ import { useRef, type ElementType, type ReactNode } from "react";
 
 import {
   gsap,
-  useGSAP,
+  useGSAPWhenNear,
   motionOk,
   NO_PREFERENCE,
   REVEAL_START,
@@ -46,7 +46,7 @@ export function LineDraw({
 }: LineDrawProps) {
   const ref = useRef<HTMLElement>(null);
 
-  useGSAP(
+  useGSAPWhenNear(
     () => {
       const root = ref.current;
       if (!root) return;

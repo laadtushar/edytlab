@@ -1127,7 +1127,7 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `transcribe`
 
-NOT IMPLEMENTED IN THIS BUILD. Speech-to-text would transcribe an audio file with a local Whisper ONNX model, resampling to 16 kHz mono and appending a session node carrying the transcript. The decoder is a stub, so this always returns an error and there is no setup that changes that — do not suggest installing a model or setting WHISPER_MODEL_PATH. Tell the user transcription is unavailable in this build instead. Tools that consume a transcript (cut_words, and the text-based editing flow) are unavailable for the same reason.
+NOT IMPLEMENTED IN THIS BUILD. Speech-to-text would transcribe an audio file with a local Whisper ONNX model, resampling to 16 kHz mono and appending a session node carrying the transcript. The app does not run the speech model yet, so this always returns an error and there is no setup that changes that — do not suggest installing a model or setting WHISPER_MODEL_PATH. Tell the user transcription is unavailable in this build instead. Tools that consume a transcript (cut_words, and the text-based editing flow) are unavailable for the same reason.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|

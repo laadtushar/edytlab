@@ -18,6 +18,7 @@ import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { DrawSVGPlugin } from "gsap/DrawSVGPlugin";
 import { useGSAP } from "@gsap/react";
+import { useEffect, useRef, type RefObject } from "react";
 
 // Every GSAP plugin has been free under the standard licence since 3.13,
 // and they all ship inside the `gsap` package we already depend on —
@@ -93,6 +94,70 @@ export function whileVisible(anim: gsap.core.Animation, trigger: Element | null)
   });
   if (st.isActive) anim.play();
   return st;
+}
+
+/**
+ * How far from the screen a section's motion is set up, as an
+ * `IntersectionObserver` margin: one screen ahead, so a reader scrolling
+ * at any ordinary speed finds each section already prepared.
+ */
+export const NEAR = "100% 0px";
+
+/**
+ * `useGSAP` for a section that is not on screen yet: its animations are
+ * created when it is within `NEAR` of the viewport, not when the page
+ * hydrates.
+ *
+ * Every `gsap.from()` and `ScrollTrigger` created at hydration writes
+ * styles and then reads layout (`getComputedStyle`, bounding boxes), and
+ * the next one reads again after the last one's write, so the browser
+ * recalculates the whole page's style once per animation, in the one
+ * long task that makes the page interactive. Lighthouse's "forced
+ * reflow" insight measured about 340 ms of it on the home page, nearly
+ * all in GSAP's CSS plugin, and the page has dozens of such animations,
+ * most of them a long way below the fold. Preparing a section when the
+ * reader is a screen away from it does the same work, a few sections at
+ * a time, while they scroll.
+ *
+ * Nothing moves differently: an animation that waits for its trigger
+ * (`scrollTrigger`) still waits for it, and with scripts off or reduced
+ * motion the content is where it always was. Without
+ * `IntersectionObserver` the animations are created at once, as before.
+ *
+ * Use plain `useGSAP` for what is on screen at load (the hero, the
+ * header), and for an animation that has to re-run when a value changes.
+ * The callback may return a clean-up function, as with `useGSAP`.
+ */
+export function useGSAPWhenNear(callback: () => void | (() => void), options: { scope: RefObject<Element | null> }) {
+  const latest = useRef(callback);
+  latest.current = callback;
+  const { scope } = options;
+
+  useEffect(() => {
+    const element = scope.current;
+    if (!element) return;
+    let context: gsap.Context | undefined;
+    const start = () => {
+      context = gsap.context(() => latest.current(), element);
+    };
+    if (typeof IntersectionObserver === "undefined") {
+      start();
+      return () => context?.revert();
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        observer.disconnect();
+        start();
+      },
+      { rootMargin: NEAR },
+    );
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      context?.revert();
+    };
+  }, [scope]);
 }
 
 /** The parts of an SVG icon DrawSVG can draw. Circles cannot be. */

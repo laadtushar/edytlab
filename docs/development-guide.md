@@ -73,7 +73,11 @@ sudo apt-get install -y \
 **Nothing to set up.** Transcription and stem separation are stubs in
 this build, and there is no configuration that makes them work:
 
-- `WhisperModel::transcribe` returns `NotImplemented`. It used to return
+- The `transcribe` tool answers "not implemented in this build" whatever
+  model is configured. `ml_whisper::transcribe` (#384) runs the pinned export
+  end to end, and is tested against the real model by hand (see
+  [Running the model tests locally](#running-the-model-tests-locally)), but
+  nothing in the app or the tools calls it yet. The tool used to return
   `Ok(vec![])`, which reported success with an empty transcript (#233).
 - `DemucsModel::separate` returns `NotImplemented`.
 - `ml_pipeline::fetched_model_path` downloads, hash-checks and caches a
@@ -87,7 +91,7 @@ this build, and there is no configuration that makes them work:
   file once it is there, so it does not make transcription work (#384).
   To fetch the real files from a shell, as a check of the pins:
   `cargo test -p ml-pipeline --test model_real_download -- --ignored --nocapture`.
-- If a model variable below names a file but there is no ONNX Runtime
+- If a model variable below names a model but there is no ONNX Runtime
   library, `transcribe` and `separate_stems` return a tool error that
   says so (and that the feature is not implemented anyway). They used to
   hang the agent. Installing the library does not make either tool work.
@@ -102,11 +106,44 @@ rather than corrected, because the honest instruction is "wait".
 <!-- historical:end -->
 
 `WHISPER_MODEL_PATH` and `DEMUCS_MODEL_PATH` *are* read — they are how
-the model file will be located once the decoders land — but setting them
-today only changes which error you get. `htdemucs` is the one Demucs
+the model will be located once the tools use it — but setting them today only
+changes which error you get. `WHISPER_MODEL_PATH` names the speech model's
+**folder**, the one that holds `onnx/encoder_model.onnx`,
+`onnx/decoder_model_merged_int8.onnx` and `tokenizer.json` as
+`crates/ml-pipeline/models.json` pins them (it used to name a single file);
+`DEMUCS_MODEL_PATH` names a file. The ignored `ml-whisper` tests read the same
+variable. `htdemucs` is the one Demucs
 model id, and the default, so `DEMUCS_MODEL_PATH` is the one Demucs
 variable. `htdemucs_ft` and its `DEMUCS_FT_MODEL_PATH` are gone: it is a
 bag of four models with no pinned ONNX export ([#385](https://github.com/laadtushar/edytlab/issues/385)).
+
+#### Running the model tests locally
+
+These are the tests CI cannot run, because they need the real speech model
+and the real ONNX Runtime. They are `#[ignore]`d, so a plain `cargo test`
+lists them as ignored, and asking for them with `--ignored` makes them
+**fail** (not skip) if what they need is missing:
+
+```bash
+# ONNX Runtime 1.23.2, checked against apps/desktop/src-tauri/ml-runtime.json
+export ORT_DYLIB_PATH="$(scripts/fetch-ml-runtime.sh linux-x64 /tmp/ml/ort)"
+# the folder of the three whisper-base files (about 139 MB): download the
+# urls in crates/ml-pipeline/models.json, check each size and SHA-256 there,
+# and keep the paths as they are written (onnx/encoder_model.onnx, ...)
+export WHISPER_MODEL_PATH=/tmp/ml/whisper-base
+
+# the words, their start times and the realtime factor (--release is much faster)
+cargo test -p ml-whisper --release --test transcribe_known_words -- --ignored --nocapture --test-threads=1
+# the tool answering "not implemented" for a model that does not load
+cargo test -p tools --test transcribe_load_errors -- --ignored
+```
+
+The test audio, `crates/ml-whisper/tests/fixtures/speech_words.wav`, is
+`espeak-ng` output (`make_speech.py` regenerates it, with the exact word
+times in `speech_words.json`); see the header of
+`tests/transcribe_known_words.rs` for what it does and does not show, and for
+`speech_words_first_draft.wav`, the first list of words, which is measured
+beside the one the test asserts on and not asserted on.
 
 ---
 
@@ -629,7 +666,8 @@ Replaced the earlier `release-mac.yml` / `release-win.yml` pair, which raced eac
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `ORT_DYLIB_PATH` | unset | Path to `libonnxruntime.{so,dylib,dll}`, ONNX Runtime 1.23 or newer (`ort` is built for API level 23, and 1.23.2 is the version to develop against, see [#383](https://github.com/laadtushar/edytlab/issues/383#issuecomment-6106785529)); a relative path is resolved against the executable's directory, never the working directory. Read by `ml_pipeline::runtime::ensure`, which tries it first, then the directory the installer puts the library in (`Contents/Frameworks` on macOS, Tauri's resource directory on Linux, registered by the app at startup), then next to the executable, and never searches the working directory or the system. Nothing in the app sets it. The release installers carry the pinned library since v0.7.0 ([#383](https://github.com/laadtushar/edytlab/issues/383)), and a build from source has none: to bundle it in a local `tauri build`, fetch it into `apps/desktop/src-tauri/ml-runtime/<platform>` (on Windows also run `python -I scripts/installer-ml-runtime.py stage-vc-runtime apps/desktop/src-tauri/ml-runtime/vc-runtime-x64`) and pass `--config src-tauri/tauri.ml-runtime.<linux|macos|windows>.conf.json`, as the release workflows do. Settings shows which library loaded and its version (`ml_runtime_status`), and on macOS older than 13.4 the app refuses to open any library it finds, including one `ORT_DYLIB_PATH` names (a reported version of `10.16`, which is what macOS answers under `SYSTEM_VERSION_COMPAT=1`, is not a real version and does not refuse). On Windows the library's own imports (the VC++ runtime DLLs) are searched for in its directory and `System32` only, never the working directory or `PATH`. `scripts/fetch-ml-runtime.sh linux-x64 ml-runtime/linux-x64` downloads the pinned one, checked against `apps/desktop/src-tauri/ml-runtime.json` (`win-x64` and `osx-universal2` fetch the others), and CI runs `ml-pipeline`'s ignored `cache_smoke` and `runtime_bundle_real` tests against it on Linux: `ORT_DYLIB_PATH="$PWD/ml-runtime/linux-x64/libonnxruntime.so" cargo test -p ml-pipeline --test cache_smoke --test runtime_bundle_real -- --ignored --test-threads=1` |
-| `WHISPER_MODEL_PATH`, `DEMUCS_MODEL_PATH` | unset | Model file locations — see [ML Model Files](#ml-model-files-whisperdemucs--not-usable-yet) |
+| `WHISPER_MODEL_PATH` | unset | The speech model's **folder** (`onnx/encoder_model.onnx`, `onnx/decoder_model_merged_int8.onnx`, `tokenizer.json`); the ignored `ml-whisper` tests need it — see [ML Model Files](#ml-model-files-whisperdemucs--not-usable-yet) |
+| `DEMUCS_MODEL_PATH` | unset | The Demucs model **file** — see [ML Model Files](#ml-model-files-whisperdemucs--not-usable-yet) |
 
 `RUST_LOG` is not listed because nothing reads it (see [Rust Debugging](#rust-debugging)). Skills, agent profiles and the MCP config live under `~/.edytlab/`, which is not configurable.
 

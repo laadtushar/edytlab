@@ -53,6 +53,19 @@ export interface WatchVideo {
   title: string;
   /** What it shows, for the page. */
   caption: string;
+  /**
+   * One line for a card and for the top of a page: what happens, in the
+   * words a visitor would use. No length ("a 21-second video of"), no
+   * "real app" notes: those are `seconds` and `disclosure`.
+   */
+  blurb: string;
+  /**
+   * The one thing a viewer should know about how the video was made,
+   * shown in small type wherever the video is (its card, its page): for
+   * example "Real app, scripted assistant." A re-recording changes this
+   * line, not the layout that shows it.
+   */
+  disclosure: string;
   /** One sentence for the video's structured data, which a search result may show. */
   description: string;
   /** Running time in whole seconds (`ffprobe`, rounded). The test reads the file's own header. */
@@ -112,8 +125,10 @@ export const videos: readonly SiteVideo[] = [
     slug: "whats-new-v070",
     kind: "release",
     title: "What's new in edytlab v0.7.0",
+    blurb: "From a typed request to a 200-track session: what changed in the latest release, shown in the app.",
+    disclosure: "Real app, scripted assistant.",
     caption:
-      "What's new in v0.7.0, shown in the real app. It starts with a request typed in plain English that the assistant turns into a fade and a gain change, which you then hear. Then six changes: faders that stay where you put them (#596); the history graph keeping up as a version is named and the history compacted (#602); a 200-track session where list_session pages through what the summary leaves out and twelve string tracks come down 4 dB (#618); the ONNX Runtime now shipping in every installer, as groundwork only, with no model yet; bundled skills that update unless you edited them (#574); and playback that survives switching tabs (#607). Real app, scripted assistant: every shot is the real v0.7.0 frontend, the assistant's replies and tool calls are scripted, and the demo audio is made in code, as the note on every shot says. The installers are unsigned. Captions are available.",
+      "What's new in v0.7.0, shown in the real app. It starts with a request typed in plain English that the assistant turns into a fade and a gain change, which you then hear. Then six changes: faders that stay where you put them (#596); the history graph keeping up as a version is named and the history compacted (#602); a 200-track session where list_session pages through what the summary leaves out and twelve string tracks come down 4 dB (#618); the ONNX Runtime now shipping in every installer, as groundwork only, with no model yet; bundled skills that update unless you edited them (#574); and playback that survives switching tabs (#607). Real app, scripted assistant: every shot is the real v0.7.0 app, the assistant's replies and tool calls are scripted, and the demo audio is made in code, as the note on every shot says. The installers are unsigned. Captions are available.",
     description:
       "A 58-second video of what's new in edytlab v0.7.0: a typed edit, steady faders, the history graph and a 200-track session. Real app, scripted assistant.",
     seconds: 58,
@@ -142,7 +157,9 @@ export const videos: readonly SiteVideo[] = [
   {
     slug: "launch-video",
     kind: "launch",
-    title: "Launch video: a DJ job from request to export",
+    title: "edytlab in a minute: from request to exported mix",
+    blurb: "Describe a blend in plain English, hear the transition, then master and export the mix.",
+    disclosure: "Real screen recordings of the app on short synthetic demo tracks. Waits sped up.",
     caption:
       "One DJ job from request to exported file, cut from the real recordings of the desktop app: the request is typed in plain English, the agent calls its tools and points out what it noticed, you hear the blend, and the mix is mastered and exported as a WAV. Two more jobs follow, then how it works (the audio stays on your machine, only the chat goes to the provider you choose) and its limits: demo tracks are short synthetic loops, it prepares files and is not a live DJ tool, there is no stem separation or transcription yet, and the installers are unsigned. Captions are available.",
     description:
@@ -174,6 +191,8 @@ export const videos: readonly SiteVideo[] = [
     slug: "reel-v070-whats-new",
     kind: "reel",
     title: "What's new in v0.7.0 (short reel)",
+    blurb: "Five changes in the latest release, in thirty seconds.",
+    disclosure: "Real app, scripted assistant.",
     caption:
       "Five changes you can see in v0.7.0, in thirty seconds: faders that stay where you put them (#596), the history graph keeping up (#602), a 200-track session paged with list_session (#618), playback that survives switching tabs (#607), and bundled skills that stay current (#574). Real app, scripted assistant: the assistant's replies and tool calls are scripted, as the note on every shot says.",
     description:
@@ -199,6 +218,8 @@ export const videos: readonly SiteVideo[] = [
     slug: "reel-v070-describe-the-edit",
     kind: "reel",
     title: "Describe the edit, and it happens (short reel)",
+    blurb: "Type an edit in plain English and watch the fade and the gain change appear.",
+    disclosure: "Real app, scripted assistant.",
     caption:
       "Describe the edit: a request typed in plain English, the assistant calls fade and then set_track_gain, the timeline changes (the backing fades in over 4 seconds and the vocal lane reads −3.0 dB), and you press play to hear it, on a synthetic demo track made in code. Real app, scripted assistant: the assistant's replies and tool calls are scripted, as the note on every shot says.",
     description:
@@ -223,6 +244,8 @@ export const videos: readonly SiteVideo[] = [
     slug: "reel-v070-200-tracks",
     kind: "reel",
     title: "200 tracks? Just ask (short reel)",
+    blurb: "One sentence quiets the twelve string tracks in a 200-track session.",
+    disclosure: "Real app, scripted assistant.",
     caption:
       "A session of 200 tracks and one sentence, “make all the strings quieter”: the assistant pages through the session with list_session, then sets twelve tracks (violins, viola, cello and contrabass) to −4.0 dB, each volume change a node on the graph (#618). Real app, scripted assistant: the assistant's replies and tool calls are scripted, and the sound is interface sounds only.",
     description:
@@ -247,6 +270,8 @@ export const videos: readonly SiteVideo[] = [
     slug: "reel-highlights",
     kind: "reel",
     title: "Highlights: three DJ jobs in a minute",
+    blurb: "A moment from each of the three DJ jobs, in about a minute.",
+    disclosure: "Cut from the full recordings, with the app's own sound. Waits sped up.",
     caption:
       "A moment from each of the three demos with the sound of the app: beatmatching two tracks and blending them with a crossfade and a low-pass on the outgoing track, extending an intro with a filter that opens into the drop, and a three-track mini-mix at 124 BPM.",
     description:
@@ -276,6 +301,8 @@ export const videos: readonly SiteVideo[] = [
     slug: "reel-teaser",
     kind: "reel",
     title: "Teaser: ask for a blend, hear the result",
+    blurb: "Ask for a blend and hear the result, in fifteen seconds.",
+    disclosure: "Cut from the full recordings, with the app's own sound. Waits sped up.",
     caption:
       "Fifteen seconds: ask for the blend, the beatmatch, the crossfade with a low-pass on the outgoing track, and a few seconds of the transition you can hear.",
     description:
@@ -299,6 +326,8 @@ export const videos: readonly SiteVideo[] = [
     slug: "reel-beatmatched-transition",
     kind: "reel",
     title: "Beatmatch and blend two tracks (short reel)",
+    blurb: "Beatmatch two tracks, blend them and export a mix at streaming loudness.",
+    disclosure: "Cut from the full recording, with the app's own sound. Waits sped up.",
     caption:
       "Midnight Drive into Neon Rush: what the two tracks are, the beatmatch, lining up the overlap, the crossfade with a low-pass on the outgoing track, both listening moments, mastering for streaming, and the exported WAV at about −14 LUFS.",
     description:
@@ -327,6 +356,8 @@ export const videos: readonly SiteVideo[] = [
     slug: "reel-extended-club-intro",
     kind: "reel",
     title: "Extend an intro for mixing (short reel)",
+    blurb: "Make a sixteen-bar intro from the first eight bars and hear the drop arrive.",
+    disclosure: "Cut from the full recording, with the app's own sound. Waits sped up.",
     caption:
       "Solar Flare: its tempo and bar length, the drums-only first eight bars repeated to make a 16-bar intro, a filter that opens into the drop, a fade-in and the export, with a listening moment where the low end arrives at the drop.",
     description:
@@ -353,6 +384,8 @@ export const videos: readonly SiteVideo[] = [
     slug: "reel-mini-mix",
     kind: "reel",
     title: "A three-track mini-mix (short reel)",
+    blurb: "Three tracks, one mix: match the tempo, overlap the transitions and export.",
+    disclosure: "Cut from the full recording, with the app's own sound. Waits sped up.",
     caption:
       "Three tracks matched to 124 BPM, sequenced with four-bar overlaps, brought to about the same loudness with a limiter on the master, both transitions heard, and the mix exported as a WAV.",
     description:
@@ -429,11 +462,29 @@ const DEMO_MOMENTS: Record<string, readonly Moment[]> = {
   ],
 };
 
+/** The demos' `blurb` and `disclosure`: `lib/demos.ts` is shared with the home page, which has its own words. */
+const DEMO_COPY: Record<string, { blurb: string; disclosure: string }> = {
+  "dj-beatmatched-transition": {
+    blurb: "Bring two tracks to the same tempo, line up the bars and blend them with a crossfade.",
+    disclosure: "Recorded in the real app with Claude, on short synthetic demo tracks. Waits sped up.",
+  },
+  "dj-extended-club-intro": {
+    blurb: "Turn an eight-bar intro into a sixteen-bar one and open a filter into the drop.",
+    disclosure: "Recorded in the real app with Claude, on short synthetic demo tracks. Waits sped up.",
+  },
+  "dj-mini-mix": {
+    blurb: "Match three tracks to 124 BPM, join them with overlapping crossfades and export the mix.",
+    disclosure: "Recorded in the real app with Claude, on short synthetic demo tracks. Waits sped up.",
+  },
+};
+
 export const demoVideos: readonly DemoVideo[] = demos.map((d) => ({
   slug: d.slug,
   kind: "demo",
   title: d.title,
   caption: d.caption,
+  blurb: DEMO_COPY[d.slug]?.blurb ?? d.description,
+  disclosure: DEMO_COPY[d.slug]?.disclosure ?? "Recorded in the real app. Waits sped up.",
   description: d.description,
   seconds: d.seconds,
   uploadDate: d.uploadDate,
@@ -471,3 +522,33 @@ export const formatDuration = (seconds: number) =>
 /** A moment's time as the page shows it, to the whole second it falls in: 20.867 is "0:20". */
 export const formatMoment = (at: number) =>
   `${Math.floor(at / 60)}:${String(Math.floor(at % 60)).padStart(2, "0")}`;
+
+/** A card's title: the page's title without the "(short reel)" that tells it apart from the demo it was cut from. */
+export const cardTitle = (video: WatchVideo) => video.title.replace(/\s*\(short reel\)$/i, "");
+
+/**
+ * A caption or a moment as a viewer reads it: without the tracker
+ * numbers, "(#596)", that the repository's notes carry and a visitor has
+ * no use for.
+ */
+export const forViewers = (text: string) => text.replace(/\s*\(#\d+(?:,\s*#\d+)*\)/g, "");
+
+/**
+ * The videos to offer after this one: three of the same shape (landscape
+ * or vertical), four for a reel so a four-column row is full. Its own
+ * kind first, starting after it in the list and wrapping round, so each
+ * page leads to a different neighbour; then the other kinds.
+ */
+export function relatedVideos(video: WatchVideo): WatchVideo[] {
+  const wanted = video.kind === "reel" ? 4 : 3;
+  const vertical = video.height > video.width;
+  const sameShape = watchVideos.filter((v) => v.slug !== video.slug && v.height > v.width === vertical);
+  const at = watchVideos.indexOf(video);
+  const byDistance = (a: WatchVideo, b: WatchVideo) => {
+    const d = (v: WatchVideo) => (watchVideos.indexOf(v) - at + watchVideos.length) % watchVideos.length;
+    return d(a) - d(b);
+  };
+  const sameKind = sameShape.filter((v) => v.kind === video.kind).sort(byDistance);
+  const others = sameShape.filter((v) => v.kind !== video.kind);
+  return [...sameKind, ...others].slice(0, wanted);
+}

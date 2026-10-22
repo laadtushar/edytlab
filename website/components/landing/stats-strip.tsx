@@ -3,7 +3,7 @@
 import { useRef } from "react";
 
 import { Counter, Stagger } from "@/components/motion";
-import { gsap, useGSAP, motionOk, NO_PREFERENCE, REVEAL_START } from "@/lib/gsap";
+import { gsap, useGSAPWhenNear, motionOk, NO_PREFERENCE, REVEAL_START } from "@/lib/gsap";
 import "@/lib/gsap-text";
 
 /**
@@ -32,7 +32,7 @@ const stats = [
 export function StatsStrip() {
   const ref = useRef<HTMLElement>(null);
 
-  useGSAP(
+  useGSAPWhenNear(
     () => {
       const mm = motionOk();
       mm.add(NO_PREFERENCE, () => {

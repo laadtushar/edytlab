@@ -19,14 +19,21 @@
 //! 2. **Prompt.** `[SOT, language, transcribe, notimestamps]`, fed in one
 //!    step. The row of logits at `SOT` gives `P(nospeech)` (the
 //!    `<|nocaptions|>` token, id 50362); the last row gives the first token.
-//! 3. **No speech.** If `P(nospeech)` is above the threshold (0.6), the window
-//!    is skipped and decoding stops there, one decoder step in. OpenAI's
-//!    `transcribe` decodes the window first and then lets a high average
-//!    log-probability override the skip; the plan on #384 says to skip on the
-//!    probability alone, so this does, and saves the whole decode of a silent
-//!    window.
+//! 3. **No speech.** A window is skipped when `P(nospeech)` is above
+//!    [`DecodeConfig::no_speech_threshold`] (0.6) **and** the mean
+//!    log-probability of what the model wrote for it is at most
+//!    [`DecodeConfig::logprob_threshold`] (-1.0): the rule of OpenAI's
+//!    `transcribe`, so a window the model calls empty but reads confidently is
+//!    kept. The plan on #384 said to skip on the probability alone; on the real
+//!    model that dropped clear speech (a 30 s window of it had `P(nospeech)` of
+//!    0.86 to 0.99, and the whole recording came back empty). With
+//!    `logprob_threshold` set to `None` the plan's rule is what runs, and a
+//!    skipped window is not decoded at all; otherwise it is decoded first, and
+//!    its tokens are dropped if it is skipped.
 //! 4. **Sample.** Each step masks the logits ([`DecodeConfig::suppress_tokens`]
-//!    always; [`DecodeConfig::begin_suppress_tokens`], which hold the blank
+//!    always, and the prompt's own tokens: `<|notimestamps|>`, every language,
+//!    `<|transcribe|>` and `<|startoftranscript|>`;
+//!    [`DecodeConfig::begin_suppress_tokens`], which hold the blank
 //!    and `<|endoftext|>`, on the first token only), then takes the largest.
 //!    Ties go to the lowest id. The recorded probability is the model's own,
 //!    from the unmasked logits, so a mask does not inflate a word's
@@ -53,7 +60,8 @@
 //! `generation_config.json` parser: the two token lists the loop needs are
 //! the constants [`MULTILINGUAL_SUPPRESS_TOKENS`] and
 //! [`MULTILINGUAL_BEGIN_SUPPRESS_TOKENS`]. Cross-attention for word timing is
-//! not read from the decoder yet.
+//! not read here: the [`DecoderStep`] of the real model (`cached.rs`) collects
+//! it as it steps, and `timing.rs` turns it into word times.
 
 use std::ops::Range;
 
@@ -120,6 +128,11 @@ pub enum DecodeError {
     /// The encoder output does not have the size it says.
     #[error("encoder states: {0}")]
     BadEncoderStates(String),
+
+    /// The caller asked to stop. The ONNX decoder checks between steps, so a
+    /// long window ends within one step of the request.
+    #[error("cancelled")]
+    Cancelled,
 }
 
 /// The ids of the special tokens the loop uses.
@@ -201,9 +214,25 @@ pub struct DecodeConfig {
     pub begin_suppress_tokens: Vec<u32>,
     /// The most tokens sampled, `<|endoftext|>` included: 224.
     pub max_new_tokens: usize,
-    /// Skip the window if `P(nospeech)` at SOT is above this: 0.6. `None`
-    /// never skips.
+    /// A window is skipped as having no speech if `P(nospeech)` at SOT is above
+    /// this (0.6) **and** the mean log-probability of what the model wrote for
+    /// it is at most [`DecodeConfig::logprob_threshold`]. `None` never skips.
+    /// This is the rule of `whisper.transcribe` (its `no_speech_threshold`
+    /// and `logprob_threshold`), which keeps a window whose text the model is
+    /// confident of whatever its `<|nocaptions|>` probability says.
     pub no_speech_threshold: Option<f32>,
+    /// The mean natural-log probability of the sampled tokens at or under which
+    /// a window that sounds empty ([`DecodeConfig::no_speech_threshold`]) is
+    /// skipped: -1.0, upstream's. `None` skips on the probability alone, which
+    /// is what the plan on #384 said, and then the window is not decoded at
+    /// all.
+    ///
+    /// The mean is over the model's own probabilities, from the unmasked logits
+    /// ([`WindowDecode::token_probs`]), and leaves out `<|endoftext|>`; upstream's
+    /// takes the log-softmax of the filtered logits and counts the end token. So
+    /// this is a little stricter than upstream's, and the threshold was
+    /// measured with this mean.
+    pub logprob_threshold: Option<f32>,
     /// `None` never aborts on repetition.
     pub repetition: Option<RepetitionRule>,
     /// Sample timestamp tokens (Whisper's other mode) instead of masking them.
@@ -222,6 +251,7 @@ impl DecodeConfig {
             begin_suppress_tokens: Vec::new(),
             max_new_tokens: 224,
             no_speech_threshold: Some(0.6),
+            logprob_threshold: Some(-1.0),
             repetition: Some(RepetitionRule::default()),
             with_timestamps: false,
             max_initial_timestamp_index: Some(50),
@@ -431,7 +461,10 @@ pub enum StopReason {
     MaxLength,
     /// The output started to loop and was cut back ([`RepetitionRule`]).
     Repetition,
-    /// `P(nospeech)` was above the threshold; no tokens were sampled.
+    /// The window was passed over as having no speech
+    /// ([`DecodeConfig::no_speech_threshold`] and
+    /// [`DecodeConfig::logprob_threshold`]). Its tokens are not returned, and
+    /// with no log-probability threshold none were sampled.
     NoSpeech,
 }
 
@@ -488,10 +521,12 @@ pub fn decode_window<D: DecoderStep>(
         no_speech_prob,
         stop,
     };
-    if config
+    // Sounds empty: above the threshold. With no log-probability threshold that
+    // is the whole rule, and the window is not decoded.
+    let sounds_empty = config
         .no_speech_threshold
-        .is_some_and(|limit| no_speech_prob > limit)
-    {
+        .is_some_and(|limit| no_speech_prob > limit);
+    if sounds_empty && config.logprob_threshold.is_none() {
         return Ok(result(Vec::new(), Vec::new(), StopReason::NoSpeech));
     }
 
@@ -527,7 +562,26 @@ pub fn decode_window<D: DecoderStep>(
         check_logits(&next_logits, 1, ids.vocab_size)?;
         logits = next_logits.row(0).to_vec();
     };
+    // A window that sounds empty is still believed if it reads confidently;
+    // one with no text at all has nothing to be confident about.
+    if let (true, Some(limit)) = (sounds_empty, config.logprob_threshold) {
+        if average_log_probability(&token_probs) <= limit {
+            return Ok(result(Vec::new(), Vec::new(), StopReason::NoSpeech));
+        }
+    }
     Ok(result(tokens, token_probs, stop))
+}
+
+/// The mean natural-log probability of `token_probs`; minus infinity for none.
+pub fn average_log_probability(token_probs: &[f32]) -> f32 {
+    if token_probs.is_empty() {
+        return f32::NEG_INFINITY;
+    }
+    let sum: f64 = token_probs
+        .iter()
+        .map(|&p| f64::from(p).max(f64::MIN_POSITIVE).ln())
+        .sum();
+    (sum / token_probs.len() as f64) as f32
 }
 
 /// Check the shape the loop depends on, and that nothing is NaN.
@@ -585,8 +639,18 @@ fn apply_filters(logits: &mut [f32], sampled: &[u32], config: &DecodeConfig) {
     for &t in &config.suppress_tokens {
         logits[t as usize] = f32::NEG_INFINITY;
     }
-    // `<|notimestamps|>` belongs to the prompt, never to the output.
+    // `<|notimestamps|>`, the language, `<|transcribe|>` and
+    // `<|startoftranscript|>` belong to the prompt, never to the output. The
+    // pinned `suppress_tokens` list has the task and start tokens but not the
+    // language ones, and a language token sampled in the middle of the text is
+    // not text: the word grouping cannot spell it.
     logits[ids.no_timestamps as usize] = f32::NEG_INFINITY;
+    logits[ids.transcribe as usize] = f32::NEG_INFINITY;
+    logits[ids.sot as usize] = f32::NEG_INFINITY;
+    mask(
+        logits,
+        ids.languages.start as usize..ids.languages.end as usize,
+    );
 
     let begin = ids.timestamp_begin as usize;
     if !config.with_timestamps {
@@ -837,6 +901,11 @@ mod tests {
         );
         assert_eq!(config.max_new_tokens, 224);
         assert_eq!(config.no_speech_threshold, Some(0.6));
+        assert_eq!(
+            config.logprob_threshold,
+            Some(-1.0),
+            "OpenAI's logprob_threshold: the no-speech rule is the probability AND this"
+        );
         assert_eq!(config.repetition, Some(RepetitionRule::default()));
         assert!(!config.with_timestamps);
         assert_eq!(config.max_initial_timestamp_index, Some(50));
@@ -996,6 +1065,33 @@ mod tests {
         assert_eq!(out.tokens, [5]);
     }
 
+    #[test]
+    fn a_language_or_task_token_is_never_sampled_after_the_prompt() {
+        // The favourites are a language, <|transcribe|> and SOT, in that order;
+        // text token 5 is the best that is left. A language token sampled
+        // mid-text reached the word grouping, which cannot spell it, and failed
+        // the whole transcription.
+        let row = vec![(DE, 10.0), (TRANSCRIBE, 9.0), (SOT, 8.0), (5, 1.0)];
+        let (out, _) = run(
+            vec![
+                prompt_rows(4, row.clone()),
+                vec![row.clone()],
+                vec![favour(FR)],
+                vec![favour(EOT)],
+            ],
+            &mini(),
+            Some(EN),
+        );
+        // FR (14) is a language too: the third step falls to the lowest id left.
+        assert_eq!(out.tokens, [5, 5, 0]);
+        assert!(
+            out.tokens.iter().all(|&t| t < EOT),
+            "only text tokens: {:?}",
+            out.tokens
+        );
+        assert_eq!(out.stop, StopReason::EndOfText);
+    }
+
     // ---- stopping ------------------------------------------------------------
 
     #[test]
@@ -1029,10 +1125,13 @@ mod tests {
     // ---- no speech -----------------------------------------------------------
 
     #[test]
-    fn a_window_that_is_probably_silence_is_skipped_after_one_step() {
+    fn with_no_logprob_threshold_a_window_that_is_probably_silence_is_skipped_after_one_step() {
+        // The plan's rule: the probability alone, and nothing is decoded.
+        let mut config = mini();
+        config.logprob_threshold = None;
         let loud = vec![(NO_SPEECH, logit_for(0.61))];
         let script = vec![vec![loud, vec![], vec![], favour(3)]];
-        let (out, calls) = run(script, &mini(), Some(EN));
+        let (out, calls) = run(script, &config, Some(EN));
 
         assert_eq!(out.stop, StopReason::NoSpeech);
         assert!(out.tokens.is_empty() && out.token_probs.is_empty());
@@ -1052,6 +1151,91 @@ mod tests {
         assert_eq!(out.stop, StopReason::EndOfText);
         assert_eq!(out.tokens, [3]);
         assert!((out.no_speech_prob - 0.59).abs() < 1e-5);
+    }
+
+    /// The rows of a prompt whose SOT row says `P(nospeech) = p_empty` and whose
+    /// last row makes `first` the favourite.
+    fn prompt_saying(p_empty: f64, first: Row) -> Vec<Row> {
+        vec![vec![(NO_SPEECH, logit_for(p_empty))], vec![], vec![], first]
+    }
+
+    /// A row that gives `id` probability `p` (against the other `VOCAB - 1`
+    /// at 0).
+    fn with_prob(id: u32, p: f64) -> Row {
+        vec![(id, logit_for(p))]
+    }
+
+    #[test]
+    fn a_window_that_sounds_empty_and_reads_unsure_is_decoded_and_then_skipped() {
+        // P(nospeech) 0.95, and the two tokens it wrote have probability 0.25
+        // (mean ln p = -1.39, under -1): noise, written as "you".
+        let script = vec![
+            prompt_saying(0.95, with_prob(3, 0.25)),
+            vec![with_prob(4, 0.25)],
+            vec![favour(EOT)],
+        ];
+        let (out, calls) = run(script, &mini(), Some(EN));
+        assert_eq!(out.stop, StopReason::NoSpeech);
+        assert!(out.tokens.is_empty() && out.token_probs.is_empty());
+        assert!(out.no_speech_prob > 0.94, "{}", out.no_speech_prob);
+        assert_eq!(calls.len(), 3, "it was decoded before it was skipped");
+    }
+
+    #[test]
+    fn a_window_that_sounds_empty_but_reads_confidently_is_kept() {
+        // The 30 s word list: P(nospeech) 0.95 and a clean transcript.
+        let script = vec![
+            prompt_saying(0.95, with_prob(3, 0.9)),
+            vec![with_prob(4, 0.9)],
+            vec![favour(EOT)],
+        ];
+        let (out, _) = run(script, &mini(), Some(EN));
+        assert_eq!(out.stop, StopReason::EndOfText);
+        assert_eq!(out.tokens, [3, 4]);
+        assert!(out.no_speech_prob > 0.94);
+    }
+
+    #[test]
+    fn unsure_text_is_kept_if_the_model_does_not_call_the_window_empty() {
+        // A tone got "." at P(nospeech) 0.598 and a mean of -4.5: the rule
+        // cannot catch what the model does not call silence.
+        let script = vec![prompt_saying(0.3, with_prob(3, 0.05)), vec![favour(EOT)]];
+        let (out, _) = run(script, &mini(), Some(EN));
+        assert_eq!(out.stop, StopReason::EndOfText);
+        assert_eq!(out.tokens, [3]);
+    }
+
+    #[test]
+    fn the_log_probability_threshold_is_at_or_under() {
+        // exp(-1) = 0.3679: a mean just above it is kept, just under skipped.
+        let at = |p: f64| {
+            let script = vec![prompt_saying(0.9, with_prob(3, p)), vec![favour(EOT)]];
+            run(script, &mini(), Some(EN)).0
+        };
+        assert_eq!(at(0.37).stop, StopReason::EndOfText);
+        assert_eq!(at(0.36).stop, StopReason::NoSpeech);
+    }
+
+    #[test]
+    fn no_text_at_all_is_skipped_only_if_the_window_sounds_empty() {
+        // Nothing written has nothing to be confident about.
+        let quiet = vec![prompt_saying(0.7, favour(EOT))];
+        let (out, _) = run(quiet, &mini(), Some(EN));
+        assert_eq!(out.stop, StopReason::NoSpeech);
+        // But a window the model does not call empty is not skipped for having
+        // no text; the caller decides what to do with an empty one.
+        let (out, _) = run(vec![prompt_saying(0.2, favour(EOT))], &mini(), Some(EN));
+        assert_eq!(out.stop, StopReason::EndOfText);
+        assert!(out.tokens.is_empty());
+    }
+
+    #[test]
+    fn the_average_is_the_mean_of_the_natural_logs() {
+        let want = (0.5f32.ln() + 0.25f32.ln()) / 2.0;
+        assert!((average_log_probability(&[0.5, 0.25]) - want).abs() < 1e-6);
+        // A probability of exactly zero does not make it -inf-NaN.
+        assert!(average_log_probability(&[0.0, 0.5]).is_finite());
+        assert_eq!(average_log_probability(&[]), f32::NEG_INFINITY);
     }
 
     #[test]

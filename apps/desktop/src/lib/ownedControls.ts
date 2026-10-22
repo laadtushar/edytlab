@@ -36,8 +36,9 @@ import { isSessionValue } from "./controlValue";
  * with that number or a later one lets go.
  *
  * `clear` lets go of everything at once, for when the session moves by
- * itself: an undo, a redo, a head set from the history graph, a project
- * opening. What the user had set belonged to the session before the move.
+ * itself: an undo, a redo, a head set from the history graph, A/B compare's
+ * Accept B, a project opening, a node the assistant created. What the user
+ * had set belonged to the session before the move.
  *
  * The last value *sent* for a control is kept until the control is let go.
  * It is what the session will hold once the commits in line have been
