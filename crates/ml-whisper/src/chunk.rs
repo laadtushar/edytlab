@@ -162,12 +162,40 @@ fn is_tail_of(kept: &Word, first: &Word, dropped: Option<&Word>) -> bool {
 
 /// Transcribe `audio` (16 kHz mono) window by window.
 ///
-/// `cancel` is asked before each window.
+/// `cancel` is asked before each window. [`run_windows_observed`] without
+/// the progress report: the form the chunking tests use.
+#[cfg(test)]
 pub(crate) fn run_windows<T: WindowTranscriber>(
+    transcriber: &mut T,
+    audio: &[f32],
+    language: Option<u32>,
+    cancel: &dyn Fn() -> bool,
+) -> Result<Chunked> {
+    run_windows_observed(transcriber, audio, language, cancel, &|_, _| {})
+}
+
+/// How many windows there are in all, as far as is known at `seek`: the ones
+/// decoded so far plus the ones the audio left would fill if each took the
+/// full 30 s. An estimate that can only grow: a window that ends in a word
+/// cut by its edge starts the next one earlier than 30 s on, so the audio
+/// takes more windows than its length over 30 s.
+fn windows_in_all(decoded: usize, total: usize, seek: usize) -> usize {
+    decoded + (total - seek).div_ceil(WINDOW_SAMPLES).max(1)
+}
+
+/// [`run_windows`] that says which window it is about to decode.
+///
+/// `progress(index, total)` is called before each window, after `cancel` has
+/// answered no: `index` counts from 0 and is the number of windows already
+/// decoded, `total` is the estimate of [`windows_in_all`], so `total` is
+/// always more than `index`. A cancelled run reports nothing for the window
+/// it did not start.
+pub(crate) fn run_windows_observed<T: WindowTranscriber>(
     transcriber: &mut T,
     audio: &[f32],
     mut language: Option<u32>,
     cancel: &dyn Fn() -> bool,
+    progress: &dyn Fn(usize, usize),
 ) -> Result<Chunked> {
     let total = audio.len();
     let rate = SAMPLE_RATE as f32;
@@ -182,6 +210,7 @@ pub(crate) fn run_windows<T: WindowTranscriber>(
         }
         let end = (seek + WINDOW_SAMPLES).min(total);
         let slice = &audio[seek..end];
+        progress(windows, windows_in_all(windows, total, seek));
         let result = transcriber.window(slice, language)?;
         windows += 1;
         if result.speech && language.is_none() {
@@ -481,6 +510,74 @@ mod tests {
         let err = run_windows(&mut model, &ramp(75.0), None, &cancel).unwrap_err();
         assert!(matches!(err, WhisperError::Cancelled), "{err:?}");
         assert_eq!(model.calls.borrow().len(), 1);
+    }
+
+    /// Every `(index, total)` the run reported, in order.
+    fn reports(
+        model: &mut Hears,
+        seconds: f32,
+        cancel: &dyn Fn() -> bool,
+    ) -> (Result<Chunked>, Vec<(usize, usize)>) {
+        let seen = RefCell::new(Vec::new());
+        let out = run_windows_observed(model, &ramp(seconds), None, cancel, &|index, total| {
+            seen.borrow_mut().push((index, total))
+        });
+        (out, seen.into_inner())
+    }
+
+    #[test]
+    fn each_window_is_reported_before_it_is_decoded() {
+        let mut model = Hears::new();
+        let (out, seen) = reports(&mut model, 75.0, &never);
+        out.unwrap();
+        assert_eq!(seen, vec![(0, 3), (1, 3), (2, 3)], "75 s is three windows");
+        // One report per decoded window, and the window it names is the one
+        // the model was then asked for.
+        assert_eq!(model.calls.borrow().len(), seen.len());
+    }
+
+    #[test]
+    fn a_short_recording_is_one_window_of_one() {
+        let mut model = Hears::new();
+        let (out, seen) = reports(&mut model, 5.0, &never);
+        out.unwrap();
+        assert_eq!(seen, vec![(0, 1)]);
+    }
+
+    #[test]
+    fn the_total_may_grow_when_a_window_ends_early_but_never_falls_behind_the_index() {
+        // A decoder that did not finish loses its last word to the next
+        // window, which then starts before the 30 s mark: more windows than
+        // length over 30 s.
+        let mut model = Hears::new();
+        model.finished = false;
+        let (out, seen) = reports(&mut model, 90.0, &never);
+        out.unwrap();
+        assert!(
+            seen.len() > 3,
+            "90 s is three windows of 30 s, and took more: {seen:?}"
+        );
+        assert_eq!(seen[0], (0, 3), "{seen:?}");
+        assert!(seen.last().unwrap().1 > 3, "the estimate grew: {seen:?}");
+        for (n, (index, total)) in seen.iter().enumerate() {
+            assert_eq!(*index, n, "the index counts decoded windows: {seen:?}");
+            assert!(total > index, "{seen:?}");
+        }
+        let totals: Vec<usize> = seen.iter().map(|s| s.1).collect();
+        assert!(totals.windows(2).all(|w| w[0] <= w[1]), "{seen:?}");
+    }
+
+    #[test]
+    fn nothing_is_reported_for_the_window_a_cancel_stops() {
+        let asked = Cell::new(0);
+        let cancel = || {
+            asked.set(asked.get() + 1);
+            asked.get() > 1
+        };
+        let mut model = Hears::new();
+        let (out, seen) = reports(&mut model, 75.0, &cancel);
+        assert!(matches!(out, Err(WhisperError::Cancelled)));
+        assert_eq!(seen, vec![(0, 3)]);
     }
 
     #[test]

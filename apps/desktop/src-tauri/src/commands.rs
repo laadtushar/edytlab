@@ -1382,8 +1382,9 @@ fn ml_runtime_status_dto(
 /// so it runs on the blocking pool, not on an async worker. It takes none
 /// of the store, engine or dispatcher locks.
 ///
-/// Nothing here says a model runs: a library that loads is not stem
-/// separation or transcription, which are not shipped (#384, #385).
+/// Nothing here says a model runs: a library that loads is not a model
+/// loaded. `transcribe` loads the speech model when it is asked, and stem
+/// separation is not shipped (#384, #385).
 #[tauri::command]
 pub async fn ml_runtime_status() -> CmdResult<MlRuntimeStatusDto> {
     let status = tauri::async_runtime::spawn_blocking(ml_runtime_status_now)
@@ -3869,44 +3870,97 @@ pub struct TranscriptWordOut {
     pub confidence: f32,
 }
 
-/// The transcript at the current head, or an empty list.
+/// Where a transcript's words came from, as the pane needs it (#384).
+///
+/// The words' times are seconds of that audio, so the pane may cut a track by
+/// them only if the transcript is of that track. `kind` is `track` (with the
+/// track's index at the head, found by the track's id, so it follows the track
+/// if another is removed before it), `file` (the times are the file's, so
+/// nothing cuts by them), `gone` (the track it was made from has been removed)
+/// or `unknown` (a transcript that does not say, such as one written before it
+/// was recorded). Only `track` allows a cut.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TranscriptSourceOut {
+    Track { track: usize },
+    File,
+    Gone,
+    Unknown,
+}
+
+/// The transcript at the current head, and where it came from.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TranscriptOut {
+    pub words: Vec<TranscriptWordOut>,
+    pub source: TranscriptSourceOut,
+}
+
+impl TranscriptOut {
+    /// No transcript: no words, and no source to speak of.
+    fn none() -> Self {
+        Self {
+            words: Vec::new(),
+            source: TranscriptSourceOut::Unknown,
+        }
+    }
+}
+
+/// The transcript at the current head: its words, and the track or file they
+/// were made from.
 ///
 /// Empty and absent are deliberately the same shape here. The pane's
-/// job when there is no transcript is to say "run transcribe", and it
+/// job when there is no transcript is to say how to get one, and it
 /// can say that from an empty list — an error would make "you have not
 /// transcribed yet", which is an ordinary state, look like a fault.
 // The store lock can be held by a running tool for its whole length, so
 // the wait is on the blocking pool, off the main thread (#421) and off the
 // runtime's workers (#498).
 #[tauri::command]
-pub async fn get_transcript(state: State<'_, AppState>) -> CmdResult<Vec<TranscriptWordOut>> {
+pub async fn get_transcript(state: State<'_, AppState>) -> CmdResult<TranscriptOut> {
     blocking(&state, get_transcript_inner).await
 }
 
-fn get_transcript_inner(state: &AppState) -> CmdResult<Vec<TranscriptWordOut>> {
+fn get_transcript_inner(state: &AppState) -> CmdResult<TranscriptOut> {
     let Some(store_arc) = state.store_handle() else {
-        return Ok(Vec::new());
+        return Ok(TranscriptOut::none());
     };
     let store = lock_std(&store_arc, "store")?;
     let Some(head) = store.head() else {
-        return Ok(Vec::new());
+        return Ok(TranscriptOut::none());
     };
     let node = store.get(head).map_err(CommandError::from)?;
-    Ok(node
-        .state
-        .transcript
-        .map(|t| {
-            t.words
-                .into_iter()
-                .map(|w| TranscriptWordOut {
-                    text: w.text,
-                    start_sec: w.start_s as f64,
-                    end_sec: w.end_s as f64,
-                    confidence: w.confidence,
-                })
-                .collect()
-        })
-        .unwrap_or_default())
+    Ok(transcript_out(&node.state))
+}
+
+/// [`TranscriptOut`] for `state`'s transcript.
+fn transcript_out(state: &session::SessionState) -> TranscriptOut {
+    let Some(transcript) = &state.transcript else {
+        return TranscriptOut::none();
+    };
+    let source = match &transcript.source {
+        None => TranscriptSourceOut::Unknown,
+        Some(session::TranscriptSource::File) => TranscriptSourceOut::File,
+        Some(session::TranscriptSource::Track { track }) => state
+            .tracks
+            .iter()
+            .position(|t| &t.id == track)
+            .map_or(TranscriptSourceOut::Gone, |at| TranscriptSourceOut::Track {
+                track: at,
+            }),
+    };
+    TranscriptOut {
+        words: transcript
+            .words
+            .iter()
+            .map(|w| TranscriptWordOut {
+                text: w.text.clone(),
+                start_sec: w.start_s as f64,
+                end_sec: w.end_s as f64,
+                confidence: w.confidence,
+            })
+            .collect(),
+        source,
+    }
 }
 
 /// Cut a span of transcribed words, and the audio underneath.
@@ -8111,6 +8165,120 @@ mod tests {
         let err =
             set_clip_envelope_inner(&state, 0, 9, Vec::new()).expect_err("clip 9 does not exist");
         assert!(err.contains("clip_index"), "got: {err}");
+    }
+
+    fn track_named(name: &str) -> session::Track {
+        session::Track {
+            id: session::TrackId::new(),
+            name: name.to_string(),
+            clips: Vec::new(),
+            gain_db: 0.0,
+            pan: 0.0,
+            muted: false,
+            soloed: false,
+            effects: Vec::new(),
+            sends: Vec::new(),
+        }
+    }
+
+    fn state_with_transcript(
+        tracks: Vec<session::Track>,
+        source: Option<session::TranscriptSource>,
+    ) -> session::SessionState {
+        session::SessionState {
+            tracks,
+            bus_routing: session::BusGraph::default(),
+            master_chain: Vec::new(),
+            tempo_map: session::TempoMap::default(),
+            key_map: None,
+            transcript: Some(session::Transcript {
+                words: vec![session::TranscriptWord {
+                    text: "hi".into(),
+                    start_s: 0.5,
+                    end_s: 0.75,
+                    confidence: 0.9,
+                }],
+                source,
+            }),
+            sample_rate: 48_000,
+            length_samples: 0,
+            annotations: Vec::new(),
+            sync_lock: false,
+        }
+    }
+
+    /// The pane cuts a track by a transcript's words only if the transcript is
+    /// of that track, and says which by where the track is now (#384).
+    #[test]
+    fn the_transcript_names_the_track_it_is_of_by_its_place_now() {
+        let (music, voice) = (track_named("music"), track_named("voice"));
+        let source = Some(session::TranscriptSource::Track {
+            track: voice.id.clone(),
+        });
+        let mut state = state_with_transcript(vec![music.clone(), voice.clone()], source);
+        let out = transcript_out(&state);
+        assert_eq!(out.source, TranscriptSourceOut::Track { track: 1 });
+        assert_eq!(out.words.len(), 1);
+        assert_eq!(out.words[0].start_sec, 0.5);
+
+        // The track in front of it goes: it is track 0 now.
+        state.tracks.remove(0);
+        assert_eq!(
+            transcript_out(&state).source,
+            TranscriptSourceOut::Track { track: 0 }
+        );
+        // And when it goes itself, the words describe nothing here.
+        state.tracks.clear();
+        assert_eq!(transcript_out(&state).source, TranscriptSourceOut::Gone);
+        assert_eq!(
+            transcript_out(&state).words.len(),
+            1,
+            "the words still show"
+        );
+    }
+
+    #[test]
+    fn a_file_or_unrecorded_source_allows_no_cut_and_no_transcript_is_empty() {
+        let tracks = vec![track_named("a")];
+        assert_eq!(
+            transcript_out(&state_with_transcript(
+                tracks.clone(),
+                Some(session::TranscriptSource::File)
+            ))
+            .source,
+            TranscriptSourceOut::File
+        );
+        assert_eq!(
+            transcript_out(&state_with_transcript(tracks.clone(), None)).source,
+            TranscriptSourceOut::Unknown
+        );
+        let mut none = state_with_transcript(tracks, None);
+        none.transcript = None;
+        let out = transcript_out(&none);
+        assert!(out.words.is_empty());
+        assert_eq!(out.source, TranscriptSourceOut::Unknown);
+    }
+
+    /// The shape the window reads.
+    #[test]
+    fn the_transcript_source_is_tagged_on_kind() {
+        let wire = |s: TranscriptSourceOut| serde_json::to_value(s).unwrap();
+        assert_eq!(
+            wire(TranscriptSourceOut::Track { track: 2 }),
+            serde_json::json!({ "kind": "track", "track": 2 })
+        );
+        assert_eq!(
+            wire(TranscriptSourceOut::File),
+            serde_json::json!({ "kind": "file" })
+        );
+        assert_eq!(
+            wire(TranscriptSourceOut::Gone),
+            serde_json::json!({ "kind": "gone" })
+        );
+        assert_eq!(
+            wire(TranscriptSourceOut::Unknown),
+            serde_json::json!({ "kind": "unknown" })
+        );
     }
 
     #[test]

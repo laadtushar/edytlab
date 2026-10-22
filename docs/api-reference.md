@@ -934,9 +934,16 @@ changes nothing.
 
 ## Transcript
 
-### `getTranscript() → TranscriptWord[]`
+### `getTranscript() → Transcript`
 
-The transcript at the current head. Empty until `transcribe` has run.
+The transcript at the current head, and where it came from. No words until
+`transcribe` has run (the Transcript tab re-reads it on every head move, so a
+transcription the assistant makes appears as its node arrives).
+
+A word's time is seconds of the audio it was made from, so the Transcript tab
+cuts a track by it only if the transcript is of that track (`source.kind` is
+`"track"`). It was always track 0 before `transcribe` could be asked about
+another track (#384).
 
 **Returns:**
 ```typescript
@@ -945,6 +952,17 @@ interface TranscriptWord {
   start_sec: number;
   end_sec: number;
   confidence: number;
+}
+
+type TranscriptSource =
+  | { kind: "track"; track: number } // the track's index at the head (found by its id, so it follows the track)
+  | { kind: "file" }                 // made from a file: the times are the file's, nothing cuts by them
+  | { kind: "gone" }                 // the track it was made from has been removed
+  | { kind: "unknown" };             // it does not say (written before it was recorded), or there is no transcript
+
+interface Transcript {
+  words: TranscriptWord[];
+  source: TranscriptSource;
 }
 ```
 
@@ -955,11 +973,14 @@ interface TranscriptWord {
 Cut the half-open word range `[fromWord, toWord)` **and the audio underneath
 it**, closing the gap. Returns the new head.
 
-Indices are into the array `getTranscript()` returned; re-read it afterwards,
-since the words after the cut renumber.
+Indices are into `getTranscript().words`; re-read it afterwards, since the words
+after the cut renumber. `track` is the transcript's own track
+(`getTranscript().source.track`): the `cut_words` tool the command runs refuses
+any other track, because the word times describe that track's audio.
 
-**Errors:** track index out of range; no transcript at the head; the range is
-empty or runs past the end.
+**Errors:** track index out of range; no transcript at the head; the track is
+not the one the transcript is of, or that track has been removed, or the
+transcript is of a file; the range is empty or runs past the end.
 
 ---
 
@@ -1271,8 +1292,8 @@ and a build from source, have none and answer `missing`.
 The app binary prints the same answer as one line of JSON, with no window,
 when started with `--ml-runtime-status` (`edytlab-desktop --ml-runtime-status`),
 which is how the release workflows check every installer. A library that loads
-is not stem separation or transcription, which this build does not ship (#384,
-#385).
+is not a model loaded: `transcribe` loads the speech model when it is asked, and
+stem separation is not shipped (#384, #385).
 
 ---
 
@@ -1291,8 +1312,10 @@ from a tool or the agent, and `crates/ml-pipeline/tests/only_the_user_downloads.
 and `speechModelOnlyOnClick.test.ts` fail if another path could. None of these
 commands takes the store, engine, dispatcher or agent lock: a download runs on a
 thread of its own and never waits for, or stalls, a turn. The request goes to
-huggingface.co and carries no audio. A model on disk is not used by anything yet:
-transcription is not shipped (#384).
+huggingface.co and carries no audio. A model on disk is what the `transcribe`
+tool uses (#384): it finds the files with `ml_pipeline::models::cached`, never
+downloads, and answers that the model is not downloaded, with a card that sends
+the user to this row, when they are not there.
 
 ```typescript
 type MlModelStatus = { model: string; bytes: number; size: number } & (
@@ -1506,7 +1529,7 @@ Emitted when the agent starts executing a tool. Use to show tool badge in the UI
 
 ### `onToolCallEnd(cb: (id: string, ok: boolean, view: ToolView | undefined, notRun: boolean) => void) → Promise<UnlistenFn>`
 
-Emitted when tool execution completes. `ok = false` if the tool returned an error. `view` is set for the few tools that return something to draw or play, such as `plot_spectrum`'s chart or `audition_effect`'s excerpt (`type: "audition"`, with `path`, `kind` and a `target` caption such as `track 1`, `the master bus` or `bus "Drums"`; `track` is there only for a track).
+Emitted when tool execution completes. `ok = false` if the tool returned an error. `view` is set for the few tools that return something to draw or play, such as `plot_spectrum`'s chart or `audition_effect`'s excerpt (`type: "audition"`, with `path`, `kind` and a `target` caption such as `track 1`, `the master bus` or `bus "Drums"`; `track` is there only for a track). A failed `transcribe` whose problem the user fixes carries `{ type: "speech_setup", problem }` (`"model_not_downloaded"`, `"runtime_unavailable"`, `"model_damaged"` or `"model_path_invalid"`): the window is never sent a tool's error text, so the backend makes this from the marker the error begins with, and the chat draws a card under the call's badge (Open Settings, for the two that Settings fixes).
 
 `notRun` is `true` (with `ok = false`) when the call was announced but never
 dispatched: the user declined or reworded the held step, did not answer within

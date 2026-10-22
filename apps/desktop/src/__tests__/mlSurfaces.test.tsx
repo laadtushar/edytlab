@@ -1,5 +1,5 @@
 /**
- * UI surfaces that still offered the unimplemented ML features (#233).
+ * UI surfaces that offered the unimplemented ML features (#233).
  *
  * #317 corrected the errors, the tool schemas, the chat card and the
  * website. Driving the built app turned up three more places the app
@@ -9,6 +9,10 @@
  * Its Rust guard could not have caught any of them — it checks
  * dangling scripts, dead env vars, error text and tool schemas, none
  * of which cover a UI affordance that offers a stub as available.
+ *
+ * Transcription runs now (#384), so the palette offers it and the
+ * transcript tab says how to get one. Stem separation still does not, and
+ * stays marked unavailable.
  */
 
 import { render, screen, fireEvent } from "@testing-library/react";
@@ -32,12 +36,21 @@ describe("the first-run suggestion list", () => {
 describe("the command palette and unimplemented features (#233)", () => {
   /**
    * The palette offered "Transcribe speech — Speech to text via local
-   * Whisper model" with an Enter affordance, while the decoder is a
+   * Whisper model" with an Enter affordance, while the decoder was a
    * stub. #317 corrected the errors, schemas and chat card; the
    * palette and the transcript tab were two more surfaces still
-   * promising the dead end, and its guard could not see either.
+   * promising the dead end, and its guard could not see either. Stem
+   * separation is still that.
    */
-  const ML = ["Transcribe speech", "Separate stems"];
+  const ML = ["Separate stems"];
+
+  it("offers transcription now that it runs, and says what it needs", () => {
+    const cmd = COMMANDS.find((c) => c.label === "Transcribe speech");
+    expect(cmd, "Transcribe speech is missing from the palette").toBeTruthy();
+    expect(cmd!.unavailable).toBeUndefined();
+    expect(cmd!.description).toContain("Settings → Account");
+    expect(cmd!.description.toLowerCase()).not.toContain("not implemented");
+  });
 
   for (const label of ML) {
     it(`marks "${label}" unavailable rather than offering it`, () => {
@@ -66,13 +79,25 @@ describe("the command palette and unimplemented features (#233)", () => {
       <CommandPalette open onClose={() => undefined} onSelect={onSelect} />,
     );
     fireEvent.change(screen.getByRole("textbox"), {
-      target: { value: "transcribe" },
+      target: { value: "stems" },
     });
-    fireEvent.click(screen.getByText("Transcribe speech"));
+    fireEvent.click(screen.getByText("Separate stems"));
     expect(
       onSelect,
       "clicking an unavailable command queued a prompt that only errors",
     ).not.toHaveBeenCalled();
+  });
+
+  it("fills the chat when Transcribe speech is clicked", () => {
+    const onSelect = vi.fn();
+    render(
+      <CommandPalette open onClose={() => undefined} onSelect={onSelect} />,
+    );
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "transcribe" },
+    });
+    fireEvent.click(screen.getByText("Transcribe speech"));
+    expect(onSelect).toHaveBeenCalled();
   });
 
   it("still fills the chat for an available command", () => {
@@ -89,13 +114,15 @@ describe("the command palette and unimplemented features (#233)", () => {
 });
 
 describe("the transcript tab's empty state", () => {
-  it("says the feature is unavailable instead of naming a step", () => {
+  it("says how to get a transcript, and what the first one needs", () => {
     render(<TranscriptPane words={[]} />);
     const el = screen.getByTestId("transcript-empty");
-    expect(el.textContent).toMatch(/isn['’]t available in this build/i);
-    // It used to say "Ask the agent to transcribe a track", which is
-    // the dead end itself.
-    expect(el.textContent).not.toMatch(/ask the agent to/i);
+    // Between #233 and #384 it said there was no way, because there was not.
+    expect(el.textContent).not.toMatch(/isn['’]t available in this build/i);
+    expect(el.textContent).not.toMatch(/stub/i);
+    expect(el.textContent).toMatch(/ask the assistant to transcribe a track/i);
+    expect(el.textContent).toContain("Settings → Account");
+    expect(el.textContent).toMatch(/not sent anywhere/i);
   });
 });
 

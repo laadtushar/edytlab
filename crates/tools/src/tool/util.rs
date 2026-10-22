@@ -507,6 +507,63 @@ pub(crate) fn check_track_index(tracks: &[Track], track_index: usize) -> Result<
     Ok(())
 }
 
+/// The track an edit by words (`cut_words`, `remove_fillers`) cuts, from the
+/// `track` argument and what the session's transcript says it was made from
+/// (#384).
+///
+/// A transcript's word times are seconds of the audio it was made from. Cut
+/// at those times in another track's audio and the wrong audio goes, with a
+/// success to say so. So:
+///
+/// * made from a **track**: that track is the default, and a different
+///   `track` is refused, saying which track the words are of. A track that is
+///   gone from the session leaves nothing to cut, so it is refused too;
+/// * made from a **file**: the times are the file's, so the caller has to say
+///   which track they line up with;
+/// * **no source** (a transcript written before the field existed, or built
+///   by hand): `track`, else 0, as before;
+/// * no transcript at all: `track`, else 0. The caller's own "no transcript"
+///   message follows.
+pub(crate) fn transcript_edit_track(
+    state: &SessionState,
+    explicit: Option<usize>,
+) -> Result<usize, String> {
+    use session::TranscriptSource;
+
+    let source = state.transcript.as_ref().and_then(|t| t.source.as_ref());
+    let track = match source {
+        None => explicit.unwrap_or(0),
+        Some(TranscriptSource::File) => explicit.ok_or_else(|| {
+            "this transcript was made from a file, not from a track of the session, so its word \
+             times are the file's. Pass `track` to say which track they line up with, or \
+             transcribe the track itself"
+                .to_string()
+        })?,
+        Some(TranscriptSource::Track { track: id }) => {
+            let Some(at) = state.tracks.iter().position(|t| &t.id == id) else {
+                return Err(
+                    "the track this transcript was made from is no longer in the session, so its \
+                     word times describe no audio here. Transcribe the track again"
+                        .to_string(),
+                );
+            };
+            match explicit {
+                Some(t) if t != at => {
+                    return Err(format!(
+                        "this transcript is of track {at} (\"{}\"), and its word times are that \
+                         track's. Cutting track {t} by them would remove other audio. Pass track \
+                         {at}, or transcribe track {t} first",
+                        state.tracks[at].name
+                    ))
+                }
+                _ => at,
+            }
+        }
+    };
+    check_track_index(&state.tracks, track)?;
+    Ok(track)
+}
+
 /// Refuse an effect kind the renderer cannot run in a chain (#520), with a
 /// message that lists the kinds that work so the model can choose one.
 ///
@@ -1479,7 +1536,13 @@ pub(crate) fn cut_transcript(
         });
     }
 
-    (Some(session::Transcript { words }), dropped)
+    (
+        Some(session::Transcript {
+            words,
+            source: t.source.clone(),
+        }),
+        dropped,
+    )
 }
 
 /// Mirror of [`cut_transcript`] for `len_sec` of audio inserted at
@@ -1510,6 +1573,7 @@ pub(crate) fn insert_transcript(
                 confidence: w.confidence,
             })
             .collect(),
+        source: t.source.clone(),
     })
 }
 
@@ -1562,6 +1626,7 @@ pub(crate) fn scale_transcript(
                 confidence: w.confidence,
             })
             .collect(),
+        source: t.source.clone(),
     })
 }
 

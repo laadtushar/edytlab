@@ -209,6 +209,23 @@ pub struct SpectrumPoint {
     pub db: f32,
 }
 
+/// What is wrong with the setup transcription needs: the four problems the
+/// user fixes (`tools::tool::transcribe` words each, and starts its error with
+/// the marker `agent_loop::extract_error_view` reads). The window draws a card
+/// for each, under the tool's badge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SpeechProblem {
+    /// The speech model is not downloaded: Settings → Account → Download.
+    ModelNotDownloaded,
+    /// There is no usable ONNX Runtime library: a build from source.
+    RuntimeUnavailable,
+    /// The downloaded model will not load: Remove it and download it again.
+    ModelDamaged,
+    /// `WHISPER_MODEL_PATH` names something that is not the model.
+    ModelPathInvalid,
+}
+
 /// The presentable projection of a tool result.
 ///
 /// Tool results are JSON aimed at the model. A couple of them also
@@ -257,6 +274,14 @@ pub enum ToolView {
         #[serde(default)]
         summary: Option<String>,
     },
+    /// A tool's error that is the user's to fix: the speech model or the ONNX
+    /// Runtime transcription needs (#384).
+    ///
+    /// Unlike the two above this is not a result's tagged JSON. It is made
+    /// from a failed call's error text, which begins with a marker the tool
+    /// defines once (`tools::tool::transcribe::MARKERS`); the window never sees
+    /// that text, only this variant, and switches on it.
+    SpeechSetup { problem: SpeechProblem },
 }
 
 /// Events emitted to `on_event` during a [`Agent::turn`] call.
@@ -272,8 +297,9 @@ pub enum AgentEvent {
     /// schema validation errors and tool-level errors alike.
     ///
     /// `view` carries the drawable part of the result, for the few tools
-    /// that produce one. It is `None` for every error path and for every
-    /// tool that returns only text and numbers.
+    /// that produce one. It is `None` for every tool that returns only text
+    /// and numbers, and for every error path but one: a tool's error that
+    /// begins with a speech-setup marker carries [`ToolView::SpeechSetup`].
     ToolCallEnd {
         id: String,
         ok: bool,

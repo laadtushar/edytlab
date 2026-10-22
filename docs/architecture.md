@@ -93,7 +93,7 @@ edytlab/
     ├── memory/                   # Global/project markdown memory fragments
     ├── ml-demucs/                # Stem separation via ONNX Demucs (inference is a stub, #385)
     ├── ml-pipeline/              # Shared ONNX runtime gate, model downloader + the user-started speech-model download, and inference cache (the installers carry the runtime, #383)
-    ├── ml-whisper/               # Transcription via ONNX Whisper-base (runs the pinned model; not called by the app yet, #384)
+    ├── ml-whisper/               # Transcription via ONNX Whisper-base (run by the `transcribe` tool on the model the user downloaded, #384)
     ├── recorder/                 # Microphone capture to WAV (cpal)
     ├── session/                  # DAG data model, node store, fork/diff/compare
     ├── skills/                   # User skill library with trigger evaluation
@@ -224,7 +224,7 @@ pub struct LlmConfig {
 pub enum AgentEvent {
     TextDelta(String),
     ToolCallStart { name: String, id: String },
-    ToolCallEnd   { id: String, ok: bool, view: Option<ToolView> },
+    ToolCallEnd   { id: String, ok: bool, view: Option<ToolView> },  // view: a result's chart/player, or the speech-setup card of a failed `transcribe`
     ToolCallNotRun { id: String },   // announced, never dispatched: not a failure
     NodeCreated(NodeId),
     Done,
@@ -431,15 +431,11 @@ for the provider that needs it. `LlmProvider::tool_set()` says which:
   cut to its first sentence and the keywords the model can do without
   (`default`, `examples`, `title`, `additionalProperties: false`) are dropped;
   names, types, enums, bounds and `required` are kept. A tool whose
-  description says it is not implemented in this build (`separate_stems`,
-  `transcribe`) is never selected and never listed: a small model that is
-  offered one calls it, and it can only fail. The same goes for the tools
-  that only work on a transcript (`NEEDS_TRANSCRIPT_TOOLS`: `cut_words`,
-  `remove_fillers`), because the only thing that makes a transcript is
-  `transcribe`. `duck_under_speech` is not one of them: with `voice_tracks` it
-  keys on a track's audio and needs no transcript, and a test fails if a tool
-  with a `voice_tracks` property is put on that list. A test fails when
-  `transcribe` stops being a stub, and says to delete that list.
+  description says it is not implemented in this build (`separate_stems`) is
+  never selected and never listed: a small model that is offered one calls it,
+  and it can only fail. `transcribe` was one, and `cut_words` and
+  `remove_fillers`, which work on its transcript, were left out with it; it
+  runs now (#384), so they are offered like any other tool.
 
   **The names line.** A model that is not shown a tool does not know it
   exists, so the permitted tools that were not sent are named, names only, in
@@ -770,7 +766,7 @@ There are four ways to open a store. `Store::open_shared` is the project the win
 
 There are 94, registered in `ToolDispatcher::default_dispatcher()` with their implementations under `crates/tools/src/tool/`. The full list, with every parameter, is [tools-reference.md](./tools-reference.md) — generated from the registry, so it cannot drift from what the agent can call.
 
-Two of them are stubs: `separate_stems` (Demucs, [#385](https://github.com/laadtushar/edytlab/issues/385)) and `transcribe` (Whisper, [#384](https://github.com/laadtushar/edytlab/issues/384)) return an error in this build. `cut_words`, `remove_fillers` and the `text` mode of `select_region` need a transcript, which only `transcribe` produces, so they cannot run yet either. `duck_under_speech` and `select_region`'s `speech_passage` do not wait on it: with no transcript they key on a voice track's audio (`voice_tracks`, found by `speech_detect.rs` from voiced sound, not level, and joined into passages by the same rule in both). A phrase needs the words, so `select_region` refuses `voice_tracks` with `text`.
+One of them is a stub: `separate_stems` (Demucs, [#385](https://github.com/laadtushar/edytlab/issues/385)) returns an error in this build. `transcribe` (Whisper, [#384](https://github.com/laadtushar/edytlab/issues/384)) runs the speech model on this computer once the user has downloaded it in Settings → Account (see "Whisper (Transcription)" below), and `cut_words`, `remove_fillers` and the `text` mode of `select_region` work from the transcript it makes. `duck_under_speech` and `select_region`'s `speech_passage` do not need one: with no transcript they key on a voice track's audio (`voice_tracks`, found by `speech_detect.rs` from voiced sound, not level, and joined into passages by the same rule in both). A phrase needs the words, so `select_region` refuses `voice_tracks` with `text`.
 
 ### Tool Input/Output Contract
 
@@ -1042,9 +1038,9 @@ After the build and before any upload, `scripts/installer-ml-runtime.py check` o
 
 `ml_pipeline::fetched_model_path` downloads, verifies and caches a pinned artifact (URL, size and SHA-256 per file): it streams to a `.part` file, resumes with `Range`, re-hashes the `.part` from disk before renaming it into place, refuses a truncated or wrong-hash file and fetches it again once, can be cancelled, and runs its HTTP request on its own thread so it is safe to call from async code. It holds an OS lock on `<root>/<id>.lock` for the length of a fetch, so a second edytlab process (or the CLI) on the same data directory waits instead of writing into the same `.part`, and the re-hash means a writer that ignores the lock still cannot get an unverified file given its final name. Only https URLs are accepted (plain http only for localhost), and at most five redirects are followed.
 
-**The speech model download.** `crates/ml-pipeline/models.json` pins one model, `whisper-base`: three files of `onnx-community/whisper-base_timestamped` at commit `608c49e61301901684bc36cac8f74b95ff6b5a8e` (the encoder, the int8 merged decoder and `tokenizer.json`, 138,644,904 bytes in all, about 139 MB), each with its URL, size and SHA-256. Every file was downloaded and hashed on 2026-10-22 and `tests/model_manifest.rs` pins the table. `ml_pipeline::ModelDownloads` (`models.rs`) drives `ModelStore` for the Settings row: `status` (not downloaded, downloading with bytes received of the total, ready, or failed with a reason; ready means every file was read and hashed again), `start_download`, `cancel` and `remove`. A download runs on a `std::thread` of its own and holds no store, engine, dispatcher or agent lock; its progress reaches the window as the `ml-model-progress` event (at most one per 100 ms), a cancel keeps the `.part` file so the next start resumes it with a `Range` request, and `remove` deletes the files the manifest lists, their partial files and the folders that leaves empty, and nothing else. Models live in `<app local data>/models/<id>/` (`app_local_data_dir()`, not `app_data_dir()`: on Windows the latter is the roaming profile, and 139 MB would follow the user to every machine they log on to), and `ml_pipeline::models::cached(id)` is the read-only lookup a tool will use to find one (it never downloads; `set_models_dir` registers the folder at launch). Four commands expose it (`ml_model_status`, `download_ml_model`, `cancel_ml_model_download`, `remove_ml_model`, in `commands.rs`) and a "Speech model" row in Settings → Account (`SpeechModelRow.tsx`) calls them.
+**The speech model download.** `crates/ml-pipeline/models.json` pins one model, `whisper-base`: three files of `onnx-community/whisper-base_timestamped` at commit `608c49e61301901684bc36cac8f74b95ff6b5a8e` (the encoder, the int8 merged decoder and `tokenizer.json`, 138,644,904 bytes in all, about 139 MB), each with its URL, size and SHA-256. Every file was downloaded and hashed on 2026-10-22 and `tests/model_manifest.rs` pins the table. `ml_pipeline::ModelDownloads` (`models.rs`) drives `ModelStore` for the Settings row: `status` (not downloaded, downloading with bytes received of the total, ready, or failed with a reason; ready means every file was read and hashed again), `start_download`, `cancel` and `remove`. A download runs on a `std::thread` of its own and holds no store, engine, dispatcher or agent lock; its progress reaches the window as the `ml-model-progress` event (at most one per 100 ms), a cancel keeps the `.part` file so the next start resumes it with a `Range` request, and `remove` deletes the files the manifest lists, their partial files and the folders that leaves empty, and nothing else. Models live in `<app local data>/models/<id>/` (`app_local_data_dir()`, not `app_data_dir()`: on Windows the latter is the roaming profile, and 139 MB would follow the user to every machine they log on to), and `ml_pipeline::models::cached(id)` is the read-only lookup the `transcribe` tool uses to find one (it never downloads; `set_models_dir` registers the folder at launch). Four commands expose it (`ml_model_status`, `download_ml_model`, `cancel_ml_model_download`, `remove_ml_model`, in `commands.rs`) and a "Speech model" row in Settings → Account (`SpeechModelRow.tsx`) calls them.
 
-Only the user's click downloads. `download_ml_model` is the one caller of `start_download`; nothing downloads at launch, when Settings opens, or from a tool or the agent (the transcription tool of #384 will find the model with `models::cached` and, when it is missing, say it is not downloaded; it will never fetch it, because a tool runs holding the session and engine locks. No tool uses a model yet: `transcribe` still says it is not implemented). `crates/ml-pipeline/tests/only_the_user_downloads.rs` reads every crate's and app's source and fails if anything but the desktop commands names the downloader, or if `start_download` is called outside `download_ml_model`, and `speechModelOnlyOnClick.test.ts` does the same for the frontend. The requests go to `huggingface.co` (redirected to Hugging Face's CDN), one per file and more on a retry or a resume (`Range`, `Accept-Encoding: identity`, and `User-Agent: edytlab/<version>`), and carry your IP address, the file requested and that edytlab is asking, and no audio; there is no telemetry (see the privacy page). The model is `openai/whisper-base`, Apache-2.0 (its code is MIT), exported by the onnx-community; it is fetched at run time, not redistributed. Nothing reads the files yet: the runtime is in the installers and the app finds it there (Settings says "ONNX Runtime: 1.23.2 (bundled)"; a build from source has none and says "not installed in this build"), and a model can be on disk, but no inference runs, so `separate_stems` and `transcribe` still fail. Running it is [#384](https://github.com/laadtushar/edytlab/issues/384). `crates/ml-pipeline/tests/model_real_download.rs` (`#[ignore]`) downloads the real files, cancels part-way and resumes, for a person or the opt-in ML workflow to run.
+Only the user's click downloads. `download_ml_model` is the one caller of `start_download`; nothing downloads at launch, when Settings opens, or from a tool or the agent (the `transcribe` tool of #384 finds the model with `models::cached` and, when it is missing, says it is not downloaded, with a card that sends the user to this row; it never fetches it, because a download is the user's to start: it is 139 MB from a third party). `crates/ml-pipeline/tests/only_the_user_downloads.rs` reads every crate's and app's source and fails if anything but the desktop commands names the downloader, or if `start_download` is called outside `download_ml_model`, and `speechModelOnlyOnClick.test.ts` does the same for the frontend. The requests go to `huggingface.co` (redirected to Hugging Face's CDN), one per file and more on a retry or a resume (`Range`, `Accept-Encoding: identity`, and `User-Agent: edytlab/<version>`), and carry your IP address, the file requested and that edytlab is asking, and no audio; there is no telemetry (see the privacy page). The model is `openai/whisper-base`, Apache-2.0 (its code is MIT), exported by the onnx-community; it is fetched at run time, not redistributed. The `transcribe` tool reads the files (see "Whisper (Transcription)" below): the runtime is in the installers and the app finds it there (Settings says "ONNX Runtime: 1.23.2 (bundled)"; a build from source has none and says "not installed in this build"), and `separate_stems` still fails, because its inference is not shipped ([#385](https://github.com/laadtushar/edytlab/issues/385)). `crates/ml-pipeline/tests/model_real_download.rs` (`#[ignore]`) downloads the real files, cancels part-way and resumes, for a person or the opt-in ML workflow to run.
 
 ### Whisper (Transcription)
 
@@ -1061,9 +1057,9 @@ Input: WAV (any sample rate)
     │
 Output: Vec<WordTimestamp> stored in SessionState.transcript
 
-Written, and not called by the app: `ml_whisper::transcribe` runs this diagram
-on the pinned export, but the `transcribe` tool does not call it, so the app
-still answers "not implemented in this build" whatever model is configured.
+Run by the `transcribe` tool (#384): `ml_whisper::transcribe_observed` runs
+this diagram on the pinned export, off the store lock, with the user's model
+(downloaded in Settings → Account, or a developer's `WHISPER_MODEL_PATH`).
 ```
 
 `ml_whisper::transcribe(model, samples, rate, channels, language, cancel)` turns any audio into words with start and end times and a confidence. It runs on the CPU (CoreML and CUDA are not measured):
@@ -1077,7 +1073,19 @@ still answers "not implemented in this build" whatever model is configured.
 
 Measured by hand against the real model (`crates/ml-whisper/tests/transcribe_known_words.rs`, `#[ignore]`d because CI has neither the model nor the runtime): on twelve synthetic words 0 are wrong and every start is within 0.23 s (mean 0.17 s, early); on the first list of words, which was changed after the model heard it, 1 of 9 is wrong; the same words as 44.1 kHz stereo, or with 0.6 s pauses between them, are heard the same; 48.6 s of them in shuffled order, two windows, comes back with all 84 words and 96% to 99% at their time; silence and noise give no words. A 7.3 s clip runs at 4x to 9x realtime on a shared four-core machine (the model is about 1 s of decoder and encoder per window of this length, and ONNX Runtime is the cost, not the Rust around it). That is one synthetic voice: it says the path works, not how accurate Whisper base is on hard audio.
 
-Still to do (#384): the tool wiring (the model folder from `ml_pipeline::models::cached`, progress, cancel, the `InferenceCache`, a `language` argument), the download prompt and every line of copy that says transcription is unavailable.
+**The tool** (`crates/tools/src/tool/transcribe.rs`, #384):
+
+- It takes `track` (read as it sits on the timeline, so word times are session seconds) or `path` (a file that is not in the session; its times are the file's), and an optional `language`. `SpeechToText` is the seam: `WhisperSpeech` is the real one, and CI runs the whole tool against a fake (`TranscribeTool::with`).
+- It finds the model without fetching anything: the ONNX Runtime check first, then `WHISPER_MODEL_PATH` if set (and it does not fall back when that is wrong), else `models::cached`.
+- It runs **off the store lock** (`runs_off_the_lock`). If the user edits meanwhile, the call is run again on the new head: the re-run finds the same audio in the **inference cache** (`ContentHash::combine` of `provenance::audio_hash` of the decoded input, the model's fingerprint, and the language with `TRANSCRIPT_FORMAT`) and costs a hash, and it is refused if the edit changed the clips of the transcribed track. A repeat request, or the same clip on another track, is a cache hit too.
+- It reports `kind: "transcribe"` progress, one event per 30 s window (`index` of an estimated `total` that can grow, `file` the track or file name), closed by a `done` from a drop guard however the run ends. Cancel is read before every window and every decoder step; a cancelled run appends nothing and is not cached. The three `progress` spellings it uses are the `ALLOWED` list of `tests/off_lock_tools.rs`.
+- It appends one node whose `state.transcript` has the words and a `source` (`Track { id }` or `File`, `session::TranscriptSource`), so an edit by words cuts that track: `cut_words` and `remove_fillers` default to it and refuse another, and the Transcript tab cuts only a track the transcript is of. No speech found appends nothing.
+- The result is a bounded listing (6,000 bytes): `[text, start_sec, end_sec]` per word if they fit, else sentence-sized segments with `from_word`/`to_word`, and it never carries a local path. It goes to the model provider like any tool result.
+- Four problems answer with a marker the window turns into a card (`[speech_model_not_downloaded]`, `[onnx_runtime_unavailable]`, `[speech_model_damaged]`, `[speech_model_path_invalid]`; `agent_loop::extract_error_view` makes a `ToolView::SpeechSetup` from the start of the error, since the window is never sent a tool's error text), each saying what the user does and that the agent does nothing itself.
+
+Measured through the tool on the real model (release build, a shared four-core machine; `transcribe_end_to_end.rs`): the twelve known words with 0 wrong and every start within 0.23 s; 7 s of audio in 2.5 to 3.3 s the first time, which includes loading the model, and 3 to 6 ms the second, from the cache; `models::cached` takes 0.7 to 0.9 s to hash the 139 MB and then remembers a verified model by each file's size and modified time, so a repeat call is free; a Cancel lands in 0.4 to 1.3 s. That is one synthetic voice: it says the path works, not how accurate Whisper base is on hard audio.
+
+Tested without a model in CI (`transcribe_tool.rs`, `transcribe_off_lock.rs`, `transcribe_progress.rs`, `transcribe_then_edit.rs`, and the `ai` and frontend tests), and on the real model by `crates/tools/tests/transcribe_end_to_end.rs` (`#[ignore]`d).
 
 ### Demucs (Stem Separation)
 
@@ -1234,7 +1242,7 @@ The agent turn emits events via Tauri's event system (names in `apps/desktop/src
 |-----------|---------|-------------|
 | `agent://text-delta` | `{ text: string }` | Each text chunk streamed from the LLM |
 | `agent://tool-call` | `{ name: string, id: string }` | Tool execution starts |
-| `agent://tool-call-end` | `{ id: string, ok: boolean, not_run: boolean, view?: ToolView }` | Tool execution completes, or the call was announced and will never run (`ok: false`, `not_run: true`: declined, reworded, unanswered, or over the tool budget) |
+| `agent://tool-call-end` | `{ id: string, ok: boolean, not_run: boolean, view?: ToolView }` | Tool execution completes, or the call was announced and will never run (`ok: false`, `not_run: true`: declined, reworded, unanswered, or over the tool budget). `view` is a result's chart or player, or, for a failed `transcribe` whose problem the user fixes, `{ type: "speech_setup", problem }` (`model_not_downloaded`, `runtime_unavailable`, `model_damaged`, `model_path_invalid`): the window is never sent a tool's error text, so the loop makes this from the marker the tool's error begins with (`tools::tool::transcribe::MARKERS`, read by `agent_loop::extract_error_view`) and the window draws a card from it |
 | `agent://node-created` | `{ node_id: string }` | An agent tool call moved the session's head, to a new node or one already there (`revert_to`); `node_id` is the store's head after the call. Not sent for a call that left the head where it was (`name_node`, a read) |
 | `agent://done` | `{}` | Turn complete (no more tool calls) |
 | `agent://plan` | `{ steps: object[] }` | A plan, or the held first edit, awaits approval; the turn is suspended (see [Plan first](#plan-first)) |
@@ -1290,7 +1298,7 @@ Save As (`project::copy_project`) takes the store lock alone, to copy the histor
 ### Audio Privacy
 
 - Audio processing runs 100% in-process
-- ONNX models (Demucs, Whisper) are designed to run locally; neither runs yet (#383–#385), and audio bytes never leave the machine
+- ONNX models run locally. Whisper does (`transcribe`, #384); Demucs does not run yet (#385). Audio bytes never leave the machine. What the speech model hears does reach the model provider as text: the words `transcribe` returns are a tool result, and tool results are part of the chat request (a bounded listing, `RESULT_BUDGET_BYTES`, never the audio)
 - Network traffic is LLM API calls (text tokens only), the requests of the plugin URLs and MCP servers you configure, and, from the release after 0.7.0, the speech model download you start by clicking Download in Settings (the files come from `huggingface.co`; see "The speech model download" above)
 
 ### Tauri Permissions

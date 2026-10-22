@@ -10,7 +10,7 @@
 //!
 //! The last section is `speech_passage` with `voice_tracks`: the same
 //! passages found in a voice track's audio, for a session with no
-//! transcript (`transcribe` is a stub, #384).
+//! transcript (one that has not been transcribed, #384).
 
 use std::path::{Path, PathBuf};
 
@@ -164,6 +164,7 @@ impl Session {
         let head = self.store.head().expect("head");
         let mut state = self.store.get(head).expect("node").state;
         state.transcript = Some(session::Transcript {
+            source: None,
             words: words
                 .iter()
                 .map(|(text, a, b)| session::TranscriptWord {
@@ -438,8 +439,8 @@ fn a_resolved_range_drives_an_existing_range_taking_tool() {
 // A passage of speech, found in a voice track's audio
 // =============================================================================
 //
-// `transcribe` is a stub (#384), so a session in a shipped build has no
-// transcript, and `speech_passage` could only fail. Which passage is "the
+// A session that has not been transcribed (#384) has no transcript, and
+// `speech_passage` could only fail there. Which passage is "the
 // last thing said" needs where the speech is, not what was said, and
 // `voice_tracks` answers that from the audio with the detector
 // `duck_under_speech` uses (`speech_detect.rs`): voiced (pitched) sound

@@ -112,7 +112,7 @@ With Plan first on and no plan from the model, the first step that would change 
 - [`storage_report`](#storage_report) — Report what this session is costing on disk.
 - [`time_shift`](#time_shift) — Move a track's clips forward or backward in time.
 - [`time_stretch`](#time_stretch) — Stretch or compress a track in time without changing its pitch.
-- [`transcribe`](#transcribe) — NOT IMPLEMENTED IN THIS BUILD.
+- [`transcribe`](#transcribe) — Transcribe speech to text on this computer and attach the words, with times, to the session as a new version, replacing the earlier transcript that cut_words, remove_fillers and select_region's `text` work from.
 - [`tremolo`](#tremolo) — Apply tremolo (LFO amplitude modulation).
 - [`trim`](#trim) — Keep only the half-open sample range [start_sample, end_sample) of a track and discard the rest.
 - [`truncate_silence`](#truncate_silence) — Find and remove silent regions in a track.
@@ -317,13 +317,13 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `cut_words`
 
-Delete a span of transcribed words and the audio underneath it, closing the gap. Indices are into the session's transcript, as returned by `transcribe`. The remaining word timings are shifted so they still line up with the audio, and the whole thing is one undoable node. Requires a transcript.
+Delete a span of transcribed words and the audio underneath it, closing the gap. Indices are into the session's transcript, as returned by `transcribe`. The remaining word timings are shifted so they still line up with the audio, and the whole thing is one undoable node. Requires a transcript, and cuts its track.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `from_word` | integer | yes | First word to remove |
 | `to_word` | integer | yes | One past the last word to remove |
-| `track` | integer | no | Track the transcript describes; defaults to 0 |
+| `track` | integer | no | Track the transcript describes. Defaults to the transcript's track; another is refused. Needed after a file transcript. |
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 
@@ -781,13 +781,13 @@ Remove one effect, by index, from a track's chain, the master bus's (scope "mast
 
 ## `remove_fillers`
 
-Find filler words in the session's transcript and, when asked, remove them and their audio in one undoable edit. Reports by default without changing anything: this is a destructive edit across a whole track, so it says what it found and waits. Removes hesitations (um, uh, er) wherever they appear, but discourse markers (like, actually) only where they stand alone between pauses — speech with every hesitation stripped sounds rushed. Leaves a short pause where each filler was so the result does not sound spliced.
+Find filler words in the session's transcript and, when asked, remove them and their audio in one undoable edit. Reports by default without changing anything: this is a destructive edit across a whole track, so it says what it found and waits. Removes hesitations (um, uh, er) wherever they appear, but discourse markers (like, actually) only where they stand alone between pauses — speech with every hesitation stripped sounds rushed. Leaves a short pause where each filler was so the result does not sound spliced. Cuts the transcript's track.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
 | `apply` | boolean | no | Remove them. Omit to report what would be removed without touching the session. |
 | `keep_gap_ms` | number | no | Pause to leave where each filler was, in milliseconds. Default 80. |
-| `track` | integer | no | Track the transcript describes; defaults to 0 |
+| `track` | integer | no | Track the transcript describes. Defaults to the transcript's track; another is refused. Needed after a file transcript. |
 | `words` | array of string | no | Replaces the built-in list. Fillers are language- and speaker-specific. |
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
@@ -1127,11 +1127,13 @@ Unlisted parameters are rejected: the dispatcher validates against this schema b
 
 ## `transcribe`
 
-NOT IMPLEMENTED IN THIS BUILD. Speech-to-text would transcribe an audio file with a local Whisper ONNX model, resampling to 16 kHz mono and appending a session node carrying the transcript. The app does not run the speech model yet, so this always returns an error and there is no setup that changes that — do not suggest installing a model or setting WHISPER_MODEL_PATH. Tell the user transcription is unavailable in this build instead. Tools that consume a transcript (cut_words, and the text-based editing flow) are unavailable for the same reason.
+Transcribe speech to text on this computer and attach the words, with times, to the session as a new version, replacing the earlier transcript that cut_words, remove_fillers and select_region's `text` work from. Give `track` (word times are then session seconds) or `path` for a file that is not in the session (the file's times). The audio never leaves the computer. It needs the speech model the user downloads once in Settings → Account; if the call returns a message starting with a bracketed code, tell the user what it says and stop, and do not try to download, install or configure anything. Runs on the CPU, usually in under half the audio's length; the user can cancel. Returns [text, start_sec, end_sec] per word (the position is the word number cut_words takes), or for long audio sentence segments with word numbers.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
-| `path` | string | yes |  |
+| `language` | string | no | ISO 639-1 code of the language spoken (en, de, fr, es, ...). Leave out to detect it. |
+| `path` | string | no | An audio file that is not in the session. |
+| `track` | integer | no | Index of a track in the session. |
 
 Unlisted parameters are rejected: the dispatcher validates against this schema before the tool runs.
 

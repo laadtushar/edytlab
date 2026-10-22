@@ -43,10 +43,11 @@
 //! the user chose is not cut down to the core.
 //!
 //! A tool that describes itself as not implemented in this build (stem
-//! separation, transcription) is never selected, and never listed in the
-//! names line below: a small model that is offered it will call it, and it
-//! can only fail. The same goes for [`NEEDS_TRANSCRIPT_TOOLS`], which work
-//! on a transcript that only `transcribe` makes.
+//! separation) is never selected, and never listed in the names line below:
+//! a small model that is offered it will call it, and it can only fail.
+//! (`transcribe` used to be one, and `cut_words` and `remove_fillers`, which
+//! work on its transcript, were left out with it. It runs now, and they are
+//! offered like any other tool, #384.)
 //!
 //! # The names line
 //!
@@ -206,35 +207,20 @@ pub fn slim_tools_budget(session_block_bytes: usize) -> usize {
 ///
 /// This was 1,600 until `list_session` (#618) added its name, 14 B with the
 /// separator, to the line of built-ins. It went up by that and no more, so
-/// the room left for MCP names is what it was.
-pub const SLIM_NAMES_BUDGET_BYTES: usize = 1_614;
+/// the room left for MCP names is what it was. It went up again by 39 B when
+/// `transcribe`, `cut_words` and `remove_fillers` stopped being left out
+/// (#384): their names, 33 B with the separators of the line, are on it now.
+pub const SLIM_NAMES_BUDGET_BYTES: usize = 1_653;
 
 /// A tool whose description begins with this does nothing in this build
-/// (`separate_stems`, `transcribe`: their inference is not shipped). The
-/// full list still carries them, with the description saying so; a small
-/// model is better served by not being offered them at all.
+/// (`separate_stems`: its inference is not shipped). The full list still
+/// carries it, with the description saying so; a small model is better
+/// served by not being offered it at all.
 ///
 /// The one place this is written down on the `ai` side: the plan check
 /// (`agent_loop::vet_plan`, #482) reads it through [`is_not_implemented`]
 /// too, to mark a plan step that names such a tool.
 pub(crate) const NOT_IMPLEMENTED_MARKER: &str = "NOT IMPLEMENTED";
-
-/// Tools that only work on a transcript of the session, and have nothing
-/// else to work from: without one they answer "this session has no
-/// transcript; run `transcribe` first". `transcribe` is the only thing
-/// that makes one, and it does nothing in this build (#383-#385), so these
-/// can only fail, and a small model that is offered one calls it. They are
-/// left out like the tools above. (`select_region` also reads a
-/// transcript, but resolves beats without one, and a speech passage from
-/// the audio of the tracks named in `voice_tracks`, so it stays. So does
-/// `duck_under_speech`: it keys on a transcript when there is one, and on
-/// the audio of the tracks named in `voice_tracks` when there is not.
-/// A test fails if a tool with a `voice_tracks` property is listed here.)
-/// Alphabetical.
-///
-/// A test fails when `transcribe` stops saying it is not implemented, and
-/// says to delete this list.
-const NEEDS_TRANSCRIPT_TOOLS: &[&str] = &["cut_words", "remove_fillers"];
 
 /// Words in tool names that say nothing about which tool is meant. A user
 /// who writes "remove the region on this track" has named no tool, and
@@ -594,12 +580,6 @@ pub(crate) fn is_not_implemented(tool: &Value) -> bool {
         .is_some_and(|d| d.trim_start().starts_with(NOT_IMPLEMENTED_MARKER))
 }
 
-/// Whether a small model is better not offered the tool at all: it does
-/// nothing in this build, or it needs a transcript this build cannot make.
-fn is_unusable(tool: &Value) -> bool {
-    is_not_implemented(tool) || name_of(tool).is_some_and(|n| NEEDS_TRANSCRIPT_TOOLS.contains(&n))
-}
-
 /// Whether `name` is an MCP server's tool rather than a built-in one.
 ///
 /// Every MCP wire name is `<server>__<tool>` (`mcp::namespaced_wire_name`
@@ -709,7 +689,7 @@ pub(crate) fn slim_tool_schemas(
     };
     let mut compacted: Vec<(String, Value, usize)> = list
         .iter()
-        .filter(|tool| !is_unusable(tool))
+        .filter(|tool| !is_not_implemented(tool))
         .filter_map(|tool| {
             let name = name_of(tool)?.to_string();
             let tool = compact_tool(tool);
@@ -1493,68 +1473,35 @@ mod tests {
         }
     }
 
-    /// `remove_fillers` and `cut_words` can only answer "this session has no
-    /// transcript" while `transcribe` is a stub, so a small model is not
-    /// offered them, by a message that names them or otherwise.
+    /// `transcribe`, and the tools that work on its transcript, run now
+    /// (#384), so a small model is offered them like any other: sent when the
+    /// message names them, listed by name when it does not.
     #[test]
-    fn a_tool_that_needs_a_transcript_is_never_selected_or_listed() {
-        let registered = names(&all_tools());
-        for tool in NEEDS_TRANSCRIPT_TOOLS {
+    fn the_transcript_tools_are_offered_to_a_small_model() {
+        let transcript_tools = ["transcribe", "cut_words", "remove_fillers"];
+        let selection = selection_for("transcribe track 1, then remove the ums", &[]);
+        let sent = names(&selection.tools);
+        assert!(sent.iter().any(|n| n == "transcribe"), "{sent:?}");
+        for tool in transcript_tools {
+            let offered =
+                sent.iter().any(|n| n == tool) || selection.unsent.iter().any(|n| n == tool);
+            assert!(offered, "{tool} is neither sent nor listed: {sent:?}");
+        }
+        // And one that has nothing to do with them still lists them by name.
+        let selection = selection_for("make it louder", &[]);
+        for tool in transcript_tools {
             assert!(
-                registered.iter().any(|n| n == tool),
-                "{tool} is not a registered tool: has it been renamed?"
+                selection.unsent.iter().any(|n| n == tool),
+                "{tool} is neither sent nor named for an unrelated message: {:?}",
+                selection.unsent
             );
         }
-        let mut sorted = NEEDS_TRANSCRIPT_TOOLS.to_vec();
-        sorted.sort_unstable();
-        assert_eq!(NEEDS_TRANSCRIPT_TOOLS, sorted.as_slice(), "alphabetical");
-
-        for text in [
-            "remove the ums and uhs",
-            "remove the filler words",
-            "cut the words from 3 to 9",
-            "remove_fillers cut_words",
-            "make it louder",
-        ] {
-            let selection = selection_for(text, &[]);
-            let sent = names(&selection.tools);
-            for tool in NEEDS_TRANSCRIPT_TOOLS {
-                assert!(
-                    !sent.iter().any(|n| n == tool),
-                    "{text:?} sent {tool}: {sent:?}"
-                );
-                assert!(
-                    !selection.unsent.iter().any(|n| n == tool),
-                    "{text:?} lists {tool} as callable: {:?}",
-                    selection.unsent
-                );
-            }
-        }
-        // A whitelist small enough to be sent whole is no exception.
-        let available = Value::Array(
-            all_tools()
-                .as_array()
-                .unwrap()
-                .iter()
-                .filter(|t| ["gain", "remove_fillers"].contains(&t["name"].as_str().unwrap()))
-                .cloned()
-                .collect(),
-        );
-        let selection = slim_tool_schemas(
-            available,
-            "remove the ums",
-            &[],
-            &[],
-            &[],
-            SLIM_TOOLS_BUDGET_BYTES,
-        );
-        assert_eq!(names(&selection.tools), vec!["gain"]);
     }
 
     /// The marker is read off the tools' own descriptions, so it is only as
     /// good as those descriptions. Two readers depend on it: the slim set
     /// above, and the plan check, which marks a plan step naming such a tool
-    /// "unavailable" (#482). This is the check that both stubs still carry
+    /// "unavailable" (#482). This is the check that the stub still carries
     /// it, and that a working tool does not: either way the other half of
     /// the pair is wrong.
     #[test]
@@ -1569,24 +1516,28 @@ mod tests {
                 .unwrap_or_else(|| panic!("{name} is not registered"));
             is_not_implemented(schema)
         };
-        for stub in ["separate_stems", "transcribe"] {
-            assert!(flagged(stub), "{stub} no longer reads as not implemented");
-        }
-        for working in ["analyze_track", "reverse", "set_track_gain", "label"] {
+        assert!(
+            flagged("separate_stems"),
+            "separate_stems no longer reads as not implemented"
+        );
+        for working in [
+            "analyze_track",
+            "reverse",
+            "set_track_gain",
+            "label",
+            "transcribe",
+            "cut_words",
+            "remove_fillers",
+        ] {
             assert!(!flagged(working), "{working} reads as not implemented");
         }
     }
 
     /// `duck_under_speech` reads the transcript when there is one, but with
-    /// `voice_tracks` it keys on a track's audio and needs none, so it works
-    /// while `transcribe` is a stub and a small model should be offered it.
+    /// `voice_tracks` it keys on a track's audio and needs none, so a small
+    /// model is offered it with or without a transcript.
     #[test]
     fn duck_under_speech_is_offered_to_a_small_model_because_it_needs_no_transcript() {
-        assert!(
-            !NEEDS_TRANSCRIPT_TOOLS.contains(&"duck_under_speech"),
-            "duck_under_speech is on NEEDS_TRANSCRIPT_TOOLS, but it can key on `voice_tracks` \
-             audio with no transcript"
-        );
         for text in ["duck the music under the speech", "duck_under_speech"] {
             let selection = selection_for(text, &[]);
             let sent = names(&selection.tools);
@@ -1661,55 +1612,13 @@ mod tests {
         }
     }
 
-    /// A tool with a `voice_tracks` property keys on audio, so it does not
-    /// need a transcript. Listing one in `NEEDS_TRANSCRIPT_TOOLS` hides a
-    /// working tool from every small model (this was `duck_under_speech`,
-    /// until it gained `voice_tracks`).
-    #[test]
-    fn a_tool_that_can_key_on_voice_audio_is_not_listed_as_needing_a_transcript() {
-        let registry = all_tools();
-        for tool in registry.as_array().unwrap() {
-            let name = name_of(tool).expect("a name");
-            if !NEEDS_TRANSCRIPT_TOOLS.contains(&name) {
-                continue;
-            }
-            assert!(
-                tool["input_schema"]["properties"]
-                    .get("voice_tracks")
-                    .is_none(),
-                "{name} is on NEEDS_TRANSCRIPT_TOOLS but takes `voice_tracks`, so it can key on \
-                 a track's audio and works with no transcript. Take it off the list (and out of \
-                 the docs that say it needs a transcript) so a small model is offered it."
-            );
-        }
-    }
-
-    /// The exclusion is for as long as nothing can make a transcript. When
-    /// `transcribe` works, these tools do too, and should be offered again.
-    #[test]
-    fn the_transcript_tools_are_left_out_only_while_transcribe_is_a_stub() {
-        let registry = all_tools();
-        let transcribe = registry
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|t| t["name"] == "transcribe")
-            .expect("transcribe is registered");
-        assert!(
-            is_not_implemented(transcribe),
-            "`transcribe` no longer says it is not implemented, so a transcript can be made. \
-             Delete NEEDS_TRANSCRIPT_TOOLS from tool_selection.rs, its use in `is_unusable`, and \
-             this test, and take the transcript tools out of the docs that say they are left out."
-        );
-    }
-
     #[test]
     fn every_permitted_tool_is_sent_or_listed_and_none_is_both() {
         let implemented: Vec<String> = all_tools()
             .as_array()
             .unwrap()
             .iter()
-            .filter(|t| !is_unusable(t))
+            .filter(|t| !is_not_implemented(t))
             .map(|t| t["name"].as_str().unwrap().to_string())
             .collect();
         for text in ["Make track 0 louder by 6 dB.", "add reverb and echo", ""] {
@@ -1915,7 +1824,7 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .filter(|t| !is_unusable(t))
+            .filter(|t| !is_not_implemented(t))
             .map(|t| t["name"].as_str().unwrap().to_string())
             .collect();
         let mut available = all_tools().as_array().unwrap().clone();
@@ -1958,7 +1867,7 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .filter(|t| !is_unusable(t))
+            .filter(|t| !is_not_implemented(t))
             .map(|t| t["name"].as_str().unwrap().len() + 2)
             .sum();
         assert!(

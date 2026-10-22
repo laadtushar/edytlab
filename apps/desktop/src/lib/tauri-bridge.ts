@@ -203,7 +203,7 @@ export const mlRuntimeStatus = (): Promise<MlRuntimeStatus> =>
  *   `bytes` above zero is a partial download a click will resume.
  * - `downloading`: a transfer is running; `received` of `total` bytes.
  * - `ready`: every file is on disk and checked against its SHA-256. It is
- *   not running: transcription is not shipped (#384).
+ *   loaded when `transcribe` first needs it, not before (#384).
  * - `failed`: the last transfer ended with `reason`; the partial file is
  *   kept for a retry.
  *
@@ -633,10 +633,29 @@ export interface SpectrumPoint {
 }
 
 /**
+ * What is wrong with the setup transcription needs — mirrors
+ * `ai::SpeechProblem`. The card switches on this, never on the tool's words.
+ */
+export type SpeechProblem =
+  | "model_not_downloaded"
+  | "runtime_unavailable"
+  | "model_damaged"
+  | "model_path_invalid";
+
+/**
  * The presentable projection of a tool result — mirrors `ai::ToolView`.
  * Tagged on `type`, so adding a kind here means adding a variant there.
  */
 export type ToolView =
+  | {
+      /**
+       * A failed `transcribe` whose problem is the user's to fix (#384). It
+       * comes from the tool's error, not from a result, and the window is
+       * never sent that error's text: it draws a card from this.
+       */
+      type: "speech_setup";
+      problem: SpeechProblem;
+    }
   | {
       type: "spectrum";
       points: SpectrumPoint[];
@@ -826,14 +845,36 @@ export interface TranscriptWord {
 }
 
 /**
- * The transcript at the current head.
+ * What a transcript's words were made from (#384). Their times are seconds of
+ * that audio, so the Transcript tab cuts a track by them only if the transcript
+ * is of that track:
  *
- * An empty list is the honest answer for "not transcribed yet" — that
- * is an ordinary state, not a fault, and the pane says so from the
- * empty list rather than from an error.
+ * - `track`: a track of the session; `track` is its index at the head.
+ * - `file`: a file that is not in the session; the times are the file's.
+ * - `gone`: the track it was made from has been removed.
+ * - `unknown`: it does not say (written before it was recorded), and also what
+ *   there is when there is no transcript.
  */
-export const getTranscript = (): Promise<TranscriptWord[]> =>
-  invoke<TranscriptWord[]>("get_transcript");
+export type TranscriptSource =
+  | { kind: "track"; track: number }
+  | { kind: "file" }
+  | { kind: "gone" }
+  | { kind: "unknown" };
+
+export interface Transcript {
+  words: TranscriptWord[];
+  source: TranscriptSource;
+}
+
+/**
+ * The transcript at the current head, and where it came from.
+ *
+ * No words is the honest answer for "not transcribed yet" — that is an
+ * ordinary state, not a fault, and the pane says so from the empty list
+ * rather than from an error.
+ */
+export const getTranscript = (): Promise<Transcript> =>
+  invoke<Transcript>("get_transcript");
 
 /** Cut `[fromWord, toWord)` and the audio underneath. Returns the new head. */
 export const cutTranscriptWords = (
@@ -851,7 +892,9 @@ export const listMarkers = (): Promise<Marker[]> =>
  *
  * `batch_apply` emits one event per file plus a final `done`. A tool
  * call is a single round trip, so without this a twelve-file batch is
- * an unexplained pause.
+ * an unexplained pause. `transcribe` (#384) emits one per 30 s window of
+ * audio, with `file` the track ("track 1") or the file's name, and a
+ * final `done`; `total` is an estimate that can grow.
  */
 export interface ToolProgress {
   kind: string;

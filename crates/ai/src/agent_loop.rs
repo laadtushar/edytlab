@@ -1639,7 +1639,7 @@ where
                     on_event(AgentEvent::ToolCallEnd {
                         id: id.clone(),
                         ok: false,
-                        view: None,
+                        view: extract_error_view(&msg),
                     });
                     tool_results.push(ContentBlock::ToolResult {
                         tool_use_id: id.clone(),
@@ -1878,6 +1878,39 @@ fn extract_tool_view(value: &Value) -> Option<crate::ToolView> {
         Some("spectrum") | Some("audition") => serde_json::from_value(value.clone()).ok(),
         _ => None,
     }
+}
+
+/// The card a failed tool call gets, if its error is one the user fixes.
+///
+/// A tool's error is text for the model, and the window never receives it:
+/// `tool-call-end` carries `ok` and a view. So an error that is the user's to
+/// act on starts with one marker, defined once beside the tool
+/// (`tools::tool::transcribe::MARKERS`), and this reads it into a
+/// [`crate::ToolView::SpeechSetup`]. Only the start of the text counts: a
+/// marker quoted further in, by a tool that echoes what it was given, is not
+/// the tool saying it. What the assistant writes never comes through here.
+fn extract_error_view(message: &str) -> Option<crate::ToolView> {
+    use crate::SpeechProblem;
+    use tools::tool::transcribe as t;
+    let problems = [
+        (
+            t::MARKER_MODEL_NOT_DOWNLOADED,
+            SpeechProblem::ModelNotDownloaded,
+        ),
+        (
+            t::MARKER_RUNTIME_UNAVAILABLE,
+            SpeechProblem::RuntimeUnavailable,
+        ),
+        (t::MARKER_MODEL_DAMAGED, SpeechProblem::ModelDamaged),
+        (
+            t::MARKER_MODEL_PATH_INVALID,
+            SpeechProblem::ModelPathInvalid,
+        ),
+    ];
+    problems
+        .into_iter()
+        .find(|(marker, _)| message.starts_with(marker))
+        .map(|(_, problem)| crate::ToolView::SpeechSetup { problem })
 }
 
 /// Fields that exist for the view and are worthless to the model.
@@ -2538,16 +2571,17 @@ mod tests {
         assert_eq!(tools, ["github__create_issue"]);
     }
 
-    /// `separate_stems` and `transcribe` are registered, and their
-    /// inference is not shipped (#383-#385). A step naming one is kept, so
-    /// the user sees what was proposed, and marked, so the card can say it
-    /// will fail and not offer it as something that will work.
+    /// `separate_stems` is registered, and its inference is not shipped
+    /// (#385). A step naming it is kept, so the user sees what was proposed,
+    /// and marked, so the card can say it will fail and not offer it as
+    /// something that will work. `transcribe` runs (#384), so a step naming
+    /// it is an ordinary one.
     #[tokio::test]
     async fn a_step_naming_a_not_implemented_tool_is_kept_and_marked() {
         let reply = r#"<plan>[
             {"step":1,"tool":"separate_stems","description":"Split track 0"},
             {"step":2,"tool":"analyze_track","description":"Check the result"},
-            {"step":3,"tool":"transcribe","description":""}
+            {"step":3,"tool":"transcribe","description":"Transcribe track 1"}
         ]</plan>"#;
         let (result, _) = plan_from(reply, the_real_registry()).await;
         assert_eq!(
@@ -2555,7 +2589,7 @@ mod tests {
             vec![
                 json!({"step":1,"tool":"separate_stems","description":"Split track 0","unavailable":true}),
                 json!({"step":2,"tool":"analyze_track","description":"Check the result"}),
-                json!({"step":3,"tool":"transcribe","description":"","unavailable":true}),
+                json!({"step":3,"tool":"transcribe","description":"Transcribe track 1"}),
             ]
         );
     }
@@ -3794,6 +3828,173 @@ mod tests {
         // Tagged as a spectrum but shaped wrong — better to draw nothing
         // than to hand the canvas a malformed curve.
         assert!(extract_tool_view(&json!({ "type": "spectrum", "points": "lots" })).is_none());
+    }
+
+    // ------------------------------------------------------------------
+    // extract_error_view
+    // ------------------------------------------------------------------
+
+    /// What `transcribe` answers when `error` stops it, through the real
+    /// tool and the real dispatcher: the marker is whatever the tool writes,
+    /// not a string this file spells.
+    fn transcribe_error_for(error: tools::tool::transcribe::SpeechError) -> String {
+        use std::sync::Arc;
+        use tools::tool::transcribe::{
+            Audio, ModelRef, SpeechError, SpeechToText, Spoken, TranscribeTool,
+        };
+
+        struct Refuses(SpeechError);
+        impl SpeechToText for Refuses {
+            fn locate(&self) -> std::result::Result<ModelRef, SpeechError> {
+                Err(self.0.clone())
+            }
+            fn transcribe(
+                &self,
+                _: &ModelRef,
+                _: Audio<'_>,
+                _: Option<&str>,
+                _: &dyn Fn(usize, usize),
+                _: &dyn Fn() -> bool,
+            ) -> std::result::Result<Spoken, SpeechError> {
+                unreachable!("locate refused")
+            }
+        }
+
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let src = tmp.path().join("tone.wav");
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 8_000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut w = hound::WavWriter::create(&src, spec).expect("wav writer");
+        for n in 0..8_000 {
+            w.write_sample((n % 100) as i16).unwrap();
+        }
+        w.finalize().unwrap();
+
+        let mut store = session::Store::open(tmp.path()).expect("open store");
+        let mut engine = audio_engine::Engine::new();
+        let mut clipboard: Option<tools::Clipboard> = None;
+        let mut ctx = ToolContext {
+            store: &mut store,
+            engine: &mut engine,
+            user_message: "",
+            clipboard: &mut clipboard,
+            allowed_tools: None,
+        };
+        let load = ToolDispatcher::default_dispatcher()
+            .invoke("load", json!({ "path": src.to_string_lossy() }), &mut ctx)
+            .expect("load dispatches");
+        assert!(matches!(load, ToolResult::Ok(_)), "load failed: {load:?}");
+
+        let mut dispatcher = ToolDispatcher::new();
+        dispatcher.register(Box::new(TranscribeTool::with(Arc::new(Refuses(error)))));
+        match dispatcher
+            .invoke("transcribe", json!({ "track": 0 }), &mut ctx)
+            .expect("transcribe dispatches")
+        {
+            ToolResult::Error(msg) => msg,
+            ToolResult::Ok(v) => panic!("transcribe succeeded: {v}"),
+        }
+    }
+
+    /// One test for each marker, driven through the tool that writes it: the
+    /// error text the model reads becomes the card the user sees.
+    #[test]
+    fn a_missing_speech_model_becomes_its_setup_view() {
+        use tools::tool::transcribe::SpeechError;
+        let msg = transcribe_error_for(SpeechError::ModelNotDownloaded);
+        assert_eq!(
+            extract_error_view(&msg),
+            Some(crate::ToolView::SpeechSetup {
+                problem: crate::SpeechProblem::ModelNotDownloaded
+            })
+        );
+    }
+
+    #[test]
+    fn a_missing_runtime_becomes_its_setup_view() {
+        use tools::tool::transcribe::SpeechError;
+        let msg = transcribe_error_for(SpeechError::RuntimeUnavailable("none".into()));
+        assert_eq!(
+            extract_error_view(&msg),
+            Some(crate::ToolView::SpeechSetup {
+                problem: crate::SpeechProblem::RuntimeUnavailable
+            })
+        );
+    }
+
+    #[test]
+    fn a_damaged_speech_model_becomes_its_setup_view() {
+        use tools::tool::transcribe::SpeechError;
+        let msg = transcribe_error_for(SpeechError::ModelDamaged);
+        assert_eq!(
+            extract_error_view(&msg),
+            Some(crate::ToolView::SpeechSetup {
+                problem: crate::SpeechProblem::ModelDamaged
+            })
+        );
+    }
+
+    #[test]
+    fn a_wrong_model_path_becomes_its_setup_view() {
+        use tools::tool::transcribe::SpeechError;
+        let msg = transcribe_error_for(SpeechError::ModelPathInvalid);
+        assert_eq!(
+            extract_error_view(&msg),
+            Some(crate::ToolView::SpeechSetup {
+                problem: crate::SpeechProblem::ModelPathInvalid
+            })
+        );
+    }
+
+    /// A marker added to the tool and not handled here would be a card the
+    /// user never sees.
+    #[test]
+    fn every_marker_the_tool_defines_has_a_view_and_no_two_share_one() {
+        let mut seen = Vec::new();
+        for marker in tools::tool::transcribe::MARKERS {
+            let view = extract_error_view(&format!("{marker} whatever follows"))
+                .unwrap_or_else(|| panic!("{marker} has no view"));
+            assert!(!seen.contains(&view), "{marker} repeats a view: {view:?}");
+            seen.push(view);
+        }
+    }
+
+    /// Only the start of an error counts. A tool that echoes what it was
+    /// given, or a message that talks about a marker, is not the tool saying
+    /// the model is missing.
+    #[test]
+    fn a_marker_that_is_not_at_the_start_is_ignored() {
+        for marker in tools::tool::transcribe::MARKERS {
+            for text in [
+                format!("the tool said {marker} earlier"),
+                format!(" {marker} after a space"),
+                format!("invalid arguments: {marker}"),
+                format!("\n{marker}"),
+            ] {
+                assert!(extract_error_view(&text).is_none(), "{text:?}");
+            }
+        }
+    }
+
+    /// Ordinary errors, and the sort of thing an assistant writes about the
+    /// speech model, are not setup problems. (What the assistant writes does
+    /// not come through here at all; this is the other half of that.)
+    #[test]
+    fn ordinary_errors_and_prose_produce_no_view() {
+        for text in [
+            "",
+            "file not found: /a.wav",
+            "unknown language \"xx\": the model has no such language.",
+            "Transcription was cancelled by the user. Nothing was changed.",
+            "The speech model is not downloaded. Open Settings and press Download.",
+            "I could not transcribe it: the speech model is missing.",
+        ] {
+            assert!(extract_error_view(text).is_none(), "{text:?}");
+        }
     }
 
     #[test]
