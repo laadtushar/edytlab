@@ -292,9 +292,11 @@ def end_card(P, t_end, total, ig=False, rd=False):
 
 def common_tail(P, t_flow, t_limits, t_end, total, rd):
     L = P.L
-    P.step("*93 tools.* Run on *your machine.*", t_flow, t_limits + 0.1, cue="93 deterministic tools run on your machine. Only the chat goes to the provider you choose.")
+    # The tool count is docs/tools-reference.md ("Every one of the 94 tools the AI agent can call"; 93 until v0.7.0 added
+    # `list_session`, #634). Keep it in step with that line, and with the claim ledger in ../script.md, when a tool is added.
+    P.step("*94 tools.* Run on *your machine.*", t_flow, t_limits + 0.1, cue="94 deterministic tools run on your machine. Only the chat goes to the provider you choose.")
     P.add(Flow(P.ctx, t_flow + 0.3, t_limits + 0.1,
-               ("Your computer", ["Audio files stay here", "93 deterministic tools", "Rust DSP engine"]),
+               ("Your computer", ["Audio files stay here", "94 deterministic tools", "Rust DSP engine"]),
                ("The provider you choose", ["Only the chat is sent"]),
                "chat text only",
                ["Anthropic", "OpenAI", "OpenRouter", "Groq", "Gemini", "Ollama (local)"],

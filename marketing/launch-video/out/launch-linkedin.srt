@@ -44,7 +44,7 @@ And a three-track mini-mix
 
 12
 00:00:52,400 --> 00:00:58,800
-93 deterministic tools run on your machine. Only the chat goes to the provider you choose.
+94 deterministic tools run on your machine. Only the chat goes to the provider you choose.
 
 13
 00:00:59,000 --> 00:01:04,150

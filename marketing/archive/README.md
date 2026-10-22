@@ -16,6 +16,11 @@ archive/
 │   │   ├── narrated/                 the same three cuts with the ElevenLabs voice, and their .srt
 │   │   ├── picture-only/             the three silent masters
 │   │   └── contact-sheets/           one frame grid per plain cut
+│   ├── 2026-10-16-violet/            the LinkedIn and Reddit cuts that said "93 tools" (#598), replaced for v0.7.0
+│   │   ├── plain/                    launch-{linkedin,reddit}.mp4
+│   │   ├── captions/                 their .srt
+│   │   ├── picture-only/             the two silent masters
+│   │   └── contact-sheets/           one frame grid per cut
 │   └── 2026-10-16-instagram-draft/   a draft of today's Instagram cut, with and without sound
 ├── reels/
 │   └── 2026-10-10-v0.4.0-amber/      first reels (#485), replaced by #590
@@ -41,6 +46,7 @@ Every file except the two drafts is the exact file a PR committed to `main` (the
 | Folder | Landed in | Replaced or removed by | Lengths and frames |
 |---|---|---|---|
 | `launch-video/2026-10-10-v0.4.0-amber/` | #493 (2026-10-10) | #598 (2026-10-16) | LinkedIn 1:1 1080x1080 1:09; Reddit 16:9 1920x1080 1:03; Instagram 9:16 1080x1920 0:31 |
+| `launch-video/2026-10-16-violet/` | #598 (2026-10-16) | the tool-count re-render for v0.7.0 (2026-10-22, `launch.py` says 94, `docs/tools-reference.md`) | LinkedIn 1:1 1080x1080 1:09 and Reddit 16:9 1920x1080 1:03, each as the plain cut, its `.srt`, its contact sheet and its silent master. They are the current violet look, kept only for the number: the how-it-works card and the `.srt` said "93 tools", the new files say 94 and are the same pictures and the same sound otherwise. The Instagram cut shows no count, so it was not replaced |
 | `launch-video/2026-10-16-instagram-draft/` | never committed | the committed `launch-instagram.mp4` | 9:16, 0:31.5. The re-filmed footage in the new look, nearly frame for frame the committed cut; rendered while #598 was made |
 | `reels/2026-10-10-v0.4.0-amber/` | #485 (2026-10-10); `tools/map-captions.mjs` is the last version, from #537 (2026-10-11), and `map-captions.pr485.mjs` the first | #590 (2026-10-13) | Reels 1080x1920: highlights 1:02, teaser 0:14, beatmatched transition 0:55, extended club intro 0:40, mini mix 0:44. Full demos 1280x776: 3:08, 1:56, 2:18 |
 | `demos/2026-10-09-first-takes/` | #417 (beatmatched transition, 2:58), #432 (extended club intro, 2:26) | #459 (same day) | 1280x776 |
