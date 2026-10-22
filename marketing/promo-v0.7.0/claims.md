@@ -99,6 +99,44 @@ What S7 does not claim: that the cache evicts the mix often. The real fix is the
 | Six tracks, zoomed in and panned from the start of the piece to its end, then down the lanes; labels **intro, verse, chorus, bridge, outro** over them | The real timeline and label lane. The tracks are synthetic audio and the labels are scripted (`list_markers`) |
 | The History graph with branches, zoomed and dragged | The real `GraphView` on the scripted 17-node history. Nothing is claimed about a particular project |
 
+## The edit (phase 2): what Remotion draws over the footage, and where each claim is true
+
+Everything below is drawn by the Remotion project (`remotion/src/cuts.ts` for the words, `remotion/src/shots.ts` for the
+callouts; `remotion/scripts/cues.ts` turns the same data into the `.srt` files). Remotion draws only titles, chips,
+rings, labels, the "speed" badge, the progress line and the end card. **No app UI is drawn**: every pixel of app is the
+footage above, cropped and zoomed. Every shot of app footage carries the note **v0.7.0 · real app · scripted
+assistant** (`HonestyNote`), and the edit checks in code that the words it adds lie inside Meta's 9:16 safe zone
+(`remotion/src/components/SafeCheck.tsx`). The edit says nothing about stem separation or transcription.
+
+| Words on screen | Where it is true |
+|---|---|
+| **v0.7.0 · real app · scripted assistant** (every app shot) | The footage README's honesty note: the frontend is real (`23bbfe2e`), the assistant is scripted (`record/lib/studio.ts`) |
+| **N× speed** (the 3.2× in R1, 2.3× and 1.5× in V1) | The stretch of footage under it plays at that rate; the footage itself is real time (30 fps by construction). Shown whenever the rate is 1.45 or more. Everything else plays at 1× |
+| **What's new in v0.7.0** / **Five changes you can see** | R1 shows five changes: faders (#596), the history graph (#602), big sessions (#618), the mix (#607), skills (#574) |
+| **Faders stay where you put them** / **Four key taps, four steps (#596)**; labels **gain slider**, **+0.5 dB**, **+1.0 dB**, **+1.5 dB**, **+2.0 dB, no bounce back**; chip **#596** | S2 above: #596, fixed by #626; the readout steps 0.5, 1.0, 1.5, 2.0 and never goes back (`notes.json` records the four `set_track_gain` calls). The labels are the readout's own values at those moments. "No bounce back" is the behaviour in the order that failed before #626 (`footage/README.md`), not a claim about every webview |
+| **The history graph keeps up** / **Names and clean-ups show at once**; labels **named at once**, **17 nodes became 8**; chip **#602** | S3 above: #602, fixed by #625; the 17 and the 8 are the scripted history's own counts (`lib/history.ts` `compact`) |
+| **Every edit is a node in the history graph** (V1, over the B-roll graph) | README "Branchable session graph" and the app's first-run text, "saves each change as a node in the graph" (visible in the S8 footage) |
+| **Name a version: it shows at once** / **Compact the history: nodes leave at once** | S3 above, the two requests the footage shows |
+| **200 tracks? Just ask.** / **200 tracks?** / **Ask.** / **Just say it** / **“make all the strings quieter”** | S4: the toolbar reads 200 TRACKS; the request is the one typed in the footage. That a model would answer it this way is not claimed (the answer is scripted, and every shot says so) |
+| **list_session pages past the summary**, **list_session pages through the session**, **list_session, then set_track_gain**, label **list_session**, chip **#618** | S4 above: #618 / PR #634 (`list_session` pages through what the session block left out; the block is cut at 8,000 bytes) |
+| **It pages through the session**, **Twelve strings, one sentence**, **Twelve strings, 4 dB quieter**, **All twelve strings 4 dB quieter**, **Violins, viola, cello, contrabass**, label **-4.0 dB on the strings** | S4 above: twelve `set_track_gain { db: -4 }` calls, tracks 148 to 159 (Violin I and II, Viola, Cello, Contrabass); the lanes read -4.0 dB |
+| **Each change is a node on the graph** | S4: each Track volume chip has a node divider under it (`agent://node-created` before `tool-call-end`, S1 table above). Not said of `list_session`, which reads and makes no node |
+| **Switch tabs. It still plays.** / **Switch tabs, press play: it still plays** / **Even when the mix is gone from the cache**; labels **back to the timeline**, **plays, no error**; chip **#607** | S7 above: #607 / PR #635; the shot removes the mix's file from the preview cache while the Graph tab is open and asserts two `render_preview` calls and no "Could not load the mix". It does not claim the cache evicts often |
+| **Bundled skills stay current** / **Bundled skills update, unless you edited them** / **Updated when a release changes them**; label **unless you edited them**; chip **#574** | S6 above: the app's own note, "Skills that come with edytlab are updated when a release changes them, unless you have edited them." (`SkillsEditor.tsx`, #574 / PR #631) |
+| **The ONNX Runtime now ships in every installer**; chip **groundwork only: no model yet**; label **bundled** | S5 above and CLAUDE.md "Repo specifics": every release installer after v0.6.1 carries ONNX Runtime 1.23.2 (#383, PR #615), so v0.7.0's do. No model ships and no inference runs, which the chip says. The crop keeps the provider and model fields of the dialog out of frame |
+| **Describe the edit.** / **Describe the edit in plain English** / **Say it in plain English** / **Typed into the chat box** / **Describe the edit. It happens.** | S1 above: a plain-English request typed into the real composer; "It happens" is what the scripted calls do on the timeline (the note says the assistant is scripted) |
+| **The assistant calls the tools** / **The assistant calls the tools, the timeline updates** / **fade, then set_track_gain**; labels **fade**, **set_track_gain** | S1 above: the Fade and Track volume chips are `fade` and `set_track_gain` (`ToolBadge.tsx` labels, `tool_badge_labels.rs`); the calls are scripted |
+| **The timeline changes**; labels **fades in over 4 s**, **-3.0 dB** | S1 above: the linear 4 s ramp from `fade { kind: "in" }` and the Vocal lane's -3.0 dB readout from `set_track_gain { db: -3 }` |
+| **Then hear it** / **Press play and hear it** / **A synthetic demo track**; chip **demo audio, made in code**; label **hear the result** | S1 above: the sound is `s1-describe-it-happens.wav`, synthesised from arithmetic (`record/lib/music.ts`), a model of the mix for the edits shown, not the engine's render. Said so on screen |
+| End card: **edytlab**, **v0.7.0**, **edytlab.com**, **Free and open source (MIT)**, **macOS · Windows · Linux**, **Unsigned installers** | `LICENSE` (MIT); README (macOS universal, Windows, Linux builds); the installers are unsigned (CLAUDE.md, release workflows); <https://edytlab.com> |
+
+### Sound
+
+| Sound | Where it comes from |
+|---|---|
+| The music under S1's Play and S7's second Play | The app's own audio in the footage (`s1-describe-it-happens.wav`, `s7-mix-stays-playable.wav`), laid at the moments of the footage it belongs to, and silent where the footage is silent (`remotion/scripts/cues.ts` fails the build if a stretch that does not play the clip's sound has any). Synthetic: no sample, no recording, no one's music |
+| Whoosh on a scene change, tick when a label lands or a tool call resolves, chime under the wordmark | Synthesised in code by `marketing/launch-video/tools/sfx.py`; the tick is played at several pitches for the run of twelve chips. Nothing else: no stock music, no voice, no ElevenLabs |
+
 ## Not shown, and not claimed
 
 - Stem separation and transcription: not shown. They are not shipped.

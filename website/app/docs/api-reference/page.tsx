@@ -516,7 +516,32 @@ const commands = [
       {
         name: "mlRuntimeStatus()",
         returns: "MlRuntimeStatus",
-        desc: "Which ONNX Runtime library the app found and its version, for the line in Settings. It loads the library if it has not been, off the main thread, and a library that is missing, broken, or unusable because this macOS is too old for it is a status, never a hang. state is found (version, path, and source: bundled, environment or executable), missing (the places searched), unsupportedOs (macOS older than the library's 13.4) or loadFailed (path, reason). The installers of every release after v0.6.1 carry ONNX Runtime 1.23.2, so an installed build answers found with source bundled; a build from source answers missing. A loaded library does not mean stem separation or transcription run: no model ships with it and none is downloaded. The same answer is printed, as one line of JSON with no window, by edytlab-desktop --ml-runtime-status, which the release workflows run against each installer.",
+        desc: "Which ONNX Runtime library the app found and its version, for the line in Settings. It loads the library if it has not been, off the main thread, and a library that is missing, broken, or unusable because this macOS is too old for it is a status, never a hang. state is found (version, path, and source: bundled, environment or executable), missing (the places searched), unsupportedOs (macOS older than the library's 13.4) or loadFailed (path, reason). The installers of every release after v0.6.1 carry ONNX Runtime 1.23.2, so an installed build answers found with source bundled; a build from source answers missing. A loaded library does not mean stem separation or transcription run: no model ships with it, and the one model that can be downloaded (see Speech Model) is not run by anything yet. The same answer is printed, as one line of JSON with no window, by edytlab-desktop --ml-runtime-status, which the release workflows run against each installer.",
+      },
+    ],
+  },
+  {
+    group: "Speech Model",
+    items: [
+      {
+        name: "mlModelStatus(model)",
+        returns: "MlModelStatus",
+        desc: "Where a downloadable model is, for the Speech model row in Settings. model is an id from crates/ml-pipeline/models.json (today whisper-base, about 139 MB from huggingface.co). The answer is a flat object tagged by state: not_downloaded, downloading (received and total bytes), ready (every file on disk and checked against its SHA-256) or failed (reason), with bytes on disk and the pinned size. It reads the disk off the main thread and makes no network request.",
+      },
+      {
+        name: "downloadMlModel(model)",
+        returns: "MlModelStatus",
+        desc: "Start downloading a model on a thread of its own and answer at once with downloading. The only way a model is downloaded, called by the user's click on Download: nothing downloads at launch, when Settings opens, or from a tool or the agent. Progress and the end arrive on onMlModelProgress. A partial file from an earlier attempt is resumed with a Range request, and a file is renamed to its final name only once its size and SHA-256 match. It takes no store, engine, dispatcher or agent lock. The request goes to huggingface.co and carries no audio. Nothing uses the model yet: transcription is not shipped.",
+      },
+      {
+        name: "cancelMlModelDownload(model)",
+        returns: "MlModelStatus",
+        desc: "Ask a running download to stop. It stops at its next chunk and keeps the partial file for a resume; onMlModelProgress says not_downloaded once it has. Does nothing when no download is running.",
+      },
+      {
+        name: "removeMlModel(model)",
+        returns: "MlModelStatus",
+        desc: "Delete the model's own files (and its partial files) from the models folder, and nothing else in it. Refused while the model is downloading: cancel it first.",
       },
     ],
   },
@@ -617,6 +642,11 @@ const events = [
     name: "onMarkerChanged(cb)",
     payload: "none",
     desc: "Marker or region annotation added, renamed, moved or removed. Refresh the marker list.",
+  },
+  {
+    name: "onMlModelProgress(cb)",
+    payload: "status: MlModelStatus",
+    desc: "A downloadable model changed state (event ml-model-progress): the start, progress at most every 100 ms, the end (ready, failed, or not_downloaded after a cancel) and a removal. The payload is the object the model commands answer with.",
   },
 ];
 

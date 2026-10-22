@@ -87,6 +87,60 @@ function bundledSkillCount(): number {
   return readdirSync(join(RESOURCES, "skills")).filter((f) => f.endsWith(".md")).length;
 }
 
+/** Bytes of the speech model as pinned in `crates/ml-pipeline/models.json`. */
+export const SPEECH_MODEL_BYTES = 138_644_904;
+
+/**
+ * `MlModelStatusDto` (`commands.rs`) for `whisper-base`: a flat object
+ * tagged by `state`, with `bytes` on disk and the pinned `size`. Override
+ * the fields a state carries (`received` and `total`, or `reason`).
+ */
+export function speechModelStatus(
+  fields:
+    | { state: "not_downloaded"; bytes?: number }
+    | { state: "downloading"; received: number }
+    | { state: "ready" }
+    | { state: "failed"; reason: string; bytes?: number },
+): Record<string, unknown> {
+  const base = { model: "whisper-base", size: SPEECH_MODEL_BYTES };
+  switch (fields.state) {
+    case "not_downloaded":
+      return { ...base, state: fields.state, bytes: fields.bytes ?? 0 };
+    case "downloading":
+      return {
+        ...base,
+        state: fields.state,
+        received: fields.received,
+        total: SPEECH_MODEL_BYTES,
+        bytes: fields.received,
+      };
+    case "ready":
+      return { ...base, state: fields.state, bytes: SPEECH_MODEL_BYTES };
+    case "failed":
+      return { ...base, state: fields.state, reason: fields.reason, bytes: fields.bytes ?? 0 };
+  }
+}
+
+/**
+ * The speech model buttons' commands, for the spec that presses them.
+ * Each answers what the command answers when it is called on a model in
+ * the state before it: `download_ml_model` on one that is not downloaded
+ * starts it and answers `downloading` at 0 (`ModelDownloads::start_download`);
+ * `cancel_ml_model_download` answers the state at the time of the call
+ * (`ModelDownloads::cancel` sets the flag and returns the status, which for
+ * a running download is its slot's current `received`: the end arrives as an
+ * event), so a spec that cancels a download passes the bytes it had
+ * received; and `remove_ml_model` on a model that is not running answers
+ * `not_downloaded` with 0 bytes.
+ */
+export function speechModelCommands({ received = 0 }: { received?: number } = {}): Backend {
+  return {
+    download_ml_model: ok(speechModelStatus({ state: "downloading", received: 0 })),
+    cancel_ml_model_download: ok(speechModelStatus({ state: "downloading", received })),
+    remove_ml_model: ok(speechModelStatus({ state: "not_downloaded" })),
+  };
+}
+
 /**
  * What Settings asks for when it opens, for a user who has never
  * changed a provider setting.
@@ -126,6 +180,19 @@ function providerCommands(): Backend {
       state: "missing",
       searched: ["/usr/lib/edytlab/libonnxruntime.so", "/usr/bin/libonnxruntime.so"],
     }),
+    // `ml_model_status("whisper-base")` on a machine that never downloaded
+    // it, which the panel's Account tab asks for (the first-run card does
+    // not). `ModelDownloads::status`: no transfer is running, so the disk
+    // decides; `ModelStore::on_disk` finds no file under
+    // `<app data>/models/whisper-base`, so `complete` is false and `bytes`
+    // 0, and the state is `NotDownloaded`. `size` is the sum of the three
+    // pinned files in `crates/ml-pipeline/models.json`: 82,451,730 +
+    // 53,712,708 + 2,480,466. Serialised through `MlModelStatusDto`
+    // (`commands.rs`): `state` is snake_case, the rest camelCase. The
+    // buttons' commands (`download_ml_model`, `cancel_ml_model_download`,
+    // `remove_ml_model`) are answered by `speechModelCommands` for the spec
+    // that presses them; nothing here calls them.
+    ml_model_status: ok(speechModelStatus({ state: "not_downloaded" })),
     // `list_models_at`'s Anthropic arm with no key saved, which is what a
     // fresh profile has: `anthropic_fallback_models()` in
     // `crates/ai/src/models.rs`, uncached, with the reason as the notice.

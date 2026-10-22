@@ -146,6 +146,16 @@ pub enum CommandError {
     /// can see here is the runtime shutting down.
     #[error("internal: a command's task did not finish ({0})")]
     TaskFailed(String),
+
+    /// The speech model commands (#383). The text is the downloader's own:
+    /// an unknown model id, a download that is still running, a disk error.
+    #[error("{0}")]
+    MlModel(#[from] ml_pipeline::Error),
+
+    /// No models folder, because the OS gave the app no data directory at
+    /// launch, so there is nowhere to keep a model.
+    #[error("models cannot be downloaded: the app has no data folder to keep them in")]
+    NoModelsFolder,
 }
 
 impl From<CommandError> for String {
@@ -1388,6 +1398,225 @@ pub async fn ml_runtime_status() -> CmdResult<MlRuntimeStatusDto> {
 /// exists (`crate::print_ml_runtime_status`).
 pub fn ml_runtime_status_now() -> MlRuntimeStatusDto {
     ml_runtime_status_dto(ml_pipeline::runtime::info())
+}
+
+// ---------------------------------------------------------------------------
+// The speech model download (#383)
+// ---------------------------------------------------------------------------
+
+/// The event a model's changes of state arrive on: the same
+/// [`MlModelStatusDto`] `ml_model_status` answers with, on every start,
+/// progress report (at most one per 100 ms), end, cancel and removal.
+pub const ML_MODEL_PROGRESS_EVENT: &str = "ml-model-progress";
+
+/// The state of a downloadable model, as the window reads it.
+///
+/// `state` is `not_downloaded`, `downloading` (with `received` and `total`
+/// bytes), `ready` or `failed` (with the `reason`). A model that is `ready`
+/// is on disk and verified; it is not running, and nothing in this build
+/// runs it yet (#384).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MlModelStatusDto {
+    /// The model id, such as `whisper-base`.
+    pub model: String,
+    #[serde(flatten)]
+    pub state: MlModelStateDto,
+    /// Bytes of the model on disk now: all of it when ready, the partial
+    /// files' after a cancel or a failure, the bytes received while it
+    /// downloads.
+    pub bytes: u64,
+    /// Bytes of the whole model, as pinned in `models.json`.
+    pub size: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(
+    tag = "state",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
+pub enum MlModelStateDto {
+    NotDownloaded,
+    Downloading { received: u64, total: u64 },
+    Ready,
+    Failed { reason: String },
+}
+
+impl From<&ml_pipeline::ModelStatus> for MlModelStatusDto {
+    fn from(status: &ml_pipeline::ModelStatus) -> Self {
+        use ml_pipeline::ModelState;
+        Self {
+            model: status.model.clone(),
+            state: match &status.state {
+                ModelState::NotDownloaded => MlModelStateDto::NotDownloaded,
+                ModelState::Downloading { received, total } => MlModelStateDto::Downloading {
+                    received: *received,
+                    total: *total,
+                },
+                ModelState::Ready => MlModelStateDto::Ready,
+                ModelState::Failed { reason } => MlModelStateDto::Failed {
+                    reason: reason.clone(),
+                },
+            },
+            bytes: status.bytes,
+            size: status.size,
+        }
+    }
+}
+
+/// The model downloads, held in Tauri's managed state (`lib.rs` manages
+/// one at launch). It holds no store, engine, dispatcher or agent lock and
+/// is not part of [`AppState`]: a download must not be able to wait for, or
+/// make anything wait for, the session.
+pub struct MlModels {
+    downloads: Option<ml_pipeline::ModelDownloads>,
+}
+
+impl MlModels {
+    /// The shipped catalog (`models.json`), kept under `models_dir`.
+    /// `on_change` hears every state change; it must not block.
+    pub fn new(
+        models_dir: PathBuf,
+        on_change: impl Fn(&MlModelStatusDto) + Send + Sync + 'static,
+    ) -> Self {
+        Self::with_catalog(
+            models_dir,
+            ml_pipeline::Catalog::built_in().clone(),
+            on_change,
+        )
+    }
+
+    /// As [`Self::new`], for a catalog of the caller's (the tests').
+    pub fn with_catalog(
+        models_dir: PathBuf,
+        catalog: ml_pipeline::Catalog,
+        on_change: impl Fn(&MlModelStatusDto) + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            downloads: Some(ml_pipeline::ModelDownloads::new(
+                models_dir,
+                catalog,
+                move |status: &ml_pipeline::ModelStatus| on_change(&MlModelStatusDto::from(status)),
+            )),
+        }
+    }
+
+    /// For an app with no data folder: every model command says so.
+    pub fn unavailable() -> Self {
+        Self { downloads: None }
+    }
+
+    fn downloads(&self) -> Result<ml_pipeline::ModelDownloads, CommandError> {
+        self.downloads.clone().ok_or(CommandError::NoModelsFolder)
+    }
+}
+
+/// The [`MlModels`] `lib.rs` manages: models kept in `models_dir`
+/// (`<app data>/models`), state changes sent to the window on
+/// [`ML_MODEL_PROGRESS_EVENT`]. Starts nothing: creating this reads no disk
+/// and makes no request.
+pub fn ml_models_for_app<R: Runtime>(
+    handle: AppHandle<R>,
+    models_dir: Option<PathBuf>,
+) -> MlModels {
+    if let Some(dir) = &models_dir {
+        // Read-only: where a tool will look for a model (#384). Registering
+        // a folder reads no disk and downloads nothing.
+        ml_pipeline::models::set_models_dir(dir.clone());
+    }
+    ml_models_with_catalog_for_app(handle, models_dir, ml_pipeline::Catalog::built_in().clone())
+}
+
+/// [`ml_models_for_app`] for a catalog of the caller's: the tests serve
+/// theirs from a local server.
+pub fn ml_models_with_catalog_for_app<R: Runtime>(
+    handle: AppHandle<R>,
+    models_dir: Option<PathBuf>,
+    catalog: ml_pipeline::Catalog,
+) -> MlModels {
+    match models_dir {
+        Some(dir) => MlModels::with_catalog(dir, catalog, move |status| {
+            let _ = handle.emit(ML_MODEL_PROGRESS_EVENT, status);
+        }),
+        None => MlModels::unavailable(),
+    }
+}
+
+/// Where a downloadable model is: not downloaded, downloading (bytes
+/// received of the total), ready, or failed with a reason (#383).
+///
+/// Reads the disk, and hashes the files when they are all there, so it runs
+/// on the blocking pool. Makes no network request and takes none of the
+/// store, engine, dispatcher or agent locks. An unknown `model` is an error.
+#[tauri::command]
+pub async fn ml_model_status(
+    models: State<'_, MlModels>,
+    model: String,
+) -> CmdResult<MlModelStatusDto> {
+    let downloads = models.downloads()?;
+    let status = tauri::async_runtime::spawn_blocking(move || downloads.status(&model))
+        .await
+        .map_err(|e| CommandError::TaskFailed(e.to_string()))?
+        .map_err(CommandError::from)?;
+    Ok(MlModelStatusDto::from(&status))
+}
+
+/// Start downloading a model, on a thread of its own, and answer at once
+/// with `downloading`. Progress and the end arrive on
+/// [`ML_MODEL_PROGRESS_EVENT`] (#383).
+///
+/// **The only way a model is downloaded.** The Settings row calls it when
+/// the user presses Download; no tool, agent path or launch code does
+/// (`ml-pipeline/tests/only_the_user_downloads.rs` reads the source and
+/// fails if one could). It waits for nothing and holds no store, engine,
+/// dispatcher or agent lock, so a download never stalls a turn or the
+/// window. The request goes to huggingface.co and carries no audio. A
+/// partial file from an earlier attempt is resumed; one already running is
+/// left alone.
+#[tauri::command]
+pub async fn download_ml_model(
+    models: State<'_, MlModels>,
+    model: String,
+) -> CmdResult<MlModelStatusDto> {
+    let downloads = models.downloads()?;
+    let status = downloads
+        .start_download(&model)
+        .map_err(CommandError::from)?;
+    Ok(MlModelStatusDto::from(&status))
+}
+
+/// Stop a running download. It ends at its next chunk, keeps the partial
+/// file so the next Download resumes it, and the event says `not_downloaded`
+/// when it has. Does nothing when no download is running.
+#[tauri::command]
+pub async fn cancel_ml_model_download(
+    models: State<'_, MlModels>,
+    model: String,
+) -> CmdResult<MlModelStatusDto> {
+    let downloads = models.downloads()?;
+    let status = tauri::async_runtime::spawn_blocking(move || downloads.cancel(&model))
+        .await
+        .map_err(|e| CommandError::TaskFailed(e.to_string()))?
+        .map_err(CommandError::from)?;
+    Ok(MlModelStatusDto::from(&status))
+}
+
+/// Delete a model's own files from the models folder: the ones `models.json`
+/// lists, their partial files and the folders that leaves empty. Anything
+/// else there stays, and so does every other model. Refused while the model
+/// is downloading; cancel first.
+#[tauri::command]
+pub async fn remove_ml_model(
+    models: State<'_, MlModels>,
+    model: String,
+) -> CmdResult<MlModelStatusDto> {
+    let downloads = models.downloads()?;
+    let status = tauri::async_runtime::spawn_blocking(move || downloads.remove(&model))
+        .await
+        .map_err(|e| CommandError::TaskFailed(e.to_string()))?
+        .map_err(CommandError::from)?;
+    Ok(MlModelStatusDto::from(&status))
 }
 
 /// Remove the stored API key for the active provider and tear down the
@@ -9627,6 +9856,102 @@ mod tests {
         assert_eq!(other["state"], "loadFailed");
         assert_eq!(other["path"], serde_json::Value::Null);
         assert!(other["reason"].as_str().is_some_and(|r| !r.is_empty()));
+    }
+
+    // -- ml_model_status and friends (#383) --------------------------------
+
+    fn model_json(state: ml_pipeline::ModelState, bytes: u64) -> serde_json::Value {
+        let status = ml_pipeline::ModelStatus {
+            model: "whisper-base".to_string(),
+            state,
+            bytes,
+            size: 138_644_904,
+        };
+        serde_json::to_value(MlModelStatusDto::from(&status)).expect("serialises")
+    }
+
+    /// The window reads these by name: `MlModelStatus` in `tauri-bridge.ts`
+    /// types them, and `e2e/backend.ts` answers in the same shape.
+    #[test]
+    fn a_model_status_is_a_flat_object_tagged_by_state() {
+        use ml_pipeline::ModelState;
+
+        assert_eq!(
+            model_json(ModelState::NotDownloaded, 0),
+            serde_json::json!({
+                "model": "whisper-base",
+                "state": "not_downloaded",
+                "bytes": 0,
+                "size": 138_644_904,
+            })
+        );
+        assert_eq!(
+            model_json(
+                ModelState::Downloading {
+                    received: 5_000_000,
+                    total: 138_644_904,
+                },
+                5_000_000
+            ),
+            serde_json::json!({
+                "model": "whisper-base",
+                "state": "downloading",
+                "received": 5_000_000,
+                "total": 138_644_904,
+                "bytes": 5_000_000,
+                "size": 138_644_904,
+            })
+        );
+        assert_eq!(
+            model_json(ModelState::Ready, 138_644_904),
+            serde_json::json!({
+                "model": "whisper-base",
+                "state": "ready",
+                "bytes": 138_644_904,
+                "size": 138_644_904,
+            })
+        );
+        assert_eq!(
+            model_json(
+                ModelState::Failed {
+                    reason: "downloading https://huggingface.co/x failed (HTTP 503)".to_string(),
+                },
+                2_000_000
+            ),
+            serde_json::json!({
+                "model": "whisper-base",
+                "state": "failed",
+                "reason": "downloading https://huggingface.co/x failed (HTTP 503)",
+                "bytes": 2_000_000,
+                "size": 138_644_904,
+            })
+        );
+    }
+
+    /// With no models folder every model command says why, in words the
+    /// row can show, instead of failing to find a managed state.
+    #[test]
+    fn an_app_without_a_data_folder_answers_in_words() {
+        let models = MlModels::unavailable();
+        let err = models.downloads().expect_err("nowhere to keep a model");
+        assert!(err.to_string().contains("no data folder"), "{err}");
+    }
+
+    /// Ids come from the window; one that is not in the catalog is refused
+    /// by name and no folder is made from it.
+    #[test]
+    fn an_unknown_model_id_is_an_error_naming_it() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let models = MlModels::new(dir.path().join("models"), |_| {});
+        let err = models
+            .downloads()
+            .expect("available")
+            .status("../whisper-base")
+            .expect_err("not in the catalog");
+        assert!(CommandError::from(err)
+            .to_string()
+            .contains("../whisper-base"));
+        assert!(!dir.path().join("models").exists());
     }
 }
 

@@ -57,6 +57,7 @@ import { AgentProfilesEditor } from "./AgentProfilesEditor";
 import { McpServersEditor } from "./McpServersEditor";
 import { MemoryEditor } from "./MemoryEditor";
 import { MlRuntimeLine } from "./MlRuntimeLine";
+import { SpeechModelRow } from "./SpeechModelRow";
 import { ProjectEditor } from "./ProjectEditor";
 import { SkillsEditor } from "./SkillsEditor";
 
@@ -1491,8 +1492,15 @@ export function Settings({
 
           {/* Not in the first-run card: it is already as tall as a small
               window allows (settings-fits-window.spec.ts), and the line
-              is no use to someone who has not set a key yet. */}
-          {mode === "panel" ? <MlRuntimeLine /> : null}
+              is no use to someone who has not set a key yet. The speech
+              model's row follows it (#383): the one place a model is
+              downloaded, and only when Download is pressed. */}
+          {mode === "panel" ? (
+            <>
+              <MlRuntimeLine />
+              <SpeechModelRow />
+            </>
+          ) : null}
 
           </>
           ) : null}

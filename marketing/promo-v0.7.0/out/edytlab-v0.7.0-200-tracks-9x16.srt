@@ -1,0 +1,61 @@
+1
+00:00:00,000 --> 00:00:01,800
+200 tracks?
+v0.7.0 · real app · scripted assistant
+
+2
+00:00:01,800 --> 00:00:03,200
+Ask.
+v0.7.0 · real app · scripted assistant
+
+3
+00:00:03,200 --> 00:00:05,500
+Just say it
+“make all the strings quieter”
+v0.7.0 · real app · scripted assistant
+
+4
+00:00:05,500 --> 00:00:06,700
+It pages through
+the session
+list_session, then set_track_gain
+v0.7.0 · real app · scripted assistant
+
+5
+00:00:06,700 --> 00:00:08,200
+It pages through
+the session
+list_session, then set_track_gain
+list_session
+v0.7.0 · real app · scripted assistant
+
+6
+00:00:08,200 --> 00:00:12,300
+Twelve strings,
+one sentence
+Each change is a node on the graph
+v0.7.0 · real app · scripted assistant
+
+7
+00:00:12,300 --> 00:00:14,830
+All twelve strings
+4 dB quieter
+Violins, viola, cello, contrabass
+v0.7.0 · real app · scripted assistant
+
+8
+00:00:14,830 --> 00:00:16,500
+All twelve strings
+4 dB quieter
+Violins, viola, cello, contrabass
+-4.0 dB on the strings
+v0.7.0 · real app · scripted assistant
+
+9
+00:00:16,900 --> 00:00:20,700
+edytlab
+v0.7.0
+edytlab.com
+Free and open source (MIT)
+macOS · Windows · Linux
+Unsigned installers

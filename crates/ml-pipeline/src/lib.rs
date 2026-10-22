@@ -24,8 +24,11 @@
 //!   keeps the dev sandbox (Linux, no GPU) building cleanly.
 //! - [`ModelStore`] downloads a pinned [`ModelArtifact`] (URL, size and
 //!   SHA-256 per file) into a local directory, resumably, and never
-//!   gives a file its final name until it verifies. It has no callers
-//!   yet and no model is pinned; see the `download` module.
+//!   gives a file its final name until it verifies; see the `download`
+//!   module. [`models`] pins the speech model (`models.json`) and drives
+//!   the store for the Settings row ([`ModelDownloads`]): the app
+//!   downloads it only when the user presses Download, and nothing runs
+//!   it yet (#383, #384).
 //!
 //! ## Runtime requirements
 //!
@@ -54,13 +57,15 @@ use std::path::PathBuf;
 
 mod cache;
 mod download;
+pub mod models;
 mod onnx_session;
 pub mod runtime;
 
 pub use cache::{ContentHash, InferenceCache};
 pub use download::{
-    fetched_model_path, FetchObserver, FetchProgress, ModelArtifact, ModelFile, ModelStore,
+    fetched_model_path, FetchObserver, FetchProgress, ModelArtifact, ModelFile, ModelStore, OnDisk,
 };
+pub use models::{Catalog, CatalogModel, ModelDownloads, ModelState, ModelStatus};
 pub use onnx_session::{ExecProvider, ModelRegistry};
 
 /// Crate-wide error type. One enum, lives at the crate root so callers
@@ -150,6 +155,17 @@ pub enum Error {
     /// the model store. Reported before any file or network access.
     #[error("invalid model manifest: {0}")]
     InvalidManifest(String),
+
+    /// A model id the catalog (`models.json`) does not list. The ids come
+    /// from the window, so one that is not listed is refused before it is
+    /// made into a path.
+    #[error("unknown model {0:?}")]
+    UnknownModel(String),
+
+    /// The model is being downloaded (or removed) right now, here or in
+    /// another edytlab process, so its files cannot be removed.
+    #[error("model {artifact} is being downloaded right now; cancel the download first")]
+    Busy { artifact: String },
 }
 
 /// " (HTTP 404)" for [`Error::Download`]'s message, or nothing.

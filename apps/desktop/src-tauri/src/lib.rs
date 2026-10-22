@@ -18,17 +18,18 @@ pub mod window_mix;
 
 use crate::commands::{
     accept_b, add_marker, apply_template, approve_plan, batch_load, cancel_long_running_tool,
-    clear_api_key, clear_api_key_for, cut_transcript_words, default_base_url_for,
-    delete_agent_profile, delete_mcp_server, delete_skill, duplicate_track, end_compare,
-    forget_recent_project, get_active_agent_profile, get_active_model, get_active_provider,
-    get_base_url_for, get_effort_for, get_graph, get_head_trail, get_keychain_persistence,
-    get_node, get_plan_first, get_project_meta, get_render_warnings, get_session_head,
-    get_sync_lock, get_transcript, get_view_state, has_api_key, has_api_key_for,
-    install_bundled_skills, install_plugin, list_agent_profiles, list_capabilities, list_markers,
-    list_mcp_servers, list_models_for, list_providers, list_recent_projects, list_skills,
-    list_templates, list_tracks, ml_runtime_status, move_clip, open_project, prepare_compare,
-    read_agent_profile, read_mcp_server, read_memory, read_skill, reject_plan, remove_clip,
-    remove_marker, remove_track, rename_node, rename_track, render_preview, render_range,
+    cancel_ml_model_download, clear_api_key, clear_api_key_for, cut_transcript_words,
+    default_base_url_for, delete_agent_profile, delete_mcp_server, delete_skill, download_ml_model,
+    duplicate_track, end_compare, forget_recent_project, get_active_agent_profile,
+    get_active_model, get_active_provider, get_base_url_for, get_effort_for, get_graph,
+    get_head_trail, get_keychain_persistence, get_node, get_plan_first, get_project_meta,
+    get_render_warnings, get_session_head, get_sync_lock, get_transcript, get_view_state,
+    has_api_key, has_api_key_for, install_bundled_skills, install_plugin, list_agent_profiles,
+    list_capabilities, list_markers, list_mcp_servers, list_models_for, list_providers,
+    list_recent_projects, list_skills, list_templates, list_tracks, ml_model_status,
+    ml_runtime_status, move_clip, open_project, prepare_compare, read_agent_profile,
+    read_mcp_server, read_memory, read_skill, reject_plan, remove_clip, remove_marker,
+    remove_ml_model, remove_track, rename_node, rename_track, render_preview, render_range,
     restart_mcp_server, save_head_trail, save_project_as, save_view_state, send_message,
     set_active_agent_profile, set_active_model, set_active_provider, set_api_key, set_api_key_for,
     set_base_url_for, set_clip_envelope, set_effort_for, set_head_to, set_plan_first,
@@ -137,6 +138,22 @@ pub fn run() {
             // Tell the ONNX Runtime loader where the installer puts the
             // library (#383). Before anything can ask it to load one.
             register_ml_runtime_bundle(app.path().resource_dir().ok().as_deref());
+
+            // The speech model downloads (#383): the state the model
+            // commands read, and the event they report on. This only builds
+            // it. It reads no disk and makes no request, and nothing here or
+            // anywhere at launch starts a download: the one way is the user
+            // pressing Download in Settings (`download_ml_model`).
+            app.manage(crate::commands::ml_models_for_app(
+                app.handle().clone(),
+                // The local data folder, not the roaming one: on Windows
+                // `app_data_dir` is the roaming profile, and 139 MB would
+                // follow the user to every machine they log on to.
+                app.path()
+                    .app_local_data_dir()
+                    .ok()
+                    .map(|dir| dir.join("models")),
+            ));
 
             // Install the memory store. Spec location is `~/.edytlab/
             // memory.md`; if the user's home dir can't be resolved we
@@ -339,6 +356,10 @@ pub fn run() {
             has_api_key_for,
             get_keychain_persistence,
             ml_runtime_status,
+            ml_model_status,
+            download_ml_model,
+            cancel_ml_model_download,
+            remove_ml_model,
             clear_api_key,
             clear_api_key_for,
             test_api_key,

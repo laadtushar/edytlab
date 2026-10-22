@@ -50,6 +50,7 @@ unlisten();
 - [Plugins](#plugins)
 - [Capabilities](#capabilities)
 - [ONNX Runtime](#onnx-runtime)
+- [Speech Model](#speech-model)
 - [Skills (CRUD)](#skills-crud)
 - [Agent Profiles (CRUD)](#agent-profiles-crud)
 - [Memory](#memory)
@@ -1267,6 +1268,75 @@ when started with `--ml-runtime-status` (`edytlab-desktop --ml-runtime-status`),
 which is how the release workflows check every installer. A library that loads
 is not stem separation or transcription, which this build does not ship (#384,
 #385).
+
+---
+
+## Speech Model
+
+The Settings → Account "Speech model" row drives these four commands and the
+`ml-model-progress` event (#383). They all take `model`, the id of a model in
+`crates/ml-pipeline/models.json`: today only `"whisper-base"`, Whisper base
+(about 139 MB, three files pinned by commit, byte size and SHA-256, from
+huggingface.co). An id that is not listed is an error naming it; nothing is
+made into a path from it.
+
+**The only way a model is downloaded is `downloadMlModel`, which the user's
+click on Download calls.** Nothing downloads at launch, when Settings opens, or
+from a tool or the agent, and `crates/ml-pipeline/tests/only_the_user_downloads.rs`
+and `speechModelOnlyOnClick.test.ts` fail if another path could. None of these
+commands takes the store, engine, dispatcher or agent lock: a download runs on a
+thread of its own and never waits for, or stalls, a turn. The request goes to
+huggingface.co and carries no audio. A model on disk is not used by anything yet:
+transcription is not shipped (#384).
+
+```typescript
+type MlModelStatus = { model: string; bytes: number; size: number } & (
+  | { state: "not_downloaded" }                          // bytes > 0: a partial file a click resumes
+  | { state: "downloading"; received: number; total: number }
+  | { state: "ready" }                                   // every file on disk, checked against its SHA-256
+  | { state: "failed"; reason: string }                  // the partial file is kept for a retry
+);
+```
+
+`bytes` is how much of the model is on disk now and `size` its whole pinned
+size. Every command below answers with this object, and so does the event.
+
+### `mlModelStatus(model: string) → MlModelStatus`
+
+Where the model is. Reads the disk, and hashes the files when they are all
+there, so it runs on the blocking pool; a file that was replaced since it was
+downloaded is not `ready`. It makes no network request and creates nothing.
+
+### `downloadMlModel(model: string) → MlModelStatus`
+
+Start downloading on a thread of its own and answer at once with `downloading`.
+Progress and the end arrive on `onMlModelProgress`. A partial file from an
+earlier attempt is resumed with an HTTP `Range` request, a download already
+running is left alone, and a model that is already complete is verified rather
+than fetched. Every file is written to a `.part` file and renamed to its final
+name only once its size and SHA-256 match, so a half file never has one. Models
+are kept in `<app local data>/models/<id>/` (the local, non-roaming data folder: `%LOCALAPPDATA%` on Windows).
+
+### `cancelMlModelDownload(model: string) → MlModelStatus`
+
+Ask a running download to stop. It stops at its next chunk and keeps the partial
+file; `onMlModelProgress` says `not_downloaded` once it has. The answer is the
+state at the time of the call, so it still says `downloading`. A no-op when
+nothing is running.
+
+### `removeMlModel(model: string) → MlModelStatus`
+
+Delete the model's own files from the models folder: the files `models.json`
+lists, their `.part` files, and the folders that leaves empty. Anything else in
+the folder stays, and so does every other model. Refused ("being downloaded
+right now") while the download runs; cancel it first. Clears a recorded failure.
+
+### `onMlModelProgress(cb: (status: MlModelStatus) => void) → Promise<UnlistenFn>`
+
+Emitted as `ml-model-progress` on every change of a model's state: the start,
+progress (at most one every 100 ms), the end (`ready`, `failed`, or
+`not_downloaded` after a cancel) and a removal. The payload is the same object
+the commands answer with.
 
 ---
 

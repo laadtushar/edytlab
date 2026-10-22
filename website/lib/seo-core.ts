@@ -44,7 +44,7 @@ export const SITE_UPDATED = "2026-10-22";
  */
 export const PAGE_UPDATED: Readonly<Record<string, string>> = {
   "/": "2026-10-22",
-  "/docs": "2026-10-21",
+  "/docs": "2026-10-22",
   "/docs/getting-started": "2026-10-22",
   "/docs/user-guide": "2026-10-22",
   "/docs/tools": "2026-10-22",
@@ -61,8 +61,8 @@ export const PAGE_UPDATED: Readonly<Record<string, string>> = {
   "/videos/reel-mini-mix": "2026-10-22",
   "/changelog": "2026-10-21",
   "/press": "2026-10-21",
-  "/privacy": "2026-10-11",
-  "/terms": "2026-10-10",
+  "/privacy": "2026-10-22",
+  "/terms": "2026-10-22",
 };
 
 /** When a page last changed in substance: its own date, else the site's. */

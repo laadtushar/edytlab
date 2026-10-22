@@ -576,9 +576,32 @@ export default function UserGuidePage() {
         build from source, say <code>not installed in this build</code>. It is
         a status line: it installs nothing, and it does not mean that any
         on-device audio model is available. No model comes with the runtime,
-        nothing is downloaded, and stem separation and transcription still
-        return an error. Only the library needs macOS 13.4; the app itself
-        runs on macOS 11 and later.
+        and stem separation and transcription still return an error. Only the
+        library needs macOS 13.4; the app itself runs on macOS 11 and later.
+      </p>
+      <p>
+        From the release after v0.7.0 (which has no such row), the{" "}
+        <strong>Speech model</strong> row below it offers the model
+        transcription will use, Whisper base (about 139 MB, from Hugging
+        Face). <strong>Download</strong> fetches its three files from{" "}
+        <code>huggingface.co</code>, with a progress bar and a{" "}
+        <strong>Cancel</strong> button, checks each against its SHA-256 hash,
+        and keeps them in the <code>models</code> folder inside the
+        app&rsquo;s local data folder (<code>app.edytlab.desktop</code> in your
+        user data directory; on Windows that is under{" "}
+        <code>%LOCALAPPDATA%</code>, so it does not roam with your profile).
+        Cancel keeps what has arrived, and Download carries on from there; if
+        the download fails, the row says why and offers <strong>Retry</strong>.
+        When the model is ready the row says <code>Ready</code> and offers{" "}
+        <strong>Remove</strong>, which asks first and deletes only that
+        model&rsquo;s files. Nothing downloads unless you press Download: not
+        at launch, not when Settings opens, and not when the assistant asks.
+        The requests carry your IP address, the file name, and a User-Agent of
+        the form <code>edytlab/&lt;version&gt;</code>, so Hugging Face learns
+        that edytlab is asking and which version, and nothing about your audio
+        (see the <a href="/privacy">privacy page</a>). Downloading the model
+        turns nothing on: transcription is not available yet, so nothing uses
+        the file.
       </p>
       <p>
         The runtime&rsquo;s licence and third-party notices are installed with
@@ -587,6 +610,23 @@ export default function UserGuidePage() {
         <code>/usr/lib/edytlab</code> on Linux, and in the install folder on
         Windows, which also has the Visual C++ runtime the library needs and
         its notice in <code>licenses/vc-runtime/</code>.
+      </p>
+      <p>
+        The speech model is not installed with the app, so it has no notice in
+        the install folder. Whisper base is published by OpenAI under the
+        Apache-2.0 licence (the Whisper code is MIT), and the files are an ONNX
+        export of it by the onnx-community on Hugging Face, pinned to one
+        commit. The model cards are{" "}
+        <a href="https://huggingface.co/openai/whisper-base">
+          openai/whisper-base
+        </a>{" "}
+        and{" "}
+        <a href="https://huggingface.co/onnx-community/whisper-base_timestamped">
+          onnx-community/whisper-base_timestamped
+        </a>
+        , the second of which states no licence of its own. edytlab fetches
+        the files at run time when you click Download and does not
+        redistribute them.
       </p>
     </DocShell>
   );

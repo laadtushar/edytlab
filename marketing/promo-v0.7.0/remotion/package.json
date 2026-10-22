@@ -1,0 +1,33 @@
+{
+  "name": "edytlab-promo-v0.7.0",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The v0.7.0 promo edit: Remotion compositions cut from the footage in ../footage. Standalone: outside the pnpm workspace, like website/ (pnpm install --ignore-workspace).",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "tokens": "node scripts/tokens.ts",
+    "tokens:check": "node scripts/tokens.ts --check",
+    "typecheck": "tsc --noEmit",
+    "studio": "remotion studio src/index.ts",
+    "bundle": "node scripts/bundle.ts",
+    "cues": "node scripts/cues.ts ../out",
+    "render": "node scripts/render.ts",
+    "stills": "node scripts/stills.ts",
+    "build": "tools/build.sh",
+    "verify": "python3 tools/verify.py ../out"
+  },
+  "dependencies": {
+    "@fontsource/inter": "5.2.8",
+    "@remotion/cli": "4.0.534",
+    "@remotion/renderer": "4.0.534",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.534"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.0",
+    "@types/react": "18.3.12",
+    "typescript": "5.9.3"
+  }
+}

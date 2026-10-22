@@ -58,15 +58,16 @@
 //!   after each chunk and while waiting for the server to answer. It keeps
 //!   the `.part` for a later resume.
 //!
-//! ## Status
+//! ## Who calls this
 //!
-//! Nothing calls this yet and no model is pinned: shipping a manifest
-//! needs the model files, and the transcription and stem-separation code
-//! that would use them is not implemented (#384, #385). The download UI
-//! and the Tauri command that would drive it are later parts of #383.
-//! Tools must never download from inside a call, since a model is
-//! hundreds of megabytes and a tool runs holding the session and engine
-//! locks.
+//! Only the user's click. `models::ModelDownloads` wraps [`ModelStore`]
+//! for the Settings row (status, start, cancel, remove) and is started by
+//! one Tauri command, `download_ml_model`; no tool, agent path or launch
+//! code downloads anything (`tests/only_the_user_downloads.rs`). Tools
+//! must never download from inside a call, since a model is hundreds of
+//! megabytes and a tool runs holding the session and engine locks. The
+//! model it pins (`models.json`) is not run by anything yet: transcription
+//! and stem separation are not implemented (#384, #385).
 
 use std::collections::BTreeSet;
 use std::fs::{self, File, OpenOptions};
@@ -163,6 +164,36 @@ pub trait FetchObserver {
 
 impl FetchObserver for () {}
 
+/// What an artifact takes on disk, as [`ModelStore::on_disk`] counts it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OnDisk {
+    /// Bytes of finished files plus the partial files of unfinished ones.
+    pub bytes: u64,
+    /// Every file is at its final name with its pinned size (not hashed).
+    pub complete: bool,
+}
+
+/// An observer that has always been cancelled: with it, waiting for the
+/// artifact lock becomes "take it if it is free".
+struct AlreadyCancelled;
+
+impl FetchObserver for AlreadyCancelled {
+    fn is_cancelled(&self) -> bool {
+        true
+    }
+}
+
+/// The length of the regular file at `path`, or `None` when there is none
+/// (nothing there, or something that is not a file).
+fn regular_file_len(path: &Path) -> Result<Option<u64>> {
+    match fs::metadata(path) {
+        Ok(m) if m.is_file() => Ok(Some(m.len())),
+        Ok(_) => Ok(None),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}
+
 /// A directory of downloaded model artifacts.
 #[derive(Debug, Clone)]
 pub struct ModelStore {
@@ -200,6 +231,94 @@ impl ModelStore {
             }
         }
         Ok(Some(dir))
+    }
+
+    /// What `artifact` takes on disk right now, without hashing anything.
+    ///
+    /// `bytes` counts each file at its final name with the pinned size, and
+    /// the partial file of each one that is not there yet. `complete` says
+    /// every file is at its final name with the pinned size, which is
+    /// necessary for [`Self::cached`] to answer `Some` and cheap to find
+    /// out; only `cached` reads the bytes.
+    pub fn on_disk(&self, artifact: &ModelArtifact) -> Result<OnDisk> {
+        let dir = self.artifact_dir(artifact)?;
+        let mut usage = OnDisk {
+            bytes: 0,
+            complete: true,
+        };
+        for file in &artifact.files {
+            let final_path = dir.join(&file.path);
+            match regular_file_len(&final_path)? {
+                Some(len) if len == file.size => usage.bytes += len,
+                _ => {
+                    usage.complete = false;
+                    if let Some(len) = regular_file_len(&part_path(&final_path))? {
+                        usage.bytes += len.min(file.size);
+                    }
+                }
+            }
+        }
+        Ok(usage)
+    }
+
+    /// Delete `artifact`'s files: each one the manifest lists, its partial
+    /// file, and then the folders that leaves empty, the artifact's own
+    /// last. Anything else under the artifact's folder stays, and so does
+    /// every other artifact; the lock file is left in place (see the module
+    /// doc). Returns the bytes freed.
+    ///
+    /// Takes the artifact lock without waiting: [`Error::Busy`] when a
+    /// fetch of it is running, in this process or another. A path where the
+    /// manifest names a file but a folder is found is left alone. Nothing is
+    /// created for an artifact that was never fetched.
+    pub fn remove(&self, artifact: &ModelArtifact) -> Result<u64> {
+        let dir = self.artifact_dir(artifact)?;
+        if !dir.exists() {
+            return Ok(0);
+        }
+        let _lock = lock_artifact(&self.root, &dir, &artifact.id, &AlreadyCancelled).map_err(
+            |e| match e {
+                Error::Cancelled => Error::Busy {
+                    artifact: artifact.id.clone(),
+                },
+                other => other,
+            },
+        )?;
+
+        let mut freed = 0u64;
+        for file in &artifact.files {
+            let final_path = dir.join(&file.path);
+            for path in [part_path(&final_path), final_path] {
+                match fs::symlink_metadata(&path) {
+                    Ok(meta) if meta.is_file() => {
+                        fs::remove_file(&path)?;
+                        freed += meta.len();
+                    }
+                    Ok(meta) if meta.file_type().is_symlink() => fs::remove_file(&path)?,
+                    // A folder where a file should be is not ours to delete.
+                    Ok(_) => {}
+                    Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                    Err(e) => return Err(e.into()),
+                }
+            }
+        }
+
+        // Folders that held only these files, deepest first. `remove_dir`
+        // refuses a folder with anything in it, which is the point.
+        let mut folders = BTreeSet::new();
+        for file in &artifact.files {
+            let mut folder = dir.join(&file.path);
+            while folder.pop() && folder.starts_with(&dir) {
+                folders.insert(folder.clone());
+                if folder == dir {
+                    break;
+                }
+            }
+        }
+        for folder in folders.iter().rev() {
+            let _ = fs::remove_dir(folder);
+        }
+        Ok(freed)
     }
 
     /// Make `artifact` exist under [`Self::artifact_dir`], downloading

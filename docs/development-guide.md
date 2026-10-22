@@ -77,10 +77,16 @@ this build, and there is no configuration that makes them work:
   `Ok(vec![])`, which reported success with an empty transcript (#233).
 - `DemucsModel::separate` returns `NotImplemented`.
 - `ml_pipeline::fetched_model_path` downloads, hash-checks and caches a
-  pinned model artifact (tested against a local HTTP server), but it has
-  no callers and no model is pinned. **Nothing is downloaded.** The
-  download UI is a later part of
-  [#383](https://github.com/laadtushar/edytlab/issues/383).
+  pinned model artifact (tested against a local HTTP server). One model is
+  pinned, the speech model `whisper-base` (about 139 MB from
+  huggingface.co, `crates/ml-pipeline/models.json`), and the app downloads
+  it **only when you click Download** in Settings → Account (`Speech
+  model`; from the release after v0.7.0), with a progress bar, Cancel (a resume with a `Range` request
+  carries on from what arrived) and Remove. Nothing downloads at launch,
+  when Settings opens, or from a tool or the agent, and nothing runs the
+  file once it is there, so it does not make transcription work (#384).
+  To fetch the real files from a shell, as a check of the pins:
+  `cargo test -p ml-pipeline --test model_real_download -- --ignored --nocapture`.
 - If a model variable below names a file but there is no ONNX Runtime
   library, `transcribe` and `separate_stems` return a tool error that
   says so (and that the feature is not implemented anyway). They used to
@@ -273,7 +279,7 @@ src/
 ```
 src/
 ├── bundled_skills.rs # Keeps the skills that ship in the app current in ~/.edytlab/skills/ (#574, #631)
-├── commands.rs    # The #[tauri::command] functions (~90 of them)
+├── commands.rs    # The #[tauri::command] functions (~100 of them)
 ├── compare.rs     # The open A/B compare and the previews it holds (#575)
 ├── events.rs      # agent://… event names and payloads
 ├── lib.rs         # Builder, command registration, startup

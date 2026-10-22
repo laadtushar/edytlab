@@ -194,6 +194,75 @@ export type MlRuntimeStatus =
 export const mlRuntimeStatus = (): Promise<MlRuntimeStatus> =>
   invoke<MlRuntimeStatus>("ml_runtime_status");
 
+/**
+ * Where a downloadable model is, tagged by `state` (#383). The same object
+ * is the answer of every model command and the payload of the
+ * `ml-model-progress` event.
+ *
+ * - `not_downloaded`: not (completely) on disk, nothing is downloading it.
+ *   `bytes` above zero is a partial download a click will resume.
+ * - `downloading`: a transfer is running; `received` of `total` bytes.
+ * - `ready`: every file is on disk and checked against its SHA-256. It is
+ *   not running: transcription is not shipped (#384).
+ * - `failed`: the last transfer ended with `reason`; the partial file is
+ *   kept for a retry.
+ *
+ * `bytes` is the model's size on disk now and `size` its whole size.
+ */
+export type MlModelStatus = {
+  model: string;
+  bytes: number;
+  size: number;
+} & (
+  | { state: "not_downloaded" }
+  | { state: "downloading"; received: number; total: number }
+  | { state: "ready" }
+  | { state: "failed"; reason: string }
+);
+
+/**
+ * Where `model` is. Reads the disk (and checks the files when they are all
+ * there) but makes no network request.
+ */
+export const mlModelStatus = (model: string): Promise<MlModelStatus> =>
+  invoke<MlModelStatus>("ml_model_status", { model });
+
+/**
+ * Start downloading `model` and return at once with `downloading`; the
+ * progress and the end arrive on {@link onMlModelProgress}. A partial file
+ * from an earlier attempt is resumed.
+ *
+ * **Call it from the user's click on Download and from nowhere else**: it
+ * makes a request to huggingface.co. No tool, agent path or launch code
+ * downloads a model, and `speechModelOnlyOnClick.test.ts` fails if another
+ * file calls this.
+ */
+export const downloadMlModel = (model: string): Promise<MlModelStatus> =>
+  invoke<MlModelStatus>("download_ml_model", { model });
+
+/**
+ * Stop a running download. It keeps the partial file; the event says
+ * `not_downloaded` when it has stopped.
+ */
+export const cancelMlModelDownload = (model: string): Promise<MlModelStatus> =>
+  invoke<MlModelStatus>("cancel_ml_model_download", { model });
+
+/**
+ * Delete the model's own files (and its partial ones) from the models
+ * folder. Refused while it downloads.
+ */
+export const removeMlModel = (model: string): Promise<MlModelStatus> =>
+  invoke<MlModelStatus>("remove_ml_model", { model });
+
+/**
+ * Every change of a model's state: the start, progress (at most every
+ * 100 ms), the end, a cancel and a removal.
+ */
+export const onMlModelProgress = (
+  cb: (status: MlModelStatus) => void,
+): Promise<UnlistenFn> =>
+  listen<MlModelStatus>("ml-model-progress", (e) => cb(e.payload));
+
 export const clearApiKey = (): Promise<void> =>
   invoke<void>("clear_api_key");
 

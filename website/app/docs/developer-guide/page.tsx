@@ -144,7 +144,7 @@ pnpm --filter @edytlab/desktop test:watch # vitest watch mode`}</code>
           WebView. Thin UI layer; all state lives in Rust.
         </li>
         <li>
-          <strong>Rust application layer</strong> — about 90 Tauri commands in{" "}
+          <strong>Rust application layer</strong> — about 100 Tauri commands in{" "}
           <code>commands.rs</code>. Manages <code>AppState</code>: Store,
           Engine, Agent, Clipboard.
         </li>

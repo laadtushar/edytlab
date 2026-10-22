@@ -35,6 +35,19 @@ vi.mock("../lib/tauri-bridge", () => ({
   testApiKeyFor: vi.fn(),
   installPlugin: vi.fn(),
   mlRuntimeStatus: vi.fn(),
+  // The Account tab's speech model row (#383): not downloaded, and nothing
+  // to hear. Plain functions, so a test's `mockReset` leaves them alone.
+  mlModelStatus: () =>
+    Promise.resolve({
+      model: "whisper-base",
+      state: "not_downloaded",
+      bytes: 0,
+      size: 138_644_904,
+    }),
+  onMlModelProgress: () => Promise.resolve(() => undefined),
+  downloadMlModel: vi.fn(),
+  cancelMlModelDownload: vi.fn(),
+  removeMlModel: vi.fn(),
 }));
 
 import {

@@ -27,7 +27,7 @@ const faqs = [
   },
   {
     q: "Does my audio leave my machine?",
-    a: "No. The DSP engine runs entirely on your device — decode, editing, mixing, and rendering all happen locally, and stem separation and transcription are built to run locally too once their models ship. The only network traffic is your chat with the LLM provider you've configured. Your raw audio is never uploaded.",
+    a: "No. The DSP engine runs entirely on your device — decode, editing, mixing, and rendering all happen locally, and stem separation and transcription are built to run locally too once their models ship. Besides your chat with the LLM provider you've configured, the app contacts only hosts you tell it to (a plugin URL, an MCP server) and, from the release after v0.7.0, Hugging Face when you click Download for the speech model. Your raw audio is never uploaded.",
     more: { href: "/use-cases/local-ai-audio-editor", label: "See what stays on your machine and what leaves" },
   },
   {
