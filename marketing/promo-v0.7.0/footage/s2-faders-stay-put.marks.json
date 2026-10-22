@@ -1,0 +1,22 @@
+[
+  {
+    "label": "slider focused",
+    "t": 2
+  },
+  {
+    "label": "tap 1: 0.5 dB",
+    "t": 2.87
+  },
+  {
+    "label": "tap 2: 1.0 dB",
+    "t": 3.4
+  },
+  {
+    "label": "tap 3: 1.5 dB",
+    "t": 3.93
+  },
+  {
+    "label": "tap 4: 2.0 dB",
+    "t": 4.47
+  }
+]

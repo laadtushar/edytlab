@@ -1,0 +1,16 @@
+{
+  // The recording harness is not part of the app's programs, so it has one of
+  // its own. It type-checks with the e2e program's settings, and finds Node's
+  // types where the app's `node_modules` keeps them (this folder has none).
+  //
+  //   cd apps/desktop && pnpm exec tsc --noEmit -p ../../marketing/promo-v0.7.0/record
+  "extends": "../../../apps/desktop/e2e/tsconfig.json",
+  "compilerOptions": {
+    "typeRoots": ["../../../apps/desktop/node_modules/@types"],
+    "noEmit": true
+  },
+  // `harness.ts` is where the page globals the fixtures read (`__E2E_CALLS__` and
+  // the rest) are declared.
+  "include": ["./**/*.ts", "../../../apps/desktop/e2e/harness.ts", "../../../apps/desktop/src/vite-env.d.ts"],
+  "exclude": ["./.out"]
+}

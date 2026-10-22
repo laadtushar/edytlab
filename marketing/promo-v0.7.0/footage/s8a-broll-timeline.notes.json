@@ -1,0 +1,28 @@
+{
+  "file": "s8a-broll-timeline.mp4",
+  "seconds": 15.133,
+  "frames": 454,
+  "captured": 350,
+  "marks": [
+    {
+      "label": "pan starts",
+      "t": 3.13
+    },
+    {
+      "label": "pan ends",
+      "t": 10.33
+    }
+  ],
+  "spans": [],
+  "lanes": [
+    "Drums",
+    "Bass",
+    "Keys",
+    "Pad",
+    "Lead",
+    "Vocal"
+  ],
+  "scrolledXPx": 1389,
+  "scrolledYPx": 571,
+  "crop": "left pane: x 0..1240, y 52..972 (CSS px)"
+}

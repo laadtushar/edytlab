@@ -1,0 +1,26 @@
+[
+  {
+    "label": "request typed",
+    "t": 5.87
+  },
+  {
+    "label": "request sent",
+    "t": 6.4
+  },
+  {
+    "label": "reply done",
+    "t": 10.13
+  },
+  {
+    "label": "play pressed",
+    "t": 12.43
+  },
+  {
+    "label": "playing",
+    "t": 12.47
+  },
+  {
+    "label": "paused",
+    "t": 18.4
+  }
+]

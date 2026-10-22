@@ -1,0 +1,19 @@
+{
+  "file": "s8b-broll-graph.mp4",
+  "seconds": 13.067,
+  "frames": 392,
+  "captured": 202,
+  "marks": [
+    {
+      "label": "drag starts",
+      "t": 4.2
+    },
+    {
+      "label": "drag ends",
+      "t": 11.07
+    }
+  ],
+  "spans": [],
+  "nodes": 17,
+  "crop": "left pane: x 0..1240, y 52..972 (CSS px)"
+}

@@ -1,0 +1,49 @@
+{
+  "file": "s7-mix-stays-playable.mp4",
+  "seconds": 15.567,
+  "frames": 467,
+  "captured": 386,
+  "marks": [
+    {
+      "label": "playing",
+      "t": 1.93
+    },
+    {
+      "label": "graph tab",
+      "t": 6.03
+    },
+    {
+      "label": "timeline tab",
+      "t": 8.43
+    },
+    {
+      "label": "playing again",
+      "t": 10.57
+    },
+    {
+      "label": "paused",
+      "t": 15.07
+    }
+  ],
+  "spans": [
+    {
+      "footageStart": 1.9,
+      "footageEnd": 6,
+      "mixStart": 0
+    },
+    {
+      "footageStart": 10.533,
+      "footageEnd": 15.033,
+      "mixStart": 0
+    }
+  ],
+  "wav": "s7-mix-stays-playable.wav",
+  "renderPreviewCalls": [
+    {
+      "node": "f5e242b19552735b1733ecf8087d95fcc16cc8d6a2b2bd1414e76c58885aef9c"
+    },
+    {
+      "node": "f5e242b19552735b1733ecf8087d95fcc16cc8d6a2b2bd1414e76c58885aef9c"
+    }
+  ]
+}

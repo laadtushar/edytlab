@@ -1,0 +1,28 @@
+{
+  "file": "s6-skills-note.mp4",
+  "seconds": 11.167,
+  "frames": 335,
+  "captured": 119,
+  "marks": [
+    {
+      "label": "bundled note shown",
+      "t": 4
+    },
+    {
+      "label": "a skill opened",
+      "t": 8.97
+    }
+  ],
+  "spans": [],
+  "skills": [
+    "dialog-enhancer",
+    "export-guide",
+    "loudness-master",
+    "music-mix",
+    "noise-reducer",
+    "podcast-cleanup",
+    "silence-cleaner",
+    "vocal-chain"
+  ],
+  "opened": "loudness-master"
+}

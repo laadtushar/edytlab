@@ -1,0 +1,18 @@
+[
+  {
+    "label": "request 1 sent",
+    "t": 4.27
+  },
+  {
+    "label": "label set",
+    "t": 6.33
+  },
+  {
+    "label": "request 2 sent",
+    "t": 12.6
+  },
+  {
+    "label": "compaction done",
+    "t": 16.8
+  }
+]

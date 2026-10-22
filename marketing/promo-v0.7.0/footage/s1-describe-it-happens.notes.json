@@ -1,0 +1,42 @@
+{
+  "file": "s1-describe-it-happens.mp4",
+  "seconds": 18.9,
+  "frames": 567,
+  "captured": 447,
+  "marks": [
+    {
+      "label": "request typed",
+      "t": 5.87
+    },
+    {
+      "label": "request sent",
+      "t": 6.4
+    },
+    {
+      "label": "reply done",
+      "t": 10.13
+    },
+    {
+      "label": "play pressed",
+      "t": 12.43
+    },
+    {
+      "label": "playing",
+      "t": 12.47
+    },
+    {
+      "label": "paused",
+      "t": 18.4
+    }
+  ],
+  "spans": [
+    {
+      "footageStart": 12.433,
+      "footageEnd": 18.367,
+      "mixStart": 0
+    }
+  ],
+  "wav": "s1-describe-it-happens.wav",
+  "request": "Fade the intro in over 4 seconds and bring the vocal down 3 dB",
+  "reply": "Done. The backing now fades in over the first 4 seconds, and the vocal is 3 dB quieter."
+}

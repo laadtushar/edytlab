@@ -1,0 +1,25 @@
+{
+  "file": "s5-runtime-bundled.mp4",
+  "seconds": 7.2,
+  "frames": 216,
+  "captured": 59,
+  "marks": [
+    {
+      "label": "settings opening",
+      "t": 2
+    },
+    {
+      "label": "runtime line in view",
+      "t": 4
+    }
+  ],
+  "spans": [],
+  "status": {
+    "state": "found",
+    "version": "1.23.2",
+    "path": "/usr/lib/edytlab/libonnxruntime.so",
+    "source": "bundled"
+  },
+  "text": "ONNX Runtime: 1.23.2 (bundled)",
+  "scrolledPx": 0
+}

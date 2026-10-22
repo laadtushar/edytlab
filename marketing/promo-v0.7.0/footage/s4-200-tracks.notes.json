@@ -1,0 +1,28 @@
+{
+  "file": "s4-200-tracks.mp4",
+  "seconds": 21.633,
+  "frames": 649,
+  "captured": 503,
+  "marks": [
+    {
+      "label": "request typed",
+      "t": 7.53
+    },
+    {
+      "label": "request sent",
+      "t": 8
+    },
+    {
+      "label": "reply done",
+      "t": 15.93
+    },
+    {
+      "label": "strings in view",
+      "t": 19.63
+    }
+  ],
+  "spans": [],
+  "tracks": 200,
+  "strings": 12,
+  "readoutsAtMinus4InDom": 12
+}

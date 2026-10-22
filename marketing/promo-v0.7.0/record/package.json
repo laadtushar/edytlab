@@ -1,0 +1,6 @@
+{
+  "name": "edytlab-promo-record",
+  "private": true,
+  "type": "module",
+  "description": "Recording harness for the v0.7.0 promo footage. Not a workspace package and it has no dependencies: it runs under apps/desktop's Playwright (see README.md)."
+}
