@@ -1514,9 +1514,10 @@ mod tests {
                 .unwrap_or_else(|| panic!("{name} is not registered"));
             is_not_implemented(schema)
         };
-        for stub in ["separate_stems"] {
-            assert!(flagged(stub), "{stub} no longer reads as not implemented");
-        }
+        assert!(
+            flagged("separate_stems"),
+            "separate_stems no longer reads as not implemented"
+        );
         for working in [
             "analyze_track",
             "reverse",

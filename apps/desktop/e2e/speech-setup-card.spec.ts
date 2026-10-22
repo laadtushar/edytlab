@@ -81,6 +81,7 @@ test("a speech model that is not downloaded is a card under the call, and Open S
   await expect(page.getByTestId("speech-model-download")).toBeVisible();
   // Opening Settings from the card is not pressing Download.
   expect(await app.requestsFor("download_ml_model")).toEqual([]);
+  await app.release("send", null);
 });
 
 test("the assistant's words about the model draw no card", async ({ app }) => {
@@ -100,6 +101,7 @@ test("the assistant's words about the model draw no card", async ({ app }) => {
   ).toBeVisible();
   await expect(page.getByTestId("speech-setup-card")).toHaveCount(0);
   await expect(page.getByTestId("tool-badge")).toHaveAttribute("data-status", "error");
+  await app.release("send", null);
 });
 
 test("a build with no runtime gets its card without a Settings button", async ({ app }) => {
@@ -115,4 +117,5 @@ test("a build with no runtime gets its card without a Settings button", async ({
   const card = page.getByTestId("speech-setup-card");
   await expect(card).toContainText("ORT_DYLIB_PATH");
   await expect(page.getByTestId("speech-setup-open-settings")).toHaveCount(0);
+  await app.release("send", null);
 });

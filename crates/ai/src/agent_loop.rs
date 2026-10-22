@@ -3864,7 +3864,7 @@ mod tests {
 
         struct Refuses(SpeechError);
         impl SpeechToText for Refuses {
-            fn locate(&self) -> Result<ModelRef, SpeechError> {
+            fn locate(&self) -> std::result::Result<ModelRef, SpeechError> {
                 Err(self.0.clone())
             }
             fn transcribe(
@@ -3874,7 +3874,7 @@ mod tests {
                 _: Option<&str>,
                 _: &dyn Fn(usize, usize),
                 _: &dyn Fn() -> bool,
-            ) -> Result<Spoken, SpeechError> {
+            ) -> std::result::Result<Spoken, SpeechError> {
                 unreachable!("locate refused")
             }
         }

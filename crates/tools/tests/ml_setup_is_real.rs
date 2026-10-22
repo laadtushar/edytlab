@@ -323,7 +323,8 @@ fn the_schemas_tell_the_agent_the_features_are_unavailable() {
     let schemas = dispatcher.tool_schemas();
     let schemas = schemas.as_array().expect("tool_schemas returns an array");
 
-    for name in ["separate_stems"] {
+    {
+        let name = "separate_stems";
         let schema = schemas
             .iter()
             .find(|s| s.get("name").and_then(|v| v.as_str()) == Some(name))

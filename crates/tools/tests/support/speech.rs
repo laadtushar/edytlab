@@ -30,6 +30,9 @@ pub fn word(text: &str, start: f32, end: f32) -> TranscriptWord {
     }
 }
 
+/// What a test does at the start of a run, given the run's number.
+pub type OnRun = Box<dyn FnMut(usize) + Send>;
+
 /// A recogniser that says the same words every time and counts the runs.
 pub struct Fake {
     pub runs: Arc<AtomicUsize>,
@@ -45,7 +48,7 @@ pub struct Fake {
     pub windows: usize,
     /// Called at the start of each run, with the number of the run (1-based).
     /// A test plays the user here.
-    pub on_run: Mutex<Option<Box<dyn FnMut(usize) + Send>>>,
+    pub on_run: Mutex<Option<OnRun>>,
     /// Press Cancel (the window's button) once this window has been reported.
     pub cancel_after: Mutex<Option<usize>>,
 }
