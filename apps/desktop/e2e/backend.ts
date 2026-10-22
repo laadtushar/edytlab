@@ -57,6 +57,12 @@ export const byArg = (arg: string, answers: Record<string, SimpleAnswer>): Answe
  */
 export const NO_SESSION = "no session loaded; call open_project first";
 
+/**
+ * `get_transcript` with no transcript: `TranscriptOut::none()` in
+ * `commands.rs`. No words, and a source that allows no cut (#384).
+ */
+export const NO_TRANSCRIPT = { words: [], source: { kind: "unknown" } };
+
 /** `src-tauri/resources`, which `tauri.conf.json` bundles. */
 const RESOURCES = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -284,14 +290,14 @@ function bootCommands({ hasKey }: { hasKey: boolean }): Backend {
  * `lib.rs` opens a default project store at every launch, so a project
  * is always open — but `Store::open` on a fresh directory has no
  * `HEAD`. `list_tracks` and `list_markers` turn that into `NoSession`;
- * `get_transcript` answers an empty list, because "not transcribed yet"
- * is an ordinary state and not a fault.
+ * `get_transcript` answers no words (and a source that allows no cut),
+ * because "not transcribed yet" is an ordinary state and not a fault.
  */
 function emptyProject(): Backend {
   return {
     list_tracks: reject(NO_SESSION),
     list_markers: reject(NO_SESSION),
-    get_transcript: ok([]),
+    get_transcript: ok(NO_TRANSCRIPT),
     // `get_session_head`: `store.head().ok_or(CommandError::NoSession)`.
     get_session_head: reject(NO_SESSION),
   };
@@ -416,7 +422,7 @@ export function sessionWith(tracks: TrackSummary[]): Backend {
   return {
     list_tracks: ok(tracks),
     list_markers: ok([]),
-    get_transcript: ok([]),
+    get_transcript: ok(NO_TRANSCRIPT),
     // `save_view_state` returns `CmdResult<()>`, which serialises as
     // `null`. The app calls it, debounced, once there is a head.
     save_view_state: ok(null),

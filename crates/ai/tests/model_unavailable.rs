@@ -15,12 +15,10 @@
 
 mod common;
 
-use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use ai::{Agent, Error, LlmConfig};
 use common::{chat_reply_json, classifier_json, ok, Entry, SeqResponder};
-use tokio::sync::Notify;
 use tools::ToolDispatcher;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer};
@@ -50,9 +48,7 @@ async fn turn(
             session::Store::open(dir.path()).expect("open store"),
         )),
         Arc::new(Mutex::new(audio_engine::Engine::new())),
-        Arc::new(Notify::new()),
-        Arc::new(Mutex::new(None)),
-        Arc::new(AtomicBool::new(false)),
+        ai::PlanGate::new(),
         Arc::new(Mutex::new(None::<tools::Clipboard>)),
     );
     let result = agent.turn("make it louder".to_string(), |_| {}).await;

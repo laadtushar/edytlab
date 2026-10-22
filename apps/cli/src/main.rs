@@ -98,20 +98,11 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let clipboard = Arc::new(Mutex::new(None::<tools::Clipboard>));
-    let plan_notify = std::sync::Arc::new(tokio::sync::Notify::new());
-    // The CLI is non-interactive: there is no UI to edit a proposed plan
-    // before approval, so the override slot stays empty for its lifetime.
-    let plan_steps_override = Arc::new(Mutex::new(None::<String>));
-    let mut agent = ai::Agent::new(
-        cfg,
-        dispatcher,
-        store,
-        engine,
-        plan_notify,
-        plan_steps_override,
-        Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        clipboard,
-    );
+    // The CLI is non-interactive: there is no UI to answer a proposed plan,
+    // so nothing ever answers this gate. A turn that asks (a request the
+    // classifier calls a mashup) waits out the timeout, as it always has.
+    let plan_gate = ai::PlanGate::new();
+    let mut agent = ai::Agent::new(cfg, dispatcher, store, engine, plan_gate, clipboard);
 
     let result = agent
         .turn(args.message, |ev| {

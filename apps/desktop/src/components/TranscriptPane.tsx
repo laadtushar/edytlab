@@ -2,8 +2,8 @@
  * The transcript, as something you edit rather than something you read
  * (#157).
  *
- * `transcribe` has stored word-level timings in the session since it
- * shipped, and nothing surfaced them. This is the pane that does, and
+ * `transcribe` stores word-level timings in the session (#384), and
+ * this is the pane that surfaces them, and
  * the reason it matters is the sentence in the ticket: delete a
  * sentence in the text and the audio is cut to match. That is the whole
  * differentiator, and every piece of it below the UI already existed.
@@ -39,6 +39,13 @@ export interface TranscriptPaneProps {
   onSeek?: (timeSec: number) => void;
   /** True while a transcribe run is in flight. */
   busy?: boolean;
+  /**
+   * Why Delete does not cut, or `null`/absent when it does (#384). A
+   * transcript's times are seconds of the audio it was made from, so the
+   * pane cuts only the track it is of; for a transcript of a file, or of a
+   * track that is gone, it shows the words and says why it will not cut.
+   */
+  cutBlockedReason?: string | null;
 }
 
 export function TranscriptPane({
@@ -48,6 +55,7 @@ export function TranscriptPane({
   onCutWords,
   onSeek,
   busy = false,
+  cutBlockedReason = null,
 }: TranscriptPaneProps) {
   // Anchor and focus of a drag, as word indices. Kept separate from the
   // derived range so a backwards drag works without the caller ever
@@ -101,7 +109,12 @@ export function TranscriptPane({
   }, []);
 
   function handleKeyDown(e: React.KeyboardEvent) {
-    if ((e.key === "Backspace" || e.key === "Delete") && span && onCutWords) {
+    if (
+      (e.key === "Backspace" || e.key === "Delete") &&
+      span &&
+      onCutWords &&
+      cutBlockedReason === null
+    ) {
       e.preventDefault();
       onCutWords(span.from, span.to);
       setAnchor(null);
@@ -123,23 +136,18 @@ export function TranscriptPane({
   }
 
   if (words.length === 0) {
-    // An ordinary state, not a fault — but it used to say "Ask the
-    // agent to `transcribe` a track and the words will appear here",
-    // which is the #233 dead end: there is no decoder in this build,
-    // so following that instruction produces an error and never a
-    // transcript. Found by driving the real app, after #317 had
-    // corrected the errors, schemas and chat card but not this tab.
-    //
-    // Saying the feature is unavailable is worth more than inventing a
-    // task for someone to fail at.
+    // An ordinary state, not a fault. It says how to get a transcript and
+    // what the first one needs: the speech model, which the user downloads
+    // in Settings → Account. (Between #233 and #384 it said there was no way
+    // to get one, because there was not.)
     return (
       <Empty>
         <p data-testid="transcript-empty" style={{ maxWidth: 420, lineHeight: 1.6 }}>
-          Transcription isn&apos;t available in this build. Speech-to-text ships
-          as a stub, so there is no model or setting that will produce a
-          transcript yet — and text-based editing, which works from one, is
-          unavailable for the same reason. Everything else in the editor is
-          unaffected.
+          No transcript yet. Ask the assistant to transcribe a track, for
+          example &ldquo;transcribe track 1&rdquo;. It runs on this computer,
+          with the speech model you download once in Settings → Account, and
+          your audio is not sent anywhere. Then select words here and press
+          Delete to cut that audio.
         </p>
       </Empty>
     );
@@ -170,8 +178,25 @@ export function TranscriptPane({
           marginBottom: 12,
         }}
       >
-        {words.length} words · select and press Delete to cut the audio
+        {words.length} words ·{" "}
+        {cutBlockedReason === null
+          ? "select and press Delete to cut the audio"
+          : "cutting by these words is off"}
       </p>
+      {cutBlockedReason !== null ? (
+        <p
+          data-testid="transcript-cut-blocked"
+          style={{
+            fontSize: 12,
+            lineHeight: 1.5,
+            color: "var(--text-dim)",
+            marginBottom: 12,
+            maxWidth: 520,
+          }}
+        >
+          {cutBlockedReason}
+        </p>
+      ) : null}
 
       {words.map((w, i) => {
         const selected = highlight !== null && i >= highlight.from && i < highlight.to;

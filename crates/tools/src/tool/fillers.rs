@@ -40,7 +40,7 @@ use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
-    append_state, check_track_index, cut_annotations, cut_timeline, load_head_state,
+    append_state, cut_annotations, cut_timeline, load_head_state, transcript_edit_track,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -92,7 +92,7 @@ impl Tool for RemoveFillersTool {
              hesitations (um, uh, er) wherever they appear, but discourse markers (like, \
              actually) only where they stand alone between pauses — speech with every hesitation \
              stripped sounds rushed. Leaves a short pause where each filler was so the result \
-             does not sound spliced.",
+             does not sound spliced. Cuts the transcript's track.",
             json!({
                 "type": "object",
                 "properties": {
@@ -109,7 +109,7 @@ impl Tool for RemoveFillersTool {
                         "type": "number",
                         "description": "Pause to leave where each filler was, in milliseconds. Default 80.",
                     },
-                    "track": { "type": "integer", "description": "Track the transcript describes; defaults to 0" },
+                    "track": { "type": "integer", "description": "Track the transcript describes. Defaults to the transcript's track; another is refused. Needed after a file transcript." },
                 },
                 "additionalProperties": false,
             }),
@@ -121,16 +121,16 @@ impl Tool for RemoveFillersTool {
             Ok(a) => a,
             Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
         };
-        let track_index = args.track.unwrap_or(0);
         let keep_gap_s = args.keep_gap_ms.unwrap_or(DEFAULT_KEEP_GAP_MS).max(0.0) / 1000.0;
 
         let mut state = match load_head_state(ctx) {
             Ok(s) => s,
             Err(msg) => return Ok(ToolResult::Error(msg)),
         };
-        if let Err(msg) = check_track_index(&state.tracks, track_index) {
-            return Ok(ToolResult::Error(msg));
-        }
+        let track_index = match transcript_edit_track(&state, args.track) {
+            Ok(t) => t,
+            Err(msg) => return Ok(ToolResult::Error(msg)),
+        };
         let Some(transcript) = state.transcript.clone() else {
             return Ok(ToolResult::Error(
                 "this session has no transcript; run `transcribe` first so words have timings"
@@ -223,7 +223,10 @@ impl Tool for RemoveFillersTool {
             }
         }
 
-        state.transcript = Some(session::Transcript { words });
+        state.transcript = Some(session::Transcript {
+            words,
+            source: transcript.source.clone(),
+        });
         state.length_samples = state
             .length_samples
             .saturating_sub((total_removed_s as f64 * sr).round() as u64);

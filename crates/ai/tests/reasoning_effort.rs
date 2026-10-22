@@ -223,9 +223,7 @@ async fn run(cfg: LlmConfig) -> Run {
             session::Store::open(dir.path()).expect("open store"),
         )),
         Arc::new(Mutex::new(audio_engine::Engine::new())),
-        Arc::new(tokio::sync::Notify::new()),
-        Arc::new(Mutex::new(None)),
-        Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        ai::PlanGate::new(),
         Arc::new(Mutex::new(None::<tools::Clipboard>)),
     );
     let result = agent.turn("read track 1".to_string(), |_| {}).await;
@@ -401,9 +399,7 @@ async fn a_reply_that_is_only_thinking_leaves_no_assistant_message() {
             session::Store::open(dir.path()).expect("open store"),
         )),
         Arc::new(Mutex::new(audio_engine::Engine::new())),
-        Arc::new(tokio::sync::Notify::new()),
-        Arc::new(Mutex::new(None)),
-        Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        ai::PlanGate::new(),
         Arc::new(Mutex::new(None::<tools::Clipboard>)),
     );
     let result = agent

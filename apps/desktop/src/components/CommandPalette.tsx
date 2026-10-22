@@ -143,7 +143,7 @@ export const COMMANDS: Command[] = [
   // Analysis
   // Analysis
   { category: "Analysis", label: "Analyze audio", prompt: "analyze this audio — give me the BPM, key, loudness, and sections", description: "BPM, key, LUFS, beat grid, sections", tags: ["analyze", "bpm", "key", "loudness", "lufs"] },
-  { category: "Analysis", label: "Transcribe speech", prompt: "transcribe this audio", description: "Speech to text — not implemented in this build", tags: ["transcribe", "speech", "text", "whisper"], unavailable: "The Whisper decoder ships as a stub; no model or setting produces a transcript yet." },
+  { category: "Analysis", label: "Transcribe speech", prompt: "transcribe this audio", description: "Speech to text on this computer — needs the speech model (Settings → Account)", tags: ["transcribe", "speech", "text", "whisper", "transcript"] },
   { category: "Analysis", label: "Separate stems", prompt: "separate this into vocals, drums, bass, and other stems", description: "Stem separation — not implemented in this build", tags: ["stems", "demucs", "vocals", "drums", "bass", "separate"], unavailable: "Demucs inference ships as a stub; supplying a model loads it and separation still fails." },
 
   // Tracks

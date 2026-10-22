@@ -193,6 +193,8 @@ fn ipc(state: AppState, cmd: &str, body: serde_json::Value) -> Result<serde_json
             commands::get_base_url_for,
             commands::get_effort_for,
             commands::list_models_for,
+            commands::approve_plan,
+            commands::reject_plan,
         ])
         .build(mock_context(noop_assets()))
         .expect("mock app");
@@ -1010,5 +1012,159 @@ fn ml_runtime_status_over_ipc_answers_with_a_state() {
         Some("loadFailed") => assert!(answer["reason"].as_str().is_some(), "{answer}"),
         Some("unsupportedOs") => assert!(answer["needs"].as_str().is_some(), "{answer}"),
         other => panic!("not a known state: {other:?} in {answer}"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The plan gate over IPC (ADR 0002, #251)
+// ---------------------------------------------------------------------------
+
+/// How long a test waits for an answer that has been given, which returns
+/// at once, so a slow machine only makes it longer.
+const GATE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// How long a test waits to see that an answer does *not* come. The check
+/// is one-sided: waiting less can only miss a wrong answer, never invent
+/// one.
+const NO_ANSWER_WITHIN: std::time::Duration = std::time::Duration::from_millis(100);
+
+fn block_on<T>(future: impl std::future::Future<Output = T>) -> T {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .expect("runtime")
+        .block_on(future)
+}
+
+/// Open a card on `state`'s plan gate, as a turn does before it shows one.
+fn open_card(state: &AppState) -> ai::plan_gate::Waiting {
+    state.plan_gate.ask()
+}
+
+/// `cmd` over IPC against a state with a card open: what the turn that is
+/// waiting on it is told.
+fn answered_by(cmd: &str, body: serde_json::Value) -> Option<ai::plan_gate::Answer> {
+    let state = AppState::new();
+    let waiting = open_card(&state);
+    assert_eq!(ipc(state, cmd, body), Ok(serde_json::Value::Null));
+    block_on(waiting.wait(GATE_WAIT))
+}
+
+#[test]
+fn run_over_ipc_approves_the_open_card() {
+    assert_eq!(
+        answered_by("approve_plan", json!({ "steps": null })),
+        Some(ai::plan_gate::Answer::Approve)
+    );
+}
+
+/// The edited steps reach the turn in the wording `revision_text` gives
+/// them (pinned in `commands.rs`), each line led by its tool.
+#[test]
+fn run_with_edited_steps_over_ipc_revises_the_open_card() {
+    let steps = json!([
+        { "tool": "reverse", "description": "track: 1" },
+        { "tool": "normalize", "description": "track: 2" },
+    ]);
+    assert_eq!(
+        answered_by("approve_plan", json!({ "steps": steps })),
+        Some(ai::plan_gate::Answer::Revise(
+            "I've updated the plan. Please follow these revised steps instead:\n\
+             1. reverse — track: 1\n2. normalize — track: 2"
+                .to_string()
+        ))
+    );
+}
+
+#[test]
+fn reject_over_ipc_declines_the_open_card() {
+    assert_eq!(
+        answered_by("reject_plan", json!({})),
+        Some(ai::plan_gate::Answer::Reject)
+    );
+}
+
+/// A double-click on Run answers once: the second click finds the card
+/// answered and changes nothing.
+#[test]
+fn a_second_click_does_not_change_the_answer() {
+    let state = AppState::new();
+    let waiting = open_card(&state);
+
+    assert_eq!(
+        ipc(state.clone(), "approve_plan", json!({ "steps": null })),
+        Ok(serde_json::Value::Null)
+    );
+    assert_eq!(
+        ipc(state, "reject_plan", json!({})),
+        Ok(serde_json::Value::Null)
+    );
+
+    assert_eq!(
+        block_on(waiting.wait(GATE_WAIT)),
+        Some(ai::plan_gate::Answer::Approve)
+    );
+}
+
+/// #251. A Run or Reject click on a card that has gone away is dropped and
+/// does not answer the next card, with the revision that came with it or
+/// without.
+#[test]
+fn a_click_with_no_card_open_is_a_no_op_and_answers_no_later_card() {
+    let state = AppState::new();
+    let steps = json!([{ "tool": "reverse", "description": "track: 1" }]);
+
+    assert_eq!(
+        ipc(state.clone(), "approve_plan", json!({ "steps": steps })),
+        Ok(serde_json::Value::Null)
+    );
+    assert_eq!(
+        ipc(state.clone(), "approve_plan", json!({ "steps": null })),
+        Ok(serde_json::Value::Null)
+    );
+    assert_eq!(
+        ipc(state.clone(), "reject_plan", json!({})),
+        Ok(serde_json::Value::Null)
+    );
+    assert!(!state.plan_gate.is_waiting());
+
+    let next = open_card(&state);
+    assert_eq!(
+        block_on(next.wait(NO_ANSWER_WITHIN)),
+        None,
+        "a click from before the card answered it"
+    );
+}
+
+/// `send_message` holds the agent's lock across the whole turn, the wait on
+/// the card included, so a command that answered it by taking that lock
+/// would never return (CLAUDE.md, "Lock order"). With the lock held, both
+/// commands still answer.
+#[test]
+fn answering_does_not_take_the_agents_lock() {
+    for (cmd, body, wanted) in [
+        (
+            "approve_plan",
+            json!({ "steps": null }),
+            ai::plan_gate::Answer::Approve,
+        ),
+        ("reject_plan", json!({}), ai::plan_gate::Answer::Reject),
+    ] {
+        let state = AppState::new();
+        let waiting = open_card(&state);
+        let held = state.agent.blocking_lock();
+
+        let (done, finished) = std::sync::mpsc::channel();
+        let answering = state.clone();
+        std::thread::spawn(move || {
+            let _ = done.send(ipc(answering, cmd, body));
+        });
+        let reply = finished
+            .recv_timeout(std::time::Duration::from_secs(20))
+            .unwrap_or_else(|_| panic!("{cmd} is waiting for the agent's lock"));
+        drop(held);
+
+        assert_eq!(reply, Ok(serde_json::Value::Null));
+        assert_eq!(block_on(waiting.wait(GATE_WAIT)), Some(wanted), "{cmd}");
     }
 }

@@ -103,15 +103,12 @@ fn missing_model_returns_structured_error() {
     let msg = format!("{err}");
     // It used to require the message name a fetch-models shell script.
     // That file has never existed in this repository, so the test was
-    // pinning a dangling instruction in place — and following it would
-    // not have helped, because the app does not run the model (#233). What the
-    // message has to say now is that the feature is unavailable, since
-    // "you are missing a step" and "this does not work yet" are
-    // different problems.
+    // pinning a dangling instruction in place (#233). The message names the
+    // variable a developer sets and what the folder holds, and does not say
+    // the feature is missing: the model runs (#384).
     assert!(
-        msg.contains("not implemented in this build"),
-        "error message should say transcription is unavailable, not name a setup step that \
-         cannot work; got: {msg}",
+        !msg.contains("not implemented") && msg.contains("tokenizer.json"),
+        "the message should say what the folder holds; got: {msg}",
     );
     // The drift that made these tests unrunnable: they gated on
     // `WHISPER_MODEL` while every consumer read `WHISPER_MODEL_PATH`, so

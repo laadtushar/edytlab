@@ -231,6 +231,42 @@ pub struct KeySegment {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Transcript {
     pub words: Vec<TranscriptWord>,
+    /// What the words were made from, so an edit by words (`cut_words`, the
+    /// Transcript tab) cuts the audio they describe and no other (#384).
+    ///
+    /// `None` is a transcript that does not say: one written before this
+    /// field existed, or built by hand. It is defaulted when absent and
+    /// skipped when `None`, so every state written before it loads and
+    /// re-hashes to the same id (`tests/transcript_source_hash.rs` pins
+    /// that: node ids hash the state).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<TranscriptSource>,
+}
+
+impl Transcript {
+    /// Words with no recorded source.
+    pub fn new(words: Vec<TranscriptWord>) -> Self {
+        Self {
+            words,
+            source: None,
+        }
+    }
+}
+
+/// What a [`Transcript`]'s words were made from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TranscriptSource {
+    /// A track of the session, as it sits on the timeline: word times are
+    /// session seconds, so a cut at a word's time is a cut of this track's
+    /// audio. Named by the track's id, which survives the track moving to
+    /// another position; if the track is removed the transcript describes
+    /// nothing in the session and edits by words are refused.
+    Track { track: TrackId },
+    /// An audio file outside the session. Word times are the file's own,
+    /// which are the timeline's only if the file sits at the start of a
+    /// track, so nothing cuts by them until the caller names the track.
+    File,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

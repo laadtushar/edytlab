@@ -65,15 +65,14 @@ describe("the transcript pane", () => {
   });
 
   /** An ordinary state, not a fault — so it says what to do. */
-  it("says the feature is unavailable when there is no transcript", () => {
-    // This used to assert the pane told you how to *get* a transcript
-    // ("Ask the agent to `transcribe` a track"). There is no way to
-    // get one — the decoder is a stub (#233) — so the old copy sent
-    // the user to the dead end and this test held it there.
+  it("says how to get a transcript when there is none", () => {
+    // Between #233 and #384 this asserted the opposite: there was no way to
+    // get one (the decoder was a stub), and the old copy that told the user
+    // to ask for one sent them to a dead end.
     setup({ words: [] });
     const text = screen.getByTestId("transcript-empty").textContent ?? "";
-    expect(text).toMatch(/isn['’]t available in this build/i);
-    expect(text).not.toMatch(/ask the agent to/i);
+    expect(text).toMatch(/ask the assistant to transcribe a track/i);
+    expect(text).not.toMatch(/isn['’]t available in this build/i);
     expect(screen.queryAllByTestId("transcript-word")).toHaveLength(0);
   });
 
@@ -133,6 +132,36 @@ describe("the transcript pane", () => {
     dragWords(0, 0);
     fireEvent.keyDown(screen.getByTestId("transcript-pane"), { key: "Backspace" });
     expect(h.onCutWords).toHaveBeenCalledWith(0, 1);
+  });
+
+  /**
+   * A transcript's times are seconds of the audio it was made from. For a
+   * transcript of a file, or of a track that has been removed, Delete would
+   * cut audio the words do not describe, so the pane shows the words, says
+   * why it will not cut, and cuts nothing (#384).
+   */
+  it("shows the words but cuts nothing when the transcript is not of a track, and says why", () => {
+    const reason = "This transcript was made from a file.";
+    const h = setup({ cutBlockedReason: reason });
+    expect(screen.getAllByTestId("transcript-word")).toHaveLength(4);
+    expect(screen.getByTestId("transcript-cut-blocked").textContent).toBe(reason);
+    expect(screen.getByTestId("transcript-pane").textContent).not.toMatch(
+      /press Delete to cut/i,
+    );
+    dragWords(1, 2);
+    fireEvent.keyDown(screen.getByTestId("transcript-pane"), { key: "Delete" });
+    fireEvent.keyDown(screen.getByTestId("transcript-pane"), { key: "Backspace" });
+    expect(h.onCutWords).not.toHaveBeenCalled();
+    // Selecting still works: it is a range of seconds to look at.
+    expect(h.onSelectRange).toHaveBeenCalled();
+  });
+
+  it("says nothing of the sort when it can cut", () => {
+    setup({ cutBlockedReason: null });
+    expect(screen.queryByTestId("transcript-cut-blocked")).toBeNull();
+    expect(screen.getByTestId("transcript-pane").textContent).toMatch(
+      /press Delete to cut/i,
+    );
   });
 
   it("does not cut when nothing is selected", () => {

@@ -151,48 +151,126 @@ describe("Chat", () => {
   });
 
   /**
-   * The unavailable card is the whole user-facing half of #233, and it
-   * is reached by *matching the backend's error text*. That coupling is
-   * invisible to the compiler: change the wording on the Rust side and
-   * the card silently stops appearing, leaving the user with a raw
-   * error and no explanation. Raised in review on #317.
+   * The speech-setup card (#384).
    *
-   * Each string below is one of the three the real backend produces.
-   * They are asserted separately so a failure names which one drifted
-   * rather than just reporting that the card is gone.
+   * The card used to be found by searching the assistant's reply for the
+   * words of the backend's error, a coupling the compiler cannot see: the
+   * assistant rephrases the error, and a reply about anything else can
+   * contain the words. It is drawn from the failed call's own view now (the
+   * backend turns the marker that begins `transcribe`'s error into a
+   * `speech_setup` view), under that call's badge, so these tests send a view
+   * and never any of the tool's words.
    */
-  describe("the transcription-unavailable card", () => {
-    const BACKEND_ERRORS = {
-      "the stub error from ml-whisper":
-        "Could not complete request: speech-to-text is not implemented in this build",
-      "the missing-model error": "Whisper model not found at /models/x.onnx",
-      "a message naming the env var":
-        "set WHISPER_MODEL_PATH to an ONNX Whisper export",
-    };
+  describe("the speech-setup card", () => {
+    const PROBLEMS = [
+      "model_not_downloaded",
+      "runtime_unavailable",
+      "model_damaged",
+      "model_path_invalid",
+    ] as const;
 
-    for (const [label, text] of Object.entries(BACKEND_ERRORS)) {
-      it(`appears for ${label}`, async () => {
-        render(<Chat />);
-        await act(async () => {
-          await flush();
-        });
-        await act(async () => {
-          cbs.textDelta[0](text);
-          // The in-flight bubble renders outside the entry list, so
-          // the card appears once the turn commits rather than
-          // flickering mid-stream. `done` is what commits it.
-          cbs.done.forEach((cb) => cb());
-        });
-
-        const card = screen.getByTestId("whisper-unavailable-card");
-        expect(card).toBeInTheDocument();
-        expect(card.textContent).toContain("isn't available in this build");
-        // The card exists to say no setup helps. If it ever tells the
-        // user to install something, it has become the dead end it
-        // replaced.
-        expect(card.textContent).not.toMatch(/fetch-models|install/i);
+    async function failedTranscribe(
+      view: ToolView | undefined,
+      onOpenSettings?: () => void,
+    ) {
+      render(<Chat onOpenSettings={onOpenSettings} />);
+      await act(async () => {
+        await flush();
+      });
+      await act(async () => {
+        cbs.toolCall[0]("transcribe", "t1");
+      });
+      await act(async () => {
+        cbs.toolCallEnd[0]("t1", false, view);
       });
     }
+
+    for (const problem of PROBLEMS) {
+      it(`appears under the call for ${problem}`, async () => {
+        await failedTranscribe({ type: "speech_setup", problem });
+        const card = screen.getByTestId("speech-setup-card");
+        expect(card).toHaveAttribute("data-problem", problem);
+        // It is under that call's badge, not in a message of its own.
+        expect(card.previousElementSibling).toBe(screen.getByTestId("tool-badge"));
+        expect(screen.queryByTestId("message-bubble")).toBeNull();
+      });
+    }
+
+    it("sends the user to Settings to download the model, and says nothing to install", async () => {
+      const onOpenSettings = vi.fn();
+      await failedTranscribe(
+        { type: "speech_setup", problem: "model_not_downloaded" },
+        onOpenSettings,
+      );
+      const card = screen.getByTestId("speech-setup-card");
+      expect(card.textContent).toContain("Settings → Account");
+      expect(card.textContent).toContain("Download");
+      expect(card.textContent).not.toMatch(/fetch-models|install/i);
+      await userEvent.click(screen.getByTestId("speech-setup-open-settings"));
+      expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    });
+
+    it("sends a damaged model to Remove and Download again", async () => {
+      const onOpenSettings = vi.fn();
+      await failedTranscribe({ type: "speech_setup", problem: "model_damaged" }, onOpenSettings);
+      const card = screen.getByTestId("speech-setup-card");
+      expect(card.textContent).toContain("Remove");
+      expect(card.textContent).toContain("Download it again");
+      await userEvent.click(screen.getByTestId("speech-setup-open-settings"));
+      expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    });
+
+    it("names ORT_DYLIB_PATH for a build with no runtime, with no Settings button: Settings cannot fix it", async () => {
+      await failedTranscribe({ type: "speech_setup", problem: "runtime_unavailable" }, vi.fn());
+      const card = screen.getByTestId("speech-setup-card");
+      expect(card.textContent).toContain("ORT_DYLIB_PATH");
+      expect(screen.queryByTestId("speech-setup-open-settings")).toBeNull();
+    });
+
+    it("names WHISPER_MODEL_PATH for a wrong folder, with no Settings button", async () => {
+      await failedTranscribe({ type: "speech_setup", problem: "model_path_invalid" }, vi.fn());
+      const card = screen.getByTestId("speech-setup-card");
+      expect(card.textContent).toContain("WHISPER_MODEL_PATH");
+      expect(screen.queryByTestId("speech-setup-open-settings")).toBeNull();
+    });
+
+    it("has no button when there is no Settings to open", async () => {
+      await failedTranscribe({ type: "speech_setup", problem: "model_not_downloaded" });
+      expect(screen.getByTestId("speech-setup-card")).toBeInTheDocument();
+      expect(screen.queryByTestId("speech-setup-open-settings")).toBeNull();
+    });
+
+    it("does not appear for a transcribe that failed for any other reason", async () => {
+      await failedTranscribe(undefined);
+      expect(screen.queryByTestId("speech-setup-card")).toBeNull();
+      expect(screen.getByTestId("tool-badge")).toHaveAttribute("data-status", "error");
+    });
+
+    /**
+     * What used to raise the card: the assistant's words. They are text now,
+     * whatever they say.
+     */
+    it("never appears for what the assistant writes", async () => {
+      render(<Chat />);
+      await act(async () => {
+        await flush();
+      });
+      const THINGS_THE_OLD_CARD_MATCHED = [
+        "Could not complete request: speech-to-text is not implemented in this build",
+        "Whisper model not found at /models/x.onnx",
+        "set WHISPER_MODEL_PATH to an ONNX Whisper export",
+        "The speech model is not downloaded. Open Settings → Account and press Download.",
+      ];
+      for (const text of THINGS_THE_OLD_CARD_MATCHED) {
+        await act(async () => {
+          cbs.textDelta[0](text);
+          cbs.done.forEach((cb) => cb());
+        });
+      }
+      expect(screen.queryByTestId("speech-setup-card")).toBeNull();
+      expect(screen.queryByTestId("whisper-unavailable-card")).toBeNull();
+      expect(screen.getAllByTestId("message-bubble").length).toBeGreaterThan(0);
+    });
 
     it("stays away for an ordinary assistant message", async () => {
       render(<Chat />);
@@ -203,10 +281,7 @@ describe("Chat", () => {
         cbs.textDelta[0]("normalized track 1 to -1 dBFS");
         cbs.done.forEach((cb) => cb());
       });
-
-      expect(
-        screen.queryByTestId("whisper-unavailable-card"),
-      ).not.toBeInTheDocument();
+      expect(screen.queryByTestId("speech-setup-card")).toBeNull();
     });
   });
 

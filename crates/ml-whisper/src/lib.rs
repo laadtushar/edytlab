@@ -24,19 +24,20 @@
 //! * [`transcribe`]: all of it together. `tests/transcribe_known_words.rs` runs
 //!   it on a real model; CI, which has none, runs the pieces.
 //!
-//! ## What the app does with it: nothing yet
+//! ## What the app does with it
 //!
-//! The `transcribe` tool does not call [`transcribe`]. It answers
-//! [`WhisperError::NotImplemented`] whatever model is configured, so the app
-//! still reports that speech-to-text is not implemented in this build. Wiring
-//! the tool to this crate (the model folder from Settings, progress, the cache,
-//! the download prompt) and changing every line of copy that says so is the next
-//! change on #384. Until it lands, do not describe transcription as working.
+//! The `transcribe` tool (`crates/tools/src/tool/transcribe.rs`) is the one
+//! caller. It finds the model folder (`WHISPER_MODEL_PATH`, else the speech
+//! model the user downloaded in Settings), loads it with
+//! [`WhisperModel::load`], and runs [`transcribe_observed`] off the store lock,
+//! with a progress hook and a cancel check. This crate never downloads
+//! anything and never reads a setting: it is given a folder.
 //!
-//! The stub used to return an empty `Ok`, a success carrying an empty
-//! transcript, which a caller cannot tell from "this recording contains no
-//! speech" (#233). This crate must not go back to an empty success for
-//! something it did not do.
+//! An empty transcript from [`transcribe`] means the recording had no speech
+//! the model would write down, and nothing else. It used to be what a stub
+//! returned for a model that was never run (#233), which a caller cannot tell
+//! from silence, so this crate must not return an empty success for something
+//! it did not do: every path that cannot transcribe is an error.
 
 mod cached;
 mod chunk;
@@ -50,7 +51,10 @@ mod resample;
 pub mod timing;
 pub mod tokenizer;
 
-pub use model::{transcribe, Transcript, WhisperModel, DECODER_FILE, ENCODER_FILE, TOKENIZER_FILE};
+pub use model::{
+    transcribe, transcribe_observed, Transcript, WhisperModel, DECODER_FILE, ENCODER_FILE,
+    TOKENIZER_FILE,
+};
 pub use resample::resample_to_16khz_mono;
 
 /// One word of the transcript with timing and confidence.
@@ -76,9 +80,9 @@ pub struct Word {
 #[derive(Debug, thiserror::Error)]
 pub enum WhisperError {
     #[error(
-        "Whisper model not found at {path}. Set WHISPER_MODEL_PATH to the folder of an ONNX \
-         Whisper export. Note that speech-to-text is not implemented in this build, so supplying \
-         a model will not yet produce a transcript (#233)."
+        "Whisper model not found at {path}. WHISPER_MODEL_PATH names the folder of the ONNX \
+         Whisper export (onnx/encoder_model.onnx, onnx/decoder_model_merged_int8.onnx and \
+         tokenizer.json)."
     )]
     ModelMissing { path: String },
 
@@ -86,13 +90,9 @@ pub enum WhisperError {
     /// [`ml_pipeline::runtime::ensure`]). Reported instead of building a
     /// session, because `ort` panics when it cannot load the library.
     ///
-    /// The message says what the feature does today too: a user who
-    /// goes and installs the runtime on the strength of this error would
-    /// otherwise reach the next one believing they were nearly done.
-    #[error(
-        "{0}. Speech-to-text is not implemented in this build either, so installing ONNX \
-         Runtime will not yet produce a transcript (#384)"
-    )]
+    /// The message is the runtime's own reason; what to do about it is the
+    /// caller's to say (the `transcribe` tool names `ORT_DYLIB_PATH`).
+    #[error("{0}")]
     RuntimeUnavailable(String),
 
     /// The folder or the ONNX files in it are not the export this build reads:
@@ -139,22 +139,6 @@ pub enum WhisperError {
 
     #[error("invalid audio: {0}")]
     InvalidAudio(String),
-
-    /// Speech-to-text is not available to the app in this build (#233, #384).
-    ///
-    /// Not returned by this crate: [`transcribe`] runs the model. It is what a
-    /// caller that has not been wired to [`transcribe`] answers, in place of an
-    /// empty transcript. An empty success is a success carrying zero words, and
-    /// every caller reads it as "this audio contains no speech" — so a
-    /// correctly configured model produced a silently wrong answer rather than
-    /// a failure anyone could act on. The `transcribe` tool is that caller
-    /// today. Mirrors `ml_demucs::DemucsError::NotImplemented`.
-    #[error(
-        "speech-to-text is not implemented in this build — the app does not run the speech model \
-         yet, so no model file will produce a transcript. Tracked post-v1; there is no \
-         configuration that makes this work today."
-    )]
-    NotImplemented,
 }
 
 impl From<export::ExportError> for WhisperError {
@@ -192,12 +176,31 @@ mod tests {
     }
 
     #[test]
-    fn what_the_unwired_tool_answers_says_so_without_calling_the_model_a_stub() {
-        // The tool answers this until it is rewired. It is checked on the
-        // error's text, which is what the tool shows.
-        let msg = WhisperError::NotImplemented.to_string();
-        assert!(msg.contains("not implemented in this build"), "{msg}");
-        assert!(!msg.contains("stub"), "{msg}");
+    fn no_error_of_this_crate_says_the_feature_is_missing() {
+        // The model runs. A message that still said "not implemented in this
+        // build" would send a user who has done everything right away from
+        // the cause (#384).
+        let errors = [
+            WhisperError::ModelMissing { path: "/m".into() },
+            WhisperError::RuntimeUnavailable("no ONNX Runtime library was found".into()),
+            WhisperError::UnexpectedExport("x".into()),
+            WhisperError::ModelLoad("x".into()),
+            WhisperError::Inference("x".into()),
+            WhisperError::Cancelled,
+            WhisperError::UnknownLanguage("xx".into()),
+            WhisperError::InvalidAudio("x".into()),
+        ];
+        for e in errors {
+            let msg = e.to_string().to_lowercase();
+            assert!(
+                !msg.contains("not implemented") && !msg.contains("stub"),
+                "{e:?}: {msg}"
+            );
+        }
+        // The missing-model message still names the variable a developer sets.
+        assert!(WhisperError::ModelMissing { path: "/m".into() }
+            .to_string()
+            .contains("WHISPER_MODEL_PATH"));
     }
 
     #[test]

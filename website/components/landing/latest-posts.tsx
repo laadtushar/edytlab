@@ -22,7 +22,7 @@ export function LatestPosts() {
         <SectionHeading
           eyebrow="From the blog"
           title="Workflows you can copy, sentence by sentence."
-          lead="How a DJ transition is built, how to choose the model behind the chat, and how undo keeps every take."
+          lead="Short how-tos: the sentence to type, and the tool that runs it."
         />
         <LineDraw>
           <Stagger

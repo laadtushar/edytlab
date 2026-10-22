@@ -195,7 +195,7 @@ What follows from that, plainly:
 - Chat and tool results. These go to the LLM provider as they do today.
 - `memory.md`, skills and agent profiles, per user.
 - Stored bring-your-own keys. This is a **new liability**: encrypt each with an envelope scheme under a managed key service, never log them, and never return them to the browser.
-- Transcripts, once #384 ships. They are personal data and reach the LLM in tool results.
+- Transcripts (#384). They are personal data and reach the LLM in tool results (`transcribe` returns a bounded listing of the words; the audio stays on the machine).
 
 **The "no cloud, no key" path.** With a server-side agent, Ollama's local path goes away, because the server cannot reach a user's `localhost`. It survives only if LLM calls move to the browser ([§3](#3-options-compared)).
 
@@ -296,5 +296,5 @@ Raised by this evaluation:
 
 - It adds no code, and changes no behaviour.
 - It changes no privacy policy, README or site copy.
-- It does not claim that stem separation or transcription work. Both are stubs (#383–#385).
+- It does not claim that stem separation works. It is a stub (#385). Transcription runs once the speech model is downloaded (#383, #384).
 - It does not decide anything in [§10](#10-decisions-needed-from-the-owner).

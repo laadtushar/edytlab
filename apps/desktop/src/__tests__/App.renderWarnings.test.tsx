@@ -104,9 +104,11 @@ class Backend {
       case "list_templates":
       case "list_recent_projects":
       case "list_markers":
+        return [];
       case "get_transcript":
+        return { words: [], source: { kind: "unknown" } };
       case "get_head_trail":
-        return cmd === "get_head_trail" ? { head: null, trail: [], redo: [] } : [];
+        return { head: null, trail: [], redo: [] };
       case "get_view_state":
         return {};
       case "get_plan_first":

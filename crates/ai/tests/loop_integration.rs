@@ -328,16 +328,13 @@ async fn agent_dispatches_normalize_and_emits_node_created() {
 
     // Agent pointed at the mock.
     let cfg = ai::LlmConfig::new_anthropic("test-key").with_base_url(server.uri());
-    let plan_notify = Arc::new(tokio::sync::Notify::new());
-    let plan_steps_override = Arc::new(std::sync::Mutex::new(None));
+    let plan_gate = ai::PlanGate::new();
     let mut agent = ai::Agent::new(
         cfg,
         dispatcher.clone(),
         store.clone(),
         engine.clone(),
-        plan_notify,
-        plan_steps_override,
-        Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        plan_gate,
         clipboard,
     );
 
@@ -596,18 +593,8 @@ async fn agent_enforces_tool_call_cap() {
     }
 
     let cfg = ai::LlmConfig::new_anthropic("test-key").with_base_url(server.uri());
-    let plan_notify = Arc::new(tokio::sync::Notify::new());
-    let plan_steps_override = Arc::new(std::sync::Mutex::new(None));
-    let mut agent = ai::Agent::new(
-        cfg,
-        dispatcher,
-        store,
-        engine,
-        plan_notify,
-        plan_steps_override,
-        Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        clipboard2,
-    );
+    let plan_gate = ai::PlanGate::new();
+    let mut agent = ai::Agent::new(cfg, dispatcher, store, engine, plan_gate, clipboard2);
 
     let mut events = Vec::new();
     let result = agent

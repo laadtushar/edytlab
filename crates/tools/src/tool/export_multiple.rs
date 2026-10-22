@@ -29,6 +29,11 @@ fn sanitize_name(name: &str) -> String {
         .collect()
 }
 
+/// The file a track is exported to, in the output folder.
+fn file_name(index: usize, track_name: &str) -> String {
+    format!("{index}_{}.wav", sanitize_name(track_name))
+}
+
 impl Tool for ExportMultipleTool {
     fn name(&self) -> &'static str {
         "export_multiple"
@@ -123,6 +128,18 @@ impl Tool for ExportMultipleTool {
         }
 
         let out_dir = ctx.store.project_dir().join(raw_out);
+
+        // Each file's name is known now, so none of them is rendered onto
+        // audio the project reads (#653) before the first is written.
+        let planned: Vec<std::path::PathBuf> = args
+            .track_indices
+            .iter()
+            .map(|&idx| out_dir.join(file_name(idx, &state.tracks[idx].name)))
+            .collect();
+        if let Err(e) = crate::destination::refuse_project_audio(ctx.store, &planned) {
+            return Ok(ToolResult::Error(e));
+        }
+
         if let Err(e) = std::fs::create_dir_all(&out_dir) {
             return Ok(ToolResult::Error(format!(
                 "failed to create output_dir {}: {e}",
@@ -134,9 +151,7 @@ impl Tool for ExportMultipleTool {
 
         for &idx in &args.track_indices {
             let track = &state.tracks[idx];
-            let safe_name = sanitize_name(&track.name);
-            let filename = format!("{idx}_{safe_name}.wav");
-            let out_path = out_dir.join(&filename);
+            let out_path = out_dir.join(file_name(idx, &track.name));
 
             // Build a single-track state: one track, unmuted, unsoloed.
             let mut single_state = state.clone();

@@ -178,7 +178,7 @@ describe("the plan card", () => {
   it("does not offer Run on a plan that cannot run at all, and says why", async () => {
     const card = await showPlan([
       { step: 1, tool: "separate_stems", description: "Split", unavailable: true },
-      { step: 2, tool: "transcribe", unavailable: true },
+      { step: 2, tool: "separate_stems", unavailable: true },
     ]);
     expect(within(card).getByTestId("plan-run-button")).toBeDisabled();
     expect(card.textContent).toContain("Nothing in this plan can run");

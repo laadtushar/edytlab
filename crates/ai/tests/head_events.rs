@@ -13,14 +13,12 @@
 
 mod common;
 
-use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use ai::{Agent, AgentEvent, LlmConfig};
 use common::{classifier_json, ok, sse_text, sse_tool_step, Entry, SeqResponder};
 use serde_json::{json, Value};
 use session::{Annotation, AnnotationId, AnnotationKind, NodeId, Store};
-use tokio::sync::Notify;
 use tools::ToolDispatcher;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer};
@@ -143,9 +141,7 @@ async fn turn(project: Project, tool: &str, args: Value) -> Turn {
         Arc::new(Mutex::new(ToolDispatcher::default_dispatcher())),
         Arc::clone(&store),
         Arc::new(Mutex::new(audio_engine::Engine::new())),
-        Arc::new(Notify::new()),
-        Arc::new(Mutex::new(None)),
-        Arc::new(AtomicBool::new(false)),
+        ai::PlanGate::new(),
         Arc::new(Mutex::new(None::<tools::Clipboard>)),
     );
     agent.set_plan_first(false);

@@ -1,8 +1,8 @@
 //! Where the speech is, found from the audio alone (#168).
 //!
 //! `duck_under_speech` is most accurate when it keys on a transcript,
-//! but the transcript needs `transcribe`, and the Whisper decoder has
-//! not shipped (#384). Most of what ducking needs is *where* the speech
+//! but the transcript needs `transcribe`, which needs the speech model the
+//! user downloads (#384). Most of what ducking needs is *where* the speech
 //! is, not *what was said*, and the audio can answer that without a
 //! model. So does `select_region`'s `speech_passage`: "the last thing
 //! said" is a place, not a phrase. Both read it through

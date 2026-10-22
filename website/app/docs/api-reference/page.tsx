@@ -226,7 +226,7 @@ const commands = [
       {
         name: "renderRange(node, startSec, endSec, outPath)",
         returns: "{ warnings }",
-        desc: "Render a time range to a specific output file. warnings is what the file was written without (getRenderWarnings' list for the node), [] when nothing was left out.",
+        desc: "Render a time range to a specific output file. warnings is what the file was written without (getRenderWarnings' list for the node), [] when nothing was left out. Rejects, writing nothing, when outPath is audio the project reads (a recording it plays from, in any step of its history): choose another path.",
       },
       {
         name: "prepareCompare(a, b)",

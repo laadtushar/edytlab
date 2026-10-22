@@ -160,20 +160,21 @@ describe("SpeechModelRow", () => {
       expect(row()).toHaveAttribute("data-state", "downloading");
     });
 
-    it("says honestly what the model is for, and that downloading turns nothing on", async () => {
+    it("says honestly what the model is for, what the request is, and what leaves the computer", async () => {
       await renderRow();
       await screen.findByTestId("speech-model-download");
 
       const note = screen.getByTestId("speech-model-note");
       expect(note).toHaveTextContent(SPEECH_MODEL_NOTE);
-      expect(note).toHaveTextContent("Transcription is not available yet");
-      expect(note).toHaveTextContent("does not turn anything on");
+      expect(note).toHaveTextContent("runs on this computer");
+      expect(note).toHaveTextContent("once it is downloaded");
       // Where the button's requests go, and what they do and do not carry.
       expect(note).toHaveTextContent("huggingface.co");
       expect(note).toHaveTextContent("three files");
       expect(note).toHaveTextContent("your IP address");
       expect(note).toHaveTextContent("comes from edytlab");
       expect(note).toHaveTextContent("nothing about your audio is sent");
+      expect(note).toHaveTextContent("reach your AI provider");
       // Not "one request": it asks for three files, and again on a resume.
       expect(note).not.toHaveTextContent("one request");
     });
@@ -296,8 +297,8 @@ describe("SpeechModelRow", () => {
 
       const line = await screen.findByTestId("speech-model-status");
       expect(line).toHaveTextContent("Ready: 139 MB on disk.");
-      // Honest about what Ready means.
-      expect(line).toHaveTextContent("Nothing uses it yet.");
+      // Honest about what Ready means: the assistant transcribes with it.
+      expect(line).toHaveTextContent("Ask the assistant to transcribe a track.");
       expect(screen.getByTestId("speech-model-remove")).toHaveTextContent("Remove");
       expect(screen.queryByTestId("speech-model-download")).toBeNull();
       expect(row()).toHaveAttribute("data-state", "ready");
@@ -476,15 +477,28 @@ describe("SpeechModelRow", () => {
       ["downloading", downloading(10_000_000)],
       ["ready", READY],
       ["failed", FAILED],
-    ])("never says transcription works or is on while %s", async (_name, status) => {
+    ])("never calls the model enabled or installed as a feature while %s", async (_name, status) => {
       await renderRow(status);
       await screen.findByTestId("speech-model-note");
 
       expect(row().textContent ?? "").not.toMatch(CLAIMS);
-      // The honest line is there in every state.
+      // What it is for is said in every state, and conditionally.
       expect(screen.getByTestId("speech-model-note")).toHaveTextContent(
-        "Transcription is not available yet",
+        "once it is downloaded",
       );
+    });
+
+    it.each([
+      ["not downloaded", NOT_DOWNLOADED],
+      ["partly downloaded", PARTIAL],
+      ["downloading", downloading(10_000_000)],
+      ["failed", FAILED],
+    ])("only a model that is ready is told to be used, not one that is %s", async (_name, status) => {
+      await renderRow(status);
+      await screen.findByTestId("speech-model-note");
+      expect(
+        screen.queryByTestId("speech-model-status")?.textContent ?? "",
+      ).not.toMatch(/transcribe/i);
     });
   });
 });

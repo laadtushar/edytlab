@@ -10,23 +10,23 @@
 //! These drive the public `Agent` API against a mocked provider. The two
 //! fixture tools stand for the two kinds there are: `edit` mutates (the
 //! default), `peek` says it does not. The test answers the gate from
-//! inside `on_event`, the way the UI does: it sets what the answer is,
-//! then fires the notifier, and the permit is consumed by the wait that
-//! follows the emit.
+//! inside `on_event`, the way the UI does: it answers the plan gate, which
+//! is open before the card is emitted, and the answer is read by the wait
+//! that follows the emit.
 
 mod common;
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use ai::anthropic::{ContentBlock, Role};
-use ai::{Agent, AgentEvent, LlmConfig};
+use ai::plan_gate::Answer as GateAnswer;
+use ai::{Agent, AgentEvent, LlmConfig, PlanGate};
 use common::{
     classifier_json, ok, plan_json, sse_text, sse_thinking_tool_step, sse_tool_step, Entry,
     SeqResponder,
 };
 use serde_json::{json, Value};
-use tokio::sync::Notify;
 use tools::schema::{anthropic_tool, object_schema};
 use tools::{Tool, ToolContext, ToolDispatcher, ToolResult};
 use wiremock::matchers::{method, path};
@@ -123,9 +123,7 @@ struct Fixture {
     server: MockServer,
     _dir: tempfile::TempDir,
     agent: Agent,
-    notify: Arc<Notify>,
-    rejected: Arc<AtomicBool>,
-    slot: Arc<Mutex<Option<String>>>,
+    gate: PlanGate,
     edits: Arc<Mutex<Vec<Value>>>,
     peeks: Arc<AtomicUsize>,
 }
@@ -150,9 +148,7 @@ impl Fixture {
             calls: Arc::clone(&peeks),
         }));
 
-        let notify = Arc::new(Notify::new());
-        let rejected = Arc::new(AtomicBool::new(false));
-        let slot = Arc::new(Mutex::new(None));
+        let gate = PlanGate::new();
         let cfg = LlmConfig::new_anthropic("test-key").with_base_url(server.uri());
         let mut agent = Agent::new(
             cfg,
@@ -161,9 +157,7 @@ impl Fixture {
                 session::Store::open(dir.path()).expect("open store"),
             )),
             Arc::new(Mutex::new(audio_engine::Engine::new())),
-            Arc::clone(&notify),
-            Arc::clone(&slot),
-            Arc::clone(&rejected),
+            gate.clone(),
             Arc::new(Mutex::new(None::<tools::Clipboard>)),
         );
         if let Some(whitelist) = whitelist {
@@ -175,9 +169,7 @@ impl Fixture {
             server,
             _dir: dir,
             agent,
-            notify,
-            rejected,
-            slot,
+            gate,
             edits,
             peeks,
         }
@@ -190,9 +182,7 @@ impl Fixture {
         message: &str,
         mut answer: impl FnMut(usize, &[Value]) -> Answer,
     ) -> (ai::Result<ai::TurnResult>, Vec<Ev>) {
-        let notify = Arc::clone(&self.notify);
-        let rejected = Arc::clone(&self.rejected);
-        let slot = Arc::clone(&self.slot);
+        let gate = self.gate.clone();
         let edits = Arc::clone(&self.edits);
         let peeks = Arc::clone(&self.peeks);
 
@@ -224,14 +214,14 @@ impl Fixture {
                     let answered = answer(cards, &steps);
                     cards += 1;
                     match answered {
-                        Answer::Approve => notify.notify_one(),
+                        Answer::Approve => {
+                            gate.answer(GateAnswer::Approve);
+                        }
                         Answer::Reject => {
-                            rejected.store(true, Ordering::SeqCst);
-                            notify.notify_one();
+                            gate.answer(GateAnswer::Reject);
                         }
                         Answer::Revise(text) => {
-                            *slot.lock().unwrap() = Some(text);
-                            notify.notify_one();
+                            gate.answer(GateAnswer::Revise(text));
                         }
                         // Freezing the clock here, after every HTTP request
                         // so far has completed, lets tokio's auto-advance
@@ -241,7 +231,7 @@ impl Fixture {
                         // mock-server I/O. `pause` is legal because
                         // `#[tokio::test]` is current_thread and this runs
                         // inside the runtime's context. The timeout in
-                        // `approval::await_answer` is created after the
+                        // `Waiting::wait`'s timeout is created after the
                         // emit, so its deadline is on the paused clock. At
                         // most one card per test may do this: a second
                         // `pause` panics.
@@ -1032,8 +1022,9 @@ async fn a_stale_rejection_flag_cannot_decline_a_new_gate() {
         without_a_plan(vec![edit_track("t1", 0), sse_text("Done.")]),
     )
     .await;
-    // Left over from some earlier gate that never consumed it.
-    fx.rejected.store(true, Ordering::SeqCst);
+    // A rejection that came when no card was open, from a stray click. It
+    // is dropped: there is no question for it to answer.
+    assert!(!fx.gate.answer(GateAnswer::Reject));
 
     let (result, events) = fx.turn("make it louder", approve).await;
     result.expect("turn");

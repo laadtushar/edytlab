@@ -42,10 +42,11 @@ struct Args {
     recipe_path: String,
     /// Folder of audio to run it over.
     input_dir: String,
-    /// Where the per-file projects go. Defaults to `input_dir`.
+    /// Where the per-file projects and renders go. Defaults to `input_dir`.
     #[serde(default)]
     output_dir: Option<String>,
-    /// Also render each result to this format beside its project.
+    /// Also render each result to this format, named for its project and
+    /// beside it (`render_path_for`).
     #[serde(default)]
     render_format: Option<String>,
 }
@@ -63,7 +64,9 @@ impl Tool for BatchApplyTool {
             "Run an exported edit chain across every audio file in a folder. Each file becomes \
              its own project with its own history — a batch is not one giant session. Every file \
              is attempted even if an earlier one fails, and the report says what succeeded, what \
-             refused, and why. Optionally renders each result.",
+             refused, and why. Optionally renders each result. output_dir (default: input_dir, \
+             beside the originals) holds the projects and renders; a render that would land on an \
+             input file refuses the batch up front, so set output_dir to another folder.",
             json!({
                 "type": "object",
                 "properties": {
@@ -71,12 +74,12 @@ impl Tool for BatchApplyTool {
                     "input_dir": { "type": "string", "description": "Folder of audio to process" },
                     "output_dir": {
                         "type": "string",
-                        "description": "Where the per-file projects go. Defaults to input_dir.",
+                        "description": "Where the per-file projects and renders go. Defaults to input_dir, beside the originals.",
                     },
                     "render_format": {
                         "type": "string",
                         "enum": ["wav", "flac", "mp3"],
-                        "description": "Also render each result to this format beside its project.",
+                        "description": "Also render each result to this format, in output_dir under the input's name (take1.wav to take1.mp3).",
                     },
                 },
                 "required": ["recipe_path", "input_dir"],
@@ -149,6 +152,29 @@ impl Tool for BatchApplyTool {
             .collect();
         if !open.is_empty() {
             return Ok(ToolResult::Error(project_is_open(&open)));
+        }
+
+        // Refused once, up front, before any file is started: a render that
+        // is the same file as an input is written onto the user's own audio
+        // (#653). The default `output_dir` is the input folder, so a
+        // `render_format` equal to an input's extension is enough, and the
+        // clip reads the original while the render truncates it. Compared
+        // as files, not as spellings. The render tool refuses the same
+        // thing again per file, from what each project's history names.
+        if let Some(format) = args.render_format.as_deref() {
+            let planned: Vec<PathBuf> = files
+                .iter()
+                .map(|file| render_path_for(&project_for(&output_dir, file), format))
+                .collect();
+            let collisions = crate::destination::overlaps(&planned, &files);
+            if let Some(&(render, input)) = collisions.first() {
+                return Ok(ToolResult::Error(render_is_an_input(
+                    &files[render],
+                    &planned[render],
+                    &files[input],
+                    collisions.len(),
+                )));
+            }
         }
 
         let dispatcher = ToolDispatcher::default_dispatcher();
@@ -274,6 +300,38 @@ fn project_for(output_dir: &Path, file: &Path) -> PathBuf {
     output_dir.join(stem)
 }
 
+/// Where `project`'s render goes when the batch is asked for `format`: beside
+/// the project folder, named for it.
+fn render_path_for(project: &Path, format: &str) -> PathBuf {
+    project.with_extension(format)
+}
+
+/// The refusal for a batch whose render would be written onto an input. Names
+/// the first collision, says what decides where renders go, and what to
+/// change, because the model has to choose another `output_dir`.
+fn render_is_an_input(file: &Path, render: &Path, input: &Path, collisions: usize) -> String {
+    let which = if render == input {
+        "one of the input files".to_string()
+    } else {
+        format!("the same file as the input {}", input.display())
+    };
+    let more = if collisions > 1 {
+        format!(" ({collisions} of the renders collide with inputs in this way.)")
+    } else {
+        String::new()
+    };
+    format!(
+        "not run, and nothing was started: the render of {} would be written to {}, which is {} \
+         and would replace it.{more} A batch renders each file to `<output_dir>/<file name \
+         without its extension>.<render_format>`, and `output_dir` defaults to `input_dir`, so a \
+         render lands among the originals. Set `output_dir` to another folder, one that holds \
+         none of the input files.",
+        file.display(),
+        render.display(),
+        which,
+    )
+}
+
 /// The refusal for projects that are open. Names each folder and says what to
 /// change, because the model has to choose another `output_dir` and the user
 /// has to be able to follow why.
@@ -367,7 +425,7 @@ fn run_one(
                 .store
                 .head()
                 .ok_or_else(|| "the chain produced no session to render".to_string())?;
-            let out = project.with_extension(format);
+            let out = render_path_for(project, format);
             match dispatcher.invoke(
                 "render_final",
                 json!({
@@ -391,4 +449,92 @@ fn run_one(
         "steps_applied": applied,
         "rendered": rendered,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Clipboard, ToolContext};
+    use hound::{SampleFormat, WavSpec, WavWriter};
+    use tempfile::TempDir;
+
+    fn write_sine(path: &Path) {
+        let spec = WavSpec {
+            channels: 1,
+            sample_rate: 8_000,
+            bits_per_sample: 16,
+            sample_format: SampleFormat::Int,
+        };
+        let mut w = WavWriter::create(path, spec).unwrap();
+        for n in 0..8_000 {
+            let s = (n as f32 * 0.2).sin() * 0.25;
+            w.write_sample((s * 32_767.0) as i16).unwrap();
+        }
+        w.finalize().unwrap();
+    }
+
+    /// The up-front refusal is the one callers meet. The render tool's own
+    /// refusal is the second line of it: a project whose history names a file
+    /// that the render is then asked to write is refused there, and the file
+    /// is reported as refused, untouched.
+    #[test]
+    fn a_render_onto_a_file_the_projects_history_names_is_refused_by_the_render_itself() {
+        let dir = TempDir::new().unwrap();
+        let input = dir.path().join("take.wav");
+        write_sine(&input);
+        let before = std::fs::read(&input).unwrap();
+        let recipe = recipe::Recipe {
+            format_version: recipe::RECIPE_FORMAT_VERSION,
+            engine_version: "0".into(),
+            name: None,
+            steps: vec![
+                recipe::RecipeStep {
+                    tool: "load".into(),
+                    params: json!({ "path": "placeholder.wav" }),
+                    inputs: Value::Null,
+                    replayable: true,
+                    label: None,
+                },
+                recipe::RecipeStep {
+                    tool: "gain".into(),
+                    params: json!({ "track": 0, "db": -6.0 }),
+                    inputs: Value::Null,
+                    replayable: true,
+                    label: None,
+                },
+            ],
+        };
+        std::fs::create_dir_all(dir.path().join("host")).unwrap();
+        let mut host = session::Store::open(&dir.path().join("host")).unwrap();
+        let mut engine = audio_engine::Engine::new();
+        let mut clipboard: Option<Clipboard> = None;
+        let mut ctx = ToolContext {
+            store: &mut host,
+            engine: &mut engine,
+            user_message: "",
+            clipboard: &mut clipboard,
+            allowed_tools: None,
+        };
+
+        // `run_one` renders to `render_path_for(project, format)`. The project
+        // beside the input, as the default `output_dir` puts it, renders onto
+        // the input: the case the up-front check refuses before `run_one` is
+        // reached, here asked of the render's own refusal.
+        let project = dir.path().join("take");
+        assert_eq!(render_path_for(&project, "wav"), input);
+
+        let outcome = run_one(
+            &ToolDispatcher::default_dispatcher(),
+            &mut ctx,
+            &recipe,
+            &input,
+            &project,
+            Some("wav"),
+        );
+
+        let reason = outcome.expect_err("the render has to be refused");
+        assert!(reason.contains("render failed"), "{reason}");
+        assert!(reason.contains("another"), "{reason}");
+        assert_eq!(std::fs::read(&input).unwrap(), before, "the input changed");
+    }
 }

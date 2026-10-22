@@ -52,8 +52,8 @@ fn loading_a_model_without_the_runtime_is_an_error_not_a_hang() {
     };
     assert!(reason.contains("ONNX Runtime"), "{reason}");
 
-    // Installing the runtime would not make transcription work, and the
-    // message must not let anyone think it would.
+    // The model runs once the runtime is there, so the message is the
+    // runtime's own reason and says nothing about the feature being missing.
     let msg = err.to_string();
-    assert!(msg.contains("not implemented in this build"), "{msg}");
+    assert!(!msg.contains("not implemented"), "{msg}");
 }

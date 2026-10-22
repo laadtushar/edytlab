@@ -54,20 +54,22 @@ describe("speechModel", () => {
   it("states what ready means, and no more", () => {
     expect(
       readyText({ model: "whisper-base", state: "ready", bytes: SIZE, size: SIZE }),
-    ).toBe("Ready: 139 MB on disk. Nothing uses it yet.");
+    ).toBe("Ready: 139 MB on disk. Ask the assistant to transcribe a track.");
   });
 
   it("gives the failure's reason as it was reported", () => {
     expect(failedText("HTTP 503")).toBe("The download failed: HTTP 503");
   });
 
-  it("is the same note the pages make: no transcription yet, three files, what is seen, no audio", () => {
-    expect(SPEECH_MODEL_NOTE).toContain("Transcription is not available yet");
-    expect(SPEECH_MODEL_NOTE).toContain("does not turn anything on");
+  it("is the same note the pages make: what it is for, three files, what is seen, no audio", () => {
+    expect(SPEECH_MODEL_NOTE).toContain("runs on this computer");
+    expect(SPEECH_MODEL_NOTE).toContain("once it is downloaded");
     expect(SPEECH_MODEL_NOTE).toContain("huggingface.co");
     expect(SPEECH_MODEL_NOTE).toContain("three files");
     expect(SPEECH_MODEL_NOTE).toContain("IP address and that the request comes from edytlab");
     expect(SPEECH_MODEL_NOTE).toContain("nothing about your audio is sent");
     expect(SPEECH_MODEL_NOTE).not.toContain("one request");
+    // The words reach the provider, like any tool result: said, not hidden.
+    expect(SPEECH_MODEL_NOTE).toContain("reach your AI provider");
   });
 });

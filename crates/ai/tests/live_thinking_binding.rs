@@ -160,9 +160,7 @@ async fn a_second_turn_under_a_changed_system_prompt_passes_the_strict_prefix_ch
             session::Store::open(dir.path()).expect("open store"),
         )),
         Arc::new(Mutex::new(audio_engine::Engine::new())),
-        Arc::new(tokio::sync::Notify::new()),
-        Arc::new(Mutex::new(None)),
-        Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        ai::PlanGate::new(),
         Arc::new(Mutex::new(None::<tools::Clipboard>)),
     );
 

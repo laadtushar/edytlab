@@ -79,6 +79,10 @@ impl Tool for ExportRecipeTool {
             Err(e) => return Ok(ToolResult::Error(format!("failed to serialise: {e}"))),
         };
         let path = PathBuf::from(&args.out_path);
+        // A recipe is text; it is not to replace audio the project reads (#653).
+        if let Err(e) = crate::destination::refuse_project_audio(ctx.store, [&path]) {
+            return Ok(ToolResult::Error(e));
+        }
         if let Some(parent) = path.parent() {
             if !parent.as_os_str().is_empty() {
                 if let Err(e) = std::fs::create_dir_all(parent) {

@@ -18,14 +18,13 @@
 
 mod common;
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use ai::anthropic::{ContentBlock, Message, Role};
 use ai::{Agent, AgentEvent, LlmConfig, MAX_TOOL_CALLS_PER_TURN as CAP};
 use common::{classifier_json, ok, plan_json, sse_text, sse_tool_step, Entry, SeqResponder};
 use serde_json::{json, Value};
-use tokio::sync::Notify;
 use tools::schema::{anthropic_tool, object_schema};
 use tools::{Tool, ToolContext, ToolDispatcher, ToolResult};
 use wiremock::matchers::{method, path};
@@ -110,7 +109,7 @@ struct Fixture {
     server: MockServer,
     _dir: tempfile::TempDir,
     agent: Agent,
-    notify: Arc<Notify>,
+    gate: ai::PlanGate,
     edits: Arc<Mutex<Vec<Value>>>,
     peeks: Arc<AtomicUsize>,
 }
@@ -135,7 +134,7 @@ impl Fixture {
             calls: Arc::clone(&peeks),
         }));
 
-        let notify = Arc::new(Notify::new());
+        let gate = ai::PlanGate::new();
         let cfg = LlmConfig::new_anthropic("test-key").with_base_url(server.uri());
         let mut agent = Agent::new(
             cfg,
@@ -144,9 +143,7 @@ impl Fixture {
                 session::Store::open(dir.path()).expect("open store"),
             )),
             Arc::new(Mutex::new(audio_engine::Engine::new())),
-            Arc::clone(&notify),
-            Arc::new(Mutex::new(None)),
-            Arc::new(AtomicBool::new(false)),
+            gate.clone(),
             Arc::new(Mutex::new(None::<tools::Clipboard>)),
         );
         agent.set_plan_first(plan_first);
@@ -155,7 +152,7 @@ impl Fixture {
             server,
             _dir: dir,
             agent,
-            notify,
+            gate,
             edits,
             peeks,
         }
@@ -163,7 +160,7 @@ impl Fixture {
 
     /// Run one turn, approving every card the way the UI's Run does.
     async fn turn(&mut self, message: &str) -> (ai::Result<ai::TurnResult>, Vec<Ev>) {
-        let notify = Arc::clone(&self.notify);
+        let gate = self.gate.clone();
         let edits = Arc::clone(&self.edits);
         let mut events = Vec::new();
         let result = self
@@ -184,7 +181,7 @@ impl Fixture {
                     events.push(Ev::Card {
                         edits_run: edits.lock().unwrap().len(),
                     });
-                    notify.notify_one();
+                    gate.answer(ai::plan_gate::Answer::Approve);
                 }
                 AgentEvent::NodeCreated(_) => {}
             })

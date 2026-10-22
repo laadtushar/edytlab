@@ -71,7 +71,8 @@ impl Tool for RenderFinalTool {
              size and identical audio, \"mp3\" is lossy but plays anywhere — prefer \
              flac when the user wants to send a file somewhere and quality matters, \
              mp3 when size or compatibility matters. bitrate_kbps applies to mp3 only \
-             and defaults to 192.",
+             and defaults to 192. An out_path that is audio the project reads (a loaded \
+             file, or any file its history plays) is refused: choose another.",
             json!({
                 "type": "object",
                 "properties": {
@@ -144,6 +145,14 @@ impl Tool for RenderFinalTool {
             Ok(id) => id,
             Err(e) => return Ok(ToolResult::Error(format!("invalid node_id: {e}"))),
         };
+
+        // Never onto audio the project reads (#653): the file would be
+        // truncated before the render read it, and every node that names it
+        // would play something else. Asked before the render rebuilds
+        // anything, since a refusal is the cheap answer.
+        if let Err(e) = crate::destination::refuse_project_audio(ctx.store, [&args.out_path]) {
+            return Ok(ToolResult::Error(e));
+        }
 
         // Its audio may have been swept from history; put it back first.
         if let Err(e) = crate::rederive::materialize(ctx.store, node_id) {

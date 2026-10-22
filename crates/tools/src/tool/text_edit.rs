@@ -33,7 +33,7 @@ use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
-    append_state, check_track_index, cut_annotations, cut_timeline, load_head_state,
+    append_state, cut_annotations, cut_timeline, load_head_state, transcript_edit_track,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -43,8 +43,8 @@ struct Args {
     from_word: usize,
     /// One past the last word to remove.
     to_word: usize,
-    /// Which track the transcript describes. Defaults to 0, which is
-    /// the single-track case this exists for.
+    /// Which track the transcript describes. Defaults to the track the
+    /// transcript was made from (`transcribe` records it), else 0.
     #[serde(default)]
     track: Option<usize>,
 }
@@ -62,13 +62,13 @@ impl Tool for CutWordsTool {
             "Delete a span of transcribed words and the audio underneath it, closing the gap. \
              Indices are into the session's transcript, as returned by `transcribe`. The \
              remaining word timings are shifted so they still line up with the audio, and the \
-             whole thing is one undoable node. Requires a transcript.",
+             whole thing is one undoable node. Requires a transcript, and cuts its track.",
             json!({
                 "type": "object",
                 "properties": {
                     "from_word": { "type": "integer", "minimum": 0, "description": "First word to remove" },
                     "to_word": { "type": "integer", "minimum": 0, "description": "One past the last word to remove" },
-                    "track": { "type": "integer", "description": "Track the transcript describes; defaults to 0" },
+                    "track": { "type": "integer", "description": "Track the transcript describes. Defaults to the transcript's track; another is refused. Needed after a file transcript." },
                 },
                 "required": ["from_word", "to_word"],
                 "additionalProperties": false,
@@ -81,15 +81,15 @@ impl Tool for CutWordsTool {
             Ok(a) => a,
             Err(e) => return Ok(ToolResult::Error(format!("invalid arguments: {e}"))),
         };
-        let track_index = args.track.unwrap_or(0);
 
         let mut state = match load_head_state(ctx) {
             Ok(s) => s,
             Err(msg) => return Ok(ToolResult::Error(msg)),
         };
-        if let Err(msg) = check_track_index(&state.tracks, track_index) {
-            return Ok(ToolResult::Error(msg));
-        }
+        let track_index = match transcript_edit_track(&state, args.track) {
+            Ok(t) => t,
+            Err(msg) => return Ok(ToolResult::Error(msg)),
+        };
 
         // A track with no transcript says what to do rather than
         // failing blank: the mapping this tool needs simply is not
@@ -175,7 +175,10 @@ impl Tool for CutWordsTool {
                 }
             })
             .collect();
-        state.transcript = Some(session::Transcript { words: kept });
+        state.transcript = Some(session::Transcript {
+            words: kept,
+            source: transcript.source.clone(),
+        });
 
         state.length_samples = state.length_samples.saturating_sub(removed_frames);
 

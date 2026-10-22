@@ -1,8 +1,11 @@
 //! The app must not send people to a setup that does not exist (#233).
 //!
 //! Transcription and stem separation are headline features on the README
-//! and the marketing site. Neither works, and every route out of that
-//! was a dead end:
+//! and the marketing site. Neither worked, and every route out of that
+//! was a dead end. (Transcription runs now, #384; stem separation still
+//! does not, and the checks below keep it honest. What is left for
+//! transcription is that nothing sends anyone to a script that does not
+//! exist, and that its model's missing-file error is not an empty success.)
 //!
 //! * Six production strings — two error messages, two tool schemas, a
 //!   module doc and the in-app card — told the user to run
@@ -17,7 +20,8 @@
 //!   no code in the tree.
 //! * Supplying a correct model file anyway produced `Ok(vec![])` from
 //!   `transcribe` — **success, with an empty transcript**, which reads
-//!   as "this recording has no speech".
+//!   as "this recording has no speech". (Now an empty transcript means
+//!   that, because the model runs.)
 //!
 //! Three of those are prose and would drift back silently. So this file
 //! checks the two properties that make the prose true: nothing names a
@@ -251,27 +255,26 @@ fn no_env_var_is_documented_that_nothing_reads() {
     );
 }
 
-/// A stub must fail, not succeed with nothing.
+/// A model that is not there must fail, not succeed with nothing.
 ///
 /// This is the criterion that is about correctness rather than prose.
 /// `Ok(vec![])` from `transcribe` was indistinguishable from "no speech
 /// in this audio", so a user who had done everything right was told,
-/// in effect, that their recording was silent.
+/// in effect, that their recording was silent. It is a real answer now (the
+/// model ran and heard nothing), so every path that did not run the model
+/// has to be an error.
 #[test]
 fn transcribe_does_not_report_success_with_an_empty_transcript() {
     let err = ml_whisper::WhisperModel::load(Path::new("/nonexistent-whisper-model.onnx"))
         .expect_err("a missing model must not load");
     let msg = err.to_string();
     assert!(
-        msg.contains("not implemented in this build"),
-        "the missing-model error should say the feature is unavailable rather than imply a \
-         model would fix it; got: {msg}"
+        msg.contains("WHISPER_MODEL_PATH") && msg.contains("tokenizer.json"),
+        "the missing-model error should say what the folder has to hold; got: {msg}"
     );
-
-    let unimplemented = ml_whisper::WhisperError::NotImplemented.to_string();
     assert!(
-        unimplemented.contains("not implemented in this build"),
-        "NotImplemented must say so plainly; got: {unimplemented}"
+        !msg.contains("not implemented"),
+        "the model runs, so the error must not say it does not; got: {msg}"
     );
 
     // And the decoder itself must not answer with an empty success.
@@ -300,26 +303,28 @@ fn transcribe_does_not_report_success_with_an_empty_transcript() {
             !body.contains(empty),
             "`ml-whisper` returns `{empty}` again. An empty transcript reported as success is \
              indistinguishable from \"this recording has no speech\", which is the #233 bug: the \
-             caller who did everything right gets the most misleading answer available. Return \
-             WhisperError::NotImplemented instead."
+             caller who did everything right gets the most misleading answer available. Return an \
+             error for anything that did not run the model."
         );
     }
 }
 
-/// The tool schemas the *model* reads must say the feature is
-/// unavailable.
+/// The tool schemas the *model* reads must say a feature that does nothing
+/// is unavailable.
 ///
 /// This is the one an agent acts on. While the schema described a
-/// working transcriber with a setup step, the agent would confidently
+/// working separator with a setup step, the agent would confidently
 /// tell the user to install a model — repeating the dead end rather
-/// than reporting it.
+/// than reporting it. (`transcribe` runs now and is checked by
+/// `transcribe_tells_the_agent_what_to_say_when_it_cannot_run`.)
 #[test]
 fn the_schemas_tell_the_agent_the_features_are_unavailable() {
     let dispatcher = tools::ToolDispatcher::default_dispatcher();
     let schemas = dispatcher.tool_schemas();
     let schemas = schemas.as_array().expect("tool_schemas returns an array");
 
-    for name in ["transcribe", "separate_stems"] {
+    {
+        let name = "separate_stems";
         let schema = schemas
             .iter()
             .find(|s| s.get("name").and_then(|v| v.as_str()) == Some(name))
@@ -349,4 +354,35 @@ fn the_schemas_tell_the_agent_the_features_are_unavailable() {
             "`{name}`'s schema does not tell the agent to stop recommending an install: {desc}"
         );
     }
+}
+
+/// The tool that works must not be described as one that does not, and must
+/// not leave the agent to invent a setup: the user downloads the model, and
+/// the agent says so (#384).
+#[test]
+fn transcribe_tells_the_agent_what_to_say_when_it_cannot_run() {
+    let dispatcher = tools::ToolDispatcher::default_dispatcher();
+    let schemas = dispatcher.tool_schemas();
+    let schema = schemas
+        .as_array()
+        .expect("tool_schemas returns an array")
+        .iter()
+        .find(|s| s.get("name").and_then(|v| v.as_str()) == Some("transcribe"))
+        .expect("transcribe is registered");
+    let desc = schema
+        .get("description")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    assert!(
+        !desc.to_lowercase().contains("not implemented"),
+        "`transcribe` runs, and its schema says it does not: {desc}"
+    );
+    assert!(
+        desc.contains("Settings → Account"),
+        "the schema does not say where the user gets the model: {desc}"
+    );
+    assert!(
+        desc.contains("do not try to download, install or configure anything"),
+        "the schema does not stop the agent from inventing a setup: {desc}"
+    );
 }

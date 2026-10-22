@@ -85,6 +85,7 @@ impl Session {
     fn with_transcript(&mut self, words: &[(&str, f32, f32)]) {
         let mut state = self.state();
         state.transcript = Some(session::Transcript {
+            source: None,
             words: words
                 .iter()
                 .map(|(text, start, end)| session::TranscriptWord {

@@ -9,9 +9,12 @@
 //! agent loop calls `invoke` holding the dispatcher, store and engine
 //! mutexes, so one `transcribe` call froze the agent.
 //!
-//! Both tools must answer with a `ToolResult::Error` instead, and the
-//! error must still say the feature is not implemented: installing the
-//! runtime does not make either one work (#384, #385).
+//! Both tools must answer with a `ToolResult::Error` instead. For
+//! `separate_stems` the error must still say the feature is not implemented:
+//! installing the runtime does not make it work (#385). `transcribe` runs
+//! (#384), so its error is the setup problem and says what the user does:
+//! point `ORT_DYLIB_PATH` at a copy (a build from source has none), under the
+//! marker the window turns into a card.
 //!
 //! A single test in its own binary, because it edits the process
 //! environment and its watchdog ends the whole process.
@@ -89,8 +92,41 @@ fn model_tools_report_a_missing_runtime_instead_of_hanging() {
         allowed_tools: None,
     };
 
+    // `transcribe` needs a session to put its transcript in.
+    let loaded = dispatcher
+        .invoke("load", json!({ "path": wav.to_string_lossy() }), &mut ctx)
+        .expect("load dispatches");
+    assert!(
+        matches!(loaded, ToolResult::Ok(_)),
+        "load failed: {loaded:?}"
+    );
+
+    // The marker is the tool's, not a string this file spells.
+    let result = dispatcher
+        .invoke("transcribe", json!({ "track": 0 }), &mut ctx)
+        .expect("transcribe dispatches");
+    let ToolResult::Error(msg) = result else {
+        panic!("transcribe: expected an error, got a success");
+    };
+    assert!(
+        msg.starts_with(tools::tool::transcribe::MARKER_RUNTIME_UNAVAILABLE),
+        "transcribe: {msg}"
+    );
+    assert!(msg.contains("ONNX Runtime"), "transcribe: {msg}");
+    assert!(
+        msg.contains("ORT_DYLIB_PATH"),
+        "transcribe: a build from source is told how to point at a copy: {msg}"
+    );
+    assert!(
+        !msg.contains("not implemented"),
+        "transcribe runs once the runtime is there: {msg}"
+    );
+    assert!(
+        !msg.contains(&tmp.path().to_string_lossy().to_string()),
+        "transcribe: the answer goes to the model provider, and names no local path: {msg}"
+    );
+
     let calls = [
-        ("transcribe", json!({ "path": wav.to_string_lossy() })),
         ("separate_stems", json!({ "path": wav.to_string_lossy() })),
         (
             "separate_stems",

@@ -36,12 +36,20 @@ use tools::{Tool, ToolContext, ToolDispatcher, ToolResult};
 ///   `progress`; they would need a commit per step.
 /// * `compact_session`, `storage_report`, `fork_node`, `revert_to`,
 ///   `name_node` and `apply_diff` read or rewrite the history itself.
-/// * `transcribe`, `separate_stems` and `split_by_speaker` need models
-///   that are not shipped.
+/// * `separate_stems` and `split_by_speaker` need models that are not
+///   shipped.
 /// * Metadata tools (`set_track_gain`, `mute_track`, ...), `generate_*`,
 ///   `export_*`, `import_labels`, `label`, `cut_range`, `trim`, `gain` and
 ///   MCP tools are fast, or have not been reviewed for a re-run on a newer
 ///   head. Possible follow-ups, one reviewed decision each.
+///
+/// `transcribe` is on it (#384). The model run takes a minute for a few
+/// minutes of speech and reads only the head: one track's audio (the
+/// `track` argument, which the re-run guard reads) or one file. It appends
+/// one node, or none when no speech was found. A lost race re-runs it, and
+/// the re-run finds the same audio in the inference cache the first run
+/// filled, so it costs a hash and an append. It reports `progress` and reads
+/// the cancel switch; see [`ALLOWED`].
 ///
 /// `select_region` and `duck_under_speech` are on it (#570). With
 /// `voice_tracks` both decode and scan every clip of the voice tracks, which
@@ -52,7 +60,7 @@ use tools::{Tool, ToolContext, ToolDispatcher, ToolResult};
 /// `voice_tracks`), so a user's edit to the clips of one of them refuses its
 /// re-run. `select_region` reports its selection on the `progress` sink,
 /// which takes no lock; see [`ALLOWED`].
-const OFF_LOCK: [&str; 42] = [
+const OFF_LOCK: [&str; 43] = [
     "align_to_beat",
     "analyze_track",
     "change_speed",
@@ -92,6 +100,7 @@ const OFF_LOCK: [&str; 42] = [
     "stereo_to_mono",
     "stereo_widener",
     "time_stretch",
+    "transcribe",
     "tremolo",
     "truncate_silence",
     "vocal_reduction",
@@ -261,13 +270,48 @@ const REACHABLE: &[&str] = &[
 /// `progress::` is forbidden because what a run reports belongs to the
 /// call: a run that loses the race and is thrown away would have reported
 /// for nothing, and `begin` and `cancelled` are one process-wide switch.
-const ALLOWED: &[(&str, &str, &str)] = &[(
-    "select_region.rs",
-    "crate::progress::report(",
-    "select_region appends nothing, so `Store::commit` publishes its one run whatever the \
-     head did and it is never run again: the selection it reports is the call's own answer, \
-     reported once. `report` hands the event to the process-wide sink and takes no lock.",
-)];
+///
+/// An off-lock tool reports no `progress` unless this list allows it, and
+/// each entry says why:
+///
+/// * `report` hands the event to the process-wide sink and takes no lock.
+/// * A run that loses the race and is run again does not show its windows
+///   twice: the first run filled the inference cache, so the re-run is a hit,
+///   decodes nothing and reports nothing.
+/// * `begin` and `cancelled` are the one process-wide switch. A call that
+///   starts a run clears a stale cancel and reads the switch between windows,
+///   which is how `batch_apply` uses it between files.
+const ALLOWED: &[(&str, &str, &str)] = &[
+    (
+        "select_region.rs",
+        "crate::progress::report(",
+        "select_region appends nothing, so `Store::commit` publishes its one run whatever the \
+         head did and it is never run again: the selection it reports is the call's own answer, \
+         reported once. `report` hands the event to the process-wide sink and takes no lock.",
+    ),
+    (
+        "transcribe.rs",
+        "crate::progress::report(",
+        "`report` takes no lock. A transcription that loses the race is run again on the new \
+         head, and the re-run is a hit in the inference cache the first run filled, so the \
+         windows are not reported twice; a hit reports nothing. The closing `done` comes from a \
+         guard that exists only if a window was shown, so a strip is never left up.",
+    ),
+    (
+        "transcribe.rs",
+        "crate::progress::begin(",
+        "clears a Cancel pressed before this run began, once, at the start of the model run \
+         (a cache hit never reaches it), as `batch_apply` does before its first file. A Cancel \
+         pressed during a run that is then discarded is not carried to the re-run, which is a \
+         cache hit and ends at once.",
+    ),
+    (
+        "transcribe.rs",
+        "crate::progress::cancelled(",
+        "read between windows and between decoder steps to stop the run, which then appends \
+         nothing. It only reads the switch, and the one the window's Cancel button sets.",
+    ),
+];
 
 /// What may be named at the crate root: the tool traits and results, and
 /// `Range`, which `util::range_resolver` (above) re-exports.
