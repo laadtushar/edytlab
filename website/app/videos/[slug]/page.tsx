@@ -17,15 +17,25 @@ import {
   formatMoment,
   getVideo,
   videoPath,
-  videos,
+  watchVideos,
 } from "@/lib/videos";
+
+const EYEBROW = { launch: "Launch video", release: "Release video", reel: "Short reel", demo: "Full demo" } as const;
+
+/** What to say about how the video plays, after its length. */
+const NOTE = {
+  launch: ", with captions you can switch on",
+  release: ", with captions you can switch on",
+  reel: ", vertical, with no voice-over",
+  demo: ", played in real time with the app's own sound, and no voice-over",
+} as const;
 
 interface Props {
   params: Promise<{ slug: string }>;
 }
 
 export async function generateStaticParams() {
-  return videos.map((v) => ({ slug: v.slug }));
+  return watchVideos.map((v) => ({ slug: v.slug }));
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
@@ -51,11 +61,11 @@ export default async function VideoPage({ params }: Props) {
   const video = getVideo(slug);
   if (!video) notFound();
 
-  const others = videos.filter((v) => v.slug !== video.slug);
+  const others = watchVideos.filter((v) => v.slug !== video.slug);
 
   return (
     <PageShell
-      eyebrow={video.kind === "launch" ? "Launch video" : video.kind === "release" ? "Release video" : "Short reel"}
+      eyebrow={EYEBROW[video.kind]}
       title={video.title}
       lead={video.description}
     >
@@ -65,8 +75,7 @@ export default async function VideoPage({ params }: Props) {
         <WatchPlayer video={video} />
         <p className="mt-3 text-sm text-muted-foreground">
           {formatDuration(video.seconds)}
-          {video.kind === "reel" ? ", vertical, with no voice-over" : ", with captions you can switch on"}
-          . Nothing plays until you press play.
+          {NOTE[video.kind]}. Nothing plays until you press play.
         </p>
       </div>
 
@@ -111,7 +120,7 @@ export default async function VideoPage({ params }: Props) {
           ))}
           <li>
             <Link href="/use-cases/dj" className="text-primary underline underline-offset-4">
-              The three full demos, on the AI audio editor for DJs page
+              The AI audio editor for DJs page, where the three full demos also play
             </Link>
           </li>
         </ul>

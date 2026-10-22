@@ -7,14 +7,13 @@
  */
 
 import { BLOG_AUTHOR, modifiedOf, wordCount, type BlogPost } from "./blog";
-import { demoPosterSrc, demoVideoSrc } from "./demos";
 import {
   BLOG_TITLE,
   WEBSITE_ID,
   absoluteUrl,
   type Crumb,
 } from "./seo-core";
-import { type SiteVideo, videoPath, videos } from "./videos";
+import { type WatchVideo, videoPath, watchVideos } from "./videos";
 import { siteConfig } from "./site";
 
 export * from "./seo-core";
@@ -83,20 +82,18 @@ export interface VideoFacts {
 }
 
 /**
- * A `VideoObject` for one of the site's videos: a demo recording
- * (`lib/demos.ts`, the default) or the launch video or a reel
- * (`lib/videos.ts`, which pass where their files are).
- *
- * Emitted next to the player, on the pages where the video can be
- * watched (the home page's demos section, the DJ use-case page and
- * `/videos`), as Google asks. The thumbnail is the poster the player
- * shows, the content URL is the file it plays, and both are absolute.
- * Every field comes from `lib/demos.ts` or `lib/videos.ts`, which tests
- * hold to the files in `public/demos/` and `public/videos/`. No rating,
- * review or view count: there are none.
+ * A `VideoObject` for one of the site's videos, on that video's own
+ * page (`/videos/<slug>`) and on no other: Google indexes a video only
+ * where it is the main content of its page. The three full demos play
+ * on the home page and the DJ page too, with no structured data there.
+ * The thumbnail is the poster the player shows, the content URL is the
+ * file it plays, and both are absolute; `where` says which folder they
+ * are in (`videoSrc` and `videoPosterSrc` in `lib/videos.ts`). Every
+ * field comes from `lib/videos.ts`, which tests hold to the files in
+ * `public/videos/` and `public/demos/`. No rating, review or view
+ * count: there are none.
  */
-export function videoObjectJsonLd(video: VideoFacts, files?: { video: string; poster: string }) {
-  const where = files ?? { video: demoVideoSrc(video.slug), poster: demoPosterSrc(video.slug) };
+export function videoObjectJsonLd(video: VideoFacts, where: { video: string; poster: string }) {
   return {
     "@context": "https://schema.org",
     "@type": "VideoObject",
@@ -111,7 +108,7 @@ export function videoObjectJsonLd(video: VideoFacts, files?: { video: string; po
 }
 
 /** Home, Videos, then the video's own page. */
-export function videoBreadcrumbs(video: SiteVideo): Crumb[] {
+export function videoBreadcrumbs(video: WatchVideo): Crumb[] {
   return [
     { name: "Home", path: "/" },
     { name: "Videos", path: "/videos" },
@@ -135,8 +132,8 @@ export function videosHubJsonLd() {
     inLanguage: "en",
     mainEntity: {
       "@type": "ItemList",
-      numberOfItems: videos.length,
-      itemListElement: videos.map((v, i) => ({
+      numberOfItems: watchVideos.length,
+      itemListElement: watchVideos.map((v, i) => ({
         "@type": "ListItem",
         position: i + 1,
         url: absoluteUrl(videoPath(v.slug)),

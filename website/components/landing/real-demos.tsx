@@ -6,6 +6,10 @@
  * real app, with Claude as the agent, doing a whole job. The list lives
  * in `lib/demos.ts`; this file only lays it out.
  *
+ * The structured data for each video is not here: it is on the video's
+ * own page (`/videos/<slug>`), which each card links to, because Google
+ * indexes a video only on a page where it is the main content.
+ *
  * Nothing plays on its own. Each video waits for a press of play, which
  * settles autoplay-with-sound and reduced motion in one go, and with
  * `preload="none"` the page fetches only the posters until then — and
@@ -16,11 +20,10 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 
-import { JsonLd } from "@/components/json-ld";
 import { LazyPosterVideo } from "@/components/landing/lazy-poster-video";
 import { Reveal, Stagger } from "@/components/motion";
 import { DEMO_FRAME, type Demo, demoPosterSrc, demoVideoSrc, demos } from "@/lib/demos";
-import { videoObjectJsonLd } from "@/lib/seo";
+import { videoPath } from "@/lib/videos";
 
 export function DemoCard({ demo, index }: { demo: Demo; index: number }) {
   const titleId = `demo-${demo.slug}-title`;
@@ -29,10 +32,6 @@ export function DemoCard({ demo, index }: { demo: Demo; index: number }) {
 
   return (
     <figure className="overflow-hidden rounded-xl border border-border/60 bg-card lg:grid lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
-      {/* The video's structured data sits beside the player, on every
-          page that plays it, as Google asks. A script takes no part in
-          the grid. */}
-      <JsonLd data={videoObjectJsonLd(demo)} />
       <div className="bg-black">
         <LazyPosterVideo
           controls
@@ -73,6 +72,16 @@ export function DemoCard({ demo, index }: { demo: Demo; index: number }) {
         <p id={captionId} className="text-pretty text-sm leading-relaxed text-muted-foreground">
           {demo.caption}
         </p>
+        {/* Google indexes a video only on a page where it is the main
+            content, so its structured data is on that page and on no
+            other: this one links there. */}
+        <Link
+          href={videoPath(demo.slug)}
+          className="mt-auto inline-flex items-center gap-1.5 text-sm font-medium text-primary underline-offset-4 hover:underline"
+        >
+          Watch on its own page
+          <ArrowRight className="size-4" aria-hidden />
+        </Link>
       </figcaption>
     </figure>
   );

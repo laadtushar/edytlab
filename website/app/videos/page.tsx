@@ -3,9 +3,8 @@ import Link from "next/link";
 
 import { JsonLd } from "@/components/json-ld";
 import { PageLinks, PageShell } from "@/components/landing/page-shell";
-import { DemoLinkCard, VideoLinkCard } from "@/components/landing/site-video";
+import { VideoLinkCard } from "@/components/landing/site-video";
 import { Reveal, Stagger } from "@/components/motion";
-import { demos } from "@/lib/demos";
 import {
   breadcrumbJsonLd,
   pageAlternates,
@@ -14,7 +13,7 @@ import {
   videosHubJsonLd,
 } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
-import { launchVideo, releaseVideo, reels } from "@/lib/videos";
+import { demoVideos, launchVideo, releaseVideo, reels } from "@/lib/videos";
 
 const title = "Videos: what's new, the launch video, demos and reels";
 const description =
@@ -29,11 +28,10 @@ export const metadata: Metadata = {
 };
 
 /**
- * The hub. It holds no player: each video it lists has a page of its own
- * where it is the main content, which is what Google needs to index it,
- * and the three full demos are linked to the pages where they already
- * play. The page's structured data is a `CollectionPage` listing those
- * pages, not a `VideoObject` apiece.
+ * The hub. It holds no player: each video it lists, the three full demos
+ * included, has a page of its own where it is the main content, which is
+ * what Google needs to index it. The page's structured data is a
+ * `CollectionPage` listing those pages, not a `VideoObject` apiece.
  */
 export default function VideosPage() {
   return (
@@ -85,7 +83,8 @@ export default function VideosPage() {
           <p className="mt-3 max-w-3xl leading-relaxed text-foreground/90">
             Each is one job, from the request to an exported file, played in
             real time with sound. Waits for the agent are sped up. The tracks
-            are short synthetic loops. They play on the{" "}
+            are short synthetic loops. Each has a page of its own, and all
+            three also play on the{" "}
             <Link href="/use-cases/dj" className="text-primary underline underline-offset-4">
               AI audio editor for DJs
             </Link>{" "}
@@ -98,8 +97,8 @@ export default function VideosPage() {
           </p>
         </Reveal>
         <Stagger className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3" each={0.08} distance={24}>
-          {demos.map((demo, i) => (
-            <DemoLinkCard key={demo.slug} demo={demo} index={i} />
+          {demoVideos.map((video, i) => (
+            <VideoLinkCard key={video.slug} video={video} label={`Demo ${String(i + 1).padStart(2, "0")}`} />
           ))}
         </Stagger>
       </section>

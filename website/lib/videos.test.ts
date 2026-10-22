@@ -24,15 +24,18 @@ import { fileURLToPath } from "node:url";
 
 // The function Next writes `sitemap.xml` with, so the test reads what the built file says.
 import { resolveSitemap } from "next/dist/build/webpack/loaders/metadata/resolve-route-data";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import sitemap from "../app/sitemap";
+import { DemoCard, RealDemos } from "../components/landing/real-demos";
 import { demos } from "./demos";
 import { escapeXml } from "./feed";
 import { mp4Seconds, mp4Size } from "./mp4-header";
 import { absoluteUrl } from "./seo";
 import { srtToVtt } from "./srt-to-vtt";
-import { videoCaptionsSrc, videoPath, videoPosterSrc, videoSrc, videos } from "./videos";
+import { demoVideos, getVideo, videoCaptionsSrc, videoPath, videoPosterSrc, videoSrc, videos, watchVideos } from "./videos";
 
 const SITE = fileURLToPath(new URL("../", import.meta.url));
 const REPO = join(SITE, "..");
@@ -101,8 +104,8 @@ describe("the list", () => {
   });
 
   it("gives no video the name of another, a full demo included", () => {
-    // They share a page and a search result: a reel of a demo is "the short cut", not a second copy of it.
-    const names = [...videos.map((v) => v.title), ...demos.map((d) => d.title)];
+    // They share a hub and a search result: a reel of a demo is "(short reel)", not a second copy of it.
+    const names = watchVideos.map((v) => v.title);
     expect(new Set(names).size).toBe(names.length);
   });
 
@@ -272,9 +275,9 @@ describe("srtToVtt", () => {
 
 describe("the video sitemap entries", () => {
   const entries = sitemap();
-  const watchUrls = new Set(videos.map((v) => absoluteUrl(videoPath(v.slug))));
+  const watchUrls = new Set(watchVideos.map((v) => absoluteUrl(videoPath(v.slug))));
 
-  it.each(videos.map((v) => [v.slug, v] as const))("%s's page declares exactly its one video", (_slug, v) => {
+  it.each(watchVideos.map((v) => [v.slug, v] as const))("%s's page declares exactly its one video", (_slug, v) => {
     const entry = entries.find((e) => e.url === absoluteUrl(videoPath(v.slug)));
     expect(entry, `${videoPath(v.slug)} is not in the sitemap`).toBeDefined();
     // The fields come from the list, as the page's VideoObject does. Next writes them
@@ -298,14 +301,14 @@ describe("the video sitemap entries", () => {
   it("gives no other page a video: not the hub, not the pages that play the demos", () => {
     const withVideos = entries.filter((e) => e.videos?.length).map((e) => e.url);
     expect(new Set(withVideos)).toEqual(watchUrls);
-    expect(withVideos.length).toBe(videos.length);
+    expect(withVideos.length).toBe(watchVideos.length);
   });
 
   it("writes the video namespace and one <video:video> per watch page into sitemap.xml", () => {
     const xml: string = resolveSitemap(entries);
     expect(xml).toContain('xmlns:video="http://www.google.com/schemas/sitemap-video/1.1"');
-    expect(xml.match(/<video:video>/g)?.length).toBe(videos.length);
-    for (const v of videos) {
+    expect(xml.match(/<video:video>/g)?.length).toBe(watchVideos.length);
+    for (const v of watchVideos) {
       const block = xml.slice(xml.indexOf(`<loc>${absoluteUrl(videoPath(v.slug))}</loc>`));
       const own = block.slice(0, block.indexOf("</url>"));
       expect(own, v.slug).toContain(`<video:title>${escapeXml(v.title)}</video:title>`);
@@ -316,5 +319,105 @@ describe("the video sitemap entries", () => {
     }
     // Well-formed: nothing the XML cannot hold is left unescaped in the text.
     expect(xml.replace(/<[^>]+>/g, "")).not.toMatch(/&(?!amp;|lt;|gt;|quot;|apos;)/);
+  });
+});
+
+describe("the three full demos have pages of their own", () => {
+  it("are the demos in lib/demos.ts, in the same order, with the same words", () => {
+    expect(demoVideos.map((d) => d.slug)).toEqual(demos.map((d) => d.slug));
+    demoVideos.forEach((v, i) => {
+      expect(v.kind).toBe("demo");
+      expect(v.title).toBe(demos[i].title);
+      expect(v.caption).toBe(demos[i].caption);
+      expect(v.description).toBe(demos[i].description);
+      expect(v.seconds).toBe(demos[i].seconds);
+      expect(v.uploadDate).toBe(demos[i].uploadDate);
+    });
+  });
+
+  it("list every video with a page, in the hub's order, and look each one up", () => {
+    expect(watchVideos.map((v) => v.slug)).toEqual([
+      "whats-new-v070",
+      "launch-video",
+      "dj-beatmatched-transition",
+      "dj-extended-club-intro",
+      "dj-mini-mix",
+      "reel-v070-whats-new",
+      "reel-v070-describe-the-edit",
+      "reel-v070-200-tracks",
+      "reel-highlights",
+      "reel-teaser",
+      "reel-beatmatched-transition",
+      "reel-extended-club-intro",
+      "reel-mini-mix",
+    ]);
+    for (const v of watchVideos) expect(getVideo(v.slug)).toBe(v);
+  });
+
+  it.each(demoVideos.map((d) => [d.slug, d] as const))("%s is served from public/demos/, not copied into public/videos/", (slug) => {
+    expect(videoSrc(slug)).toBe(`/demos/${slug}.mp4`);
+    expect(videoPosterSrc(slug)).toBe(`/demos/${slug}.jpg`);
+    expect(isNonEmptyFile(join(SITE, "public", videoSrc(slug)))).toBe(true);
+    expect(isNonEmptyFile(join(SITE, "public", videoPosterSrc(slug)))).toBe(true);
+    expect(existsSync(join(VIDEOS_DIR, `${slug}.mp4`)), "a demo copied into public/videos/").toBe(false);
+    expect(existsSync(join(VIDEOS_DIR, `${slug}.jpg`)), "a demo poster copied into public/videos/").toBe(false);
+  });
+
+  it.each(demoVideos.map((d) => [d.slug, d] as const))("%s has the running time and the size its header states", (slug, v) => {
+    const file = readFileSync(join(SITE, "public", videoSrc(slug)));
+    expect(Math.abs(v.seconds - mp4Seconds(file))).toBeLessThan(1);
+    expect(mp4Size(file)).toEqual({ width: v.width, height: v.height });
+  });
+
+  it.each(demoVideos.map((d) => [d.slug, d] as const))("%s's moments are the cue file's own words, one for each cue", (_slug, v) => {
+    // `demo-<slug>-cues.json` has the caption cues of the demo video; its `narration` lines belong to an earlier take and are not used.
+    expect(v.momentsSource).toBe(`marketing/reels/demo-${v.slug}-cues.json`);
+    const cues = JSON.parse(readFileSync(join(REPO, v.momentsSource), "utf8")).cues as { start: number; onscreen: string }[];
+    expect(v.moments, "a cue moved or changed: update `moments`").toEqual(cues.map((c) => ({ at: c.start, text: c.onscreen })));
+    expect(v.moments.length).toBeGreaterThan(2);
+    expect(v.moments[v.moments.length - 1].at).toBeLessThan(v.seconds);
+  });
+});
+
+describe("only a video's own page carries its VideoObject", () => {
+  // Google indexes a video only on a page where it is the main content ("Video is not the main
+  // content of the page" otherwise), so no page but a watch page may carry one: not the hub, not
+  // the home page, not the DJ page that plays the demos.
+  const code = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+  /** Every authored `.ts` / `.tsx` file under `dir`, without tests, as `[path from website/, code]`. */
+  function sources(dir: string): [string, string][] {
+    return readdirSync(join(SITE, dir)).flatMap((name) => {
+      const rel = `${dir}/${name}`;
+      if (statSync(join(SITE, rel)).isDirectory()) return name === "node_modules" || name === ".next" ? [] : sources(rel);
+      return /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name) ? [[rel, code(readFileSync(join(SITE, rel), "utf8"))] as [string, string]] : [];
+    });
+  }
+
+  it("is made in one place, and rendered in one: the player of a watch page", () => {
+    const all = [...sources("app"), ...sources("components")];
+    expect(all.length).toBeGreaterThan(30);
+    const callers = all.filter(([, src]) => src.includes("videoObjectJsonLd(")).map(([f]) => f);
+    expect(callers).toEqual(["components/landing/site-video.tsx"]);
+    const players = all.filter(([, src]) => src.includes("<WatchPlayer")).map(([f]) => f);
+    expect(players).toEqual(["app/videos/[slug]/page.tsx"]);
+    // And the markup type is named nowhere else in the pages and components.
+    expect(all.filter(([, src]) => /VideoObject/.test(src)).map(([f]) => f)).toEqual([]);
+  });
+
+  it("is not in the markup of the demo cards, which play on the home page and the DJ page", () => {
+    const demo = demos[0];
+    const card = renderToStaticMarkup(createElement(DemoCard, { demo, index: 0 }));
+    expect(card).toContain("<video");
+    expect(card).not.toContain("application/ld+json");
+    expect(card).not.toContain("VideoObject");
+    // They link to the page that has it.
+    expect(card).toContain(`href="/videos/${demo.slug}"`);
+    expect(card).toContain("Watch on its own page");
+
+    const section = renderToStaticMarkup(createElement(RealDemos));
+    expect(section.match(/<video\b/g)?.length).toBe(demos.length);
+    expect(section).not.toContain("application/ld+json");
+    for (const d of demos) expect(section).toContain(`href="/videos/${d.slug}"`);
   });
 });

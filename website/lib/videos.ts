@@ -1,7 +1,11 @@
 /**
- * The videos on `/videos` besides the three full demos (those are
- * `lib/demos.ts`): the v0.7.0 video, the launch video and eight short
- * vertical reels.
+ * The videos on `/videos`: the v0.7.0 video, the launch video and eight
+ * short vertical reels, which are copies of files under `marketing/`
+ * (`videos`, below), and the three full demos, which are `lib/demos.ts`
+ * and play from `public/demos/` (`demoVideos`). Every one of them has a
+ * page of its own, `/videos/<slug>`, where it is the main content
+ * (`watchVideos`); the demos also play on the home page and the DJ page,
+ * without any structured data there.
  *
  * Each is a copy of a file under `marketing/`, where it is cut and kept,
  * placed in `public/videos/` so the site can serve it:
@@ -35,11 +39,17 @@
  * nothing that has not shipped, no counts, no ratings, no superlatives.
  */
 
-export interface SiteVideo {
-  /** Kebab-case. Names the files in `public/videos/`. */
+import { DEMO_FRAME, demoPosterSrc, demoVideoSrc, demos } from "./demos";
+
+/** What every video's own page needs, whichever folder its files are served from. */
+export interface WatchVideo {
+  /** Kebab-case. Names the files, and the page `/videos/<slug>`. */
   slug: string;
-  /** The launch video and the release video are 16:9; a reel is 9:16. */
-  kind: "launch" | "release" | "reel";
+  /**
+   * The launch video and the release video are 16:9; a reel is 9:16; a
+   * demo is a 1280 by 776 screen recording that plays from `public/demos/`.
+   */
+  kind: "launch" | "release" | "reel" | "demo";
   title: string;
   /** What it shows, for the page. */
   caption: string;
@@ -48,34 +58,47 @@ export interface SiteVideo {
   /** Running time in whole seconds (`ffprobe`, rounded). The test reads the file's own header. */
   seconds: number;
   /**
-   * The day the source file was first committed under `marketing/`
-   * (`git log --diff-filter=A --format=%cs -- <source>`). Each has been
-   * re-cut since, under the same name.
+   * The day the video's file was first committed (`git log --diff-filter=A
+   * --format=%cs -- <the .mp4>`). Each has been re-cut or re-filmed since,
+   * under the same name.
    */
   uploadDate: string;
   /** The picture's size in pixels, as the file states it; the player's box is reserved from it. */
   width: number;
   height: number;
-  /** The file this is a copy of, from the repository root. */
-  source: string;
-  /** Where in the video, in seconds, the poster frame was taken. */
-  posterAt: number;
   /** For a 16:9 video: the `.srt` its WebVTT captions were converted from. */
   captionsSource?: string;
   /**
    * What happens, in order, for the watch page: moments of the video,
    * each at the second a cue of `momentsSource` starts. `momentsSource`
-   * is the cue file the moments follow: a reel's `reel-*-cues.json`, whose
-   * `onscreen` words a reel's moments are, as written, one for each cue;
-   * or an `.srt`, whose cues are the burned-in words, which a moment
-   * describes in plain words (one moment may stand for several cues, and
-   * the launch video's cues carry a count that the page's copy leaves
-   * out). There is no voice-over in any of them. `videos.test.ts` holds
-   * the times, and a reel's words, to the source, so a re-cut cannot
-   * leave this stale.
+   * is the cue file the moments follow: a reel's `reel-*-cues.json` or a
+   * demo's `demo-*-cues.json`, whose `onscreen` words the moments are, as
+   * written, one for each cue; or an `.srt`, whose cues are the burned-in
+   * words, which a moment describes in plain words (one moment may stand
+   * for several cues, and the launch video's cues carry a count that the
+   * page's copy leaves out). There is no voice-over in any of them.
+   * `videos.test.ts` holds the times, and the words of a cue file's
+   * moments, to the source, so a re-cut cannot leave this stale.
    */
   moments: readonly Moment[];
   momentsSource: string;
+}
+
+/**
+ * A video that is a copy of a file under `marketing/`, placed in
+ * `public/videos/`: the launch video, the release video and the reels.
+ */
+export interface SiteVideo extends WatchVideo {
+  kind: "launch" | "release" | "reel";
+  /** The file this is a copy of, from the repository root. */
+  source: string;
+  /** Where in the video, in seconds, the poster frame was taken. */
+  posterAt: number;
+}
+
+/** One of the three full demos, played from `public/demos/` (no copy). */
+export interface DemoVideo extends WatchVideo {
+  kind: "demo";
 }
 
 export interface Moment {
@@ -355,21 +378,91 @@ export const videos: readonly SiteVideo[] = [
   },
 ];
 
-/** Where the files are served from: `public/videos/` in the source tree. */
-export const VIDEOS_PATH = "/videos";
+/**
+ * The three full demos as videos with a page of their own. Everything
+ * but the moments comes from `lib/demos.ts`, so the page, the card on
+ * the home page and the DJ page cannot say different things; the files
+ * are the demos' own in `public/demos/`, not copies.
+ *
+ * The moments are each demo's caption cues, `onscreen` as written, from
+ * `marketing/reels/demo-<slug>-cues.json` (its `narration` lines belong
+ * to an earlier take and are not read). The demos' videos have the app's
+ * own sound and no voice-over.
+ */
+const DEMO_MOMENTS: Record<string, readonly Moment[]> = {
+  "dj-beatmatched-transition": [
+    { at: 0.0, text: "A DJ blends Midnight Drive (120 BPM) into Neon Rush (128 BPM)" },
+    { at: 2.467, text: "Open the tracks" },
+    { at: 10.067, text: "Before: both tracks from the top, 120 against 128 BPM" },
+    { at: 21.933, text: "1 · What am I working with?" },
+    { at: 34.867, text: "2 · Beatmatch" },
+    { at: 47.333, text: "3 · Line up the overlap" },
+    { at: 59.6, text: "4 · Blend: crossfade, low-pass on the outgoing track" },
+    { at: 82.133, text: "Listen: the transition, from 0:12" },
+    { at: 104.4, text: "5 · Master for streaming" },
+    { at: 132.067, text: "6 · Export" },
+    { at: 144.933, text: "The mastered mix, from 0:20" },
+    { at: 161.2, text: "Done: midnight-into-neon.wav, 0:50, -14 LUFS" },
+  ],
+  "dj-extended-club-intro": [
+    { at: 0.0, text: "A DJ makes a mixable intro for Solar Flare (124 BPM)" },
+    { at: 2.4, text: "Open the tracks" },
+    { at: 9.733, text: "Before: the original intro" },
+    { at: 22.733, text: "1 · Tempo and bar length" },
+    { at: 35.4, text: "2 · Extend the intro" },
+    { at: 51.6, text: "3 · A filter that opens into the drop" },
+    { at: 66.333, text: "4 · Fade in and export" },
+    { at: 80.467, text: "Listen: the new intro fades in" },
+    { at: 94.2, text: "Listen: the low end arrives at the drop (0:31)" },
+    { at: 110.733, text: "Done: solar-flare-extended-intro.wav, a 16-bar intro" },
+  ],
+  "dj-mini-mix": [
+    { at: 0.0, text: "A DJ builds a three-track mini-mix at 124 BPM" },
+    { at: 2.467, text: "Open the tracks" },
+    { at: 10.267, text: "1 · Match every track to 124 BPM" },
+    { at: 24.6, text: "2 · Sequence with 4-bar overlaps" },
+    { at: 46.667, text: "3 · Match loudness, limit the master" },
+    { at: 65.467, text: "Listen: Midnight Drive into Solar Flare (0:23)" },
+    { at: 83.4, text: "Listen: Solar Flare into Neon Rush (0:46)" },
+    { at: 100.8, text: "4 · Export the mix" },
+    { at: 114.0, text: "Done: mini-mix-124bpm.wav, 1:19" },
+  ],
+};
 
-export const videoSrc = (slug: string) => `${VIDEOS_PATH}/${slug}.mp4`;
-export const videoPosterSrc = (slug: string) => `${VIDEOS_PATH}/${slug}.jpg`;
-export const videoCaptionsSrc = (slug: string) => `${VIDEOS_PATH}/${slug}.vtt`;
-/** The video's own page: `/videos/<slug>`, where it is the main content. */
-export const videoPath = (slug: string) => `${VIDEOS_PATH}/${slug}`;
-
-export const getVideo = (slug: string): SiteVideo | undefined => videos.find((v) => v.slug === slug);
+export const demoVideos: readonly DemoVideo[] = demos.map((d) => ({
+  slug: d.slug,
+  kind: "demo",
+  title: d.title,
+  caption: d.caption,
+  description: d.description,
+  seconds: d.seconds,
+  uploadDate: d.uploadDate,
+  width: DEMO_FRAME.width,
+  height: DEMO_FRAME.height,
+  momentsSource: `marketing/reels/demo-${d.slug}-cues.json`,
+  moments: DEMO_MOMENTS[d.slug] ?? [],
+}));
 
 /** The release video, the launch video and the reels, split the way the hub lays them out. */
 export const releaseVideo = videos.find((v) => v.kind === "release") as SiteVideo;
 export const launchVideo = videos.find((v) => v.kind === "launch") as SiteVideo;
 export const reels: readonly SiteVideo[] = videos.filter((v) => v.kind === "reel");
+
+/** Every video that has a page of its own, in the hub's order. */
+export const watchVideos: readonly WatchVideo[] = [releaseVideo, launchVideo, ...demoVideos, ...reels];
+
+export const getVideo = (slug: string): WatchVideo | undefined => watchVideos.find((v) => v.slug === slug);
+
+/** Where a video's files are served from: `public/videos/`, or `public/demos/` for a demo. */
+export const VIDEOS_PATH = "/videos";
+const folderOf = (slug: string) => (demoVideos.some((d) => d.slug === slug) ? "/demos" : VIDEOS_PATH);
+
+export const videoSrc = (slug: string) => (folderOf(slug) === "/demos" ? demoVideoSrc(slug) : `${VIDEOS_PATH}/${slug}.mp4`);
+export const videoPosterSrc = (slug: string) =>
+  folderOf(slug) === "/demos" ? demoPosterSrc(slug) : `${VIDEOS_PATH}/${slug}.jpg`;
+export const videoCaptionsSrc = (slug: string) => `${VIDEOS_PATH}/${slug}.vtt`;
+/** The video's own page: `/videos/<slug>`, where it is the main content. */
+export const videoPath = (slug: string) => `${VIDEOS_PATH}/${slug}`;
 
 /** A running time as the card shows it: 62 is "1:02". */
 export const formatDuration = (seconds: number) =>

@@ -3,11 +3,11 @@
  *
  * Google indexes a video only when it is the main content of its page,
  * and a page with several is told "Video is not the main content of the
- * page" for most of them. So each video has a page of its own where it
- * is the one thing on the screen (`WatchPlayer`, with its `VideoObject`),
+ * page" for most of them. So each video, the three full demos included,
+ * has a page of its own where it is the one thing on the screen
+ * (`WatchPlayer`, with its `VideoObject`, which no other page carries),
  * and the hub, `/videos`, holds no player at all: a grid of poster cards
- * that link to those pages (`VideoLinkCard`) and, for the three full
- * demos, to the pages where they already play (`DemoLinkCard`).
+ * that link to those pages (`VideoLinkCard`).
  *
  * The player is a `<video>` that waits to be played, rendered on the
  * server. Nothing starts on its own (which settles autoplay with sound
@@ -21,10 +21,9 @@ import Link from "next/link";
 import { Play } from "lucide-react";
 
 import { JsonLd } from "@/components/json-ld";
-import { DEMO_FRAME, type Demo, demoPosterSrc } from "@/lib/demos";
 import { videoObjectJsonLd } from "@/lib/seo";
 import {
-  type SiteVideo,
+  type WatchVideo,
   formatDuration,
   videoCaptionsSrc,
   videoPath,
@@ -38,7 +37,7 @@ import {
  * a 1080 by 1920 picture does not fill a laptop screen from top to
  * bottom; the launch video takes the width of the column.
  */
-export function WatchPlayer({ video }: { video: SiteVideo }) {
+export function WatchPlayer({ video }: { video: WatchVideo }) {
   const titleId = `video-${video.slug}-title`;
   const captionId = `video-${video.slug}-caption`;
   const src = videoSrc(video.slug);
@@ -100,7 +99,6 @@ function PosterCard({
   seconds,
   title,
   blurb,
-  hint,
 }: {
   href: string;
   poster: string;
@@ -110,7 +108,6 @@ function PosterCard({
   seconds: number;
   title: string;
   blurb: string;
-  hint?: string;
 }) {
   const vertical = height > width;
   return (
@@ -152,14 +149,13 @@ function PosterCard({
         </div>
         <h3 className="text-balance text-lg font-semibold group-hover:text-primary">{title}</h3>
         <p className="text-pretty text-sm leading-relaxed text-muted-foreground">{blurb}</p>
-        {hint ? <p className="mt-auto pt-1 text-xs text-muted-foreground">{hint}</p> : null}
       </div>
     </Link>
   );
 }
 
 /** A card for a video that has a page of its own. */
-export function VideoLinkCard({ video, label }: { video: SiteVideo; label: string }) {
+export function VideoLinkCard({ video, label }: { video: WatchVideo; label: string }) {
   return (
     <PosterCard
       href={videoPath(video.slug)}
@@ -170,28 +166,6 @@ export function VideoLinkCard({ video, label }: { video: SiteVideo; label: strin
       seconds={video.seconds}
       title={video.title}
       blurb={video.description}
-    />
-  );
-}
-
-/**
- * A card for one of the three full demos. They play on the home page and
- * on the DJ use-case page, with their markup already in place, so the
- * card points there rather than to a page of its own, and uses the
- * demo's own poster file rather than a copy.
- */
-export function DemoLinkCard({ demo, index }: { demo: Demo; index: number }) {
-  return (
-    <PosterCard
-      href="/use-cases/dj"
-      poster={demoPosterSrc(demo.slug)}
-      width={DEMO_FRAME.width}
-      height={DEMO_FRAME.height}
-      label={`Demo ${String(index + 1).padStart(2, "0")}`}
-      seconds={demo.seconds}
-      title={demo.title}
-      blurb={demo.description}
-      hint="Plays on the AI audio editor for DJs page"
     />
   );
 }

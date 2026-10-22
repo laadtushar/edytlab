@@ -3,7 +3,7 @@ import type { MetadataRoute } from "next";
 import { modifiedOf, posts } from "@/lib/blog";
 import { escapeXml } from "@/lib/feed";
 import { absoluteUrl, pageUpdated, postPath } from "@/lib/seo";
-import { type SiteVideo, videoPath, videoPosterSrc, videoSrc, videos } from "@/lib/videos";
+import { type WatchVideo, videoPath, videoPosterSrc, videoSrc, watchVideos } from "@/lib/videos";
 
 type Entry = MetadataRoute.Sitemap[number];
 
@@ -38,9 +38,10 @@ const pages: { path: string; priority: number; changeFrequency: Entry["changeFre
  *
  * Next writes these strings into the XML as they are, so the text is
  * escaped here. Only the watch pages get one: the hub and the pages
- * that play the demos are not where these videos are the main content.
+ * that also play the demos (the home page, the DJ page) are not where
+ * those videos are the main content.
  */
-function videoSitemapEntry(video: SiteVideo) {
+function videoSitemapEntry(video: WatchVideo) {
   return {
     title: escapeXml(video.title),
     thumbnail_loc: absoluteUrl(videoPosterSrc(video.slug)),
@@ -71,7 +72,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   }));
 
   // Each video has a page of its own, listed from the data like a post.
-  const videoPages: MetadataRoute.Sitemap = videos.map((v) => ({
+  const videoPages: MetadataRoute.Sitemap = watchVideos.map((v) => ({
     url: absoluteUrl(videoPath(v.slug)),
     lastModified: new Date(pageUpdated(videoPath(v.slug))),
     changeFrequency: "monthly",
