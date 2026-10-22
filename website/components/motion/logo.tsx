@@ -4,7 +4,7 @@ import { useRef } from "react";
 
 import {
   gsap,
-  useGSAP,
+  useGSAPWhenNear,
   motionOk,
   NO_PREFERENCE,
   HOVER_MOTION,
@@ -35,7 +35,7 @@ interface LogoProps {
 export function Logo({ className, play = "load" }: LogoProps) {
   const ref = useRef<SVGSVGElement>(null);
 
-  useGSAP(
+  useGSAPWhenNear(
     () => {
       const svg = ref.current;
       if (!svg) return;

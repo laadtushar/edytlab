@@ -4,7 +4,7 @@ import { useRef, type ElementType, type ReactNode } from "react";
 
 import {
   gsap,
-  useGSAP,
+  useGSAPWhenNear,
   motionOk,
   NO_PREFERENCE,
   REVEAL_START,
@@ -79,7 +79,7 @@ export function Cascade({
   const ref = useRef<HTMLElement>(null);
   const selector = ownSelector ?? (prose ? PROSE_PIECES : ":scope > *");
 
-  useGSAP(
+  useGSAPWhenNear(
     () => {
       const root = ref.current;
       if (!root) return;
