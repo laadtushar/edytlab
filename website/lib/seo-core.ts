@@ -52,6 +52,8 @@ export const PAGE_UPDATED: Readonly<Record<string, string>> = {
   "/docs/api-reference": "2026-10-22",
   "/use-cases/dj": "2026-10-22",
   "/use-cases/local-ai-audio-editor": "2026-10-22",
+  "/about": "2026-10-22",
+  "/alternatives/audacity": "2026-10-22",
   "/videos": "2026-10-22",
   "/videos/whats-new-v070": "2026-10-22",
   "/videos/launch-video": "2026-10-22",
