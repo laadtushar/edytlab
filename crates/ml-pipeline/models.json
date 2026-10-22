@@ -1,0 +1,32 @@
+{
+  "_about": "The models the app can download (#383): one pin, read by the app (ml_pipeline::Catalog::built_in, included at build time) and by crates/ml-pipeline/tests/model_manifest.rs. A model is only ever downloaded when the user presses Download in Settings. `repo` and `revision` name a Hugging Face repository and the commit to fetch, never a branch, so a file cannot change under a pin; each file's `url` must be https://huggingface.co/<repo>/resolve/<revision>/<path> (the test checks it), and `size` and `sha256` are checked while the file is written and again before it is renamed into place. `license` is the SPDX id of the model the export was made from. whisper-base: the table on #384, every file downloaded and hashed on 2026-10-22. Nothing runs this model yet: transcription is not shipped (#384).",
+  "models": [
+    {
+      "id": "whisper-base",
+      "title": "Whisper base",
+      "repo": "onnx-community/whisper-base_timestamped",
+      "revision": "608c49e61301901684bc36cac8f74b95ff6b5a8e",
+      "license": "Apache-2.0",
+      "files": [
+        {
+          "path": "onnx/encoder_model.onnx",
+          "url": "https://huggingface.co/onnx-community/whisper-base_timestamped/resolve/608c49e61301901684bc36cac8f74b95ff6b5a8e/onnx/encoder_model.onnx",
+          "size": 82451730,
+          "sha256": "7fcea817bb2be4d86729b521e5a7fcbec28fa743edfed67e882b33ff15852540"
+        },
+        {
+          "path": "onnx/decoder_model_merged_int8.onnx",
+          "url": "https://huggingface.co/onnx-community/whisper-base_timestamped/resolve/608c49e61301901684bc36cac8f74b95ff6b5a8e/onnx/decoder_model_merged_int8.onnx",
+          "size": 53712708,
+          "sha256": "cf9a8d5bcddc0917a0078135b484cedcaf44f28909cd91910abd29dced9171db"
+        },
+        {
+          "path": "tokenizer.json",
+          "url": "https://huggingface.co/onnx-community/whisper-base_timestamped/resolve/608c49e61301901684bc36cac8f74b95ff6b5a8e/tokenizer.json",
+          "size": 2480466,
+          "sha256": "27fc476bfe7f17299480be2273fc0608e4d5a99aba2ab5dec5374b4482d1a566"
+        }
+      ]
+    }
+  ]
+}
