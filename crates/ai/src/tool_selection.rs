@@ -207,8 +207,10 @@ pub fn slim_tools_budget(session_block_bytes: usize) -> usize {
 ///
 /// This was 1,600 until `list_session` (#618) added its name, 14 B with the
 /// separator, to the line of built-ins. It went up by that and no more, so
-/// the room left for MCP names is what it was.
-pub const SLIM_NAMES_BUDGET_BYTES: usize = 1_614;
+/// the room left for MCP names is what it was. It went up again by 39 B when
+/// `transcribe`, `cut_words` and `remove_fillers` stopped being left out
+/// (#384): their names, 33 B with the separators of the line, are on it now.
+pub const SLIM_NAMES_BUDGET_BYTES: usize = 1_653;
 
 /// A tool whose description begins with this does nothing in this build
 /// (`separate_stems`: its inference is not shipped). The full list still

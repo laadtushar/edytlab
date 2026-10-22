@@ -92,8 +92,7 @@ impl Tool for RemoveFillersTool {
              hesitations (um, uh, er) wherever they appear, but discourse markers (like, \
              actually) only where they stand alone between pauses — speech with every hesitation \
              stripped sounds rushed. Leaves a short pause where each filler was so the result \
-             does not sound spliced. Works on the session's transcript and cuts the track it was \
-             made from (`transcribe` records it).",
+             does not sound spliced. Cuts the transcript's track.",
             json!({
                 "type": "object",
                 "properties": {
@@ -110,7 +109,7 @@ impl Tool for RemoveFillersTool {
                         "type": "number",
                         "description": "Pause to leave where each filler was, in milliseconds. Default 80.",
                     },
-                    "track": { "type": "integer", "description": "Track the transcript describes. Defaults to the track `transcribe` made it from; a different track is refused. Needed after transcribing a file." },
+                    "track": { "type": "integer", "description": "Track the transcript describes. Defaults to the transcript's track; another is refused. Needed after a file transcript." },
                 },
                 "additionalProperties": false,
             }),

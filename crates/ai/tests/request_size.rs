@@ -148,9 +148,13 @@ const ISSUE_MEASURED_TOKENS: usize = 15_157;
 // audition_effect, which adds 427 B. It went up by that and no more, so the
 // headroom was the 222 B it had been. #618 then added `list_session`, whose
 // descriptor with its comma is 375 B (62,705 B to 63,080 B). It went up by
-// that and no more, so the headroom is still 222 B.
+// that and no more, so the headroom is still 222 B. #384 then replaced
+// `transcribe`'s "not implemented" descriptor with the one of a tool that runs
+// (`track` or `path`, `language`, what to tell the user when the model is
+// missing) and added a sentence to `cut_words` and `remove_fillers` about the
+// transcript's track: 63,080 B to 63,818 B. It went up by that and no more.
 const ANTHROPIC_SYSTEM_MAX_BYTES: usize = 1_400; // measured 1,203
-const FULL_TOOLS_MAX_BYTES: usize = 63_302; // measured 63,080
+const FULL_TOOLS_MAX_BYTES: usize = 64_040; // measured 63,818
 
 // ---------------------------------------------------------------------
 // Fixture

@@ -531,18 +531,16 @@ impl Tool for TranscribeTool {
         crate::schema::anthropic_tool(
             "transcribe",
             "Transcribe speech to text on this computer and attach the words, with times, to the \
-             session as a new version (one undoable step); it replaces the session's earlier \
-             transcript. cut_words, remove_fillers and select_region's `text` work from it. Give \
-             `track` (its index) to transcribe a track as it sits on the timeline, so word times \
-             are session seconds and line up with the track; give `path` only for a file that is \
-             not in the session, whose times are the file's own. The audio never leaves the \
-             computer. It needs the speech model, which the user downloads once in Settings → \
-             Account; without it, or without ONNX Runtime, the call returns a message starting \
-             with a bracketed code: tell the user what it says and stop, and do not try to \
-             download, install or configure anything. It runs on the CPU, usually in under half \
-             the audio's length (the first request also loads the model), and the user can cancel it. Returns the words as \
-             [text, start_sec, end_sec] in order (the position is the word number cut_words \
-             takes), or for long audio sentence-sized segments with their word numbers.",
+             session as a new version, replacing the earlier transcript that cut_words, \
+             remove_fillers and select_region's `text` work from. Give `track` (word times are \
+             then session seconds) or `path` for a file that is not in the session (the file's \
+             times). The audio never leaves the computer. It needs the speech model the user \
+             downloads once in Settings → Account; if the call returns a message starting with a \
+             bracketed code, tell the user what it says and stop, and do not try to download, \
+             install or configure anything. Runs on the CPU, usually in under half the audio's \
+             length; the user can cancel. Returns [text, start_sec, end_sec] per word (the \
+             position is the word number cut_words takes), or for long audio sentence segments \
+             with word numbers.",
             json!({
                 "type": "object",
                 "properties": {

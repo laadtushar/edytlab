@@ -62,14 +62,13 @@ impl Tool for CutWordsTool {
             "Delete a span of transcribed words and the audio underneath it, closing the gap. \
              Indices are into the session's transcript, as returned by `transcribe`. The \
              remaining word timings are shifted so they still line up with the audio, and the \
-             whole thing is one undoable node. Requires a transcript, and cuts the track the \
-             transcript was made from (`transcribe` records it).",
+             whole thing is one undoable node. Requires a transcript, and cuts its track.",
             json!({
                 "type": "object",
                 "properties": {
                     "from_word": { "type": "integer", "minimum": 0, "description": "First word to remove" },
                     "to_word": { "type": "integer", "minimum": 0, "description": "One past the last word to remove" },
-                    "track": { "type": "integer", "description": "Track the transcript describes. Defaults to the track `transcribe` made it from; a different track is refused. Needed after transcribing a file." },
+                    "track": { "type": "integer", "description": "Track the transcript describes. Defaults to the transcript's track; another is refused. Needed after a file transcript." },
                 },
                 "required": ["from_word", "to_word"],
                 "additionalProperties": false,

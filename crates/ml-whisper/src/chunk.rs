@@ -551,9 +551,14 @@ mod tests {
         // length over 30 s.
         let mut model = Hears::new();
         model.finished = false;
-        let (out, seen) = reports(&mut model, 75.0, &never);
+        let (out, seen) = reports(&mut model, 90.0, &never);
         out.unwrap();
-        assert!(seen.len() > 3, "{seen:?}");
+        assert!(
+            seen.len() > 3,
+            "90 s is three windows of 30 s, and took more: {seen:?}"
+        );
+        assert_eq!(seen[0], (0, 3), "{seen:?}");
+        assert!(seen.last().unwrap().1 > 3, "the estimate grew: {seen:?}");
         for (n, (index, total)) in seen.iter().enumerate() {
             assert_eq!(*index, n, "the index counts decoded windows: {seen:?}");
             assert!(total > index, "{seen:?}");
