@@ -70,6 +70,16 @@ export default function LocalAiUseCasePage() {
               </td>
             </tr>
             <tr>
+              <td>The speech model (about 139 MB)</td>
+              <td>
+                Downloaded from Hugging Face (huggingface.co) only when you
+                click Download in Settings, never automatically. Hugging Face
+                sees your IP address and the file you asked for, and nothing
+                about your audio. It is not used yet: transcription is not
+                available.
+              </td>
+            </tr>
+            <tr>
               <td>Usage data from the app</td>
               <td>None. The app sends no telemetry.</td>
             </tr>

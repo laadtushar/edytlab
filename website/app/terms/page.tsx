@@ -38,6 +38,15 @@ export default function TermsPage() {
         not a party to that relationship and is not responsible for charges
         you incur with that provider.
       </p>
+      <p>
+        The speech model you can download from Settings is Whisper base, which
+        OpenAI publishes under the Apache-2.0 licence (its code is MIT). edytlab
+        does not include or redistribute it: when you click Download, the app
+        fetches the files from Hugging Face, whose terms apply to that
+        download, and they are kept on your computer. See{" "}
+        <a href="https://huggingface.co/openai/whisper-base">the model card</a>
+        {" "}and the <a href="/privacy">privacy page</a>.
+      </p>
 
       <h2>Disclaimer</h2>
       <p>
