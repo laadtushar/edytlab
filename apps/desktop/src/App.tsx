@@ -1383,6 +1383,12 @@ function App() {
     onNodeCreated(async (_nodeId: string) => {
       // The graph needs no word from here: the node moves the head, and
       // `useSession` counts that for the view (`graphVersion`, #602).
+      //
+      // The assistant moved the session by itself, so what the user had
+      // set on a lane belongs to where it was, as it does for an undo
+      // (#596): a slider moved and not yet let go of would otherwise stay
+      // on the user's value over the assistant's.
+      owned.clear();
       await refreshTracks();
       // The session moved, so any previously rendered mix is stale.
       setMixPath(null);
@@ -1615,15 +1621,31 @@ function App() {
    * and the head it names is adopted inside the turn like any edit's. The
    * bar calls `onAcceptB` only after the turn has ended, which is too late
    * to adopt anything (#498).
+   *
+   * It is also a head move the session makes by itself, so it ends as
+   * Set as head does: the controls the user holds are let go of and the
+   * tracks are read again (#596). Nothing else reads them on a head move,
+   * so the lanes went on showing side A's tracks, with the user's values
+   * over them. The head is already adopted when the read is asked for, and
+   * a read that fails after the move is reported, not taken for a refused
+   * accept.
    */
   const handleCompareAcceptB = useCallback(
-    (b: string): Promise<string> =>
-      inOrder(async () => {
-        const accepted = await bridgeAcceptB(b);
-        setHeadLocal(accepted);
-        return accepted;
-      }),
-    [inOrder, setHeadLocal],
+    async (b: string): Promise<string> => {
+      const accepted = await inOrder(async () => {
+        const head = await bridgeAcceptB(b);
+        setHeadLocal(head);
+        return head;
+      });
+      owned.clear();
+      try {
+        await refreshTracks();
+      } catch (err) {
+        setRenderError(String(err));
+      }
+      return accepted;
+    },
+    [inOrder, setHeadLocal, refreshTracks, owned],
   );
 
   const handleCompareNodes = useCallback(
