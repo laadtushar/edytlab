@@ -89,7 +89,7 @@ telemetry. The website, which is separate, uses Vercel's anonymous analytics
   have not run a local model through a full job. If you tried an earlier
   build: v0.5.0 and older could delete your own recordings when the assistant
   compacted history (#589), and v0.6.0 could lose a Save As copy's audio once
-  the original was deleted (#612), so please use v0.6.1.
+  the original was deleted (#612), so please use v0.6.1 or later.
 
 **Transparency.** This project is developed with Claude Code as a collaborator.
 Many commits carry a `Co-Authored-By: Claude` trailer, and the repo has a
@@ -104,7 +104,7 @@ Many commits carry a `Co-Authored-By: Claude` trailer, and the repo has a
 3. If you do DSP: the vocoder and the limiter are the two places I expect the
    most justified criticism.
 
-Download (unsigned v0.6.1): https://github.com/laadtushar/edytlab/releases/latest
+Download (unsigned v0.7.0): https://github.com/laadtushar/edytlab/releases/latest
 Source: https://github.com/laadtushar/edytlab
 
 ---

@@ -129,8 +129,8 @@ count, a quote or a benchmark.
 | Every edit is a node; fork, A/B, go back; undo follows the path you took | `crates/tools/src/tool/fork_node.rs`, `compare_nodes.rs`, `apps/desktop/src/lib/headTrail.ts` |
 | Rubber Band was dropped for a pure-Rust phase vocoder; the cost is smearing on dense material at large changes | `crates/audio-time/src/vocoder.rs`, `README.md` |
 | Eleven effects cannot yet run on a master or bus chain | `NOT_YET_STREAMING` in `crates/audio-engine/src/effect_chain.rs` |
-| #464 (macOS microphone), #497 (Linux keyring), #383 to #385 (ML inference) | GitHub, checked 2026-10-16: #464, #497, #384 and #385 are open. #383 (the ONNX Runtime and model delivery) was reopened the same day: the installers carry the runtime from the release after v0.6.1, but no model is downloaded and no inference runs, so "Not shipped yet" on the slide (inference) is still true |
-| v0.6.1 for macOS, Windows and Linux; MIT; the installers are unsigned | `tauri.conf.json` (`render.mjs` reads the version from it), `LICENSE`, the v0.6.1 release notes. The last carousel page, the only canvas that mentions a download, says so. **The committed `out/post-3-carousel.pdf` was rendered before v0.6.0 and still says v0.5.0**: run `node render.mjs` before posting it |
+| #464 (macOS microphone), #497 (Linux keyring), #383 to #385 (ML inference) | GitHub, checked 2026-10-16: #464, #497, #384 and #385 are open. #383 (the ONNX Runtime and model delivery) was reopened the same day: the installers carry the runtime from v0.7.0, but no model is downloaded and no inference runs, so "Not shipped yet" on the slide (inference) is still true |
+| v0.7.0 for macOS, Windows and Linux; MIT; the installers are unsigned | `tauri.conf.json` (`render.mjs` reads the version from it), `LICENSE`, the v0.7.0 release notes. The last carousel page, the only canvas that mentions a download, says so. **The committed `out/post-3-carousel.pdf` and `out/post-1-launch.png` were rendered before v0.6.0 and still say v0.5.0**: run `node render.mjs` before posting either |
 
 ## Files
 

@@ -30,7 +30,7 @@ choices for Show HN and Reddit are conventional wisdom, not measurements.
 - [ ] Confirm the five `reel-*.mp4` files exist, play with sound, and match
       the captions (see the note at the bottom of `instagram.md`: trim any
       caption detail the final edit cuts).
-- [ ] Install v0.6.0 on one machine per OS you will claim. Check the macOS
+- [ ] Install v0.7.0 on one machine per OS you will claim. Check the macOS
       `xattr` step in the release notes works as written.
 - [ ] Set the Instagram bio link and bio line (`instagram.md`).
 - [ ] Decide the Claude Code disclosure (`linkedin-posts.md` post 3 and the

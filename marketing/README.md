@@ -1,6 +1,6 @@
 # edytlab launch kit
 
-Copy-paste material for launching edytlab v0.6.1. Everything here is written
+Copy-paste material for launching edytlab v0.7.0. Everything here is written
 to be posted as-is, by the owner, from their own accounts. Nothing in this
 folder posts anywhere by itself, and nothing here opens a PR on another repo.
 
@@ -15,7 +15,7 @@ folder posts anywhere by itself, and nothing here opens a PR on another repo.
 | Press kit page | <https://edytlab.com/press> |
 
 Use `releases/latest` for "download" links in posts. It resolves to the newest
-non-prerelease, which is v0.6.1 today (published 2026-10-17). (The website's own buttons point at the
+non-prerelease, which is v0.7.0 today (published 2026-10-22). (The website's own buttons point at the
 full releases list on purpose, so they can also reach dev builds.)
 
 ## What is in the kit
@@ -85,7 +85,7 @@ These are the claims that are easy to get wrong. Each has bitten a draft once.
 | Export to WAV, FLAC and MP3 | `crates/tools/src/tool/render_final.rs` |
 | Time-stretch and pitch-shift on its own phase vocoder | `crates/audio-time/src/vocoder.rs` |
 | BPM, key, beat grid and EBU R128 loudness analysis | `analyze_track` in `docs/tools-reference.md` |
-| macOS universal, Windows, Linux builds; MIT; v0.6.1 | GitHub release v0.6.1 (six installers), `LICENSE` |
+| macOS universal, Windows, Linux builds; MIT; v0.7.0 | GitHub release v0.7.0 (six installers), `LICENSE` |
 
 ## Known rough edges to be ready for
 
@@ -97,7 +97,7 @@ getting caught.
   pruned ([#589](https://github.com/laadtushar/edytlab/issues/589)). v0.6.0
   deletes only audio the project made, inside its own folder
   ([#593](https://github.com/laadtushar/edytlab/pull/593)). Link only
-  `releases/latest` or v0.6.1, and tell anyone on an older build to update
+  `releases/latest` or v0.6.1 or later, and tell anyone on an older build to update
   before they ask it to reclaim disk.
 - Linux: v0.4.0 and earlier keep API keys in the kernel keyring only until
   reboot. Since v0.5.0 they are stored in the Secret Service, with a warning
@@ -142,7 +142,7 @@ getting caught.
 
 ## Before the first post
 
-- [ ] Install the v0.6.1 build on at least one machine per OS you will claim.
+- [ ] Install the v0.7.0 build on at least one machine per OS you will claim.
       Confirm the macOS `xattr` step in the release notes works as written.
 - [ ] Open <https://edytlab.com> on a phone and play the demo.
 - [ ] GitHub repo topics. The repo currently lists `audacity`, `audacity-pro`

@@ -14,7 +14,7 @@ r/audioengineering, r/podcasting and r/tauri if you want them later.)
 site <https://edytlab.com> ·
 DJ recordings <https://edytlab.com/use-cases/dj> ·
 source <https://github.com/laadtushar/edytlab> ·
-v0.6.0 <https://github.com/laadtushar/edytlab/releases/tag/v0.6.1>
+v0.7.0 <https://github.com/laadtushar/edytlab/releases/tag/v0.7.0>
 
 **Videos:** `reel-beatmatched-transition.mp4`, `reel-extended-club-intro.mp4`,
 `reel-mini-mix.mp4`, `reel-highlights.mp4`. Reddit video posts generally have
@@ -82,7 +82,7 @@ What to know before deciding whether it's worth your time:
 - It needs an AI provider: your own key for Anthropic, OpenAI, OpenRouter, Groq or Gemini, or a local model through Ollama. Your audio files aren't uploaded; the chat text goes to the provider you pick, or stays local with Ollama.
 
 Recordings: https://edytlab.com/use-cases/dj
-Downloads for macOS, Windows and Linux (unsigned, so expect a first-launch warning): https://github.com/laadtushar/edytlab/releases/tag/v0.6.1
+Downloads for macOS, Windows and Linux (unsigned, so expect a first-launch warning): https://github.com/laadtushar/edytlab/releases/latest
 
 For people who prep: which chore do you repeat the most, and what would make you not trust a tool like this?
 ```
@@ -160,7 +160,7 @@ Two things I'd like producers' opinions on:
 2. What would you not trust an agent to do to your master?
 
 Recording: https://edytlab.com/use-cases/dj
-Free and open source for macOS, Windows and Linux (unsigned installers): https://github.com/laadtushar/edytlab/releases/tag/v0.6.1
+Free and open source for macOS, Windows and Linux (unsigned installers): https://github.com/laadtushar/edytlab/releases/latest
 ```
 
 ---
@@ -189,7 +189,7 @@ edytlab: an MIT-licensed desktop audio editor driven by an AI agent (Rust, Tauri
 ```
 Disclosure: it's my project.
 
-edytlab is a desktop audio editor for macOS, Windows and Linux. You describe an edit in a chat box and an AI agent calls deterministic audio tools (94 of them) that run locally in a Rust engine. The model never receives the audio, only text about it. It's MIT-licensed: https://github.com/laadtushar/edytlab. v0.6.0 is the current release.
+edytlab is a desktop audio editor for macOS, Windows and Linux. You describe an edit in a chat box and an AI agent calls deterministic audio tools (94 of them) that run locally in a Rust engine. The model never receives the audio, only text about it. It's MIT-licensed: https://github.com/laadtushar/edytlab. v0.7.0 is the current release.
 
 Where I'd like help:
 
@@ -265,7 +265,7 @@ What I'd like opinions on: the selection is a heuristic (words and phrases in th
 If you try it: which model, quantisation and context size, whether it kept to the tool schemas, and how it failed. Failure reports are as useful as successes.
 
 Source (issue 395 has the v0.4.0 numbers): https://github.com/laadtushar/edytlab
-Downloads for macOS, Windows and Linux (unsigned, so expect a first-launch warning): https://github.com/laadtushar/edytlab/releases/tag/v0.6.1
+Downloads for macOS, Windows and Linux (unsigned, so expect a first-launch warning): https://github.com/laadtushar/edytlab/releases/latest
 ```
 
 ---
@@ -321,7 +321,7 @@ Facts to re-check on the day:
   453 (PR 521) and 520 (all in v0.6.0), and 421, 395 and 394 (all in v0.5.0);
   open are 464, 497, 389, 386, 384 and 385, and 383 (the ONNX Runtime and
   model delivery), reopened on 2026-10-16: the installers carry the runtime
-  after v0.6.1, but no model is downloaded, so keep saying "383 to 385". They were all open when
+  from v0.7.0, but no model is downloaded, so keep saying "383 to 385". They were all open when
   this was written (2026-10-10).
 - "No open issue carries the good first issue label": true when checked (17
   open issues, none labelled). Label two issues before posting r/opensource

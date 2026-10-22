@@ -54,7 +54,7 @@ It's for prep, not live use. And in the demo, the agent itself flags a spot wher
 **6/8**
 
 ```
-v0.6.1 is out. Update before you compact a project or delete the original of a Save As copy: earlier versions could lose your audio. Also new: effects on the master bus and on buses, undo that survives a restart, Plan first that stays on, and the violet look.
+v0.7.0 is out. The ONNX Runtime is now in every installer, but no model and no inference yet. Fader, pan, mute and solo changes are no longer undone by a late read-back. The History graph keeps up, bundled skills update, and the assistant can page through large sessions.
 ```
 
 **7/8**
@@ -81,6 +81,6 @@ Another demo: https://edytlab.com/demos/dj-extended-club-intro.mp4
 
 - If you pin one post, pin post 1.
 - Reply to questions with the issue number when one exists.
-- Post 6 repeats the v0.6.0 release notes. Check them against
+- Post 6 repeats the v0.7.0 release notes. Check them against
   <https://github.com/laadtushar/edytlab/releases/latest> before posting; if
   there is a newer release, rewrite that post.

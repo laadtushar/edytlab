@@ -35,7 +35,7 @@ Every line below was checked against the repository or the GitHub release on
 |---|---|
 | Name | edytlab |
 | What it is | Desktop audio editor driven by an AI agent |
-| Latest version | 0.6.1, published 2026-10-17 |
+| Latest version | 0.7.0, published 2026-10-22 |
 | License | MIT |
 | Repository created | 2026-05-05 |
 | Platforms | macOS (one universal build for Apple Silicon and Intel), Windows 10 and 11, Linux |
