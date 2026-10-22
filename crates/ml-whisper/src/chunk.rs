@@ -11,12 +11,24 @@
 //!   model's idea of it is a guess. A word counts as cut when the decoder did
 //!   not finish by itself (it ran out of tokens, or looped and was stopped), or
 //!   when the word ends within [`EDGE_S`] of the window's end. A cut word is
-//!   dropped, and the next window starts where the **last complete word
-//!   ended**, so the word is heard whole the second time;
-//! * with no complete word at all, the next window starts at the cut word's
-//!   own start if that is more than [`MIN_ADVANCE_S`] in, and a whole window
-//!   on otherwise (so a silent or hopeless window costs 30 s and never loops);
-//! * the next window never starts less than [`MIN_ADVANCE_S`] after this one;
+//!   dropped, and the next window starts at the **later of the last complete
+//!   word's end and the cut word's start**, so the cut word is heard whole the
+//!   second time. (Both are in the audio the window trimmed to the sound
+//!   (`refine.rs`), so across a pause the cut word's start is the later one, and
+//!   in speech with no pause they are the same instant.) Without a cut word the
+//!   next window starts where the last word ended;
+//! * a window that starts where the aligner ended a word starts inside that
+//!   word's tail, because the aligner puts the boundary between two words that
+//!   are spoken without a pause about 0.14 s early. The model may write the
+//!   tail down as a word, so a first word that repeats the last kept word, and
+//!   starts no more than [`DUPLICATE_S`] after it ended, is dropped. A cut word
+//!   that is the same word again ("no no") is not a tail: it is heard whole,
+//!   not in part, and is kept;
+//! * if no word ends later than [`MIN_ADVANCE_S`] into the window (it decoded to
+//!   a hallucination, or nothing past the first fraction of a second), the next
+//!   window starts a **whole window** on, as `whisper.transcribe` does when its
+//!   seek would not move. Advancing by [`MIN_ADVANCE_S`] instead would decode
+//!   the same hopeless audio sixty times over, writing a word each time;
 //! * a window that decoded to nothing, or was skipped as no speech, is
 //!   passed over whole.
 //!
@@ -39,8 +51,12 @@ const MIN_WINDOW_SAMPLES: usize = SAMPLE_RATE / 10;
 /// A word that ends within this many seconds of a full window's end may have
 /// been cut by it.
 pub(crate) const EDGE_S: f32 = 0.5;
-/// The next window starts at least this many seconds after the last.
+/// The next window starts a word's end or start later only if that is more than
+/// this many seconds into the window; otherwise it starts a whole window on.
 pub(crate) const MIN_ADVANCE_S: f32 = 0.5;
+/// A first word that repeats the last kept word and starts within this many
+/// seconds of its end is the word's tail, heard again.
+pub(crate) const DUPLICATE_S: f32 = 0.1;
 
 /// What decoding one window gave.
 #[derive(Debug, Clone, PartialEq)]
@@ -72,27 +88,76 @@ pub(crate) struct Chunked {
     pub windows: usize,
 }
 
+/// What a full window gives: the words to keep, where the next window starts
+/// and the word that was cut off, if any.
+#[derive(Debug, Clone, PartialEq)]
+struct Cut {
+    keep: Vec<Word>,
+    /// Seconds from this window's start; `None` means a whole window on.
+    next: Option<f32>,
+    dropped: Option<Word>,
+}
+
+/// `Some(seconds)` if the next window starts that far into this one, `None`
+/// (a whole window on) if that is [`MIN_ADVANCE_S`] or less.
+fn advance(seconds: f32) -> Option<f32> {
+    (seconds > MIN_ADVANCE_S).then_some(seconds)
+}
+
 /// Split a full window's words into the ones to keep and where the next
-/// window starts (seconds from this window's start; `None` means the end of
-/// this window).
-fn cut_window(mut words: Vec<Word>, window_s: f32, finished: bool) -> (Vec<Word>, Option<f32>) {
-    let Some(last) = words.last() else {
-        return (words, None);
+/// window starts.
+fn cut_window(mut words: Vec<Word>, window_s: f32, finished: bool) -> Cut {
+    let Some(last) = words.pop() else {
+        return Cut {
+            keep: words,
+            next: None,
+            dropped: None,
+        };
     };
     let cut = !finished || last.end_s > window_s - EDGE_S;
     if !cut {
-        let next = last.end_s;
-        return (words, Some(next));
+        let next = advance(last.end_s);
+        words.push(last);
+        return Cut {
+            keep: words,
+            next,
+            dropped: None,
+        };
     }
-    let cut_word = words.pop().expect("there is a last word");
-    match words.last() {
-        Some(complete) => {
-            let next = complete.end_s;
-            (words, Some(next))
-        }
-        None if cut_word.start_s > MIN_ADVANCE_S => (words, Some(cut_word.start_s)),
-        None => (words, None),
+    // The cut word is heard again from its start, or from the end of the word
+    // before it if that is later (a word's start is never before its
+    // predecessor's end, but the aligner's guesses for the last word of a
+    // window are rough).
+    let resume = words
+        .last()
+        .map_or(last.start_s, |complete| complete.end_s.max(last.start_s));
+    Cut {
+        keep: words,
+        next: advance(resume),
+        dropped: Some(last),
     }
+}
+
+/// A word as the comparison sees it: letters and digits, lower case.
+fn plain(text: &str) -> String {
+    text.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// Whether `first`, the first word of a window, is the tail of `kept`, the
+/// last word kept before it, heard again.
+///
+/// `dropped` is the word the previous window cut off. When `first` is that
+/// word's text it is that word, heard whole, and not a tail, even if the same
+/// word was just said ("no no").
+fn is_tail_of(kept: &Word, first: &Word, dropped: Option<&Word>) -> bool {
+    let text = plain(&first.text);
+    !text.is_empty()
+        && text == plain(&kept.text)
+        && dropped.is_none_or(|d| plain(&d.text) != text)
+        && first.start_s <= kept.end_s + DUPLICATE_S
 }
 
 /// Transcribe `audio` (16 kHz mono) window by window.
@@ -109,6 +174,8 @@ pub(crate) fn run_windows<T: WindowTranscriber>(
     let mut words = Vec::new();
     let mut windows = 0;
     let mut seek = 0usize;
+    // The word the window before this one cut off, with absolute times.
+    let mut last_dropped: Option<Word> = None;
     while total - seek >= MIN_WINDOW_SAMPLES {
         if cancel() {
             return Err(WhisperError::Cancelled);
@@ -123,23 +190,40 @@ pub(crate) fn run_windows<T: WindowTranscriber>(
 
         let last_window = end == total;
         let window_s = slice.len() as f32 / rate;
-        let (keep, next) = if last_window {
-            (result.words, None)
+        let (keep, next, dropped) = if last_window {
+            (result.words, None, None)
         } else {
-            cut_window(result.words, window_s, result.finished)
+            let cut = cut_window(result.words, window_s, result.finished);
+            (cut.keep, cut.next, cut.dropped)
         };
         let offset = seek as f32 / rate;
-        words.extend(keep.into_iter().map(|w| Word {
+        let mut keep: Vec<Word> = keep
+            .into_iter()
+            .map(|w| Word {
+                start_s: w.start_s + offset,
+                end_s: w.end_s + offset,
+                ..w
+            })
+            .collect();
+        // This window began inside the last kept word if that word is its
+        // first, again.
+        if let (Some(kept), Some(first)) = (words.last(), keep.first()) {
+            if is_tail_of(kept, first, last_dropped.as_ref()) {
+                keep.remove(0);
+            }
+        }
+        words.extend(keep);
+        last_dropped = dropped.map(|w| Word {
             start_s: w.start_s + offset,
             end_s: w.end_s + offset,
             ..w
-        }));
+        });
         if last_window {
             break;
         }
         seek = match next {
             Some(s) => {
-                let advance = (s.max(MIN_ADVANCE_S) * rate).round() as usize;
+                let advance = (s * rate).round() as usize;
                 // A word's end can lie past the window's if the aligner
                 // overshoots; the window's end is as far as it can go.
                 seek + advance.min(end - seek)
@@ -261,12 +345,12 @@ mod tests {
         // Window 1 [0, 30): word 14 ends at 29.4, 0.6 s from the edge, so it is
         // complete and the next window starts where it ended. Window 2
         // [29.4, 59.4): word 29 ends exactly at the edge, so it is cut, and the
-        // next window starts at the end of word 28 (57.4). Window 3 reaches the
-        // end of the audio.
+        // next window starts at the later of the end of word 28 (57.4) and the
+        // start of word 29 (58.1): 58.1. Window 3 reaches the end of the audio.
         let starts: Vec<f32> = model.calls.borrow().iter().map(|c| c.0).collect();
         assert_eq!(starts.len(), 3, "{starts:?}");
         assert_eq!(out.windows, 3);
-        for (got, want) in starts.iter().zip([0.0, 29.4, 57.4]) {
+        for (got, want) in starts.iter().zip([0.0, 29.4, 58.1]) {
             assert!((got - want).abs() < 1e-3, "{starts:?}");
         }
     }
@@ -310,9 +394,10 @@ mod tests {
         let mut model = LateWord(Vec::new());
         let out = run_windows(&mut model, &ramp(45.0), None, &never).unwrap();
         // First window [0, 30): "long" runs to the edge, so it is dropped and
-        // the next window starts where "early" ended (11 s).
+        // the next window starts where it did (27 s), which is later than where
+        // "early" ended (11 s).
         assert!(model.0.len() >= 2, "{:?}", model.0);
-        assert!((model.0[1] - 11.0).abs() < 1e-3, "{:?}", model.0);
+        assert!((model.0[1] - 27.0).abs() < 1e-3, "{:?}", model.0);
         assert_eq!(texts(&out.words), vec!["early", "long"]);
         assert!((out.words[1].start_s - 27.0).abs() < 1e-3);
         assert!((out.words[1].end_s - 33.0).abs() < 1e-3);
@@ -402,7 +487,8 @@ mod tests {
     fn a_window_that_never_gets_anywhere_still_ends() {
         // A model that hears one word ending at 0.1 s and gives up each time
         // (not finished): the next window must still start later, and the run
-        // must end.
+        // must end. (`a_hallucinating_window_costs_a_whole_window...` has the
+        // arithmetic.)
         struct Stuck(usize);
         impl WindowTranscriber for Stuck {
             fn window(&mut self, _: &[f32], _: Option<u32>) -> Result<WindowResult> {
@@ -430,8 +516,7 @@ mod tests {
         }
         let mut model = Stuck(0);
         let out = run_windows(&mut model, &ramp(60.0), None, &never).unwrap();
-        // 0.5 s is the least a window advances.
-        assert!(model.0 <= 120 + 1, "{} windows", model.0);
+        assert_eq!(model.0, 2, "a whole window each time");
         assert_eq!(out.windows, model.0);
     }
 
@@ -477,6 +562,149 @@ mod tests {
     }
 
     #[test]
+    fn a_hallucinating_window_costs_a_whole_window_not_half_a_second() {
+        // A model that writes two words in the first 0.2 s of every window and
+        // then gives up (not finished). The kept word ends at 0.1 s, and a
+        // window must not start 0.5 s on from it, sixty times over: it
+        // advances a whole window, as `whisper.transcribe` does when no word
+        // ends past the start.
+        struct Hallucinates(usize);
+        impl WindowTranscriber for Hallucinates {
+            fn window(&mut self, _: &[f32], _: Option<u32>) -> Result<WindowResult> {
+                self.0 += 1;
+                let word = |text: &str, start_s: f32| Word {
+                    text: text.into(),
+                    start_s,
+                    end_s: start_s + 0.1,
+                    confidence: 1.0,
+                };
+                Ok(WindowResult {
+                    words: vec![word("a", 0.0), word("b", 0.1)],
+                    language: 1,
+                    speech: true,
+                    finished: false,
+                })
+            }
+        }
+        let mut model = Hallucinates(0);
+        let out = run_windows(&mut model, &ramp(60.0), None, &never).unwrap();
+        // [0, 30) then [30, 60), which is the last and keeps both its words.
+        assert_eq!(model.0, 2, "{} windows", model.0);
+        assert_eq!(out.windows, 2);
+        assert_eq!(texts(&out.words), vec!["a", "a", "b"]);
+        let starts: Vec<f32> = out.words.iter().map(|w| w.start_s).collect();
+        assert_eq!(starts.len(), 3);
+        assert!((starts[0] - 0.0).abs() < 1e-3 && (starts[1] - 30.0).abs() < 1e-3);
+    }
+
+    /// Continuous speech: word `k` is spoken from `0.7 k` to `0.7 (k + 1)` s
+    /// with no pause, and the aligner puts every boundary between two words
+    /// [`EARLY`] seconds before the word before has finished (measured on the
+    /// real model: 0.14 s). `texts` says what each word is.
+    struct Continuous {
+        texts: Vec<String>,
+        /// The least of a word's tail the model still writes down. A window
+        /// that starts inside a word hears no more of it than that.
+        least_tail: f32,
+        calls: Vec<f32>,
+    }
+
+    const EARLY: f32 = 0.14;
+
+    impl Continuous {
+        fn new(least_tail: f32) -> Self {
+            Self {
+                texts: (0..200).map(|k| format!("w{k}")).collect(),
+                least_tail,
+                calls: Vec::new(),
+            }
+        }
+    }
+
+    impl WindowTranscriber for Continuous {
+        fn window(&mut self, audio: &[f32], _: Option<u32>) -> Result<WindowResult> {
+            let from = audio[0] / RATE as f32;
+            let len = audio.len() as f32 / RATE as f32;
+            self.calls.push(from);
+            let mut words: Vec<Word> = Vec::new();
+            for k in 0..self.texts.len() {
+                let (start, end) = (0.7 * k as f32, 0.7 * (k + 1) as f32);
+                if end - from < self.least_tail {
+                    continue; // over before the window began
+                }
+                if start >= from + len {
+                    break;
+                }
+                // The first word of a window starts with it; any other starts
+                // where the aligner puts the boundary.
+                let start_s = if words.is_empty() {
+                    0.0
+                } else {
+                    (start - EARLY - from).max(0.0)
+                };
+                let end_s = (end - EARLY - from).clamp(start_s + 0.02, len);
+                words.push(Word {
+                    text: self.texts[k].clone(),
+                    start_s,
+                    end_s,
+                    confidence: 0.9,
+                });
+            }
+            Ok(WindowResult {
+                speech: !words.is_empty(),
+                words,
+                language: 7,
+                finished: true,
+            })
+        }
+    }
+
+    #[test]
+    fn the_tail_of_a_kept_word_is_not_heard_as_a_word_of_its_own() {
+        // The aligner ends a word 0.14 s before it has finished when the next
+        // follows with no pause, so a window that starts where the last kept
+        // word ends starts inside that word's tail, and the model, which writes
+        // down any tail of 0.1 s or more, writes the word again.
+        let mut model = Continuous::new(0.1);
+        let out = run_windows(&mut model, &ramp(100.0), None, &never).unwrap();
+
+        // Words 0..=142 start before 100 s (word 142 at 99.4 s).
+        let expected: Vec<String> = (0..=142).map(|k| format!("w{k}")).collect();
+        let got: Vec<String> = out.words.iter().map(|w| w.text.clone()).collect();
+        assert_eq!(got, expected, "each word once, in order");
+        assert!(out.windows >= 4, "the recording has more than one window");
+        for pair in out.words.windows(2) {
+            assert!(pair[0].start_s <= pair[1].start_s, "{pair:?}");
+        }
+    }
+
+    #[test]
+    fn a_word_said_twice_in_a_row_is_not_taken_for_a_tail() {
+        // "no no" where the window cuts: the second is cut off, dropped, and
+        // heard whole in the next window, where it has the first one's text.
+        // Here the model hears none of the first one's tail (it needs 0.2 s),
+        // so the word at the start of the second window is the real second
+        // "no", and has to stay.
+        let mut model = Continuous::new(0.2);
+        model.texts[41] = "no".into();
+        model.texts[42] = "no".into();
+        let out = run_windows(&mut model, &ramp(50.0), None, &never).unwrap();
+        let got: Vec<&str> = out.words.iter().map(|w| w.text.as_str()).collect();
+        let expected: Vec<String> = (0..=71)
+            .map(|k| {
+                if k == 41 || k == 42 {
+                    "no".into()
+                } else {
+                    format!("w{k}")
+                }
+            })
+            .collect();
+        assert_eq!(got, expected, "both of the words, each once");
+        // And the window really did start where the second one was cut.
+        assert!(model.calls.len() >= 2, "{:?}", model.calls);
+    }
+
+    #[test]
     fn cutting_rules_on_their_own() {
         let w = |t: &str, s: f32, e: f32| Word {
             text: t.into(),
@@ -484,19 +712,88 @@ mod tests {
             end_s: e,
             confidence: 1.0,
         };
+        let cut = |words: Vec<Word>, finished: bool| cut_window(words, 30.0, finished);
+        let kept = |c: &Cut| c.keep.len();
         // No words: pass over the whole window.
-        assert_eq!(cut_window(Vec::new(), 30.0, true), (Vec::new(), None));
+        let c = cut(Vec::new(), true);
+        assert_eq!((kept(&c), c.next, c.dropped), (0, None, None));
         // Last word well inside: keep all, resume at its end.
-        let (keep, next) = cut_window(vec![w("a", 1.0, 2.0), w("b", 3.0, 20.0)], 30.0, true);
-        assert_eq!((keep.len(), next), (2, Some(20.0)));
-        // Last word at the edge: drop it, resume at the previous end.
-        let (keep, next) = cut_window(vec![w("a", 1.0, 2.0), w("b", 3.0, 29.9)], 30.0, true);
-        assert_eq!((texts(&keep), next), (vec!["a"], Some(2.0)));
+        let c = cut(vec![w("a", 1.0, 2.0), w("b", 3.0, 20.0)], true);
+        assert_eq!((kept(&c), c.next, c.dropped), (2, Some(20.0), None));
+        // Last word at the edge: drop it, resume at its start, which is the
+        // later of that and the previous word's end.
+        let c = cut(vec![w("a", 1.0, 2.0), w("b", 3.0, 29.9)], true);
+        assert_eq!((texts(&c.keep), c.next), (vec!["a"], Some(3.0)));
+        assert_eq!(c.dropped.map(|d| d.text), Some("b".to_string()));
+        // ...unless the previous word's end is the later (the aligner's guess
+        // for the last word of a window is rough).
+        let c = cut(vec![w("a", 1.0, 4.0), w("b", 3.0, 29.9)], true);
+        assert_eq!((texts(&c.keep), c.next), (vec!["a"], Some(4.0)));
         // Decoder gave up: the last word goes even if it ends early.
-        let (keep, next) = cut_window(vec![w("a", 1.0, 2.0), w("b", 3.0, 10.0)], 30.0, false);
-        assert_eq!((texts(&keep), next), (vec!["a"], Some(2.0)));
-        // Only a cut word, started early: nothing is learned, move on.
-        let (keep, next) = cut_window(vec![w("a", 0.2, 30.0)], 30.0, true);
-        assert_eq!((keep.len(), next), (0, None));
+        let c = cut(vec![w("a", 1.0, 2.0), w("b", 3.0, 10.0)], false);
+        assert_eq!((texts(&c.keep), c.next), (vec!["a"], Some(3.0)));
+        // Only a cut word, started early: nothing is learned, move on a whole window.
+        let c = cut(vec![w("a", 0.2, 30.0)], true);
+        assert_eq!((kept(&c), c.next), (0, None));
+        // Only a cut word, started late: hear it from its start.
+        let c = cut(vec![w("a", 20.0, 30.0)], true);
+        assert_eq!((kept(&c), c.next), (0, Some(20.0)));
+    }
+
+    #[test]
+    fn no_word_ending_past_the_minimum_means_a_whole_window() {
+        let w = |t: &str, s: f32, e: f32| Word {
+            text: t.into(),
+            start_s: s,
+            end_s: e,
+            confidence: 1.0,
+        };
+        // Kept words that end within MIN_ADVANCE_S of the start: a whole window,
+        // not 0.5 s on.
+        let c = cut_window(vec![w("a", 0.0, 0.3)], 30.0, true);
+        assert_eq!((c.keep.len(), c.next), (1, None));
+        let c = cut_window(vec![w("a", 0.0, 0.1), w("b", 0.1, 0.2)], 30.0, false);
+        assert_eq!((c.keep.len(), c.next), (1, None));
+        // The boundary itself is "not past" it, and a hair later is.
+        let c = cut_window(vec![w("a", 0.0, MIN_ADVANCE_S)], 30.0, true);
+        assert_eq!(c.next, None);
+        let c = cut_window(vec![w("a", 0.0, MIN_ADVANCE_S + 0.01)], 30.0, true);
+        assert_eq!(c.next, Some(MIN_ADVANCE_S + 0.01));
+    }
+
+    #[test]
+    fn a_tail_is_a_repeat_of_the_last_kept_word_that_starts_where_it_ended() {
+        let w = |t: &str, s: f32, e: f32| Word {
+            text: t.into(),
+            start_s: s,
+            end_s: e,
+            confidence: 1.0,
+        };
+        let kept = w("friend,", 28.0, 29.0);
+        // The same word, from where the kept one ended: its tail.
+        assert!(is_tail_of(&kept, &w("Friend", 29.0, 29.05), None));
+        assert!(is_tail_of(
+            &kept,
+            &w("friend", 29.0 + DUPLICATE_S, 29.4),
+            None
+        ));
+        // Later than that, or another word: not.
+        assert!(!is_tail_of(
+            &kept,
+            &w("friend", 29.0 + DUPLICATE_S + 0.01, 29.5),
+            None
+        ));
+        assert!(!is_tail_of(&kept, &w("friends", 29.0, 29.05), None));
+        // Punctuation alone is not a word to compare.
+        assert!(!is_tail_of(&w(",", 1.0, 1.1), &w(".", 1.1, 1.2), None));
+        // The word the last window cut off, heard whole, is not a tail even
+        // when it is the same word.
+        let cut = w("friend", 29.0, 30.0);
+        assert!(!is_tail_of(&kept, &w("friend", 29.0, 29.5), Some(&cut)));
+        assert!(is_tail_of(
+            &kept,
+            &w("friend", 29.0, 29.5),
+            Some(&w("other", 29.0, 30.0))
+        ));
     }
 }
