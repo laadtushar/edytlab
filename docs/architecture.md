@@ -239,9 +239,12 @@ pub struct Agent {
     dispatcher:   Arc<Mutex<ToolDispatcher>>,
     store:        Arc<Mutex<Store>>,
     engine:       Arc<Mutex<Engine>>,
-    clipboard:    Arc<Mutex<Option<Vec<f32>>>>,
+    clipboard:    Arc<Mutex<Option<tools::Clipboard>>>,
     conversation: Vec<Message>,
     plan_notify:  Arc<Notify>,
+    plan_steps_override: Arc<std::sync::Mutex<Option<String>>>,
+    plan_rejected: Arc<AtomicBool>,
+    plan_first:   bool,
     memory:       Option<Arc<MemoryStore>>,
     skills:       Option<Arc<Mutex<SkillLibrary>>>,
     profile_body: Option<String>,
@@ -373,12 +376,12 @@ server, takes the first streaming request, and prints its parts. Read them with
 cargo test -p ai --test request_size -- --nocapture
 ```
 
-On v0.6.0 (`d7fe4d5`, 2026-10-16). The full list has grown with the tools since the slim set landed (#479), when it was 54 KB for Anthropic and 57 KB as chat-completions JSON; the slim request has not:
+On v0.7.0 (`0bc50ce`, 2026-10-22), with 94 tools. The full list has grown with the tools since the slim set landed (#479), when it was 54 KB for Anthropic and 57 KB as chat-completions JSON; the slim request has not:
 
 | Request | System prompt | Tool schemas | Total |
 |---------|---------------|--------------|-------|
-| Anthropic (every tool) | 1.2 KB | 62 KB | 63.4 KB |
-| A chat-completions provider sent every tool | 1.2 KB | 64.7 KB | 66 KB |
+| Anthropic (every tool) | 1.2 KB | 63.1 KB | 64.5 KB |
+| A chat-completions provider sent every tool | 1.2 KB | 65.8 KB | 67.1 KB |
 | Ollama (slim set, with the names line) | 2.3 KB | 6.3 KB | 8.7 KB |
 
 The system prompt is a kilobyte, so the fix is fewer and terser tools, and only
@@ -834,7 +837,11 @@ pub struct Clip {
 ```rust
 // crates/session/src/store.rs
 impl Store {
-    pub fn open(project_dir: &Path) -> Result<Self>  // Creates <project_dir>/.audiograph/ if absent
+    // The openers (#566): the registry in `session::live` knows every store still alive. The ones that write create <project_dir>/.audiograph/ if absent.
+    pub fn open_shared(project_dir: &Path) -> Result<LiveStore>   // the project the window has: finds or builds the one live store
+    pub fn open_private(project_dir: &Path) -> Result<Store>      // a folder of the code's own (`batch_apply`); AlreadyOpen if a store is live there
+    pub fn open_read_only(project_dir: &Path) -> Result<Store>    // a reader that refuses every write (the reclaimer's planner)
+    pub fn open(project_dir: &Path) -> Result<Self>               // raw, asks the registry nothing: tests and the `raw-open` feature only
     pub fn head(&self) -> Option<NodeId>             // Current node pointer
     pub fn set_head(&mut self, id: NodeId) -> Result<()>
     pub fn get(&self, id: NodeId) -> Result<SessionNode>
@@ -895,6 +902,7 @@ Nodes are stored as content-addressed JSON files under `<project-dir>/.audiograp
 ```
 <project-dir>/
   project.json     # project metadata (name, notes, export tags), beside the store
+  generated/       # audio the tools generate (mix_to_new_track, generate_tone, generate_noise); no sweep touches it
   .audiograph/
     nodes/
       <hex[0..2]>/<blake3-hex>.json   # sharded by the first two hex chars
@@ -1017,7 +1025,7 @@ The runtime is loaded dynamically from `ORT_DYLIB_PATH`, from the directory the 
 
 `ml_pipeline::runtime::ensure()` does the loading, and every code path that builds an `ort` session (`ModelRegistry::load`, `WhisperModel::load`, `DemucsModel::load`) calls it first. It looks at `ORT_DYLIB_PATH` (a relative path is resolved against the executable's directory only), then the library file name in the bundle directory, then next to the executable. The bundle directory is where the installer puts the library, and the app registers it once in its setup hook (`ml_pipeline::runtime::set_bundle_dir`, refused unless the path is absolute and refused a second time, so nothing running later can redirect the search): `Contents/Frameworks` on macOS, found from the executable at `Contents/MacOS` (an executable anywhere else, such as a `cargo run` build, has none), Tauri's resource directory on Linux (`<exe>/../lib/edytlab`, which is `/usr/lib/edytlab` for a deb and `<mount>/usr/lib/edytlab` for an AppImage, and the executable's own directory in a `target/` build, where it is not counted as a bundle), and none on Windows, because the DLL sits next to the exe, which is searched anyway. `runtime::bundle_dir_for` is that layout as a pure function over the executable path. There is no working-directory, bare-name or system search: a library found in the directory the app was started from could have been planted there (CWE-427), and a system copy may be the wrong version. A candidate that is not an absolute path is refused outright, because the file that was checked and the file the system loader then opens could be two different files. `ort` 2.0.0-rc.12 could not report a library it failed to load: building the error re-entered its own initialisation and the thread blocked forever (through `ort::init_from` too). rc.13 fixed that, and `ort::init_from` now returns an error, but `ort`'s own load on first use (`Session::builder`, `ort::api()`) still panics when it fails, which aborts a release build, and it hands a bare or relative path to the system loader to search. So `ensure()` opens the library itself by absolute path and makes the checks `ort` would (the `OrtGetApiBase` entry point, version 1.23 or newer, the C API version), and hands it to `ort::init_from` only once they pass. A missing library is `Error::MissingRuntime { searched }` and one that fails the checks is `Error::RuntimeLoad`, where a model load used to hang while the agent held the dispatcher, store and engine locks. On macOS a library that is found is not opened on a system older than the runtime's minimum: dyld reports a too-new minimum only lazily, as an addendum to a symbol error, so the check is ours and the answer is `Error::RuntimeUnsupported { needs, running }` (`kern.osproductversion` against `min_macos` in `apps/desktop/src-tauri/ml-runtime.json`, which `runtime.rs` includes at build time, so the pin has one home; a version that cannot be read does not refuse, and neither does `10.16`, the stand-in macOS answers a process that has `SYSTEM_VERSION_COMPAT=1` set, which no macOS ever had; dyld still decides). On Windows the library is opened with `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32`, so its own imports (`msvcp140.dll`, `msvcp140_1.dll`, `vcruntime140*.dll`) come from its directory and `System32` and are not searched for in the working directory or on `PATH`. `runtime::info()` is `ensure()` with the answer kept: the file that loaded, the version the library reports and which of the three places it came from. The `ml_runtime_status` command returns it for the line in Settings ("ONNX Runtime: 1.23.2 (bundled)", "not installed in this build", or the reason it cannot be used), loading the library on the blocking pool if it has not been. The tools turn either into a tool error that still says the feature is not implemented.
 
-**What the installers carry.** Every release installer after v0.6.1 carries ONNX Runtime 1.23.2 (CPU), the version `ml-runtime.json` pins, with its `LICENSE` and `ThirdPartyNotices.txt`. Each release leg fetches it with `scripts/fetch-ml-runtime.sh`, which checks the archive and the unpacked library against the manifest's SHA-256s, and builds with its platform's overlay, `apps/desktop/src-tauri/tauri.ml-runtime.<linux|macos|windows>.conf.json`, passed with `--config`; the base `tauri.conf.json` names none of it, so a build that has not fetched anything still builds. Where each file goes:
+**What the installers carry.** Every release installer since v0.7.0 (the first after v0.6.1) carries ONNX Runtime 1.23.2 (CPU), the version `ml-runtime.json` pins, with its `LICENSE` and `ThirdPartyNotices.txt`. Each release leg fetches it with `scripts/fetch-ml-runtime.sh`, which checks the archive and the unpacked library against the manifest's SHA-256s, and builds with its platform's overlay, `apps/desktop/src-tauri/tauri.ml-runtime.<linux|macos|windows>.conf.json`, passed with `--config`; the base `tauri.conf.json` names none of it, so a build that has not fetched anything still builds. Where each file goes:
 
 | Installer | Library | Notices |
 |---|---|---|
@@ -1027,7 +1035,7 @@ The runtime is loaded dynamically from `ORT_DYLIB_PATH`, from the directory the 
 
 After the build and before any upload, `scripts/installer-ml-runtime.py check` opens each installer (`dpkg-deb -x`, `--appimage-extract`, the `.app` and its `.tar.gz`, the mounted `.dmg`, `msiexec /a`, `7z`) and fails unless every file the overlay adds is there byte for byte, the library has the manifest's `library_sha256` (a signed macOS build re-signs the dylib, so there its signature and team are checked instead), every Visual C++ runtime DLL the installed `onnxruntime.dll` imports sits beside it, and the app binary from that installer, run as `edytlab-desktop --ml-runtime-status` (which prints the `ml_runtime_status` answer as JSON and exits without a window), loads that file as 1.23.2 and calls it bundled. `crates/ml-pipeline/tests/runtime_installers.rs` holds the overlays to `runtime::bundle_dir_for`, and `crates/tools/tests/release_ml_runtime.rs` holds both release workflows to fetch, overlay and check before they upload.
 
-`ml_pipeline::fetched_model_path` downloads, verifies and caches a pinned artifact (URL, size and SHA-256 per file): it streams to a `.part` file, resumes with `Range`, re-hashes the `.part` from disk before renaming it into place, refuses a truncated or wrong-hash file and fetches it again once, can be cancelled, and runs its HTTP request on its own thread so it is safe to call from async code. It holds an OS lock on `<root>/<id>.lock` for the length of a fetch, so a second edytlab process (or the CLI) on the same data directory waits instead of writing into the same `.part`, and the re-hash means a writer that ignores the lock still cannot get an unverified file given its final name. Only https URLs are accepted (plain http only for localhost), and at most five redirects are followed. It has no callers and no model is pinned, so nothing is downloaded today. The app now looks where the installers will put the runtime library, but nothing ships it or sets `ORT_DYLIB_PATH` yet (the release workflows are the next step), so no model can load in a user's install and Settings says the runtime is not installed in this build. Shipping the runtime and the download UI is the rest of [#383](https://github.com/laadtushar/edytlab/issues/383).
+`ml_pipeline::fetched_model_path` downloads, verifies and caches a pinned artifact (URL, size and SHA-256 per file): it streams to a `.part` file, resumes with `Range`, re-hashes the `.part` from disk before renaming it into place, refuses a truncated or wrong-hash file and fetches it again once, can be cancelled, and runs its HTTP request on its own thread so it is safe to call from async code. It holds an OS lock on `<root>/<id>.lock` for the length of a fetch, so a second edytlab process (or the CLI) on the same data directory waits instead of writing into the same `.part`, and the re-hash means a writer that ignores the lock still cannot get an unverified file given its final name. Only https URLs are accepted (plain http only for localhost), and at most five redirects are followed. It has no callers and no model is pinned, so nothing is downloaded today. The runtime is in the installers and the app finds it there (Settings says "ONNX Runtime: 1.23.2 (bundled)"; a build from source has none and says "not installed in this build"), but no model ships and no inference runs, so `separate_stems` and `transcribe` still fail. Pinning a model, calling the downloader and the download UI are the rest of [#383](https://github.com/laadtushar/edytlab/issues/383).
 
 ### Whisper (Transcription)
 
@@ -1226,7 +1234,7 @@ The agent turn emits events via Tauri's event system (names in `apps/desktop/src
 
 ### Lock Ordering (Deadlock Prevention)
 
-`AppState` holds `Arc<Mutex<Store>>` and `Arc<Mutex<Engine>>` separately. The invariant documented in `CLAUDE.md`:
+`AppState` holds the store (`Arc<Mutex<Option<LiveStore>>>`) and the engine (`Arc<Mutex<Engine>>`) behind separate locks. The invariant documented in `CLAUDE.md`:
 
 ```rust
 // CORRECT — drop store lock before acquiring engine lock

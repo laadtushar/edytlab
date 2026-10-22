@@ -35,7 +35,8 @@
 //! registers for its installer's layout ([`runtime::set_bundle_dir`]:
 //! `Contents/Frameworks` on macOS, Tauri's resource directory on Linux),
 //! then next to the executable (where the Windows installer puts it).
-//! The app finds the library there, but no installer carries it yet (#383).
+//! The app finds the library there. Every release installer since v0.7.0
+//! carries it; a build from source has none (#383).
 //! [`runtime::info`] reports which file loaded and its version.
 //!
 //! Left alone, `ort` **panics** when it cannot load the library (and, with
@@ -99,7 +100,7 @@ pub enum Error {
     /// (`ORT_DYLIB_PATH`, ONNX Runtime 1.x or newer for the `ort` we
     /// build against) is in the docs.
     #[error(
-        "ONNX Runtime library not found; looked in: {}. edytlab does not ship it yet (#383)",
+        "ONNX Runtime library not found; looked in: {}. The release installers include it (#383); a build from source does not",
         list_paths(.searched)
     )]
     MissingRuntime { searched: Vec<PathBuf> },

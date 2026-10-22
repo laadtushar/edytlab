@@ -171,7 +171,7 @@ With Ollama there's no key, and the chat stays on your machine too.
 
 Two honest caveats about that last part:
 
-- Local models have small context windows. In v0.4.0 one measured first request was about 15,000 tokens, and a model with an 8,192-token context refused it. Since v0.5.0 Ollama gets a core set of tools plus the ones your message names, about 8.7 KB of request against about 66 KB with every tool in the test suite (bytes, not tokens), but I haven't re-run that model on it.
+- Local models have small context windows. In v0.4.0 one measured first request was about 15,000 tokens, and a model with an 8,192-token context refused it. Since v0.5.0 Ollama gets a core set of tools plus the ones your message names, about 8.7 KB of request against about 67 KB with every tool in the test suite (bytes, not tokens), but I haven't re-run that model on it.
 - The recordings were made with Claude as the agent. I haven't confirmed which local models can finish a job like these.
 
 The desktop app sends no telemetry. API keys live in your operating system's credential store. On Linux, v0.4.0 and earlier kept them in the kernel keyring only until you reboot; since v0.5.0 they go in the Secret Service (GNOME Keyring, KWallet or KeePassXC), with a warning when none is running. I haven't checked that across a real reboot yet.
@@ -207,7 +207,7 @@ Places a contributor could make a real difference:
 - macOS microphone access. Since v0.5.0 the build has the entitlement and the usage text, but nobody has recorded on a signed, notarized macOS build to confirm it. That check is issue 464, and it needs a Mac.
 - A real pass on Linux with a locked keyring. The Secret Service code is tested against fakes only. Issue 497.
 - New audio tools and new LLM providers. Each is one registered implementation, and docs/contributing.md walks through both.
-- The big one: stem separation and transcription are not shipped. The Demucs and Whisper tools are wired in, but their inference is not (issues 383 to 385). If you've shipped ONNX Runtime inside a Tauri app, I'd like to talk.
+- The big one: stem separation and transcription are not shipped. The Demucs and Whisper tools are wired in, and since v0.7.0 the installers carry the ONNX Runtime, but no model is downloaded and nothing runs one (issues 383 to 385). If you've shipped model inference inside a Tauri app, I'd like to talk.
 
 The repo has a "good first issue" label, but nothing open carries it yet. If you want a starter task, reply here and I'll write one up.
 
@@ -238,9 +238,11 @@ Sources for the claims:
 - 94 tools: `docs/tools-reference.md`. Providers and Ollama:
   `README.md`. Local-first table: `website/app/use-cases/local-ai-audio-editor/page.tsx`.
   The 15,000-token / 8,192-context numbers are v0.4.0's, from issue 395; what
-  has been sent since v0.5.0, with the v0.6.0 sizes, is in
-  `docs/architecture.md` ("Request size and small-context models") and
-  `crates/ai/tests/request_size.rs`.
+  has been sent since v0.5.0 is in `docs/architecture.md` ("Request size and
+  small-context models", whose table is v0.6.0's) and
+  `crates/ai/tests/request_size.rs`; the 8.7 KB and 67 KB here are v0.7.0's,
+  measured on 2026-10-22 with `cargo test -p ai --test request_size --
+  --nocapture`.
 - Undo story: v0.4.0 changelog, `apps/desktop/src/lib/headTrail.ts`.
 - Zero-dependency effects crate and Rubber Band decision:
   `crates/audio-dsp/Cargo.toml`, `crates/audio-time/src/vocoder.rs`.
@@ -253,8 +255,8 @@ Decisions for you:
   `CLAUDE.md`) and `marketing/README.md` recommends disclosing once. Delete
   the line if you prefer, but decide before someone asks.
 - Post 5 promises to write up a starter task on request, and says no open
-  issue carries the `good first issue` label (true when checked on 2026-10-11: 15 open
-  issues, none labelled). If you label two issues first, replace that paragraph with
+  issue carries the `good first issue` label (true when checked on 2026-10-22:
+  15 open issues, none labelled). If you label two issues first, replace that paragraph with
   their numbers.
 - Post 1 says the agent in the recordings is Claude. That is what the demo
   captions say. No model version is named anywhere.

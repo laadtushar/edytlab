@@ -6,7 +6,7 @@ with a question. Do not cross-post one text, and do not post two of these on
 the same day (`calendar.md` spaces them out).
 
 This supersedes the v0.3.0-era text in `marketing/launch/reddit.md` for these
-six subreddits: it is updated for v0.6.0, includes the other two DJ demos, and
+six subreddits: it is updated for v0.7.0 (2026-10-22), includes the other two DJ demos, and
 discloses that the demo tracks are synthetic. (That file still has posts for
 r/audioengineering, r/podcasting and r/tauri if you want them later.)
 
@@ -76,7 +76,7 @@ What to know before deciding whether it's worth your time:
 - The tracks are short synthetic loops (about 32 seconds each) that I generated. The recordings show the workflow, not how it copes with a messy real library.
 - Beat and key detection are software estimates. A drifting tempo or a long ambient intro can fool them.
 - The agent flags things instead of hiding them: bars that run a beat behind where it was told to start a track (with the fix), an export peaking right at full scale, a loudness reading that counted the fades.
-- The recordings were made on a development build just before v0.6.0, and v0.6.0 does what they show: the limiter goes on the master bus, so it keeps working when a track changes. v0.5.0 and earlier had no master-bus insert and rendered the tracks into a baked "Master" track instead (issue 460). Only gain, the limiter and three filters run live on the master or a bus; for the compressor in the first demo the agent still mixes the two tracks to a new one.
+- The recordings were made on a development build just before v0.6.0, and v0.6.0 and later do what they show: the limiter goes on the master bus, so it keeps working when a track changes. v0.5.0 and earlier had no master-bus insert and rendered the tracks into a baked "Master" track instead (issue 460). Only gain, the limiter and three filters run live on the master or a bus; for the compressor in the first demo the agent still mixes the two tracks to a new one.
 - No decks, controllers or live mode. It exports WAV, FLAC or MP3 files and has nothing for rekordbox or Serato. No stem separation or acapellas; that isn't built.
 - A test script types the requests into the real app when I record, and I only publish runs that passed my checks. The agent isn't deterministic, so your results can differ.
 - It needs an AI provider: your own key for Anthropic, OpenAI, OpenRouter, Groq or Gemini, or a local model through Ollama. Your audio files aren't uploaded; the chat text goes to the provider you pick, or stays local with Ollama.
@@ -252,7 +252,7 @@ What exists for local models:
 What I have measured:
 
 - Before the change (v0.4.0), a one-line request ("Make track 0 louder by 6 dB.") produced a 15,157-token first request. I pointed the Ollama provider at llama.cpp's llama-server running Qwen2.5-3B with an 8,192-token context, and it refused the request outright. The numbers are in issue 395.
-- After it, the repo's request-size test (`crates/ai/tests/request_size.rs`, against a mock server) puts that same request at about 8.7 KB of text, against about 66 KB with every tool on v0.6.0: roughly 2.3 KB of system prompt and 6.3 KB of tool schemas. That is bytes, not tokens. I did not run a tokenizer, and I have not re-run llama-server with Qwen2.5-3B on the new request.
+- After it, the repo's request-size test (`crates/ai/tests/request_size.rs`, against a mock server) puts that same request at about 8.7 KB of text, against about 67 KB with every tool on v0.7.0: roughly 2.3 KB of system prompt and 6.3 KB of tool schemas. That is bytes, not tokens. I did not run a tokenizer, and I have not re-run llama-server with Qwen2.5-3B on the new request.
 
 What I haven't done:
 
@@ -317,19 +317,23 @@ Demo recordings (DJ jobs, screen-captured from the real app): https://edytlab.co
 
 Facts to re-check on the day:
 
-- Issue numbers and open/closed state. On 2026-10-16: closed are 460 (PR 516),
+- Issue numbers and open/closed state. On 2026-10-22: closed are 460 (PR 516),
   453 (PR 521) and 520 (all in v0.6.0), and 421, 395 and 394 (all in v0.5.0);
   open are 464, 497, 389, 386, 384 and 385, and 383 (the ONNX Runtime and
-  model delivery), reopened on 2026-10-16: the installers carry the runtime
-  from v0.7.0, but no model is downloaded, so keep saying "383 to 385". They were all open when
-  this was written (2026-10-10).
-- "No open issue carries the good first issue label": true when checked (17
-  open issues, none labelled). Label two issues before posting r/opensource
+  model delivery): the installers carry the runtime from v0.7.0 (#615), but no
+  model is downloaded and no inference runs, so keep saying "383 to 385". They
+  were all open when this was written (2026-10-10).
+- "No open issue carries the good first issue label": true when checked on
+  2026-10-22 (15 open issues, none labelled). Label two issues before posting r/opensource
   and replace that sentence with their numbers.
 - r/LocalLLaMA numbers: 15,157 tokens and the 8,192 context are v0.4.0's, from
-  issue 395. The 8.7 KB / 58 KB figures and the 2.3 KB / 6.3 KB split are from
+  issue 395. The 8.7 KB / 67 KB figures and the 2.3 KB / 6.3 KB split are from
   `crates/ai/tests/request_size.rs` (`cargo test -p ai --test request_size --
-  --nocapture`) and the table in `docs/architecture.md`; they are bytes.
+  --nocapture`); they are bytes. Measured on v0.7.0 on 2026-10-22: Ollama's
+  slim request 8,748 B (2,343 B of system prompt, 6,252 B of tools), a
+  chat-completions request with all 94 tools 67,130 B, Anthropic's 64,488 B.
+  The full figure was 58 KB on v0.5.0 and 66 KB on v0.6.0 (the table in
+  `docs/architecture.md` is v0.6.0's).
 - The "Master" workaround is from issue 460. PR 516 closed it, and v0.6.0 is
   the first release with the master-bus tool; v0.5.0 and earlier still render a
   baked "Master" track. The recordings were made after PR 516: the mini-mix

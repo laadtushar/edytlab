@@ -231,8 +231,8 @@ any model works unless you have tried it.
 > in one line of the system prompt so the model knows they exist. Hosted
 > providers still get every tool. The test that measures it
 > (`crates/ai/tests/request_size.rs`, against a mock server) puts the one-line
-> request at about 8.7 KB of text, against about 66 KB with every tool (on
-> v0.6.0; it was 58 KB in v0.5.0, and the full list grows with the tools). That is
+> request at about 8.7 KB of text, against about 67 KB with every tool (on
+> v0.7.0; it was 66 KB in v0.6.0 and 58 KB in v0.5.0, and the full list grows with the tools). That is
 > bytes, not tokens, I have not run a tokenizer, and I have not re-run
 > llama-server with Qwen2.5-3B on the new request. If the server still refuses
 > a request as too long, the app now says so and what to change (llama.cpp does

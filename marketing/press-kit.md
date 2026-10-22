@@ -29,7 +29,7 @@ github.com/laadtushar/edytlab.
 ## Fact sheet
 
 Every line below was checked against the repository or the GitHub release on
-2026-10-16.
+2026-10-22, for v0.7.0.
 
 | | |
 |---|---|

@@ -107,6 +107,7 @@ console.log(project.head); // null | "abc123..."
 ```
 my-session/
   project.json            name, created, last opened, notes
+  generated/              audio the tools generate (mixes, tones, noise)
   .audiograph/
     nodes/                the edit history
     head                  where you are in it
@@ -115,16 +116,19 @@ my-session/
     derived/              audio produced by edits
     clipboard/            blobs a paste depends on
     previews/             render cache — disposable
+    auditions/            audition_effect excerpts — disposable
 ```
 
 The split is by lifetime. `project.json` is the project's identity and
 sits outside the store because the store is an implementation detail.
 `view.json` is disposable — losing it costs a scroll. `trail.json` is the
 path taken through that history; losing it makes undo skip steps, so it sits
-beside `head` and is written the same way. `previews/` is a
-cache: every entry re-derives byte-identically from the node it is named
-for (a whole mix by the node's id, a ranged render by a hash of the node's id
-and the range), so it is the one directory a copy of a project can safely skip.
+beside `head` and is written the same way. `previews/` and `auditions/` are
+caches: every entry in `previews/` re-derives byte-identically from the node it
+is named for (a whole mix by the node's id, a ranged render by a hash of the
+node's id and the range), and an audition is named by its content, so they are
+the two directories a copy of a project can safely skip (Save As leaves them
+behind, #576).
 
 Derived audio lives **inside** the project. It used to be written beside
 whichever source file was opened, which meant a project folder held the
@@ -1255,9 +1259,9 @@ const status = await bridge.mlRuntimeStatus();
 `environment` the file `ORT_DYLIB_PATH` names, `executable` one left beside the
 executable on macOS or Linux (a development build).
 
-The release installers carry ONNX Runtime 1.23.2 from the first release after
-v0.6.1 (#383), so an installed build answers `found` with `source: "bundled"`;
-v0.6.1 and earlier, and a build from source, have none and answer `missing`.
+The release installers carry ONNX Runtime 1.23.2 from v0.7.0 on (#383), so an
+installed build answers `found` with `source: "bundled"`; v0.6.1 and earlier,
+and a build from source, have none and answer `missing`.
 The app binary prints the same answer as one line of JSON, with no window,
 when started with `--ml-runtime-status` (`edytlab-desktop --ml-runtime-status`),
 which is how the release workflows check every installer. A library that loads
@@ -1700,6 +1704,7 @@ interface CapabilityDescriptor {
 
 ---
 
-*Reflects edytlab v0.1.0-dev. Coverage of `tauri-bridge.ts` is enforced by
+*Kept current by the staleness sweep in `CLAUDE.md`; it describes `main`, not a
+release. Coverage of `tauri-bridge.ts` is enforced by
 `apps/desktop/src/__tests__/apiReferenceCoverage.test.ts` — a new export with no
 entry here fails CI.*

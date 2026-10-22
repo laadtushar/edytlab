@@ -259,6 +259,7 @@ src/
 │   ├── graph.ts               # Graph layout (dagre), path steps for the graph
 │   ├── headTrail.ts           # The path taken through history: undo/redo targets
 │   ├── keychainNotice.ts      # The banner's words, for the launch banner and a Save that fell back
+│   ├── ownedControls.ts       # A lane control the user holds stays theirs until the session confirms it (#596)
 │   ├── renderWarnings.ts      # The words for a render's left-out effects
 │   └── undoRedo.ts            # Undo/redo chords, text-entry check
 └── __tests__/
@@ -271,12 +272,14 @@ src/
 
 ```
 src/
+├── bundled_skills.rs # Keeps the skills that ship in the app current in ~/.edytlab/skills/ (#574, #631)
 ├── commands.rs    # The #[tauri::command] functions (~90 of them)
 ├── compare.rs     # The open A/B compare and the previews it holds (#575)
 ├── events.rs      # agent://… event names and payloads
 ├── lib.rs         # Builder, command registration, startup
 ├── main.rs        # Entry point
 ├── mcp_tool.rs    # Wraps MCP server tools as `tools::Tool`
+├── pre_manifest_skills.json # Hashes of the bundled skills shipped before the manifest; frozen
 ├── project.rs     # Project metadata, view state, recents, Save As's copy
 ├── reclaimer.rs   # Background cap on a project's derived audio
 ├── settings.rs    # ~/.edytlab/settings.json: Plan first, kept across a restart (#569)
@@ -314,12 +317,16 @@ src/
 ├── lib.rs          # Agent, LlmConfig, AgentEvent, TurnResult
 ├── agent_loop.rs   # Tool-calling state machine
 ├── anthropic.rs    # Canonical message/stream types
+├── approval.rs     # The approval gate shared by a plan and a held first edit (Plan first)
+├── chatgpt/        # Sign in with ChatGPT: protocol rules, registration store, session (#474; the app does not call it yet)
 ├── context_window.rs  # "The model's context is too small" error (#395)
 ├── keychain.rs     # OS credential storage via keyring
 ├── models.rs       # Model catalogue + 10-min TTL cache
+├── oauth/          # Generic OAuth 2.0 / OpenID Connect client: PKCE, loopback listener, OIDC checks, token endpoint (#474)
 ├── prompt.rs       # System prompt construction
 ├── provider.rs     # LlmProvider trait + 6 implementations
-├── session_context.rs  # Per-turn context: head, tracks, buses, master chain, selection, markers
+├── responses.rs    # OpenAI Responses API codec (#474; no provider uses it yet)
+├── session_context.rs  # Per-turn context: head, tracks, buses, master chain, selection, markers; written within a byte budget (#573)
 ├── tool_selection.rs   # The slim tool set sent to small-context models
 └── validate.rs     # API key validation (1-token probe)
 ```
@@ -406,6 +413,8 @@ fn gain_needs_a_session() {
     assert!(matches!(result, ToolResult::Error(_)));
 }
 ```
+
+`session::Store::open` is the raw open, which asks the registry of live stores nothing: it exists only in `session`'s test build and under its `raw-open` feature, which `tools`, `ai`, the CLI and the desktop crate enable in `[dev-dependencies]` only. A test over a temporary folder can use it; shipped code opens a project with `Store::open_shared` (the project the window has), `Store::open_private` (a folder of its own) or `Store::open_read_only`, and `crates/session/tests/no_unregistered_open.rs` fails a raw open outside test code (see [architecture.md](./architecture.md#off-lock-tools)).
 
 **Frontend Vitest tests** — use `@testing-library/react`:
 ```typescript
@@ -524,7 +533,7 @@ Requires Apple Developer Program membership + signing secrets in GitHub.
 - `APPLE_ID` (for notarization)
 - `APPLE_PASSWORD` (app-specific password)
 
-Trigger `release-signed.yml` via GitHub Actions manual dispatch. None of these secrets (nor the Windows ones below) are provisioned yet, so every release so far is unsigned ([#386](https://github.com/laadtushar/edytlab/issues/386)). A versioned but unsigned release — v0.2.0 was one — comes from dispatching `release-dev.yml` with `channel: release`.
+Trigger `release-signed.yml` via GitHub Actions manual dispatch. None of these secrets (nor the Windows ones below) are provisioned yet, so every release so far is unsigned ([#386](https://github.com/laadtushar/edytlab/issues/386)). A versioned but unsigned release — every one from v0.2.0 to v0.7.0 — comes from dispatching `release-dev.yml` with `channel: release`.
 
 ### Signed Windows Build
 
@@ -552,7 +561,7 @@ Defined in `apps/desktop/src-tauri/tauri.conf.json`:
 
 App version is **canonical** in `apps/desktop/src-tauri/tauri.conf.json`:
 ```json
-"version": "0.2.0"
+"version": "0.7.0"
 ```
 
 The other manifests mirror it, and `apps/desktop/src/__tests__/appVersion.test.ts` fails if any drifts. When bumping a version:
@@ -574,7 +583,7 @@ The other manifests mirror it, and `apps/desktop/src/__tests__/appVersion.test.t
 
 1. Install platform build deps (Linux only: GTK, WebKit, AppIndicator, libssl, libasound2)
 2. Install Rust toolchain (from `rust-toolchain.toml`)
-3. Cache cargo registry + `target/` (`Swatinem/rust-cache`, keyed per platform)
+3. Cache cargo registry + `target/` (`Swatinem/rust-cache`, keyed per platform; saved from `main` only, so a PR restores `main`'s cache and never uploads its own, #610)
 4. Install pnpm + Node 20
 5. `pnpm install --frozen-lockfile`
 6. `cargo fmt --all --check`
@@ -613,7 +622,7 @@ Replaced the earlier `release-mac.yml` / `release-win.yml` pair, which raced eac
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `ORT_DYLIB_PATH` | unset | Path to `libonnxruntime.{so,dylib,dll}`, ONNX Runtime 1.23 or newer (`ort` is built for API level 23, and 1.23.2 is the version to develop against, see [#383](https://github.com/laadtushar/edytlab/issues/383#issuecomment-6106785529)); a relative path is resolved against the executable's directory, never the working directory. Read by `ml_pipeline::runtime::ensure`, which tries it first, then the directory the installer puts the library in (`Contents/Frameworks` on macOS, Tauri's resource directory on Linux, registered by the app at startup), then next to the executable, and never searches the working directory or the system. Nothing in the app sets it. The release installers carry the pinned library from the first release after v0.6.1 ([#383](https://github.com/laadtushar/edytlab/issues/383)), and a build from source has none: to bundle it in a local `tauri build`, fetch it into `apps/desktop/src-tauri/ml-runtime/<platform>` (on Windows also run `python -I scripts/installer-ml-runtime.py stage-vc-runtime apps/desktop/src-tauri/ml-runtime/vc-runtime-x64`) and pass `--config src-tauri/tauri.ml-runtime.<linux|macos|windows>.conf.json`, as the release workflows do. Settings shows which library loaded and its version (`ml_runtime_status`), and on macOS older than 13.4 the app refuses to open any library it finds, including one `ORT_DYLIB_PATH` names (a reported version of `10.16`, which is what macOS answers under `SYSTEM_VERSION_COMPAT=1`, is not a real version and does not refuse). On Windows the library's own imports (the VC++ runtime DLLs) are searched for in its directory and `System32` only, never the working directory or `PATH`. `scripts/fetch-ml-runtime.sh linux-x64 ml-runtime/linux-x64` downloads the pinned one, checked against `apps/desktop/src-tauri/ml-runtime.json` (`win-x64` and `osx-universal2` fetch the others), and CI runs `ml-pipeline`'s ignored `cache_smoke` and `runtime_bundle_real` tests against it on Linux: `ORT_DYLIB_PATH="$PWD/ml-runtime/linux-x64/libonnxruntime.so" cargo test -p ml-pipeline --test cache_smoke --test runtime_bundle_real -- --ignored --test-threads=1` |
+| `ORT_DYLIB_PATH` | unset | Path to `libonnxruntime.{so,dylib,dll}`, ONNX Runtime 1.23 or newer (`ort` is built for API level 23, and 1.23.2 is the version to develop against, see [#383](https://github.com/laadtushar/edytlab/issues/383#issuecomment-6106785529)); a relative path is resolved against the executable's directory, never the working directory. Read by `ml_pipeline::runtime::ensure`, which tries it first, then the directory the installer puts the library in (`Contents/Frameworks` on macOS, Tauri's resource directory on Linux, registered by the app at startup), then next to the executable, and never searches the working directory or the system. Nothing in the app sets it. The release installers carry the pinned library since v0.7.0 ([#383](https://github.com/laadtushar/edytlab/issues/383)), and a build from source has none: to bundle it in a local `tauri build`, fetch it into `apps/desktop/src-tauri/ml-runtime/<platform>` (on Windows also run `python -I scripts/installer-ml-runtime.py stage-vc-runtime apps/desktop/src-tauri/ml-runtime/vc-runtime-x64`) and pass `--config src-tauri/tauri.ml-runtime.<linux|macos|windows>.conf.json`, as the release workflows do. Settings shows which library loaded and its version (`ml_runtime_status`), and on macOS older than 13.4 the app refuses to open any library it finds, including one `ORT_DYLIB_PATH` names (a reported version of `10.16`, which is what macOS answers under `SYSTEM_VERSION_COMPAT=1`, is not a real version and does not refuse). On Windows the library's own imports (the VC++ runtime DLLs) are searched for in its directory and `System32` only, never the working directory or `PATH`. `scripts/fetch-ml-runtime.sh linux-x64 ml-runtime/linux-x64` downloads the pinned one, checked against `apps/desktop/src-tauri/ml-runtime.json` (`win-x64` and `osx-universal2` fetch the others), and CI runs `ml-pipeline`'s ignored `cache_smoke` and `runtime_bundle_real` tests against it on Linux: `ORT_DYLIB_PATH="$PWD/ml-runtime/linux-x64/libonnxruntime.so" cargo test -p ml-pipeline --test cache_smoke --test runtime_bundle_real -- --ignored --test-threads=1` |
 | `WHISPER_MODEL_PATH`, `DEMUCS_MODEL_PATH` | unset | Model file locations — see [ML Model Files](#ml-model-files-whisperdemucs--not-usable-yet) |
 
 `RUST_LOG` is not listed because nothing reads it (see [Rust Debugging](#rust-debugging)). Skills, agent profiles and the MCP config live under `~/.edytlab/`, which is not configurable.

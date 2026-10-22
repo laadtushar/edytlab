@@ -17,7 +17,7 @@ mention of stem separation or transcription.
 |---|---|---|
 | `ollama/ollama` README | Community Integrations, Productivity & Apps | Yes, after one end-to-end run with an Ollama model (see below) |
 | `EndoTheDev/Awesome-Ollama` | Assistants (table) | Yes, same condition |
-| `rust-unofficial/awesome-rust` | Applications, Audio and Music | **No.** Requires more than 50 stars or 2,000 crates.io downloads. The repo had 3 stars on 2026-10-09. |
+| `rust-unofficial/awesome-rust` | Applications, Audio and Music | **No.** Requires more than 50 stars or 2,000 crates.io downloads. The repo had 3 stars on 2026-10-09 and 6 on 2026-10-22. |
 | `tauri-apps/awesome-tauri` | none | **No fitting section.** Its README has Guides, Articles, Templates, Plugins and Integrations only. |
 | `nodiscc/awesome-linuxaudio` | Software, Audio Editors | Optional. A partial fit: the list covers Linux audio production. Submissions go to the GitLab project. |
 

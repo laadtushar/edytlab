@@ -14,7 +14,7 @@ import { FOUNDER, LABYNATOR } from "./family";
 import { siteConfig } from "./site";
 
 /** The day the site's pages last changed in substance, for the sitemap. */
-export const SITE_UPDATED = "2026-10-10";
+export const SITE_UPDATED = "2026-10-22";
 
 export const BLOG_TITLE = "edytlab Blog";
 export const FEED_PATH = "/blog/feed.xml";

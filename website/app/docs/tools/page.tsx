@@ -21,7 +21,7 @@ const groups = [
       {
         name: "load",
         prompt: 'load /path/to/file.wav',
-        what: "Decode an audio file (MP3, WAV, FLAC) and create a new track in the session.",
+        what: "Decode an audio file (WAV, MP3, FLAC or Ogg Vorbis) and create a new track in the session.",
         output: "track_id, duration_sec",
       },
       {
@@ -366,12 +366,12 @@ const groups = [
         prompt: 'put a limiter on the master at -1 dB',
         what: "Append an effect to a track's chain, pass scope \"master\" to put it on the master bus, where every track is summed, or scope \"bus\" with a bus name to put it on a bus made with create_bus. The chain is applied at render time and the source audio is never rewritten, so the parameters stay editable — unlike the destructive effect tools above, which bake their result into a new node.",
         output: "node_id, effect_index",
-        note: "An effect on the master bus processes the whole mix and keeps doing so when a track is edited later, which a mix rendered down into a new track does not. A bus processes what tracks send it with set_send, so an effect on a bus nothing sends to is not heard; name a bus by the name it was created with, or by its id if two share a name. Effects run in the order they appear in the chain. Only five kinds can stream today: gain, limiter, low_pass_filter, high_pass_filter and notch_filter. add_effect refuses any other kind, on a track, on a bus or on the master bus, with a message that lists the five and, for a kind that exists as a destructive tool (reverb, echo, eq, compressor and others), names that tool to call instead. It also refuses a parameter the kind does not read, naming it and listing the kind's own, rather than saving a setting the renderer would ignore.",
+        note: "An effect on the master bus processes the whole mix and keeps doing so when a track is edited later, which a mix rendered down into a new track does not. A bus processes what tracks send it with set_send, so an effect on a bus nothing sends to is not heard; name a bus by the name it was created with, or by its id if two share a name. Effects run in the order they appear in the chain. Only five kinds can stream today: gain, limiter, low_pass_filter, high_pass_filter and notch_filter. add_effect refuses any other kind, on a track, on a bus or on the master bus, with a message that lists the five and, for a kind that exists as a destructive tool (reverb, echo, eq, compressor and others), names that tool to call instead. It also refuses a parameter the kind does not read, naming it and listing the kind's own, rather than saving a setting the renderer would ignore. The names, which the schema also gives the model: gain has db; limiter has ceiling_db and release_ms; low_pass_filter and high_pass_filter have cutoff_hz; notch_filter has center_hz and q. Omitted ones use defaults.",
       },
       {
         name: "set_effect_params",
         prompt: 'change that low-pass to 2 kHz',
-        what: "Edit an effect already in a chain, on a track, on the master bus or on a bus. Given parameters are merged into the existing ones by default; pass replace to swap the whole set instead. A parameter name the effect's kind does not read is refused, with the kind's own names in the error.",
+        what: "Edit an effect already in a chain, on a track, on the master bus or on a bus. Given parameters are merged into the existing ones by default; pass replace to swap the whole set instead. A parameter name the effect's kind does not read is refused, with the kind's own names in the error. The names are the same as add_effect's: db for a gain, ceiling_db and release_ms for a limiter, cutoff_hz for the low-pass and high-pass filters, center_hz and q for the notch.",
         output: "node_id",
       },
       {
@@ -469,12 +469,12 @@ const groups = [
         prompt: "run my podcast chain on this recording",
         what: "Replay an exported edit chain. Every step is checked before any of them runs, so a recipe that cannot keep its promise is refused whole — naming the step — rather than half-applied. Takes an optional different source, and a dry run that reports the plan without touching the session.",
         output: "steps_applied, head, notes",
-        note: "Replaying against the same audio reproduces the same bytes; the derived files are named by their own samples, so a drifted rebuild is detected rather than substituted.",
+        note: "Replaying against the same audio reproduces the same bytes; the derived files are named by their own sample rate, channel count and samples, so a drifted rebuild is detected rather than substituted. Files written before v0.7.0 were named by their samples alone; those older names are still recognised when a project's history is rebuilt.",
       },
       {
         name: "audition_effect",
         prompt: "what would a 1 kHz low-pass sound like on the vocal?",
-        what: "Hear an effect on a track, on the master bus (scope \"master\") or on a bus (scope \"bus\") without applying it. Renders a few seconds of the session with the effect added to that chain and hands back a WAV to play — no session node, so there is nothing to undo. Call add_effect with the same arguments to keep it.",
+        what: "Hear an effect on a track, on the master bus (scope \"master\") or on a bus (scope \"bus\") without applying it. Renders a few seconds of the session with the effect added to that chain and hands back a WAV to play — no session node, so there is nothing to undo. Call add_effect with the same arguments to keep it. The parameter names are add_effect's, and any other name is refused.",
         output: "path, cached, start_sec, end_sec, target, warnings (only when something was left out)",
         note: "The audition includes gain, pan, mute, solo, sends and the master chain, so it sounds like the result will. Repeating settings you have already heard is instant.",
       },
@@ -483,7 +483,7 @@ const groups = [
         prompt: "run my podcast chain over every file in this folder",
         what: "Run an exported edit chain across every audio file in a folder. Each file becomes its own project with its own history — a batch is not one giant session. Every file is attempted even if an earlier one fails, and the report says what succeeded, what refused, and why.",
         output: "files, succeeded, refused, per-file results",
-        note: "A chain that cannot be replayed is refused once, up front — that is a property of the chain, not of the twelve files.",
+        note: "A chain that cannot be replayed is refused once, up front — that is a property of the chain, not of the twelve files. So is an output folder that would put a file's project where a project is open right now: each file's project goes in <output_dir>/<file name without its extension>, and a batch never writes into a project you have open, so choose another output_dir. Nothing is started in that case.",
       },
       {
         name: "cut_words",
@@ -677,7 +677,9 @@ export default function ToolsPage() {
         Tools are deterministic functions the agent calls to manipulate your
         audio session. You do not invoke tools directly — instead, describe what
         you want in natural language and the agent selects the right tool chain.
-        Every tool call creates a new session node (non-destructive).
+        Every tool that changes the session creates a new session node
+        (non-destructive); tools that only read, like <code>list_session</code>
+        and <code>analyze_track</code>, change nothing.
       </p>
 
       <h2>Prompt tips</h2>

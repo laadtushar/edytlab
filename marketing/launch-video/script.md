@@ -25,7 +25,7 @@ the earlier narration, kept for re-narrating.
 | Free, open source (MIT) | `README.md` "License: MIT"; `marketing/press-kit.md` one-sentence description |
 | macOS, Windows, Linux | `README.md` "Builds for macOS (universal), Windows and Linux" |
 | No version number anywhere | The footage is a **development build recorded before v0.6.0**, and it matches v0.6.0: the app's violet look, and a limiter that goes on the master bus, which v0.6.0 is the first release to do (`marketing/social-kit/reddit.md`). The cuts were made before the release and name none; the note under every shot says "Development build", which is true of the recording. Add the version to the end card only with a re-render (`tools/launch.py`, `end_card`) |
-| 93 deterministic tools | `docs/tools-reference.md` ("Every one of the 93 tools the AI agent can call"); press kit boilerplate |
+| 93 deterministic tools | `docs/tools-reference.md` ("Every one of the 93 tools the AI agent can call", when the cuts were made on 2026-10-16); press kit boilerplate. **It says 94 since v0.7.0** (`list_session`, #634), so the LinkedIn and Reddit cuts, which show 93, are one short: see the update note in `README.md` |
 | Audio files stay here; only the chat goes to the provider you choose | press kit boilerplate ("audio files are never uploaded; only the chat goes to the language-model provider the user selects") and fact sheet ("Where audio goes: Nowhere. Processing is local. Only chat text goes to the chosen provider.") |
 | Anthropic, OpenAI, OpenRouter, Groq, Gemini, Ollama (local) | press kit fact sheet "AI providers" |
 | Rust DSP engine | press kit boilerplate ("run locally in a Rust engine"); README "Pure-Rust DSP" |

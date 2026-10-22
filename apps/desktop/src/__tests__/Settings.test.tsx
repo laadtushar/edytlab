@@ -42,8 +42,8 @@ const defaultBaseUrlForMock = vi.fn();
 const setBaseUrlForMock = vi.fn();
 const getEffortForMock = vi.fn();
 const setEffortForMock = vi.fn();
-// The panel's foot line (#383). No runtime in this build is the answer
-// every release build gives until the installers carry one.
+// The panel's foot line (#383). No runtime in this build is the answer a
+// build from source gives (the installers carry one since v0.7.0).
 const mlRuntimeStatusMock = vi.fn();
 
 vi.mock("../lib/tauri-bridge", () => ({
