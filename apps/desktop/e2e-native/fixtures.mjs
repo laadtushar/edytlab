@@ -2,7 +2,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-function wav({ seconds, rate = 44100, channels = 1, sample }) {
+export function wav({ seconds, rate = 44100, channels = 1, sample }) {
   const frames = Math.round(seconds * rate);
   const data = Buffer.alloc(frames * channels * 2);
   for (let i = 0; i < frames; i++) {
@@ -83,7 +83,7 @@ function song({ bpm, rootHz }) {
  * vowel-like formants, in eight syllables whose loudness swings by about
  * 10 dB. Its top end is soft and its level uneven, so "brighter" and "more
  * even" are both measurable on the audio. */
-function voice() {
+export function voice() {
   const f0 = 140;
   const levels = [1, 0.34, 0.8, 0.28, 1, 0.4, 0.7, 0.32];
   const amps = Array.from({ length: 100 }, (_, i) => {

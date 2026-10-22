@@ -10,9 +10,11 @@ import { sleep } from "./helpers.mjs";
 /** Where the page's (0, 0) is on the screen, measured: the pointer is put
  * on a known screen point and the page says where the mouse event landed.
  * The window's own geometry does not say it, since GTK draws a title bar
- * inside the window, above the page. Measured once per app session. */
+ * inside the window, above the page. Measured once per app session, with
+ * the scale the app runs at (GDK_SCALE=2 puts two screen pixels in every
+ * CSS pixel): `s` is screen pixels per CSS pixel. */
 const origins = new WeakMap();
-async function origin(ctx) {
+export async function origin(ctx) {
   if (origins.has(ctx.d)) return origins.get(ctx.d);
   await ctx.d.exec(() => {
     window.__pointer = null;
@@ -21,12 +23,13 @@ async function origin(ctx) {
       window.addEventListener("mousemove", (e) => (window.__pointer = [e.clientX, e.clientY]), { capture: true });
     }
   });
+  const s = await ctx.d.exec(() => window.devicePixelRatio || 1);
   for (const [sx, sy] of [[700, 420], [720, 450], [740, 470]]) {
     x("mousemove", String(sx), String(sy));
     await sleep(200);
     const at = await ctx.d.exec(() => window.__pointer);
     if (at) {
-      const o = { x: sx - at[0], y: sy - at[1] };
+      const o = { x: Math.round(sx - at[0] * s), y: Math.round(sy - at[1] * s), s };
       origins.set(ctx.d, o);
       return o;
     }
@@ -70,7 +73,7 @@ export async function pointAt(ctx, selector, { fx = 0.5, fy = 0.5 } = {}) {
     return { left: b.left, top: b.top, width: b.width, height: b.height };
   }, selector);
   const o = await origin(ctx);
-  const to = { x: Math.round(o.x + r.left + r.width * fx), y: Math.round(o.y + r.top + r.height * fy) };
+  const to = { x: Math.round(o.x + (r.left + r.width * fx) * o.s), y: Math.round(o.y + (r.top + r.height * fy) * o.s) };
   await glide(to);
   await sleep(140);
   return to;

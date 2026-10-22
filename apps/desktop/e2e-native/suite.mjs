@@ -10,7 +10,7 @@
 // Each story group starts the app fresh (a new HOME, so a first launch),
 // except where a story is about what survives a restart.
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { Driver } from "./webdriver.mjs";
 import { chooseThrough, screenshotRoot } from "./native.mjs";
@@ -122,25 +122,37 @@ for (const story of stories) {
       llmRequests,
       /** Film the screen from now until the story ends (RECORD=1 only).
        *
+       * `opts.region` ({ x, y, w, h }, screen pixels) films only that
+       * rectangle, `opts.fps` sets the grab rate (15 by default) and
+       * `opts.crf` and `opts.preset` the encode.
+       *
        * RECORD_AUDIO names a PulseAudio source (the monitor of the sink
        * the app plays into, such as `demo.monitor`) to record with it.
        * Both inputs then keep their wall-clock timestamps (`-copyts`):
        * ffmpeg otherwise starts each input at zero on its own, which put
        * the sound a second and a half ahead of the picture.
        * make-demo-videos.mjs lines them up. */
-      record() {
+      record(opts = {}) {
         if (!process.env.RECORD || recorder) return;
         mkdirSync(join(OUT, "videos"), { recursive: true });
         const audio = process.env.RECORD_AUDIO;
         const file = `videos/${story.id}.${audio ? "mkv" : "mp4"}`;
-        const args = ["-y", "-loglevel", "error"];
+        // `region` films a rectangle of the screen (the page alone, without
+        // the title bar, at the device scale the app runs at) instead of all
+        // of it; `fps` is the grab rate. ffmpeg's own log, with the count of
+        // frames it had to repeat or drop, is kept beside the file.
+        const { region, fps = 15, crf = audio ? 20 : 28, preset = "veryfast" } = opts;
+        const size = region ? `${region.w}x${region.h}` : screenSize();
+        const input = region ? `:99+${region.x},${region.y}` : ":99";
+        const args = ["-y", "-loglevel", region ? "info" : "error"];
         if (audio) args.push("-copyts");
-        args.push("-thread_queue_size", "1024", "-f", "x11grab", "-video_size", screenSize(), "-framerate", "15", "-i", ":99");
+        args.push("-thread_queue_size", "1024", "-f", "x11grab", "-video_size", size, "-framerate", String(fps), "-i", input);
         if (audio) args.push("-thread_queue_size", "1024", "-f", "pulse", "-fragment_size", "3840", "-i", audio);
-        args.push("-c:v", "libx264", "-preset", "veryfast", "-crf", audio ? "20" : "28", "-pix_fmt", "yuv420p");
+        args.push("-c:v", "libx264", "-preset", preset, "-crf", String(crf), "-pix_fmt", "yuv420p");
         if (audio) args.push("-c:a", "pcm_s16le");
         args.push(join(OUT, file));
-        recorder = spawn("ffmpeg", args, { stdio: ["pipe", "ignore", "ignore"] });
+        const log = region ? openSync(join(OUT, `${file}.log`), "w") : "ignore";
+        recorder = spawn("ffmpeg", args, { stdio: ["pipe", "ignore", log] });
         result.video = file;
         result.captions = [];
         result.paces = [];

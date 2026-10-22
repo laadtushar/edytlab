@@ -10,5 +10,6 @@ import clips from "./clips.mjs";
 import claude from "./claude.mjs";
 import claudeMore from "./claude-more.mjs";
 import demos from "./demos.mjs";
+import promo from "./promo.mjs";
 
-export const stories = [...onboarding, ...projects, ...timeline, ...agent, ...plan, ...undo, ...assistant, ...playback, ...clips, ...claude, ...claudeMore, ...demos];
+export const stories = [...onboarding, ...projects, ...timeline, ...agent, ...plan, ...undo, ...assistant, ...playback, ...clips, ...claude, ...claudeMore, ...demos, ...promo];

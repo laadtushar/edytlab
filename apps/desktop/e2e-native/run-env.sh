@@ -37,7 +37,7 @@ for _ in $(seq 1 20); do
   sleep 0.25
 done
 export E2E_HOME=${E2E_HOME:-$(mktemp -d /tmp/edytlab-home.XXXX)}
-Xvfb :99 -screen 0 1440x900x24 >"$OUT/xvfb.log" 2>&1 &
+Xvfb :99 -screen 0 "${SCREEN:-1440x900x24}" >"$OUT/xvfb.log" 2>&1 &
 echo $! >"$OUT/xvfb.pid"
 # Wait for the display to accept connections before anything uses it.
 for _ in $(seq 1 40); do
