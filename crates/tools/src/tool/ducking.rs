@@ -13,7 +13,8 @@
 //! * **A voice track's audio**, when the caller names `voice_tracks`:
 //!   the passages are where that audio has voiced (pitched) sound, from
 //!   [`speech_detect`](crate::tool::speech_detect). It needs no
-//!   transcript, which matters while `transcribe` is a stub (#384), and
+//!   transcript, which matters for a session that has not been transcribed
+//!   (`transcribe` needs the speech model the user downloads, #384), and
 //!   a breath, click or hiss is not pitched, so none of them triggers a
 //!   duck. Naming the track wins over a transcript: the transcript is
 //!   session-level and cannot say which track it belongs to.

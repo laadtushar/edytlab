@@ -462,7 +462,7 @@ fn tool_names_in(tools: &Value) -> BTreeSet<String> {
 }
 
 /// The tools that describe themselves as doing nothing in this build
-/// (stem separation, transcription). A small model is not offered them.
+/// (stem separation). A small model is not offered them.
 fn not_implemented_tools() -> BTreeSet<String> {
     ToolDispatcher::default_dispatcher()
         .tool_schemas()
@@ -478,18 +478,13 @@ fn not_implemented_tools() -> BTreeSet<String> {
         .collect()
 }
 
-/// The tools that only work on a transcript of the session. `transcribe`
-/// is the only thing that makes one and does nothing in this build, so a
-/// small model is not offered these either. Mirrors
-/// `NEEDS_TRANSCRIPT_TOOLS` in `tool_selection.rs`.
-const NEEDS_A_TRANSCRIPT: [&str; 2] = ["cut_words", "remove_fillers"];
-
 /// Every tool a small model is offered neither in full nor by name: the
-/// ones that do nothing in this build, and the ones that need a transcript.
+/// ones that do nothing in this build. (`transcribe`, and `cut_words` and
+/// `remove_fillers` which work on its transcript, were here until the tool
+/// ran, #384: they are offered like any other now, so the slim request has
+/// three more names to carry.)
 fn tools_not_offered() -> BTreeSet<String> {
-    let mut out = not_implemented_tools();
-    out.extend(NEEDS_A_TRANSCRIPT.iter().map(|name| name.to_string()));
-    out
+    not_implemented_tools()
 }
 
 /// The system prompt as the model reads it, in either wire shape:

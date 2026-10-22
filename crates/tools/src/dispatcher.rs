@@ -143,11 +143,14 @@ pub trait Tool: Send + Sync {
     /// * it never touches `ctx.clipboard` or `ctx.engine`: in an off-lock
     ///   run they are a local empty clipboard and a fresh engine, not the
     ///   app's;
-    /// * it builds no nested dispatcher, and reports no `progress`: a run
-    ///   that loses the race would have reported for nothing. A tool that
+    /// * it builds no nested dispatcher, and reports no `progress` unless
+    ///   `tests/off_lock_tools.rs` allows that spelling, with its reason: a
+    ///   run that loses the race would have reported for nothing. A tool that
     ///   appends nothing is never run again, so what it reports is the
-    ///   call's own; `select_region`'s selection is the one such report,
-    ///   allowed by name in `tests/off_lock_tools.rs`;
+    ///   call's own (`select_region`'s selection). `transcribe` reports its
+    ///   windows and reads the cancel switch: `report` takes no lock, and the
+    ///   re-run of a lost race is a hit in the inference cache the first run
+    ///   filled, so its windows are not reported twice;
     /// * running it again on a newer head is correct, because it may be.
     ///   It runs on the arguments it was given, so it must read the head
     ///   it is run on rather than remember anything from the first run.
@@ -265,7 +268,7 @@ impl ToolDispatcher {
         };
         let mut d = Self::new();
         d.register(Box::new(LoadTool));
-        d.register(Box::new(TranscribeTool));
+        d.register(Box::new(TranscribeTool::new()));
         d.register(Box::new(SeparateStemsTool));
         d.register(Box::new(SplitBySpeakerTool));
         d.register(Box::new(AnalyzeTrackTool));

@@ -27,9 +27,9 @@
 //! hold the voice, through the detector `duck_under_speech` uses
 //! ([`speech_detect`](crate::tool::speech_detect)) and the same rule for
 //! joining speech into passages, `join_gap_sec`, read the same way
-//! ([`join_gap`]). That matters while `transcribe` is a stub (#384): no
-//! session in a shipped build has a transcript, so without it
-//! `speech_passage` could only fail.
+//! ([`join_gap`]). That matters for a session that has not been transcribed
+//! (`transcribe` needs the speech model the user downloads, #384): without
+//! it `speech_passage` could only fail there.
 //!
 //! A track named in `voice_tracks` wins over a transcript, because the
 //! transcript is session-level and cannot say which track it belongs to.
