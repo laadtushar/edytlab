@@ -281,6 +281,17 @@ describe("cache lifetime of the files in public/", () => {
     }
   });
 
+  it("leaves the videos hub and each video's own page to Next, though they share a folder with the files", async () => {
+    // `/videos` is the hub and `/videos/<slug>` a page for each video; only the
+    // files under that folder (`.mp4`, `.jpg`, `.vtt`) are media.
+    for (const path of ["/videos", "/videos/", "/videos/launch-video", "/videos/whats-new-v070", "/videos/reel-v070-200-tracks"]) {
+      expect(await cacheControl(path), path).toEqual([]);
+    }
+    for (const path of ["/videos/launch-video.mp4", "/videos/launch-video.jpg", "/videos/launch-video.vtt"]) {
+      expect(await cacheControl(path), path).toEqual([CACHE]);
+    }
+  });
+
   it("leaves pages, the app's own assets and the sitemap to Next", async () => {
     for (const path of ["/", "/docs/getting-started", "/blog/feed.xml", "/sitemap.xml", "/robots.txt", "/_next/static/chunks/a.js", "/_next/static/media/font.woff2", "/_next/static/media/hero.png", "/_next/image"]) {
       expect(await cacheControl(path), path).toEqual([]);

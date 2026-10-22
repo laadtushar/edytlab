@@ -28,10 +28,19 @@ const nextConfig = {
   },
   async headers() {
     return [
-      // The folders the demos and the videos page are served from, with
-      // whatever the folder holds: posters, captions, the video itself.
+      // The folder the demos are served from, with whatever it holds:
+      // posters, captions, the video itself. There is no page under it.
       { source: "/demos/:path*", headers: cacheMedia },
-      { source: "/videos/:path*", headers: cacheMedia },
+      // The folder the launch video and the reels are served from, by
+      // extension. `/videos` is also a page (the hub), and `/videos/<slug>`
+      // is a page for each video, so a rule for everything under the
+      // folder would give those pages a day in the browser's cache and
+      // leave a corrected caption stale for that long. Pages keep Next's
+      // own policy.
+      {
+        source: "/videos/:file(.+\\.(?:png|jpe?g|gif|webp|avif|svg|mp4|webm|vtt))",
+        headers: cacheMedia,
+      },
       // The rest of `public/`: logos and icons, by extension. Not the two
       // folders above (they have their rule) and never anything under
       // `/_next/`.
