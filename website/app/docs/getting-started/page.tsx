@@ -204,8 +204,8 @@ export default function GettingStartedPage() {
       <p>There are three ways to load audio:</p>
       <ul>
         <li>
-          <strong>Drag and drop</strong> — drag an MP3, WAV, or FLAC file
-          directly onto the timeline area. Drag multiple files at once to create
+          <strong>Drag and drop</strong> — drag a WAV, MP3, FLAC or Ogg
+          Vorbis file directly onto the timeline area. Drag multiple files at once to create
           a multi-track session automatically.
         </li>
         <li>

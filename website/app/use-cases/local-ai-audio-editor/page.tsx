@@ -131,7 +131,11 @@ export default function LocalAiUseCasePage() {
             just proposed, with shortened descriptions. The names of the rest
             go in the prompt, so the model knows they exist and can call them.
             That keeps a first request small enough for an 8,192-token
-            context. A long conversation can still outgrow a small context.
+            context. The summary of your session in that request is capped
+            too, at 2,300 bytes; a big project&apos;s track and marker lists
+            are cut to fit, and the model reads the rest a page at a time
+            with a tool that only reads. A long conversation can still outgrow
+            a small context.
             If the server refuses an over-long request, as llama.cpp does, the
             app says so and how to raise the context. Ollama trims an
             over-long prompt instead, and the app shows nothing, so if replies

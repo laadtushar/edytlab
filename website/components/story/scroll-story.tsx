@@ -58,10 +58,12 @@ const FLAT = flatPath();
 
 /**
  * The chips the third scene fires, and they are load-bearing: naming a
- * tool the agent cannot call turns the story into a lie. Held to that by
+ * tool the agent cannot call turns the story into a lie, and so does a
+ * tool that returns "not implemented in this build" (`transcribe`,
+ * `separate_stems`) in a scene headed "It works". Held to the first by
  * `website_tool_docs.rs`, which now reads this file too.
  */
-const TOOLS = ["load", "transcribe", "truncate_silence", "set_clip_envelope", "render_final"];
+const TOOLS = ["load", "silence_finder", "truncate_silence", "set_clip_envelope", "render_final"];
 
 /** Only pin where there is room for a stage; narrow screens read the stack. */
 const STAGE = `${NO_PREFERENCE} and (min-width: 768px)`;

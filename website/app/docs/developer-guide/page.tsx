@@ -104,7 +104,7 @@ crates/
   recorder/           Microphone capture to WAV
   ml-demucs/          Stem separation (ONNX Demucs; inference not shipped)
   ml-whisper/         Transcription (ONNX Whisper; decoder not shipped)
-  ml-pipeline/        Shared ONNX runtime gate, model downloader (not called yet), inference cache
+  ml-pipeline/        Shared ONNX runtime gate (finds the bundled library), model downloader (not called yet), inference cache
   memory/             Global/project markdown memory
   skills/             User skill library
   agent_profiles/     Per-session model + tool profiles
@@ -270,6 +270,16 @@ pnpm --filter @edytlab/desktop test:watch # vitest watch mode`}</code>
         macOS, Windows and Linux. Signed production releases are manual
         workflow dispatches, waiting on signing certificates — every release so
         far is unsigned.
+      </p>
+      <p>
+        Every installer carries ONNX Runtime 1.23.2 (and, on Windows, the
+        Visual C++ runtime DLLs it imports). Each release build fetches it with{" "}
+        <code>scripts/fetch-ml-runtime.sh</code> and checks it with{" "}
+        <code>scripts/installer-ml-runtime.py check</code> before the installer
+        is uploaded. The pin is in <code>apps/desktop/src-tauri/ml-runtime.json</code>.
+        A build from source has none unless <code>ORT_DYLIB_PATH</code> names
+        one, and Settings says so. The runtime carries no model and runs no
+        inference.
       </p>
 
       <h2>Documentation</h2>

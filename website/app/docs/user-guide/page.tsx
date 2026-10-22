@@ -32,9 +32,13 @@ export default function UserGuidePage() {
       </p>
       <ul>
         <li>
-          <strong>Graph view</strong> — click the graph icon in the toolbar to
-          see all session nodes visualised as a tree. Each node shows its label,
-          the tool that created it, and its timestamp.
+          <strong>Graph view</strong> — open the <strong>Graph</strong> tab at
+          the top, beside Timeline and Transcript, to see all session nodes
+          drawn as a graph. Each node shows its label, the tool that created
+          it and how long ago it was made. The graph redraws whenever the head
+          moves, when the assistant&apos;s turn ends (so a label it set shows
+          at once) and after the history is compacted, so it does not keep
+          nodes that are gone.
         </li>
         <li>
           <strong>Preview a version</strong> — click a node in the graph to
@@ -67,6 +71,17 @@ export default function UserGuidePage() {
           deleted, only the undo steps that named it. The most recent steps
           are kept, so ordinary undo keeps working.
         </li>
+        <li>
+          <strong>One writer per project folder</strong> — only one thing
+          writes to a project folder at a time. Opening a project is refused,
+          with a message, while a batch run is writing its own project into
+          that folder, and while the folder was replaced at the same path
+          (restored from a backup, or trashed and made again) and the
+          assistant is still working in the old one. Wait for the
+          assistant&apos;s turn to end, then open the project again. In the
+          other direction, a batch run is refused up front, and starts
+          nothing, if one of the projects it would write is open.
+        </li>
       </ul>
 
       <h2>Tracks</h2>
@@ -79,19 +94,22 @@ export default function UserGuidePage() {
         <li>
           <strong>Load audio</strong> — drag a file onto the timeline, click
           "Open Audio", or type <code>load /path/to/file.mp3</code> in chat.
-          Supported formats: MP3, WAV, FLAC.
+          Supported formats: WAV, MP3, FLAC and Ogg Vorbis.
         </li>
         <li>
           <strong>Multi-track sessions</strong> — load multiple files or ask the
           agent to add a track: <code>add an empty track called drums</code>.
         </li>
         <li>
-          <strong>Track gain</strong> — adjust the volume of any track
-          independently.
-        </li>
-        <li>
-          <strong>Mute</strong> — silence a track without removing it from the
-          session.
+          <strong>Lane controls</strong> — each track&apos;s lane has its own
+          gain slider, pan slider, <strong>mute</strong> and{" "}
+          <strong>solo</strong> buttons, so you can mix by hand without asking
+          the agent. Double-click a pan slider to return it to the centre. A
+          mute silences a track without removing it from the session, and a
+          solo plays only the soloed tracks. One drag, or one click, is one
+          step in the history, and a control you have just set stays where you
+          put it until the session confirms it, even if an earlier change is
+          still being read back.
         </li>
       </ul>
 
@@ -129,6 +147,14 @@ export default function UserGuidePage() {
           result into a new version of the track instead, and the agent says
           so if you ask for one of them in a chain.
         </li>
+        <li>
+          <strong>Setting names</strong> — a gain has <code>db</code>, a
+          limiter <code>ceiling_db</code> and <code>release_ms</code>, the
+          low-pass and high-pass filters <code>cutoff_hz</code>, and the notch{" "}
+          <code>center_hz</code> and <code>q</code>. The assistant is told
+          these, and a setting name an effect does not have is refused, with
+          the right names in the message, rather than saved and ignored.
+        </li>
       </ul>
       <p>
         A project saved by an older build can still hold an effect in a chain
@@ -149,20 +175,22 @@ export default function UserGuidePage() {
       </p>
       <ul>
         <li>
-          <strong>Podcast</strong> — host + guest tracks, pre-configured for
-          voice normalization and noise reduction.
+          <strong>Podcast</strong> — Host and Guest tracks, each at −3 dB.
         </li>
         <li>
-          <strong>Music</strong> — lead, harmony, bass, and drums tracks.
+          <strong>Music</strong> — Lead, Harmony, Bass and Drums tracks, with
+          the harmony panned a little to the left.
         </li>
         <li>
-          <strong>Interview</strong> — interviewer + subject tracks.
+          <strong>Interview</strong> — Interviewer and Subject tracks, panned
+          slightly apart.
         </li>
       </ul>
       <p>
-        Templates create the track structure and inject matching skills
-        automatically. You can still modify the session freely after choosing a
-        template.
+        A template makes the empty tracks with a starting gain and pan. It adds
+        no audio, effects or skills. Skills still switch on when your messages
+        match their triggers, whether or not you used a template. You can
+        modify the session freely after choosing one.
       </p>
 
       <h2>The Chat Interface</h2>
@@ -204,6 +232,18 @@ export default function UserGuidePage() {
           <code>cut everything before the chorus marker</code>.
         </li>
       </ul>
+
+      <h3>Big sessions</h3>
+      <p>
+        Each turn, the assistant is given a short summary of the session: its
+        tracks, buses, master effects and markers. The summary has a size
+        limit, 8,000 bytes for the hosted providers and 2,300 for Ollama, so a
+        big project still fits. When a list is too long it is cut, the summary
+        says how many it left out, and the assistant can read the rest a page
+        at a time with the <code>list_session</code> tool. The tool only
+        reads, so Plan first never holds it for approval. With Ollama the
+        assistant is always sent the tool when a list was cut.
+      </p>
 
       <h3>Plan first</h3>
       <p>
@@ -248,7 +288,11 @@ export default function UserGuidePage() {
           open a file or make an edit there is no preview of the new version
           yet, so Play renders it first and starts as soon as it is ready; press
           it again while it renders to cancel. <strong>Preview</strong> in the
-          chat panel renders the preview without playing it.
+          chat panel renders the preview without playing it. The mix you are
+          playing is kept in the project&apos;s preview cache and is not
+          cleared out while it is in use, so switching to the Graph or
+          Transcript tab and back does not lose it. If the file has gone
+          anyway, the window renders it again, once.
         </li>
         <li>
           <strong>L</strong> — toggle loop mode. When active, playback loops
@@ -531,7 +575,10 @@ export default function UserGuidePage() {
         an installed app says <code>bundled</code>; v0.6.1 and earlier, and a
         build from source, say <code>not installed in this build</code>. It is
         a status line: it installs nothing, and it does not mean that any
-        on-device audio model is available.
+        on-device audio model is available. No model comes with the runtime,
+        nothing is downloaded, and stem separation and transcription still
+        return an error. Only the library needs macOS 13.4; the app itself
+        runs on macOS 11 and later.
       </p>
       <p>
         The runtime&rsquo;s licence and third-party notices are installed with

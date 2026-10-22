@@ -8,7 +8,7 @@ import type { ReleaseAssets } from "@/lib/releases";
 import { cn } from "@/lib/utils";
 
 /** The line under every pair of download buttons. */
-export const BUILD_NOTE = "Unsigned dev builds · Mac (universal) · Windows 10/11 · Linux";
+export const BUILD_NOTE = "Unsigned builds · Mac (universal) · Windows 10/11 · Linux";
 
 /**
  * The Mac and Windows download buttons, for the latest release.

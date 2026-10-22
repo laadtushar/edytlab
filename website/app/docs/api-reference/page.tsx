@@ -216,7 +216,7 @@ const commands = [
       {
         name: "renderPreview(node)",
         returns: "string (path)",
-        desc: "Render the session to a WAV for playback. Cached by node id under .audiograph/previews/, so repeating a head — undo, redo — costs nothing. The cache is capped; a mix bigger than the cap is an error.",
+        desc: "Render the session to a WAV for playback. Cached by node id under .audiograph/previews/, so repeating a head — undo, redo — costs nothing. The cache is capped; a mix bigger than the cap is an error. The file it returns is the mix the window plays, so it is held out of eviction, and outside the cap, until the next renderPreview replaces it or the project changes: a render made meanwhile (the agent's, an audition, a graph preview) cannot evict it, and the timeline can read it again when it remounts. If the file is gone anyway the window renders the node again, once.",
       },
       {
         name: "getRenderWarnings(node)",
@@ -516,7 +516,7 @@ const commands = [
       {
         name: "mlRuntimeStatus()",
         returns: "MlRuntimeStatus",
-        desc: "Which ONNX Runtime library the app found and its version, for the line in Settings. It loads the library if it has not been, off the main thread, and a library that is missing, broken, or unusable because this macOS is too old for it is a status, never a hang. state is found (version, path, and source: bundled, environment or executable), missing (the places searched), unsupportedOs (macOS older than the library's 13.4) or loadFailed (path, reason). The installers of every release after v0.6.1 carry ONNX Runtime 1.23.2, so an installed build answers found with source bundled; a build from source answers missing. A loaded library does not mean stem separation or transcription run.",
+        desc: "Which ONNX Runtime library the app found and its version, for the line in Settings. It loads the library if it has not been, off the main thread, and a library that is missing, broken, or unusable because this macOS is too old for it is a status, never a hang. state is found (version, path, and source: bundled, environment or executable), missing (the places searched), unsupportedOs (macOS older than the library's 13.4) or loadFailed (path, reason). The installers of every release after v0.6.1 carry ONNX Runtime 1.23.2, so an installed build answers found with source bundled; a build from source answers missing. A loaded library does not mean stem separation or transcription run: no model ships with it and none is downloaded. The same answer is printed, as one line of JSON with no window, by edytlab-desktop --ml-runtime-status, which the release workflows run against each installer.",
       },
     ],
   },
@@ -731,19 +731,21 @@ return () => { unlisten(); };`}</code>
 type ProviderId = "anthropic" | "openrouter" | "openai" | "groq" | "gemini" | "ollama";
 
 interface ProjectInfo  { path: string; head: NodeId | null }
-interface SessionNode  { id: NodeId; parent: NodeId | null; label: string | null; state: SessionState }
+interface SessionNode  { id: NodeId; parent: NodeId | null; created_at: string; label: string | null; reasoning: string | null; state: SessionState }
 interface GraphSummary { nodes: GraphNode[]; head: NodeId | null }
-interface GraphNode    { id: NodeId; parent: NodeId | null; label: string | null; tool: string | null }
-interface TrackSummary { id: string; name: string; muted: boolean; gain_db: number; audio_path: string | null }
+interface GraphNode    { id: NodeId; parent: NodeId | null; label: string | null; tool: string | null; created_at: string }
+interface TrackSummary { id: string; name: string; muted: boolean; gain_db: number; pan: number; soloed: boolean; audio_path: string | null; clips: ClipSummary[] }
+interface ClipSummary  { start_sec: number; length_sec: number; source_path: string; volume_envelope: { time_sec: number; gain_db: number }[] }
 interface RenderWarning { scope: { type: "track"; index: number; name: string } | { type: "bus"; name: string } | { type: "master" }; effect_index: number; kind: string; reason: "not_yet_streamable" | "unknown" }
-interface ModelInfo    { id: string; display_name: string; context_length: number | null }
+interface ModelInfo    { id: string; display_name: string; context_length: number | null; provider_hint: string | null }
 interface ModelCatalogue { models: ModelInfo[]; source: "live" | "fallback"; notice: string | null }
 type MlRuntimeStatus =
   | { state: "found"; version: string; path: string; source: "bundled" | "environment" | "executable" }
   | { state: "missing"; searched: string[] }
   | { state: "unsupportedOs"; needs: string; running: string }
   | { state: "loadFailed"; path: string | null; reason: string };
-interface Marker       { id: string; name: string; kind: "marker" | "region"; time_sec?: number; start_sec?: number; end_sec?: number }`}</code>
+type Marker           = { id: string; name: string; kind: "marker"; time_sec: number }
+                      | { id: string; name: string; kind: "region"; start_sec: number; end_sec: number }`}</code>
       </pre>
     </DocShell>
   );
