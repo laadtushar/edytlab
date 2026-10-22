@@ -9,7 +9,8 @@
  *   `<video>` does;
  * - `<slug>.jpg` — the poster, shown until the reader presses play.
  *   With `preload="none"` it is the only part of the demo a visitor
- *   downloads unasked.
+ *   downloads unasked, and `LazyPosterVideo` holds even that back until
+ *   the video is near the viewport.
  *
  * `demos.test.ts` fails when either file is missing for an entry, and
  * when an `.mp4` in that folder has no entry here, so the list and the

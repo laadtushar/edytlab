@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <LegalShell title="Privacy" updated="2026-10-22">
+    <LegalShell title="Privacy" path="/privacy" updated="2026-10-22">
       <p>
         edytlab is a local-first desktop application. This page describes what
         data the app handles and how it handles it, and what the website you

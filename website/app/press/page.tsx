@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { JsonLd } from "@/components/json-ld";
 import { PageLinks, PageShell, Prose } from "@/components/landing/page-shell";
-import { DEFAULT_OG_IMAGE, pageAlternates } from "@/lib/seo";
+import { DEFAULT_OG_IMAGE, breadcrumbJsonLd, pageAlternates, pageBreadcrumbs } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 
 const title = "Press kit: logos, fact sheet and demo video";
@@ -55,6 +56,7 @@ export default function PressPage() {
       title="edytlab press kit"
       lead="Everything in one place for writing about edytlab: a paragraph you can paste, facts that have been checked against the source, and the logo and demo files. There is no press office; questions go to GitHub."
     >
+      <JsonLd data={breadcrumbJsonLd(pageBreadcrumbs("Press kit", "/press"))} />
       <Prose>
         <h2>Boilerplate</h2>
         <blockquote>

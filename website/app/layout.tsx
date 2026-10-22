@@ -3,7 +3,7 @@ import { Inter } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 
-import { MicroInteractions, ScrollProgress } from "@/components/motion";
+import { SiteMotion } from "@/components/motion/site-motion";
 import { siteConfig } from "@/lib/site";
 
 import "./globals.css";
@@ -75,8 +75,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={`dark ${inter.variable}`} suppressHydrationWarning>
       <body className="grain min-h-screen bg-background font-sans antialiased">
-        <ScrollProgress />
-        <MicroInteractions />
+        <SiteMotion />
         {children}
         <Analytics />
         <SpeedInsights />

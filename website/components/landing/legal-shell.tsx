@@ -1,22 +1,34 @@
 import { type ReactNode } from "react";
 
+import { JsonLd } from "@/components/json-ld";
 import { Cascade, Reveal, SplitHeading } from "@/components/motion";
+import { breadcrumbJsonLd, pageBreadcrumbs } from "@/lib/seo-core";
 
 import { Footer } from "./footer";
 import { SiteHeader } from "./site-header";
 
-/** The text pages — privacy, terms, the changelog. */
+/**
+ * The text pages — privacy, terms, the changelog.
+ *
+ * `path` is the page's own path. The shell writes the page's
+ * BreadcrumbList from it and `title` (Home, then the page), so the three
+ * pages that use it cannot forget the trail, and it sits outside the
+ * `Cascade`, which would otherwise treat the script as content to reveal.
+ */
 export function LegalShell({
   title,
+  path,
   updated,
   children,
 }: {
   title: string;
+  path: string;
   updated?: string;
   children: ReactNode;
 }) {
   return (
     <>
+      <JsonLd data={breadcrumbJsonLd(pageBreadcrumbs(title, path))} />
       <SiteHeader />
       <main className="pb-24 pt-32 md:pt-40">
         <article className="container mx-auto max-w-3xl">

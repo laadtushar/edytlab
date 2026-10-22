@@ -43,7 +43,8 @@ function clear(selector: string, props: string) {
  * including ones written after this — without a wrapper around each
  * control.
  *
- * Mounted once, in the root layout. Nothing here changes layout: every
+ * Mounted once, by `SiteMotion` in the root layout, after the page has
+ * painted (`site-motion.tsx`). Nothing here changes layout: every
  * property is a transform or a custom property feeding one, so a
  * pressed button never nudges its neighbours. With reduced motion none
  * of it is registered; the controls keep their colour changes, and the
