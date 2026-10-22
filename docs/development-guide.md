@@ -330,7 +330,7 @@ src/
 └── window_mix.rs  # The mix the window plays and the preview-cache entry it holds (#607)
 ```
 
-`AppState` (defined in `state.rs`; abridged — read the struct for the plan-gate flags and directory fields):
+`AppState` (defined in `state.rs`; abridged — read the struct for the directory fields):
 ```rust
 pub struct AppState {
     pub agent:                    Arc<tokio::sync::Mutex<Option<Agent>>>,
@@ -341,7 +341,7 @@ pub struct AppState {
     pub api_key:                  Arc<Mutex<Option<String>>>,
     pub active_provider:          Arc<Mutex<String>>,
     pub active_model_by_provider: Arc<Mutex<HashMap<String, String>>>,
-    pub plan_notify:              Arc<tokio::sync::Notify>,
+    pub plan_gate:                ai::PlanGate, // the plan card's one-answer wait (ADR 0002)
     pub selection:                Arc<Mutex<Option<Range>>>,
     pub clipboard:                Arc<Mutex<Option<tools::Clipboard>>>,
     pub memory:                   Arc<Mutex<Option<Arc<MemoryStore>>>>,
@@ -366,6 +366,7 @@ src/
 ├── keychain.rs     # OS credential storage via keyring
 ├── models.rs       # Model catalogue + 10-min TTL cache
 ├── oauth/          # Generic OAuth 2.0 / OpenID Connect client: PKCE, loopback listener, OIDC checks, token endpoint (#474)
+├── plan_gate.rs    # The plan gate: one oneshot per card, one answer, a timeout (ADR 0002)
 ├── prompt.rs       # System prompt construction
 ├── provider.rs     # LlmProvider trait + 6 implementations
 ├── responses.rs    # OpenAI Responses API codec (#474; no provider uses it yet)

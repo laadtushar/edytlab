@@ -61,8 +61,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use tokio::sync::Notify;
-
 use eventsource_stream::Eventsource;
 use futures_util::StreamExt;
 use serde_json::Value;
@@ -72,8 +70,9 @@ use crate::anthropic::{
     max_tokens_for, ApiError, CacheControl, ContentBlock, ContentBlockDelta, ContentBlockStart,
     Message, MessagesRequest, OutputConfig, Role, StreamEvent, SystemBlock, ToolChoice,
 };
-use crate::approval::{self, Approval};
+use crate::approval;
 use crate::models::clamp_max_tokens;
+use crate::plan_gate::{Answer, PlanGate};
 use crate::prompt::{
     tool_budget_line, DEFAULT_MAX_TOKENS, MAX_TOOL_CALLS_PER_TURN, PLAN_MAX_TOKENS,
 };
@@ -831,9 +830,7 @@ pub(crate) async fn run_turn<F>(
     engine: &Arc<Mutex<audio_engine::Engine>>,
     clipboard: &Arc<Mutex<Option<tools::Clipboard>>>,
     conversation: &mut Vec<Message>,
-    plan_notify: &Arc<Notify>,
-    plan_steps_override: &Arc<std::sync::Mutex<Option<String>>>,
-    plan_rejected: &Arc<std::sync::atomic::AtomicBool>,
+    plan_gate: &PlanGate,
     plan_first: bool,
     user_message: String,
     session_ctx: Option<&SessionContext>,
@@ -946,21 +943,13 @@ where
                     .join(" ");
                 // Block until the frontend answers via `approve_plan` or
                 // `reject_plan`, or time out after 5 minutes.
-                match approval::ask(
-                    &mut on_event,
-                    steps,
-                    plan_notify,
-                    plan_rejected,
-                    plan_steps_override,
-                )
-                .await?
-                {
-                    Approval::Rejected => {
+                match approval::ask(&mut on_event, steps, plan_gate).await? {
+                    Answer::Reject => {
                         on_event(AgentEvent::PlanRejected);
                         return Ok(TurnResult::default());
                     }
-                    Approval::Approved => {}
-                    Approval::Revised(text) => step_override = Some(text),
+                    Answer::Approve => {}
+                    Answer::Revise(text) => step_override = Some(text),
                 }
             }
             // No plan, for any reason. With Plan first on, the user asked
@@ -1452,19 +1441,11 @@ where
                 approval::held_step(&d, &tool_uses, allowed_tools.as_ref(), &user_msg_saved)
             };
             if let Some(steps) = held {
-                match approval::ask(
-                    &mut on_event,
-                    steps,
-                    plan_notify,
-                    plan_rejected,
-                    plan_steps_override,
-                )
-                .await
-                {
+                match approval::ask(&mut on_event, steps, plan_gate).await {
                     // This step runs, and so does the rest of the turn,
                     // as after an approved plan.
-                    Ok(Approval::Approved) => gate = Gate::Open,
-                    Ok(Approval::Rejected) => {
+                    Ok(Answer::Approve) => gate = Gate::Open,
+                    Ok(Answer::Reject) => {
                         approval::not_run(
                             &mut on_event,
                             conversation,
@@ -1484,7 +1465,7 @@ where
                     // nothing runs: the model gets their words and
                     // proposes again, and that proposal is held in turn.
                     // Every edit that runs is one the user saw as shown.
-                    Ok(Approval::Revised(guidance)) => {
+                    Ok(Answer::Revise(guidance)) => {
                         approval::not_run(
                             &mut on_event,
                             conversation,

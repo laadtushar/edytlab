@@ -23,7 +23,7 @@
 //!     dispatcher,
 //!     store,
 //!     engine,
-//!     Arc::new(tokio::sync::Notify::new()),
+//!     ai::PlanGate::new(),
 //!     Arc::new(std::sync::Mutex::new(None)),
 //! );
 //!
@@ -44,6 +44,7 @@ mod context_window;
 pub mod keychain;
 pub mod models;
 pub mod oauth;
+pub mod plan_gate;
 pub mod prompt;
 pub mod provider;
 pub mod responses;
@@ -64,6 +65,7 @@ pub use models::{
     anthropic_fallback_models, list_models_for, list_models_for_at, Catalogue, CatalogueSource,
     ModelInfo,
 };
+pub use plan_gate::PlanGate;
 pub use prompt::{DEFAULT_BASE_URL, DEFAULT_MODEL, MAX_TOOL_CALLS_PER_TURN};
 pub use provider::{
     AnthropicProvider, LlmProvider, OpenAIProvider, OpenRouterProvider, ToolSet, WireFormat,
@@ -446,17 +448,11 @@ pub struct Agent {
     /// Per-agent conversation history. Phase 1 keeps this in memory;
     /// persistence comes later.
     conversation: Vec<Message>,
-    /// Notification primitive for plan approval (M27). Shared with the
-    /// Tauri `AppState` so the `approve_plan` command can fire it without
-    /// acquiring the agent Mutex.
-    pub(crate) plan_notify: Arc<tokio::sync::Notify>,
-    /// Edited plan steps forwarded by the frontend before approval. Shared
-    /// with `AppState`; the agent loop reads and clears it after waking so
-    /// subsequent turns start clean.
-    pub(crate) plan_steps_override: Arc<std::sync::Mutex<Option<String>>>,
-    /// Set by `reject_plan` before it fires `plan_notify`, so the gate
-    /// can tell a rejection from an approval on the same notifier.
-    pub(crate) plan_rejected: Arc<std::sync::atomic::AtomicBool>,
+    /// The plan gate (M27, ADR 0002): where a turn waits for the user to
+    /// approve, revise or reject a plan. A clone of the handle the Tauri
+    /// `AppState` holds, so `approve_plan` and `reject_plan` answer it
+    /// without acquiring the agent Mutex.
+    pub(crate) plan_gate: PlanGate,
     /// Ask for a plan on every turn, not only the ones a classifier
     /// happens to call a mashup.
     pub(crate) plan_first: bool,
@@ -503,20 +499,16 @@ impl Agent {
 
     /// Build a new agent. `dispatcher`, `store`, `engine`, and `clipboard`
     /// are reference-counted so the caller can keep using them concurrently
-    /// (under their respective mutexes).
-    // Eight handles, all of which the agent genuinely needs for the life
-    // of the session. `run_turn` carries the same allow for the same
-    // reason; bundling them into a params struct would move the argument
-    // list rather than shorten it.
-    #[allow(clippy::too_many_arguments)]
+    /// (under their respective mutexes). `plan_gate` is a handle on the
+    /// gate the caller answers plans through. A caller with no UI to answer
+    /// (the CLI) passes a `PlanGate::new()` nothing answers, so a turn that
+    /// asks for approval waits out the timeout.
     pub fn new(
         cfg: LlmConfig,
         dispatcher: Arc<Mutex<tools::ToolDispatcher>>,
         store: Arc<Mutex<session::Store>>,
         engine: Arc<Mutex<audio_engine::Engine>>,
-        plan_notify: Arc<tokio::sync::Notify>,
-        plan_steps_override: Arc<std::sync::Mutex<Option<String>>>,
-        plan_rejected: Arc<std::sync::atomic::AtomicBool>,
+        plan_gate: PlanGate,
         clipboard: Arc<Mutex<Option<tools::Clipboard>>>,
     ) -> Self {
         Self {
@@ -527,9 +519,7 @@ impl Agent {
             engine,
             clipboard,
             conversation: Vec::new(),
-            plan_notify,
-            plan_steps_override,
-            plan_rejected,
+            plan_gate,
             plan_first: false,
             memory: None,
             skills: None,
@@ -608,9 +598,7 @@ impl Agent {
             &self.engine,
             &self.clipboard,
             &mut self.conversation,
-            &self.plan_notify,
-            &self.plan_steps_override,
-            &self.plan_rejected,
+            &self.plan_gate,
             self.plan_first,
             user_message,
             session_ctx,

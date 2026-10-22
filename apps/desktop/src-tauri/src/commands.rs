@@ -3254,26 +3254,12 @@ pub async fn send_message<R: Runtime>(
     // signature). We capture the AppHandle by clone so each emit is
     // independent; emit failures (the receiver window has gone away)
     // are logged rather than aborting the turn.
+    //
+    // Nothing here tracks whether the plan gate is open (#251): the gate
+    // (`AppState::plan_gate`) is open exactly while the turn waits on a
+    // card, and a turn that ends, times out or is dropped closes it.
     let app_handle = app.clone();
-    // The gate is open exactly between the Plan emission and the answer
-    // that releases it (#251). Tracked here rather than inside the loop
-    // because this is the boundary the *frontend* sees, and it is the
-    // frontend's stray Run that used to bank a permit.
-    let gate_open = Arc::clone(&state.plan_gate_open);
-    let on_event = move |event: ai::AgentEvent| {
-        match &event {
-            ai::AgentEvent::Plan { .. } => {
-                gate_open.store(true, std::sync::atomic::Ordering::SeqCst)
-            }
-            // A turn that ended — normally, or by the gate's own
-            // timeout — is no longer waiting for an answer.
-            ai::AgentEvent::Done | ai::AgentEvent::PlanRejected => {
-                gate_open.store(false, std::sync::atomic::Ordering::SeqCst)
-            }
-            _ => {}
-        }
-        emit_agent_event(&app_handle, event);
-    };
+    let on_event = move |event: ai::AgentEvent| emit_agent_event(&app_handle, event);
 
     // Apply the per-turn disabled-tools blacklist. We snapshot the
     // agent's current whitelist, compute an effective whitelist that
@@ -3300,15 +3286,6 @@ pub async fn send_message<R: Runtime>(
     let turn_result = agent
         .turn_with_context(text, session_ctx.as_ref(), on_event)
         .await;
-
-    // However the turn ended, it is no longer waiting for an answer. Only
-    // `Done` and `PlanRejected` clear the flag from inside the turn, so a
-    // turn that timed out at the gate, or failed while holding it, left it
-    // open and a stray Run click could bank a permit for the next turn
-    // (#251).
-    state
-        .plan_gate_open
-        .store(false, std::sync::atomic::Ordering::SeqCst);
 
     // Restore the original whitelist regardless of turn success/failure.
     // Restore happens before the `?` propagation so it is guaranteed even
@@ -3443,31 +3420,15 @@ pub async fn get_plan_first(state: State<'_, AppState>) -> CmdResult<bool> {
     Ok(state.plan_first.load(std::sync::atomic::Ordering::SeqCst))
 }
 
-/// Decline a plan. Sets the rejection flag, then fires the same notifier
-/// `approve_plan` uses, so the waiting turn wakes and ends cleanly
-/// having run no tools and appended no node.
+/// Decline a plan. Answers the plan gate with a rejection, so the waiting
+/// turn wakes and ends cleanly having run no tools and appended no node.
+///
+/// With no card open, or one already answered, there is nothing to answer
+/// and this does nothing (#251): the gate takes exactly one answer.
 #[tauri::command]
 pub async fn reject_plan(state: State<'_, AppState>) -> CmdResult<()> {
-    // Nothing is waiting, so there is nothing to answer (#251). See
-    // `approve_plan` for why a no-op beats notifying anyway.
-    if !plan_gate_was_open(&state) {
-        return Ok(());
-    }
-    state
-        .plan_rejected
-        .store(true, std::sync::atomic::Ordering::SeqCst);
-    state.plan_notify.notify_one();
+    state.plan_gate.answer(ai::plan_gate::Answer::Reject);
     Ok(())
-}
-
-/// Claim the open plan gate, if there is one.
-///
-/// `swap` rather than a read: the gate takes exactly one answer, so a
-/// double-click cannot notify twice and leave a permit behind.
-fn plan_gate_was_open(state: &AppState) -> bool {
-    state
-        .plan_gate_open
-        .swap(false, std::sync::atomic::Ordering::SeqCst)
 }
 
 /// One step of the card, as the user left it. The tool is carried along
@@ -3510,44 +3471,40 @@ fn revision_text(steps: &[EditedStep]) -> Option<String> {
     ))
 }
 
-/// Called by the frontend "Run" button. Fires the plan-approval notifier
-/// in `AppState`, unblocking the turn loop. What is approved is whatever
+/// What the user's Run click says to the gate: an approval, or, when they
+/// changed steps, an approval with the revision worded for the model.
+fn run_answer(steps: Option<&[EditedStep]>) -> ai::plan_gate::Answer {
+    match steps.and_then(revision_text) {
+        Some(text) => ai::plan_gate::Answer::Revise(text),
+        None => ai::plan_gate::Answer::Approve,
+    }
+}
+
+/// Called by the frontend "Run" button. Answers the plan gate in
+/// `AppState`, unblocking the turn loop. What is approved is whatever
 /// the card showed: a plan, or the held first edit (#415).
 ///
 /// Deliberately does NOT acquire the agent mutex — `send_message` holds
 /// it across its `.await` points, so touching the agent here would
-/// deadlock.  The notifier lives independently on `AppState`.
+/// deadlock. The gate lives independently on `AppState`, and answering
+/// it is a plain call.
 ///
-/// When `steps` is non-empty the edited steps, each with its tool, are
-/// stored in `plan_steps_override` as `{n}. {tool} — {description}` lines
-/// before the notifier fires.  The agent loop reads and clears this slot
-/// immediately after it wakes. For a plan it appends the override text to
-/// the conversation so the model executes the user's modified plan rather
-/// than the original one. For a held edit nothing runs: the model is
-/// given the revision and proposes again.
+/// When `steps` is non-empty the edited steps, each with its tool, travel
+/// in the answer as `{n}. {tool} — {description}` lines. For a plan the
+/// agent loop appends the text to the conversation so the model executes
+/// the user's modified plan rather than the original one. For a held edit
+/// nothing runs: the model is given the revision and proposes again.
+///
+/// A stray Run — on a card that should already have gone away, or a
+/// second click on one already answered — is a no-op (#251). The gate
+/// has no question open to take it, so it is neither banked for the
+/// next turn nor carries its revision into one.
 #[tauri::command]
 pub async fn approve_plan(
     state: State<'_, AppState>,
     steps: Option<Vec<EditedStep>>,
 ) -> CmdResult<()> {
-    // A stray Run — on a card that should already have gone away — is a
-    // no-op, not a banked permit (#251).
-    //
-    // `plan_notify` is a tokio `Notify`, and `notify_one` on a
-    // waiterless one stores a permit. So this used to satisfy the
-    // *next* turn's gate immediately, carrying whatever override text
-    // came with the stray click: the following planned turn skipped its
-    // checkpoint and followed a plan the user never saw for it.
-    if !plan_gate_was_open(&state) {
-        return Ok(());
-    }
-    if let Some(override_text) = steps.as_deref().and_then(revision_text) {
-        *state
-            .plan_steps_override
-            .lock()
-            .expect("plan_steps_override mutex poisoned") = Some(override_text);
-    }
-    state.plan_notify.notify_one();
+    state.plan_gate.answer(run_answer(steps.as_deref()));
     Ok(())
 }
 
@@ -5137,9 +5094,7 @@ fn rebuild_agent_from(
                 Arc::clone(&state.dispatcher),
                 store,
                 Arc::clone(&state.engine),
-                Arc::clone(&state.plan_notify),
-                Arc::clone(&state.plan_steps_override),
-                Arc::clone(&state.plan_rejected),
+                state.plan_gate.clone(),
                 state.clipboard_handle(),
             );
             agent.set_plan_first(plan_first);
@@ -6860,6 +6815,33 @@ mod tests {
         assert!(bare.ends_with("\n1. just text\n2. more text"), "{bare}");
 
         assert_eq!(revision_text(&[]), None);
+    }
+
+    /// What the Run click tells the plan gate (ADR 0002): an approval when
+    /// nothing was changed, and a revision worded exactly as `revision_text`
+    /// words it when something was. The gate carries the text as given, so
+    /// this is the wording the model reads.
+    #[test]
+    fn a_run_click_answers_an_approval_or_the_worded_revision() {
+        use ai::plan_gate::Answer;
+
+        assert_eq!(run_answer(None), Answer::Approve);
+        assert_eq!(run_answer(Some(&[])), Answer::Approve);
+
+        assert_eq!(
+            run_answer(Some(&[step("reverse", "track: 1")])),
+            Answer::Revise(
+                "I've updated the plan. Please follow these revised steps instead:\n\
+                 1. reverse — track: 1"
+                    .to_string()
+            )
+        );
+
+        let steps = [step("reverse", "track: 1"), step("", "just text")];
+        assert_eq!(
+            run_answer(Some(&steps)),
+            Answer::Revise(revision_text(&steps).expect("two steps"))
+        );
     }
 
     #[test]

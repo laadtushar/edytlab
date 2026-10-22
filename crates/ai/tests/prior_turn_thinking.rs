@@ -84,9 +84,7 @@ fn agent_against(server: &MockServer, dir: &std::path::Path) -> Agent {
         Arc::new(Mutex::new(dispatcher)),
         Arc::new(Mutex::new(session::Store::open(dir).expect("open store"))),
         Arc::new(Mutex::new(audio_engine::Engine::new())),
-        Arc::new(tokio::sync::Notify::new()),
-        Arc::new(Mutex::new(None)),
-        Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        ai::PlanGate::new(),
         Arc::new(Mutex::new(None::<tools::Clipboard>)),
     )
 }

@@ -14,13 +14,12 @@
 
 mod common;
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use ai::{Agent, AgentEvent, LlmConfig};
+use ai::plan_gate::Answer;
+use ai::{Agent, AgentEvent, LlmConfig, PlanGate};
 use common::{classifier_json, ok, plan_json, sse_text, sse_tool_step, SeqResponder};
 use serde_json::{json, Value};
-use tokio::sync::Notify;
 use tools::{ToolContext, ToolDispatcher, ToolResult};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer};
@@ -40,8 +39,7 @@ struct Project {
     dir: tempfile::TempDir,
     store: Arc<Mutex<session::Store>>,
     agent: Agent,
-    notify: Arc<Notify>,
-    rejected: Arc<AtomicBool>,
+    gate: PlanGate,
     head: String,
 }
 
@@ -99,17 +97,13 @@ impl Project {
             .await;
 
         let store = Arc::new(Mutex::new(store));
-        let notify = Arc::new(Notify::new());
-        let rejected = Arc::new(AtomicBool::new(false));
-        let slot = Arc::new(Mutex::new(None));
+        let gate = PlanGate::new();
         let mut agent = Agent::new(
             LlmConfig::new_anthropic("test-key").with_base_url(server.uri()),
             Arc::new(Mutex::new(dispatcher)),
             Arc::clone(&store),
             Arc::new(Mutex::new(engine)),
-            Arc::clone(&notify),
-            slot,
-            Arc::clone(&rejected),
+            gate.clone(),
             Arc::new(Mutex::new(None::<tools::Clipboard>)),
         );
         agent.set_plan_first(true);
@@ -119,8 +113,7 @@ impl Project {
             dir,
             store,
             agent,
-            notify,
-            rejected,
+            gate,
             head,
         }
     }
@@ -128,8 +121,7 @@ impl Project {
     /// Run one turn. A card is approved if `approve` is true, declined if
     /// not; either way the test goes on instead of waiting for a person.
     async fn turn(&mut self, approve: bool) -> Vec<Ev> {
-        let notify = Arc::clone(&self.notify);
-        let rejected = Arc::clone(&self.rejected);
+        let gate = self.gate.clone();
         let mut events = Vec::new();
         self.agent
             .turn("try a limiter on it".to_string(), |event| match event {
@@ -139,10 +131,11 @@ impl Project {
                 AgentEvent::Done => events.push(Ev::Done),
                 AgentEvent::Plan { steps } => {
                     events.push(Ev::Plan(steps));
-                    if !approve {
-                        rejected.store(true, Ordering::SeqCst);
-                    }
-                    notify.notify_one();
+                    gate.answer(if approve {
+                        Answer::Approve
+                    } else {
+                        Answer::Reject
+                    });
                 }
                 _ => {}
             })

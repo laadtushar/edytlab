@@ -72,18 +72,8 @@ async fn live_round_trip() {
     }
 
     let cfg = ai::LlmConfig::new_anthropic(api_key);
-    let plan_notify = std::sync::Arc::new(tokio::sync::Notify::new());
-    let plan_steps_override = std::sync::Arc::new(std::sync::Mutex::new(None));
-    let mut agent = ai::Agent::new(
-        cfg,
-        dispatcher,
-        store,
-        engine,
-        plan_notify,
-        plan_steps_override,
-        Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        clipboard,
-    );
+    let plan_gate = ai::PlanGate::new();
+    let mut agent = ai::Agent::new(cfg, dispatcher, store, engine, plan_gate, clipboard);
 
     let mut events = 0usize;
     let result = agent

@@ -17,7 +17,7 @@
 
 mod common;
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -26,7 +26,6 @@ use ai::{Agent, AgentEvent, LlmConfig};
 use common::{classifier_json, ok, sse_text, sse_tool_step, Entry, SeqResponder};
 use serde_json::{json, Value};
 use session::{Annotation, AnnotationId, AnnotationKind, NodeId, Store};
-use tokio::sync::Notify;
 use tools::schema::{anthropic_tool, object_schema};
 use tools::{Tool, ToolContext, ToolDispatcher, ToolResult};
 use wiremock::matchers::{method, path};
@@ -211,9 +210,7 @@ async fn run_turn_with(off_lock: bool, appends: bool) -> Outcome {
         Arc::new(Mutex::new(dispatcher)),
         Arc::clone(&store),
         Arc::new(Mutex::new(audio_engine::Engine::new())),
-        Arc::new(Notify::new()),
-        Arc::new(Mutex::new(None)),
-        Arc::new(AtomicBool::new(false)),
+        ai::PlanGate::new(),
         Arc::new(Mutex::new(None::<tools::Clipboard>)),
     );
     agent.set_plan_first(false);
