@@ -1,70 +1,96 @@
 "use client";
 
 import { useRef } from "react";
-import { Check, Minus, X } from "lucide-react";
+import { Check } from "lucide-react";
 
 import { AgentLoop } from "@/components/landing/agent-loop";
 import { Reveal, Stagger } from "@/components/motion";
 import { SectionHeading } from "@/components/motion/section-heading";
 import { gsap, useGSAP, motionOk, NO_PREFERENCE, DRAWABLE, undash } from "@/lib/gsap";
 
-type CellValue = "yes" | "no" | "partial" | string;
+type CellValue = "yes" | string;
 
 interface Row {
   label: string;
-  daw: CellValue;
-  aiTool: CellValue;
+  /** What edytlab does about it, as a tick or a short word. */
   edytlab: CellValue;
-}
-
-const rows: Row[] = [
-  { label: "Learning curve",         daw: "100+ hours",  aiTool: "Minutes",   edytlab: "Minutes" },
-  { label: "Audio quality",          daw: "yes",         aiTool: "no",        edytlab: "yes"     },
-  { label: "Privacy — local audio",  daw: "yes",         aiTool: "no",        edytlab: "yes"     },
-  { label: "Natural language input",  daw: "no",          aiTool: "partial",   edytlab: "yes"     },
-  { label: "Session branching",       daw: "no",          aiTool: "no",        edytlab: "yes"     },
-  { label: "BYO LLM key",            daw: "no",          aiTool: "no",        edytlab: "yes"     },
-  { label: "Stem separation",         daw: "partial",     aiTool: "partial",   edytlab: "Not yet" },
-  { label: "MCP extensibility",       daw: "no",          aiTool: "no",        edytlab: "yes"     },
-];
-
-function Cell({ value, highlight }: { value: CellValue; highlight?: boolean }) {
-  const base = "flex items-center justify-center py-3.5 text-sm";
-  const hl = highlight ? "text-foreground font-medium" : "text-muted-foreground";
-
-  if (value === "yes")
-    return (
-      <div className={`${base} ${hl}`}>
-        <Check
-          data-tick={highlight ? "" : undefined}
-          className={`size-4 ${highlight ? "text-primary" : "text-muted-foreground/70"}`}
-        />
-      </div>
-    );
-  if (value === "no")
-    return (
-      <div className={`${base} ${hl}`}>
-        <X className="size-4 text-muted-foreground/40" />
-      </div>
-    );
-  if (value === "partial")
-    return (
-      <div className={`${base} ${hl}`}>
-        <Minus className="size-4 text-muted-foreground/60" />
-      </div>
-    );
-
-  return <div className={`${base} ${hl}`}>{value}</div>;
+  /** One line a reader can check against the app, its docs or the issue it names. */
+  detail: string;
 }
 
 /**
- * The gap edytlab sits in, and the evidence for it, in one section.
+ * About edytlab alone. This used to be a three-way table (a "Traditional
+ * DAW" column, an "AI Audio Tools" column and edytlab), and the two
+ * competitor columns were category verdicts with no source — one of
+ * them, "MCP extensibility: no" for AI tools, is contradicted by a
+ * competitor's own help page. A claim about a product class is true or
+ * false of each member, and nobody had checked each member, so those
+ * cells are gone rather than hedged. Named, sourced, dated comparisons
+ * belong on pages of their own, one competitor each.
+ *
+ * Every row here is something the app or its docs shows. The two "Not
+ * yet" rows are the same limits the feature grid and the FAQ state.
+ */
+const rows: Row[] = [
+  {
+    label: "Audio stays on your machine",
+    edytlab: "yes",
+    detail:
+      "Only the chat goes to the provider you pick. With Ollama that can stay on your machine too.",
+  },
+  {
+    label: "Natural-language input",
+    edytlab: "yes",
+    detail: "Describe the edit in chat; the agent calls the audio tools to make it.",
+  },
+  {
+    label: "Session branching",
+    edytlab: "yes",
+    detail: "Fork, A/B compare and revert. Undo follows the path you took.",
+  },
+  {
+    label: "Bring your own LLM key",
+    edytlab: "yes",
+    detail: "Anthropic, OpenAI, OpenRouter, Groq or Gemini with your key; Ollama needs none.",
+  },
+  {
+    label: "MCP client",
+    edytlab: "yes",
+    detail: "Register MCP servers in Settings to give the agent more tools.",
+  },
+  {
+    label: "Stem separation",
+    edytlab: "Not yet",
+    detail: "Wired in as a tool; the model inference has not shipped (#385).",
+  },
+  {
+    label: "Transcription and text-based editing",
+    edytlab: "Not yet",
+    detail: "The editing is built; the transcription it needs has not shipped (#384).",
+  },
+];
+
+/** edytlab's cell: a tick, drawn in on scroll, or a short word. */
+function Cell({ value }: { value: CellValue }) {
+  const base = "flex items-center justify-center py-3.5 text-sm text-foreground font-medium";
+
+  if (value === "yes")
+    return (
+      <div className={base}>
+        <Check data-tick="" className="size-4 text-primary" />
+      </div>
+    );
+  return <div className={base}>{value}</div>;
+}
+
+/**
+ * What edytlab does today, and what it does not yet, in one section.
  *
  * This was two: a "Problem" band that said DAWs are hard and AI tools
- * are shallow, and then this table, which says the same thing again
- * row by row. The claim now heads the table it is a summary of, with
- * the agent loop drawn between them — "the agent layer in between" as
- * a picture.
+ * are shallow, and then a table that said the same thing again row by
+ * row. Both were verdicts on product classes with nothing behind them,
+ * so the heading and the table now say only what edytlab does, with the
+ * agent loop drawn between them.
  *
  * The rows arrive one by one; once they have, edytlab's ticks are
  * written in down the column (DrawSVG), so the eye runs down the one
@@ -102,9 +128,9 @@ export function Comparison() {
     <section id="compare" className="border-y border-border/50 bg-secondary/20 py-20 md:py-28">
       <div className="container">
         <SectionHeading
-          eyebrow="The gap"
-          title="Pro DAWs are powerful but slow to learn. AI tools are easy but shallow."
-          lead="edytlab is the agent layer in between: it plans, executes and iterates over a real audio engine, in a session you can trust and steer."
+          eyebrow="What it does"
+          title="What edytlab does today, and what it does not yet."
+          lead="edytlab is an agent layer over a real audio engine: it plans, executes and iterates, in a session you can steer. Everything in the table is about edytlab alone, and can be checked in the app and the docs."
         />
 
         <AgentLoop />
@@ -114,23 +140,20 @@ export function Comparison() {
             ref={table}
             className="mx-auto max-w-4xl overflow-x-auto rounded-xl border border-border/60"
           >
-            <table className="w-full min-w-[480px] border-collapse text-sm">
+            <table className="w-full min-w-[560px] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-border/60">
-                  <th className="w-[40%] py-4 pl-6 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  <th className="w-[30%] py-4 pl-6 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     Feature
                   </th>
-                  <th className="w-[20%] py-4 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Traditional DAW
-                  </th>
-                  <th className="w-[20%] py-4 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    AI Audio Tools
-                  </th>
-                  <th className="relative w-[20%] py-4 text-center text-xs font-semibold uppercase tracking-wider text-primary">
+                  <th className="relative w-[18%] py-4 text-center text-xs font-semibold uppercase tracking-wider text-primary">
                     <span className="relative">
                       edytlab
                       <span className="absolute -top-1 -right-2 flex size-1.5 rounded-full bg-primary" />
                     </span>
+                  </th>
+                  <th className="w-[52%] py-4 pl-4 pr-6 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    What that means
                   </th>
                 </tr>
               </thead>
@@ -149,13 +172,10 @@ export function Comparison() {
                       {row.label}
                     </td>
                     <td className="text-center">
-                      <Cell value={row.daw} />
+                      <Cell value={row.edytlab} />
                     </td>
-                    <td className="text-center">
-                      <Cell value={row.aiTool} />
-                    </td>
-                    <td className="text-center">
-                      <Cell value={row.edytlab} highlight />
+                    <td className="py-3 pl-4 pr-6 text-sm text-muted-foreground">
+                      {row.detail}
                     </td>
                   </tr>
                 ))}

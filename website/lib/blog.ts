@@ -47,20 +47,21 @@ export const BLOG_AUTHOR = { name: "edytlab", url: siteConfig.url } as const;
 const earlierPosts: BlogPost[] = [
   {
     slug: "ai-audio-editing-local-first",
-    title: "AI Audio Editing in 2026: Why Local-First Is the Only Approach That Matters",
+    title: "AI Audio Editing in 2026: What Local-First Changes",
     date: "2026-05-10",
+    dateModified: "2026-10-22",
     description:
-      "Cloud AI audio tools upload your files and depend on someone else's servers. Here is what local-first audio editing changes, and where an LLM still comes in.",
+      "A cloud-based AI audio tool sends your files to someone else's servers. Here is what local-first audio editing changes, and where an LLM still comes in.",
     coverAlt:
       "A laptop holding a waveform, with a dashed line to a small cloud that carries only a short text message",
     excerpt:
-      "Cloud AI audio tools upload your stems to third-party servers, lock you into subscriptions, and go offline when the API is down. Local-first AI audio editing changes all of that.",
+      "A cloud-based AI audio tool sends your audio to its vendor's servers, so it needs a connection and depends on that service being up. Local-first AI audio editing keeps the audio on your machine.",
     readTime: 7,
     tags: ["local-first", "AI audio editor", "privacy", "offline"],
     body: [
       {
         type: "p",
-        text: "AI audio editing has exploded. Tools that once required a full-time engineer — stem separation, automatic transcription, pitch correction, noise removal — now live inside consumer apps. The catch? Almost every one of them routes your audio through a cloud server.",
+        text: "AI audio editing has exploded. Tools that once required a full-time engineer — stem separation, automatic transcription, pitch correction, noise removal — now live inside consumer apps. The catch? Many of them work by sending your audio to the vendor's servers, so read each tool's own privacy page before you upload anything you cannot replace.",
       },
       {
         type: "h2",
@@ -73,10 +74,10 @@ const earlierPosts: BlogPost[] = [
       {
         type: "ul",
         items: [
-          "Your unreleased music is now on someone else's server — often with vague retention policies.",
+          "Your unreleased music is now on someone else's server, for as long as that vendor's retention policy allows. Read it first.",
           "Every file makes the round trip, so latency grows with file size.",
           "If the service has an outage, your session is blocked regardless of your deadline.",
-          "Subscriptions fund the compute. Cancel the sub, lose the feature.",
+          "If a subscription pays for the compute, cancelling it can mean losing the feature.",
         ],
       },
       {
@@ -121,11 +122,11 @@ const earlierPosts: BlogPost[] = [
       },
       {
         type: "p",
-        text: "Professional audio engineers have always been suspicious of cloud lock-in, and rightly so. Pro Tools famously pivoted to subscription, alienating a generation of studios. The next wave of AI audio tools is better served by a model where AI accelerates the workflow without owning the session data. Local-first is not a niche constraint — it is the architecture that actually respects professional requirements.",
+        text: "Some professional audio engineers are wary of depending on a vendor's servers, or a vendor's subscription, for their own session files. A model where the AI speeds up the workflow without holding the session data answers that worry. Local-first is one way to build it: the session lives in a folder you own, and only the chat leaves.",
       },
       {
         type: "p",
-        text: "As on-device AI inference improves — Apple Silicon Neural Engine, AMD XDNA, NVIDIA DLSS-equivalent for audio — the gap between local and cloud audio AI should keep narrowing. Tools built local-first today will not need to be rearchitected. Tools built cloud-first will.",
+        text: "As on-device AI inference improves — Apple Silicon Neural Engine, AMD XDNA, NVIDIA DLSS-equivalent for audio — the gap between local and cloud audio AI should keep narrowing, and a tool built local-first will not need to be rearchitected to use it.",
       },
     ],
   },
@@ -133,7 +134,7 @@ const earlierPosts: BlogPost[] = [
     slug: "stem-separation-explained-demucs",
     title: "Stem Separation Explained: How AI Isolates Vocals and Instruments",
     date: "2026-05-12",
-    dateModified: "2026-10-11",
+    dateModified: "2026-10-22",
     description:
       "How Demucs splits a mix into vocals, drums, bass and other, what each stem is good for, and where stem separation stands in edytlab (it has not shipped yet).",
     coverAlt:
@@ -208,7 +209,7 @@ const earlierPosts: BlogPost[] = [
       },
       {
         type: "p",
-        text: "Cloud-based stem separation tools (Lalal.ai, LALAL.AI, Moises) all upload your audio. For unreleased material — demos, client work, sync licensing tracks — this is a non-starter. edytlab is built to run Demucs as a local tool call: the model runs on your machine, the stems are written to your local session, and nothing is uploaded. That inference has not shipped yet — today the separate_stems tool returns an error.",
+        text: "Cloud-based stem separation tools such as [LALAL.AI](https://www.lalal.ai/privacy-policy/) and [Moises](https://moises.ai/privacy/) work on files you upload to them: LALAL.AI's privacy policy says its algorithms \"analyze, process, and separate existing user-uploaded audio files\", and Moises' says it keeps \"your media and processed files\" (both read on 2026-10-22). For unreleased material — demos, client work, sync licensing tracks — read their retention terms before you upload. edytlab is built to run Demucs as a local tool call: the model runs on your machine, the stems are written to your local session, and nothing is uploaded. That inference has not shipped yet — today the separate_stems tool returns an error.",
       },
       {
         type: "callout",
@@ -432,14 +433,15 @@ const earlierPosts: BlogPost[] = [
   },
   {
     slug: "open-source-audio-editor-byo-llm",
-    title: "Why the Best AI Audio Tools Let You Bring Your Own LLM Key",
+    title: "Open-source AI audio editor: bring your own LLM key",
     date: "2026-05-17",
+    dateModified: "2026-10-22",
     description:
-      "AI audio tools that hardcode one model decide for you. What bring-your-own-key means in practice: where the key lives, what you can switch, and what it costs.",
+      "An AI tool that hardcodes one model decides for you. What bring-your-own-key means in practice: where the key lives, what you can switch, and what it costs.",
     coverAlt:
       "A key plugging into a socket on a device, with the socket wired to a single line out",
     excerpt:
-      "Vendor lock-in is the oldest trick in enterprise software. AI audio tools that hardcode a single provider are not tools — they are subscriptions. Here is what BYO-key architecture means in practice.",
+      "When an AI audio tool hardcodes a single LLM provider, the vendor picks the model and holds the key. Here is what bring-your-own-key means in practice in an open-source editor.",
     readTime: 5,
     tags: ["open source audio editor", "bring your own API key", "Anthropic", "OpenAI", "OpenRouter"],
     body: [

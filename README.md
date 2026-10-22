@@ -7,7 +7,9 @@
 
 **Talk to Claude. Get pro-grade audio edits.**
 
-A Tauri 2 desktop audio editor where producers, podcasters, and DJs do real audio editing by chatting with an AI agent. Drop two MP3s, ask for a mashup, get a rendered WAV. Drop stems, refine the mix through conversation with audible A/B at every turn.
+A Tauri 2 desktop audio editor where producers, podcasters, and DJs edit audio by chatting with an AI agent. Load two tracks, ask it to bring one to the other's tempo and blend them with a crossfade, and export a WAV. Refine the result through conversation, with an audible A/B at each step.
+
+**What it does not do yet.** Stem separation and transcription are wired in as tools, but their model inference is not shipped: `separate_stems` and `transcribe` return an error today, and the transcript-driven edits wait on transcription ([#383](https://github.com/laadtushar/edytlab/issues/383), [#384](https://github.com/laadtushar/edytlab/issues/384), [#385](https://github.com/laadtushar/edytlab/issues/385)). It edits files: no MIDI, no instruments, no plugin hosting. The installers are unsigned ([#386](https://github.com/laadtushar/edytlab/issues/386)).
 
 Local-first, multi-provider, pure-Rust DSP. Builds for macOS (universal), Windows and Linux.
 
