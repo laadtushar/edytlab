@@ -145,6 +145,21 @@ impl Tool for BatchApplyTool {
         // `output_dir` a folder holding `podcast.wav` next to a project
         // folder named `podcast/` is enough. Nothing is started, so it is
         // not left half done either.
+        // Refused once, up front: two inputs whose names differ only in
+        // their extension (or only in case) would be one project folder, one
+        // history and one render, the second file's written over the
+        // first's and both reported as succeeded (#667).
+        if let Some((first, second)) = shared_project(&output_dir, &files) {
+            return Ok(ToolResult::Error(format!(
+                "batch_apply refused before starting: {} and {} would both be edited in the project \
+                 folder {}, so one would replace the other. Rename one of them, or move it to a \
+                 folder of its own, and run the batch again.",
+                first.display(),
+                second.display(),
+                project_for(&output_dir, &first).display()
+            )));
+        }
+
         let open: Vec<PathBuf> = files
             .iter()
             .map(|file| project_for(&output_dir, file))
@@ -301,9 +316,33 @@ fn project_for(output_dir: &Path, file: &Path) -> PathBuf {
 }
 
 /// Where `project`'s render goes when the batch is asked for `format`: beside
-/// the project folder, named for it.
+/// the project folder, named for it. The format is appended to the whole
+/// name, not put in place of its last dotted part: `take.1` renders to
+/// `take.1.wav`, where `with_extension` gave `take.wav`, the same file as
+/// `take.2`'s render (#667).
 fn render_path_for(project: &Path, format: &str) -> PathBuf {
-    project.with_extension(format)
+    let mut name = project.file_name().unwrap_or_default().to_os_string();
+    name.push(".");
+    name.push(format);
+    project.with_file_name(name)
+}
+
+/// The first two inputs that would share a project folder, and so a history
+/// and a render: `take.wav` and `take.mp3`, or, on a disk that folds case,
+/// `Take.wav` and `take.wav`. Compared without case on every platform, so a
+/// batch refused on one disk is refused on all of them.
+fn shared_project(output_dir: &Path, files: &[PathBuf]) -> Option<(PathBuf, PathBuf)> {
+    let mut seen: std::collections::HashMap<String, &PathBuf> = std::collections::HashMap::new();
+    for file in files {
+        let key = project_for(output_dir, file)
+            .to_string_lossy()
+            .to_lowercase();
+        if let Some(first) = seen.get(&key) {
+            return Some(((*first).clone(), file.clone()));
+        }
+        seen.insert(key, file);
+    }
+    None
 }
 
 /// The refusal for a batch whose render would be written onto an input. Names
@@ -453,6 +492,46 @@ fn run_one(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_render_keeps_every_dotted_part_of_the_name() {
+        let out = Path::new("/out");
+        assert_eq!(
+            render_path_for(&out.join("take.1"), "wav"),
+            out.join("take.1.wav")
+        );
+        assert_eq!(
+            render_path_for(&out.join("take"), "mp3"),
+            out.join("take.mp3")
+        );
+    }
+
+    #[test]
+    fn inputs_that_share_a_project_folder_are_found() {
+        let out = Path::new("/out");
+        let files = |names: &[&str]| {
+            names
+                .iter()
+                .map(|n| PathBuf::from(format!("/in/{n}")))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            shared_project(out, &files(&["take.1.wav", "take.2.wav"])),
+            None
+        );
+        assert_eq!(
+            shared_project(out, &files(&["take.flac", "take.wav"])),
+            Some((
+                PathBuf::from("/in/take.flac"),
+                PathBuf::from("/in/take.wav")
+            ))
+        );
+        assert!(
+            shared_project(out, &files(&["Take.wav", "take.mp3"])).is_some(),
+            "case folded"
+        );
+    }
+
     use super::*;
     use crate::{Clipboard, ToolContext};
     use hound::{SampleFormat, WavSpec, WavWriter};

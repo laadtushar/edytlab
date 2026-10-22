@@ -638,3 +638,81 @@ fn a_batch_into_another_folder_still_runs_beside_an_open_project() {
     // The batch's projects are free again once it is done.
     assert!(!session::Store::is_open(&out.join("take-0")));
 }
+
+/// Names that differ only after a dot get renders of their own (#667):
+/// `take.1.wav` and `take.2.wav` both rendered to `take.wav`, the second
+/// over the first, and both were reported as succeeded.
+#[test]
+fn names_that_differ_after_a_dot_get_a_render_each() {
+    let mut s = Session::new();
+    let recipe = make_recipe(&mut s);
+    let takes = s.dir.path().join("dotted");
+    std::fs::create_dir_all(&takes).unwrap();
+    write_sine(&takes.join("take.1.wav"), 220.0);
+    write_sine(&takes.join("take.2.wav"), 880.0);
+    let out = s.dir.path().join("out");
+
+    let v = ok(s.call(
+        "batch_apply",
+        json!({
+            "recipe_path": recipe.to_string_lossy(),
+            "input_dir": takes.to_string_lossy(),
+            "output_dir": out.to_string_lossy(),
+            "render_format": "wav",
+        }),
+    ));
+
+    assert_eq!(v["succeeded"], json!(2), "{v}");
+    let one = out.join("take.1.wav");
+    let two = out.join("take.2.wav");
+    assert!(
+        one.is_file() && two.is_file(),
+        "renders: {:?}",
+        std::fs::read_dir(&out).unwrap().collect::<Vec<_>>()
+    );
+    assert!(
+        !out.join("take.wav").exists(),
+        "a render named for neither input"
+    );
+    assert_ne!(
+        std::fs::read(&one).unwrap(),
+        std::fs::read(&two).unwrap(),
+        "one render replaced the other"
+    );
+}
+
+/// Two inputs that would share a project folder (same name, another
+/// extension) are refused before either is started (#667).
+#[test]
+fn inputs_that_would_share_a_project_are_refused_up_front() {
+    let mut s = Session::new();
+    let recipe = make_recipe(&mut s);
+    let takes = s.dir.path().join("pair");
+    std::fs::create_dir_all(&takes).unwrap();
+    write_sine(&takes.join("take.wav"), 220.0);
+    std::fs::copy(takes.join("take.wav"), takes.join("take.flac.tmp")).unwrap();
+    // A second input with the same stem: a FLAC name is enough to be listed,
+    // and the refusal comes before anything reads it.
+    std::fs::rename(takes.join("take.flac.tmp"), takes.join("take.flac")).unwrap();
+    let out = s.dir.path().join("out");
+
+    let message = err(s.call(
+        "batch_apply",
+        json!({
+            "recipe_path": recipe.to_string_lossy(),
+            "input_dir": takes.to_string_lossy(),
+            "output_dir": out.to_string_lossy(),
+            "render_format": "wav",
+        }),
+    ));
+
+    assert!(message.contains("refused before starting"), "{message}");
+    assert!(
+        message.contains("take.flac") && message.contains("take.wav"),
+        "{message}"
+    );
+    assert!(
+        !out.join("take").exists(),
+        "a project was started: {message}"
+    );
+}
