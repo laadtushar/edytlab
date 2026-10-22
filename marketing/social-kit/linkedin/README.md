@@ -11,14 +11,20 @@ are taken from the real frontend (see [Screenshots](#screenshots)).
 These are the files to upload. Post the image **or** the reel; LinkedIn takes one
 kind of media per post.
 
+Post 1, the post 3 square and the carousel were re-rendered on 2026-10-22 for
+v0.7.0 (they said v0.5.0 and 93 tools); the earlier files are kept in
+[`../../archive/linkedin/2026-10-11-v0.5.0/out/`](../../archive/README.md). The other three squares
+carry neither the version nor the tool count, and a re-render drew the same
+picture, so they are the 2026-10-11 files.
+
 | File | Size | Goes with | What it shows |
 |---|---|---|---|
-| `out/post-1-launch.png` | 1200x1200, 564 KB | Post 1, launch | "An audio editor you talk to": the app's chat panel with a scripted example conversation, and the site's three numbers (0 bytes of audio uploaded, 6 providers, 93 tools) |
+| `out/post-1-launch.png` | 1200x1200, 570 KB | Post 1, launch | "An audio editor you talk to": a "v0.7.0 · open source" pill, the app's chat panel with a scripted example conversation, and the site's three numbers (0 bytes of audio uploaded, 6 providers, 94 tools) |
 | `out/post-2-before-after.png` | 1200x1200, 396 KB | Post 2, DJ workflow | The seven chores of one blend, beside the same scripted example conversation in the app's chat panel |
-| `out/post-3-model-never-touches-a-sample.png` | 1200x1200, 188 KB | Post 3, build story | The model reads text and answers with tool calls; the tools and the audio are on your machine |
+| `out/post-3-model-never-touches-a-sample.png` | 1200x1200, 203 KB | Post 3, build story | The model reads text and answers with tool calls; the 94 tools and the audio are on your machine |
 | `out/post-4-privacy.png` | 1200x1200, 221 KB | Post 4, privacy | "Does my audio get uploaded? No." What stays, what leaves, and Settings with Ollama selected |
 | `out/post-5-help-wanted.png` | 1200x1200, 249 KB | Post 5, open source | Four places a contributor would make a difference, with issue numbers |
-| `out/post-3-carousel.pdf` | 7 pages of 1080x1350, 5.2 MB | Post 3, **instead of the reel** | The build story as a document: cover, the pipeline, a tool call, the history graph, Plan first, why the time-stretch is in Rust, the source |
+| `out/post-3-carousel.pdf` | 7 pages of 1080x1350, 5151 KB | Post 3, **instead of the reel** | The build story as a document: cover, the pipeline (94 tools), a tool call, the history graph, Plan first, why the time-stretch is in Rust, the source (0 bytes, 6 providers, 94 tools, and "v0.7.0 for macOS, Windows and Linux. The installers are unsigned") |
 
 A square can also be the cover of the post's reel, if LinkedIn's uploader offers a
 custom thumbnail (not checked from here). The carousel is a native document post:
@@ -105,6 +111,12 @@ so a command the app calls that nothing answers fails the run.
   never sees this folder, and no spec under `apps/desktop/e2e` changed. The config
   uses port 5391 (`SHOTS_PORT` moves it); 5199 is the CI config's.
 
+Retaken on 2026-10-22 against the v0.7.0 frontend (`render.mjs --shots`, after
+the lane controls, the History graph and the mix cache changed): the interface
+they draw is the same, and the pixels differ only by anti-aliasing between
+Chromium builds (the plan card wraps one word differently), so the files from
+2026-10-11 are kept.
+
 | File | What it is |
 |---|---|
 | `shots/chat.png` | the assistant after one request: four tool calls and the reply (a scripted example conversation) |
@@ -121,7 +133,7 @@ count, a quote or a benchmark.
 
 | Claim on a slide | Source |
 |---|---|
-| 93 tools; fade / EQ / time-stretch / loudness / export are among them; they are Rust functions with no model in the audio path. The slides do not call the 93 "deterministic": two of them (`separate_stems`, `transcribe`) only return an error today, and tools an MCP server adds are not part of the 93 | `docs/tools-reference.md` (read at render time), `crates/tools/src/tool/` |
+| 94 tools; fade / EQ / time-stretch / loudness / export are among them; they are Rust functions with no model in the audio path. The slides do not call the 94 "deterministic": two of them (`separate_stems`, `transcribe`) only return an error today, and tools an MCP server adds are not part of the 94 | `docs/tools-reference.md` (read at render time), `crates/tools/src/tool/` |
 | 6 providers, one local; 0 bytes of audio uploaded | `website/components/landing/stats-strip.tsx`, `website/app/privacy/page.tsx` |
 | The model reads text (tempo, key, loudness), never receives the audio; the DSP runs in Rust on your machine | marketing `README.md` accuracy table; `docs/architecture.md` |
 | Only the chat leaves; Ollama needs no key and runs on your machine | `website/app/privacy/page.tsx`; the dialog's own text in `shots/ollama.png` |
@@ -129,8 +141,8 @@ count, a quote or a benchmark.
 | Every edit is a node; fork, A/B, go back; undo follows the path you took | `crates/tools/src/tool/fork_node.rs`, `compare_nodes.rs`, `apps/desktop/src/lib/headTrail.ts` |
 | Rubber Band was dropped for a pure-Rust phase vocoder; the cost is smearing on dense material at large changes | `crates/audio-time/src/vocoder.rs`, `README.md` |
 | Eleven effects cannot yet run on a master or bus chain | `NOT_YET_STREAMING` in `crates/audio-engine/src/effect_chain.rs` |
-| #464 (macOS microphone), #497 (Linux keyring), #383 to #385 (ML inference) | GitHub, checked 2026-10-16: #464, #497, #384 and #385 are open. #383 (the ONNX Runtime and model delivery) was reopened the same day: the installers carry the runtime from v0.7.0, but no model is downloaded and no inference runs, so "Not shipped yet" on the slide (inference) is still true |
-| v0.7.0 for macOS, Windows and Linux; MIT; the installers are unsigned | `tauri.conf.json` (`render.mjs` reads the version from it), `LICENSE`, the v0.7.0 release notes. The last carousel page, the only canvas that mentions a download, says so. **The committed `out/post-3-carousel.pdf` and `out/post-1-launch.png` were rendered before v0.6.0 and still say v0.5.0**: run `node render.mjs` before posting either |
+| #464 (macOS microphone), #497 (Linux keyring), #383 to #385 (ML inference) | GitHub, checked 2026-10-22: #464, #497, #383, #384 and #385 are all open. The installers carry the ONNX Runtime from v0.7.0 (#615), but no model is downloaded and no inference runs, so "Not shipped yet: ONNX Runtime inference inside a Tauri app" on the post 5 square is still true |
+| v0.7.0 for macOS, Windows and Linux; MIT; the installers are unsigned | `tauri.conf.json` (`render.mjs` reads the version from it), `LICENSE`, the v0.7.0 release notes. The last carousel page, the only canvas that mentions a download, says so; post 1's pill names the version. Both were re-rendered on 2026-10-22 and say v0.7.0. The version and the tool count are read at render time, so **run `node render.mjs` after the next release or the next new tool, before posting either** |
 
 ## Files
 
@@ -156,6 +168,14 @@ count, a quote or a benchmark.
   swapped in just before printing. As the site draws it (`background-clip: text`) the
   PDF writer produced a clipped box whose bottom edge showed as a hairline under
   the line in one viewer.
+- The carousel's gradient headline halves are SVG text in the PDF, and two PDF
+  engines checked on 2026-10-22 do not paint them: PDFium (pypdfium2 5.13, build
+  153.0.7999.0) leaves them out, and poppler 24.02 (`pdftoppm`) draws a solid
+  magenta box. The 2026-10-11 PDF behaves the same, so this is not new, and the
+  text is in the file (`pdftotext` reads "a sample."). It was not checked in
+  Chrome's own viewer, Acrobat or LinkedIn's document viewer. Open the PDF in
+  the viewer you will use, and in LinkedIn's uploader preview, before posting
+  post 3 as a carousel; the squares are plain PNGs and have no such problem.
 - LinkedIn's own limits for images and documents were not checked from here. The
   files are well inside the sizes it is usually reported to accept (an image under
   a few MB, a document well under 100 MB), but check the uploader on the day.

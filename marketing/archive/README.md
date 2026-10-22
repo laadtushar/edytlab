@@ -1,6 +1,6 @@
-# Archive: every earlier version of the launch video, the reels and the demos
+# Archive: every earlier version of the launch video, the reels, the demos and the LinkedIn renders
 
-Nothing made for edytlab's marketing is thrown away. When a video, its captions, contact sheet, cue file or narration timing is replaced or removed, the earlier file is kept here, sorted by what it is, then by version, then by kind.
+Nothing made for edytlab's marketing is thrown away. When a video, its captions, contact sheet, cue file, narration timing or a rendered image or PDF is replaced or removed, the earlier file is kept here, sorted by what it is, then by version, then by kind.
 
 > **Licence: do not post the narrated files.** Every file with `narrated` in its name carries audio generated with ElevenLabs ([elevenlabs.io](https://elevenlabs.io)) on its free plan: the voice, and in the narrated reels also the whoosh, hit and ding effects (`marketing/reels/sfx/`). ElevenLabs' terms: "The free plan does not include a commercial license and cannot be used for any commercial purpose", and a published piece must credit "elevenlabs.io" or "11.ai" in its title ([source](https://elevenlabs.io/docs/help-center/legal/can-i-publish-the-content-i-generate-on-the-platform)). The files without `narrated` have no ElevenLabs audio (the PRs that added them say so) and are covered by the repository's MIT licence.
 
@@ -26,9 +26,12 @@ archive/
 │       ├── cues/                     the caption cue files the reels were cut from
 │       ├── narration-timing/         when each narration line plays, per narrated video
 │       └── tools/                    the caption-mapping script and its mapping, removed in #590
-└── demos/
-    ├── 2026-10-09-first-takes/       the first two website demos, video and poster (#417, #432)
-    └── 2026-10-09-v0.4.0/            the three DJ demos recorded on v0.4.0, video and poster (#459), replaced by #581
+├── demos/
+│   ├── 2026-10-09-first-takes/       the first two website demos, video and poster (#417, #432)
+│   └── 2026-10-09-v0.4.0/            the three DJ demos recorded on v0.4.0, video and poster (#459), replaced by #581
+└── linkedin/
+    └── 2026-10-11-v0.5.0/            the LinkedIn renders that carried "v0.5.0" and "93 tools" (#578), replaced for v0.7.0
+        └── out/                      post-1-launch.png, post-3-model-never-touches-a-sample.png, post-3-carousel.pdf
 ```
 
 ## Where each file came from
@@ -42,9 +45,10 @@ Every file except the two drafts is the exact file a PR committed to `main` (the
 | `reels/2026-10-10-v0.4.0-amber/` | #485 (2026-10-10); `tools/map-captions.mjs` is the last version, from #537 (2026-10-11), and `map-captions.pr485.mjs` the first | #590 (2026-10-13) | Reels 1080x1920: highlights 1:02, teaser 0:14, beatmatched transition 0:55, extended club intro 0:40, mini mix 0:44. Full demos 1280x776: 3:08, 1:56, 2:18 |
 | `demos/2026-10-09-first-takes/` | #417 (beatmatched transition, 2:58), #432 (extended club intro, 2:26) | #459 (same day) | 1280x776 |
 | `demos/2026-10-09-v0.4.0/` | #459 (2026-10-09) | #581 (2026-10-13, re-filmed in the new look) | 1280x776: beatmatched transition 3:08, extended club intro 1:56, mini mix 2:18 |
+| `linkedin/2026-10-11-v0.5.0/out/` | #578 (2026-10-11) | the v0.7.0 staleness sweep (2026-10-22), re-rendered by `social-kit/linkedin/render.mjs` | 1200x1200 PNGs (post 1 and the post 3 square) and the seven-page 1080x1350 carousel PDF. They said "v0.5.0" (post 1 and the carousel's last page) and "93 tools" (all three); the new renders say v0.7.0 and 94 tools. The other three squares (posts 2, 4 and 5) carry neither number, so they were not replaced |
 
 Earlier versions of the documents and scripts in `marketing/` (the READMEs, `script.md`, the Python tools) were edited in place rather than replaced, so they are not copied here; `git log -p -- marketing/` shows every version.
 
 ## Adding to the archive
 
-When a PR replaces or removes a video, caption, contact sheet, cue file or timing file in `marketing/` or `website/public/demos/`, move the old one here in the same PR: `<what>/<date it landed>-<version or look>/<kind>/`, and add its row above.
+When a PR replaces or removes a video, caption, contact sheet, cue file, timing file, or a rendered image or PDF in `marketing/` or `website/public/demos/`, move the old one here in the same PR: `<what>/<date it landed>-<version or look>/<kind>/`, and add its row above.
