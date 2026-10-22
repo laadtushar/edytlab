@@ -580,24 +580,28 @@ export default function UserGuidePage() {
         library needs macOS 13.4; the app itself runs on macOS 11 and later.
       </p>
       <p>
-        Below it, the <strong>Speech model</strong> row offers the model
+        From the release after v0.7.0 (which has no such row), the{" "}
+        <strong>Speech model</strong> row below it offers the model
         transcription will use, Whisper base (about 139 MB, from Hugging
         Face). <strong>Download</strong> fetches its three files from{" "}
         <code>huggingface.co</code>, with a progress bar and a{" "}
         <strong>Cancel</strong> button, checks each against its SHA-256 hash,
         and keeps them in the <code>models</code> folder inside the
-        app&rsquo;s data folder (<code>app.edytlab.desktop</code> in your user
-        data directory). Cancel keeps what has arrived, and Download carries on
-        from there; if the download fails, the row says why and offers{" "}
-        <strong>Retry</strong>. When the model is ready the row says{" "}
-        <code>Ready</code> and offers <strong>Remove</strong>, which asks first
-        and deletes only that model&rsquo;s files. Nothing downloads unless you
-        press Download: not at launch, not when Settings opens, and not when
-        the assistant asks. The request carries your IP address and the file
-        name to Hugging Face, and nothing about your audio (see the{" "}
-        <a href="/privacy">privacy page</a>). Downloading the model turns
-        nothing on: transcription is not available yet, so nothing uses the
-        file.
+        app&rsquo;s local data folder (<code>app.edytlab.desktop</code> in your
+        user data directory; on Windows that is under{" "}
+        <code>%LOCALAPPDATA%</code>, so it does not roam with your profile).
+        Cancel keeps what has arrived, and Download carries on from there; if
+        the download fails, the row says why and offers <strong>Retry</strong>.
+        When the model is ready the row says <code>Ready</code> and offers{" "}
+        <strong>Remove</strong>, which asks first and deletes only that
+        model&rsquo;s files. Nothing downloads unless you press Download: not
+        at launch, not when Settings opens, and not when the assistant asks.
+        The requests carry your IP address, the file name, and a User-Agent of
+        the form <code>edytlab/&lt;version&gt;</code>, so Hugging Face learns
+        that edytlab is asking and which version, and nothing about your audio
+        (see the <a href="/privacy">privacy page</a>). Downloading the model
+        turns nothing on: transcription is not available yet, so nothing uses
+        the file.
       </p>
       <p>
         The runtime&rsquo;s licence and third-party notices are installed with

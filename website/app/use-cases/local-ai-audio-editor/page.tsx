@@ -70,11 +70,12 @@ export default function LocalAiUseCasePage() {
               </td>
             </tr>
             <tr>
-              <td>The speech model (about 139 MB)</td>
+              <td>The speech model (about 139 MB; in the release after v0.7.0)</td>
               <td>
                 Downloaded from Hugging Face (huggingface.co) only when you
                 click Download in Settings, never automatically. Hugging Face
-                sees your IP address and the file you asked for, and nothing
+                sees your IP address, the file you asked for and that the
+                request comes from edytlab (and which version), and nothing
                 about your audio. It is not used yet: transcription is not
                 available.
               </td>

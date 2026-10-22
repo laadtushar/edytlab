@@ -81,7 +81,7 @@ this build, and there is no configuration that makes them work:
   pinned, the speech model `whisper-base` (about 139 MB from
   huggingface.co, `crates/ml-pipeline/models.json`), and the app downloads
   it **only when you click Download** in Settings → Account (`Speech
-  model`), with a progress bar, Cancel (a resume with a `Range` request
+  model`; from the release after v0.7.0), with a progress bar, Cancel (a resume with a `Range` request
   carries on from what arrived) and Remove. Nothing downloads at launch,
   when Settings opens, or from a tool or the agent, and nothing runs the
   file once it is there, so it does not make transcription work (#384).

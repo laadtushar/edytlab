@@ -1315,7 +1315,7 @@ earlier attempt is resumed with an HTTP `Range` request, a download already
 running is left alone, and a model that is already complete is verified rather
 than fetched. Every file is written to a `.part` file and renamed to its final
 name only once its size and SHA-256 match, so a half file never has one. Models
-are kept in `<app data>/models/<id>/`.
+are kept in `<app local data>/models/<id>/` (the local, non-roaming data folder: `%LOCALAPPDATA%` on Windows).
 
 ### `cancelMlModelDownload(model: string) → MlModelStatus`
 

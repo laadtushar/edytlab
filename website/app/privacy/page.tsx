@@ -51,8 +51,8 @@ export default function PrivacyPage() {
 
       <h2>Network traffic</h2>
       <p>
-        The only outbound network traffic the app makes during normal use goes
-        to the LLM provider you have selected. Chat requests contain your
+        During normal use, the app&apos;s outbound network traffic goes to the
+        LLM provider you have selected. Chat requests contain your
         prompt text, agent context, and tool-call results — never your raw
         audio. When you open Settings, the app also asks the provider shown
         there for its list of models; that request carries your API key (the
@@ -60,33 +60,37 @@ export default function PrivacyPage() {
         Ollama it goes to the address you gave it. Beyond that, the app connects only
         where you tell it to: a plugin you install from a URL is downloaded
         from that URL, an MCP server you add is contacted at the address
-        you gave it, and the speech model is downloaded from Hugging Face when
-        you click Download (below). You can inspect the full set of requests in
+        you gave it, and, from the release after v0.7.0, the speech model is
+        downloaded from Hugging Face when you click Download (below). You can inspect the full set of requests in
         your OS network tools at any time.
       </p>
       <p>
-        <strong>The speech model download.</strong> Settings &rarr; Account
-        has a Download button for the speech model (Whisper base, about 139
-        MB). The app contacts Hugging Face only when you click Download. It
-        does not download anything at launch, when Settings opens, or when
-        the assistant asks; no tool and no part of the app starts it. The click
-        sends a GET request to <code>huggingface.co</code> for three files,
-        fixed to one commit of the{" "}
+        <strong>The speech model download</strong> (in the release after
+        v0.7.0; v0.7.0 and earlier have no Download button and make no such
+        request). Settings &rarr; Account has a Download button for the
+        speech model (Whisper base, about 139 MB). The app contacts Hugging
+        Face only when you click Download. It does not download anything at
+        launch, when Settings opens, or when the assistant asks; no tool and
+        no part of the app starts it. The click sends GET requests to{" "}
+        <code>huggingface.co</code>, one for each of three files (an
+        interrupted download is continued with an HTTP Range request, so a
+        retry or a resume makes more), fixed to one commit of the{" "}
         <a href="https://huggingface.co/onnx-community/whisper-base_timestamped">
           onnx-community/whisper-base_timestamped
         </a>{" "}
         repository (a copy of OpenAI&apos;s{" "}
         <a href="https://huggingface.co/openai/whisper-base">whisper-base</a>,
-        Apache-2.0). Hugging Face redirects the request to its content
-        delivery network, and an interrupted download is continued with an HTTP
-        Range request. What Hugging Face sees is what any download shows
-        it: your IP address, the time, and which file you asked for. It sees
-        nothing about your audio, your projects, your chat or your API keys,
-        none of which is part of the request. The app checks each file against
-        its SHA-256 hash before keeping it, and Remove in the same place deletes
-        the files again. There is no telemetry: the app reports nothing back to
-        us about the download, and we run no server that sees it. Hugging Face
-        handles the request under{" "}
+        Apache-2.0). Hugging Face redirects the requests to its content
+        delivery network. What Hugging Face sees is what any download shows
+        it: your IP address, the time, which file you asked for, and a
+        User-Agent of the form <code>edytlab/&lt;version&gt;</code>, so it also
+        learns that the request comes from edytlab and which version of it. It
+        sees nothing about your audio, your projects, your chat or your API
+        keys, none of which is part of the request. The app checks each file
+        against its SHA-256 hash before keeping it, and Remove in the same
+        place deletes the files again. There is no telemetry: the app reports
+        nothing back to us about the download, and we run no server that sees
+        it. Hugging Face handles the requests under{" "}
         <a href="https://huggingface.co/privacy">its own privacy policy</a>.
         Transcription is not available yet, so the model is not used for
         anything: downloading it does not turn anything on.
