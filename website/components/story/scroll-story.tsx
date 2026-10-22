@@ -297,7 +297,10 @@ export function ScrollStory({ release }: { release: ReleaseAssets }) {
             className="mb-6 max-w-full border-primary/30 bg-primary/10 text-center text-primary"
           >
             Free, open-source, local-first AI audio editor
-            {release.isFallback ? null : <span className="hidden sm:inline">{` · ${release.version}`}</span>}
+            {/* A non-breaking space, because the badge is a flex container
+                and a plain space at the start of its second item is
+                dropped: "editor· v0.7.0". */}
+            {release.isFallback ? null : <span className="hidden sm:inline">{`\u00a0· ${release.version}`}</span>}
           </Badge>
           <h1
             data-s1-title

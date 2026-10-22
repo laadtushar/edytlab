@@ -20,25 +20,33 @@ export function PageShell({
   eyebrow,
   title,
   lead,
+  wide = false,
   children,
 }: {
   eyebrow: string;
   title: string;
   lead: ReactNode;
+  /**
+   * A wider column for a page that lays things out in a grid (the
+   * videos). The eyebrow, the heading and the lead stay at the reading
+   * width either way.
+   */
+  wide?: boolean;
   children: ReactNode;
 }) {
+  const head = wide ? "max-w-3xl" : undefined;
   return (
     <>
       <SiteHeader />
       <main className="pb-24 pt-32 md:pt-40">
-        <article className="container mx-auto max-w-3xl">
-          <p className="font-mono text-xs uppercase tracking-widest text-primary">
+        <article className={`container mx-auto ${wide ? "max-w-6xl" : "max-w-3xl"}`}>
+          <p className={`font-mono text-xs uppercase tracking-widest text-primary ${head ?? ""}`}>
             {eyebrow}
           </p>
-          <h1 className="mt-3 text-balance text-4xl font-bold tracking-tight sm:text-5xl">
+          <h1 className={`mt-3 text-balance text-4xl font-bold tracking-tight sm:text-5xl ${head ?? ""}`}>
             {title}
           </h1>
-          <p className="mt-6 text-pretty text-lg leading-relaxed text-muted-foreground">
+          <p className={`mt-6 text-pretty text-lg leading-relaxed text-muted-foreground ${head ?? ""}`}>
             {lead}
           </p>
           {children}

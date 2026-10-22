@@ -12,6 +12,7 @@
  */
 
 import Link from "next/link";
+import { ArrowRight } from "lucide-react";
 
 import { JsonLd } from "@/components/json-ld";
 import { Reveal, Stagger } from "@/components/motion";
@@ -103,6 +104,18 @@ export function RealDemos() {
             <DemoCard key={demo.slug} demo={demo} index={i} />
           ))}
         </Stagger>
+        <p className="mt-10 text-center">
+          <Link
+            href="/videos"
+            className="inline-flex items-center gap-1.5 font-medium text-primary underline-offset-4 hover:underline"
+          >
+            More videos
+            <ArrowRight className="size-4" aria-hidden />
+          </Link>
+          <span className="mt-1 block text-sm text-muted-foreground">
+            The launch video and five short vertical reels.
+          </span>
+        </p>
       </div>
     </section>
   );

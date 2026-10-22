@@ -9,14 +9,21 @@ import { Logo } from "@/components/motion/logo";
 import { gsap, useGSAP, motionOk, NO_PREFERENCE, ScrollTrigger } from "@/lib/gsap";
 import { siteConfig } from "@/lib/site";
 
-/** In page order, so the highlight walks left to right as you scroll. */
-const links = [
+/**
+ * In page order, so the highlight walks left to right as you scroll.
+ *
+ * `fromLg` keeps a link out of the bar below 1024 px, where the bar is
+ * already full: with Videos in it the links touch the logo and the
+ * buttons up to about 860 px. The footer links the same page.
+ */
+const links: { href: string; label: string; fromLg?: boolean }[] = [
   { href: "/#demos", label: "Demos" },
   { href: "/#features", label: "Features" },
   { href: "/#tools", label: "Tools" },
   { href: "/#interface", label: "Interface" },
   { href: "/#faq", label: "FAQ" },
   { href: "/blog", label: "Blog" },
+  { href: "/videos", label: "Videos", fromLg: true },
   { href: "/docs", label: "Docs" },
 ];
 
@@ -138,7 +145,7 @@ export function SiteHeader() {
               // appearing all at once — the same gesture as the scroll
               // progress bar at the top of the window. Hover raises it
               // briefly; being in the section holds it up.
-              className="relative transition-colors after:absolute after:-bottom-1 after:left-0 after:h-px after:w-full after:origin-left after:scale-x-0 after:bg-primary after:transition-transform after:duration-300 hover:text-foreground hover:after:scale-x-100 data-[active]:text-foreground data-[active]:after:scale-x-100"
+              className={`relative transition-colors after:absolute after:-bottom-1 after:left-0 after:h-px after:w-full after:origin-left after:scale-x-0 after:bg-primary after:transition-transform after:duration-300 hover:text-foreground hover:after:scale-x-100 data-[active]:text-foreground data-[active]:after:scale-x-100${l.fromLg ? " hidden lg:inline" : ""}`}
             >
               {l.label}
             </Link>

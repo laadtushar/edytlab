@@ -37,6 +37,8 @@ describe("footer and marketing pages", () => {
     "app/press/page.tsx",
     "app/use-cases/dj/page.tsx",
     "app/use-cases/local-ai-audio-editor/page.tsx",
+    "app/videos/page.tsx",
+    "app/videos/[slug]/page.tsx",
     "components/landing/page-shell.tsx",
   ];
 
@@ -57,6 +59,10 @@ describe("footer and marketing pages", () => {
     // The footer's main row is a `links` array (`href: "/press"`); the
     // use-case group is JSX (`href="/use-cases/…"`). Either spelling counts.
     expect(footer).toMatch(/href(=|: )"\/press"/);
+  });
+
+  it("links the footer to the videos page", () => {
+    expect(read(join(WEBSITE, "components/landing/footer.tsx"))).toMatch(/href(=|: )"\/videos"/);
   });
 
   it("serves every asset the press page offers for download", () => {
@@ -84,6 +90,12 @@ describe("footer and marketing pages", () => {
       // layout's metadataBase) plus the feed link, like every other page.
       expect(source).toContain(`alternates: pageAlternates("${path}")`);
     }
+  });
+
+  it("gives the videos page its own canonical and social card, through the helpers", () => {
+    const source = read(join(WEBSITE, "app/videos/page.tsx"));
+    expect(source).toContain('alternates: pageAlternates("/videos")');
+    expect(source).toContain('...pageSocial("/videos"');
   });
 });
 

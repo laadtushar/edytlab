@@ -2,6 +2,7 @@ import type { MetadataRoute } from "next";
 
 import { modifiedOf, posts } from "@/lib/blog";
 import { absoluteUrl, pageUpdated, postPath } from "@/lib/seo";
+import { videoPath, videos } from "@/lib/videos";
 
 type Entry = MetadataRoute.Sitemap[number];
 
@@ -20,6 +21,7 @@ const pages: { path: string; priority: number; changeFrequency: Entry["changeFre
   { path: "/docs/api-reference", priority: 0.7, changeFrequency: "monthly" },
   { path: "/use-cases/dj", priority: 0.8, changeFrequency: "monthly" },
   { path: "/use-cases/local-ai-audio-editor", priority: 0.8, changeFrequency: "monthly" },
+  { path: "/videos", priority: 0.7, changeFrequency: "monthly" },
   { path: "/changelog", priority: 0.6, changeFrequency: "weekly" },
   { path: "/press", priority: 0.5, changeFrequency: "monthly" },
   { path: "/privacy", priority: 0.3, changeFrequency: "yearly" },
@@ -46,5 +48,13 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: 0.8,
   }));
 
-  return [...fixed, ...blogPosts];
+  // Each video has a page of its own, listed from the data like a post.
+  const videoPages: MetadataRoute.Sitemap = videos.map((v) => ({
+    url: absoluteUrl(videoPath(v.slug)),
+    lastModified: new Date(pageUpdated(videoPath(v.slug))),
+    changeFrequency: "monthly",
+    priority: 0.6,
+  }));
+
+  return [...fixed, ...blogPosts, ...videoPages];
 }

@@ -10,6 +10,7 @@ const links = [
   { href: siteConfig.github, label: "GitHub", external: true, icon: true },
   { href: siteConfig.designSpec, label: "Design spec", external: true },
   { href: "/blog", label: "Blog" },
+  { href: "/videos", label: "Videos" },
   { href: "/docs", label: "Docs" },
   { href: "/changelog", label: "Changelog" },
   { href: "/press", label: "Press" },

@@ -38,10 +38,13 @@ import {
   postPath,
   serializeJsonLd,
   softwareJsonLd,
+  videoBreadcrumbs,
   videoObjectJsonLd,
+  videosHubJsonLd,
   websiteJsonLd,
 } from "./seo";
 import { siteConfig } from "./site";
+import { getVideo, videoPath, videoPosterSrc, videoSrc, videos } from "./videos";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 
@@ -70,6 +73,10 @@ describe("sitemap", () => {
     for (const p of posts) expect(urls).toContain(absoluteUrl(postPath(p.slug)));
   });
 
+  it("lists every video's own page, at its canonical URL", () => {
+    for (const v of videos) expect(urls).toContain(absoluteUrl(videoPath(v.slug)));
+  });
+
   it("lists every page under app/", () => {
     for (const route of staticRoutes()) {
       expect(urls, `${route} is a page but not in the sitemap`).toContain(absoluteUrl(route));
@@ -78,7 +85,11 @@ describe("sitemap", () => {
 
   it("lists nothing twice, and nothing that is not a page or a post", () => {
     expect(new Set(urls).size).toBe(urls.length);
-    const known = new Set([...staticRoutes().map(absoluteUrl), ...posts.map((p) => absoluteUrl(postPath(p.slug)))]);
+    const known = new Set([
+      ...staticRoutes().map(absoluteUrl),
+      ...posts.map((p) => absoluteUrl(postPath(p.slug))),
+      ...videos.map((v) => absoluteUrl(videoPath(v.slug))),
+    ]);
     expect(urls.filter((u) => !known.has(u))).toEqual([]);
   });
 
@@ -444,7 +455,7 @@ describe("sitemap dates", () => {
   const entries = sitemap();
   const dateOf = (route: string) =>
     (entries.find((e) => e.url === absoluteUrl(route))?.lastModified as Date).toISOString().slice(0, 10);
-  const routes = staticRoutes();
+  const routes = [...staticRoutes(), ...videos.map((v) => videoPath(v.slug))];
 
   it("gives every page, but the blog index, a date of its own", () => {
     // One date on every page cannot be verified for any of them, and
@@ -690,6 +701,15 @@ describe("the home page's title and headline", () => {
     const badge = story.match(/<Badge[\s\S]*?<\/Badge>/)?.[0] ?? "";
     expect(badge).toContain("Free, open-source, local-first AI audio editor");
   });
+
+  it("separates the version from the eyebrow with a space that survives", () => {
+    // The badge is a flex container, so a plain space at the start of its
+    // second item is dropped ("editor· v0.7.0"). A non-breaking space is not.
+    const story = readFileSync(join(ROOT, "components/story/scroll-story.tsx"), "utf8");
+    const badge = story.match(/<Badge[\s\S]*?<\/Badge>/)?.[0] ?? "";
+    expect(badge).toContain("{`\\u00a0· ${release.version}`}");
+    expect(badge).not.toContain("{` · ${release.version}`}");
+  });
 });
 
 describe("internal links to the use-case pages", () => {
@@ -711,5 +731,172 @@ describe("internal links to the use-case pages", () => {
   it.each(useCases)("links %s from the body of the home page, not only its footer", (route) => {
     const body = sections("components/landing", ["footer.tsx", "site-header.tsx", "page-shell.tsx", "legal-shell.tsx"]);
     expect(body.some((src) => linked(src, route)), `no home section links ${route}`).toBe(true);
+  });
+});
+
+
+describe("the videos hub", () => {
+  const page = readFileSync(join(ROOT, "app/videos/page.tsx"), "utf8");
+  const cards = readFileSync(join(ROOT, "components/landing/site-video.tsx"), "utf8");
+  const entry = sitemap().find((e) => e.url === absoluteUrl("/videos"));
+
+  it("is a page, in the sitemap, with a date of its own", () => {
+    expect(staticRoutes()).toContain("/videos");
+    expect(entry, "/videos is not in the sitemap").toBeDefined();
+    expect((entry?.lastModified as Date).toISOString().slice(0, 10)).toBe(PAGE_UPDATED["/videos"]);
+  });
+
+  it("has a BreadcrumbList from the home page to itself", () => {
+    expect(page).toContain('breadcrumbJsonLd(pageBreadcrumbs("Videos", path))');
+    expect(page).toContain('const path = "/videos"');
+    const ld = parsed(breadcrumbJsonLd(pageBreadcrumbs("Videos", "/videos")));
+    expect(ld.itemListElement.map((i: { item: string }) => i.item)).toEqual([siteConfig.url, absoluteUrl("/videos")]);
+    expect(ld.itemListElement[1].name).toBe("Videos");
+  });
+
+  it("sets its canonical, social card and title with the site's helpers", () => {
+    expect(page).toContain('alternates: pageAlternates("/videos")');
+    expect(page).toContain('...pageSocial("/videos"');
+    expect(page).toMatch(/const description =\s*"[^"]{60,160}"/);
+  });
+
+  it("lists the launch video, then the three demos, then the reels", () => {
+    const at = (needle: string) => page.indexOf(needle);
+    expect(at("<VideoLinkCard video={launchVideo}")).toBeGreaterThan(-1);
+    expect(at("<DemoLinkCard")).toBeGreaterThan(at("<VideoLinkCard video={launchVideo}"));
+    expect(at("reels.map(")).toBeGreaterThan(at("<DemoLinkCard"));
+    expect(page).toContain("demos.map(");
+  });
+
+  it("holds no player and no VideoObject: Google indexes a video that is the main content of its page", () => {
+    // A page with several videos is told "Video is not the main content
+    // of the page" for most of them. The hub links to each video's page
+    // instead, and says so in its own data.
+    const code = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    expect(code(page)).not.toMatch(/<video\b|<WatchPlayer|<DemoCard|videoObjectJsonLd|VideoObject/);
+    const hub = parsed(videosHubJsonLd());
+    expect(walk(hub).types).not.toContain("VideoObject");
+  });
+
+  it("describes itself as a CollectionPage whose ItemList is each video's own page", () => {
+    const hub = parsed(videosHubJsonLd());
+    expect(hub["@type"]).toBe("CollectionPage");
+    expect(hub.url).toBe(absoluteUrl("/videos"));
+    expect(hub.mainEntity["@type"]).toBe("ItemList");
+    expect(hub.mainEntity.numberOfItems).toBe(videos.length);
+    expect(hub.mainEntity.itemListElement.map((i: { position: number }) => i.position)).toEqual(videos.map((_, i) => i + 1));
+    expect(hub.mainEntity.itemListElement.map((i: { url: string }) => i.url)).toEqual(
+      videos.map((v) => absoluteUrl(videoPath(v.slug))),
+    );
+    expect(page).toContain("<JsonLd data={videosHubJsonLd()} />");
+    expectNoSocialProof(videosHubJsonLd(), "CollectionPage");
+  });
+
+  it("links the three demos to where they already play, with their own poster files", () => {
+    expect(cards).toContain('href="/use-cases/dj"');
+    expect(cards).toContain("demoPosterSrc(demo.slug)");
+    expect(cards).not.toMatch(/demoVideoSrc/);
+  });
+
+  it("is linked from the footer, the header and the home page's demos section", () => {
+    const read = (f: string) => readFileSync(join(ROOT, f), "utf8");
+    const demoCards = read("components/landing/real-demos.tsx");
+    expect(read("components/landing/footer.tsx")).toMatch(/href: "\/videos"/);
+    expect(read("components/landing/site-header.tsx")).toMatch(/href: "\/videos"/);
+    expect(demoCards).toContain('href="/videos"');
+    expect(demoCards).toContain("More videos");
+  });
+});
+
+describe("a video's own page", () => {
+  const page = readFileSync(join(ROOT, "app/videos/[slug]/page.tsx"), "utf8");
+  const player = readFileSync(join(ROOT, "components/landing/site-video.tsx"), "utf8");
+  const code = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+  it("exists for every video, generated from the list", () => {
+    expect(page).toContain("videos.map((v) => ({ slug: v.slug }))");
+    expect(page).toContain("notFound()");
+    expect(getVideo("no-such-video")).toBeUndefined();
+  });
+
+  it.each(videos.map((v) => [v.slug, v] as const))("%s is in the sitemap and dated", (_slug, video) => {
+    const path = videoPath(video.slug);
+    const entry = sitemap().find((e) => e.url === absoluteUrl(path));
+    expect(entry, `${path} is not in the sitemap`).toBeDefined();
+    expect(PAGE_UPDATED[path], `${path} has no date in PAGE_UPDATED`).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect((entry?.lastModified as Date).toISOString().slice(0, 10)).toBe(PAGE_UPDATED[path]);
+  });
+
+  it.each(videos.map((v) => [v.slug, v] as const))("%s has a BreadcrumbList Home > Videos > the video", (_slug, video) => {
+    const ld = parsed(breadcrumbJsonLd(videoBreadcrumbs(video)));
+    expect(ld["@type"]).toBe("BreadcrumbList");
+    expect(ld.itemListElement.map((i: { position: number }) => i.position)).toEqual([1, 2, 3]);
+    expect(ld.itemListElement.map((i: { item: string }) => i.item)).toEqual([
+      siteConfig.url,
+      absoluteUrl("/videos"),
+      absoluteUrl(videoPath(video.slug)),
+    ]);
+    expect(ld.itemListElement.map((i: { name: string }) => i.name)).toEqual(["Home", "Videos", video.title]);
+  });
+
+  it.each(videos.map((v) => [v.slug, v] as const))("%s has a complete VideoObject, the mp4 as its content", (_slug, video) => {
+    const files = { video: videoSrc(video.slug), poster: videoPosterSrc(video.slug) };
+    const ld = parsed(videoObjectJsonLd(video, files));
+    expect(ld["@type"]).toBe("VideoObject");
+    expect(ld.name).toBe(video.title);
+    expect(ld.description).toBe(video.description);
+    expect(ld.thumbnailUrl).toEqual([`https://www.edytlab.com/videos/${video.slug}.jpg`]);
+    expect(ld.contentUrl).toBe(`https://www.edytlab.com/videos/${video.slug}.mp4`);
+    expect("embedUrl" in ld).toBe(false);
+    expect(ld.uploadDate).toBe(video.uploadDate);
+    expect(ld.duration).toBe(isoDuration(video.seconds));
+    expectNoSocialProof(videoObjectJsonLd(video, files), "VideoObject");
+  });
+
+  it("puts the video first, and alone, as the main content", () => {
+    const body = code(page);
+    // The player comes straight after the heading, ahead of every other section.
+    expect(body.indexOf("<WatchPlayer")).toBeGreaterThan(-1);
+    expect(body.indexOf("<WatchPlayer")).toBeLessThan(body.indexOf("<section"));
+    // One player, and nothing else on the page that plays or marks up a video.
+    expect(body.match(/<WatchPlayer/g)?.length).toBe(1);
+    expect(body).not.toMatch(/<video\b|<DemoCard|<VideoLinkCard|<DemoLinkCard/);
+    expect(code(player).match(/<video\b/g)?.length).toBe(1);
+    expect(code(player).match(/videoObjectJsonLd\(/g)?.length).toBe(1);
+  });
+
+  it("says what it shows and what happens, in order, from the list", () => {
+    expect(page).toContain("video.caption");
+    expect(page).toContain("video.moments.map(");
+    expect(page).toContain("formatMoment(m.at)");
+  });
+
+  it("sets its canonical, social card and title with the site's helpers", () => {
+    expect(page).toContain("alternates: pageAlternates(videoPath(video.slug))");
+    expect(page).toContain("...pageSocial(videoPath(video.slug)");
+    expect(page).toContain("title: video.title");
+  });
+
+  it("never plays by itself, loads nothing until asked, and plays inline", () => {
+    const p = code(player);
+    expect(p).toContain('preload="none"');
+    expect(p).toContain("playsInline");
+    expect(p).toContain("controls");
+    expect(p).toContain("poster=");
+    expect(p).not.toMatch(/autoPlay|autoplay|\bloop\b/);
+  });
+
+  it("offers the launch video's captions as a captions track, not switched on", () => {
+    expect(player).toContain('kind="captions"');
+    expect(player).toContain('srcLang="en"');
+    expect(player).not.toMatch(/<track[^>]*\bdefault\b/);
+  });
+
+  it("leaves the three demos' own markup where it is", () => {
+    // They play on the home page and the DJ page, each with its own VideoObject.
+    const demoCards = readFileSync(join(ROOT, "components/landing/real-demos.tsx"), "utf8");
+    expect(demoCards).toContain("<JsonLd data={videoObjectJsonLd(demo)} />");
+    expect(readFileSync(join(ROOT, "app/page.tsx"), "utf8")).toContain("<RealDemos />");
+    expect(readFileSync(join(ROOT, "app/use-cases/dj/page.tsx"), "utf8")).toContain("<DemoCard");
   });
 });

@@ -24,6 +24,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { demos } from "./demos";
 import { mp4Seconds, mp4Size } from "./mp4-header";
 import { srtToVtt } from "./srt-to-vtt";
 import { videoCaptionsSrc, videoPosterSrc, videoSrc, videos } from "./videos";
@@ -66,20 +67,33 @@ describe("the list", () => {
     expect(v.title.length).toBeGreaterThan(0);
     expect(v.caption.length).toBeGreaterThan(60);
     expect(v.description.length).toBeGreaterThan(40);
-    expect(v.description.length).toBeLessThanOrEqual(300);
+    expect(v.description.length).toBeLessThanOrEqual(160); // the length a search result shows
+    // The watch page's title, then " · edytlab".
+    expect(v.title.length).toBeLessThanOrEqual(55);
     // The rules in marketing/README.md ("The accuracy rules"): nothing
     // that has not shipped, no counts or ratings, no superlatives.
-    const words = `${v.title} ${v.caption} ${v.description}`;
-    expect(words).not.toMatch(/\b(?:best|better than|only|ultimate)\b/i);
-    expect(words).not.toMatch(/\bmashups?\b|vocals over|isolat|\bacapella\b|\bstems? (?:are|is) separated\b/i);
-    expect(words).not.toMatch(/\btranscri(?:be|bes|bed|ption|pt)\b/i);
-    expect(words).not.toMatch(/\b\d+\s+tools\b|\d+\+?\s*(?:users|downloads|stars)\b|\bratings?\b|trusted by/i);
+    // The launch video says on screen what it cannot do yet, and its
+    // caption repeats that; it is the one place the words may appear.
+    const words = `${v.title} ${v.caption} ${v.description} ${v.moments.map((m) => m.text).join(" ")}`.replace(
+      /no stem separation or transcription yet/gi,
+      "",
+    );
+    expect(words).not.toMatch(/\bthe only\b|\b(?:best|better than|ultimate)\b/i);
+    expect(words).not.toMatch(/\bmashups?\b|vocals over|isolat|\bacapella\b|stem separation|\bstems\b/i);
+    expect(words).not.toMatch(/\btranscri(?:be|bes|bed|ption|pt)\b|filler|speaker detection/i);
+    expect(words).not.toMatch(/\b\d+\s+(?:\w+\s+){0,2}tools\b|\d+\+?\s*(?:users|downloads|stars)\b|\bratings?\b|trusted by/i);
     expect(v.uploadDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(v.uploadDate <= new Date().toISOString().slice(0, 10)).toBe(true);
     expect(v.uploadDate >= "2026-05-01").toBe(true);
     expect(Number.isInteger(v.seconds) && v.seconds > 0).toBe(true);
     expect(v.posterAt).toBeGreaterThan(0);
     expect(v.posterAt).toBeLessThan(v.seconds);
+  });
+
+  it("gives no video the name of another, a full demo included", () => {
+    // They share a page and a search result: a reel of a demo is "the short cut", not a second copy of it.
+    const names = [...videos.map((v) => v.title), ...demos.map((d) => d.title)];
+    expect(new Set(names).size).toBe(names.length);
   });
 
   it("names a vertical reel 9:16 and the launch video 16:9", () => {
@@ -140,6 +154,49 @@ describe("the copies match their sources under marketing/", () => {
       expect(source).toMatch(/^marketing\/launch-video\/out\/launch-[a-z]+\.srt$/);
       expect(source.replace(/\.srt$/, ".mp4"), "the captions are of another cut").toBe(v.source);
       expect(readFileSync(onDisk(videoCaptionsSrc(v.slug)), "utf8")).toBe(srtToVtt(readFileSync(join(REPO, source), "utf8")));
+    }
+  });
+});
+
+/** The start time of each cue of a SubRip file, in seconds, in order. */
+function srtStarts(srt: string): number[] {
+  return [...srt.matchAll(/^(\d{2}):(\d{2}):(\d{2})[,.](\d{3}) --> /gm)].map(
+    (m) => Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) + Number(m[4]) / 1000,
+  );
+}
+
+describe("what happens, in order, is the source's own", () => {
+  it.each(videos.map((v) => [v.slug, v] as const))("%s has one moment for each cue of its source", (_slug, v) => {
+    expect(v.moments.length).toBeGreaterThan(2);
+    const times = v.moments.map((m) => m.at);
+    expect([...times].sort((a, b) => a - b)).toEqual(times);
+    for (const m of v.moments) {
+      expect(m.text.length).toBeGreaterThan(8);
+      expect(m.at).toBeGreaterThanOrEqual(0);
+      expect(m.at).toBeLessThan(v.seconds);
+    }
+
+    if (v.kind === "launch") {
+      // The cues are the video's captions: one moment for each.
+      const starts = srtStarts(readFileSync(join(REPO, v.captionsSource as string), "utf8"));
+      expect(v.moments.map((m) => m.at), "a caption moved or was added: update `moments`").toEqual(starts);
+    } else {
+      // The cues are the reel's cue file. A reel's moments are the words it shows, as written.
+      expect(v.cuesSource).toBe(v.source.replace(/\.mp4$/, "-cues.json"));
+      const cues = JSON.parse(readFileSync(join(REPO, v.cuesSource as string), "utf8")).cues as {
+        start: number;
+        onscreen: string;
+      }[];
+      expect(v.moments, "a cue moved or changed: update `moments`").toEqual(
+        cues.map((c) => ({ at: c.start, text: c.onscreen })),
+      );
+    }
+  });
+
+  it("gives only the reels a cue file, and the launch video its captions", () => {
+    for (const v of videos) {
+      expect(Boolean(v.cuesSource), v.slug).toBe(v.kind === "reel");
+      expect(Boolean(v.captionsSource), v.slug).toBe(v.kind === "launch");
     }
   });
 });
