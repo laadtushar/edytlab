@@ -133,6 +133,7 @@ impl Session {
             self.store.get(head).expect("node").state
         };
         state.transcript = Some(session::Transcript {
+            source: None,
             words: words
                 .iter()
                 .map(|(t, a, b)| session::TranscriptWord {
@@ -338,6 +339,7 @@ fn cutting_words_moves_the_labels_as_well() {
         s.store.get(head).expect("node").state
     };
     state.transcript = Some(session::Transcript {
+        source: None,
         words: [
             ("one", 1.0, 2.0),
             ("two", 4.0, 6.0),

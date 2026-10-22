@@ -345,14 +345,12 @@ mod canonical_hash_tests {
 
     fn transcript_state() -> SessionState {
         SessionState {
-            transcript: Some(Transcript {
-                words: vec![TranscriptWord {
-                    text: "hi".into(),
-                    start_s: 0.0,
-                    end_s: 0.25,
-                    confidence: 1.0,
-                }],
-            }),
+            transcript: Some(Transcript::new(vec![TranscriptWord {
+                text: "hi".into(),
+                start_s: 0.0,
+                end_s: 0.25,
+                confidence: 1.0,
+            }])),
             ..empty_state()
         }
     }

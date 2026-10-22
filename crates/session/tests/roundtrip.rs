@@ -71,14 +71,12 @@ fn fixture() -> SessionNode {
                 key: "Cmaj".into(),
             }],
         }),
-        transcript: Some(Transcript {
-            words: vec![TranscriptWord {
-                text: "hello".into(),
-                start_s: 0.0,
-                end_s: 0.5,
-                confidence: 0.97,
-            }],
-        }),
+        transcript: Some(Transcript::new(vec![TranscriptWord {
+            text: "hello".into(),
+            start_s: 0.0,
+            end_s: 0.5,
+            confidence: 0.97,
+        }])),
         sample_rate: 48_000,
         length_samples: 480_000,
         annotations: Vec::new(),

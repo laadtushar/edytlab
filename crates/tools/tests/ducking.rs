@@ -79,6 +79,7 @@ impl Session {
     fn with_transcript(&mut self, words: &[(&str, f32, f32)]) {
         let mut state = self.state();
         state.transcript = Some(session::Transcript {
+            source: None,
             words: words
                 .iter()
                 .map(|(text, start, end)| session::TranscriptWord {
@@ -499,8 +500,8 @@ fn an_edit_that_changes_length_rescales_the_curve() {
 // Keyed on a voice track's audio (#168)
 // =============================================================================
 //
-// `transcribe` is a stub (#384), so a transcript is not something a
-// session can have in a shipped build. Ducking is mostly about where
+// A session has a transcript only after `transcribe` ran, which needs the
+// speech model the user downloads (#384). Ducking is mostly about where
 // the speech is, not what was said, and `voice_tracks` answers that
 // from the audio: voiced (pitched) sound counts, a breath, a click or
 // hiss does not.
