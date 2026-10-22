@@ -28,8 +28,8 @@
 //!   gives a file its final name until it verifies; see the `download`
 //!   module. [`models`] pins the speech model (`models.json`) and drives
 //!   the store for the Settings row ([`ModelDownloads`]): the app
-//!   downloads it only when the user presses Download, and nothing runs
-//!   it yet (#383, #384).
+//!   downloads it only when the user presses Download, and the
+//!   `transcribe` tool runs it from there when asked (#383, #384).
 //!
 //! ## Runtime requirements
 //!
@@ -99,12 +99,12 @@ pub enum Error {
     /// Distinct from [`Error::Ort`] so callers can tell "this machine
     /// has no runtime" from "the runtime rejected the model".
     ///
-    /// The message states the fact and offers no remedy. It ends up in
-    /// the text of a tool error, and the agent that reads it must not set
-    /// about installing a library: that would not make transcription or
-    /// stem separation work (#384, #385). How to point the app at a copy
-    /// (`ORT_DYLIB_PATH`, ONNX Runtime 1.x or newer for the `ort` we
-    /// build against) is in the docs.
+    /// The message states the fact and offers no remedy, and the tools
+    /// that show it do not forward it as it is (it lists paths): the
+    /// `transcribe` tool says what the user does, which for a build from
+    /// source is to point `ORT_DYLIB_PATH` at a copy of ONNX Runtime 1.23.2
+    /// (docs/development-guide.md). Installing the library does not make
+    /// stem separation work (#385).
     #[error(
         "ONNX Runtime library not found; looked in: {}. The release installers include it (#383); a build from source does not",
         list_paths(.searched)

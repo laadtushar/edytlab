@@ -45,8 +45,9 @@
 //!   much of the model is on disk, so a cancelled download shows as one a
 //!   click will resume.
 //!
-//! Nothing here runs a model. A model on disk is the file transcription
-//! will read once it exists (#384); it does not turn anything on.
+//! Nothing here runs a model. A model on disk is what the `transcribe` tool
+//! reads (#384), found with [`cached`]; downloading it turns nothing on by
+//! itself.
 
 use std::collections::HashMap;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -204,9 +205,9 @@ impl Catalog {
 }
 
 /// The speech model's files, as pinned in `models.json`: what transcription
-/// reads once it exists (#384). That tool will find the model with
-/// [`cached`]`(WHISPER_BASE_ID)` and, when it is `None`, say the model is not
-/// downloaded; it will never fetch it (`tests/only_the_user_downloads.rs`
+/// reads (#384). The `transcribe` tool finds the model with
+/// [`cached`]`(WHISPER_BASE_ID)` and, when it is `None`, says the model is not
+/// downloaded; it never fetches it (`tests/only_the_user_downloads.rs`
 /// keeps the downloader out of every crate but this one).
 pub fn whisper_base() -> &'static ModelArtifact {
     &Catalog::built_in()
@@ -236,7 +237,57 @@ pub fn set_models_dir(dir: PathBuf) -> bool {
 /// `None` also when no models folder was registered ([`set_models_dir`]),
 /// when `id` is not in the catalog, and when the folder cannot be read.
 pub fn cached(id: &str) -> Option<PathBuf> {
-    cached_in(MODELS_DIR.get()?, Catalog::built_in(), id)
+    let dir = MODELS_DIR.get()?;
+    let catalog = Catalog::built_in();
+    if let Some(found) = remembered(catalog, id) {
+        return Some(found);
+    }
+    let found = cached_in(dir, catalog, id)?;
+    remember(catalog, id, &found);
+    Some(found)
+}
+
+/// The verified answers [`cached`] has given this process: for each model, the
+/// folder and what each file looked like (size and modified time) when its
+/// SHA-256 was last checked.
+///
+/// Hashing the speech model's 139 MB took 0.7 to 0.9 s on a release build
+/// (6 to 7 s on a debug one), and a tool asks on every call, twice when an
+/// edit made mid-run sends it round again. A file that is the size it was and
+/// was last modified when it was, is taken to be the file that was verified;
+/// anything else is hashed again. Only [`cached`] remembers: the Settings row's
+/// status is a check and always reads the files.
+static VERIFIED: Mutex<Vec<(String, PathBuf, Vec<FileStamp>)>> = Mutex::new(Vec::new());
+
+/// A file's size and modified time.
+type FileStamp = (u64, std::time::SystemTime);
+
+fn stamps_of(catalog: &Catalog, id: &str, folder: &std::path::Path) -> Option<Vec<FileStamp>> {
+    let model = catalog.get(id)?;
+    model
+        .artifact
+        .files
+        .iter()
+        .map(|f| {
+            let meta = std::fs::metadata(folder.join(&f.path)).ok()?;
+            Some((meta.len(), meta.modified().ok()?))
+        })
+        .collect()
+}
+
+fn remembered(catalog: &Catalog, id: &str) -> Option<PathBuf> {
+    let held = VERIFIED.lock().unwrap_or_else(|e| e.into_inner());
+    let (_, folder, stamps) = held.iter().find(|(held_id, _, _)| held_id == id)?;
+    (stamps_of(catalog, id, folder).as_ref() == Some(stamps)).then(|| folder.clone())
+}
+
+fn remember(catalog: &Catalog, id: &str, folder: &std::path::Path) {
+    let Some(stamps) = stamps_of(catalog, id, folder) else {
+        return;
+    };
+    let mut held = VERIFIED.lock().unwrap_or_else(|e| e.into_inner());
+    held.retain(|(held_id, _, _)| held_id != id);
+    held.push((id.to_string(), folder.to_path_buf(), stamps));
 }
 
 fn cached_in(dir: &std::path::Path, catalog: &Catalog, id: &str) -> Option<PathBuf> {
@@ -634,5 +685,86 @@ impl std::fmt::Debug for ModelDownloads {
             .field("root", &self.inner.store.root())
             .field("models", &self.inner.catalog.models().len())
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod verified_tests {
+    //! What [`cached`] remembers of a model it has verified.
+    use super::*;
+
+    fn catalog(id: &str) -> Catalog {
+        Catalog::from_json(&format!(
+            r#"{{ "models": [ {{
+                "id": "{id}", "title": "x", "repo": "a/b",
+                "revision": "0123456789abcdef0123456789abcdef01234567", "license": "MIT",
+                "files": [
+                  {{ "path": "a.onnx", "url": "https://example.com/a", "size": 3,
+                     "sha256": "0000000000000000000000000000000000000000000000000000000000000000" }},
+                  {{ "path": "sub/b.json", "url": "https://example.com/b", "size": 2,
+                     "sha256": "1111111111111111111111111111111111111111111111111111111111111111" }}
+                ] }} ] }}"#
+        ))
+        .expect("test catalog")
+    }
+
+    fn folder_with(a: &[u8], b: &[u8]) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("sub")).unwrap();
+        std::fs::write(dir.path().join("a.onnx"), a).unwrap();
+        std::fs::write(dir.path().join("sub/b.json"), b).unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_verified_folder_is_remembered_until_a_file_changes() {
+        let catalog = catalog("remember-me");
+        let dir = folder_with(b"abc", b"de");
+        assert_eq!(remembered(&catalog, "remember-me"), None, "nothing yet");
+
+        remember(&catalog, "remember-me", dir.path());
+        assert_eq!(
+            remembered(&catalog, "remember-me").as_deref(),
+            Some(dir.path())
+        );
+
+        // A file that has the size it had and was modified when it was is the
+        // file that was verified. A different size is not.
+        std::fs::write(dir.path().join("a.onnx"), b"abcd").unwrap();
+        assert_eq!(remembered(&catalog, "remember-me"), None);
+
+        // Verified again, remembered again; then a file that goes is not.
+        remember(&catalog, "remember-me", dir.path());
+        assert!(remembered(&catalog, "remember-me").is_some());
+        std::fs::remove_file(dir.path().join("sub/b.json")).unwrap();
+        assert_eq!(remembered(&catalog, "remember-me"), None);
+    }
+
+    #[test]
+    fn a_new_modified_time_is_hashed_again() {
+        let catalog = catalog("touched");
+        let dir = folder_with(b"abc", b"de");
+        remember(&catalog, "touched", dir.path());
+        let file = std::fs::File::options()
+            .write(true)
+            .open(dir.path().join("a.onnx"))
+            .unwrap();
+        file.set_modified(std::time::SystemTime::now() + Duration::from_secs(60))
+            .unwrap();
+        assert_eq!(remembered(&catalog, "touched"), None);
+    }
+
+    #[test]
+    fn a_model_is_remembered_by_its_id_and_a_missing_folder_remembers_nothing() {
+        let catalog = catalog("by-id");
+        let dir = folder_with(b"abc", b"de");
+        remember(&catalog, "by-id", dir.path());
+        assert_eq!(remembered(&catalog, "someone-else"), None);
+        let gone = tempfile::tempdir().unwrap().path().join("gone");
+        remember(&catalog, "by-id", &gone);
+        assert!(
+            remembered(&catalog, "by-id").is_some(),
+            "nothing was forgotten for a folder that could not be read"
+        );
     }
 }

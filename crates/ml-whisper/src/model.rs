@@ -34,7 +34,7 @@ use std::sync::OnceLock;
 use ml_pipeline::{ExecProvider, ModelRegistry, SharedSession};
 
 use crate::cached::CachedDecoder;
-use crate::chunk::{run_windows, WindowResult, WindowTranscriber};
+use crate::chunk::{run_windows_observed, WindowResult, WindowTranscriber};
 use crate::decode::{decode_window, DecodeConfig, StopReason, TokenIds, WindowDecode};
 use crate::export::{self, alignment_heads, ExportLayout};
 use crate::mel::{MelExtractor, N_SAMPLES};
@@ -531,6 +531,35 @@ pub fn transcribe(
     language: Option<&str>,
     cancel: impl Fn() -> bool,
 ) -> Result<Transcript> {
+    transcribe_observed(
+        model,
+        samples,
+        sample_rate,
+        channels,
+        language,
+        cancel,
+        |_, _| {},
+    )
+}
+
+/// [`transcribe`] that says which window it is on.
+///
+/// `on_window(index, total)` is called before each 30 s window is decoded
+/// (and after `cancel` has answered no for it): `index` counts from 0 and is
+/// the number of windows already done, `total` is the number the audio will
+/// take as far as is known now. It is an estimate that can grow, never shrink,
+/// because a window that ends in a word its edge cut off starts the next one
+/// earlier than 30 s on; `total` is always more than `index`. It is called on
+/// the thread that called this and must not block.
+pub fn transcribe_observed(
+    model: &WhisperModel,
+    samples: &[f32],
+    sample_rate: u32,
+    channels: u16,
+    language: Option<&str>,
+    cancel: impl Fn() -> bool,
+    on_window: impl Fn(usize, usize),
+) -> Result<Transcript> {
     if !samples.iter().all(|s| s.is_finite()) {
         return Err(WhisperError::InvalidAudio(
             "audio buffer contains non-finite samples".into(),
@@ -544,7 +573,7 @@ pub fn transcribe(
         model,
         cancel: &cancel,
     };
-    let chunked = run_windows(&mut windows, &mono, language, &cancel)?;
+    let chunked = run_windows_observed(&mut windows, &mono, language, &cancel, &on_window)?;
     Ok(Transcript {
         words: chunked.words,
         language: chunked

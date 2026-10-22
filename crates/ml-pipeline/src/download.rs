@@ -65,9 +65,10 @@
 //! one Tauri command, `download_ml_model`; no tool, agent path or launch
 //! code downloads anything (`tests/only_the_user_downloads.rs`). Tools
 //! must never download from inside a call, since a model is hundreds of
-//! megabytes and a tool runs holding the session and engine locks. The
-//! model it pins (`models.json`) is not run by anything yet: transcription
-//! and stem separation are not implemented (#384, #385).
+//! megabytes, a tool's call should not wait on a third party, and the request
+//! is the user's to make. The speech model it pins (`models.json`) is run by
+//! the `transcribe` tool (#384), which finds it with `models::cached` and
+//! never fetches it; stem separation is not implemented (#385).
 
 use std::collections::BTreeSet;
 use std::fs::{self, File, OpenOptions};
