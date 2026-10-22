@@ -713,6 +713,11 @@ Render a time range from the session at `node` to a specific output file.
 `getRenderWarnings(node)` gives, `[]` when nothing was left out. The file is
 written either way; the window says so after the export.
 
+**Errors:** rejects, and writes nothing, when `outPath` is audio the open
+project reads: a recording it plays from, in its current state or in any step of
+its history (#653). The message names the file and asks for another path; the
+window shows it as the export's error.
+
 ```typescript
 const { warnings } = await bridge.renderRange(nodeId, 10.0, 45.5, "/Users/alice/export.wav");
 ```
