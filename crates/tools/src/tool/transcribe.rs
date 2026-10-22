@@ -2,26 +2,37 @@
 //! hand it to the Whisper wrapper, and append a session node carrying
 //! the resulting transcript.
 //!
-//! **Not available in this build.** `ml-whisper` has no decoder, so
-//! every invocation ends in a `ToolResult::Error` and no session node
-//! is ever appended. The steps above describe the shape the tool will
-//! have, not what it does today (#233).
+//! **Not available in this build.** The tool is not wired to
+//! `ml_whisper::transcribe`, which runs the pinned export end to end and which
+//! nothing in the app calls yet, so every invocation ends in a
+//! `ToolResult::Error` and no session node is ever appended. The steps above
+//! describe the shape the tool will have, not what it does today (#233, #384).
+//! Wiring it (the model folder from Settings, progress, the cache, the
+//! download prompt) and every line of copy that says it is unavailable is the
+//! next change on #384.
 //!
-//! The failure paths differ only in wording:
+//! The failure paths differ only in wording, and every one of them says the
+//! same thing, [`INSTALL_HINT`]: transcription is not implemented in this
+//! build and no setup changes that.
 //!
-//! - no model configured — `WHISPER_MODEL_PATH` unset or naming a file
-//!   that is not there;
-//! - a model configured but no ONNX Runtime library to load it with —
-//!   [`WhisperError::RuntimeUnavailable`] (this used to hang the agent,
-//!   #383);
-//! - a model configured and loaded — [`WhisperError::NotImplemented`].
+//! - no model configured: `WHISPER_MODEL_PATH` unset, or naming a folder that
+//!   is not there;
+//! - a model configured but no ONNX Runtime library to load it with:
+//!   [`WhisperError::RuntimeUnavailable`] (this used to hang the agent, #383);
+//! - a model configured that cannot be loaded: not the pinned export
+//!   ([`WhisperError::UnexpectedExport`]), a tokenizer that does not parse
+//!   ([`WhisperError::Tokenizer`]), a file the runtime will not open
+//!   ([`WhisperError::ModelLoad`]), or anything else. The reason is logged,
+//!   not handed to the agent: it reads whatever it is given as something to
+//!   act on, and there is nothing to act on;
+//! - a model configured and loaded: [`WhisperError::NotImplemented`].
 //!
 //! None is a setup problem: every message ends by saying no setup makes
 //! transcription work. The first used to be called an "install hint" and
 //! to name a fetch-models script that has never existed in this
 //! repository.
 //!
-//! Side effect, once a decoder lands: the new session head's
+//! Side effect, once the tool is wired: the new session head's
 //! `state.transcript` is set to the produced words, and the result JSON
 //! also returns the word list for the model's convenience.
 //!
@@ -48,15 +59,51 @@ use crate::{Tool, ToolContext, ToolResult};
 /// It used to name a fetch-models shell script, which has never existed
 /// in this repository — so the error, the tool schema the model reads,
 /// and the in-app card all sent people to run a file that is not there
-/// (#233). Worse, following it perfectly would not have helped: the
-/// ONNX decoder is a stub, so no model file produces a transcript.
+/// (#233). Worse, following it perfectly would not have helped: nothing in
+/// the app runs the speech model yet (`ml_whisper::transcribe` exists, and
+/// this tool does not call it), so no model file produces a transcript.
 ///
 /// The hint now says that, because "you are missing a step" and "this
 /// does not work yet" call for completely different responses from
 /// both the user and the agent.
-const INSTALL_HINT: &str = "speech-to-text is not implemented in this build: the ONNX Whisper \
-     decoder is a stub, so no WHISPER_MODEL_PATH setting will produce a transcript. There is no \
-     setup that makes this work today; it is tracked post-v1 (#233)";
+const INSTALL_HINT: &str = "speech-to-text is not implemented in this build: the app does not \
+     run the speech model yet, so no WHISPER_MODEL_PATH setting will produce a transcript. There \
+     is no setup that makes this work today; it is tracked post-v1 (#233)";
+
+/// The answer for a model that could not be loaded.
+///
+/// Every load error ends in the same place, [`INSTALL_HINT`], because none of
+/// them is a step the user or the agent can take: the model would not be run
+/// if it loaded. A missing runtime and a missing model keep their own first
+/// words (the runtime's reason; where the model was looked for), which is all
+/// the agent is told. Any other reason (not the pinned export, a tokenizer
+/// that does not parse, a file the runtime will not open) is logged for
+/// whoever set `WHISPER_MODEL_PATH`, and not repeated to the agent, which
+/// would try to fix it.
+fn load_failure(error: &WhisperError) -> String {
+    match error {
+        WhisperError::ModelMissing { path } => {
+            format!("Whisper model not found at {path}; {INSTALL_HINT}")
+        }
+        // Only the reason goes in: the error's own text repeats "not
+        // implemented in this build" (the hint already says it) and the agent
+        // reads whatever it is given as something to act on. The hint is the
+        // sentence it is told never to contradict, so it is appended as for a
+        // missing model.
+        WhisperError::RuntimeUnavailable(reason) => format!("{reason}; {INSTALL_HINT}"),
+        other => {
+            tracing::warn!(error = %other, "the transcribe tool could not load WHISPER_MODEL_PATH");
+            format!("the speech model could not be loaded; {INSTALL_HINT}")
+        }
+    }
+}
+
+/// Run the model on `mono16k`. The one place the tool would call
+/// `ml_whisper::transcribe`; it does not yet (#384), so it says what every
+/// path of this tool says.
+fn run_model(_model: &WhisperModel, _mono16k: &[f32]) -> Result<Vec<Word>, WhisperError> {
+    Err(WhisperError::NotImplemented)
+}
 
 /// Process-wide cache of `(model_path, WhisperModel)`. Phase 1 only ever
 /// holds a single entry; the `RwLock` is a forward-compat hedge against
@@ -111,8 +158,8 @@ impl Tool for TranscribeTool {
             "transcribe",
             "NOT IMPLEMENTED IN THIS BUILD. Speech-to-text would transcribe an audio file with \
              a local Whisper ONNX model, resampling to 16 kHz mono and appending a session node \
-             carrying the transcript. The decoder is a stub, so this always returns an error and \
-             there is no setup that changes that — do not suggest installing a model or setting \
+             carrying the transcript. The app does not run the speech model yet, so this always \
+             returns an error and there is no setup that changes that — do not suggest installing a model or setting \
              WHISPER_MODEL_PATH. Tell the user transcription is unavailable in this build \
              instead. Tools that consume a transcript (cut_words, and the text-based editing \
              flow) are unavailable for the same reason.",
@@ -137,20 +184,7 @@ impl Tool for TranscribeTool {
 
         let model = match get_or_load_model(&model_path) {
             Ok(m) => m,
-            Err(WhisperError::ModelMissing { path }) => {
-                return Ok(ToolResult::Error(format!(
-                    "Whisper model not found at {path}; {INSTALL_HINT}"
-                )))
-            }
-            // No ONNX Runtime library. Only the reason goes in: the error's
-            // own text repeats "not implemented in this build" (the hint
-            // already says it) and the agent reads whatever it is given as
-            // something to act on. The hint is the sentence it is told never
-            // to contradict, so it is appended as for a missing model.
-            Err(WhisperError::RuntimeUnavailable(reason)) => {
-                return Ok(ToolResult::Error(format!("{reason}; {INSTALL_HINT}")))
-            }
-            Err(e) => return Ok(ToolResult::Error(format!("model load failed: {e}"))),
+            Err(e) => return Ok(ToolResult::Error(load_failure(&e))),
         };
 
         let audio_path = PathBuf::from(&args.path);
@@ -172,7 +206,7 @@ impl Tool for TranscribeTool {
                 Ok(s) => s,
                 Err(e) => return Ok(ToolResult::Error(format!("resample failed: {e}"))),
             };
-        let words = match model.transcribe(&mono16k) {
+        let words = match run_model(model, &mono16k) {
             Ok(w) => w,
             Err(e) => return Ok(ToolResult::Error(format!("transcribe failed: {e}"))),
         };
@@ -254,4 +288,78 @@ fn word_to_json(w: &Word) -> Value {
         "end_s": w.end_s,
         "confidence": w.confidence,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ml_whisper::tokenizer::TokenizerError;
+
+    /// Every way a model can fail to load. A new `WhisperError` variant that
+    /// can come out of `WhisperModel::load` belongs here too.
+    fn load_errors() -> Vec<WhisperError> {
+        vec![
+            WhisperError::ModelMissing {
+                path: "/models/whisper".into(),
+            },
+            WhisperError::RuntimeUnavailable("no ONNX Runtime library was found".into()),
+            WhisperError::UnexpectedExport("/models/whisper has no onnx/encoder_model.onnx".into()),
+            WhisperError::ModelLoad("/models/whisper/onnx/encoder_model.onnx: bad protobuf".into()),
+            WhisperError::Tokenizer(TokenizerError::Unsupported("not byte-level".into())),
+            WhisperError::Inference("the encoder session's lock is poisoned".into()),
+            WhisperError::UnknownLanguage("xx".into()),
+            WhisperError::NotImplemented,
+        ]
+    }
+
+    #[test]
+    fn every_load_error_is_answered_as_not_implemented_with_the_hint() {
+        for error in load_errors() {
+            let answer = load_failure(&error);
+            assert!(
+                answer.ends_with(INSTALL_HINT),
+                "{error:?} is answered {answer:?}, which does not end in the hint"
+            );
+            assert_eq!(
+                answer.matches("not implemented in this build").count(),
+                1,
+                "{error:?}: it should say so once: {answer}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_load_error_the_agent_cannot_act_on_is_not_repeated_to_it() {
+        // "the folder has to hold ..." reads as a setup step, and the hint says
+        // there is none.
+        for error in [
+            WhisperError::UnexpectedExport("/m has no onnx/encoder_model.onnx".into()),
+            WhisperError::ModelLoad("/m/onnx/decoder.onnx: bad protobuf".into()),
+            WhisperError::Tokenizer(TokenizerError::Unsupported("not byte-level".into())),
+        ] {
+            let answer = load_failure(&error);
+            assert!(
+                !answer.contains("/m") && !answer.contains("protobuf"),
+                "{error:?} leaks its reason: {answer}"
+            );
+        }
+        // The two the agent has always been told, in their own words.
+        assert!(load_failure(&WhisperError::ModelMissing { path: "/x".into() }).contains("/x"));
+        assert!(
+            load_failure(&WhisperError::RuntimeUnavailable("no ONNX Runtime".into()))
+                .starts_with("no ONNX Runtime;")
+        );
+    }
+
+    #[test]
+    fn the_hint_and_the_schema_say_what_the_frontend_and_the_guards_look_for() {
+        // `isWhisperError` in Chat.tsx matches on these, and ml_setup_is_real.rs
+        // on the schema's.
+        assert!(INSTALL_HINT.starts_with("speech-to-text is not implemented"));
+        assert!(INSTALL_HINT.contains("WHISPER_MODEL_PATH"));
+        assert!(
+            !INSTALL_HINT.contains("stub"),
+            "it does not call anything a stub"
+        );
+    }
 }
