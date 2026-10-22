@@ -4,8 +4,8 @@
  * The agent loop, drawn: you → the agent → tools → the engine → a render,
  * with the result going back to the agent until the job is done.
  *
- * It sits under "the agent layer in between" because that sentence is
- * this picture. Everything it shows is how the app works: the model
+ * It sits under "an agent layer over a real audio engine" because that
+ * sentence is this picture. Everything it shows is how the app works: the model
  * plans and calls tools by name, the tools edit through the Rust engine
  * on your machine, and what goes back to the model is the tool's result
  * — text, not audio. The dashed box is the machine the audio never

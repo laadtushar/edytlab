@@ -35,16 +35,16 @@ export default async function Home() {
       <main className="relative">
         {/* One section per idea, in the order a reader asks:
             what is it (the story), how much (the numbers), is it real
-            (recordings of the app), why not a DAW or another AI tool
-            (the gap), what does it do (features, then the tools by
-            name), can I do it by hand (the interface), which model
+            (recordings of the app), what does it do today and not yet
+            (the table), what else does it do (features, then the tools
+            by name), can I do it by hand (the interface), which model
             (providers), the leftovers (FAQ), and what to read next
             (the newest posts) — then the download.
 
             Cut as repeats: a scripted chat mock that told the story
             the hero already tells, while the real recordings show it
-            for real; a "problem" band that the comparison table says
-            row by row; and a three-step "how it works" that was the
+            for real; a "problem" band that said DAWs are hard and AI
+            tools shallow, which nothing backed; and a three-step "how it works" that was the
             hero's story again, down to the feature grid's own example
             prompt. */}
         <ScrollStory release={release} />

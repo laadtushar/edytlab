@@ -566,8 +566,12 @@ fn the_landing_page_claims_only_what_the_registry_can_do() {
     // (a phrase on the site, the tool that has to exist for it to be true)
     let claims: &[(&str, &str)] = &[
         // Text-based editing (#157): the transcript is the editor, and
-        // deleting words cuts the audio.
-        ("Edit the words, not the waveform", "cut_words"),
+        // deleting words cuts the audio. The headline says the
+        // transcription it waits on has not shipped (#384).
+        (
+            "Text-based editing: built, waiting on transcription",
+            "cut_words",
+        ),
         ("the transcript becomes the editor", "transcribe"),
         // Stem separation and the phase vocoder.
         ("Demucs stem separation", "separate_stems"),

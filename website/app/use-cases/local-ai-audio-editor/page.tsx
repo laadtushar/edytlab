@@ -46,7 +46,7 @@ export default function LocalAiUseCasePage() {
     <PageShell
       eyebrow="Use case"
       title="A local-first AI audio editor"
-      lead="Most AI audio tools upload your files to a server. edytlab does not. The editing runs on your computer, the AI only sequences the tools, and with Ollama even the chat can stay at home."
+      lead="edytlab does not upload your audio. The editing runs on your computer, the AI only sequences the tools, and with Ollama even the chat can stay at home."
     >
       <JsonLd data={breadcrumbJsonLd(pageBreadcrumbs("A local-first AI audio editor", path))} />
       <JsonLd data={articleJsonLd({ path, headline: title, description, datePublished: published })} />
