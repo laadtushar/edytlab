@@ -73,6 +73,10 @@ pub struct ToolCallEndPayload {
     /// The drawable part of the tool's result, when it has one — see
     /// [`ai::ToolView`]. Serialises as a `type`-tagged object, or is
     /// omitted entirely so listeners see `undefined` rather than `null`.
+    /// One failed call carries one too: `transcribe`'s error that is the
+    /// user's to fix (the speech model, ONNX Runtime) becomes a
+    /// `speech_setup` view, because the window is never sent a tool's error
+    /// text and draws its card from this (#384).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub view: Option<ai::ToolView>,
 }

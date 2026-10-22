@@ -10,9 +10,10 @@
  * transfer belongs to the backend, not to this row.
  *
  * What the row promises is small, and it says so: the files will be on
- * disk, checked against their hashes. Transcription is not shipped (#384),
- * so the copy never calls the model enabled, installed as a feature or
- * working (`lib/speechModel.ts` holds the words).
+ * disk, checked against their hashes, and the assistant transcribes with them
+ * when asked (#384). The copy never calls the model enabled or installed as a
+ * feature, and only a model that is Ready is told to be used
+ * (`lib/speechModel.ts` holds the words).
  *
  * States, from the backend's `MlModelStatus`:
  *

@@ -3,9 +3,9 @@
  *
  * Kept apart from the component so the wording has one home and a test that
  * reads it without rendering. The words say what was found and nothing
- * about what it is for: a runtime that loads is not stem separation or
- * transcription, which this build does not ship (#384, #385), so no state
- * here promises either.
+ * about what it is for: a runtime that loads is not a model loaded
+ * (`transcribe` loads the speech model when it is asked, and stem
+ * separation is not shipped, #384, #385), so no state here promises either.
  */
 
 import type { MlRuntimeStatus } from "./tauri-bridge";

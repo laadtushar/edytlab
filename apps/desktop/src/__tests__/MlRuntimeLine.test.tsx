@@ -6,8 +6,9 @@
  * build", which a build from source says, and a release before v0.7.0),
  * and one that cannot be used (a macOS that is too old, a file that will
  * not load). The wording is checked here, and that none of it claims a
- * model runs: a runtime that loads is not stem separation or
- * transcription, which this build does not ship (#384, #385).
+ * model runs: a runtime that loads is not a model loaded (`transcribe`
+ * loads the speech model when it is asked, and stem separation is not
+ * shipped, #384, #385).
  */
 
 import { render, screen } from "@testing-library/react";

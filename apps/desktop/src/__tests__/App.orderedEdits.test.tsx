@@ -117,8 +117,9 @@ class Backend {
         return 0;
       case "list_templates":
       case "list_recent_projects":
-      case "get_transcript":
         return [];
+      case "get_transcript":
+        return { words: [], source: { kind: "unknown" } };
       case "list_markers":
         return this.labels;
       case "get_view_state":

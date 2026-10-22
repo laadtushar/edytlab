@@ -35,7 +35,7 @@ import { timerLabel } from "../lib/recording";
  * An allow-list rather than a deny-list, so a new report kind has to opt
  * in rather than accidentally pinning a broken strip.
  */
-const PROGRESS_KINDS = new Set(["batch_apply", "timer_record"]);
+const PROGRESS_KINDS = new Set(["batch_apply", "timer_record", "transcribe"]);
 
 export function ToolProgressBar() {
   const [progress, setProgress] = useState<ToolProgress | null>(null);
@@ -79,7 +79,11 @@ export function ToolProgressBar() {
   const shown = progress ?? last.current;
   if (!mounted || !shown) return null;
 
-  // Two shapes share this channel. `batch_apply` counts files;
+  // Three shapes share this channel. `batch_apply` counts files and
+  // `transcribe` (#384) counts 30 s windows of one recording, with the track
+  // or file in the `file` slot; both read "1 of 3". `timer_record` counts down
+  // and sends no `total`, `index` or `file`. The rest of this comment is about
+  // that one:
   // `timer_record` counts down seconds and sends no `total`, `index` or
   // `file` at all (#225 §4) — rendering it as a file count produced
   // "1 of undefined" over a blank name and an empty bar, which is the
@@ -193,7 +197,8 @@ export function ToolProgressBar() {
           }}
         >
           {/* The label changes because the stop is not instant — it lands
-              at the end of the file in flight. */}
+              at the end of the file in flight, or for a transcription at
+              its next step. */}
           {cancelling ? "Stopping…" : "Cancel"}
         </button>
       </div>

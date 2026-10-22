@@ -128,6 +128,52 @@ describe("the tool progress strip", () => {
     );
   });
 
+  // ---- A transcription is on this channel too (#384) ---------------------
+  //
+  // `transcribe` reports one event per 30 s window of the recording, with the
+  // track ("track 1") or the file's name where a batch has its file, and
+  // closes with `done`. The strip is an allow-list (#252), so a kind that
+  // is not in it would be a transcription with no strip at all.
+
+  it("shows a transcription: which track, and which window of how many", async () => {
+    render(<ToolProgressBar />);
+    await waitFor(() => expect(handlers.length).toBeGreaterThan(0));
+    emit({ kind: "transcribe", index: 0, total: 3, file: "track 1" });
+    await waitFor(() => expect(screen.getByTestId("tool-progress")).toBeTruthy());
+    expect(screen.getByText("1 of 3")).toBeTruthy();
+    expect(screen.getByTestId("tool-progress-file").textContent).toBe("track 1");
+
+    // It moves on, and the total may grow.
+    emit({ kind: "transcribe", index: 1, total: 4, file: "track 1" });
+    await waitFor(() => expect(screen.getByText("2 of 4")).toBeTruthy());
+    expect(screen.queryByTestId("tool-progress-refused")).toBeNull();
+  });
+
+  it("clears when a transcription finishes or is cancelled", async () => {
+    render(<ToolProgressBar />);
+    await waitFor(() => expect(handlers.length).toBeGreaterThan(0));
+    for (const done of [
+      { kind: "transcribe", done: true, cancelled: false, total: 2, file: "track 1" },
+      { kind: "transcribe", done: true, cancelled: true, total: 2, file: "track 1" },
+    ]) {
+      emit({ kind: "transcribe", index: 0, total: 2, file: "track 1" });
+      await waitFor(() => expect(screen.getByTestId("tool-progress")).toBeTruthy());
+      emit(done);
+      await waitFor(() => expect(screen.queryByTestId("tool-progress")).toBeNull(), {
+        timeout: LEAVE_MS * 6,
+      });
+    }
+  });
+
+  it("names a file by its file name, not its path", async () => {
+    render(<ToolProgressBar />);
+    await waitFor(() => expect(handlers.length).toBeGreaterThan(0));
+    emit({ kind: "transcribe", index: 0, total: 1, file: "/Users/me/talks/interview.wav" });
+    await waitFor(() =>
+      expect(screen.getByTestId("tool-progress-file").textContent).toBe("interview.wav"),
+    );
+  });
+
   it("asks the backend to stop when cancelled", async () => {
     render(<ToolProgressBar />);
     emit(RUNNING);

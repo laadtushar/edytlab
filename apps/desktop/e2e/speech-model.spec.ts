@@ -46,10 +46,11 @@ test("opening Settings shows the model, its size and source, and downloads nothi
     "Whisper base, 139 MB, from Hugging Face.",
   );
   await expect(page.getByTestId("speech-model-download")).toHaveText("Download (139 MB)");
-  // Said in the row: not available yet, what it is for, the one request.
+  // Said in the row: what it is for, the one request, what leaves the computer.
   const note = page.getByTestId("speech-model-note");
-  await expect(note).toContainText("Transcription is not available yet");
-  await expect(note).toContainText("does not turn anything on");
+  await expect(note).toContainText("runs on this computer");
+  await expect(note).toContainText("once it is downloaded");
+  await expect(note).toContainText("reach your AI provider");
   await expect(note).toContainText("huggingface.co");
 
   await app.settle();
@@ -79,7 +80,7 @@ test("Download starts it once, and the bar follows the events to Ready", async (
   await app.emit(PROGRESS, speechModelStatus({ state: "ready" }));
   await expect(row).toHaveAttribute("data-state", "ready");
   await expect(page.getByTestId("speech-model-status")).toHaveText(
-    "Ready: 139 MB on disk. Nothing uses it yet.",
+    "Ready: 139 MB on disk. Ask the assistant to transcribe a track.",
   );
   await expect(page.getByTestId("speech-model-remove")).toBeVisible();
   // One press, one call.

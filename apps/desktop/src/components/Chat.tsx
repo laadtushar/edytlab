@@ -50,6 +50,8 @@ import { AuditionPlayer } from "./AuditionPlayer";
 import { SpectrumChart } from "./SpectrumChart";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 import { ToolBadge, toolLabel } from "./ToolBadge";
+import { SPEECH_SETUP } from "../lib/speechSetup";
+import type { SpeechProblem } from "../lib/tauri-bridge";
 
 export interface ChatProps {
   rendering?: boolean;
@@ -405,8 +407,6 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
           if (isMessage(entry)) {
             const isLastAssistant =
               entry.role === "assistant" && idx === lastAssistantIdx;
-            const showWhisperSetup =
-              entry.role === "assistant" && isWhisperError(entry.text);
             return (
               <div key={entry.id} className="flex flex-col gap-2">
                 <MessageBubble
@@ -415,7 +415,6 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
                   chips={isLastAssistant ? entry.chips : undefined}
                   onChipClick={isLastAssistant ? submitChip : undefined}
                 />
-                {showWhisperSetup ? <WhisperSetupCard /> : null}
               </div>
             );
           }
@@ -433,6 +432,12 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
                   <SpectrumChart
                     points={entry.view.points}
                     caption={entry.view.summary ?? undefined}
+                  />
+                ) : null}
+                {entry.view?.type === "speech_setup" ? (
+                  <SpeechSetupCard
+                    problem={entry.view.problem}
+                    onOpenSettings={onOpenSettings}
                   />
                 ) : null}
                 {entry.view?.type === "audition" ? (
@@ -1123,45 +1128,48 @@ function ChatEmptyHints({ onPick }: ChatEmptyHintsProps) {
   );
 }
 
-function isWhisperError(text: string): boolean {
-  const t = text.toLowerCase();
-  return (
-    t.includes("whisper_model_path") ||
-    t.includes("speech-to-text is not implemented") ||
-    t.includes("whisper model not found")
-  );
-}
-
 /**
- * What to say when transcription fails (#233).
+ * What to say when a transcription cannot run because of something the user
+ * sets up (#384).
  *
- * This used to be a three-step setup recipe whose first step was to
- * run a fetch-models shell script — a file that has never existed in
- * the repository. Someone who went looking for it found nothing; someone
- * who found a Whisper model and set `WHISPER_MODEL_PATH` themselves got
- * an empty transcript reported as success, because the ONNX decoder is
- * a stub.
+ * It is drawn from the failed call's own view (`speech_setup`, which the
+ * backend makes from the marker that begins `transcribe`'s error), under that
+ * call's badge. It used to be found by searching the assistant's reply for the
+ * words of the tool's error, which the assistant rephrases, and which a
+ * reply about anything else could contain.
  *
- * So the card no longer offers steps. There are none that work, and
- * inventing a task for someone to fail at is worse than telling them
- * the feature is not here yet.
+ * Each problem says what the user does. The two that Settings fixes get a
+ * button to it; Settings opens on Account, where the speech model's row is.
  */
-function WhisperSetupCard() {
+function SpeechSetupCard({
+  problem,
+  onOpenSettings,
+}: {
+  problem: SpeechProblem;
+  onOpenSettings?: () => void;
+}) {
+  const text = SPEECH_SETUP[problem];
   return (
     <div
       className="rounded-md border border-[var(--warning-border)] bg-[var(--warning-soft)] px-3 py-2.5 text-xs"
-      data-testid="whisper-unavailable-card"
+      data-testid="speech-setup-card"
+      data-problem={problem}
     >
-      <p className="mb-1.5 font-medium text-[var(--warning)]">
-        Transcription isn&apos;t available in this build
-      </p>
-      <p className="text-[var(--text-dim)]">
-        Speech-to-text ships as a stub — the ONNX Whisper decoder is not
-        wired up, so there is no model or setting that will produce a
-        transcript yet. Text-based editing, which works from a
-        transcript, is unavailable for the same reason. Everything else
-        in the editor is unaffected.
-      </p>
+      <p className="mb-1.5 font-medium text-[var(--warning)]">{text.title}</p>
+      <p className="text-[var(--text-dim)]">{text.body}</p>
+      {text.inSettings && onOpenSettings ? (
+        <button
+          type="button"
+          data-testid="speech-setup-open-settings"
+          onClick={onOpenSettings}
+          className="
+            btn-secondary mt-2 rounded
+            px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider
+          "
+        >
+          Open Settings
+        </button>
+      ) : null}
     </div>
   );
 }

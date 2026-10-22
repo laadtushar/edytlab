@@ -19,7 +19,7 @@ import type {
   EnvelopePoint,
   RenderWarning,
   TrackSummary,
-  TranscriptWord,
+  Transcript,
 } from "./lib/tauri-bridge";
 import {
   acceptB as bridgeAcceptB,
@@ -99,6 +99,7 @@ import {
   pickProjectDirectory,
 } from "./lib/file-open";
 import { isSessionValue } from "./lib/controlValue";
+import { cutBlockedReason, cutTrack, NO_TRANSCRIPT } from "./lib/transcriptSource";
 import { OwnedControls, trackKey, type Claim, type ControlName } from "./lib/ownedControls";
 import { describeLoadFailures } from "./lib/load-failures";
 import { batchLoad } from "./lib/tauri-bridge";
@@ -1284,16 +1285,18 @@ function App() {
     [tracks],
   );
 
-  // The transcript at the current head. Re-read whenever the head moves
-  // — a cut shifts every later word, and the pane must not go on
-  // showing the timings from before the edit.
-  const [transcript, setTranscript] = useState<TranscriptWord[]>([]);
+  // The transcript at the current head, and where it came from. Re-read
+  // whenever the head moves — a cut shifts every later word, and a
+  // transcription the agent just made arrives as a head move, so the pane
+  // must not go on showing the timings (or the lack of a transcript) from
+  // before.
+  const [transcript, setTranscript] = useState<Transcript>(NO_TRANSCRIPT);
 
   useEffect(() => {
     let cancelled = false;
     getTranscript()
-      .then((w) => {
-        if (!cancelled) setTranscript(w);
+      .then((t) => {
+        if (!cancelled) setTranscript(t);
       })
       .catch(() => {
         // No session yet; the pane's empty state is the right answer.
@@ -1303,14 +1306,18 @@ function App() {
     };
   }, [head]);
 
+  // The track the transcript's words are of, or none. A word's time is
+  // seconds of the audio it was made from, so cutting by it cuts that
+  // track and no other (#384): the pane's Delete does nothing for a
+  // transcript of a file, or of a track that has been removed, and says why.
+  const transcriptCutTrack = cutTrack(transcript.source);
+
   const handleCutWords = useCallback(
     async (from: number, to: number) => {
+      if (transcriptCutTrack === null) return;
       try {
-        // Track 0: the transcript is a session-level record and the
-        // tool cuts the track it is told to. One voice track is the
-        // case this ships for; per-track transcripts are #168.
         await inOrder(async () => {
-          setHeadLocal(await cutTranscriptWords(0, from, to));
+          setHeadLocal(await cutTranscriptWords(transcriptCutTrack, from, to));
         });
         await refreshTracks();
         setSelection(null);
@@ -1318,7 +1325,7 @@ function App() {
         setRenderError(String(err));
       }
     },
-    [setHeadLocal, inOrder],
+    [setHeadLocal, inOrder, transcriptCutTrack],
   );
 
   const handleRenameMarker = useCallback(async (id: string, name: string) => {
@@ -1859,7 +1866,8 @@ function App() {
               )
             ) : leftView === "transcript" ? (
               <TranscriptPane
-                words={transcript}
+                words={transcript.words}
+                cutBlockedReason={cutBlockedReason(transcript.source)}
                 selection={selection}
                 onSelectRange={handleSelectionChange}
                 onCutWords={handleCutWords}
