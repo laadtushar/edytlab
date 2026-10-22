@@ -9,7 +9,7 @@
 //! `ml_pipeline::runtime::ensure()` first; nothing in this crate lets `ort`
 //! load the library on its own (it panics when that fails, CLAUDE.md).
 
-use std::sync::MutexGuard;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use ml_pipeline::SharedSession;
 use ort::session::Session;
@@ -17,7 +17,7 @@ use ort::value::{Outlet, Tensor, TensorElementType, TensorRef};
 
 use crate::cached::{DecoderRun, Feed, Fetched, Want};
 use crate::decode::{DecodeError, EncoderStates};
-use crate::export::{cross_name, past_name, present_name, Elem, ExportLayout, TensorSpec};
+use crate::export::{cache_name, cross_name, Cache, Elem, ExportLayout, Part, Side, TensorSpec};
 use crate::mel::{N_FRAMES, N_MELS};
 use crate::WhisperError;
 
@@ -42,6 +42,19 @@ pub(crate) fn specs(outlets: &[Outlet]) -> Vec<TensorSpec> {
         .collect()
 }
 
+/// Lock a session, taking it back from a holder that panicked.
+///
+/// The registry shares one session between every caller for the life of the
+/// process. `Session::run` takes `&mut self` because of how `ort` types it, and
+/// a panic during a run (in the glue around it, or an allocation that failed)
+/// would poison the mutex for good: every transcription after it would fail with
+/// "lock is poisoned" until the app restarted. Nothing a run leaves behind is
+/// read by the next one (the session holds weights; its inputs and outputs are
+/// made for the call), so the poison flag says nothing the caller needs.
+pub(crate) fn lock_session<T>(session: &Mutex<T>) -> MutexGuard<'_, T> {
+    session.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 fn inference(what: &str, e: impl std::fmt::Display) -> WhisperError {
     WhisperError::Inference(format!("{what}: {e}"))
 }
@@ -56,9 +69,7 @@ pub(crate) fn run_encoder(
     debug_assert_eq!(mel.len(), N_MELS * N_FRAMES);
     let input = Tensor::from_array(([1usize, N_MELS, N_FRAMES], mel))
         .map_err(|e| inference("encoder input", e))?;
-    let mut session = session
-        .lock()
-        .map_err(|_| WhisperError::Inference("the encoder session's lock is poisoned".into()))?;
+    let mut session = lock_session(session);
     let outputs = session
         .run(ort::inputs!["input_features" => input])
         .map_err(|e| inference("encoder run", e))?;
@@ -92,31 +103,26 @@ pub(crate) struct OrtDecoder<'s> {
 }
 
 impl<'s> OrtDecoder<'s> {
-    pub(crate) fn lock(
-        session: &'s SharedSession,
-        layout: ExportLayout,
-    ) -> Result<Self, WhisperError> {
-        let session = session.lock().map_err(|_| {
-            WhisperError::Inference("the decoder session's lock is poisoned".into())
-        })?;
-        let names = |f: fn(usize, bool, bool) -> String| -> Vec<[String; 4]> {
+    pub(crate) fn lock(session: &'s SharedSession, layout: ExportLayout) -> Self {
+        let session = lock_session(session);
+        let names = |cache: Cache| -> Vec<[String; 4]> {
             (0..layout.layers)
                 .map(|l| {
                     [
-                        f(l, false, false),
-                        f(l, false, true),
-                        f(l, true, false),
-                        f(l, true, true),
+                        cache_name(cache, l, Side::Decoder, Part::Key),
+                        cache_name(cache, l, Side::Decoder, Part::Value),
+                        cache_name(cache, l, Side::Encoder, Part::Key),
+                        cache_name(cache, l, Side::Encoder, Part::Value),
                     ]
                 })
                 .collect()
         };
-        Ok(Self {
+        Self {
             session,
             layout,
-            past: names(past_name),
-            present: names(present_name),
-        })
+            past: names(Cache::Past),
+            present: names(Cache::Present),
+        }
     }
 }
 
@@ -218,5 +224,29 @@ impl DecoderRun for OrtDecoder<'_> {
             encoder_len,
             cross,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn a_session_whose_holder_panicked_can_still_be_locked() {
+        let shared = Arc::new(Mutex::new(7u32));
+        let holder = Arc::clone(&shared);
+        let result = std::thread::spawn(move || {
+            let _held = holder.lock().unwrap();
+            panic!("a panic during a run");
+        })
+        .join();
+        assert!(result.is_err());
+        assert!(shared.lock().is_err(), "the mutex is poisoned");
+
+        // `.lock().map_err(..)?` would answer "poisoned" here for ever.
+        assert_eq!(*lock_session(&shared), 7);
+        *lock_session(&shared) = 8;
+        assert_eq!(*lock_session(&shared), 8);
     }
 }

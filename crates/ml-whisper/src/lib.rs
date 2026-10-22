@@ -26,18 +26,17 @@
 //!
 //! ## What the app does with it: nothing yet
 //!
-//! The `transcribe` tool does not call [`transcribe`]. It still calls
-//! [`WhisperModel::transcribe`], which is the Phase-1 stub and answers
-//! [`WhisperError::NotImplemented`] whatever model is loaded, so the app still
-//! reports that speech-to-text is not implemented in this build. Wiring the tool
-//! to this crate (the model folder from Settings, progress, the cache, the
-//! download prompt) and changing every line of copy that says so is the next
+//! The `transcribe` tool does not call [`transcribe`]. It answers
+//! [`WhisperError::NotImplemented`] whatever model is configured, so the app
+//! still reports that speech-to-text is not implemented in this build. Wiring
+//! the tool to this crate (the model folder from Settings, progress, the cache,
+//! the download prompt) and changing every line of copy that says so is the next
 //! change on #384. Until it lands, do not describe transcription as working.
 //!
 //! The stub used to return an empty `Ok`, a success carrying an empty
 //! transcript, which a caller cannot tell from "this recording contains no
-//! speech" (#233). It returns an error instead, and this crate must not go back
-//! to an empty success for something it did not do.
+//! speech" (#233). This crate must not go back to an empty success for
+//! something it did not do.
 
 mod cached;
 mod chunk;
@@ -83,9 +82,6 @@ pub enum WhisperError {
     )]
     ModelMissing { path: String },
 
-    #[error("ONNX runtime error: {0}")]
-    Ort(#[from] ort::Error),
-
     /// No usable ONNX Runtime library (see
     /// [`ml_pipeline::runtime::ensure`]). Reported instead of building a
     /// session, because `ort` panics when it cannot load the library.
@@ -114,6 +110,8 @@ pub enum WhisperError {
     #[error("inference failed: {0}")]
     Inference(String),
 
+    /// `tokenizer.json` could not be read or is not the byte-level BPE
+    /// tokenizer of the export.
     #[error("tokenizer: {0}")]
     Tokenizer(#[from] tokenizer::TokenizerError),
 
@@ -142,23 +140,27 @@ pub enum WhisperError {
     #[error("invalid audio: {0}")]
     InvalidAudio(String),
 
-    /// The decoder is a stub in this build (#233).
+    /// Speech-to-text is not available to the app in this build (#233, #384).
     ///
-    /// Returned by [`WhisperModel::transcribe`], the method the `transcribe`
-    /// tool still calls, instead of an empty transcript. An empty success is a
-    /// success carrying zero words, and every caller reads it as "this audio
-    /// contains no speech" — so a correctly configured model produced a
-    /// silently wrong answer rather than a failure anyone could act on. Mirrors
-    /// `ml_demucs::DemucsError::NotImplemented`.
-    ///
-    /// The decoder itself exists now ([`transcribe`]); the tool is not wired to
-    /// it, which is why the message still says so.
+    /// Not returned by this crate: [`transcribe`] runs the model. It is what a
+    /// caller that has not been wired to [`transcribe`] answers, in place of an
+    /// empty transcript. An empty success is a success carrying zero words, and
+    /// every caller reads it as "this audio contains no speech" — so a
+    /// correctly configured model produced a silently wrong answer rather than
+    /// a failure anyone could act on. The `transcribe` tool is that caller
+    /// today. Mirrors `ml_demucs::DemucsError::NotImplemented`.
     #[error(
-        "speech-to-text is not implemented in this build — the ONNX Whisper decoder is a stub, \
-         so no model file will produce a transcript. Tracked post-v1; there is no configuration \
-         that makes this work today."
+        "speech-to-text is not implemented in this build — the app does not run the speech model \
+         yet, so no model file will produce a transcript. Tracked post-v1; there is no \
+         configuration that makes this work today."
     )]
     NotImplemented,
+}
+
+impl From<export::ExportError> for WhisperError {
+    fn from(e: export::ExportError) -> Self {
+        WhisperError::UnexpectedExport(e.to_string())
+    }
 }
 
 impl From<decode::DecodeError> for WhisperError {
@@ -190,13 +192,12 @@ mod tests {
     }
 
     #[test]
-    fn the_stub_still_refuses_and_never_reports_an_empty_success() {
-        // The tool calls `WhisperModel::transcribe`; until it is rewired it
-        // has to keep answering "not implemented in this build". A model
-        // cannot be built here without ONNX Runtime, so the contract is
-        // checked on the error's text, which is what the tool shows.
+    fn what_the_unwired_tool_answers_says_so_without_calling_the_model_a_stub() {
+        // The tool answers this until it is rewired. It is checked on the
+        // error's text, which is what the tool shows.
         let msg = WhisperError::NotImplemented.to_string();
         assert!(msg.contains("not implemented in this build"), "{msg}");
+        assert!(!msg.contains("stub"), "{msg}");
     }
 
     #[test]

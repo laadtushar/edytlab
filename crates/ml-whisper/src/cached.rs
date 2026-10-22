@@ -122,6 +122,8 @@ pub(crate) struct CachedDecoder<'c, R: DecoderRun> {
     heads: Vec<(usize, usize)>,
     /// The distinct layers of `heads`, ascending.
     cross_layers: Vec<usize>,
+    /// For each of `heads`, where its layer is in `cross_layers`.
+    head_slots: Vec<usize>,
     cancel: &'c dyn Fn() -> bool,
     cache: Vec<LayerKv>,
     decoder_len: usize,
@@ -142,11 +144,18 @@ impl<'c, R: DecoderRun> CachedDecoder<'c, R> {
         let mut cross_layers: Vec<usize> = heads.iter().map(|&(l, _)| l).collect();
         cross_layers.sort_unstable();
         cross_layers.dedup();
+        // Every head's layer is in `cross_layers`, which was made from them, so
+        // this is its index: the first entry that is not under it.
+        let head_slots = heads
+            .iter()
+            .map(|&(layer, _)| cross_layers.partition_point(|&l| l < layer))
+            .collect();
         Self {
             run,
             layout,
             heads: heads.to_vec(),
             cross_layers,
+            head_slots,
             cancel,
             cache: Vec::new(),
             decoder_len: 0,
@@ -380,12 +389,7 @@ impl<R: DecoderRun> DecoderStep for CachedDecoder<'_, R> {
             self.encoder_len = encoder_len;
         }
         self.decoder_len = new_decoder_len;
-        for (a, &(layer, head)) in self.heads.iter().enumerate() {
-            let at = self
-                .cross_layers
-                .iter()
-                .position(|&l| l == layer)
-                .expect("every head's layer is in cross_layers");
+        for (a, (&(_, head), &at)) in self.heads.iter().zip(&self.head_slots).enumerate() {
             let per_head = seq * layout.frames;
             self.attention[a].extend_from_slice(&cross[at][head * per_head..(head + 1) * per_head]);
         }

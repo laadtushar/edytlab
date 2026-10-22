@@ -7,11 +7,12 @@
 //! those names with anything a person can act on: ONNX Runtime says
 //! "invalid input name" from deep inside a step, or, worse, a wrong size reads
 //! as a plausible transcript. So [`WhisperModel::load`](crate::WhisperModel::load)
-//! lists the inputs and outputs of both sessions and calls [`check`], which
-//! answers with one sentence about what differs.
+//! lists the inputs and outputs of both sessions and calls [`check_encoder`] and
+//! [`check_decoder`], which answer with one sentence about what differs
+//! ([`ExportError`]).
 //!
-//! This is a pure function over names, element types and shapes, so CI tests
-//! it on made-up lists; `tests/transcribe_known_words.rs` runs it against the
+//! These are pure functions over names, element types and shapes, so CI tests
+//! them on made-up lists; `tests/transcribe_known_words.rs` runs it against the
 //! real files.
 //!
 //! ## The export, as the plan on #384 and `onnx-community/whisper-base_timestamped`
@@ -23,6 +24,18 @@
 //! | merged decoder | `input_ids` i64 `[batch, seq]`, `encoder_hidden_states` f32 `[batch, 1500, 512]`, `past_key_values.{i}.{decoder,encoder}.{key,value}` f32 `[batch, 8, past, 64]` for 6 layers, `use_cache_branch` bool `[1]` | `logits` f32 `[batch, seq, 51865]`, `present.{i}.{decoder,encoder}.{key,value}`, `cross_attentions.{i}` f32 `[batch, 8, seq, 1500]` |
 
 use std::collections::BTreeSet;
+
+/// Why a session is not the pinned export's. The message names the file and
+/// says what differs.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ExportError {
+    /// The encoder's inputs, outputs, element types or shapes differ.
+    #[error("{0}")]
+    Encoder(String),
+    /// The decoder's differ, or it does not take what the encoder gives.
+    #[error("{0}")]
+    Decoder(String),
+}
 
 /// The element types the check cares about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,6 +56,8 @@ pub struct TensorSpec {
 }
 
 impl TensorSpec {
+    /// A spec from a name, an element type and a shape (`-1` for a dimension
+    /// that is not fixed).
     pub fn new(name: &str, elem: Elem, dims: &[i64]) -> Self {
         Self {
             name: name.to_string(),
@@ -97,21 +112,48 @@ pub fn alignment_heads(layers: usize, heads: usize) -> Option<&'static [(usize, 
     (layers == 6 && heads == 8).then_some(&BASE_ALIGNMENT_HEADS[..])
 }
 
-/// `past_key_values.{layer}.{decoder|encoder}.{key|value}`.
-pub fn past_name(layer: usize, encoder: bool, value: bool) -> String {
-    format!(
-        "past_key_values.{layer}.{}.{}",
-        if encoder { "encoder" } else { "decoder" },
-        if value { "value" } else { "key" }
-    )
+/// Which of the two cache tensors a name is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Cache {
+    /// `past_key_values.*`, an input: what the decoder has computed so far.
+    Past,
+    /// `present.*`, an output: the cache after this step.
+    Present,
 }
 
+/// Which attention a cache belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Side {
+    /// Self-attention over the tokens so far; one position longer each step.
+    Decoder,
+    /// Cross-attention over the encoder's output; the first step's, unchanged.
+    Encoder,
+}
+
+/// The key or the value of an attention cache.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Part {
+    Key,
+    Value,
+}
+
+/// `past_key_values.{layer}.{decoder|encoder}.{key|value}` or
 /// `present.{layer}.{decoder|encoder}.{key|value}`.
-pub fn present_name(layer: usize, encoder: bool, value: bool) -> String {
+pub fn cache_name(cache: Cache, layer: usize, side: Side, part: Part) -> String {
     format!(
-        "present.{layer}.{}.{}",
-        if encoder { "encoder" } else { "decoder" },
-        if value { "value" } else { "key" }
+        "{}.{layer}.{}.{}",
+        match cache {
+            Cache::Past => "past_key_values",
+            Cache::Present => "present",
+        },
+        match side {
+            Side::Decoder => "decoder",
+            Side::Encoder => "encoder",
+        },
+        match part {
+            Part::Key => "key",
+            Part::Value => "value",
+        }
     )
 }
 
@@ -139,8 +181,8 @@ fn list(items: impl IntoIterator<Item = impl AsRef<str>>) -> String {
 }
 
 /// Check the encoder's lists against the export, naming what differs.
-pub fn check_encoder(inputs: &[TensorSpec], outputs: &[TensorSpec]) -> Result<(), String> {
-    let wrong = |what: String| Err(format!("encoder_model.onnx {what}"));
+pub fn check_encoder(inputs: &[TensorSpec], outputs: &[TensorSpec]) -> Result<(), ExportError> {
+    let wrong = |what: String| Err(ExportError::Encoder(format!("encoder_model.onnx {what}")));
     let [input] = inputs else {
         return wrong(format!(
             "takes {} inputs ({}), expected only `input_features`",
@@ -173,13 +215,13 @@ pub fn check_encoder(inputs: &[TensorSpec], outputs: &[TensorSpec]) -> Result<()
     // work in the 1500 frames that come out. A dimension the export leaves
     // dynamic (`-1`; the pinned encoder does for its input) cannot be checked
     // here, but one it fixes has to be the pinned number.
-    let fixed = |dims: &[i64], at: usize, name: &str, want: i64| -> Result<(), String> {
-        match dims[at] {
-            d if d == want || d < 0 => Ok(()),
-            d => Err(format!(
+    let fixed = |dims: &[i64], at: usize, name: &str, want: i64| -> Result<(), ExportError> {
+        match dims.get(at) {
+            Some(&d) if d != want && d >= 0 => Err(ExportError::Encoder(format!(
                 "encoder_model.onnx has {name} of {d}, expected {want} (a 30 s window of the \
                  pinned export)"
-            )),
+            ))),
+            _ => Ok(()),
         }
     };
     fixed(&input.dims, 1, "`input_features` mel bands", MEL_BANDS)?;
@@ -196,14 +238,18 @@ pub fn check_decoder(
     inputs: &[TensorSpec],
     outputs: &[TensorSpec],
     encoder_output_dims: &[i64],
-) -> Result<ExportLayout, String> {
-    let wrong = |what: String| Err(format!("decoder_model_merged_int8.onnx {what}"));
+) -> Result<ExportLayout, ExportError> {
+    let wrong = |what: String| {
+        Err(ExportError::Decoder(format!(
+            "decoder_model_merged_int8.onnx {what}"
+        )))
+    };
     let input_names = names(inputs);
     let output_names = names(outputs);
 
     // The layers, from the decoder keys it takes.
     let mut layers = 0usize;
-    while input_names.contains(past_name(layers, false, false).as_str()) {
+    while input_names.contains(cache_name(Cache::Past, layers, Side::Decoder, Part::Key).as_str()) {
         layers += 1;
     }
     if layers == 0 {
@@ -221,10 +267,10 @@ pub fn check_decoder(
             .collect();
     let mut expected_out: BTreeSet<String> = BTreeSet::from(["logits".to_string()]);
     for layer in 0..layers {
-        for encoder in [false, true] {
-            for value in [false, true] {
-                expected_in.insert(past_name(layer, encoder, value));
-                expected_out.insert(present_name(layer, encoder, value));
+        for side in [Side::Decoder, Side::Encoder] {
+            for part in [Part::Key, Part::Value] {
+                expected_in.insert(cache_name(Cache::Past, layer, side, part));
+                expected_out.insert(cache_name(Cache::Present, layer, side, part));
             }
         }
         expected_out.insert(cross_name(layer));
@@ -268,18 +314,20 @@ pub fn check_decoder(
         return wrong(format!("has no output {}{hint}", list(missing_out)));
     }
 
-    let spec = |name: &str| {
-        inputs
+    // Every name used below is in `expected_in` or `expected_out`, and the two
+    // checks above returned if any of those was missing, so a lookup failing is
+    // not something this function can reach; it is an error all the same.
+    let find = |specs: &'_ [TensorSpec], name: &str| -> Result<TensorSpec, ExportError> {
+        specs
             .iter()
             .find(|s| s.name == name)
-            .expect("checked above")
+            .cloned()
+            .ok_or_else(|| {
+                ExportError::Decoder(format!("decoder_model_merged_int8.onnx has no `{name}`"))
+            })
     };
-    let out = |name: &str| {
-        outputs
-            .iter()
-            .find(|s| s.name == name)
-            .expect("checked above")
-    };
+    let input = |name: &str| find(inputs, name);
+    let output = |name: &str| find(outputs, name);
 
     // Element types.
     for (name, want) in [
@@ -287,22 +335,21 @@ pub fn check_decoder(
         ("encoder_hidden_states", Elem::F32),
         ("use_cache_branch", Elem::Bool),
     ] {
-        if spec(name).elem != want {
-            return wrong(format!(
-                "takes `{name}` as {:?}, expected {want:?}",
-                spec(name).elem
-            ));
+        let found = input(name)?.elem;
+        if found != want {
+            return wrong(format!("takes `{name}` as {found:?}, expected {want:?}"));
         }
     }
-    if out("logits").elem != Elem::F32 {
+    let logits = output("logits")?;
+    if logits.elem != Elem::F32 {
         return wrong(format!(
             "returns `logits` as {:?}, expected F32",
-            out("logits").elem
+            logits.elem
         ));
     }
 
     // Geometry, from the first layer's decoder key `[batch, heads, past, head_dim]`.
-    let key = spec("past_key_values.0.decoder.key");
+    let key = input("past_key_values.0.decoder.key")?;
     let (heads, head_dim) = match key.dims.as_slice() {
         [_, h, _, d] if *h > 0 && *d > 0 => (*h as usize, *d as usize),
         other => {
@@ -312,7 +359,8 @@ pub fn check_decoder(
             ))
         }
     };
-    let width = match spec("encoder_hidden_states").dims.as_slice() {
+    let hidden = input("encoder_hidden_states")?;
+    let width = match hidden.dims.as_slice() {
         [_, _, w] if *w > 0 => *w as usize,
         other => {
             return wrong(format!(
@@ -325,7 +373,7 @@ pub fn check_decoder(
             "has {heads} heads of {head_dim} but a model width of {width}"
         ));
     }
-    let vocab = match out("logits").dims.as_slice() {
+    let vocab = match logits.dims.as_slice() {
         [_, _, v] if *v > 0 => *v as usize,
         other => {
             return wrong(format!(
@@ -336,10 +384,10 @@ pub fn check_decoder(
     let frames = match encoder_output_dims {
         [_, f, w] if *f == ENCODER_FRAMES && *w as usize == width => *f as usize,
         other => {
-            return Err(format!(
+            return Err(ExportError::Encoder(format!(
                 "encoder_model.onnx gives `last_hidden_state` of shape {other:?}, but the \
                  decoder takes a width of {width} (expected [batch, {ENCODER_FRAMES}, {width}])"
-            ))
+            )))
         }
     };
     if alignment_heads(layers, heads).is_none() {
@@ -373,15 +421,15 @@ mod tests {
         ];
         let mut outputs = vec![TensorSpec::new("logits", Elem::F32, &[-1, -1, 51_865])];
         for layer in 0..6 {
-            for encoder in [false, true] {
-                for value in [false, true] {
+            for side in [Side::Decoder, Side::Encoder] {
+                for part in [Part::Key, Part::Value] {
                     inputs.push(TensorSpec::new(
-                        &past_name(layer, encoder, value),
+                        &cache_name(Cache::Past, layer, side, part),
                         Elem::F32,
                         &KV,
                     ));
                     outputs.push(TensorSpec::new(
-                        &present_name(layer, encoder, value),
+                        &cache_name(Cache::Present, layer, side, part),
                         Elem::F32,
                         &KV,
                     ));
@@ -431,7 +479,9 @@ mod tests {
     fn a_decoder_without_use_cache_branch_names_it() {
         let (mut di, dos) = base_decoder();
         di.retain(|s| s.name != "use_cache_branch");
-        let err = check_decoder(&di, &dos, &[-1, 1500, 512]).unwrap_err();
+        let err = check_decoder(&di, &dos, &[-1, 1500, 512])
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("`use_cache_branch`"), "{err}");
         assert!(err.contains("missing"), "{err}");
         assert!(err.starts_with("decoder_model_merged_int8.onnx"), "{err}");
@@ -441,7 +491,9 @@ mod tests {
     fn a_decoder_with_an_input_it_does_not_feed_is_refused() {
         let (mut di, dos) = base_decoder();
         di.push(TensorSpec::new("position_ids", Elem::I64, &[-1, -1]));
-        let err = check_decoder(&di, &dos, &[-1, 1500, 512]).unwrap_err();
+        let err = check_decoder(&di, &dos, &[-1, 1500, 512])
+            .unwrap_err()
+            .to_string();
         assert!(
             err.contains("unexpected") && err.contains("`position_ids`"),
             "{err}"
@@ -452,7 +504,9 @@ mod tests {
     fn an_export_without_the_attention_outputs_says_what_to_get() {
         let (di, mut dos) = base_decoder();
         dos.retain(|s| !s.name.starts_with("cross_attentions"));
-        let err = check_decoder(&di, &dos, &[-1, 1500, 512]).unwrap_err();
+        let err = check_decoder(&di, &dos, &[-1, 1500, 512])
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("cross_attentions.0"), "{err}");
         assert!(err.contains("_timestamped"), "{err}");
     }
@@ -464,7 +518,9 @@ mod tests {
             TensorSpec::new("encoder_hidden_states", Elem::F32, &[-1, -1, 512]),
         ];
         let outputs = vec![TensorSpec::new("logits", Elem::F32, &[-1, -1, 51_865])];
-        let err = check_decoder(&inputs, &outputs, &[-1, 1500, 512]).unwrap_err();
+        let err = check_decoder(&inputs, &outputs, &[-1, 1500, 512])
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("merged decoder"), "{err}");
     }
 
@@ -478,15 +534,15 @@ mod tests {
         ];
         let mut outputs = vec![TensorSpec::new("logits", Elem::F32, &[-1, -1, 51_865])];
         for layer in 0..4 {
-            for encoder in [false, true] {
-                for value in [false, true] {
+            for side in [Side::Decoder, Side::Encoder] {
+                for part in [Part::Key, Part::Value] {
                     inputs.push(TensorSpec::new(
-                        &past_name(layer, encoder, value),
+                        &cache_name(Cache::Past, layer, side, part),
                         Elem::F32,
                         &[-1, 6, -1, 64],
                     ));
                     outputs.push(TensorSpec::new(
-                        &present_name(layer, encoder, value),
+                        &cache_name(Cache::Present, layer, side, part),
                         Elem::F32,
                         &[-1, 6, -1, 64],
                     ));
@@ -498,7 +554,9 @@ mod tests {
                 &[-1, 6, -1, -1],
             ));
         }
-        let err = check_decoder(&inputs, &outputs, &[-1, 1500, 384]).unwrap_err();
+        let err = check_decoder(&inputs, &outputs, &[-1, 1500, 384])
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("4 layers of 6 heads"), "{err}");
         assert!(err.contains("whisper-base"), "{err}");
     }
@@ -506,7 +564,9 @@ mod tests {
     #[test]
     fn a_decoder_that_does_not_take_what_the_encoder_gives_is_refused() {
         let (di, dos) = base_decoder();
-        let err = check_decoder(&di, &dos, &[-1, 1500, 768]).unwrap_err();
+        let err = check_decoder(&di, &dos, &[-1, 1500, 768])
+            .unwrap_err()
+            .to_string();
         assert!(
             err.contains("encoder_model.onnx") && err.contains("768"),
             "{err}"
@@ -520,9 +580,13 @@ mod tests {
         let with_input = |dims: &[i64]| vec![TensorSpec::new("input_features", Elem::F32, dims)];
         assert!(check_encoder(&with_input(&[1, 80, 3000]), &out).is_ok());
         assert!(check_encoder(&with_input(&[-1, -1, -1]), &out).is_ok());
-        let err = check_encoder(&with_input(&[-1, 128, -1]), &out).unwrap_err();
+        let err = check_encoder(&with_input(&[-1, 128, -1]), &out)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("128") && err.contains("mel bands"), "{err}");
-        let err = check_encoder(&with_input(&[-1, 80, 1500]), &out).unwrap_err();
+        let err = check_encoder(&with_input(&[-1, 80, 1500]), &out)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("1500") && err.contains("frames"), "{err}");
 
         let (inp, _) = base_encoder();
@@ -531,7 +595,7 @@ mod tests {
             Elem::F32,
             &[-1, 750, 512],
         )];
-        let err = check_encoder(&inp, &other).unwrap_err();
+        let err = check_encoder(&inp, &other).unwrap_err().to_string();
         assert!(err.contains("750") && err.contains("1500"), "{err}");
 
         // The decoder refuses an encoder whose frames are not 1500 too, or
@@ -545,12 +609,12 @@ mod tests {
     fn an_encoder_with_other_names_is_refused() {
         let inputs = vec![TensorSpec::new("mel", Elem::F32, &[-1, 80, 3000])];
         let (_, outputs) = base_encoder();
-        let err = check_encoder(&inputs, &outputs).unwrap_err();
+        let err = check_encoder(&inputs, &outputs).unwrap_err().to_string();
         assert!(err.contains("input_features"), "{err}");
 
         let (inputs, _) = base_encoder();
         let outputs = vec![TensorSpec::new("hidden", Elem::F32, &[-1, 1500, 512])];
-        let err = check_encoder(&inputs, &outputs).unwrap_err();
+        let err = check_encoder(&inputs, &outputs).unwrap_err().to_string();
         assert!(
             err.contains("last_hidden_state") && err.contains("`hidden`"),
             "{err}"
@@ -559,9 +623,19 @@ mod tests {
 
     #[test]
     fn names_follow_the_export() {
-        assert_eq!(past_name(3, false, false), "past_key_values.3.decoder.key");
-        assert_eq!(past_name(0, true, true), "past_key_values.0.encoder.value");
-        assert_eq!(present_name(5, true, false), "present.5.encoder.key");
+        let name = |cache, layer, side, part| cache_name(cache, layer, side, part);
+        assert_eq!(
+            name(Cache::Past, 3, Side::Decoder, Part::Key),
+            "past_key_values.3.decoder.key"
+        );
+        assert_eq!(
+            name(Cache::Past, 0, Side::Encoder, Part::Value),
+            "past_key_values.0.encoder.value"
+        );
+        assert_eq!(
+            name(Cache::Present, 5, Side::Encoder, Part::Key),
+            "present.5.encoder.key"
+        );
         assert_eq!(cross_name(4), "cross_attentions.4");
     }
 
