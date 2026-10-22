@@ -82,7 +82,8 @@ async function connect(ctx) {
 }
 
 /** Where a shot's audio lives. */
-const audioDir = (ctx, name) => join(ctx.out, "promo-audio", name);
+// A short path, because the History graph prints the path of a loaded file on its node.
+const audioDir = (ctx, name) => join("/tmp/promo-audio", name);
 
 /** Load `files` ({ "Name.wav": parts }) as tracks through the real file chooser, as Open Audio does:
  * the files are alone in a folder of their own, which is opened and everything in it selected, so

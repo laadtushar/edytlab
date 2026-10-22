@@ -4,8 +4,8 @@
   "effort": "low",
   "nodes": 20,
   "file": "s8b-broll-graph.mp4",
-  "seconds": 16.53,
-  "frames": 248,
+  "seconds": 20.4,
+  "frames": 306,
   "fps": 15,
   "width": 32002000,
   "marks": [
@@ -19,17 +19,17 @@
     },
     {
       "label": "drag",
-      "t": 5.07
+      "t": 5.56
     }
   ],
   "wav": null,
   "spans": null,
   "sync": null,
   "capture": {
-    "frames": 262,
+    "frames": 338,
     "dup": 0,
-    "drop": 22,
-    "speed": 1.01
+    "drop": 5,
+    "speed": 0.997
   },
   "toolCalls": null
 }

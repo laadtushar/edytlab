@@ -12,8 +12,8 @@
         "text": "✓Rename version"
       }
     ],
-    "reply": "I labelled the current version (node a5cac6e1…) \"chorus\". Only the label changed. The audio is the same.",
-    "seconds": 12.39
+    "reply": "I labelled the current version (node f5206c71…605e) \"chorus\". I only changed the label, not the audio.",
+    "seconds": 17.682
   },
   "second": {
     "badges": [
@@ -24,16 +24,20 @@
       {
         "status": "ok",
         "text": "✓Compact session"
+      },
+      {
+        "status": "ok",
+        "text": "✓Compact session"
       }
     ],
-    "reply": "I compacted the history and kept the last 8 edits. It removed 12 older undo steps permanently. No audio files were deleted, so no disk space was freed. Undo still works for the 8 most recent edits.Undo",
-    "seconds": 19.045
+    "reply": "I compacted the history. It removed 12 old nodes and kept the last 8 edits on the current chain, so recent undo still works. It freed no disk space (0.0 MB), because none of those nodes held audio files of their own.\nThe removal is permanent, so you can't undo back to those 12 steps. I didn't check whether the \"chorus\" node was one of them. If it was, the label is gone with it. I can check and re-label the current head if you like.Undo",
+    "seconds": 22.474
   },
   "third": null,
   "labelled": true,
   "file": "s3-history-graph.mp4",
-  "seconds": 41.2,
-  "frames": 618,
+  "seconds": 49.73,
+  "frames": 746,
   "fps": 15,
   "width": 32002000,
   "marks": [
@@ -47,24 +51,24 @@
     },
     {
       "label": "named",
-      "t": 13.94
+      "t": 19.2
     },
     {
       "label": "request 2",
-      "t": 17.48
+      "t": 22.73
     },
     {
       "label": "asked",
-      "t": 36.52
+      "t": 45.2
     }
   ],
   "wav": null,
   "spans": null,
   "sync": null,
   "capture": {
-    "frames": 654,
-    "dup": null,
-    "drop": null,
+    "frames": 778,
+    "dup": 0,
+    "drop": 5,
     "speed": 0.998
   },
   "toolCalls": {
@@ -76,13 +80,13 @@
         "prompt": "Name this version chorus",
         "calls": [
           {
-            "id": "toolu_011x8VJeHTQA46KVijR5Ka7R",
+            "id": "toolu_019uHi5icpfjygv1TWVpCJhH",
             "name": "name_node",
             "arguments": {
               "label": "chorus",
-              "node_id": "a5cac6e1ac3eb026a3fe12218523394f39c388d64453e2dcd92046292b6e0357"
+              "node_id": "f5206c71486e7d88ab4685ec7bef2f87ce402946dd70e9ed022bc6eae581605e"
             },
-            "result": "{\"label\":\"chorus\",\"node_id\":\"a5cac6e1ac3eb026a3fe12218523394f39c388d64453e2dcd92046292b6e0357\",\"summary\":\"Labelled a5cac6e1ac3eb026a3fe12218523394f39c388d64453e2dcd92046292b6e0357 as \\\"chorus\\\"\"}",
+            "result": "{\"label\":\"chorus\",\"node_id\":\"f5206c71486e7d88ab4685ec7bef2f87ce402946dd70e9ed022bc6eae581605e\",\"summary\":\"Labelled f5206c71486e7d88ab4685ec7bef2f87ce402946dd70e9ed022bc6eae581605e as \\\"chorus\\\"\"}",
             "error": false
           }
         ]
@@ -92,7 +96,16 @@
         "prompt": "Compact the history, keep the last 8 edits",
         "calls": [
           {
-            "id": "toolu_01XJqfkcB2MxyYiBQ8rbpWjk",
+            "id": "toolu_01CVwSkF2NZAGDkJxqCuWW8m",
+            "name": "compact_session",
+            "arguments": {
+              "keep_last": 8
+            },
+            "result": "{\"applied\":false,\"keep_last\":8,\"prunable_nodes\":12,\"reclaimable_bytes\":0,\"reclaimable_files\":0,\"summary\":\"Would remove 12 node(s) of history and 0.0 MB of audio, keeping the last 8 on the current chain. Those undo steps would be gone for good — call again with apply: true to do it.\"}",
+            "error": false
+          },
+          {
+            "id": "toolu_01PTXp3yS5tX1H86BYB3hq3f",
             "name": "compact_session",
             "arguments": {
               "apply": true,
