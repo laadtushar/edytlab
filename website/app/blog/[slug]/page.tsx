@@ -142,6 +142,19 @@ function renderBlock(block: Block, i: number) {
           </span>
         </div>
       );
+    case "code":
+      // A command or script: verbatim, and it scrolls sideways instead of
+      // wrapping, so a long line is still one line to copy. Focusable so a
+      // keyboard can scroll it.
+      return (
+        <pre
+          key={i}
+          tabIndex={0}
+          className="mt-4 overflow-x-auto rounded-lg border border-border/60 bg-secondary/60 px-4 py-3 font-mono text-sm leading-6 text-foreground"
+        >
+          <code>{block.text}</code>
+        </pre>
+      );
     case "callout":
       return (
         <blockquote
