@@ -27,12 +27,12 @@ const faqs = [
   },
   {
     q: "Does my audio leave my machine?",
-    a: "No. The DSP engine runs entirely on your device — decode, editing, mixing, and rendering all happen locally, and stem separation and transcription are built to run locally too once their models ship. Besides your chat with the LLM provider you've configured, the app contacts only hosts you tell it to (a plugin URL, an MCP server) and, from the release after v0.7.0, Hugging Face when you click Download for the speech model. Your raw audio is never uploaded.",
+    a: "No. The DSP engine runs entirely on your device — decode, editing, mixing, and rendering all happen locally, and so does transcription, with a speech model you download once (v0.8.0 and later); stem separation is built to run locally too once its model ships. Besides your chat with the LLM provider you've configured, the app contacts only hosts you tell it to (a plugin URL, an MCP server) and, from v0.8.0, Hugging Face when you click Download for the speech model. Your raw audio is never uploaded; the words a transcription finds go to the provider as chat text, and stay on your machine with Ollama.",
     more: { href: "/use-cases/local-ai-audio-editor", label: "See what stays on your machine and what leaves" },
   },
   {
     q: "What are the system requirements?",
-    a: "macOS 11 Big Sur or later — the .dmg is a universal binary, so Apple Silicon and Intel both run it — Windows 10/11, or Linux (.deb / AppImage, x86_64). No GPU is needed: the current build runs no ML models, because stem separation and transcription have not shipped yet.",
+    a: "macOS 11 Big Sur or later — the .dmg is a universal binary, so Apple Silicon and Intel both run it — Windows 10/11, or Linux (.deb / AppImage, x86_64). No GPU is needed: transcription runs on the CPU, and stem separation has not shipped yet.",
   },
   {
     q: "Is it free?",

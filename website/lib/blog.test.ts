@@ -162,9 +162,9 @@ describe("the four posts that came with v0.3.0", () => {
     expect(post && markupOf(post).flatMap(linksIn)).toContain("/#demos");
   });
 
-  it("never describes stem separation or transcription as working", () => {
-    // Neither has shipped. A mention is fine; it has to say so in the same breath.
-    const unshipped = /stem separation|transcri(?:be|ption)|demucs|whisper/i;
+  it("never describes stem separation as working", () => {
+    // It has not shipped (transcription did, in v0.8.0). A mention is fine; it has to say so in the same breath.
+    const unshipped = /stem separation|demucs/i;
     const admits = /not shipped|has not shipped|not available|no ability|cannot isolate|can't isolate/i;
     for (const post of octoberPosts) {
       for (const text of textOf(post)) {

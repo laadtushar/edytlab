@@ -12,8 +12,8 @@
  *   pages say they are re-checked every 90);
  * - the pages and components that make a comparison use no unqualified
  *   superlative, and never say edytlab can do what it cannot (stem
- *   separation, transcription, text-based editing, filler-word removal,
- *   MIDI, plugin hosting) outside a sentence that also denies it;
+ *   separation, MIDI, plugin hosting; transcription and the editing that
+ *   works from it shipped in v0.8.0 and are no longer on the list) outside a sentence that also denies it;
  * - no competitor's logo or screenshot is in the repository's served
  *   files;
  * - the pages carry what the research asked of every comparison: where
@@ -223,11 +223,6 @@ const NEVER_CLAIM: RegExp[] = [
   /\bvocal isolation\b/i,
   /\bisolat(?:e|es|ing) (?:the |a |your )?vocals?\b/i,
   /\bmash-?ups?\b/i,
-  /\btranscri(?:be|bes|bed|bing|ption|ptions)\b/i,
-  /\btranscripts?\b/i,
-  /\btext-based editing\b/i,
-  /\bfiller[- ]words?\b/i,
-  /\bremov(?:e|es|ing) (?:the |your )?ums?\b/i,
   /\bspeaker detection\b/i,
   /\bdetects? speakers\b/i,
   /\bspeech enhancement\b/i,
@@ -274,9 +269,11 @@ describe("the scanners", () => {
 
   it("catches a capability edytlab does not have, unless the sentence denies it", () => {
     expect(unqualifiedNeverClaims("edytlab does stem separation on your tracks.")).toHaveLength(1);
-    expect(unqualifiedNeverClaims("Ask it to remove filler words and transcribe the interview.")).toHaveLength(1);
+    expect(unqualifiedNeverClaims("Ask it to isolate the vocals and detect speakers in the interview.")).toHaveLength(2);
     expect(unqualifiedNeverClaims("It hosts VST3 plugins. It has MIDI editing.")).toHaveLength(1);
-    expect(unqualifiedNeverClaims("Stem separation has not shipped. Transcription is not available.")).toEqual([]);
+    expect(unqualifiedNeverClaims("Stem separation has not shipped. Speaker detection is not available.")).toEqual([]);
+    // Shipped in v0.8.0: no longer a claim the pages must deny.
+    expect(unqualifiedNeverClaims("Ask it to transcribe the interview and remove filler words.")).toEqual([]);
     expect(unqualifiedNeverClaims("edytlab has no MIDI and no plugin hosting.")).toEqual([]);
     expect(unqualifiedNeverClaims("Its installers are unsigned, so macOS warns.")).toEqual([]);
     expect(unqualifiedNeverClaims("It ships signed installers for every platform.")).toHaveLength(1);
@@ -412,14 +409,14 @@ describe("the components", () => {
     expect(html).not.toMatch(/overflow-x-(?:auto|scroll)/);
   });
 
-  it("states the limit in NotBuiltYet: stems and transcription have not shipped, with their issues", () => {
+  it("states the limit in NotBuiltYet: stem separation has not shipped, with its issue", () => {
     const html = renderToStaticMarkup(createElement(NotBuiltYet));
     expect(html).toMatch(/Not built yet/i);
     expect(html).toMatch(/stem separation/i);
-    expect(html).toMatch(/transcription/i);
     expect(html).toMatch(/have not shipped|has not shipped|not shipped/i);
     expect(html).toContain("/issues/385");
-    expect(html).toContain("/issues/384");
+    // Transcription shipped in v0.8.0: the note must not list it as missing.
+    expect(html).not.toMatch(/transcri/i);
     // And it leads with what is missing, not with what is possible.
     expect(unqualifiedNeverClaims(code("components/compare/not-built-yet.tsx"))).toEqual([]);
   });
@@ -518,9 +515,9 @@ describe("/about", () => {
     expect(html).toContain(`href="${siteConfig.github}/issues"`);
   });
 
-  it("says what edytlab is not, including the two things that have not shipped", () => {
+  it("says what edytlab is not, including the thing that has not shipped", () => {
     expect(text).toMatch(/not a DAW/i);
-    expect(text).toMatch(/stem separation and transcription/i);
+    expect(text).toMatch(/stem separation has not shipped/i);
     expect(text).toMatch(/unsigned/i);
   });
 
@@ -579,12 +576,13 @@ describe("/alternatives/audacity", () => {
     expect(better / body.length).toBeLessThan(0.45);
   });
 
-  it("states Audacity's AI plugins from its plugin page, and edytlab's lack of them in the same breath", () => {
+  it("states Audacity's AI plugins from its plugin page, and edytlab's lack of music separation in the same breath", () => {
     expect(text).toMatch(/OpenVINO/);
     expect(text).toMatch(/music separation/i);
     expect(text).toMatch(/noise suppression/i);
     expect(text).toMatch(/Whisper/);
     expect(text).toMatch(/run 100% locally/);
+    expect(text).toMatch(/edytlab has not shipped stem separation/);
     expect(html).toContain('href="https://plugins.audacityteam.org/ai-plugins/ai-plugins"');
     expect(text).not.toMatch(/Audacity (?:has no|lacks|does not (?:have|offer|include)) (?:any )?(?:AI|machine)/i);
   });

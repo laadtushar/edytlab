@@ -183,11 +183,11 @@ describe("the four audio how-to posts", () => {
     });
 
     it("never describes what edytlab does not do as working", () => {
-      // Stem separation, transcription and the things that need it have not
-      // shipped; the limiter is a sample-peak ceiling and not a true-peak one;
+      // Stem separation and the things that need it have not shipped
+      // (transcription did, in v0.8.0, but none of these posts needs it); the limiter is a sample-peak ceiling and not a true-peak one;
       // nothing here is ML enhancement, MIDI or plugin hosting.
       const unshipped =
-        /stem separation|vocal isolation|transcri(?:be|ption)|speaker detection|filler|ML enhance|MIDI|plugin hosting|VST|true-peak (?:limiter|compliance|compliant)/i;
+        /stem separation|vocal isolation|speaker detection|ML enhance|MIDI|plugin hosting|VST|true-peak (?:limiter|compliance|compliant)/i;
       for (const t of allText(post)) expect(t, `${post.slug}: ${t}`).not.toMatch(unshipped);
     });
 

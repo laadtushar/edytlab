@@ -87,16 +87,12 @@ export default function AboutPage() {
           <li>It is not a DAW. It edits audio files, with no MIDI, no instruments and no plugin hosting.</li>
           <li>It is not a live DJ tool. It prepares and exports files.</li>
           <li>
-            Stem separation and transcription have not shipped. The tools exist and return an error today, so nothing built on
-            them is available. Neither is finished; progress on each is tracked on GitHub:{" "}
+            Stem separation has not shipped. The tool exists and returns an error today, so nothing built on it is available. It
+            is not finished; progress is tracked on GitHub:{" "}
             <a href={`${siteConfig.github}/issues/385`} target="_blank" rel="noopener noreferrer">
               stem separation
-            </a>{" "}
-            and{" "}
-            <a href={`${siteConfig.github}/issues/384`} target="_blank" rel="noopener noreferrer">
-              transcription
             </a>
-            .
+            . Transcription runs on your computer from v0.8.0, after you download the speech model once.
           </li>
           <li>
             The installers are{" "}

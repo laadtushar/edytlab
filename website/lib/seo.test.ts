@@ -310,7 +310,7 @@ describe("the canonical host", () => {
 describe("keywords", () => {
   it("name no feature that has not shipped", () => {
     const joined = siteConfig.keywords.join(" ").toLowerCase();
-    for (const unshipped of ["stem separation", "vocal isolation", "demucs", "whisper", "transcription"]) {
+    for (const unshipped of ["stem separation", "vocal isolation", "demucs"]) {
       expect(joined).not.toContain(unshipped);
     }
   });

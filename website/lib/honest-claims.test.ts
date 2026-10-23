@@ -82,10 +82,12 @@ describe("the landing comparison", () => {
     expect(src).not.toMatch(names);
   });
 
-  it("still states the two things edytlab does not do yet", () => {
+  it("still states the thing edytlab does not do yet", () => {
     expect(src).toMatch(/Stem separation/);
-    expect(src).toMatch(/Transcription/);
-    expect(src.match(/Not yet/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(src).toMatch(/Not yet/);
+    // Transcription shipped in v0.8.0 (#384): its row says so, not "Not yet".
+    const row = src.match(/label: "Transcription and text-based editing",\s*\n\s*edytlab: "([^"]+)"/)?.[1];
+    expect(row, "the transcription row moved; update this test").toBe("yes");
   });
 
   it("does not hang the section on a verdict about other tools", () => {
@@ -97,12 +99,11 @@ describe("the feature grid", () => {
   const src = code("components/landing/feature-grid.tsx");
 
   it("puts the limit of text-based editing in its headline", () => {
-    // The body says transcription has not shipped (#384); the headline is
-    // what snippets and assistants quote, so it has to say it too.
-    const title = src.match(/title:\s*"([^"]+)",\s*\n\s*body:\s*"Give a take a transcript/)?.[1];
+    // The body says the speech model is a one-time download (#384); the
+    // headline is what snippets and assistants quote, so it has to say it too.
+    const title = src.match(/title:\s*"([^"]+)",\s*\n\s*body:\s*"Transcribe a take on your computer/)?.[1];
     expect(title, "the text-editing card moved; update this test").toBeDefined();
-    expect(title).toMatch(/transcription/i);
-    expect(title).toMatch(/waiting|not shipped|not yet/i);
+    expect(title).toMatch(/download/i);
   });
 
   it("does not sell a mashup of one track's vocals over another's drums", () => {
@@ -169,9 +170,10 @@ describe("the repository README", () => {
   it("says near the top what it does not do yet", () => {
     expect(opening).toMatch(/does not do yet/i);
     expect(opening).toMatch(/stem separation/i);
-    expect(opening).toMatch(/transcription/i);
     expect(opening).toMatch(/not shipped/i);
     expect(opening).toContain("/issues/385");
-    expect(opening).toContain("/issues/384");
+    // Transcription shipped in v0.8.0 and says what it needs: the download.
+    expect(opening).toMatch(/transcription/i);
+    expect(opening).toMatch(/speech model/i);
   });
 });

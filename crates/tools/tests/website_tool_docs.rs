@@ -566,10 +566,10 @@ fn the_landing_page_claims_only_what_the_registry_can_do() {
     // (a phrase on the site, the tool that has to exist for it to be true)
     let claims: &[(&str, &str)] = &[
         // Text-based editing (#157): the transcript is the editor, and
-        // deleting words cuts the audio. The headline says the
-        // transcription it waits on has not shipped (#384).
+        // deleting words cuts the audio. `transcribe` runs the model since
+        // v0.8.0 (#384); the headline says the model is a download.
         (
-            "Text-based editing: built, waiting on transcription",
+            "Text-based editing, after a one-time model download",
             "cut_words",
         ),
         ("the transcript becomes the editor", "transcribe"),

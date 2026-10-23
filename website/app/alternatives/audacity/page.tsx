@@ -132,7 +132,7 @@ const rows: FactRow[] = [
   },
   {
     label: "AI features",
-    ours: "An agent that calls edytlab's editing tools from your request. Stem separation and transcription have not shipped.",
+    ours: "An agent that calls edytlab's editing tools from your request. Transcription runs on your computer from v0.8.0, after a one-time model download. Stem separation has not shipped.",
     oursSource: { href: "/docs/tools", label: "Tools reference" },
     theirs: audacity.aiFeatures.text,
     source: { href: audacity.aiFeatures.url },
@@ -204,7 +204,8 @@ export default function AudacityAlternativePage() {
             lists Intel OpenVINO plugins named &ldquo;Music Separation&rdquo; (it splits a track into drums, bass, vocals and
             other instruments), &ldquo;Noise Suppression&rdquo;, &ldquo;Music Generation and continuation&rdquo; and
             &ldquo;Whisper Transcription&rdquo;, and says these features &ldquo;run 100% locally on your PC&rdquo; with no
-            internet connection necessary. edytlab has not shipped stem separation or transcription. A{" "}
+            internet connection necessary. edytlab has not shipped stem separation. From v0.8.0 it transcribes with Whisper base on your
+            computer, after you download that model once. A{" "}
             <a href={href("ai-macos-beta")} target="_blank" rel="noopener noreferrer">
               June 2025 post
             </a>{" "}
@@ -390,7 +391,7 @@ export default function AudacityAlternativePage() {
             "you would rather describe a multi-step job in a sentence than do each step by hand;",
             "you want a branching history, recipes you can replay over a folder, or loudness targets by name;",
             "you are happy to bring an AI provider's key, or run Ollama on your machine;",
-            "you can work without audio plugins, and without stem separation or transcription, which have not shipped.",
+            "you can work without audio plugins, and without stem separation, which has not shipped.",
           ]}
           closing={
             <p>
@@ -403,7 +404,7 @@ export default function AudacityAlternativePage() {
         <h3>Is edytlab a drop-in replacement for Audacity?</h3>
         <p>
           No. Audacity hosts audio plugins and has optional local AI plugins that edytlab does not match, since stem separation
-          and transcription have not shipped here. edytlab suits jobs you can say in a sentence.
+          has not shipped here. edytlab suits jobs you can say in a sentence.
         </p>
         <h3>Can I open my Audacity projects in edytlab?</h3>
         <p>

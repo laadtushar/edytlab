@@ -229,7 +229,7 @@ describe("/videos", () => {
     expect(close).toContain("Download edytlab");
     expect(close).toContain("Read the docs");
     expect(close).toContain("unsigned");
-    expect(close).toMatch(/Stem separation and transcription are not built yet/);
+    expect(close).toMatch(/Stem separation is not built yet/);
   });
 });
 

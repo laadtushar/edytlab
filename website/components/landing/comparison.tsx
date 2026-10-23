@@ -28,8 +28,8 @@ interface Row {
  * cells are gone rather than hedged. Named, sourced, dated comparisons
  * belong on pages of their own, one competitor each.
  *
- * Every row here is something the app or its docs shows. The two "Not
- * yet" rows are the same limits the feature grid and the FAQ state.
+ * Every row here is something the app or its docs shows. The "Not
+ * yet" row is the same limit the feature grid and the FAQ state.
  */
 const rows: Row[] = [
   {
@@ -65,8 +65,8 @@ const rows: Row[] = [
   },
   {
     label: "Transcription and text-based editing",
-    edytlab: "Not yet",
-    detail: "The editing is built; the transcription it needs has not shipped (#384).",
+    edytlab: "yes",
+    detail: "From v0.8.0, on your computer, with a speech model you download once. Cut words or filler words from the transcript.",
   },
 ];
 

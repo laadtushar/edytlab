@@ -24,17 +24,18 @@ import { SectionHeading } from "@/components/motion/section-heading";
  * their detail is.
  *
  * The phrases `website_tool_docs.rs` pins to registered tools ("Text-based
- * editing: built, waiting on transcription", "Demucs stem separation",
+ * editing, after a one-time model download", "Demucs stem separation",
  * "Warp a performance onto a beat grid", "Loudness-normalise", "Fork,
  * A/B compare, and revert" …) are load-bearing: reword one and update
  * that test in the same change. The text-editing headline carries its
- * limit on purpose: headings are what snippets and assistants quote.
+ * limit on purpose (the model is a download, not part of the app): headings
+ * are what snippets and assistants quote.
  */
 const features = [
   {
     icon: FileText,
-    title: "Text-based editing: built, waiting on transcription",
-    body: "Give a take a transcript and the transcript becomes the editor. Select a sentence to select the audio; delete it and the audio is cut and the gap closed. The remaining word timings shift to match, so the transcript keeps lining up with what you can hear. It is an ordinary edit underneath — undoable, branchable, and recorded like any other. The editing is built; the on-device transcription that produces the transcript has not shipped yet.",
+    title: "Text-based editing, after a one-time model download",
+    body: "Transcribe a take on your computer and the transcript becomes the editor. Select a sentence to select the audio; delete it and the audio is cut and the gap closed. The remaining word timings shift to match, so the transcript keeps lining up with what you can hear. It is an ordinary edit underneath — undoable, branchable, and recorded like any other. Transcription needs the Whisper base speech model (about 139 MB), which you download once in Settings, never automatically; the audio never leaves your computer, but the words it finds reach your AI provider as text, unless you use Ollama.",
   },
   {
     icon: MessageSquare,
@@ -44,7 +45,7 @@ const features = [
   {
     icon: Waves,
     title: "Pro-grade DSP",
-    body: "A pure-Rust audio graph (cpal · symphonia · rubato · realfft) with no C dependency in the audio path. Time-stretch and pitch-shift run on a phase vocoder written for this project, with formant preservation so a shifted voice still sounds like the same person. Warp a performance onto a beat grid in a single pass — no seam at the beats. Demucs stem separation and Whisper transcription are wired in as tools; their model inference has not shipped yet.",
+    body: "A pure-Rust audio graph (cpal · symphonia · rubato · realfft) with no C dependency in the audio path. Time-stretch and pitch-shift run on a phase vocoder written for this project, with formant preservation so a shifted voice still sounds like the same person. Warp a performance onto a beat grid in a single pass — no seam at the beats. Demucs stem separation is wired in as a tool; its model inference has not shipped yet.",
   },
   {
     icon: GitBranch,

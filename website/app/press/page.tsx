@@ -134,7 +134,8 @@ export default function PressPage() {
               <th scope="row">Where audio goes</th>
               <td>
                 Nowhere. Processing is local. Only chat text goes to the
-                provider you choose.
+                provider you choose, which includes the words a transcription
+                finds but never the audio.
               </td>
             </tr>
             <tr>
@@ -167,9 +168,10 @@ export default function PressPage() {
         <p>Please state this plainly if you cover edytlab.</p>
         <ul>
           <li>
-            Stem separation and speech transcription are not implemented in any
-            build. Editing by transcript depends on transcription, so it does
-            not work either.
+            Stem separation is not implemented in any build. Speech
+            transcription works from v0.8.0, on your computer, once the user
+            has downloaded the speech model in Settings; v0.7.0 and earlier
+            cannot transcribe.
           </li>
           <li>
             It edits files offline. It is not a live DJ tool and it is not a

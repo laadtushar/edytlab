@@ -2,10 +2,11 @@ import { siteConfig } from "@/lib/site";
 
 /**
  * The standing note on every comparison page: what edytlab has not
- * shipped. Stem separation and transcription are wired in as tools that
- * return an error today (#385, #384), and everything that waits on them
- * is missing with them. Other products do these things; the note says
- * edytlab does not, in words that cannot be read as a promise.
+ * shipped. Stem separation is wired in as a tool that returns an error
+ * today (#385), and everything that waits on it is missing with it.
+ * (Transcription shipped in v0.8.0, #384, and is no longer listed.)
+ * Other products do this; the note says edytlab does not, in words that
+ * cannot be read as a promise.
  *
  * The page's other sentences lean on this one: any sentence that names
  * one of these capabilities has to deny it too (`competitors.test.ts`).
@@ -17,15 +18,11 @@ export function NotBuiltYet() {
         Not built yet
       </div>
       <div className="mt-2 leading-relaxed">
-        Stem separation and transcription have not shipped in edytlab. Their tools exist but return an error today, so edytlab does not offer vocal isolation, a transcript, text-based editing
-        or filler-word removal. Where another product does these, it does them and edytlab does not. Neither is finished;
-        progress on each is tracked on GitHub:{" "}
+        Stem separation has not shipped in edytlab. Its tool exists but returns an error today, so edytlab does not offer vocal
+        isolation. Where another product does this, it does it and edytlab does not. It is not finished; progress is tracked
+        on GitHub:{" "}
         <a href={`${siteConfig.github}/issues/385`} target="_blank" rel="noopener noreferrer">
           stem separation
-        </a>{" "}
-        and{" "}
-        <a href={`${siteConfig.github}/issues/384`} target="_blank" rel="noopener noreferrer">
-          transcription
         </a>
         .
       </div>
