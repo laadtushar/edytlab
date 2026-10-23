@@ -30,7 +30,7 @@ export const batchNormalize: BlogPost = {
   coverAlt:
     "Four stacked audio files whose waveforms have very different heights on the left, an arrow, and the same four files on the right with waveforms of one height",
   excerpt:
-    "Bulk normalizing is easy to get almost right. Here is the ffmpeg two-pass method, the Audacity macro route and the edytlab recipe route, with what each one cannot tell you, and one default in edytlab that can overwrite your originals.",
+    "Bulk normalizing is easy to get almost right. Here is the ffmpeg two-pass method, the Audacity macro route and the edytlab recipe route, with what each one cannot tell you, and one default in edytlab v0.7.0 and earlier that can overwrite your originals.",
   readTime: 9,
   tags: ["batch normalize", "loudnorm", "LUFS", "recipes"],
   body: [
@@ -41,7 +41,7 @@ export const batchNormalize: BlogPost = {
     {
       type: "callout",
       text:
-        "Work on copies. Batch tools write files, and one default in edytlab's `batch_apply` can overwrite the originals ([issue #653](https://github.com/laadtushar/edytlab/issues/653), explained below). Only the third route needs [edytlab](" +
+        "Work on copies. Batch tools write files, and one default of `batch_apply` in edytlab v0.7.0 and earlier can overwrite the originals ([issue #653](https://github.com/laadtushar/edytlab/issues/653), fixed in v0.8.0; explained below). Only the third route needs [edytlab](" +
         RELEASES +
         "), whose installers are unsigned, so macOS and Windows warn on first launch; [Getting Started](/docs/getting-started) walks through it.",
     },
@@ -123,7 +123,7 @@ export const batchNormalize: BlogPost = {
     {
       type: "callout",
       text:
-        "Always give `batch_apply` an `output_dir` that is not the input folder. It defaults to the input folder, puts each file's project in a folder named after the file, and renders to `<output_dir>/<file name>.<format>`. With the default and a render format that matches an input's extension, the render's target is the original file itself. In a run on the code of 2026-10-22, three WAV files batch-processed with the default `output_dir` and `render_format: wav` were all left as 44-byte headers, and all three were reported as refused. With a separate `output_dir` the same batch worked and the inputs were unchanged. This is [issue #653](https://github.com/laadtushar/edytlab/issues/653); if it has been fixed by the time you read this, the issue will say so. Until then, keep copies of the originals.",
+        "Always give `batch_apply` an `output_dir` that is not the input folder. It defaults to the input folder, puts each file's project in a folder named after the file, and renders to `<output_dir>/<file name>.<format>`. With the default and a render format that matches an input's extension, the render's target is the original file itself. In a run on the code of 2026-10-22, three WAV files batch-processed with the default `output_dir` and `render_format: wav` were all left as 44-byte headers, and all three were reported as refused. With a separate `output_dir` the same batch worked and the inputs were unchanged. This is [issue #653](https://github.com/laadtushar/edytlab/issues/653). It is fixed in v0.8.0: from that version `batch_apply` refuses, before it starts any file, a batch in which a render would land on one of the inputs, and the message tells you to set `output_dir` to another folder. On v0.7.0 and earlier, set `output_dir` and keep copies of the originals.",
     },
     {
       type: "p",
@@ -148,7 +148,7 @@ export const batchNormalize: BlogPost = {
       items: [
         "**ffmpeg** runs without a window and is scriptable, and the two passes are visible in the script. You parse its JSON yourself.",
         "**Audacity** works from its window: one macro for the whole folder, up to 500 files at a time by the manual's recommendation. The manual also points to Python scripting for more flexibility.",
-        "**edytlab** takes the step as a sentence, gives you a recipe file you can read, and keeps a project with history per file. It needs an AI provider, billed by tokens unless you use a local Ollama model, and it needs the care with `output_dir` above.",
+        "**edytlab** takes the step as a sentence, gives you a recipe file you can read, and keeps a project with history per file. It needs an AI provider, billed by tokens unless you use a local Ollama model, and, on v0.7.0 and earlier, it needs the care with `output_dir` above.",
       ],
     },
     { type: "h2", text: "Questions about batch normalizing" },
@@ -170,7 +170,7 @@ export const batchNormalize: BlogPost = {
     { type: "h3", text: "Does batch_apply change my original files?" },
     {
       type: "p",
-      text: "It reads them, and writes projects and renders into `output_dir`. With the default `output_dir` and a matching render format it can write over them; see the box above and issue #653. See [the local-first page](/use-cases/local-ai-audio-editor) for what stays on your computer and what goes to the AI provider.",
+      text: "It reads them, and writes projects and renders into `output_dir`. On v0.7.0 and earlier, the default `output_dir` and a matching render format could write over them; v0.8.0 refuses that batch instead (see the box above and issue #653). See [the local-first page](/use-cases/local-ai-audio-editor) for what stays on your computer and what goes to the AI provider.",
     },
     { type: "h3", text: "Do I need an AI key to run the edytlab route?" },
     {
@@ -194,7 +194,7 @@ export const batchNormalize: BlogPost = {
         source("edytlab source: batch.rs, the code of batch_apply", SRC("crates/tools/src/tool/batch.rs"), "at commit b1678feb"),
         source("edytlab source: recipe.rs, what a recipe contains", SRC("crates/tools/src/recipe.rs"), "at commit b1678feb"),
         source("edytlab source: load.rs, how non-WAV files are loaded", SRC("crates/tools/src/tool/load.rs"), "at commit b1678feb"),
-        source("edytlab issue #653: batch_apply with the default output_dir", "https://github.com/laadtushar/edytlab/issues/653"),
+        source("edytlab issue #653: batch_apply with the default output_dir (fixed in v0.8.0)", "https://github.com/laadtushar/edytlab/issues/653"),
       ],
     },
   ],
