@@ -13,7 +13,8 @@ use serde_json::{json, Value};
 use crate::schema::{anthropic_tool, object_schema};
 use crate::tool::util::{
     append_state, check_sample_range, check_track_index, cut_timeline, load_head_state,
-    remap_after_cut, sync_other_tracks, timeline_end,
+    remap_after_cut, seconds_to_frames, sync_other_tracks, timeline_end, track_clip_rate,
+    track_clip_rates,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -58,6 +59,22 @@ impl Tool for CutRangeTool {
             return Ok(ToolResult::Error(msg));
         }
 
+        // The rate each track's frames are counted in (#234): the cut is in
+        // the frames of the track it names, but the labels and words after it
+        // are in seconds and a sync-locked track needs the same seconds in its
+        // own frames. The session's rate is neither.
+        let rate = match track_clip_rate(&state.tracks[args.track], state.sample_rate) {
+            Ok(r) => r,
+            Err(msg) => return Ok(ToolResult::Error(msg)),
+        };
+        let rates = if state.sync_lock {
+            match track_clip_rates(&state) {
+                Ok(r) => r,
+                Err(msg) => return Ok(ToolResult::Error(msg)),
+            }
+        } else {
+            Vec::new()
+        };
         let track = &mut state.tracks[args.track];
         // The timeline's end, not the longest single clip: on a track
         // already split by an earlier cut those differ, and measuring by
@@ -83,9 +100,14 @@ impl Tool for CutRangeTool {
         // and cutting a sentence out of one of them desynchronises the
         // conversation unless the others lose the same span. One node,
         // not one per track — undo has to put the whole edit back.
+        let (start_sec, end_sec) = (start as f64 / rate, end as f64 / rate);
         let synced = if state.sync_lock {
-            sync_other_tracks(&mut state, args.track, |clips| {
-                cut_timeline(clips, start, end)
+            sync_other_tracks(&mut state, args.track, &rates, |clips, clip_rate| {
+                cut_timeline(
+                    clips,
+                    seconds_to_frames(start_sec, clip_rate),
+                    seconds_to_frames(end_sec, clip_rate),
+                )
             })
         } else {
             0
@@ -99,8 +121,7 @@ impl Tool for CutRangeTool {
         // nobody moved (#231): `cut_words` turns a word's `start_s` into
         // a sample offset, so a stale transcript makes the *next* text
         // edit delete audio elsewhere while naming the right word.
-        let sr = state.sample_rate.max(1) as f64;
-        let dropped = remap_after_cut(&mut state, start as f64 / sr, end as f64 / sr);
+        let dropped = remap_after_cut(&mut state, start_sec, end_sec);
 
         state.length_samples = state
             .tracks

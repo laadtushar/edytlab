@@ -2,8 +2,8 @@
 
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
-    destructive_edit_then, insert_gap_timeline, remap_after_insert, sync_other_tracks,
-    track_channels,
+    destructive_edit_then, insert_gap_timeline, load_head_state, remap_after_insert,
+    seconds_to_frames, sync_other_tracks, track_channels, track_clip_rates,
 };
 use crate::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
@@ -123,6 +123,18 @@ impl Tool for InsertSilenceTool {
             Ok(c) => c,
             Err(e) => return Ok(ToolResult::Error(e)),
         };
+        // Sync-lock needs each other track's own rate (#234, #673): the gap
+        // is a span of time, and a second is not the same number of frames
+        // on a 16 kHz voice as on a 48 kHz bed. Asked before anything is
+        // edited, so a track that has no single rate refuses the whole edit.
+        let rates = match load_head_state(ctx) {
+            Ok(state) if state.sync_lock => match track_clip_rates(&state) {
+                Ok(r) => r,
+                Err(e) => return Ok(ToolResult::Error(e)),
+            },
+            Ok(_) => Vec::new(),
+            Err(e) => return Ok(ToolResult::Error(e)),
+        };
         // Sync-lock (#170 §3): the gap has to open on every track, or
         // everything after it drifts by exactly the amount inserted.
         // The other tracks get a timeline shift rather than a rewrite —
@@ -149,14 +161,12 @@ impl Tool for InsertSilenceTool {
                 if !state.sync_lock {
                     return Default::default();
                 }
-                let rate = state.sample_rate.max(1) as f64;
-                let at_frames = (at * rate).round().max(0.0) as u64;
-                let len_frames = (duration * rate).round().max(0.0) as u64;
-                if len_frames == 0 {
-                    return Default::default();
-                }
-                sync_other_tracks(state, edited, |clips| {
-                    insert_gap_timeline(clips, at_frames, len_frames)
+                sync_other_tracks(state, edited, &rates, |clips, rate| {
+                    let len_frames = seconds_to_frames(duration, rate);
+                    if len_frames == 0 {
+                        return clips.to_vec();
+                    }
+                    insert_gap_timeline(clips, seconds_to_frames(at, rate), len_frames)
                 });
                 Default::default()
             },

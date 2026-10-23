@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use crate::schema::{anthropic_tool, object_schema};
 use crate::tool::util::{
     append_state, check_sample_range, check_track_index, keep_timeline, load_head_state,
-    remap_after_cut, timeline_end,
+    remap_after_cut, timeline_end, track_clip_rate,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -55,6 +55,12 @@ impl Tool for TrimTool {
             return Ok(ToolResult::Error(msg));
         }
 
+        // The window is in the frames of the track's own clips (#234); the
+        // labels and words it discards are in seconds.
+        let rate = match track_clip_rate(&state.tracks[args.track], state.sample_rate) {
+            Ok(r) => r,
+            Err(msg) => return Ok(ToolResult::Error(msg)),
+        };
         let track = &mut state.tracks[args.track];
         // Measured across the whole timeline, not the longest single clip
         // — those differ as soon as a cut has split the track.
@@ -88,9 +94,8 @@ impl Tool for TrimTool {
         // Two cuts, tail first: cutting the head renumbers everything
         // after it, so doing the head first would make `track_len` —
         // measured before the edit — the wrong bound for the tail.
-        let sr = state.sample_rate.max(1) as f64;
-        let dropped_tail = remap_after_cut(&mut state, end as f64 / sr, track_len as f64 / sr);
-        let dropped_head = remap_after_cut(&mut state, 0.0, start as f64 / sr);
+        let dropped_tail = remap_after_cut(&mut state, end as f64 / rate, track_len as f64 / rate);
+        let dropped_head = remap_after_cut(&mut state, 0.0, start as f64 / rate);
         let dropped_labels = dropped_tail + dropped_head;
 
         state.length_samples = state

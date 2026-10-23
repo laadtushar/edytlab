@@ -425,25 +425,53 @@ pub(crate) fn insert_gap_timeline(clips: &[Clip], at: u64, len: u64) -> Vec<Clip
     out
 }
 
+/// The rate each track's clips are counted in, one per track in order, for
+/// carrying a time on one track over to the others (#234, #673).
+///
+/// A track with no clips answers the session's rate; it has nothing to edit.
+/// `Err` when any track mixes rates (see [`track_clip_rate`]), so a caller
+/// asks before it edits anything.
+pub(crate) fn track_clip_rates(state: &SessionState) -> Result<Vec<f64>, String> {
+    state
+        .tracks
+        .iter()
+        .map(|t| track_clip_rate(t, state.sample_rate))
+        .collect()
+}
+
 /// Apply a timeline edit to every track *except* `except`.
 ///
 /// The exception is the track the tool already edited; sync-lock is
 /// about carrying that edit to its neighbours, and applying it twice to
 /// the originator would double the shift.
+///
+/// `rates` holds each track's clip rate (see [`track_clip_rates`]) and the
+/// edit is handed the rate of the track it is applied to. A time is the same
+/// on every track but its frames are not: a second is 48 000 of a 48 kHz bed's
+/// and 16 000 of a 16 kHz voice's, so an edit worked out once in frames and
+/// applied to all of them moved the others by the wrong time (#673).
 pub(crate) fn sync_other_tracks(
     state: &mut SessionState,
     except: usize,
-    edit: impl Fn(&[Clip]) -> Vec<Clip>,
+    rates: &[f64],
+    edit: impl Fn(&[Clip], f64) -> Vec<Clip>,
 ) -> usize {
+    let fallback = state.sample_rate.max(1) as f64;
     let mut moved = 0;
     for (i, track) in state.tracks.iter_mut().enumerate() {
         if i == except || track.clips.is_empty() {
             continue;
         }
-        track.clips = edit(&track.clips);
+        let rate = rates.get(i).copied().unwrap_or(fallback);
+        track.clips = edit(&track.clips, rate);
         moved += 1;
     }
     moved
+}
+
+/// A time in seconds as a frame count at `rate`, rounded to the nearest frame.
+pub(crate) fn seconds_to_frames(seconds: f64, rate: f64) -> u64 {
+    (seconds * rate).round().max(0.0) as u64
 }
 
 /// Keep only the timeline range `[start, end)` and re-base it to zero.
@@ -1713,8 +1741,7 @@ pub(crate) fn track_clip_rate(track: &Track, fallback: u32) -> Result<f64, Strin
             Some(first) if first != r => {
                 return Err(format!(
                     "the clips of track \"{}\" are at different sample rates ({first} Hz and {r} \
-                     Hz), so a time in seconds does not name one place in all of them. Cut that \
-                     track by sample ranges with `cut_range` instead",
+                     Hz), so a time in seconds does not name one place in all of them",
                     track.name
                 ))
             }

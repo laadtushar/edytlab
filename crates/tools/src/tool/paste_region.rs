@@ -5,8 +5,8 @@ use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
-    destructive_edit_then, insert_gap_timeline, remap_after_insert, sync_other_tracks,
-    timeline_end, track_channels,
+    destructive_edit_then, insert_gap_timeline, load_head_state, remap_after_insert,
+    seconds_to_frames, sync_other_tracks, timeline_end, track_channels, track_clip_rates,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -216,6 +216,18 @@ impl Tool for PasteRegionTool {
             pasted.samples.len() / pasted.channels.max(1) as usize,
         );
 
+        // Each other track's own rate, for sync-lock below (#234, #673), asked
+        // before anything is edited so a track with no single rate refuses
+        // the whole paste.
+        let rates = match load_head_state(ctx) {
+            Ok(state) if state.sync_lock => match track_clip_rates(&state) {
+                Ok(r) => r,
+                Err(e) => return Ok(ToolResult::Error(e)),
+            },
+            Ok(_) => Vec::new(),
+            Err(e) => return Ok(ToolResult::Error(e)),
+        };
+
         let label = format!("paste clipboard at {at:.2}s on track {track}");
         let summary = label.clone();
         let result = destructive_edit_then(
@@ -256,25 +268,27 @@ impl Tool for PasteRegionTool {
                 //
                 // The gap is where the audio actually went in (`at` clamped
                 // to the end of the track) and as long as the clipboard
-                // plays, in seconds, then counted in the session's frames:
-                // the paste only succeeds when the clipboard is at the
-                // *track's* rate, and a track may be at another rate than the
-                // session (#234), so the clipboard's frame count is not the
-                // other tracks' unit. Labels and words are not touched again
+                // plays, in seconds, then counted in each other track's own
+                // frames (#234, #673): the paste only succeeds when the
+                // clipboard is at the *pasted track's* rate, and the others
+                // may be at that rate, at the session's, or at a third, so
+                // neither the clipboard's frame count nor the session's rate
+                // is their unit. Labels and words are not touched again
                 // here; they are the session's, not a track's, and moved once
                 // above.
                 let mut extras = serde_json::Map::new();
                 if !state.sync_lock {
                     return extras;
                 }
-                let session_rate = state.sample_rate.max(1) as f64;
-                let gap_at = (at_sec * session_rate).round().max(0.0) as u64;
-                let gap_len = (len_sec * session_rate).round().max(0.0) as u64;
-                let synced = if gap_len == 0 {
+                let synced = if len_sec <= 0.0 {
                     0
                 } else {
-                    sync_other_tracks(state, edited, |clips| {
-                        insert_gap_timeline(clips, gap_at, gap_len)
+                    sync_other_tracks(state, edited, &rates, |clips, rate| {
+                        let gap_len = seconds_to_frames(len_sec, rate);
+                        if gap_len == 0 {
+                            return clips.to_vec();
+                        }
+                        insert_gap_timeline(clips, seconds_to_frames(at_sec, rate), gap_len)
                     })
                 };
                 extras.insert("synced_tracks".into(), json!(synced));
