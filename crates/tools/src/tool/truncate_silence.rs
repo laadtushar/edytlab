@@ -146,11 +146,19 @@ impl Tool for TruncateSilenceTool {
         let removed: Rc<RefCell<Vec<(usize, usize)>>> = Rc::new(RefCell::new(Vec::new()));
         let removed_edit = Rc::clone(&removed);
         let removed_hook = Rc::clone(&removed);
+        // The spans are frames of the track's buffer, so they are seconds at
+        // the *track's* rate, which the edit is handed and the hook is not
+        // (#234, #673). The session's would put the labels and words after
+        // them off by the ratio between the two.
+        let track_rate = Rc::new(std::cell::Cell::new(0u32));
+        let track_rate_edit = Rc::clone(&track_rate);
+        let track_rate_hook = Rc::clone(&track_rate);
 
         Ok(destructive_edit_then(
             ctx,
             args.track,
             move |samples, sr, chans| {
+                track_rate_edit.set(sr);
                 *removed_edit.borrow_mut() =
                     find_silent_regions(samples, sr, channels, thresh, min);
                 let result = apply_truncate_silence(samples.clone(), sr, channels, thresh, min);
@@ -162,7 +170,7 @@ impl Tool for TruncateSilenceTool {
                 // back to front: each cut renumbers everything after it,
                 // so working forwards would leave every later span
                 // pointing at coordinates that no longer exist.
-                let rate = state.sample_rate.max(1) as f64;
+                let rate = f64::from(track_rate_hook.get().max(1));
                 let mut dropped = 0;
                 for (s, e) in removed_hook.borrow().iter().rev() {
                     dropped += remap_after_cut(state, *s as f64 / rate, *e as f64 / rate);
