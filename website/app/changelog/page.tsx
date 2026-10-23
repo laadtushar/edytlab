@@ -25,6 +25,19 @@ interface Entry {
 // GitHub Releases — link below.
 const entries: Entry[] = [
   {
+    version: "v0.8.0",
+    date: "2026-10",
+    bullets: [
+      "Transcription. Ask the assistant to \"transcribe track 1\" and it writes out what was said, with the time of every word, as a new version of the session. It runs on your computer, on the CPU, with the Whisper base speech model (about 139 MB) that you download once: Settings → Account has a Download button beside the Speech model row, with Cancel, resume and Remove. Nothing downloads unless you press it, not at launch, not when Settings opens and not when the assistant asks. If the model is not there yet, the chat shows a card that says so and opens Settings. The assistant can be told the language (a two-letter code such as en, de, fr or es) or left to detect it. A progress strip counts the 30-second windows and Cancel stops it. On the machine we measured, seven seconds of audio took about three seconds the first time; yours depends on its CPU. We checked it on a short synthetic English recording of twelve words: none was wrong and every word started within 0.23 s of its true time. That is one recording, not a range of voices, so listen before you cut on the words.",
+      "Edit audio by editing its transcript. The Transcript tab shows the words with their times; select words and press Delete to cut that audio and close the gap, or ask the assistant to cut a passage or to remove the filler words (it reports what it found first and changes nothing until you say so). A transcript remembers the track it is of, so a cut lands on that track and another track is refused. Asking the assistant to find a phrase (\"select where he talks about latency\") now works from the transcript. Ollama's small request offers these tools too.",
+      "What reaches your AI provider. Transcribing sends no audio anywhere and makes no network request. But the words it finds come back to the assistant as a tool result, so the text of what was said (a bounded amount for each call) goes to the provider you chose, and stays on your computer with Ollama. Settings says so beside the model, and the privacy page has the details. Stem separation is still not available.",
+      "A render can no longer be written over audio the project reads. With the default output_dir and a render format equal to an input's own extension, batch_apply rendered each file onto its input, and three 12-second WAV files were left as 44-byte headers (#653). render_final, export_recipe, export_multiple and Export Selection could do the same to a recording you had loaded. They now refuse, name the file and ask for another file name or folder, and batch_apply refuses the whole batch before it starts any file. The check covers the audio any version in the history reads, not only the current one, so undo still plays what it did. If you are on v0.7.0 or earlier, set output_dir to another folder, and keep copies of originals.",
+      "batch_apply gives inputs that differ after a dot a render each. take.1.wav and take.2.wav both rendered to take.wav, the second over the first, and the report said both succeeded (#667). Each now renders to its own name (take.1.wav), and two inputs that would share one project folder, such as take.wav and take.flac, are refused before anything starts.",
+      "Accept B in A/B compare, and the assistant's edits, release a lane control you were still holding and re-read the tracks. After Accept B the lanes kept side A's track list, and a fader you had moved and not let go of stayed laid over the assistant's value.",
+      "The missing-runtime error is accurate. It no longer says edytlab does not ship the ONNX Runtime: the release installers include it; a build from source does not.",
+    ],
+  },
+  {
     version: "v0.7.0",
     date: "2026-10",
     bullets: [
