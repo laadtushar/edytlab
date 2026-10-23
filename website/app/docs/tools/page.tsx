@@ -447,7 +447,7 @@ const groups = [
       {
         name: "select_region",
         prompt: "select the last thing said on the voice track",
-        what: "Resolve a description of a region into a concrete time range, using the session's transcript, a voice track's audio, or its tempo map. Give a phrase to find, a passage of speech (1 is the first, -1 the last), or a beat range. Returns start_sec and end_sec for any tool that takes a range. A phrase needs a transcript, which this build cannot produce yet (see transcribe), because finding it needs the words. A passage of speech does not: name the voice_tracks and it finds the passages where those tracks' audio has voiced (pitched) sound, so -1 is the last thing said on them, and a breath, a click or hiss is not a passage. Beat ranges need neither. A voice track that carries music reads as speech throughout, so name the voice alone; loud low rumble reads as speech too, and a fan that runs for part of a track counts as speech while it runs. The detector's thresholds were set on synthetic recordings and have not been checked on real takes, so check the range it reports before a destructive edit.",
+        what: "Resolve a description of a region into a concrete time range, using the session's transcript, a voice track's audio, or its tempo map. Give a phrase to find, a passage of speech (1 is the first, -1 the last), or a beat range. Returns start_sec and end_sec for any tool that takes a range. A phrase needs a transcript (see transcribe), because finding it needs the words. A passage of speech does not: name the voice_tracks and it finds the passages where those tracks' audio has voiced (pitched) sound, so -1 is the last thing said on them, and a breath, a click or hiss is not a passage. Beat ranges need neither. A voice track that carries music reads as speech throughout, so name the voice alone; loud low rumble reads as speech too, and a fan that runs for part of a track counts as speech while it runs. The detector's thresholds were set on synthetic recordings and have not been checked on real takes, so check the range it reports before a destructive edit.",
         output: "start_sec, end_sec, duration_sec, matched, keyed_on, voice_tracks (when keyed on audio)",
         note: "It refuses rather than approximating: a phrase that is not in the transcript selects nothing, and a track with no speech has no last passage, because the next call is usually a destructive edit and a range that is nearly right is worse than none. Passages are joined by the rule duck_under_speech uses: a pause shorter than join_gap_sec (a second unless you say otherwise) stays inside one, and both tools take join_gap_sec, so with the same value the third thing said is the same in both. Every range-taking tool became describable without any of them changing.",
       },
@@ -488,14 +488,14 @@ const groups = [
       {
         name: "cut_words",
         prompt: "delete the bit where he repeats himself",
-        what: "Delete a span of transcribed words and the audio underneath, closing the gap. Indices are into the session transcript from `transcribe`. The remaining word timings shift so they still line up with the audio, and the whole thing is one undoable node. Needs a transcript, which this build cannot produce yet (see transcribe).",
+        what: "Delete a span of transcribed words and the audio underneath, closing the gap. Indices are into the session transcript from `transcribe`. The remaining word timings shift so they still line up with the audio, and the whole thing is one undoable node. Needs a transcript (see transcribe), and cuts the track that transcript is of.",
         output: "node_id, removed_words, removed_text, removed_sec",
         note: "The span runs from the first word's start to the last word's end — cutting from the first word's end would leave a clipped syllable behind.",
       },
       {
         name: "remove_fillers",
         prompt: "how many ums are in this?",
-        what: "Find filler words in the transcript and, when asked, remove them and their audio in one undoable edit. Reports by default without changing anything — this is a destructive edit across a whole track. Hesitations (um, uh, er) go wherever they appear; discourse markers (like, actually) only where they stand alone between pauses, because speech with every hesitation stripped sounds rushed. Needs a transcript, which this build cannot produce yet (see transcribe).",
+        what: "Find filler words in the transcript and, when asked, remove them and their audio in one undoable edit. Reports by default without changing anything — this is a destructive edit across a whole track. Hesitations (um, uh, er) go wherever they appear; discourse markers (like, actually) only where they stand alone between pauses, because speech with every hesitation stripped sounds rushed. Needs a transcript (see transcribe), and cuts the track that transcript is of.",
         output: "found, would_save_sec, per-word list; node_id when applied",
         note: "Leaves a short pause where each filler was, so the result does not sound spliced. The word list can be replaced — fillers are language- and speaker-specific.",
       },
@@ -530,7 +530,7 @@ const groups = [
         prompt: 'separate the stems on track 1',
         what: "Not implemented in this build. Would run Demucs stem separation on-device, producing 4 tracks: vocals, drums, bass, other.",
         output: "node_id, stem track IDs",
-        note: "Inference ships as a stub, so this currently returns an error whatever you configure — there is no model download or environment variable that changes that. Only htdemucs is a recognised model id.",
+        note: "Inference ships as a stub, so this currently returns an error whatever you configure — there is no stem model to download and no environment variable that changes that. Only htdemucs is a recognised model id.",
       },
       {
         name: "split_by_speaker",
@@ -542,9 +542,9 @@ const groups = [
       {
         name: "transcribe",
         prompt: 'transcribe track 1',
-        what: "Not implemented in this build. Would transcribe spoken audio on-device with an ONNX Whisper-base export, storing word-level timestamps in the session.",
-        output: "node_id, word_count, language",
-        note: "The decoder ships as a stub, so this currently returns an error whatever you configure. Everything that reads a transcript — cut_words, remove_fillers, and select_region's phrase mode — is unavailable for the same reason. duck_under_speech and select_region's speech-passage mode do not wait on it: they can key on a voice track's audio instead.",
+        what: "Transcribe speech to text on this computer and attach the words, with times, to the session as a new version, replacing the earlier transcript. Give `track` (word times are then session seconds) or `path` for a file that is not in the session (the file's times), and optionally `language` as a two-letter code; leave it out to detect it. The audio never leaves the computer. It needs the Whisper base speech model the user downloads once in Settings → Account; the tool never downloads it. Runs on the CPU, usually in under half the audio's length, and the user can cancel.",
+        output: "node_id, word_count, language, duration_sec, cached, replaced_earlier_transcript, summary, and the words as [text, start_sec, end_sec] (the position is the word number cut_words takes), or sentence segments with word numbers for long audio",
+        note: "The listing is bounded to 6,000 bytes for each call, and it is what the AI provider receives: the text of what was said, never the audio, and with Ollama it stays on your computer. A transcript records the track it is of; cut_words and remove_fillers cut that track and refuse another. If the model is not downloaded or cannot be loaded, the result starts with a bracketed code and the window shows a card with the fix. No speech found changes nothing. duck_under_speech and select_region's speech-passage mode do not need a transcript: they can key on a voice track's audio.",
       },
     ],
   },

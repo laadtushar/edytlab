@@ -103,8 +103,8 @@ crates/
   audio-analysis/     BPM, key, beat grid
   recorder/           Microphone capture to WAV
   ml-demucs/          Stem separation (ONNX Demucs; inference not shipped)
-  ml-whisper/         Transcription (ONNX Whisper; decoder not shipped)
-  ml-pipeline/        Shared ONNX runtime gate (finds the bundled library), model downloader (not called yet), inference cache
+  ml-whisper/         Transcription (ONNX Whisper; run by transcribe)
+  ml-pipeline/        Shared ONNX runtime gate (finds the bundled library), model downloader (called by the user's Download click), inference cache
   memory/             Global/project markdown memory
   skills/             User skill library
   agent_profiles/     Per-session model + tool profiles

@@ -382,24 +382,79 @@ export default function UserGuidePage() {
         <code>separate the stems on track 1</code> returns an error.
       </p>
       <p>
-        There is no model download or environment variable that changes this.
-        The decoder is what is missing, not the model file: supplying a valid
-        Demucs export loads it and then still fails.
+        There is no stem model to download and no environment variable that
+        changes this. The decoder is what is missing, not the model file:
+        supplying a valid Demucs export loads it and then still fails.
       </p>
 
       <h2>Transcription</h2>
       <p>
-        <strong>Not available in this build.</strong> Transcription is designed
-        to run on-device with an ONNX Whisper export, producing word-level
-        timestamps stored in the session — but the decoder ships as a stub, so
-        asking the agent to <code>transcribe track 1</code> returns an error.
-        There is no model download or environment variable that changes this
-        yet.
+        <strong>New in v0.8.0.</strong> Ask the agent to{" "}
+        <code>transcribe track 1</code> and it writes out what was said, with
+        the start and end time of every word, as a new version of the session.
+        It runs on your computer, on the CPU, with the Whisper base speech
+        model. No audio is sent anywhere, and transcribing makes no network
+        request.
       </p>
       <p>
-        Text-based editing works from a transcript, so it is unavailable for
-        the same reason. Everything else in the editor — the timeline, effects,
-        mixing, export — is unaffected.
+        The model is not installed with the app. The first time, open Settings
+        → Account and press <strong>Download</strong> beside the Speech model
+        row (about 139 MB; see Settings → Account below). Until it says{" "}
+        <code>Ready</code>, asking for a transcript shows a card under the
+        assistant&rsquo;s tool call that says what is missing and has a button
+        for Settings. The agent is told not to download or install anything
+        itself, and cannot: only your click downloads the model. A build from
+        source also needs the ONNX Runtime library, which the installers carry.
+      </p>
+      <ul>
+        <li>
+          <strong>What it transcribes.</strong> A track as it sits on the
+          timeline (the word times are then seconds of the session), or an
+          audio file that is not in the session, by its path (the times are the
+          file&rsquo;s). A new transcription replaces the session&rsquo;s
+          earlier one.
+        </li>
+        <li>
+          <strong>Language.</strong> Leave it out and the model detects the
+          language, or ask for one by its two-letter code, such as{" "}
+          <code>en</code>, <code>de</code>, <code>fr</code> or{" "}
+          <code>es</code>. The model is the multilingual Whisper base; we have
+          checked it only on a short synthetic English recording, so read the
+          words before you cut on them.
+        </li>
+        <li>
+          <strong>Speed and Cancel.</strong> A progress strip counts the
+          30-second windows of the recording, and Cancel stops it without
+          changing the session. How long it takes depends on your CPU; on the
+          machine we measured, seven seconds of audio took about three
+          seconds the first time. Asking again for the same audio is
+          answered from a cache. The whole recording is decoded into memory
+          first, which for an hour of stereo audio at 44.1 kHz is about 1.3
+          GB.
+        </li>
+        <li>
+          <strong>The Transcript tab.</strong> It shows the words with their
+          times. Select words and press Delete to cut that audio and close the
+          gap. A transcript remembers the track it is of, so the tab cuts only
+          that track and says why when it will not.
+        </li>
+        <li>
+          <strong>Editing by words.</strong> Ask the agent to cut a passage
+          (<code>cut_words</code>), to find and remove filler words such as
+          um and uh (<code>remove_fillers</code>, which reports what it found
+          and changes nothing until you say to apply it), or to select a
+          phrase (<code>select_region</code>). Each edit is one undoable step.
+        </li>
+        <li>
+          <strong>What reaches your AI provider.</strong> The words come back
+          to the agent as a tool result, so the text of what was said (a
+          bounded amount for each call, never the audio) goes to the provider
+          you chose, and stays on your computer with Ollama.
+        </li>
+      </ul>
+      <p>
+        Everything else in the editor — the timeline, effects, mixing, export —
+        works without a transcript or the model.
       </p>
 
       <h2>Export</h2>
@@ -576,13 +631,13 @@ export default function UserGuidePage() {
         build from source, say <code>not installed in this build</code>. It is
         a status line: it installs nothing, and it does not mean that any
         on-device audio model is available. No model comes with the runtime,
-        and stem separation and transcription still return an error. Only the
-        library needs macOS 13.4; the app itself runs on macOS 11 and later.
+        and stem separation still returns an error. The speech model has its own
+        row below it. Only the library needs macOS 13.4; the app itself runs on macOS 11 and later.
       </p>
       <p>
-        From the release after v0.7.0 (which has no such row), the{" "}
+        From v0.8.0 (v0.7.0 has no such row), the{" "}
         <strong>Speech model</strong> row below it offers the model
-        transcription will use, Whisper base (about 139 MB, from Hugging
+        transcription uses, Whisper base (about 139 MB, from Hugging
         Face). <strong>Download</strong> fetches its three files from{" "}
         <code>huggingface.co</code>, with a progress bar and a{" "}
         <strong>Cancel</strong> button, checks each against its SHA-256 hash,
@@ -599,9 +654,10 @@ export default function UserGuidePage() {
         The requests carry your IP address, the file name, and a User-Agent of
         the form <code>edytlab/&lt;version&gt;</code>, so Hugging Face learns
         that edytlab is asking and which version, and nothing about your audio
-        (see the <a href="/privacy">privacy page</a>). Downloading the model
-        turns nothing on: transcription is not available yet, so nothing uses
-        the file.
+        (see the <a href="/privacy">privacy page</a>). Once the row says{" "}
+        <code>Ready</code>, ask the assistant to transcribe a track (see
+        Transcription above); the model is read from your computer and
+        transcribing makes no request.
       </p>
       <p>
         The runtime&rsquo;s licence and third-party notices are installed with

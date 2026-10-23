@@ -315,13 +315,13 @@ const commands = [
     items: [
       {
         name: "getTranscript()",
-        returns: "TranscriptWord[]",
-        desc: "The transcript at the current head, as { text, start_sec, end_sec, confidence } words. Empty until transcribe has run, which it cannot in this build (its inference is not shipped), so the list is empty today.",
+        returns: "Transcript",
+        desc: "The transcript at the current head, and where it came from: { words, source }, with words as { text, start_sec, end_sec, confidence } and source one of { kind: \"track\", track }, { kind: \"file\" }, { kind: \"gone\" } or { kind: \"unknown\" }. No words until transcribe has run (the Transcript tab re-reads it on every head move, so a transcription the assistant makes appears as its node arrives). A word's time is seconds of the audio it was made from, so the Transcript tab cuts a track by it only if the transcript is of that track (source.kind is \"track\").",
       },
       {
         name: "cutTranscriptWords(track, fromWord, toWord)",
         returns: "NodeId",
-        desc: "Cut the half-open word range [fromWord, toWord) and the audio underneath it, closing the gap. Indices are into the array getTranscript() returned; re-read it afterwards, since the words after the cut renumber. Refuses a track out of range, no transcript, and an empty range or one past the end.",
+        desc: "Cut the half-open word range [fromWord, toWord) and the audio underneath it, closing the gap. Indices are into the array getTranscript() returned; re-read it afterwards, since the words after the cut renumber. track is the transcript's own track (getTranscript().source.track): the cut_words tool the command runs refuses any other track. Refuses a track out of range, no transcript, a track that is not the one the transcript is of (or that has been removed, or a transcript of a file), and an empty range or one past the end.",
       },
     ],
   },
@@ -531,7 +531,7 @@ const commands = [
       {
         name: "downloadMlModel(model)",
         returns: "MlModelStatus",
-        desc: "Start downloading a model on a thread of its own and answer at once with downloading. The only way a model is downloaded, called by the user's click on Download: nothing downloads at launch, when Settings opens, or from a tool or the agent. Progress and the end arrive on onMlModelProgress. A partial file from an earlier attempt is resumed with a Range request, and a file is renamed to its final name only once its size and SHA-256 match. It takes no store, engine, dispatcher or agent lock. The request goes to huggingface.co and carries no audio. Nothing uses the model yet: transcription is not shipped.",
+        desc: "Start downloading a model on a thread of its own and answer at once with downloading. The only way a model is downloaded, called by the user's click on Download: nothing downloads at launch, when Settings opens, or from a tool or the agent. Progress and the end arrive on onMlModelProgress. A partial file from an earlier attempt is resumed with a Range request, and a file is renamed to its final name only once its size and SHA-256 match. It takes no store, engine, dispatcher or agent lock. The request goes to huggingface.co and carries no audio. A model on disk is what the transcribe tool uses (v0.8.0 and later): it finds the files, never downloads, and says the model is not downloaded when they are not there.",
       },
       {
         name: "cancelMlModelDownload(model)",
