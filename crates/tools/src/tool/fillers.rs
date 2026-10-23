@@ -40,7 +40,8 @@ use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
-    append_state, cut_annotations, cut_timeline, load_head_state, transcript_edit_track,
+    append_state, cut_annotations, cut_timeline, load_head_state, track_clip_rate,
+    transcript_edit_track,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -185,7 +186,13 @@ impl Tool for RemoveFillersTool {
         // would need every remaining span adjusted by what came before,
         // which is the same arithmetic done more often and wrong more
         // easily.
+        // Clip frames are the source file's, not the session's (#234); the
+        // session's rate is only for its length, below.
         let sr = state.sample_rate.max(1) as f64;
+        let clip_rate = match track_clip_rate(&state.tracks[track_index], state.sample_rate) {
+            Ok(r) => r,
+            Err(msg) => return Ok(ToolResult::Error(msg)),
+        };
         let mut words = transcript.words.clone();
         let mut total_removed_s = 0.0f32;
         let mut dropped_labels = 0usize;
@@ -199,8 +206,8 @@ impl Tool for RemoveFillersTool {
                 continue;
             }
 
-            let start_frame = (cut_start as f64 * sr).round() as u64;
-            let end_frame = (cut_end as f64 * sr).round() as u64;
+            let start_frame = (cut_start as f64 * clip_rate).round() as u64;
+            let end_frame = (cut_end as f64 * clip_rate).round() as u64;
             let track = &mut state.tracks[track_index];
             track.clips = cut_timeline(&track.clips, start_frame, end_frame);
 

@@ -1698,6 +1698,32 @@ pub fn clip_source_rate(clip: &Clip) -> Result<u32, String> {
         })
 }
 
+/// The sample rate the clips of `track` are counted in, for turning a time in
+/// seconds into the frames `cut_timeline` takes (#234).
+///
+/// A track with no clips has nothing to cut and answers `fallback` (the
+/// session's rate). A track whose clips come from files of different rates
+/// has no single answer, so it is refused rather than cut at a guess.
+pub(crate) fn track_clip_rate(track: &Track, fallback: u32) -> Result<f64, String> {
+    let mut rate: Option<u32> = None;
+    for clip in &track.clips {
+        let r = clip_source_rate(clip)?;
+        match rate {
+            None => rate = Some(r),
+            Some(first) if first != r => {
+                return Err(format!(
+                    "the clips of track \"{}\" are at different sample rates ({first} Hz and {r} \
+                     Hz), so a time in seconds does not name one place in all of them. Cut that \
+                     track by sample ranges with `cut_range` instead",
+                    track.name
+                ))
+            }
+            Some(_) => {}
+        }
+    }
+    Ok(rate.unwrap_or(fallback).max(1) as f64)
+}
+
 /// Seconds → this clip's own frame domain.
 pub fn seconds_to_clip_frames(clip: &Clip, seconds: f64) -> Result<u64, String> {
     let rate = clip_source_rate(clip)? as f64;
