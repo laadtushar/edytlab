@@ -49,17 +49,26 @@ These are the claims that are easy to get wrong. Each has bitten a draft once.
 - Stem separation, vocal isolation or "mashup A's vocals over B's drums". The
   `separate_stems` tool returns an error in every build today
   ([#385](https://github.com/laadtushar/edytlab/issues/385)).
-- Transcription, transcript-based editing, "remove filler words", "edit by
-  deleting text". `transcribe` is a stub
-  ([#384](https://github.com/laadtushar/edytlab/issues/384)), and `cut_words`
-  and `remove_fillers` need a transcript. They are built and untestable end to
-  end until it exists. `duck_under_speech` does not wait on it: with no
-  transcript it keys on a voice track's audio (voiced sound, not what was
-  said), so say that, not "keyed on the words". Since v0.6.0
-  `select_region`'s `speech_passage` ("the last thing said") does the same
-  ([#540](https://github.com/laadtushar/edytlab/pull/540)): it finds where
-  there is speech, not what is said. The README's older
-  mashup example predates this; do not reuse it.
+- That transcription is automatic, bundled or free of a download. It works
+  from v0.8.0 ([#384](https://github.com/laadtushar/edytlab/issues/384)), but
+  only after the user presses Download in Settings → Account for the speech
+  model (Whisper base, about 139 MB, from Hugging Face). Nothing downloads by
+  itself, and v0.7.0 and earlier cannot transcribe. Say "on your computer"
+  and "audio never leaves it", and say that the words reach the AI provider as
+  text (not audio), and stay local with Ollama.
+- Any accuracy, speed or language-quality figure beyond what was measured: on
+  one short synthetic English recording of twelve words, none was wrong and
+  every start was within 0.23 s; 7 s of audio took 2.5 to 3.3 s the first time
+  on a shared four-core machine. That is one recording and one machine. Do not
+  say "accurate", "fast", "human-level" or "supports 99 languages"; the tool
+  takes a two-letter language code or detects it, and only English was checked.
+- That `cut_words` and `remove_fillers` are tested on real recordings. They
+  were run end to end on that one recording. `remove_fillers` reports first and
+  changes nothing until asked to apply. `duck_under_speech` and
+  `select_region`'s `speech_passage` ("the last thing said") do not need a
+  transcript: they key on a voice track's audio (voiced sound, not what was
+  said), so say that, not "keyed on the words". The README's older mashup
+  example predates this; do not reuse it.
 - A user count, download count, star count, testimonial, press quote or
   benchmark. None exists in the repo to cite.
 - That the website has no analytics. The desktop app sends no telemetry, but
@@ -186,7 +195,7 @@ comments, and one thread cannot be answered well while three others are open.
 | 2 | **r/LocalLLaMA** | Wants the Ollama angle and honest numbers. Bring the #395 data and the request sizes from #479, and say that no local model has run a full job. |
 | 3 | **r/DJs** | Lead with the demo video. |
 | 4 | **r/WeAreTheMusicMakers** | Read the sidebar the same day; self-promotion is often limited to a set thread. |
-| 5 | **r/podcasting** | Say plainly that there is no transcript editing. |
+| 5 | **r/podcasting** | Say plainly what transcription was checked on (one short English recording), that it needs a one-time model download, and that there is no speaker splitting by voice. |
 | 6 | **r/audioengineering** | Expect scrutiny of the DSP. Post only if the current rules allow it. |
 | 7 to 14 | **Product Hunt** ([`launch/product-hunt.md`](launch/product-hunt.md)) | Needs the screenshots and a launch-day calendar. Schedule it for 00:01 PT. Later is fine; it works better with a few real users to show up. |
 | After the star count passes the bar | **Awesome lists** ([`awesome-lists.md`](awesome-lists.md)) | `awesome-rust` requires more than 50 stars or 2,000 downloads. The repo had 4 on 2026-10-10 and 6 on 2026-10-22. |

@@ -1,7 +1,8 @@
 # Everything else: X, Bluesky, Mastodon, TikTok, YouTube, Show HN, newsletter
 
 All in your voice. Same accuracy rules as the other files: no stem separation
-or transcription claims, installers described as unsigned wherever a download
+claims, transcription only as v0.8.0 describes it (a one-time model download,
+checked on one short English recording), installers described as unsigned wherever a download
 appears, the demo tracks are synthetic loops, no invented numbers.
 
 **Links:**
@@ -259,7 +260,7 @@ Read this before you watch:
 - The three tracks are short synthetic loops I generated for the demos, not real records. These show the workflow, not how it copes with a messy library.
 - A test script types the requests into the real app when I record. The agent's replies and edits are live. I only publish runs that passed my checks.
 - It's for prepping audio files, not for playing live. There are no decks or controllers.
-- No stem separation and no transcription: those tools exist but their inference isn't shipped.
+- No stem separation: the tool exists but its inference isn't shipped. (These demos don't use transcription; it needs a speech model you download once, from v0.8.0.)
 
 Chapters
 0:00 Beatmatch and blend two tracks
@@ -327,7 +328,8 @@ How it's built:
 
 What doesn't work, so you don't have to find it:
 
-- No stem separation and no transcription. Both tools are registered and both return an error today; the installers now carry the ONNX Runtime, but no model is downloaded and the inference isn't built (#383, #384, #385). That also means transcript-based editing doesn't work end to end.
+- No stem separation. The tool is registered and returns an error today; the inference isn't built (#385).
+- Transcription (v0.8.0) needs a one-time download of the Whisper base model (about 139 MB), which you start in Settings. It runs on your computer and the audio never leaves it; the words reach your AI provider as text, unless you use Ollama. I've checked it on one short synthetic English recording only, so read the words before you cut on them.
 - The installers are unsigned (#386). macOS needs one xattr command after you drag the app to Applications, and Windows shows a SmartScreen warning. The release notes have the steps.
 - It's an offline editor for files. It isn't a live DJ tool or a DAW: no MIDI, no plugin hosting. Only five effects (gain, the limiter and three filters) can sit live on a track, a bus or the master bus; reverb, EQ or a compressor is baked into the track's audio instead.
 - Local models: in v0.4.0 the first request was about 15,000 tokens in my one measurement (#395), and a model with an 8,192-token context refused it. Since v0.5.0 Ollama gets a smaller tool set (about 8.7 KB of request text for a one-line message, against about 67 KB with every tool; bytes, not tokens). I haven't re-run that model on it, and I haven't run a local model through a full job; the recordings used a hosted model.

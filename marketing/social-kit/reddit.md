@@ -196,7 +196,7 @@ Where I'd like help:
 - Effects on a chain (issue 520, closed, has the background). Since v0.6.0 the agent can put an effect on the master bus and on a bus, but only five kinds run in a chain: gain, the limiter and three filters. Still missing: streaming versions of the other eleven (reverb, echo, EQ, compressor and others), which today can only be baked into a track. Rust, in the audio-engine and tools crates.
 - macOS microphone (issue 464). Since v0.5.0 the build has the entitlement and the usage text, but it hasn't been checked on a signed, notarized macOS build. That needs a Mac.
 - A real pass on Linux with a locked Secret Service (issue 497). The code is tested against fakes only.
-- Shipping the ML pieces (issues 383 to 385). Stem separation (Demucs) and transcription (Whisper) are wired in as tools, but their inference is not shipped. The ONNX Runtime ships inside the installers now; model delivery and the inference itself are what's left.
+- Shipping the ML pieces (issues 383 to 385). Transcription (Whisper base) runs from v0.8.0 on a model the user downloads. Stem separation (Demucs) is wired in as a tool, but its inference is not shipped, and no stem model is pinned or delivered yet. More real-voice checking of the transcripts would help too: it has been run on one synthetic English recording.
 - New audio tools and new LLM providers. docs/contributing.md walks through both. Six providers today: Anthropic, OpenAI, OpenRouter, Groq, Gemini, and Ollama for local models.
 
 No open issue carries the "good first issue" label right now. If you want a starter task, say so and I'll write one up.
@@ -305,7 +305,7 @@ It's a desktop audio editor where an LLM agent calls 94 deterministic tools: a R
 
 Where I'd like review: the vocoder's transient handling, and the lock discipline in the agent loop.
 
-What isn't built: ONNX stem separation and transcription are stubs. The installers carry the ONNX Runtime now, but nothing runs a model on it (#383 to #385). A checksummed, resumable model downloader exists, but nothing calls it.
+What isn't built: ONNX stem separation is a stub (#385). Transcription runs Whisper base on the ONNX Runtime the installers carry, from a model you download once with a checksummed, resumable downloader that only your click starts (#383, #384).
 
 Source: https://github.com/laadtushar/edytlab
 Demo recordings (DJ jobs, screen-captured from the real app): https://edytlab.com/#demos

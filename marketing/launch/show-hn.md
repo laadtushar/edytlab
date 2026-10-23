@@ -67,11 +67,18 @@ telemetry. The website, which is separate, uses Vercel's anonymous analytics
 
 **What does not work yet.** I would rather say it here than have you find it:
 
-- No stem separation and no transcription. Both are registered as tools and both
-  return an error today; the installers now carry the ONNX Runtime, but no
-  model is downloaded and the inference is not built (#383, #384, #385). That also means transcript-based editing (cut words,
-  remove fillers) does not work end to end. Nothing in the app or the docs
-  should suggest otherwise; if you find a place that does, that is a bug.
+- No stem separation. The tool is registered and returns an error today; the
+  installers carry the ONNX Runtime, but no stem model exists in the app and the
+  inference is not built (#385). Nothing in the app or the docs should suggest
+  otherwise; if you find a place that does, that is a bug.
+- Transcription works from v0.8.0 (#383, #384), with limits. It needs a
+  one-time download of the Whisper base model (about 139 MB) that you start in
+  Settings; nothing downloads by itself. It runs on your CPU. I have measured it
+  on one short synthetic English recording (twelve words, none wrong, every
+  start within 0.23 s), not on real voices, other languages or noisy audio, so
+  read the words before you cut on them. The audio stays on your computer; the
+  words reach your AI provider as a tool result (bounded to 6,000 bytes a call),
+  and stay local with Ollama.
 - Builds are unsigned. macOS needs one `xattr` command after you drag the app
   to Applications and Windows shows a SmartScreen warning. The release notes
   have the steps.

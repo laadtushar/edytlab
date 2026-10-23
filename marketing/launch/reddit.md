@@ -18,8 +18,9 @@ Source <https://github.com/laadtushar/edytlab>
 2. Say you made it, in the first sentence.
 3. Put the link where the rules allow (post body or first comment). If links
    are banned in posts, drop it in a comment only when asked.
-4. Do not mention stem separation or transcription as features anywhere. They
-   do not work.
+4. Do not mention stem separation as a feature anywhere. It does not work.
+   Transcription works from v0.8.0 after the user downloads the speech model;
+   say that, and say what it was checked on (see `marketing/README.md`).
 5. Stay for the replies. A drive-by post reads as spam.
 6. If the sub asks whether AI helped build the project, say yes. It did: the
    repo is developed with Claude Code.
@@ -159,11 +160,11 @@ holds up only if the rules allow it.
 ## 4. r/podcasting
 
 **Audience:** hosts and editors; many have been burned by "AI podcast
-editors". **Be explicit that there is no transcript editing**, because that is
-what the category promises.
+editors". **Be explicit about what transcription was checked on**, because
+that is what the category promises.
 
 **Title:**
-`Free, open-source audio editor for the boring cleanup passes (noise, levelling, silence, loudness). No transcript editing, and it says so`
+`Free, open-source audio editor for the boring cleanup passes (noise, levelling, silence, loudness), with local transcription you download once`
 
 **Body:**
 
@@ -176,11 +177,16 @@ what the category promises.
 > a chat box and an assistant runs them as ordinary audio tools, one step at a
 > time, with an audible A/B against the previous version so you can back out.
 >
-> What it doesn't do, because I know what this category promises: it does not
-> transcribe your audio, so you can't edit by deleting words, and it can't
-> remove "um"s by finding them. Those need speech-to-text, which isn't built
-> in the app today. It also doesn't split a recording into one track per
-> speaker automatically. There's no cloud, no hosting, no publishing.
+> Since v0.8.0 it can also transcribe, on your computer, with the Whisper base
+> model (about 139 MB). You press Download once in Settings; nothing downloads
+> by itself. Then you can ask for the words with times, cut a passage by its
+> words, or have the "um"s found (it reports first and changes nothing until you
+> say so). Audio never leaves your computer, but the words go to your AI
+> provider as text, unless you use Ollama. What I can't tell you: I have only
+> checked it on one short synthetic English recording (twelve words, none wrong),
+> not on real episodes, other accents or noisy rooms. It doesn't split a
+> recording into one track per speaker automatically. There's no cloud, no
+> hosting, no publishing.
 >
 > Your recordings aren't uploaded. The only data that leaves is the chat text,
 > to the AI provider you pick (or nothing at all, with a local model).
@@ -300,7 +306,7 @@ truth.
 > without the lock and commits only if the head hasn't moved, and re-runs
 > otherwise).
 >
-> What is not built: ONNX stem separation and transcription are stubs.
+> What is not built: ONNX stem separation is a stub. Transcription runs Whisper base on the same runtime, from a model the user downloads.
 >
 > Source: https://github.com/laadtushar/edytlab
 > Site and demo: https://edytlab.com

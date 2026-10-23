@@ -9,7 +9,8 @@ list's files on 2026-10-09 and can change.
 site <https://edytlab.com>.
 
 Entries are one line each. Do not add claims beyond them. In particular, no
-mention of stem separation or transcription.
+mention of stem separation. Transcription only with its limits (see
+`marketing/README.md`).
 
 ## Summary
 

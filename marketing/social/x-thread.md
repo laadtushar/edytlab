@@ -60,7 +60,7 @@ v0.7.0 is out. The ONNX Runtime is now in every installer, but no model and no i
 **7/8**
 
 ```
-What it can't do yet, so you don't have to find out: no stem separation, no transcription (so no editing by text). Builds are unsigned, so macOS and Windows warn on first launch. The release notes have the fix.
+What it can't do yet, so you don't have to find out: no stem separation. Transcription (and editing by text) needs a one-time speech-model download and has only been checked on one short English recording. Builds are unsigned, so macOS and Windows warn on first launch. The release notes have the fix.
 ```
 
 **8/8**

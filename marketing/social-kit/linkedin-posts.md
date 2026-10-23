@@ -207,7 +207,7 @@ Places a contributor could make a real difference:
 - macOS microphone access. Since v0.5.0 the build has the entitlement and the usage text, but nobody has recorded on a signed, notarized macOS build to confirm it. That check is issue 464, and it needs a Mac.
 - A real pass on Linux with a locked keyring. The Secret Service code is tested against fakes only. Issue 497.
 - New audio tools and new LLM providers. Each is one registered implementation, and docs/contributing.md walks through both.
-- The big one: stem separation and transcription are not shipped. The Demucs and Whisper tools are wired in, and since v0.7.0 the installers carry the ONNX Runtime, but no model is downloaded and nothing runs one (issues 383 to 385). If you've shipped model inference inside a Tauri app, I'd like to talk.
+- The big one: stem separation is not shipped. The Demucs tool is wired in and the installers carry the ONNX Runtime, but nothing runs a stem model (issue 385). Transcription does run, from v0.8.0, on a Whisper model you download once; I've checked it on one short synthetic English recording only. If you've shipped model inference inside a Tauri app, I'd like to talk.
 
 The repo has a "good first issue" label, but nothing open carries it yet. If you want a starter task, reply here and I'll write one up.
 

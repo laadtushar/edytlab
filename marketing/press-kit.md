@@ -46,9 +46,9 @@ Every line below was checked against the repository or the GitHub release on
 | Time-stretch / pitch-shift | A phase vocoder written for the project |
 | Tools | 94 deterministic tools the agent can call (generated list: `docs/tools-reference.md`) |
 | AI providers | Anthropic, OpenAI, OpenRouter, Groq, Gemini and Ollama (local, no key) |
-| Where audio goes | Nowhere. Processing is local. Only chat text goes to the chosen provider. |
+| Where audio goes | Nowhere. Processing is local. Only chat text goes to the chosen provider; that includes the words a transcription finds (text, a bounded amount per call, never audio), which stay on the computer with Ollama. |
 | Telemetry | None in the desktop app. The website uses anonymous Vercel analytics (page views and page performance, no cookies) |
-| Other network requests | Besides the AI provider and the hosts you configure (plugins, MCP servers), one download you start: in the release after 0.7.0 (0.7.0 has no Download button), the speech model (Whisper base, about 139 MB) is downloaded from Hugging Face (huggingface.co) when the user clicks Download in Settings. Hugging Face sees the IP address, the file requested and that edytlab (and which version) is asking, never audio. Nothing downloads at launch or from the agent. The model is not used yet: transcription is not available. |
+| Other network requests | Besides the AI provider and the hosts you configure (plugins, MCP servers), one download you start: from 0.8.0 (0.7.0 has no Download button), the speech model (Whisper base, about 139 MB) is downloaded from Hugging Face (huggingface.co) when the user clicks Download in Settings. Hugging Face sees the IP address, the file requested and that edytlab (and which version) is asking, never audio. Nothing downloads at launch or from the agent. Transcribing makes no request. |
 | Keys | Stored in the operating system's credential store |
 | History | Branchable graph of edits with fork, A/B compare and undo |
 | Optional safety | "Plan first" mode shows the agent's steps for approval before they run |
@@ -59,9 +59,12 @@ Every line below was checked against the repository or the GitHub release on
 
 State this plainly if asked.
 
-- Stem separation (Demucs) and speech transcription (Whisper) are registered as
-  tools but not implemented in any build. Editing by transcript depends on
-  transcription and therefore does not work either.
+- Stem separation (Demucs) is registered as a tool but not implemented in any
+  build.
+- Speech transcription (Whisper base) works from 0.8.0, on the user's computer,
+  only after the user downloads the speech model (about 139 MB) in Settings.
+  0.7.0 and earlier cannot transcribe. Its accuracy has been checked on one
+  short synthetic English recording, not on a range of voices.
 - It is an offline editor for files. It is not a live DJ tool and it is not a
   DAW (no MIDI, no VST/CLAP hosting).
 - There is no web or mobile version.

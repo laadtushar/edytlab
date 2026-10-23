@@ -44,7 +44,7 @@ What I care about:
 
 The clearest example is the demo on the site: a DJ asks for two tracks' tempos, the incoming track is time-stretched to match, crossfaded in 8 bars before the first one ends, and the mix is exported as a WAV at -14 LUFS. (It's a 2:45 recording with sound; the waits for the agent are sped up. The agent also flags a spot where the bars land a beat apart.)
 
-What it doesn't do yet, so you don't have to find out: no stem separation and no speech transcription (both are registered but not implemented), so there's no "edit by text". The builds are unsigned, so macOS and Windows will warn on first launch; the release notes have the two-line fix. It's an offline editor, not a live DJ tool.
+What it doesn't do yet, so you don't have to find out: no stem separation (the tool is registered but not implemented). Transcription, and so editing by text, works from v0.8.0 once you download the speech model (about 139 MB) in Settings; it runs on your computer, and the words, not the audio, go to your AI provider. The builds are unsigned, so macOS and Windows will warn on first launch; the release notes have the two-line fix. It's an offline editor, not a live DJ tool.
 
 Download: https://github.com/laadtushar/edytlab/releases/latest
 Demo and docs: https://edytlab.com

@@ -22,7 +22,7 @@ Three design choices I'd like feedback on:
 
 3. The time-stretch and pitch-shift are a phase vocoder written for the project, in pure Rust, rather than a bundled C++ library. That keeps the build simple on macOS, Windows and Linux. The cost is that dense material can sound smeared at large changes.
 
-What it can't do yet: stem separation and transcription are not built, so there's no editing by text. The builds are unsigned, so macOS and Windows warn on first launch. It's an editor for prepared files, not a live performance tool.
+What it can't do yet: stem separation is not built. Transcription, and editing by text, works from v0.8.0 after a one-time download of a speech model; I've only checked it on one short English recording. The builds are unsigned, so macOS and Windows warn on first launch. It's an editor for prepared files, not a live performance tool.
 
 If you work with audio, which edit would you ask for first?
 
