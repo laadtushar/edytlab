@@ -237,13 +237,13 @@ const earlierPosts: BlogPost[] = [
     slug: "podcast-production-ai-workflow",
     title: "AI Podcast Production: Record, Edit, Mix and Export in One Session",
     date: "2026-05-13",
-    dateModified: "2026-10-10",
+    dateModified: "2026-10-23",
     description:
-      "A podcast edit is a list of repeatable steps. Here is the whole list, which of them edytlab can run today, and which wait on transcription.",
+      "A podcast edit is a list of repeatable steps. Here is the whole list, and which of the steps edytlab can run from a sentence, transcription included once you have downloaded the speech model.",
     coverAlt:
       "A speech waveform in bursts, with the gaps between them marked as trimmed silence",
     excerpt:
-      "Podcast post-production is the same list of steps every episode. Here is the list, which steps edytlab can run from a sentence today, and which ones wait for on-device transcription, which has not shipped yet.",
+      "Podcast post-production is the same list of steps every episode. Here is the list, and which steps edytlab can run from a sentence, including on-device transcription with a speech model you download once (v0.8.0 and later).",
     readTime: 8,
     tags: ["podcast editor", "AI podcast", "transcription", "Whisper", "audio editing"],
     body: [
@@ -292,15 +292,15 @@ const earlierPosts: BlogPost[] = [
       },
       {
         type: "h3",
-        text: "Step 2: Transcribe and Review (Not Available Yet)",
+        text: "Step 2: Transcribe and Review",
       },
       {
         type: "p",
-        text: 'This step is not available yet: the on-device Whisper decoder has not shipped, so today the transcribe tool returns an error. Ducking the music under the speech in step 4 does not wait on it: with no transcript, it keys on the voice track\'s audio instead. Once it ships, the step is one sentence, "transcribe track 1": the agent runs Whisper locally, with no upload and no API key for transcription, and returns a word-level transcript with timestamps, so you can see where filler words, long silences and retakes are without scrubbing the waveform. Until then, find them by listening.',
+        text: 'From v0.8.0 the step is one sentence, "transcribe track 1". The first time, you download the speech model (Whisper base, about 139 MB) in Settings → Account; nothing downloads on its own. Then the agent runs Whisper on your computer, with no upload of audio and no API key for transcription, and adds a word-level transcript with timestamps to the session, so you can see where filler words, long silences and retakes are without scrubbing the waveform. The words come back to the AI provider you chose as text, a bounded amount for each call, so the assistant can work with them; with Ollama they stay on your computer. Ducking the music under the speech in step 4 does not need a transcript: it keys on the voice track\'s audio. On v0.7.0 and earlier the transcribe tool returns an error, so find retakes by listening.',
       },
       {
         type: "callout",
-        text: "In edytlab, Whisper is designed to run entirely on-device, with the word-level transcript stored in the session. The decoder has not shipped yet, so there is no transcription speed to quote.",
+        text: "Whisper runs entirely on your computer, on the CPU, and the word-level transcript is stored in the session. How long it takes depends on your processor: on the machine we measured, seven seconds of audio took about three seconds the first time, and the tool's own description says usually under half the audio's length. The whole recording is decoded into memory first, so an hour of stereo audio at 44.1 kHz takes about 1.3 GB of it, and we have not timed an episode that long. The model's words are its best guess: read them before you cut on them.",
       },
       {
         type: "h3",
@@ -332,7 +332,7 @@ const earlierPosts: BlogPost[] = [
       },
       {
         type: "p",
-        text: "Automated workflows do not replace critical listening. AI can normalize to a target LUFS, but it does not know if your interview guest had an unusually nasally recording environment that day. Ums and filler words will be removable automatically once transcription ships, but rhythm editing — making the conversation flow more naturally — still benefits from a human ear. Use AI to handle the mechanical steps and spend your time on the creative ones.",
+        text: "Automated workflows do not replace critical listening. AI can normalize to a target LUFS, but it does not know if your interview guest had an unusually nasally recording environment that day. From v0.8.0 the assistant can find the ums and filler words in a transcript and remove them (it reports what it found first and changes nothing until you say so), but rhythm editing — making the conversation flow more naturally — still benefits from a human ear. Use AI to handle the mechanical steps and spend your time on the creative ones.",
       },
       {
         type: "h2",
