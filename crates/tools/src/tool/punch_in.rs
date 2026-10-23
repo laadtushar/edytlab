@@ -24,6 +24,7 @@ use serde_json::{json, Value};
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
     check_seconds_order, check_track_index, destructive_edit, load_head_state, track_channels,
+    track_clip_rate,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -139,12 +140,19 @@ impl Tool for PunchInTool {
 
         // A take at a different rate would play at the wrong speed and
         // pitch once spliced in, which is a worse outcome than a refusal
-        // the user can act on.
-        if take.sample_rate != state.sample_rate {
+        // the user can act on. The rate that matters is the *track's*, the
+        // one its samples are counted in (#234): a 16 kHz voice under a
+        // 48 kHz bed takes a 16 kHz take, and a 48 kHz one would play at a
+        // third of the speed.
+        let track_rate = match track_clip_rate(&state.tracks[args.track], state.sample_rate) {
+            Ok(r) => r as u32,
+            Err(msg) => return Ok(ToolResult::Error(msg)),
+        };
+        if take.sample_rate != track_rate {
             return Ok(ToolResult::Error(format!(
-                "the take is {} Hz but the session is {} Hz; resample it first — splicing it in \
+                "the take is {} Hz but track {} is {} Hz; resample it first — splicing it in \
                  as-is would play it at the wrong speed and pitch",
-                take.sample_rate, state.sample_rate
+                take.sample_rate, args.track, track_rate
             )));
         }
 
@@ -202,7 +210,7 @@ impl Tool for PunchInTool {
             obj.insert("trimmed_sec".into(), json!(trimmed));
             obj.insert(
                 "padded_sec".into(),
-                json!(padded as f64 / state.sample_rate.max(1) as f64),
+                json!(padded as f64 / f64::from(track_rate)),
             );
             obj.insert(
                 "summary".into(),
@@ -218,7 +226,7 @@ impl Tool for PunchInTool {
                     } else if padded > 0 {
                         format!(
                             " The take was {:.2}s shorter than the region; the rest is silent.",
-                            padded as f64 / state.sample_rate.max(1) as f64
+                            padded as f64 / f64::from(track_rate)
                         )
                     } else {
                         String::new()
