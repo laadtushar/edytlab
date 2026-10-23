@@ -208,6 +208,8 @@ describe("Chat", () => {
       expect(card.textContent).not.toMatch(/fetch-models|install/i);
       await userEvent.click(screen.getByTestId("speech-setup-open-settings"));
       expect(onOpenSettings).toHaveBeenCalledTimes(1);
+      // It says which row to show: Account is a tall tab and the row is last.
+      expect(onOpenSettings).toHaveBeenCalledWith("speech-model");
     });
 
     it("sends a damaged model to Remove and Download again", async () => {
