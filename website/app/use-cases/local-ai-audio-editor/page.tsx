@@ -71,8 +71,10 @@ export default function LocalAiUseCasePage() {
             <tr>
               <td>Your chat messages and the agent&apos;s tool results</td>
               <td>
-                The AI provider you chose. Never your raw audio. With a local
-                Ollama model, they stay on your computer too.
+                The AI provider you chose. Never your raw audio. A transcript
+                is one of these results: the words the speech model found (a
+                bounded amount for each call) reach the provider as text, and
+                with a local Ollama model they stay on your computer too.
               </td>
             </tr>
             <tr>
@@ -83,14 +85,14 @@ export default function LocalAiUseCasePage() {
               </td>
             </tr>
             <tr>
-              <td>The speech model (about 139 MB; in the release after v0.7.0)</td>
+              <td>The speech model (about 139 MB; v0.8.0 and later)</td>
               <td>
                 Downloaded from Hugging Face (huggingface.co) only when you
                 click Download in Settings, never automatically. Hugging Face
                 sees your IP address, the file you asked for and that the
                 request comes from edytlab (and which version), and nothing
-                about your audio. It is not used yet: transcription is not
-                available.
+                about your audio. Transcribing with it runs on your computer
+                and makes no request of its own.
               </td>
             </tr>
             <tr>
@@ -176,8 +178,9 @@ export default function LocalAiUseCasePage() {
             smaller models.
           </li>
           <li>
-            Stem separation and transcription are not built yet, locally or
-            otherwise, so nothing here offers them.
+            Stem separation is not built yet, locally or otherwise, so
+            nothing here offers it. Transcription runs on your computer&apos;s
+            CPU, whichever model you chat with.
           </li>
         </ul>
 

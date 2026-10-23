@@ -31,8 +31,10 @@ export default function PrivacyPage() {
       <p>
         Every audio file you load is decoded, processed, and rendered on your
         machine. Editing, mixing, and rendering all run locally in the desktop
-        app, and stem separation and transcription are built to run locally
-        too once they ship. We do not upload, copy, mirror, or
+        app, and so does transcription, once you have downloaded the speech
+        model (v0.8.0 and later); it sends no audio anywhere. Stem separation
+        has not shipped; it is built to run locally too once it does. We do
+        not upload, copy, mirror, or
         otherwise transmit your audio. There are no &ldquo;cloud projects&rdquo;
         and there is no server-side processing.
       </p>
@@ -54,19 +56,23 @@ export default function PrivacyPage() {
         During normal use, the app&apos;s outbound network traffic goes to the
         LLM provider you have selected. Chat requests contain your
         prompt text, agent context, and tool-call results — never your raw
-        audio. When you open Settings, the app also asks the provider shown
+        audio. A tool-call result can carry text taken from your audio: after
+        you ask for a transcript, the words the speech model found go to the
+        provider as text, a bounded amount for each call, and with Ollama they
+        stay on your computer (see &ldquo;Transcripts&rdquo; below). When you
+        open Settings, the app also asks the provider shown
         there for its list of models; that request carries your API key (the
         saved one, or one you have typed) but no prompt and no audio, and for
         Ollama it goes to the address you gave it. Beyond that, the app connects only
         where you tell it to: a plugin you install from a URL is downloaded
         from that URL, an MCP server you add is contacted at the address
-        you gave it, and, from the release after v0.7.0, the speech model is
+        you gave it, and, from v0.8.0, the speech model is
         downloaded from Hugging Face when you click Download (below). You can inspect the full set of requests in
         your OS network tools at any time.
       </p>
       <p>
-        <strong>The speech model download</strong> (in the release after
-        v0.7.0; v0.7.0 and earlier have no Download button and make no such
+        <strong>The speech model download</strong> (in v0.8.0 and later;
+        v0.7.0 and earlier have no Download button and make no such
         request). Settings &rarr; Account has a Download button for the
         speech model (Whisper base, about 139 MB). The app contacts Hugging
         Face only when you click Download. It does not download anything at
@@ -92,8 +98,21 @@ export default function PrivacyPage() {
         nothing back to us about the download, and we run no server that sees
         it. Hugging Face handles the requests under{" "}
         <a href="https://huggingface.co/privacy">its own privacy policy</a>.
-        Transcription is not available yet, so the model is not used for
-        anything: downloading it does not turn anything on.
+        Using the model is a separate step from downloading it: transcribing
+        makes no network request of its own, and the model is only read from
+        your computer.
+      </p>
+      <p>
+        <strong>Transcripts.</strong> Transcription runs on your computer with
+        the model you downloaded, and your audio is not sent anywhere. But the
+        assistant needs the words to work with them, so the words the model
+        finds come back to it as a tool result, like the result of any other
+        tool, and go to the AI provider you chose in the chat. That is text,
+        never audio, and it is bounded for each call: the words come
+        back one by one with their times when they fit, and as
+        sentence-length segments when they do not. With Ollama the chat stays on your computer, so the words do
+        too. If you do not want what was said in a recording to reach a hosted
+        provider, do not ask the assistant to transcribe it, or use Ollama.
       </p>
 
       <h2>Telemetry and analytics</h2>

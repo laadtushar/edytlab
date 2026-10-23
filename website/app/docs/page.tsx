@@ -96,8 +96,8 @@ export default function DocsPage() {
         The DSP engine runs entirely on your machine — your audio never leaves
         your device. The app&apos;s network traffic is the text you send to
         your chosen LLM provider, plus the requests you start yourself: a
-        plugin you install from a URL, an MCP server you add and, from the
-        release after v0.7.0, the speech model you download from Hugging Face
+        plugin you install from a URL, an MCP server you add and, from
+        v0.8.0, the speech model you download from Hugging Face
         by clicking Download in Settings.
       </p>
       <p>
