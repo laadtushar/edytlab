@@ -242,6 +242,14 @@ export interface SettingsProps {
    * is standing.
    */
   storageWarning?: string | null;
+  /**
+   * Open the Account tab scrolled so that this part of it is in view, for a
+   * caller that sends the user there to press a button (#384). The speech
+   * model's row is the last thing on a tall tab, so opening at the top left
+   * it below the fold, and the speech-setup card says "press Download beside
+   * it". Nothing is scrolled when this is absent, as for the gear.
+   */
+  reveal?: "speech-model" | null;
 }
 
 export function Settings({
@@ -251,6 +259,7 @@ export function Settings({
   onCleared,
   onProviderChanged,
   storageWarning,
+  reveal = null,
 }: SettingsProps) {
   const [key, setKey] = useState("");
   /**
@@ -415,6 +424,45 @@ export function Settings({
     const body = bodyRef.current;
     if (body) body.scrollTop = 0;
   }, [tab]);
+
+  // Bring the row a caller asked for to near the top of the body (`reveal`).
+  //
+  // Only the body is scrolled, by hand: `scrollIntoView` would also scroll
+  // the card's `overflow-hidden` ancestors (see the tab strip above). The
+  // fields above the row finish loading after the tab opens (the model list,
+  // the effort level, the runtime line), which moves the row down, so the
+  // placement is repeated when the content resizes, until the user takes the
+  // scroll over (wheel, press or key) or a few seconds have passed.
+  useEffect(() => {
+    if (reveal !== "speech-model" || mode !== "panel" || tab !== "account") return;
+    const body = bodyRef.current;
+    if (!body) return;
+    let done = false;
+    const place = () => {
+      if (done) return;
+      const row = body.querySelector("[data-testid='settings-speech-model']");
+      if (!row) return;
+      const delta = row.getBoundingClientRect().top - body.getBoundingClientRect().top - 12;
+      if (delta !== 0) body.scrollTop += delta;
+    };
+    place();
+    const content = body.firstElementChild;
+    const observer =
+      typeof ResizeObserver !== "undefined" && content ? new ResizeObserver(place) : null;
+    if (content) observer?.observe(content);
+    const stop = () => {
+      done = true;
+      observer?.disconnect();
+    };
+    const events = ["wheel", "pointerdown", "keydown", "touchstart"] as const;
+    events.forEach((e) => body.addEventListener(e, stop, { passive: true }));
+    const timer = window.setTimeout(stop, 4000);
+    return () => {
+      stop();
+      window.clearTimeout(timer);
+      events.forEach((e) => body.removeEventListener(e, stop));
+    };
+  }, [reveal, mode, tab]);
 
   const [pluginSource, setPluginSource] = useState('');
   const [pluginInstalling, setPluginInstalling] = useState(false);

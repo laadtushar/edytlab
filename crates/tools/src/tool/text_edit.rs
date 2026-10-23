@@ -33,7 +33,8 @@ use serde_json::{json, Value};
 
 use crate::schema::anthropic_tool;
 use crate::tool::util::{
-    append_state, cut_annotations, cut_timeline, load_head_state, transcript_edit_track,
+    append_state, cut_annotations, cut_timeline, load_head_state, track_clip_rate,
+    transcript_edit_track,
 };
 use crate::{Tool, ToolContext, ToolResult};
 
@@ -132,9 +133,17 @@ impl Tool for CutWordsTool {
             )));
         }
 
-        let sr = state.sample_rate.max(1) as f64;
-        let start_frame = (start_s * sr).round() as u64;
-        let end_frame = (end_s * sr).round() as u64;
+        // The cut is made in the clips' own frames, which are the source
+        // file's rate and not the session's (#234): a 16 kHz voice under a
+        // 48 kHz bed is cut at 16 000 frames a second. The session's rate is
+        // only for its length, below.
+        let session_rate = state.sample_rate.max(1) as f64;
+        let clip_rate = match track_clip_rate(&state.tracks[track_index], state.sample_rate) {
+            Ok(r) => r,
+            Err(msg) => return Ok(ToolResult::Error(msg)),
+        };
+        let start_frame = (start_s * clip_rate).round() as u64;
+        let end_frame = (end_s * clip_rate).round() as u64;
 
         // The audio. `cut_timeline` closes the gap by sliding
         // everything after the cut leftwards, which is the same
@@ -143,7 +152,8 @@ impl Tool for CutWordsTool {
         track.clips = cut_timeline(&track.clips, start_frame, end_frame);
 
         let removed_s = end_s - start_s;
-        let removed_frames = end_frame.saturating_sub(start_frame);
+        let removed_frames = ((end_s * session_rate).round() as u64)
+            .saturating_sub((start_s * session_rate).round() as u64);
 
         // The labels. Cutting words is cutting audio, so a chapter mark
         // after the removed span is now earlier by the same amount

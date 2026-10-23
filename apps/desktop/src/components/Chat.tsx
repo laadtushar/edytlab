@@ -78,7 +78,7 @@ export interface ChatProps {
    * it is a provider switch that left the app without a key — and when
    * the provider refused the key (#414). See `lib/chat-errors`.
    */
-  onOpenSettings?: () => void;
+  onOpenSettings?: (reveal?: "speech-model") => void;
 }
 
 function isMessage(e: LogEntry): e is MessageEntry {
@@ -553,7 +553,7 @@ export const Chat = forwardRef<ChatHandle, ChatProps>(function Chat({
               {onOpenSettings && (needsSettings(localError) || modelGone) ? (
                 <button
                   type="button"
-                  onClick={onOpenSettings}
+                  onClick={() => onOpenSettings()}
                   data-testid="chat-error-open-settings"
                   className="
                     btn-danger shrink-0 rounded
@@ -1146,7 +1146,7 @@ function SpeechSetupCard({
   onOpenSettings,
 }: {
   problem: SpeechProblem;
-  onOpenSettings?: () => void;
+  onOpenSettings?: (reveal: "speech-model") => void;
 }) {
   const text = SPEECH_SETUP[problem];
   return (
@@ -1161,7 +1161,7 @@ function SpeechSetupCard({
         <button
           type="button"
           data-testid="speech-setup-open-settings"
-          onClick={onOpenSettings}
+          onClick={() => onOpenSettings("speech-model")}
           className="
             btn-secondary mt-2 rounded
             px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider

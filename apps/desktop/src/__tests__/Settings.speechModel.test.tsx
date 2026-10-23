@@ -91,4 +91,48 @@ describe("Settings: the speech model row", () => {
     expect(mlModelStatusMock).not.toHaveBeenCalled();
     expect(downloadMock).not.toHaveBeenCalled();
   });
+
+  /**
+   * Open Settings on the speech-setup card has to land on the row (#384). The
+   * row is the last thing on a tall Account tab, so opening the tab at its top
+   * left it below the fold, and the card said "press Download beside it".
+   * jsdom has no layout: the boxes are stood in for, and what is checked is
+   * that the body, and only the body, is scrolled to put the row near its top.
+   */
+  describe("revealing the row", () => {
+    function boxes(rowTop: number, bodyTop: number) {
+      return vi
+        .spyOn(Element.prototype, "getBoundingClientRect")
+        .mockImplementation(function (this: Element) {
+          const id = this.getAttribute("data-testid");
+          const top = id === "settings-speech-model" ? rowTop : id === "settings-body" ? bodyTop : 0;
+          return { top, bottom: top + 100, left: 0, right: 100, width: 100, height: 100, x: 0, y: top, toJSON: () => ({}) };
+        });
+    }
+
+    it("scrolls the body to the row when asked to reveal it", async () => {
+      const spy = boxes(900, 100);
+      try {
+        render(<Settings mode="panel" reveal="speech-model" onSaved={vi.fn()} onClose={vi.fn()} />);
+        await screen.findByTestId("speech-model-download");
+        const body = screen.getByTestId("settings-body");
+        // The row is 800 px below the body's top: it is brought to near the top.
+        await vi.waitFor(() => expect(body.scrollTop).toBeGreaterThanOrEqual(780));
+        expect(body.scrollTop).toBeLessThanOrEqual(800);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("opens at the top, as before, when nothing asks for the row", async () => {
+      const spy = boxes(900, 100);
+      try {
+        render(<Settings mode="panel" onSaved={vi.fn()} onClose={vi.fn()} />);
+        await screen.findByTestId("speech-model-download");
+        expect(screen.getByTestId("settings-body").scrollTop).toBe(0);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+  });
 });

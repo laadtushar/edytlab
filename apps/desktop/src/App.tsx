@@ -203,6 +203,14 @@ function App() {
     readSessionOnlyDismissed,
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Which part of Settings' Account tab to scroll to on opening, for a caller
+  // that sends the user to press a button there (the speech-setup card, #384).
+  const [settingsReveal, setSettingsReveal] = useState<"speech-model" | null>(null);
+  // Every other way in (the gear, an error's button) opens at the top, so a
+  // request to reveal ends with the dialog it was for.
+  useEffect(() => {
+    if (!settingsOpen) setSettingsReveal(null);
+  }, [settingsOpen]);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [compareMode, setCompareMode] = useState<CompareMode | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
@@ -1900,7 +1908,10 @@ function App() {
             markers={markers}
             onExportSelection={handleExportSelection}
             exporting={exporting}
-            onOpenSettings={() => setSettingsOpen(true)}
+            onOpenSettings={(reveal) => {
+              setSettingsReveal(reveal ?? null);
+              setSettingsOpen(true);
+            }}
           />
         </aside>
       </div>
@@ -1936,6 +1947,7 @@ function App() {
       {!showBlocking && settingsOpen ? (
         <Settings
           mode="panel"
+          reveal={settingsReveal}
           storageWarning={storageWarning}
           onClose={() => setSettingsOpen(false)}
           onSaved={() => {

@@ -79,9 +79,42 @@ test("a speech model that is not downloaded is a card under the call, and Open S
   await expect(row).toBeVisible();
   await expect(row).toHaveAttribute("data-state", "not_downloaded");
   await expect(page.getByTestId("speech-model-download")).toBeVisible();
+  // "Visible" does not mean on screen: the row is the last thing on a tall
+  // Account tab, inside a body that scrolls, and used to be left below the
+  // fold. The card says to press Download beside it, so it must be in view.
+  await expectInView(page, "speech-model-download");
   // Opening Settings from the card is not pressing Download.
   expect(await app.requestsFor("download_ml_model")).toEqual([]);
   await app.release("send", null);
+});
+
+/** The element's box lies inside the box of Settings' scrolling body. */
+async function expectInView(page: App["page"], testId: string) {
+  await expect
+    .poll(async () => {
+      const body = await page.getByTestId("settings-body").boundingBox();
+      const el = await page.getByTestId(testId).boundingBox();
+      if (!body || !el) return "no box";
+      return el.y >= body.y - 1 && el.y + el.height <= body.y + body.height + 1
+        ? "in view"
+        : `below the fold: ${Math.round(el.y)}..${Math.round(el.y + el.height)} in a body of ${Math.round(body.y)}..${Math.round(body.y + body.height)}`;
+    })
+    .toBe("in view");
+}
+
+test("opening Settings from the gear starts at the top of Account, not at the row", async ({
+  app,
+}) => {
+  await app.boot({
+    ...projectWith([toneTrack()], HEAD),
+    ...speechModelCommands(),
+    render_preview: ok(fixturePath("tone3s")),
+  });
+  const page = app.page;
+  await expect(page.getByTestId("ruler")).toContainText("0:03");
+  await page.getByTestId("open-settings-button").click();
+  await expect(page.getByTestId("settings-speech-model")).toBeVisible();
+  expect(await page.getByTestId("settings-body").evaluate((el) => el.scrollTop)).toBe(0);
 });
 
 test("the assistant's words about the model draw no card", async ({ app }) => {
