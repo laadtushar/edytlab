@@ -1,5 +1,5 @@
 use crate::schema::anthropic_tool;
-use crate::tool::util::{append_state, check_track_index, load_head_state};
+use crate::tool::util::{append_state, check_track_index, load_head_state, track_clip_rate};
 use crate::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -71,7 +71,12 @@ impl Tool for TimeShiftTool {
         if let Err(e) = check_track_index(&state.tracks, args.track) {
             return Ok(ToolResult::Error(e));
         }
-        let sr = state.sample_rate as f64;
+        // The shift is in the frames of the track's own clips (#234), not the
+        // session's: a second moves a 16 kHz voice 16 000 frames.
+        let sr = match track_clip_rate(&state.tracks[args.track], state.sample_rate) {
+            Ok(r) => r,
+            Err(msg) => return Ok(ToolResult::Error(msg)),
+        };
         let requested = (args.offset_sec * sr) as i64;
         let track = &mut state.tracks[args.track];
 

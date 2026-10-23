@@ -1,5 +1,7 @@
 use crate::schema::anthropic_tool;
-use crate::tool::util::{append_state, check_track_index, load_head_state, slice_envelope};
+use crate::tool::util::{
+    append_state, check_track_index, load_head_state, seconds_to_clip_frames, slice_envelope,
+};
 use crate::{Tool, ToolContext, ToolResult};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -97,7 +99,12 @@ impl Tool for SplitClipTool {
             )));
         }
         let clip = track.clips[args.clip_index].clone();
-        let at_frames = (args.at_sec * state.sample_rate as f64) as u64;
+        // In the clip's own frames, which are its file's and not the session's
+        // (#234): the split point on a 16 kHz clip is 16 000 frames a second.
+        let at_frames = match seconds_to_clip_frames(&clip, args.at_sec) {
+            Ok(f) => f,
+            Err(msg) => return Ok(ToolResult::Error(msg)),
+        };
         // Convert absolute track position to offset within clip
         let clip_at = at_frames.saturating_sub(clip.start_in_track);
         let (left, right) = match split_at(&clip, clip_at) {

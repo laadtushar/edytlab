@@ -67,7 +67,9 @@ use serde_json::{json, Value};
 use session::state::{Clip, Track, TrackId};
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{append_state, check_track_index, load_head_state, timeline_end};
+use crate::tool::util::{
+    append_state, check_track_index, load_head_state, timeline_end, track_clip_rate,
+};
 use crate::{Tool, ToolContext, ToolResult};
 
 /// Default name for audio no segment claims.
@@ -333,7 +335,12 @@ impl Tool for SplitBySpeakerTool {
             }
         }
 
-        let sr = state.sample_rate.max(1) as f64;
+        // Seconds to the frames of the track's own clips (#234), not the
+        // session's: the turns of a 16 kHz voice are at 16 000 frames a second.
+        let sr = match track_clip_rate(source, state.sample_rate) {
+            Ok(r) => r,
+            Err(msg) => return Ok(ToolResult::Error(msg)),
+        };
         let total = timeline_end(&source.clips);
         if total == 0 {
             return Ok(ToolResult::Error(format!(
