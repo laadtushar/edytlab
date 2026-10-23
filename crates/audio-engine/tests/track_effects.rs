@@ -80,6 +80,7 @@ fn state_with_effects(source: &Path, effects: Vec<EffectInstance>) -> SessionSta
                 pitch_shift_semitones: None,
                 beat_grid: None,
                 volume_envelope: Vec::new(),
+                volume_envelope_frames: Default::default(),
             }],
             gain_db: 0.0,
             pan: 0.0,

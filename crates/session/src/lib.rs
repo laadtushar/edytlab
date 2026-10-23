@@ -24,8 +24,9 @@ pub use diff::{
 pub use live::{FolderId, LiveStore, Opened, Registry};
 pub use node::{NodeId, NodeOp, SessionNode};
 pub use state::{
-    Bus, BusGraph, Clip, EffectInstance, EnvelopePoint, KeyMap, KeySegment, Send, SessionState,
-    TempoMap, TempoSegment, Track, TrackId, Transcript, TranscriptSource, TranscriptWord,
+    Bus, BusGraph, Clip, EffectInstance, EnvelopeFrames, EnvelopePoint, KeyMap, KeySegment, Send,
+    SessionState, TempoMap, TempoSegment, Track, TrackId, Transcript, TranscriptSource,
+    TranscriptWord,
 };
 pub use store::{Commit, Store, STORE_DIR};
 

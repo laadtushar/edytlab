@@ -1113,6 +1113,7 @@ fn huge_state() -> session::SessionState {
                     pitch_shift_semitones: None,
                     beat_grid: None,
                     volume_envelope: Vec::new(),
+                    volume_envelope_frames: Default::default(),
                 }],
                 gain_db: -2.5,
                 pan: 0.0,

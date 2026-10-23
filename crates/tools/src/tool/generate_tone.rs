@@ -118,6 +118,7 @@ impl Tool for GenerateToneTool {
             pitch_shift_semitones: None,
             beat_grid: None,
             volume_envelope: vec![],
+            volume_envelope_frames: Default::default(),
         };
         let track_idx = state.tracks.len();
         state.tracks.push(Track {

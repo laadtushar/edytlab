@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use session::EnvelopePoint;
 
 use crate::schema::anthropic_tool;
-use crate::tool::util::{append_state, load_head_state};
+use crate::tool::util::{append_state, clip_source_rate, load_head_state};
 use crate::{Tool, ToolContext, ToolResult};
 
 #[derive(Debug, Deserialize)]
@@ -101,7 +101,15 @@ impl Tool for SetClipEnvelopeTool {
             }
         };
 
-        let sample_rate = state.sample_rate as f64;
+        // The clip's own rate, not the session's: the points are counted in
+        // the clip's frames (#677), like its offset and length, and the
+        // renderer converts them. A 16 kHz voice in a 48 kHz session had
+        // its curve written in 48 kHz frames and read as 16 kHz ones by
+        // every tool that cuts or splits the clip.
+        let sample_rate = match clip_source_rate(clip) {
+            Ok(r) => f64::from(r),
+            Err(msg) => return Ok(ToolResult::Error(msg)),
+        };
         let mut pts: Vec<EnvelopePoint> = args
             .points
             .iter()
@@ -111,7 +119,7 @@ impl Tool for SetClipEnvelopeTool {
             })
             .collect();
         pts.sort_by_key(|p| p.time_samples);
-        clip.volume_envelope = pts;
+        clip.set_envelope(pts);
 
         let point_count = args.points.len();
         let new_id = match append_state(

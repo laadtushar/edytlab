@@ -35,7 +35,7 @@
 
 use std::path::PathBuf;
 
-use session::{EnvelopePoint, SessionState};
+use session::{EnvelopeFrames, EnvelopePoint, SessionState};
 
 use crate::Error;
 
@@ -77,6 +77,8 @@ pub struct TrackPlan {
     pub contributes: bool,
     /// Per-clip volume automation points (sorted by time_samples).
     pub volume_envelope: Vec<EnvelopePoint>,
+    /// The unit `volume_envelope` is counted in (#677).
+    pub volume_envelope_frames: EnvelopeFrames,
     /// The track's effect chain, carried through so the render can
     /// instantiate it.
     ///
@@ -148,6 +150,7 @@ pub fn build(state: &SessionState) -> Result<RenderGraph, Error> {
                 length: 0,
                 contributes: false,
                 volume_envelope: Vec::new(),
+                volume_envelope_frames: EnvelopeFrames::default(),
                 effects: track.effects.clone(),
             });
             continue;
@@ -170,6 +173,7 @@ pub fn build(state: &SessionState) -> Result<RenderGraph, Error> {
                 length: clip.length,
                 contributes,
                 volume_envelope: clip.volume_envelope.clone(),
+                volume_envelope_frames: clip.volume_envelope_frames,
                 effects: track.effects.clone(),
             });
         }
@@ -242,6 +246,9 @@ fn single_track_unity(
         pitch_shift_semitones,
         beat_grid,
         volume_envelope,
+        // The unit of the envelope above, which disqualifies the byte
+        // copy whatever it is.
+        volume_envelope_frames: _,
     } = &track.clips[0];
 
     if *start_in_track != 0 {

@@ -60,6 +60,7 @@ fn track_for(source: &Path, gain_db: f32, muted: bool, soloed: bool) -> Track {
             pitch_shift_semitones: None,
             beat_grid: None,
             volume_envelope: Vec::new(),
+            volume_envelope_frames: Default::default(),
         }],
         gain_db,
         pan: 0.0,

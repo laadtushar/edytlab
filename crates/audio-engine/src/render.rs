@@ -539,10 +539,23 @@ impl TrackStreamer {
             .unwrap_or(master_chunk_frames(project_rate));
         let source_chunk_interleaved = vec![0.0f32; chunk_in_frames * in_channels];
 
+        // Envelope points are read in project frames from the clip's
+        // start. A stored envelope marked `Project` already is; one in
+        // the clip's own frames is converted the way the clip's other
+        // positions are (#677), which is the identity at the project's
+        // rate.
         let volume_envelope: Vec<(u64, f32)> = plan
             .volume_envelope
             .iter()
-            .map(|p| (p.time_samples, p.gain_db))
+            .map(|p| {
+                let at = match plan.volume_envelope_frames {
+                    session::EnvelopeFrames::Project => p.time_samples,
+                    session::EnvelopeFrames::Source => {
+                        to_project_frames(p.time_samples, in_rate, project_rate)
+                    }
+                };
+                (at, p.gain_db)
+            })
             .collect();
 
         Ok(Self {
@@ -1357,6 +1370,7 @@ mod track_grouping_tests {
             length: 100,
             contributes: true,
             volume_envelope: Vec::new(),
+            volume_envelope_frames: Default::default(),
             effects: Vec::new(),
         }
     }

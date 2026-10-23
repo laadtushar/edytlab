@@ -66,6 +66,7 @@ fn single_track_state(source: &Path, envelope: Vec<EnvelopePoint>) -> SessionSta
                 pitch_shift_semitones: None,
                 beat_grid: None,
                 volume_envelope: envelope,
+                volume_envelope_frames: Default::default(),
             }],
             gain_db: 0.0,
             pan: 0.0,

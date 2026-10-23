@@ -41,6 +41,54 @@ fn envelope_gain_db_at(points: &[EnvelopePoint], frame: u64) -> f32 {
     a.gain_db + alpha * (b.gain_db - a.gain_db)
 }
 
+/// Put the stored volume envelopes that are counted in project frames into
+/// the clip's own frames (#677), where the slicing and merging helpers in
+/// this file read them.
+///
+/// An envelope written before #677 carries no unit and means project
+/// frames (see `session::EnvelopePoint`). On a clip at the session's rate
+/// that is the same number as the clip's own frames, so it is left as it
+/// is. On a clip at another rate it is converted, once, here: `cut_range`,
+/// `trim`, `split_clip` and the rest cut by the clip's frames, and would
+/// otherwise move the curve by the ratio between the two rates.
+///
+/// A clip whose source cannot be read keeps its envelope as it was: it
+/// cannot be rendered either, and a read of the head is not the place to
+/// fail.
+pub(crate) fn envelopes_to_clip_frames(state: &mut SessionState) {
+    let project_rate = u64::from(state.sample_rate.max(1));
+    for clip in state
+        .tracks
+        .iter_mut()
+        .flat_map(|t| t.clips.iter_mut())
+        .filter(|c| {
+            !c.volume_envelope.is_empty()
+                && c.volume_envelope_frames == session::EnvelopeFrames::Project
+        })
+    {
+        let Ok(rate) = clip_source_rate(clip) else {
+            continue;
+        };
+        let rate = u64::from(rate);
+        if rate == project_rate {
+            continue;
+        }
+        let points = clip
+            .volume_envelope
+            .iter()
+            .map(|p| EnvelopePoint {
+                // Nearest frame: `u128` so a long envelope at a high rate
+                // cannot overflow the multiply.
+                time_samples: ((u128::from(p.time_samples) * u128::from(rate)
+                    + u128::from(project_rate) / 2)
+                    / u128::from(project_rate)) as u64,
+                gain_db: p.gain_db,
+            })
+            .collect();
+        clip.set_envelope(points);
+    }
+}
+
 /// Restrict a clip's volume envelope to the window
 /// `[from_frames, from_frames + len_frames)` and re-base it to zero.
 ///
@@ -353,7 +401,7 @@ fn clip_window(clip: &Clip, from: u64, to: u64, new_origin: u64) -> Option<Clip>
     }
     let into_clip = lo - clip_start;
     let len = hi - lo;
-    Some(Clip {
+    let mut piece = Clip {
         source_path: clip.source_path.clone(),
         start_in_track: new_origin + (lo - from),
         source_offset: clip.source_offset.saturating_add(into_clip),
@@ -362,8 +410,11 @@ fn clip_window(clip: &Clip, from: u64, to: u64, new_origin: u64) -> Option<Clip>
         time_stretch_factor: clip.time_stretch_factor,
         pitch_shift_semitones: clip.pitch_shift_semitones,
         beat_grid: clip.beat_grid.clone(),
-        volume_envelope: slice_envelope(&clip.volume_envelope, into_clip, len),
-    })
+        volume_envelope: Vec::new(),
+        volume_envelope_frames: Default::default(),
+    };
+    piece.set_envelope(slice_envelope(&clip.volume_envelope, into_clip, len));
+    Some(piece)
 }
 
 /// Remove the timeline range `[start, end)` from a track and close the gap.
@@ -496,7 +547,9 @@ pub(crate) fn load_head_state(ctx: &ToolContext) -> Result<SessionState, String>
         .store
         .get(head)
         .map_err(|e| format!("failed to read head node: {e}"))?;
-    Ok(node.state)
+    let mut state = node.state;
+    envelopes_to_clip_frames(&mut state);
+    Ok(state)
 }
 
 /// Wrap `state` in a [`SessionNode`] and append it to the store. The
@@ -1226,7 +1279,7 @@ where
     // `merge_clip_envelopes`. `old_length_frames` is measured before the
     // edit so a length-changing edit rescales the curve with it.
     let volume_envelope = merge_clip_envelopes(&clips, old_length_frames, new_length_frames);
-    state.tracks[track_idx].clips = vec![session::Clip {
+    let mut joined = session::Clip {
         source_path: cas_path,
         start_in_track: 0,
         source_offset: 0,
@@ -1235,8 +1288,11 @@ where
         time_stretch_factor: first.time_stretch_factor,
         pitch_shift_semitones: first.pitch_shift_semitones,
         beat_grid: first.beat_grid.clone(),
-        volume_envelope,
-    }];
+        volume_envelope: Vec::new(),
+        volume_envelope_frames: Default::default(),
+    };
+    joined.set_envelope(volume_envelope);
+    state.tracks[track_idx].clips = vec![joined];
 
     // Anything that has to see the whole state — sync-lock moving the
     // other tracks — runs here, before the length is recomputed, so the
@@ -1966,6 +2022,7 @@ mod timeline_stream_tests {
             pitch_shift_semitones: None,
             beat_grid: None,
             volume_envelope: Vec::new(),
+            volume_envelope_frames: Default::default(),
         }
     }
 

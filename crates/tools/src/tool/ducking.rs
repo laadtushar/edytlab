@@ -274,7 +274,7 @@ impl Tool for DuckUnderSpeechTool {
             if points.is_empty() {
                 continue;
             }
-            clip.volume_envelope = points;
+            clip.set_envelope(points);
             ducks += n;
             clips_touched += 1;
         }

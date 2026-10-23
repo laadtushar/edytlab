@@ -587,6 +587,7 @@ fn only_derived_audio_is_a_rebuild_target() {
                     pitch_shift_semitones: None,
                     beat_grid: None,
                     volume_envelope: Vec::new(),
+                    volume_envelope_frames: Default::default(),
                 }],
                 gain_db: 0.0,
                 pan: 0.0,

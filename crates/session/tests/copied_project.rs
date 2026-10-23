@@ -27,6 +27,7 @@ fn clip(path: &Path) -> Clip {
         pitch_shift_semitones: None,
         beat_grid: None,
         volume_envelope: Vec::new(),
+        volume_envelope_frames: Default::default(),
     }
 }
 

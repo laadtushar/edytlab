@@ -829,7 +829,8 @@ pub struct Clip {
     pub time_stretch_factor:   Option<f32>,
     pub pitch_shift_semitones: Option<f32>,
     pub beat_grid:             Option<Vec<f32>>,
-    pub volume_envelope:       Vec<EnvelopePoint>,
+    pub volume_envelope:       Vec<EnvelopePoint>, // frames from the clip's start, at the source's own rate
+    pub volume_envelope_frames: EnvelopeFrames,   // Source for every new envelope; Project (default, not stored) for one saved before #677
 }
 ```
 

@@ -4172,9 +4172,13 @@ fn list_tracks_inner<R: Runtime>(
                             .volume_envelope
                             .iter()
                             .map(|p| EnvelopePointSummary {
-                                // Envelope times are clip-relative, so
-                                // they share the clip's domain.
-                                time_sec: p.time_samples as f64 / rate,
+                                // Envelope times are clip-relative, in the
+                                // clip's own frames (#677) — or, for one
+                                // stored before that, in project frames.
+                                time_sec: match c.volume_envelope_frames {
+                                    session::EnvelopeFrames::Source => p.time_samples as f64 / rate,
+                                    session::EnvelopeFrames::Project => p.time_samples as f64 / sr,
+                                },
                                 gain_db: p.gain_db,
                             })
                             .collect(),
@@ -8042,6 +8046,7 @@ mod tests {
             pitch_shift_semitones: None,
             beat_grid: None,
             volume_envelope: Vec::new(),
+            volume_envelope_frames: Default::default(),
         });
         store
             .append(session::SessionNode {

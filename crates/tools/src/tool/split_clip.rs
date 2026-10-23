@@ -17,7 +17,7 @@ pub(crate) fn split_at(clip: &Clip, at_frames: u64) -> Result<(Clip, Clip), Stri
             clip.length
         ));
     }
-    let left = Clip {
+    let mut left = Clip {
         source_path: clip.source_path.clone(),
         start_in_track: clip.start_in_track,
         source_offset: clip.source_offset,
@@ -26,9 +26,11 @@ pub(crate) fn split_at(clip: &Clip, at_frames: u64) -> Result<(Clip, Clip), Stri
         time_stretch_factor: clip.time_stretch_factor,
         pitch_shift_semitones: clip.pitch_shift_semitones,
         beat_grid: clip.beat_grid.clone(),
-        volume_envelope: slice_envelope(&clip.volume_envelope, 0, at_frames),
+        volume_envelope: Vec::new(),
+        volume_envelope_frames: Default::default(),
     };
-    let right = Clip {
+    left.set_envelope(slice_envelope(&clip.volume_envelope, 0, at_frames));
+    let mut right = Clip {
         source_path: clip.source_path.clone(),
         start_in_track: clip.start_in_track + at_frames,
         source_offset: clip.source_offset + at_frames,
@@ -37,8 +39,14 @@ pub(crate) fn split_at(clip: &Clip, at_frames: u64) -> Result<(Clip, Clip), Stri
         time_stretch_factor: clip.time_stretch_factor,
         pitch_shift_semitones: clip.pitch_shift_semitones,
         beat_grid: clip.beat_grid.clone(),
-        volume_envelope: slice_envelope(&clip.volume_envelope, at_frames, clip.length - at_frames),
+        volume_envelope: Vec::new(),
+        volume_envelope_frames: Default::default(),
     };
+    right.set_envelope(slice_envelope(
+        &clip.volume_envelope,
+        at_frames,
+        clip.length - at_frames,
+    ));
     Ok((left, right))
 }
 
@@ -153,6 +161,7 @@ mod tests {
             pitch_shift_semitones: None,
             beat_grid: None,
             volume_envelope: vec![],
+            volume_envelope_frames: Default::default(),
         }
     }
 

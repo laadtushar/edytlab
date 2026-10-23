@@ -83,10 +83,55 @@ pub struct Track {
     pub sends: Vec<Send>,
 }
 
+/// One point of a clip's volume envelope: `gain_db` at `time_samples`,
+/// counted from the clip's start.
+///
+/// # Frame domain
+///
+/// **A new envelope is counted in the clip's own frames, the frames of
+/// `source_path`'s sample rate** (#677) — the unit `Clip::start_in_track`,
+/// `source_offset` and `length` already use, so cutting, trimming and
+/// splitting a clip slice its envelope as a plain frame operation, and an
+/// envelope does not move when the session's rate does. The renderer
+/// converts each point to project frames the way it converts the clip's
+/// own positions, and every writer (`set_clip_envelope`, `duck_under_speech`,
+/// the slicing and merging helpers in `tools`) writes this domain and marks
+/// the clip [`EnvelopeFrames::Source`].
+///
+/// Envelopes stored before #677 carry no mark ([`EnvelopeFrames::Project`],
+/// the default): `set_clip_envelope` wrote them as project-rate frames
+/// and the renderer read them so, while `duck_under_speech` wrote clip
+/// frames into the same field. A stored envelope cannot say which writer
+/// made it, so it keeps the one meaning the renderer always gave it and
+/// plays as it did. On a clip at the session's rate the two units are the
+/// same number.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EnvelopePoint {
     pub time_samples: u64,
     pub gain_db: f32,
+}
+
+/// The unit of a clip's `volume_envelope` points (#677). See
+/// [`EnvelopePoint`].
+///
+/// `Project` is the default and is not written, so a session saved before
+/// this field existed loads, and re-hashes, unchanged.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EnvelopeFrames {
+    /// Frames of the session's rate, from the clip's start: what the
+    /// renderer read before #677. Only a stored envelope has this.
+    #[default]
+    Project,
+    /// Frames of the clip's own source file. What every writer produces.
+    Source,
+}
+
+impl EnvelopeFrames {
+    /// `skip_serializing_if` for the default.
+    pub fn is_project(&self) -> bool {
+        matches!(self, EnvelopeFrames::Project)
+    }
 }
 
 /// One span of a source file placed on a track's timeline.
@@ -152,6 +197,26 @@ pub struct Clip {
     /// Empty means no automation (unity gain).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub volume_envelope: Vec<EnvelopePoint>,
+
+    /// The unit of `volume_envelope`'s points (#677). Meaningless while the
+    /// envelope is empty, where it stays the default so an empty one
+    /// serialises as it always did. Set it with [`Clip::set_envelope`].
+    #[serde(default, skip_serializing_if = "EnvelopeFrames::is_project")]
+    pub volume_envelope_frames: EnvelopeFrames,
+}
+
+impl Clip {
+    /// Replace the volume envelope with `points`, counted in this clip's
+    /// own frames (#677), and mark them so. An empty `points` clears the
+    /// envelope and the mark.
+    pub fn set_envelope(&mut self, points: Vec<EnvelopePoint>) {
+        self.volume_envelope_frames = if points.is_empty() {
+            EnvelopeFrames::default()
+        } else {
+            EnvelopeFrames::Source
+        };
+        self.volume_envelope = points;
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
