@@ -269,7 +269,7 @@ describe("the scanners", () => {
 
   it("catches a capability edytlab does not have, unless the sentence denies it", () => {
     expect(unqualifiedNeverClaims("edytlab does stem separation on your tracks.")).toHaveLength(1);
-    expect(unqualifiedNeverClaims("Ask it to isolate the vocals and detect speakers in the interview.")).toHaveLength(2);
+    expect(unqualifiedNeverClaims("Ask it to isolate the vocals and detect speakers in the interview.")).toHaveLength(1);
     expect(unqualifiedNeverClaims("It hosts VST3 plugins. It has MIDI editing.")).toHaveLength(1);
     expect(unqualifiedNeverClaims("Stem separation has not shipped. Speaker detection is not available.")).toEqual([]);
     // Shipped in v0.8.0: no longer a claim the pages must deny.

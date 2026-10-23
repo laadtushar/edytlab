@@ -239,7 +239,7 @@ const earlierPosts: BlogPost[] = [
     date: "2026-05-13",
     dateModified: "2026-10-23",
     description:
-      "A podcast edit is a list of repeatable steps. Here is the whole list, and which of the steps edytlab can run from a sentence, transcription included once you have downloaded the speech model.",
+      "A podcast edit is a list of repeatable steps. Here is the list, and which steps edytlab can run from a sentence, transcription included.",
     coverAlt:
       "A speech waveform in bursts, with the gaps between them marked as trimmed silence",
     excerpt:
